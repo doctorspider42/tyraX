@@ -1,0 +1,23 @@
+{
+  "records": [
+    {
+      "phase": 0,
+      "before": 1240,
+      "after": 1257,
+      "file": "park-phase-0.png"
+    },
+    {
+      "phase": 1,
+      "before": 1241,
+      "after": 1253,
+      "file": "park-phase-1.png"
+    },
+    {
+      "phase": 2,
+      "before": 1241,
+      "after": 1254,
+      "file": "park-phase-2.png"
+    }
+  ],
+  "missed": []
+}

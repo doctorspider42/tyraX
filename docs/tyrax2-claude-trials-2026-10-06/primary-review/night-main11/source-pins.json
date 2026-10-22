@@ -1,0 +1,174 @@
+{
+  "source_files": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\src\\scripts\\district_mood.cpp",
+      "sha256": "b0e2653e5e9d03818440414bd9b52596c70d9bc0493134c7cef9954aee71a2f5"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\inc\\scripts\\district_data.hpp",
+      "sha256": "9e3395f8ab382b9af8105ad4fac4e0a3aa8ddb69169164730744930c578c8bd4"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\src\\gen\\scene_objects.gen.cpp",
+      "sha256": "7746cfeb68f2d88bf9fe111950e85b9d2f97efd54661b821bea86a80529a7a52"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\src\\gen\\game_physics.gen.cpp",
+      "sha256": "aeb9fd900fdd617fb63d9f6c3c05fa6a6e3e3da4d4ddb5eed2007cb91bdcc631"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\src\\gen\\game_collision.gen.cpp",
+      "sha256": "fc2566dd2c72f759e8fa4d755defb0e9177dadc2b73fb0d676eb558794ded7fb"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\inc\\scene_data.hpp",
+      "sha256": "90a0c8e5079d2e8b832a0c15cb8c38e8fe7bd131fb18770acb2880f3bfec55d1"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\inc\\terrain_config.hpp",
+      "sha256": "5c9598f9017d890b073dcdd390955267d3bd9dae161ca0f83c7f5728d7073fb1"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\inc\\occlusion_data.gen.hpp",
+      "sha256": "b01d769590e8c3d46532fa944548561c081418f44d59760764647df7b46c2798"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\companion-census-physical-v1\\game\\vehicle-playground.tyra",
+      "sha256": "e994c39f30145e6f84b6370e0d214b7d0dadf01bdc0192b4174340f229b1f628"
+    }
+  ],
+  "mapping": [
+    {
+      "index": 111,
+      "hash": "ebc2b556a5b453c4",
+      "id": "district632d34ec",
+      "name": "Night window -17 3.4",
+      "type": 0,
+      "material": 2,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    },
+    {
+      "index": 112,
+      "hash": "65bd7f8ad89b377c",
+      "id": "districtd4f46781",
+      "name": "Night window -17 8.2",
+      "type": 0,
+      "material": 2,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    },
+    {
+      "index": 113,
+      "hash": "1172b318637275fb",
+      "id": "district578a4884",
+      "name": "Night window -17 13",
+      "type": 0,
+      "material": 2,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    },
+    {
+      "index": 114,
+      "hash": "217a232b39f12bc6",
+      "id": "districtf89c6a4e",
+      "name": "Night window -17 17.8",
+      "type": 0,
+      "material": 2,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    },
+    {
+      "index": 115,
+      "hash": "a5f7e1bc7c0fa3cd",
+      "id": "district9b893ecf",
+      "name": "Night window 17 3.4",
+      "type": 0,
+      "material": 2,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    },
+    {
+      "index": 116,
+      "hash": "571b6780d8f997e0",
+      "id": "district680e250f",
+      "name": "Night window 17 8.2",
+      "type": 0,
+      "material": 2,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    },
+    {
+      "index": 117,
+      "hash": "74af3251bec68ad0",
+      "id": "districtee693d5e",
+      "name": "Night window 17 13",
+      "type": 0,
+      "material": 2,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    },
+    {
+      "index": 118,
+      "hash": "3aad4e1affcecf3e",
+      "id": "district1614dfd4",
+      "name": "Night window 17 17.8",
+      "type": 0,
+      "material": 2,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    },
+    {
+      "index": 119,
+      "hash": "5ba2db2639ebb6c8",
+      "id": "district9635ea45",
+      "name": "Night garage trim 3.0",
+      "type": 0,
+      "material": 3,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    },
+    {
+      "index": 120,
+      "hash": "995c9d669f16c030",
+      "id": "district135040f7",
+      "name": "Night garage trim 5.6",
+      "type": 0,
+      "material": 3,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    },
+    {
+      "index": 121,
+      "hash": "1f625af6a4c08a22",
+      "id": "district29658260",
+      "name": "Night garage blade",
+      "type": 0,
+      "material": 4,
+      "collision": 2,
+      "drawDistance": "0.0F",
+      "batchStatic": 0,
+      "model": -1
+    }
+  ]
+}

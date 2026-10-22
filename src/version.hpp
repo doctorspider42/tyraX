@@ -1,5 +1,81 @@
 #pragma once
 
+// 2.0.0: integrates main, the redesigned editor and the TyraX2 frame pipeline.
+// Combined project format v114 preserves additive fields from all branches.
+
+// 1.176.3 (docs/static-batching.md, "Members at the world origin"): two bakes left the
+// g_bakeLocal global set (a matrix-path LOD tier, a matrix-path invisible wall),
+// so the next static batch rebuild baked its members without their positions and
+// drew them at (0, 0, 0) - the Motor District's night windows and neon blade in
+// the middle of the central crossing. Both clear it; rebuildStaticBatch clears it
+// on entry. Generated game code only, PATCH.
+// 1.176.2 (docs/stapip-stamps.md, "Light pick"): a stamp keeps its light inputs
+// (world sphere, model inverse) with its world box instead of re-deriving them
+// every frame, and pickDynLight rejects out-of-reach lights from a packed
+// position/range array. PS2: the stamps' light section 443 -> 399 us a driving
+// frame; the frame itself unchanged. Engine only, PATCH.
+// 1.176.1 (docs/tyrax2-night-ee-2026-10-12.md, "The submission walked every chain
+// four times"): Vif1Queue::submit records a producer's chain into the frame's
+// native chain in ONE walk - payloads into the arena, REFs straight in - instead
+// of preflight + tag copy + REF fixup + native emission. PS2, same ELF: parked
+// work 10.57 -> 10.35 ms, driving 11.07 -> 10.75 ms. Engine only, PATCH.
+// 1.176.0: roads tessellate into error-bounded bands (docs/roads.md, Bands):
+// scene-0 Motor District roads 19 320 -> 8 018 triangles; PS2 A/B pending.
+// 1.175.5: Show in reflections no longer keeps an object out of static batches;
+// the flag joins the group key and the env-map passes submit reflected batches whole.
+// 1.175.4: the chase camera sweeps the frame's vehicle collider list (boxes carry
+// their world extents) instead of every object: ~0.20 -> ~0.07 ms on a PS2.
+// 1.175.3: sweepSphere keeps each object's box, rotated centre and world
+// extents between calls (keyed like the vehicle colliders): the chase-camera
+// sweep drops from ~0.30 to ~0.20 ms a frame on a PS2.
+// 1.175.2: engine math inline asm (Vec4/M4x4/atan2) declares its memory and
+// register clobbers; atan2 no longer rewrites its inputs behind GCC's back.
+// 1.175.1: reverted 1.175.0 (partly batched models were 0.15 ms slower parked,
+// crossing-bag head stamps saved nothing on the PS2).
+// 1.174.2: crossing packages REF an immutable copy of their streams, so the
+// frame recorder stops copying terrain arrays every frame (70 -> 16 KB).
+// 1.174.1: stamp hits inside a submission batch are queued and replayed in
+// runs with prefetch (StaPipCore::setStampDeferral); packed stamp keys.
+// 1.174.0: VU1 clip programs stream their output (mid-program XGKICKs) and read
+// strips, so a frustum-crossing package is clipped whole and by pointer.
+// 1.173.5: terrain residency/LOD follows the camera target before visual shake.
+// Millimetre camera jitter no longer flips half-chunk detail bands while driving.
+
+// 1.173.4: select the current material's texture filter before encoding TEX1.
+// Static replay and clipped draws no longer inherit the preceding bag's filter.
+
+// 1.173.3: bounded scene-load residency for baked ground-shadow masks.
+// Avoid PNG loading during terrain rendering on qualifying scenes.
+
+// 1.173.2: refine partial terrain strips before VU1 clipping.
+// Preserve strip order and all coplanar passes; no project format change.
+
+// 1.173.1: reuse partial static packet bodies and strip expansion by default.
+// The combined PS2 driving contrast preserves geometry and dynamic captures.
+
+// 1.173.0: all/player dynamic-light receivers with independent scene overrides.
+// Format v96 adds receiver tokens; missing/invalid values preserve full lighting.
+
+// 1.172.0: deferred Set Frame Pipeline and requested-state getter flow nodes.
+// Repeated requests preserve overlap; project format remains v95.
+
+// 1.171.0: default TyraX2 for new projects; preserve legacy and explicit opt-out.
+// Reuse owned snapshot tag counts for native sizing; settled adaptive interleave.
+// Format v95 always writes framePipeline; missing v94-or-older requests stay off.
+
+// 1.170.1: complete the empty vehicle definition initializer after merging controls cards.
+// 1.170.0: hierarchical hardware timeline, actual render jobs and compile-out controls.
+// Project format remains v94.
+
+// 1.169.2: preserve PAL 576i mode 4 in Set Display Mode flow code generation.
+// Project format remains v94.
+
+// 1.169.1: wait direct DMA after pending hybrid presentation starts its copy.
+// Fixes the physical TyraX2 loading race. Project format remains v94.
+
+// 1.169.0: opt-in TyraX2 ordered frame recording and N/N-1 execution.
+// Format v94 adds framePipeline, absent/false preserves ordinary submission.
+
 // 1.162.3: merge native build caching, scene-data separation, parallel game
 // compilation and OpenVCL output checks with painted sky/shadow/handbrake fixes.
 // Project format remains v89 from vehicles.
@@ -5514,8 +5590,9 @@
 // second one swaps the probe's terrain and road chunks for a 21x21 grid in a
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
-#define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 173
+#define TYRAX_VERSION_MAJOR 2
+#define TYRAX_VERSION_MINOR 0
+#define TYRAX_VERSION_PATCH 0
 // 1.173.0: the first step of the main-window redesign (docs/editor-theme.md).
 // Face buttons gets a new palette; Palette/Semantics gain ground, field,
 // special and the axis triple; the dockspace host and its splitters draw in the
@@ -5602,6 +5679,23 @@
 // Solid objects' Properties come in collapsible sections, and a static
 // model's impostor / hull proxy is one "Distant version" choice with one Bake.
 // No format change.
+// 1.177.0: the reflection probe's baked background - Preferences > Rendering >
+// Reflect a baked background (format v97). The editor bakes one 128x32 8-bit
+// panorama per 16-unit road cell of what the probe sees of the static world
+// (ground within the radius, unmovable box proxies); the probe draws it as one
+// camera-facing card. Motor District, PS2: probe -0.04..-0.08 ms a driving
+// frame, on in examples/vehicle-playground. Also Ground shadows > Fold into
+// the terrain colour (opt-in): the ground maps darken terrain vertex colours
+// instead of drawing a pass (-1.1 ms driving by day on the district; 4-unit
+// node edges, so the district keeps the pass).
+// 1.177.0: the architecture audit's bake items (docs/tyrax2-architecture-
+// audit-2026-10-20.md): the vehicles' static collider grid
+// (TYRA_VEH_COLLIDER_GRID, docs/vehicles.md), baked static lamps
+// (settings.bakeStaticLamps, format v113, docs/dynamic-light-receivers.md),
+// lamp coronas as one VU1 billboard bag (TYRA_BEAM_CORONA_VU1,
+// docs/flashlight.md), headlight pools on the wheel-contact plane
+// (TYRA_VEH_POOL_PLANE) and kept spot shadow volumes (TYRA_SPOT_VOLUME_KEEP,
+// docs/shadows.md). MINOR.
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -5717,10 +5811,50 @@
 // spinner moved after the frame's first query stayed at its old box for the
 // rest of the frame: the loop now refreshes after the script stage and after
 // the spinners (a refresh that changes nothing placed skips the rebuild).
-#define TYRAX_VERSION_PATCH 2
 // 1.170.2: the AI guides installed into game projects (ai-support/) brought up
 // to date - editor-owned file list, the game-source split, script kinds, flow-
 // graph schema, model import, CLI verbs incl. --search-docs; --help lists codex.
+// 1.177.1: roads no longer swim on a console. Road chunks (and their spills
+// and soft edges) are cut to a tight X/Y clip band, StaPipInfoBag::
+// tightClipBand at 0.25 w instead of the 0.9 w guard band, so a road band's
+// long triangles keep no vertex ~1590 px off screen for the GS to interpolate
+// texture coordinates from. PS2: centre-line swing up to 5.5 px -> 1 px.
+// 1.177.2: no more holes in a headlight beam, a blob shadow or a lamp's light
+// pool at a road edge. Their 3x3/4x4 ground lattices spanned the road's
+// 0.12 step linearly and dipped under the asphalt just past the edge, where
+// the road's own triangle won the z test (GS dump). liftLatticeOverRoadStep
+// raises each corner by the largest road step a neighbouring corner sees.
+// 1.177.3: the bumper camera rides the BODY. Its eye was a point on the flat
+// yaw plane at chassis height, so the pitching body swung the bonnet through
+// the lens and a dip sank it into the road. It now takes the drawn attitude
+// (vehBodyRotation, lean included), sits past the baked bodyOverhang, never
+// drops under the ground surface and eases the body's pitch into its aim.
+// 1.177.4: roads (and everything 3D) no longer smear into streaks for one
+// frame when a texture uploads mid-frame. Path3::sendTexture wrote the
+// TEXTURE's wrap into CLAMP_1 behind RendererCoreGS::currentTextureWrap, so a
+// REPEAT x CLAMP upload (tyre marks) left V clamped for the rest of the frame.
+// The upload now restates the wrap in force. Found with an input recording
+// replayed at 60 Hz, PCSX2 video capture and a multi-frame GS dump.
+// 1.177.5: projects without roads build again - liftLatticeOverRoadStep
+// tested ROAD_COUNT, which only a project with roads generates.
+// 1.177.6: the Motor District draws its ground shadow maps as a pass again
+// (bakedShadowGroundFold off in examples/vehicle-playground): the fold's
+// 4-unit grid turned building shadows into blobs. PS2, replayed drive: the
+// pass costs 0.4-0.75 ms and the district still holds 60 fps.
+// 1.177.7: VU0 macro-mode Vec4/M4x4 math inline with exact "m" asm operands
+// and mmi::equal64 for the StaPip matrix checks (from fireapache/tyraX
+// dev-vu0-simd; docs/vu0-macro-mode.md). PS2: driving -0.04..-0.13 ms, parked
+// unchanged; fixes the -Os hang in src/math.
+// 1.177.8: a projected-shadow caster below its floor keeps its own clamped
+// copy (projClampCache) instead of one shared buffer behind a full
+// Vif1Queue::drain() per part: Showcase on a PS2 28.5 -> 47.7 fps
+// (docs/shadows.md, "The clamp buffer is per caster").
+// 1.177.9: a portal view culls against the opening's screen rectangle
+// (RendererCore3D::narrowFrustumToRect), not the whole screen: Showcase on a
+// PS2 47.5 -> 50.0 fps (docs/portals.md).
+// 1.177.10: env (matcap) passes take the stamp route - the stamp re-writes
+// the camera basis on replay (docs/stapip-stamps.md, "Env bags"): Showcase
+// -2.1 ms of EE a frame on a PS2.
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6210,6 +6344,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // written with the rest of the spec. Missing = no markers (the guessed pipes)
 // and smoke 1, i.e. an older car smokes too - it is presentation. Additive;
 // no migration step.
+// v94 adds the optional framePipeline project preference (default false).
 // v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
@@ -6222,7 +6357,26 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // overrides it. Missing = the grid / inherit. Additive; no migration step.
 // v96: unifies the additive Outliner visibility and collision broad-phase
 // fields from the two v95 branches. No transformation is needed.
-inline constexpr int kFormatVersion = 96;
+// v95 on the TyraX2 branch defaulted new projects to TyraX2 and always wrote
+// framePipeline. v114 preserves explicit requests and treats every missing
+// request as false because other branches independently used v95.
+// No destructive migration step: legacy files retain their request in memory.
+// v97 (docs/reflective-materials.md, "The baked background"):
+// ProjectSettings::reflectionPanorama, written only when true. Missing = off,
+// i.e. the probe redraws the ground and the box proxies live as before.
+// Additive; no migration step. Also ProjectSettings::bakedShadowGroundFold
+// (docs/shadows.md, "Folded into the vertex colour"), written only when true;
+// missing = the ground maps keep their own pass.
+// v113 (docs/dynamic-light-receivers.md, "Baked lamp light"): ProjectSettings::
+// bakeStaticLamps, written only when true. Missing = every dynamic light
+// live, as before. Additive; no migration step. (Numbered well clear of
+// v97..v112 on purpose: several renderer branches were adding formats at the
+// same time - the "arrive-second renumbers" rule still applies on merge.)
+
+// v114: TyraX 2.0 integrates TyraX2 settings through v113, editorHidden,
+// and project/scene collision broadPhase. All keys are read independently of
+// the branch format stamp; no destructive migration is required.
+inline constexpr int kFormatVersion = 114;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

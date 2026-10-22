@@ -1,0 +1,10 @@
+{
+  "status": "PRESERVED_FIRST_RECONSTRUCTION_NEWLINE_FAILURE",
+  "originalPublicationManifestSha256": "3dfb950a231706404ffd2ed90af0341b3a6095c6d3e3e9fe6f1d66ea08ce8566",
+  "originalFailedReconstructionProofPath": "F:/Projects/tyrax2-lab-20261001/night-ablation-publication-v1-reconstruction-proof.json",
+  "originalFailedReconstructionProofSha256": "80f62b98426df3851c6bc146b94ff25ee28b2e4c174296d26543111c5b2df0e7",
+  "sourcePatchUnchanged": true,
+  "newHeadersUnchanged": true,
+  "fix": "Command-local core.autocrlf=false core.eol=lf; original source patch and headers unchanged",
+  "globalGitConfigChanged": false
+}

@@ -1,0 +1,1595 @@
+{
+  "status": "paired_selected_send_census_complete",
+  "date": "2026-10-03",
+  "environment": "ps2",
+  "build_backend": "native",
+  "exact_same_elf": "2ebe42637383b039aa34baac8f979b9e46e9116c9b6b6099f82e96c8f2f161f5",
+  "source_manifest_sha256": "f49bb658d9e9f3e65872b4a8d1a1d44ae6c65e1c3daae247338eb03af695570d",
+  "source_entries": 468,
+  "runtime_assets_verified": 328,
+  "raw_samples_per_boot": 384,
+  "on_windows": 3,
+  "off_windows": 3,
+  "on_samples": 384,
+  "off_samples": 384,
+  "PS2_selected_flushes_per_On_frame": 86,
+  "selected_Count_reads_per_On_frame": 1204,
+  "common_Scene_Count_reads_per_frame": 2,
+  "metrics_bytes": 152,
+  "common_metrics_buffer_bytes": 19456,
+  "boots": [
+    {
+      "order": 0,
+      "evidence_path": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-send-census-order0-complete-physical-evidence",
+      "machine_sha256": "28e9cb2b4eda67a55fc3cacd0619e3a3bb609e81a692942205a55b396440d1ae",
+      "exact_elf_sha256": "2ebe42637383b039aa34baac8f979b9e46e9116c9b6b6099f82e96c8f2f161f5",
+      "authoritative_file_sha256": "25dadb274a160be3307ea774d76b64951d935455b3193236474080aa622d70ad",
+      "source_asset_manifest_checks": {
+        "source-hashes.json": {
+          "count": 468,
+          "verified": true,
+          "manifest_sha256": "06d4435ddd017466496a608a5e556ac9e3b294bdd3d44e7bdaf5d47c6794113a"
+        },
+        "asset-hashes.json": {
+          "count": 328,
+          "verified": true,
+          "manifest_sha256": "8eb2f9a87964839e5ff61c268eeebb608b7473e8266967cf517ac8b706c7ef2e"
+        },
+        "target-source-manifest.json": {
+          "count": 468,
+          "verified": true,
+          "manifest_sha256": "f49bb658d9e9f3e65872b4a8d1a1d44ae6c65e1c3daae247338eb03af695570d"
+        }
+      },
+      "analyzer_sha256": "f7a74e608bcaf2bc3f8f48b13f82a26db05193a0e00891260276e7aea3d06e01",
+      "raw_metrics_by_phase": {
+        "0": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9839954.84375,
+            "median_ticks": 9839955.0,
+            "min_ticks": 8891070,
+            "max_ticks": 10786770,
+            "mean_ms": 33.36573229895698
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9823596.34375,
+            "median_ticks": 9828708.0,
+            "min_ticks": 8878812,
+            "max_ticks": 10774780,
+            "mean_ms": 33.31026320987277
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9397819.359375,
+            "median_ticks": 9426081.0,
+            "min_ticks": 8463154,
+            "max_ticks": 10363534,
+            "mean_ms": 31.86652072270711
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5492176.6875,
+            "median_ticks": 5458899.0,
+            "min_ticks": 5385939,
+            "max_ticks": 5922013,
+            "mean_ms": 18.623103459676106
+          }
+        },
+        "1": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9839883.3125,
+            "median_ticks": 9839952.0,
+            "min_ticks": 8917638,
+            "max_ticks": 10758894,
+            "mean_ms": 33.36548974778917
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9824114.5078125,
+            "median_ticks": 9828798.0,
+            "min_ticks": 8906052,
+            "max_ticks": 10746900,
+            "mean_ms": 33.312020222345986
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9396893.1796875,
+            "median_ticks": 9428862.0,
+            "min_ticks": 8489924,
+            "max_ticks": 10349256,
+            "mean_ms": 31.863380193710327
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5729454.1875,
+            "median_ticks": 5702377.0,
+            "min_ticks": 5603911,
+            "max_ticks": 6036669,
+            "mean_ms": 19.42767397562663
+          }
+        },
+        "2": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9839906.640625,
+            "median_ticks": 9839931.0,
+            "min_ticks": 8887134,
+            "max_ticks": 10792680,
+            "mean_ms": 33.36556884977553
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9827540.265625,
+            "median_ticks": 9828783.0,
+            "min_ticks": 8874972,
+            "max_ticks": 10780942,
+            "mean_ms": 33.32363642586602
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9401139.96875,
+            "median_ticks": 9427659.0,
+            "min_ticks": 8466660,
+            "max_ticks": 10367314,
+            "mean_ms": 31.877780384487576
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5492186.859375,
+            "median_ticks": 5461884.0,
+            "min_ticks": 5394469,
+            "max_ticks": 5923437,
+            "mean_ms": 18.623137950897217
+          }
+        }
+      },
+      "net_observer_delta_ms": {
+        "engineTicks": {
+          "observer_on_minus_off_vs_first_ms": -0.0002425511678059896,
+          "observer_on_minus_off_vs_last_ms": -7.910198635525173e-05,
+          "outer_control_spread_ms": 0.00016344918145073784
+        },
+        "loopTicks": {
+          "observer_on_minus_off_vs_first_ms": 0.001757012473212348,
+          "observer_on_minus_off_vs_last_ms": -0.011616203520033095,
+          "outer_control_spread_ms": 0.013373215993245443
+        },
+        "renderTicks": {
+          "observer_on_minus_off_vs_first_ms": -0.003140528996785482,
+          "observer_on_minus_off_vs_last_ms": -0.014400190777248807,
+          "outer_control_spread_ms": 0.011259661780463325
+        },
+        "workTicks": {
+          "observer_on_minus_off_vs_first_ms": 0.8045705159505209,
+          "observer_on_minus_off_vs_last_ms": 0.8045360247294108,
+          "outer_control_spread_ms": 3.449122111002604e-05
+        }
+      },
+      "states": {
+        "0:850": {
+          "phase": "0",
+          "f": "850",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "0:1100": {
+          "phase": "0",
+          "f": "1100",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        },
+        "1:850": {
+          "phase": "1",
+          "f": "2650",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "1:1100": {
+          "phase": "1",
+          "f": "2900",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        },
+        "2:850": {
+          "phase": "2",
+          "f": "4450",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "2:1100": {
+          "phase": "2",
+          "f": "4700",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        }
+      },
+      "addresses": {
+        "0": {
+          "phase": "0",
+          "mode": "0",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da3fb0",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db51c0",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "0077c9e0"
+        },
+        "1": {
+          "phase": "1",
+          "mode": "1",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da3fb0",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db51c0",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "0077c9e0"
+        },
+        "2": {
+          "phase": "2",
+          "mode": "0",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da3fb0",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db51c0",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "0077c9e0"
+        }
+      },
+      "common_buffers": [
+        "0054d528",
+        "00548928",
+        "19456"
+      ]
+    },
+    {
+      "order": 1,
+      "evidence_path": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-send-census-order1-complete-physical-evidence",
+      "machine_sha256": "817d962c9bbd87bd16a28f2c407ade393265a873028bb32a421feae778b6e945",
+      "exact_elf_sha256": "2ebe42637383b039aa34baac8f979b9e46e9116c9b6b6099f82e96c8f2f161f5",
+      "authoritative_file_sha256": "d45d5effc9d92b532ed09f277dbf6c796812458fabc92f4a7b86e286d23a0c90",
+      "source_asset_manifest_checks": {
+        "source-hashes.json": {
+          "count": 468,
+          "verified": true,
+          "manifest_sha256": "06d4435ddd017466496a608a5e556ac9e3b294bdd3d44e7bdaf5d47c6794113a"
+        },
+        "asset-hashes.json": {
+          "count": 328,
+          "verified": true,
+          "manifest_sha256": "8eb2f9a87964839e5ff61c268eeebb608b7473e8266967cf517ac8b706c7ef2e"
+        },
+        "target-source-manifest.json": {
+          "count": 468,
+          "verified": true,
+          "manifest_sha256": "f49bb658d9e9f3e65872b4a8d1a1d44ae6c65e1c3daae247338eb03af695570d"
+        }
+      },
+      "analyzer_sha256": "f7a74e608bcaf2bc3f8f48b13f82a26db05193a0e00891260276e7aea3d06e01",
+      "raw_metrics_by_phase": {
+        "0": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9839882.90625,
+            "median_ticks": 9839961.0,
+            "min_ticks": 8901768,
+            "max_ticks": 10785384,
+            "mean_ms": 33.365488370259605
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9823545.5625,
+            "median_ticks": 9828735.0,
+            "min_ticks": 8889546,
+            "max_ticks": 10773210,
+            "mean_ms": 33.31009101867676
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9396140.4375,
+            "median_ticks": 9424611.0,
+            "min_ticks": 8469690,
+            "max_ticks": 10357796,
+            "mean_ms": 31.860827763875324
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5724176.75,
+            "median_ticks": 5695418.0,
+            "min_ticks": 5613823,
+            "max_ticks": 6057677,
+            "mean_ms": 19.409779018825954
+          }
+        },
+        "1": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9839897.65625,
+            "median_ticks": 9839952.0,
+            "min_ticks": 8901666,
+            "max_ticks": 10771908,
+            "mean_ms": 33.365538385179306
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9824473.484375,
+            "median_ticks": 9828775.0,
+            "min_ticks": 8889948,
+            "max_ticks": 10760580,
+            "mean_ms": 33.31323745515611
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9396969.75,
+            "median_ticks": 9428970.0,
+            "min_ticks": 8478398,
+            "max_ticks": 10366104,
+            "mean_ms": 31.86363983154297
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5492927.515625,
+            "median_ticks": 5460941.0,
+            "min_ticks": 5379313,
+            "max_ticks": 5872881,
+            "mean_ms": 18.625649399227566
+          }
+        },
+        "2": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840022.1875,
+            "median_ticks": 9839949.0,
+            "min_ticks": 8903778,
+            "max_ticks": 10776138,
+            "mean_ms": 33.36596065097385
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9827981.125,
+            "median_ticks": 9828780.0,
+            "min_ticks": 8891586,
+            "max_ticks": 10764396,
+            "mean_ms": 33.32513131035699
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9400226.421875,
+            "median_ticks": 9427776.0,
+            "min_ticks": 8500530,
+            "max_ticks": 10363776,
+            "mean_ms": 31.874682691362167
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5724482.3984375,
+            "median_ticks": 5698317.0,
+            "min_ticks": 5620243,
+            "max_ticks": 6050473,
+            "mean_ms": 19.41081542438931
+          }
+        }
+      },
+      "net_observer_delta_ms": {
+        "engineTicks": {
+          "observer_on_minus_off_vs_first_ms": -5.001491970486111e-05,
+          "observer_on_minus_off_vs_last_ms": 0.0004222657945421007,
+          "outer_control_spread_ms": 0.0004722807142469618
+        },
+        "loopTicks": {
+          "observer_on_minus_off_vs_first_ms": -0.003146436479356554,
+          "observer_on_minus_off_vs_last_ms": 0.011893855200873481,
+          "outer_control_spread_ms": 0.015040291680230035
+        },
+        "renderTicks": {
+          "observer_on_minus_off_vs_first_ms": -0.002812067667643229,
+          "observer_on_minus_off_vs_last_ms": 0.011042859819200303,
+          "outer_control_spread_ms": 0.013854927486843534
+        },
+        "workTicks": {
+          "observer_on_minus_off_vs_first_ms": 0.7841296195983887,
+          "observer_on_minus_off_vs_last_ms": 0.7851660251617432,
+          "outer_control_spread_ms": 0.0010364055633544922
+        }
+      },
+      "states": {
+        "0:850": {
+          "phase": "0",
+          "f": "850",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "0:1100": {
+          "phase": "0",
+          "f": "1100",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        },
+        "1:850": {
+          "phase": "1",
+          "f": "2650",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "1:1100": {
+          "phase": "1",
+          "f": "2900",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        },
+        "2:850": {
+          "phase": "2",
+          "f": "4450",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "2:1100": {
+          "phase": "2",
+          "f": "4700",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        }
+      },
+      "addresses": {
+        "0": {
+          "phase": "0",
+          "mode": "1",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da3fb0",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db51c0",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "0077c9e0"
+        },
+        "1": {
+          "phase": "1",
+          "mode": "0",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da3fb0",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db51c0",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "0077c9e0"
+        },
+        "2": {
+          "phase": "2",
+          "mode": "1",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da3fb0",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db51c0",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "0077c9e0"
+        }
+      },
+      "common_buffers": [
+        "0054d528",
+        "00548928",
+        "19456"
+      ]
+    }
+  ],
+  "cross_boot_controls": {
+    "raw_camera_words_equal": true,
+    "named_states_equal": true,
+    "addresses_equal": true,
+    "common_buffers_equal": true
+  },
+  "pooled_elapsed_on": {
+    "flushTicks": {
+      "count": 384,
+      "mean_ms": 3.0375098387400308,
+      "min_ms": 2.815212673611111,
+      "max_ms": 3.3397420247395835,
+      "on_window_mean_min_ms": 3.0288823445638022,
+      "on_window_mean_max_ms": 3.0460080835554333
+    },
+    "preTicks": {
+      "count": 384,
+      "mean_ms": 0.2441900747793692,
+      "min_ms": 0.2139010959201389,
+      "max_ms": 0.3818935818142361,
+      "on_window_mean_min_ms": 0.23772634400261772,
+      "on_window_mean_max_ms": 0.2501610649956597
+    },
+    "submitTicks": {
+      "count": 384,
+      "mean_ms": 2.3230064974890814,
+      "min_ms": 2.1156378851996527,
+      "max_ms": 2.5736219618055554,
+      "on_window_mean_min_ms": 2.319855292638143,
+      "on_window_mean_max_ms": 2.3260982831319175
+    },
+    "postTicks": {
+      "count": 384,
+      "mean_ms": 0.18770694732666016,
+      "min_ms": 0.1644524468315972,
+      "max_ms": 0.2982279459635417,
+      "on_window_mean_min_ms": 0.18561916881137425,
+      "on_window_mean_max_ms": 0.1899104913075765
+    },
+    "snapshotTicks": {
+      "count": 384,
+      "mean_ms": 1.1682221359676785,
+      "min_ms": 1.0502251519097223,
+      "max_ms": 1.3949788411458333,
+      "on_window_mean_min_ms": 1.1658313539293077,
+      "on_window_mean_max_ms": 1.170302152633667
+    },
+    "sizingTicks": {
+      "count": 384,
+      "mean_ms": 0.1689488004755091,
+      "min_ms": 0.1470303005642361,
+      "max_ms": 0.3280232747395833,
+      "on_window_mean_min_ms": 0.16770227750142416,
+      "on_window_mean_max_ms": 0.17011814647250706
+    },
+    "capacityTicks": {
+      "count": 384,
+      "mean_ms": 0.08310995278535066,
+      "min_ms": 0.073028564453125,
+      "max_ms": 0.1593899197048611,
+      "on_window_mean_min_ms": 0.08259903060065375,
+      "on_window_mean_max_ms": 0.08360682593451606
+    },
+    "emissionTicks": {
+      "count": 384,
+      "mean_ms": 0.4457542101542155,
+      "min_ms": 0.3949720594618056,
+      "max_ms": 0.6576877170138888,
+      "on_window_mean_min_ms": 0.43986349635654026,
+      "on_window_mean_max_ms": 0.4515397283766005
+    },
+    "sceneTicks": {
+      "count": 384,
+      "mean_ms": 19.00493851414433,
+      "min_ms": 18.610361735026043,
+      "max_ms": 20.139170328776043,
+      "on_window_mean_min_ms": 18.997526963551838,
+      "on_window_mean_max_ms": 19.014714399973553
+    },
+    "sendTotal": {
+      "count": 384,
+      "mean_ms": 2.754903519595111,
+      "min_ms": 2.5594957139756946,
+      "max_ms": 3.0244886610243054,
+      "on_window_mean_min_ms": 2.7483834425608316,
+      "on_window_mean_max_ms": 2.7618785169389515
+    },
+    "flushResidual": {
+      "count": 384,
+      "mean_ms": 0.28260631914492007,
+      "min_ms": 0.2481757269965278,
+      "max_ms": 0.4988369411892361,
+      "on_window_mean_min_ms": 0.2804989020029704,
+      "on_window_mean_max_ms": 0.2841295666164822
+    },
+    "submitChildrenTotal": {
+      "count": 384,
+      "mean_ms": 1.8660350993827537,
+      "min_ms": 1.6776902940538194,
+      "max_ms": 2.0976087782118054,
+      "on_window_mean_min_ms": 1.862121370103624,
+      "on_window_mean_max_ms": 1.868996090359158
+    },
+    "submitRest": {
+      "count": 384,
+      "mean_ms": 0.4569713981063278,
+      "min_ms": 0.4095255533854167,
+      "max_ms": 0.5902133517795138,
+      "on_window_mean_min_ms": 0.4540698263380263,
+      "on_window_mean_max_ms": 0.45911044544643825
+    },
+    "SceneOutsideSelectedFlush": {
+      "count": 384,
+      "mean_ms": 15.9674286754043,
+      "min_ms": 15.419932047526041,
+      "max_ms": 17.126881917317707,
+      "on_window_mean_min_ms": 15.956566095352173,
+      "on_window_mean_max_ms": 15.98583205540975
+    }
+  },
+  "pooled_off_scene": {
+    "count": 384,
+    "mean_ms": 18.206829088705557,
+    "min_ms": 17.796254475911457,
+    "max_ms": 19.671864827473957
+  },
+  "phase_ledger": [
+    {
+      "order": 0,
+      "phase": 0,
+      "mode": 0,
+      "samples": 128,
+      "elapsed": {
+        "flushTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "preTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "submitTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "postTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "snapshotTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "sizingTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "capacityTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "emissionTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "sceneTicks": {
+          "count": 128,
+          "mean_ms": 18.209010707007515,
+          "min_ms": 17.808359781901043,
+          "max_ms": 19.666595458984375
+        },
+        "sendTotal": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "flushResidual": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "submitChildrenTotal": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "submitRest": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "SceneOutsideSelectedFlush": {
+          "count": 128,
+          "mean_ms": 18.209010707007515,
+          "min_ms": 17.808359781901043,
+          "max_ms": 19.666595458984375
+        }
+      },
+      "counts_first": {
+        "flushCalls": 0,
+        "sendCalls": 0,
+        "submitCalls": 0,
+        "snapshotCalls": 0,
+        "sizingCalls": 0,
+        "capacityCalls": 0,
+        "emissionCalls": 0,
+        "sceneCalls": 1,
+        "invalid": 0,
+        "chainCopied": 0,
+        "nativeRecorded": 0,
+        "fallback": 0,
+        "retries": 0,
+        "hooksNonNull": 0,
+        "sourceQwords": 0,
+        "recordsSized": 0
+      },
+      "counts_constant": true,
+      "copied_bytes_mean": 0,
+      "borrowed_bytes_mean": 0,
+      "observer_selected_Count_reads_per_frame": 0,
+      "common_Scene_Count_reads_per_frame": 2
+    },
+    {
+      "order": 0,
+      "phase": 1,
+      "mode": 1,
+      "samples": 128,
+      "elapsed": {
+        "flushTicks": {
+          "count": 128,
+          "mean_ms": 3.0288823445638022,
+          "min_ms": 2.815212673611111,
+          "max_ms": 3.266360812717014
+        },
+        "preTicks": {
+          "count": 128,
+          "mean_ms": 0.23772634400261772,
+          "min_ms": 0.2139010959201389,
+          "max_ms": 0.3461574978298611
+        },
+        "submitTicks": {
+          "count": 128,
+          "mean_ms": 2.323065916697184,
+          "min_ms": 2.1156378851996527,
+          "max_ms": 2.5675896538628473
+        },
+        "postTicks": {
+          "count": 128,
+          "mean_ms": 0.18759118186102974,
+          "min_ms": 0.1644524468315972,
+          "max_ms": 0.2603386773003472
+        },
+        "snapshotTicks": {
+          "count": 128,
+          "mean_ms": 1.1658313539293077,
+          "min_ms": 1.0502251519097223,
+          "max_ms": 1.3627285427517362
+        },
+        "sizingTicks": {
+          "count": 128,
+          "mean_ms": 0.16902597745259604,
+          "min_ms": 0.1470303005642361,
+          "max_ms": 0.273895263671875
+        },
+        "capacityTicks": {
+          "count": 128,
+          "mean_ms": 0.08259903060065375,
+          "min_ms": 0.073028564453125,
+          "max_ms": 0.12867906358506945
+        },
+        "emissionTicks": {
+          "count": 128,
+          "mean_ms": 0.4515397283766005,
+          "min_ms": 0.3962910970052083,
+          "max_ms": 0.6576877170138888
+        },
+        "sceneTicks": {
+          "count": 128,
+          "mean_ms": 19.014714399973553,
+          "min_ms": 18.628421359592014,
+          "max_ms": 20.046702067057293
+        },
+        "sendTotal": {
+          "count": 128,
+          "mean_ms": 2.7483834425608316,
+          "min_ms": 2.5594957139756946,
+          "max_ms": 3.0041571723090277
+        },
+        "flushResidual": {
+          "count": 128,
+          "mean_ms": 0.2804989020029704,
+          "min_ms": 0.2481757269965278,
+          "max_ms": 0.4988369411892361
+        },
+        "submitChildrenTotal": {
+          "count": 128,
+          "mean_ms": 1.868996090359158,
+          "min_ms": 1.7010091145833333,
+          "max_ms": 2.0767415364583335
+        },
+        "submitRest": {
+          "count": 128,
+          "mean_ms": 0.4540698263380263,
+          "min_ms": 0.4095255533854167,
+          "max_ms": 0.5880296495225694
+        },
+        "SceneOutsideSelectedFlush": {
+          "count": 128,
+          "mean_ms": 15.98583205540975,
+          "min_ms": 15.526953803168404,
+          "max_ms": 16.993350558810764
+        }
+      },
+      "counts_first": {
+        "flushCalls": 86,
+        "sendCalls": 86,
+        "submitCalls": 86,
+        "snapshotCalls": 86,
+        "sizingCalls": 86,
+        "capacityCalls": 86,
+        "emissionCalls": 86,
+        "sceneCalls": 1,
+        "invalid": 0,
+        "chainCopied": 86,
+        "nativeRecorded": 86,
+        "fallback": 0,
+        "retries": 0,
+        "hooksNonNull": 0,
+        "sourceQwords": 1875,
+        "recordsSized": 718
+      },
+      "counts_constant": true,
+      "copied_bytes_mean": 30000,
+      "borrowed_bytes_mean": 2118944,
+      "observer_selected_Count_reads_per_frame": 1204,
+      "common_Scene_Count_reads_per_frame": 2
+    },
+    {
+      "order": 0,
+      "phase": 2,
+      "mode": 0,
+      "samples": 128,
+      "elapsed": {
+        "flushTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "preTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "submitTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "postTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "snapshotTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "sizingTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "capacityTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "emissionTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "sceneTicks": {
+          "count": 128,
+          "mean_ms": 18.204767809973823,
+          "min_ms": 17.823598225911457,
+          "max_ms": 19.671864827473957
+        },
+        "sendTotal": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "flushResidual": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "submitChildrenTotal": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "submitRest": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "SceneOutsideSelectedFlush": {
+          "count": 128,
+          "mean_ms": 18.204767809973823,
+          "min_ms": 17.823598225911457,
+          "max_ms": 19.671864827473957
+        }
+      },
+      "counts_first": {
+        "flushCalls": 0,
+        "sendCalls": 0,
+        "submitCalls": 0,
+        "snapshotCalls": 0,
+        "sizingCalls": 0,
+        "capacityCalls": 0,
+        "emissionCalls": 0,
+        "sceneCalls": 1,
+        "invalid": 0,
+        "chainCopied": 0,
+        "nativeRecorded": 0,
+        "fallback": 0,
+        "retries": 0,
+        "hooksNonNull": 0,
+        "sourceQwords": 0,
+        "recordsSized": 0
+      },
+      "counts_constant": true,
+      "copied_bytes_mean": 0,
+      "borrowed_bytes_mean": 0,
+      "observer_selected_Count_reads_per_frame": 0,
+      "common_Scene_Count_reads_per_frame": 2
+    },
+    {
+      "order": 1,
+      "phase": 0,
+      "mode": 1,
+      "samples": 128,
+      "elapsed": {
+        "flushTicks": {
+          "count": 128,
+          "mean_ms": 3.0460080835554333,
+          "min_ms": 2.8258192274305554,
+          "max_ms": 3.3397420247395835
+        },
+        "preTicks": {
+          "count": 128,
+          "mean_ms": 0.2501610649956597,
+          "min_ms": 0.2154608832465278,
+          "max_ms": 0.3818935818142361
+        },
+        "submitTicks": {
+          "count": 128,
+          "mean_ms": 2.3260982831319175,
+          "min_ms": 2.1358405219184027,
+          "max_ms": 2.5729912651909723
+        },
+        "postTicks": {
+          "count": 128,
+          "mean_ms": 0.18561916881137425,
+          "min_ms": 0.1655612521701389,
+          "max_ms": 0.2982279459635417
+        },
+        "snapshotTicks": {
+          "count": 128,
+          "mean_ms": 1.170302152633667,
+          "min_ms": 1.0527072482638888,
+          "max_ms": 1.3345540364583333
+        },
+        "sizingTicks": {
+          "count": 128,
+          "mean_ms": 0.16770227750142416,
+          "min_ms": 0.14802720811631945,
+          "max_ms": 0.3280232747395833
+        },
+        "capacityTicks": {
+          "count": 128,
+          "mean_ms": 0.08312400182088216,
+          "min_ms": 0.07393391927083333,
+          "max_ms": 0.1593899197048611
+        },
+        "emissionTicks": {
+          "count": 128,
+          "mean_ms": 0.4458594057295058,
+          "min_ms": 0.3973253038194444,
+          "max_ms": 0.5616624620225694
+        },
+        "sceneTicks": {
+          "count": 128,
+          "mean_ms": 19.002574178907608,
+          "min_ms": 18.610361735026043,
+          "max_ms": 20.126678466796875
+        },
+        "sendTotal": {
+          "count": 128,
+          "mean_ms": 2.7618785169389515,
+          "min_ms": 2.5687323676215277,
+          "max_ms": 3.0244886610243054
+        },
+        "flushResidual": {
+          "count": 128,
+          "mean_ms": 0.2841295666164822,
+          "min_ms": 0.2514784071180556,
+          "max_ms": 0.4028795030381944
+        },
+        "submitChildrenTotal": {
+          "count": 128,
+          "mean_ms": 1.8669878376854792,
+          "min_ms": 1.6783277723524306,
+          "max_ms": 2.0253228081597223
+        },
+        "submitRest": {
+          "count": 128,
+          "mean_ms": 0.45911044544643825,
+          "min_ms": 0.4113125271267361,
+          "max_ms": 0.5889112684461806
+        },
+        "SceneOutsideSelectedFlush": {
+          "count": 128,
+          "mean_ms": 15.956566095352173,
+          "min_ms": 15.419932047526041,
+          "max_ms": 17.057084825303818
+        }
+      },
+      "counts_first": {
+        "flushCalls": 86,
+        "sendCalls": 86,
+        "submitCalls": 86,
+        "snapshotCalls": 86,
+        "sizingCalls": 86,
+        "capacityCalls": 86,
+        "emissionCalls": 86,
+        "sceneCalls": 1,
+        "invalid": 0,
+        "chainCopied": 86,
+        "nativeRecorded": 86,
+        "fallback": 0,
+        "retries": 0,
+        "hooksNonNull": 0,
+        "sourceQwords": 1875,
+        "recordsSized": 718
+      },
+      "counts_constant": true,
+      "copied_bytes_mean": 30000,
+      "borrowed_bytes_mean": 2118944,
+      "observer_selected_Count_reads_per_frame": 1204,
+      "common_Scene_Count_reads_per_frame": 2
+    },
+    {
+      "order": 1,
+      "phase": 1,
+      "mode": 0,
+      "samples": 128,
+      "elapsed": {
+        "flushTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "preTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "submitTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "postTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "snapshotTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "sizingTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "capacityTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "emissionTicks": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "sceneTicks": {
+          "count": 128,
+          "mean_ms": 18.206708749135334,
+          "min_ms": 17.796254475911457,
+          "max_ms": 19.456675211588543
+        },
+        "sendTotal": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "flushResidual": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "submitChildrenTotal": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "submitRest": {
+          "count": 128,
+          "mean_ms": 0.0,
+          "min_ms": 0.0,
+          "max_ms": 0.0
+        },
+        "SceneOutsideSelectedFlush": {
+          "count": 128,
+          "mean_ms": 18.206708749135334,
+          "min_ms": 17.796254475911457,
+          "max_ms": 19.456675211588543
+        }
+      },
+      "counts_first": {
+        "flushCalls": 0,
+        "sendCalls": 0,
+        "submitCalls": 0,
+        "snapshotCalls": 0,
+        "sizingCalls": 0,
+        "capacityCalls": 0,
+        "emissionCalls": 0,
+        "sceneCalls": 1,
+        "invalid": 0,
+        "chainCopied": 0,
+        "nativeRecorded": 0,
+        "fallback": 0,
+        "retries": 0,
+        "hooksNonNull": 0,
+        "sourceQwords": 0,
+        "recordsSized": 0
+      },
+      "counts_constant": true,
+      "copied_bytes_mean": 0,
+      "borrowed_bytes_mean": 0,
+      "observer_selected_Count_reads_per_frame": 0,
+      "common_Scene_Count_reads_per_frame": 2
+    },
+    {
+      "order": 1,
+      "phase": 2,
+      "mode": 1,
+      "samples": 128,
+      "elapsed": {
+        "flushTicks": {
+          "count": 128,
+          "mean_ms": 3.0376390881008573,
+          "min_ms": 2.831576877170139,
+          "max_ms": 3.315402560763889
+        },
+        "preTicks": {
+          "count": 128,
+          "mean_ms": 0.2446828153398302,
+          "min_ms": 0.21528455946180555,
+          "max_ms": 0.3475613064236111
+        },
+        "submitTicks": {
+          "count": 128,
+          "mean_ms": 2.319855292638143,
+          "min_ms": 2.1370951334635415,
+          "max_ms": 2.5736219618055554
+        },
+        "postTicks": {
+          "count": 128,
+          "mean_ms": 0.1899104913075765,
+          "min_ms": 0.1652865939670139,
+          "max_ms": 0.2819959852430556
+        },
+        "snapshotTicks": {
+          "count": 128,
+          "mean_ms": 1.1685329013400607,
+          "min_ms": 1.0527750651041667,
+          "max_ms": 1.3949788411458333
+        },
+        "sizingTicks": {
+          "count": 128,
+          "mean_ms": 0.17011814647250706,
+          "min_ms": 0.14784410264756945,
+          "max_ms": 0.271575927734375
+        },
+        "capacityTicks": {
+          "count": 128,
+          "mean_ms": 0.08360682593451606,
+          "min_ms": 0.07335408528645833,
+          "max_ms": 0.15363566080729166
+        },
+        "emissionTicks": {
+          "count": 128,
+          "mean_ms": 0.43986349635654026,
+          "min_ms": 0.3949720594618056,
+          "max_ms": 0.6005181206597222
+        },
+        "sceneTicks": {
+          "count": 128,
+          "mean_ms": 18.997526963551838,
+          "min_ms": 18.642588297526043,
+          "max_ms": 20.139170328776043
+        },
+        "sendTotal": {
+          "count": 128,
+          "mean_ms": 2.7544485992855496,
+          "min_ms": 2.5644361707899304,
+          "max_ms": 3.0236884223090277
+        },
+        "flushResidual": {
+          "count": 128,
+          "mean_ms": 0.2831904888153076,
+          "min_ms": 0.24971516927083334,
+          "max_ms": 0.396820068359375
+        },
+        "submitChildrenTotal": {
+          "count": 128,
+          "mean_ms": 1.862121370103624,
+          "min_ms": 1.6776902940538194,
+          "max_ms": 2.0976087782118054
+        },
+        "submitRest": {
+          "count": 128,
+          "mean_ms": 0.4577339225345188,
+          "min_ms": 0.4099527994791667,
+          "max_ms": 0.5902133517795138
+        },
+        "SceneOutsideSelectedFlush": {
+          "count": 128,
+          "mean_ms": 15.959887875450981,
+          "min_ms": 15.512847900390625,
+          "max_ms": 17.126881917317707
+        }
+      },
+      "counts_first": {
+        "flushCalls": 86,
+        "sendCalls": 86,
+        "submitCalls": 86,
+        "snapshotCalls": 86,
+        "sizingCalls": 86,
+        "capacityCalls": 86,
+        "emissionCalls": 86,
+        "sceneCalls": 1,
+        "invalid": 0,
+        "chainCopied": 86,
+        "nativeRecorded": 86,
+        "fallback": 0,
+        "retries": 0,
+        "hooksNonNull": 0,
+        "sourceQwords": 1875,
+        "recordsSized": 718
+      },
+      "counts_constant": true,
+      "copied_bytes_mean": 30000,
+      "borrowed_bytes_mean": 2118944,
+      "observer_selected_Count_reads_per_frame": 1204,
+      "common_Scene_Count_reads_per_frame": 2
+    }
+  ],
+  "on_count_ranges_per_frame": {
+    "flushCalls": {
+      "min": 86,
+      "max": 86
+    },
+    "sendCalls": {
+      "min": 86,
+      "max": 86
+    },
+    "submitCalls": {
+      "min": 86,
+      "max": 86
+    },
+    "snapshotCalls": {
+      "min": 86,
+      "max": 86
+    },
+    "sizingCalls": {
+      "min": 86,
+      "max": 86
+    },
+    "capacityCalls": {
+      "min": 86,
+      "max": 86
+    },
+    "emissionCalls": {
+      "min": 86,
+      "max": 86
+    },
+    "sceneCalls": {
+      "min": 1,
+      "max": 1
+    },
+    "invalid": {
+      "min": 0,
+      "max": 0
+    },
+    "chainCopied": {
+      "min": 86,
+      "max": 86
+    },
+    "nativeRecorded": {
+      "min": 86,
+      "max": 86
+    },
+    "fallback": {
+      "min": 0,
+      "max": 0
+    },
+    "retries": {
+      "min": 0,
+      "max": 0
+    },
+    "hooksNonNull": {
+      "min": 0,
+      "max": 0
+    },
+    "sourceQwords": {
+      "min": 1875,
+      "max": 1875
+    },
+    "recordsSized": {
+      "min": 718,
+      "max": 718
+    }
+  },
+  "on_copied_bytes_per_frame": {
+    "min": 30000,
+    "max": 30000
+  },
+  "on_borrowed_bytes_per_frame": {
+    "min": 2118944,
+    "max": 2118944
+  },
+  "conservation": "Per-sample nonnegative flushResidual=Flush-(Pre+Submit+Post); SubmitRest=Submit-(Snapshot+Sizing+Capacity+Emission). Nested spans not additive to parents.",
+  "emulator": {
+    "evidence_path": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-send-census-order0-emulator-independent-evidence",
+    "machine_sha256": "391a1cbb5b0975dc273a32467317d27b995edcea98b8101bd51e0abb713a1581",
+    "selected_count_contract": 85,
+    "source_qwords": 1860,
+    "records_sized": 712,
+    "copied_bytes": 29760,
+    "borrowed_bytes": 2059552,
+    "initial86_rejection_preserved": true,
+    "cross_device_workload_equality": false,
+    "physical_timing_acceptance": false
+  },
+  "build_chronology_sha256": "52890e9d769e39673c49f7697823fc4e3d68ebffc7d7ff7e9be2ed8ed22b1bc8",
+  "source_header_host_review_sha256": "d53d05109bc01b128851af7057979109a5c0793bdcded2a31e24e18622f9b781",
+  "strict_negative_controls_sha256": "3afac6feb637e2afed9a47ce6d0f3ac3b0d1f90fdd752a3486aefda5ff847f4b",
+  "initial_parser_gap": "Missing recordsSized<=sourceQwords bound was independently detected; accepted corrupted control retained. Tool-only fix revalidated before physical acceptance, target unchanged.",
+  "pure_cpu_bill": false,
+  "vu_gs_utilization": false,
+  "total_observer_bill": false,
+  "production_optimization_gain": false,
+  "limitations": [
+    "One ABA and one reverse BAB under continuous fixed-game workload, not broad repeated scenes/views.",
+    "Selected86 replay-triggered flushes only; other Scene sends and deferred EndFrame are outside this ledger.",
+    "Pre includes existing GIF wait/writeback; Post includes context reuse/pool flip. Snapshot includes prepare/copy/retry/drain; Capacity includes possible pressure waits/reset. These are elapsed mixed spans.",
+    "SubmitRest/FlushResidual include observer commits and existing bookkeeping; no pure CPU attribution or correction per bucket.",
+    "Common all-arm Scene/reset/copy/sampler/ring/layout remains; net On-minus-Off prices selected activity rather than complete observer cost.",
+    "Named states/raw camera/addresses cover selected snapshots; full vehicle/pixel equality is not proven.",
+    "Emulator85/PS286 is an explicit environment contract supported by prior same-environment evidence; mechanism and cross-device workload equality are not established.",
+    "No subtraction from prior ELF measurements and no production optimization gain."
+  ]
+}

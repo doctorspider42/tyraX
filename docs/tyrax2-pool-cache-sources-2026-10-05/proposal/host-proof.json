@@ -1,0 +1,89 @@
+{
+  "status": "PASS_HOST_SAME_ELF_POOL_CACHE_EXTRACTED_DUAL_ARM_BYTE_VERSION_REASON_CONTROLS_ONLY",
+  "runs": [
+    {
+      "optimization": "O0",
+      "compileCommand": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.EXE",
+        "-std=c++17",
+        "-O0",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle-O0.exe"
+      ],
+      "compileExit": 0,
+      "runCommand": [
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle-O0.exe"
+      ],
+      "runExit": 0,
+      "stdout": "PASS cases=1329 checks=11722 colorOnly=203 geometry=15 unchanged=103 empty=198\n",
+      "stderr": "",
+      "executableSha256": "ca51c924b36dc22c3cf9c3968881f86f5963de79c6ece4e8cb61c5c717e827bd"
+    },
+    {
+      "optimization": "O2",
+      "compileCommand": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.EXE",
+        "-std=c++17",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle-O2.exe"
+      ],
+      "compileExit": 0,
+      "runCommand": [
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle-O2.exe"
+      ],
+      "runExit": 0,
+      "stdout": "PASS cases=1329 checks=11722 colorOnly=203 geometry=15 unchanged=103 empty=198\n",
+      "stderr": "",
+      "executableSha256": "b9127ad61bd9a1949636904256c4a0439991e41d18808e8292f3e3076d1f7baa"
+    }
+  ],
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\source\\game\\src\\gen\\game_lighting.gen.cpp": "cdcacb7fe39db886a0421745d3875950fe3524683923aeb595de3b58febfede8",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\pool-color-split.patch": "fe7471c3d5fc1410bc044681b4d1267abb3a4ff03b82f8d92e701ed0690bc40d",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\run-host-oracle.py": "1cbfc0a818a644e2b7873df1b9d9c8b32fc2101fd1e31defb0352ea57cad4fab",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\bag_array.gen.hpp": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\night_ablation.hpp": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\math\\vec4.hpp": "285634435d7888a29defbddec63856d672959c97e5faa3b751d51eca1d31ce21",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\renderer\\models\\color.hpp": "2ccdf2b171fad8c4349cd1f8cb88d1c11a54cc554c416ed091d33f33a4afe588",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\tyra": "1307da4266daedde7acc44fa7aca637b88222bc5020c0a93a10f9da9d0743295",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle.cpp": "94061b3b72433abf1db42f36717fa3078bdc3f082b2404200e4bd9962f0310dc",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\original.inc": "3bbbddde56c576e09b99b1686858536ccb1d4ee90780ab638f0b489a899d5f6b",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\candidate.inc": "c5b42a62467ff7f3f1876ee6131b28c29d2eb7f42491f1d02cf80739c7c3e5af"
+  },
+  "artifactSha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\O0-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\O0-run.log": "462af4cc47b815e1cdc6edf9a2d9be021f5d6cfa8ec9ef5c13a614a0130c3cc2",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\O2-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\O2-run.log": "462af4cc47b815e1cdc6edf9a2d9be021f5d6cfa8ec9ef5c13a614a0130c3cc2",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle-O0.exe": "ca51c924b36dc22c3cf9c3968881f86f5963de79c6ece4e8cb61c5c717e827bd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle-O2.exe": "b9127ad61bd9a1949636904256c4a0439991e41d18808e8292f3e3076d1f7baa"
+  },
+  "actualGeneratedBagArrayHeader": true,
+  "actualColorHeaderAndConstructor": true,
+  "rendererAndVec4HostShims": true,
+  "nativeAccepted": false,
+  "runtimeAccepted": false,
+  "physicalActivationMeasured": false,
+  "performanceGainClaimed": false,
+  "jointPatchMetadataUpdatedAfterControlHeaderInclusion": {
+    "priorPatchSha256": "fd1396c80ba4f508edcbc6135cd9b20b1896c8775097abf1f9fd80f67c2dd852",
+    "currentPatchSha256": "fe7471c3d5fc1410bc044681b4d1267abb3a4ff03b82f8d92e701ed0690bc40d",
+    "compiledFunctionSourcesUnchanged": true,
+    "newHostRunClaimed": false
+  }
+}

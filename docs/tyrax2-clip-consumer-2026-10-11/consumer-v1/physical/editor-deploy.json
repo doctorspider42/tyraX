@@ -1,0 +1,16 @@
+{
+  "pid": 21484,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-clip-consumer-20261011-v1\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "72e64418e8a8df459ab7c1cd01af5c04e2b6856beded47c778b0c6e46833ea3b",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-10T23:55:07.1569715+02:00"
+}

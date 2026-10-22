@@ -1,0 +1,20 @@
+{
+  "status": "PASS_KIND23_HOST_SYNTHETIC_AND_CLI_ONLY",
+  "results": [
+    "positive0",
+    "rejected0calls=134",
+    "rejected0units1=114",
+    "rejected0units2=102",
+    "rejected0units3=1730",
+    "rejected0units4=0",
+    "cli0",
+    "positive1",
+    "rejected1calls=134",
+    "rejected1units1=114",
+    "rejected1units2=102",
+    "rejected1units3=1730",
+    "rejected1units4=0",
+    "cli1"
+  ],
+  "physicalExecutionAccepted": false
+}

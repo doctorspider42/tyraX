@@ -1,0 +1,17 @@
+{
+  "status": "PASS_SOURCE_ALIGNED_HOST_CONSTANT_OUTPUT_CONTROLS",
+  "checks": 47293,
+  "checkerSha256": "15ccbc6670c0bef275b92b2b113a9ece96485d5626073a3d6c87c0ef4e3cf1df",
+  "sourcePins": {
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "99643dabaf064821410e4d5aab57a69e8c5f3cd3d06f925f3406dd69652808d6",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp": "96b71049a8c2d171e087514c2b2bfa8d774e33d23690255bb51d60b1b57f41f1",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp": "650c11c9944e3e9522009af82919c18472888f3317ee7ccab8bdc57f70c8bbcb"
+  },
+  "v5AdmissionArmAndSparseColdCounterSourceControls": true,
+  "allThreeOriginalLoopsAndAllSixPosttransformScanPreserved": true,
+  "varyingFOrAnyRGBALaneRejectsWholePackage": true,
+  "fullPackedZLow16CollisionRejected": true,
+  "uniformFinalEffectsMayPass": true,
+  "primitiveTypeOnlyChangesAndFGERemainsExact": true,
+  "limits": "Host bounded-word and state controls plus source structural assertions, not actual VU execution/compiler scheduling, GS rasterization or physical gain."
+}

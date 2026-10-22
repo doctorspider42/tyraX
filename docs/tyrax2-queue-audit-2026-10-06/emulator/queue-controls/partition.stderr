@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-queue-audit-v2/analyze-queue.py", line 32, in <module>
+    assert sum(d['q'+str(j)]for j in range(10))==exclusive
+AssertionError

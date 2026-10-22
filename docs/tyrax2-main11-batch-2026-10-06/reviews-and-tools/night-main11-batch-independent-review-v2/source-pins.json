@@ -1,0 +1,14 @@
+{
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\draft-source-manifest.json": "148974da3f906df0a6b5c75631456773b1e1424100f8f4fd49dccebfdb4a665d",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\game\\src\\gen\\game_collision.gen.cpp": "82d82862caafa40df6f10a717d51b4051c534982f9050338d4ce37b27b9dfe1f",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\game\\inc\\terrain_game.hpp": "bd37bed43f51d7f32c6c27e125afa79971c689a566980505f648a8a8613c970d",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\tyra\\engine\\inc\\debug\\night_ablation.hpp": "3e7cb53395713b77d2204d5242f1ba557841115ee2737a67438e6a0bbdbbe35e",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\game\\src\\gen\\game_physics.gen.cpp": "2f18f1a903222ac9822e67b4d21b81223b3a750bab74665cc2e965cc56536d47",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v2\\batch_controls.py": "63e8d78bf7cc24461d1ac1810dc557365585818af67ea4438a6f91ceb8dd0942",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v2\\analyze-night.py": "97317cb59eae9d1e1752ae87cbe5e36c0d34fde2e868f4aa85d72eaed88bd7d1",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-root-helpers-v2\\test-host-controls.py": "798139cc2082afe2d79054a8fd334c64e79872e8475f13f0fb74d62976a5f8db",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-root-helpers-v2\\host-authority.json": "f691fbc01165921afa3a7f115fcac42913722d0d4485174a85c78d023acb8324",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-root-helpers-v2\\runtime_guard.py": "35bd8eb5671c10255655faad1d3ba81963ab0b80086c1b47e17470a5575d5c29",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v2\\root-host-v1\\host-controls-proof.json": "0fd7f82b04397ea426599de240e7450b198d21a98d22b5b609b830b39ff0cff8",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-source-controls-v2\\root-host-proof.json": "737a1295ebe51db846d7fe61409ff28ede8f050dcec23e851eb7fbe569005620"
+}

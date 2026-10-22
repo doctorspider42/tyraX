@@ -1,0 +1,34 @@
+{
+  "baseElfSha256": "a7d881fc94a9caa343820ee949617c2ba980814c69d757945964cca8c9beb5cd",
+  "generatorSha256": "51219fca29cac0459cbbc01dfe28cfe46ba955d0364a0eb5d71f463d0894f148",
+  "modes": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+  ],
+  "daytimeOnly": true,
+  "bufferCount": 2,
+  "movingAutoOrder": true,
+  "fixedSceneStep": true,
+  "inPriceReadbacks": false,
+  "ordinaryControlUnchanged": false,
+  "version": 2,
+  "clipObserver": false,
+  "shakePhaseReset": true,
+  "samePoseEndpointArms": 3,
+  "status": "UNQUALIFIED",
+  "limits": [
+    "New partial-road frontend and owned SDK geometry; inside bags retain ordinary O(1) replay.",
+    "Common road ownership prepared in BOTH roles; old unused A31 road preparation skipped ONLY when ready.",
+    "Live per-bag texture/material/light/fog heads and original qbuffer half/full flush cadence retained.",
+    "Eligible stripped roads only; lists and unsupported/unready bags retain ordinary path.",
+    "Actual native/GPU routing, lifetime, images and PS2 both-order net/tails required."
+  ],
+  "variant": "road-packages",
+  "comparison": "common direct+paint/Hybrid2: ordinary versus producer partial-road packages and existing whole replay",
+  "directHeaderSha256": "96275a6324f33ea07fe939723cbab3c1035277875ec91ea757f76faf473c17be",
+  "roadWholeReplay": true
+}

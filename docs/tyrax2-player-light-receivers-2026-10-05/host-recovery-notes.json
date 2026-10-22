@@ -1,0 +1,21 @@
+{
+  "unfinishedAttempt": "night-ablation-ps2-player-receivers-kind11-order0-20261005",
+  "causeObserved": "Codex crash reported by user; owned client absent on recovery",
+  "consoleHangEstablished": false,
+  "hostOrchestratorFailures": [
+    {
+      "run": "kind10/order0",
+      "error": "empty Get-Content result before first log bytes; owned console trial continued and exact waiter completed it"
+    },
+    {
+      "run": "kind10/order1",
+      "error": "empty startup read; exact waiter completed existing owned trial"
+    },
+    {
+      "run": "kind11/order0 interrupted",
+      "error": "startup reader FileShare error; exact waiter continued trial until reported Codex crash"
+    }
+  ],
+  "resetSent": "receiver-after-codex-crash-reset-v1",
+  "freshRetry": "night-ablation-ps2-player-receivers-kind11-order0-20261005-retry1"
+}

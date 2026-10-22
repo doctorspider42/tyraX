@@ -1,0 +1,12 @@
+{
+  "status": "ROOT_SOURCE_FREEZE_ONLY",
+  "sourceManifestSha256": "aa1b27d92b8f560836fd70fc6fb25ee1852f2b48e16f41dcc512bc2395289c19",
+  "sourceFiles": 497,
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\wild-plane-independent-review-v1\\final-input-proof.json",
+  "reviewSha256": "576a08771afddb24441d425da69e8cae7660923b77a505dfe9af9e682ef22e59",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\final-proof.json",
+  "hostSha256": "8afaf06a04d1761d960ea643944ddedd89b885d8fe7b32456c7e39e660ff5016",
+  "helperSha256": "77782bdac4362671e6a14a8078665eb541e7e19ffb73d1592388020d7fb97550",
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

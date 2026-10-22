@@ -1,0 +1,3 @@
+# Fresh night V2 actual-header host controls
+
+Controls compile actual copied V2 headers after the printf unsigned-argument repair. Each local header hash must equal its actual fixture source; sourcePins/actualHeaderSha256 explicitly point into night-ablation-physical-v2.32fresh O0/O2 complete transcripts and original negative suite run once. Parser, masks, geometry qualification, sparse witness protocol and observer pricing semantics are unchanged from V1 controls. No native/device operation is performed. Exact raw inverse-cast equality and one-header-only source delta are independently bound.

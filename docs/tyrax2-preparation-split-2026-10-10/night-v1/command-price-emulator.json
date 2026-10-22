@@ -1,0 +1,308 @@
+{
+  "valid": true,
+  "rasterEqual": true,
+  "presentationFence": true,
+  "legacySamplerSuspended": true,
+  "phase": 3,
+  "offset": 1380,
+  "pose": {
+    "z": -67.917778,
+    "speed": 9.762647,
+    "yaw": 0.0
+  },
+  "target": "emulator",
+  "elfSha256": "9866816e79bd967c0c15d53e768297e29557e93ae8f7823f5ae7fe67255e077e",
+  "logSha256": "5d7d3c1d9b414de9e8c7803ed2ec5dae84b80a4344b4e1b91877dfd23cc7764f",
+  "timesSha256": "36fe3357bfcf39c2a8bfe3b07311fa9b6645342c34bb6408495bf03596766d65",
+  "checks": [
+    [
+      0,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      1,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      2,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      3,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      4,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      5,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      6,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      7,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      8,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      9,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ]
+  ],
+  "images": {
+    "main": {
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "rawSha256": [
+        "8c502e177bb1445b819c1250cd11afae49f72343ccd7e7eb8348dd05a2e51085",
+        "af97a7ef5c0785116fc77be5eed5f263efc8f6edce7ccbbbffc84af7c589121c",
+        "0776e75681f9ded1d0f7443df27c0f219cdbc685bee23e60c8bcb3e0da804946",
+        "4654eaa7107f60b6c7067bd05dff4d6814cfaae5aa595f3bfea24eba396d7026",
+        "0a82f4e46a3752fb093184dd0b9416ed44b0fcfbafbf260c01eb559cd3b189cc",
+        "42940278ca89249b135610fcff07ce36e9ccf2575dd7e15773875671d708952f",
+        "e816753440052e4792b8ab84489765d99930eff46508187fc6d846fd49255051",
+        "12f7c1e789b26d66eeac901ddde51f30d01a511a5b77c72285b1654e14a30e2f",
+        "7da913e8671992fa8753dfa36f3bc4590e2ade91f986254ad27d3fc0b9fbd67a",
+        "87ff695053cd0bac39fc465147c8ecb857371e179c38f6a6cabed49a5f96e54c"
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "env": {
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "rawSha256": [
+        "685c7b93e30839f91f227f7aed017218f7e77c7e51b1d4292da328351de16204",
+        "24f8b58d7d737b4e00415366161fcd7316115b6e637b816c6e907801a076d52f",
+        "695bbba96c704a9c40ec49e56af4d257a42dae1b2ed7a7714a5288ecb879945d",
+        "f651265c6e0979de4b5f8649ebfebfb4e00ed836580f1aeebae19d15887c95e2",
+        "9bffba75aabd7ae22963f561cc815f8e2411129092828cbb236bf6c9d6e95637",
+        "b543fefc32bd874033b1fee1ed8ee26d061e160c5c692cec0136867040c08642",
+        "67ce2ade17e5b717f421d1061e2cc86f1d7e85f39674a4dd3b24bff57270da06",
+        "3ce45bb6eecf53490a8e7dc82f32fdf2d0b678fdeb9c1c0a6acd787df43d3d26",
+        "d9c11785667ac5894d70b92cde96c3694e5a899a0fa3387a59e08f8663e32113",
+        "8ee88fe23075afcbb0e0098c99f1ced8e7d6f46b30967198e9958aa927da1306"
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "closure": {
+    "qwords": 2385,
+    "bytes": 1938736,
+    "vuCalls": 795,
+    "sha256": "ae1107c8c5e778651bdf98985d70728b7890f3dc06f4c874b439032964842336"
+  },
+  "scope": "All-ordinary frozen scene, exclusive elapsed StaPip/queue plus residual; queue includes waits/preemption; observer footprint retained; not live FPS",
+  "diagnosticMemory": {
+    "closureAllocatedBytes": 1938752,
+    "heapRows": [
+      [
+        0,
+        23392636,
+        22535860,
+        856776
+      ],
+      [
+        1,
+        23392636,
+        21309076,
+        2083560
+      ],
+      [
+        2,
+        23392636,
+        21309076,
+        2083560
+      ],
+      [
+        3,
+        23392636,
+        21309076,
+        2083560
+      ],
+      [
+        4,
+        23392636,
+        21309076,
+        2083560
+      ],
+      [
+        5,
+        23392636,
+        21309076,
+        2083560
+      ],
+      [
+        6,
+        23392636,
+        21309076,
+        2083560
+      ],
+      [
+        7,
+        23392636,
+        21309076,
+        2083560
+      ],
+      [
+        8,
+        23392636,
+        21309076,
+        2083560
+      ],
+      [
+        9,
+        23392636,
+        21309076,
+        2083560
+      ]
+    ],
+    "scope": "Allocator arena/used/free blocks, not total free EE RAM; off-clock stage checks"
+  },
+  "preparationSplit": {
+    "policies": [
+      0,
+      0,
+      1,
+      2,
+      1,
+      0,
+      1,
+      2,
+      1,
+      0
+    ],
+    "counts": [
+      183,
+      104,
+      2,
+      10
+    ],
+    "sha256": "37468d20b85bbb550be5e96f12fd783067fdfb6ea89b8ba5bccc1433e9b81561",
+    "observerBytes": 64512
+  }
+}

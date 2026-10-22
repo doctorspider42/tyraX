@@ -1,0 +1,59 @@
+LOG: CLOSEOUTCONFIG order=0 kind=4 valid=1 phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 sampleFirst=900 sampleCount=128 ordinaryClocks=1 addedWaits=0 frameProfile=0 hardwareTrace=0 devkit=0 sampleBytes=6144 chunkBytes=420
+LOG: CLOSEOUTPHASE phase=0 first=0 players=0 geometryHidden=0 sampler=1 countReads=262
+LOG: CLOSEOUTCONTEXT phase=0 offset=750 players=0 oneArm=1 route=8 scene=0 vehicleDriver=-1 sceneGeneration=1 video=1 display=1 depth=1 width=640 height=448 refreshMilliHz=59940 requested=1 valid=1 positionX=00000000 positionY=00000000 positionZ=00000000 lookX=00000000 lookY=00000000 lookZ=00000000 playerX=00000000 playerY=00000000 playerZ=00000000 night=1 paused=1 hourZero=1 vehicleX=00000000 vehicleY=00000000 vehicleZ=00000000 vehicleSpeed=3f800000
+LOG: EMPTYRENDER phase=0 offset=750 acceptedBags=16 acceptedVertices=15724 billboards=0 roadBags=3 roadVertices=1024 carBags=4 carVertices=3072 valid=1
+LOG: BUILDINGRENDER phase=0 offset=750 acceptedBags=8 acceptedVertices=11328 refs0=1 refs1=1 refs2=1 refs3=1 refs4=1 refs5=1 refs6=1 refs7=1 valid=1
+LOG: MODELRENDER phase=0 offset=750 owner=4 acceptedBags=1 acceptedVertices=300 valid=1
+LOG: LIGHTCONTEXT phase=0 offset=750 count=1 slot=0 enabled=1 point=1 x=bf933333 y=40400000 z=40800000 range=20 r=32 g=96 b=128 valid=1
+LOG: TWOCARLIGHT phase=0 offset=750 ravagerBodySelected=1 picaBodySelected=1 ravagerWheelSelected=1 picaWheelSelected=1 ravagerBodyEffective=1 picaBodyEffective=1 ravagerWheelEffective=1 picaWheelEffective=1 valid=1
+LOG: TWOCARCONTEXT phase=0 offset=750 vehicleCount=2 driverDef=0 secondDef=1 driverObject=1 secondObject=3 secondX=c0133333 secondY=3ec28f5c secondZ=41000000 secondSpeed=00000000
+LOG: TWOCARRENDER phase=0 offset=750 ravagerBodyBags=1 ravagerBodyVertices=768 picaBodyBags=1 picaBodyVertices=768 ravagerWheelBags=1 ravagerWheelVertices=768 picaWheelBags=1 picaWheelVertices=768 valid=1
+LOG: ROADCONTEXT phase=0 offset=750 paved=4 grounded=1 roadY=3df5c28f centerOffset=00000000 grip=3f800000 cover=3f800000
+LOG: CLOSEOUTCONTEXT phase=0 offset=1155 players=0 oneArm=1 route=8 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=1 width=640 height=448 refreshMilliHz=59940 requested=1 valid=1 positionX=3f800000 positionY=00000000 positionZ=00000000 lookX=3f800000 lookY=00000000 lookZ=00000000 playerX=3f800000 playerY=00000000 playerZ=00000000 night=1 paused=1 hourZero=1 vehicleX=3f800000 vehicleY=00000000 vehicleZ=00000000 vehicleSpeed=3f800000
+LOG: EMPTYRENDER phase=0 offset=1155 acceptedBags=16 acceptedVertices=15724 billboards=0 roadBags=3 roadVertices=1024 carBags=4 carVertices=3072 valid=1
+LOG: BUILDINGRENDER phase=0 offset=1155 acceptedBags=8 acceptedVertices=11328 refs0=1 refs1=1 refs2=1 refs3=1 refs4=1 refs5=1 refs6=1 refs7=1 valid=1
+LOG: MODELRENDER phase=0 offset=1155 owner=4 acceptedBags=1 acceptedVertices=300 valid=1
+LOG: LIGHTCONTEXT phase=0 offset=1155 count=1 slot=0 enabled=1 point=1 x=bf666666 y=40400000 z=40800000 range=20 r=32 g=96 b=128 valid=1
+LOG: TWOCARLIGHT phase=0 offset=1155 ravagerBodySelected=1 picaBodySelected=1 ravagerWheelSelected=1 picaWheelSelected=1 ravagerBodyEffective=1 picaBodyEffective=1 ravagerWheelEffective=1 picaWheelEffective=1 valid=1
+LOG: TWOCARCONTEXT phase=0 offset=1155 vehicleCount=2 driverDef=0 secondDef=1 driverObject=1 secondObject=3 secondX=c0133333 secondY=3ec28f5c secondZ=41000000 secondSpeed=00000000
+LOG: TWOCARRENDER phase=0 offset=1155 ravagerBodyBags=1 ravagerBodyVertices=768 picaBodyBags=1 picaBodyVertices=768 ravagerWheelBags=1 ravagerWheelVertices=768 picaWheelBags=1 picaWheelVertices=768 valid=1
+LOG: ROADCONTEXT phase=0 offset=1155 paved=4 grounded=1 roadY=3df5c28f centerOffset=00000000 grip=3f800000 cover=3f800000
+LOG: CLOSEOUTPHASE phase=1 first=1800 players=0 geometryHidden=0 sampler=1 countReads=262
+LOG: CLOSEOUTCONTEXT phase=1 offset=750 players=0 oneArm=1 route=8 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=1 width=640 height=448 refreshMilliHz=59940 requested=1 valid=1 positionX=41200000 positionY=00000000 positionZ=00000000 lookX=41200000 lookY=00000000 lookZ=00000000 playerX=41200000 playerY=00000000 playerZ=00000000 night=1 paused=1 hourZero=1 vehicleX=41200000 vehicleY=00000000 vehicleZ=3f800000 vehicleSpeed=3f800000
+LOG: EMPTYRENDER phase=1 offset=750 acceptedBags=16 acceptedVertices=15724 billboards=0 roadBags=3 roadVertices=1024 carBags=4 carVertices=3072 valid=1
+LOG: BUILDINGRENDER phase=1 offset=750 acceptedBags=8 acceptedVertices=11328 refs0=1 refs1=1 refs2=1 refs3=1 refs4=1 refs5=1 refs6=1 refs7=1 valid=1
+LOG: MODELRENDER phase=1 offset=750 owner=4 acceptedBags=1 acceptedVertices=300 valid=1
+LOG: LIGHTCONTEXT phase=1 offset=750 count=1 slot=0 enabled=1 point=1 x=bf933333 y=40400000 z=40800000 range=20 r=32 g=96 b=128 valid=1
+LOG: TWOCARLIGHT phase=1 offset=750 ravagerBodySelected=1 picaBodySelected=1 ravagerWheelSelected=1 picaWheelSelected=1 ravagerBodyEffective=1 picaBodyEffective=1 ravagerWheelEffective=1 picaWheelEffective=1 valid=1
+LOG: TWOCARCONTEXT phase=1 offset=750 vehicleCount=2 driverDef=0 secondDef=1 driverObject=1 secondObject=3 secondX=c0133333 secondY=3ec28f5c secondZ=41000000 secondSpeed=00000000
+LOG: TWOCARRENDER phase=1 offset=750 ravagerBodyBags=1 ravagerBodyVertices=768 picaBodyBags=1 picaBodyVertices=768 ravagerWheelBags=1 ravagerWheelVertices=768 picaWheelBags=1 picaWheelVertices=768 valid=1
+LOG: ROADCONTEXT phase=1 offset=750 paved=4 grounded=1 roadY=3df5c28f centerOffset=00000000 grip=3f800000 cover=3f800000
+LOG: CLOSEOUTCONTEXT phase=1 offset=1155 players=0 oneArm=1 route=8 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=1 width=640 height=448 refreshMilliHz=59940 requested=1 valid=1 positionX=41300000 positionY=00000000 positionZ=00000000 lookX=41300000 lookY=00000000 lookZ=00000000 playerX=41300000 playerY=00000000 playerZ=00000000 night=1 paused=1 hourZero=1 vehicleX=41300000 vehicleY=00000000 vehicleZ=3f800000 vehicleSpeed=3f800000
+LOG: EMPTYRENDER phase=1 offset=1155 acceptedBags=16 acceptedVertices=15724 billboards=0 roadBags=3 roadVertices=1024 carBags=4 carVertices=3072 valid=1
+LOG: BUILDINGRENDER phase=1 offset=1155 acceptedBags=8 acceptedVertices=11328 refs0=1 refs1=1 refs2=1 refs3=1 refs4=1 refs5=1 refs6=1 refs7=1 valid=1
+LOG: MODELRENDER phase=1 offset=1155 owner=4 acceptedBags=1 acceptedVertices=300 valid=1
+LOG: LIGHTCONTEXT phase=1 offset=1155 count=1 slot=0 enabled=1 point=1 x=bf666666 y=40400000 z=40800000 range=20 r=32 g=96 b=128 valid=1
+LOG: TWOCARLIGHT phase=1 offset=1155 ravagerBodySelected=1 picaBodySelected=1 ravagerWheelSelected=1 picaWheelSelected=1 ravagerBodyEffective=1 picaBodyEffective=1 ravagerWheelEffective=1 picaWheelEffective=1 valid=1
+LOG: TWOCARCONTEXT phase=1 offset=1155 vehicleCount=2 driverDef=0 secondDef=1 driverObject=1 secondObject=3 secondX=c0133333 secondY=3ec28f5c secondZ=41000000 secondSpeed=00000000
+LOG: TWOCARRENDER phase=1 offset=1155 ravagerBodyBags=1 ravagerBodyVertices=768 picaBodyBags=1 picaBodyVertices=768 ravagerWheelBags=1 ravagerWheelVertices=768 picaWheelBags=1 picaWheelVertices=768 valid=1
+LOG: ROADCONTEXT phase=1 offset=1155 paved=4 grounded=1 roadY=3df5c28f centerOffset=00000000 grip=3f800000 cover=3f800000
+LOG: CLOSEOUTPHASE phase=2 first=3600 players=0 geometryHidden=0 sampler=1 countReads=262
+LOG: CLOSEOUTCONTEXT phase=2 offset=750 players=0 oneArm=1 route=8 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=1 width=640 height=448 refreshMilliHz=59940 requested=1 valid=1 positionX=41a00000 positionY=00000000 positionZ=00000000 lookX=41a00000 lookY=00000000 lookZ=00000000 playerX=41a00000 playerY=00000000 playerZ=00000000 night=1 paused=1 hourZero=1 vehicleX=41a00000 vehicleY=00000000 vehicleZ=3f800000 vehicleSpeed=3f800000
+LOG: EMPTYRENDER phase=2 offset=750 acceptedBags=16 acceptedVertices=15724 billboards=0 roadBags=3 roadVertices=1024 carBags=4 carVertices=3072 valid=1
+LOG: BUILDINGRENDER phase=2 offset=750 acceptedBags=8 acceptedVertices=11328 refs0=1 refs1=1 refs2=1 refs3=1 refs4=1 refs5=1 refs6=1 refs7=1 valid=1
+LOG: MODELRENDER phase=2 offset=750 owner=4 acceptedBags=1 acceptedVertices=300 valid=1
+LOG: LIGHTCONTEXT phase=2 offset=750 count=1 slot=0 enabled=1 point=1 x=bf933333 y=40400000 z=40800000 range=20 r=32 g=96 b=128 valid=1
+LOG: TWOCARLIGHT phase=2 offset=750 ravagerBodySelected=1 picaBodySelected=1 ravagerWheelSelected=1 picaWheelSelected=1 ravagerBodyEffective=1 picaBodyEffective=1 ravagerWheelEffective=1 picaWheelEffective=1 valid=1
+LOG: TWOCARCONTEXT phase=2 offset=750 vehicleCount=2 driverDef=0 secondDef=1 driverObject=1 secondObject=3 secondX=c0133333 secondY=3ec28f5c secondZ=41000000 secondSpeed=00000000
+LOG: TWOCARRENDER phase=2 offset=750 ravagerBodyBags=1 ravagerBodyVertices=768 picaBodyBags=1 picaBodyVertices=768 ravagerWheelBags=1 ravagerWheelVertices=768 picaWheelBags=1 picaWheelVertices=768 valid=1
+LOG: ROADCONTEXT phase=2 offset=750 paved=4 grounded=1 roadY=3df5c28f centerOffset=00000000 grip=3f800000 cover=3f800000
+LOG: CLOSEOUTCONTEXT phase=2 offset=1155 players=0 oneArm=1 route=8 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=1 width=640 height=448 refreshMilliHz=59940 requested=1 valid=1 positionX=41a80000 positionY=00000000 positionZ=00000000 lookX=41a80000 lookY=00000000 lookZ=00000000 playerX=41a80000 playerY=00000000 playerZ=00000000 night=1 paused=1 hourZero=1 vehicleX=41a80000 vehicleY=00000000 vehicleZ=3f800000 vehicleSpeed=3f800000
+LOG: EMPTYRENDER phase=2 offset=1155 acceptedBags=16 acceptedVertices=15724 billboards=0 roadBags=3 roadVertices=1024 carBags=4 carVertices=3072 valid=1
+LOG: BUILDINGRENDER phase=2 offset=1155 acceptedBags=8 acceptedVertices=11328 refs0=1 refs1=1 refs2=1 refs3=1 refs4=1 refs5=1 refs6=1 refs7=1 valid=1
+LOG: MODELRENDER phase=2 offset=1155 owner=4 acceptedBags=1 acceptedVertices=300 valid=1
+LOG: LIGHTCONTEXT phase=2 offset=1155 count=1 slot=0 enabled=1 point=1 x=bf666666 y=40400000 z=40800000 range=20 r=32 g=96 b=128 valid=1
+LOG: TWOCARLIGHT phase=2 offset=1155 ravagerBodySelected=1 picaBodySelected=1 ravagerWheelSelected=1 picaWheelSelected=1 ravagerBodyEffective=1 picaBodyEffective=1 ravagerWheelEffective=1 picaWheelEffective=1 valid=1
+LOG: TWOCARCONTEXT phase=2 offset=1155 vehicleCount=2 driverDef=0 secondDef=1 driverObject=1 secondObject=3 secondX=c0133333 secondY=3ec28f5c secondZ=41000000 secondSpeed=00000000
+LOG: TWOCARRENDER phase=2 offset=1155 ravagerBodyBags=1 ravagerBodyVertices=768 picaBodyBags=1 picaBodyVertices=768 ravagerWheelBags=1 ravagerWheelVertices=768 picaWheelBags=1 picaWheelVertices=768 valid=1
+LOG: ROADCONTEXT phase=2 offset=1155 paved=4 grounded=1 roadY=3df5c28f centerOffset=00000000 grip=3f800000 cover=3f800000
+LOG: CLOSEOUTDONE order=0 kind=4 valid=1 loops=5400

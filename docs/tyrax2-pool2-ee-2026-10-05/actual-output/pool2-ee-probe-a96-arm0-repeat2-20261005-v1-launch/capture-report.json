@@ -1,0 +1,47 @@
+{
+  "pineStatusBefore": 1,
+  "status": "PASS_exact_tag_paused_state_decode_text_identity",
+  "sourceCommit": "94d86c891b1621c0b252e4fc2e155bf90274dcc0",
+  "savestateVersion": 2589523968,
+  "savestateTag": "v2.9.93",
+  "stateSha256": "f3815789892998662abccee043c23b1ff9210770e0cedcf661f31fe063024ef9",
+  "internalsSha256": "b9f64e36f0d6557b99f0e5724de97c908aa2fe18ae43f3c8301040f4889ab2a7",
+  "cpuRawSha256": "ebf7d7c8bea2e7249102f4343623f2ec5aa6384cea10b2667934816e37d26372",
+  "cpuRegsPayloadOffset": 360,
+  "offsets": {
+    "cpuSize": 1160,
+    "cpuAlign": 8,
+    "pc": 680,
+    "cycle": 1088,
+    "count": 580,
+    "sp": 464,
+    "ra": 496,
+    "delaySlot": 676
+  },
+  "registers": {
+    "pc": 1716576,
+    "cycle": 1048217756,
+    "cp0Count": 1047983457,
+    "spLow64": 33487872,
+    "raLow64": 3118228,
+    "isDelaySlot": 0
+  },
+  "elf": {
+    "path": "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-physical-v1/game/bin/vehicle-playground.elf",
+    "sha256": "1560336987d6ced5e540e9da30714d8fd2f3097cbb00935a437d019b88d5ee73",
+    "textAddress": 1048576,
+    "textBytes": 2956504,
+    "textSha256": "15563ce6dc73f28f5d9571a1dcdd64fd469396afb35ffe772a0ed49c6845d847"
+  },
+  "eeMemoryBytes": 33554432,
+  "unchangedGuestText": true,
+  "limits": [
+    "Registers decoded from raw emulator serialization; root must bind this exact layout source to Linux64 compiler result.",
+    "cycle is internal64-bit emulated schedule time, not physical EE cost.",
+    "Snapshot completion and EE breakpoint identity require separate paused PINE status bracket."
+  ],
+  "layoutReportSha256": "bf8a19fc75236e07a496b6018a9673ff46c6650c25b7b94b72a2020351c6541b",
+  "statePath": "/home/spider/pool2-ee-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/sstates/vehicle-playground (1C2826FE).174.p2s",
+  "pineStatusAfter": 1,
+  "helperSha256": "b9be5985c91802b7319df87c43eb99e0a313447d3106eecfce367218e51e0d52"
+}

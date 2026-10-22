@@ -1,0 +1,348 @@
+{
+  "fixture": {
+    "phases": [
+      "baseline before",
+      "one-search borrowing",
+      "baseline restored"
+    ],
+    "frames_per_phase": 2200,
+    "warm_work_start_offset": 1100,
+    "work_sample_count": 512,
+    "source_game": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game",
+    "source_engine": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\tyra",
+    "candidate_header_sha256": "ef3f4d9494e0cfd20b2264cfaec14949562984d17a9f7d7536a588168451c4ed",
+    "note": "Same ELF runtime branch in both arms; no new probes/waits/hold. Scene synchronized and reloaded between phases. Diagnostic A/B, not production acceptance.",
+    "artifacts": {
+      "tyra\\engine\\inc\\renderer\\core\\paths\\path1\\frame_chain_arena.hpp": "c69c83eaa4e3a79a167898ea418d78681ebb027f6bad4c0f2754b099e3cba784",
+      "game\\src\\terrain_game.cpp": "f7d311a842fa3d6b60e6ac1a6b0d2c1a35043482b9b83685b5ffada0186da66e"
+    }
+  },
+  "log": "F:\\Projects\\tyrax2-lab-20261001\\borrow-trial-physical-snapshot.log",
+  "log_sha256": "54cf88c4189ea30d5513d8b24d3f1b96dc022fba368e1f122793354bef4b10c5",
+  "elf_sha256": "5ad330ba073d4d5236191d762e7f114bc709a275e91d3523615722133a9df466",
+  "results": [
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\borrow-trial-physical-snapshot.log",
+      "first": 1100,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.468173444271088,
+      "median_ms": 18.484419080946182,
+      "p95_ms": 19.086212158203125,
+      "max_ms": 20.421674940321182,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 0,
+      "name": "baseline before",
+      "period_windows": [
+        {
+          "frame": 1100,
+          "period": 33.7,
+          "pre": 1.61,
+          "stall": 13.37
+        },
+        {
+          "frame": 1150,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.23
+        },
+        {
+          "frame": 1200,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.39
+        },
+        {
+          "frame": 1250,
+          "period": 33.37,
+          "pre": 1.61,
+          "stall": 13.1
+        },
+        {
+          "frame": 1300,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.05
+        },
+        {
+          "frame": 1350,
+          "period": 33.37,
+          "pre": 1.61,
+          "stall": 13.02
+        },
+        {
+          "frame": 1400,
+          "period": 33.37,
+          "pre": 1.55,
+          "stall": 13.32
+        },
+        {
+          "frame": 1450,
+          "period": 33.37,
+          "pre": 1.61,
+          "stall": 13.3
+        },
+        {
+          "frame": 1500,
+          "period": 33.37,
+          "pre": 1.55,
+          "stall": 13.4
+        },
+        {
+          "frame": 1550,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.39
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "mean_pre_ms": 1.57,
+      "delivered_rate_from_period_hz": 29.937430769691346
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\borrow-trial-physical-snapshot.log",
+      "first": 3300,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.4354466398557,
+      "median_ms": 18.46317376030816,
+      "p95_ms": 19.029015435112846,
+      "max_ms": 20.390096028645832,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 1,
+      "name": "one-search borrowing",
+      "period_windows": [
+        {
+          "frame": 3300,
+          "period": 33.7,
+          "pre": 1.57,
+          "stall": 13.52
+        },
+        {
+          "frame": 3350,
+          "period": 33.37,
+          "pre": 1.6,
+          "stall": 13.17
+        },
+        {
+          "frame": 3400,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.22
+        },
+        {
+          "frame": 3450,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.14
+        },
+        {
+          "frame": 3500,
+          "period": 33.37,
+          "pre": 1.6,
+          "stall": 13.28
+        },
+        {
+          "frame": 3550,
+          "period": 33.37,
+          "pre": 1.57,
+          "stall": 13.33
+        },
+        {
+          "frame": 3600,
+          "period": 33.37,
+          "pre": 1.61,
+          "stall": 13.26
+        },
+        {
+          "frame": 3650,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.41
+        },
+        {
+          "frame": 3700,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.26
+        },
+        {
+          "frame": 3750,
+          "period": 33.37,
+          "pre": 1.6,
+          "stall": 13.28
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "mean_pre_ms": 1.5710000000000002,
+      "delivered_rate_from_period_hz": 29.937430769691346,
+      "saving_against_controls_ms": [
+        0.03272680441538611,
+        0.12077832221984863
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\borrow-trial-physical-snapshot.log",
+      "first": 5500,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.55622496207555,
+      "median_ms": 18.547383626302082,
+      "p95_ms": 19.207780626085068,
+      "max_ms": 20.691341824001736,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 2,
+      "name": "baseline restored",
+      "period_windows": [
+        {
+          "frame": 5500,
+          "period": 33.7,
+          "pre": 1.61,
+          "stall": 13.5
+        },
+        {
+          "frame": 5550,
+          "period": 33.37,
+          "pre": 1.55,
+          "stall": 13.11
+        },
+        {
+          "frame": 5600,
+          "period": 33.37,
+          "pre": 1.61,
+          "stall": 13.14
+        },
+        {
+          "frame": 5650,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.23
+        },
+        {
+          "frame": 5700,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 12.92
+        },
+        {
+          "frame": 5750,
+          "period": 33.37,
+          "pre": 1.61,
+          "stall": 12.93
+        },
+        {
+          "frame": 5800,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.22
+        },
+        {
+          "frame": 5850,
+          "period": 33.37,
+          "pre": 1.61,
+          "stall": 13.23
+        },
+        {
+          "frame": 5900,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.18
+        },
+        {
+          "frame": 5950,
+          "period": 33.37,
+          "pre": 1.54,
+          "stall": 13.19
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "mean_pre_ms": 1.569,
+      "delivered_rate_from_period_hz": 29.937430769691346
+    }
+  ],
+  "control_spread_ms": 0.08805151780446252,
+  "limitations": [
+    "One sequential same-ELF runtime-branch trial; no new profiling probes.",
+    "Warm 512-frame raw work and neighboring 50-frame period summaries are distinct measurements.",
+    "Fewer searches alone is not a full-frame gain; preserve moving/retirement/fallback acceptance before production integration."
+  ],
+  "date": "2026-10-02",
+  "runtime": "Corrected 1.169.1 baseline; narrow private same-ELF runtime branch only.",
+  "acceptance": "Candidate retained privately; no production integration or accepted FPS gain. Control spread is 0.088052 ms, and the apparent savings bracket is 0.032727\u20130.120778 ms from one sequential boot.",
+  "candidate_patch": "--- a/vendor/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp\n+++ b/vendor/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp\n@@ -41,10 +41,15 @@\n            qwords <= (span->qwords * 16 - (address - span->base)) / 16;\n   }\n   bool borrow(uint32_t address, uint32_t qwords, uint32_t bankMask) {\n-    if (!contains(address, qwords) || !bankMask || (bankMask & ~3u)) return false;\n-    const uint32_t at = lowerBound(address);\n-    Span& span = at < count && spans[at].base == address ? spans[at] : spans[at-1];\n-    span.readers |= bankMask;\n+    // Locate once, preserving contains()'s exact boundary/retirement contract.\n+    const uint32_t at = lowerBound(address);\n+    Span* span = at < count && spans[at].base == address ? &spans[at] :\n+                 at ? &spans[at-1] : nullptr;\n+    if (!span || span->retired || address < span->base ||\n+        address - span->base > span->qwords * 16 ||\n+        qwords > (span->qwords * 16 - (address - span->base)) / 16 ||\n+        !bankMask || (bankMask & ~3u)) return false;\n+    span->readers |= bankMask;\n     return true;\n   }\n   void retire(uint32_t base) {\n",
+  "candidate_report": "# One-search immutable borrow candidate\n\n2026-10-02. Private scratch candidate only; no tracked source, engine build cache, console or emulator mutation.\n\n## Exact change\n\nImmutableSpanTable::borrow locates the candidate Span once with lowerBound, then applies the SAME predicates as contains: span existence, not retired, address>=base, byte offset<=qwords*16, requested qwords within the remaining extent. Only after those predicates does it reject zero/invalid bank masks and OR the readers. The public contains implementation remains untouched. The successor-exact-base versus predecessor-interior lookup choice is identical, including an exact base adjacent to a retired prior span.\n\nNo ownership or lifetime policy changes: register/add/remove, maximum 512 entries, retired spans, readers, releaseBanks, collectRetired and fallback behavior remain unchanged. borrow still accepts the baseline's zero-qword end-boundary query and unaligned interior query where the remaining-length predicate accepts it; it does not silently add alignment restrictions. Candidate uses the same safe registered-range arithmetic and preserves short-circuit guards before unsigned subtraction. Invalid bank masks never mutate reader bits. Root should apply only candidate.patch to its private engine copy for the native/hardware arm.\n\n## Host differential oracle\n\nThe harness contains class bodies extracted directly from the actual baseline header and candidate header. It does not reimplement contains/range/lease logic in a second invented model. ONLY test instrumentation changes private to public for inspection and increments one lowerBound counter. After every API operation it compares return values where applicable and all live state fields: count, sorted bases, qwords, readers and retired flags. It intentionally does not memcmp unused spans/padding.\n\nPASS: 55,163 operations and 38,018,254 assertions. Deterministic cases cover empty table; zero/misaligned base and length overflow; internal/misaligned references; end-boundary zero-length requests; requests one past the end; maximum legal UINT32 ranges and overflow rejection; duplicate/overlap/adjacent registration; valid banks 1/2/3 and masks 0/4/UINT32_MAX; retirement and no-new-borrow; both-bank holds and staged releases; collection; descending insertion of all 512 entries; full-table registration refusal; and 50,000 deterministic randomized add/contains/borrow/retire/remove/collect/release/reclaimable/hasBase operations. Finite coverage does not prove all possible streams, but directly exercises mutation/order equivalence.\n\nA separately reset counter arm runs 1,000 successful interior borrows: baseline exactly 2,000 lowerBound invocations, candidate exactly 1,000. FrameChainArena invokes the immutable resolver in both preflight and copy passes, so a successful immutable REF reduces four searches to two across those passes. Failed contains queries already used one search in baseline and do not gain another reduction. Search-count evidence is not CPU or renderer timing evidence.\n\n## Build and artifacts\n\nInstalled MinGW GCC 16.1.0. Command: g++ -std=c++17 -O2 -Wall -Wextra -Werror -static differential.cpp -o differential.exe. Final build succeeded with no warnings, final executable exit 0. An initial harness-only misleading-indentation warning was corrected while keeping Werror. No sanitizer run was performed.\n\nArtifacts: frame_chain_arena.hpp complete candidate header, candidate.patch narrow unified diff, differential.cpp, differential.exe, build.log, result.log and evidence.json hashes. The test source retains actual baseline class behavior for review. Native compilation and integrated arena/writer harnesses against the candidate, quiet physical timing and loading/retirement stress remain root's acceptance work.\n\n## Measurements still required\n\nRun unchanged fixture pose/video/quality/input and the same diagnostic guards policy. Measure complete renderer work and presentation period, plus snapshot/preflight/copy resolver query/search counts where a diagnostic separate arm needs attribution. Do not call fewer searches a measured optimization or add nested source-snapshot/native brackets to their submit parent. Preserve cold cache construction, full registry fallback, both-bank readers, repeated scenes, texture/destructive readback drains, pipeline/display toggles and oversized direct fallback. Promote only if physical measurements justify this source simplification and all ownership gates remain intact.\n",
+  "candidate_evidence": {
+    "date": "2026-10-02",
+    "baseline_path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\core\\paths\\path1\\frame_chain_arena.hpp",
+    "baseline_sha256": "8d26d6f61b882897c930482f42ce64342a883691be6cf2acba06e641d526f94b",
+    "scope": "private candidate; actual-class host state differential/search-count evidence only",
+    "result": {
+      "status": "passed",
+      "operations": 55163,
+      "assertions": 38018254,
+      "hot_successful_borrows": 1000,
+      "baseline_lowerbounds": 2000,
+      "candidate_lowerbounds": 1000
+    },
+    "compiler": "MinGW GCC 16.1.0",
+    "flags": "-std=c++17 -O2 -Wall -Wextra -Werror -static",
+    "sha256": {
+      "build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "candidate.patch": "3a61e91aca5681317a63475d66bb4292bd2071337856592e4516f307b66bad19",
+      "differential.cpp": "dfec1597b6444bcf6aecda56a6ae1fa53d903c482bfbcf6cb42473cf157b5737",
+      "differential.exe": "ad30ab9566d3c929b95a2b6f788371e558db60efb7da33e4f32c4af6cb7d2408",
+      "frame_chain_arena.hpp": "ef3f4d9494e0cfd20b2264cfaec14949562984d17a9f7d7536a588168451c4ed",
+      "report.md": "ceb1ac0df10436132d21a48a84b4df086f350612a87806690b9f7f71757d3e24",
+      "result.log": "23a4e818892495629c7a0d0011cad871d6bb4a1981fe5f825b75695b04cf0097"
+    }
+  },
+  "host_integrated_results": [
+    {
+      "kind": "arena",
+      "output": "Frame arena checks passed: 1074 cases + 10000 malformed streams\n",
+      "source_sha256": "53c292d79c7e2f09f3a4d888674b75d094be0603336ad0717b6ce27786d07a69"
+    },
+    {
+      "kind": "writer",
+      "output": "Frame writer checks passed: 43 cases\n",
+      "source_sha256": "4e14e7cc9c2e31f1a59b61547ebe416e6e5d5cea78773b646fc652dd870aed76"
+    }
+  ],
+  "emulator_verification": {
+    "verification": "Native build, host arena/writer gates and PCSX2 2.9.93 three phases/two scene reloads; physical timing pending restart.",
+    "markers": [
+      "LOG: BORROWTRIAL phase=0 first=0 enabled=0",
+      "LOG: BORROWTRIAL phase=1 first=2200 enabled=1",
+      "LOG: BORROWTRIAL phase=2 first=4400 enabled=0",
+      "LOG: BORROWTRIAL done first=6600"
+    ],
+    "sha256": {
+      "F:\\Projects\\tyrax2-lab-20261001\\borrow-trial-emulator\\emulog.txt": "5421c3eb22a4bc10675f447238bcf4b2e38f185d76fd4ddbc4cc4c082e83cfa8",
+      "F:\\Projects\\tyrax2-lab-20261001\\borrow-trial-emulator\\game-log.txt": "4d0e7733d2f5e5fa624707cd4425af1e284edfb573cb14b64f30d65b7a653c95",
+      "F:\\Projects\\tyrax2-lab-20261001\\borrow-trial-emulator\\report.txt": "3e28ccd1c633df9dbd170d8a6a77fa10d8bd25a966b17af0b81fbfab6eb7f824",
+      "F:\\Projects\\tyrax2-lab-20261001\\borrow-trial-emulator\\state1.p2s": "502d93a08398951589ea79a052cec53eac04ed30e60749ed982eea17250e235c",
+      "F:\\Projects\\tyrax2-lab-20261001\\borrow-trial-build.log": "59cc3ba9990d8c5c83f05dda2203d107ea98d8181ae26462f6022b00e2864159",
+      "F:\\Projects\\tyrax2-lab-20261001\\borrow-trial\\game\\bin\\vehicle-playground.elf": "5ad330ba073d4d5236191d762e7f114bc709a275e91d3523615722133a9df466"
+    }
+  },
+  "scripts": {
+    "prepare-borrow-trial.py": {
+      "sha256": "8b748f2d8283a7ff68e70800bf5ffa3c389940113e15c422bf5080e59b9c6f4f",
+      "source": "from pathlib import Path\nimport shutil,hashlib,json\nlab=Path('F:/Projects/tyrax2-lab-20261001');base=lab/'arena-check-night';dst=lab/'borrow-trial'\nassert not dst.exists()\nignore=shutil.ignore_patterns('obj','*.log','*.elf','*.elf.sym','*.p2s','ps2link.run')\nshutil.copytree(base/'tyra',dst/'tyra',ignore=ignore)\nshutil.copytree(base/'game',dst/'game',ignore=ignore)\nrel=Path('engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp')\nold=(base/'tyra'/rel).read_text(encoding='utf-8')\nnew=(lab/'immutable-borrow-candidate/frame_chain_arena.hpp').read_text(encoding='utf-8')\ndef body(s):\n a=s.index('  bool borrow(');b=s.index('  void retire(',a)\n return s[a:b]\noldbody=body(old);newbody=body(new)\nassert oldbody!=newbody\nassert old.replace(oldbody,newbody)==new\ncandidatebody=newbody[newbody.index('{')+1:newbody.rfind('}')]\nbaselinebody=oldbody[oldbody.index('{')+1:oldbody.rfind('}')]\ntrialbody='  bool borrow(uint32_t address, uint32_t qwords, uint32_t bankMask) {\\n    if (!BorrowExperiment::enabled) {'+baselinebody+'    }'+candidatebody+'  }\\n'\ntrial=old.replace(oldbody,trialbody)\ntrial=trial.replace('namespace Tyra {','namespace Tyra {\\nnamespace BorrowExperiment { inline bool enabled = false; }',1)\n(dst/'tyra'/rel).write_bytes(trial.encode())\np=dst/'game/src/terrain_game.cpp';s=p.read_text(encoding='utf-8')\ns='#include \"renderer/core/paths/path1/frame_chain_arena.hpp\"\\n'+s\nneedle='void TerrainGame::loop() {';assert s.count(needle)==1\ns=s.replace(needle,r'''void TerrainGame::loop() {\n  static unsigned phase=0;\n  static bool announced=false,done=false;\n  if(!announced){printf(\"LOG: BORROWTRIAL phase=0 first=%lu enabled=0\\n\",(unsigned long)ftrig::frame);fflush(stdout);announced=true;}\n  const unsigned desired=ftrig::frame/2200;\n  if(desired<=2 && desired!=phase){\n    engine->renderer.core.synchronizeFrame(); phase=desired;\n    Tyra::BorrowExperiment::enabled=phase==1;\n    printf(\"LOG: BORROWTRIAL phase=%u first=%lu enabled=%u\\n\",phase,(unsigned long)ftrig::frame,(unsigned)Tyra::BorrowExperiment::enabled);fflush(stdout);\n    loadScene(currentScene);\n  }\n  if(desired>2 && !done){\n    printf(\"LOG: BORROWTRIAL done first=%lu\\n\",(unsigned long)ftrig::frame);fflush(stdout);done=true;\n  }\n''')\np.write_bytes(s.encode())\nfiles=[dst/'tyra'/rel,p]\nmeta={'phases':['baseline before','one-search borrowing','baseline restored'],'frames_per_phase':2200,'warm_work_start_offset':1100,'work_sample_count':512,'source_game':str(base/'game'),'source_engine':str(base/'tyra'),'candidate_header_sha256':hashlib.sha256((lab/'immutable-borrow-candidate/frame_chain_arena.hpp').read_bytes()).hexdigest(),'note':'Same ELF runtime branch in both arms; no new probes/waits/hold. Scene synchronized and reloaded between phases. Diagnostic A/B, not production acceptance.','artifacts':{str(p.relative_to(dst)):hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}\n(dst/'fixture.json').write_bytes((json.dumps(meta,indent=2)+'\\n').encode())\nprint('Private baseline/candidate/baseline fixture prepared.')\n"
+    },
+    "verify-borrow-trial.py": {
+      "sha256": "dda796998387e350f2c65ee3a0b64cabc16ddac2bd11faf333af91b8dfa77e36",
+      "source": "from pathlib import Path\nimport subprocess,json,hashlib\nlab=Path('F:/Projects/tyrax2-lab-20261001');repo=Path('F:/Projects/tyra-editor');out=lab/'borrow-trial/host'\nout.mkdir(exist_ok=True)\nresults=[]\nfor kind in ['arena','writer']:\n src=repo/f'tools/verify-frame-{kind}.cpp'\n s=src.read_text(encoding='utf-8').replace('../vendor/tyra/engine/inc',str(lab/'borrow-trial/tyra/engine/inc'))\n s=s.replace('int main() {','int main() { Tyra::BorrowExperiment::enabled = true;',1)\n p=out/f'{kind}.cpp';p.write_bytes(s.encode())\n exe=out/f'{kind}.exe'\n b=subprocess.run(['g++','-std=c++17','-O2','-Wall','-Wextra','-Werror','-static',str(p),'-o',str(exe)],capture_output=True,text=True)\n (out/f'{kind}-build.log').write_bytes((b.stdout+b.stderr).encode());assert b.returncode==0,b.stderr\n r=subprocess.run([str(exe)],capture_output=True,text=True)\n (out/f'{kind}-result.log').write_bytes((r.stdout+r.stderr).encode());assert r.returncode==0,r.stderr\n print(r.stdout.strip());results.append({'kind':kind,'output':r.stdout,'source_sha256':hashlib.sha256(p.read_bytes()).hexdigest()})\n(out/'results.json').write_bytes((json.dumps(results,indent=2)+'\\n').encode())\n"
+    },
+    "analyze-borrow-trial.py": {
+      "sha256": "a077d817d1002469cf70eaff695c0eec0d4ae1da889e65e734de3115b144543f",
+      "source": "from pathlib import Path\nimport argparse,hashlib,json,re,statistics,subprocess,sys\np=argparse.ArgumentParser();p.add_argument('stem');a=p.parse_args()\nlab=Path('F:/Projects/tyrax2-lab-20261001');log=lab/(a.stem+'.log');snap=lab/(a.stem+'-snapshot.log')\nassert not snap.exists();snap.write_bytes(log.read_bytes())\nflat=snap.read_text(encoding='utf-8',errors='replace').replace('\\r','').replace('\\n','')\nassert 'BORROWTRIAL done first=6600' in flat\nfixture=json.loads((lab/'borrow-trial/fixture.json').read_text());results=[]\nfor phase,name in enumerate(fixture['phases']):\n first=phase*2200+1100\n row=json.loads(subprocess.check_output([sys.executable,'F:/Projects/tyra-editor/tools/tyrax2-timing.py',str(snap),'--first',str(first),'--frames','512','--hz','60'],text=True))\n periods=[]\n for b in flat.split('LOG: FRAMETIME ')[1:]:\n  b=b.split('LOG:')[0];f=re.search(r'\\bf=(\\d+)',b)\n  if f and first<=int(f[1])<first+500:\n   vals={field:float(re.search(r'\\b'+field+r'=([0-9.]+)',b)[1]) for field in ['period','pre','stall']}\n   periods.append(dict(frame=int(f[1]),**vals))\n assert [x['frame'] for x in periods]==list(range(first,first+500,50)),periods\n row.update(phase=phase,name=name,period_windows=periods,mean_period_ms=statistics.mean(x['period'] for x in periods),mean_pre_ms=statistics.mean(x['pre'] for x in periods))\n row['delivered_rate_from_period_hz']=1000/row['mean_period_ms'];results.append(row)\ncontrols=[results[0]['mean_ms'],results[2]['mean_ms']]\nresults[1]['saving_against_controls_ms']=[x-results[1]['mean_ms'] for x in controls]\nout=dict(fixture=fixture,log=str(snap),log_sha256=hashlib.sha256(snap.read_bytes()).hexdigest(),elf_sha256=hashlib.sha256((lab/(a.stem+'.elf')).read_bytes()).hexdigest(),results=results,control_spread_ms=abs(controls[1]-controls[0]),limitations=['One sequential same-ELF runtime-branch trial; no new profiling probes.','Warm 512-frame raw work and neighboring 50-frame period summaries are distinct measurements.','Fewer searches alone is not a full-frame gain; preserve moving/retirement/fallback acceptance before production integration.'])\n(lab/(a.stem+'-summary.json')).write_bytes((json.dumps(out,indent=2)+'\\n').encode())\nfor r in results:print(r['phase'],r['name'],round(r['mean_ms'],6),'ms',round(r['delivered_rate_from_period_hz'],2),'Hz',r.get('saving_against_controls_ms'))\n"
+    }
+  }
+}

@@ -1,0 +1,1 @@
+frames 20; click 'Project'; click 'Preferences'; click 'Rendering'; expect 'Dynamic light receivers'; shot F:/Projects/tyrax2-lab-20261001/player-light-public-ui-root-v1/rendering.png; dump; quit

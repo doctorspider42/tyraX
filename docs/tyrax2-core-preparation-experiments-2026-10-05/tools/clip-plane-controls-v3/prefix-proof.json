@@ -1,0 +1,110 @@
+{
+  "status": "PASS_KIND9_PREFIX_PRESERVATION_AND_TIMESTAMP_NEGATIVES",
+  "positive": [
+    {
+      "order": 0,
+      "prefix": "[ 22.9] ",
+      "allResultFieldsEqual": true
+    },
+    {
+      "order": 0,
+      "prefix": "[   99.1250] ",
+      "allResultFieldsEqual": true
+    },
+    {
+      "order": 0,
+      "prefix": "2026-10-05 emulator: ",
+      "allResultFieldsEqual": true
+    },
+    {
+      "order": 1,
+      "prefix": "[ 22.9] ",
+      "allResultFieldsEqual": true
+    },
+    {
+      "order": 1,
+      "prefix": "[   99.1250] ",
+      "allResultFieldsEqual": true
+    },
+    {
+      "order": 1,
+      "prefix": "2026-10-05 emulator: ",
+      "allResultFieldsEqual": true
+    }
+  ],
+  "negative": [
+    {
+      "order": 0,
+      "name": "timestampedDuplicatePhase"
+    },
+    {
+      "order": 0,
+      "name": "timestampedDuplicateGate"
+    },
+    {
+      "order": 0,
+      "name": "timestampedUnknownPhaseField"
+    },
+    {
+      "order": 0,
+      "name": "timestampedUnknownGateField"
+    },
+    {
+      "order": 0,
+      "name": "timestampedMissingPhase"
+    },
+    {
+      "order": 0,
+      "name": "timestampedMalformedPhaseToken"
+    },
+    {
+      "order": 0,
+      "name": "timestampedTwoRecordsSameLine"
+    },
+    {
+      "order": 0,
+      "name": "coronaRecordMissingLOGColon"
+    },
+    {
+      "order": 1,
+      "name": "timestampedDuplicatePhase"
+    },
+    {
+      "order": 1,
+      "name": "timestampedDuplicateGate"
+    },
+    {
+      "order": 1,
+      "name": "timestampedUnknownPhaseField"
+    },
+    {
+      "order": 1,
+      "name": "timestampedUnknownGateField"
+    },
+    {
+      "order": 1,
+      "name": "timestampedMissingPhase"
+    },
+    {
+      "order": 1,
+      "name": "timestampedMalformedPhaseToken"
+    },
+    {
+      "order": 1,
+      "name": "timestampedTwoRecordsSameLine"
+    },
+    {
+      "order": 1,
+      "name": "coronaRecordMissingLOGColon"
+    }
+  ],
+  "timestampedAuthoritativeCLIOrders": 2,
+  "priorControls": {
+    "positive": 4,
+    "negative": 54,
+    "legacy": 12
+  },
+  "onlyCoronaRecordNormalizationChanged": true,
+  "qualifiedLoopParserByteIdentical": true,
+  "rootObservedAttemptUnchanged": true
+}

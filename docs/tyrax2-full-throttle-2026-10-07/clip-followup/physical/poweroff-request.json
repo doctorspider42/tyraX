@@ -1,0 +1,6 @@
+{
+  "exitCode": 0,
+  "sentUtc": "2026-10-07T22:22:20.3991841Z",
+  "standbyVerified": false,
+  "command": "ps2client -h 192.168.100.150 -t 10 poweroff"
+}

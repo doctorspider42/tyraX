@@ -1,0 +1,35 @@
+{
+  "baseElfSha256": "d828538bbcd6456522ebf625cf7a64bd4d48cb2e0d94c460791cb4c2d21cc384",
+  "generatorSha256": "55ed8e03dc04a9c5b9adf76997277ad01786d458c23e7247ef352511c277740a",
+  "modes": [
+    0,
+    1,
+    0,
+    1,
+    0,
+    1
+  ],
+  "daytimeOnly": true,
+  "bufferCount": 2,
+  "movingAutoOrder": true,
+  "fixedSceneStep": true,
+  "inPriceReadbacks": false,
+  "ordinaryControlUnchanged": false,
+  "version": 2,
+  "clipObserver": false,
+  "shakePhaseReset": true,
+  "samePoseEndpointArms": 3,
+  "status": "UNQUALIFIED",
+  "limits": [
+    "Only empty PCM polling changes; active PCM and ADPCM implementations retained.",
+    "Potential song-start delay increases from0.5 to16ms; private diagnostic, no public audio acceptance.",
+    "Require no PCM playback during this vehicle fixture; music runtime/audio quality separate.",
+    "Worker witnesses disabled in ALL sampled rows; epoch drops transitions. PCM start event proves absence without per-frame polling.",
+    "Full same-ELF image/pose/delivery and physical both-order net/tails required."
+  ],
+  "variant": "audio-idle",
+  "comparison": "common direct+paint/Hybrid2/hybrid VU wheels/ordinary roads: empty PCM worker half versus16ms sleep",
+  "directHeaderSha256": "96275a6324f33ea07fe939723cbab3c1035277875ec91ea757f76faf473c17be",
+  "wheelMovingOnly": true,
+  "audioIdleNoPriceObserver": true
+}

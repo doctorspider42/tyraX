@@ -336,6 +336,22 @@ the baseline launch, and are excluded from the six cycles.
 > proof that this mechanism caused every historical wedge. Consoles still
 > running r6 retain the old ordering.
 
+**TyraX2 follow-up, 2026-10-02:** a network reset from the r7 smoke-test
+game followed by the unchanged heavy timeline ring-control ELF
+(`a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d`)
+completed all 5400 loops and all 384 inactive-observer samples, including
+three scene loads, with no physical restart. The file server was stopped
+before reset and the new launch waited for the IOP restart. This extends the
+smoke test to the pipelined renderer; it does not prove that every possible
+hang is recoverable.
+
+The full TyraX2 follow-up completed **9/9 network reset → fresh heavy-ELF
+starts**, each followed by 5400 game loops (48,600 total), without a physical
+restart or `freepad: DMA Busy`. These include the ring control, three live-dt
+routing boots, raw-camera diagnosis, two fixed-dt boots and two continuous-scene
+boots. Runtime completion and timing acceptance are separate: the camera
+mismatches and fixed-dt sign reversal remain rejected measurement controls.
+
 ## 2. Put it on the console
 
 1. Copy `ps2link.elf` onto the memory card as **`PS2LINK.ELF`** (uLaunchELF over

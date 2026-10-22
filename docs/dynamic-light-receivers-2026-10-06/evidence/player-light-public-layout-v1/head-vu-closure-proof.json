@@ -1,0 +1,233 @@
+{
+  "status": "PASS_TRACKED_VU_AND_RECURSIVE_SOURCE_INCLUDE_CLOSURE_EQUAL_HEAD",
+  "head": "ed047cf112d27b3c57ad1fc8aedf4803e0f3ac06",
+  "rootSources": 32,
+  "closureFiles": 40,
+  "files": {
+    "vendor/tyra/engine/src/renderer/rt/vu0_rt_kernel.vclpp": {
+      "actualSha256": "d42e10c636bc4ca49b5f859a153e33f551759d81682cb2b5c70d82bd71fd5411",
+      "headBlobSha256": "d42e10c636bc4ca49b5f859a153e33f551759d81682cb2b5c70d82bd71fd5411",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/core/paths/path1/draw_finish.vclpp": {
+      "actualSha256": "e4f6de803f567086bda6c393ba58c1db166b24de888a6903c5032580e983f9ed",
+      "headBlobSha256": "e4f6de803f567086bda6c393ba58c1db166b24de888a6903c5032580e983f9ed",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1.vclpp": {
+      "actualSha256": "7b211049cd40c3a15c1e6bc0478a432a989b419045bb16cf2675695e71d1d9ac",
+      "headBlobSha256": "7b211049cd40c3a15c1e6bc0478a432a989b419045bb16cf2675695e71d1d9ac",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h": {
+      "actualSha256": "85f7f7164fbafbb96dde9b6590748a3f94bbf8fa91e23de929aea48aa3f10d71",
+      "headBlobSha256": "85f7f7164fbafbb96dde9b6590748a3f94bbf8fa91e23de929aea48aa3f10d71",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/shared/tyra_macros.i": {
+      "actualSha256": "2d112f5498f008619f6b8d9d4ef75662c5570ac697528a1f83b1984f241d7e86",
+      "headBlobSha256": "2d112f5498f008619f6b8d9d4ef75662c5570ac697528a1f83b1984f241d7e86",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/shared/vcl_sml.i": {
+      "actualSha256": "38c3f8112045b9bbd578915e5e7c117593cab3e5199d41f7eb4145a84a1e168b",
+      "headBlobSha256": "38c3f8112045b9bbd578915e5e7c117593cab3e5199d41f7eb4145a84a1e168b",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_fold_vu1.vclpp": {
+      "actualSha256": "2866232d09019ef05802992eed4ae77d1746c449b8c68dcb141633e1c0436b1f",
+      "headBlobSha256": "2866232d09019ef05802992eed4ae77d1746c449b8c68dcb141633e1c0436b1f",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.vclpp": {
+      "actualSha256": "1638408072b6b0a279998e3e03f819c6058752a0a26ffd0feb1283ee269d0dc2",
+      "headBlobSha256": "1638408072b6b0a279998e3e03f819c6058752a0a26ffd0feb1283ee269d0dc2",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.vclpp": {
+      "actualSha256": "cf16e5ba1c60610f6104f9830dbc5b8829c1001ed581615027c90321c3d511ce",
+      "headBlobSha256": "cf16e5ba1c60610f6104f9830dbc5b8829c1001ed581615027c90321c3d511ce",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp": {
+      "actualSha256": "b7231de7546ddd540316ffa63f2ee978c7d60feebb81676f0ae20c45c7a6b75a",
+      "headBlobSha256": "b7231de7546ddd540316ffa63f2ee978c7d60feebb81676f0ae20c45c7a6b75a",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.vclpp": {
+      "actualSha256": "b024a5c3511b8dc3b0f071c4726381211b0603b3f6482d0e5e6064892cbee8d2",
+      "headBlobSha256": "b024a5c3511b8dc3b0f071c4726381211b0603b3f6482d0e5e6064892cbee8d2",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.vclpp": {
+      "actualSha256": "b54d2de5715548ca82e2f9e79e448f432500d1417381c326b8e1fa8894b2cbfc",
+      "headBlobSha256": "b54d2de5715548ca82e2f9e79e448f432500d1417381c326b8e1fa8894b2cbfc",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.vclpp": {
+      "actualSha256": "f334c222d22fb4f7192f0c519d4c8197d6e2042647188603772a4ccb3d336b0e",
+      "headBlobSha256": "f334c222d22fb4f7192f0c519d4c8197d6e2042647188603772a4ccb3d336b0e",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.vclpp": {
+      "actualSha256": "f0bd32e412aff2b639cc662fd793434a64b40a5b78756d3a1dbfcc8601909267",
+      "headBlobSha256": "f0bd32e412aff2b639cc662fd793434a64b40a5b78756d3a1dbfcc8601909267",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.vclpp": {
+      "actualSha256": "cf564ce013d7656bb622511351f646a685d063c3f8cf6a363f91bc65a21a2030",
+      "headBlobSha256": "cf564ce013d7656bb622511351f646a685d063c3f8cf6a363f91bc65a21a2030",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.vclpp": {
+      "actualSha256": "74c1ef90da97f43e1401cc95f2829888ca6bdbcf24dbceb6af2f7e95401e533e",
+      "headBlobSha256": "74c1ef90da97f43e1401cc95f2829888ca6bdbcf24dbceb6af2f7e95401e533e",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.vclpp": {
+      "actualSha256": "f644e7a299cfd7dcf41119fb9afd3d33cfe895860438f4790ef9e0a006f0484a",
+      "headBlobSha256": "f644e7a299cfd7dcf41119fb9afd3d33cfe895860438f4790ef9e0a006f0484a",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.vclpp": {
+      "actualSha256": "e2771fe81c9ce5478651efeb55215466d2fc2b00b6fd2b7e1e1da5fd1e38e85a",
+      "headBlobSha256": "e2771fe81c9ce5478651efeb55215466d2fc2b00b6fd2b7e1e1da5fd1e38e85a",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.vclpp": {
+      "actualSha256": "d5f22f18ac3ee5433bf8d2728d29d60b3daac7012513dbe5a8541db3c5a8841f",
+      "headBlobSha256": "d5f22f18ac3ee5433bf8d2728d29d60b3daac7012513dbe5a8541db3c5a8841f",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.vclpp": {
+      "actualSha256": "80284f1ad2e2a65a72b6c7fb0cdf785ebd581123c4722171e9d7a6a019e1bac5",
+      "headBlobSha256": "80284f1ad2e2a65a72b6c7fb0cdf785ebd581123c4722171e9d7a6a019e1bac5",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.vclpp": {
+      "actualSha256": "13652e6837ac17d831eb22aa4363efc87291254811c8e7358869bb84221af8a6",
+      "headBlobSha256": "13652e6837ac17d831eb22aa4363efc87291254811c8e7358869bb84221af8a6",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.vclpp": {
+      "actualSha256": "c6b16399c9141c2833eaacbf5298c348672b033c9c66720ff4273295ee50cf06",
+      "headBlobSha256": "c6b16399c9141c2833eaacbf5298c348672b033c9c66720ff4273295ee50cf06",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.vclpp": {
+      "actualSha256": "2f389d801e2588264238fd28e251b9205af29b2cd7e06296ca4661805becb189",
+      "headBlobSha256": "2f389d801e2588264238fd28e251b9205af29b2cd7e06296ca4661805becb189",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.vclpp": {
+      "actualSha256": "19640fb00d25a7954ccc41bf7ba1bcd5f5385650a158f9b9bed43bcf7e4922cb",
+      "headBlobSha256": "19640fb00d25a7954ccc41bf7ba1bcd5f5385650a158f9b9bed43bcf7e4922cb",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.vclpp": {
+      "actualSha256": "67dd40d7ee6d35e825cbcb9cb077f7f64d02a83bd26b75441ea5d7ddb4e278ce",
+      "headBlobSha256": "67dd40d7ee6d35e825cbcb9cb077f7f64d02a83bd26b75441ea5d7ddb4e278ce",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.vclpp": {
+      "actualSha256": "d01238a7ded669ae0fdc89ecebd07cbb40411ebdddd2bc83bfca1ddab0b67ee8",
+      "headBlobSha256": "d01238a7ded669ae0fdc89ecebd07cbb40411ebdddd2bc83bfca1ddab0b67ee8",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.vclpp": {
+      "actualSha256": "215faa244689a7911b8219aa410a6c92355bdcf6ea605948eb89f2b7499ce8c6",
+      "headBlobSha256": "215faa244689a7911b8219aa410a6c92355bdcf6ea605948eb89f2b7499ce8c6",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.vclpp": {
+      "actualSha256": "c8a9cfcbd4f30551be651d35a2340c533a82a4c236fe094cb9494e1252fa9fac",
+      "headBlobSha256": "c8a9cfcbd4f30551be651d35a2340c533a82a4c236fe094cb9494e1252fa9fac",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.vclpp": {
+      "actualSha256": "d7ab132402ff937175124b8d0d567c7d86bb469b659ce95f44056b522aa01df1",
+      "headBlobSha256": "d7ab132402ff937175124b8d0d567c7d86bb469b659ce95f44056b522aa01df1",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.vclpp": {
+      "actualSha256": "7c001d8f934fe35f3c9d128c3e3ea7e290510147e90cc0954e4e8c8e6482e19e",
+      "headBlobSha256": "7c001d8f934fe35f3c9d128c3e3ea7e290510147e90cc0954e4e8c8e6482e19e",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/cull/macros.i": {
+      "actualSha256": "4864dd6e6b5b2720583555a288ece3aa6c714015d7687505ef47c1ef4af6c16a",
+      "headBlobSha256": "4864dd6e6b5b2720583555a288ece3aa6c714015d7687505ef47c1ef4af6c16a",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/cull/mcpip_vu1_cull_shared_defines.h": {
+      "actualSha256": "096cfcbb29e7188a678743139f1912af11caa64c72345432132d9383ad6d7168",
+      "headBlobSha256": "096cfcbb29e7188a678743139f1912af11caa64c72345432132d9383ad6d7168",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1.vclpp": {
+      "actualSha256": "1b58ac9ecb2f0f342ae70301397a582c51781b95e60c7d81cafe003f1ab10a77",
+      "headBlobSha256": "1b58ac9ecb2f0f342ae70301397a582c51781b95e60c7d81cafe003f1ab10a77",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/as_is/macros.i": {
+      "actualSha256": "95cc7ee634d38428c90c6a7e733215cbe0b2681326d5c5999ce4dd1a5d663fad",
+      "headBlobSha256": "95cc7ee634d38428c90c6a7e733215cbe0b2681326d5c5999ce4dd1a5d663fad",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_vu1_as_is_shared_defines.h": {
+      "actualSha256": "de67ab7206af6ffae46c09afe106ed91e9aca7c5c7cead76358f2457b5b3bf7b",
+      "headBlobSha256": "de67ab7206af6ffae46c09afe106ed91e9aca7c5c7cead76358f2457b5b3bf7b",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1.vclpp": {
+      "actualSha256": "8c82f1d0cf2238e0a6de1400b6b81b2cd7c4c3d5382183f0bfa063b0bf92e9df",
+      "headBlobSha256": "8c82f1d0cf2238e0a6de1400b6b81b2cd7c4c3d5382183f0bfa063b0bf92e9df",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_vu1_shared_defines.h": {
+      "actualSha256": "e63846f138a7b1af918dd144914c92ad0d98d92880f35586264721674f1e6d29",
+      "headBlobSha256": "e63846f138a7b1af918dd144914c92ad0d98d92880f35586264721674f1e6d29",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1.vclpp": {
+      "actualSha256": "aeee1c2325f6625f5ba094d7df281affef03392b87448857727fd54fe08ef7e7",
+      "headBlobSha256": "aeee1c2325f6625f5ba094d7df281affef03392b87448857727fd54fe08ef7e7",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1.vclpp": {
+      "actualSha256": "47cf9aa01f2f48fe77dfaf5c7425e3e6d2a1eea87dab3b0a8f1dbe533ddfe46f",
+      "headBlobSha256": "47cf9aa01f2f48fe77dfaf5c7425e3e6d2a1eea87dab3b0a8f1dbe533ddfe46f",
+      "normalizedTextEqualHead": true
+    },
+    "vendor/tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1.vclpp": {
+      "actualSha256": "cf7851bb9d5d6051c7aed0f592d65912ef2c52fd05fb06c56608f51010c49f2d",
+      "headBlobSha256": "cf7851bb9d5d6051c7aed0f592d65912ef2c52fd05fb06c56608f51010c49f2d",
+      "normalizedTextEqualHead": true
+    }
+  },
+  "unresolvedIncludes": [],
+  "currentLinkedMicroInstructionBudgets": {
+    "StaPipVU1As_Is_D_FOLD_CodeStart": 104,
+    "StaPipVU1Clip_C_FOLD_CodeStart": 338,
+    "StaPipVU1As_Is_TC_CodeStart": 90,
+    "Vu0RtKernel_CodeStart": 466,
+    "StaPipVU1Cull_C_CodeStart": 226,
+    "StaPipVU1As_Is_C_CodeStart": 78,
+    "StaPipVU1Cull_TD_FOLD_CodeStart": 144,
+    "VU1DrawFinish_CodeStart": 6,
+    "StaPipVU1Cull_TC_CodeStart": 306,
+    "StaPipVU1Billboard_T_CodeStart": 110,
+    "StaPipVU1Cull_D_FOLD_CodeStart": 130,
+    "StaPipVU1Billboard_C_CodeStart": 96,
+    "StaPipVU1Cull_TCE_ENVN_CodeStart": 126,
+    "StaPipVU1AsIs_TCE_CodeStart": 116,
+    "StaPipVU1As_Is_TD_FOLD_CodeStart": 114,
+    "StaPipVU1Clip_TC_FOLD_CodeStart": 364
+  },
+  "currentProgramMax": 466,
+  "currentAll16Compared": true,
+  "baselineIdenticalPrograms": 15,
+  "expectedPrivateCoronaSpriteDifference": "StaPipVU1Cull_TC_CodeStart",
+  "note": "Archived main11 TC contains a private corona SPRITE prototype; current production TC equals HEAD source. No public receiver edit changes VU source. Microinstruction counts are image sizes, not resident simultaneous placement or FPS.",
+  "layoutAndImagesProofSha256": "246a7eb7bb256d9ed6aac9ee6084ab0d801846bcd1ca78b896c209c41df22bc2"
+}

@@ -1,0 +1,9 @@
+{
+  "experiment": "A19",
+  "qualificationOnly": true,
+  "originalGatherRetained": true,
+  "activeModes": [
+    1
+  ],
+  "productionChanges": false
+}

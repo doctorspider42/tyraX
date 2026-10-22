@@ -39,6 +39,16 @@ totals those 22; the panel names them** — on this scene all 22 are singleton
 groups, and a further 24 shapes never became eligible at all (18 marked *Show
 in reflections*, 6 physics bodies).
 
+*Show in reflections* no longer keeps an object solo (1.175.5). The flag is
+part of the group key instead, so a reflected object batches only with other
+reflected objects, and the environment-map passes submit those batches whole
+(a probe eye inside a batch's box skips it, the per-object self-skip's batch
+form). Before, every reflected object paid its own submit in the main pass:
+on the Vehicle Playground garage that was 13 of the 36 solo objects drawn in
+the parked view - eight night windows and five garage trims. Only an object
+shown through a *reflection proxy* stays solo, because the map draws a box
+where the screen draws the model.
+
 ## Reading the panel
 
 Four tiles across the top answer "is batching doing its job": **Objects
@@ -71,11 +81,16 @@ per-package model (see
 It is the right order of magnitude for deciding whether a merge is worth
 having, and nothing more.
 
-A batch that saves no packages is not a broken batch. The saving a merge
-always makes is in **submits** — one bag instead of many, and a static submit
-costs roughly a millisecond of fixed EE time whatever it holds. Packages fall
-too when members pack together, but a list-mode bag whose members each already
-filled whole packages will show the same count either way.
+A batch that saves no packages is not a broken batch. Combining members
+reduces **submits** — one bag instead of many. Packages can fall too when
+members pack together, but a list-mode bag whose members each already filled
+whole packages can show the same count either way. There is no universal fixed
+EE price per submit: geometry, bounds, state, packing and existing waits all
+affect the net result. The [controlled 80k physical contrast](tyrax2-empty-car-2026-10-06/batch/physical-order0/README.md)
+measures about 4.60 ms for changing 37 accepted carriers to 313 at identical
+accepted input geometry. That is the whole representation difference on that
+fixture, not a pure EE or per-bag constant, and the production map already
+uses static batching.
 
 **The detail** of the selected batch shows its packages against the solo
 figure, its cell, merged box and draw distance, strip or list and the lamp that
@@ -112,7 +127,7 @@ Build-time (`staticBatchEligible` in `templates.cpp` — these decide the
 | usable | the USE highlight re-submits the body itself |
 | pickable | carried and thrown, so it moves |
 | save state | a loaded save repositions it |
-| reflected | re-submitted into the environment-map pass |
+| reflection proxy | *Show in reflections* through a proxy box: a different shape in the map than on screen |
 | dynamic lighting | wants its own VU1-lit bag, refilled per frame |
 | texture feed | a live feed rebinds its texture, and a batch groups *by* texture |
 | VU parameters | per-mesh VU numbers are uploaded once per bag |
@@ -274,3 +289,18 @@ about a scene with a broken asset path. Fixture E pins it.
 - Package counts are derived from vertex counts and the package size the
   static programs use (75 vertices, `meshstrip::kRun`). They are what the bag
   submits, not a measurement of a frame.
+
+## Members at the world origin (fixed 1.176.3)
+
+A batch bakes its members in WORLD space through the same `pushVert` the solo
+path uses, and `pushVert` reads the global `g_bakeLocal` to decide between
+world and local (matrix-path) vertices. Two bakes left that global set: a
+matrix-path object's LOD tier (`applyGeoLod`) and a matrix-path invisible wall
+(`rebuildObjectGeometry`'s early return). The next batch rebuild then baked
+every member without its position, and the batch drew them all at (0, 0, 0).
+On the Motor District this showed at night, on foot: the district mood script
+shows the night windows and neon blades, the batch holding them rebuilds, and
+a pink pole with yellow window panes stood in the middle of the central
+crossing. Both bakes now clear the flag, and `rebuildStaticBatch` clears it on
+entry, since a batch is world space by definition. Reproduced in PCSX2 by
+forcing the flag before the mood flip; gone with the fix.

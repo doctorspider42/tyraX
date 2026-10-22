@@ -1,0 +1,202 @@
+{
+  "status": "PASS_COMPLETED_QUIET_ONE_ARM_MOTION_PROTOCOL",
+  "route": "vehicle",
+  "portalColdCounts": null,
+  "byPhase": {
+    "0": {
+      "players": 1,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 7.32005319595337,
+      "chunkMeanEntryMs": 16.6834964328342,
+      "perChunkMeanEntryMs": [
+        16.683364126417374,
+        16.68358760409885,
+        16.6831710073683,
+        16.683352841271294,
+        16.68400658501519
+      ],
+      "maxObservedChunkMeanEntryMs": 16.68400658501519,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683336284425522,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.69677903917101,
+          "maxMs": 16.70462375217014,
+          "over16_68": 103,
+          "over16_68Percent": 80.46875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.682338767581516,
+          "p50Ms": 16.682396782769096,
+          "p95Ms": 16.695826212565105,
+          "maxMs": 16.703670925564236,
+          "over16_68": 102,
+          "over16_68Percent": 79.6875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 7.759791162278917,
+          "p50Ms": 7.451939900716146,
+          "p95Ms": 10.38450961642795,
+          "maxMs": 12.67526584201389,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68334968884786,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.683363172743057,
+          "maxMs": 16.698401557074654,
+          "over16_68": 122,
+          "over16_68Percent": 95.3125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "1": {
+      "players": 1,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 6.693614366319444,
+      "chunkMeanEntryMs": 16.683360629611546,
+      "perChunkMeanEntryMs": [
+        16.683377159966362,
+        16.683378908369278,
+        16.683365239037407,
+        16.68334409925673,
+        16.683337741427952
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683378908369278,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.68332640329997,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.694249810112847,
+          "maxMs": 16.699778238932293,
+          "over16_68": 108,
+          "over16_68Percent": 84.375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.682162629233467,
+          "p50Ms": 16.682396782769096,
+          "p95Ms": 16.692194112141927,
+          "maxMs": 16.696516248914932,
+          "over16_68": 108,
+          "over16_68Percent": 84.375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 7.30957383579678,
+          "p50Ms": 6.634511311848959,
+          "p95Ms": 9.611048889160156,
+          "maxMs": 12.413889567057291,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.683349503411186,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.683363172743057,
+          "maxMs": 16.695387098524307,
+          "over16_68": 125,
+          "over16_68Percent": 97.65625,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "2": {
+      "players": 1,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 5.8006974220275875,
+      "chunkMeanEntryMs": 16.683355882432725,
+      "perChunkMeanEntryMs": [
+        16.68337059020996,
+        16.68336057662964,
+        16.683357503679062,
+        16.68334648344252,
+        16.683344258202446
+      ],
+      "maxObservedChunkMeanEntryMs": 16.68337059020996,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683360550138687,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.697315300835502,
+          "maxMs": 16.710784912109375,
+          "over16_68": 106,
+          "over16_68Percent": 82.8125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.682367192374336,
+          "p50Ms": 16.682396782769096,
+          "p95Ms": 16.696362474229602,
+          "maxMs": 16.70983208550347,
+          "over16_68": 105,
+          "over16_68Percent": 82.03125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 6.049804740481907,
+          "p50Ms": 5.606779310438368,
+          "p95Ms": 8.668136766221785,
+          "maxMs": 10.049309624565971,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68334958288405,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.688815985785592,
+          "maxMs": 16.705813937717014,
+          "over16_68": 121,
+          "over16_68Percent": 94.53125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    }
+  },
+  "movedAtColdEndpoints": {
+    "0": true,
+    "1": true,
+    "2": true
+  },
+  "oneArm": true,
+  "matchedAB": false,
+  "hardwarePerformanceQualified": false,
+  "nativeSixtyFpsAccepted": false,
+  "commonControllerObserverCostUnpriced": true,
+  "limitations": [
+    "Cold positions are endpoints, not trajectory proof.",
+    "Phase world state carries forward; no savings comparison.",
+    "Worst window is maximum observed64-loop mean, not worst frame or p99.",
+    "128 raw loops per phase do not cover all measured chunks.",
+    "Emulator qualifies controller/scene correctness only; hardware cadence remains separate.",
+    "Private quieting, controller and observer footprint remain unpriced; hardware performance needs root qualification."
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "childProcessId": 61808,
+  "status": "ROOT_observed_native_child_process_completion",
+  "errorLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v35.err",
+  "actualCommandParameters": {
+    "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+    "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+    "Project": "F:/Projects/tyrax2-lab-20261001/matrix-key-quad-physical-v1/game",
+    "Engine": "F:/Projects/tyrax2-lab-20261001/matrix-key-quad-physical-v1/tyra"
+  },
+  "sourceManifestSha256": "d2badd8b28f1a5fe78dedc809450b99b5a2d60dd0f20166f1c369d28055385a5",
+  "processExitCode": 0,
+  "buildLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v35.log"
+}

@@ -1,0 +1,11 @@
+{
+  "baseElfSha256": "5823d2ae7d79446b5fd1ed83a8b82995acde2bb3bd30afddaa5913744a4068c7",
+  "generatorSha256": "d8eaa927d55371c33e91e3b8aa5897c5d4b941c6314158de8997311d129a6d95",
+  "heldMode": 2,
+  "movingAutoUnchanged": true,
+  "status": "UNQUALIFIED",
+  "limits": [
+    "Held order control only, not an interleave performance change.",
+    "Inherited command/source observers require new image/state qualification."
+  ]
+}

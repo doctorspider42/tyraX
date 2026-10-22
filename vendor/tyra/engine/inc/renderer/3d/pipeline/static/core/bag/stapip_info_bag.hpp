@@ -16,7 +16,10 @@ namespace Tyra {
 
 class StaPipInfoBag : public PipelineInfoBag {
  public:
-  StaPipInfoBag() { fullClipChecks = false; }
+  StaPipInfoBag() {
+    fullClipChecks = false;
+    tightClipBand = false;
+  }
   ~StaPipInfoBag() {}
 
   /**
@@ -29,6 +32,15 @@ class StaPipInfoBag : public PipelineInfoBag {
    * Force enabled in dynamic pipe, because of efficiency.
    */
   bool fullClipChecks;
+
+  /**
+   * Modified by TyraX: cut this bag's crossing packages to the TIGHT X/Y band
+   * (VU1_CLIP_XY_BAND_TIGHT) instead of the wide guard band. For large flat
+   * textured geometry seen from close up - roads - whose triangles would
+   * otherwise reach far off screen and make the console's GS texture swim.
+   * Costs clip work on this bag only. Default false.
+   */
+  bool tightClipBand;
 };
 
 }  // namespace Tyra

@@ -1,0 +1,24 @@
+{
+  "status": "ROOT_LEAF_WAIT_AND_ARCHIVE_COVERAGE_REVIEW",
+  "archiveMembersMatchNativeObjects": {
+    "engine/engine": "5b99c1e2281dfe6718cb92c5c3a52b1f11b9f3c8d3a54a6ff3c1113d9a95051f",
+    "engine/renderer/core/renderer_core": "0ca8e2bf221a0d46fcce83077886f9c4933bef6d8d73f62fab3e653495cea574",
+    "engine/renderer/core/renderer_core_sync": "ec010ba680a5dbc9aecec6b61a746f1c488cf5753dcc93b4ccf9235c089c772e",
+    "engine/renderer/core/paths/path1/vif1_queue": "c2161f7bf39c5602f3ab71b2f93dcccc65024860c270b9bfc7d522b3aaf0ba68",
+    "engine/renderer/core/2d/renderer_core_2d": "7481fa137f2f0e6d493dbc4e8aa6af1e71b1d43b20afc2b4d127cb428062c39c"
+  },
+  "sourceFiles": {
+    "src/renderer/core/paths/path1/vif1_queue.cpp": "47774284173b709aa679562838aa9cf95b04f7a3e5a849203a608b4dce6b0cb0",
+    "inc/renderer/core/paths/path1/frame_submission.hpp": "a8f50563dfa6cb1869ad1c0d902784a15e6028849b1f6e662a2015cbc59ed407",
+    "src/renderer/core/renderer_core_sync.cpp": "19611bbc55242ae4dce9c9ace5774eec0eb930405152d860be37969cd02980b4",
+    "src/renderer/core/renderer_core.cpp": "af7eaa9c2d2d9da57218dd6cf230fac934431552750015b47f885e633add8c79",
+    "src/renderer/core/2d/renderer_core_2d.cpp": "8d579a2a52af706abcf47be552dda932ca590d810b06ec028a1d7ae5281fca24"
+  },
+  "extraCountReads": "3 phase markers plus 2 per outer leaf wait in enabled raw loops only; existing entry/end/pacing stamps reused.",
+  "waitClosure": "Queue waitFor spins, drain spin plus SDK VIF wait, ring backpressure, direct VIF waits, all three VIF FIFO polls, central GIF/VIF DMA adapters, central draw_wait_finish and GS check loop. GS clear/queue flush/arena reset excluded from wait spans. flipBuffers/vsync remain existing pacing stamps.",
+  "nesting": "Outer-only intervals; mixed kinds or phase crossing invalidate. Strict runtime parser additionally requires zero nesting.",
+  "jobOwnership": "Pipeline submission records current EE loop, sequence and context. Completion records actual pending owner; never inferred by subtracting one.",
+  "omissions": "Raytracer VU0 wait is outside this fixture (no raytraced renderer). SDK-internal work/preemption inside wait interval retained. HardwareTrace and FrameProfile compiled out. No added wait, poll, FINISH, DMA drain, controller or physics change.",
+  "bufferBytes": 15872,
+  "commonDisabledFootprintUnpriced": true
+}

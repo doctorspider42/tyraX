@@ -1,0 +1,18 @@
+{
+  "status": "quiet_native_build_and_assets_verified",
+  "build_backend": "native",
+  "build_exit_code": 0,
+  "exit_code_source": "root process result; exact build log preserved",
+  "selected_elf_sha256": "f61b60aced3920679e47e271b500e7a5575af2d5a482087625981a57cb335187",
+  "selected_symbol_sha256": "7b21e2ceeb0c316471525b52dc40645c36f7f4a2d3ba5810ee7c87edb522c334",
+  "target_source_manifest_sha256": "2c0f97c4d03d97656e8ddbd9a120622729c061a06183437dc1268c92f7d15e9a",
+  "build_log": "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-bench-native-v3.log",
+  "build_log_sha256": "94033dbf4a8269229e283bf9f44b723699d99a3c270d057b39137a0f0ec15f77",
+  "verified_source_files": 475,
+  "runtime_assets": 298,
+  "current_authored_baked_byte_equal_assets": 294,
+  "converted_audio_assets": 4,
+  "asset_report_sha256": "3c4d2e3c8d27fed9308135669be790b7936c450957e480c16a1852445facdf4d",
+  "quiet_profile0_hardware_trace0": true,
+  "ordinary_clocks": true
+}

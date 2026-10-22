@@ -1,0 +1,13 @@
+{
+  "pid": 41452,
+  "elfSha256": "66DEC4DD85972F85D9EF2783E1B6299541A2CA7344603B91056851BE558DEAD4",
+  "startedUtc": "2026-10-08T14:36:56.5866769Z",
+  "cwd": "F:/Projects/tyrax2-roadfree-hitch-preload-20261008-v2/physical/bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ]
+}

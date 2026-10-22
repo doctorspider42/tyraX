@@ -1,0 +1,16 @@
+{
+  "pid": 24204,
+  "window": "0x20000b",
+  "display": ":93",
+  "width": 1322,
+  "height": 974,
+  "x": 110,
+  "y": 47,
+  "observedAction": "Run",
+  "observedPhase": "ELF-entry-pause",
+  "observedPC": "0x100e78",
+  "screenshot": "/mnt/f/Projects/tyrax2-lab-20261001/pool-lattice-probe-b192-arm0-repeat2-20261005-v1-launch/entry-debugger.png",
+  "screenshotSha256": "b435700d1e0cb1cf8b81400cf575a518d4fb4ace9a5f3e1417a530061fe548c7",
+  "entryCaptureSha256": "26392d823c1905f468e05e4ebc8044e20bc54240a53731c945c73747c125211a",
+  "authority": "Actual source-bound paused entry SaveState plus pinned owned debugger geometry; Run toolbar region observed in preceding root cases."
+}

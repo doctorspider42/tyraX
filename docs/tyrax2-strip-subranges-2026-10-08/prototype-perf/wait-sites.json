@@ -1,0 +1,72 @@
+[
+  {
+    "file": "src/renderer/core/paths/path1/vif1_queue.cpp",
+    "source": "dma_channel_wait(DMA_CHANNEL_VIF1, 0);",
+    "count": 3
+  },
+  {
+    "file": "src/renderer/core/paths/path1/vif1_queue.cpp",
+    "source": "while (tail - head >= kDepth) advanceIfIdle();",
+    "count": 1
+  },
+  {
+    "file": "src/renderer/core/paths/path1/vif1_queue.cpp",
+    "source": "while (tail - head >= kRingDepth) advanceIfIdle();",
+    "count": 1
+  },
+  {
+    "file": "src/renderer/core/paths/path1/vif1_queue.cpp",
+    "source": "while (static_cast<s32>(completed - sequence) < 0) advanceIfIdle();",
+    "count": 1
+  },
+  {
+    "file": "src/renderer/core/paths/path1/vif1_queue.cpp",
+    "source": "while (running) advanceIfIdle();",
+    "count": 1
+  },
+  {
+    "file": "src/renderer/core/paths/path1/vif1_queue.cpp",
+    "source": "while (*stat & 0x1f000003) {}",
+    "count": 1
+  },
+  {
+    "file": "inc/renderer/core/paths/path1/frame_submission.hpp",
+    "source": "dma_channel_wait(channel, timeout);",
+    "count": 1
+  },
+  {
+    "file": "inc/renderer/core/paths/path1/frame_submission.hpp",
+    "source": "dma_channel_wait(channel, 0);",
+    "count": 2
+  },
+  {
+    "file": "inc/renderer/core/paths/path1/frame_submission.hpp",
+    "source": "draw_wait_finish();",
+    "count": 1
+  },
+  {
+    "file": "inc/renderer/core/paths/path1/frame_submission.hpp",
+    "source": "while (*stat & 0x1f000003) {}",
+    "count": 1
+  },
+  {
+    "file": "src/renderer/core/renderer_core_sync.cpp",
+    "source": "while (!check()) {\n  }",
+    "count": 1
+  },
+  {
+    "file": "src/renderer/core/renderer_core.cpp",
+    "source": "while (*vif1Stat & kVif1Busy) {\n    }",
+    "count": 1
+  },
+  {
+    "file": "src/renderer/core/renderer_core.cpp",
+    "source": "graph_wait_vsync();",
+    "count": 3
+  },
+  {
+    "file": "src/renderer/core/gs/renderer_core_gs.cpp",
+    "source": "while (pendingBuffer >= 0) graph_wait_vsync();",
+    "count": 2
+  }
+]

@@ -1,0 +1,501 @@
+{
+  "valid": true,
+  "groupRasterEqual": true,
+  "platform": "emulator",
+  "elfSha256": "22e6ac07d696d4c67619357083f296c09481f5973203f08eab499d700c064c3f",
+  "sourceFiles": 475,
+  "phases": [
+    {
+      "phase": 0,
+      "mode": 0,
+      "hour": 12,
+      "rows": 637,
+      "pricedFrames": 509,
+      "lastZ": 108.280586,
+      "witnessFrames": 4,
+      "clipCalls": 438,
+      "eligible": 67,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 1,
+      "mode": 7,
+      "hour": 12,
+      "rows": 639,
+      "pricedFrames": 511,
+      "lastZ": 108.293701,
+      "witnessFrames": 4,
+      "clipCalls": 437,
+      "eligible": 66,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 2,
+      "mode": 0,
+      "hour": 12,
+      "rows": 639,
+      "pricedFrames": 511,
+      "lastZ": 108.28791,
+      "witnessFrames": 4,
+      "clipCalls": 437,
+      "eligible": 66,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 3,
+      "mode": 8,
+      "hour": 12,
+      "rows": 655,
+      "pricedFrames": 527,
+      "lastZ": 108.26722,
+      "witnessFrames": 4,
+      "clipCalls": 0,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 340
+    },
+    {
+      "phase": 4,
+      "mode": 0,
+      "hour": 12,
+      "rows": 639,
+      "pricedFrames": 511,
+      "lastZ": 108.275017,
+      "witnessFrames": 4,
+      "clipCalls": 437,
+      "eligible": 66,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 5,
+      "mode": 0,
+      "hour": 0,
+      "rows": 622,
+      "pricedFrames": 494,
+      "lastZ": 108.273972,
+      "witnessFrames": 4,
+      "clipCalls": 481,
+      "eligible": 58,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 6,
+      "mode": 7,
+      "hour": 0,
+      "rows": 626,
+      "pricedFrames": 498,
+      "lastZ": 108.345406,
+      "witnessFrames": 4,
+      "clipCalls": 1001,
+      "eligible": 172,
+      "merged": 1,
+      "removed": 1,
+      "maxInput": 15,
+      "bypassBags": 0
+    },
+    {
+      "phase": 7,
+      "mode": 0,
+      "hour": 0,
+      "rows": 624,
+      "pricedFrames": 496,
+      "lastZ": 108.312462,
+      "witnessFrames": 4,
+      "clipCalls": 479,
+      "eligible": 61,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 8,
+      "mode": 8,
+      "hour": 0,
+      "rows": 655,
+      "pricedFrames": 527,
+      "lastZ": 108.26722,
+      "witnessFrames": 4,
+      "clipCalls": 0,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 478
+    },
+    {
+      "phase": 9,
+      "mode": 0,
+      "hour": 0,
+      "rows": 626,
+      "pricedFrames": 498,
+      "lastZ": 108.306717,
+      "witnessFrames": 4,
+      "clipCalls": 999,
+      "eligible": 172,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    }
+  ],
+  "unrefined": false,
+  "groupOnly": false,
+  "images": [
+    {
+      "phase": 0,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        180613,
+        0
+      ]
+    },
+    {
+      "phase": 0,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        10307,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        177405,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        18603,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        178323,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        18418,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        301525,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        17594,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        178363,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        18409,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        210582,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        12102,
+        0
+      ]
+    },
+    {
+      "phase": 6,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        198459,
+        0
+      ]
+    },
+    {
+      "phase": 6,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        11573,
+        0
+      ]
+    },
+    {
+      "phase": 7,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        202253,
+        0
+      ]
+    },
+    {
+      "phase": 7,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        11648,
+        0
+      ]
+    },
+    {
+      "phase": 8,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        267187,
+        0
+      ]
+    },
+    {
+      "phase": 8,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        17687,
+        0
+      ]
+    },
+    {
+      "phase": 9,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        200820,
+        0
+      ]
+    },
+    {
+      "phase": 9,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        11756,
+        0
+      ]
+    }
+  ],
+  "negativeControls": [
+    "stationary",
+    "no-gas",
+    "freeze",
+    "cars",
+    "profiler",
+    "paint",
+    "present",
+    "missing-phase",
+    "completion",
+    "witness",
+    "checkpoint",
+    "bypass-clip"
+  ],
+  "logSha256": "196c9c7dbe1b3d578e7f9c790228ce2b02395f391080e73c81c0f638fa678d3b",
+  "csvSha256": "b384201b2d64a9ea0fb454f773de0b79dc430ebc0291c77ff4b701649f88cb05",
+  "groupActive": true,
+  "scope": "8 omits necessary clipping and changes workload/appearance; net contrast is not pure EE or a production fix"
+}

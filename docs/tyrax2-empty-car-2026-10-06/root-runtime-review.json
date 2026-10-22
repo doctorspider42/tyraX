@@ -1,0 +1,15 @@
+{
+  "status": "ROOT_BOUNDED_EMPTY_CAR_EMULATOR_REVIEW",
+  "protocolPassed": true,
+  "loops": 5400,
+  "coldRenderWitnesses": 6,
+  "bagsEach": 4,
+  "verticesEach": 4860,
+  "billboardsEach": 0,
+  "actualDrivingPhaseMovement": true,
+  "threeCapturedImagesReviewedAtOriginalResolution": true,
+  "everyFrameVisualQualified": false,
+  "hardwarePerformanceQualified": false,
+  "physicalLaunchPending": true,
+  "emulatorStoppedExactOwnedPid": 29095
+}

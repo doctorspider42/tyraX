@@ -1,0 +1,55 @@
+{
+  "status": "ROOT_PRESERVED_COMPLETE_BUT_INACTIVE_LATTICE_ATTEMPT",
+  "pid": 25254,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-pool-lattice-order0-20261005/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-pool-lattice-order0-20261005/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-physical-v5/game/bin/vehicle-playground.elf"
+  ],
+  "rejection": {
+    "status": "REJECTED_NIGHT_CAPTURE",
+    "issues": [
+      "positive cold lattice activation required"
+    ],
+    "inputPins": {
+      "/home/spider/night-ablation-emulator-pool-lattice-order0-20261005/emulator.log": "69d86be245dc6c11b1672527b6c130f820e740d854c7d538466f5b984aa15927",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-physical-v5/game/bin/night-ablation.log": "919681ed5783954eb72c701cef73c40fd5e490d3e18e6f59c14ebc629dcc322c",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-controls-v1/analyze-night-cli.py": "25e52fa4f91b0c438df53f561e9847c0be5c5e2de2dab2db319da0e226b075e0",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-controls-v1/analyze-night.py": "7244aafc4dc1b42e9e58e58da42529b64cccbd58ca58dbe0745cdf2cc56475d9",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-controls-v1/analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27"
+    },
+    "requestedPlan": {
+      "kind": 8,
+      "order": 0,
+      "joint": 0,
+      "restored": 0
+    }
+  },
+  "files": {
+    "emulator.log": "69d86be245dc6c11b1672527b6c130f820e740d854c7d538466f5b984aa15927",
+    "night-ablation.log": "919681ed5783954eb72c701cef73c40fd5e490d3e18e6f59c14ebc629dcc322c",
+    "launch/night-ablation.cfg": "33735d45e658cf3f13224692e7941c17b77f05ff6005711f7ce33ed858503b0e",
+    "launch/owned-launch.json": "7acc174a808530ec961cffb3ea02cbf255273411925f46205c63ae965fd13eda",
+    "launch/phase-0.png": "0af2b3c88675d1c1b12457f9a2ca286a70c7ad8949e575b543f079f25dfc3456",
+    "launch/phase-1.png": "a141bc58a8986bf338b9db5e54afc65d17a025cda1697152f218329db0a7f700",
+    "launch/phase-2.png": "026e9cf31486b65c8b814d5a5f838dfa42367af67b19e3f45e0c44ed55de6ee6",
+    "launch/quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "launch/raster-capture-proof.json": "58c4a98ac71bf7ed3ac1d66370f21bc951ee0b1a722ec8aca9d1d28353797995",
+    "launch/root-native-provenance.json": "2c6c3ff89542546d527c3375a89a41b59361f37a1b14ac424e1f295a5e8c0b75",
+    "launch/root-runtime-authority.json": "10569428d17c272a85ccee19c49d1216818f04ce0f1ff2bb69fc7f0edb5cd77f",
+    "launch/root-source-freeze.json": "106f25081e328f7aac10684bd7369933d76f744bc6ff89e284d29c64337acf5a",
+    "launch/runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "launch/target-source-manifest.json": "08260273c9caebf7de11ae06cc5642403df23ef8328ac42399bf5714c95e29d6",
+    "launch/vehicle-playground.elf": "7bf09a918d7742abf57b4afa83fca3c8593edf8f75bfdab351bf2cab57114c4e",
+    "launch/vehicle-playground.elf.sym": "ec3d9b474ab626ae903f68210ba5d431d1f89dbf866b1117111c2f011651f673",
+    "strict-rejection/analysis-command.json": "4e1e61c8c3b1a730b886006f639a64ec9f2fa60082aa7c760b9668d6b4572c30",
+    "strict-rejection/strict-analysis.json": "7e5569bbe64bdac8bb6d30ab11334f4974f023af11629316567ef82263fd9ae2"
+  },
+  "performanceAccepted": false
+}

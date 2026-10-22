@@ -1,0 +1,48 @@
+{
+  "status": "PASS_ACTUAL_R5900_COMPILE_ONLY_NIGHT_LAYOUT",
+  "sizes": {
+    "Sample": 48,
+    "samples": 6144,
+    "Chunk": 28,
+    "chunks": 420,
+    "Counter": 16,
+    "commonCounter": 112,
+    "extraCounter": 48,
+    "WildCounter": 44
+  },
+  "commands": [
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+      "-std=c++17",
+      "-O2",
+      "-G0",
+      "-I",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-physical-v1/tyra/engine/inc",
+      "-c",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-target-abi-v1/layout.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-target-abi-v1/layout.o"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy",
+      "-O",
+      "binary",
+      "-j",
+      ".rodata",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-target-abi-v1/layout.o",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-target-abi-v1/layout.bin"
+    ]
+  ],
+  "inputHashes": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-physical-v1/tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-physical-v1/tyra/engine/inc/debug/night_ablation.hpp": "9e841b6b0a69589b49eab9da43d3be2659b69f3856edd469abd0239e98952559",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-physical-v1/tyra/engine/inc/debug/night_plan.hpp": "37941cc0894d45efeff8dcfcbcc81b513fe2fc1c1e06808afd6734d325f6413e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-target-abi-v1/layout.cpp": "11b863e578b922d281833cdd7df240c7dc35f4dced0376fcd8c2980695e5a42c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-target-abi-v1/layout.o": "7368bceef4162aff759214124d5fa89746c13139b97fdcb6869f61d15e96437d",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-target-abi-v1/layout.bin": "74a2bbfc8484212f595b71df86ead17c60f099de856d02cfc0cc345991f65032",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++": "04212da9b41c83d31f478060b3af9619fcadb8d0381187006ee0df388e118f6d",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy": "f7851bf0575b53aae768fdb522e4f9a09d37371bdab3aa19533327b91c7e2553"
+  },
+  "runtimeOrFullApplicationFootprintAccepted": false,
+  "helperSha256": "eed0d05648a9311a955e688bf90dd2597ad9c9375d42c883e347b06223c38ff3"
+}

@@ -1,0 +1,27 @@
+{
+  "status": "INCOMPLETE_HOST_INTERRUPTED_NO_COMPLETION_ACCEPTED",
+  "reason": "User reported Codex crash; exact ps2client process absent on recovery",
+  "physicalHangEstablished": false,
+  "pingResponds": true,
+  "sourceManifestSha256": "af51db0234d76e4f7f6a62a9ad1dba4552f767f9d104f8dcccb743e378743497",
+  "elfSha256": "a336d49fbba47783d58427166ca61b93e7ae9a50330e7225f82bede52c604b23",
+  "rawSha256": "262b25fc91dfb38812235325e26d982cbdf264451469114911acc0cf698b997a",
+  "artifactSha256": "1cb6868458d70c9f00750b98da1f8994e2ab0499f88bac3c0b4d41dd88bf9561",
+  "files": {
+    "client-process.json": "2e050a0c438a8ee3c98654ad9abac1d3465854b1a79148fcd98bcd4e582a7b15",
+    "host-arrivals.jsonl": "cc42baa75893f208d5d08fec47dcfce5090ba8a5fbc42e4b2fefd459368bd7f5",
+    "night-ablation-partial.log": "1cb6868458d70c9f00750b98da1f8994e2ab0499f88bac3c0b4d41dd88bf9561",
+    "night-ablation.cfg": "30d1c3a56e01231ca0ebc60975e826122773eba23cc4ff57e40b07d2bb5543d4",
+    "observed-launch.json": "8fcc7d2f626d68900788797a77c01ff9a8c1717af1beb1732001195daf39d835",
+    "owned-launch.json": "7f0786cd2bf8b7fdb33cbfc5663b5074c6532c78986290df4b3629225de91534",
+    "ps2client-raw.log": "262b25fc91dfb38812235325e26d982cbdf264451469114911acc0cf698b997a",
+    "ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-launcher-process.json": "42afda396436037cfb27a57033f2cc3f269b994a2c4adf4fab1895c6ea45b7bf",
+    "root-native-provenance.json": "53c866f83cb0d285016d9ac5bdae0053af9bdd50756f3cf6aa57e550f5832c67",
+    "root-runtime-authority.json": "3d860f8e39bc8648e68436e3790ddefe3b867d5366fbd5d58865bdf189e993fc",
+    "root-source-freeze.json": "c8ed2a2d136fcfc9e4fe459dd9b01e79e018e4429930d5e89f8150e7b457f42b",
+    "runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "target-source-manifest.json": "af51db0234d76e4f7f6a62a9ad1dba4552f767f9d104f8dcccb743e378743497"
+  }
+}

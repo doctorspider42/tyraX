@@ -48,6 +48,13 @@ constexpr int SHADOW_VOLUMES_DEBUG = 0;
 // band is a single buffer, shared with the torch's.
 constexpr int SPOT_SHADOW_VOLUMES = 0;
 
+// Baked lamp light (docs/dynamic-light-receivers.md, "Baked lamp light";
+// ProjectSettings::bakeStaticLamps): a dynamic light that never moves and
+// never flickers has its light folded into the static geometry's vertex
+// colours whenever it switches, instead of being picked and evaluated per bag
+// every frame. Moving receivers still take it live.
+constexpr bool BAKE_STATIC_LAMPS = false;
+
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.16F;
 // The full-stick tier and the sprint tier, already resolved (0 = inherit is
@@ -72,6 +79,8 @@ constexpr float STICK_EXP_L = 2.0F;
 constexpr float STICK_EXP_R = 2.0F;
 constexpr float ORBIT_SPEED = 1.0F;  // multiplier
 constexpr float GRAVITY = 9.8F;          // units/s^2
+// The contact broad phase (docs/collision-boxes.md): 0 grid, 1 octree.
+constexpr int SCENE_BROADPHASE = 0;
 constexpr float JUMP_SPEED = 4.5F;    // units/s
 
 // Two players (Preferences > Multiplayer, docs/multiplayer.md). The mode

@@ -1,0 +1,14 @@
+{
+  "processExitCode": 0,
+  "buildLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v53.log",
+  "childProcessId": 59916,
+  "sourceManifestSha256": "59f5a2505cbaca54c8a079be74b2ebb45400867659b4e91f7037f68bfb4a704f",
+  "status": "ROOT_observed_native_child_process_completion",
+  "actualCommandParameters": {
+    "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+    "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+    "Engine": "F:/Projects/tyrax2-lab-20261001/assert-gate-physical-v1/tyra",
+    "Project": "F:/Projects/tyrax2-lab-20261001/assert-gate-physical-v1/game"
+  },
+  "errorLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v53.err"
+}

@@ -1,0 +1,835 @@
+[    0.0924] Program Path: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt
+[    0.0932] AppRoot Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin
+[    0.0935] Resources Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/resources
+[    0.0984] DataRoot Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2
+[    0.1055] Loading config from /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/inis/PCSX2.ini.
+[    0.1144] Loading secrets from /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/inis/secrets.ini.
+[    0.1279] BIOS Directory: /mnt/c/Users/pawel/OneDrive/Documents/PCSX2/bios
+[    0.1283] Snapshots Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/snaps
+[    0.1285] Savestates Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/sstates
+[    0.1286] MemoryCards Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/memcards
+[    0.1288] Logs Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/logs
+[    0.1290] Cheats Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/cheats
+[    0.1292] Patches Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/patches
+[    0.1293] Covers Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/covers
+[    0.1296] Game Settings Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/gamesettings
+[    0.1299] Resources Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/resources
+[    0.1301] User Resources Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/resources
+[    0.1303] Cache Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/cache
+[    0.1305] Textures Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/textures
+[    0.1306] Input Profile Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/inputprofiles
+[    0.1308] Video Dumping Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/videos
+[    0.1310] Debugger Layouts Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/inis/debuggerlayouts
+[    0.1311] Debugger Settings Directory: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/inis/debuggersettings
+[    0.1779] Loaded translation file for language en-US
+[    0.3161] PCSX2 v2.9.93
+[    0.3165] Savestate version: 0x9a590000
+[    0.3167] 
+[    0.3170] 
+[    0.3172] Host Machine Init:
+[    0.3186]   Operating System = Ubuntu 22.04
+[    0.3188]   Available RAM    = 48853 MB (47.71 GB)
+[    0.3191]   Physical RAM     = 50191 MB (49.02 GB)
+[    0.3193] 
+[    0.3196]   Processor        = AMD Ryzen Threadripper 1920X
+[    0.3198]   Core Count       = 24 cores
+[    0.3200]   Thread Count     = 24 threads
+[    0.3202]   Cluster Count    = 1 clusters
+[    0.3205] CPU Extensions Detected:
+[    0.3209]   AVX AVX2
+[    0.3211] 
+[    0.3214] Allocating host memory for virtual systems...
+[    0.3223]   EE Main Memory                   @ 0x00007F9A17200000 -> 0x00007F9A20100000 [143mb]
+[    0.3225]   IOP Main Memory                  @ 0x00007F9A20100000 -> 0x00007F9A28200000 [129mb]
+[    0.3229]   VU0/1 On-Chip Memory             @ 0x00007F9A28200000 -> 0x00007F9A28300000 [1mb]
+[    0.3231]   VTLB Virtual Map                 @ 0x00007F9A28300000 -> 0x00007F9A28B00000 [8mb]
+[    0.3233]   VTLB Address Map                 @ 0x00007F9A28B00000 -> 0x00007F9A28F00000 [4mb]
+[    0.3235]   R5900 Recompiler Cache           @ 0x00007F9A28F00000 -> 0x00007F9A2CF00000 [64mb]
+[    0.3237]   R3000A Recompiler Cache          @ 0x00007F9A2CF00000 -> 0x00007F9A2EF00000 [32mb]
+[    0.3239]   Micro VU0 Recompiler Cache       @ 0x00007F9A2FF00000 -> 0x00007F9A33F00000 [64mb]
+[    0.3243]   Micro VU1 Recompiler Cache       @ 0x00007F9A33F00000 -> 0x00007F9A37F00000 [64mb]
+[    0.3245]   VIF0 Unpack Recompiler Cache     @ 0x00007F9A2EF00000 -> 0x00007F9A2F700000 [8mb]
+[    0.3248]   VIF1 Unpack Recompiler Cache     @ 0x00007F9A2F700000 -> 0x00007F9A2FF00000 [8mb]
+[    0.3249]   VIF Unpack Recompiler Cache      @ 0x00007F9A37F00000 -> 0x00007F9A38000000 [1mb]
+[    0.3251]   GS Software Renderer             @ 0x00007F9A38000000 -> 0x00007F9A3C000000 [64mb]
+[    0.3269] Fastmem area: 0x7f9917200000 - 0x7f9a171fffff
+[    0.3307] Generating SSE-optimized unpacking functions for VIF interpreters...
+[    0.3316] Unpack function generation complete.  Generated function statistics:
+[    0.3318]   Reserved buffer    : 1048576 bytes @ 0x00007F9A37F00000
+[    0.3321]   x86 code generated : 7422 bytes
+[    0.3323] 
+[    0.3378] SDLInputSource: Using Controller DB from resources.
+[    0.3917] SDLInputSource: 765 gamepad mappings are loaded.
+[    0.3920] Invalid binding: 'XInput-0/DPadUp'
+[    0.3922] Invalid binding: 'XInput-0/DPadRight'
+[    0.3923] Invalid binding: 'XInput-0/DPadDown'
+[    0.3925] Invalid binding: 'XInput-0/DPadLeft'
+[    0.3927] Invalid binding: 'XInput-0/Y'
+[    0.3929] Invalid binding: 'XInput-0/B'
+[    0.3931] Invalid binding: 'XInput-0/A'
+[    0.3932] Invalid binding: 'XInput-0/X'
+[    0.3934] Invalid binding: 'XInput-0/Back'
+[    0.3935] Invalid binding: 'XInput-0/Start'
+[    0.3937] Invalid binding: 'XInput-0/LeftShoulder'
+[    0.3939] Invalid binding: 'XInput-0/+LeftTrigger'
+[    0.3940] Invalid binding: 'XInput-0/RightShoulder'
+[    0.3941] Invalid binding: 'XInput-0/+RightTrigger'
+[    0.3942] Invalid binding: 'XInput-0/LeftStick'
+[    0.3944] Invalid binding: 'XInput-0/RightStick'
+[    0.3945] Invalid binding: 'XInput-0/Guide'
+[    0.3948] Invalid binding: 'XInput-0/-LeftY'
+[    0.3949] Invalid binding: 'XInput-0/+LeftX'
+[    0.3950] Invalid binding: 'XInput-0/+LeftY'
+[    0.3952] Invalid binding: 'XInput-0/-LeftX'
+[    0.3954] Invalid binding: 'XInput-0/-RightY'
+[    0.3955] Invalid binding: 'XInput-0/+RightX'
+[    0.3958] Invalid binding: 'XInput-0/+RightY'
+[    0.3960] Invalid binding: 'XInput-0/-RightX'
+[    0.3967] Settings: Advanced Settings are enabled; only proceed if you know what you're doing! No support will be provided if you have the option enabled.
+[    0.5219] Scanning F:\PS2\Games (recursively)
+[    0.5261] Loading BIOS...
+[    0.5380] BIOS Found: Europe  v02.00(14/06/2004)  Console 20040614-100914
+[    0.5862] Mechacon version: 0x00020603
+[    0.5874] Opening CDVD...
+[    0.6136] Initializing Elf: 4611008 bytes
+[    0.6145] Disc changed to .
+[    0.6148]   Name: vehicle-playground [?]
+[    0.6150]   Serial: vehicle-playground
+[    0.6151]   Version: 
+[    0.6153]   CRC: 015C88D5
+[    0.6211] No game settings found (tried '/mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/gamesettings/015C88D5.ini')
+[    0.6213] Applying settings...
+[    0.6218] Invalid binding: 'XInput-0/DPadUp'
+[    0.6220] Invalid binding: 'XInput-0/DPadRight'
+[    0.6221] Invalid binding: 'XInput-0/DPadDown'
+[    0.6229] Invalid binding: 'XInput-0/DPadLeft'
+[    0.6232] Invalid binding: 'XInput-0/Y'
+[    0.6234] Invalid binding: 'XInput-0/B'
+[    0.6236] Invalid binding: 'XInput-0/A'
+[    0.6238] Invalid binding: 'XInput-0/X'
+[    0.6241] Invalid binding: 'XInput-0/Back'
+[    0.6244] Invalid binding: 'XInput-0/Start'
+[    0.6246] Invalid binding: 'XInput-0/LeftShoulder'
+[    0.6248] Invalid binding: 'XInput-0/+LeftTrigger'
+[    0.6250] Invalid binding: 'XInput-0/RightShoulder'
+[    0.6252] Invalid binding: 'XInput-0/+RightTrigger'
+[    0.6254] Invalid binding: 'XInput-0/LeftStick'
+[    0.6256] Invalid binding: 'XInput-0/RightStick'
+[    0.6258] Invalid binding: 'XInput-0/Guide'
+[    0.6260] Invalid binding: 'XInput-0/-LeftY'
+[    0.6262] Invalid binding: 'XInput-0/+LeftX'
+[    0.6264] Invalid binding: 'XInput-0/+LeftY'
+[    0.6266] Invalid binding: 'XInput-0/-LeftX'
+[    0.6268] Invalid binding: 'XInput-0/-RightY'
+[    0.6271] Invalid binding: 'XInput-0/+RightX'
+[    0.6273] Invalid binding: 'XInput-0/+RightY'
+[    0.6276] Invalid binding: 'XInput-0/-RightX'
+[    0.6279] GameDB: Has not been initialized yet, initializing...
+[    0.6884] GameDB: 12841 games on record (loaded in 60.47ms)
+[    0.7102] Reopening memory cards...
+[    0.7151] (FileMcd) Creating new 8MB memory card: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/emulator/profile/PCSX2/memcards/Mcd001.ps2
+[    1.1313] McdSlot 0 [File]: Mcd001.ps2 [8 MB, UNFORMATTED]
+[    1.1317] McdSlot 1 [File]: [disabled/empty filename]
+[    1.1353] HLE Host: Set 'host:' root path to: /mnt/f/Projects/tyrax2-paint-engine-enabled-20261009-v2/game/bin
+[    1.1355] EE/iR5900 Recompiler Reset
+[    1.1724] iR3000A Recompiler reset.
+[    1.1834] mVU Reset
+[    1.1841] mVU Reset
+[    1.1885] Resetting host memory for virtual systems...
+[    1.4231] Time Zone Offset: GMT+01:00
+[    1.4234] Time Zone Location: Berlin
+[    1.4237] DST: Winter Time
+[    1.4239] Time Format: 24-Hour
+[    1.4240] Date Format: DD/MM/YYYY
+[    1.4242] System Time Basis: Operating System Time
+[    1.4245] Resulting System Time: 2026-10-09 02:24:37
+[    1.4247] Close virtual disk tray
+[    1.4249] Media already loaded (fast boot)
+[    1.4251] Opening GS...
+[    1.5417] VK: Enabling extension: VK_KHR_get_surface_capabilities2
+[    1.5698] Using Vulkan GPU 'llvmpipe (LLVM 15.0.7, 256 bits)' for automatic renderer check.
+[    1.5702] Not using Vulkan for software renderer.
+[    1.5710] acquireRenderWindow() recreate=true fullscreen=false render_to_main=false surfaceless=false
+[    1.5823] (GetRefreshRateFromXRandR) Modeline is invalid: 0/0/0
+[    1.5869] Surface refresh rate: 60 Hz
+[    1.5874] Loading EGL from libEGL.so...
+[    1.5971] GLAD EGL Version: 1.0
+[    1.5973] Using EGL platform EGL_EXT_platform_x11.
+[    1.6087] eglInitialize() version: 1.5
+[    1.6091] GLAD EGL Version: 1.5
+[    1.6093] Trying GL version 4.6
+[    1.6096] eglCreateContext() failed: 0x3009
+[    1.6098] Trying GL version 4.5
+[    1.6460] Got GL version 4.5
+[    1.6463] EGL_MIN_SWAP_INTERVAL = 1
+[    1.6466] EGL_MAX_SWAP_INTERVAL = 1
+[    1.6468] Negative swap interval/tear-control is NOT supported
+[    1.6515] GL_VENDOR: Mesa
+[    1.6518] GL_VERSION: 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+[    1.6520] GL_RENDERER: llvmpipe (LLVM 15.0.7, 256 bits)
+[    1.6522] GL_SHADING_LANGUAGE_VERSION: 4.50
+[    1.6524] GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS: 16
+[    1.6527] GL: Viewport Array:            Supported       => Using: GL_ARB_viewport_array
+[    1.6528] GL: Direct State Access:       Supported       => Using: OpenGL 4.5 Core
+[    1.6530] GL: Copy Image:                Supported       => Using: OpenGL 4.3 Core
+[    1.6532] GL: Clip Control:              Supported       => Using: OpenGL 4.5 Core
+[    1.6533] GL: Conservative Depth:        Supported       => Using: OpenGL 4.2 Core
+[    1.6535] GL: CAS Sharpening:            Supported       => Using: OpenGL 4.2 Core
+[    1.6538] GL: Texture Barriers:          Auto            => Using: Framebuffer Fetch
+[    1.6540] GL: RGBA16 HW Blending:        Supported       => Using: RGBA16 UNORM
+[    1.6541] GL: Point Expansion:           Supported       => Using: Hardware
+[    1.6543] GL: Line Expansion:            Fallback        => Using: Vertex Expansion
+[    1.6545] GL: Sprite Expansion:          Supported       => Using: Vertex Expansion
+[    1.6547] GL: DXTn Texture Compression:  Supported       => Using: GL_EXT_texture_compression_s3tc
+[    1.6549] GL: BC6/7 Texture Compression: Supported       => Using: OpenGL 4.2 Core
+[    1.6589] 1 program binary formats supported by driver
+[    1.7160] Program binary retrieved, 4105 bytes, format 34655
+[    1.7192] Program binary retrieved, 4121 bytes, format 34655
+[    1.7220] Program binary retrieved, 4249 bytes, format 34655
+[    1.7248] Program binary retrieved, 4013 bytes, format 34655
+[    1.7276] Program binary retrieved, 4013 bytes, format 34655
+[    1.7303] Program binary retrieved, 4017 bytes, format 34655
+[    1.7331] Program binary retrieved, 4017 bytes, format 34655
+[    1.7358] Program binary retrieved, 4185 bytes, format 34655
+[    1.7383] Program binary retrieved, 4217 bytes, format 34655
+[    1.7411] Program binary retrieved, 4137 bytes, format 34655
+[    1.7436] Program binary retrieved, 4125 bytes, format 34655
+[    1.7466] Program binary retrieved, 4121 bytes, format 34655
+[    1.7508] Program binary retrieved, 4253 bytes, format 34655
+[    1.7552] Program binary retrieved, 4237 bytes, format 34655
+[    1.7582] Program binary retrieved, 4245 bytes, format 34655
+[    1.7608] Program binary retrieved, 4261 bytes, format 34655
+[    1.7639] Program binary retrieved, 4965 bytes, format 34655
+[    1.7667] Program binary retrieved, 4981 bytes, format 34655
+[    1.7691] Program binary retrieved, 4261 bytes, format 34655
+[    1.7717] Program binary retrieved, 4277 bytes, format 34655
+[    1.7746] Program binary retrieved, 5005 bytes, format 34655
+[    1.7769] Program binary retrieved, 5021 bytes, format 34655
+[    1.7791] Program binary retrieved, 4257 bytes, format 34655
+[    1.7814] Program binary retrieved, 4273 bytes, format 34655
+[    1.7838] Program binary retrieved, 5001 bytes, format 34655
+[    1.7861] Program binary retrieved, 5017 bytes, format 34655
+[    1.7883] Program binary retrieved, 4277 bytes, format 34655
+[    1.7909] Program binary retrieved, 4293 bytes, format 34655
+[    1.7937] Program binary retrieved, 5057 bytes, format 34655
+[    1.7971] Program binary retrieved, 5073 bytes, format 34655
+[    1.8000] Program binary retrieved, 4153 bytes, format 34655
+[    1.8037] Program binary retrieved, 4169 bytes, format 34655
+[    1.8063] Program binary retrieved, 4233 bytes, format 34655
+[    1.8083] Program binary retrieved, 5781 bytes, format 34655
+[    1.8108] Program binary retrieved, 5373 bytes, format 34655
+[    1.8129] Program binary retrieved, 6389 bytes, format 34655
+[    1.8150] Program binary retrieved, 4917 bytes, format 34655
+[    1.8174] Program binary retrieved, 4845 bytes, format 34655
+[    1.8197] Program binary retrieved, 4997 bytes, format 34655
+[    1.8225] Program binary retrieved, 4101 bytes, format 34655
+[    1.8390] Program binary retrieved, 4137 bytes, format 34655
+[    1.8566] Program binary retrieved, 4109 bytes, format 34655
+[    1.8590] Program binary retrieved, 5389 bytes, format 34655
+[    1.8611] Program binary retrieved, 5829 bytes, format 34655
+[    1.8629] Program binary retrieved, 5857 bytes, format 34655
+[    1.8648] Program binary retrieved, 4289 bytes, format 34655
+[    1.8691] Program binary retrieved, 21205 bytes, format 34655
+[    1.8713] Program binary retrieved, 4765 bytes, format 34655
+[    1.8738] Program binary retrieved, 5685 bytes, format 34655
+[    1.8762] Program binary retrieved, 4141 bytes, format 34655
+[    1.8780] Program binary retrieved, 4537 bytes, format 34655
+[    1.8808] Program binary retrieved, 4889 bytes, format 34655
+[    1.8832] Program binary retrieved, 4117 bytes, format 34655
+[    1.8854] Program binary retrieved, 4741 bytes, format 34655
+[    1.8873] Program binary retrieved, 4965 bytes, format 34655
+[    1.8908] Program binary retrieved, 6613 bytes, format 34655
+[    1.8936] Program binary retrieved, 4797 bytes, format 34655
+[    1.8978] Program binary retrieved, 13085 bytes, format 34655
+[    1.9078] Program binary retrieved, 7285 bytes, format 34655
+[    1.9156] Program binary retrieved, 5497 bytes, format 34655
+[    1.9176] Program binary retrieved, 4141 bytes, format 34655
+[    1.9196] Program binary retrieved, 4141 bytes, format 34655
+[    1.9219] Program binary retrieved, 4145 bytes, format 34655
+[    1.9241] Program binary retrieved, 4145 bytes, format 34655
+[    1.9630] Program binary retrieved, 5369 bytes, format 34655
+[    1.9805] OpenGL Graphics Driver Info:
+[    1.9807] OpenGL Context:
+[    1.9810] 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+[    1.9812] Mesa llvmpipe (LLVM 15.0.7, 256 bits)
+[    1.9813] GLSL: 4.50
+[    1.9891] Processor count: 24 cores, 24 processors, 1 clusters
+[    1.9893] Ordered processor list: 12, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 0, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+[    1.9895] Not pinning SW threads, we need 4 processors, but only have 0
+[    1.9901] Opening SPU2...
+[    1.9905] Creating Null audio stream, sample rate = 48000, expansion = Disabled, buffer = 50, latency = 32, stretching enabled, driver = wasapi, device = 
+[    1.9907] Allocated buffer of 2432 frames for buffer of 50 ms [expansion Disabled (block size 2048), stretch disabled, target size 2432].
+[    1.9909] Initializing Pad...
+[    1.9910] Initializing SIO2...
+[    1.9911] Initializing SIO0...
+[    1.9913] Opening DEV9...
+[    1.9914] DEV9: DEV9init
+[    1.9921] DEV9: DEV9init2
+[    1.9923] DEV9: DEV9init3
+[    1.9947] DEV9: DEV9init ok
+[    1.9949] DEV9: DEV9open
+[    1.9951] Opening USB...
+[    1.9952] Opening FW...
+[    1.9956] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 16683350
+[    1.9991] VM subsystems initialized in 1473.28 ms
+[    1.9999] MultiPause time: 202ns
+[    2.0024] MultiPause time: 202ns
+[    2.0026] MultiPause time: 144ns
+[    2.0029] MultiPause time: 142ns
+[    2.0084] Failed to inhibit screen saver.
+[    2.0086] Processor order assignment: EE=12, VU=23, GS=22
+[    2.0089]   EE thread is on processor 12 (0x1000)
+[    2.0091]   VU thread is on processor 23 (0x800000)
+[    2.0094]   GS thread is on processor 22 (0x400000)
+[    2.0183] Failed to inhibit screen saver.
+[    2.1265] # Initialize memory (rev:3.70, ctm:197Mhz, cpuclk:147Mhz detected)
+[    2.1352] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    2.1370] RegisterLibraryEntries: excepman version 1.01
+[    2.1389] RegisterLibraryEntries:  intrman version 1.02
+[    2.1392] RegisterLibraryEntries:   ssbusc version 1.01
+[    2.1398] RegisterLibraryEntries:  dmacman version 1.02
+[    2.1403] RegisterLibraryEntries:  timrman version 1.01
+[    2.1408] RegisterLibraryEntries:  sysclib version 1.01
+[    2.1411] RegisterLibraryEntries:    stdio version 1.01
+[    2.1415] RegisterLibraryEntries:  heaplib version 1.01
+[    2.1422] FW: read mem 0x1f80847c: 0x10000001
+[    2.1424] FW: write mem 0x1f808414: 0x417f0000
+[    2.1426] FW: read mem 0x1f808400: 0xffc00001
+[    2.1428] FW: write mem 0x1f80844c: 0xffffffff
+[    2.1430] FW: write mem 0x1f808420: 0xffffffff
+[    2.1432] FW: write mem 0x1f808428: 0xffffffff
+[    2.1434] FW: write mem 0x1f808430: 0xffffffff
+[    2.1446] RegisterLibraryEntries:   thbase version 1.01
+[    2.1449] RegisterLibraryEntries:  thevent version 1.01
+[    2.1451] RegisterLibraryEntries:  thsemap version 1.01
+[    2.1453] RegisterLibraryEntries:  thmsgbx version 1.01
+[    2.1455] RegisterLibraryEntries:  thfpool version 1.01
+[    2.1457] RegisterLibraryEntries:  thvpool version 1.01
+[    2.1467] RegisterLibraryEntries:   vblank version 1.01
+[    2.1474] RegisterLibraryEntries:    ioman version 1.02
+[    2.1483] RegisterLibraryEntries:  modload version 1.01
+[    2.1488] RegisterLibraryEntries:   romdrv version 2.01
+[    2.1492] RegisterLibraryEntries:    stdio version 1.02
+[    2.1498] RegisterLibraryEntries:   sifman version 1.01
+[    2.1504] 
+[    2.1506] PlayStation 2 ======== Hard reset boot
+[    2.1510]  ROMGEN=2004-0614, IOP info (CPUID=1f, CACH_CONFIG=0, 2MB, IOP mode)
+[    2.1514]  <20040614-100914,ROMconf,PS20200EC20040614.bin:11696>
+[    2.1606] # Total accessable memory size: 32 MB (B:2:8:0) (370:2:7c30)
+[    2.1619] # TLB spad=0 kernel=1:12 default=13:30 extended=31:38
+[    2.2228] # Initialize Start.
+[    2.2254] # Initialize GS ...
+[    2.2256] # Initialize INTC ...
+[    2.2258] # Initialize TIMER ...
+[    2.2260] # Initialize DMAC ...
+[    2.2275] # Initialize VU1 ...
+[    2.2280] # Initialize VIF1 ...
+[    2.2289] # Initialize GIF ...
+[    2.2291] # Initialize VU0 ...
+[    2.2295] # Initialize VIF0 ...
+[    2.2306] # Initialize IPU ...
+[    2.2318] # Initialize FPU ...
+[    2.2321] # Initialize User Memory ...
+[    2.2888] # Initialize Scratch Pad ...
+[    2.2892] # Initialize Done.
+[    2.2903] 
+[    2.2905] EE DECI2 Manager version 0.06 Feb  6 2003 08:38:48
+[    2.2908]   CPUID=2e20, BoardID=0, ROMGEN=2004-0614, 32M
+[    2.2910] 
+[    2.2920] RegisterLibraryEntries:   sifcmd version 1.01
+[    2.3226] Initializing Elf: 4611008 bytes
+[    2.3247] ELF Loading: host:vehicle-playground.elf, Game CRC = 015C88D5, EntryPoint = 0x00100E78
+[    2.3277] RegisterLibraryEntries:  cdvdman version 1.01
+[    2.3345] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    2.3361] RegisterLibraryEntries:  secrman version 1.03
+[    2.3364] RegisterLibraryEntries:   eesync version 1.01
+[    2.3367] 
+[    2.3369] IOP Realtime Kernel Ver.0.9.1
+[    2.3372]     Copyright 1999 (C) Sony Computer Entertainment Inc. 
+[    2.3379] Reboot service module.(99/11/10)
+[    2.3404] cdvd driver module version 0.1.1 (C)SCEI
+[    2.3413] Load File service.(99/11/05)
+[    2.3416] Multi Threaded Fileio module.(99/11/15) 
+[    2.3418] iop heap service (99/11/03)
+[    2.3639] loadelf: fname host:vehicle-playground.elf secname all
+[    2.3641] loadelf version 3.30
+[    2.3660] Input ELF format filename = host:vehicle-playground.elf
+[    2.4118] 1 00100000 0041973c ..................................................................
+[    2.4121] Loaded, host:vehicle-playground.elf
+[    2.4124] start address 0x100e78
+[    2.4126] gp address 00000000
+[    2.4138] # Restart Without Memory Clear.
+[    2.4200] # Initialize GS ...
+[    2.4202] # Initialize INTC ...
+[    2.4204] # Initialize TIMER ...
+[    2.4206] # Initialize DMAC ...
+[    2.4209] # Initialize VU1 ...
+[    2.4213] # Initialize VIF1 ...
+[    2.4215] # Initialize GIF ...
+[    2.4218] # Initialize VU0 ...
+[    2.4220] # Initialize VIF0 ...
+[    2.4222] # Initialize IPU ...
+[    2.4224] # Initialize FPU ...
+[    2.4226] # Initialize Scratch Pad ...
+[    2.4228] # Restart Without Memory Clear Done.
+[    2.4231] ELF host:vehicle-playground.elf with entry point at 0x00100E78 is executing.
+[    2.4233] ELF changed, active CRC 015C88D5 (host:vehicle-playground.elf)
+[    2.4325] Applying core settings...
+[    2.4332] Updating CPU configuration...
+[    2.4334] iR3000A Recompiler reset.
+[    2.4371] mVU Reset
+[    2.4377] mVU Reset
+[    2.4549] iR3000A Recompiler reset.
+[    2.4582] mVU Reset
+[    2.4584] mVU Reset
+[    2.4619] EE/iR5900 Recompiler Reset
+[    2.4775] BIOS: Successfully found the instruction pattern. Assuming the thread list is here: 8001a640
+[    2.4802] Warning: GetOsdConfigParam2 Reading extended language/version configs, may be incorrect!
+[    2.4902] read/write allocate memory 4000
+[    2.4904] open name host:/ps2link.run flag 1 data 41378
+[    2.4910] open fd = -5
+[    2.4938] Get Reboot Request From EE
+[    2.4952] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    2.4972] RegisterLibraryEntries: excepman version 1.01
+[    2.4985] RegisterLibraryEntries:  intrman version 1.02
+[    2.4988] RegisterLibraryEntries:   ssbusc version 1.01
+[    2.4996] RegisterLibraryEntries:  dmacman version 1.02
+[    2.5003] RegisterLibraryEntries:  timrman version 1.01
+[    2.5010] RegisterLibraryEntries:  sysclib version 1.01
+[    2.5013] RegisterLibraryEntries:    stdio version 1.01
+[    2.5017] RegisterLibraryEntries:  heaplib version 1.01
+[    2.5040] RegisterLibraryEntries:   thbase version 1.01
+[    2.5043] RegisterLibraryEntries:  thevent version 1.01
+[    2.5045] RegisterLibraryEntries:  thsemap version 1.01
+[    2.5047] RegisterLibraryEntries:  thmsgbx version 1.01
+[    2.5049] RegisterLibraryEntries:  thfpool version 1.01
+[    2.5051] RegisterLibraryEntries:  thvpool version 1.01
+[    2.5062] RegisterLibraryEntries:   vblank version 1.01
+[    2.5068] RegisterLibraryEntries:    ioman version 1.02
+[    2.5080] RegisterLibraryEntries:  modload version 1.01
+[    2.5134] RegisterLibraryEntries:   romdrv version 2.01
+[    2.5141] RegisterLibraryEntries:    stdio version 1.02
+[    2.5147] RegisterLibraryEntries:   sifman version 1.01
+[    2.5154] 
+[    2.5156] PlayStation 2 ======== Soft reboot
+[    2.5164] RegisterLibraryEntries:   sifcmd version 1.01
+[    2.5202] RegisterLibraryEntries:  cdvdman version 1.01
+[    2.5220] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    2.5309] RegisterLibraryEntries:  secrman version 1.03
+[    2.5313] RegisterLibraryEntries:   eesync version 1.01
+[    2.5316] 
+[    2.5319] IOP Realtime Kernel Ver.0.9.1
+[    2.5321]     Copyright 1999 (C) Sony Computer Entertainment Inc. 
+[    2.5329] Reboot service module.(99/11/10)
+[    2.5350] [EE] Skipping timeout loop at 0x002F20C0 -> 0x002F20E0
+[    2.5353] cdvd driver module version 0.1.1 (C)SCEI
+[    2.5358] Load File service.(99/11/05)
+[    2.5360] Multi Threaded Fileio module.(99/11/15) 
+[    2.5363] iop heap service (99/11/03)
+[    2.5647] RegisterLibraryEntries:   iomanx version 1.01
+[    2.5664] fileXio: fileXio: fileXio RPC Server v1.00
+[    2.5665] Copyright (c) 2003 adresd
+[    2.5670] RegisterLibraryEntries:  sio2man version 2.07
+[    2.5673] RegisterLibraryEntries:  sio2man version 1.02
+[    2.5681] RegisterLibraryEntries:   padman version 1.02
+[    2.5684] Pad Driver for OSD
+[    2.5690] FREESD v1.01
+[    2.5692] RegisterLibraryEntries:    libsd version 1.04
+[    2.5803] debug_level = 1 (ps2snd 0.1
+[    2.5817] read/write allocate memory 4000
+[    2.5819] open name host:/log.txt flag 302 data 41378
+[    2.5835] open fd = 256
+[    2.5877] greetings from version 0.93 !
+[    2.5879] RegisterLibraryEntries:   audsrv version 1.04
+[    2.5881] audsrv_adpcm_init()
+[    2.5887] open name host:/log.txt flag 302 data 41378
+[    2.5898] open fd = 256
+[    2.5917] open name host:/log.txt flag 302 data 41378
+[    2.5930] open fd = 256
+[    2.5954] open name host:/log.txt flag 302 data 41378
+[    2.5967] open fd = 256
+[    2.5982] UpdateVSyncRate: Mode Changed to SDTV 480p.
+[    2.5984] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 16683350
+[    2.5986] Set GS CRTC configuration. SDTV   720x480 @ 59.94 Progressive (FRAME)
+[    2.5997] open name host:/log.txt flag 302 data 41378
+[    2.6009] open fd = 256
+[    2.6029] open name host:/log.txt flag 302 data 41378
+[    2.6041] open fd = 256
+[    2.6057] open name host:/log.txt flag 302 data 41378
+[    2.6069] open fd = 256
+[    2.6087] open name host:/log.txt flag 302 data 41378
+[    2.6099] open fd = 256
+[    2.6118] open name host:/log.txt flag 302 data 41378
+[    2.6130] open fd = 256
+[    2.6148] open name host:/log.txt flag 302 data 41378
+[    2.6161] open fd = 256
+[    2.6181] open name host:/log.txt flag 302 data 41378
+[    2.6195] open fd = 256
+[    2.6214] open name host:/log.txt flag 302 data 41378
+[    2.6225] open fd = 256
+[    2.6245] open name host:/log.txt flag 302 data 41378
+[    2.6257] open fd = 256
+[    2.6273] open name host:/log.txt flag 302 data 41378
+[    2.6284] open fd = 256
+[    4.7029] 
+[    4.7034] -----------------------------------------
+[    4.7037]         _____        ____   ___
+[    4.7039]           |     /   ____| |___|
+[    4.7041]           |     |   |     |   |
+[    4.7045] -----------------------------------------
+[    4.7047] Copyright 2022
+[    4.7049] Repository: https://github.com/h4570/tyra
+[    4.7051] Licensed under Apache License 2.0
+[    4.7056] Version: 2.2.0
+[    4.7059] -----------------------------------------
+[    4.7062] 
+[    4.8686] open name host:/log.txt flag 302 data 41378
+[    4.8697] open fd = 256
+[    4.8714] open name host:/log.txt flag 302 data 41378
+[    4.8725] open fd = 256
+[    4.8743] audsrv_adpcm_init()
+[    4.8755] open name host:/log.txt flag 302 data 41378
+[    4.8767] open fd = 256
+[    4.8783] [EE] Skipping timeout loop at 0x00102F60 -> 0x00102F80
+[    4.9026] open name host:/log.txt flag 302 data 41378
+[    4.9039] open fd = 256
+[    4.9055] open name host:/log.txt flag 302 data 41378
+[    4.9066] open fd = 256
+[    4.9084] Curent pad(0,0) status: EXECCMD
+[    5.1007] Pad: DS2 Config Finished - P1/S1 - AL: Off - AB: Usable - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.1348] open name host:/log.txt flag 302 data 41378
+[    5.1363] open fd = 256
+[    5.1384] open name host:/log.txt flag 302 data 41378
+[    5.1400] open fd = 256
+[    5.1426] open name host:/log.txt flag 302 data 41378
+[    5.1442] open fd = 256
+[    5.1457] Curent pad(0,0) status: EXECCMD
+[    5.2010] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.4011] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.4355] open name host:/log.txt flag 302 data 41378
+[    5.4369] open fd = 256
+[    5.4388] open name host:/log.txt flag 302 data 41378
+[    5.4399] open fd = 256
+[    5.4415] open name host:/log.txt flag 302 data 41378
+[    5.4427] open fd = 256
+[    5.4440] Curent pad(0,0) status: EXECCMD
+[    5.7021] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    5.9016] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    5.9353] open name host:/log.txt flag 302 data 41378
+[    5.9364] open fd = 256
+[    5.9381] open name host:/log.txt flag 302 data 41378
+[    5.9391] open fd = 256
+[    5.9408] open name host:/log.txt flag 302 data 41378
+[    5.9418] open fd = 256
+[    5.9431] open name host:/log.txt flag 302 data 41378
+[    5.9441] open fd = 256
+[    5.9453] Curent pad(0,0) status: EXECCMD
+[    6.0021] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Normal - VL: Normal - RB: D+A+P (0x0003FFFF)
+[    6.0185] open name host:/log.txt flag 302 data 41378
+[    6.0198] open fd = 256
+[    6.0215] open name host:/log.txt flag 302 data 41378
+[    6.0231] open fd = 256
+[    6.0267] open name host:/log.txt flag 302 data 41378
+[    6.0280] open fd = 256
+[    6.0298] open name host:/log.txt flag 302 data 41378
+[    6.0312] open fd = 256
+[    6.0332] open name host:/log.txt flag 302 data 41378
+[    6.0344] open fd = 256
+[    6.0369] open name host:/paint-raster.png flag 1 data 41378
+[    6.0391] open fd = 256
+[    6.0484] open name host:/log.txt flag 302 data 41378
+[    6.0495] open fd = 256
+[    6.0508] open name host:/log.txt flag 302 data 41378
+[    6.0518] open fd = 256
+[    6.0532] open name host:/log.txt flag 302 data 41378
+[    6.0542] open fd = 256
+[    6.0556] open name host:/log.txt flag 302 data 41378
+[    6.0568] open fd = 256
+[    6.0582] open name host:/log.txt flag 302 data 41378
+[    6.0592] open fd = 256
+[    6.0606] open name host:/log.txt flag 302 data 41378
+[    6.0618] open fd = 256
+[    6.0634] PAINTCAP enabled=1 checks=17 nullRejected=1 valid=1
+[    6.0656] PAINTFOG step=0 enabled=0 scale=0.000000 offset=255.000000
+[    6.0665] open name host:/hardware-trace.cfg flag 1 data 41378
+[    6.0669] open fd = -5
+[    6.0757] open name host:/log.txt flag 302 data 41378
+[    6.0768] open fd = 256
+[    6.0844] microVU1: Cached Prog = [000] [PC=3060] [List=01] (Cache=0.000%) [0.0mb]
+[    6.0961] open name host:/log.txt flag 302 data 41378
+[    6.0973] open fd = 256
+[    6.1368] open name host:/paint-raster-00.bin flag 602 data 41378
+[    6.1384] open fd = 256
+[    6.3952] PAINTRASTER step=0 mode=0 shape=0 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[    6.3956] PAINTFOG step=1 enabled=0 scale=0.000000 offset=255.000000
+[    6.3961] open name host:/log.txt flag 302 data 41378
+[    6.3973] open fd = 256
+[    6.4538] open name host:/paint-raster-01.bin flag 602 data 41378
+[    6.4554] open fd = 256
+[    6.7068] PAINTRASTER step=1 mode=1 shape=0 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[    6.7071] PAINTFOG step=2 enabled=0 scale=0.000000 offset=255.000000
+[    6.7073] open name host:/log.txt flag 302 data 41378
+[    6.7084] open fd = 256
+[    6.7702] open name host:/paint-raster-02.bin flag 602 data 41378
+[    6.7719] open fd = 256
+[    7.0269] PAINTRASTER step=2 mode=0 shape=0 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[    7.0272] PAINTFOG step=3 enabled=0 scale=0.000000 offset=255.000000
+[    7.0277] open name host:/log.txt flag 302 data 41378
+[    7.0287] open fd = 256
+[    7.0877] open name host:/paint-raster-03.bin flag 602 data 41378
+[    7.0894] open fd = 256
+[    7.3416] PAINTRASTER step=3 mode=0 shape=0 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[    7.3418] PAINTFOG step=4 enabled=0 scale=0.000000 offset=255.000000
+[    7.4045] open name host:/paint-raster-04.bin flag 602 data 41378
+[    7.4063] open fd = 256
+[    7.6693] PAINTRASTER step=4 mode=1 shape=0 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[    7.6697] PAINTFOG step=5 enabled=0 scale=0.000000 offset=255.000000
+[    7.7217] open name host:/paint-raster-05.bin flag 602 data 41378
+[    7.7232] open fd = 256
+[    7.9914] PAINTRASTER step=5 mode=0 shape=0 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[    7.9916] PAINTFOG step=6 enabled=0 scale=0.000000 offset=255.000000
+[    8.0548] open name host:/paint-raster-06.bin flag 602 data 41378
+[    8.0567] open fd = 256
+[    8.3237] PAINTRASTER step=6 mode=0 shape=0 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[    8.3240] PAINTFOG step=7 enabled=0 scale=0.000000 offset=255.000000
+[    8.3890] open name host:/paint-raster-07.bin flag 602 data 41378
+[    8.3907] open fd = 256
+[    8.6588] PAINTRASTER step=7 mode=1 shape=0 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[    8.6591] PAINTFOG step=8 enabled=0 scale=0.000000 offset=255.000000
+[    8.7229] open name host:/paint-raster-08.bin flag 602 data 41378
+[    8.7246] open fd = 256
+[    8.9930] PAINTRASTER step=8 mode=0 shape=0 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[    8.9933] PAINTFOG step=9 enabled=0 scale=0.000000 offset=255.000000
+[    8.9962] microVU1: Cached Prog = [001] [PC=1a30] [List=01] (Cache=0.056%) [0.0mb]
+[    8.9965] microVU1: 1 cycle stall on branch instruction [1c28]
+[    8.9968] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    8.9973] microVU1: 3 cycle stall on branch instruction [2660]
+[    8.9975] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    8.9980] microVU1: 3 cycle stall on branch instruction [2660]
+[    8.9981] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    8.9984] microVU1: 3 cycle stall on branch instruction [2660]
+[    8.9986] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    8.9991] microVU1: 3 cycle stall on branch instruction [2660]
+[    8.9994] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    8.9999] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0001] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0004] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0007] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0011] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0013] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0014] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0019] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0021] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0024] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0026] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0032] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0033] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0036] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0038] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0044] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0046] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0049] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0051] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0056] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0058] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0065] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0067] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0069] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0071] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0074] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0076] microVU1: 3 cycle stall on branch instruction [2660]
+[    9.0079] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0082] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0084] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0088] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0091] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0094] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0097] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0101] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0104] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0107] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0110] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0113] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0116] microVU1: 3 cycle stall on branch instruction [2100]
+[    9.0120] microVU1: 3 cycle stall on branch instruction [1ce0]
+[    9.0122] microVU1: 1 cycle stall on branch instruction [1c28]
+[    9.0579] open name host:/paint-raster-09.bin flag 602 data 41378
+[    9.0602] open fd = 256
+[    9.3245] PAINTRASTER step=9 mode=0 shape=1 basis=0 cull=0 clip=4 bytes=802848 valid=1
+[    9.3248] PAINTFOG step=10 enabled=0 scale=0.000000 offset=255.000000
+[    9.3899] open name host:/paint-raster-10.bin flag 602 data 41378
+[    9.3915] open fd = 256
+[    9.6451] PAINTRASTER step=10 mode=1 shape=1 basis=0 cull=0 clip=4 bytes=802848 valid=1
+[    9.6453] PAINTFOG step=11 enabled=0 scale=0.000000 offset=255.000000
+[    9.7068] open name host:/paint-raster-11.bin flag 602 data 41378
+[    9.7083] open fd = 256
+[    9.9669] PAINTRASTER step=11 mode=0 shape=1 basis=0 cull=0 clip=4 bytes=802848 valid=1
+[    9.9672] PAINTFOG step=12 enabled=0 scale=0.000000 offset=255.000000
+[   10.0236] open name host:/paint-raster-12.bin flag 602 data 41378
+[   10.0253] open fd = 256
+[   10.2729] PAINTRASTER step=12 mode=0 shape=1 basis=1 cull=0 clip=4 bytes=802848 valid=1
+[   10.2732] PAINTFOG step=13 enabled=0 scale=0.000000 offset=255.000000
+[   10.3246] open name host:/paint-raster-13.bin flag 602 data 41378
+[   10.3263] open fd = 256
+[   10.5916] PAINTRASTER step=13 mode=1 shape=1 basis=1 cull=0 clip=4 bytes=802848 valid=1
+[   10.5920] PAINTFOG step=14 enabled=0 scale=0.000000 offset=255.000000
+[   10.6585] open name host:/paint-raster-14.bin flag 602 data 41378
+[   10.6600] open fd = 256
+[   10.9540] PAINTRASTER step=14 mode=0 shape=1 basis=1 cull=0 clip=4 bytes=802848 valid=1
+[   10.9544] PAINTFOG step=15 enabled=0 scale=0.000000 offset=255.000000
+[   11.0077] open name host:/paint-raster-15.bin flag 602 data 41378
+[   11.0101] open fd = 256
+[   11.3012] PAINTRASTER step=15 mode=0 shape=1 basis=2 cull=0 clip=4 bytes=802848 valid=1
+[   11.3015] PAINTFOG step=16 enabled=0 scale=0.000000 offset=255.000000
+[   11.3589] open name host:/paint-raster-16.bin flag 602 data 41378
+[   11.3608] open fd = 256
+[   11.6195] PAINTRASTER step=16 mode=1 shape=1 basis=2 cull=0 clip=4 bytes=802848 valid=1
+[   11.6198] PAINTFOG step=17 enabled=0 scale=0.000000 offset=255.000000
+[   11.6754] open name host:/paint-raster-17.bin flag 602 data 41378
+[   11.6772] open fd = 256
+[   11.9348] PAINTRASTER step=17 mode=0 shape=1 basis=2 cull=0 clip=4 bytes=802848 valid=1
+[   11.9350] PAINTFOG step=18 enabled=0 scale=0.000000 offset=255.000000
+[   11.9920] open name host:/paint-raster-18.bin flag 602 data 41378
+[   11.9939] open fd = 256
+[   12.2455] PAINTRASTER step=18 mode=0 shape=2 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[   12.2457] PAINTFOG step=19 enabled=0 scale=0.000000 offset=255.000000
+[   12.3090] open name host:/paint-raster-19.bin flag 602 data 41378
+[   12.3106] open fd = 256
+[   12.5679] PAINTRASTER step=19 mode=1 shape=2 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[   12.5682] PAINTFOG step=20 enabled=0 scale=0.000000 offset=255.000000
+[   12.6262] open name host:/paint-raster-20.bin flag 602 data 41378
+[   12.6283] open fd = 256
+[   12.8857] PAINTRASTER step=20 mode=0 shape=2 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[   12.8860] PAINTFOG step=21 enabled=0 scale=0.000000 offset=255.000000
+[   12.9431] open name host:/paint-raster-21.bin flag 602 data 41378
+[   12.9452] open fd = 256
+[   13.2015] PAINTRASTER step=21 mode=0 shape=2 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[   13.2019] PAINTFOG step=22 enabled=0 scale=0.000000 offset=255.000000
+[   13.2598] open name host:/paint-raster-22.bin flag 602 data 41378
+[   13.2621] open fd = 256
+[   13.5168] PAINTRASTER step=22 mode=1 shape=2 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[   13.5170] PAINTFOG step=23 enabled=0 scale=0.000000 offset=255.000000
+[   13.5771] open name host:/paint-raster-23.bin flag 602 data 41378
+[   13.5788] open fd = 256
+[   13.8345] PAINTRASTER step=23 mode=0 shape=2 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[   13.8347] PAINTFOG step=24 enabled=0 scale=0.000000 offset=255.000000
+[   13.8944] open name host:/paint-raster-24.bin flag 602 data 41378
+[   13.8960] open fd = 256
+[   14.1514] PAINTRASTER step=24 mode=0 shape=2 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[   14.1518] PAINTFOG step=25 enabled=0 scale=0.000000 offset=255.000000
+[   14.2111] open name host:/paint-raster-25.bin flag 602 data 41378
+[   14.2127] open fd = 256
+[   14.4710] PAINTRASTER step=25 mode=1 shape=2 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[   14.4713] PAINTFOG step=26 enabled=0 scale=0.000000 offset=255.000000
+[   14.5283] open name host:/paint-raster-26.bin flag 602 data 41378
+[   14.5299] open fd = 256
+[   14.7882] PAINTRASTER step=26 mode=0 shape=2 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[   14.7889] PAINTFOG step=27 enabled=1 scale=-110.869568 offset=266.086945
+[   14.8450] open name host:/paint-raster-27.bin flag 602 data 41378
+[   14.8466] open fd = 256
+[   15.1105] PAINTRASTER step=27 mode=0 shape=0 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[   15.1108] PAINTFOG step=28 enabled=1 scale=-110.869568 offset=266.086945
+[   15.1622] open name host:/paint-raster-28.bin flag 602 data 41378
+[   15.1642] open fd = 256
+[   15.4192] PAINTRASTER step=28 mode=1 shape=0 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[   15.4196] PAINTFOG step=29 enabled=1 scale=-110.869568 offset=266.086945
+[   15.4795] open name host:/paint-raster-29.bin flag 602 data 41378
+[   15.4813] open fd = 256
+[   15.7445] PAINTRASTER step=29 mode=0 shape=0 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[   15.7449] PAINTFOG step=30 enabled=1 scale=-110.869568 offset=266.086945
+[   15.7959] open name host:/paint-raster-30.bin flag 602 data 41378
+[   15.7978] open fd = 256
+[   16.0546] PAINTRASTER step=30 mode=0 shape=0 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[   16.0550] PAINTFOG step=31 enabled=1 scale=-110.869568 offset=266.086945
+[   16.1130] open name host:/paint-raster-31.bin flag 602 data 41378
+[   16.1151] open fd = 256
+[   16.3699] PAINTRASTER step=31 mode=1 shape=0 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[   16.3702] PAINTFOG step=32 enabled=1 scale=-110.869568 offset=266.086945
+[   16.4300] open name host:/paint-raster-32.bin flag 602 data 41378
+[   16.4317] open fd = 256
+[   16.6876] PAINTRASTER step=32 mode=0 shape=0 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[   16.6884] PAINTFOG step=33 enabled=1 scale=-110.869568 offset=266.086945
+[   16.7477] open name host:/paint-raster-33.bin flag 602 data 41378
+[   16.7500] open fd = 256
+[   17.0050] PAINTRASTER step=33 mode=0 shape=0 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[   17.0053] PAINTFOG step=34 enabled=1 scale=-110.869568 offset=266.086945
+[   17.0641] open name host:/paint-raster-34.bin flag 602 data 41378
+[   17.0659] open fd = 256
+[   17.4287] PAINTRASTER step=34 mode=1 shape=0 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[   17.4291] PAINTFOG step=35 enabled=1 scale=-110.869568 offset=266.086945
+[   17.4913] open name host:/paint-raster-35.bin flag 602 data 41378
+[   17.4935] open fd = 256
+[   17.8488] PAINTRASTER step=35 mode=0 shape=0 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[   17.8493] PAINTFOG step=36 enabled=1 scale=-110.869568 offset=266.086945
+[   17.9329] open name host:/paint-raster-36.bin flag 602 data 41378
+[   17.9354] open fd = 256
+[   18.2920] PAINTRASTER step=36 mode=0 shape=1 basis=0 cull=0 clip=4 bytes=802848 valid=1
+[   18.2925] PAINTFOG step=37 enabled=1 scale=-110.869568 offset=266.086945
+[   18.3637] open name host:/paint-raster-37.bin flag 602 data 41378
+[   18.3666] open fd = 256
+[   18.8286] PAINTRASTER step=37 mode=1 shape=1 basis=0 cull=0 clip=4 bytes=802848 valid=1
+[   18.8290] PAINTFOG step=38 enabled=1 scale=-110.869568 offset=266.086945
+[   18.8978] open name host:/paint-raster-38.bin flag 602 data 41378
+[   18.9001] open fd = 256
+[   19.2058] PAINTRASTER step=38 mode=0 shape=1 basis=0 cull=0 clip=4 bytes=802848 valid=1
+[   19.2061] PAINTFOG step=39 enabled=1 scale=-110.869568 offset=266.086945
+[   19.2672] open name host:/paint-raster-39.bin flag 602 data 41378
+[   19.2693] open fd = 256
+[   19.5549] PAINTRASTER step=39 mode=0 shape=1 basis=1 cull=0 clip=4 bytes=802848 valid=1
+[   19.5552] PAINTFOG step=40 enabled=1 scale=-110.869568 offset=266.086945
+[   19.6183] open name host:/paint-raster-40.bin flag 602 data 41378
+[   19.6203] open fd = 256
+[   19.9250] PAINTRASTER step=40 mode=1 shape=1 basis=1 cull=0 clip=4 bytes=802848 valid=1
+[   19.9253] PAINTFOG step=41 enabled=1 scale=-110.869568 offset=266.086945
+[   19.9848] open name host:/paint-raster-41.bin flag 602 data 41378
+[   19.9869] open fd = 256
+[   20.2725] PAINTRASTER step=41 mode=0 shape=1 basis=1 cull=0 clip=4 bytes=802848 valid=1
+[   20.2730] PAINTFOG step=42 enabled=1 scale=-110.869568 offset=266.086945
+[   20.3354] open name host:/paint-raster-42.bin flag 602 data 41378
+[   20.3372] open fd = 256
+[   20.6172] PAINTRASTER step=42 mode=0 shape=1 basis=2 cull=0 clip=4 bytes=802848 valid=1
+[   20.6177] PAINTFOG step=43 enabled=1 scale=-110.869568 offset=266.086945
+[   20.6847] open name host:/paint-raster-43.bin flag 602 data 41378
+[   20.6866] open fd = 256
+[   20.9551] PAINTRASTER step=43 mode=1 shape=1 basis=2 cull=0 clip=4 bytes=802848 valid=1
+[   20.9554] PAINTFOG step=44 enabled=1 scale=-110.869568 offset=266.086945
+[   21.0183] open name host:/paint-raster-44.bin flag 602 data 41378
+[   21.0204] open fd = 256
+[   21.2715] PAINTRASTER step=44 mode=0 shape=1 basis=2 cull=0 clip=4 bytes=802848 valid=1
+[   21.2719] PAINTFOG step=45 enabled=1 scale=-110.869568 offset=266.086945
+[   21.3360] open name host:/paint-raster-45.bin flag 602 data 41378
+[   21.3381] open fd = 256
+[   21.5939] PAINTRASTER step=45 mode=0 shape=2 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[   21.5943] PAINTFOG step=46 enabled=1 scale=-110.869568 offset=266.086945
+[   21.6519] open name host:/paint-raster-46.bin flag 602 data 41378
+[   21.6544] open fd = 256
+[   21.9005] PAINTRASTER step=46 mode=1 shape=2 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[   21.9008] PAINTFOG step=47 enabled=1 scale=-110.869568 offset=266.086945
+[   21.9524] open name host:/paint-raster-47.bin flag 602 data 41378
+[   21.9548] open fd = 256
+[   22.2340] PAINTRASTER step=47 mode=0 shape=2 basis=0 cull=1 clip=0 bytes=802848 valid=1
+[   22.2343] PAINTFOG step=48 enabled=1 scale=-110.869568 offset=266.086945
+[   22.2860] open name host:/paint-raster-48.bin flag 602 data 41378
+[   22.2878] open fd = 256
+[   22.5415] PAINTRASTER step=48 mode=0 shape=2 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[   22.5418] PAINTFOG step=49 enabled=1 scale=-110.869568 offset=266.086945
+[   22.6030] open name host:/paint-raster-49.bin flag 602 data 41378
+[   22.6056] open fd = 256
+[   22.8641] PAINTRASTER step=49 mode=1 shape=2 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[   22.8645] PAINTFOG step=50 enabled=1 scale=-110.869568 offset=266.086945
+[   22.9323] open name host:/paint-raster-50.bin flag 602 data 41378
+[   22.9359] open fd = 256
+[   23.3551] PAINTRASTER step=50 mode=0 shape=2 basis=1 cull=1 clip=0 bytes=802848 valid=1
+[   23.3555] PAINTFOG step=51 enabled=1 scale=-110.869568 offset=266.086945
+[   23.4354] open name host:/paint-raster-51.bin flag 602 data 41378
+[   23.4399] open fd = 256
+[   23.8317] PAINTRASTER step=51 mode=0 shape=2 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[   23.8322] PAINTFOG step=52 enabled=1 scale=-110.869568 offset=266.086945
+[   23.9090] open name host:/paint-raster-52.bin flag 602 data 41378
+[   23.9119] open fd = 256
+[   24.2754] PAINTRASTER step=52 mode=1 shape=2 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[   24.2763] PAINTFOG step=53 enabled=1 scale=-110.869568 offset=266.086945
+[   24.3564] open name host:/paint-raster-53.bin flag 602 data 41378
+[   24.3587] open fd = 256
+[   24.7649] PAINTRASTER step=53 mode=0 shape=2 basis=2 cull=1 clip=0 bytes=802848 valid=1
+[   24.7656] PAINTRASTERDONE cases=54 valid=1

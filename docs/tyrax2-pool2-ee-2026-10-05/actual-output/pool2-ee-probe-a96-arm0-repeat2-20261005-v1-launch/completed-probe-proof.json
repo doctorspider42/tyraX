@@ -1,0 +1,72 @@
+{
+  "status": "PASS_SOURCE_NATIVE_OWNED_FIXED_CASE_PROTOCOL_AND_PAUSED_CAPTURE_BOUND",
+  "arm": 0,
+  "vertices": 96,
+  "repeats": 2,
+  "pid": 18039,
+  "sourceManifestSha256": "c8e7f094b2f3c35e71d112421a8a7cc29971b5f8c6adea22a768a6d15e012313",
+  "elfSha256": "1560336987d6ced5e540e9da30714d8fd2f3097cbb00935a437d019b88d5ee73",
+  "nativeProofSha256": "f500c3572ae8549d5cb24ba31b5014f439ef65a52b904d98d7c84aff4dce1381",
+  "cfgSha256": "9baddd2e6b491ed6cca2c234bfe76df6c8ae7dce160c30042f69b7fcf2ae7242",
+  "validatedCaptureSha256": "bbedb56f64597c5f3abb995c1a58b88ca4b88bfdd860efc225794f59693513bd",
+  "captureReportSha256": "3f952e40e1e63dbab736893b07bad860b5c28b565194cd318682c80ba0c6af23",
+  "finalReadyMarker": "504f4f32",
+  "haltPC": 1716576,
+  "stateSha256": "f3815789892998662abccee043c23b1ff9210770e0cedcf661f31fe063024ef9",
+  "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+  "actualVuMemorySha256": "20348ff952f4fcd4b4e8eceacab344a563b64751c6778961ac5d375c6a3b48eb",
+  "files": {
+    "capture-report.json": "3f952e40e1e63dbab736893b07bad860b5c28b565194cd318682c80ba0c6af23",
+    "debugger-settings-after.json": "8f5d84369dff3de0c6fa087cecf820c62d201a8ee0e10dc6ce2a790ee610586e",
+    "emulator-stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "emulator.log": "ec1ad593b4944881162e6a2fdae46a0bbd08aa97d8798af937a29de33200a0e8",
+    "entry-capture-report.json": "2ecfbc2a140a7a9d58926648bd009dff7e0f5b636d7f6a8acc37b27b032b5822",
+    "entry-debugger.png": "bd2ea8a54e654355eda73314f026b3b38a97e764afc0fffb1333ca343c5f2a3d",
+    "owned-launch.json": "61c04b388beb0d21586a591baf655c37aa7d88026c54a4a50dd48bb8551ad40d",
+    "PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "PCSX2-before.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "pool2-probe.cfg": "9baddd2e6b491ed6cca2c234bfe76df6c8ae7dce160c30042f69b7fcf2ae7242",
+    "raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "root-observed-entry-run.json": "80b736ea2516085e3dc8fd668bc0f3ed1347dad442c4203099f8a9221a7ca1b4",
+    "root-run-action.json": "16ede66ba7bf6673514f3690f379d77b72ca8aae4999c91bed40a4b352366002",
+    "state.p2s": "f3815789892998662abccee043c23b1ff9210770e0cedcf661f31fe063024ef9",
+    "verified-capture.json": "bbedb56f64597c5f3abb995c1a58b88ca4b88bfdd860efc225794f59693513bd"
+  },
+  "helperSha256": "8a98be9259c35497f875401b07be7b9b64ad16f28835b32f89f07bb6f228f840",
+  "warmFreshnessIndependentEpoch": true,
+  "finalColorEpoch": 2,
+  "protocol": {
+    "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+    "arm": 0,
+    "vertices": 96,
+    "repeats": 2,
+    "clip": 0,
+    "sourceRows": [
+      [
+        "0",
+        "0",
+        "96",
+        "1",
+        "0"
+      ],
+      [
+        "0",
+        "0",
+        "96",
+        "2",
+        "0"
+      ]
+    ],
+    "countersDisabled": true,
+    "coldOracleDisabled": true,
+    "outputFreshnessRequiresSavedVUValidation": true
+  },
+  "runtimeAssetsManifestSha256": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+  "pairedPackedEqualityAccepted": false,
+  "performanceAccepted": false,
+  "limits": [
+    "Final requested color epoch is proven in saved VU output; earlier iterations are protocol-bound without individual snapshots.",
+    "All counters and cold expansion oracle disabled. Snapshot drains are correctness observer operations; no target timing result.",
+    "One capture does not establish paired output equality, GS consumption, hardware precision or raster equality."
+  ]
+}

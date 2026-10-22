@@ -1,0 +1,38 @@
+# Read-only V5 source findings
+
+No source blocker found in the reviewed cache/admission/counter scope. Target
+OpenVCL allocation/scheduling, actual output and raster remain unverified.
+
+The arm-independent cold predicate admits only typed producer-owned original
+arrays, aligned six-occurrence windows, unstripped unlit TC classification with
+precise/full checks, 16-bit depth and count <=72. It rejects pool-table layouts,
+directional lighting bags, billboards and custom shader overrides. The request is
+then exactly enabled && eligible. Fog and selected spot contribution are allowed;
+the original three fog/light paths finish all six outputs before reduction.
+
+Both retained and baked keys include typed-owner presence, arm, fog-off and
+shader-unlit facts in unused higher primKey bits. Original model/array/version
+keys remain. Typed owner lives in persistent producer batch storage and is
+refreshed to current arrays before render. The candidate extra primitive tag is
+inline owned packet data, not a reference to a stack object. Count72 leaves
+room within the existing 461-qword bank: original inputs, extra tag, maximum
+nine material/primitive tags and all original outputs occupy 444 qwords.
+
+The post-loop check visits six corners before rewriting any original output.
+Packed RGBA integers, 16-bit-mode depth and fog word are exactly representable
+in float for its equality tests. It compares the final Z/F/ADC word and Q, bounds
+Q and rectangle differences, rejects ADC, validates rectangle orientation and
+preserves original endpoint payload and material state. Shader scheduling/MAC
+flag correctness still requires native review; source intent alone cannot accept
+the kernel.
+
+CoronaCounter resets/observes only at sparse epochs 750/1155, outside priced
+windows. Its nine uint32 fields count cold requests and input quantities. Off
+can be eligible while requested=0; fallback means EE admission failure. Retained,
+baked, clipped and copied paths can bypass these counters, so zero cold requests
+does not prove zero emitted SPRITE. The log explicitly sets acceptedOutputKnown=0
+and README preserves this limitation. Positive requests likewise do not prove
+the VU reduction passed. FogOn/shaderLit are observations, not admission cuts.
+
+This isolated V5 fixture keeps pool2 on in kind9 and does not include lattice;
+it must not be presented as cumulative #5+#4 occupancy or performance.

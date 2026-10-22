@@ -1,0 +1,16 @@
+{
+  "pid": 646,
+  "xvfbPid": 635,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "54fb921ef776a0156996a717b00f00007d2f3e7fc86f0dfc7d50902c6d164f34"
+}

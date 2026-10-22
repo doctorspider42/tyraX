@@ -1,0 +1,17 @@
+{
+  "finish-physical-no-reset.ps1": "bd5a3a8302d7a06925bc5cb7ce36eead6d816207e31732402aec43b704efaf0e",
+  "finish-physical.ps1": "25c5e8a5afbb9b92ef2598d142fa097cca120e1064893b808ac6801fbd4b2295",
+  "freeze-completed.py": "f28219ae8b549b291c4b522317533d86fb80fb7a7b63fb131bb651b58f6029f9",
+  "host-authority.json": "82ed16f88d3ce3c09d7d540a941f201ebd1b306707d2cfb87e16782222ab7d99",
+  "host-controls-proof.json": "fd0613050a54b62222538819cb29b83eb4b4e653ae1a144cad87976f4ca187a7",
+  "launch-emulator.py": "9234723af3e65024732a4d0eb78b7f7ec3b91b1bb4eeaf42c1c0c48725522a74",
+  "launch-physical-observed.py": "7c67f225ede8a86c10fe89d36d1fb1ba9c3cf5eb7228510462baf6c550c9b918",
+  "native_binding.py": "de31842f9ff2659dba7ed315bca2dc27d544b8b3bb40140e03632e663bb194a3",
+  "preparation.json": "d2043719f18a67b61549e16b3608fe529d2dcde36408185dbcd8a90e836de678",
+  "prepare-physical.py": "4135fe86df7d526b2a8e8e23653734d26b32120e80275e22a5d12ea241ae5a65",
+  "qualify-emulator.py": "723207470b7a07421916ae283c49f23820fa05c23faf219200ffa6c9c31cbcb9",
+  "README.md": "5c1ace0f3170c110413bf2ee680792f084d6082551021c65d5be9db56ec55c4a",
+  "runtime_guard.py": "c83e44e1960aa3f853d3cb6993c03997b63a625cbb074ba886276d983dec95c3",
+  "source-review.md": "62e98aaa5d9bbab0f23c8a04e472aa6cb06ea95b5ed4ca0b46273d3371e893e1",
+  "stop-emulator.py": "c50fcd43b02e253014de9c3e3cdb3d09b3e16d59a49a3503e0e61961e4745597"
+}

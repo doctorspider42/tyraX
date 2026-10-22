@@ -1,0 +1,28 @@
+{
+  "status": "PASS_KIND19_HOST_SYNTHETIC_AND_REAL_CLI_ONLY",
+  "results": [
+    "positive0",
+    "rejected0units3",
+    "rejected0units4",
+    "rejected0units2",
+    "rejected0units1",
+    "rejectedStamp0units1",
+    "rejectedStamp0units2",
+    "rejectedStamp0units3",
+    "cli0",
+    "positive1",
+    "rejected1units3",
+    "rejected1units4",
+    "rejected1units2",
+    "rejected1units1",
+    "rejectedStamp1units1",
+    "rejectedStamp1units2",
+    "rejectedStamp1units3",
+    "cli1"
+  ],
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-controls-v1\\analyze-night.py": "2b71ab46a06b5ed90971458927c0a3e6bcf9f68499553974df500804bc76c224",
+    "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-controls-v1\\analyze-night-cli.py": "7f59df29e3f0612f53a00a4cfac04677737cf4741ffa9dc303a2452fee0661e2"
+  },
+  "physicalExecutionAccepted": false
+}

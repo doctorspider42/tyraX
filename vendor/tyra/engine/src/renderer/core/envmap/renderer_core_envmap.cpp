@@ -9,6 +9,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
@@ -17,6 +18,10 @@
 #include <gs_psm.h>
 #include "renderer/core/envmap/renderer_core_envmap.hpp"
 #include "debug/debug.hpp"
+
+#ifndef TYRA_ENVMAP_COALESCE_BARRIER
+#define TYRA_ENVMAP_COALESCE_BARRIER 0
+#endif
 
 namespace Tyra {
 
@@ -52,6 +57,13 @@ void RendererCoreEnvMap::init(RendererSettings* t_settings,
   // texture heap's floor, which texture eviction cannot reach. The dedicated
   // z-buffer lets "reflected" scene objects occlude each other in the map.
   vramAddress = gs->vram.allocateBuffer(size, size, GS_PSM_32);
+  // Modified by TyraX: the second colour target of an amortised capture.
+  // -1 (no room) simply leaves the classic single target.
+  backAddress = 0;
+  if (doubleBuffered) {
+    const int back = gs->vram.allocateBuffer(size, size, GS_PSM_32);
+    if (back > 0) backAddress = static_cast<u32>(back);
+  }
   zVramAddress = gs->vram.allocateBuffer(size, size, GS_PSM_32);
 
   texBuffer.address = vramAddress;
@@ -85,12 +97,32 @@ void RendererCoreEnvMap::init(RendererSettings* t_settings,
 }
 
 void RendererCoreEnvMap::begin(const Color& clearColor) {
+  begin(clearColor, true, false);
+}
+
+void RendererCoreEnvMap::swap() {
+  if (!allocated || backAddress == 0) return;
+  // The finished back target becomes what materials sample: TEX0 is built
+  // per bag from texBuffer, so the next bag drawn reads the new image. The
+  // old front, no longer sampled from here on, becomes the next back.
+  const u32 front = static_cast<u32>(texBuffer.address);
+  texBuffer.address = backAddress;
+  backAddress = front;
+}
+
+void RendererCoreEnvMap::begin(const Color& clearColor, bool clear,
+                               bool intoBack) {
   if (!allocated) return;  // TyraX: target opted out - nothing to render into
+  const u32 target = intoBack && backAddress != 0
+                         ? backAddress
+                         : static_cast<u32>(texBuffer.address);
 
   // Drain in-flight PATH1 3D work - the raster redirect below is global GS
   // state. Before any 3D pipeline is up there is nothing to drain (and the
   // FINISH handshake would spin forever).
-  if (path1->isVU1Configured()) sync->align3D();
+  // recordGif supplies the same ordering barrier before the raster write.
+  if (path1->isVU1Configured() &&
+      !(TYRA_ENVMAP_COALESCE_BARRIER && Vif1Queue::recordingFrame())) sync->align3D();
 
   const int envZbp = static_cast<int>(zVramAddress) >> 11;
   const int zsm = static_cast<int>(gs->zBuffer.zsm);
@@ -111,9 +143,12 @@ void RendererCoreEnvMap::begin(const Color& clearColor) {
   // NLOOP = 8: FRAME, SCISSOR, ZBUF, TEST, RGBAQ, PRIM and the clear
   // sprite's two XYZ2 - a miscount here stalls the GIF (parses the extra
   // qword as a new giftag) and hangs the frame in draw_wait_finish.
-  PACK_GIFTAG(q, GIF_SET_TAG(8, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  // Modified by TyraX: without the clear (the second half of an amortised
+  // capture) only FRAME, SCISSOR, ZBUF and TEST go: NLOOP = 4.
+  PACK_GIFTAG(q, GIF_SET_TAG(clear ? 8 : 4, 0, 0, 0, GIF_FLG_PACKED, 1),
+              GIF_REG_AD);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(vramAddress >> 11, size >> 6, GS_PSM_32, 0),
+  PACK_GIFTAG(q, GS_SET_FRAME(target >> 11, size >> 6, GS_PSM_32, 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, GS_SET_SCISSOR(0, size - 1, 0, size - 1), GS_REG_SCISSOR_1);
@@ -128,6 +163,7 @@ void RendererCoreEnvMap::begin(const Color& clearColor) {
   // Clear sprite: paints the whole target with the horizon color (wide-FOV
   // sky views leave the below-horizon half uncovered by dome geometry) and,
   // with the all-pass test + unmasked ZBUF, resets the env depth to 0.
+  if (clear) {
   PACK_GIFTAG(q,
               GS_SET_RGBAQ(static_cast<u8>(clearColor.r),
                            static_cast<u8>(clearColor.g),
@@ -143,19 +179,21 @@ void RendererCoreEnvMap::begin(const Color& clearColor) {
   PACK_GIFTAG(q, GS_SET_XYZ((2048 + half) << 4, (2048 + half) << 4, 0),
               GS_REG_XYZ2);
   q++;
+  }
   packet2_update(beginPacket, q);
-  packet2_update(beginPacket, draw_finish(beginPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(beginPacket, frameDrawFinish(beginPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(beginPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCoreEnvMap::end() {
   if (!allocated) return;  // TyraX: begin() drew nothing - restore nothing
 
   // Drain the env pass itself, then restore the frame drawing environment.
-  if (path1->isVU1Configured()) sync->align3D();
+  if (path1->isVU1Configured() &&
+      !(TYRA_ENVMAP_COALESCE_BARRIER && Vif1Queue::recordingFrame())) sync->align3D();
 
   packet2_reset(endPacket, false);
   // Modified by TyraX: restore whatever was redirected BEFORE this bracket,
@@ -166,11 +204,11 @@ void RendererCoreEnvMap::end() {
   // place that knows which it is.
   qword_t* q = gs->emitRasterRestore(endPacket->base, true);
   packet2_update(endPacket, q);
-  packet2_update(endPacket, draw_finish(endPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(endPacket, frameDrawFinish(endPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(endPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 }  // namespace Tyra

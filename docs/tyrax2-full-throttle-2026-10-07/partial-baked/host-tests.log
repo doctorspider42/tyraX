@@ -1,0 +1,5 @@
+PASS actual settled selector checks=356 accepted=32/48 blockIntervals zeroAddedWaits hostOnly
+PASS actual successful-warp prefix; failed branches unchanged; generation wrap
+Frame arena checks passed: 16210 cases + 10000 malformed streams
+Partial baked body checks passed: 50000
+PASS host-only actual-source controls; no target performance claim

@@ -1,0 +1,825 @@
+{
+  "valid": true,
+  "groupRasterEqual": true,
+  "platform": "physical",
+  "elfSha256": "8c113a189df779c1ec8eec886776f5994acce782340953c1a8c968886ab5b4c7",
+  "sourceFiles": 477,
+  "phases": [
+    {
+      "phase": 0,
+      "mode": 0,
+      "hour": 12,
+      "rows": 434,
+      "pricedFrames": 308,
+      "lastZ": 108.437157,
+      "witnessFrames": 3,
+      "clipCalls": 465,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 18.717232190857374,
+      "p95WorkMs": 25.218831380208332,
+      "maxWorkMs": 29.49420166015625,
+      "entryHz": 35.30019170809008,
+      "spatialMeanWorkMs": [
+        19.107143081623686,
+        18.512996480922506,
+        22.078752447057653,
+        22.08403961746781,
+        21.08010016547309,
+        19.711490071614584,
+        14.414212246914884,
+        14.94291036188816
+      ]
+    },
+    {
+      "phase": 1,
+      "mode": 7,
+      "hour": 12,
+      "rows": 459,
+      "pricedFrames": 333,
+      "lastZ": 108.377495,
+      "witnessFrames": 3,
+      "clipCalls": 875,
+      "eligible": 875,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 17.663278696176647,
+      "p95WorkMs": 23.891448974609375,
+      "maxWorkMs": 27.432271321614582,
+      "entryHz": 38.016803776588574,
+      "spatialMeanWorkMs": [
+        18.228748976582228,
+        18.07310525732103,
+        20.523262480385284,
+        20.948224228596,
+        19.233649862155993,
+        15.952017391429228,
+        14.993871152790543,
+        13.830462326238184
+      ]
+    },
+    {
+      "phase": 2,
+      "mode": 0,
+      "hour": 12,
+      "rows": 438,
+      "pricedFrames": 312,
+      "lastZ": 108.05761,
+      "witnessFrames": 3,
+      "clipCalls": 755,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 18.728803737890345,
+      "p95WorkMs": 25.6507568359375,
+      "maxWorkMs": 29.5743408203125,
+      "entryHz": 35.60979756353812,
+      "spatialMeanWorkMs": [
+        18.467502622251157,
+        18.53265452786327,
+        22.189549340142143,
+        22.44392781575521,
+        20.48810101370526,
+        18.898871810347945,
+        15.344834778800843,
+        15.287391238742405
+      ]
+    },
+    {
+      "phase": 3,
+      "mode": 0,
+      "hour": 0,
+      "rows": 420,
+      "pricedFrames": 294,
+      "lastZ": 108.006668,
+      "witnessFrames": 3,
+      "clipCalls": 509,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 20.882234050032775,
+      "p95WorkMs": 28.396830240885418,
+      "maxWorkMs": 31.263142903645832,
+      "entryHz": 33.69382562077749,
+      "spatialMeanWorkMs": [
+        21.67240764476635,
+        22.7044677734375,
+        24.63417287973257,
+        23.846461748836017,
+        23.126117798441275,
+        21.4038656729239,
+        15.764686734068627,
+        14.717845398702739
+      ]
+    },
+    {
+      "phase": 4,
+      "mode": 7,
+      "hour": 0,
+      "rows": 428,
+      "pricedFrames": 302,
+      "lastZ": 108.020798,
+      "witnessFrames": 3,
+      "clipCalls": 813,
+      "eligible": 813,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 19.68100213618556,
+      "p95WorkMs": 27.204813639322918,
+      "maxWorkMs": 31.37969292534722,
+      "entryHz": 34.54547184890904,
+      "spatialMeanWorkMs": [
+        21.541716587396316,
+        21.65105710084411,
+        22.748702872512688,
+        22.338148945509786,
+        21.9144937020761,
+        19.547414646227175,
+        13.900782315693204,
+        13.69607320863601
+      ]
+    },
+    {
+      "phase": 5,
+      "mode": 0,
+      "hour": 0,
+      "rows": 421,
+      "pricedFrames": 295,
+      "lastZ": 108.467102,
+      "witnessFrames": 3,
+      "clipCalls": 524,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 20.80574278750662,
+      "p95WorkMs": 28.344095865885418,
+      "maxWorkMs": 31.71673583984375,
+      "entryHz": 33.74409234202086,
+      "spatialMeanWorkMs": [
+        21.699215924298322,
+        23.04625693134878,
+        24.080882276225292,
+        23.398526104176103,
+        23.07660590277778,
+        21.290845659044056,
+        15.563253348214285,
+        14.778894906092171
+      ]
+    }
+  ],
+  "unrefined": false,
+  "groupOnly": true,
+  "images": [
+    {
+      "phase": 0,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 0,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "negativeControls": [
+    "missing-header-oracle",
+    "changed-header-oracle",
+    "stationary",
+    "no-gas",
+    "freeze",
+    "cars",
+    "profiler",
+    "paint",
+    "present",
+    "missing-phase",
+    "completion",
+    "witness",
+    "checkpoint",
+    "missing-log-window",
+    "quiet-log-output",
+    "inactive-baseline-output",
+    "wrong-log-mode"
+  ],
+  "logSha256": "dcb70e4845583322f55ae02a0fa26e5965b923fae1ba8d7f9d59aaad56cddd65",
+  "csvSha256": "0803e305ff46bf5eaed2db3c17642b6050b36b3f910def79345a4beb3712325e",
+  "groupActive": false,
+  "scope": "Same output; ordinary logging omitted only during gas; elapsed net work, not pure EE cycles",
+  "contrasts": [
+    {
+      "hour": 12,
+      "mode": 7,
+      "savedMeanMs": 1.0597392681972124,
+      "savedSpatialMs": 1.2511121418483526,
+      "candidateP95Ms": 23.891448974609375,
+      "maxControlP95Ms": 25.6507568359375
+    },
+    {
+      "hour": 0,
+      "mode": 7,
+      "savedMeanMs": 1.1629862825841393,
+      "savedSpatialMs": 1.2579829965809353,
+      "candidateP95Ms": 27.204813639322918,
+      "maxControlP95Ms": 28.396830240885418
+    }
+  ],
+  "ordinaryLogWindows": [
+    {
+      "phase": 0,
+      "quiet": false,
+      "ordinaryOutputEvents": 440,
+      "transport": "console"
+    },
+    {
+      "phase": 1,
+      "quiet": true,
+      "ordinaryOutputEvents": 0,
+      "transport": "console"
+    },
+    {
+      "phase": 2,
+      "quiet": false,
+      "ordinaryOutputEvents": 432,
+      "transport": "console"
+    },
+    {
+      "phase": 3,
+      "quiet": false,
+      "ordinaryOutputEvents": 435,
+      "transport": "console"
+    },
+    {
+      "phase": 4,
+      "quiet": true,
+      "ordinaryOutputEvents": 0,
+      "transport": "console"
+    },
+    {
+      "phase": 5,
+      "quiet": false,
+      "ordinaryOutputEvents": 431,
+      "transport": "console"
+    }
+  ],
+  "consumerInputEqual": true,
+  "headerOracle": [
+    [
+      0,
+      0,
+      249
+    ],
+    [
+      0,
+      1,
+      249
+    ],
+    [
+      0,
+      2,
+      249
+    ],
+    [
+      0,
+      3,
+      249
+    ],
+    [
+      0,
+      4,
+      249
+    ],
+    [
+      1,
+      0,
+      194
+    ],
+    [
+      1,
+      1,
+      194
+    ],
+    [
+      1,
+      2,
+      194
+    ],
+    [
+      1,
+      3,
+      194
+    ],
+    [
+      1,
+      4,
+      194
+    ],
+    [
+      2,
+      0,
+      239
+    ],
+    [
+      2,
+      1,
+      239
+    ],
+    [
+      2,
+      2,
+      239
+    ],
+    [
+      2,
+      3,
+      239
+    ],
+    [
+      2,
+      4,
+      239
+    ],
+    [
+      3,
+      0,
+      271
+    ],
+    [
+      3,
+      1,
+      271
+    ],
+    [
+      3,
+      2,
+      271
+    ],
+    [
+      3,
+      3,
+      271
+    ],
+    [
+      3,
+      4,
+      271
+    ],
+    [
+      4,
+      0,
+      267
+    ],
+    [
+      4,
+      1,
+      267
+    ],
+    [
+      4,
+      2,
+      267
+    ],
+    [
+      4,
+      3,
+      267
+    ],
+    [
+      4,
+      4,
+      267
+    ],
+    [
+      5,
+      0,
+      272
+    ],
+    [
+      5,
+      1,
+      272
+    ],
+    [
+      5,
+      2,
+      272
+    ],
+    [
+      5,
+      3,
+      272
+    ],
+    [
+      5,
+      4,
+      272
+    ]
+  ],
+  "inputs": [
+    [
+      0,
+      0,
+      198,
+      2313,
+      676936785
+    ],
+    [
+      0,
+      1,
+      198,
+      2313,
+      676936785
+    ],
+    [
+      0,
+      2,
+      198,
+      2313,
+      676936785
+    ],
+    [
+      0,
+      3,
+      198,
+      2313,
+      676936785
+    ],
+    [
+      0,
+      4,
+      198,
+      2313,
+      676936785
+    ],
+    [
+      1,
+      0,
+      156,
+      1776,
+      822872162
+    ],
+    [
+      1,
+      1,
+      156,
+      1776,
+      822872162
+    ],
+    [
+      1,
+      2,
+      156,
+      1776,
+      822872162
+    ],
+    [
+      1,
+      3,
+      156,
+      1776,
+      822872162
+    ],
+    [
+      1,
+      4,
+      156,
+      1776,
+      822872162
+    ],
+    [
+      2,
+      0,
+      192,
+      2238,
+      3467695178
+    ],
+    [
+      2,
+      1,
+      192,
+      2238,
+      3467695178
+    ],
+    [
+      2,
+      2,
+      192,
+      2238,
+      3467695178
+    ],
+    [
+      2,
+      3,
+      192,
+      2238,
+      3467695178
+    ],
+    [
+      2,
+      4,
+      192,
+      2238,
+      3467695178
+    ],
+    [
+      3,
+      0,
+      213,
+      2520,
+      2727988542
+    ],
+    [
+      3,
+      1,
+      213,
+      2520,
+      2727988542
+    ],
+    [
+      3,
+      2,
+      213,
+      2520,
+      2727988542
+    ],
+    [
+      3,
+      3,
+      213,
+      2520,
+      2727988542
+    ],
+    [
+      3,
+      4,
+      213,
+      2520,
+      2727988542
+    ],
+    [
+      4,
+      0,
+      211,
+      2487,
+      1394693430
+    ],
+    [
+      4,
+      1,
+      211,
+      2487,
+      1394693430
+    ],
+    [
+      4,
+      2,
+      211,
+      2487,
+      1394693430
+    ],
+    [
+      4,
+      3,
+      211,
+      2487,
+      1394693430
+    ],
+    [
+      4,
+      4,
+      211,
+      2487,
+      1394693430
+    ],
+    [
+      5,
+      0,
+      209,
+      2490,
+      3571319570
+    ],
+    [
+      5,
+      1,
+      209,
+      2490,
+      3571319570
+    ],
+    [
+      5,
+      2,
+      209,
+      2490,
+      3571319570
+    ],
+    [
+      5,
+      3,
+      209,
+      2490,
+      3571319570
+    ],
+    [
+      5,
+      4,
+      209,
+      2490,
+      3571319570
+    ]
+  ],
+  "controlRasterEqual": true,
+  "firstOrderGate": true
+}

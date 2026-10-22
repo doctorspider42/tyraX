@@ -1,0 +1,13 @@
+{
+  "status": "PASS_LOSSLESS_LATIN1_ASCII_NIGHT_PROTOCOL_NORMALIZATION",
+  "rawPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-assert-gate-order1-20261006.log",
+  "normalizedPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-assert-gate-order1-20261006-utf8.log",
+  "rawSha256": "c70b1fb00de6a8bba310a4ffd54f339686e4edd5bf3fb6e14d140ad790d1fe28",
+  "normalizedSha256": "1a3c767e5d74d319a7ba4e9bffebfc1a6f3715684d7eccbea2529ed1e3e73940",
+  "rawBytes": 31010,
+  "normalizedBytes": 31013,
+  "authoritativeASCIIProtocolRows": 94,
+  "authoritativeASCIIProtocolSha256": "1cf82b3de31c6d2a8310fd7a29001999175d2f5e232e6d08f01fa24abf06b2e2",
+  "losslessLatin1Roundtrip": true,
+  "originalRawChanged": false
+}

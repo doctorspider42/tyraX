@@ -1,0 +1,15 @@
+{
+  "pid": 22877,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/pool-lattice-probe-a96-arm0-repeat2-20261005-v1/profile",
+    "-logfile",
+    "/home/spider/pool-lattice-probe-a96-arm0-repeat2-20261005-v1/emulator.log",
+    "-debugger",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-probe-physical-v1/game/bin/vehicle-playground.elf"
+  ],
+  "reason": "completed-fixed-case-capture",
+  "completedProofSha256": "e7494266941d5dc53e64762f549d13880bb3ea49b11b362edd56043b1bc7497e"
+}

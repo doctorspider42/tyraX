@@ -1,0 +1,16 @@
+{
+  "pid": 473,
+  "xvfbPid": 462,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-vu-paint-day-no-roads-20261008-v2/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-vu-paint-day-no-roads-20261008-v2/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-vu-paint-day-no-roads-20261008-v2/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "22fa2aa5a0d4dc0492c0767c81f4380f785329930d760865d5341bd3a61f9131"
+}

@@ -1,0 +1,15 @@
+{
+  "pid": 5216,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-bag-tape-20261009-v5\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "8f84d37fb90a443229ef26957b82cc20ba74ae27e43a94fd12e70316a7759698",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "time": "2026-10-09T14:10:38.5743239+02:00"
+}

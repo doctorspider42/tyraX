@@ -1,0 +1,32 @@
+{
+  "sourceManifestSha256": "f28aac3f7fbe033e2d148366aa264167d95cfd8d7f58b3320378dfc6ad538af6",
+  "sourceFiles": 501,
+  "changes": [
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp"
+  ],
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "candidate": "Cold-only env-normal and bbox reuse census; original render algorithms unchanged; no scoped clocks",
+  "commonCodeFootprintUnpriced": true,
+  "allGameSourcesUnchanged": true,
+  "existingWaitsRetained": true,
+  "stages": {
+    "0": [
+      "calls",
+      "hits",
+      "normalizedVertices",
+      "samePointerMisses",
+      "bboxOnlyMisses"
+    ],
+    "1": [
+      "calls",
+      "hits",
+      "recalculations",
+      "freshAllocations",
+      "recomputedVertices"
+    ]
+  }
+}

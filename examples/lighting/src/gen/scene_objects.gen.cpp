@@ -23,6 +23,7 @@ const SceneObjectData SCENE_0_OBJECTS[14] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {14};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[14] = {0xc1168488424f9ba9ULL, 0xf3effeb30c81fb2eULL, 0x07f538ccba5d86c2ULL, 0x9b21632d712c19f0ULL, 0x81146493f2c7307bULL, 0xe4441f50ed41715dULL, 0x4179dda2b2c05d61ULL, 0x641dbdb28dce1ff6ULL, 0xafecacbf4ac24e1dULL, 0x4b77a9ac88963fcdULL, 0xcbb5c6d2b0de93f3ULL, 0x6c2c5ff8b848a7fdULL, 0xba3d7c5126450c3aULL, 0xdb04f7ed6d3e54daULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[14] = {1,1,1,0,1,1,1,1,0,0,1,1,0,1};
 
 }  // namespace Lighting
 

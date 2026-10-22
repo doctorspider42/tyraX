@@ -49,6 +49,14 @@ is nearer), snapped to half a tile. Snapping is what keeps this quiet: detail is
 a step function, so its input may as well be one, and without it a tile sitting
 on a band boundary would rebuild itself for ever.
 
+The terrain focus is the camera target **before visual camera shake**. Shake
+still affects the rendered view, but cannot toggle detail bands when the target
+rests on a snapping boundary. Version 1.173.5 corrects this separation in both
+generated game variants. Normal detail distances and neighbor edge matching
+are unchanged. Physical day/night driving A/B in both orders saves about
+1.5-1.8 ms per frame on Motor District; it does not establish stable 60 fps.
+See [the qualification](tyrax2-terrain-focus-2026-10-11/README.md).
+
 When a band moves, the tiles it crossed are rebuilt — one per frame, after any
 tile that is missing outright, so a hole in the ground is never waiting behind a
 cosmetic rebuild. A tile whose *neighbour* changed detail is rebuilt too: that

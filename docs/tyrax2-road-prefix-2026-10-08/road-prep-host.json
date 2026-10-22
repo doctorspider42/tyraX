@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "headerSha256": "adad4f8ff3af542fadac855a44e446e5f178eef59591e8197d99d19543ddf34c",
+  "prefixPartition": true,
+  "checks": [
+    "disabled clocks",
+    "non-road calls excluded",
+    "prefix buckets included",
+    "exclusive nested buckets",
+    "dispatch containment",
+    "balanced scopes",
+    "u32 wrap",
+    "recursion negative control",
+    "deferred bag ownership sites"
+  ]
+}

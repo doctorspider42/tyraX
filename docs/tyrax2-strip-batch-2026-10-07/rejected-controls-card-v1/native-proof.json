@@ -1,0 +1,2556 @@
+{
+  "status": "PASS_STRIP_BATCH_NATIVE_SOURCE_OBJECT_BINDING",
+  "sources": {
+    "game/Makefile": {
+      "sha256": "35c596a0b107edb8a85c98ac7e6226312b656f635f23ce65a7defe05f4662467",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/Makefile"
+    },
+    "game/inc/ao_data.gen.hpp": {
+      "sha256": "e1d30cfec2772c80d671541a533aa30c98392088cfe8feb0e7dde5f766b76e14",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/ao_data.gen.hpp"
+    },
+    "game/inc/bag_array.gen.hpp": {
+      "sha256": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/bag_array.gen.hpp"
+    },
+    "game/inc/blss_net.gen.hpp": {
+      "sha256": "511e70a165a8caddfc372c1a9477fda940826daf9b182ff858edb57e43cbe22f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/blss_net.gen.hpp"
+    },
+    "game/inc/closeout_geometry.hpp": {
+      "sha256": "b8d98e152f3bc15906596b4b25659b107f8b225e0bd135e68a660e4bea24db0f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/closeout_geometry.hpp"
+    },
+    "game/inc/controls.hpp": {
+      "sha256": "aedb04fa50016916a62bf671629be67860467fab09d96f6f9381c149051e17f4",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/controls.hpp"
+    },
+    "game/inc/credits_data.gen.hpp": {
+      "sha256": "ef7d2789d92ea28f1cc52b8593f2843d3eee6121822e94d9da8e89760205cc34",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/credits_data.gen.hpp"
+    },
+    "game/inc/daynight.gen.hpp": {
+      "sha256": "3f0b3f0ce22cbaa24326fa8e7d609adcfe5645820fc7c284be3e6f0ef76dd693",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/daynight.gen.hpp"
+    },
+    "game/inc/decal_data.gen.hpp": {
+      "sha256": "4dcbb0c37d4dc6bddb8752041ccaabda1618c5fef444b53d7c6685c55cb0941b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/decal_data.gen.hpp"
+    },
+    "game/inc/facts.gen.hpp": {
+      "sha256": "6000e5dec19a13e13d58d77956b02a8218b6650ba60996a7ac549489b924a36a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/facts.gen.hpp"
+    },
+    "game/inc/font_data.gen.hpp": {
+      "sha256": "001df424488c10432ba1c912723c46a322bd6a63eb9a11e43cfedaf9e938ba66",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/font_data.gen.hpp"
+    },
+    "game/inc/game_runtime.gen.hpp": {
+      "sha256": "c25d254ac8d2a6b93cdf3279e69b5ff62178685369111e3b0a5ea67a664248da",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/game_runtime.gen.hpp"
+    },
+    "game/inc/hud_data.gen.hpp": {
+      "sha256": "723d3554de4a63aab2b87d5e5aa328f519593ddf21bf8b668c36db37fcad33eb",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/hud_data.gen.hpp"
+    },
+    "game/inc/icon_data.gen.hpp": {
+      "sha256": "d8ec911e383dd5a40646395b796e06a3c10a62d8ae40d6e41a6af5308b1d1494",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/icon_data.gen.hpp"
+    },
+    "game/inc/input_map.gen.hpp": {
+      "sha256": "21e1a69288defd8d4a5a97ae9fed9a0dd81551ec4c6bc125af645610a88c7ade",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/input_map.gen.hpp"
+    },
+    "game/inc/input_replay.gen.hpp": {
+      "sha256": "b2db1ad6e5aa92ae3c60a781f487a4da77508f8056d0705c30370d036180cbd8",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/input_replay.gen.hpp"
+    },
+    "game/inc/live_pad.gen.hpp": {
+      "sha256": "bbece0f5bc0cd7730d3a6f8fb815df3cab305228fec75ce2b86797b6aa6e6510",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/live_pad.gen.hpp"
+    },
+    "game/inc/loading_data.gen.hpp": {
+      "sha256": "f5163f3b48b8bfebb62a11f4a848da035db1e31c891bccd1db0d419096049242",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/loading_data.gen.hpp"
+    },
+    "game/inc/menu_data.gen.hpp": {
+      "sha256": "53d7fd905c3ab5118d6dc7b453838fd648b9da4d40a5ec9ca207e55d86261772",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/menu_data.gen.hpp"
+    },
+    "game/inc/model_data.gen.hpp": {
+      "sha256": "b01025a1f2d94a5ebd5589440bc51e25051b5829e4c0763f21c1859b03468635",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/model_data.gen.hpp"
+    },
+    "game/inc/motion_route.hpp": {
+      "sha256": "2686d693694bcbf040a1277e4dfa7afee1ef1358351ae36d8fbcdd34973fbb6f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/motion_route.hpp"
+    },
+    "game/inc/nav_data.gen.hpp": {
+      "sha256": "1893f6c6eb7bc90eeb5efbe2a33d380a65619520ca0f245ff5e587aaea25b3c9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/nav_data.gen.hpp"
+    },
+    "game/inc/occlusion_data.gen.hpp": {
+      "sha256": "b01d769590e8c3d46532fa944548561c081418f44d59760764647df7b46c2798",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/occlusion_data.gen.hpp"
+    },
+    "game/inc/prefab_data.gen.hpp": {
+      "sha256": "3e29237c3875b30f0ed497ea7e03dd69de6c11ad9f28d5d4023f5a145b75d402",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/prefab_data.gen.hpp"
+    },
+    "game/inc/probe_data.gen.hpp": {
+      "sha256": "067370d2e543bffc2219bcc06b6bcd4ebcd577051e4b60671d654a1ead11d597",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/probe_data.gen.hpp"
+    },
+    "game/inc/procedural.gen.hpp": {
+      "sha256": "ed32d1182fcc217de0e2a04b19ddeec7a9c0a0e93b1e6b6e7b8e38e837721d43",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/procedural.gen.hpp"
+    },
+    "game/inc/save_system.gen.hpp": {
+      "sha256": "6ba4da909f33534d85e21f5de4a6c286293c46c6bd650309b461b9fadea87154",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/save_system.gen.hpp"
+    },
+    "game/inc/scene_data.hpp": {
+      "sha256": "9e9a374d2dd858560ab0e31a5d3c0b806e431c36bde8db42f904eed5f62b31f7",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scene_data.hpp"
+    },
+    "game/inc/scripts/credits.gen.hpp": {
+      "sha256": "77e3236d4c2b50bbc0fd1e03a00a27ee195cd72a20eda7b937f8899456c282d8",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/credits.gen.hpp"
+    },
+    "game/inc/scripts/district_data.hpp": {
+      "sha256": "9e3395f8ab382b9af8105ad4fac4e0a3aa8ddb69169164730744930c578c8bd4",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/district_data.hpp"
+    },
+    "game/inc/scripts/flow_nodes.hpp": {
+      "sha256": "ef26f134383ada3f8d5e87f434be711a87570a2b8ca02a3dc74564ef07924dc0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/flow_nodes.hpp"
+    },
+    "game/inc/scripts/live_debug.gen.hpp": {
+      "sha256": "83bd9633d27bc7f9a3a17f8e7dd432288f3ef8d6168ca4a27f9f750bb52d6cd2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/live_debug.gen.hpp"
+    },
+    "game/inc/scripts/live_logic.gen.hpp": {
+      "sha256": "51b2bac1cd6226a8034e0cad78e1e88443b2a522af18a9216ca4c694441b6658",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/live_logic.gen.hpp"
+    },
+    "game/inc/scripts/navigation.gen.hpp": {
+      "sha256": "7558460c9443b62554394b013214389fe35d851bf2acb5e6dfdb45643bb46a94",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/navigation.gen.hpp"
+    },
+    "game/inc/scripts/screen_fx.gen.hpp": {
+      "sha256": "5c109059ceed508470f91a24cba38566b12d1ec66b15db1a34cf74521cf5fdb1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/screen_fx.gen.hpp"
+    },
+    "game/inc/scripts/script.hpp": {
+      "sha256": "bf76ce05cc21f62a073b0b7fff758b2f977d4c923e86b4b74431c9f927426600",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/script.hpp"
+    },
+    "game/inc/scripts/scroller.gen.hpp": {
+      "sha256": "e91e563bfb20de6a36b6a9b5b89bbdc96916edfe0b1d32abb94f6240e1e86e4c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/scroller.gen.hpp"
+    },
+    "game/inc/scripts/sequences.gen.hpp": {
+      "sha256": "dc82ac5eb18be9295492600c2b992aa3cc70dbd8ec0764af5dc830a171f6d80f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/sequences.gen.hpp"
+    },
+    "game/inc/scripts/vu0_kernels.gen.hpp": {
+      "sha256": "cbb95d8e9d1f23ad80c760b510d650a3fa4d0981be082b2b8cf137ba8523cfc2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/vu0_kernels.gen.hpp"
+    },
+    "game/inc/scripts/vu_programs.gen.hpp": {
+      "sha256": "d61e0a47ea258ff618db9dbe45688ccfa51f9ad7689a48cd152dce2574b73a3a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/vu_programs.gen.hpp"
+    },
+    "game/inc/scripts/vu_scripts.gen.hpp": {
+      "sha256": "2664d01d56abf3129d5b89a865eeae66f839f57d825fb264a990c227371c39f0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/scripts/vu_scripts.gen.hpp"
+    },
+    "game/inc/shadow_data.gen.hpp": {
+      "sha256": "9402bdd986bc80986416bcb27c8042a69b840f06247df726f9574e1130ab43c1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/shadow_data.gen.hpp"
+    },
+    "game/inc/strip_pack.hpp": {
+      "sha256": "15ff5032c228455dff92826a69ead5a898766f7ed5a6f2d7171b8c00a15ae69b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/strip_pack.hpp"
+    },
+    "game/inc/terrain_config.hpp": {
+      "sha256": "bfdb04d64f67a5101177699b024ac5a87200222186be97be43e1392353a953f1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/terrain_config.hpp"
+    },
+    "game/inc/terrain_game.hpp": {
+      "sha256": "3cc3248491267ee0a1af823cc24152faa7a76c452c2ce2371003f333446f97d6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/terrain_game.hpp"
+    },
+    "game/inc/terrain_heights.gen.hpp": {
+      "sha256": "5495e2f0ad14b80e256ccba9724301c8799a92660cc067a101bffd7e96ba5cc7",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/terrain_heights.gen.hpp"
+    },
+    "game/inc/texture_data.gen.hpp": {
+      "sha256": "ff57c54426ab6d9149fde88630071b3e2e27a0e61c4d7d9281c92365c1a10abb",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/inc/texture_data.gen.hpp"
+    },
+    "game/src/gen/credits.gen.cpp": {
+      "sha256": "91339bb83f5ab035167bca35a5b2962b9eec3da2c4fbfdd36e2c99739b926f03",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/credits.gen.cpp"
+    },
+    "game/src/gen/flow_graph.gen.cpp": {
+      "sha256": "8c28f23fd5573e7565a6e503913082d61e22260cadfbbfbc9b5d729074ac32a9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/flow_graph.gen.cpp"
+    },
+    "game/src/gen/game_collision.gen.cpp": {
+      "sha256": "0b8830d30bd434fa52cf955b14f29ad20e432830fa69c4eff807c45a657adcd0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/game_collision.gen.cpp"
+    },
+    "game/src/gen/game_lighting.gen.cpp": {
+      "sha256": "a68a2879fcbfab4657e981308271ec7ee8a841722534b1ade2ceeed3a69d411d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/game_lighting.gen.cpp"
+    },
+    "game/src/gen/game_physics.gen.cpp": {
+      "sha256": "05fd739caf24cce4733aede1fdc6b92fa05ca447c55ff25387754a904796d9ee",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/game_physics.gen.cpp"
+    },
+    "game/src/gen/game_scene.gen.cpp": {
+      "sha256": "7de907efaf882373b4abb63759d39956e2c9a605415725a375755e0dc9ca1228",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/game_scene.gen.cpp"
+    },
+    "game/src/gen/game_vehicles.gen.cpp": {
+      "sha256": "ddbb581ff5be735f3d852d79bdf0f27c997682582822b316ce5a4c8c251c2b70",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/game_vehicles.gen.cpp"
+    },
+    "game/src/gen/input_map.gen.cpp": {
+      "sha256": "36d55372ac935d8e7b210c5ad602a934a156977f298217d35f176c5539c4a798",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/input_map.gen.cpp"
+    },
+    "game/src/gen/input_replay.gen.cpp": {
+      "sha256": "c41787877b2adf8fa6da894eafe1dfef019631dae0de6d6ffa95fc63548c0c9e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/input_replay.gen.cpp"
+    },
+    "game/src/gen/live_debug.gen.cpp": {
+      "sha256": "a93d9b9becd09ec2ee917e73cbd04aea72f86ecea94614d8fcae1f4ee505b2f4",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/live_debug.gen.cpp"
+    },
+    "game/src/gen/live_link.gen.cpp": {
+      "sha256": "24f808946415c4dc9fca0b586a689279fb76138df1e7f29d5a056070d81317a0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/live_link.gen.cpp"
+    },
+    "game/src/gen/live_logic.gen.cpp": {
+      "sha256": "7915e90a5ed8b75854f952283e0cb0bb71437c9fb4e072dd12087f7cfecfb152",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/live_logic.gen.cpp"
+    },
+    "game/src/gen/live_pad.gen.cpp": {
+      "sha256": "6a5d0762cc724c31a745e7deb692b48b2defd59612af352a37610ed434a06360",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/live_pad.gen.cpp"
+    },
+    "game/src/gen/live_tex.gen.cpp": {
+      "sha256": "7c799c350d8bb6d46ef821062d567964dda46795a53b3422548f92bdae8f4d51",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/live_tex.gen.cpp"
+    },
+    "game/src/gen/live_time.gen.cpp": {
+      "sha256": "80d239a176c6b96a6eb69bee5181bc9528974aa6a586c52b5b1ef22be269c2b6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/live_time.gen.cpp"
+    },
+    "game/src/gen/navigation.gen.cpp": {
+      "sha256": "0f4ce0734795e4fc0c13e5cf12b801ce72eb55ef70e4c69a8ca5b026a950ac0f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/navigation.gen.cpp"
+    },
+    "game/src/gen/object_scripts.gen.cpp": {
+      "sha256": "cb34058e8e7aa5e4dea71f927b65e50d2e617527313dc80b354befedf935f218",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/object_scripts.gen.cpp"
+    },
+    "game/src/gen/procedural.gen.cpp": {
+      "sha256": "69b207ea7ec2fcb9a0429d08b6cb670a7b643e9234508c8af1b06e8faa4cd808",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/procedural.gen.cpp"
+    },
+    "game/src/gen/scene_objects.gen.cpp": {
+      "sha256": "7746cfeb68f2d88bf9fe111950e85b9d2f97efd54661b821bea86a80529a7a52",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/scene_objects.gen.cpp"
+    },
+    "game/src/gen/screen_fx.gen.cpp": {
+      "sha256": "a6ea93ac20926c74735010a21500dcd7b80e620e27105ea5e3c644924fb66249",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/screen_fx.gen.cpp"
+    },
+    "game/src/gen/scroller.gen.cpp": {
+      "sha256": "2882013a4215ad9cf3912bf62cc79e8c367f45b8cc34fab3393fe34639a7c989",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/scroller.gen.cpp"
+    },
+    "game/src/gen/sequences.gen.cpp": {
+      "sha256": "d4de086c4338ad29df87c0395d3250b0a63d2ae99aec240c302695ded0764b47",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/sequences.gen.cpp"
+    },
+    "game/src/gen/vu_programs.gen.cpp": {
+      "sha256": "60ef74bdab9c293ca2fca415aeb38daa287c5bae3abc8e97d6d7db61eef0c1d1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/gen/vu_programs.gen.cpp"
+    },
+    "game/src/main.cpp": {
+      "sha256": "eed6b5b41523ca4894ed3cc80d1c5574aba1dbf43a438d89e4f9292959ef9a36",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/main.cpp"
+    },
+    "game/src/save_system.gen.cpp": {
+      "sha256": "a1eb568550fd04db0a35d1f2f787521a4bb48a43937f927e0cf5bdcce3fcab52",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/save_system.gen.cpp"
+    },
+    "game/src/scripts/district_mood.cpp": {
+      "sha256": "b0e2653e5e9d03818440414bd9b52596c70d9bc0493134c7cef9954aee71a2f5",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/scripts/district_mood.cpp"
+    },
+    "game/src/scripts/example_interaction.cpp": {
+      "sha256": "246d914d86c08f7d5ff18adaed691ac950eaf3b3b95431291ef9c5cd2696156a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/scripts/example_interaction.cpp"
+    },
+    "game/src/terrain_game.cpp": {
+      "sha256": "ca44882154e2416619149821b4a5948790e9d239109c8cac241ed09f274addb0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/src/terrain_game.cpp"
+    },
+    "tyra/engine/Makefile": {
+      "sha256": "9e6ea27990dddabd2886289e7ead52e76648c1134f3d2c81ca25b3cb42ce73cd",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/Makefile"
+    },
+    "tyra/engine/inc/audio/adpcm_result.hpp": {
+      "sha256": "36da9a006af422a98ea57d6547c6b6286390a1143ff2ff884032451ba9ac0dd1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/audio/adpcm_result.hpp"
+    },
+    "tyra/engine/inc/audio/audio.hpp": {
+      "sha256": "6fae9018e22327deb6926a9bdb3be96ad7aedb5aa1b5931d7d448950dd3d82e7",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/audio/audio.hpp"
+    },
+    "tyra/engine/inc/audio/audio_adpcm.hpp": {
+      "sha256": "ff2be56d40766037b4b9ab1dba1688a8a703eef1ad895f61d0f031166bb87298",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/audio/audio_adpcm.hpp"
+    },
+    "tyra/engine/inc/audio/audio_listener.hpp": {
+      "sha256": "d5ff98eebef8f6f5f399594f44f6257b710e1d478bf06084e73554827389de8b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/audio/audio_listener.hpp"
+    },
+    "tyra/engine/inc/audio/audio_listener_ref.hpp": {
+      "sha256": "969647e075f481550cd9da9ce58e236ac8b45827a6fd5d8afb9b9e36ccad33b9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/audio/audio_listener_ref.hpp"
+    },
+    "tyra/engine/inc/audio/audio_reverb.hpp": {
+      "sha256": "b182243453782b1232b4c68217649e12ee58596ca8d9c5016fa4675587bc1593",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/audio/audio_reverb.hpp"
+    },
+    "tyra/engine/inc/audio/audio_song.hpp": {
+      "sha256": "7a1364a71defd36153a5458763f11cd2f7a4e399ffe8daf9abb9a4d5cec8895a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/audio/audio_song.hpp"
+    },
+    "tyra/engine/inc/debug/closeout.hpp": {
+      "sha256": "2d4f3219847d97562a43062256d47681dd8eac4f4671cc22148c478b10360383",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/closeout.hpp"
+    },
+    "tyra/engine/inc/debug/crash_handler.hpp": {
+      "sha256": "a6a7344257fc53d06819da5c3fbc7f0ccbfe1929aa54df44df556fff27e2aca1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/crash_handler.hpp"
+    },
+    "tyra/engine/inc/debug/debug.hpp": {
+      "sha256": "a763910c638504b7d6c1ab2e5b82611aabbdc2ee322cd8b9d4a835862c239139",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/debug.hpp"
+    },
+    "tyra/engine/inc/debug/frame_profile.hpp": {
+      "sha256": "40d0b23c7b0a08aa2804f45b5de48a2179ae6cfd7e9a72980c7745c521e6a09e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/frame_profile.hpp"
+    },
+    "tyra/engine/inc/debug/hardware_trace.hpp": {
+      "sha256": "c1ab868f8ca76f0d928e7364c395a3accab5f871879ba7f80dc82cb7a9022ad2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/hardware_trace.hpp"
+    },
+    "tyra/engine/inc/debug/loop_balance.hpp": {
+      "sha256": "c96465fc471847459769786c877a4b28fcd2f147eb2d128fea9aa1c352665c94",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/loop_balance.hpp"
+    },
+    "tyra/engine/inc/debug/night_sampler.hpp": {
+      "sha256": "a44b48ef32f2bf067317c81d00d4712579431cb6e92c6501353ce8783e2b31f5",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/night_sampler.hpp"
+    },
+    "tyra/engine/inc/debug/render_audit.hpp": {
+      "sha256": "e16527dc798db69c9890e0553fd434a4dc09ac8ea2c9ccb4bd362dc1a783f54f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/render_audit.hpp"
+    },
+    "tyra/engine/inc/debug/sifrpc_guard.hpp": {
+      "sha256": "ada49667dfbdbfa05ca9ec56a0f568837aea58631d7083ed2cec3c6160f1ac29",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/sifrpc_guard.hpp"
+    },
+    "tyra/engine/inc/engine.hpp": {
+      "sha256": "f7929fab7c654d2855de721b9c3f88a1be1000ea3050e2ff61a6938df1cebd2c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/engine.hpp"
+    },
+    "tyra/engine/inc/file/file_utils.hpp": {
+      "sha256": "290c8c93dc588f46736ec9b143b7209e5997d36ea4bbdecc5dcdde9eff23e059",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/file/file_utils.hpp"
+    },
+    "tyra/engine/inc/game.hpp": {
+      "sha256": "1275c04cdbad120815cf6ffd6b86a3b400e3a8e528a4d9f17d295ea5564c0705",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/game.hpp"
+    },
+    "tyra/engine/inc/info/banner.hpp": {
+      "sha256": "c647c6d3301adb0ae20f8c42df995c26011a428eabf528daa0be00307be69ee1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/info/banner.hpp"
+    },
+    "tyra/engine/inc/info/info.hpp": {
+      "sha256": "d615bddc5bb4af7720c619e2e6916ffbc41a6f9937782091deb7a432f3e8f2a3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/info/info.hpp"
+    },
+    "tyra/engine/inc/info/version.hpp": {
+      "sha256": "e25a43e7e9510e0f9385977225580ec7ec35e46acd6a1ce152b2d605f97f5a17",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/info/version.hpp"
+    },
+    "tyra/engine/inc/irx/irx_loader.hpp": {
+      "sha256": "a96f7f620313eeace4f4fa13aaf3b9bf024bb1a25dd3ec87253486f15f127648",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/irx/irx_loader.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/builder/mesh_builder_data.hpp": {
+      "sha256": "c57447ed55e74b164ee32d5d171f19b906dcf4291b6a2ccd34151704fadfbec0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/builder/mesh_builder_data.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/builder/mesh_builder_material_data.hpp": {
+      "sha256": "a48cf9409e96b9ab0cee3bb4c75222473ae96790832b3524f7168ccccbf5ce52",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/builder/mesh_builder_material_data.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/builder/mesh_builder_material_frame_data.hpp": {
+      "sha256": "916556a296651358a82434658ed5dd249c14ef2f4773cdb3ea3d71e4a1ad17b1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/builder/mesh_builder_material_frame_data.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/md2_loader/anorms.hpp": {
+      "sha256": "424df6cb90700fa6fa107ed391253116f521ced42bcf5f59ed8412b19c44910d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/md2_loader/anorms.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/md2_loader/md2_loader.hpp": {
+      "sha256": "8d9339a55fcb7132aeea8cf7395e92ffd6f8584819de8abb5f7e5efd7d99e717",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/md2_loader/md2_loader.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/obj_loader/lean_obj_loader.hpp": {
+      "sha256": "cac82edcbb546659ce625cc5ceaf5618a054cdaecfe070f776109cc903caf45c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/obj_loader/lean_obj_loader.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/obj_loader/mapbox/earcut.hpp": {
+      "sha256": "fc2ee704ecd625e3600767863facd9a7b8086c50c87356f6cd2f100fb6a67ce8",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/obj_loader/mapbox/earcut.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/obj_loader/obj_loader.hpp": {
+      "sha256": "4e88af7d31d93f2cfd23d31fd2d4d624b9122af41d238e6752610c27578908d3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/obj_loader/obj_loader.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/obj_loader/tiny_obj_loader.hpp": {
+      "sha256": "885e15ae60b05a71b4ff5ed6ed2374515ddc59d3dedd06edb26c2883c07883d8",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/obj_loader/tiny_obj_loader.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/tanm_loader/tanm_loader.hpp": {
+      "sha256": "2d3d7362c1e3fe68e181c086103dc23a77267b1eba79b13cd02cf9222f9f56c9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/tanm_loader/tanm_loader.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/tmdl_loader/tmdl_loader.hpp": {
+      "sha256": "68d4b1cd3c5997861dccb099fcfa0cdf2b38a0a859a76aca0356e805ff1c6887",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/tmdl_loader/tmdl_loader.hpp"
+    },
+    "tyra/engine/inc/loaders/3d/tskl_loader/tskl_loader.hpp": {
+      "sha256": "1ec923cc16e3e0a6fa2c52415eeed353b6b54f24e2ce9769a24ecf10643d9226",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/3d/tskl_loader/tskl_loader.hpp"
+    },
+    "tyra/engine/inc/loaders/texture/base/texture_loader.hpp": {
+      "sha256": "85d6419d1ee0503f6c90761713d3bb2fe9b83b3450ba6c0bcfdc2063092344ed",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/texture/base/texture_loader.hpp"
+    },
+    "tyra/engine/inc/loaders/texture/base/texture_loader_selector.hpp": {
+      "sha256": "8f5b2e3b6178401122ce90768eb2672e8ba5cb41b7cf759c31d7093e1e672707",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/texture/base/texture_loader_selector.hpp"
+    },
+    "tyra/engine/inc/loaders/texture/builder/texture_builder_data.hpp": {
+      "sha256": "05dd95a6ee50a9ee61b0b7da8d503319b56b4aaeead3efa0878f8c4a1c2ac282",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/texture/builder/texture_builder_data.hpp"
+    },
+    "tyra/engine/inc/loaders/texture/png_loader.hpp": {
+      "sha256": "209ffd73f134abf03b40b35364cae3100971652d53b083f3bb7e585f44dbeb6e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/loaders/texture/png_loader.hpp"
+    },
+    "tyra/engine/inc/math/m4x4.hpp": {
+      "sha256": "77d536ec355062e7ecb52db9d1051c3e381303f0ce6e4de8a49d144a1f4b0224",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/math/m4x4.hpp"
+    },
+    "tyra/engine/inc/math/math.hpp": {
+      "sha256": "87fefd0df58d2c0d9cdb9b3e16a32a4da2678ab45e89e6eee0e813258ef950da",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/math/math.hpp"
+    },
+    "tyra/engine/inc/math/plane.hpp": {
+      "sha256": "f8ac2888daf4249d80c29b85f2124e83b058a54ac06befeb30655534814ddc7d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/math/plane.hpp"
+    },
+    "tyra/engine/inc/math/vec2.hpp": {
+      "sha256": "63942169e060422f20ff4bca7ff446fb5e65a2d5690872a751847515f7c67009",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/math/vec2.hpp"
+    },
+    "tyra/engine/inc/math/vec4.hpp": {
+      "sha256": "5c9ba35c45c7928239ccac2ebe09c74efe3084fded2f905ca76b1a5cbb0b95be",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/math/vec4.hpp"
+    },
+    "tyra/engine/inc/packet2/packet2_tyra_utils.hpp": {
+      "sha256": "4d8ee2c7ba69f54e1164f6225e4f3b673ab974d7f089de7251eedfaa48e4ab0a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/packet2/packet2_tyra_utils.hpp"
+    },
+    "tyra/engine/inc/pad/kbd_mouse.hpp": {
+      "sha256": "e4884f552a0523484c619f5f2fcdb6125ded29fd9249cae972b39b0024ebc52d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/pad/kbd_mouse.hpp"
+    },
+    "tyra/engine/inc/pad/pad.hpp": {
+      "sha256": "86c9025bb41287c47442e2d2dae3063c0b0c9f642ecd63c3329ef41ae1886304",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/pad/pad.hpp"
+    },
+    "tyra/engine/inc/physics/collision_mesh.hpp": {
+      "sha256": "f0578664de2d4f2f8414e5b6bd6076c0770712d52a552ecd926bb034fe28e517",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/physics/collision_mesh.hpp"
+    },
+    "tyra/engine/inc/physics/ray.hpp": {
+      "sha256": "9354a01b43d9489cb308dd075d80a6a189c3614f35d4696803d5e9a4c9438fc2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/physics/ray.hpp"
+    },
+    "tyra/engine/inc/renderer/2d/renderer_2d.hpp": {
+      "sha256": "a91e96a25cea1b8888111fe712cb83560b15daa14308b066065b184e54b61549",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/2d/renderer_2d.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/bbox/bbox.hpp": {
+      "sha256": "ed53b4bf64759ba32e14692fa03240ed388d8d44df437bbd11950e905db1b080",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/bbox/bbox.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/bbox/bbox_face.hpp": {
+      "sha256": "9d06fa765fddd18209f3554bfb81d162035d4e2a74e3e11184582e5faab1073c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/bbox/bbox_face.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/mesh/dynamic/animation_sequence_callback.hpp": {
+      "sha256": "0448eea753d3811b2fd1807e9a00531ca8a2e12b720a45076ca0c739c91ee202",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/mesh/dynamic/animation_sequence_callback.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/mesh/dynamic/dynamic_mesh.hpp": {
+      "sha256": "91d13987925a4da7878c5531ede20d0758cd00bc8be5b8f88e3dd4ec63bede2c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/mesh/dynamic/dynamic_mesh.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/mesh/dynamic/dynamic_mesh_anim_state.hpp": {
+      "sha256": "a9b25fe69368b0295a49143625c5d99ba81665934ed8ce339afd92c33c16e65b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/mesh/dynamic/dynamic_mesh_anim_state.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/mesh/dynamic/dynamic_mesh_animation.hpp": {
+      "sha256": "94f1102c12c68f9af5a65e02e48c41cdf9529f148f0f117277818b977985709c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/mesh/dynamic/dynamic_mesh_animation.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/mesh/dynamic/skel_instance.hpp": {
+      "sha256": "ac04f202b64092611cd104ba94b59f3ff8f5b1c2f5aae574f2a32e68f99a9076",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/mesh/dynamic/skel_instance.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/mesh/mesh.hpp": {
+      "sha256": "542449f0ab8cc8dbd0ea427263e12391efedd54939de7912f4249eb1591e8a8b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/mesh/mesh.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/mesh/mesh_frame.hpp": {
+      "sha256": "2d137f3a93d0fdf2cd9574fd305bb2b416f45eb0fc22320769c8db35588cf686",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/mesh/mesh_frame.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/mesh/mesh_material.hpp": {
+      "sha256": "9784cbfab19a0c1d1c3bc4c72341f410cf8bcbbb2184888bacccf07d61ab0dc5",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/mesh/mesh_material.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/mesh/mesh_material_frame.hpp": {
+      "sha256": "0dcd337d296e0589de037172425be4258ca91d9b7c5a40bc72a5277748a3924f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/mesh/mesh_material_frame.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/mesh/static/static_mesh.hpp": {
+      "sha256": "82679a2ebf09e077b9978b580f689f000c581f4274da599aa675547fafbee422",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/mesh/static/static_mesh.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_bag.hpp": {
+      "sha256": "6f644dfd55bd256ef70d19da4e8ae818b52395e04abd66067b76fb60bf8dd8ba",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_color_bag.hpp": {
+      "sha256": "3ca80981b3cab691a8740cc79fcab8d2742898b5422e42b964f570c7d59d2b15",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_color_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_info_bag.hpp": {
+      "sha256": "24b5f6c30880e55578c398808efa028d8d1e42e1319ff6b05438dac62e9c39c0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_info_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_lighting_bag.hpp": {
+      "sha256": "014cdc6dcf75e014e5838ff30ad0b8e72f1ffb52d2426be613d8f905cbe58ad6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_lighting_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_texture_bag.hpp": {
+      "sha256": "90f59440fde7acd267942233a6cd2aba4aefd849c3e6373576360bd5da6c6a4e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_texture_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_core.hpp": {
+      "sha256": "e023220d086d5d5be3fa70712ecff804b7ad614eeab34cb31a32926d1d5e70e9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_core.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_program_name.hpp": {
+      "sha256": "8c8d0e086ba6aae4183c84f49ca60575343d3453750e854cee0effe9e58f5f9b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_program_name.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_programs_repository.hpp": {
+      "sha256": "65054f51bbb3ab6479de3c075d140dc1a46e2d08acaa1eedf4938a0df925d0b7",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_programs_repository.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_renderer.hpp": {
+      "sha256": "05849d20e1691d15d01fb259d9249ef97ac4b9f570e12a2e3167fa0d62904247",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_renderer.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_vu1_program.hpp": {
+      "sha256": "056cf0fea5be5f0c1012975238231bd1b57be04fdde00c127d44f7f2279286d8",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1_program.hpp": {
+      "sha256": "fa07930e00e4d7e01ecc6b88b2b67d38cca9f4df99d9bdca721fa762b77808ea",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1_program.hpp": {
+      "sha256": "3208de993897d7411926942ba242a6fb3fa68831d5e93297ec70f8df94b9d41c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1_program.hpp": {
+      "sha256": "4b56145c7c9ac0f0532d671f43672a61edef1f5f949382a36795bdf69321cb99",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1_program.hpp": {
+      "sha256": "617ac729512e0ad3a3a03f44f8c91572c67a2388980b88203afdc6791e16e098",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_vu1_shared_defines.h": {
+      "sha256": "e63846f138a7b1af918dd144914c92ad0d98d92880f35586264721674f1e6d29",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_vu1_shared_defines.h"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/dynamic_pipeline.hpp": {
+      "sha256": "46f8ffba27f6d5caa39f8124f21c0c0a7ee5bb1a3c4fe12e0bac4db97de7a22f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/dynamic_pipeline.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/dynamic/dynpip_options.hpp": {
+      "sha256": "2e6a30a7f1b51d83a210413a13995d5d31246f78dd48a48b1ae4bda3f3afdcfd",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/dynamic/dynpip_options.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/data/mcpip_block_data.hpp": {
+      "sha256": "eb38fd55c3c8876e964ceff6ee077647a69eba7ccee764dbaf3ad46e17079d18",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/data/mcpip_block_data.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/data/mcpip_multi_tex_block_data.hpp": {
+      "sha256": "31c2c0421003afef848cde4e928d0939eae43b979e7d3130e49da90a725ee676",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/data/mcpip_multi_tex_block_data.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/data/mcpip_single_tex_block_data.hpp": {
+      "sha256": "ec32d0eb35a94bb584875cc8eda240a90ab2c4311b25bd6ea7a394d80b9b8c98",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/data/mcpip_single_tex_block_data.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/mcpip_block.hpp": {
+      "sha256": "b4e62aa78ce4cfeb863c365b360f90012d62a1d289b17d46a2695e6d6a432c8b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/mcpip_block.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/minecraft_pipeline.hpp": {
+      "sha256": "fe1cecaf1c29c499cf94c3f45c73dc2c55b67031a8f4e8116ceca0b0784eaf7c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/minecraft_pipeline.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1_program.hpp": {
+      "sha256": "d8908737a909de820af9d11bd40ee46ea2ebe5b3737f2a72575130e3f2b608a7",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.hpp": {
+      "sha256": "5c1167cab3ed0d8303500ff44d20de6d977c2c085f5f85a02337022b70322759",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_vu1_as_is_shared_defines.h": {
+      "sha256": "de67ab7206af6ffae46c09afe106ed91e9aca7c5c7cead76358f2457b5b3bf7b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_vu1_as_is_shared_defines.h"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.hpp": {
+      "sha256": "d951c652dd1e6f05eab98c3d5295f63e98741172a447400ff571645003e197ec",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1_program.hpp": {
+      "sha256": "75202b5991e349b6d5cf29af08d3391b2a06e03388d63533c778c87965eb399a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/cull/mcpip_vu1_cull_shared_defines.h": {
+      "sha256": "096cfcbb29e7188a678743139f1912af11caa64c72345432132d9383ad6d7168",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/cull/mcpip_vu1_cull_shared_defines.h"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_program.hpp": {
+      "sha256": "69e67986034dd469a8f6c0fed25aa9b0509024ef48ead77ff2225ea908624554",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_program_name.hpp": {
+      "sha256": "61896a7d3ef93ef0462a531525375f40f5ab83d693e86dbbdbe42f6883d1241f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_program_name.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.hpp": {
+      "sha256": "fb14b814f980cd5cba49216f1c793eaf938eff07939073d386d55c114da17466",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_programs_repository.hpp": {
+      "sha256": "cee648e9f59c93747c49b9b914998a0a81bebc5c040cffb153fa3d93a96cae23",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_programs_repository.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/renderer_3d_pipeline.hpp": {
+      "sha256": "aa9a808944fc21d4ec195c1db457f0cd944a7cf72d0eb33cd4748bd076c4d4f9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/renderer_3d_pipeline.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_dir_lights_bag.hpp": {
+      "sha256": "e0660321ebdfdda70d8db370603c49ebbbad6a20cfc38b997bb3e46a23de7a19",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_dir_lights_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_info_bag.hpp": {
+      "sha256": "d12fc4049721ba0f48150a35f470f62fb228636135ad1b9d0ad513cdc7aae4c1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_info_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_info_bag_frustum_culling.hpp": {
+      "sha256": "033c704c891c67cfa74f96e43519d32c8b1f29c7b48404ecd72e6ea0b499aaae",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_info_bag_frustum_culling.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_frustum_culling.hpp": {
+      "sha256": "062eec9efdba25a1cd4abb416da4da4afade18522758a66e629f027b2363b80d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_frustum_culling.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_lighting_options.hpp": {
+      "sha256": "1e0bbf7d967be7e28a781495c26a08f47d1a154d4ff99357fd4cf3f0ec339164",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_lighting_options.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_options.hpp": {
+      "sha256": "fbbf7acd4dbfd3e7a70ab5fd1bd3d2671b9c112bc7eee818ddadc1a9086b7c24",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_options.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_shading_type.hpp": {
+      "sha256": "485f78b0338bea3a1663981e76860b229618edae421a81d52f23c6071f99f7c7",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_shading_type.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_texture_mapping_type.hpp": {
+      "sha256": "687a0df16149353d4b48d27c5d897610d35c20b67f09983c56661909639a5248",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_texture_mapping_type.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_transformation_type.hpp": {
+      "sha256": "86154f4d524d890eb7e419e098b6c8fa2c3dd2d7366e9a060f57efbbdfed8b73",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_transformation_type.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_z_test.hpp": {
+      "sha256": "dd2054b7fbd6fee8fd3743aab85f544bc2e0499b63788f017314f950809ac223",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_z_test.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.hpp": {
+      "sha256": "565797938866fb900689b5134c67601fb240e0e0c1b4795723c4474557eea371",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.hpp": {
+      "sha256": "b6750cdf419ff4f96ea0d59cecce650b2d365351e7dc349388ee5fa932b01933",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packages_bbox.hpp": {
+      "sha256": "eedaa8a2dd35c4e50a3145bb680263c8837cdfd1b10eb744e5507544ca2c8909",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packages_bbox.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_bag.hpp": {
+      "sha256": "70acb7183b0dfbf919905d8553e632b3f4211a28179c2f82a1d4657b26299c41",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_billboard_bag.hpp": {
+      "sha256": "0e8049bcd122d336a77752e033b8e29c7d32c763cc2b525e6c8ccb289cd59bf1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_billboard_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_color_bag.hpp": {
+      "sha256": "d96f31a6dd159742249200b06f78a871ac96bf5108a54da51bd28d206e189714",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_color_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_info_bag.hpp": {
+      "sha256": "b96a32546abcd29dd310dd0601a81f0100f9a102dbf3a3253d78b4311eb35787",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_info_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_lighting_bag.hpp": {
+      "sha256": "e5ed03de9fd363bcef7d3c0c174cab871796c59ac0b28a93da56ec575075738f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_lighting_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_texture_bag.hpp": {
+      "sha256": "42fc9803c4666f6d086cac55fb667ad5d5bac6625cda311d02089605b383ef42",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_texture_bag.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.hpp": {
+      "sha256": "d263ea1731c43c5d047fe3cc9e2b322a42a40567d96f7884216271a2812250e6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.hpp": {
+      "sha256": "45b991440a8ff92b2129bd92be9d7bf49c27fc1283911b424bec66ec74001c03",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.hpp": {
+      "sha256": "1246a92d41545f405ee359e6613785cc6e24eaba05debb1acf66e3ed8dcba614",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.hpp": {
+      "sha256": "bff32ea3c522b7b04deaf290b72dcdc0a2b43f7f3b460721255cb9c32b5d3e34",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.hpp": {
+      "sha256": "3ae8e00a69eb82bf7192f688558ac6e9b259f499111651d73946885c3be03c00",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.hpp": {
+      "sha256": "33fd62694702817649885390ae17c9a69cc7d872adba3e2c4eadfb8e25b31792",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.hpp": {
+      "sha256": "4686731cecb2df19c5bc6069f76cfe4cdecaf25d62d78ab49b3608daa03eaecc",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.hpp": {
+      "sha256": "ddce74881d0fe35176d850ae9324e2f9cdc544bbe21e74307e40a714a2786010",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.hpp": {
+      "sha256": "a953f3307aefaf6db4ce1a15a333ed55b1060c3354da89df072609ce58aeec54",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.hpp": {
+      "sha256": "7287dee19df86bb49b391acd04e1ce6abef78a0634d3f93faa70fdb751837fb7",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.hpp": {
+      "sha256": "e264062d501110a52ff2ccf17e8f6504ecb4f43d0006d164bbd48249310810be",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.hpp": {
+      "sha256": "63ee1fb8b3f44aa4a3bb9363154b52e86af5d2698f7b15339a7a1dc778439503",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.hpp": {
+      "sha256": "8cda3909f45b9c7602b406b2b5a7f3d5da8b7c36186bac4ad13c37889c7e3ba0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.hpp": {
+      "sha256": "b0f6b2e4dd4f874037ce8eb34eae40893afa61506d7d9829f5528e4d72ff4b41",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.hpp": {
+      "sha256": "3d26fcc475d9f55bba1ac49aa4dbc8d49006e69aeb3d4e09ffbb74ffbb2b92a5",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.hpp": {
+      "sha256": "a23a9fc231125d6b392a88d92018f9a75293caa4ef10df1d79666f148fd8ddf5",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.hpp": {
+      "sha256": "41c3ecb2739fc1a09774fda56d4fc0a80ecad11428b00d647ece395b131008de",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h": {
+      "sha256": "85f7f7164fbafbb96dde9b6590748a3f94bbf8fa91e23de929aea48aa3f10d71",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_attrib.hpp": {
+      "sha256": "404b4c1542bc870794e4e678490e268c58b0b8b9735c2d62084c97811755661c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_attrib.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.hpp": {
+      "sha256": "13c0cb01a7c7c24acf7ec5bc75bd358b763694cde8ba9ff65246f84d75f255e3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_clipper.hpp": {
+      "sha256": "d93df3e5efbaeec278de63112f40626516780ab0813573523a6749cf7a0c1f1f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_clipper.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_core.hpp": {
+      "sha256": "a2be0e4879687b1b736aafd1f3123cb88a1719e2cd51cb7fc1d93c9ead3cf1b2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_core.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_probes.hpp": {
+      "sha256": "f3e6d12885263194ac2f4861dde12c99999f7e9460e43db6693135626e3ba9aa",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_probes.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_program_name.hpp": {
+      "sha256": "63e93af0fb6e19392f9c3e949e2376cf31d000d86a01d9d22117618915790af3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_program_name.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_program_type.hpp": {
+      "sha256": "3b5cb0dd7b8c867213bd55b04013e0174f19877e9f9958c3a5fe7279335b93b8",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_program_type.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_programs_repository.hpp": {
+      "sha256": "93ff90005a02a5bd07609532b21df64ae533b433b822da5308fc875d5114d3e2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_programs_repository.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp": {
+      "sha256": "e2b73d7845243135495fea98c20e81f46f978d970a322ec187e5d8f6d2c3d863",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp": {
+      "sha256": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp": {
+      "sha256": "12f608e80f16ca73209c01160b92afda971f6a93203e4e08b40399fe84493344",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_telemetry.hpp": {
+      "sha256": "cbaaaedf369173f6145e24c088955fd78ef6f34494b010ad7a363bd58a962d06",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_telemetry.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vif_hash.hpp": {
+      "sha256": "cfb70ab100779d7ba7c42267bb8549d2cd9fa29fa719bb6805a5dd572a027bd0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vif_hash.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp": {
+      "sha256": "894df7665fa666f7b932dd6d607f462c01bc32924f153b9563d7b5bc9c23d170",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vu1_program.hpp": {
+      "sha256": "c6fc69a42c52ae2fa87c508b3600d9772d5dba1f2ab412907284c63c193586b2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vu_tap.hpp": {
+      "sha256": "07b1ae5b16a42d99bb1c1f2aaeecb90bc7ff6f77fdfdd2d893fd376493ea9ffd",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/stapip_options.hpp": {
+      "sha256": "1a52651023a5d864bf783520da474011bd789c27a3710ea9a1b55ed0df258d0a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/stapip_options.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/pipeline/static/static_pipeline.hpp": {
+      "sha256": "1b721b54811be2baed779e7c6c57370566ed566646c33490fdb595e5e4b7dd2e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/pipeline/static/static_pipeline.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/renderer_3d.hpp": {
+      "sha256": "4f3b61e27153ce456951b58541076f21f3b8e02aeee96f26292416034ed74ed2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/renderer_3d.hpp"
+    },
+    "tyra/engine/inc/renderer/3d/renderer_3d_utility.hpp": {
+      "sha256": "8c866dd2c4c3caded43c839b4b296bb8d9d2dba3ed044f82268f133cdd0f3b9d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/3d/renderer_3d_utility.hpp"
+    },
+    "tyra/engine/inc/renderer/core/2d/renderer_core_2d.hpp": {
+      "sha256": "05d111c60b78e78d06d7bdebfe30af842f2b8482b0b4bea8d67313339850cc08",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/2d/renderer_core_2d.hpp"
+    },
+    "tyra/engine/inc/renderer/core/2d/sprite/sprite.hpp": {
+      "sha256": "366b5e9a837a6557494138fafc5f84b258702d704993ab95bcfb5fa4d31de274",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/2d/sprite/sprite.hpp"
+    },
+    "tyra/engine/inc/renderer/core/2d/sprite/sprite_mode.hpp": {
+      "sha256": "98075e061b17b834c8f0697ead7e6961309087ac2c71cd839410f8198dbce3e9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/2d/sprite/sprite_mode.hpp"
+    },
+    "tyra/engine/inc/renderer/core/3d/bbox/core_bbox.hpp": {
+      "sha256": "cb177ba085b3f4afed9723d133c03e238b8007c293c8a9deb6f6bf3da756a568",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/3d/bbox/core_bbox.hpp"
+    },
+    "tyra/engine/inc/renderer/core/3d/bbox/core_bbox_frustum.hpp": {
+      "sha256": "b790c2c8da307d9d46b5bf53b420065880e313daffab9f7228ef9c9b60c29290",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/3d/bbox/core_bbox_frustum.hpp"
+    },
+    "tyra/engine/inc/renderer/core/3d/bbox/render_bbox.hpp": {
+      "sha256": "7d085ae67765e6aa872613bde3d76e0fd875cf564047ab71750cb7ac4e47196b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/3d/bbox/render_bbox.hpp"
+    },
+    "tyra/engine/inc/renderer/core/3d/camera_info_3d.hpp": {
+      "sha256": "92299cfd59a9754dda300222aba04db1d60411107ce9a00c31bcfa0aa7c624be",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/3d/camera_info_3d.hpp"
+    },
+    "tyra/engine/inc/renderer/core/3d/clipper/planes_clip_algorithm.hpp": {
+      "sha256": "f9de5072144093cff98ca78ef317be9b472be4bf7ee38c0d7a3fbea709723b3f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/3d/clipper/planes_clip_algorithm.hpp"
+    },
+    "tyra/engine/inc/renderer/core/3d/clipper/planes_clip_vertex.hpp": {
+      "sha256": "3c09fbf8bd7ac2e35075e1d715ff539b5268fc57dfbaea342b0f2fe933f549fa",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/3d/clipper/planes_clip_vertex.hpp"
+    },
+    "tyra/engine/inc/renderer/core/3d/renderer_3d_frustum_planes.hpp": {
+      "sha256": "d9ae6555779e93d2f061a9ab17b8ddd04a11fc9022fda09cec28938bc7d3c494",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/3d/renderer_3d_frustum_planes.hpp"
+    },
+    "tyra/engine/inc/renderer/core/3d/renderer_core_3d.hpp": {
+      "sha256": "a5af47bd828e0ca482d808227db0f06cda9369f7096f31443c1bb43baa633d08",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/3d/renderer_core_3d.hpp"
+    },
+    "tyra/engine/inc/renderer/core/alphamask/renderer_core_alpha_mask.hpp": {
+      "sha256": "26baba9e20fb7dcfbe9848879622250c3017b054d762367fa8e1336f5f4b1534",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/alphamask/renderer_core_alpha_mask.hpp"
+    },
+    "tyra/engine/inc/renderer/core/blss/renderer_core_blss.hpp": {
+      "sha256": "9531cff008ecf06811886534d70b7bd2464b52f629859b81e800eb2a71bc2105",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/blss/renderer_core_blss.hpp"
+    },
+    "tyra/engine/inc/renderer/core/envmap/renderer_core_envmap.hpp": {
+      "sha256": "aa66cc1b0b510ae0e13e926d6d6fbc053b93fb16f9636da855c3a5c035366357",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/envmap/renderer_core_envmap.hpp"
+    },
+    "tyra/engine/inc/renderer/core/gs/renderer_core_depth.hpp": {
+      "sha256": "cb2542fd861f16656a6872b0ca6b45fbeedac3d43082a49c28da170160874c00",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/gs/renderer_core_depth.hpp"
+    },
+    "tyra/engine/inc/renderer/core/gs/renderer_core_gs.hpp": {
+      "sha256": "f3ed4de6f8c0bb6ec6f15cbbb70d360ac156abe92edd889bb59743b35308914c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/gs/renderer_core_gs.hpp"
+    },
+    "tyra/engine/inc/renderer/core/gs/renderer_core_gs_vram.hpp": {
+      "sha256": "6d5db6a5abf32c98d2b16c64506e5f5852e39cb33d20f7e5ed18048c046a44de",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/gs/renderer_core_gs_vram.hpp"
+    },
+    "tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp": {
+      "sha256": "d2cf31629c1f3c8127cec7d9590632ed3a7e82af7049c04b2e533d015615970b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp"
+    },
+    "tyra/engine/inc/renderer/core/paths/path1/frame_submission.hpp": {
+      "sha256": "a8f50563dfa6cb1869ad1c0d902784a15e6028849b1f6e662a2015cbc59ed407",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/paths/path1/frame_submission.hpp"
+    },
+    "tyra/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp": {
+      "sha256": "0ee77091872dca566a642212fbaad2dc19e6c7202ff73917feef6fc61211ce5d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp"
+    },
+    "tyra/engine/inc/renderer/core/paths/path1/path1.hpp": {
+      "sha256": "292d2a7c53f960ba2d7bfe1f95f278a16b2842f1405877a3a04efc7a23b83a93",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/paths/path1/path1.hpp"
+    },
+    "tyra/engine/inc/renderer/core/paths/path1/vif1_chain_check.hpp": {
+      "sha256": "50c38ed615b8285d10d8cc9aa75c370012efbf54c051eff1c10827b1f7faa660",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/paths/path1/vif1_chain_check.hpp"
+    },
+    "tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp": {
+      "sha256": "e57d16610a17615a808ae78764bd40bc5c514dc6cb67705f60cad578fc7bfe6e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp"
+    },
+    "tyra/engine/inc/renderer/core/paths/path1/vu1_program.hpp": {
+      "sha256": "e6a947b9c9e62340814095eb64b09e9e90ab293e63c4023cc4ed4185116752bc",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/paths/path1/vu1_program.hpp"
+    },
+    "tyra/engine/inc/renderer/core/paths/path3/path3.hpp": {
+      "sha256": "b0bee84ef825f956831b10ccaa7030f7d241c371be81b91cf5327aeaf8c0790f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/paths/path3/path3.hpp"
+    },
+    "tyra/engine/inc/renderer/core/paths/path3/path3_fence.hpp": {
+      "sha256": "339eb9e9088191422b2befe83a70c216708a1353b4f2b2eefc9b116f430a6136",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/paths/path3/path3_fence.hpp"
+    },
+    "tyra/engine/inc/renderer/core/postfx/renderer_core_postfx.hpp": {
+      "sha256": "f07c014f3f417358968ae6b39aa2b99bb8a26ef58b47caec4c4e4480224efd26",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/postfx/renderer_core_postfx.hpp"
+    },
+    "tyra/engine/inc/renderer/core/renderer_core.hpp": {
+      "sha256": "4e295cd961be4d8f8d32a18d831b90c0bab534b200986fc692d1130a3a1f9a65",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/renderer_core.hpp"
+    },
+    "tyra/engine/inc/renderer/core/renderer_core_sync.hpp": {
+      "sha256": "b3eb780c23e52e5220360f239bf24b759c6e03f340720b2ad9e46a8cd5c3a29f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/renderer_core_sync.hpp"
+    },
+    "tyra/engine/inc/renderer/core/shadowmap/renderer_core_shadow_map.hpp": {
+      "sha256": "28fb19e2a1507e66a764711600e139605ac9f52fdbff076a354336df50704a26",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/shadowmap/renderer_core_shadow_map.hpp"
+    },
+    "tyra/engine/inc/renderer/core/splitview/renderer_core_splitview.hpp": {
+      "sha256": "e392ae7545ac24ec4dc0c1eda94f759321ec6d34f62af654290c2efda0c270e7",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/splitview/renderer_core_splitview.hpp"
+    },
+    "tyra/engine/inc/renderer/core/texture/models/texture.hpp": {
+      "sha256": "d996e9129fc1ccb645f03d5e4863559d6554f954492f157ca0475bb5076a0d72",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/texture/models/texture.hpp"
+    },
+    "tyra/engine/inc/renderer/core/texture/models/texture_bpp.hpp": {
+      "sha256": "500b5ba1c852ff74654aec5359fd3f5fab3f5efa0745fd8239da3356669e7906",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/texture/models/texture_bpp.hpp"
+    },
+    "tyra/engine/inc/renderer/core/texture/models/texture_link.hpp": {
+      "sha256": "46587a9ac62df195bfbeb2c7a7a3b952da3025e99f2b0a65e7e2befb48567472",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/texture/models/texture_link.hpp"
+    },
+    "tyra/engine/inc/renderer/core/texture/models/texture_wrap.hpp": {
+      "sha256": "8a2e7bfade745807fdbd6fe3a5b33d0fc16a6aeb210fa909cb60b823a54b3778",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/texture/models/texture_wrap.hpp"
+    },
+    "tyra/engine/inc/renderer/core/texture/renderer_core_texture.hpp": {
+      "sha256": "d4d26a85e482ce39e09dcb053a3334ead528550419d015bf6b3e0a89e80fc74c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/texture/renderer_core_texture.hpp"
+    },
+    "tyra/engine/inc/renderer/core/texture/renderer_core_texture_buffers.hpp": {
+      "sha256": "a4e43c7f3b172de831e9263d8ecc64e03d6fed27cb570d6d977f8b8289a1bd49",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/texture/renderer_core_texture_buffers.hpp"
+    },
+    "tyra/engine/inc/renderer/core/texture/renderer_core_texture_sender.hpp": {
+      "sha256": "c396b8c3efd77e53dc8145b43d3e9b37b8b5b40c74bf2b90960dc64939aaf43d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/texture/renderer_core_texture_sender.hpp"
+    },
+    "tyra/engine/inc/renderer/core/texture/texture_data.hpp": {
+      "sha256": "6d304d8ffbc4bbd4918d8f7b3d02f70411385cd99838cce4eb18aa03360a526e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/texture/texture_data.hpp"
+    },
+    "tyra/engine/inc/renderer/core/texture/texture_repository.hpp": {
+      "sha256": "8f6c8ab40099e59d9f07c2d84ca4ca510831745c22a252f8ebadfc992e45d5a0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/texture/texture_repository.hpp"
+    },
+    "tyra/engine/inc/renderer/core/warp/renderer_core_warp.hpp": {
+      "sha256": "98d494d1b5446e9ed12b2936dc390d9a906e6c2e7cd496afbf9970b1158441c5",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/core/warp/renderer_core_warp.hpp"
+    },
+    "tyra/engine/inc/renderer/models/color.hpp": {
+      "sha256": "2ccdf2b171fad8c4349cd1f8cb88d1c11a54cc554c416ed091d33f33a4afe588",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/models/color.hpp"
+    },
+    "tyra/engine/inc/renderer/models/unique_id.hpp": {
+      "sha256": "3b67f7c2768ab75e2b43aa4c04fee398778b5adc84a9c86f071fdf2e2ad8fed3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/models/unique_id.hpp"
+    },
+    "tyra/engine/inc/renderer/renderer.hpp": {
+      "sha256": "0fbc04825a96d886511d51ba1a6060a0879c07a03f2d7ff19abb28365750e00c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/renderer.hpp"
+    },
+    "tyra/engine/inc/renderer/renderer_settings.hpp": {
+      "sha256": "dcbd4120f971b14ebfb7a94956d79cd95fbee508708f8f1718d9d3cf541ee866",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/renderer_settings.hpp"
+    },
+    "tyra/engine/inc/renderer/rt/vu0_raytracer.hpp": {
+      "sha256": "12b8e071317dcf64255147b05fe32adf72b1901779126844fe6230a66b7b9902",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/renderer/rt/vu0_raytracer.hpp"
+    },
+    "tyra/engine/inc/thread/threading.hpp": {
+      "sha256": "4c55e1f2b3cc04173a0890840befbf90d9c8a14e021aac2c9b19722687549575",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/thread/threading.hpp"
+    },
+    "tyra/engine/inc/time/timer.hpp": {
+      "sha256": "449eb96c6094f90976dd316cf16be7b322facba84ae63710f026ec8925f315d6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/time/timer.hpp"
+    },
+    "tyra/engine/src/audio/audio.cpp": {
+      "sha256": "45adbff626bc562638622fbaff91a3131e2cfe5b859ad89a29f5e25e6d30ee96",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/audio/audio.cpp"
+    },
+    "tyra/engine/src/audio/audio_adpcm.cpp": {
+      "sha256": "17209569f0f65a64183cfd7f6436681cae1d4600425c21a37bc273e585e8c751",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/audio/audio_adpcm.cpp"
+    },
+    "tyra/engine/src/audio/audio_reverb.cpp": {
+      "sha256": "c256b0cfead6563b0db50a341b77c77cb812e4409021b1883b4137720df7dd7b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/audio/audio_reverb.cpp"
+    },
+    "tyra/engine/src/audio/audio_song.cpp": {
+      "sha256": "1c4577ecd9d3e4b21613ffd26507441bffcd31cad747bd2690a3e23baba714a9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/audio/audio_song.cpp"
+    },
+    "tyra/engine/src/debug/crash_handler.cpp": {
+      "sha256": "067464e017f9cfe22bb101513ea97c7561b3b0148b9060c99cbc09d27f3d4665",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/debug/crash_handler.cpp"
+    },
+    "tyra/engine/src/debug/debug.cpp": {
+      "sha256": "7dc91ae2a47085dc28a005b171e28bf88ba2907a08ddf300bfddf9dadd86215a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/debug/debug.cpp"
+    },
+    "tyra/engine/src/debug/frame_profile.cpp": {
+      "sha256": "9be2328ab8a04f64c3049a20369000a8bb9e671fb7ac9b07661d6c9ed403844c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/debug/frame_profile.cpp"
+    },
+    "tyra/engine/src/debug/hardware_trace.cpp": {
+      "sha256": "96f06426bc01f0d3d27d849467d87dbf8772045d23a20ff509e106ec9987f76c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/debug/hardware_trace.cpp"
+    },
+    "tyra/engine/src/debug/sifrpc_guard.cpp": {
+      "sha256": "49fea7b68ff6d2224d98cafdec26e7bc71b4f9429a4b9010fec37708f4bf980f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/debug/sifrpc_guard.cpp"
+    },
+    "tyra/engine/src/engine.cpp": {
+      "sha256": "6e01884b136ed3426d0b23878fdd27b9c6da35441b29221abad1ef9617343d3d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/engine.cpp"
+    },
+    "tyra/engine/src/file/file_utils.cpp": {
+      "sha256": "b8ca3c7fd83a2b2765d2f47366c28fdb9adf19f30084aab0998080aed15a3c3f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/file/file_utils.cpp"
+    },
+    "tyra/engine/src/info/banner.cpp": {
+      "sha256": "00dd30a039dfa54abadec38b70de904a9d8ee0113a209107a5e291780013e50b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/info/banner.cpp"
+    },
+    "tyra/engine/src/info/banner_data.cpp": {
+      "sha256": "52466352178f3897dbfa551db97c62258581b4ff0e707e9daa87898aa8814e6a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/info/banner_data.cpp"
+    },
+    "tyra/engine/src/info/info.cpp": {
+      "sha256": "41c313614259701918cdfbe3c5bed13997bd4ebeb848efe467c787c84c865d4e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/info/info.cpp"
+    },
+    "tyra/engine/src/irx/irx_loader.cpp": {
+      "sha256": "2f8e510adff1cdc8804cc722fc8cfdc58bd7ceeedbf06a739771a214424c7098",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/irx/irx_loader.cpp"
+    },
+    "tyra/engine/src/loaders/3d/builder/mesh_builder_data.cpp": {
+      "sha256": "9e338154a1978b7e212efa260a456f78155a69464db24b9fec16434720db60d1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/3d/builder/mesh_builder_data.cpp"
+    },
+    "tyra/engine/src/loaders/3d/builder/mesh_builder_material_data.cpp": {
+      "sha256": "7d5069c8cc5262a005a7c61f1c8c2afeb060bbedf9a1744cfadcc7604fce501e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/3d/builder/mesh_builder_material_data.cpp"
+    },
+    "tyra/engine/src/loaders/3d/builder/mesh_builder_material_frame_data.cpp": {
+      "sha256": "68146a1adf9e01b847a7e415a1a023c51139074c897ce753f0e613b8505548e1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/3d/builder/mesh_builder_material_frame_data.cpp"
+    },
+    "tyra/engine/src/loaders/3d/md2_loader/md2_loader.cpp": {
+      "sha256": "5fc57ff16e3472b7572c8ac37afc39050a5e39f8e81c5bf2ab83aa60b5e37b79",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/3d/md2_loader/md2_loader.cpp"
+    },
+    "tyra/engine/src/loaders/3d/obj_loader/lean_obj_loader.cpp": {
+      "sha256": "e03b926409d8f6f01213a85ba3385d63a12289617bfcdd51d03b7c751b476499",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/3d/obj_loader/lean_obj_loader.cpp"
+    },
+    "tyra/engine/src/loaders/3d/obj_loader/obj_loader.cpp": {
+      "sha256": "d9aa5abf8400d255c1e41489301d11993f5738992b78fb4ae8ae35e54fc263bb",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/3d/obj_loader/obj_loader.cpp"
+    },
+    "tyra/engine/src/loaders/3d/tanm_loader/tanm_loader.cpp": {
+      "sha256": "cfdfded27520823834e1f588cd2fc4cae59c810a55bfb03f399d91f7e7108dd6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/3d/tanm_loader/tanm_loader.cpp"
+    },
+    "tyra/engine/src/loaders/3d/tmdl_loader/tmdl_loader.cpp": {
+      "sha256": "ae4112ee1d385c125dac2089ee40b0515497f4b98fe48d4c506fc1498ec476e9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/3d/tmdl_loader/tmdl_loader.cpp"
+    },
+    "tyra/engine/src/loaders/3d/tskl_loader/tskl_loader.cpp": {
+      "sha256": "595f51a1ea7dc162bb91dbb84b84a4a830410442f97a5179c45ab9f7b726d347",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/3d/tskl_loader/tskl_loader.cpp"
+    },
+    "tyra/engine/src/loaders/texture/base/texture_builder_data.cpp": {
+      "sha256": "2c77a983066d1a841bf15d63a6cd7add0df6bdfaee7df1f2457463ee6881f319",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/texture/base/texture_builder_data.cpp"
+    },
+    "tyra/engine/src/loaders/texture/base/texture_loader.cpp": {
+      "sha256": "1473882b58da4bd341aea709baea251d0fb1018386007e31e94bc159286b4336",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/texture/base/texture_loader.cpp"
+    },
+    "tyra/engine/src/loaders/texture/base/texture_loader_selector.cpp": {
+      "sha256": "cd5cd84b9b9f7a24b9161f97deaca24e50f88fab840b78b49200ef3376352482",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/texture/base/texture_loader_selector.cpp"
+    },
+    "tyra/engine/src/loaders/texture/png_loader.cpp": {
+      "sha256": "32b8ef65fc45e65d1524a261bbcefb764070dc69527e79d413d0805eeb1bc5bf",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/loaders/texture/png_loader.cpp"
+    },
+    "tyra/engine/src/math/m4x4.cpp": {
+      "sha256": "226a30c8f7cff7bad6df9f5043bcf49d6ba2fcd744e33fb94c0a8d962f09a5c3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/math/m4x4.cpp"
+    },
+    "tyra/engine/src/math/math.cpp": {
+      "sha256": "a156a9b2b440a27a108c0371f15663a45dd407de7ab11a756715054fe2e2b14d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/math/math.cpp"
+    },
+    "tyra/engine/src/math/plane.cpp": {
+      "sha256": "cb0765288ecc782fa82eb989017929f46e6b838da1a86fa69063694483f99625",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/math/plane.cpp"
+    },
+    "tyra/engine/src/math/vec2.cpp": {
+      "sha256": "7525bd71fd46053d549ae0d18cdecd7486fd7d67f0cd35d312dbf2450d3842cf",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/math/vec2.cpp"
+    },
+    "tyra/engine/src/math/vec4.cpp": {
+      "sha256": "aaf2f470b1bbe3c42c1d1d9fa2bd6ce06ff372f34b44dfe174aeaa275bc851ea",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/math/vec4.cpp"
+    },
+    "tyra/engine/src/pad/kbd_mouse.cpp": {
+      "sha256": "36d91fe3de94a034a4184812adc70409e5dd71badcb08a02556fa7a10deaf317",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/pad/kbd_mouse.cpp"
+    },
+    "tyra/engine/src/pad/pad.cpp": {
+      "sha256": "b8d3025633a46590591ccd479f8ead1c9d6b03d308ad72102e6958a20e0e99ef",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/pad/pad.cpp"
+    },
+    "tyra/engine/src/physics/collision_mesh.cpp": {
+      "sha256": "b612bdfca2f96af8648dce12ba87dedaad8bf97795577c1b730058be535b0d51",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/physics/collision_mesh.cpp"
+    },
+    "tyra/engine/src/physics/ray.cpp": {
+      "sha256": "098cf9087dd539cd1d2ab23f8840580cff57907f28037fab57e58ea90e9eefd6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/physics/ray.cpp"
+    },
+    "tyra/engine/src/renderer/2d/renderer_2d.cpp": {
+      "sha256": "06879f5737cd16406e1e2a5c6d93c016f48fe59cad9f505d202e4a5a3e807a45",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/2d/renderer_2d.cpp"
+    },
+    "tyra/engine/src/renderer/3d/bbox/bbox.cpp": {
+      "sha256": "1d122870ed553cb6709541dd8dc5978683bf37d8545f8e45ee5e9d9c77df4735",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/bbox/bbox.cpp"
+    },
+    "tyra/engine/src/renderer/3d/mesh/dynamic/dynamic_mesh.cpp": {
+      "sha256": "99eeb81db71258952339e6ca597c9d0f999320913aa4892a0362a3dea9827253",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/mesh/dynamic/dynamic_mesh.cpp"
+    },
+    "tyra/engine/src/renderer/3d/mesh/dynamic/dynamic_mesh_animation.cpp": {
+      "sha256": "9fee7cdcbc786a191a41d5571528a0f26a26ebd0d2c63e11f15280ece7043373",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/mesh/dynamic/dynamic_mesh_animation.cpp"
+    },
+    "tyra/engine/src/renderer/3d/mesh/dynamic/skel_instance.cpp": {
+      "sha256": "4c62a67d4b6e4b5df731a1005911c17b924767a568ecd6ea985bdb8951c2bf65",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/mesh/dynamic/skel_instance.cpp"
+    },
+    "tyra/engine/src/renderer/3d/mesh/mesh.cpp": {
+      "sha256": "461d085cd5afbac193bfbd475b7dae1094aa0143e8316dfa9628817fbd83416f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/mesh/mesh.cpp"
+    },
+    "tyra/engine/src/renderer/3d/mesh/mesh_frame.cpp": {
+      "sha256": "49119382ebf692d74d34b601ad3bf012024fa916453bf24b2129a0ae98d17cab",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/mesh/mesh_frame.cpp"
+    },
+    "tyra/engine/src/renderer/3d/mesh/mesh_material.cpp": {
+      "sha256": "017090d071c22218b6f6c25ef8ec6e4e809ed19c4a1dd3ef7caf50ab31c13ec6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/mesh/mesh_material.cpp"
+    },
+    "tyra/engine/src/renderer/3d/mesh/mesh_material_frame.cpp": {
+      "sha256": "579304fe412c3c724c53859b4317d422d6558724fa0aefd096b1efd1501c48ed",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/mesh/mesh_material_frame.cpp"
+    },
+    "tyra/engine/src/renderer/3d/mesh/static/static_mesh.cpp": {
+      "sha256": "008826f2874fb09fcbc29ee5de21579bb7ff559fd000c59e7cac9bebd1035bd3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/mesh/static/static_mesh.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/bag/dynpip_bag.cpp": {
+      "sha256": "7a04a2b14ac0642bc56c5033505ca998c009d18943e92cb6b9cec2a3a04de38d",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/bag/dynpip_bag.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/bag/dynpip_color_bag.cpp": {
+      "sha256": "4f5a61cd3435ae2a8014945082862e06ca3ff4da9bb9bb407a85eedd55767141",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/bag/dynpip_color_bag.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/bag/dynpip_lighting_bag.cpp": {
+      "sha256": "3daf127c15a8ef5cbeab571887240b75818e2f4ddaade034e54b48cc21f7c83b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/bag/dynpip_lighting_bag.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/bag/dynpip_texture_bag.cpp": {
+      "sha256": "50df930a23b7db8c0ae2430b155d10ac578c7f9f816c5b710c13f984058204f3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/bag/dynpip_texture_bag.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/dynpip_core.cpp": {
+      "sha256": "3d18a100ff1db755f57367ab272dd93ba1106a3b70ba82395c6a442e3b68fc9a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/dynpip_core.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/dynpip_programs_repository.cpp": {
+      "sha256": "196c52461809fbd5eaf43075845b8daf34a232a519d1a7fbe4979d65362486c3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/dynpip_programs_repository.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/dynpip_renderer.cpp": {
+      "sha256": "2b6e84a9174ae1a00033d08e47eb725e3e36ad3fe1cd3246a729b978d42189ff",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/dynpip_renderer.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/dynpip_vu1_program.cpp": {
+      "sha256": "c47bbef7f5d0729cb84ea39e975eb2bf60a5cb468059697d00c19c4f055a04e7",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/dynpip_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1_program.cpp": {
+      "sha256": "22d93d1114f8b3a2da8176e769c235668dbedc4491a1d69b6117a0ef3e172a5b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1_program.cpp": {
+      "sha256": "aa879fb31e6762e80ab76ea89ab59bc8ccc452ae6fd3fac07253f0bda5112b49",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1_program.cpp": {
+      "sha256": "cc40075bf3ef4f38f5ffaf0c7586c05b462c43bb23356cd83a9e642e73c4bfba",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1_program.cpp": {
+      "sha256": "2a3c0a69bac44aea3cf6abdfb542ecdf9dea46e2ea9e5164ae9b6760c29d433e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/dynamic/dynamic_pipeline.cpp": {
+      "sha256": "e808932789c13799e7aeeb48cc8accc72edf5a3f09f99487158d78483ce30755",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/dynamic/dynamic_pipeline.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/data/mcpip_block_data.cpp": {
+      "sha256": "12460b867a1a54b9e679f52ffd12e72c28cbe3b46da57315ec2658cacb059798",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/data/mcpip_block_data.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/data/mcpip_multi_tex_block_data.cpp": {
+      "sha256": "ee75f934f82585773e23d4e060f6e7de66800baf9de45a79cd1452b8d55ac72b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/data/mcpip_multi_tex_block_data.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/data/mcpip_single_tex_block_data.cpp": {
+      "sha256": "fc603da3cb46d72f32a6f6e92179cc1b082724f0dc7214f3d4637c353b15db70",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/data/mcpip_single_tex_block_data.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/minecraft_pipeline.cpp": {
+      "sha256": "912a4bd5f8de2f3986c51346bf21d8d2532257d0c3ea2a92addc06e14a393979",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/minecraft_pipeline.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1_program.cpp": {
+      "sha256": "ea3d38c22e4f4dd9af35706f4774f6be35156736ff7e09f89dbb859c613c4ce9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.cpp": {
+      "sha256": "4cbe4199b2f049e4fd069f434b3d2516cd435029654d838af673e40d051444f5",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.cpp": {
+      "sha256": "6fa3d12cfc48a073adb71205797715e0f7f22cc86eadb18c4292d2ef7ccfd030",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1_program.cpp": {
+      "sha256": "8658a328c30f4b5b29be64449b038f4ee39aba52fcb08cf1dcaeb4882f48e0b0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/programs/mcpip_program.cpp": {
+      "sha256": "926f27b02b545315919fa104544dbe81bd744135a6a263ec0fd3037f3429f453",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/mcpip_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.cpp": {
+      "sha256": "30317998ec3990115923ae76d802da4bca3fbd1d63a5d6aefe68ac8fc5f4629e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/minecraft/programs/mcpip_programs_repository.cpp": {
+      "sha256": "51285b36ab467cc401cd842c96da043cf5d039dc575fe8453fee5acc404606f3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/mcpip_programs_repository.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/shared/bag/pipeline_dir_lights_bag.cpp": {
+      "sha256": "17bfe92cdde4d1d2865a120b70854de44b798f923a5254bb081e669ef52d9ba3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/shared/bag/pipeline_dir_lights_bag.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.cpp": {
+      "sha256": "4983fa60892b578687a951bc448c1a2022e7aaf884422af7e426365068b80bd1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp": {
+      "sha256": "fabf68c9ed340edc54c561da4f6857958ac9605bdb70e850093fba52781a1a65",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packages_bbox.cpp": {
+      "sha256": "9a0b77c935ffbeba4544a8bc1fc356faf5cc0f1e75b7e6d01970a3cc7c15d456",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packages_bbox.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/bag/stapip_bag.cpp": {
+      "sha256": "3412c41c020039cd8702ad38ffab78b70915f041860c0a2319bf35af83c455de",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/bag/stapip_bag.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/bag/stapip_color_bag.cpp": {
+      "sha256": "65c6c1c51eb30f9fe5a33ecee8d44d837b2709ea9de03552a2c24019ef424007",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/bag/stapip_color_bag.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/bag/stapip_lighting_bag.cpp": {
+      "sha256": "ecc9de0e06bc0bce71036a6b55848d4e33410ebbe4d258ebf236ee269112f3be",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/bag/stapip_lighting_bag.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/bag/stapip_texture_bag.cpp": {
+      "sha256": "a25699e6122bd59affdeb854be9e59a956af4bd046ccd6ea2ace600141e351ca",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/bag/stapip_texture_bag.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.cpp": {
+      "sha256": "bcade3d55ad0905663c5968cda3576645716f0ace459d5bc7e1bd338bff9abc8",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.cpp": {
+      "sha256": "decf5b15fbf8b898f8449da49460526f8857d9e0cabac84c4eb48780a0ce48a6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.cpp": {
+      "sha256": "ad7a0bc79a5481caf2d7e934cde0e4551c727eb88eca530b6145cd4880fa5c37",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.cpp": {
+      "sha256": "c765aac64fb1dc4e7763899c0e24e25bea19d4935c37b3c33bd6d91bef0a6eee",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.cpp": {
+      "sha256": "0dd0b20d89df364263c5782f7f59555be3b53ec08f810a22f0492163240fa596",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.cpp": {
+      "sha256": "ef16129dd2cc7f96c8c4fc3ba638b36e9a5da62d6d2200263a7ff0d250f4e383",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.cpp": {
+      "sha256": "392dc6743b29c0bb54589453521a48436e80aa5e54454f404f376198ed8054af",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.cpp": {
+      "sha256": "b06188ea6c24078b773008742d194cfa894855dd96c7ebca6fd7235c8498f4ee",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.cpp": {
+      "sha256": "8f324f7001587093e5a32a627386d459ce3b2f86b31ab58487b81d248daf39e6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.cpp": {
+      "sha256": "72f1d6bdd0b617bf58c7ce273c0772561d1c3958e62557d777317eabac66554c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.cpp": {
+      "sha256": "3e7a24715ac2e3d6fd2c747694110c5a1f4a62e1f5614b6a6e420936f48b2978",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.cpp": {
+      "sha256": "bf7cc65854efe5011e173c7cb01c26f3d6a71570eda501a00eb2de789993dec2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.cpp": {
+      "sha256": "39ba16d13bd86d5b0f0a8d98945e72656022de9113aa1665546a7bef61e55ad3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.cpp": {
+      "sha256": "f1b7c0f40975c8f4d0bc9b2da912f1cf42fd71eb813d61fcbfbdd7720be55978",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.cpp": {
+      "sha256": "6b9aa76f2a1d79605a1bf2a0c7cf063d5cfcc539cbfc37e0ac660f894058927a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.cpp": {
+      "sha256": "fbc342d3fff82571b9e3c6d83648b1b6b07b6ee770ebd590c546a44150a78269",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.cpp": {
+      "sha256": "b8a9e0a95297b987900fc89e47945aecb45f21f41c2a3c02eff80d6bf0688fa7",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.cpp": {
+      "sha256": "15259dc346241e01cb9e0fdab65c69663b4629de0943f0ea62709a71e0d592bd",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_clipper.cpp": {
+      "sha256": "69fb65925029366efcd277ae3187d830139c3033974fadc0e1480f4e93b7a30b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_clipper.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": {
+      "sha256": "c5d9feb342d22578c24204cfec7e1a76cbf0f302d994552e4850f38e917bc21e",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_programs_repository.cpp": {
+      "sha256": "a875aeb17880aef89811f8f83d6e1f8a08e5686e34a04734c70b9802ca15fae2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_programs_repository.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp": {
+      "sha256": "bf2d7a59820c8c54606fdaad67046d4def2408f3f13fd8422606ab90263c1c68",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": {
+      "sha256": "07155bc9ae8873d35e2b240f445c65fea14583403daa3b42e32f4fc6c4d78468",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vif_hash.cpp": {
+      "sha256": "6c45492fb3c51a18aba5f88ec3fd019e7509f2328211832e3312c5eae0a861a3",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vif_hash.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp": {
+      "sha256": "1a078e0cb07452a72fec34a300a78204fe9323dfe15a6e0a86e078be59e561a6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu_tap.cpp": {
+      "sha256": "4fd32b4a96a2a60d4cde4f6608750410fc93a6084ee58e624c635a5206750ab2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu_tap.cpp"
+    },
+    "tyra/engine/src/renderer/3d/pipeline/static/static_pipeline.cpp": {
+      "sha256": "4eca7c5a539746fe452d2d1fc1de4ebf28867d1193962b85b9311bdd067b8e2f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/static_pipeline.cpp"
+    },
+    "tyra/engine/src/renderer/3d/renderer_3d.cpp": {
+      "sha256": "93ac1231c7c8e9a916abb3966fd58dd4d90dc103f0374e7eb257c413f232b360",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/renderer_3d.cpp"
+    },
+    "tyra/engine/src/renderer/3d/renderer_3d_utility.cpp": {
+      "sha256": "0583de1d7cf60335b9c88a9f642cae24b4e48e8febfa0dd518374b8e15e90c63",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/renderer_3d_utility.cpp"
+    },
+    "tyra/engine/src/renderer/core/2d/renderer_core_2d.cpp": {
+      "sha256": "8d579a2a52af706abcf47be552dda932ca590d810b06ec028a1d7ae5281fca24",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/2d/renderer_core_2d.cpp"
+    },
+    "tyra/engine/src/renderer/core/2d/sprite/sprite.cpp": {
+      "sha256": "27e5f825217e5474c1ff169947feabe329eb6b79b9ab77100ec92b7feee4ba28",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/2d/sprite/sprite.cpp"
+    },
+    "tyra/engine/src/renderer/core/3d/bbox/core_bbox.cpp": {
+      "sha256": "5531eccf89d1debfc66dfa23175def2d7ddba1c91cbc567c50b9cfa11ff9bc2b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/3d/bbox/core_bbox.cpp"
+    },
+    "tyra/engine/src/renderer/core/3d/bbox/render_bbox.cpp": {
+      "sha256": "ea2b4d6593b76473d0d4bb52d75b7fa489f699924ccdaf63c448100219a58f76",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/3d/bbox/render_bbox.cpp"
+    },
+    "tyra/engine/src/renderer/core/3d/camera_info_3d.cpp": {
+      "sha256": "8583d3c966168e82d13b4c1d4b5bf6dd1f332b8748c23391bb78e4ab4e87d97b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/3d/camera_info_3d.cpp"
+    },
+    "tyra/engine/src/renderer/core/3d/clipper/planes_clip_algorithm.cpp": {
+      "sha256": "6e2435971f4ef71fa623831eb22475754367cb4b14a2f462d2d0304b23631031",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/3d/clipper/planes_clip_algorithm.cpp"
+    },
+    "tyra/engine/src/renderer/core/3d/renderer_3d_frustum_planes.cpp": {
+      "sha256": "a57e042f43bfc1bd8fe6af7922f872fedf366990b01224a843be22e87c024d89",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/3d/renderer_3d_frustum_planes.cpp"
+    },
+    "tyra/engine/src/renderer/core/3d/renderer_core_3d.cpp": {
+      "sha256": "6b34303bca9568bdd82a7880cd38038eff607202f26311ccd7fe0958441ddb18",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/3d/renderer_core_3d.cpp"
+    },
+    "tyra/engine/src/renderer/core/alphamask/renderer_core_alpha_mask.cpp": {
+      "sha256": "f0787af8865dbb990b03573e097c23a1c13d9bb5724c6a4a15d3cf5ef8f54203",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/alphamask/renderer_core_alpha_mask.cpp"
+    },
+    "tyra/engine/src/renderer/core/blss/renderer_core_blss.cpp": {
+      "sha256": "e957b553464799bc221636d9883b0a4933d5ffd00f9bf7aa74c61625e9b5f1e9",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/blss/renderer_core_blss.cpp"
+    },
+    "tyra/engine/src/renderer/core/envmap/renderer_core_envmap.cpp": {
+      "sha256": "affbff21c8a3a6af5223bd40d8750fd60c3f1f677765db3ee35fce2b654a9de5",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/envmap/renderer_core_envmap.cpp"
+    },
+    "tyra/engine/src/renderer/core/gs/renderer_core_depth.cpp": {
+      "sha256": "dc40f1fa264184a25e6122df6236ce982f52ec849054dfb25270f410e2289154",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/gs/renderer_core_depth.cpp"
+    },
+    "tyra/engine/src/renderer/core/gs/renderer_core_gs.cpp": {
+      "sha256": "4f214a89ee91601463c4e008edc0cae11a117638f61429661f6d8ee57db8f80c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/gs/renderer_core_gs.cpp"
+    },
+    "tyra/engine/src/renderer/core/gs/renderer_core_gs_vram.cpp": {
+      "sha256": "e6d1f434696c213d376fe6fd395fec665b09e991c708d7e1ab73ade5549d1b8b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/gs/renderer_core_gs_vram.cpp"
+    },
+    "tyra/engine/src/renderer/core/paths/path1/path1.cpp": {
+      "sha256": "f88fbc21c296f543ac7b637b9b4341fd48d58564982b054613255b46b86639e6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/paths/path1/path1.cpp"
+    },
+    "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp": {
+      "sha256": "75efed824cdc29aa18b90ec7bd2edc4196f2762b2b866312edb36836a8e9e3d5",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp"
+    },
+    "tyra/engine/src/renderer/core/paths/path1/vu1_program.cpp": {
+      "sha256": "a677075e889618ad787210720156ed0ed5e3bdb9290a9d6a0114e3ad9af84673",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/paths/path1/vu1_program.cpp"
+    },
+    "tyra/engine/src/renderer/core/paths/path3/path3.cpp": {
+      "sha256": "f08c48f3dd41963587f61e8691240d9d12fbe6c0bba669e9818a6374423ebc27",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/paths/path3/path3.cpp"
+    },
+    "tyra/engine/src/renderer/core/postfx/renderer_core_postfx.cpp": {
+      "sha256": "8b1755a6d40c756a5225e2927b83613b8a98719d233b09a4741831406b68f446",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/postfx/renderer_core_postfx.cpp"
+    },
+    "tyra/engine/src/renderer/core/renderer_core.cpp": {
+      "sha256": "d32c9c631a5607060e869df6f8b27620e462691b2071208c9a3e7d60a488454c",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/renderer_core.cpp"
+    },
+    "tyra/engine/src/renderer/core/renderer_core_sync.cpp": {
+      "sha256": "19611bbc55242ae4dce9c9ace5774eec0eb930405152d860be37969cd02980b4",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/renderer_core_sync.cpp"
+    },
+    "tyra/engine/src/renderer/core/shadowmap/renderer_core_shadow_map.cpp": {
+      "sha256": "fc2e457b9e14568b0484cb3aa60b3a3c3fc7f5b4e8c0ae142b4f003b8073cd3f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/shadowmap/renderer_core_shadow_map.cpp"
+    },
+    "tyra/engine/src/renderer/core/splitview/renderer_core_splitview.cpp": {
+      "sha256": "e8a806fbd96974b345228d49de2591518108a546a4a7d1f36cc65b5874be09ed",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/splitview/renderer_core_splitview.cpp"
+    },
+    "tyra/engine/src/renderer/core/texture/models/texture.cpp": {
+      "sha256": "ae7f85de0734d89e8955642659e3717dacf45d6a91beea12dd5b8bec10d09073",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/texture/models/texture.cpp"
+    },
+    "tyra/engine/src/renderer/core/texture/renderer_core_texture.cpp": {
+      "sha256": "40c720a9da8dfd516a9c2a491b2ef472bb9faa807bdaa051abdb2bd150e44973",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/texture/renderer_core_texture.cpp"
+    },
+    "tyra/engine/src/renderer/core/texture/renderer_core_texture_sender.cpp": {
+      "sha256": "05912479b70823ae2de564a5cbcd4f08ca36111242c79b48f21d478b6ae21311",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/texture/renderer_core_texture_sender.cpp"
+    },
+    "tyra/engine/src/renderer/core/texture/texture_data.cpp": {
+      "sha256": "7cd32ffe3c5009971b61ad69378a87492eaea133e03d425b24a80a362b6e2fa1",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/texture/texture_data.cpp"
+    },
+    "tyra/engine/src/renderer/core/texture/texture_repository.cpp": {
+      "sha256": "42652821f9dc12c3f95a036d1db01fcffdb3d4553322b2b0b2aeef7a6a43e23b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/texture/texture_repository.cpp"
+    },
+    "tyra/engine/src/renderer/core/warp/renderer_core_warp.cpp": {
+      "sha256": "d8597533d11a67febc28d276823c37df05ff56acb1589475419f38c9a2424db2",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/warp/renderer_core_warp.cpp"
+    },
+    "tyra/engine/src/renderer/models/color.cpp": {
+      "sha256": "453890cc927783fc3a66e8f9d3b865c91247303e3e6eeaeac6b9b850e072574b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/models/color.cpp"
+    },
+    "tyra/engine/src/renderer/renderer.cpp": {
+      "sha256": "63835d5bb4f4c493186ad91ef558ed0ee9c6abf3e3511235e8ecd38e50b079b6",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/renderer.cpp"
+    },
+    "tyra/engine/src/renderer/renderer_settings.cpp": {
+      "sha256": "9774dda2cc137a5d5e532c8412b9b83ce5e41e9877308c3fae4436bc66f0ea7f",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/renderer_settings.cpp"
+    },
+    "tyra/engine/src/renderer/rt/vu0_raytracer.cpp": {
+      "sha256": "2a490422612da4617303122358368f086faa281140c25519ecb75de4e5a0b8e0",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/rt/vu0_raytracer.cpp"
+    },
+    "tyra/engine/src/thread/threading.cpp": {
+      "sha256": "9f7a3d49e06ef40cc1530f03625f14346ee40a5146578df3c2019c5c29d4827a",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/thread/threading.cpp"
+    },
+    "tyra/engine/src/time/timer.cpp": {
+      "sha256": "0298f7b329a206c814360cbffb7133d0eb17ac1ef90e11b255a861627b330f97",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/time/timer.cpp"
+    },
+    "tyra/Makefile.base": {
+      "sha256": "7784828170ab0f3f8398e03b465b0f43ba70b42f09a1ec3d39729673bbf4096b",
+      "actualMirror": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/Makefile.base"
+    }
+  },
+  "objects": {
+    "game/gen/credits.gen.o": {
+      "sha256": "c384f2fe98a14222daf05651159b14b2edb0cced85dae9a76963c4cc46c6b799",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/credits.gen.o"
+    },
+    "game/gen/flow_graph.gen.o": {
+      "sha256": "efdbf306f9708a52245aceb1693fc0b38cc25ca0c885f2391309f16416731bd1",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/flow_graph.gen.o"
+    },
+    "game/gen/game_collision.gen.o": {
+      "sha256": "eee9399151c1efd1b91354f6af145edf50b7809b77dde54c14bb738d0bd901b2",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/game_collision.gen.o"
+    },
+    "game/gen/game_lighting.gen.o": {
+      "sha256": "fb811128eb2ccecfd59d8509855c9d8c41bb52fa90a9d344e11e9a37fcf3204e",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/game_lighting.gen.o"
+    },
+    "game/gen/game_physics.gen.o": {
+      "sha256": "d171e6573bd00d686a1b84170995f140478452f7b73f463e78c2ecbf2ea9e26f",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/game_physics.gen.o"
+    },
+    "game/gen/game_scene.gen.o": {
+      "sha256": "ca280e06e1d2b5526ef753da1b6bf36cae684fd4bd82044ea94b1e8c86cf255b",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/game_scene.gen.o"
+    },
+    "game/gen/game_vehicles.gen.o": {
+      "sha256": "3bd91c8849721fcb0baf43e170e5e1928a299f0b0fa4a354a416662be22aeae8",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/game_vehicles.gen.o"
+    },
+    "game/gen/input_map.gen.o": {
+      "sha256": "c2222b8ea4f6f3c7a46b8aa05fa939333415bc021b7ec4eaf4c031ed442ec8a5",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/input_map.gen.o"
+    },
+    "game/gen/input_replay.gen.o": {
+      "sha256": "6614a7cdd3c2efe372c0ce9034e643ff5900196d00766b6dc4505d2cf0027188",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/input_replay.gen.o"
+    },
+    "game/gen/live_debug.gen.o": {
+      "sha256": "d9162667682c77e973df5825211b73cb00e0b605fb641522fa655c535d7d8ae0",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/live_debug.gen.o"
+    },
+    "game/gen/live_link.gen.o": {
+      "sha256": "272e89db85afcb32884e1262f66c515d1cf81931d6956f1f0ad6252c3235c195",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/live_link.gen.o"
+    },
+    "game/gen/live_logic.gen.o": {
+      "sha256": "410eb2bf410694d2f85def1fe6fd101b66751167fa7371fb1cd65e59a31cd296",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/live_logic.gen.o"
+    },
+    "game/gen/live_pad.gen.o": {
+      "sha256": "7eb3dad68b2b0c5364b283781e80538c8538afed81160b488084948625c3d3f2",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/live_pad.gen.o"
+    },
+    "game/gen/live_tex.gen.o": {
+      "sha256": "ba65b0682c2bd7622e32a33d758ddbbb14e43b326575c78eac4f568fe046f025",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/live_tex.gen.o"
+    },
+    "game/gen/live_time.gen.o": {
+      "sha256": "ab447b8114e20d3a91195f616cf9d39c65d1ddb852af367edf87cfb5593575c8",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/live_time.gen.o"
+    },
+    "game/gen/navigation.gen.o": {
+      "sha256": "ca124252e5ebc1a05cfbba8f7282a458ab1dc1a1fcd38304d63b0fbadcf3bc2c",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/navigation.gen.o"
+    },
+    "game/gen/object_scripts.gen.o": {
+      "sha256": "6fc78f76a9b77835d6e8d9bd86cafe120f566e6f8238897248f1067e55969a6b",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/object_scripts.gen.o"
+    },
+    "game/gen/procedural.gen.o": {
+      "sha256": "66c49166e4aea7c54f1feef29fec0cb4550fe1ff659983bc6768fb377492de96",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/procedural.gen.o"
+    },
+    "game/gen/scene_objects.gen.o": {
+      "sha256": "e3c639a651d161f4e2d3e73e1dbda4b6addf2e94e39466ae48265f8f23f2c9d6",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/scene_objects.gen.o"
+    },
+    "game/gen/screen_fx.gen.o": {
+      "sha256": "6c515db388ffcdc706b44693ba0d3e28da8aa1f90b3285fee524e444c3d3e884",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/screen_fx.gen.o"
+    },
+    "game/gen/scroller.gen.o": {
+      "sha256": "1a7df0aeff9494664f186e220a9d1f92d41c10fa103b9ed081c9835d0c2c21a9",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/scroller.gen.o"
+    },
+    "game/gen/sequences.gen.o": {
+      "sha256": "ebe825af0b52ba82adfe1840b702a66995ca240d48193f7ddfa6b17aed388e4f",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/sequences.gen.o"
+    },
+    "game/gen/vu_programs.gen.o": {
+      "sha256": "06da74ff321d4d0e269323aa596e2c80c0007bb6ff34c8999143810fde67380c",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/gen/vu_programs.gen.o"
+    },
+    "game/main.o": {
+      "sha256": "d69fbb743412fd08bfb8921a368bb95a6bf7f87c587810f72d97b8023023dffe",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/main.o"
+    },
+    "game/save_system.gen.o": {
+      "sha256": "ad872a80ec54e298c70ab83fdbd3e22921c6ca7f3529ca588d2682bca88b829e",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/save_system.gen.o"
+    },
+    "game/scripts/district_mood.o": {
+      "sha256": "ab5a7551e999a5d5eb9750ac15ef2ff344ac9ea7979030b143d089343142163f",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/scripts/district_mood.o"
+    },
+    "game/scripts/example_interaction.o": {
+      "sha256": "2095f444dd79507b84d59765568db115ddb02baf8c124882643ede705352c7fd",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/scripts/example_interaction.o"
+    },
+    "game/terrain_game.o": {
+      "sha256": "b269a6f5b122074f929014e5679b81d0d5fa79d6bbc8bbc5b939e15852a56a11",
+      "actualObject": "/home/spider/.cache/tyrax/native/projects/c8570c30ee7f5b1e82b09d28/obj/terrain_game.o"
+    },
+    "engine/audio/audio.o": {
+      "sha256": "ccce85df14aba64b2b6082f534f5fe87b254e298d66177467c2cbdc492fff0ee",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/audio/audio.o"
+    },
+    "engine/audio/audio_adpcm.o": {
+      "sha256": "fd086bdb146107eb9346852554ec0c19d39bcb395482084689b017329d7f043b",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/audio/audio_adpcm.o"
+    },
+    "engine/audio/audio_reverb.o": {
+      "sha256": "016eaa46e144529e6237ce4acebd81100ab976f538d9b8297f2b92736a87e420",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/audio/audio_reverb.o"
+    },
+    "engine/audio/audio_song.o": {
+      "sha256": "a23b63a853049ab1223a07bf67ab2da31b832365411da54e709987aa76c351f0",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/audio/audio_song.o"
+    },
+    "engine/debug/crash_handler.o": {
+      "sha256": "f0967c6ca48f23f2950c89f8043ea8de3f3c6a4eea0beccf812a1a2d0a81b26c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/debug/crash_handler.o"
+    },
+    "engine/debug/debug.o": {
+      "sha256": "2751c1ad8ed64f757f89948bc6f08a421745c4365431a3b8a1e7a5078e9123a6",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/debug/debug.o"
+    },
+    "engine/debug/frame_profile.o": {
+      "sha256": "35781145f5f1600b883f05290eda80c97d241e17b98f5a5470ca227761bc37a8",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/debug/frame_profile.o"
+    },
+    "engine/debug/hardware_trace.o": {
+      "sha256": "bd07a0e3c0f03cea8a211e28805bb8eba8febca5672712942d0088176ca8e760",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/debug/hardware_trace.o"
+    },
+    "engine/debug/sifrpc_guard.o": {
+      "sha256": "e724090bfca454857fd31b500a9834a433179ede320136215962a8deb57fdcfb",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/debug/sifrpc_guard.o"
+    },
+    "engine/engine.o": {
+      "sha256": "90db1793aa3df66b1c3d9df413073260be2e1bf3c1c1382c85c55bc9983ba788",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/engine.o"
+    },
+    "engine/file/file_utils.o": {
+      "sha256": "94ddeff2a3cdb654ff9484886c4460a9fe8fe68909176e71a814fe85171ed1cd",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/file/file_utils.o"
+    },
+    "engine/info/banner.o": {
+      "sha256": "a04f90a3b81fd3e61912bd947a3494553fa222cbc9a96dd9e9d5172fab45fe98",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/info/banner.o"
+    },
+    "engine/info/banner_data.o": {
+      "sha256": "7bec04388b62ee452f89924deafb11ca15c96b6a4d9992d88167f368d9a459a9",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/info/banner_data.o"
+    },
+    "engine/info/info.o": {
+      "sha256": "9c41c11d1c630af22a092b25da6a30fb1d2ce5425330cbf11c369f9397a1566b",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/info/info.o"
+    },
+    "engine/irx/audsrv.o": {
+      "sha256": "53379f77b3ba16d901a7ecc50af0f135aa263db94ef4a1fadf6d9e5a603bdb49",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/audsrv.o"
+    },
+    "engine/irx/bdm.o": {
+      "sha256": "093abdb27b7aa3544f4157261d3dc19a3a29e2bb7a87f29ee20fb29eaeedf8cc",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/bdm.o"
+    },
+    "engine/irx/bdmfs_fatfs.o": {
+      "sha256": "3e1a91e5ab2cc1170aa0c58c8b49b5c05217ec004033197161e3acbfa1ea3fe4",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/bdmfs_fatfs.o"
+    },
+    "engine/irx/fileXio.o": {
+      "sha256": "1317700b119cb485b7214eefb61ed7bb48da2b8a1c813e76262a9d901268d6a7",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/fileXio.o"
+    },
+    "engine/irx/iomanX.o": {
+      "sha256": "ba8446a20907a441556bfa4f013f1fbe3186641811f3d965a1c0f5c6d3936bac",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/iomanX.o"
+    },
+    "engine/irx/irx_loader.o": {
+      "sha256": "641f492254f6c19c97b38ecae386bb00cc98411c9642aa4f40e6a743350deef4",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/irx_loader.o"
+    },
+    "engine/irx/libsd.o": {
+      "sha256": "75c2da1b159ce94ef8a541e553557d4619a5858adce4b9f8b43867f00030d72d",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/libsd.o"
+    },
+    "engine/irx/padman.o": {
+      "sha256": "d8cdab102cb2134c3c4a5a92e0b3bd055c342b299e436ccce6c9eb05334262bb",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/padman.o"
+    },
+    "engine/irx/ps2kbd.o": {
+      "sha256": "7260358f895b2678669b587e9bccbecca62a1caf6962f511fcbb569e8bfe2516",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/ps2kbd.o"
+    },
+    "engine/irx/ps2mouse.o": {
+      "sha256": "def97fba8124a9ece0c545f68e360ab070070a7d14679a13b0c64f1a721eb07c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/ps2mouse.o"
+    },
+    "engine/irx/ps2snd.o": {
+      "sha256": "279fe1ca5584f56c07f714f84f8b265e30e7ae1a4f154094289789afe1af60f6",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/ps2snd.o"
+    },
+    "engine/irx/sio2man.o": {
+      "sha256": "cdbfc41cf0ccdff843ccebbc38872e339cfa3c18a4ea937a581fb8081f41042d",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/sio2man.o"
+    },
+    "engine/irx/usbd.o": {
+      "sha256": "9e95ef9b86c37560f3ab8a38ac5bba74db67e38acfc52b0f391a56ad033cfc21",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/usbd.o"
+    },
+    "engine/irx/usbmass_bd.o": {
+      "sha256": "864155ebc97c4d824e4af2c20e7d0f0c8260bcc93d9848cacb61c5d6d1daff77",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/irx/usbmass_bd.o"
+    },
+    "engine/loaders/3d/builder/mesh_builder_data.o": {
+      "sha256": "cca0d3b2c388c7ef342fae574c26008438e0e61006a7e2bd1033f407cfb29468",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/3d/builder/mesh_builder_data.o"
+    },
+    "engine/loaders/3d/builder/mesh_builder_material_data.o": {
+      "sha256": "88dc5cbe2207b0a67884da637c18070fbd390207cb7c495f284cde7a0f1f32da",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/3d/builder/mesh_builder_material_data.o"
+    },
+    "engine/loaders/3d/builder/mesh_builder_material_frame_data.o": {
+      "sha256": "de418787885aaa734d4f79720c2ca15c99db0c3594c0deafa23f76f798494075",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/3d/builder/mesh_builder_material_frame_data.o"
+    },
+    "engine/loaders/3d/md2_loader/md2_loader.o": {
+      "sha256": "501312894e6a2825f57f266c271248c23235d5f52937e46b09d53e86722e3f44",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/3d/md2_loader/md2_loader.o"
+    },
+    "engine/loaders/3d/obj_loader/lean_obj_loader.o": {
+      "sha256": "8a4ecd5a871d2999399ab16a1f6ef58629c69927dfc495762ad21bd3dc7596d4",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/3d/obj_loader/lean_obj_loader.o"
+    },
+    "engine/loaders/3d/obj_loader/obj_loader.o": {
+      "sha256": "71a493f9bdfbc1755b55cd185934388a6fa288f482ab94998d64a7a2867f8b0c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/3d/obj_loader/obj_loader.o"
+    },
+    "engine/loaders/3d/tanm_loader/tanm_loader.o": {
+      "sha256": "b1fcdecaf2891c2ba3eb89271931fb6a32ca910658e089321df45eb2a309cd89",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/3d/tanm_loader/tanm_loader.o"
+    },
+    "engine/loaders/3d/tmdl_loader/tmdl_loader.o": {
+      "sha256": "9ea3c54387bdc23851851eaf9a5630568c66dea05d1b892a88cf0ac4ff03be0f",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/3d/tmdl_loader/tmdl_loader.o"
+    },
+    "engine/loaders/3d/tskl_loader/tskl_loader.o": {
+      "sha256": "4294d8e003791201b20d3535ed698e06847af16e1f2bcbcc7f83786087aec3de",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/3d/tskl_loader/tskl_loader.o"
+    },
+    "engine/loaders/texture/base/texture_builder_data.o": {
+      "sha256": "ac7cd097cb83ebb97dc6b75b4af9a97aa3a6245139c0cc5dd10604aa671fc445",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/texture/base/texture_builder_data.o"
+    },
+    "engine/loaders/texture/base/texture_loader.o": {
+      "sha256": "96dedc9ee45a4d394580588e2d8f173e2c28d31cb929afbdf3af41240f62cd69",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/texture/base/texture_loader.o"
+    },
+    "engine/loaders/texture/base/texture_loader_selector.o": {
+      "sha256": "aa7d4898b3cfdc0c0e8eb2a2c89514b3edf0b2ead767dd3ddced423255332394",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/texture/base/texture_loader_selector.o"
+    },
+    "engine/loaders/texture/png_loader.o": {
+      "sha256": "ea629773c9631c383c295c46c5d13ee911f9dcac287a44c573f5ddab5ed050d6",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/loaders/texture/png_loader.o"
+    },
+    "engine/math/m4x4.o": {
+      "sha256": "321ae334efa5b78cc6aed3e1708eecbb56c806ba0d72e10e29228b139d93930d",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/math/m4x4.o"
+    },
+    "engine/math/math.o": {
+      "sha256": "ce6e16d9fa59db4f34d0ec000ee91189416d662391dffc26325d3fbafabbe633",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/math/math.o"
+    },
+    "engine/math/plane.o": {
+      "sha256": "12cf041642336420c8a83f300894f925791b30e725826a1ec1ad3f5d28340a3f",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/math/plane.o"
+    },
+    "engine/math/vec2.o": {
+      "sha256": "4cde24ebb6505f3effe22c932e22926ad683f461b37642d7493828ba0981b663",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/math/vec2.o"
+    },
+    "engine/math/vec4.o": {
+      "sha256": "303493239379043c281fde1f693baf99be5294ca8b44342503be75c43e878f37",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/math/vec4.o"
+    },
+    "engine/pad/kbd_mouse.o": {
+      "sha256": "58afe66824683d3b22ec5b17112e17df1a6ca99c77a1d71343365be581486df7",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/pad/kbd_mouse.o"
+    },
+    "engine/pad/pad.o": {
+      "sha256": "47ea728df02b36e65e12299692814ca2b4afc35c9ea89c00e63c412f7ed903ce",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/pad/pad.o"
+    },
+    "engine/physics/collision_mesh.o": {
+      "sha256": "0ae1bafd2eb79c36fea06af42a3b90fb169a086f360dd40fd04610f1f7167018",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/physics/collision_mesh.o"
+    },
+    "engine/physics/ray.o": {
+      "sha256": "0e45bf76f57688b5449adb54d6d49a071375178c1fb9df94000cb8ddcb421295",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/physics/ray.o"
+    },
+    "engine/renderer/2d/renderer_2d.o": {
+      "sha256": "2a4418f82da83f8d91bca6f915431bb05b0baa0cd3f84c22669a342ea243a2ab",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/2d/renderer_2d.o"
+    },
+    "engine/renderer/3d/bbox/bbox.o": {
+      "sha256": "7fdbab8a448a246ca4793bc119433c29554431b1baab8c8d23066d012f0e6d49",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/bbox/bbox.o"
+    },
+    "engine/renderer/3d/mesh/dynamic/dynamic_mesh.o": {
+      "sha256": "c3cb1e53d9e15720ca7f9960253136f88e60291d8d2a887efc6f6ef03035a13e",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/mesh/dynamic/dynamic_mesh.o"
+    },
+    "engine/renderer/3d/mesh/dynamic/dynamic_mesh_animation.o": {
+      "sha256": "b83877b56adbe6ddeca47b3397f708afcee9651f7c5379dc99b6580e04c620a4",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/mesh/dynamic/dynamic_mesh_animation.o"
+    },
+    "engine/renderer/3d/mesh/dynamic/skel_instance.o": {
+      "sha256": "766b9a63c49636b4e9e48af09c4e146ddab40a223831e72ec8de1c76342d1f74",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/mesh/dynamic/skel_instance.o"
+    },
+    "engine/renderer/3d/mesh/mesh.o": {
+      "sha256": "a3900f2208049c4a4b4ca1de18585ac29b4c4da248107075ec7fd12657b0d419",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/mesh/mesh.o"
+    },
+    "engine/renderer/3d/mesh/mesh_frame.o": {
+      "sha256": "69622bf61bf08b0b0cb36b3b1483eecc684cdb8f893a4dbaeef9ad900580fbee",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/mesh/mesh_frame.o"
+    },
+    "engine/renderer/3d/mesh/mesh_material.o": {
+      "sha256": "b746f2784ba68d86a6b449ff35a2adcaaa87b186911a6fbb0fcd8dd8569dbc3c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/mesh/mesh_material.o"
+    },
+    "engine/renderer/3d/mesh/mesh_material_frame.o": {
+      "sha256": "a3d5d4b0af3591ce97559851cb12714f96fae143bc2c84623eeca9eaeb85e462",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/mesh/mesh_material_frame.o"
+    },
+    "engine/renderer/3d/mesh/static/static_mesh.o": {
+      "sha256": "2ae427eac4f951815d7d6b5ac00ae8579c40c06f890573d5b7a61a41df472a4b",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/mesh/static/static_mesh.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/bag/dynpip_bag.o": {
+      "sha256": "8915b7d7525b0347167a9f238ccf6080bd579402ae410de8aee2867401d828e4",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/bag/dynpip_bag.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/bag/dynpip_color_bag.o": {
+      "sha256": "26c2b859a76d339d4fddb2f00050955b849e12358aa306324be4ee595a73fc46",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/bag/dynpip_color_bag.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/bag/dynpip_lighting_bag.o": {
+      "sha256": "376c668565561626d8e00a06a921c0ecf68ed59bfdb362fc05737f34cd5b1cd2",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/bag/dynpip_lighting_bag.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/bag/dynpip_texture_bag.o": {
+      "sha256": "d0454bb1fbbf92166b72629249a1d3c0e9329e51de838818d2a367bb48b3ef1f",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/bag/dynpip_texture_bag.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/dynpip_core.o": {
+      "sha256": "fec12b82d54c71f0c687cf7875a9b51ce0e6c29599299e7db3e6f4764913c539",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/dynpip_core.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/dynpip_programs_repository.o": {
+      "sha256": "db4968c4471c7dedf886903b215e252c57c28502046804b47bd4dc257b66466e",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/dynpip_programs_repository.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/dynpip_renderer.o": {
+      "sha256": "bec6d3d1e769951cb42dd03f706f41a69586fd7f414ff7f1664827a88817ec77",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/dynpip_renderer.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/dynpip_vu1_program.o": {
+      "sha256": "958c1585f76b8dccfc3dabe4944050f8555e8cc9565b7a6ca64123ef15b9f1f8",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/dynpip_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1.o": {
+      "sha256": "c4ae87983041dd4e3c29e1b4cc9c61f394a140a7c48ad2105cee9e37e65d632c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1_program.o": {
+      "sha256": "49c147951d6eff7bf8d473b80357588a9be49839ef8c59c753cb2502739b48d2",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1.o": {
+      "sha256": "851693a7e4ad43948a9d3bde37fbc6e732eee8f17f47a2e6b6b43afacd3c937a",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1_program.o": {
+      "sha256": "475d623386dfbade00d2cdcfb9bcb80b52424f2d067b13c23274cd9596e3e924",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1.o": {
+      "sha256": "62f84f6e9d68ad32200c6f5d4a15d3369b9f26c0ba5531f9b3155443cfb19b75",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1_program.o": {
+      "sha256": "db42d14c9e78a2964856ad821c30a967a7b97f8b94478b872ca17cfe1136226b",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1.o": {
+      "sha256": "307c64d4b4443b893ab10378022df9a599e81a68c929efc0b6c89ada76af8e4f",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1_program.o": {
+      "sha256": "f9eb22c37bfb078b2ab28e11ca16621027a43898b811cb185d7dc987d4cb921e",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/dynamic/dynamic_pipeline.o": {
+      "sha256": "0b89d57a0013becf21083ba252a7764eea921c8402c39678f4b03cb0c5592d54",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/dynamic/dynamic_pipeline.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/data/mcpip_block_data.o": {
+      "sha256": "142cbb838193d728f7c80e0336a54353c8bc1a312a08ba78227d8f6ec9a0ffe7",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/data/mcpip_block_data.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/data/mcpip_multi_tex_block_data.o": {
+      "sha256": "d6249e335f2ee9c6e1aaa217e4ffaba1bacc1cee530e5b29424cdfadedef86e2",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/data/mcpip_multi_tex_block_data.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/data/mcpip_single_tex_block_data.o": {
+      "sha256": "8039d9d06709cc5e4efcb0ffb2bafca2b763b649fe67c3b0e3afe8525e2b1e82",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/data/mcpip_single_tex_block_data.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/minecraft_pipeline.o": {
+      "sha256": "bbcd038d28161e25b7b2796297030ddfab996ad64dbcfec6f7d17d1cd5258801",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/minecraft_pipeline.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1.o": {
+      "sha256": "c0fc37cabd044cbf684031e43f5910826cfefbf98d14018c1ea95e1ef0ddcfed",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1_program.o": {
+      "sha256": "41816c9f8529ad3502bf4324bb4ac50f11b6a78d5175a62af1e12294625c2c32",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.o": {
+      "sha256": "52406e68c7c19fadd2a15858037c0655fc3e66bf3152528c0ff43fc01e96421f",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.o": {
+      "sha256": "b41fc390a3b17a13682854b48afdaf808d77af43b3ef47ec3e287a9aa55c2805",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.o": {
+      "sha256": "6a2bda1ed77e9f36152a74674e774bca706e1051aba301ee97936a7f6648b90a",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1_program.o": {
+      "sha256": "83f33baa8f516fa19ac635e98b756497d889bd0d8bd0e879a9d46ba50f58459f",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/programs/mcpip_program.o": {
+      "sha256": "ea2357a45771d339df00b84acc36ee3092ab8e1b9f3442bdc8502297f8e4b067",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/programs/mcpip_program.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.o": {
+      "sha256": "f41e8e69d88791778de177fe127d036e522f368b6b59da2ee749fcf7bda17b16",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.o"
+    },
+    "engine/renderer/3d/pipeline/minecraft/programs/mcpip_programs_repository.o": {
+      "sha256": "554d58f9a745b325c9c0d9cd5aac2b38ac1325a41b1d8a9f6329c7eade030fda",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/minecraft/programs/mcpip_programs_repository.o"
+    },
+    "engine/renderer/3d/pipeline/shared/bag/pipeline_dir_lights_bag.o": {
+      "sha256": "19ef1d537c418056234281190360eca5810ef5fdae1053f00985a0cd4a5b7665",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/shared/bag/pipeline_dir_lights_bag.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.o": {
+      "sha256": "e025c9bd5b69153577d01db3e244b6772aa5e741147206d7025fee44f9497e03",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.o": {
+      "sha256": "b8e5f8c21e3469c9a2e9b06b7e6b58976ec4bfef6cb6d6484cc2ce4e9005622b",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packages_bbox.o": {
+      "sha256": "2ce184cff2ffc0d287c8918598b38c83c111e443da2afcdcf6a91439064c62bb",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packages_bbox.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/bag/stapip_bag.o": {
+      "sha256": "2e5129e8bf9c80888de53a6accd810057bb7d50afbe283f89b46b4d6c79593db",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/bag/stapip_bag.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/bag/stapip_color_bag.o": {
+      "sha256": "14faf845ffe7b1cccb0a22f472c91eae600760c35fab40c907ec692331de1c70",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/bag/stapip_color_bag.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/bag/stapip_lighting_bag.o": {
+      "sha256": "b6e81d538d7b3f122f018a4b928cccaabdf9ae7bcc58b81727db6d19b95a657c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/bag/stapip_lighting_bag.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/bag/stapip_texture_bag.o": {
+      "sha256": "0ab6ca50a88b17d383a224b05381dbac05ec04170430731c904f0bb6e15e65c7",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/bag/stapip_texture_bag.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.o": {
+      "sha256": "8eed945154236f8011decf0d8b980a15ea0d7338716be1c80690442982a12a6c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.o": {
+      "sha256": "c8a632975365c2d99d89490907c5f2c9c400a50e18d611dd752accdef9b52716",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.o": {
+      "sha256": "9602e98a473e61dae130c6a3548c495dff26f6e54ab1b01815941c9cfef87fb4",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.o": {
+      "sha256": "bf1f93fd40370c67dfdfa92d6f7451b5a67001f3da691c904285eeff04c57ede",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.o": {
+      "sha256": "21d72447de1a0815e6a4a16c5bf95f3a69803ce1bf4a7d79404816d73b5f72d1",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.o": {
+      "sha256": "4028720e54d8b4752617992a0b32624d4822bd1d22ed6021a0acf852fe45bff1",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.o": {
+      "sha256": "617ee877a8bcf9c2a7e50225b81d584dcf6d873aec5c293507719e0d4d94cb82",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.o": {
+      "sha256": "9c09102f37b338f7020ad8f34f529bf93dbf307ac2ef78c19e28181c66903ab5",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.o": {
+      "sha256": "c6ffac2a5fb29e81e60c6ac4a56c02c8919e9fc44ea371d9ad567c305d7697d5",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.o": {
+      "sha256": "83f572aa206e93da0bc098e1316a2dbd11812fee23bb34d590bc6ae9847ceb7b",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.o": {
+      "sha256": "fc36a837d056976112cd7934546d71cc29ec07f4b99178e2cbb57fe0f86f729e",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.o": {
+      "sha256": "0b66a7e8f54dfeef3ceebc36bfa01f16b54d5931ac71876396e8247468f959c2",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.o": {
+      "sha256": "18ea39168f65e5ff2486e52cc303a141f59483ec1e743f3333e0994414b1d286",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.o": {
+      "sha256": "a26c38547fee32764a16707a9444554087f189e1237d3051810652507de5465b",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.o": {
+      "sha256": "514d373c02db47e525172d3ffc27297f373588731311dc5c2e0308df89380229",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.o": {
+      "sha256": "0b34780bc9a4423082f48f432f170243d1755ed8b5027e0ae02d174102040f4d",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.o": {
+      "sha256": "c1139b73da62f4529931994140166e059ee74dbed2e87b0fd91f8315d71d7a12",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o": {
+      "sha256": "be6b70f08030c32a41a9251ebe15e0558c95410216e2177aa6304575efa4b943",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.o": {
+      "sha256": "50506915550e1a4d02a6b66dcec1eb5adb3a46e35e8dec63fe585c304d521105",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.o": {
+      "sha256": "0e6d091ca5c0cf33e8a2d8453e19356fd426aad38dae4d138fb6d2984eea7796",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.o": {
+      "sha256": "d059dbe32648a701a9372ff013b9d4be11111b0805a954eefa062e914948f1ce",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.o": {
+      "sha256": "266cc9cc1505f3f1de2ad8d5cf5c440370a5b690fca08d681a4db613f9ea3f76",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.o": {
+      "sha256": "79e25cb2a60e8e9b9cfdb8f5ebbaa8515ce5bb49a0fe574e5977a352414a28d4",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.o": {
+      "sha256": "29182dedd2161e130c4885c4cd0061d8017d991e4abe802bfdf9e08c57ecfbbb",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.o": {
+      "sha256": "c409363e366dd6fe9bc1011c7b81b575f846b1c5c5b7b22ab1d032fe6251be32",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.o": {
+      "sha256": "efd8718d0440b25cd7aaabc5c46161af597b0422bd1061bad2aa673bc88b9293",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.o": {
+      "sha256": "c22165ad3d9abb4a7d74a1723590e17c6f571be05f4ed7115ac74cc5a1609b71",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.o": {
+      "sha256": "0f872fb14dd4dfc9bbd695e86aa4a727ee2b66f3494daf5421378dfed30b190b",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.o": {
+      "sha256": "96adab690381c1f64f5d4e3ad5198ec893f1dfce91d95c6cb592367f3641f051",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.o": {
+      "sha256": "e2cd810532348221ebeec2bf5772c3f42551c36848298f9ca1cfa92747415c38",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.o": {
+      "sha256": "ba03b0b42c8b04684a4a3e0318e81dc7e7195f83202ae950d2b345c0f2109cc5",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.o": {
+      "sha256": "01124204a5ba3a7d6482c35dae067b73d4a87b7f5fa98e827780fa6f386a9f81",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.o": {
+      "sha256": "fe00a865b9b7b6389e4ad24255a27c05fe1f0f57f46d05f7f1fb8b06b4cce200",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o": {
+      "sha256": "e8d7b0eee4de274744e7721861e35d2ae70911a343211d5342fd2852a20cd015",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.o": {
+      "sha256": "5dd3959e09a323007604257553678e0107e3843276dc6f3895e8ef0f99982781",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.o": {
+      "sha256": "9038cecf74df733d94b32fbfa1c0b2e3c39f5bf2916986af309e319825eef581",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.o": {
+      "sha256": "9baf31d1fe6f430c0648f270f3658862fbcc2b93f6d6a5150c157a4c84259875",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.o": {
+      "sha256": "f4c361c20089bd19389ab798b2a939b3794be38de32d09bf5c4eedc6bdb5ea24",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_fold_vu1.o": {
+      "sha256": "287f47f655ae1605a313a8a2a23fda78a08c6622edc36a83385e6c0032b0d38f",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_fold_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1.o": {
+      "sha256": "eb83c3871cd4f5926d57c3d0f552dc30b603f30a8c55cd3b27e574324ac66e34",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.o": {
+      "sha256": "46f286191a079d6d94e50540f96985338c1c4db1342e748d9a8d39791c8a447d",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.o": {
+      "sha256": "1b035e5474cd02722aaf364d4c2aa96e9e40d0923a2e4c8554405f4f3fedff08",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/stapip_clipper.o": {
+      "sha256": "82f24da6a4da977720c71e50417dc97740cb8e58f7ad9efc52644618dfe28109",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/stapip_clipper.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/stapip_core.o": {
+      "sha256": "efd8f921e9058d813313c6734ab1febe3ead19304473b86a4f3965afd8dfb435",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/stapip_core.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/stapip_programs_repository.o": {
+      "sha256": "1bdc3471f4e7c3842c0bf1c0aac5db0716a3ff4d59a86708ed31808676fccf16",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/stapip_programs_repository.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/stapip_qbuffer.o": {
+      "sha256": "ccc041913a51bf2c295481fea6d715af2d6ab8a61a4bd6dd0933881225a446cc",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/stapip_qbuffer.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.o": {
+      "sha256": "4648c88fefe2eef2f778e144452ab5796b411ecc61531f54298a7cd1d1d16e3c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/stapip_vif_hash.o": {
+      "sha256": "0bfde4dad2487c9d297a1501a069f4d7161bca44981dae83524a6992f9764ed9",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/stapip_vif_hash.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/stapip_vu1_program.o": {
+      "sha256": "290881c94c995649c40781118a06cac09536e53a47581ab35d032ff0a6a471c6",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/stapip_vu1_program.o"
+    },
+    "engine/renderer/3d/pipeline/static/core/stapip_vu_tap.o": {
+      "sha256": "1f86a809190f15b8cccda65a102d0acb57c63170e8aa17f9a74f4d24967f392f",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/stapip_vu_tap.o"
+    },
+    "engine/renderer/3d/pipeline/static/static_pipeline.o": {
+      "sha256": "d3a37b7fa5b51acb5c2dd5f5b1448a3ff6f89a93c1c6be22034b83235d5097de",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/static_pipeline.o"
+    },
+    "engine/renderer/3d/renderer_3d.o": {
+      "sha256": "7d8021fffd3c64880107bc62b483ddcb203503ad8489e8767b31bfb2bd006260",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/renderer_3d.o"
+    },
+    "engine/renderer/3d/renderer_3d_utility.o": {
+      "sha256": "403bd51bdb91922676a6fa51c0319d015dec88d42137aa4143ae3bd244b26227",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/renderer_3d_utility.o"
+    },
+    "engine/renderer/core/2d/renderer_core_2d.o": {
+      "sha256": "203d8d0b9fd8974a45d749b6b614898b7b6d787848312a1873c3a267ca3e4f14",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/2d/renderer_core_2d.o"
+    },
+    "engine/renderer/core/2d/sprite/sprite.o": {
+      "sha256": "41527de54f1b9b7dce7f379fc10203369a655305a7207750502e5128f15c4c79",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/2d/sprite/sprite.o"
+    },
+    "engine/renderer/core/3d/bbox/core_bbox.o": {
+      "sha256": "a2212fde9a0d52442c15c1d1c1c159c22298813e0c4fd2428aad6825f29f2fef",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/3d/bbox/core_bbox.o"
+    },
+    "engine/renderer/core/3d/bbox/render_bbox.o": {
+      "sha256": "9a3cdf45c946de0fcbbb14187a431082453c040772218d3adcaa28b6814c39cc",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/3d/bbox/render_bbox.o"
+    },
+    "engine/renderer/core/3d/camera_info_3d.o": {
+      "sha256": "072e484e1654d5111dc3f1f4f2f523aa2b5ec9ccdea919b37ebd6bcb7e9f0ae1",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/3d/camera_info_3d.o"
+    },
+    "engine/renderer/core/3d/clipper/planes_clip_algorithm.o": {
+      "sha256": "3cc8a41ef4dadf49a4155647b3868948f96e7bd4383c6589d42e565bc54465db",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/3d/clipper/planes_clip_algorithm.o"
+    },
+    "engine/renderer/core/3d/renderer_3d_frustum_planes.o": {
+      "sha256": "3446e4bac88c916d85903626d18ed8ace86b1502929f152bc531d7cf4ab041e5",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/3d/renderer_3d_frustum_planes.o"
+    },
+    "engine/renderer/core/3d/renderer_core_3d.o": {
+      "sha256": "d37edfde53ff7c8836273f989843c512ab874b00d703a1e49b524b37f56f74d9",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/3d/renderer_core_3d.o"
+    },
+    "engine/renderer/core/alphamask/renderer_core_alpha_mask.o": {
+      "sha256": "c3aeb74cd8835a2cc8ede32e93efe4ad043e37c34c703426d6b7fa6545be6ff9",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/alphamask/renderer_core_alpha_mask.o"
+    },
+    "engine/renderer/core/blss/renderer_core_blss.o": {
+      "sha256": "e4001eaca85423a97706d38b4c8b77dec39cf84a0a6027a40dcd0217da50124c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/blss/renderer_core_blss.o"
+    },
+    "engine/renderer/core/envmap/renderer_core_envmap.o": {
+      "sha256": "97a9f24ee1e55b4694dead0f69ae1ce21d5cf544f935310b4fbb2def881a8bd4",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/envmap/renderer_core_envmap.o"
+    },
+    "engine/renderer/core/gs/renderer_core_depth.o": {
+      "sha256": "09242544cfcafdd026fd0e0915edf796cb56b8e11712ca0d00481a7821de3d96",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/gs/renderer_core_depth.o"
+    },
+    "engine/renderer/core/gs/renderer_core_gs.o": {
+      "sha256": "f75e7155d761f03e8d869899290667beaef7dd33143af8f1653ed2c1e0e6ac09",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/gs/renderer_core_gs.o"
+    },
+    "engine/renderer/core/gs/renderer_core_gs_vram.o": {
+      "sha256": "d371267c2cc2a0eaf898714a1620622d8a6d67d5bffbf2e6753e457d68c0667c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/gs/renderer_core_gs_vram.o"
+    },
+    "engine/renderer/core/paths/path1/draw_finish.o": {
+      "sha256": "e71497224c1828b0a7a48148c26ed56844fddbe32842d50b4f652fdd7a1bb457",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/paths/path1/draw_finish.o"
+    },
+    "engine/renderer/core/paths/path1/path1.o": {
+      "sha256": "e40553cc0bc7f72327f7f2b2b12039c78cd13c2b7fbacce994f4e647c64fe1b3",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/paths/path1/path1.o"
+    },
+    "engine/renderer/core/paths/path1/vif1_queue.o": {
+      "sha256": "b7f5c94876a11270abb6ea6fc6e7c54ccb1708651ea6b47883b874763ab1766d",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/paths/path1/vif1_queue.o"
+    },
+    "engine/renderer/core/paths/path1/vu1_program.o": {
+      "sha256": "9dd80f9e7a2ba8cd9007da098946fea811e7b39c8a998c5bc0935fb524148a91",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/paths/path1/vu1_program.o"
+    },
+    "engine/renderer/core/paths/path3/path3.o": {
+      "sha256": "7d42f64a8397a1511ba5310a1eb5a71a18553e12308dd84cf42fd52a3777f312",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/paths/path3/path3.o"
+    },
+    "engine/renderer/core/postfx/renderer_core_postfx.o": {
+      "sha256": "f2a35ecc2f2246fd6e559e7591d4e07e009db794e7543a69e05eb929b3015bd0",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/postfx/renderer_core_postfx.o"
+    },
+    "engine/renderer/core/renderer_core.o": {
+      "sha256": "4589e79981c55b05679964ee63dd1303624390c887313cdfa83df82760f33a72",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/renderer_core.o"
+    },
+    "engine/renderer/core/renderer_core_sync.o": {
+      "sha256": "72d24e1534e021473e174eb28be4286a0ccde1d1c8705cc34e312af2f2bc1e2d",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/renderer_core_sync.o"
+    },
+    "engine/renderer/core/shadowmap/renderer_core_shadow_map.o": {
+      "sha256": "17396a33ff1543bde3b79c03692e1d311d9b690864f0858b59fd1405f4052c67",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/shadowmap/renderer_core_shadow_map.o"
+    },
+    "engine/renderer/core/splitview/renderer_core_splitview.o": {
+      "sha256": "359f0b0f4630a0d14e2837cd99783e666665e8b89f39b8dfe396306f741d3806",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/splitview/renderer_core_splitview.o"
+    },
+    "engine/renderer/core/texture/models/texture.o": {
+      "sha256": "7295f4176fb9873db65ebed1b152364526377ddcffe9d96910599e1625892bd3",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/texture/models/texture.o"
+    },
+    "engine/renderer/core/texture/renderer_core_texture.o": {
+      "sha256": "f0a4fd49c6a9736f8c9959fd2d51196495e2d6c3846f8bb4d57693689a09060b",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/texture/renderer_core_texture.o"
+    },
+    "engine/renderer/core/texture/renderer_core_texture_sender.o": {
+      "sha256": "6f97d685c1d997826d17ebd558ff967976053d5e5317aae5a1456a787b09cb1b",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/texture/renderer_core_texture_sender.o"
+    },
+    "engine/renderer/core/texture/texture_data.o": {
+      "sha256": "c59eb03e583acf35a1eb7bf4a1dd5ff60342d24dc56decbe0f3b4bac84ea3b1f",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/texture/texture_data.o"
+    },
+    "engine/renderer/core/texture/texture_repository.o": {
+      "sha256": "d58b1b1062108f051eb6b3dcb9475394fca4fdad217388aafc26aabdee733e45",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/texture/texture_repository.o"
+    },
+    "engine/renderer/core/warp/renderer_core_warp.o": {
+      "sha256": "534bb3bb4353b7222ceea3a438a4289dddc439da1e5ac1034fb4b94d14e3d4e7",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/warp/renderer_core_warp.o"
+    },
+    "engine/renderer/models/color.o": {
+      "sha256": "8826a0f1bc1470fcdf6515b4f64755aed441cdb528124469f649dea44007fcdf",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/models/color.o"
+    },
+    "engine/renderer/renderer.o": {
+      "sha256": "c6d6452ffdf4191f94f6a719a95d09b5da7624057082b7fda69b6e44665bd835",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/renderer.o"
+    },
+    "engine/renderer/renderer_settings.o": {
+      "sha256": "e8ccd73aa667faa7280f7d8a568553fa6eb84cd90064b79425e563f4ca49f72f",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/renderer_settings.o"
+    },
+    "engine/renderer/rt/vu0_raytracer.o": {
+      "sha256": "16b4422fdf94eab025e4ec63cb2f5974cfae44c20bf9a04f5eaf360de2a2a6dd",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/rt/vu0_raytracer.o"
+    },
+    "engine/renderer/rt/vu0_rt_kernel.o": {
+      "sha256": "ee4854c6036612324320321f5b57bceb57895563d7ae9e9107a311ab84b9107c",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/rt/vu0_rt_kernel.o"
+    },
+    "engine/thread/threading.o": {
+      "sha256": "267ea1d276fc357b37e6b8b5d4145d0fb33a2856029817b49c34164e993d1a31",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/thread/threading.o"
+    },
+    "engine/time/timer.o": {
+      "sha256": "2f56af13b59eaad1b1f7bf19df2fd12e3646a2eaa49900aee4ec60e86a3d2271",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/time/timer.o"
+    }
+  },
+  "elfSha256": "990fbf745bdd3e247151165e493ddffdeb572132d37ce9fe20eee1a7a852a96c",
+  "archiveSha256": "6b25e8b3d19516af2b6eb02a35b91d305a09b3e4889466806ffb5ee20c1910bd",
+  "buildLogSha256": "6aaefc7e04c7f4b13cc3ac8cd2ab68a20bce5259ad200c8f62a2c6ee5820e15f",
+  "sourceHead": "28628d8d7",
+  "limitations": "Private stationary full-city comparison. Common sampler and branch footprint is retained in every arm; no moving/night FPS claim."
+}

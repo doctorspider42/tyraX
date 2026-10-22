@@ -1,0 +1,2 @@
+Producer ledger: deferred identity, view nesting, unknown copies, observer gates, nested waits, workload bins PASS
+Complete evidence accepted; 9 malformed observer/pose/accounting/ownership/log inputs rejected

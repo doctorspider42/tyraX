@@ -1,0 +1,334 @@
+{
+  "schema": 1,
+  "date": "2026-10-03",
+  "scope": "Private same-ELF terminal replay validation-policy pricing; no production change or ordinary FPS claim",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-scene-v7-pricing",
+  "sourceFiles": 497,
+  "sourceManifestSha256": "7d01bab1949859da5f762b8f578b85a768c43eace7cf379fd33ce9b5d5dbc34c",
+  "elfSha256": "ca7473a0736bc5a13bada1e2a699ae734a5a31a5f1358534d5ada73eec154458",
+  "symbolsSha256": "9424084406accd5fba56c3a4644fa2762bdaa081540be4667ad26c3b241e7572",
+  "nativeBuildExit": 0,
+  "nativeProofSha256": "d619a1c3e8ddc37b86e5b569e94ca19df1cdde4db0836d75ce8cce6054fd8b3e",
+  "countTicksPerMs": 294912,
+  "sourceChange": "Four of497 inputs differ from V6;493 unchanged",
+  "hostControls": {
+    "queueAssertions": 61,
+    "opaqueFieldAccessCompilerRejections": 2,
+    "pricingPositiveOrders": 2,
+    "pricingNegativeControls": 30
+  },
+  "timedScope": [
+    "helper setup",
+    "Full structural/VIF scanning or private Sealed handle verification",
+    "VU data restore",
+    "native submission and cache work",
+    "DMA and actual helper/native GS FINISH waits"
+  ],
+  "outsideWindows": [
+    "seal creation/full validation",
+    "stage boundary hashes and VIF/VU state checks",
+    "common startup restoration",
+    "sample block copies",
+    "both GS raster readbacks",
+    "all exports"
+  ],
+  "samplesPerStage": 128,
+  "warmPerStage": 128,
+  "stagesPerBoot": 3,
+  "physicalSampleCount": 768,
+  "sealsPerBoot": 3,
+  "totalSubmissionsPerBoot": 1542,
+  "rejectedSubmissionsPerBoot": 0,
+  "sampleScratchBytes": 512,
+  "sampleOutputBytes": 1536,
+  "alphaConversion": "GS alpha doubled and saturated; no raw alpha equivalence above127",
+  "records": [
+    {
+      "environment": "emulator",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v7-emulator0-evidence",
+      "artifactMapSha256": "6ea9e56a484bdf73d7e60a7c17d0096d34b3e0f17d7bab91739c9bdbf91865b0",
+      "rootReviewSha256": "ff217b7e9c42e4c64d228598d05c47707cecc2e5d17bdc08bc2295be7b36bd3c",
+      "independentReview": "F:\\Projects\\tyrax2-lab-20261001\\replay-pricing-independent-tools\\actual-emulator0-independent-review.json",
+      "independentReviewSha256": "e9746fff3d77d39e3f6753d1071e2f184415661b295c054577b282c22ba6838f",
+      "blocks": [
+        {
+          "stage": 0,
+          "policy": "Full",
+          "samples": 128,
+          "meanMs": 26.485307349099052,
+          "minMs": 21.835035536024307,
+          "maxMs": 38.090979682074654
+        },
+        {
+          "stage": 1,
+          "policy": "Sealed",
+          "samples": 128,
+          "meanMs": 5.654796282450358,
+          "minMs": 1.0829399956597223,
+          "maxMs": 16.687130398220486
+        },
+        {
+          "stage": 2,
+          "policy": "Full",
+          "samples": 128,
+          "meanMs": 25.80703337987264,
+          "minMs": 21.868859185112846,
+          "maxMs": 33.380883110894096
+        }
+      ],
+      "raster": {
+        "comparison": {
+          "pixels": 200704,
+          "RGB_exact": true,
+          "RGB_different_pixels": 0,
+          "RGB_different_bytes": 0,
+          "alpha_exact": true,
+          "alpha_different_pixels": 0,
+          "max_absolute_delta_BGRA": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "first_RGB_difference": null,
+          "rows": "bottom-origin retained; no flips/resizing/color conversion",
+          "alpha_role": "Working framebuffer channel; reported separately from RGB visual equality."
+        },
+        "files": {
+          "baselineImage": {
+            "width": 448,
+            "height": 448,
+            "alpha_bits": 8,
+            "sha256": "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216"
+          },
+          "finalImage": {
+            "width": 448,
+            "height": 448,
+            "alpha_bits": 8,
+            "sha256": "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216"
+          }
+        }
+      }
+    },
+    {
+      "environment": "emulator",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v7-emulator1-evidence",
+      "artifactMapSha256": "dd941e46586120cd40ddceab4049c7aebc6caac2b1b51316c7b208c64f44a2d4",
+      "rootReviewSha256": "c17d0f78658d5fa96eb5d9351f8ccf0df28f8589d5c77f67d77c76e453eb61f9",
+      "independentReview": "F:\\Projects\\tyrax2-lab-20261001\\replay-pricing-independent-tools\\actual-emulator1-independent-review.json",
+      "independentReviewSha256": "153df9fb90686cc87fa22fb7c3a2c6f8a073bc44d2210964dafab1c14bda4c82",
+      "blocks": [
+        {
+          "stage": 0,
+          "policy": "Sealed",
+          "samples": 128,
+          "meanMs": 6.256137556499905,
+          "minMs": 1.0303310818142362,
+          "maxMs": 13.356658935546875
+        },
+        {
+          "stage": 1,
+          "policy": "Full",
+          "samples": 128,
+          "meanMs": 26.598542981677586,
+          "minMs": 21.874009874131943,
+          "maxMs": 32.92176988389757
+        },
+        {
+          "stage": 2,
+          "policy": "Sealed",
+          "samples": 128,
+          "meanMs": 6.199055830637614,
+          "minMs": 1.0305514865451388,
+          "maxMs": 12.388753255208334
+        }
+      ],
+      "raster": {
+        "comparison": {
+          "pixels": 200704,
+          "RGB_exact": true,
+          "RGB_different_pixels": 0,
+          "RGB_different_bytes": 0,
+          "alpha_exact": true,
+          "alpha_different_pixels": 0,
+          "max_absolute_delta_BGRA": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "first_RGB_difference": null,
+          "rows": "bottom-origin retained; no flips/resizing/color conversion",
+          "alpha_role": "Working framebuffer channel; reported separately from RGB visual equality."
+        },
+        "files": {
+          "baselineImage": {
+            "width": 448,
+            "height": 448,
+            "alpha_bits": 8,
+            "sha256": "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216"
+          },
+          "finalImage": {
+            "width": 448,
+            "height": 448,
+            "alpha_bits": 8,
+            "sha256": "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216"
+          }
+        }
+      }
+    },
+    {
+      "environment": "physical",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v7-physical0-evidence",
+      "artifactMapSha256": "38f50998e76e8f014ff27b785e6b31b42b8a8c4aaebf472b31c9cf0c4276b4e5",
+      "rootReviewSha256": "37517d1a73537de85f6ce100da76885a231afb6ed5668cd948a09c9f8e86bc20",
+      "independentReview": "F:\\Projects\\tyrax2-lab-20261001\\replay-pricing-independent-tools\\actual-physical0-independent-review.json",
+      "independentReviewSha256": "ca0ea946d9fc3d41291e0ee7ec0670a137c739438a1cf63d52b2276730d4d8f6",
+      "blocks": [
+        {
+          "stage": 0,
+          "policy": "Full",
+          "samples": 128,
+          "meanMs": 23.332975069681805,
+          "minMs": 23.28634982638889,
+          "maxMs": 23.378662109375
+        },
+        {
+          "stage": 1,
+          "policy": "Sealed",
+          "samples": 128,
+          "meanMs": 10.732228808932835,
+          "minMs": 10.70654296875,
+          "maxMs": 10.767008463541666
+        },
+        {
+          "stage": 2,
+          "policy": "Full",
+          "samples": 128,
+          "meanMs": 23.332971996731228,
+          "minMs": 23.28736029730903,
+          "maxMs": 23.379014756944443
+        }
+      ],
+      "raster": {
+        "comparison": {
+          "pixels": 200704,
+          "RGB_exact": true,
+          "RGB_different_pixels": 0,
+          "RGB_different_bytes": 0,
+          "alpha_exact": true,
+          "alpha_different_pixels": 0,
+          "max_absolute_delta_BGRA": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "first_RGB_difference": null,
+          "rows": "bottom-origin retained; no flips/resizing/color conversion",
+          "alpha_role": "Working framebuffer channel; reported separately from RGB visual equality."
+        },
+        "files": {
+          "baselineImage": {
+            "width": 448,
+            "height": 448,
+            "alpha_bits": 8,
+            "sha256": "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd"
+          },
+          "finalImage": {
+            "width": 448,
+            "height": 448,
+            "alpha_bits": 8,
+            "sha256": "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd"
+          }
+        }
+      }
+    },
+    {
+      "environment": "physical",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v7-physical1-evidence",
+      "artifactMapSha256": "55e8cd5d32cdb9e02402399c600172207409bf5f7284bb5d43dcdc3f7497aff3",
+      "rootReviewSha256": "54dab6361941dbf4b871378aec86552bf0aceff038a160d1d9617806993bf6d2",
+      "independentReview": "F:\\Projects\\tyrax2-lab-20261001\\replay-pricing-independent-tools\\actual-physical1-independent-review.json",
+      "independentReviewSha256": "ffe5f258821f9986bd39cf2cb9611adc7f32f246dc025d422e26fdcf6ad4a0a0",
+      "blocks": [
+        {
+          "stage": 0,
+          "policy": "Sealed",
+          "samples": 128,
+          "meanMs": 10.733013047112358,
+          "minMs": 10.707010904947916,
+          "maxMs": 10.770589192708334
+        },
+        {
+          "stage": 1,
+          "policy": "Full",
+          "samples": 128,
+          "meanMs": 23.33929835425483,
+          "minMs": 23.303120930989582,
+          "maxMs": 23.384297688802082
+        },
+        {
+          "stage": 2,
+          "policy": "Sealed",
+          "samples": 128,
+          "meanMs": 10.731400807698568,
+          "minMs": 10.702880859375,
+          "maxMs": 10.785135904947916
+        }
+      ],
+      "raster": {
+        "comparison": {
+          "pixels": 200704,
+          "RGB_exact": true,
+          "RGB_different_pixels": 0,
+          "RGB_different_bytes": 0,
+          "alpha_exact": true,
+          "alpha_different_pixels": 0,
+          "max_absolute_delta_BGRA": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "first_RGB_difference": null,
+          "rows": "bottom-origin retained; no flips/resizing/color conversion",
+          "alpha_role": "Working framebuffer channel; reported separately from RGB visual equality."
+        },
+        "files": {
+          "baselineImage": {
+            "width": 448,
+            "height": 448,
+            "alpha_bits": 8,
+            "sha256": "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd"
+          },
+          "finalImage": {
+            "width": 448,
+            "height": 448,
+            "alpha_bits": 8,
+            "sha256": "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd"
+          }
+        }
+      }
+    }
+  ],
+  "physicalPairReview": "F:\\Projects\\tyrax2-lab-20261001\\replay-pricing-independent-tools\\physical-pair-independent-review.json",
+  "physicalPairReviewSha256": "d3ed725725bdb08d8b150cbf6fefa120fcd525a0192c462ae5544864060596c6",
+  "limits": [
+    "Inclusive validation-policy/cache difference, not pure scanner instruction cost",
+    "Sealed private handles rely on controlled immutable buffers; not a general mutation-safe API",
+    "Not pure VU or GS time",
+    "Not additive with earlier preparation experiment",
+    "No ordinary gameplay, 60FPS or showcase gain accepted",
+    "No cross-environment pixel equality",
+    "Terminal snapshots precede final readback",
+    "No permanent network-reset reliability claim",
+    "Earlier stage DATA parity uses target memcmp/state records; only last-stage startup raw DATA is exported",
+    "Boundary hashes check stage edges, not every timed iteration",
+    "Final raster equality covers the aggregate terminal sequence, not a separate acquisition for each policy stage"
+  ]
+}

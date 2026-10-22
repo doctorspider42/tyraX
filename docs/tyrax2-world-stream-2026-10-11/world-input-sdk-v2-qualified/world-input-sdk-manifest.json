@@ -1,0 +1,13 @@
+{
+  "baseElfSha256": "97a2af0076bdacf5c2100384b65d3c1d79853f4f92ec22b8a4c9c37ed01eb05b",
+  "generatorSha256": "34c148a2eca6367cae6dd49377f4f446c568bb39d89d9f88246d1b445b805ed4",
+  "status": "UNQUALIFIED",
+  "componentOnly": true,
+  "renderingChanged": false,
+  "limits": [
+    "Actual C/TC SDK bodies from native execution; geometry recycled from real terrain bag.",
+    "Target sleeps after dump; no moving/FPS or compact GPU qualification.",
+    "VIF state snapshots are observational, not drained-queue lifetime proof.",
+    "Offline exact decode gate follows; actual compact VIF/native images/physical net remain."
+  ]
+}

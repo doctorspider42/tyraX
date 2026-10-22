@@ -1,0 +1,1609 @@
+[    0.0927] Program Path: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt
+[    0.0933] AppRoot Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin
+[    0.0935] Resources Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/resources
+[    0.0971] DataRoot Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2
+[    0.1033] Loading config from /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/inis/PCSX2.ini.
+[    0.1114] Loading secrets from /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/inis/secrets.ini.
+[    0.1263] BIOS Directory: /mnt/c/Users/pawel/OneDrive/Documents/PCSX2/bios
+[    0.1267] Snapshots Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/snaps
+[    0.1268] Savestates Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/sstates
+[    0.1270] MemoryCards Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/memcards
+[    0.1272] Logs Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/logs
+[    0.1274] Cheats Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/cheats
+[    0.1275] Patches Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/patches
+[    0.1277] Covers Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/covers
+[    0.1278] Game Settings Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/gamesettings
+[    0.1280] Resources Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/resources
+[    0.1281] User Resources Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/resources
+[    0.1284] Cache Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/cache
+[    0.1285] Textures Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/textures
+[    0.1287] Input Profile Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/inputprofiles
+[    0.1288] Video Dumping Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/videos
+[    0.1290] Debugger Layouts Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/inis/debuggerlayouts
+[    0.1293] Debugger Settings Directory: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/inis/debuggersettings
+[    0.1793] Loaded translation file for language en-US
+[    0.3128] PCSX2 v2.9.93
+[    0.3136] Savestate version: 0x9a590000
+[    0.3138] 
+[    0.3140] 
+[    0.3142] Host Machine Init:
+[    0.3162]   Operating System = Ubuntu 22.04
+[    0.3165]   Available RAM    = 48834 MB (47.69 GB)
+[    0.3166]   Physical RAM     = 50191 MB (49.02 GB)
+[    0.3168] 
+[    0.3171]   Processor        = AMD Ryzen Threadripper 1920X
+[    0.3173]   Core Count       = 24 cores
+[    0.3176]   Thread Count     = 24 threads
+[    0.3178]   Cluster Count    = 1 clusters
+[    0.3182] CPU Extensions Detected:
+[    0.3183]   AVX AVX2
+[    0.3185] 
+[    0.3187] Allocating host memory for virtual systems...
+[    0.3194]   EE Main Memory                   @ 0x00007FB7BF200000 -> 0x00007FB7C8100000 [143mb]
+[    0.3196]   IOP Main Memory                  @ 0x00007FB7C8100000 -> 0x00007FB7D0200000 [129mb]
+[    0.3198]   VU0/1 On-Chip Memory             @ 0x00007FB7D0200000 -> 0x00007FB7D0300000 [1mb]
+[    0.3200]   VTLB Virtual Map                 @ 0x00007FB7D0300000 -> 0x00007FB7D0B00000 [8mb]
+[    0.3202]   VTLB Address Map                 @ 0x00007FB7D0B00000 -> 0x00007FB7D0F00000 [4mb]
+[    0.3204]   R5900 Recompiler Cache           @ 0x00007FB7D0F00000 -> 0x00007FB7D4F00000 [64mb]
+[    0.3207]   R3000A Recompiler Cache          @ 0x00007FB7D4F00000 -> 0x00007FB7D6F00000 [32mb]
+[    0.3209]   Micro VU0 Recompiler Cache       @ 0x00007FB7D7F00000 -> 0x00007FB7DBF00000 [64mb]
+[    0.3211]   Micro VU1 Recompiler Cache       @ 0x00007FB7DBF00000 -> 0x00007FB7DFF00000 [64mb]
+[    0.3212]   VIF0 Unpack Recompiler Cache     @ 0x00007FB7D6F00000 -> 0x00007FB7D7700000 [8mb]
+[    0.3215]   VIF1 Unpack Recompiler Cache     @ 0x00007FB7D7700000 -> 0x00007FB7D7F00000 [8mb]
+[    0.3217]   VIF Unpack Recompiler Cache      @ 0x00007FB7DFF00000 -> 0x00007FB7E0000000 [1mb]
+[    0.3219]   GS Software Renderer             @ 0x00007FB7E0000000 -> 0x00007FB7E4000000 [64mb]
+[    0.3238] Fastmem area: 0x7fb6bf200000 - 0x7fb7bf1fffff
+[    0.3275] Generating SSE-optimized unpacking functions for VIF interpreters...
+[    0.3282] Unpack function generation complete.  Generated function statistics:
+[    0.3284]   Reserved buffer    : 1048576 bytes @ 0x00007FB7DFF00000
+[    0.3287]   x86 code generated : 7422 bytes
+[    0.3288] 
+[    0.3343] SDLInputSource: Using Controller DB from resources.
+[    0.3825] SDLInputSource: 765 gamepad mappings are loaded.
+[    0.3829] Invalid binding: 'XInput-0/DPadUp'
+[    0.3831] Invalid binding: 'XInput-0/DPadRight'
+[    0.3834] Invalid binding: 'XInput-0/DPadDown'
+[    0.3836] Invalid binding: 'XInput-0/DPadLeft'
+[    0.3838] Invalid binding: 'XInput-0/Y'
+[    0.3841] Invalid binding: 'XInput-0/B'
+[    0.3843] Invalid binding: 'XInput-0/A'
+[    0.3845] Invalid binding: 'XInput-0/X'
+[    0.3847] Invalid binding: 'XInput-0/Back'
+[    0.3849] Invalid binding: 'XInput-0/Start'
+[    0.3850] Invalid binding: 'XInput-0/LeftShoulder'
+[    0.3852] Invalid binding: 'XInput-0/+LeftTrigger'
+[    0.3854] Invalid binding: 'XInput-0/RightShoulder'
+[    0.3856] Invalid binding: 'XInput-0/+RightTrigger'
+[    0.3857] Invalid binding: 'XInput-0/LeftStick'
+[    0.3859] Invalid binding: 'XInput-0/RightStick'
+[    0.3861] Invalid binding: 'XInput-0/Guide'
+[    0.3862] Invalid binding: 'XInput-0/-LeftY'
+[    0.3865] Invalid binding: 'XInput-0/+LeftX'
+[    0.3867] Invalid binding: 'XInput-0/+LeftY'
+[    0.3868] Invalid binding: 'XInput-0/-LeftX'
+[    0.3871] Invalid binding: 'XInput-0/-RightY'
+[    0.3873] Invalid binding: 'XInput-0/+RightX'
+[    0.3875] Invalid binding: 'XInput-0/+RightY'
+[    0.3877] Invalid binding: 'XInput-0/-RightX'
+[    0.3886] Settings: Advanced Settings are enabled; only proceed if you know what you're doing! No support will be provided if you have the option enabled.
+[    0.5080] Scanning F:\PS2\Games (recursively)
+[    0.5114] Loading BIOS...
+[    0.5205] BIOS Found: Europe  v02.00(14/06/2004)  Console 20040614-100914
+[    0.5707] Mechacon version: 0x00020603
+[    0.5723] Opening CDVD...
+[    0.5987] Initializing Elf: 4293564 bytes
+[    0.5996] Disc changed to .
+[    0.5998]   Name: vehicle-playground [?]
+[    0.6000]   Serial: vehicle-playground
+[    0.6002]   Version: 
+[    0.6003]   CRC: C59751AF
+[    0.6053] No game settings found (tried '/mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/gamesettings/C59751AF.ini')
+[    0.6055] Applying settings...
+[    0.6059] Invalid binding: 'XInput-0/DPadUp'
+[    0.6061] Invalid binding: 'XInput-0/DPadRight'
+[    0.6063] Invalid binding: 'XInput-0/DPadDown'
+[    0.6066] Invalid binding: 'XInput-0/DPadLeft'
+[    0.6067] Invalid binding: 'XInput-0/Y'
+[    0.6069] Invalid binding: 'XInput-0/B'
+[    0.6071] Invalid binding: 'XInput-0/A'
+[    0.6073] Invalid binding: 'XInput-0/X'
+[    0.6075] Invalid binding: 'XInput-0/Back'
+[    0.6077] Invalid binding: 'XInput-0/Start'
+[    0.6078] Invalid binding: 'XInput-0/LeftShoulder'
+[    0.6080] Invalid binding: 'XInput-0/+LeftTrigger'
+[    0.6082] Invalid binding: 'XInput-0/RightShoulder'
+[    0.6084] Invalid binding: 'XInput-0/+RightTrigger'
+[    0.6086] Invalid binding: 'XInput-0/LeftStick'
+[    0.6088] Invalid binding: 'XInput-0/RightStick'
+[    0.6091] Invalid binding: 'XInput-0/Guide'
+[    0.6093] Invalid binding: 'XInput-0/-LeftY'
+[    0.6095] Invalid binding: 'XInput-0/+LeftX'
+[    0.6097] Invalid binding: 'XInput-0/+LeftY'
+[    0.6098] Invalid binding: 'XInput-0/-LeftX'
+[    0.6100] Invalid binding: 'XInput-0/-RightY'
+[    0.6102] Invalid binding: 'XInput-0/+RightX'
+[    0.6104] Invalid binding: 'XInput-0/+RightY'
+[    0.6106] Invalid binding: 'XInput-0/-RightX'
+[    0.6109] GameDB: Has not been initialized yet, initializing...
+[    0.6629] GameDB: 12841 games on record (loaded in 52.00ms)
+[    0.6847] Reopening memory cards...
+[    0.6897] (FileMcd) Creating new 8MB memory card: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/emulator/profile/PCSX2/memcards/Mcd001.ps2
+[    1.0979] McdSlot 0 [File]: Mcd001.ps2 [8 MB, UNFORMATTED]
+[    1.0982] McdSlot 1 [File]: [disabled/empty filename]
+[    1.1020] HLE Host: Set 'host:' root path to: /mnt/f/Projects/tyrax2-static-plan-20261008-oracle2/game/bin
+[    1.1023] EE/iR5900 Recompiler Reset
+[    1.1353] iR3000A Recompiler reset.
+[    1.1440] mVU Reset
+[    1.1448] mVU Reset
+[    1.1491] Resetting host memory for virtual systems...
+[    1.3928] Time Zone Offset: GMT+01:00
+[    1.3931] Time Zone Location: Berlin
+[    1.3932] DST: Winter Time
+[    1.3935] Time Format: 24-Hour
+[    1.3936] Date Format: DD/MM/YYYY
+[    1.3938] System Time Basis: Operating System Time
+[    1.3940] Resulting System Time: 2026-10-08 11:53:10
+[    1.3942] Close virtual disk tray
+[    1.3944] Media already loaded (fast boot)
+[    1.3946] Opening GS...
+[    1.5115] VK: Enabling extension: VK_KHR_get_surface_capabilities2
+[    1.5396] Using Vulkan GPU 'llvmpipe (LLVM 15.0.7, 256 bits)' for automatic renderer check.
+[    1.5400] Not using Vulkan for software renderer.
+[    1.5409] acquireRenderWindow() recreate=true fullscreen=false render_to_main=false surfaceless=false
+[    1.5502] (GetRefreshRateFromXRandR) Modeline is invalid: 0/0/0
+[    1.5505] Surface refresh rate: 60 Hz
+[    1.5508] Loading EGL from libEGL.so...
+[    1.5602] GLAD EGL Version: 1.0
+[    1.5605] Using EGL platform EGL_EXT_platform_x11.
+[    1.5716] eglInitialize() version: 1.5
+[    1.5720] GLAD EGL Version: 1.5
+[    1.5723] Trying GL version 4.6
+[    1.5725] eglCreateContext() failed: 0x3009
+[    1.5728] Trying GL version 4.5
+[    1.6072] Got GL version 4.5
+[    1.6075] EGL_MIN_SWAP_INTERVAL = 1
+[    1.6077] EGL_MAX_SWAP_INTERVAL = 1
+[    1.6078] Negative swap interval/tear-control is NOT supported
+[    1.6121] GL_VENDOR: Mesa
+[    1.6123] GL_VERSION: 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+[    1.6126] GL_RENDERER: llvmpipe (LLVM 15.0.7, 256 bits)
+[    1.6127] GL_SHADING_LANGUAGE_VERSION: 4.50
+[    1.6130] GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS: 16
+[    1.6132] GL: Viewport Array:            Supported       => Using: GL_ARB_viewport_array
+[    1.6134] GL: Direct State Access:       Supported       => Using: OpenGL 4.5 Core
+[    1.6135] GL: Copy Image:                Supported       => Using: OpenGL 4.3 Core
+[    1.6137] GL: Clip Control:              Supported       => Using: OpenGL 4.5 Core
+[    1.6139] GL: Conservative Depth:        Supported       => Using: OpenGL 4.2 Core
+[    1.6141] GL: CAS Sharpening:            Supported       => Using: OpenGL 4.2 Core
+[    1.6142] GL: Texture Barriers:          Auto            => Using: Framebuffer Fetch
+[    1.6145] GL: RGBA16 HW Blending:        Supported       => Using: RGBA16 UNORM
+[    1.6148] GL: Point Expansion:           Supported       => Using: Hardware
+[    1.6150] GL: Line Expansion:            Fallback        => Using: Vertex Expansion
+[    1.6151] GL: Sprite Expansion:          Supported       => Using: Vertex Expansion
+[    1.6153] GL: DXTn Texture Compression:  Supported       => Using: GL_EXT_texture_compression_s3tc
+[    1.6155] GL: BC6/7 Texture Compression: Supported       => Using: OpenGL 4.2 Core
+[    1.6194] 1 program binary formats supported by driver
+[    1.6790] Program binary retrieved, 4105 bytes, format 34655
+[    1.6817] Program binary retrieved, 4121 bytes, format 34655
+[    1.6848] Program binary retrieved, 4249 bytes, format 34655
+[    1.6936] Program binary retrieved, 4013 bytes, format 34655
+[    1.6984] Program binary retrieved, 4013 bytes, format 34655
+[    1.7010] Program binary retrieved, 4017 bytes, format 34655
+[    1.7030] Program binary retrieved, 4017 bytes, format 34655
+[    1.7058] Program binary retrieved, 4185 bytes, format 34655
+[    1.7082] Program binary retrieved, 4217 bytes, format 34655
+[    1.7106] Program binary retrieved, 4137 bytes, format 34655
+[    1.7128] Program binary retrieved, 4125 bytes, format 34655
+[    1.7152] Program binary retrieved, 4121 bytes, format 34655
+[    1.7181] Program binary retrieved, 4253 bytes, format 34655
+[    1.7210] Program binary retrieved, 4237 bytes, format 34655
+[    1.7233] Program binary retrieved, 4245 bytes, format 34655
+[    1.7252] Program binary retrieved, 4261 bytes, format 34655
+[    1.7273] Program binary retrieved, 4965 bytes, format 34655
+[    1.7296] Program binary retrieved, 4981 bytes, format 34655
+[    1.7314] Program binary retrieved, 4261 bytes, format 34655
+[    1.7337] Program binary retrieved, 4277 bytes, format 34655
+[    1.7362] Program binary retrieved, 5005 bytes, format 34655
+[    1.7383] Program binary retrieved, 5021 bytes, format 34655
+[    1.7401] Program binary retrieved, 4257 bytes, format 34655
+[    1.7418] Program binary retrieved, 4273 bytes, format 34655
+[    1.7439] Program binary retrieved, 5001 bytes, format 34655
+[    1.7459] Program binary retrieved, 5017 bytes, format 34655
+[    1.7483] Program binary retrieved, 4277 bytes, format 34655
+[    1.7503] Program binary retrieved, 4293 bytes, format 34655
+[    1.7526] Program binary retrieved, 5057 bytes, format 34655
+[    1.7549] Program binary retrieved, 5073 bytes, format 34655
+[    1.7568] Program binary retrieved, 4153 bytes, format 34655
+[    1.7592] Program binary retrieved, 4169 bytes, format 34655
+[    1.7612] Program binary retrieved, 4233 bytes, format 34655
+[    1.7632] Program binary retrieved, 5781 bytes, format 34655
+[    1.7654] Program binary retrieved, 5373 bytes, format 34655
+[    1.7674] Program binary retrieved, 6389 bytes, format 34655
+[    1.7691] Program binary retrieved, 4917 bytes, format 34655
+[    1.7710] Program binary retrieved, 4845 bytes, format 34655
+[    1.7730] Program binary retrieved, 4997 bytes, format 34655
+[    1.7759] Program binary retrieved, 4101 bytes, format 34655
+[    1.7900] Program binary retrieved, 4137 bytes, format 34655
+[    1.8053] Program binary retrieved, 4109 bytes, format 34655
+[    1.8074] Program binary retrieved, 5389 bytes, format 34655
+[    1.8095] Program binary retrieved, 5829 bytes, format 34655
+[    1.8113] Program binary retrieved, 5857 bytes, format 34655
+[    1.8130] Program binary retrieved, 4289 bytes, format 34655
+[    1.8170] Program binary retrieved, 21205 bytes, format 34655
+[    1.8190] Program binary retrieved, 4765 bytes, format 34655
+[    1.8209] Program binary retrieved, 5685 bytes, format 34655
+[    1.8233] Program binary retrieved, 4141 bytes, format 34655
+[    1.8251] Program binary retrieved, 4537 bytes, format 34655
+[    1.8277] Program binary retrieved, 4889 bytes, format 34655
+[    1.8295] Program binary retrieved, 4117 bytes, format 34655
+[    1.8315] Program binary retrieved, 4741 bytes, format 34655
+[    1.8335] Program binary retrieved, 4965 bytes, format 34655
+[    1.8363] Program binary retrieved, 6613 bytes, format 34655
+[    1.8384] Program binary retrieved, 4797 bytes, format 34655
+[    1.8426] Program binary retrieved, 13085 bytes, format 34655
+[    1.8527] Program binary retrieved, 7285 bytes, format 34655
+[    1.8603] Program binary retrieved, 5497 bytes, format 34655
+[    1.8623] Program binary retrieved, 4141 bytes, format 34655
+[    1.8640] Program binary retrieved, 4141 bytes, format 34655
+[    1.8661] Program binary retrieved, 4145 bytes, format 34655
+[    1.8681] Program binary retrieved, 4145 bytes, format 34655
+[    1.9096] Program binary retrieved, 5369 bytes, format 34655
+[    1.9275] OpenGL Graphics Driver Info:
+[    1.9277] OpenGL Context:
+[    1.9278] 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+[    1.9279] Mesa llvmpipe (LLVM 15.0.7, 256 bits)
+[    1.9281] GLSL: 4.50
+[    1.9354] Processor count: 24 cores, 24 processors, 1 clusters
+[    1.9356] Ordered processor list: 12, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 0, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+[    1.9359] Not pinning SW threads, we need 4 processors, but only have 0
+[    1.9370] Opening SPU2...
+[    1.9373] Creating Null audio stream, sample rate = 48000, expansion = Disabled, buffer = 50, latency = 32, stretching enabled, driver = wasapi, device = 
+[    1.9375] Allocated buffer of 2432 frames for buffer of 50 ms [expansion Disabled (block size 2048), stretch disabled, target size 2432].
+[    1.9377] Initializing Pad...
+[    1.9379] Initializing SIO2...
+[    1.9381] Initializing SIO0...
+[    1.9383] Opening DEV9...
+[    1.9385] DEV9: DEV9init
+[    1.9392] DEV9: DEV9init2
+[    1.9395] DEV9: DEV9init3
+[    1.9421] DEV9: DEV9init ok
+[    1.9424] DEV9: DEV9open
+[    1.9425] Opening USB...
+[    1.9427] Opening FW...
+[    1.9432] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 16683350
+[    1.9463] MultiPause time: 142ns
+[    1.9467] VM subsystems initialized in 1435.70 ms
+[    1.9470] MultiPause time: 142ns
+[    1.9472] MultiPause time: 202ns
+[    1.9494] MultiPause time: 142ns
+[    1.9560] Failed to inhibit screen saver.
+[    1.9562] Processor order assignment: EE=12, VU=23, GS=22
+[    1.9564]   EE thread is on processor 12 (0x1000)
+[    1.9568]   VU thread is on processor 23 (0x800000)
+[    1.9570]   GS thread is on processor 22 (0x400000)
+[    1.9654] Failed to inhibit screen saver.
+[    2.0742] # Initialize memory (rev:3.70, ctm:197Mhz, cpuclk:147Mhz detected)
+[    2.0830] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    2.0848] RegisterLibraryEntries: excepman version 1.01
+[    2.0868] RegisterLibraryEntries:  intrman version 1.02
+[    2.0871] RegisterLibraryEntries:   ssbusc version 1.01
+[    2.0877] RegisterLibraryEntries:  dmacman version 1.02
+[    2.0882] RegisterLibraryEntries:  timrman version 1.01
+[    2.0887] RegisterLibraryEntries:  sysclib version 1.01
+[    2.0889] RegisterLibraryEntries:    stdio version 1.01
+[    2.0892] RegisterLibraryEntries:  heaplib version 1.01
+[    2.0898] FW: read mem 0x1f80847c: 0x10000001
+[    2.0901] FW: write mem 0x1f808414: 0x417f0000
+[    2.0903] FW: read mem 0x1f808400: 0xffc00001
+[    2.0905] FW: write mem 0x1f80844c: 0xffffffff
+[    2.0906] FW: write mem 0x1f808420: 0xffffffff
+[    2.0908] FW: write mem 0x1f808428: 0xffffffff
+[    2.0910] FW: write mem 0x1f808430: 0xffffffff
+[    2.0922] RegisterLibraryEntries:   thbase version 1.01
+[    2.0926] RegisterLibraryEntries:  thevent version 1.01
+[    2.0930] RegisterLibraryEntries:  thsemap version 1.01
+[    2.0932] RegisterLibraryEntries:  thmsgbx version 1.01
+[    2.0936] RegisterLibraryEntries:  thfpool version 1.01
+[    2.0939] RegisterLibraryEntries:  thvpool version 1.01
+[    2.0949] RegisterLibraryEntries:   vblank version 1.01
+[    2.0957] RegisterLibraryEntries:    ioman version 1.02
+[    2.0965] RegisterLibraryEntries:  modload version 1.01
+[    2.0970] RegisterLibraryEntries:   romdrv version 2.01
+[    2.0974] RegisterLibraryEntries:    stdio version 1.02
+[    2.0979] RegisterLibraryEntries:   sifman version 1.01
+[    2.0984] 
+[    2.0987] PlayStation 2 ======== Hard reset boot
+[    2.0991]  ROMGEN=2004-0614, IOP info (CPUID=1f, CACH_CONFIG=0, 2MB, IOP mode)
+[    2.0995]  <20040614-100914,ROMconf,PS20200EC20040614.bin:11696>
+[    2.1088] # Total accessable memory size: 32 MB (B:2:8:0) (370:2:7c30)
+[    2.1100] # TLB spad=0 kernel=1:12 default=13:30 extended=31:38
+[    2.1708] # Initialize Start.
+[    2.1735] # Initialize GS ...
+[    2.1737] # Initialize INTC ...
+[    2.1739] # Initialize TIMER ...
+[    2.1741] # Initialize DMAC ...
+[    2.1757] # Initialize VU1 ...
+[    2.1764] # Initialize VIF1 ...
+[    2.1774] # Initialize GIF ...
+[    2.1778] # Initialize VU0 ...
+[    2.1784] # Initialize VIF0 ...
+[    2.1794] # Initialize IPU ...
+[    2.1808] # Initialize FPU ...
+[    2.1810] # Initialize User Memory ...
+[    2.2380] # Initialize Scratch Pad ...
+[    2.2384] # Initialize Done.
+[    2.2395] 
+[    2.2398] EE DECI2 Manager version 0.06 Feb  6 2003 08:38:48
+[    2.2401]   CPUID=2e20, BoardID=0, ROMGEN=2004-0614, 32M
+[    2.2403] 
+[    2.2412] RegisterLibraryEntries:   sifcmd version 1.01
+[    2.2690] Initializing Elf: 4293564 bytes
+[    2.2716] ELF Loading: host:vehicle-playground.elf, Game CRC = C59751AF, EntryPoint = 0x00100E78
+[    2.2747] RegisterLibraryEntries:  cdvdman version 1.01
+[    2.2813] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    2.2830] RegisterLibraryEntries:  secrman version 1.03
+[    2.2834] RegisterLibraryEntries:   eesync version 1.01
+[    2.2837] 
+[    2.2839] IOP Realtime Kernel Ver.0.9.1
+[    2.2840]     Copyright 1999 (C) Sony Computer Entertainment Inc. 
+[    2.2848] Reboot service module.(99/11/10)
+[    2.2875] cdvd driver module version 0.1.1 (C)SCEI
+[    2.2882] Load File service.(99/11/05)
+[    2.2885] Multi Threaded Fileio module.(99/11/15) 
+[    2.2887] iop heap service (99/11/03)
+[    2.3112] loadelf: fname host:vehicle-playground.elf secname all
+[    2.3115] loadelf version 3.30
+[    2.3137] Input ELF format filename = host:vehicle-playground.elf
+[    2.3509] 1 00100000 003cccbc .............................................................
+[    2.3512] Loaded, host:vehicle-playground.elf
+[    2.3515] start address 0x100e78
+[    2.3517] gp address 00000000
+[    2.3529] # Restart Without Memory Clear.
+[    2.3582] # Initialize GS ...
+[    2.3584] # Initialize INTC ...
+[    2.3586] # Initialize TIMER ...
+[    2.3590] # Initialize DMAC ...
+[    2.3592] # Initialize VU1 ...
+[    2.3598] # Initialize VIF1 ...
+[    2.3600] # Initialize GIF ...
+[    2.3602] # Initialize VU0 ...
+[    2.3604] # Initialize VIF0 ...
+[    2.3606] # Initialize IPU ...
+[    2.3608] # Initialize FPU ...
+[    2.3610] # Initialize Scratch Pad ...
+[    2.3613] # Restart Without Memory Clear Done.
+[    2.3617] ELF host:vehicle-playground.elf with entry point at 0x00100E78 is executing.
+[    2.3620] ELF changed, active CRC C59751AF (host:vehicle-playground.elf)
+[    2.3713] Applying core settings...
+[    2.3719] Updating CPU configuration...
+[    2.3723] iR3000A Recompiler reset.
+[    2.3762] mVU Reset
+[    2.3765] mVU Reset
+[    2.3919] iR3000A Recompiler reset.
+[    2.3959] mVU Reset
+[    2.3963] mVU Reset
+[    2.3997] EE/iR5900 Recompiler Reset
+[    2.4176] BIOS: Successfully found the instruction pattern. Assuming the thread list is here: 8001a640
+[    2.4201] Warning: GetOsdConfigParam2 Reading extended language/version configs, may be incorrect!
+[    2.4299] read/write allocate memory 4000
+[    2.4302] open name host:/ps2link.run flag 1 data 41378
+[    2.4307] open fd = -5
+[    2.4335] Get Reboot Request From EE
+[    2.4350] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    2.4370] RegisterLibraryEntries: excepman version 1.01
+[    2.4385] RegisterLibraryEntries:  intrman version 1.02
+[    2.4388] RegisterLibraryEntries:   ssbusc version 1.01
+[    2.4397] RegisterLibraryEntries:  dmacman version 1.02
+[    2.4403] RegisterLibraryEntries:  timrman version 1.01
+[    2.4411] RegisterLibraryEntries:  sysclib version 1.01
+[    2.4413] RegisterLibraryEntries:    stdio version 1.01
+[    2.4417] RegisterLibraryEntries:  heaplib version 1.01
+[    2.4440] RegisterLibraryEntries:   thbase version 1.01
+[    2.4443] RegisterLibraryEntries:  thevent version 1.01
+[    2.4448] RegisterLibraryEntries:  thsemap version 1.01
+[    2.4450] RegisterLibraryEntries:  thmsgbx version 1.01
+[    2.4452] RegisterLibraryEntries:  thfpool version 1.01
+[    2.4453] RegisterLibraryEntries:  thvpool version 1.01
+[    2.4464] RegisterLibraryEntries:   vblank version 1.01
+[    2.4472] RegisterLibraryEntries:    ioman version 1.02
+[    2.4484] RegisterLibraryEntries:  modload version 1.01
+[    2.4548] RegisterLibraryEntries:   romdrv version 2.01
+[    2.4554] RegisterLibraryEntries:    stdio version 1.02
+[    2.4560] RegisterLibraryEntries:   sifman version 1.01
+[    2.4567] 
+[    2.4570] PlayStation 2 ======== Soft reboot
+[    2.4578] RegisterLibraryEntries:   sifcmd version 1.01
+[    2.4615] RegisterLibraryEntries:  cdvdman version 1.01
+[    2.4633] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    2.4703] RegisterLibraryEntries:  secrman version 1.03
+[    2.4707] RegisterLibraryEntries:   eesync version 1.01
+[    2.4710] 
+[    2.4712] IOP Realtime Kernel Ver.0.9.1
+[    2.4715]     Copyright 1999 (C) Sony Computer Entertainment Inc. 
+[    2.4722] Reboot service module.(99/11/10)
+[    2.4743] [EE] Skipping timeout loop at 0x002B35A0 -> 0x002B35C0
+[    2.4746] cdvd driver module version 0.1.1 (C)SCEI
+[    2.4752] Load File service.(99/11/05)
+[    2.4754] Multi Threaded Fileio module.(99/11/15) 
+[    2.4756] iop heap service (99/11/03)
+[    2.4963] RegisterLibraryEntries:   iomanx version 1.01
+[    2.4979] fileXio: fileXio: fileXio RPC Server v1.00
+[    2.4980] Copyright (c) 2003 adresd
+[    2.4985] RegisterLibraryEntries:  sio2man version 2.07
+[    2.4987] RegisterLibraryEntries:  sio2man version 1.02
+[    2.4997] RegisterLibraryEntries:   padman version 1.02
+[    2.5001] Pad Driver for OSD
+[    2.5007] FREESD v1.01
+[    2.5009] RegisterLibraryEntries:    libsd version 1.04
+[    2.5109] debug_level = 1 (ps2snd 0.1
+[    2.5122] greetings from version 0.93 !
+[    2.5125] RegisterLibraryEntries:   audsrv version 1.04
+[    2.5127] audsrv_adpcm_init()
+[    2.5141] UpdateVSyncRate: Mode Changed to SDTV 480p.
+[    2.5144] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 16683350
+[    2.5146] Set GS CRTC configuration. SDTV   720x480 @ 59.94 Progressive (FRAME)
+[    4.5851] read/write allocate memory 4000
+[    4.5856] 
+[    4.5861] -----------------------------------------
+[    4.5863]         _____        ____   ___
+[    4.5866]           |     /   ____| |___|
+[    4.5868]           |     |   |     |   |
+[    4.5871] -----------------------------------------
+[    4.5874] Copyright 2022
+[    4.5876] Repository: https://github.com/h4570/tyra
+[    4.5878] Licensed under Apache License 2.0
+[    4.5884] Version: 2.2.0
+[    4.5887] -----------------------------------------
+[    4.5890] 
+[    4.7502] audsrv_adpcm_init()
+[    4.7520] [EE] Skipping timeout loop at 0x00102CB0 -> 0x00102CD0
+[    4.7841] Curent pad(0,0) status: EXECCMD
+[    4.9823] Pad: DS2 Config Finished - P1/S1 - AL: Off - AB: Usable - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.0170] Curent pad(0,0) status: EXECCMD
+[    5.0816] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.2816] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.3159] Curent pad(0,0) status: EXECCMD
+[    5.5825] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    5.7843] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    5.8183] open name host:/static-plan.csv flag 602 data 41378
+[    5.8204] open fd = 256
+[    5.8217] STATICINIT rowsBytes=36000 profile=0 hardwareTrace=0
+[    5.8278] loadmodule: fname rom0:XMCMAN args 0 arg 
+[    5.8377] RegisterLibraryEntries:    mcman version 2.03
+[    5.8389] loadmodule: id 32, ret 0
+[    5.8392] loadmodule: fname rom0:XMCSERV args 0 arg 
+[    5.8397] RegisterLibraryEntries:   mcserv version 1.01
+[    5.8401] loadmodule: id 33, ret 0
+[    5.8404] [EE] Skipping timeout loop at 0x00104820 -> 0x00104840
+[    6.7395] (FileMcd) Warning: checksum sector overwritten. (0)
+[    6.7397] OSD [MemoryCardSave0]: Memory Card 'Mcd001.ps2' was saved to storage.
+[    8.0440] (FileMcd) Warning: checksum sector overwritten. (0)
+[    8.6821] open name host:/save/icon.sys flag 1 data 41378
+[    8.6838] open fd = 257
+[    9.1558] open name host:/save/list.icn flag 1 data 41378
+[    9.1575] open fd = 257
+[   10.0053] open name host:/menus/save.png flag 1 data 41378
+[   10.0072] open fd = 257
+[   10.0566] open name host:/hud/save-cursor.png flag 1 data 41378
+[   10.0585] open fd = 257
+[   10.0606] open name host:/hud/save-used.png flag 1 data 41378
+[   10.0627] open fd = 257
+[   10.0655] open name host:/hud/save-saved.png flag 1 data 41378
+[   10.0673] open fd = 257
+[   10.0766] open name host:/hud/save-loaded.png flag 1 data 41378
+[   10.0786] open fd = 257
+[   10.0814] open name host:/hud/save-error.png flag 1 data 41378
+[   10.0833] open fd = 257
+[   10.0857] open name host:/hud/save-busy.png flag 1 data 41378
+[   10.0874] open fd = 257
+[   10.1208] open name host:/hud/save-spinner.png flag 1 data 41378
+[   10.1225] open fd = 257
+[   10.1272] open name host:/menus/save.png flag 1 data 41378
+[   10.1291] open fd = 257
+[   10.1717] open name host:/menus/district-pause.png flag 1 data 41378
+[   10.1734] open fd = 257
+[   10.2050] open name host:/menus/district-pause-values.png flag 1 data 41378
+[   10.2066] open fd = 257
+[   10.2105] open name host:/hud/save-cursor.png flag 1 data 41378
+[   10.2120] open fd = 257
+[   10.2141] open name host:/hud/save-cursor.png flag 1 data 41378
+[   10.2159] open fd = 257
+[   10.2249] open name host:/hud/save-cursor.png flag 1 data 41378
+[   10.2265] open fd = 257
+[   10.2286] open name host:/hud/menu-dim.png flag 1 data 41378
+[   10.2300] open fd = 257
+[   10.2326] open name host:/hud/flare-corona.png flag 1 data 41378
+[   10.2347] open fd = 257
+[   10.2483] open name host:/hud/sun-disc.png flag 1 data 41378
+[   10.2501] open fd = 257
+[   10.2534] open name host:/hud/moon-disc.png flag 1 data 41378
+[   10.2550] open fd = 257
+[   10.2827] open name host:/hud/use-text.png flag 1 data 41378
+[   10.2843] open fd = 257
+[   10.2873] open name host:/hud/pick-text.png flag 1 data 41378
+[   10.2889] open fd = 257
+[   10.2983] open name host:/sfx/engine_idle.adpcm flag 1 data 41378
+[   10.3002] open fd = 257
+[   10.3094] open name host:/sfx/engine_high.adpcm flag 1 data 41378
+[   10.3113] open fd = 257
+[   10.3289] open name host:/sfx/tires_screech.adpcm flag 1 data 41378
+[   10.3308] open fd = 257
+[   10.3427] open name host:/sfx/gear-shift.adpcm flag 1 data 41378
+[   10.3444] open fd = 257
+[   10.3474] open name host:/launch.scene flag 1 data 41378
+[   10.3480] open fd = -5
+[   10.3484] open name host:/hud/loading.png flag 1 data 41378
+[   10.3500] open fd = 257
+[   10.3554] FRAMEARENA allocated=1 bytes=1048576
+[   10.4187] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[   10.4206] open fd = 257
+[   10.4216] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[   10.4231] open fd = 257
+[   10.4500] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[   10.4520] open fd = 257
+[   10.4532] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[   10.4549] open fd = 257
+[   10.4702] open name host:/textures/district-ground.png flag 1 data 41378
+[   10.4720] open fd = 257
+[   10.4729] open name host:/textures/district-ground.png flag 1 data 41378
+[   10.4747] open fd = 257
+[   10.4891] open name host:/materials/district-asphalt.mtl flag 1 data 41378
+[   10.4908] open fd = 257
+[   10.4974] open name host:/textures/district-asphalt.png flag 1 data 41378
+[   10.4994] open fd = 257
+[   10.5002] open name host:/textures/district-asphalt.png flag 1 data 41378
+[   10.5020] open fd = 257
+[   10.5183] open name host:/materials/district-sign.mtl flag 1 data 41378
+[   10.5200] open fd = 257
+[   10.5219] open name host:/textures/district-sign.png flag 1 data 41378
+[   10.5234] open fd = 257
+[   10.5243] open name host:/textures/district-sign.png flag 1 data 41378
+[   10.5259] open fd = 257
+[   10.5294] open name host:/materials/night-warm.mtl flag 1 data 41378
+[   10.5309] open fd = 257
+[   10.5335] open name host:/materials/night-cyan.mtl flag 1 data 41378
+[   10.5351] open fd = 257
+[   10.5371] open name host:/materials/night-pink.mtl flag 1 data 41378
+[   10.5386] open fd = 257
+[   10.5407] open name host:/models/urban/district-workshop.tmdl flag 1 data 41378
+[   10.5427] open fd = 257
+[   10.5467] open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+[   10.5494] open fd = 257
+[   10.5504] open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+[   10.5537] open fd = 257
+[   10.5799] open name host:/models/urban/district-tower.tmdl flag 1 data 41378
+[   10.5823] open fd = 257
+[   10.5849] open name host:/models/urban/district-loft.tmdl flag 1 data 41378
+[   10.5872] open fd = 257
+[   10.5894] open name host:/models/urban/detail-light-double.tmdl flag 1 data 41378
+[   10.5917] open fd = 257
+[   10.6011] open name host:/models/urban/Textures/metal.png flag 1 data 41378
+[   10.6042] open fd = 257
+[   10.6054] open name host:/models/urban/Textures/metal.png flag 1 data 41378
+[   10.6080] open fd = 257
+[   10.6191] open name host:/models/urban/detail-light-traffic.tmdl flag 1 data 41378
+[   10.6214] open fd = 257
+[   10.6310] open name host:/models/urban/Textures/roof.png flag 1 data 41378
+[   10.6338] open fd = 257
+[   10.6348] open name host:/models/urban/Textures/roof.png flag 1 data 41378
+[   10.6374] open fd = 257
+[   10.6407] open name host:/models/urban/tree-park-large.tmdl flag 1 data 41378
+[   10.6427] open fd = 257
+[   10.6498] open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+[   10.6523] open fd = 257
+[   10.6534] open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+[   10.6558] open fd = 257
+[   10.6677] open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+[   10.6704] open fd = 257
+[   10.6714] open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+[   10.6740] open fd = 257
+[   10.6770] open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+[   10.6798] open fd = 257
+[   10.6807] open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+[   10.6833] open fd = 257
+[   10.6863] open name host:/models/urban/tree-park-pine-large.tmdl flag 1 data 41378
+[   10.6886] open fd = 257
+[   10.6954] open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+[   10.6977] open fd = 257
+[   10.6988] open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+[   10.7012] open fd = 257
+[   10.7041] open name host:/models/urban/detail-barrier-type-a.tmdl flag 1 data 41378
+[   10.7062] open fd = 257
+[   10.7187] open name host:/models/urban/Textures/signs.png flag 1 data 41378
+[   10.7216] open fd = 257
+[   10.7226] open name host:/models/urban/Textures/signs.png flag 1 data 41378
+[   10.7256] open fd = 257
+[   10.7281] open name host:/models/urban/detail-dumpster-closed.tmdl flag 1 data 41378
+[   10.7302] open fd = 257
+[   10.7336] open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+[   10.7360] open fd = 257
+[   10.7372] open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+[   10.7399] open fd = 257
+[   10.7437] open name host:/models/urban/Textures/wall.png flag 1 data 41378
+[   10.7466] open fd = 257
+[   10.7478] open name host:/models/urban/Textures/wall.png flag 1 data 41378
+[   10.7505] open fd = 257
+[   10.7543] open name host:/models/urban/detail-bench.tmdl flag 1 data 41378
+[   10.7564] open fd = 257
+[   10.7718] open name host:/models/urban/Textures/planks.png flag 1 data 41378
+[   10.7744] open fd = 257
+[   10.7754] open name host:/models/urban/Textures/planks.png flag 1 data 41378
+[   10.7778] open fd = 257
+[   10.7809] open name host:/models/urban/pallet.tmdl flag 1 data 41378
+[   10.7829] open fd = 257
+[   10.7925] open name host:/sky/scene0.png flag 1 data 41378
+[   10.7946] open fd = 257
+[   10.7954] open name host:/sky/scene0.png flag 1 data 41378
+[   10.7968] open fd = 257
+[   11.0774] open name host:/textures/district-road.png flag 1 data 41378
+[   11.0796] open fd = 257
+[   11.0805] open name host:/textures/district-road.png flag 1 data 41378
+[   11.0823] open fd = 257
+[   11.1918] open name host:/textures/district-asphalt.png flag 1 data 41378
+[   11.1937] open fd = 257
+[   11.1948] open name host:/textures/district-asphalt.png flag 1 data 41378
+[   11.1965] open fd = 257
+[   11.2092] open name host:/textures/district-plaza.png flag 1 data 41378
+[   11.2110] open fd = 257
+[   11.2119] open name host:/textures/district-plaza.png flag 1 data 41378
+[   11.2135] open fd = 257
+[   11.2476] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[   11.2498] open fd = 257
+[   11.2507] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[   11.2525] open fd = 257
+[   11.2660] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[   11.2680] open fd = 257
+[   11.2690] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[   11.2707] open fd = 257
+[   11.2742] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[   11.2761] open fd = 257
+[   11.2768] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[   11.2782] open fd = 257
+[   11.2815] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[   11.2833] open fd = 257
+[   11.2841] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[   11.2857] open fd = 257
+[   11.2961] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[   11.2979] open fd = 257
+[   11.2987] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[   11.3007] open fd = 257
+[   11.3042] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[   11.3060] open fd = 257
+[   11.3068] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[   11.3085] open fd = 257
+[   11.3298] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[   11.3319] open fd = 257
+[   11.3328] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[   11.3344] open fd = 257
+[   11.3377] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[   11.3393] open fd = 257
+[   11.3400] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[   11.3417] open fd = 257
+[   11.3450] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[   11.3470] open fd = 257
+[   11.3477] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[   11.3492] open fd = 257
+[   11.3594] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[   11.3610] open fd = 257
+[   11.3618] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[   11.3635] open fd = 257
+[   11.3665] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[   11.3680] open fd = 257
+[   11.3687] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[   11.3702] open fd = 257
+[   11.3797] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[   11.3813] open fd = 257
+[   11.3820] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[   11.3839] open fd = 257
+[   11.3870] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[   11.3888] open fd = 257
+[   11.3897] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[   11.3911] open fd = 257
+[   11.4025] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[   11.4045] open fd = 257
+[   11.4054] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[   11.4068] open fd = 257
+[   11.4098] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[   11.4115] open fd = 257
+[   11.4123] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[   11.4138] open fd = 257
+[   11.4167] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[   11.4182] open fd = 257
+[   11.4190] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[   11.4204] open fd = 257
+[   12.0704] EXPANDCHECK checked=1 failed=0
+[   12.0724] PARTIALCHECK checked=1 failed=0 index=4 words=232
+[   12.1893] microVU1: Cached Prog = [000] [PC=2590] [List=01] (Cache=0.000%) [0.0mb]
+[   12.1903] microVU1: 3 cycle stall on branch instruction [2b28]
+[   12.1909] microVU1: Cached Prog = [001] [PC=1a30] [List=01] (Cache=0.130%) [0.1mb]
+[   12.1911] microVU1: 1 cycle stall on branch instruction [1ae8]
+[   12.1914] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1919] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1921] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1926] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1928] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1931] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1933] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1938] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1940] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1945] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1947] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1950] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1952] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1955] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1957] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1959] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.1962] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1965] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1968] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1970] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1976] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1978] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1980] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1982] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1988] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1990] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.1994] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.1998] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2004] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2007] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2014] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2017] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2020] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2022] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2026] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2029] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2031] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2034] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2037] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2041] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2044] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2047] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2050] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2053] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2057] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2060] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2063] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2065] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2068] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2071] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2073] microVU1: Cached Prog = [002] [PC=2578] [List=01] (Cache=0.850%) [0.5mb]
+[   12.2075] microVU1: 1 cycle stall on branch instruction [1ae8]
+[   12.2077] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2081] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2083] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2087] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2091] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2094] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2095] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2100] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2102] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2106] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2108] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2111] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2112] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2115] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2117] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2119] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2122] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2124] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2127] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2129] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2136] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2138] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2140] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2143] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2149] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2150] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2154] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2156] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2162] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2164] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2170] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2174] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2176] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2179] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2182] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2184] microVU1: 3 cycle stall on branch instruction [2520]
+[   12.2185] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2188] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2191] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2194] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2197] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2200] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2203] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2206] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2209] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2211] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2214] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2216] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2219] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   12.2222] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   12.2225] microVU1: Cached Prog = [003] [PC=2f08] [List=01] (Cache=1.570%) [1.0mb]
+[   12.2232] microVU1: 3 cycle stall on branch instruction [2b28]
+[   12.2248] microVU1: Cached Prog = [004] [PC=0000] [List=01] (Cache=1.700%) [1.0mb]
+[   12.2257] microVU1: Cached Prog = [005] [PC=0710] [List=01] (Cache=1.793%) [1.1mb]
+[   12.2260] microVU1: 2 cycle stall on branch instruction [07c8]
+[   12.2266] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2268] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2272] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2274] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2277] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2279] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2284] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2286] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2290] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2292] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2294] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2296] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2300] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2302] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2304] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2306] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2308] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2311] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2316] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2318] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2321] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2322] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2329] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2331] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2335] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2337] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2342] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2343] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2351] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2353] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2356] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2358] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2362] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2364] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2367] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2369] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2372] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2374] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2376] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2378] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2383] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2385] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2389] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2390] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2393] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2395] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2398] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2400] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2403] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2405] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2408] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2410] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2413] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2415] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2419] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2420] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2425] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2428] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2431] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2433] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2436] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2438] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2441] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2442] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2445] microVU1: 3 cycle stall on branch instruction [07f0]
+[   12.2448] microVU1: Cached Prog = [006] [PC=1188] [List=01] (Cache=2.594%) [1.6mb]
+[   12.2449] microVU1: 2 cycle stall on branch instruction [07c8]
+[   12.2454] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2455] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2459] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2461] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2465] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2468] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2473] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2474] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2479] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2481] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2483] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2485] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2488] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2490] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2491] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2493] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2496] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2498] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2503] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2505] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2509] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2511] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2516] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2518] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2522] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2525] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2527] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2529] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2537] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2539] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2542] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2544] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2549] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2550] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2554] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2555] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2559] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2561] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2563] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2565] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2568] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2570] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2573] microVU1: 3 cycle stall on branch instruction [1108]
+[   12.2575] microVU1: 3 cycle stall on branch instruction [1130]
+[   12.2577] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2579] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2582] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2584] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2587] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2591] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2595] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2596] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2600] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2602] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2605] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2606] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2610] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2611] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2614] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2618] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2621] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2623] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2626] microVU1: 3 cycle stall on branch instruction [09e8]
+[   12.2627] microVU1: 3 cycle stall on branch instruction [0a70]
+[   12.2630] microVU1: 3 cycle stall on branch instruction [07f0]
+[   12.3009] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[   12.3028] open fd = 257
+[   12.3037] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[   12.3056] open fd = 257
+[   12.3158] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[   12.3179] open fd = 257
+[   12.3187] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[   12.3203] open fd = 257
+[   13.5460] EXPANDCHECK checked=4096 failed=0
+[   14.8145] EXPANDCHECK checked=8192 failed=0
+[   15.1322] PARTIALCHECK checked=4096 failed=0 index=13 words=186
+[   15.7816] STATICVIEW phase=0 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[   16.0801] EXPANDCHECK checked=12288 failed=0
+[   17.3483] EXPANDCHECK checked=16384 failed=0
+[   17.9843] PARTIALCHECK checked=8192 failed=0 index=4 words=186
+[   18.6161] EXPANDCHECK checked=20480 failed=0
+[   19.7816] STATICPHASE phase=0 view=0 variant=0 valid=1 checks=0 errors=0 owners=11 resident=240
+[   19.9510] EXPANDCHECK checked=24576 failed=0
+[   20.8864] PARTIALCHECK checked=12288 failed=0 index=23 words=72
+[   21.2028] EXPANDCHECK checked=28672 failed=0
+[   22.4708] EXPANDCHECK checked=32768 failed=0
+[   23.7384] EXPANDCHECK checked=36864 failed=0
+[   23.7399] PARTIALCHECK checked=16384 failed=0 index=13 words=186
+[   24.8552] STATICVIEW phase=1 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[   25.0062] EXPANDCHECK checked=40960 failed=0
+[   26.2743] EXPANDCHECK checked=45056 failed=0
+[   26.5926] PARTIALCHECK checked=20480 failed=0 index=4 words=186
+[   27.5419] EXPANDCHECK checked=49152 failed=0
+[   28.8569] STATICPHASE phase=1 view=0 variant=1 valid=1 checks=486 errors=0 owners=11 resident=240
+[   28.8729] EXPANDCHECK checked=53248 failed=0
+[   29.4957] PARTIALCHECK checked=24576 failed=0 index=23 words=72
+[   30.1284] EXPANDCHECK checked=57344 failed=0
+[   31.3965] EXPANDCHECK checked=61440 failed=0
+[   32.3490] PARTIALCHECK checked=28672 failed=0 index=13 words=186
+[   32.6637] EXPANDCHECK checked=65536 failed=0
+[   33.9315] STATICVIEW phase=2 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[   33.9322] EXPANDCHECK checked=69632 failed=0
+[   35.1993] EXPANDCHECK checked=73728 failed=0
+[   35.2007] PARTIALCHECK checked=32768 failed=0 index=4 words=186
+[   36.4721] EXPANDCHECK checked=77824 failed=0
+[   37.7376] EXPANDCHECK checked=81920 failed=0
+[   37.9327] STATICPHASE phase=2 view=0 variant=0 valid=1 checks=540 errors=0 owners=11 resident=240
+[   38.1034] PARTIALCHECK checked=36864 failed=0 index=23 words=72
+[   39.0543] EXPANDCHECK checked=86016 failed=0
+[   40.3227] EXPANDCHECK checked=90112 failed=0
+[   40.9566] PARTIALCHECK checked=40960 failed=0 index=13 words=186
+[   41.5898] EXPANDCHECK checked=94208 failed=0
+[   42.8579] EXPANDCHECK checked=98304 failed=0
+[   43.0075] STATICVIEW phase=3 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[   43.8093] PARTIALCHECK checked=45056 failed=0 index=4 words=186
+[   44.1254] EXPANDCHECK checked=102400 failed=0
+[   45.3932] EXPANDCHECK checked=106496 failed=0
+[   46.6450] EXPANDCHECK checked=110592 failed=0
+[   46.6462] PARTIALCHECK checked=49152 failed=0 index=23 words=72
+[   47.0085] STATICPHASE phase=3 view=0 variant=2 valid=1 checks=1026 errors=0 owners=11 resident=240
+[   47.9797] EXPANDCHECK checked=114688 failed=0
+[   49.2474] EXPANDCHECK checked=118784 failed=0
+[   49.5653] PARTIALCHECK checked=53248 failed=0 index=13 words=186
+[   50.5159] EXPANDCHECK checked=122880 failed=0
+[   51.7833] EXPANDCHECK checked=126976 failed=0
+[   52.0833] STATICVIEW phase=4 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[   52.4180] PARTIALCHECK checked=57344 failed=0 index=4 words=186
+[   53.0503] EXPANDCHECK checked=131072 failed=0
+[   54.3187] EXPANDCHECK checked=135168 failed=0
+[   55.2541] PARTIALCHECK checked=61440 failed=0 index=23 words=72
+[   55.5699] EXPANDCHECK checked=139264 failed=0
+[   56.0840] STATICPHASE phase=4 view=0 variant=0 valid=1 checks=1080 errors=0 owners=11 resident=240
+[   56.9048] EXPANDCHECK checked=143360 failed=0
+[   58.1817] EXPANDCHECK checked=147456 failed=0
+[   58.1835] PARTIALCHECK checked=65536 failed=0 index=13 words=186
+[   59.4451] EXPANDCHECK checked=151552 failed=0
+[   60.7097] EXPANDCHECK checked=155648 failed=0
+[   61.0283] PARTIALCHECK checked=69632 failed=0 index=4 words=186
+[   61.1592] STATICVIEW phase=5 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[   61.9772] EXPANDCHECK checked=159744 failed=0
+[   63.2447] EXPANDCHECK checked=163840 failed=0
+[   63.8629] PARTIALCHECK checked=73728 failed=0 index=23 words=72
+[   64.4977] EXPANDCHECK checked=167936 failed=0
+[   65.1603] STATICPHASE phase=5 view=0 variant=2 valid=1 checks=1566 errors=0 owners=11 resident=240
+[   65.8309] EXPANDCHECK checked=172032 failed=0
+[   66.8073] PARTIALCHECK checked=77824 failed=0 index=13 words=186
+[   67.1155] EXPANDCHECK checked=176128 failed=0
+[   68.3829] EXPANDCHECK checked=180224 failed=0
+[   69.6512] EXPANDCHECK checked=184320 failed=0
+[   69.6528] PARTIALCHECK checked=81920 failed=0 index=4 words=186
+[   70.2515] STATICVIEW phase=6 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[   70.9192] EXPANDCHECK checked=188416 failed=0
+[   72.1887] EXPANDCHECK checked=192512 failed=0
+[   72.4883] PARTIALCHECK checked=86016 failed=0 index=23 words=72
+[   73.4399] EXPANDCHECK checked=196608 failed=0
+[   74.2397] STATICPHASE phase=6 view=0 variant=1 valid=1 checks=2106 errors=0 owners=11 resident=240
+[   74.7753] EXPANDCHECK checked=200704 failed=0
+[   76.0838] PARTIALCHECK checked=90112 failed=0 index=13 words=186
+[   77.3998] EXPANDCHECK checked=204800 failed=0
+[   79.0170] EXPANDCHECK checked=208896 failed=0
+[   80.1742] PARTIALCHECK checked=94208 failed=0 index=4 words=186
+[   80.5420] EXPANDCHECK checked=212992 failed=0
+[   81.4337] STATICVIEW phase=7 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[   82.0218] EXPANDCHECK checked=217088 failed=0
+[   83.4518] EXPANDCHECK checked=221184 failed=0
+[   83.4532] PARTIALCHECK checked=98304 failed=0 index=23 words=72
+[   84.8533] EXPANDCHECK checked=225280 failed=0
+[   85.8985] STATICPHASE phase=7 view=0 variant=0 valid=1 checks=2160 errors=0 owners=11 resident=240
+[   86.2874] EXPANDCHECK checked=229376 failed=0
+[   86.6230] PARTIALCHECK checked=102400 failed=0 index=13 words=186
+[   87.6165] EXPANDCHECK checked=233472 failed=0
+[   88.9837] EXPANDCHECK checked=237568 failed=0
+[   89.6732] PARTIALCHECK checked=106496 failed=0 index=4 words=186
+[   90.3621] EXPANDCHECK checked=241664 failed=0
+[   91.2735] STATICVIEW phase=8 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[   91.6400] EXPANDCHECK checked=245760 failed=0
+[   92.5784] PARTIALCHECK checked=110592 failed=0 index=23 words=72
+[   92.8924] EXPANDCHECK checked=249856 failed=0
+[   94.1770] EXPANDCHECK checked=253952 failed=0
+[   95.2892] STATICPHASE phase=8 view=0 variant=1 valid=1 checks=2646 errors=0 owners=11 resident=240
+[   95.5103] EXPANDCHECK checked=258048 failed=0
+[   95.5118] PARTIALCHECK checked=114688 failed=0 index=13 words=186
+[   96.7877] EXPANDCHECK checked=262144 failed=0
+[   98.0625] EXPANDCHECK checked=266240 failed=0
+[   98.3814] PARTIALCHECK checked=118784 failed=0 index=4 words=186
+[   99.3311] EXPANDCHECK checked=270336 failed=0
+[  100.3816] STATICVIEW phase=9 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[  100.5998] EXPANDCHECK checked=274432 failed=0
+[  101.2185] PARTIALCHECK checked=122880 failed=0 index=23 words=72
+[  101.8511] EXPANDCHECK checked=278528 failed=0
+[  103.1187] EXPANDCHECK checked=282624 failed=0
+[  104.0711] PARTIALCHECK checked=126976 failed=0 index=13 words=186
+[  104.3703] STATICPHASE phase=9 view=0 variant=0 valid=1 checks=2700 errors=0 owners=11 resident=240
+[  104.4521] EXPANDCHECK checked=286720 failed=0
+[  105.7205] EXPANDCHECK checked=290816 failed=0
+[  106.9882] EXPANDCHECK checked=294912 failed=0
+[  106.9899] PARTIALCHECK checked=131072 failed=0 index=4 words=186
+[  108.2562] EXPANDCHECK checked=299008 failed=0
+[  109.4572] STATICVIEW phase=10 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[  109.5239] EXPANDCHECK checked=303104 failed=0
+[  109.8258] PARTIALCHECK checked=135168 failed=0 index=23 words=72
+[  110.7773] EXPANDCHECK checked=307200 failed=0
+[  112.0453] EXPANDCHECK checked=311296 failed=0
+[  112.6781] PARTIALCHECK checked=139264 failed=0 index=13 words=186
+[  113.3108] EXPANDCHECK checked=315392 failed=0
+[  113.4573] STATICPHASE phase=10 view=0 variant=2 valid=1 checks=3186 errors=0 owners=11 resident=240
+[  114.6460] EXPANDCHECK checked=319488 failed=0
+[  115.5976] PARTIALCHECK checked=143360 failed=0 index=4 words=186
+[  115.9139] EXPANDCHECK checked=323584 failed=0
+[  117.1813] EXPANDCHECK checked=327680 failed=0
+[  118.4338] EXPANDCHECK checked=331776 failed=0
+[  118.4350] PARTIALCHECK checked=147456 failed=0 index=23 words=72
+[  118.5329] STATICVIEW phase=11 eye=0.000000,2.200000,-74.303497 look=0.000000,2.200000,-40.000000 hour=12.000000 paused=1
+[  119.7017] EXPANDCHECK checked=335872 failed=0
+[  120.9684] EXPANDCHECK checked=339968 failed=0
+[  121.2875] PARTIALCHECK checked=151552 failed=0 index=13 words=186
+[  122.2368] EXPANDCHECK checked=344064 failed=0
+[  122.5223] STATICPHASE phase=11 view=0 variant=0 valid=1 checks=3240 errors=0 owners=11 resident=240
+[  123.5386] EXPANDCHECK checked=348160 failed=0
+[  124.2388] PARTIALCHECK checked=155648 failed=0 index=4 words=232
+[  124.4719] EXPANDCHECK checked=352256 failed=0
+[  125.4063] EXPANDCHECK checked=356352 failed=0
+[  126.3417] EXPANDCHECK checked=360448 failed=0
+[  127.2086] PARTIALCHECK checked=159744 failed=0 index=6 words=232
+[  127.2751] EXPANDCHECK checked=364544 failed=0
+[  127.6093] STATICVIEW phase=12 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  128.2096] EXPANDCHECK checked=368640 failed=0
+[  129.1449] EXPANDCHECK checked=372736 failed=0
+[  130.0784] EXPANDCHECK checked=376832 failed=0
+[  130.1790] PARTIALCHECK checked=163840 failed=0 index=2 words=43
+[  131.0304] EXPANDCHECK checked=380928 failed=0
+[  131.6098] STATICPHASE phase=12 view=1 variant=0 valid=1 checks=3240 errors=0 owners=14 resident=240
+[  132.0301] EXPANDCHECK checked=385024 failed=0
+[  132.9644] EXPANDCHECK checked=389120 failed=0
+[  133.2155] PARTIALCHECK checked=167936 failed=0 index=4 words=186
+[  133.8984] EXPANDCHECK checked=393216 failed=0
+[  134.8330] EXPANDCHECK checked=397312 failed=0
+[  135.7668] EXPANDCHECK checked=401408 failed=0
+[  136.1880] PARTIALCHECK checked=172032 failed=0 index=6 words=186
+[  136.6841] STATICVIEW phase=13 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  136.7017] EXPANDCHECK checked=405504 failed=0
+[  137.6364] EXPANDCHECK checked=409600 failed=0
+[  138.5710] EXPANDCHECK checked=413696 failed=0
+[  139.1827] PARTIALCHECK checked=176128 failed=0 index=11 words=186
+[  139.5540] EXPANDCHECK checked=417792 failed=0
+[  140.4878] EXPANDCHECK checked=421888 failed=0
+[  140.7186] STATICPHASE phase=13 view=1 variant=1 valid=1 checks=3726 errors=0 owners=14 resident=240
+[  141.4894] EXPANDCHECK checked=425984 failed=0
+[  142.2245] PARTIALCHECK checked=180224 failed=0 index=13 words=186
+[  142.4235] EXPANDCHECK checked=430080 failed=0
+[  143.3581] EXPANDCHECK checked=434176 failed=0
+[  144.2930] EXPANDCHECK checked=438272 failed=0
+[  145.1956] PARTIALCHECK checked=184320 failed=0 index=19 words=186
+[  145.2279] EXPANDCHECK checked=442368 failed=0
+[  145.7935] STATICVIEW phase=14 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  146.1645] EXPANDCHECK checked=446464 failed=0
+[  147.0979] EXPANDCHECK checked=450560 failed=0
+[  148.0625] EXPANDCHECK checked=454656 failed=0
+[  148.1959] PARTIALCHECK checked=188416 failed=0 index=3 words=232
+[  148.9969] EXPANDCHECK checked=458752 failed=0
+[  149.8113] STATICPHASE phase=14 view=1 variant=0 valid=1 checks=3780 errors=0 owners=14 resident=240
+[  149.9974] EXPANDCHECK checked=462848 failed=0
+[  150.9319] EXPANDCHECK checked=466944 failed=0
+[  151.2325] PARTIALCHECK checked=192512 failed=0 index=5 words=232
+[  151.8660] EXPANDCHECK checked=471040 failed=0
+[  152.8012] EXPANDCHECK checked=475136 failed=0
+[  153.7351] EXPANDCHECK checked=479232 failed=0
+[  154.2019] PARTIALCHECK checked=196608 failed=0 index=7 words=196
+[  154.6694] EXPANDCHECK checked=483328 failed=0
+[  154.8862] STATICVIEW phase=15 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  155.6041] EXPANDCHECK checked=487424 failed=0
+[  156.5543] EXPANDCHECK checked=491520 failed=0
+[  157.1718] PARTIALCHECK checked=200704 failed=0 index=3 words=232
+[  157.4886] EXPANDCHECK checked=495616 failed=0
+[  158.4229] EXPANDCHECK checked=499712 failed=0
+[  158.8869] STATICPHASE phase=15 view=1 variant=2 valid=1 checks=4266 errors=0 owners=14 resident=240
+[  159.4237] EXPANDCHECK checked=503808 failed=0
+[  160.2079] PARTIALCHECK checked=204800 failed=0 index=5 words=232
+[  160.3592] EXPANDCHECK checked=507904 failed=0
+[  161.2927] EXPANDCHECK checked=512000 failed=0
+[  162.2272] EXPANDCHECK checked=516096 failed=0
+[  163.1616] EXPANDCHECK checked=520192 failed=0
+[  163.1775] PARTIALCHECK checked=208896 failed=0 index=7 words=16
+[  163.9610] STATICVIEW phase=16 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  164.0959] EXPANDCHECK checked=524288 failed=0
+[  165.0461] EXPANDCHECK checked=528384 failed=0
+[  165.9806] EXPANDCHECK checked=532480 failed=0
+[  166.1473] PARTIALCHECK checked=212992 failed=0 index=7 words=196
+[  166.9143] EXPANDCHECK checked=536576 failed=0
+[  167.8493] EXPANDCHECK checked=540672 failed=0
+[  167.9626] STATICPHASE phase=16 view=1 variant=0 valid=1 checks=4320 errors=0 owners=14 resident=240
+[  168.8496] EXPANDCHECK checked=544768 failed=0
+[  169.1844] PARTIALCHECK checked=217088 failed=0 index=5 words=186
+[  169.7845] EXPANDCHECK checked=548864 failed=0
+[  170.7188] EXPANDCHECK checked=552960 failed=0
+[  171.6531] EXPANDCHECK checked=557056 failed=0
+[  172.1541] PARTIALCHECK checked=221184 failed=0 index=7 words=132
+[  172.5876] EXPANDCHECK checked=561152 failed=0
+[  173.0377] STATICVIEW phase=17 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  173.5376] EXPANDCHECK checked=565248 failed=0
+[  174.4719] EXPANDCHECK checked=569344 failed=0
+[  175.1245] PARTIALCHECK checked=225280 failed=0 index=12 words=186
+[  175.4065] EXPANDCHECK checked=573440 failed=0
+[  176.3408] EXPANDCHECK checked=577536 failed=0
+[  177.0380] STATICPHASE phase=17 view=1 variant=2 valid=1 checks=4806 errors=0 owners=14 resident=240
+[  177.3427] EXPANDCHECK checked=581632 failed=0
+[  178.1608] PARTIALCHECK checked=229376 failed=0 index=16 words=186
+[  178.2767] EXPANDCHECK checked=585728 failed=0
+[  179.2105] EXPANDCHECK checked=589824 failed=0
+[  180.1455] EXPANDCHECK checked=593920 failed=0
+[  181.0795] EXPANDCHECK checked=598016 failed=0
+[  181.1301] PARTIALCHECK checked=233472 failed=0 index=20 words=186
+[  182.0300] EXPANDCHECK checked=602112 failed=0
+[  182.1126] STATICVIEW phase=18 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  182.9642] EXPANDCHECK checked=606208 failed=0
+[  183.8982] EXPANDCHECK checked=610304 failed=0
+[  184.1154] PARTIALCHECK checked=237568 failed=0 index=4 words=232
+[  184.8326] EXPANDCHECK checked=614400 failed=0
+[  185.7671] EXPANDCHECK checked=618496 failed=0
+[  186.1017] STATICPHASE phase=18 view=1 variant=1 valid=1 checks=5346 errors=0 owners=14 resident=240
+[  186.7691] EXPANDCHECK checked=622592 failed=0
+[  187.1521] PARTIALCHECK checked=241664 failed=0 index=6 words=232
+[  187.7024] EXPANDCHECK checked=626688 failed=0
+[  188.6363] EXPANDCHECK checked=630784 failed=0
+[  189.5714] EXPANDCHECK checked=634880 failed=0
+[  190.1211] PARTIALCHECK checked=245760 failed=0 index=2 words=232
+[  190.5056] EXPANDCHECK checked=638976 failed=0
+[  191.1886] STATICVIEW phase=19 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  191.4563] EXPANDCHECK checked=643072 failed=0
+[  192.3907] EXPANDCHECK checked=647168 failed=0
+[  193.0909] PARTIALCHECK checked=249856 failed=0 index=4 words=232
+[  193.3249] EXPANDCHECK checked=651264 failed=0
+[  194.2589] EXPANDCHECK checked=655360 failed=0
+[  195.1781] STATICPHASE phase=19 view=1 variant=0 valid=1 checks=5400 errors=0 owners=14 resident=240
+[  195.2598] EXPANDCHECK checked=659456 failed=0
+[  196.1280] PARTIALCHECK checked=253952 failed=0 index=6 words=232
+[  196.1942] EXPANDCHECK checked=663552 failed=0
+[  197.1286] EXPANDCHECK checked=667648 failed=0
+[  198.0632] EXPANDCHECK checked=671744 failed=0
+[  198.9975] EXPANDCHECK checked=675840 failed=0
+[  199.0974] PARTIALCHECK checked=258048 failed=0 index=2 words=43
+[  199.9477] EXPANDCHECK checked=679936 failed=0
+[  200.2645] STATICVIEW phase=20 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  200.8820] EXPANDCHECK checked=684032 failed=0
+[  201.8163] EXPANDCHECK checked=688128 failed=0
+[  202.0676] PARTIALCHECK checked=262144 failed=0 index=4 words=186
+[  202.7508] EXPANDCHECK checked=692224 failed=0
+[  203.6848] EXPANDCHECK checked=696320 failed=0
+[  204.2645] STATICPHASE phase=20 view=1 variant=1 valid=1 checks=5886 errors=0 owners=14 resident=240
+[  204.6863] EXPANDCHECK checked=700416 failed=0
+[  205.1035] PARTIALCHECK checked=266240 failed=0 index=6 words=186
+[  205.6205] EXPANDCHECK checked=704512 failed=0
+[  206.5559] EXPANDCHECK checked=708608 failed=0
+[  207.4904] EXPANDCHECK checked=712704 failed=0
+[  208.0735] PARTIALCHECK checked=270336 failed=0 index=11 words=186
+[  208.4397] EXPANDCHECK checked=716800 failed=0
+[  209.3399] STATICVIEW phase=21 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  209.3749] EXPANDCHECK checked=720896 failed=0
+[  210.3083] EXPANDCHECK checked=724992 failed=0
+[  211.0434] PARTIALCHECK checked=274432 failed=0 index=13 words=186
+[  211.2424] EXPANDCHECK checked=729088 failed=0
+[  212.1764] EXPANDCHECK checked=733184 failed=0
+[  213.1118] EXPANDCHECK checked=737280 failed=0
+[  213.3406] STATICPHASE phase=21 view=1 variant=0 valid=1 checks=5940 errors=0 owners=14 resident=240
+[  214.0795] PARTIALCHECK checked=278528 failed=0 index=19 words=186
+[  214.1118] EXPANDCHECK checked=741376 failed=0
+[  215.0469] EXPANDCHECK checked=745472 failed=0
+[  215.9809] EXPANDCHECK checked=749568 failed=0
+[  216.9308] EXPANDCHECK checked=753664 failed=0
+[  217.0646] PARTIALCHECK checked=282624 failed=0 index=3 words=232
+[  217.8660] EXPANDCHECK checked=757760 failed=0
+[  218.4161] STATICVIEW phase=22 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  218.7996] EXPANDCHECK checked=761856 failed=0
+[  219.7344] EXPANDCHECK checked=765952 failed=0
+[  220.0346] PARTIALCHECK checked=286720 failed=0 index=5 words=232
+[  220.6683] EXPANDCHECK checked=770048 failed=0
+[  221.6032] EXPANDCHECK checked=774144 failed=0
+[  222.4239] STATICPHASE phase=22 view=1 variant=2 valid=1 checks=6426 errors=0 owners=14 resident=240
+[  222.6057] EXPANDCHECK checked=778240 failed=0
+[  223.0707] PARTIALCHECK checked=290816 failed=0 index=7 words=196
+[  223.5393] EXPANDCHECK checked=782336 failed=0
+[  224.4728] EXPANDCHECK checked=786432 failed=0
+[  225.4235] EXPANDCHECK checked=790528 failed=0
+[  226.0419] PARTIALCHECK checked=294912 failed=0 index=3 words=232
+[  226.3589] EXPANDCHECK checked=794624 failed=0
+[  227.2919] EXPANDCHECK checked=798720 failed=0
+[  227.4918] STATICVIEW phase=23 eye=0.000000,2.200000,-20.000000 look=0.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  228.2258] EXPANDCHECK checked=802816 failed=0
+[  229.0105] PARTIALCHECK checked=299008 failed=0 index=5 words=232
+[  229.1606] EXPANDCHECK checked=806912 failed=0
+[  230.0959] EXPANDCHECK checked=811008 failed=0
+[  231.0295] EXPANDCHECK checked=815104 failed=0
+[  231.4913] STATICPHASE phase=23 view=1 variant=0 valid=1 checks=6480 errors=0 owners=14 resident=240
+[  232.0299] EXPANDCHECK checked=819200 failed=0
+[  232.0465] PARTIALCHECK checked=303104 failed=0 index=7 words=16
+[  232.6647] EXPANDCHECK checked=823296 failed=0
+[  233.0812] EXPANDCHECK checked=827392 failed=0
+[  233.4989] EXPANDCHECK checked=831488 failed=0
+[  233.8995] EXPANDCHECK checked=835584 failed=0
+[  234.3164] EXPANDCHECK checked=839680 failed=0
+[  234.7340] EXPANDCHECK checked=843776 failed=0
+[  235.1505] EXPANDCHECK checked=847872 failed=0
+[  235.5677] EXPANDCHECK checked=851968 failed=0
+[  235.9846] EXPANDCHECK checked=856064 failed=0
+[  236.3854] EXPANDCHECK checked=860160 failed=0
+[  236.5846] STATICVIEW phase=24 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  236.8022] EXPANDCHECK checked=864256 failed=0
+[  237.2195] EXPANDCHECK checked=868352 failed=0
+[  237.6364] EXPANDCHECK checked=872448 failed=0
+[  238.0532] EXPANDCHECK checked=876544 failed=0
+[  238.4542] EXPANDCHECK checked=880640 failed=0
+[  238.8711] EXPANDCHECK checked=884736 failed=0
+[  239.2883] EXPANDCHECK checked=888832 failed=0
+[  239.7059] EXPANDCHECK checked=892928 failed=0
+[  240.1222] EXPANDCHECK checked=897024 failed=0
+[  240.5844] STATICPHASE phase=24 view=2 variant=0 valid=1 checks=6480 errors=0 owners=14 resident=160
+[  240.6019] EXPANDCHECK checked=901120 failed=0
+[  241.0067] EXPANDCHECK checked=905216 failed=0
+[  241.4231] EXPANDCHECK checked=909312 failed=0
+[  241.8405] EXPANDCHECK checked=913408 failed=0
+[  242.2570] EXPANDCHECK checked=917504 failed=0
+[  242.6745] EXPANDCHECK checked=921600 failed=0
+[  243.0914] EXPANDCHECK checked=925696 failed=0
+[  243.4924] EXPANDCHECK checked=929792 failed=0
+[  243.9101] EXPANDCHECK checked=933888 failed=0
+[  244.3263] EXPANDCHECK checked=937984 failed=0
+[  244.5609] PARTIALCHECK checked=307200 failed=0 index=14 words=186
+[  244.7432] EXPANDCHECK checked=942080 failed=0
+[  245.1601] EXPANDCHECK checked=946176 failed=0
+[  245.5768] EXPANDCHECK checked=950272 failed=0
+[  245.6608] STATICVIEW phase=25 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  245.9777] EXPANDCHECK checked=954368 failed=0
+[  246.3950] EXPANDCHECK checked=958464 failed=0
+[  246.8121] EXPANDCHECK checked=962560 failed=0
+[  247.2294] EXPANDCHECK checked=966656 failed=0
+[  247.6458] EXPANDCHECK checked=970752 failed=0
+[  248.0472] EXPANDCHECK checked=974848 failed=0
+[  248.4640] EXPANDCHECK checked=978944 failed=0
+[  248.8809] EXPANDCHECK checked=983040 failed=0
+[  249.2975] EXPANDCHECK checked=987136 failed=0
+[  249.6609] STATICPHASE phase=25 view=2 variant=1 valid=1 checks=6966 errors=0 owners=14 resident=160
+[  249.7814] EXPANDCHECK checked=991232 failed=0
+[  250.1988] EXPANDCHECK checked=995328 failed=0
+[  250.5992] EXPANDCHECK checked=999424 failed=0
+[  251.0172] EXPANDCHECK checked=1003520 failed=0
+[  251.4327] EXPANDCHECK checked=1007616 failed=0
+[  251.8503] EXPANDCHECK checked=1011712 failed=0
+[  252.2670] EXPANDCHECK checked=1015808 failed=0
+[  252.6842] EXPANDCHECK checked=1019904 failed=0
+[  253.0854] EXPANDCHECK checked=1024000 failed=0
+[  253.5028] EXPANDCHECK checked=1028096 failed=0
+[  253.9204] EXPANDCHECK checked=1032192 failed=0
+[  254.3361] EXPANDCHECK checked=1036288 failed=0
+[  254.7358] STATICVIEW phase=26 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  254.7570] EXPANDCHECK checked=1040384 failed=0
+[  255.1545] EXPANDCHECK checked=1044480 failed=0
+[  255.5707] EXPANDCHECK checked=1048576 failed=0
+[  255.9881] EXPANDCHECK checked=1052672 failed=0
+[  256.4048] EXPANDCHECK checked=1056768 failed=0
+[  256.8219] EXPANDCHECK checked=1060864 failed=0
+[  257.2387] EXPANDCHECK checked=1064960 failed=0
+[  257.6428] EXPANDCHECK checked=1069056 failed=0
+[  258.0567] EXPANDCHECK checked=1073152 failed=0
+[  258.2919] PARTIALCHECK checked=311296 failed=0 index=15 words=186
+[  258.4735] EXPANDCHECK checked=1077248 failed=0
+[  258.7359] STATICPHASE phase=26 view=2 variant=0 valid=1 checks=7020 errors=0 owners=14 resident=160
+[  258.9570] EXPANDCHECK checked=1081344 failed=0
+[  259.3741] EXPANDCHECK checked=1085440 failed=0
+[  259.7912] EXPANDCHECK checked=1089536 failed=0
+[  260.1918] EXPANDCHECK checked=1093632 failed=0
+[  260.6098] EXPANDCHECK checked=1097728 failed=0
+[  261.0262] EXPANDCHECK checked=1101824 failed=0
+[  261.4427] EXPANDCHECK checked=1105920 failed=0
+[  261.8601] EXPANDCHECK checked=1110016 failed=0
+[  262.2615] EXPANDCHECK checked=1114112 failed=0
+[  262.6781] EXPANDCHECK checked=1118208 failed=0
+[  263.0946] EXPANDCHECK checked=1122304 failed=0
+[  263.5118] EXPANDCHECK checked=1126400 failed=0
+[  263.8121] STATICVIEW phase=27 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  263.9288] EXPANDCHECK checked=1130496 failed=0
+[  264.3456] EXPANDCHECK checked=1134592 failed=0
+[  264.7480] EXPANDCHECK checked=1138688 failed=0
+[  265.1641] EXPANDCHECK checked=1142784 failed=0
+[  265.5813] EXPANDCHECK checked=1146880 failed=0
+[  265.9986] EXPANDCHECK checked=1150976 failed=0
+[  266.4148] EXPANDCHECK checked=1155072 failed=0
+[  266.8322] EXPANDCHECK checked=1159168 failed=0
+[  267.2325] EXPANDCHECK checked=1163264 failed=0
+[  267.6501] EXPANDCHECK checked=1167360 failed=0
+[  267.8126] STATICPHASE phase=27 view=2 variant=2 valid=1 checks=7506 errors=0 owners=14 resident=160
+[  268.1334] EXPANDCHECK checked=1171456 failed=0
+[  268.5503] EXPANDCHECK checked=1175552 failed=0
+[  268.9671] EXPANDCHECK checked=1179648 failed=0
+[  269.3684] EXPANDCHECK checked=1183744 failed=0
+[  269.7855] EXPANDCHECK checked=1187840 failed=0
+[  270.2018] EXPANDCHECK checked=1191936 failed=0
+[  270.6198] EXPANDCHECK checked=1196032 failed=0
+[  271.0364] EXPANDCHECK checked=1200128 failed=0
+[  271.4528] EXPANDCHECK checked=1204224 failed=0
+[  271.8548] EXPANDCHECK checked=1208320 failed=0
+[  272.1042] PARTIALCHECK checked=315392 failed=0 index=6 words=232
+[  272.2711] EXPANDCHECK checked=1212416 failed=0
+[  272.6885] EXPANDCHECK checked=1216512 failed=0
+[  272.8878] STATICVIEW phase=28 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  273.1048] EXPANDCHECK checked=1220608 failed=0
+[  273.5220] EXPANDCHECK checked=1224704 failed=0
+[  273.9388] EXPANDCHECK checked=1228800 failed=0
+[  274.3398] EXPANDCHECK checked=1232896 failed=0
+[  274.7565] EXPANDCHECK checked=1236992 failed=0
+[  275.1738] EXPANDCHECK checked=1241088 failed=0
+[  275.5905] EXPANDCHECK checked=1245184 failed=0
+[  276.0073] EXPANDCHECK checked=1249280 failed=0
+[  276.4086] EXPANDCHECK checked=1253376 failed=0
+[  276.8878] STATICPHASE phase=28 view=2 variant=0 valid=1 checks=7560 errors=0 owners=14 resident=160
+[  276.8891] EXPANDCHECK checked=1257472 failed=0
+[  277.3090] EXPANDCHECK checked=1261568 failed=0
+[  277.7261] EXPANDCHECK checked=1265664 failed=0
+[  278.1429] EXPANDCHECK checked=1269760 failed=0
+[  278.5611] EXPANDCHECK checked=1273856 failed=0
+[  278.9615] EXPANDCHECK checked=1277952 failed=0
+[  279.3786] EXPANDCHECK checked=1282048 failed=0
+[  279.7957] EXPANDCHECK checked=1286144 failed=0
+[  280.2128] EXPANDCHECK checked=1290240 failed=0
+[  280.6299] EXPANDCHECK checked=1294336 failed=0
+[  281.0456] EXPANDCHECK checked=1298432 failed=0
+[  281.4467] EXPANDCHECK checked=1302528 failed=0
+[  281.8638] EXPANDCHECK checked=1306624 failed=0
+[  281.9635] STATICVIEW phase=29 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  282.2813] EXPANDCHECK checked=1310720 failed=0
+[  282.6979] EXPANDCHECK checked=1314816 failed=0
+[  283.1143] EXPANDCHECK checked=1318912 failed=0
+[  283.5321] EXPANDCHECK checked=1323008 failed=0
+[  283.9327] EXPANDCHECK checked=1327104 failed=0
+[  284.3491] EXPANDCHECK checked=1331200 failed=0
+[  284.7664] EXPANDCHECK checked=1335296 failed=0
+[  285.1832] EXPANDCHECK checked=1339392 failed=0
+[  285.6006] EXPANDCHECK checked=1343488 failed=0
+[  285.8351] PARTIALCHECK checked=319488 failed=0 index=7 words=16
+[  285.9642] STATICPHASE phase=29 view=2 variant=2 valid=1 checks=8046 errors=0 owners=14 resident=160
+[  286.0685] EXPANDCHECK checked=1347584 failed=0
+[  286.4851] EXPANDCHECK checked=1351680 failed=0
+[  286.9051] EXPANDCHECK checked=1355776 failed=0
+[  287.3191] EXPANDCHECK checked=1359872 failed=0
+[  287.7377] EXPANDCHECK checked=1363968 failed=0
+[  288.1528] EXPANDCHECK checked=1368064 failed=0
+[  288.5544] EXPANDCHECK checked=1372160 failed=0
+[  288.9711] EXPANDCHECK checked=1376256 failed=0
+[  289.3881] EXPANDCHECK checked=1380352 failed=0
+[  289.8049] EXPANDCHECK checked=1384448 failed=0
+[  290.2259] EXPANDCHECK checked=1388544 failed=0
+[  290.6388] EXPANDCHECK checked=1392640 failed=0
+[  291.0385] STATICVIEW phase=30 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  291.0402] EXPANDCHECK checked=1396736 failed=0
+[  291.4569] EXPANDCHECK checked=1400832 failed=0
+[  291.8739] EXPANDCHECK checked=1404928 failed=0
+[  292.2920] EXPANDCHECK checked=1409024 failed=0
+[  292.7078] EXPANDCHECK checked=1413120 failed=0
+[  293.1090] EXPANDCHECK checked=1417216 failed=0
+[  293.5257] EXPANDCHECK checked=1421312 failed=0
+[  293.9430] EXPANDCHECK checked=1425408 failed=0
+[  294.3601] EXPANDCHECK checked=1429504 failed=0
+[  294.7769] EXPANDCHECK checked=1433600 failed=0
+[  295.0383] STATICPHASE phase=30 view=2 variant=1 valid=1 checks=8586 errors=0 owners=14 resident=160
+[  295.2601] EXPANDCHECK checked=1437696 failed=0
+[  295.6615] EXPANDCHECK checked=1441792 failed=0
+[  296.0794] EXPANDCHECK checked=1445888 failed=0
+[  296.4948] EXPANDCHECK checked=1449984 failed=0
+[  296.9126] EXPANDCHECK checked=1454080 failed=0
+[  297.3293] EXPANDCHECK checked=1458176 failed=0
+[  297.7479] EXPANDCHECK checked=1462272 failed=0
+[  298.1478] EXPANDCHECK checked=1466368 failed=0
+[  298.5639] EXPANDCHECK checked=1470464 failed=0
+[  298.9819] EXPANDCHECK checked=1474560 failed=0
+[  299.3976] EXPANDCHECK checked=1478656 failed=0
+[  299.6351] PARTIALCHECK checked=323584 failed=0 index=13 words=186
+[  299.8141] EXPANDCHECK checked=1482752 failed=0
+[  300.1146] STATICVIEW phase=31 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  300.2165] EXPANDCHECK checked=1486848 failed=0
+[  300.6328] EXPANDCHECK checked=1490944 failed=0
+[  301.0500] EXPANDCHECK checked=1495040 failed=0
+[  301.4670] EXPANDCHECK checked=1499136 failed=0
+[  301.8837] EXPANDCHECK checked=1503232 failed=0
+[  302.3002] EXPANDCHECK checked=1507328 failed=0
+[  302.7031] EXPANDCHECK checked=1511424 failed=0
+[  303.1187] EXPANDCHECK checked=1515520 failed=0
+[  303.5359] EXPANDCHECK checked=1519616 failed=0
+[  303.9533] EXPANDCHECK checked=1523712 failed=0
+[  304.1031] STATICPHASE phase=31 view=2 variant=0 valid=1 checks=8640 errors=0 owners=14 resident=160
+[  304.4359] EXPANDCHECK checked=1527808 failed=0
+[  304.8532] EXPANDCHECK checked=1531904 failed=0
+[  305.2539] EXPANDCHECK checked=1536000 failed=0
+[  305.6702] EXPANDCHECK checked=1540096 failed=0
+[  306.0880] EXPANDCHECK checked=1544192 failed=0
+[  306.5046] EXPANDCHECK checked=1548288 failed=0
+[  306.9218] EXPANDCHECK checked=1552384 failed=0
+[  307.3236] EXPANDCHECK checked=1556480 failed=0
+[  307.7404] EXPANDCHECK checked=1560576 failed=0
+[  308.1567] EXPANDCHECK checked=1564672 failed=0
+[  308.5739] EXPANDCHECK checked=1568768 failed=0
+[  308.9907] EXPANDCHECK checked=1572864 failed=0
+[  309.1919] STATICVIEW phase=32 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  309.4071] EXPANDCHECK checked=1576960 failed=0
+[  309.8096] EXPANDCHECK checked=1581056 failed=0
+[  310.2254] EXPANDCHECK checked=1585152 failed=0
+[  310.6424] EXPANDCHECK checked=1589248 failed=0
+[  311.0599] EXPANDCHECK checked=1593344 failed=0
+[  311.4770] EXPANDCHECK checked=1597440 failed=0
+[  311.8935] EXPANDCHECK checked=1601536 failed=0
+[  312.2942] EXPANDCHECK checked=1605632 failed=0
+[  312.7121] EXPANDCHECK checked=1609728 failed=0
+[  313.1796] STATICPHASE phase=32 view=2 variant=1 valid=1 checks=9126 errors=0 owners=14 resident=160
+[  313.1912] EXPANDCHECK checked=1613824 failed=0
+[  313.4299] PARTIALCHECK checked=327680 failed=0 index=14 words=186
+[  313.6120] EXPANDCHECK checked=1617920 failed=0
+[  314.0291] EXPANDCHECK checked=1622016 failed=0
+[  314.4459] EXPANDCHECK checked=1626112 failed=0
+[  314.8465] EXPANDCHECK checked=1630208 failed=0
+[  315.2642] EXPANDCHECK checked=1634304 failed=0
+[  315.6812] EXPANDCHECK checked=1638400 failed=0
+[  316.0979] EXPANDCHECK checked=1642496 failed=0
+[  316.5147] EXPANDCHECK checked=1646592 failed=0
+[  316.9156] EXPANDCHECK checked=1650688 failed=0
+[  317.3326] EXPANDCHECK checked=1654784 failed=0
+[  317.7496] EXPANDCHECK checked=1658880 failed=0
+[  318.1664] EXPANDCHECK checked=1662976 failed=0
+[  318.2661] STATICVIEW phase=33 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  318.5832] EXPANDCHECK checked=1667072 failed=0
+[  319.0002] EXPANDCHECK checked=1671168 failed=0
+[  319.4016] EXPANDCHECK checked=1675264 failed=0
+[  319.8188] EXPANDCHECK checked=1679360 failed=0
+[  320.2355] EXPANDCHECK checked=1683456 failed=0
+[  320.6519] EXPANDCHECK checked=1687552 failed=0
+[  321.0696] EXPANDCHECK checked=1691648 failed=0
+[  321.4862] EXPANDCHECK checked=1695744 failed=0
+[  321.8872] EXPANDCHECK checked=1699840 failed=0
+[  322.2549] STATICPHASE phase=33 view=2 variant=0 valid=1 checks=9180 errors=0 owners=14 resident=160
+[  322.3703] EXPANDCHECK checked=1703936 failed=0
+[  322.7890] EXPANDCHECK checked=1708032 failed=0
+[  323.2047] EXPANDCHECK checked=1712128 failed=0
+[  323.6233] EXPANDCHECK checked=1716224 failed=0
+[  324.0235] EXPANDCHECK checked=1720320 failed=0
+[  324.4400] EXPANDCHECK checked=1724416 failed=0
+[  324.8570] EXPANDCHECK checked=1728512 failed=0
+[  325.2735] EXPANDCHECK checked=1732608 failed=0
+[  325.6906] EXPANDCHECK checked=1736704 failed=0
+[  326.1077] EXPANDCHECK checked=1740800 failed=0
+[  326.5092] EXPANDCHECK checked=1744896 failed=0
+[  326.9260] EXPANDCHECK checked=1748992 failed=0
+[  327.1603] PARTIALCHECK checked=331776 failed=0 index=15 words=186
+[  327.3419] STATICVIEW phase=34 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  327.3431] EXPANDCHECK checked=1753088 failed=0
+[  327.7614] EXPANDCHECK checked=1757184 failed=0
+[  328.1759] EXPANDCHECK checked=1761280 failed=0
+[  328.5931] EXPANDCHECK checked=1765376 failed=0
+[  328.9942] EXPANDCHECK checked=1769472 failed=0
+[  329.4110] EXPANDCHECK checked=1773568 failed=0
+[  329.8290] EXPANDCHECK checked=1777664 failed=0
+[  330.2458] EXPANDCHECK checked=1781760 failed=0
+[  330.6636] EXPANDCHECK checked=1785856 failed=0
+[  331.0636] EXPANDCHECK checked=1789952 failed=0
+[  331.3305] STATICPHASE phase=34 view=2 variant=2 valid=1 checks=9666 errors=0 owners=14 resident=160
+[  331.5474] EXPANDCHECK checked=1794048 failed=0
+[  331.9648] EXPANDCHECK checked=1798144 failed=0
+[  332.3809] EXPANDCHECK checked=1802240 failed=0
+[  332.7983] EXPANDCHECK checked=1806336 failed=0
+[  333.2151] EXPANDCHECK checked=1810432 failed=0
+[  333.6161] EXPANDCHECK checked=1814528 failed=0
+[  334.0322] EXPANDCHECK checked=1818624 failed=0
+[  334.4497] EXPANDCHECK checked=1822720 failed=0
+[  334.8663] EXPANDCHECK checked=1826816 failed=0
+[  335.2846] EXPANDCHECK checked=1830912 failed=0
+[  335.7005] EXPANDCHECK checked=1835008 failed=0
+[  336.1015] EXPANDCHECK checked=1839104 failed=0
+[  336.4171] STATICVIEW phase=35 eye=0.000000,2.200000,-20.000000 look=35.000000,2.200000,15.000000 hour=12.000000 paused=1
+[  336.5180] EXPANDCHECK checked=1843200 failed=0
+[  336.9352] EXPANDCHECK checked=1847296 failed=0
+[  337.3528] EXPANDCHECK checked=1851392 failed=0
+[  337.7701] EXPANDCHECK checked=1855488 failed=0
+[  338.1707] EXPANDCHECK checked=1859584 failed=0
+[  338.5871] EXPANDCHECK checked=1863680 failed=0
+[  339.0050] EXPANDCHECK checked=1867776 failed=0
+[  339.4213] EXPANDCHECK checked=1871872 failed=0
+[  339.8378] EXPANDCHECK checked=1875968 failed=0
+[  340.2549] EXPANDCHECK checked=1880064 failed=0
+[  340.4089] STATICPHASE phase=35 view=2 variant=0 valid=1 checks=9720 errors=0 owners=14 resident=160
+[  340.7292] EXPANDCHECK checked=1884160 failed=0
+[  340.9772] PARTIALCHECK checked=335872 failed=0 index=6 words=232
+[  341.1603] EXPANDCHECK checked=1888256 failed=0
+[  341.3395] STATICDONE valid=1 checks=9720 errors=0
+[  341.8743] EXPANDCHECK checked=1892352 failed=0
+[  342.8261] EXPANDCHECK checked=1896448 failed=0
+[  343.7756] EXPANDCHECK checked=1900544 failed=0
+[  344.2432] PARTIALCHECK checked=339968 failed=0 index=7 words=196
+[  344.7087] EXPANDCHECK checked=1904640 failed=0
+[  345.6437] EXPANDCHECK checked=1908736 failed=0
+[  346.5786] EXPANDCHECK checked=1912832 failed=0
+[  347.2137] PARTIALCHECK checked=344064 failed=0 index=5 words=186
+[  347.5126] EXPANDCHECK checked=1916928 failed=0
+[  348.4461] EXPANDCHECK checked=1921024 failed=0
+[  349.3818] EXPANDCHECK checked=1925120 failed=0
+[  350.1825] PARTIALCHECK checked=348160 failed=0 index=7 words=132
+[  350.3163] EXPANDCHECK checked=1929216 failed=0
+[  351.2726] EXPANDCHECK checked=1933312 failed=0
+[  352.2168] EXPANDCHECK checked=1937408 failed=0
+[  353.1510] EXPANDCHECK checked=1941504 failed=0
+[  353.1688] PARTIALCHECK checked=352256 failed=0 index=12 words=186
+[  354.0849] EXPANDCHECK checked=1945600 failed=0
+[  355.0191] EXPANDCHECK checked=1949696 failed=0
+[  355.9543] EXPANDCHECK checked=1953792 failed=0
+[  356.1384] PARTIALCHECK checked=356352 failed=0 index=16 words=186
+[  356.8883] EXPANDCHECK checked=1957888 failed=0
+[  357.8240] EXPANDCHECK checked=1961984 failed=0
+[  358.7577] EXPANDCHECK checked=1966080 failed=0
+[  359.1080] PARTIALCHECK checked=360448 failed=0 index=20 words=186
+[  359.7076] EXPANDCHECK checked=1970176 failed=0
+[  360.6421] EXPANDCHECK checked=1974272 failed=0

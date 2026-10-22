@@ -20,6 +20,7 @@ const SceneObjectData SCENE_0_OBJECTS[11] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {11};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[11] = {0x63e783e6e9455fabULL, 0x6d4c7a4f3a7ed8edULL, 0x6d567a4f3a872d72ULL, 0x6d527a4f3a83449bULL, 0x6d5c7a4f3a8b9920ULL, 0x6d587a4f3a87b049ULL, 0x6d647a4f3a936aceULL, 0x6d607a4f3a8f81f7ULL, 0x6d6a7a4f3a97d67cULL, 0x6d667a4f3a93eda5ULL, 0x6ca87a4f39f2c49dULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[11] = {1,1,0,0,0,0,0,1,1,0,0};
 
 }  // namespace Raytraced_mirror
 

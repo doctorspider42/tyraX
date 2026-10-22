@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 100, in <module>
+    for key in ('roadBags','roadVertices','carBags','carVertices'):assert n(r,key)>0,key
+                                                                          ^^^^^^^^^^
+AssertionError: carVertices

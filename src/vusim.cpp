@@ -571,6 +571,33 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
                     wrapVi(m.vi[in.s1 >= 0 && (size_t)in.s1 < m.vi.size()
                                     ? in.s1
                                     : 0]));
+                if (cfg.captureKicks) {
+                    // Walk the GIF tags as the GIF would: NLOOP * NREG
+                    // quadwords behind each PACKED tag, until EOP.
+                    std::vector<uint32_t> pkt;
+                    const int qwords = (int)m.mem.size() / 4;
+                    int qw = res.kicks.back() & (qwords - 1);
+                    for (int guard = 0; guard < 64; ++guard) {
+                        const uint32_t* tag = &m.mem[(size_t)qw * 4];
+                        const int nloop = (int)(tag[0] & 0x7FFF);
+                        const bool eop = (tag[0] & 0x8000u) != 0;
+                        int nreg = (int)((tag[1] >> 28) & 0xF);
+                        if (nreg == 0) nreg = 16;
+                        pkt.push_back(tag[0]);
+                        pkt.push_back(tag[1]);
+                        const int payload = nloop * nreg;
+                        for (int i = 0; i < payload; ++i) {
+                            const int at = ((qw + 1 + i) & (qwords - 1)) * 4;
+                            for (int f = 0; f < 4; ++f) {
+                                pkt.push_back(m.mem[(size_t)at + f]);
+                                res.kickData.push_back(m.mem[(size_t)at + f]);
+                            }
+                        }
+                        qw = (qw + 1 + payload) & (qwords - 1);
+                        if (eop) break;
+                    }
+                    res.kickPayload.push_back(std::move(pkt));
+                }
                 break;
 
             case Op::B:

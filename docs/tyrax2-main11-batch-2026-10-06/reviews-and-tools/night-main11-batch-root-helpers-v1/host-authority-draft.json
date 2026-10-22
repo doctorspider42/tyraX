@@ -1,0 +1,18 @@
+{
+  "status": "DRAFT_KIND29_SOURCE_AND_NATIVE_AUTHORITY_PENDING",
+  "draftUnreleased": true,
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v1\\analyze-loop.py": "58e19cee054b237f13f797de6237d283811757c05c84742cfd62483aff7bc2a8",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v1\\analyze-night.py": "db6dd4f042dc44e4a43c3be464f1a283778c4698e6602a291a13aecf15297b53",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v1\\analyze-night-cli.py": "71a6c20bebc87a66bcd93c3566bcbeb7f37f1f45b20672954976d192eebee6ef",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v1\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v1\\batch_controls.py": "012652efd1ddc06bf86faf7d5f9bdb48eb6dfd84aea24a1f39e32ba17b88b29d",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v1\\source-controls\\night_plan.hpp": "667f336226b2150ad35adf07695a1c665a8d3f4a477819864c6b500d00627403",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v1\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": null,
+  "expectedFrozenSourceFiles": 501,
+  "sourceSchemaDraft": true,
+  "candidateActivationSeparateFromCompletion": true,
+  "draftProducerManifestSha256": "1f042bf4425d15751ce816cd5aa2fa4768994036f473a58b851c46121410e03d"
+}

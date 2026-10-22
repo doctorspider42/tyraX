@@ -1,0 +1,12 @@
+{
+  "generatorSha256": "ab5924fdf905d4ea7930321739d4e79eee6ed778998913cfaa2a87afa75d5684",
+  "sdkDumpSha256": "dbb4078ef0c49f9fdfdc8f6ebb2494db6a96dcc993684ce9012e5697dc12d186",
+  "sdkElfSha256": "4e0015c61018675ad9fa04e4c53388067ad52586e5ca88432a71b0a0ad18c512",
+  "status": "UNQUALIFIED",
+  "componentOnly": true,
+  "limits": [
+    "Actual VIF decode only; program kicks replaced with FLUSHE/NOP.",
+    "Run before world init/recording, drain queue; save/restore all VU data and ROW/MASK/CYCLE.",
+    "Two incoming ROW/MASK states; no compact shader/image/lease/FPS qualification."
+  ]
+}

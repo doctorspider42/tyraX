@@ -1,0 +1,18 @@
+{
+  "game/src/gen/game_lighting.gen.cpp": {
+    "beforeSha256": "3eb0c90c1b2efe879b247baab4b1acda1868abd7064ab16b30021db5355c6cf4",
+    "afterSha256": "cdcacb7fe39db886a0421745d3875950fe3524683923aeb595de3b58febfede8"
+  },
+  "tyra/engine/inc/debug/night_ablation.hpp": {
+    "beforeSha256": "afac4fddf3c41977f22e64a00c15cdbf0e17342de49149fb529bc533a3fb54c3",
+    "afterSha256": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646"
+  },
+  "tyra/engine/inc/debug/night_plan.hpp": {
+    "beforeSha256": "01b144f310cea1dc01df440001b127ff5f69b2f0d83db635dd9d44af105a48ca",
+    "afterSha256": "19f1484f376dd5614ca28985cab2eb60cf9c802521c1b89d01c3cc0c7a30a037"
+  },
+  "tyra/engine/inc/debug/night_runtime.hpp": {
+    "beforeSha256": "9d0c22a1e27a2c37ce37c235e8a757db9251566bcdb959e6bde89921d30070fc",
+    "afterSha256": "e67309ec355823c45f400066f396c1f342b8a725dcbd10b02ac2323965533538"
+  }
+}

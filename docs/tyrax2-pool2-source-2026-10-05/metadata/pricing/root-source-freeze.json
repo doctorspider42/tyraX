@@ -1,0 +1,12 @@
+{
+  "status": "ROOT_SOURCE_FREEZE_ONLY",
+  "sourceManifestSha256": "c0da3cd8dadd3072fce0381808a8a312d926726820b6e14f1e7ae96f84048581",
+  "sourceFiles": 499,
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-independent-review-v3\\final-input-proof.json",
+  "reviewSha256": "9a81a0b464e8b59a796b85254367f19894505ff13b39d61f1b5c41b2c5055313",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host\\proof.json",
+  "hostSha256": "63924ed2b161dd95b59ac6cc1cc954b419789d2b321befad9d71d39bd4146149",
+  "helperSha256": "4137e050a84a1f72be92b3f7c3fb6200ca45904286fb66d9f8f6109520548f42",
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

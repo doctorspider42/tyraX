@@ -1,0 +1,54 @@
+{
+  "status": "OWNED_CLOSEOUT_LOG_PREFIX_AND_RASTER_IDENTITY_ONLY",
+  "snapshotUTC": "2026-10-06T19:21:32.312030+00:00",
+  "launchSha256": "68e1b24806c5fc340e03bf4483956e4505112ed62961850e671b0305e730a4c4",
+  "markers": {
+    "CONFIG": [
+      "[    5.2915] LOG: CLOSEOUTCONFIG order=1 kind=4 valid=1 phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 sampleFirst=900 sampleCount=128 ordinaryClocks=1 addedWaits=0 frameProfile=0 hardwareTrace=0 devkit=0 sampleBytes=6144 chunkBytes=420"
+    ],
+    "PHASE": [
+      "[    9.9584] LOG: CLOSEOUTPHASE phase=0 first=0 players=0 geometryHidden=0 sampler=1 countReads=262",
+      "[   41.3044] LOG: CLOSEOUTPHASE phase=1 first=1800 players=0 geometryHidden=0 sampler=1 countReads=262",
+      "[   72.0179] LOG: CLOSEOUTPHASE phase=2 first=3600 players=0 geometryHidden=0 sampler=1 countReads=262"
+    ],
+    "CONTEXT": [
+      "[   23.7738] LOG: CLOSEOUTCONTEXT phase=0 offset=750 players=0 oneArm=1 route=11 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=00000000 positionY=4028b438 positionZ=c0d00000 lookX=00000000 lookY=3f9a5e33 lookZ=00000000 vehicleX=00000000 vehicleY=3edf3b60 vehicleZ=00000000 vehicleSpeed=00000000 playerX=00000000 playerY=4028b438 playerZ=c0d00000 valid=1",
+      "[   30.5287] LOG: CLOSEOUTCONTEXT phase=0 offset=1155 players=0 oneArm=1 route=11 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=00000000 positionY=4028b438 positionZ=c0d00000 lookX=00000000 lookY=3f9a5e33 lookZ=00000000 vehicleX=00000000 vehicleY=3edf3b60 vehicleZ=00000000 vehicleSpeed=00000000 playerX=00000000 playerY=4028b438 playerZ=c0d00000 valid=1",
+      "[   54.5029] LOG: CLOSEOUTCONTEXT phase=1 offset=750 players=0 oneArm=1 route=11 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=00000000 positionY=4028b438 positionZ=c0d00000 lookX=00000000 lookY=3f9a5e33 lookZ=00000000 vehicleX=00000000 vehicleY=3edf3b60 vehicleZ=00000000 vehicleSpeed=00000000 playerX=00000000 playerY=4028b438 playerZ=c0d00000 valid=1",
+      "[   61.2590] LOG: CLOSEOUTCONTEXT phase=1 offset=1155 players=0 oneArm=1 route=11 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=00000000 positionY=4028b438 positionZ=c0d00000 lookX=00000000 lookY=3f9a5e33 lookZ=00000000 vehicleX=00000000 vehicleY=3edf3b60 vehicleZ=00000000 vehicleSpeed=00000000 playerX=00000000 playerY=4028b438 playerZ=c0d00000 valid=1"
+    ],
+    "DONE": [],
+    "WINDOW": [
+      "LOG: CLOSEOUTWINDOW phase=0 sampler=1 raw=128 chunks=5 valid=1",
+      "LOG: CLOSEOUTWINDOW phase=1 sampler=1 raw=128 chunks=5 valid=1"
+    ]
+  },
+  "samplesRows": 256,
+  "chunkRows": 10,
+  "snapshots": [
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-order1-v1/runtime/emulator.log",
+      "snapshot": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-order1-v1/capture-on/runtime-emulator.log",
+      "bytes": 54472,
+      "sha256": "7c29c25c470eeaa0e8628a5dd8ed61448127e145aa3837ed0da9d97d897d51e0"
+    },
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-order1-v1/runtime/stdout.log",
+      "snapshot": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-order1-v1/capture-on/runtime-stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-batch-order1-v3/empty-car/bin/closeout-samples.txt",
+      "snapshot": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-order1-v1/capture-on/bin-closeout-samples.txt",
+      "bytes": 58102,
+      "sha256": "58cc48c72feeaf2141ff566f395f860e9ee712544142831e320d9e5f8f637293"
+    }
+  ],
+  "window": "0x200007",
+  "title": "empty-car [?]",
+  "imageSha256": "559a07584bb1107d98c529c2edda935f7826587bee9c25db7cac6cb286aae96e",
+  "visualReviewPending": true,
+  "strictSamplerAnalysisPending": true,
+  "devicePerformanceQualified": false
+}

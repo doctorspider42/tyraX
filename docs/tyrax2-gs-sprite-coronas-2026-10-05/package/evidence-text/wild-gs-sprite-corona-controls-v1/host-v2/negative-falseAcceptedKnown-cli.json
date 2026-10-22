@@ -1,0 +1,22 @@
+{
+  "status": "REJECTED_NIGHT_CAPTURE",
+  "issues": [
+    "gate arm/validity"
+  ],
+  "inputPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\host-v2\\negative-falseAcceptedKnown-stdout.log": "269f85b4d5c79172bd44863ee39e468ea64319b3b77df083e0592d944000cf51",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\host-v2\\negative-falseAcceptedKnown-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\analyze-night-cli.py": "f3ff6a6c125759bff1090dc6e404ab4382c66056baee8b4d942be50a3ce7be21",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\analyze-night.py": "4f21d7a1c3a764cc08ce3968cd8ecdefa7ddd755303ad2c26e73651ff754b8d8",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\corona_controls.py": "f963db2429213e918b8d93acaaf1514d94f76a5667e7828977a13af54cf71bd2",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\source-controls\\night_plan.hpp": "b0b398247d277e56c66cc8a35083745f37fed5cdc95c30839927c20ce5ebeac0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "requestedPlan": {
+    "kind": 9,
+    "order": 0,
+    "joint": 0,
+    "restored": 0
+  }
+}

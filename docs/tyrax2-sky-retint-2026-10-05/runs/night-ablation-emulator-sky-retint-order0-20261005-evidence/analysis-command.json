@@ -1,0 +1,25 @@
+{
+  "command": [
+    "/usr/bin/python3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-controls-v1/analyze-night-cli.py",
+    "--stdout",
+    "/home/spider/night-ablation-emulator-sky-retint-order0-20261005/emulator.log",
+    "--artifact",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-physical-v1/game/bin/night-ablation.log",
+    "--environment",
+    "emulator",
+    "--kind",
+    "19",
+    "--order",
+    "0",
+    "--joint",
+    "0",
+    "--restored",
+    "0",
+    "--report",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-sky-retint-order0-20261005-evidence/strict-analysis.json"
+  ],
+  "exitCode": 1,
+  "stdout": "REJECTED_NIGHT_CAPTURE\n",
+  "stderr": ""
+}

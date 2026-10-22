@@ -46,7 +46,7 @@ Each arm has 960 raw frame rows (240 per phase); baseline was repeated with the 
 | outer-day | 25.16 | 24.74 | 25.17 | 25.65 |
 | outer-night | 28.64 | 28.30 | 28.47 | 28.97 |
 
-Neither candidate demonstrates a useful net saving. The transform submission bracket is 0.10–0.19 ms slower than the first baseline in every view. DMA total work is 0.33–0.49 ms slower. Baseline repeat differs by 0.13–0.42 ms, so tiny apparent improvements cannot establish a win. Neither patch is integrated.
+Neither candidate demonstrates a useful net saving. The transform submission bracket is 0.10â€“0.19 ms slower than the first baseline in every view. DMA total work is 0.33â€“0.49 ms slower. Baseline repeat differs by 0.13â€“0.42 ms, so tiny apparent improvements cannot establish a win. Neither patch is integrated.
 
 Baseline rolling FPS medians are 17.65 / 16.37 / 24.50 / 23.15; repeat medians are 16.96 / 16.04 / 28.31 / 23.15. In particular, outer-day rolling FPS varies despite only 0.42 ms difference in mean measured work. Do not use those sparse rolling medians to rank candidates.
 

@@ -1,0 +1,9 @@
+from pathlib import Path
+import json,hashlib
+b=Path('F:/Projects/tyrax2-lab-20261001');sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();rows=[]
+for kind in(10,11):
+ for order in(0,1):
+  stem=f'night-ablation-ps2-player-receivers-kind{kind}-order{order}-20261005'+('-retry1'if kind==11 and order==0 else '')
+  p=b/(stem+'-evidence')/'strict-analysis.json';d=json.loads(p.read_text(encoding='utf8'));modes=d['receiverModes'];flags=[int(x>0)for x in modes];assert modes==([0,kind-9,0]if order==0 else[kind-9,0,kind-9]);means=[d['by_phase'][str(k)]['mean_non_pacing_ms']for k in range(3)];periods=[d['by_phase'][str(k)]['sample_stats']['renderedPeriod']['mean_ms']for k in range(3)];candidate=sum(x for x,f in zip(means,flags)if f)/sum(flags);control=sum(x for x,f in zip(means,flags)if not f)/(3-sum(flags));rows.append(dict(kind=kind,order=order,stem=stem,receiverModes=modes,extraDisabledMasks=d['extraDisabledMasks'],phaseMeans_ms=means,renderedPeriodMeans_ms=periods,candidateMean_ms=candidate,controlMean_ms=control,candidateMinusControl_ms=candidate-control,outerArmSpread_ms=d['outer_control_spread_ms'],inputSha256=sha(p),sourceManifestSha256=json.loads((p.parent/'machine-evidence.json').read_text(encoding='utf8'))['sourceManifestSha256'],elfSha256=json.loads((p.parent/'machine-evidence.json').read_text(encoding='utf8'))['selectedElfSha256']))
+assert len({x['sourceManifestSha256']for x in rows})==len({x['elfSha256']for x in rows})==1
+out=b/'player-receiver-role-based-results-v2.json';assert not out.exists();out.write_bytes((json.dumps(dict(status='PASS_BOTH_PHYSICAL_ORDERS_BOTH_RECEIVER_CONTRASTS',rows=rows,commonReceiverCostPriced=False,qualityTradeoff=True,scope='Fixed ordinary night fixture, same ELF non-pacing elapsed contrasts; not pure CPU or VU stage billing.'),indent=2)+'\n').encode());print(json.dumps(rows,indent=2))

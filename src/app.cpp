@@ -3860,35 +3860,26 @@ void App::drawViewportWindow() {
                 dl->PushClipRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y), true);
                 const ImU32 edgeCol = IM_COL32(90, 200, 255, 220);
                 // The two authored borders, found by U rather than by
-                // counting. A station pair emits SIX vertices per lateral
-                // span - A, B, C, A, C, D - but how many spans it emits is
-                // the lateral reduction's business and has not been a fixed
-                // `crossSteps` since the flat collapse existed
-                // (docs/roads.md, "The lateral budget", where a pair can now
-                // be cut anywhere). Walking in strides of `crossSteps * 6`
-                // therefore drifts off the station grid and draws the cyan
-                // border through the middle of the asphalt. U is exactly 0 on
-                // the left shoulder and exactly 1 on the right, by
-                // construction in buildRows, so the spans that own a border
-                // say so themselves: A->D is a border when A's u is 0, and
-                // B->C is one when B's u is 1. Drawing both sides of every
-                // lateral cell instead would expose the tessellation as a
-                // cyan comb.
-                for (size_t s = 0; s + 5 < strip.size(); s += 6) {
-                    ImVec2 a, b;
-                    if (strip[s].u == 0.0f &&
-                        worldToImage(strip[s].x, strip[s].y + 0.05f,
-                                     strip[s].z, a) &&
-                        worldToImage(strip[s + 5].x, strip[s + 5].y + 0.05f,
-                                     strip[s + 5].z, b))
-                        dl->AddLine(a, b, edgeCol, 2.0f);
-                    if (strip[s + 1].u == 1.0f &&
-                        worldToImage(strip[s + 1].x, strip[s + 1].y + 0.05f,
-                                     strip[s + 1].z, a) &&
-                        worldToImage(strip[s + 2].x, strip[s + 2].y + 0.05f,
-                                     strip[s + 2].z, b))
-                        dl->AddLine(a, b, edgeCol, 2.0f);
-                }
+                // counting. A band is a zipper of triangles between two kept
+                // stations (docs/roads.md, "Bands"), so neither a station
+                // pair's vertex count nor its spans are fixed. U is exactly 0
+                // on the left shoulder and exactly 1 on the right, by
+                // construction in buildRows, and a band's shoulder is the one
+                // triangle edge whose two ends share that U across its two
+                // rows (different V) - a boundary edge, so it is drawn once.
+                // Drawing every lateral edge instead would expose the
+                // tessellation as a cyan comb.
+                for (size_t s = 0; s + 2 < strip.size(); s += 3)
+                    for (int e = 0; e < 3; ++e) {
+                        const roadgen::Vertex& p = strip[s + (size_t)e];
+                        const roadgen::Vertex& q = strip[s + (size_t)((e + 1) % 3)];
+                        if (p.u != q.u || (p.u != 0.0f && p.u != 1.0f) || p.v == q.v)
+                            continue;
+                        ImVec2 a, b;
+                        if (worldToImage(p.x, p.y + 0.05f, p.z, a) &&
+                            worldToImage(q.x, q.y + 0.05f, q.z, b))
+                            dl->AddLine(a, b, edgeCol, 2.0f);
+                    }
                 for (size_t k = 0; k < (size_t)roadgen::controlCount(ro.roadPoints) * 2; k += 2) {
                     const float px = ro.roadPoints[k], pz = ro.roadPoints[k + 1];
                     ImVec2 pt;
@@ -18106,6 +18097,11 @@ void App::applyProjectToViewport() {
         rs.skyTextureYaw);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
+    std::vector<std::string> lightPlayerIds;
+    for (const auto& object : sc.objects)
+        if (object.type == PrimitiveType::Player && lightPlayerIds.size() < 2)
+            lightPlayerIds.push_back(object.id);
+    viewport_.setDynamicLightReceivers(rs.dynamicLightReceivers, lightPlayerIds);
     viewport_.setAmbientOcclusion(rs.aoEnabled, rs.aoStrength, rs.aoRadius);
     // Baked global illumination (docs/global-illumination.md): the viewport
     // shows what the console will, so it reads the SAME cache codegen and
@@ -18771,6 +18767,11 @@ static const char* const kPrefCatSub[] = {
     "The space the game happens in.", "Textures, shadows and lighting.",
     "What a build carries while you make the game."};
 static const PrefIndexEntry kPrefIndex[] = {
+    {"TyraX2 frame pipeline", "Picture", "Picture", "framePipeline", true, "frame overlap latency"},
+    {"Dynamic light receivers", "Graphics", "", "dynamicLightReceivers", false, "players vehicle lighting"},
+    {"Reflect a baked background", "Graphics", "", "reflectionPanorama", true, "panorama probe"},
+    {"Bake static lamps into scenery", "Graphics", "", "bakeStaticLamps", false, "lighting"},
+
     {"Preset", "Game", "Player", "", false, "FPP third person game template"},
     {"Eye height", "Game", "Player", "eyeHeight", false, "body height camera"},
     {"Walk speed", "Game", "Player", "walkSpeed", false, ""},
@@ -18944,6 +18945,17 @@ void App::openProjectPreferences() {
 // the footer says so. The one control that is genuinely dangerous to apply
 // keystroke-by-keystroke is the terrain grid, and it is treated specially
 // rather than holding the whole dialog modal - see prefGridDetail_ in app.hpp.
+static void drawDynamicLightReceiversCombo(ProjectSettings& settings) {
+    int mode = settings.dynamicLightReceivers == DynamicLightReceivers::Players ? 1 : 0;
+    const char* choices[] = {"All objects", "Players and driven vehicle"};
+    // Keep the complete choice readable in narrow saved Preferences layouts.
+    ImGui::TextUnformatted("Dynamic light receivers");
+    ImGui::SetNextItemWidth(-ImGui::GetFrameHeightWithSpacing());
+    if (ImGui::Combo("##Dynamic light receivers", &mode, choices, 2))
+        settings.dynamicLightReceivers = mode == 1 ? DynamicLightReceivers::Players
+                                                  : DynamicLightReceivers::All;
+}
+
 void App::drawPreferencesWindow() {
     if (!showProjectPrefs_ || !hasProject_) {
         // A viewport refresh owed from the last frame the window was open must
@@ -19852,6 +19864,15 @@ void App::drawPreferencesWindow() {
         }
     }
     prefRow("Triple buffering");
+    ui::Switch("TyraX2 frame pipeline", &prefSettings_.framePipeline);
+    prefHelp("Prepare the next frame while the GPU executes the previous one.\n"
+             "Uses about 2.25 MB of extra EE RAM and adds one queued frame\n"
+             "of input latency. Field rendering, temporal upscaling and\n"
+             "unlimited triple buffering use synchronous compatibility.\n"
+             "Memory overflow splits a frame.\n"
+             "Enabled by default for new projects. Measure your game's\n"
+             "frame pacing and input response when choosing this setting.");
+    prefRow("TyraX2 frame pipeline");
     ui::Switch("Disable VSync", &prefSettings_.disableVsync);
     prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"
@@ -20070,6 +20091,17 @@ void App::drawPreferencesWindow() {
 
     if (prefsCat_ == "Graphics") {
     pageHeader();
+    {
+        int mode = prefSettings_.dynamicLightReceivers == DynamicLightReceivers::Players ? 1 : 0;
+        const char* names[] = {"All objects", "Players and driven vehicle"};
+        if (segRow("Dynamic light receivers", names, 2, &mode))
+            prefSettings_.dynamicLightReceivers = mode == 1 ? DynamicLightReceivers::Players
+                                                          : DynamicLightReceivers::All;
+        prefHelp("Selects which objects receive live lighting.\n"
+                 "Baked light, projected pools and beams remain visible.");
+        prefRow("Dynamic light receivers");
+    }
+
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
     // model/material overrides live in the Asset Browser's inspector.
@@ -20135,6 +20167,20 @@ void App::drawPreferencesWindow() {
         "per-light override is for.\n"
         "COSTS NO EXTRA VRAM NEXT TO THE TORCH: both count into the SAME\n"
         "band, so a project with either one on has already paid for it.");
+    ui::Switch("Bake static lamps into scenery",
+                    &prefSettings_.bakeStaticLamps);
+    prefHelp(
+        "A DYNAMIC light that never moves and never flickers - a street\n"
+        "lamp a day/night script switches - is folded into the static\n"
+        "geometry's vertex colours whenever it switches, instead of being\n"
+        "picked and evaluated for every static mesh every frame\n"
+        "(docs/dynamic-light-receivers.md, 'Baked lamp light'). Cars, the player and other\n"
+        "moving things still take it live; its ground pool, beam and corona\n"
+        "are unchanged. A lamp a flow node refers to, one on a streaming\n"
+        "layer and one that carves shadow volumes stay fully live.\n"
+        "The switch itself re-bakes what the lamps reach - a short hitch at\n"
+        "the moment of the change, never a per-frame cost.");
+    prefRow("Bake static lamps into scenery");
     // WHAT IT COSTS, in the currency that actually runs out. The count band is
     // 512 KB at 32-bit colour and a 512x512 project has about that much
     // texture heap in the first place, so switching this on can take the last
@@ -20429,6 +20475,11 @@ void App::drawPreferencesWindow() {
         "the ground radius or 64 units, whichever is larger.");
 
     prefRow("Reflect the ground as flat colour");
+    ui::Switch("Reflect a baked background", &prefSettings_.reflectionPanorama);
+    prefHelp("Bakes the static reflection background into road-cell panoramas.\n"
+             "Cars and sky stay live; nearby scenery has approximate parallax.");
+    prefRow("Reflect a baked background");
+
     // The neural upscaler (docs/neural-upscaler.md), ESSENTIALS ONLY - the
     // decisions a person switching the feature on has to make, and nothing
     // else. What a user meets here is a checkbox, a mode, a raster and one line
@@ -21614,6 +21665,10 @@ void App::openScenePreferences() {
     // a grayed-out category previews exactly what the scene inherits, and
     // ticking its override starts editing from that value with no jump.
     scenePrefSettings_ = project::resolvedSettings(project_, project_.active());
+    // Preserve a disabled local receiver value across reopening the dialog;
+    // the disabled widget below displays the inherited project value instead.
+    scenePrefSettings_.dynamicLightReceivers =
+        project_.active().settings.dynamicLightReceivers;
     scenePrefOverrides_ = project_.active().overrides;
     scenePrefAmbience_ = project_.active().ambiencePreset;
     scenePrefLoading_ = project_.active().loadingScreen;
@@ -21760,6 +21815,17 @@ void App::drawScenePreferencesModal() {
         }
         ImGui::TextDisabled("Author screens in Tools > Loading Screens.");
     }
+
+    category("Dynamic light reception", ov.dynamicLightReceivers, [&] {
+        if (ov.dynamicLightReceivers) drawDynamicLightReceiversCombo(s);
+        else {
+            ProjectSettings inherited = project_.settings;
+            drawDynamicLightReceiversCombo(inherited);
+        }
+        prefHelp("Live lights affect either all objects or only player models and\n"
+                 "the vehicle being driven. Other objects keep baked and probe\n"
+                 "lighting. Projected light pools and beams remain visible.");
+    }, "Override dynamic light receivers for this scene");
 
     category("Clipping", ov.clipping, [&] {
         int clipMode = s.clipping == "fast"      ? 2

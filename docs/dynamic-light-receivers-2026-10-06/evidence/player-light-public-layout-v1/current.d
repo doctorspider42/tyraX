@@ -1,0 +1,26 @@
+/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-layout-v1/current.o: \
+ /mnt/f/Projects/tyrax2-lab-20261001/player-light-public-layout-v1/current.cpp \
+ /mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_info_bag.hpp \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/common/include/tamtypes.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw_blending.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw_buffers.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw_dithering.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw_fog.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw_masking.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw_primitives.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw_sampling.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw_tests.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw_types.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/math3d.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw2d.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw3d.h \
+ /home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/common/include/gif_tags.h \
+ /mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc/math/m4x4.hpp \
+ /mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc/math/vec4.hpp \
+ /mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc/math/math.hpp \
+ /mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc/renderer/3d/pipeline/shared/bag/../pipeline_shading_type.hpp \
+ /mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc/renderer/3d/pipeline/shared/bag/../pipeline_texture_mapping_type.hpp \
+ /mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc/renderer/3d/pipeline/shared/bag/../pipeline_transformation_type.hpp \
+ /mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc/renderer/3d/pipeline/shared/bag/../pipeline_z_test.hpp \
+ /mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc/renderer/3d/pipeline/shared/bag/./pipeline_info_bag_frustum_culling.hpp

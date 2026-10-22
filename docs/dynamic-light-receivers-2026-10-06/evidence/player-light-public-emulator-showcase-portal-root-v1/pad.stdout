@@ -1,0 +1,5 @@
+[pad] neutral
+[pad] stick l 100 -80
+[pad] wait 1.5
+[pad] neutral
+[pad] done - 4 step(s) in 1.5s, pad released

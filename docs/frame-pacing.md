@@ -56,6 +56,48 @@ let the handler put a half-drawn frame on screen.
 
 ## Hybrid triple buffering
 
+### Diagnostic Limit: Two Different Schedules
+
+In this implementation, Hybrid2 is one fixed CT32 draw target and one CT16
+display target, not two interchangeable scene buffers. Core waits for VBlank
+AFTER the old VIF/GS job finishes, then flipBuffers emits the conversion copy
+into the display target. Hybrid3 instead copies into an unscanned CT16 target,
+waits for copy/restore FINISH and queues that target for VBlank ISR publication.
+The comparison therefore changes copy/publication scheduling as well as storage.
+Do not claim that adding a third buffer made EE packet preparation faster.
+
+A38 both physical orders improve roughly49..50 to59Hz day and41 to55Hz night
+while mean non-pacing work remains roughly14/16ms. This demonstrates a scheduling
+dependency, not an exclusive EE/GS attribution or proof that two buffers cannot
+reach60. A39's specific early-ready publication hook activates but regresses;
+do not repeat it as the next fix. User requests two-buffer architecture remain
+the target rather than promoting Hybrid3 as the answer.
+
+Next discriminating design, NOT yet implemented: compare actual Hybrid2 with
+ordinary alternating CT32 double buffering under the same moving scene. CT32x2
+avoids the conversion copy, but uses the same colour-storage budget as Hybrid3,
+not Hybrid2, and changes displayed colour format/dithering. Explicitly qualify
+scene/environment readbacks, actual target rotation, VRAM grants and presentation
+before physical pricing. This is an architecture diagnostic, not a drop-in
+equal-output candidate or isolated measurement of copy cost. A third-buffer
+result alone cannot distinguish output layout, queue timing and tail variation.
+Burnout's reported two-buffer operation is a reference observation; its actual
+format/schedule and equal workload have not been established here.
+
+Follow-up [offline recheck](tyrax2-burnout-buffers-2026-10-11/README.md) now
+establishes the sampled format/address layout: fixed CT32 scene/block2240 and
+fixed CT16S display/block0, with a dithered final conversion copy. This resembles
+Hybrid2, NOT ordinary alternating CT32. It strengthens the synchronization/
+submission-schedule question, not a claim that removing the copy matches Burnout.
+Actual EE waits and physical cost remain unknown; prioritize those dependencies.
+
+[Current linked SDK audit](tyrax2-vblank-sdk-2026-10-11/README.md) proves the
+double path clears old VSINT and waits for a fresh edge. A latched bit does not
+prove active blank; blindly skipping this wait risks tearing. EE already prepares
+N+1 while N runs, but Hybrid2 old-copy submission waits for main callback arrival.
+An independent immutable VBlank copy protocol is a different proposed two-target
+architecture, not A39's rejected renderer callback or a implemented/default fix.
+
 Hybrid colour depth supports the same vblank queue with different buffer roles:
 slot 0 is always the PSMCT32 draw target, and slots 1 and 2 are PSMCT16 display
 targets. One display target is scanned out while the other holds the queued
@@ -96,6 +138,45 @@ BLSS fixture completed two field/full-PAL cycles, granting three/two buffers
 each time, then produced fresh captures; ordinary 32-bit triple buffering
 still drew into all three CT32 targets. These are correctness checks, not a
 hardware speedup measurement.
+
+Current moving Vehicle Playground physical evidence is separate from those
+historical correctness/synthetic-load tests: [A38 both orders](tyrax2-hybrid-triple-2026-10-11.md)
+uses actual Hybrid448x448 permanent VRAM rebuilds, roads/live reflections/night
+lights and exact source/main/env return gates. Triple actual DISPFB hand-offs
+are58.82..58.93Hz day and54.89..55.22 night, versus double48.84..50.42/40.83..41.52.
+The substantial gain is pacing, not reduced packet preparation; long display
+intervals remain, so neither stable60 nor lower input-to-photon latency follows.
+Normal-production promotion remains separate from the common private baseline.
+
+### Hybrid double vs triple on the current district (2026-10-20)
+
+The architecture audit asked again whether the Hybrid structure - one 32-bit
+draw target, the copy after the vsync, so the GS cannot start frame N+1 early -
+should change. Three options were weighed: a second 32-bit draw target (784 KB
+at 448x448: does not fit beside the texture heap), copying into the scanned
+16-bit buffer before the vsync (tears; that is what a second display target is
+for), and Hybrid triple, which is exactly "copy before the vsync into the
+unscanned display buffer". Triple was measured, same ELF, on a physical PS2:
+`examples/vehicle-playground` at night, lean rig, the rig rebuilding the
+permanent buffers between cycles (double / triple alternating, three cycles
+each), every `presentFrameBuffer` timestamped (the double flip after its vsync,
+the triple vblank latch):
+
+| | parked work | driving work | presents | mean rate | skipped fields |
+|---|---:|---:|---:|---:|---:|
+| Hybrid double | 10.24 ms | 10.53 ms | 4483 | 59.6 / 58.8 Hz | 12 / 41 |
+| Hybrid triple | 10.12 | 10.66 | 3360 | 59.7 / 59.2 Hz | 6 / 21 |
+
+The copy itself is **0.19 ms of GS** (timed alone between frames). Every
+window, in both arms, holds exactly one late present, and it is the rig's own
+window print over ps2link (~50 ms): double loses 2-3 fields to it, triple 1-2.
+Apart from that **neither arm missed a field** - this frame is ~10.5 ms of EE
+work with an idle GS, so the GS starting N+1 early buys nothing; triple only
+absorbs one more field of a long stall. Against that it costs 392 KB of VRAM
+(1041 -> 649 KB free after the rebuild; no evictions either way, pause menu
+included) and one frame of latency. **The district stays Hybrid double.**
+Triple is the right switch for a scene whose frames sit near the 16.7 ms edge
+(the A38 numbers above), not for this one.
 
 ## The measurements
 
@@ -191,7 +272,10 @@ at runtime, every time the mode changes:
 
 - `ProjectSettings::supportedModes` declares the scan modes a player can switch
   into (Preferences > Picture > *Supported resolutions*), and a menu row or the
-  `Set Display Mode` flow node can make that switch mid-game.
+  `Set Display Mode` flow node can make that switch mid-game. The node preserves
+  all five engine values: 0 interlaced, 1 progressive 480p, 2 1080i,
+  3 field rendering, and 4 full-height PAL 576i. PAL 576i remains mode 4 in
+  generated scripts; it must not be clamped to field rendering.
 - `RendererCore::setDisplayOutput` answers a mode change with `gs.reinit()`,
   which re-runs `allocateVramBuffers` over the new framebuffer size — so the
   headroom check above is asked **again**, with a different answer, and

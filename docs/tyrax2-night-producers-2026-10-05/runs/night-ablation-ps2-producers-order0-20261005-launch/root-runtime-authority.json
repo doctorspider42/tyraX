@@ -1,0 +1,14 @@
+{
+  "status": "ROOT_RELEASE_PRIVATE_PRODUCER_OBSERVER",
+  "scope": "Instrument existing numerical producers only; no effect removal or new fences. Native source/ABI/assets/linked-microimage qualified. Physical records determine activation, scope elapsed and net observer tax; no visual-equivalence or optimized-renderer promotion claim.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\night-producer-root-helpers-v1\\source-review.md",
+  "reviewSha256": "54cfc4f16fcb113ce19a8ec4864382f4586107ae5febb2ee0857a4edcff3fee0",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\night-producer-root-helpers-v1\\host-authority.json",
+  "hostSha256": "d5442a962bcf285b6b0b27aa43f5618568cb0d408494a9fd0ca4c03b3aa42e45",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\night-producer-native-root-review-v1-retry1\\proof.json",
+  "nativeSha256": "9f16dcfd00e7d3706513fe4a1d0fce7ba97c24bf77b7c9018386446ce664ba69",
+  "rootSourceFreezeSha256": "f0e73b693d795ebc845d7a60997d710dce2f69ce7a4de1ebf5ee444d069559e0",
+  "hostControlSha256": "300e3cfc016730aebeb457c546125176815c916b16170ccfb09b7cc5fce65595",
+  "physicalPricingAccepted": false,
+  "commonObserverCodeCostPriced": false
+}

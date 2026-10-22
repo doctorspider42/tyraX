@@ -1,0 +1,12 @@
+{
+  "status": "DRAFT_KIND29_V2_UNRELEASED",
+  "concreteProducerSchemaImplemented": true,
+  "whySchemaMandatory": true,
+  "sourceSchemaIndependentReviewPending": true,
+  "nativeAuthorityAvailable": false,
+  "physicalRuntimeAccepted": false,
+  "hostControls": 66,
+  "nativeClosureSymbolicControls": 18,
+  "sourceCounterOracleIsNotExecutionProof": true,
+  "inheritedProofsCopied": false
+}

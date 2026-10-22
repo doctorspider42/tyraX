@@ -1,0 +1,126 @@
+{
+  "status": "PASS_COMPLETED_PRIVATE_CLOSEOUT_PROTOCOL",
+  "order": 0,
+  "kind": 1,
+  "byPhase": {
+    "0": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 0,
+      "chunkMeanNonPacingMs": 7.163743167453343,
+      "chunkMeanEntryMs": 16.68334959877862,
+      "perChunkMeanEntryMs": [
+        16.683536582522922,
+        16.683162689208984,
+        16.683349556393093,
+        16.683349609375,
+        16.683349556393093
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683536582522922,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": null,
+        "wholeLoop": null,
+        "nonPacingLoop": null,
+        "singleRenderedPeriod": null
+      }
+    },
+    "1": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 7.179355642530654,
+      "chunkMeanEntryMs": 16.68334961997138,
+      "perChunkMeanEntryMs": [
+        16.683349662356907,
+        16.683357768588596,
+        16.683349556393093,
+        16.68334150314331,
+        16.683349609375
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683357768588596,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683353662490845,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.697179836697046,
+          "maxMs": 16.700398763020832,
+          "over16_68": 116,
+          "over16_68Percent": 90.625,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.6822866068946,
+          "p50Ms": 16.68240017361111,
+          "p95Ms": 16.6955569797092,
+          "maxMs": 16.699449327256943,
+          "over16_68": 116,
+          "over16_68Percent": 90.625,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 7.176725149154663,
+          "p50Ms": 7.135876125759548,
+          "p95Ms": 7.455540296766493,
+          "maxMs": 7.48454115125868,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68334910604689,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.683363172743057,
+          "maxMs": 16.700398763020832,
+          "over16_68": 123,
+          "over16_68Percent": 96.09375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "2": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 0,
+      "chunkMeanNonPacingMs": 7.177323860592313,
+      "chunkMeanEntryMs": 16.683349609375,
+      "perChunkMeanEntryMs": [
+        16.683349715338814,
+        16.683349503411186,
+        16.683349609375,
+        16.683349609375,
+        16.683349609375
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683349715338814,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": null,
+        "wholeLoop": null,
+        "nonPacingLoop": null,
+        "singleRenderedPeriod": null
+      }
+    }
+  },
+  "outerControlSpreadMs": 0.013580693138970368,
+  "middleMinusOuterMeanNonPacingMs": 0.008822128507825155,
+  "enabledMinusDisabledMeanNonPacingMs": 0.008822128507825155,
+  "hardwarePerformanceQualified": false,
+  "nativeSixtyFpsAccepted": false,
+  "publicCommonCodeCostUnpriced": true,
+  "compiledOutTraceFootprintUnpriced": true,
+  "limitations": [
+    "Raw tails use128loops per enabled phase, not all5400 and not64loop chunk percentiles.",
+    "Loop intervals and flip-return cadence are not photon cadence. Pipelining retains deferred hardware waits.",
+    "Sampler calibration is net bracket effect, not a per-sample uniform correction; common gates/buffers/metadata remain.",
+    "Ordinary dt and world/audio/particle evolution can drift despite exact frozen camera and fixed night.",
+    "Geometry kind2 intentionally removes eleven authored objects; not equivalent-output optimization."
+  ]
+}

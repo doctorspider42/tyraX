@@ -100,7 +100,7 @@ bool saveWriteBusy();
 void saveEnsureIcons();
 
 // hud/save-busy.png sprite size ("checking memory card" warning)
-constexpr int SAVE_BUSY_W = 512;
+constexpr int SAVE_BUSY_W = 256;
 constexpr int SAVE_BUSY_H = 128;
 
 // Save Editor behaviour. SAVE_MENU_CHECKPOINT: the in-game menu

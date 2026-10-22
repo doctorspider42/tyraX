@@ -101,8 +101,11 @@ void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
     if (supportsGsStateReuse(name) && emitState)
       packedCount |= VU1_STAPIP_EMIT_STATE_FLAG;
     if (isClipProgram(name)) {
-      TYRA_ASSERT(buffer->size <= VU1_STAPIP_COUNT_MASK,
+      TYRA_ASSERT(buffer->size <= VU1_STAPIP_CLIP_COUNT_MASK,
                   "Clip vertex count does not fit packed VU1 header");
+      // Modified by TyraX: a strip package reaches the clip program whole
+      // and is walked one vertex per triangle there (bit 9).
+      if (buffer->stripped) packedCount |= VU1_STAPIP_CLIP_STRIP_FLAG;
       // A zero mask cannot safely skip anything. It should only be possible
       // for a direct/internal caller which bypassed StaPipCore's classifier;
       // fall back to all six planes instead of risking missing geometry.
@@ -125,7 +128,9 @@ void StaPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
     // program EMITS, which is still one per input vertex (6x for the billboard
     // family - gsVertexCount).
     prim_t bufferPrim = *prim;
-    if (buffer->stripped) bufferPrim.type = PRIM_TRIANGLE_STRIP;
+    // A clip program reads the strip but emits a fan-triangulated LIST.
+    if (buffer->stripped && !isClipProgram(name))
+      bufferPrim.type = PRIM_TRIANGLE_STRIP;
     packet2_utils_gs_add_prim_giftag(packet, &bufferPrim,
                                      gsVertexCount(buffer->size), reglist,
                                      reglistCount, 0);

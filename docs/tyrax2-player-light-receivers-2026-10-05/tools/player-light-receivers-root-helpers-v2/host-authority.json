@@ -1,0 +1,11 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-receivers-controls-v2\\analyze-loop.py": "58e19cee054b237f13f797de6237d283811757c05c84742cfd62483aff7bc2a8",
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-receivers-controls-v2\\analyze-night.py": "558559448ea4f9eff7f0ce00334ce60fbabb188d9746aa74797bba42f3a10308",
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-receivers-controls-v2\\analyze-night-cli.py": "683fb6bb44ea545fdc01256f526e7eef6c74b21b780610a8c09f474093961c94",
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-receivers-controls-v2\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-receivers-controls-v2\\source-controls\\night_plan.hpp": "4aa7665ffd1b1eb0ab1598d007238949d55144926c6a960bd390b7f25a32a861",
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-receivers-controls-v2\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "af51db0234d76e4f7f6a62a9ad1dba4552f767f9d104f8dcccb743e378743497"
+}

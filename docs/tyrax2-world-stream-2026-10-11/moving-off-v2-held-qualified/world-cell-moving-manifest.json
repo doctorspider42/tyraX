@@ -1,0 +1,20 @@
+{
+  "baseElfSha256": "02d5c15024898117747f1258e0717d3752fc883cf8f514ea6a65f1d8d7083a26",
+  "generatorSha256": "6d656e1f1147b405be1f0cf9846130b76c5037cd7f9d9b4d63500553a48ec980",
+  "mode": "OFF",
+  "reuseBuilt": false,
+  "fixedSceneStep": true,
+  "bufferCount": 2,
+  "recoveredHybridControl": true,
+  "movingOrder": 2,
+  "commonReservation": true,
+  "deferredPreparation": true,
+  "controlSha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+  "status": "UNQUALIFIED",
+  "limits": [
+    "Correctness only: forced moving order and synchronous readback are not production FPS.",
+    "Original in-record terrain streaming retained; fallback/dirty frames must be evaluated.",
+    "Whole-set cold preparation counted separately, not hidden as dispatch cost.",
+    "Night uses ordinary rendering; no nighttime cell admission claim."
+  ]
+}

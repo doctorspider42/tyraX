@@ -1,0 +1,41 @@
+{
+  "status": "ROOT_REVIEWED_CLOSEOUT_INPUTS",
+  "rootReviewed": true,
+  "noAddedWaitsReviewed": true,
+  "ordinarySamplerOnlyReviewed": true,
+  "sourceFrozenByRoot": true,
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-batch-v1/empty-car",
+  "inputs": [
+    {
+      "role": "source-review",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-batch-v1/source-review.json",
+      "sha256": "e7356ede713f8a71557e89595be67a0eb6ff980317f8d771f598bd6af4726a69"
+    },
+    {
+      "role": "native-proof",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-batch-v1/native-proof.json",
+      "sha256": "bd6b68dc29dbb73e1c0cd1f9457ef415b2e8510a2dc2face29278d815b786385"
+    },
+    {
+      "role": "elf",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-batch-v1/empty-car/bin/empty-car.elf",
+      "sha256": "49756185137b7b800cca879a8acad25f90a3fd2fac4558b923c68473e29a8539"
+    },
+    {
+      "role": "symbol",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-batch-v1/empty-car/bin/empty-car.elf.sym",
+      "sha256": "c4ae5950cb0c108f2b6dd0136189a3eaa9808591721aefcd60c417056ac17134"
+    },
+    {
+      "role": "sample-config",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-batch-v1/empty-car/bin/closeout.cfg",
+      "sha256": "968c76efed47eb02a2a77c542c9128dfd4e9c7066629920b2d8c3231081e7623"
+    }
+  ],
+  "changedSources": [
+    "game/inc/batch_trial.hpp",
+    "game/src/gen/game_collision.gen.cpp",
+    "game/src/terrain_game.cpp"
+  ],
+  "reviewScope": "Root reviewed three source changes: retained vector<short> membership and batch buffers, OFF solo routing plus batch skip, ON original membership, neutral pad, phase-local identical light trajectory. No added waits or clocks; ordinary sampler only. Expected runtime exact 80187 vertices and 37/313 carriers. Parser must verify corresponding camera/car/light words; runtime/image qualification pending. Contrast is net representation cost, common observer unpriced."
+}

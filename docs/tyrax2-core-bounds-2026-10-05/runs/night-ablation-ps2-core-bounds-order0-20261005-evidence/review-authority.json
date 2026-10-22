@@ -1,0 +1,1 @@
+Private kind15 bounds partition, five disjoint regions from Core entry to textureStart; empty returns in stage0, outside returns in stage2. Original calls, waits and game sources retained. Sparse flags750/1155; timed clocks800..1119 only, stop after5400. Common footprint unpriced. No parent overlap.

@@ -1,5 +1,8 @@
 # PS2 output in the viewport
 
+The [dynamic light receiver preview](dynamic-light-receivers.md) uses authored
+player identities; selecting a parked vehicle does not make it a driven receiver.
+
 ![Editor viewport mode](img/ps2-viewport-editor.png)
 
 ![The same scene in PS2 GS mode](img/ps2-viewport-gs.png)

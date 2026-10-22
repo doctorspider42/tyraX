@@ -1,0 +1,54 @@
+{
+  "status": "PRIVATE_SOURCE_V6_REDUNDANT_LOWER_OPS_REMOVED_NATIVE_PENDING",
+  "baseV5ManifestSha256": "407469286181e470644e584b196c6be2162805e66d1aa78eccba152767f16810",
+  "sourceManifestSha256": "8da4627407ce6a239cc79cb445d047eb90ecbd6dd031514612b311404deb08f3",
+  "sourceFiles": 500,
+  "changedFromV5": {
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp": "96b71049a8c2d171e087514c2b2bfa8d774e33d23690255bb51d60b1b57f41f1"
+  },
+  "unchangedFromV5": 499,
+  "staticLowerOperationsRemoved": 7,
+  "newVIorVFNames": 0,
+  "stockLoopsAndAllGateArithmeticBranchPredicatesRetained": true,
+  "stockPersistentADCReusedNotWritten": true,
+  "deterministicReplacements": [
+    {
+      "old": "    ilw.w   stateFlag, 0(buffer)\n    iaddiu  vertexCounter, vi00, VU1_STAPIP_CORONA_SPRITE_FLAG\n    iand    stateFlag, stateFlag, vertexCounter\n    ibeq    stateFlag, vi00, coronaReturn\n    ilw.w   vertexCount, 0(buffer)",
+      "new": "    ilw.w   vertexCount, 0(buffer)\n    iaddiu  vertexCounter, vi00, VU1_STAPIP_CORONA_SPRITE_FLAG\n    iand    stateFlag, vertexCount, vertexCounter\n    ibeq    stateFlag, vi00, coronaReturn",
+      "occurrences": 1
+    },
+    {
+      "old": "    ; Q domain excludes exceptional/underflow comparisons.\n    loi     0.0001",
+      "new": "    ; Q domain excludes exceptional/underflow comparisons.\n    ; One existing dead VI holds the shared sign mask for both bounds.\n    iaddiu  fogInt, vi00, 0x20\n    loi     0.0001",
+      "occurrences": 1
+    },
+    {
+      "old": "    iaddiu  singleColorEnabled, vi00, 0x20\n    fmand   singleColorEnabled, singleColorEnabled",
+      "new": "    fmand   singleColorEnabled, fogInt",
+      "occurrences": 2
+    },
+    {
+      "old": "    iaddiu  vertexCounter, vi00, 0x4000\n    iadd    vertexCounter, vertexCounter, vertexCounter\n    iand    singleColorEnabled, singleColorEnabled, vertexCounter",
+      "new": "    ; adcMask is the stock persistent0x8000 initialized before begin.\n    iand    singleColorEnabled, singleColorEnabled, adcMask",
+      "occurrences": 1
+    },
+    {
+      "old": "    iaddiu  singleColorEnabled, vi00, 15\n    fmand   singleColorEnabled, singleColorEnabled\n    iaddiu  fogInt, vi00, 15",
+      "new": "    iaddiu  fogInt, vi00, 15\n    fmand   singleColorEnabled, fogInt",
+      "occurrences": 1
+    },
+    {
+      "old": "    iaddiu  singleColorEnabled, vi00, 3\n    fmand   singleColorEnabled, singleColorEnabled\n    iaddiu  fogInt, vi00, 3",
+      "new": "    iaddiu  fogInt, vi00, 3\n    fmand   singleColorEnabled, fogInt",
+      "occurrences": 1
+    },
+    {
+      "old": "    iaddiu  singleColorEnabled, vi00, 2\n    fmand   singleColorEnabled, singleColorEnabled\n    iaddiu  fogInt, vi00, 2",
+      "new": "    iaddiu  fogInt, vi00, 2\n    fmand   singleColorEnabled, fogInt",
+      "occurrences": 1
+    }
+  ],
+  "enabledByDefault": false,
+  "noBuildDeviceCacheMirrorOrV5Mutation": true,
+  "nativeScheduledSizeOrRuntimeOutputAccepted": false
+}

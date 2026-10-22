@@ -1,0 +1,9 @@
+
+/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-layout-v1/current.o:     file format elf32-nlittlemips
+
+
+Disassembly of section .text:
+
+00000000 <receiver_default>:
+   0:	03e00008 	jr	ra
+   4:	24020001 	li	v0,1

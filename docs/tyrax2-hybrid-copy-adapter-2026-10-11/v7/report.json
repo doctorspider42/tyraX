@@ -1,0 +1,116 @@
+{
+  "valid": true,
+  "sources": {
+    "tyrax2-hybrid-copy-protocol.hpp": "cb8872628f09eb6db8722478efbb3d4b7740f3cafd46f3e0a78e2da7f5f9fd34",
+    "tyrax2-hybrid-copy-adapter.hpp": "095007105c533148fe7201d1431f20730324550cfc1f90ad3b3ef9aed8210c93",
+    "tyrax2-hybrid-copy-ee.hpp": "6c7e2363f8874035a1f410cba412935c4268b762b3773c469afb01b4289b8f98",
+    "verify-hybrid-copy-adapter.cpp": "dad8ff75a020f521d958b4b35202c96f1b84d17108ed6589372cde6658419343",
+    "verify-hybrid-copy-packet.cpp": "f687fcb5423fc093639c64185da1cf2fda87a14231f29118c1ed259eb466d359",
+    "verify-hybrid-copy-protocol.py": "d17033076b868b97a736d4ebf2589cb7dd8ef323162d37bb9f3adf5cfc66a647"
+  },
+  "commands": [
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O2",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-adapter-20261011-v7/verify-hybrid-copy-adapter.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-adapter-20261011-v7/optimized"
+    ],
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O1",
+      "-g",
+      "-fsanitize=address,undefined",
+      "-fno-omit-frame-pointer",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-adapter-20261011-v7/verify-hybrid-copy-adapter.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-adapter-20261011-v7/sanitized"
+    ],
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O2",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-adapter-20261011-v7/packet-test-generated.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-adapter-20261011-v7/packet-optimized"
+    ],
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O1",
+      "-g",
+      "-fsanitize=address,undefined",
+      "-fno-omit-frame-pointer",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-adapter-20261011-v7/packet-test-generated.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-adapter-20261011-v7/packet-sanitized"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/bin/mips64r5900el-ps2-elf-g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-D_EE",
+      "-I",
+      "/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include",
+      "-I",
+      "/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include",
+      "-O2",
+      "-c",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-adapter-20261011-v7/verify-hybrid-copy-adapter.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-adapter-20261011-v7/protocol-ee.o"
+    ]
+  ],
+  "hostCompiler": "g++ (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0\nCopyright (C) 2021 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "eeCompiler": "mips64r5900el-ps2-elf-g++ (GCC) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "eeObjectSha256": "80e0c81c75669d791673682a9e9ef75b25563aa70db57864450451414eb611f4",
+  "guards": 90,
+  "schedulesPerHostMode": 0,
+  "mode": "adapter",
+  "sdkHeaderPins": {
+    "ee/include/kernel.h": "fe34ea02834f0b74199e8832e4d85641ce0f231c9d0c4e6d7f6b67b7d499814a",
+    "common/include/tamtypes.h": "6a6b9b07c4d3b9a9ce0dc5ebdbe50ccf346324699834ecac872b45072c5b05e8"
+  },
+  "IRQWithoutDirectKernelHeapRelocations": [
+    "blankStartISR",
+    "blankEndISR",
+    "copyFinishISR",
+    "nativeReadyISR"
+  ],
+  "actualPacketValidatorSha256": "84626f03bf41bd4acdc1146762da7c9e2869ffe09b7bdf2a331649648a0f6ef1",
+  "packetCasesPerHostMode": 644,
+  "hostModes": [
+    "optimized",
+    "ASan+UBSan"
+  ],
+  "fixedABI": {
+    "protocolBytes": 36,
+    "readyBytes": 12
+  },
+  "limits": [
+    "Isolated component, not integrated actual Core/queue target runtime.",
+    "Main/ISR transitions require an external atomic critical section and memory publication.",
+    "Readiness/copy-DMA/exclusive-FINISH predicates are modeled, not hardware-derived.",
+    "Adapter real backend cross-compiles with MMIO; its indirect queue proof still needs a bound integration.",
+    "IRQ relocation inspection checks direct references, not the full indirect caller/callee closure.",
+    "Real copy-window callback is not bound: delayed ISR/end-handler status is not physical blank-budget proof.",
+    "Every IRQ claim needs an independent remaining hardware blank budget; a software open-field flag alone is insufficient.",
+    "Cross-compilation is not target execution, cache/lifetime qualification or speedup."
+  ]
+}

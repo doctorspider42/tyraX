@@ -1,0 +1,10 @@
+{
+  "v2RuntimeSummaryPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-eight-run-summary-v1",
+  "v2MachineBundleSha256": "7d6be7c4d73ff1c0da95ccd20d06ea9508d1778ed3497de11f92f4c0c81be9f5",
+  "v2CompletedBoots": 8,
+  "v2HardwareAddbackReversesMissing": true,
+  "v3PhysicalMeasurementsAccepted": false,
+  "v3EmulatorAvailableOnlyAsSeparatelyQualifiedExternalEvidence": true,
+  "shippingOptimizationOr60FpsClaim": false,
+  "assetsOrElfPackaged": false
+}

@@ -1,0 +1,145 @@
+{
+  "status": "PASS_PRIOR28_HOST_DIALECTS_UNCHANGED",
+  "cases": [
+    {
+      "case": "O0-0-0-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 128
+    },
+    {
+      "case": "O0-0-1-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 256
+    },
+    {
+      "case": "O0-1-0-31-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-1-1-31-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-2-0-31-3",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-2-1-31-3",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-3-0-0-1",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-3-1-0-1",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-5-0-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-5-1-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-6-0-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-6-1-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-7-0-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O0-7-1-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-0-0-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 128
+    },
+    {
+      "case": "O2-0-1-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 256
+    },
+    {
+      "case": "O2-1-0-31-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-1-1-31-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-2-0-31-3",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-2-1-31-3",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-3-0-0-1",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-3-1-0-1",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-5-0-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-5-1-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-6-0-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-6-1-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-7-0-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    },
+    {
+      "case": "O2-7-1-0-0",
+      "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+      "samples": 384
+    }
+  ]
+}

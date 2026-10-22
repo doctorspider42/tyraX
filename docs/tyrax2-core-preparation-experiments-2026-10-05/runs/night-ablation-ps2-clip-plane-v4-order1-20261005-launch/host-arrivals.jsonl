@@ -1,0 +1,2 @@
+{"event": "host-launch", "monotonicNs": 473187171000000, "utc": "2026-10-05T20:32:25.175523+00:00"}
+{"event": "client-eof", "completedMarkerObserved": false, "returnCode": 4294967295, "monotonicNs": 473293343000000, "utc": "2026-10-05T20:34:11.348157+00:00"}

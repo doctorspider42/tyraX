@@ -1,0 +1,95 @@
+{
+  "status": "SOURCE_ONLY_V11_ORDINARY_FOG_PREPARED_NATIVE_UNVERIFIED",
+  "source": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-source-v11",
+  "prior": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-source-v10",
+  "pins": [
+    {
+      "path": "tyra/engine/inc/debug/night_ablation.hpp",
+      "sha256": "516aac3c870c69c9f99ee7ed564f09195c130f7c3f637d00ebbe44ccab0fc082",
+      "baseSha256": "7002e5fe126c658542bc6bc8a587c488700e249e93895c091b0c02366987b560"
+    },
+    {
+      "path": "tyra/engine/inc/debug/night_plan.hpp",
+      "sha256": "004c584e2870ca362b96cdb0965ddea2d607e26a60fea885501d11718a7a7f6b",
+      "baseSha256": "c08f89dd4da630c516eddc6e779c1b22e6092c8cce6b360a3de360cfb8c83c9b"
+    },
+    {
+      "path": "tyra/engine/inc/debug/night_runtime.hpp",
+      "sha256": "fe7f38ac4fe4d9f87f33e48c3bce4a8b09b46f7ec78a5d8b4fc0858baf6cb3ce",
+      "baseSha256": "b3f0c8c2e0b58d351544ea5dcc2f05898ca80a1bb5889896d6beb7af2adbc162"
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h",
+      "sha256": "3a49c78badaeac1b193d60fcfb0766fc9c75f88c25e9559dbe6409513b73dc1a",
+      "baseSha256": "275daf8412e0c18e6164214419153248a784a2c3e1a0220aa950b8890bbf6c09"
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_pool_lattice.hpp",
+      "sha256": "ab1dd3fb98897e3ddf21bc3bd67c73c61285edd6c6d392ddc24a690d933e2228",
+      "baseSha256": null
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_pool_lattice_packet.hpp",
+      "sha256": "b8c39f0bda68d9ed662010c1adbef5ddb3ad5b01259e9a9ac88d6a2be0496c24",
+      "baseSha256": null
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp",
+      "sha256": "7dbfdcc335b810e868a1a2c3adb783d74a080c0e5664c11ba2eeaaf9022cdff8",
+      "baseSha256": "397313a8bda017deeb0ed2eef497a192c39552e081911056c4e538a61dd016f7"
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp",
+      "sha256": "53e30f8086ec5b584033a7eb129ecf6dd278ed17f97e54d23c60470eba1afe1a",
+      "baseSha256": "d1266c96bdef0bc5b77a4f1e7cced007c53b607bcd4e4c32dfe0355597256126"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp",
+      "sha256": "b4947038953baa8b7cfc97ceb33296d08f0fb0892c8dcb7c353723530c195248",
+      "baseSha256": "f5aee36f44afb37a550a7156b9f85fcf65648e296888101afce6e85710bc944b"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.cpp",
+      "sha256": "5c211b4fd0b959c46d2f3bb85d5e11699a2445c339892389fca7ac2f75f6c04b",
+      "baseSha256": "f55a72115394dc1321263d92909e3d763b12163c402f6b77d11914f57dd9d189"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+      "sha256": "50f37a703ec00caec762b081aa9245404e8d612a4a7c27a070b6dc477d351a40",
+      "baseSha256": "b15cc0d29c10d7b7aa5f3c5f2131873c9c79d64b0ba85cab3195215fb147a08f"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp",
+      "sha256": "76ac900d77dd3826372b725508e677fc69cbca4e63ff86e045066e20bfad788f",
+      "baseSha256": "89d2d0c2bd81d09568e66df21afe9c4b66f482c0a3d6156a01ecea31b25bf31f"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+      "sha256": "c7b605fca042fa4813a1bb491a8bcc7b9827ccc9ac52936e26e79531c7a3735a",
+      "baseSha256": "f3fb9dcc4a38953e00beb9b05b4f25b9187929b0d24232046fb35af171997ad1"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp",
+      "sha256": "80bd8788e2b5f6aa65cd15548dffa92213efbbec2d0943405ae26e0b687b71bf",
+      "baseSha256": "32d5d26e478145811429d39d233a78ec35814ef536e1e21aa2b1bc6426acb8e2"
+    }
+  ],
+  "v10Delta": [
+    "Three CalculateTyraFog calls from cached actual clip vertex before original scatter clip/store",
+    "Removed lattice constant fog coefficient setup",
+    "Removed only EE latticeNoFog admission conjunct"
+  ],
+  "macroInstructionDelta": 20,
+  "registerNamesAdded": [],
+  "sourcePatchSha256": "7e557134cf27e5ec03bcb1825ff61bfe9901574f17b91f1cdef4c5a63451439e",
+  "requiredBeforePricing": [
+    "Native register allocation and full class/billboard residency proof",
+    "Actual GS output Off/On pairs with fog enabled and nonconstant coefficient",
+    "Strict ordinary kind8 activation counters"
+  ],
+  "unverified": [
+    "native",
+    "target execution",
+    "nonconstant fog GS bytes"
+  ]
+}

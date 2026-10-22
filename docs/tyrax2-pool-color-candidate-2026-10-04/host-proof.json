@@ -1,0 +1,82 @@
+{
+  "status": "PASS_HOST_EXTRACTED_POOL_FLUSH_COLOR_SPLIT_EXACT_BYTES_AND_VERSION_CONTROLS_ONLY",
+  "runs": [
+    {
+      "optimization": "O0",
+      "compileCommand": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.EXE",
+        "-std=c++17",
+        "-O0",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle-O0.exe"
+      ],
+      "compileExit": 0,
+      "runCommand": [
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle-O0.exe"
+      ],
+      "runExit": 0,
+      "stdout": "PASS cases=1322 checks=11622 colorOnly=201 geometry=10 unchanged=103 empty=198\n",
+      "stderr": "",
+      "executableSha256": "ccfaad5152fa62c7a77d1a6d5d16fb4653c77e9d63961055e8d6e2b0a4f1a770"
+    },
+    {
+      "optimization": "O2",
+      "compileCommand": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.EXE",
+        "-std=c++17",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle-O2.exe"
+      ],
+      "compileExit": 0,
+      "runCommand": [
+        "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle-O2.exe"
+      ],
+      "runExit": 0,
+      "stdout": "PASS cases=1322 checks=11622 colorOnly=201 geometry=10 unchanged=103 empty=198\n",
+      "stderr": "",
+      "executableSha256": "4237dfe5808cfba3c8a0c56efa04f08c6a2f8a388bc8790908834ca7c0080eed"
+    }
+  ],
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\source\\game\\src\\gen\\game_lighting.gen.cpp": "5a12df050da802d545bc742e916246e018f9e10f044d5c7bdceba52cab2990d1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\pool-color-split.patch": "57ed6967175cd04ac2577d35dc5f1441bc5f45facb3fc37eb7f7ace59a94e664",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\run-host-oracle.py": "ccd673f2b3c8ad40bf597031bace003d7e1207029fb63d5416923d97a00e3d6a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\bag_array.gen.hpp": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\math\\vec4.hpp": "285634435d7888a29defbddec63856d672959c97e5faa3b751d51eca1d31ce21",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\renderer\\models\\color.hpp": "2ccdf2b171fad8c4349cd1f8cb88d1c11a54cc554c416ed091d33f33a4afe588",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\tyra": "1307da4266daedde7acc44fa7aca637b88222bc5020c0a93a10f9da9d0743295",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle.cpp": "8406cd471474d1effc4ca5220ea4c86e77e50cffd4420c934c2e8577a43665bf",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\original.inc": "7b4900111e54b6bd111e823846a8a80d30b99dbf3342d63254e60af7f47429a2",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\candidate.inc": "28346142071045a81d8b1789381341fc1848bf015148f19e837cfbfd33505b99"
+  },
+  "artifactSha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\O0-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\O0-run.log": "a20b1a8aa8108e3ed91284d447008114d372daca8d1c1f354c636a287210457a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\O2-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\O2-run.log": "a20b1a8aa8108e3ed91284d447008114d372daca8d1c1f354c636a287210457a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle-O0.exe": "ccfaad5152fa62c7a77d1a6d5d16fb4653c77e9d63961055e8d6e2b0a4f1a770",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle-O2.exe": "4237dfe5808cfba3c8a0c56efa04f08c6a2f8a388bc8790908834ca7c0080eed"
+  },
+  "actualGeneratedBagArrayHeader": true,
+  "actualColorHeaderAndConstructor": true,
+  "rendererAndVec4HostShims": true,
+  "nativeAccepted": false,
+  "runtimeAccepted": false,
+  "physicalActivationMeasured": false,
+  "performanceGainClaimed": false
+}

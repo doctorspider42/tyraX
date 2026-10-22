@@ -1,0 +1,13 @@
+{
+  "status": "ROOT_BOUND_KIND8_AUTHORITATIVE_HOST_CONTROL_PARSER_PINS",
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-controls-v1\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-controls-v1\\analyze-night.py": "7244aafc4dc1b42e9e58e58da42529b64cccbd58ca58dbe0745cdf2cc56475d9",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-controls-v1\\analyze-night-cli.py": "25e52fa4f91b0c438df53f561e9847c0be5c5e2de2dab2db319da0e226b075e0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-controls-v1\\run-controls.py": "5303bffeef24945da123e30b08363937f44bee2bc29e9c03b38304575a6be1a6"
+  },
+  "hostProofSha256": "bfea02814201a8d2ba8eb90508d7554075794f27ed0d74c5a3c373fcf7a5f723",
+  "legacyRegressionSha256": "06cab0f2bc00c20c0292fab1e90a7675253eb7faac3c5b84fc19d24a448fe951",
+  "targetSamplerRuntimeHostProofSha256": "aa22c9c0deef1b2987a29e91ba9849d8d72a79e20435d4439faa2e7a4e75cac2",
+  "actualTargetActivationAccepted": false
+}

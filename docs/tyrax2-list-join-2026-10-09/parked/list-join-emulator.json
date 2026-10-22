@@ -1,0 +1,93 @@
+{
+  "valid": true,
+  "qualificationOnly": true,
+  "rasterEqual": true,
+  "elfSha256": "608534ef15dee36a63c1017a32f067d7fa43285177e340dac92d3bb3be219c08",
+  "logSha256": "728f271dc213fe92a77cab361aa84f657997636747c18ba949f674fb2fb25038",
+  "phase": 0,
+  "offset": 1250,
+  "pose": {
+    "z": -74.303497,
+    "speed": 0.0,
+    "yaw": 0.0
+  },
+  "perFrame": {
+    "calls": 11,
+    "accepted": 11,
+    "bytes": 13392
+  },
+  "positiveActivation": true,
+  "stages": [
+    [
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      1,
+      11,
+      11,
+      13392
+    ],
+    [
+      3,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      4,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      5,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      6,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      7,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      8,
+      1,
+      11,
+      11,
+      13392
+    ],
+    [
+      9,
+      0,
+      0,
+      0,
+      0
+    ]
+  ],
+  "limitation": "Original gather/oracle retained; no speedup, PS2 or general lifetime qualification"
+}

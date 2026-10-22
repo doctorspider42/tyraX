@@ -1,0 +1,17 @@
+{
+  "sourceManifestSha256": "54e19b3d7b1d8b459c4872886314b12356bd116c7ca5a68c96a563f79aa0accb",
+  "sourceFiles": 501,
+  "changes": [
+    "game/inc/terrain_game.hpp",
+    "game/src/gen/game_collision.gen.cpp",
+    "game/src/gen/game_physics.gen.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp"
+  ],
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "candidate": "Exact colors-only sky retint at runtime RGB caller; initial/scene builders retained; cold independent original arrays/geometry stamps oracle, no scoped clocks",
+  "commonCodeFootprintUnpriced": true,
+  "existingWaitsRetained": true,
+  "coldOriginalOutputLeftLive": true
+}

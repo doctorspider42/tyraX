@@ -1,0 +1,1049 @@
+{
+  "valid": true,
+  "groupRasterEqual": true,
+  "platform": "physical",
+  "elfSha256": "2a1a2dc892e16f8263ab256052d43d38c2f6e978bb176b6d036a4619bf5a4cd9",
+  "sourceFiles": 481,
+  "phases": [
+    {
+      "phase": 0,
+      "mode": 0,
+      "hour": 12,
+      "rows": 501,
+      "pricedFrames": 375,
+      "lastZ": 108.351051,
+      "witnessFrames": 3,
+      "clipCalls": 469,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 15.80534837962963,
+      "p95WorkMs": 22.16295708550347,
+      "maxWorkMs": 28.178426106770832,
+      "entryHz": 42.81539752930325,
+      "spatialMeanWorkMs": [
+        18.21803633597444,
+        16.646102774856438,
+        17.71387365129259,
+        19.053110984519677,
+        14.544700017051092,
+        13.517729389635205,
+        14.530423232932495,
+        10.597093832613242
+      ]
+    },
+    {
+      "phase": 1,
+      "mode": 7,
+      "hour": 12,
+      "rows": 495,
+      "pricedFrames": 369,
+      "lastZ": 108.369019,
+      "witnessFrames": 3,
+      "clipCalls": 465,
+      "eligible": 465,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 15.834175649733114,
+      "p95WorkMs": 21.963053385416668,
+      "maxWorkMs": 28.03539360894097,
+      "entryHz": 42.130239555331805,
+      "spatialMeanWorkMs": [
+        18.25914020302855,
+        16.820106788917823,
+        17.35065597958035,
+        19.043008309823495,
+        14.64313722640749,
+        13.56036087491002,
+        14.655241676613137,
+        10.964452801328717
+      ]
+    },
+    {
+      "phase": 2,
+      "mode": 0,
+      "hour": 12,
+      "rows": 491,
+      "pricedFrames": 365,
+      "lastZ": 108.35656,
+      "witnessFrames": 3,
+      "clipCalls": 473,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 15.934273005330217,
+      "p95WorkMs": 22.470133463541668,
+      "maxWorkMs": 31.454732259114582,
+      "entryHz": 41.67261156854597,
+      "spatialMeanWorkMs": [
+        18.315917064525465,
+        16.779856972544962,
+        17.581058078342014,
+        19.13809361533513,
+        14.859732976035467,
+        13.354204288866153,
+        15.307891119094123,
+        11.170443906956557
+      ]
+    },
+    {
+      "phase": 3,
+      "mode": 0,
+      "hour": 0,
+      "rows": 451,
+      "pricedFrames": 325,
+      "lastZ": 108.01004,
+      "witnessFrames": 3,
+      "clipCalls": 536,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 18.060120672242256,
+      "p95WorkMs": 25.884785970052082,
+      "maxWorkMs": 29.762125651041668,
+      "entryHz": 37.245780857280394,
+      "spatialMeanWorkMs": [
+        21.52662988356602,
+        20.958288200056874,
+        19.168270656040736,
+        20.756643880208333,
+        19.10342851543792,
+        14.704908682629952,
+        13.186500744941908,
+        13.148572191779996
+      ]
+    },
+    {
+      "phase": 4,
+      "mode": 7,
+      "hour": 0,
+      "rows": 450,
+      "pricedFrames": 324,
+      "lastZ": 108.022942,
+      "witnessFrames": 3,
+      "clipCalls": 510,
+      "eligible": 510,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 18.0350580516339,
+      "p95WorkMs": 26.11164008246528,
+      "maxWorkMs": 29.33822292751736,
+      "entryHz": 37.13078978135714,
+      "spatialMeanWorkMs": [
+        21.619782812801407,
+        20.830675147045618,
+        19.239412580217635,
+        20.72017542521159,
+        19.058379400344123,
+        14.760230375861479,
+        13.017772808953676,
+        13.257956704975646
+      ]
+    },
+    {
+      "phase": 5,
+      "mode": 0,
+      "hour": 0,
+      "rows": 449,
+      "pricedFrames": 323,
+      "lastZ": 108.037621,
+      "witnessFrames": 3,
+      "clipCalls": 829,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 18.095192651056447,
+      "p95WorkMs": 25.457838270399307,
+      "maxWorkMs": 31.39647759331597,
+      "entryHz": 36.87483909066627,
+      "spatialMeanWorkMs": [
+        21.640537591628085,
+        20.746360223412058,
+        19.346216315897102,
+        21.225103553366544,
+        19.083000465675635,
+        14.627999859091677,
+        13.268761876641515,
+        13.126246085999504
+      ]
+    }
+  ],
+  "unrefined": false,
+  "groupOnly": true,
+  "images": [
+    {
+      "phase": 0,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 0,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "negativeControls": [
+    "missing-header-oracle",
+    "changed-header-oracle",
+    "stationary",
+    "no-gas",
+    "freeze",
+    "cars",
+    "profiler",
+    "paint",
+    "present",
+    "missing-phase",
+    "completion",
+    "witness",
+    "checkpoint",
+    "missing-native-contract",
+    "inactive-native-candidate",
+    "native-control",
+    "zero-native-triangles",
+    "changed-canonical-input",
+    "missing-quiet-window",
+    "ordinary-output-in-gas",
+    "missing-terrain-contract",
+    "missing-resident-chunk"
+  ],
+  "logSha256": "79e2657e831f9c3a5033a2f1a2a20aa05e23f5a8bfd4c49c76e644a089f09c21",
+  "csvSha256": "4a5c5fc4eb6697bd9cda675034ce9f8dfcaef76d5652db90107e4cc8aafd845c",
+  "groupActive": false,
+  "scope": "Native clip strips with bounded VU output rings; stable terrain focus and quiet transport in both arms; net elapsed, not pure EE cycles",
+  "contrasts": [
+    {
+      "hour": 12,
+      "mode": 7,
+      "savedMeanMs": 0.03563504274680973,
+      "savedSpatialMs": 0.0460037824597439,
+      "candidateP95Ms": 21.963053385416668,
+      "maxControlP95Ms": 22.470133463541668
+    },
+    {
+      "hour": 0,
+      "mode": 7,
+      "savedMeanMs": 0.04259861001544962,
+      "savedSpatialMs": 0.03804363847197223,
+      "candidateP95Ms": 26.11164008246528,
+      "maxControlP95Ms": 25.884785970052082
+    }
+  ],
+  "heldTerrainContracts": [
+    [
+      "0",
+      "0",
+      "25",
+      "0.000000",
+      "108.351051"
+    ],
+    [
+      "0",
+      "1",
+      "25",
+      "0.000000",
+      "108.351051"
+    ],
+    [
+      "0",
+      "2",
+      "25",
+      "0.000000",
+      "108.351051"
+    ],
+    [
+      "0",
+      "3",
+      "25",
+      "0.000000",
+      "108.351051"
+    ],
+    [
+      "0",
+      "4",
+      "25",
+      "0.000000",
+      "108.351051"
+    ],
+    [
+      "1",
+      "0",
+      "25",
+      "0.000000",
+      "108.369019"
+    ],
+    [
+      "1",
+      "1",
+      "25",
+      "0.000000",
+      "108.369019"
+    ],
+    [
+      "1",
+      "2",
+      "25",
+      "0.000000",
+      "108.369019"
+    ],
+    [
+      "1",
+      "3",
+      "25",
+      "0.000000",
+      "108.369019"
+    ],
+    [
+      "1",
+      "4",
+      "25",
+      "0.000000",
+      "108.369019"
+    ],
+    [
+      "2",
+      "0",
+      "25",
+      "0.000000",
+      "108.356560"
+    ],
+    [
+      "2",
+      "1",
+      "25",
+      "0.000000",
+      "108.356560"
+    ],
+    [
+      "2",
+      "2",
+      "25",
+      "0.000000",
+      "108.356560"
+    ],
+    [
+      "2",
+      "3",
+      "25",
+      "0.000000",
+      "108.356560"
+    ],
+    [
+      "2",
+      "4",
+      "25",
+      "0.000000",
+      "108.356560"
+    ],
+    [
+      "3",
+      "0",
+      "25",
+      "0.000000",
+      "108.010040"
+    ],
+    [
+      "3",
+      "1",
+      "25",
+      "0.000000",
+      "108.010040"
+    ],
+    [
+      "3",
+      "2",
+      "25",
+      "0.000000",
+      "108.010040"
+    ],
+    [
+      "3",
+      "3",
+      "25",
+      "0.000000",
+      "108.010040"
+    ],
+    [
+      "3",
+      "4",
+      "25",
+      "0.000000",
+      "108.010040"
+    ],
+    [
+      "4",
+      "0",
+      "25",
+      "0.000000",
+      "108.022942"
+    ],
+    [
+      "4",
+      "1",
+      "25",
+      "0.000000",
+      "108.022942"
+    ],
+    [
+      "4",
+      "2",
+      "25",
+      "0.000000",
+      "108.022942"
+    ],
+    [
+      "4",
+      "3",
+      "25",
+      "0.000000",
+      "108.022942"
+    ],
+    [
+      "4",
+      "4",
+      "25",
+      "0.000000",
+      "108.022942"
+    ],
+    [
+      "5",
+      "0",
+      "25",
+      "0.000000",
+      "108.037621"
+    ],
+    [
+      "5",
+      "1",
+      "25",
+      "0.000000",
+      "108.037621"
+    ],
+    [
+      "5",
+      "2",
+      "25",
+      "0.000000",
+      "108.037621"
+    ],
+    [
+      "5",
+      "3",
+      "25",
+      "0.000000",
+      "108.037621"
+    ],
+    [
+      "5",
+      "4",
+      "25",
+      "0.000000",
+      "108.037621"
+    ]
+  ],
+  "ringContracts": [
+    "RINGCONTRACT phase=0 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=0 arm=1 calls=17 triangles=92",
+    "RINGCONTRACT phase=0 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=0 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=0 arm=4 calls=0 triangles=0",
+    "RINGCONTRACT phase=1 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=1 arm=1 calls=13 triangles=64",
+    "RINGCONTRACT phase=1 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=1 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=1 arm=4 calls=0 triangles=0",
+    "RINGCONTRACT phase=2 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=2 arm=1 calls=13 triangles=68",
+    "RINGCONTRACT phase=2 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=2 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=2 arm=4 calls=0 triangles=0",
+    "RINGCONTRACT phase=3 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=3 arm=1 calls=27 triangles=156",
+    "RINGCONTRACT phase=3 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=3 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=3 arm=4 calls=0 triangles=0",
+    "RINGCONTRACT phase=4 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=4 arm=1 calls=28 triangles=164",
+    "RINGCONTRACT phase=4 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=4 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=4 arm=4 calls=0 triangles=0",
+    "RINGCONTRACT phase=5 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=5 arm=1 calls=28 triangles=160",
+    "RINGCONTRACT phase=5 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=5 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=5 arm=4 calls=0 triangles=0"
+  ],
+  "nativeFallback": false,
+  "residentWords": 2034,
+  "nativeActive": true,
+  "quietBothArms": true,
+  "consumerInputEqual": true,
+  "headerOracle": [
+    [
+      0,
+      0,
+      201
+    ],
+    [
+      0,
+      1,
+      195
+    ],
+    [
+      0,
+      2,
+      201
+    ],
+    [
+      0,
+      3,
+      201
+    ],
+    [
+      0,
+      4,
+      201
+    ],
+    [
+      1,
+      0,
+      186
+    ],
+    [
+      1,
+      1,
+      183
+    ],
+    [
+      1,
+      2,
+      186
+    ],
+    [
+      1,
+      3,
+      186
+    ],
+    [
+      1,
+      4,
+      186
+    ],
+    [
+      2,
+      0,
+      177
+    ],
+    [
+      2,
+      1,
+      173
+    ],
+    [
+      2,
+      2,
+      177
+    ],
+    [
+      2,
+      3,
+      177
+    ],
+    [
+      2,
+      4,
+      177
+    ],
+    [
+      3,
+      0,
+      215
+    ],
+    [
+      3,
+      1,
+      203
+    ],
+    [
+      3,
+      2,
+      215
+    ],
+    [
+      3,
+      3,
+      215
+    ],
+    [
+      3,
+      4,
+      215
+    ],
+    [
+      4,
+      0,
+      222
+    ],
+    [
+      4,
+      1,
+      209
+    ],
+    [
+      4,
+      2,
+      222
+    ],
+    [
+      4,
+      3,
+      222
+    ],
+    [
+      4,
+      4,
+      222
+    ],
+    [
+      5,
+      0,
+      221
+    ],
+    [
+      5,
+      1,
+      209
+    ],
+    [
+      5,
+      2,
+      221
+    ],
+    [
+      5,
+      3,
+      221
+    ],
+    [
+      5,
+      4,
+      221
+    ]
+  ],
+  "inputs": [
+    [
+      0,
+      0,
+      617,
+      1851,
+      1263806931
+    ],
+    [
+      0,
+      1,
+      617,
+      1851,
+      1263806931
+    ],
+    [
+      0,
+      2,
+      617,
+      1851,
+      1263806931
+    ],
+    [
+      0,
+      3,
+      617,
+      1851,
+      1263806931
+    ],
+    [
+      0,
+      4,
+      617,
+      1851,
+      1263806931
+    ],
+    [
+      1,
+      0,
+      559,
+      1677,
+      3096976150
+    ],
+    [
+      1,
+      1,
+      559,
+      1677,
+      3096976150
+    ],
+    [
+      1,
+      2,
+      559,
+      1677,
+      3096976150
+    ],
+    [
+      1,
+      3,
+      559,
+      1677,
+      3096976150
+    ],
+    [
+      1,
+      4,
+      559,
+      1677,
+      3096976150
+    ],
+    [
+      2,
+      0,
+      510,
+      1530,
+      1480759727
+    ],
+    [
+      2,
+      1,
+      510,
+      1530,
+      1480759727
+    ],
+    [
+      2,
+      2,
+      510,
+      1530,
+      1480759727
+    ],
+    [
+      2,
+      3,
+      510,
+      1530,
+      1480759727
+    ],
+    [
+      2,
+      4,
+      510,
+      1530,
+      1480759727
+    ],
+    [
+      3,
+      0,
+      678,
+      2034,
+      3292630196
+    ],
+    [
+      3,
+      1,
+      678,
+      2034,
+      3292630196
+    ],
+    [
+      3,
+      2,
+      678,
+      2034,
+      3292630196
+    ],
+    [
+      3,
+      3,
+      678,
+      2034,
+      3292630196
+    ],
+    [
+      3,
+      4,
+      678,
+      2034,
+      3292630196
+    ],
+    [
+      4,
+      0,
+      696,
+      2088,
+      66917937
+    ],
+    [
+      4,
+      1,
+      696,
+      2088,
+      66917937
+    ],
+    [
+      4,
+      2,
+      696,
+      2088,
+      66917937
+    ],
+    [
+      4,
+      3,
+      696,
+      2088,
+      66917937
+    ],
+    [
+      4,
+      4,
+      696,
+      2088,
+      66917937
+    ],
+    [
+      5,
+      0,
+      692,
+      2076,
+      3583636196
+    ],
+    [
+      5,
+      1,
+      692,
+      2076,
+      3583636196
+    ],
+    [
+      5,
+      2,
+      692,
+      2076,
+      3583636196
+    ],
+    [
+      5,
+      3,
+      692,
+      2076,
+      3583636196
+    ],
+    [
+      5,
+      4,
+      692,
+      2076,
+      3583636196
+    ]
+  ],
+  "controlRasterEqual": true,
+  "firstOrderGate": false,
+  "reverse": false,
+  "phaseRoles": [
+    "baseline",
+    "candidate",
+    "baseline",
+    "baseline",
+    "candidate",
+    "baseline"
+  ]
+}

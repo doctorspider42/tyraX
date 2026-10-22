@@ -1,0 +1,635 @@
+{
+  "status": "paired_physical_native_sizing_reuse_control_complete",
+  "date": "2026-10-03",
+  "environment": "ps2",
+  "selected_elf_sha256": "18ca4d4e4684af8cd6299d55bbe1479e4862c4b43fe7568890628bf0216d65c6",
+  "source_manifest_sha256": "a29b208325549325f1a3d483b332210ceeaf6e326470e4326dd8f15a9867a438",
+  "boots": [
+    {
+      "order": 0,
+      "sequence": "ABA",
+      "evidence_dir": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-native-sizing-reuse-order0-complete-physical-evidence",
+      "machine_sha256": "4f18f9209518d0c329af500de0b2baa12af9ba18af948f19894c0bbfb3963064",
+      "phases": [
+        {
+          "phase": 0,
+          "candidate": 0,
+          "samples": 128,
+          "means_ticks": {
+            "engineTicks": 9839975.859375,
+            "loopTicks": 9824348.125,
+            "renderTicks": 9398951.21875,
+            "workTicks": 5357459.5234375,
+            "periodTicks": 9840229.5625,
+            "sceneTicks": 5234898.078125
+          },
+          "means_ms": {
+            "engineTicks": 33.36580355962118,
+            "loopTicks": 33.312812381320526,
+            "renderTicks": 31.87035867902968,
+            "workTicks": 18.16629883978102,
+            "periodTicks": 33.36666382683648,
+            "sceneTicks": 17.75071234173245
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              0,
+              0
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              0,
+              0
+            ],
+            "sizingScans": [
+              106,
+              106
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ]
+          },
+          "source_values_minmax": {
+            "sourceQwords": [
+              3297,
+              3297
+            ],
+            "recordsTotal": [
+              1567,
+              1567
+            ],
+            "copiedBytes": [
+              224592,
+              224592
+            ],
+            "borrowedBytes": [
+              2151152,
+              2151152
+            ]
+          }
+        },
+        {
+          "phase": 1,
+          "candidate": 1,
+          "samples": 128,
+          "means_ticks": {
+            "engineTicks": 9839951.890625,
+            "loopTicks": 9824402.5,
+            "renderTicks": 9399777.7734375,
+            "workTicks": 5313482.421875,
+            "periodTicks": 9840275.671875,
+            "sceneTicks": 5190825.9375
+          },
+          "means_ms": {
+            "engineTicks": 33.365722285376656,
+            "loopTicks": 33.312996758355034,
+            "renderTicks": 31.873161395390827,
+            "workTicks": 18.017179436153835,
+            "periodTicks": 33.36682017644247,
+            "sceneTicks": 17.60127067565918
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              106,
+              106
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              106,
+              106
+            ],
+            "sizingScans": [
+              0,
+              0
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ]
+          },
+          "source_values_minmax": {
+            "sourceQwords": [
+              3297,
+              3297
+            ],
+            "recordsTotal": [
+              1567,
+              1567
+            ],
+            "copiedBytes": [
+              224592,
+              224592
+            ],
+            "borrowedBytes": [
+              2151152,
+              2151152
+            ]
+          }
+        },
+        {
+          "phase": 2,
+          "candidate": 0,
+          "samples": 128,
+          "means_ticks": {
+            "engineTicks": 9839904.953125,
+            "loopTicks": 9827763.53125,
+            "renderTicks": 9403617.1015625,
+            "workTicks": 5360102.15625,
+            "periodTicks": 9840230.578125,
+            "sceneTicks": 5237927.296875
+          },
+          "means_ms": {
+            "engineTicks": 33.36556312772963,
+            "loopTicks": 33.32439348432753,
+            "renderTicks": 31.886179950502182,
+            "workTicks": 18.175259590148926,
+            "periodTicks": 33.3666672706604,
+            "sceneTicks": 17.76098394393921
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              0,
+              0
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              0,
+              0
+            ],
+            "sizingScans": [
+              106,
+              106
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ]
+          },
+          "source_values_minmax": {
+            "sourceQwords": [
+              3297,
+              3297
+            ],
+            "recordsTotal": [
+              1567,
+              1567
+            ],
+            "copiedBytes": [
+              224592,
+              224592
+            ],
+            "borrowedBytes": [
+              2151152,
+              2151152
+            ]
+          }
+        }
+      ],
+      "net_candidate_delta": {
+        "engineTicks": {
+          "candidate_minus_control_ticks": [
+            -23.96875,
+            46.9375
+          ],
+          "candidate_minus_control_ms": [
+            -8.127424452039931e-05,
+            0.00015915764702690972
+          ],
+          "outer_spread_ticks": 70.90625,
+          "outer_spread_ms": 0.00024043189154730903
+        },
+        "loopTicks": {
+          "candidate_minus_control_ticks": [
+            54.375,
+            -3361.03125
+          ],
+          "candidate_minus_control_ms": [
+            0.00018437703450520834,
+            -0.01139672597249349
+          ],
+          "outer_spread_ticks": 3415.40625,
+          "outer_spread_ms": 0.011581103006998697
+        },
+        "renderTicks": {
+          "candidate_minus_control_ticks": [
+            826.5546875,
+            -3839.328125
+          ],
+          "candidate_minus_control_ms": [
+            0.0028027163611518014,
+            -0.013018555111355253
+          ],
+          "outer_spread_ticks": 4665.8828125,
+          "outer_spread_ms": 0.015821271472507052
+        },
+        "workTicks": {
+          "candidate_minus_control_ticks": [
+            -43977.1015625,
+            -46619.734375
+          ],
+          "candidate_minus_control_ms": [
+            -0.1491194036271837,
+            -0.15808015399509007
+          ],
+          "outer_spread_ticks": 2642.6328125,
+          "outer_spread_ms": 0.008960750367906358
+        },
+        "periodTicks": {
+          "candidate_minus_control_ticks": [
+            46.109375,
+            45.09375
+          ],
+          "candidate_minus_control_ms": [
+            0.000156349605984158,
+            0.0001529057820638021
+          ],
+          "outer_spread_ticks": 1.015625,
+          "outer_spread_ms": 3.443823920355903e-06
+        },
+        "sceneTicks": {
+          "candidate_minus_control_ticks": [
+            -44072.140625,
+            -47101.359375
+          ],
+          "candidate_minus_control_ms": [
+            -0.1494416660732693,
+            -0.1597132682800293
+          ],
+          "outer_spread_ticks": 3029.21875,
+          "outer_spread_ms": 0.010271602206759982
+        }
+      }
+    },
+    {
+      "order": 1,
+      "sequence": "BAB",
+      "evidence_dir": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-native-sizing-reuse-order1-physical-evidence",
+      "machine_sha256": "0b50f1c5c8312dcc400443e400db3c2bc51c829c80c78bb42dba30847e2fc839",
+      "phases": [
+        {
+          "phase": 0,
+          "candidate": 1,
+          "samples": 128,
+          "means_ticks": {
+            "engineTicks": 9839975.328125,
+            "loopTicks": 9824709.234375,
+            "renderTicks": 9399419.375,
+            "workTicks": 5312597.65625,
+            "periodTicks": 9840231,
+            "sceneTicks": 5188896.421875
+          },
+          "means_ms": {
+            "engineTicks": 33.36580175823636,
+            "loopTicks": 33.31403684616089,
+            "renderTicks": 31.87194612291124,
+            "workTicks": 18.014179335700142,
+            "periodTicks": 33.366668701171875,
+            "sceneTicks": 17.594727993011475
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              106,
+              106
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              106,
+              106
+            ],
+            "sizingScans": [
+              0,
+              0
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ]
+          },
+          "source_values_minmax": {
+            "sourceQwords": [
+              3297,
+              3297
+            ],
+            "recordsTotal": [
+              1567,
+              1567
+            ],
+            "copiedBytes": [
+              224592,
+              224592
+            ],
+            "borrowedBytes": [
+              2151152,
+              2151152
+            ]
+          }
+        },
+        {
+          "phase": 1,
+          "candidate": 0,
+          "samples": 128,
+          "means_ticks": {
+            "engineTicks": 9839975.4375,
+            "loopTicks": 9824422.109375,
+            "renderTicks": 9399136.265625,
+            "workTicks": 5356981.265625,
+            "periodTicks": 9840231.84375,
+            "sceneTicks": 5235740.828125
+          },
+          "means_ms": {
+            "engineTicks": 33.3658021291097,
+            "loopTicks": 33.31306325064765,
+            "renderTicks": 31.870986143747967,
+            "workTicks": 18.164677143096924,
+            "periodTicks": 33.366671562194824,
+            "sceneTicks": 17.753569973839653
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              0,
+              0
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              0,
+              0
+            ],
+            "sizingScans": [
+              106,
+              106
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ]
+          },
+          "source_values_minmax": {
+            "sourceQwords": [
+              3297,
+              3297
+            ],
+            "recordsTotal": [
+              1567,
+              1567
+            ],
+            "copiedBytes": [
+              224592,
+              224592
+            ],
+            "borrowedBytes": [
+              2151152,
+              2151152
+            ]
+          }
+        },
+        {
+          "phase": 2,
+          "candidate": 1,
+          "samples": 128,
+          "means_ticks": {
+            "engineTicks": 9839978.4375,
+            "loopTicks": 9828324.234375,
+            "renderTicks": 9402782.0625,
+            "workTicks": 5313738.8125,
+            "periodTicks": 9840230.796875,
+            "sceneTicks": 5190367.9375
+          },
+          "means_ms": {
+            "engineTicks": 33.36581230163574,
+            "loopTicks": 33.3262947400411,
+            "renderTicks": 31.88334846496582,
+            "workTicks": 18.018048816257053,
+            "periodTicks": 33.36666801240709,
+            "sceneTicks": 17.59971767001682
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              106,
+              106
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              106,
+              106
+            ],
+            "sizingScans": [
+              0,
+              0
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ]
+          },
+          "source_values_minmax": {
+            "sourceQwords": [
+              3297,
+              3297
+            ],
+            "recordsTotal": [
+              1567,
+              1567
+            ],
+            "copiedBytes": [
+              224592,
+              224592
+            ],
+            "borrowedBytes": [
+              2151152,
+              2151152
+            ]
+          }
+        }
+      ],
+      "net_candidate_delta": {
+        "engineTicks": {
+          "candidate_minus_control_ticks": [
+            -0.109375,
+            3.0
+          ],
+          "candidate_minus_control_ms": [
+            -3.7087334526909723e-07,
+            1.0172526041666666e-05
+          ],
+          "outer_spread_ticks": 3.109375,
+          "outer_spread_ms": 1.0543399386935764e-05
+        },
+        "loopTicks": {
+          "candidate_minus_control_ticks": [
+            287.125,
+            3902.125
+          ],
+          "candidate_minus_control_ms": [
+            0.0009735955132378472,
+            0.013231489393446181
+          ],
+          "outer_spread_ticks": 3615.0,
+          "outer_spread_ms": 0.012257893880208334
+        },
+        "renderTicks": {
+          "candidate_minus_control_ticks": [
+            283.109375,
+            3645.796875
+          ],
+          "candidate_minus_control_ms": [
+            0.0009599791632758246,
+            0.012362321217854818
+          ],
+          "outer_spread_ticks": 3362.6875,
+          "outer_spread_ms": 0.011402342054578993
+        },
+        "workTicks": {
+          "candidate_minus_control_ticks": [
+            -44383.609375,
+            -43242.453125
+          ],
+          "candidate_minus_control_ms": [
+            -0.15049780739678276,
+            -0.14662832683987087
+          ],
+          "outer_spread_ticks": 1141.15625,
+          "outer_spread_ms": 0.0038694805569118923
+        },
+        "periodTicks": {
+          "candidate_minus_control_ticks": [
+            -0.84375,
+            -1.046875
+          ],
+          "candidate_minus_control_ms": [
+            -2.86102294921875e-06,
+            -3.5497877332899306e-06
+          ],
+          "outer_spread_ticks": 0.203125,
+          "outer_spread_ms": 6.887647840711805e-07
+        },
+        "sceneTicks": {
+          "candidate_minus_control_ticks": [
+            -46844.40625,
+            -45372.890625
+          ],
+          "candidate_minus_control_ms": [
+            -0.15884198082817924,
+            -0.1538523038228353
+          ],
+          "outer_spread_ticks": 1471.515625,
+          "outer_spread_ms": 0.004989677005343967
+        }
+      }
+    }
+  ],
+  "physical_samples": 768,
+  "crossboot_controls": {
+    "sampled_state_digests_equal": true,
+    "raw_camera_words_equal": true,
+    "sampled_resource_addresses_equal": true,
+    "common_sample_metrics_buffers_equal": true,
+    "phase_relative_native_source_workload_equal": true
+  },
+  "observed_work_direction": "candidate_faster_both_orders",
+  "net_work_delta_range_ms": [
+    -0.15808015399509007,
+    -0.14662832683987087
+  ],
+  "build_backend": "native",
+  "target_return_abi_bytes": {
+    "control": 12,
+    "candidate": 16
+  },
+  "common_metrics_bytes": 11264,
+  "common_sample_bytes": 7680,
+  "common_scene_count_reads": 2,
+  "selected_broad_send_observer": false,
+  "pure_scan_saving_accepted": false,
+  "pristine_production_cost_accepted": false,
+  "sixty_fps_coverage_accepted": false,
+  "production_optimization_accepted": false,
+  "limitations": [
+    "One ABA and one reverse BAB on a parked continuous fixed game-step workload; no broad scene/view/motion repetition.",
+    "Net effect includes candidate preflight tag increments,16-byte return ABI/handoff and removed later scan; common selector/counters/Scene2reads/full-loop sampling remain.",
+    "FrameProfile work and period ownership are not assigned to the current game/render/EE/GPU/display job. Period values are observations, not TV photon or universal60FPS proof.",
+    "Sampled digests,rawcamera and addresses constrain partial state only; cache/device/heap contents and full pixels are not proven equal.",
+    "No cross-ELF timing subtraction, hidden wait attribution, VU/GS utilization or pure CPU bill."
+  ],
+  "manifest_checks": {
+    "source-hashes.json": {
+      "entries": 468,
+      "sha256": "a29b208325549325f1a3d483b332210ceeaf6e326470e4326dd8f15a9867a438"
+    },
+    "asset-hashes.json": {
+      "entries": 328,
+      "sha256": "8eb2f9a87964839e5ff61c268eeebb608b7473e8266967cf517ac8b706c7ef2e"
+    }
+  },
+  "proof_sha256": {
+    "frozen-source-host-proof.json": "8265c608a819ea3c1bdaed07d394e64c1db5990a3b1463b0c2f22b1a25c2d139",
+    "strict-negative-controls.json": "6f7a3447cdafd6688f3d12888a99ad1f8e74325a3bc7eed23f9ca0da3d7a192c",
+    "build-provenance.json": "598d28fda4772b5128cce661409155b64c470cf7a054d1ed533c8674858986d8"
+  }
+}

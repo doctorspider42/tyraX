@@ -1,0 +1,14 @@
+{
+  "actualCommandParameters": {
+    "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+    "Project": "F:/Projects/tyrax2-lab-20261001/sky-retint-physical-v2/game",
+    "Engine": "F:/Projects/tyrax2-lab-20261001/sky-retint-physical-v2/tyra",
+    "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev"
+  },
+  "errorLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v46.err",
+  "childProcessId": 33740,
+  "sourceManifestSha256": "77d2126401e8f8d55c86b8a8bc6506deca2b4a4313f4f035e10fe087d6a67f4e",
+  "buildLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v46.log",
+  "processExitCode": 0,
+  "status": "ROOT_observed_native_child_process_completion"
+}

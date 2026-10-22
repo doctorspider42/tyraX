@@ -1,0 +1,18 @@
+freepad:         SB_STAT = 00f00160
+
+freepad: DMA Busy ID = 3c4d0002 ret = 1
+
+freepad:         SB_STAT = 00f00160
+
+freepad: DMA Busy ID = 3c4d0002 ret = 1
+
+freepad:         SB_STAT = 00f00160
+
+freepad: DMA Busy ID = 3c4d0002 ret = 1
+
+freepad:         SB_STAT = 00f00160
+
+freepad: DMA Busy ID = 3c4d0002 ret = 1
+
+freepad:         SB_STAT = 00f00160
+

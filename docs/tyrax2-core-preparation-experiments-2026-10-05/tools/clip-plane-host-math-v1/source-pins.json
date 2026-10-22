@@ -1,0 +1,7 @@
+{
+  "candidate": "18354501926a72856da8eed498ced91cd0d1a73a21da12b743802eced4a86dd9",
+  "baseline": "b15cc0d29c10d7b7aa5f3c5f2131873c9c79d64b0ba85cab3195215fb147a08f",
+  "hostOnly": true,
+  "fmaDisabled": true,
+  "finiteInputs": true
+}

@@ -1,0 +1,111 @@
+{
+  "sources": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v1\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_pool_color_table.hpp": {
+      "sha256": "260b62887ed750ff959028ea3d232e37c666e016282528017183e94d5a0765c9",
+      "bytes": 3552
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v1\\game\\inc\\bag_array.gen.hpp": {
+      "sha256": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+      "bytes": 8140
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\game\\inc\\bag_array.gen.hpp": {
+      "sha256": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+      "bytes": 8140
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\game\\src\\gen\\game_lighting.gen.cpp": {
+      "sha256": "6b3e17cfdb7000dce317d1d7115ae8f0155c548e4b2a0de05bfb03e2fbf5a2a8",
+      "bytes": 220258
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\game\\inc\\terrain_game.hpp": {
+      "sha256": "0740eef0342efa61616248e21f534e47e3d4cee468eb6f10d8b34e981a28f15b",
+      "bytes": 132351
+    },
+    "Legacy-flush": {
+      "sha256": "a556cce3c87a71858713a06d1f22fb067a978581e5030b2a9ca9af0c3b6341ea",
+      "bytes": 3068
+    },
+    "Legacy-add": {
+      "sha256": "840c1fef489ce4d344d41d028d9d6d0d129244bd71f8b77e7fd27ab8d246ecfd",
+      "bytes": 140
+    },
+    "Legacy-declaration": {
+      "sha256": "827d4a2645a517c6c11117c0c693b0fa170b34796d127752fd7dec2ae770fec2",
+      "bytes": 545
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v1\\game\\src\\gen\\game_lighting.gen.cpp": {
+      "sha256": "e563dd4148a022fe5d6987e1a6dde801fa21b3916701ef1d1c0a28fcbb40b282",
+      "bytes": 221504
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v1\\game\\inc\\terrain_game.hpp": {
+      "sha256": "e66e86bf0e4bf2538546095f0aca05c4a637c88a6e675259dd12c9c13e7f15b5",
+      "bytes": 132607
+    },
+    "Candidate-flush": {
+      "sha256": "950e57b923131a97749bc1b4d066d328495bffc46d83775d32f15351f6303857",
+      "bytes": 4293
+    },
+    "Candidate-add": {
+      "sha256": "840c1fef489ce4d344d41d028d9d6d0d129244bd71f8b77e7fd27ab8d246ecfd",
+      "bytes": 140
+    },
+    "Candidate-declaration": {
+      "sha256": "af4d4025811033d46d1c128f439d8fd567f24a5005c2210dadddab31b1443560",
+      "bytes": 801
+    },
+    "oracle.cpp": {
+      "sha256": "f706860b70f5a9a3a2eff5e192b65cd89258a787abbece55b05c1bc2e06e5c67"
+    },
+    "tests.inc": {
+      "sha256": "34eb7bd3c55307db2e5eb672570833f29ec959d81957d4ece52b8394344ef7fe"
+    }
+  },
+  "source_revalidated_after_runs": true,
+  "compiler_version": "g++.exe (x86_64-posix-seh-rev1, Built by MinGW-Builds project) 16.1.0\nCopyright (C) 2026 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "runs": [
+    {
+      "optimization": "-O0",
+      "command": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.exe",
+        "-std=c++17",
+        "-O0",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v2",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v2\\oracle.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v2\\oracle-O0.exe"
+      ],
+      "compile_exit": 0,
+      "run_exit": 0,
+      "stdout": "PASS checks=645441 flushes=1474 compact_color_only=256 partial_ranges=702\n",
+      "stderr": "",
+      "exe_sha256": "69b9dd6735b4ddfb207fdad7db22590e4c6608ff259894dc84977e388661a0a5"
+    },
+    {
+      "optimization": "-O2",
+      "command": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.exe",
+        "-std=c++17",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v2",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v2\\oracle.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v2\\oracle-O2.exe"
+      ],
+      "compile_exit": 0,
+      "run_exit": 0,
+      "stdout": "PASS checks=645441 flushes=1474 compact_color_only=256 partial_ranges=702\n",
+      "stderr": "",
+      "exe_sha256": "ed7ead93fbcbff9f54dad4ffe093e1e70b9832dd9c6d141f5bb2db8ee831b8d6"
+    }
+  ],
+  "limitations": "Host-only actual extracted producer/BagArray/materializeRange semantics. No DMA/cache/target ABI, pixel, native or hardware performance proof."
+}

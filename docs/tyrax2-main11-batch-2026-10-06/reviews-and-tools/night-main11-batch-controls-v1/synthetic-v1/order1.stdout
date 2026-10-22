@@ -1,0 +1,865 @@
+loadelf: fname host:vehicle-playground.elf secname all
+
+ (Ï#Input ELF format filename = host:vehicle-playground.elf
+
+1 00100000 003fdbbc ................................................................
+
+Loaded, host:vehicle-playground.elf
+
+start address 0x100e78
+
+gp address 00000000
+
+read/write allocate memory 4000
+
+open name host:/ps2link.run flag 1 data 41378
+
+open fd = 3
+
+Pad Driver for OSD
+
+FREESD v1.01
+
+debug_level = 1 (ps2snd 0.1
+
+greetings from version 0.93 !
+
+audsrv_adpcm_init()
+
+
+-----------------------------------------
+        _____        ____   ___
+          |     \/   ____| |___|
+          |     |   |   \  |   |
+-----------------------------------------
+Copyright 2022
+Repository: https://github.com/h4570/tyra
+Licensed under Apache License 2.0
+Version: 2.2.0
+-----------------------------------------
+
+audsrv_adpcm_init()
+
+Curent pad(0,0) status: EXECCMD
+Curent pad(0,0) status: FINDPAD
+Curent pad(0,0) status: EXECCMD
+Curent pad(0,0) status: EXECCMD
+Curent pad(0,0) status: EXECCMD
+open name host:/night-ablation.cfg flag 1 data 41378
+
+open fd = 3
+
+open name host:/night-ablation.log flag 602 data 41378
+
+open fd = 3
+
+loadmodule: fname rom0:XMCMAN args 0 arg 
+
+loadmodule: id 38, ret 0
+
+loadmodule: fname rom0:XMCSERV args 0 arg 
+
+loadmodule: id 39, ret 0
+
+open name host:/save0.sav flag 1 data 41378
+
+open fd = -1
+
+open name host:/save1.sav flag 1 data 41378
+
+open fd = -1
+
+open name host:/save2.sav flag 1 data 41378
+
+open fd = -1
+
+open name host:/menus/save.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/save-cursor.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/save-used.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/save-saved.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/save-loaded.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/save-error.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/save-busy.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/save-spinner.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/menus/save.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/menus/district-pause.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/menus/district-pause-values.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/save-cursor.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/save-cursor.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/save-cursor.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/menu-dim.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/flare-corona.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/flashlight-gobo.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/flare-glow.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/sun-disc.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/moon-disc.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/quiet-night.cfg flag 1 data 41378
+
+open fd = 4
+
+LOG: NIGHTPLAN schema=1 kind=29 order=1 joint=0 restored=0 phases=3
+LOG: NIGHTCONFIG order=1 valid=1 profile=0 hardwareTrace=0 ringBytes=0 ordinaryClocks=1 fixedDt=0 sampleBytes=6144 chunkBytes=420 phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 chunkFrames=64 sampleFirst=900 sampleCount=128 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 night=1
+LOG: NIGHTQUALITY rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1
+open name host:/hud/use-text.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/pick-text.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/sfx/engine_idle.adpcm flag 1 data 41378
+
+open fd = 4
+
+open name host:/sfx/engine_high.adpcm flag 1 data 41378
+
+open fd = 4
+
+open name host:/sfx/tires_screech.adpcm flag 1 data 41378
+
+open fd = 4
+
+open name host:/sfx/gear-shift.adpcm flag 1 data 41378
+
+open fd = 4
+
+LOG: NIGHTPRODPHASE phase=0 enabled=1
+LOG: NIGHTCORONAPHASE phase=0 first=0 selected=0 enabled=0
+LOG: NIGHTPHASE phase=0 first=0 mask=0 appliedMask=0 sampler=1 countReads=262 samplePtr=0052f388
+LOG: NIGHTEXTRAPHASE phase=0 first=0 extraMask=0 appliedExtraMask=0
+LOG: NIGHTWILDPHASE phase=0 first=0 variant=0 enabled=0 appliedVariant=0 appliedEnabled=0
+LOG: NIGHTTABLEPHASE phase=0 first=0 selected=1 enabled=1 appliedSelected=1 appliedEnabled=1
+open name host:/launch.scene flag 1 data 41378
+
+open fd = -1
+
+open name host:/hud/loading.png flag 1 data 41378
+
+open fd = 4
+
+FRAMEARENA allocated=1 bytes=1048576
+open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-ground.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-ground.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/materials/district-asphalt.mtl flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-asphalt.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-asphalt.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/materials/district-sign.mtl flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-sign.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-sign.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/materials/night-warm.mtl flag 1 data 41378
+
+open fd = 4
+
+open name host:/materials/night-cyan.mtl flag 1 data 41378
+
+open fd = 4
+
+open name host:/materials/night-pink.mtl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/district-workshop.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/district-tower.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/district-loft.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/detail-light-double.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/metal.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/metal.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/detail-light-traffic.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/roof.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/roof.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/tree-park-large.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/tree-park-pine-large.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/detail-barrier-type-a.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/signs.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/signs.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/detail-dumpster-closed.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/wall.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/wall.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/detail-bench.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/planks.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/Textures/planks.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/models/urban/pallet.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-ravager000001-body.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-pica00000001-body.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-strix0000001-body.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/sky/scene0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/sky/scene0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/fx-skid.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/fx-skid.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/fx-smoke.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/fx-smoke.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/fonts/atlas-default.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/icons.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/hud/loading-white.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-road.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-road.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-asphalt.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-asphalt.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-plaza.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/textures/district-plaza.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_2_1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_2_1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_1_1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_1_1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_3_1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_3_1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_2_2.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_2_2.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_1_2.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_1_2.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_3_2.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_3_2.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_0_1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_0_1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_4_1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_4_1.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_4_0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_4_0.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_2_3.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_2_3.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_0_2.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_0_2.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_4_2.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_4_2.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_1_3.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_1_3.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_3_3.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_3_3.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_0_3.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_0_3.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_4_3.png flag 1 data 41378
+
+open fd = 4
+
+open name host:/gshadow/s0_4_3.png flag 1 data 41378
+
+open fd = 4
+
+LOG: NIGHTCAMERA phase=0 offset=750 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+LOG: NIGHTCONTEXT phase=0 offset=750 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3d08acbf clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=58 ilAccepted=0 ilPipelined=1 frameYield=0
+LOG: NIGHTPROD phase=0 offset=750 stage=0 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=0 offset=750 stage=1 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=0 offset=750 stage=2 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=0 offset=750 stage=3 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=0 offset=750 stage=4 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTCORONAGATES phase=0 offset=750 selected=0 enabled=0 coldPackets=0 eligible=0 requested=0 fallback=0 sourceVertices=0 requestedVertices=0 fogOn=0 shaderLit=0 invalid=0 acceptedOutputKnown=0
+LOG: NIGHTGATES phase=0 offset=750 first=750 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=5 executed8=5 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+LOG: NIGHTEXTRAGATES phase=0 offset=750 first=750 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+LOG: NIGHTWILDGATES phase=0 offset=750 first=750 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+LOG: NIGHTTABLEGATES phase=0 offset=750 first=750 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+LOG: NIGHTCAMERA phase=0 offset=1155 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+LOG: NIGHTCONTEXT phase=0 offset=1155 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3d08acb1 clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=13 ilAccepted=0 ilPipelined=1 frameYield=0
+LOG: NIGHTPROD phase=0 offset=1155 stage=0 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=0 offset=1155 stage=1 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=0 offset=1155 stage=2 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=0 offset=1155 stage=3 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=0 offset=1155 stage=4 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTCORONAGATES phase=0 offset=1155 selected=0 enabled=0 coldPackets=0 eligible=0 requested=0 fallback=0 sourceVertices=0 requestedVertices=0 fogOn=0 shaderLit=0 invalid=0 acceptedOutputKnown=0
+LOG: NIGHTGATES phase=0 offset=1155 first=1155 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=5 executed8=5 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+LOG: NIGHTEXTRAGATES phase=0 offset=1155 first=1155 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+LOG: NIGHTWILDGATES phase=0 offset=1155 first=1155 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+LOG: NIGHTTABLEGATES phase=0 offset=1155 first=1155 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+LOG: NIGHTPRODPHASE phase=1 enabled=0
+LOG: NIGHTCORONAPHASE phase=1 first=1800 selected=0 enabled=0
+LOG: NIGHTPHASE phase=1 first=1800 mask=0 appliedMask=0 sampler=1 countReads=262 samplePtr=0052f388
+LOG: NIGHTEXTRAPHASE phase=1 first=1800 extraMask=0 appliedExtraMask=0
+LOG: NIGHTWILDPHASE phase=1 first=1800 variant=0 enabled=0 appliedVariant=0 appliedEnabled=0
+LOG: NIGHTTABLEPHASE phase=1 first=1800 selected=1 enabled=1 appliedSelected=1 appliedEnabled=1
+LOG: NIGHTCAMERA phase=1 offset=750 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+LOG: NIGHTCONTEXT phase=1 offset=750 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3d088bf7 clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=58 ilAccepted=0 ilPipelined=1 frameYield=0
+LOG: NIGHTPROD phase=1 offset=750 stage=0 enabled=0 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=1 offset=750 stage=1 enabled=0 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=1 offset=750 stage=2 enabled=0 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=1 offset=750 stage=3 enabled=0 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=1 offset=750 stage=4 enabled=0 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTCORONAGATES phase=1 offset=750 selected=0 enabled=0 coldPackets=0 eligible=0 requested=0 fallback=0 sourceVertices=0 requestedVertices=0 fogOn=0 shaderLit=0 invalid=0 acceptedOutputKnown=0
+LOG: NIGHTGATES phase=1 offset=750 first=750 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=5 executed8=5 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+LOG: NIGHTEXTRAGATES phase=1 offset=750 first=750 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+LOG: NIGHTWILDGATES phase=1 offset=750 first=750 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+LOG: NIGHTTABLEGATES phase=1 offset=750 first=750 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+LOG: NIGHTCAMERA phase=1 offset=1155 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+LOG: NIGHTCONTEXT phase=1 offset=1155 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3d088b95 clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=13 ilAccepted=0 ilPipelined=1 frameYield=0
+LOG: NIGHTPROD phase=1 offset=1155 stage=0 enabled=0 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=1 offset=1155 stage=1 enabled=0 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=1 offset=1155 stage=2 enabled=0 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=1 offset=1155 stage=3 enabled=0 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=1 offset=1155 stage=4 enabled=0 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTCORONAGATES phase=1 offset=1155 selected=0 enabled=0 coldPackets=0 eligible=0 requested=0 fallback=0 sourceVertices=0 requestedVertices=0 fogOn=0 shaderLit=0 invalid=0 acceptedOutputKnown=0
+LOG: NIGHTGATES phase=1 offset=1155 first=1155 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=5 executed8=5 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+LOG: NIGHTEXTRAGATES phase=1 offset=1155 first=1155 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+LOG: NIGHTWILDGATES phase=1 offset=1155 first=1155 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+LOG: NIGHTTABLEGATES phase=1 offset=1155 first=1155 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+LOG: NIGHTPRODPHASE phase=2 enabled=1
+LOG: NIGHTCORONAPHASE phase=2 first=3600 selected=0 enabled=0
+LOG: NIGHTPHASE phase=2 first=3600 mask=0 appliedMask=0 sampler=1 countReads=262 samplePtr=0052f388
+LOG: NIGHTEXTRAPHASE phase=2 first=3600 extraMask=0 appliedExtraMask=0
+LOG: NIGHTWILDPHASE phase=2 first=3600 variant=0 enabled=0 appliedVariant=0 appliedEnabled=0
+LOG: NIGHTTABLEPHASE phase=2 first=3600 selected=1 enabled=1 appliedSelected=1 appliedEnabled=1
+LOG: NIGHTCAMERA phase=2 offset=750 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+LOG: NIGHTCONTEXT phase=2 offset=750 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3d08a117 clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=58 ilAccepted=0 ilPipelined=1 frameYield=0
+LOG: NIGHTPROD phase=2 offset=750 stage=0 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=2 offset=750 stage=1 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=2 offset=750 stage=2 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=2 offset=750 stage=3 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=2 offset=750 stage=4 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTCORONAGATES phase=2 offset=750 selected=0 enabled=0 coldPackets=0 eligible=0 requested=0 fallback=0 sourceVertices=0 requestedVertices=0 fogOn=0 shaderLit=0 invalid=0 acceptedOutputKnown=0
+LOG: NIGHTGATES phase=2 offset=750 first=750 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=5 executed8=5 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+LOG: NIGHTEXTRAGATES phase=2 offset=750 first=750 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+LOG: NIGHTWILDGATES phase=2 offset=750 first=750 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+LOG: NIGHTTABLEGATES phase=2 offset=750 first=750 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+LOG: NIGHTCAMERA phase=2 offset=1155 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+LOG: NIGHTCONTEXT phase=2 offset=1155 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3d08acfb clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=13 ilAccepted=0 ilPipelined=1 frameYield=0
+LOG: NIGHTPROD phase=2 offset=1155 stage=0 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=2 offset=1155 stage=1 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=2 offset=1155 stage=2 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=2 offset=1155 stage=3 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTPROD phase=2 offset=1155 stage=4 enabled=1 calls=0 units1=0 units2=0 units3=0 units4=0 timedCalls=0 reads=0 ticks=0
+LOG: NIGHTCORONAGATES phase=2 offset=1155 selected=0 enabled=0 coldPackets=0 eligible=0 requested=0 fallback=0 sourceVertices=0 requestedVertices=0 fogOn=0 shaderLit=0 invalid=0 acceptedOutputKnown=0
+LOG: NIGHTGATES phase=2 offset=1155 first=1155 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=5 executed8=5 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+LOG: NIGHTEXTRAGATES phase=2 offset=1155 first=1155 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+LOG: NIGHTWILDGATES phase=2 offset=1155 first=1155 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+LOG: NIGHTTABLEGATES phase=2 offset=1155 first=1155 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+LOG: NIGHTDONE order=1 valid=1 loops=5400
+
+LOG: NIGHTMAINBATCH phase=0 offset=750 enabled=1 invocations=1 sourceGroups=3 sourceMembers=11 groups=1 members=4 candidateGroups=1 candidateMembers=4 controlMainSubmits=7 candidateMainSubmits=1 reflectionCarriers=11 reflectionUses=11 fallbackGroups=2 demotedGroups=0 eligibilityRefused=2 dirtyDemotions=0 geometryCompared=144 geometryMismatches=0 duplicateMainSubmits=0 verticesCompared=144 colorBytesCompared=2304
+LOG: NIGHTMAINBATCHGROUP phase=0 offset=750 enabled=1 group=0 ready=1 admitted=1 demoted=0 submitted=1 first=0 count=144 members=4 geometryHash=10 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=0 offset=750 enabled=1 group=1 ready=1 admitted=0 demoted=0 submitted=0 first=4 count=144 members=4 geometryHash=11 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=0 offset=750 enabled=1 group=2 ready=1 admitted=0 demoted=0 submitted=0 first=8 count=108 members=3 geometryHash=12 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=0 object=100 idLo=1000 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=100 colorHash=200 copiedPositionHash=100 copiedColorHash=200 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=1 object=101 idLo=1001 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=101 colorHash=201 copiedPositionHash=101 copiedColorHash=201 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=2 object=102 idLo=1002 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=102 colorHash=202 copiedPositionHash=102 copiedColorHash=202 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=3 object=103 idLo=1003 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=103 colorHash=203 copiedPositionHash=103 copiedColorHash=203 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=4 object=104 idLo=1004 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=104 colorHash=204 copiedPositionHash=104 copiedColorHash=204 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=5 object=105 idLo=1005 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=105 colorHash=205 copiedPositionHash=105 copiedColorHash=205 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=6 object=106 idLo=1006 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=106 colorHash=206 copiedPositionHash=106 copiedColorHash=206 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=7 object=107 idLo=1007 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=107 colorHash=207 copiedPositionHash=107 copiedColorHash=207 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=8 object=108 idLo=1008 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=108 colorHash=208 copiedPositionHash=108 copiedColorHash=208 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=9 object=109 idLo=1009 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=109 colorHash=209 copiedPositionHash=109 copiedColorHash=209 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=750 enabled=1 ordinal=10 object=110 idLo=1010 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=110 colorHash=210 copiedPositionHash=110 copiedColorHash=210 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCH phase=0 offset=1155 enabled=1 invocations=1 sourceGroups=3 sourceMembers=11 groups=1 members=4 candidateGroups=1 candidateMembers=4 controlMainSubmits=7 candidateMainSubmits=1 reflectionCarriers=11 reflectionUses=11 fallbackGroups=2 demotedGroups=0 eligibilityRefused=2 dirtyDemotions=0 geometryCompared=144 geometryMismatches=0 duplicateMainSubmits=0 verticesCompared=144 colorBytesCompared=2304
+LOG: NIGHTMAINBATCHGROUP phase=0 offset=1155 enabled=1 group=0 ready=1 admitted=1 demoted=0 submitted=1 first=0 count=144 members=4 geometryHash=10 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=0 offset=1155 enabled=1 group=1 ready=1 admitted=0 demoted=0 submitted=0 first=4 count=144 members=4 geometryHash=11 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=0 offset=1155 enabled=1 group=2 ready=1 admitted=0 demoted=0 submitted=0 first=8 count=108 members=3 geometryHash=12 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=0 object=100 idLo=1000 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=100 colorHash=200 copiedPositionHash=100 copiedColorHash=200 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=1 object=101 idLo=1001 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=101 colorHash=201 copiedPositionHash=101 copiedColorHash=201 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=2 object=102 idLo=1002 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=102 colorHash=202 copiedPositionHash=102 copiedColorHash=202 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=3 object=103 idLo=1003 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=103 colorHash=203 copiedPositionHash=103 copiedColorHash=203 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=4 object=104 idLo=1004 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=104 colorHash=204 copiedPositionHash=104 copiedColorHash=204 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=5 object=105 idLo=1005 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=105 colorHash=205 copiedPositionHash=105 copiedColorHash=205 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=6 object=106 idLo=1006 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=106 colorHash=206 copiedPositionHash=106 copiedColorHash=206 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=7 object=107 idLo=1007 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=107 colorHash=207 copiedPositionHash=107 copiedColorHash=207 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=8 object=108 idLo=1008 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=108 colorHash=208 copiedPositionHash=108 copiedColorHash=208 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=9 object=109 idLo=1009 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=109 colorHash=209 copiedPositionHash=109 copiedColorHash=209 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=0 offset=1155 enabled=1 ordinal=10 object=110 idLo=1010 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=110 colorHash=210 copiedPositionHash=110 copiedColorHash=210 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCH phase=1 offset=750 enabled=0 invocations=1 sourceGroups=3 sourceMembers=11 groups=1 members=4 candidateGroups=0 candidateMembers=0 controlMainSubmits=11 candidateMainSubmits=0 reflectionCarriers=11 reflectionUses=11 fallbackGroups=2 demotedGroups=0 eligibilityRefused=2 dirtyDemotions=0 geometryCompared=144 geometryMismatches=0 duplicateMainSubmits=0 verticesCompared=144 colorBytesCompared=2304
+LOG: NIGHTMAINBATCHGROUP phase=1 offset=750 enabled=0 group=0 ready=1 admitted=1 demoted=0 submitted=0 first=0 count=144 members=4 geometryHash=10 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=1 offset=750 enabled=0 group=1 ready=1 admitted=0 demoted=0 submitted=0 first=4 count=144 members=4 geometryHash=11 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=1 offset=750 enabled=0 group=2 ready=1 admitted=0 demoted=0 submitted=0 first=8 count=108 members=3 geometryHash=12 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=0 object=100 idLo=1000 idHi=2 group=0 ready=1 admitted=1 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=100 colorHash=200 copiedPositionHash=100 copiedColorHash=200 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=1 object=101 idLo=1001 idHi=2 group=0 ready=1 admitted=1 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=101 colorHash=201 copiedPositionHash=101 copiedColorHash=201 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=2 object=102 idLo=1002 idHi=2 group=0 ready=1 admitted=1 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=102 colorHash=202 copiedPositionHash=102 copiedColorHash=202 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=3 object=103 idLo=1003 idHi=2 group=0 ready=1 admitted=1 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=103 colorHash=203 copiedPositionHash=103 copiedColorHash=203 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=4 object=104 idLo=1004 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=104 colorHash=204 copiedPositionHash=104 copiedColorHash=204 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=5 object=105 idLo=1005 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=105 colorHash=205 copiedPositionHash=105 copiedColorHash=205 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=6 object=106 idLo=1006 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=106 colorHash=206 copiedPositionHash=106 copiedColorHash=206 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=7 object=107 idLo=1007 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=107 colorHash=207 copiedPositionHash=107 copiedColorHash=207 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=8 object=108 idLo=1008 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=108 colorHash=208 copiedPositionHash=108 copiedColorHash=208 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=9 object=109 idLo=1009 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=109 colorHash=209 copiedPositionHash=109 copiedColorHash=209 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=750 enabled=0 ordinal=10 object=110 idLo=1010 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=110 colorHash=210 copiedPositionHash=110 copiedColorHash=210 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCH phase=1 offset=1155 enabled=0 invocations=1 sourceGroups=3 sourceMembers=11 groups=1 members=4 candidateGroups=0 candidateMembers=0 controlMainSubmits=11 candidateMainSubmits=0 reflectionCarriers=11 reflectionUses=11 fallbackGroups=2 demotedGroups=0 eligibilityRefused=2 dirtyDemotions=0 geometryCompared=144 geometryMismatches=0 duplicateMainSubmits=0 verticesCompared=144 colorBytesCompared=2304
+LOG: NIGHTMAINBATCHGROUP phase=1 offset=1155 enabled=0 group=0 ready=1 admitted=1 demoted=0 submitted=0 first=0 count=144 members=4 geometryHash=10 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=1 offset=1155 enabled=0 group=1 ready=1 admitted=0 demoted=0 submitted=0 first=4 count=144 members=4 geometryHash=11 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=1 offset=1155 enabled=0 group=2 ready=1 admitted=0 demoted=0 submitted=0 first=8 count=108 members=3 geometryHash=12 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=0 object=100 idLo=1000 idHi=2 group=0 ready=1 admitted=1 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=100 colorHash=200 copiedPositionHash=100 copiedColorHash=200 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=1 object=101 idLo=1001 idHi=2 group=0 ready=1 admitted=1 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=101 colorHash=201 copiedPositionHash=101 copiedColorHash=201 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=2 object=102 idLo=1002 idHi=2 group=0 ready=1 admitted=1 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=102 colorHash=202 copiedPositionHash=102 copiedColorHash=202 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=3 object=103 idLo=1003 idHi=2 group=0 ready=1 admitted=1 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=103 colorHash=203 copiedPositionHash=103 copiedColorHash=203 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=4 object=104 idLo=1004 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=104 colorHash=204 copiedPositionHash=104 copiedColorHash=204 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=5 object=105 idLo=1005 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=105 colorHash=205 copiedPositionHash=105 copiedColorHash=205 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=6 object=106 idLo=1006 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=106 colorHash=206 copiedPositionHash=106 copiedColorHash=206 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=7 object=107 idLo=1007 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=107 colorHash=207 copiedPositionHash=107 copiedColorHash=207 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=8 object=108 idLo=1008 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=108 colorHash=208 copiedPositionHash=108 copiedColorHash=208 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=9 object=109 idLo=1009 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=109 colorHash=209 copiedPositionHash=109 copiedColorHash=209 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=1 offset=1155 enabled=0 ordinal=10 object=110 idLo=1010 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=110 colorHash=210 copiedPositionHash=110 copiedColorHash=210 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCH phase=2 offset=750 enabled=1 invocations=1 sourceGroups=3 sourceMembers=11 groups=1 members=4 candidateGroups=1 candidateMembers=4 controlMainSubmits=7 candidateMainSubmits=1 reflectionCarriers=11 reflectionUses=11 fallbackGroups=2 demotedGroups=0 eligibilityRefused=2 dirtyDemotions=0 geometryCompared=144 geometryMismatches=0 duplicateMainSubmits=0 verticesCompared=144 colorBytesCompared=2304
+LOG: NIGHTMAINBATCHGROUP phase=2 offset=750 enabled=1 group=0 ready=1 admitted=1 demoted=0 submitted=1 first=0 count=144 members=4 geometryHash=10 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=2 offset=750 enabled=1 group=1 ready=1 admitted=0 demoted=0 submitted=0 first=4 count=144 members=4 geometryHash=11 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=2 offset=750 enabled=1 group=2 ready=1 admitted=0 demoted=0 submitted=0 first=8 count=108 members=3 geometryHash=12 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=0 object=100 idLo=1000 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=100 colorHash=200 copiedPositionHash=100 copiedColorHash=200 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=1 object=101 idLo=1001 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=101 colorHash=201 copiedPositionHash=101 copiedColorHash=201 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=2 object=102 idLo=1002 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=102 colorHash=202 copiedPositionHash=102 copiedColorHash=202 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=3 object=103 idLo=1003 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=103 colorHash=203 copiedPositionHash=103 copiedColorHash=203 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=4 object=104 idLo=1004 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=104 colorHash=204 copiedPositionHash=104 copiedColorHash=204 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=5 object=105 idLo=1005 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=105 colorHash=205 copiedPositionHash=105 copiedColorHash=205 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=6 object=106 idLo=1006 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=106 colorHash=206 copiedPositionHash=106 copiedColorHash=206 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=7 object=107 idLo=1007 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=107 colorHash=207 copiedPositionHash=107 copiedColorHash=207 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=8 object=108 idLo=1008 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=108 colorHash=208 copiedPositionHash=108 copiedColorHash=208 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=9 object=109 idLo=1009 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=109 colorHash=209 copiedPositionHash=109 copiedColorHash=209 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=750 enabled=1 ordinal=10 object=110 idLo=1010 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=110 colorHash=210 copiedPositionHash=110 copiedColorHash=210 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCH phase=2 offset=1155 enabled=1 invocations=1 sourceGroups=3 sourceMembers=11 groups=1 members=4 candidateGroups=1 candidateMembers=4 controlMainSubmits=7 candidateMainSubmits=1 reflectionCarriers=11 reflectionUses=11 fallbackGroups=2 demotedGroups=0 eligibilityRefused=2 dirtyDemotions=0 geometryCompared=144 geometryMismatches=0 duplicateMainSubmits=0 verticesCompared=144 colorBytesCompared=2304
+LOG: NIGHTMAINBATCHGROUP phase=2 offset=1155 enabled=1 group=0 ready=1 admitted=1 demoted=0 submitted=1 first=0 count=144 members=4 geometryHash=10 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=2 offset=1155 enabled=1 group=1 ready=1 admitted=0 demoted=0 submitted=0 first=4 count=144 members=4 geometryHash=11 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHGROUP phase=2 offset=1155 enabled=1 group=2 ready=1 admitted=0 demoted=0 submitted=0 first=8 count=108 members=3 geometryHash=12 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=0 object=100 idLo=1000 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=100 colorHash=200 copiedPositionHash=100 copiedColorHash=200 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=1 object=101 idLo=1001 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=101 colorHash=201 copiedPositionHash=101 copiedColorHash=201 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=2 object=102 idLo=1002 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=102 colorHash=202 copiedPositionHash=102 copiedColorHash=202 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=3 object=103 idLo=1003 idHi=2 group=0 ready=1 admitted=1 mainOriginal=0 mainGrouped=1 reflectionUses=1 count=36 positionHash=103 colorHash=203 copiedPositionHash=103 copiedColorHash=203 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=4 object=104 idLo=1004 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=104 colorHash=204 copiedPositionHash=104 copiedColorHash=204 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=5 object=105 idLo=1005 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=105 colorHash=205 copiedPositionHash=105 copiedColorHash=205 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=6 object=106 idLo=1006 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=106 colorHash=206 copiedPositionHash=106 copiedColorHash=206 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=7 object=107 idLo=1007 idHi=2 group=1 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=107 colorHash=207 copiedPositionHash=107 copiedColorHash=207 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=8 object=108 idLo=1008 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=108 colorHash=208 copiedPositionHash=108 copiedColorHash=208 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=9 object=109 idLo=1009 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=109 colorHash=209 copiedPositionHash=109 copiedColorHash=209 infoHash=9 lightKey=7 spotEnabled=0
+LOG: NIGHTMAINBATCHMEMBER phase=2 offset=1155 enabled=1 ordinal=10 object=110 idLo=1010 idHi=2 group=2 ready=1 admitted=0 mainOriginal=1 mainGrouped=0 reflectionUses=1 count=36 positionHash=110 colorHash=210 copiedPositionHash=110 copiedColorHash=210 infoHash=9 lightKey=7 spotEnabled=0

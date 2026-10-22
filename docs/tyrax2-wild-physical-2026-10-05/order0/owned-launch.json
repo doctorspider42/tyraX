@@ -1,0 +1,23 @@
+{
+  "stem": "night-ablation-ps2-wild-plane-order0-20261005",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\wild-plane-physical-v1",
+  "kind": 5,
+  "order": 0,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "fef3f5721524a333e392be4a753fefa6216bc0de4321a9e88a5c6e096adcf2f6",
+  "launchArchive": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order0-20261005-launch",
+  "helperSha256": "c06652d66b693e3d1c3e801a6b7677e86ee495cb7f7808b11403166b80f91507",
+  "launchFiles": {
+    "night-ablation.cfg": "7b23dfc8fc4d6ba9f21d4f9bc3053df8c2a1de3cbcceaeab960b245e90dd1d68",
+    "ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "e00fd1cef972d0c4e917f6ce4a61ca3dcf397d1602184cca1725c4c3f7edf0df",
+    "root-source-freeze.json": "bb876bdfc8bff45311ac9418cc64bae63223f4e08637fccca506307b3148b90f",
+    "runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "target-source-manifest.json": "aa1b27d92b8f560836fd70fc6fb25ee1852f2b48e16f41dcc512bc2395289c19",
+    "vehicle-playground.elf": "fef3f5721524a333e392be4a753fefa6216bc0de4321a9e88a5c6e096adcf2f6",
+    "vehicle-playground.elf.sym": "caf2aaa931bd88e8b92f550dba36d6f9f65f76020034478a79b3555ec673ba04"
+  },
+  "physicalStartAccepted": false
+}

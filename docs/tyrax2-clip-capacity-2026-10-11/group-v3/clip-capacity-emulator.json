@@ -1,0 +1,312 @@
+{
+  "valid": true,
+  "groupRasterEqual": true,
+  "platform": "emulator",
+  "elfSha256": "c5dff3b4569a8af59d11caadf01d575285739f69f8c740dfe1cd8060b298f07f",
+  "sourceFiles": 475,
+  "phases": [
+    {
+      "phase": 0,
+      "mode": 0,
+      "hour": 12,
+      "rows": 637,
+      "pricedFrames": 509,
+      "lastZ": 108.279739,
+      "witnessFrames": 4,
+      "clipCalls": 438,
+      "eligible": 77,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 1,
+      "mode": 7,
+      "hour": 12,
+      "rows": 647,
+      "pricedFrames": 519,
+      "lastZ": 108.272125,
+      "witnessFrames": 4,
+      "clipCalls": 395,
+      "eligible": 76,
+      "merged": 10,
+      "removed": 41,
+      "maxInput": 39,
+      "bypassBags": 0
+    },
+    {
+      "phase": 2,
+      "mode": 0,
+      "hour": 12,
+      "rows": 639,
+      "pricedFrames": 511,
+      "lastZ": 108.287926,
+      "witnessFrames": 4,
+      "clipCalls": 436,
+      "eligible": 76,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 3,
+      "mode": 0,
+      "hour": 0,
+      "rows": 624,
+      "pricedFrames": 496,
+      "lastZ": 108.316086,
+      "witnessFrames": 4,
+      "clipCalls": 480,
+      "eligible": 71,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 4,
+      "mode": 7,
+      "hour": 0,
+      "rows": 634,
+      "pricedFrames": 506,
+      "lastZ": 108.277565,
+      "witnessFrames": 4,
+      "clipCalls": 942,
+      "eligible": 192,
+      "merged": 20,
+      "removed": 72,
+      "maxInput": 39,
+      "bypassBags": 0
+    },
+    {
+      "phase": 5,
+      "mode": 0,
+      "hour": 0,
+      "rows": 626,
+      "pricedFrames": 498,
+      "lastZ": 108.293922,
+      "witnessFrames": 4,
+      "clipCalls": 463,
+      "eligible": 70,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    }
+  ],
+  "unrefined": true,
+  "groupOnly": true,
+  "images": [
+    {
+      "phase": 0,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        180869,
+        0
+      ]
+    },
+    {
+      "phase": 0,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        10288,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        311268,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        18002,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        178298,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        18418,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        202866,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        11692,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        182892,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        10620,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        200458,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        11700,
+        0
+      ]
+    }
+  ],
+  "negativeControls": [
+    "stationary",
+    "no-gas",
+    "freeze",
+    "cars",
+    "profiler",
+    "paint",
+    "present",
+    "missing-phase",
+    "completion",
+    "witness",
+    "checkpoint"
+  ],
+  "logSha256": "7973722df9b6deeae64f8e95d1748849f5cbe3e3fc4155e23837387b16132817",
+  "csvSha256": "1e9c21af5c648c5739b4182e3c911565047b9c5aca6f0909e15aaf19a2d1b6fd",
+  "groupActive": true,
+  "scope": "8 omits necessary clipping and changes workload/appearance; net contrast is not pure EE or a production fix"
+}

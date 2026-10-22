@@ -1,0 +1,6 @@
+Default-OFF paint tokens and both GeoPart declarations unchanged
+6000 actual-block transitions passed: accepted=381 heldRefresh=185
+
+bad-map-stamp rejected by assertion
+bad-fallback-basis rejected by assertion
+bad-readiness rejected by assertion

@@ -1,0 +1,16 @@
+{
+  "pid": 471,
+  "xvfbPid": 460,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-road-nokick-day-20261008-v1/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-road-nokick-day-20261008-v1/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-road-nokick-day-20261008-v1/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "267c7d626bf2f86f311f6029b85fd23f7ce51a222f4df90278073c176aa83150"
+}

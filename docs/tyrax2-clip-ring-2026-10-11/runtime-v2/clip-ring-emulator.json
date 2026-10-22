@@ -1,0 +1,946 @@
+{
+  "valid": true,
+  "groupRasterEqual": true,
+  "platform": "emulator",
+  "elfSha256": "2a1a2dc892e16f8263ab256052d43d38c2f6e978bb176b6d036a4619bf5a4cd9",
+  "sourceFiles": 481,
+  "phases": [
+    {
+      "phase": 0,
+      "mode": 0,
+      "hour": 12,
+      "rows": 647,
+      "pricedFrames": 519,
+      "lastZ": 108.281319,
+      "witnessFrames": 4,
+      "clipCalls": 668,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 1,
+      "mode": 7,
+      "hour": 12,
+      "rows": 647,
+      "pricedFrames": 519,
+      "lastZ": 108.282188,
+      "witnessFrames": 4,
+      "clipCalls": 654,
+      "eligible": 654,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 2,
+      "mode": 0,
+      "hour": 12,
+      "rows": 647,
+      "pricedFrames": 519,
+      "lastZ": 108.286774,
+      "witnessFrames": 4,
+      "clipCalls": 667,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 3,
+      "mode": 0,
+      "hour": 0,
+      "rows": 644,
+      "pricedFrames": 516,
+      "lastZ": 108.290085,
+      "witnessFrames": 4,
+      "clipCalls": 722,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 4,
+      "mode": 7,
+      "hour": 0,
+      "rows": 646,
+      "pricedFrames": 518,
+      "lastZ": 108.28553,
+      "witnessFrames": 4,
+      "clipCalls": 1341,
+      "eligible": 1341,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    },
+    {
+      "phase": 5,
+      "mode": 0,
+      "hour": 0,
+      "rows": 644,
+      "pricedFrames": 516,
+      "lastZ": 108.29039,
+      "witnessFrames": 4,
+      "clipCalls": 722,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0
+    }
+  ],
+  "unrefined": false,
+  "groupOnly": true,
+  "images": [
+    {
+      "phase": 0,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 0,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "negativeControls": [
+    "missing-header-oracle",
+    "changed-header-oracle",
+    "stationary",
+    "no-gas",
+    "freeze",
+    "cars",
+    "profiler",
+    "paint",
+    "present",
+    "missing-phase",
+    "completion",
+    "witness",
+    "checkpoint",
+    "missing-native-contract",
+    "inactive-native-candidate",
+    "native-control",
+    "zero-native-triangles",
+    "changed-canonical-input",
+    "missing-quiet-window",
+    "ordinary-output-in-gas",
+    "missing-terrain-contract",
+    "missing-resident-chunk"
+  ],
+  "logSha256": "0b1ed120bc9fa2ad04ae4c00b40b45607359ff6795d0b16e435602cd28b2992d",
+  "csvSha256": "9f2be53c1aef1fb5e4790037be2f7eb014bcd922e382a3a24fcf39ae7d5af566",
+  "groupActive": false,
+  "scope": "Native clip strips with bounded VU output rings; stable terrain focus and quiet transport in both arms; net elapsed, not pure EE cycles",
+  "heldTerrainContracts": [
+    [
+      "0",
+      "0",
+      "25",
+      "0.000000",
+      "108.281319"
+    ],
+    [
+      "0",
+      "1",
+      "25",
+      "0.000000",
+      "108.281319"
+    ],
+    [
+      "0",
+      "2",
+      "25",
+      "0.000000",
+      "108.281319"
+    ],
+    [
+      "0",
+      "3",
+      "25",
+      "0.000000",
+      "108.281319"
+    ],
+    [
+      "0",
+      "4",
+      "25",
+      "0.000000",
+      "108.281319"
+    ],
+    [
+      "1",
+      "0",
+      "25",
+      "0.000000",
+      "108.282188"
+    ],
+    [
+      "1",
+      "1",
+      "25",
+      "0.000000",
+      "108.282188"
+    ],
+    [
+      "1",
+      "2",
+      "25",
+      "0.000000",
+      "108.282188"
+    ],
+    [
+      "1",
+      "3",
+      "25",
+      "0.000000",
+      "108.282188"
+    ],
+    [
+      "1",
+      "4",
+      "25",
+      "0.000000",
+      "108.282188"
+    ],
+    [
+      "2",
+      "0",
+      "25",
+      "0.000000",
+      "108.286774"
+    ],
+    [
+      "2",
+      "1",
+      "25",
+      "0.000000",
+      "108.286774"
+    ],
+    [
+      "2",
+      "2",
+      "25",
+      "0.000000",
+      "108.286774"
+    ],
+    [
+      "2",
+      "3",
+      "25",
+      "0.000000",
+      "108.286774"
+    ],
+    [
+      "2",
+      "4",
+      "25",
+      "0.000000",
+      "108.286774"
+    ],
+    [
+      "3",
+      "0",
+      "25",
+      "0.000000",
+      "108.290085"
+    ],
+    [
+      "3",
+      "1",
+      "25",
+      "0.000000",
+      "108.290085"
+    ],
+    [
+      "3",
+      "2",
+      "25",
+      "0.000000",
+      "108.290085"
+    ],
+    [
+      "3",
+      "3",
+      "25",
+      "0.000000",
+      "108.290085"
+    ],
+    [
+      "3",
+      "4",
+      "25",
+      "0.000000",
+      "108.290085"
+    ],
+    [
+      "4",
+      "0",
+      "25",
+      "0.000000",
+      "108.285530"
+    ],
+    [
+      "4",
+      "1",
+      "25",
+      "0.000000",
+      "108.285530"
+    ],
+    [
+      "4",
+      "2",
+      "25",
+      "0.000000",
+      "108.285530"
+    ],
+    [
+      "4",
+      "3",
+      "25",
+      "0.000000",
+      "108.285530"
+    ],
+    [
+      "4",
+      "4",
+      "25",
+      "0.000000",
+      "108.285530"
+    ],
+    [
+      "5",
+      "0",
+      "25",
+      "0.000000",
+      "108.290390"
+    ],
+    [
+      "5",
+      "1",
+      "25",
+      "0.000000",
+      "108.290390"
+    ],
+    [
+      "5",
+      "2",
+      "25",
+      "0.000000",
+      "108.290390"
+    ],
+    [
+      "5",
+      "3",
+      "25",
+      "0.000000",
+      "108.290390"
+    ],
+    [
+      "5",
+      "4",
+      "25",
+      "0.000000",
+      "108.290390"
+    ]
+  ],
+  "ringContracts": [
+    "RINGCONTRACT phase=0 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=0 arm=1 calls=40 triangles=204",
+    "RINGCONTRACT phase=0 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=0 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=0 arm=4 calls=0 triangles=0",
+    "RINGCONTRACT phase=1 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=1 arm=1 calls=40 triangles=204",
+    "RINGCONTRACT phase=1 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=1 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=1 arm=4 calls=0 triangles=0",
+    "RINGCONTRACT phase=2 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=2 arm=1 calls=40 triangles=204",
+    "RINGCONTRACT phase=2 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=2 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=2 arm=4 calls=0 triangles=0",
+    "RINGCONTRACT phase=3 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=3 arm=1 calls=36 triangles=192",
+    "RINGCONTRACT phase=3 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=3 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=3 arm=4 calls=0 triangles=0",
+    "RINGCONTRACT phase=4 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=4 arm=1 calls=40 triangles=208",
+    "RINGCONTRACT phase=4 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=4 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=4 arm=4 calls=0 triangles=0",
+    "RINGCONTRACT phase=5 arm=0 calls=0 triangles=0",
+    "RINGCONTRACT phase=5 arm=1 calls=36 triangles=192",
+    "RINGCONTRACT phase=5 arm=2 calls=0 triangles=0",
+    "RINGCONTRACT phase=5 arm=3 calls=0 triangles=0",
+    "RINGCONTRACT phase=5 arm=4 calls=0 triangles=0"
+  ],
+  "nativeFallback": false,
+  "residentWords": 2034,
+  "nativeActive": true,
+  "quietBothArms": true,
+  "consumerInputEqual": true,
+  "headerOracle": [
+    [
+      0,
+      0,
+      242
+    ],
+    [
+      0,
+      1,
+      231
+    ],
+    [
+      0,
+      2,
+      242
+    ],
+    [
+      0,
+      3,
+      242
+    ],
+    [
+      0,
+      4,
+      242
+    ],
+    [
+      1,
+      0,
+      242
+    ],
+    [
+      1,
+      1,
+      231
+    ],
+    [
+      1,
+      2,
+      242
+    ],
+    [
+      1,
+      3,
+      242
+    ],
+    [
+      1,
+      4,
+      242
+    ],
+    [
+      2,
+      0,
+      242
+    ],
+    [
+      2,
+      1,
+      231
+    ],
+    [
+      2,
+      2,
+      242
+    ],
+    [
+      2,
+      3,
+      242
+    ],
+    [
+      2,
+      4,
+      242
+    ],
+    [
+      3,
+      0,
+      239
+    ],
+    [
+      3,
+      1,
+      227
+    ],
+    [
+      3,
+      2,
+      239
+    ],
+    [
+      3,
+      3,
+      239
+    ],
+    [
+      3,
+      4,
+      239
+    ],
+    [
+      4,
+      0,
+      241
+    ],
+    [
+      4,
+      1,
+      229
+    ],
+    [
+      4,
+      2,
+      241
+    ],
+    [
+      4,
+      3,
+      241
+    ],
+    [
+      4,
+      4,
+      241
+    ],
+    [
+      5,
+      0,
+      239
+    ],
+    [
+      5,
+      1,
+      227
+    ],
+    [
+      5,
+      2,
+      239
+    ],
+    [
+      5,
+      3,
+      239
+    ],
+    [
+      5,
+      4,
+      239
+    ]
+  ],
+  "inputs": [
+    [
+      0,
+      0,
+      752,
+      2256,
+      2019975315
+    ],
+    [
+      0,
+      1,
+      752,
+      2256,
+      2019975315
+    ],
+    [
+      0,
+      2,
+      752,
+      2256,
+      2019975315
+    ],
+    [
+      0,
+      3,
+      752,
+      2256,
+      2019975315
+    ],
+    [
+      0,
+      4,
+      752,
+      2256,
+      2019975315
+    ],
+    [
+      1,
+      0,
+      752,
+      2256,
+      1923511422
+    ],
+    [
+      1,
+      1,
+      752,
+      2256,
+      1923511422
+    ],
+    [
+      1,
+      2,
+      752,
+      2256,
+      1923511422
+    ],
+    [
+      1,
+      3,
+      752,
+      2256,
+      1923511422
+    ],
+    [
+      1,
+      4,
+      752,
+      2256,
+      1923511422
+    ],
+    [
+      2,
+      0,
+      752,
+      2256,
+      1843479408
+    ],
+    [
+      2,
+      1,
+      752,
+      2256,
+      1843479408
+    ],
+    [
+      2,
+      2,
+      752,
+      2256,
+      1843479408
+    ],
+    [
+      2,
+      3,
+      752,
+      2256,
+      1843479408
+    ],
+    [
+      2,
+      4,
+      752,
+      2256,
+      1843479408
+    ],
+    [
+      3,
+      0,
+      750,
+      2250,
+      4080487932
+    ],
+    [
+      3,
+      1,
+      750,
+      2250,
+      4080487932
+    ],
+    [
+      3,
+      2,
+      750,
+      2250,
+      4080487932
+    ],
+    [
+      3,
+      3,
+      750,
+      2250,
+      4080487932
+    ],
+    [
+      3,
+      4,
+      750,
+      2250,
+      4080487932
+    ],
+    [
+      4,
+      0,
+      756,
+      2268,
+      401802355
+    ],
+    [
+      4,
+      1,
+      756,
+      2268,
+      401802355
+    ],
+    [
+      4,
+      2,
+      756,
+      2268,
+      401802355
+    ],
+    [
+      4,
+      3,
+      756,
+      2268,
+      401802355
+    ],
+    [
+      4,
+      4,
+      756,
+      2268,
+      401802355
+    ],
+    [
+      5,
+      0,
+      750,
+      2250,
+      1798048518
+    ],
+    [
+      5,
+      1,
+      750,
+      2250,
+      1798048518
+    ],
+    [
+      5,
+      2,
+      750,
+      2250,
+      1798048518
+    ],
+    [
+      5,
+      3,
+      750,
+      2250,
+      1798048518
+    ],
+    [
+      5,
+      4,
+      750,
+      2250,
+      1798048518
+    ]
+  ],
+  "controlRasterEqual": true,
+  "reverse": false,
+  "phaseRoles": [
+    "baseline",
+    "candidate",
+    "baseline",
+    "baseline",
+    "candidate",
+    "baseline"
+  ]
+}

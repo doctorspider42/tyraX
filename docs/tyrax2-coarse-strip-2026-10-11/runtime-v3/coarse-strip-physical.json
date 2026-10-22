@@ -1,0 +1,1160 @@
+{
+  "valid": true,
+  "groupRasterEqual": true,
+  "platform": "physical",
+  "elfSha256": "907e82b3ed9511d9e09763f853c7a02c4a5ca2418c2b57540d9a9866da53b37b",
+  "sourceFiles": 482,
+  "phases": [
+    {
+      "phase": 0,
+      "mode": 7,
+      "hour": 12,
+      "rows": 537,
+      "pricedFrames": 409,
+      "lastZ": 108.341843,
+      "witnessFrames": 4,
+      "clipCalls": 405,
+      "eligible": 405,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 14.377822133970792,
+      "p95WorkMs": 19.84882269965278,
+      "maxWorkMs": 25.258188883463543,
+      "entryHz": 46.78515266283385,
+      "spatialMeanWorkMs": [
+        16.41188611132387,
+        15.88996512429756,
+        15.740463057374642,
+        16.620479265848797,
+        13.373214058254076,
+        13.33914775996245,
+        11.4763139666933,
+        9.460291268597585
+      ]
+    },
+    {
+      "phase": 1,
+      "mode": 0,
+      "hour": 12,
+      "rows": 513,
+      "pricedFrames": 387,
+      "lastZ": 108.432755,
+      "witnessFrames": 3,
+      "clipCalls": 357,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 15.1666379715566,
+      "p95WorkMs": 21.178775363498264,
+      "maxWorkMs": 27.882293701171875,
+      "entryHz": 44.01759378197456,
+      "spatialMeanWorkMs": [
+        17.152611151801214,
+        16.26194557948419,
+        16.770081902192498,
+        18.162921773976294,
+        13.65641922667353,
+        13.943297625982273,
+        13.459186695240161,
+        9.808373818409843
+      ]
+    },
+    {
+      "phase": 2,
+      "mode": 7,
+      "hour": 12,
+      "rows": 534,
+      "pricedFrames": 406,
+      "lastZ": 108.337479,
+      "witnessFrames": 4,
+      "clipCalls": 400,
+      "eligible": 400,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 14.474817978598475,
+      "p95WorkMs": 19.935197618272568,
+      "maxWorkMs": 24.489064534505207,
+      "entryHz": 46.44132134419787,
+      "spatialMeanWorkMs": [
+        16.360207891268004,
+        16.0359211674443,
+        15.869223070901537,
+        16.943239292422472,
+        13.49166464690425,
+        13.47679355039769,
+        11.667909087327423,
+        9.559457798196812
+      ]
+    },
+    {
+      "phase": 3,
+      "mode": 7,
+      "hour": 0,
+      "rows": 475,
+      "pricedFrames": 349,
+      "lastZ": 108.529419,
+      "witnessFrames": 3,
+      "clipCalls": 585,
+      "eligible": 585,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 16.577786518183153,
+      "p95WorkMs": 23.412838406032986,
+      "maxWorkMs": 28.993540445963543,
+      "entryHz": 39.83120655883942,
+      "spatialMeanWorkMs": [
+        19.54872735613092,
+        20.16935525360692,
+        18.331252057890325,
+        18.909278524265368,
+        16.759841805917244,
+        13.204073742182567,
+        13.087915094049126,
+        11.642412513193458
+      ]
+    },
+    {
+      "phase": 4,
+      "mode": 0,
+      "hour": 0,
+      "rows": 465,
+      "pricedFrames": 339,
+      "lastZ": 108.433838,
+      "witnessFrames": 3,
+      "clipCalls": 739,
+      "eligible": 0,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 17.247671091685486,
+      "p95WorkMs": 24.867529975043404,
+      "maxWorkMs": 31.226023356119793,
+      "entryHz": 38.70265484412794,
+      "spatialMeanWorkMs": [
+        20.72851911003207,
+        20.23668942506286,
+        18.788345399707435,
+        20.078603108723957,
+        18.29423149956597,
+        13.308482373881544,
+        13.057335251392065,
+        12.705009563828549
+      ]
+    },
+    {
+      "phase": 5,
+      "mode": 7,
+      "hour": 0,
+      "rows": 474,
+      "pricedFrames": 348,
+      "lastZ": 108.444237,
+      "witnessFrames": 3,
+      "clipCalls": 654,
+      "eligible": 654,
+      "merged": 0,
+      "removed": 0,
+      "maxInput": 0,
+      "bypassBags": 0,
+      "meanWorkMs": 16.538927743261343,
+      "p95WorkMs": 23.748504638671875,
+      "maxWorkMs": 29.413686116536457,
+      "entryHz": 39.73103412166399,
+      "spatialMeanWorkMs": [
+        19.749272218224597,
+        19.91925118983477,
+        18.52998303610181,
+        19.021675141259966,
+        16.853690818504052,
+        13.09466552734375,
+        12.751996103922526,
+        11.688029602208495
+      ]
+    }
+  ],
+  "unrefined": false,
+  "groupOnly": true,
+  "images": [
+    {
+      "phase": 0,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 0,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 1,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 2,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 3,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 4,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "main",
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "phase": 5,
+      "view": "env",
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "negativeControls": [
+    "missing-header-oracle",
+    "changed-header-oracle",
+    "stationary",
+    "no-gas",
+    "freeze",
+    "cars",
+    "profiler",
+    "paint",
+    "present",
+    "missing-phase",
+    "completion",
+    "witness",
+    "checkpoint",
+    "missing-source",
+    "changed-source",
+    "missing-delivery",
+    "inactive-coarse",
+    "coarse-control",
+    "changed-delivery",
+    "omitted-delivery",
+    "missing-residual",
+    "changed-residual",
+    "changed-baseline-input",
+    "missing-native",
+    "inactive-native",
+    "missing-quiet-window",
+    "ordinary-output-in-gas",
+    "missing-terrain-contract",
+    "missing-resident-chunk"
+  ],
+  "logSha256": "1953fea696f93abb86041ca5a03def460b6b5aaf3abe5ee9fce6157057ab71d0",
+  "csvSha256": "2d7432a3c967e4c1ac2625c11fe603ac236cd924cfc622ece959d48bbc8007f3",
+  "groupActive": false,
+  "scope": "Coarse EE partial-strip submission; identical qualified ring shader, quiet transport and stable focus both arms; source/delivery/residual gates; net elapsed, not pure EE cycles",
+  "contrasts": [
+    {
+      "hour": 12,
+      "mode": 7,
+      "savedMeanMs": 0.7403179152719659,
+      "savedSpatialMs": 0.7945936518940755,
+      "candidateP95Ms": 19.935197618272568,
+      "maxControlP95Ms": 21.178775363498264,
+      "eachCandidateFaster": true
+    },
+    {
+      "hour": 0,
+      "mode": 7,
+      "savedMeanMs": 0.6893139609632364,
+      "savedSpatialMs": 0.6958132174845595,
+      "candidateP95Ms": 23.748504638671875,
+      "maxControlP95Ms": 24.867529975043404,
+      "eachCandidateFaster": true
+    }
+  ],
+  "heldTerrainContracts": [
+    [
+      "0",
+      "0",
+      "25",
+      "0.000000",
+      "108.341843"
+    ],
+    [
+      "0",
+      "1",
+      "25",
+      "0.000000",
+      "108.341843"
+    ],
+    [
+      "0",
+      "2",
+      "25",
+      "0.000000",
+      "108.341843"
+    ],
+    [
+      "0",
+      "3",
+      "25",
+      "0.000000",
+      "108.341843"
+    ],
+    [
+      "0",
+      "4",
+      "25",
+      "0.000000",
+      "108.341843"
+    ],
+    [
+      "1",
+      "0",
+      "25",
+      "0.000000",
+      "108.432755"
+    ],
+    [
+      "1",
+      "1",
+      "25",
+      "0.000000",
+      "108.432755"
+    ],
+    [
+      "1",
+      "2",
+      "25",
+      "0.000000",
+      "108.432755"
+    ],
+    [
+      "1",
+      "3",
+      "25",
+      "0.000000",
+      "108.432755"
+    ],
+    [
+      "1",
+      "4",
+      "25",
+      "0.000000",
+      "108.432755"
+    ],
+    [
+      "2",
+      "0",
+      "25",
+      "0.000000",
+      "108.337479"
+    ],
+    [
+      "2",
+      "1",
+      "25",
+      "0.000000",
+      "108.337479"
+    ],
+    [
+      "2",
+      "2",
+      "25",
+      "0.000000",
+      "108.337479"
+    ],
+    [
+      "2",
+      "3",
+      "25",
+      "0.000000",
+      "108.337479"
+    ],
+    [
+      "2",
+      "4",
+      "25",
+      "0.000000",
+      "108.337479"
+    ],
+    [
+      "3",
+      "0",
+      "25",
+      "0.000000",
+      "108.529419"
+    ],
+    [
+      "3",
+      "1",
+      "25",
+      "0.000000",
+      "108.529419"
+    ],
+    [
+      "3",
+      "2",
+      "25",
+      "0.000000",
+      "108.529419"
+    ],
+    [
+      "3",
+      "3",
+      "25",
+      "0.000000",
+      "108.529419"
+    ],
+    [
+      "3",
+      "4",
+      "25",
+      "0.000000",
+      "108.529419"
+    ],
+    [
+      "4",
+      "0",
+      "25",
+      "0.000000",
+      "108.433838"
+    ],
+    [
+      "4",
+      "1",
+      "25",
+      "0.000000",
+      "108.433838"
+    ],
+    [
+      "4",
+      "2",
+      "25",
+      "0.000000",
+      "108.433838"
+    ],
+    [
+      "4",
+      "3",
+      "25",
+      "0.000000",
+      "108.433838"
+    ],
+    [
+      "4",
+      "4",
+      "25",
+      "0.000000",
+      "108.433838"
+    ],
+    [
+      "5",
+      "0",
+      "25",
+      "0.000000",
+      "108.444237"
+    ],
+    [
+      "5",
+      "1",
+      "25",
+      "0.000000",
+      "108.444237"
+    ],
+    [
+      "5",
+      "2",
+      "25",
+      "0.000000",
+      "108.444237"
+    ],
+    [
+      "5",
+      "3",
+      "25",
+      "0.000000",
+      "108.444237"
+    ],
+    [
+      "5",
+      "4",
+      "25",
+      "0.000000",
+      "108.444237"
+    ]
+  ],
+  "ringContracts": [
+    "RINGCONTRACT phase=0 arm=0 calls=60 triangles=490",
+    "RINGCONTRACT phase=0 arm=1 calls=44 triangles=1662",
+    "RINGCONTRACT phase=0 arm=2 calls=60 triangles=490",
+    "RINGCONTRACT phase=0 arm=3 calls=60 triangles=490",
+    "RINGCONTRACT phase=0 arm=4 calls=60 triangles=490",
+    "RINGCONTRACT phase=1 arm=0 calls=34 triangles=386",
+    "RINGCONTRACT phase=1 arm=1 calls=28 triangles=1078",
+    "RINGCONTRACT phase=1 arm=2 calls=34 triangles=386",
+    "RINGCONTRACT phase=1 arm=3 calls=34 triangles=386",
+    "RINGCONTRACT phase=1 arm=4 calls=34 triangles=386",
+    "RINGCONTRACT phase=2 arm=0 calls=56 triangles=466",
+    "RINGCONTRACT phase=2 arm=1 calls=40 triangles=1516",
+    "RINGCONTRACT phase=2 arm=2 calls=56 triangles=466",
+    "RINGCONTRACT phase=2 arm=3 calls=56 triangles=466",
+    "RINGCONTRACT phase=2 arm=4 calls=56 triangles=466",
+    "RINGCONTRACT phase=3 arm=0 calls=15 triangles=278",
+    "RINGCONTRACT phase=3 arm=1 calls=16 triangles=591",
+    "RINGCONTRACT phase=3 arm=2 calls=15 triangles=278",
+    "RINGCONTRACT phase=3 arm=3 calls=15 triangles=278",
+    "RINGCONTRACT phase=3 arm=4 calls=15 triangles=278",
+    "RINGCONTRACT phase=4 arm=0 calls=20 triangles=310",
+    "RINGCONTRACT phase=4 arm=1 calls=17 triangles=652",
+    "RINGCONTRACT phase=4 arm=2 calls=20 triangles=310",
+    "RINGCONTRACT phase=4 arm=3 calls=20 triangles=310",
+    "RINGCONTRACT phase=4 arm=4 calls=20 triangles=310",
+    "RINGCONTRACT phase=5 arm=0 calls=15 triangles=278",
+    "RINGCONTRACT phase=5 arm=1 calls=16 triangles=591",
+    "RINGCONTRACT phase=5 arm=2 calls=15 triangles=278",
+    "RINGCONTRACT phase=5 arm=3 calls=15 triangles=278",
+    "RINGCONTRACT phase=5 arm=4 calls=15 triangles=278"
+  ],
+  "coarseContracts": {
+    "COARSESOURCE": [
+      "COARSESOURCE phase=0 arm=0 packages=24 triangles=1662 vertices=4986 hash=2396881017",
+      "COARSESOURCE phase=0 arm=1 packages=24 triangles=1662 vertices=4986 hash=2396881017",
+      "COARSESOURCE phase=0 arm=2 packages=24 triangles=1662 vertices=4986 hash=2396881017",
+      "COARSESOURCE phase=0 arm=3 packages=24 triangles=1662 vertices=4986 hash=2396881017",
+      "COARSESOURCE phase=0 arm=4 packages=24 triangles=1662 vertices=4986 hash=2396881017",
+      "COARSESOURCE phase=1 arm=0 packages=16 triangles=1078 vertices=3234 hash=862055609",
+      "COARSESOURCE phase=1 arm=1 packages=16 triangles=1078 vertices=3234 hash=862055609",
+      "COARSESOURCE phase=1 arm=2 packages=16 triangles=1078 vertices=3234 hash=862055609",
+      "COARSESOURCE phase=1 arm=3 packages=16 triangles=1078 vertices=3234 hash=862055609",
+      "COARSESOURCE phase=1 arm=4 packages=16 triangles=1078 vertices=3234 hash=862055609",
+      "COARSESOURCE phase=2 arm=0 packages=22 triangles=1516 vertices=4548 hash=3666231145",
+      "COARSESOURCE phase=2 arm=1 packages=22 triangles=1516 vertices=4548 hash=3666231145",
+      "COARSESOURCE phase=2 arm=2 packages=22 triangles=1516 vertices=4548 hash=3666231145",
+      "COARSESOURCE phase=2 arm=3 packages=22 triangles=1516 vertices=4548 hash=3666231145",
+      "COARSESOURCE phase=2 arm=4 packages=22 triangles=1516 vertices=4548 hash=3666231145",
+      "COARSESOURCE phase=3 arm=0 packages=9 triangles=591 vertices=1773 hash=3686723122",
+      "COARSESOURCE phase=3 arm=1 packages=9 triangles=591 vertices=1773 hash=3686723122",
+      "COARSESOURCE phase=3 arm=2 packages=9 triangles=591 vertices=1773 hash=3686723122",
+      "COARSESOURCE phase=3 arm=3 packages=9 triangles=591 vertices=1773 hash=3686723122",
+      "COARSESOURCE phase=3 arm=4 packages=9 triangles=591 vertices=1773 hash=3686723122",
+      "COARSESOURCE phase=4 arm=0 packages=10 triangles=652 vertices=1956 hash=2630992710",
+      "COARSESOURCE phase=4 arm=1 packages=10 triangles=652 vertices=1956 hash=2630992710",
+      "COARSESOURCE phase=4 arm=2 packages=10 triangles=652 vertices=1956 hash=2630992710",
+      "COARSESOURCE phase=4 arm=3 packages=10 triangles=652 vertices=1956 hash=2630992710",
+      "COARSESOURCE phase=4 arm=4 packages=10 triangles=652 vertices=1956 hash=2630992710",
+      "COARSESOURCE phase=5 arm=0 packages=9 triangles=591 vertices=1773 hash=3686723122",
+      "COARSESOURCE phase=5 arm=1 packages=9 triangles=591 vertices=1773 hash=3686723122",
+      "COARSESOURCE phase=5 arm=2 packages=9 triangles=591 vertices=1773 hash=3686723122",
+      "COARSESOURCE phase=5 arm=3 packages=9 triangles=591 vertices=1773 hash=3686723122",
+      "COARSESOURCE phase=5 arm=4 packages=9 triangles=591 vertices=1773 hash=3686723122"
+    ],
+    "COARSEDELIVERY": [
+      "COARSEDELIVERY phase=0 arm=0 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=0 arm=1 jobs=44 triangles=1662 vertices=4986 hash=2396881017",
+      "COARSEDELIVERY phase=0 arm=2 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=0 arm=3 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=0 arm=4 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=1 arm=0 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=1 arm=1 jobs=28 triangles=1078 vertices=3234 hash=862055609",
+      "COARSEDELIVERY phase=1 arm=2 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=1 arm=3 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=1 arm=4 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=2 arm=0 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=2 arm=1 jobs=40 triangles=1516 vertices=4548 hash=3666231145",
+      "COARSEDELIVERY phase=2 arm=2 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=2 arm=3 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=2 arm=4 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=3 arm=0 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=3 arm=1 jobs=16 triangles=591 vertices=1773 hash=3686723122",
+      "COARSEDELIVERY phase=3 arm=2 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=3 arm=3 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=3 arm=4 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=4 arm=0 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=4 arm=1 jobs=17 triangles=652 vertices=1956 hash=2630992710",
+      "COARSEDELIVERY phase=4 arm=2 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=4 arm=3 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=4 arm=4 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=5 arm=0 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=5 arm=1 jobs=16 triangles=591 vertices=1773 hash=3686723122",
+      "COARSEDELIVERY phase=5 arm=2 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=5 arm=3 jobs=0 triangles=0 vertices=0 hash=2166136261",
+      "COARSEDELIVERY phase=5 arm=4 jobs=0 triangles=0 vertices=0 hash=2166136261"
+    ],
+    "COARSERESIDUAL": [
+      "COARSERESIDUAL phase=0 arm=0 triangles=344 vertices=1032 hash=2445172511",
+      "COARSERESIDUAL phase=0 arm=1 triangles=344 vertices=1032 hash=2445172511",
+      "COARSERESIDUAL phase=0 arm=2 triangles=344 vertices=1032 hash=2445172511",
+      "COARSERESIDUAL phase=0 arm=3 triangles=344 vertices=1032 hash=2445172511",
+      "COARSERESIDUAL phase=0 arm=4 triangles=344 vertices=1032 hash=2445172511",
+      "COARSERESIDUAL phase=1 arm=0 triangles=319 vertices=957 hash=1039539831",
+      "COARSERESIDUAL phase=1 arm=1 triangles=319 vertices=957 hash=1039539831",
+      "COARSERESIDUAL phase=1 arm=2 triangles=319 vertices=957 hash=1039539831",
+      "COARSERESIDUAL phase=1 arm=3 triangles=319 vertices=957 hash=1039539831",
+      "COARSERESIDUAL phase=1 arm=4 triangles=319 vertices=957 hash=1039539831",
+      "COARSERESIDUAL phase=2 arm=0 triangles=353 vertices=1059 hash=1646638582",
+      "COARSERESIDUAL phase=2 arm=1 triangles=353 vertices=1059 hash=1646638582",
+      "COARSERESIDUAL phase=2 arm=2 triangles=353 vertices=1059 hash=1646638582",
+      "COARSERESIDUAL phase=2 arm=3 triangles=353 vertices=1059 hash=1646638582",
+      "COARSERESIDUAL phase=2 arm=4 triangles=353 vertices=1059 hash=1646638582",
+      "COARSERESIDUAL phase=3 arm=0 triangles=195 vertices=585 hash=2897861508",
+      "COARSERESIDUAL phase=3 arm=1 triangles=195 vertices=585 hash=2897861508",
+      "COARSERESIDUAL phase=3 arm=2 triangles=195 vertices=585 hash=2897861508",
+      "COARSERESIDUAL phase=3 arm=3 triangles=195 vertices=585 hash=2897861508",
+      "COARSERESIDUAL phase=3 arm=4 triangles=195 vertices=585 hash=2897861508",
+      "COARSERESIDUAL phase=4 arm=0 triangles=230 vertices=690 hash=2631259276",
+      "COARSERESIDUAL phase=4 arm=1 triangles=230 vertices=690 hash=2631259276",
+      "COARSERESIDUAL phase=4 arm=2 triangles=230 vertices=690 hash=2631259276",
+      "COARSERESIDUAL phase=4 arm=3 triangles=230 vertices=690 hash=2631259276",
+      "COARSERESIDUAL phase=4 arm=4 triangles=230 vertices=690 hash=2631259276",
+      "COARSERESIDUAL phase=5 arm=0 triangles=190 vertices=570 hash=2208247729",
+      "COARSERESIDUAL phase=5 arm=1 triangles=190 vertices=570 hash=2208247729",
+      "COARSERESIDUAL phase=5 arm=2 triangles=190 vertices=570 hash=2208247729",
+      "COARSERESIDUAL phase=5 arm=3 triangles=190 vertices=570 hash=2208247729",
+      "COARSERESIDUAL phase=5 arm=4 triangles=190 vertices=570 hash=2208247729"
+    ]
+  },
+  "nativeFallback": false,
+  "coarseSourceDeliveryEqual": true,
+  "residualInputEqual": true,
+  "baselinePostRouteInputEqual": true,
+  "consumerInputEqual": false,
+  "residentWords": 2034,
+  "ringStateOnce": false,
+  "nativeActive": true,
+  "quietBothArms": true,
+  "headerOracle": [
+    [
+      0,
+      0,
+      215
+    ],
+    [
+      0,
+      1,
+      147
+    ],
+    [
+      0,
+      2,
+      215
+    ],
+    [
+      0,
+      3,
+      215
+    ],
+    [
+      0,
+      4,
+      215
+    ],
+    [
+      1,
+      0,
+      163
+    ],
+    [
+      1,
+      1,
+      135
+    ],
+    [
+      1,
+      2,
+      163
+    ],
+    [
+      1,
+      3,
+      163
+    ],
+    [
+      1,
+      4,
+      163
+    ],
+    [
+      2,
+      0,
+      212
+    ],
+    [
+      2,
+      1,
+      147
+    ],
+    [
+      2,
+      2,
+      212
+    ],
+    [
+      2,
+      3,
+      212
+    ],
+    [
+      2,
+      4,
+      212
+    ],
+    [
+      3,
+      0,
+      112
+    ],
+    [
+      3,
+      1,
+      106
+    ],
+    [
+      3,
+      2,
+      112
+    ],
+    [
+      3,
+      3,
+      112
+    ],
+    [
+      3,
+      4,
+      112
+    ],
+    [
+      4,
+      0,
+      125
+    ],
+    [
+      4,
+      1,
+      112
+    ],
+    [
+      4,
+      2,
+      125
+    ],
+    [
+      4,
+      3,
+      125
+    ],
+    [
+      4,
+      4,
+      125
+    ],
+    [
+      5,
+      0,
+      111
+    ],
+    [
+      5,
+      1,
+      104
+    ],
+    [
+      5,
+      2,
+      111
+    ],
+    [
+      5,
+      3,
+      111
+    ],
+    [
+      5,
+      4,
+      111
+    ]
+  ],
+  "inputs": [
+    [
+      0,
+      0,
+      834,
+      2502,
+      3033951381
+    ],
+    [
+      0,
+      1,
+      2006,
+      6018,
+      995788839
+    ],
+    [
+      0,
+      2,
+      834,
+      2502,
+      3033951381
+    ],
+    [
+      0,
+      3,
+      834,
+      2502,
+      3033951381
+    ],
+    [
+      0,
+      4,
+      834,
+      2502,
+      3033951381
+    ],
+    [
+      1,
+      0,
+      705,
+      2115,
+      1702725285
+    ],
+    [
+      1,
+      1,
+      1397,
+      4191,
+      1791406342
+    ],
+    [
+      1,
+      2,
+      705,
+      2115,
+      1702725285
+    ],
+    [
+      1,
+      3,
+      705,
+      2115,
+      1702725285
+    ],
+    [
+      1,
+      4,
+      705,
+      2115,
+      1702725285
+    ],
+    [
+      2,
+      0,
+      819,
+      2457,
+      4157958242
+    ],
+    [
+      2,
+      1,
+      1869,
+      5607,
+      402289579
+    ],
+    [
+      2,
+      2,
+      819,
+      2457,
+      4157958242
+    ],
+    [
+      2,
+      3,
+      819,
+      2457,
+      4157958242
+    ],
+    [
+      2,
+      4,
+      819,
+      2457,
+      4157958242
+    ],
+    [
+      3,
+      0,
+      473,
+      1419,
+      4113461579
+    ],
+    [
+      3,
+      1,
+      786,
+      2358,
+      4153542387
+    ],
+    [
+      3,
+      2,
+      473,
+      1419,
+      4113461579
+    ],
+    [
+      3,
+      3,
+      473,
+      1419,
+      4113461579
+    ],
+    [
+      3,
+      4,
+      473,
+      1419,
+      4113461579
+    ],
+    [
+      4,
+      0,
+      540,
+      1620,
+      868690026
+    ],
+    [
+      4,
+      1,
+      882,
+      2646,
+      3997208063
+    ],
+    [
+      4,
+      2,
+      540,
+      1620,
+      868690026
+    ],
+    [
+      4,
+      3,
+      540,
+      1620,
+      868690026
+    ],
+    [
+      4,
+      4,
+      540,
+      1620,
+      868690026
+    ],
+    [
+      5,
+      0,
+      468,
+      1404,
+      2903344575
+    ],
+    [
+      5,
+      1,
+      781,
+      2343,
+      869792299
+    ],
+    [
+      5,
+      2,
+      468,
+      1404,
+      2903344575
+    ],
+    [
+      5,
+      3,
+      468,
+      1404,
+      2903344575
+    ],
+    [
+      5,
+      4,
+      468,
+      1404,
+      2903344575
+    ]
+  ],
+  "controlRasterEqual": true,
+  "firstOrderGate": true,
+  "reverse": true,
+  "phaseRoles": [
+    "candidate",
+    "baseline",
+    "candidate",
+    "candidate",
+    "baseline",
+    "candidate"
+  ]
+}

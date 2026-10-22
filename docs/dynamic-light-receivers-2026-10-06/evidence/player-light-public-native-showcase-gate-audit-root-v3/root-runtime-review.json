@@ -1,0 +1,11 @@
+{
+  "status": "PASS_ROOT_PUBLIC_RECEIVER_RUNTIME_INPUT_REVIEW",
+  "buildRecord": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-native-showcase-gate-audit-root-v3/durable-build-record.json",
+  "buildRecordSha256": "ed90d2ec64567f130744abc62d0c35afbcba7253cafe72f1b5977a4e4c1ea05e",
+  "actualELFSha256": "32459f8d58329926a9a12ca2de543728c8375116e64f798e89bcfcbb949c25f2",
+  "actualSymbolSha256": "d31e3cd76d4ccdd47211cea0662783a7b5bf37927c95a391a82b41a05d8ca727",
+  "actualCompiledSourceReviewPassed": true,
+  "actualELFSymbolTextReviewPassed": true,
+  "nativeProofSha256": "b0c575839f49e65386e60f3912939f788b9bd813453dae8b2f1d4c3f1a1a5f85",
+  "runtimeOutputQualified": false
+}

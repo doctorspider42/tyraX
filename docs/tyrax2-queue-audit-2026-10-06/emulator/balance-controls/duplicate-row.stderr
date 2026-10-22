@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-queue-audit-v2/analyze-balance.py", line 15, in <module>
+    raw=rows('CLOSEOUTRAW');bal=rows('CLOSEOUTBAL');assert len(raw)==len(bal)==384
+AssertionError

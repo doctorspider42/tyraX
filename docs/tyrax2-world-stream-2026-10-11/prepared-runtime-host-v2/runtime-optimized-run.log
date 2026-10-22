@@ -1,0 +1,2 @@
+PASS prepared frontend actual-bbox cases=512 changed-views=12288 stale-controls=15360; no DMA/FPS claim
+PASS tracked actual runtime owner: 64 budget/replacement/copy/move rounds; no target timing

@@ -150,3 +150,10 @@ idle shot → wait 3 s → idle shot (**control**, ~600 px status-bar noise) →
 | `ai-and-packages.md` | AI Assistant (prompt, harness, fake backend, traps), update check, Windows installer, Linux packages, self-update |
 
 Bundled scripts (`.agents/skills/tyra-testing/scripts/`): `screenshot-window.ps1`, `wayland-control.py`, `arm-vucap.py`, `pcsx2-capture.py`, `motion-gate.ps1` + `motion-gate.py` + `routecam.cpp`, `make-shadow-fixture.ps1` + `shadow-ab.ps1` (+ `shadow-ab.lib.ps1`).
+
+## TyraX 2.0 integration
+
+The editor is 2.0.0; the combined project format is 114. Read
+[TyraX2 integration notes](references/tyrax2-integration.md) before changing
+frame ownership, pipeline recording or the associated acceptance tooling.
+The consolidated branch notes retain the full historical qualification record.

@@ -1,0 +1,17 @@
+{
+  "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-physical-v1\\draft-source-manifest.json": "4b8bc7a39ad0e71629c2532f90e51335e4e1196dcbffc6996f28f3cc9097789a",
+  "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-physical-v1\\draft-review.json": "db196e7402912dd6d2b401ce9ea656419da9037c5624ae407c3dfdd2e625655c",
+  "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-physical-v1\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp": "0db93ad36aee5b2d82304d1eb491b5a0f0accd01aae8fc976b171c42710e8760",
+  "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-physical-v1\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp": "3dfafe8ffc8412fb6b6a95503ca8abfb2369508a66289e91fb59b5a78a7e3d22",
+  "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-physical-v1\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_core.hpp": "fb6edec612f4919f4ad45c71ddbb6bf9113d193f3d213b5c42c820c57400f06c",
+  "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-physical-v1\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.hpp": "e143ff1a84130d69af66d615efb8020bb453c37631aee18eea6ccac6fcdba06a",
+  "F:\\Projects\\tyrax2-lab-20261001\\prepare-tex1-owned-v1.py": "6846ae83d71eea68474f8a13ec3b45b768e0b2c8452cc811a7c90a0abd250d95",
+  "F:\\Projects\\tyrax2-lab-20261001\\prepare-tex1-owned-helpers-v1.py": "baee279a29555dbd8df06cd41ac45ffa9bf37d5ebb1ab175cb71d935b5e9124a",
+  "F:\\Projects\\tyrax2-lab-20261001\\test-tex1-owned-source-v1.py": "b3224e0f50cae07effab66556f853c1811bfdf5146b9d31f4e013ff18438fddf",
+  "F:\\Projects\\tyrax2-lab-20261001\\test-tex1-owned-host-v1.py": "dc6c6024bd8aa02a0775405b4000d94e2f997841ab112d47da428c8dbc574f0f",
+  "F:\\Projects\\tyrax2-lab-20261001\\release-tex1-owned-v1.py": "c007476cd239fcfc081bbe3d1d559c805f21f53c276e03fda22fa974fd3de15a",
+  "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-source-controls-v1\\proof.json": "8fb321d951abed4e2c862c1856d2a8e48313f180d61f3fd5b9e45bb2726c2286",
+  "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-host-controls-v1.json": "69266046a6875a2cbebe7eccb0cf20402acd6a058dcbf32496026d3ab0d944ea",
+  "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-root-helpers-v1\\runtime_guard.py": "07fb08de588776c96dd946bc4f8f06bf4157937dcae87e3b2a26e361405be679",
+  "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-controls-v1\\analyze-night.py": "6a0ecba4874cb82625dad57afd69c5b471af9992a8162b209b674e7abaebefcb"
+}

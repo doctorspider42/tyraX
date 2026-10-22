@@ -1,0 +1,81 @@
+SCE CONFIDENTIAL                                                                                      EE Core User's Manual Version 6.0 
+ 
+ 
+© SCEI 
+-84- 
+PCCR : Performance Counter Control 
+CCR[0,25] 
+31  19                     15 14 13 12 11  9                        5 4 3 2 1  
+C 
+T 
+E 
+0 EVENT1 U 
+1 
+S 
+1 
+K 
+1 
+E 
+X 
+L 
+1 
+0 EVENT0 U 
+0 
+S 
+0 
+K 
+0 
+E 
+X 
+L 
+0 
+0 
+1 11 5 1 1 1 1 1 5 1 1 1 1 1 
+ 
+Name Pos. Description r/w Initial Value 
+CTE 31 Enables counter function r/w 0 
+EVENT1 19:15 Events that counted in CTR1 (R efer to the  table below) r/w Undefined 
+U1 14 Enables a counting operation in CT R1 in the User mode. r/w Undefined 
+S1 13 Enables a counting operati on in CTR1 in the Supervisor 
+mode. 
+r/w Undefined 
+K1 12 Enables a counting opera tion in CTR1 in the Kernel 
+mode. 
+r/w Undefined 
+EXL1 11 Enables a counting opera tion in CTR1 when executing 
+the level 1 exception handler.  
+r/w Undefined 
+EVENT0 9:5 Events that counted in CTR0 (Refer to the table below) r/w Undefined 
+U0 4 Enables a counting operation in CT R0 in the User mode. r/w Undefined 
+S0 3 Enables a counting operati on in CTR0 in the Supervisor 
+mode. 
+r/w Undefined 
+K0 2 Enables a counting opera tion in CTR0 in the Kernel 
+mode. 
+r/w Undefined 
+EXL0 1 Enables a counting opera tion in CTR0 when executing 
+the level 1 exception handler. 
+r/w Undefined 
+ 
+Events to be counted EVENT0 
+/ EVENT1 CTR0 CTR1 
+0 (reserved) Issues the low-order branch 
+1 Processor cycle Processor cycle 
+2 Issues a single instruction Issues a double instruction 
+3 Issues branch Branch prediction miss 
+4 BTAC miss TLB miss 
+5 TLB miss DTLB miss 
+6 Instruction cache (I$) miss Data cache (D$) miss 
+7 Access to DTLB WBB single request unusable 
+8 Non-blocking load WBB burst request unusable 
+9 WBB single request WBB burst request almost full 
+10 WBB burst request WBB burst request full 
+11 CPU address bus busy  CPU data bus busy 
+12 Completes instruction Completes instruction 
+13 Completes non-BDS instruction Completes non-BDS instruction 
+14 Completes the COP2 instruction Completes the COP1 instruction 
+15 Completes loads Completes stores 
+16 No event No event 
+17-31 (reserved) (reserved) 
+The PCCR register controls the function of the performance counter. It determines which events are counted, 
+and which operation modes are used for counting, for counter registers PCR0 and PCR1.  

@@ -1,0 +1,51 @@
+
+/mnt/f/Projects/tyrax2-lab-20261001/pmu-wrapper-compile-root-v1/wrappers.o:     file format elf32-nlittlemips
+
+
+Disassembly of section .text:
+
+00000000 <pmu_export_readPcr>:
+   0:	4002c800 	mfps	v0,0
+   4:	0000040f 	sync.p
+   8:	03e00008 	jr	ra
+   c:	00000000 	nop
+
+00000010 <pmu_export_readI>:
+  10:	4002c801 	mfpc	v0,0
+  14:	0000040f 	sync.p
+  18:	03e00008 	jr	ra
+  1c:	00000000 	nop
+
+00000020 <pmu_export_readD>:
+  20:	4002c803 	mfpc	v0,1
+  24:	0000040f 	sync.p
+  28:	03e00008 	jr	ra
+  2c:	00000000 	nop
+
+00000030 <pmu_export_configureStopped>:
+  30:	3c020003 	lui	v0,0x3
+  34:	244240d0 	addiu	v0,v0,16592
+  38:	4082c800 	mtps	v0,0
+  3c:	0000040f 	sync.p
+  40:	03e00008 	jr	ra
+  44:	00000000 	nop
+
+00000048 <pmu_export_resetEnable>:
+  48:	3c028003 	lui	v0,0x8003
+  4c:	244240d0 	addiu	v0,v0,16592
+  50:	4080c801 	mtpc	zero,0
+  54:	4080c803 	mtpc	zero,1
+  58:	0000040f 	sync.p
+  5c:	4082c800 	mtps	v0,0
+  60:	0000040f 	sync.p
+  64:	03e00008 	jr	ra
+  68:	00000000 	nop
+  6c:	00000000 	nop
+
+00000070 <pmu_export_stopOwned>:
+  70:	3c020003 	lui	v0,0x3
+  74:	244240d0 	addiu	v0,v0,16592
+  78:	4082c800 	mtps	v0,0
+  7c:	0000040f 	sync.p
+  80:	03e00008 	jr	ra
+  84:	00000000 	nop

@@ -1,0 +1,23 @@
+{
+  "status": "PASS_KIND28_HOST_SYNTHETIC_AND_CLI_ONLY",
+  "checks": [
+    "positive0",
+    "rejected0calls=134",
+    "rejected0units1=134",
+    "rejected0units3=268",
+    "rejected0units4=0",
+    "rejected0timedCalls=0",
+    "rejected0units2=134",
+    "cli0",
+    "positive1",
+    "rejected1calls=134",
+    "rejected1units1=134",
+    "rejected1units3=268",
+    "rejected1units4=0",
+    "rejected1timedCalls=0",
+    "rejected1units2=134",
+    "cli1"
+  ],
+  "sourceOracleProofSha256": "8fb321d951abed4e2c862c1856d2a8e48313f180d61f3fd5b9e45bb2726c2286",
+  "nativeExecutionAccepted": false
+}

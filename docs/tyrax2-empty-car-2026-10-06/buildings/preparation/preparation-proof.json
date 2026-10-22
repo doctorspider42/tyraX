@@ -1,0 +1,22 @@
+{
+  "status": "PASS_PRIVATE_TWO_CARS_LIGHT_PINE_EIGHT_BUILDINGS_PREPARATION_NATIVE_AND_PARSER",
+  "files": {
+    "source-review.json": "288342cf93949df5de0f913eed5f7dbae06ca7a35d8993e83cf4432ee508c04f",
+    "building-assets-proof.json": "4369ebbf443e84d0d6d277957c29ad7b82d74ad2178d44bb521642f7f18b2efe",
+    "source-content-census.json": "8d4b963831d0b99d699e3a3d74a4851a7fed4629cfc130895895805c732c2709",
+    "bin-assets-source-pins.json": "e40061c31661e6fe8e3fc783281dca1604f62d2c545fa5e503a931c6a62f352b",
+    "native-proof.json": "49edc649a45cff51b755c1ccd7f378437d1520e10b5cd5825c0b5604d3f16f3d",
+    "native-build.log": "49509501e930b2e4bfe9189f5706148407f2a74f7a47d14b45e2694ece3c6aaf",
+    "native-proof.py": "53ff31824e0fa6408ee9ddbf550e8e5d1a61e513e38ae378596d17ac1ff7ceb1",
+    "analyze-buildings.py": "e91970f79b587c01e5f1ae3fe03109367ac71ea21b43aed07e2b3def5974a2b7",
+    "test-parser.py": "727e24dfdb30a633b157a79e06d00c89e9b8570668652dac45a8d516fd25affb",
+    "parser-controls-v1/proof.json": "326f94b1d1615e6983dd9b988701d8d8c067f06fc5ab721393cb6927bd222f24",
+    "README.md": "984d61dd9246c3248c888cddc849b894454c75738cf7f677a85b10b9766dc9a1"
+  },
+  "actualELFSha256": "b02227fce13686ad04183160a499aefc22a7bb594ba928df85daba5db3b27a36",
+  "runtimeReleased": false,
+  "devicesExecutedByPreparationAgent": false,
+  "hardwarePerformanceQualified": false,
+  "commonObserverCostUnpriced": true,
+  "acceptedGeometryMeaning": "Carrier input vertices, not postclip triangles; eight owner refs are represented shown membership, not pixel visibility."
+}

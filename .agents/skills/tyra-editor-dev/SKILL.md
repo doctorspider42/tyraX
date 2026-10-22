@@ -126,3 +126,10 @@ The editor and the PS2 game compute many things twice (host C++ for preview/bake
 | `audio.md` | Drone Generator synth + window, editor audio output, WAV conversion and the sfx bake |
 | `vu-framework.md` | vuir/vuasm/vusim/vugen/vucap/vushader/vumain, `--vu-check`/`--vu-replay`, VU clip-image aliases |
 | `build-platform-release.md` | Build scripts and CMake, dependencies, platform parity table, `platform.cpp`, paths and shell quoting, packaging/release workflow, update check |
+
+## TyraX 2.0 integration
+
+The editor is 2.0.0; the combined project format is 114. Read
+[TyraX2 integration notes](references/tyrax2-integration.md) before changing
+frame ownership, pipeline recording or the associated acceptance tooling.
+The consolidated branch notes retain the full historical qualification record.

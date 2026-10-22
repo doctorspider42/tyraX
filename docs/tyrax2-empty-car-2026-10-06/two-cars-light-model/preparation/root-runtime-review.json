@@ -1,0 +1,15 @@
+{
+  "status": "ROOT_QUALIFIED_STATIC_MODEL_NATIVE_AND_EMULATOR_ONLY",
+  "sourcePinsVerified": 469,
+  "threeExactOwnedWindowImagesReviewed": true,
+  "emulatorLoops": 5400,
+  "treeImportedVertices": 96,
+  "treeTriangles": 32,
+  "treeAcceptedAllSixColdFrames": true,
+  "bothVehiclesAndMovingLightRetained": true,
+  "emulatorOwnedPid3069ExitConfirmed": true,
+  "physicalRunPending": true,
+  "physicalResetReadyConfirmationPending": true,
+  "hardwareTimingQualified": false,
+  "resetFixClaim": false
+}

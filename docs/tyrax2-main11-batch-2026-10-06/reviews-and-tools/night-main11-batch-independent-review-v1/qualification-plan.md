@@ -1,0 +1,21 @@
+# Main-only eleven-box merge: independent qualification requirements
+
+Read-only plan review before candidate availability. Not approval of an unreviewed candidate. No builds/source/runtime changes by reviewer. Source guard requirements sent to source/schema agents.
+
+The prior design identifies real opt-out/lifetime hazards correctly: force batchStatic loses individual reflection geometry; changing reflected flag removes content. A separate main representation with original carriers is the appropriate narrow experiment. Copy original initialized carrier positions/colors/ST rather than rebake through StaticBatch global GI/AO state; dynamic-light and per-bag semantics still need their own guards.
+
+## Concrete blocking counterexamples
+
+1. dynLit0 does not disable runtime spot lighting. PipelineInfoBag defaults dynLightPick=true and spotLit=true. StaPipCore selects one light from world-center/radius. Merging expands sphere and may choose a different light. QBuffer then builds local spot and bbox-filters zero influence before programs/uniforms. Authoring lamp key is not this selector nor its effective enable predicate. Require exact effective light/shader inputs per member versus group or fall back. A no-influence shortcut requires actual conservative predicate on current bounds/spot, not a flag assumption.
+2. Main per-object coarse frustum, occlusion, split band, draw distance and visibility gates can differ from merged AABB classification. A merged partial-frustum program/packages can change clipping even if vertex arrays match. Require current original eligibility per member; qualify accepted merged culling/clip route, or restrict initial candidate to fully-inside compatible bags and fallback on boundaries. Host arrays alone prove neither.
+3. Blending is enabled by default. Exact alpha/depth/info and submission order matter even for geometry authored as opaque. Draw all three groups early in renderStaticBatches changes order versus original object loop and its heavy interleave. Submit a group at the original first member position, preserve within-group primitive order and exclude/match interleaved effects; define/fallback on order-sensitive inputs. Full semantic equality includes RGBA and initialized vector words, not padding.
+4. Reflection rebuild can clear shared dirty before main reconciliation. Reconcile/demote before the first secondary consumer, maintain separate membership invalidation, never borrow vectors reflection can resize. Secondary carriers, visibility, reflection key/cadence and scene-reset synchronization must remain original. Aggregate reflection counts are insufficient proof of identical lifetime/content.
+5. Bag API/program overrides, displacement scripts, matrix ownership, strips/LOD, mutable materials and changing selected membership invalidate the narrow primitive assumptions. Guard exact compatible inputs and demote safely; do not globally change objectBatchOf or ordinary reflection/portal/outline behavior.
+
+## Minimal cold qualification
+
+Record stable member IDs/current scene generation and actual selected original eligibility; original and group initialized geometry hashes/word comparisons plus member offsets/counts and complete info/material/transform/light shader keys; actual group entered/accepted/culled counts; selected original main attempts skipped only on active valid representation; duplicate/missing coverage; original carrier readiness and unchanged secondary geometry hashes/visibility/reflection key/cadence. For boundary/member/light mismatch count fallback with its reason. Activation must demonstrate groups actually submitted and consumed, not merely prepared/requested.
+
+Cold semantic checks should cover both arms independently, scene reset/day-night visibility, movement/frustum boundary/split main view and dirty transform/material before reflection. Malformed host guards/schema controls demonstrate rejection safety only. Same-ELF elapsed contrast prices candidate hot decision/submit differences, while common carriers/prepared merge memory and setup remain unpriced. Exact equivalence may demand a narrower fixture-only activation domain and honest fallback counts; no source-level requirement to force three active groups.
+
+Pending candidate-specific report and new pins once draft arrives. No performance or release claim.

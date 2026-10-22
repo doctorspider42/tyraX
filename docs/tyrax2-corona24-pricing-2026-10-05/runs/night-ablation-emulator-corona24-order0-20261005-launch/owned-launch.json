@@ -1,0 +1,37 @@
+{
+  "pid": 4261,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-corona24-order0-20261005/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-corona24-order0-20261005/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-pricing-physical-v1/game/bin/vehicle-playground.elf"
+  ],
+  "exe": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt",
+  "exeSha256": "c4629baf9c5daca45a9df6ad1ee84a188aeb025627b822a3ea62bdc48b23da18",
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/corona24-pricing-physical-v1",
+  "stem": "night-ablation-emulator-corona24-order0-20261005",
+  "kind": 9,
+  "order": 0,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "167289384fb4780c3e22111756206af45ffe70b877eb5a308505edbf9be4ac81",
+  "profile": "/home/spider/night-ablation-emulator-corona24-order0-20261005/profile",
+  "launchArchive": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-corona24-order0-20261005-launch",
+  "helperSha256": "f849b8f552698c3765c2432d95672abab9fee57ad9809216f31b846c849bac75",
+  "launchFiles": {
+    "night-ablation.cfg": "8981b854986f105e63c030ca6b32392558413c9b1652b8f5d5931bcf468ac7a8",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "1b2412794623b2dd7656d639b66f5b02680d1687ac2006ae4a5971bf4af3a7d8",
+    "root-runtime-authority.json": "e29b2249d89d0e4fe4bf0e1e29f7187eabafad5e6a0faed52fc0cab86d227925",
+    "root-source-freeze.json": "99b02903e5f132c8a7f0a7d8d9b2231e9197bdfdec82b48afd396bbbe4645dba",
+    "runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "target-source-manifest.json": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+    "vehicle-playground.elf": "167289384fb4780c3e22111756206af45ffe70b877eb5a308505edbf9be4ac81",
+    "vehicle-playground.elf.sym": "f90363964f154c3fcf5d7d28d669cffd3bf5d6c033dadb47d6f6132215c52ebe"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "status": "INCOMPLETE",
+  "performanceQualified": false,
+  "normalFixAccepted": false,
+  "completedPhases": [
+    0,
+    1,
+    2
+  ],
+  "lastEeOutput": "phase3 shadow-atlas loading",
+  "iopOutput": "freepad DMA Busy",
+  "rootCause": "unproven; no allocation/assert message",
+  "elf": "374053cfe1c9f254a840510467ddf552f7f566fd1a3e67cf8e8622e0f848c104",
+  "sourceEvidence": "../terrain-normal-v1-emulator-qualified",
+  "files": 346
+}

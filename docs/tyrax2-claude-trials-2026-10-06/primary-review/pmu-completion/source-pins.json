@@ -1,0 +1,149 @@
+{
+  "schema": "tyrax2-pmu-completion-read-only-audit-v1",
+  "date": "2026-10-06",
+  "mode": "documentation capture only; no implementation/build/runtime",
+  "rootHead": "35a7aa7f3f35a8286249daa94d1c7eb5715d8bf6",
+  "primaryUpstream": {
+    "repository": "https://github.com/ps2dev/ps2stuff",
+    "commit": "c8541baad8f1ad5462bf5955c66f51a15fcf20e2",
+    "sources": [
+      {
+        "repositoryPath": "src/core.cpp",
+        "url": "https://github.com/ps2dev/ps2stuff/blob/c8541baad8f1ad5462bf5955c66f51a15fcf20e2/src/core.cpp",
+        "rawUrl": "https://raw.githubusercontent.com/ps2dev/ps2stuff/c8541baad8f1ad5462bf5955c66f51a15fcf20e2/src/core.cpp",
+        "copy": "upstream-primary/src_core.cpp",
+        "sha256": "32e293f6ff0fcd708a9352e1de6bd52cf3809a61caa7dc9afe35215e36c474c8",
+        "bytes": 2568
+      },
+      {
+        "repositoryPath": "src/perfmon.cpp",
+        "url": "https://github.com/ps2dev/ps2stuff/blob/c8541baad8f1ad5462bf5955c66f51a15fcf20e2/src/perfmon.cpp",
+        "rawUrl": "https://raw.githubusercontent.com/ps2dev/ps2stuff/c8541baad8f1ad5462bf5955c66f51a15fcf20e2/src/perfmon.cpp",
+        "copy": "upstream-primary/src_perfmon.cpp",
+        "sha256": "510ea0a3ecc45e3284b7ebb70eb94f9c76f9274358f44395653e28edb54054a8",
+        "bytes": 9223
+      },
+      {
+        "repositoryPath": "include/ps2s/core.h",
+        "url": "https://github.com/ps2dev/ps2stuff/blob/c8541baad8f1ad5462bf5955c66f51a15fcf20e2/include/ps2s/core.h",
+        "rawUrl": "https://raw.githubusercontent.com/ps2dev/ps2stuff/c8541baad8f1ad5462bf5955c66f51a15fcf20e2/include/ps2s/core.h",
+        "copy": "upstream-primary/include_ps2s_core.h",
+        "sha256": "42346e34aeada019a8280f605d224e6f22bb93c6badf178d8707ed67a643f5f3",
+        "bytes": 4143
+      },
+      {
+        "repositoryPath": "include/ps2s/perfmon.h",
+        "url": "https://github.com/ps2dev/ps2stuff/blob/c8541baad8f1ad5462bf5955c66f51a15fcf20e2/include/ps2s/perfmon.h",
+        "rawUrl": "https://raw.githubusercontent.com/ps2dev/ps2stuff/c8541baad8f1ad5462bf5955c66f51a15fcf20e2/include/ps2s/perfmon.h",
+        "copy": "upstream-primary/include_ps2s_perfmon.h",
+        "sha256": "8e06949c35b738d815e2e3eb9c845570709c94be1c76868e8b8eb9d6c8c2bfe3",
+        "bytes": 2706
+      }
+    ]
+  },
+  "localPrimarySources": [
+    {
+      "originalPath": "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include/ps2s/core.h",
+      "copy": "local-primary/core.h",
+      "sha256": "42346e34aeada019a8280f605d224e6f22bb93c6badf178d8707ed67a643f5f3",
+      "bytes": 4143
+    },
+    {
+      "originalPath": "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include/ps2s/perfmon.h",
+      "copy": "local-primary/perfmon.h",
+      "sha256": "8e06949c35b738d815e2e3eb9c845570709c94be1c76868e8b8eb9d6c8c2bfe3",
+      "bytes": 2706
+    }
+  ],
+  "installedArchive": {
+    "path": "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/lib/libps2stuff.a",
+    "sha256": "7b2562da52ee31e55106b007fef4e4acfd90e77a59e52248fb174a88071f7094",
+    "copied": false,
+    "disassembly": {
+      "tool": "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objdump",
+      "arguments": [
+        "-d",
+        "-C",
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/lib/libps2stuff.a"
+      ],
+      "exitCode": 0,
+      "record": "local-primary/libps2stuff.disassembly.txt",
+      "sha256": "9983c002732e6d41c6cb696ad3bcedfed1b6d2caabe7770992e51072040f6661",
+      "bytes": 270568,
+      "encoding": "captured stdout lines normalized to UTF-8 LF",
+      "verifiedFunction": "Core::SetupPerfCounters(unsigned long, unsigned long)"
+    }
+  },
+  "sourceDerivedSetup": {
+    "counter0": {
+      "event": "ICACHE_MISS",
+      "selector": 6,
+      "eventFieldShift": 5,
+      "userEnableBit": 4
+    },
+    "counter1": {
+      "event": "DCACHE_MISS",
+      "selector": 6,
+      "eventFieldShift": 15,
+      "userEnableBit": 14
+    },
+    "masterEnableBit": 31,
+    "derivedPccrHex": "0x800340D0",
+    "derivation": "0x80000000 | (6 << 5) | (6 << 15) | (1 << 4) | (1 << 14)",
+    "readInstructions": [
+      "mfpc reg,0",
+      "mfpc reg,1"
+    ],
+    "installedReadWrapperSuffix": "sync.p",
+    "unsafeWrapper": "PerfTest::StartSampling writes COP0 Count using Core::ZeroCount",
+    "runtimeActivationProven": false,
+    "observerTaxMeasured": false,
+    "cacheStallMillisecondsEstablished": false
+  },
+  "rootSourcePins": [
+    {
+      "path": "F:/Projects/tyra-editor/vendor/tyra/engine/src/renderer/core/renderer_core.cpp",
+      "sha256": "e4c97f885a2d022c9191fd95034a675337577a1c1507281d13548ac37a3b09b9"
+    },
+    {
+      "path": "F:/Projects/tyra-editor/vendor/tyra/engine/inc/renderer/core/renderer_core.hpp",
+      "sha256": "4e295cd961be4d8f8d32a18d831b90c0bab534b200986fc692d1130a3a1f9a65"
+    },
+    {
+      "path": "F:/Projects/tyra-editor/vendor/tyra/engine/src/renderer/core/renderer_core_sync.cpp",
+      "sha256": "cafbc2d3dbd465e7d5af8e2b4f5894b92537ff637ffc19faeccb7daa71ae2458"
+    },
+    {
+      "path": "F:/Projects/tyra-editor/vendor/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "sha256": "949fe358e54a6af5f28103ceb855f943b7498034625b6a55a4fc2222cc8dc4b7"
+    },
+    {
+      "path": "F:/Projects/tyra-editor/vendor/tyra/engine/inc/debug/frame_profile.hpp",
+      "sha256": "40d0b23c7b0a08aa2804f45b5de48a2179ae6cfd7e9a72980c7745c521e6a09e"
+    },
+    {
+      "path": "F:/Projects/tyra-editor/docs/tyrax2-minimal-scopes.md",
+      "sha256": "cba563db6b851a077d07cf363b061f248f24c746de61afa72c313e08193d16f6"
+    }
+  ],
+  "priorCompletion": {
+    "record": "docs/tyrax2-minimal-scopes.md",
+    "section": "Scene completion and Core aggregate follow-up",
+    "samples": 384,
+    "combinedContainedRemainderMs": 0.00312,
+    "qualification": "historical Oct4 V3; not refreshed current-fixture price"
+  },
+  "proposedCompletion": {
+    "additionalCountReads": 2,
+    "containedPacingAccessor": "getStallTotal",
+    "requiredRenderedPresentations": 1,
+    "requiredSyntheticPresentations": 0,
+    "newWaits": 0,
+    "conditionalFollowUpCountReads": 4,
+    "conditionalFollowUp": "split existing VIF and FINISH calls only if materially larger fresh remainder"
+  },
+  "report": {
+    "path": "report.md",
+    "sha256": "c1798a37e85a94559ff75c435bec8eac09625b0a4701bbb5caad04eaaafa4003"
+  }
+}

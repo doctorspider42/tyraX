@@ -1,0 +1,32 @@
+newmtl bars
+Kd 1 1 1
+map_Kd Textures/bars.png
+
+newmtl concrete
+Kd 1 1 1
+map_Kd Textures/concrete.png
+
+newmtl doors
+Kd 1 1 1
+map_Kd Textures/doors.png
+
+newmtl metal
+Kd 1 1 1
+map_Kd Textures/metal.png
+
+newmtl wall
+Kd 1 1 1
+map_Kd Textures/wall.png
+
+newmtl wall_garage
+Kd 1 1 1
+map_Kd Textures/wall_garage.png
+
+newmtl wall_lines
+Kd 1 1 1
+map_Kd Textures/wall_lines.png
+
+newmtl windows
+Kd 1 1 1
+map_Kd Textures/windows.png
+

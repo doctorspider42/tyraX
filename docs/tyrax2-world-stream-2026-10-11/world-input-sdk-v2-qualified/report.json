@@ -1,0 +1,61 @@
+{
+  "valid": true,
+  "componentOnly": true,
+  "gpuExecuted": false,
+  "elfSha256": "4e0015c61018675ad9fa04e4c53388067ad52586e5ca88432a71b0a0ad18c512",
+  "dumpSha256": "dbb4078ef0c49f9fdfdc8f6ebb2494db6a96dcc993684ce9012e5697dc12d186",
+  "logSha256": "c590d20763b6b1f4a7839f481110fd5ecbd56f57e4f0232d8f5a9463cfcfdf83",
+  "results": {
+    "optimized": [
+      54480,
+      50280,
+      75,
+      615
+    ],
+    "sanitized": [
+      54480,
+      50280,
+      75,
+      615
+    ]
+  },
+  "rejectingControls": [
+    {
+      "fault": 0,
+      "returncode": -6
+    },
+    {
+      "fault": 1,
+      "returncode": -6
+    },
+    {
+      "fault": 2,
+      "returncode": -6
+    },
+    {
+      "fault": 3,
+      "returncode": -6
+    },
+    {
+      "fault": 4,
+      "returncode": -6
+    },
+    {
+      "fault": 5,
+      "returncode": -6
+    },
+    {
+      "fault": 6,
+      "returncode": -6
+    },
+    {
+      "fault": 7,
+      "returncode": -6
+    }
+  ],
+  "limits": [
+    "Actual SDK emission, modeled compact decode only; no compact native VIF submission.",
+    "VIF state snapshots are not queue-wide lifetime/state proof.",
+    "No moving/FPS/default qualification."
+  ]
+}

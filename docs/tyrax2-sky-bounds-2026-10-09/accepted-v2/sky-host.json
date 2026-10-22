@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "skyClipInputs": 221,
+  "keep": 89,
+  "safe": 74,
+  "outside": 58,
+  "randomChecks": 50000,
+  "controls": [
+    "inside",
+    "outside",
+    "straddle",
+    "plane boundary",
+    "nonfinite fallback",
+    "empty",
+    "EE-only plane cannot reject"
+  ],
+  "headerSha256": "4ae786f77cdae5dd5d76fb53211fe7b5c0cc65e39fb62345bb1f5d85db954743",
+  "sanitizers": "ASan/UBSan"
+}

@@ -1,0 +1,5 @@
+{
+  "status": "ROOT_REVIEW_THREE_STATIONARY_NIGHT_RASTERS_NORMAL",
+  "rasterProofSha256": "1d09ebd36fa07c73a617d951cb35b242a897c0245d3ddd7b3e344679674b3cae",
+  "scope": "Car,map,lamps,shadows,HUD visible with no obvious stretched triangles. Stationaryonly; not motion/allscene orphysical visual qualification. No hardware FPS claim."
+}

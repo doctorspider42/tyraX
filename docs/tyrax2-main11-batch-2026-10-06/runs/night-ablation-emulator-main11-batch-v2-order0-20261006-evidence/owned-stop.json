@@ -1,0 +1,16 @@
+{
+  "pid": 16377,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-main11-batch-v2-order0-20261006/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-main11-batch-v2-order0-20261006/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-main11-batch-physical-v2/game/bin/vehicle-playground.elf"
+  ],
+  "reason": "completed5400strictboundarchive",
+  "helperSha256": "defe6269d77aa26b3293eaa6645579457a3ad55904bdb28d7e231cd160f0186a"
+}

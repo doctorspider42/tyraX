@@ -1,0 +1,21 @@
+{
+  "status": "OWNED_CLOSEOUT_STOP_REQUESTED",
+  "pid": 24506,
+  "procStartTicks": "4787683",
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-v4-kind1-order0/runtime/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-v4-kind1-order0/runtime/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-receivers-v1/game/bin/vehicle-playground.elf"
+  ],
+  "launchSha256": "20e1fc0524094aea8a297de663ba6d83065c78e599de4b1d837a08a00f06901c",
+  "requestedUnix": 1791277671.2608995,
+  "terminalExitConfirmed": false,
+  "xvfbStopped": false,
+  "artifactsDeleted": false
+}

@@ -1,0 +1,16 @@
+{
+  "pid": 2091,
+  "window": "0x20000b",
+  "display": ":93",
+  "width": 1322,
+  "height": 974,
+  "x": 110,
+  "y": 47,
+  "observedAction": "Run",
+  "observedPhase": "ELF-entry-pause",
+  "observedPC": "0x100e78",
+  "screenshot": "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v3-case3-arm0-repeat1-20261005-v3-launch/entry-debugger.png",
+  "screenshotSha256": "e5b97469c30f6035f60da4e98b96e38aca7618c4d487be72c982d17263e0892c",
+  "entryCaptureSha256": "82df278463ce13cbab49521f72c6439d1c9c9c1bb355c681f6ed7170788e8735",
+  "authority": "Actual source-bound paused entry SaveState plus pinned owned debugger geometry; Run toolbar region observed in preceding root cases."
+}

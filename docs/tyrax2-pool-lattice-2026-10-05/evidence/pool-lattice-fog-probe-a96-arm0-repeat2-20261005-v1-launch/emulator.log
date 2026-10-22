@@ -1,0 +1,523 @@
+[    0.0150] Program Path: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt
+[    0.0151] AppRoot Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin
+[    0.0151] Resources Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/resources
+[    0.0151] DataRoot Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2
+[    0.0151] Loading config from /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/inis/PCSX2.ini.
+[    0.0153] Loading secrets from /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/inis/secrets.ini.
+[    0.0157] BIOS Directory: /mnt/c/Users/pawel/OneDrive/Documents/PCSX2/bios
+[    0.0157] Snapshots Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/snaps
+[    0.0157] Savestates Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/sstates
+[    0.0157] MemoryCards Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/memcards
+[    0.0158] Logs Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/logs
+[    0.0158] Cheats Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/cheats
+[    0.0158] Patches Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/patches
+[    0.0158] Covers Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/covers
+[    0.0158] Game Settings Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/gamesettings
+[    0.0158] Resources Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/resources
+[    0.0158] User Resources Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/resources
+[    0.0158] Cache Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/cache
+[    0.0158] Textures Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/textures
+[    0.0158] Input Profile Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/inputprofiles
+[    0.0158] Video Dumping Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/videos
+[    0.0158] Debugger Layouts Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/inis/debuggerlayouts
+[    0.0158] Debugger Settings Directory: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/inis/debuggersettings
+[    0.0316] Loaded translation file for language en-US
+[    0.0382] PCSX2 v2.9.93
+[    0.0383] Savestate version: 0x9a590000
+[    0.0383] 
+[    0.0383] 
+[    0.0383] Host Machine Init:
+[    0.0384]   Operating System = Ubuntu 22.04
+[    0.0384]   Available RAM    = 49069 MB (47.92 GB)
+[    0.0384]   Physical RAM     = 50191 MB (49.02 GB)
+[    0.0384] 
+[    0.0384]   Processor        = AMD Ryzen Threadripper 1920X
+[    0.0384]   Core Count       = 24 cores
+[    0.0384]   Thread Count     = 24 threads
+[    0.0384]   Cluster Count    = 1 clusters
+[    0.0384] CPU Extensions Detected:
+[    0.0384]   AVX AVX2
+[    0.0384] 
+[    0.0384] Allocating host memory for virtual systems...
+[    0.0387]   EE Main Memory                   @ 0x00007F655F200000 -> 0x00007F6568100000 [143mb]
+[    0.0387]   IOP Main Memory                  @ 0x00007F6568100000 -> 0x00007F6570200000 [129mb]
+[    0.0387]   VU0/1 On-Chip Memory             @ 0x00007F6570200000 -> 0x00007F6570300000 [1mb]
+[    0.0387]   VTLB Virtual Map                 @ 0x00007F6570300000 -> 0x00007F6570B00000 [8mb]
+[    0.0387]   VTLB Address Map                 @ 0x00007F6570B00000 -> 0x00007F6570F00000 [4mb]
+[    0.0388]   R5900 Recompiler Cache           @ 0x00007F6570F00000 -> 0x00007F6574F00000 [64mb]
+[    0.0388]   R3000A Recompiler Cache          @ 0x00007F6574F00000 -> 0x00007F6576F00000 [32mb]
+[    0.0388]   Micro VU0 Recompiler Cache       @ 0x00007F6577F00000 -> 0x00007F657BF00000 [64mb]
+[    0.0388]   Micro VU1 Recompiler Cache       @ 0x00007F657BF00000 -> 0x00007F657FF00000 [64mb]
+[    0.0388]   VIF0 Unpack Recompiler Cache     @ 0x00007F6576F00000 -> 0x00007F6577700000 [8mb]
+[    0.0388]   VIF1 Unpack Recompiler Cache     @ 0x00007F6577700000 -> 0x00007F6577F00000 [8mb]
+[    0.0388]   VIF Unpack Recompiler Cache      @ 0x00007F657FF00000 -> 0x00007F6580000000 [1mb]
+[    0.0388]   GS Software Renderer             @ 0x00007F6580000000 -> 0x00007F6584000000 [64mb]
+[    0.0403] Fastmem area: 0x7f645f200000 - 0x7f655f1fffff
+[    0.0408] Generating SSE-optimized unpacking functions for VIF interpreters...
+[    0.0412] Unpack function generation complete.  Generated function statistics:
+[    0.0412]   Reserved buffer    : 1048576 bytes @ 0x00007F657FF00000
+[    0.0412]   x86 code generated : 7422 bytes
+[    0.0412] 
+[    0.0429] SDLInputSource: Using Controller DB from resources.
+[    0.0601] SDLInputSource: 765 gamepad mappings are loaded.
+[    0.0602] Invalid binding: 'XInput-0/DPadUp'
+[    0.0602] Invalid binding: 'XInput-0/DPadRight'
+[    0.0602] Invalid binding: 'XInput-0/DPadDown'
+[    0.0602] Invalid binding: 'XInput-0/DPadLeft'
+[    0.0602] Invalid binding: 'XInput-0/Y'
+[    0.0602] Invalid binding: 'XInput-0/B'
+[    0.0602] Invalid binding: 'XInput-0/A'
+[    0.0602] Invalid binding: 'XInput-0/X'
+[    0.0602] Invalid binding: 'XInput-0/Back'
+[    0.0602] Invalid binding: 'XInput-0/Start'
+[    0.0602] Invalid binding: 'XInput-0/LeftShoulder'
+[    0.0602] Invalid binding: 'XInput-0/+LeftTrigger'
+[    0.0603] Invalid binding: 'XInput-0/RightShoulder'
+[    0.0603] Invalid binding: 'XInput-0/+RightTrigger'
+[    0.0603] Invalid binding: 'XInput-0/LeftStick'
+[    0.0603] Invalid binding: 'XInput-0/RightStick'
+[    0.0603] Invalid binding: 'XInput-0/Guide'
+[    0.0603] Invalid binding: 'XInput-0/-LeftY'
+[    0.0603] Invalid binding: 'XInput-0/+LeftX'
+[    0.0603] Invalid binding: 'XInput-0/+LeftY'
+[    0.0603] Invalid binding: 'XInput-0/-LeftX'
+[    0.0603] Invalid binding: 'XInput-0/-RightY'
+[    0.0603] Invalid binding: 'XInput-0/+RightX'
+[    0.0603] Invalid binding: 'XInput-0/+RightY'
+[    0.0603] Invalid binding: 'XInput-0/-RightX'
+[    0.0609] Settings: Advanced Settings are enabled; only proceed if you know what you're doing! No support will be provided if you have the option enabled.
+[    0.1085] Scanning F:\PS2\Games (recursively)
+[    0.2163] Loading BIOS...
+[    0.2286] BIOS Found: Europe  v02.00(14/06/2004)  Console 20040614-100914
+[    0.2863] Mechacon version: 0x00020603
+[    0.2877] Opening CDVD...
+[    0.3200] Initializing Elf: 4470908 bytes
+[    0.3205] Disc changed to .
+[    0.3206]   Name: vehicle-playground [?]
+[    0.3206]   Serial: vehicle-playground
+[    0.3206]   Version: 
+[    0.3206]   CRC: 8967CAC6
+[    0.3206] No game settings found (tried '/home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/gamesettings/8967CAC6.ini')
+[    0.3206] Applying settings...
+[    0.3209] Invalid binding: 'XInput-0/DPadUp'
+[    0.3209] Invalid binding: 'XInput-0/DPadRight'
+[    0.3209] Invalid binding: 'XInput-0/DPadDown'
+[    0.3209] Invalid binding: 'XInput-0/DPadLeft'
+[    0.3209] Invalid binding: 'XInput-0/Y'
+[    0.3209] Invalid binding: 'XInput-0/B'
+[    0.3209] Invalid binding: 'XInput-0/A'
+[    0.3209] Invalid binding: 'XInput-0/X'
+[    0.3209] Invalid binding: 'XInput-0/Back'
+[    0.3209] Invalid binding: 'XInput-0/Start'
+[    0.3209] Invalid binding: 'XInput-0/LeftShoulder'
+[    0.3209] Invalid binding: 'XInput-0/+LeftTrigger'
+[    0.3209] Invalid binding: 'XInput-0/RightShoulder'
+[    0.3209] Invalid binding: 'XInput-0/+RightTrigger'
+[    0.3209] Invalid binding: 'XInput-0/LeftStick'
+[    0.3209] Invalid binding: 'XInput-0/RightStick'
+[    0.3209] Invalid binding: 'XInput-0/Guide'
+[    0.3209] Invalid binding: 'XInput-0/-LeftY'
+[    0.3209] Invalid binding: 'XInput-0/+LeftX'
+[    0.3210] Invalid binding: 'XInput-0/+LeftY'
+[    0.3210] Invalid binding: 'XInput-0/-LeftX'
+[    0.3210] Invalid binding: 'XInput-0/-RightY'
+[    0.3210] Invalid binding: 'XInput-0/+RightX'
+[    0.3210] Invalid binding: 'XInput-0/+RightY'
+[    0.3210] Invalid binding: 'XInput-0/-RightX'
+[    0.3211] GameDB: Has not been initialized yet, initializing...
+[    0.3662] GameDB: 12841 games on record (loaded in 45.05ms)
+[    0.3694] Reopening memory cards...
+[    0.3695] (FileMcd) Creating new 8MB memory card: /home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/memcards/Mcd001.ps2
+[    0.3807] McdSlot 0 [File]: Mcd001.ps2 [8 MB, UNFORMATTED]
+[    0.3807] McdSlot 1 [File]: [disabled/empty filename]
+[    0.3865] HLE Host: Set 'host:' root path to: /mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-fog-probe-physical-v1/game/bin
+[    0.3866] EE/iR5900 Recompiler Reset
+[    0.4302] iR3000A Recompiler reset.
+[    0.4481] Resetting host memory for virtual systems...
+[    0.6971] Time Zone Offset: GMT+01:00
+[    0.6972] Time Zone Location: Berlin
+[    0.6972] DST: Winter Time
+[    0.6972] Time Format: 24-Hour
+[    0.6972] Date Format: DD/MM/YYYY
+[    0.6972] System Time Basis: Operating System Time
+[    0.6972] Resulting System Time: 2026-10-05 13:55:42
+[    0.6972] Close virtual disk tray
+[    0.6972] Media already loaded (fast boot)
+[    0.6973] Opening GS...
+[    0.7342] VK: Enabling extension: VK_KHR_get_surface_capabilities2
+[    0.7443] Using Vulkan GPU 'llvmpipe (LLVM 15.0.7, 256 bits)' for automatic renderer check.
+[    0.7444] Not using Vulkan for software renderer.
+[    0.7445] acquireRenderWindow() recreate=true fullscreen=false render_to_main=true surfaceless=false
+[    0.7476] (GetRefreshRateFromXRandR) Modeline is invalid: 0/0/0
+[    0.7476] Surface refresh rate: 60 Hz
+[    0.7482] Loading EGL from libEGL.so...
+[    0.7494] GLAD EGL Version: 1.0
+[    0.7494] Using EGL platform EGL_EXT_platform_x11.
+[    0.7573] eglInitialize() version: 1.5
+[    0.7575] GLAD EGL Version: 1.5
+[    0.7575] Trying GL version 4.6
+[    0.7575] eglCreateContext() failed: 0x3009
+[    0.7575] Trying GL version 4.5
+[    0.7681] Got GL version 4.5
+[    0.7681] EGL_MIN_SWAP_INTERVAL = 1
+[    0.7681] EGL_MAX_SWAP_INTERVAL = 1
+[    0.7681] Negative swap interval/tear-control is NOT supported
+[    0.7706] GL_VENDOR: Mesa
+[    0.7706] GL_VERSION: 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+[    0.7706] GL_RENDERER: llvmpipe (LLVM 15.0.7, 256 bits)
+[    0.7706] GL_SHADING_LANGUAGE_VERSION: 4.50
+[    0.7707] GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS: 16
+[    0.7707] GL: Viewport Array:            Supported       => Using: GL_ARB_viewport_array
+[    0.7707] GL: Direct State Access:       Supported       => Using: OpenGL 4.5 Core
+[    0.7707] GL: Copy Image:                Supported       => Using: OpenGL 4.3 Core
+[    0.7707] GL: Clip Control:              Supported       => Using: OpenGL 4.5 Core
+[    0.7707] GL: Conservative Depth:        Supported       => Using: OpenGL 4.2 Core
+[    0.7707] GL: CAS Sharpening:            Supported       => Using: OpenGL 4.2 Core
+[    0.7707] GL: Texture Barriers:          Auto            => Using: Framebuffer Fetch
+[    0.7707] GL: RGBA16 HW Blending:        Supported       => Using: RGBA16 UNORM
+[    0.7707] GL: Point Expansion:           Supported       => Using: Hardware
+[    0.7707] GL: Line Expansion:            Fallback        => Using: Vertex Expansion
+[    0.7707] GL: Sprite Expansion:          Supported       => Using: Vertex Expansion
+[    0.7707] GL: DXTn Texture Compression:  Supported       => Using: GL_EXT_texture_compression_s3tc
+[    0.7707] GL: BC6/7 Texture Compression: Supported       => Using: OpenGL 4.2 Core
+[    0.7777] 1 program binary formats supported by driver
+[    0.8106] Program binary retrieved, 4105 bytes, format 34655
+[    0.8110] Program binary retrieved, 4121 bytes, format 34655
+[    0.8114] Program binary retrieved, 4249 bytes, format 34655
+[    0.8119] Program binary retrieved, 4013 bytes, format 34655
+[    0.8122] Program binary retrieved, 4013 bytes, format 34655
+[    0.8126] Program binary retrieved, 4017 bytes, format 34655
+[    0.8129] Program binary retrieved, 4017 bytes, format 34655
+[    0.8133] Program binary retrieved, 4185 bytes, format 34655
+[    0.8137] Program binary retrieved, 4217 bytes, format 34655
+[    0.8140] Program binary retrieved, 4137 bytes, format 34655
+[    0.8144] Program binary retrieved, 4125 bytes, format 34655
+[    0.8147] Program binary retrieved, 4121 bytes, format 34655
+[    0.8153] Program binary retrieved, 4253 bytes, format 34655
+[    0.8159] Program binary retrieved, 4237 bytes, format 34655
+[    0.8163] Program binary retrieved, 4245 bytes, format 34655
+[    0.8166] Program binary retrieved, 4261 bytes, format 34655
+[    0.8171] Program binary retrieved, 4965 bytes, format 34655
+[    0.8176] Program binary retrieved, 4981 bytes, format 34655
+[    0.8180] Program binary retrieved, 4261 bytes, format 34655
+[    0.8184] Program binary retrieved, 4277 bytes, format 34655
+[    0.8189] Program binary retrieved, 5005 bytes, format 34655
+[    0.8193] Program binary retrieved, 5021 bytes, format 34655
+[    0.8198] Program binary retrieved, 4257 bytes, format 34655
+[    0.8201] Program binary retrieved, 4273 bytes, format 34655
+[    0.8206] Program binary retrieved, 5001 bytes, format 34655
+[    0.8211] Program binary retrieved, 5017 bytes, format 34655
+[    0.8215] Program binary retrieved, 4277 bytes, format 34655
+[    0.8219] Program binary retrieved, 4293 bytes, format 34655
+[    0.8223] Program binary retrieved, 5057 bytes, format 34655
+[    0.8229] Program binary retrieved, 5073 bytes, format 34655
+[    0.8233] Program binary retrieved, 4153 bytes, format 34655
+[    0.8236] Program binary retrieved, 4169 bytes, format 34655
+[    0.8240] Program binary retrieved, 4233 bytes, format 34655
+[    0.8245] Program binary retrieved, 5781 bytes, format 34655
+[    0.8250] Program binary retrieved, 5373 bytes, format 34655
+[    0.8256] Program binary retrieved, 6389 bytes, format 34655
+[    0.8260] Program binary retrieved, 4917 bytes, format 34655
+[    0.8264] Program binary retrieved, 4845 bytes, format 34655
+[    0.8269] Program binary retrieved, 4997 bytes, format 34655
+[    0.8273] Program binary retrieved, 4101 bytes, format 34655
+[    0.8303] Program binary retrieved, 4137 bytes, format 34655
+[    0.8335] Program binary retrieved, 4109 bytes, format 34655
+[    0.8339] Program binary retrieved, 5389 bytes, format 34655
+[    0.8343] Program binary retrieved, 5829 bytes, format 34655
+[    0.8346] Program binary retrieved, 5857 bytes, format 34655
+[    0.8350] Program binary retrieved, 4289 bytes, format 34655
+[    0.8375] Program binary retrieved, 21205 bytes, format 34655
+[    0.8379] Program binary retrieved, 4765 bytes, format 34655
+[    0.8384] Program binary retrieved, 5685 bytes, format 34655
+[    0.8387] Program binary retrieved, 4141 bytes, format 34655
+[    0.8390] Program binary retrieved, 4537 bytes, format 34655
+[    0.8394] Program binary retrieved, 4889 bytes, format 34655
+[    0.8397] Program binary retrieved, 4117 bytes, format 34655
+[    0.8401] Program binary retrieved, 4741 bytes, format 34655
+[    0.8404] Program binary retrieved, 4965 bytes, format 34655
+[    0.8410] Program binary retrieved, 6613 bytes, format 34655
+[    0.8414] Program binary retrieved, 4797 bytes, format 34655
+[    0.8429] Program binary retrieved, 13085 bytes, format 34655
+[    0.8490] Program binary retrieved, 7285 bytes, format 34655
+[    0.8548] Program binary retrieved, 5497 bytes, format 34655
+[    0.8551] Program binary retrieved, 4141 bytes, format 34655
+[    0.8556] Program binary retrieved, 4141 bytes, format 34655
+[    0.8560] Program binary retrieved, 4145 bytes, format 34655
+[    0.8563] Program binary retrieved, 4145 bytes, format 34655
+[    0.9011] Program binary retrieved, 5369 bytes, format 34655
+[    0.9026] OpenGL Graphics Driver Info:
+[    0.9026] OpenGL Context:
+[    0.9026] 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+[    0.9026] Mesa llvmpipe (LLVM 15.0.7, 256 bits)
+[    0.9026] GLSL: 4.50
+[    0.9054] Processor count: 24 cores, 24 processors, 1 clusters
+[    0.9054] Ordered processor list: 12, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 0, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+[    0.9054] Not pinning SW threads, we need 4 processors, but only have 0
+[    0.9058] Opening SPU2...
+[    0.9060] Creating Null audio stream, sample rate = 48000, expansion = Disabled, buffer = 50, latency = 32, stretching enabled, driver = wasapi, device = 
+[    0.9060] Allocated buffer of 2432 frames for buffer of 50 ms [expansion Disabled (block size 2048), stretch disabled, target size 2432].
+[    0.9060] Initializing Pad...
+[    0.9060] Initializing SIO2...
+[    0.9060] Initializing SIO0...
+[    0.9060] Opening DEV9...
+[    0.9061] DEV9: DEV9init
+[    0.9063] DEV9: DEV9init2
+[    0.9063] DEV9: DEV9init3
+[    0.9096] DEV9: DEV9init ok
+[    0.9097] DEV9: DEV9open
+[    0.9097] Opening USB...
+[    0.9097] Opening FW...
+[    0.9100] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 16683350
+[    0.9133] VM subsystems initialized in 701.05 ms
+[    0.9156] MultiPause time: 142ns
+[    0.9161] MultiPause time: 142ns
+[    0.9162] MultiPause time: 156ns
+[    0.9163] MultiPause time: 152ns
+[    0.9237] Failed to inhibit screen saver.
+[    0.9238] Processor order assignment: EE=12, VU=23, GS=23
+[    0.9238]   EE thread is on processor 12 (0x1000)
+[    0.9239]   GS thread is on processor 23 (0x800000)
+[    0.9332] Failed to inhibit screen saver.
+[    0.9595] # Initialize memory (rev:3.70, ctm:197Mhz, cpuclk:147Mhz detected)
+[    0.9679] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    0.9695] RegisterLibraryEntries: excepman version 1.01
+[    0.9704] RegisterLibraryEntries:  intrman version 1.02
+[    0.9705] RegisterLibraryEntries:   ssbusc version 1.01
+[    0.9708] RegisterLibraryEntries:  dmacman version 1.02
+[    0.9712] RegisterLibraryEntries:  timrman version 1.01
+[    0.9715] RegisterLibraryEntries:  sysclib version 1.01
+[    0.9716] RegisterLibraryEntries:    stdio version 1.01
+[    0.9717] RegisterLibraryEntries:  heaplib version 1.01
+[    0.9721] FW: read mem 0x1f80847c: 0x10000001
+[    0.9721] FW: write mem 0x1f808414: 0x417f0000
+[    0.9721] FW: read mem 0x1f808400: 0xffc00001
+[    0.9721] FW: write mem 0x1f80844c: 0xffffffff
+[    0.9721] FW: write mem 0x1f808420: 0xffffffff
+[    0.9721] FW: write mem 0x1f808428: 0xffffffff
+[    0.9721] FW: write mem 0x1f808430: 0xffffffff
+[    0.9731] RegisterLibraryEntries:   thbase version 1.01
+[    0.9731] RegisterLibraryEntries:  thevent version 1.01
+[    0.9731] RegisterLibraryEntries:  thsemap version 1.01
+[    0.9732] RegisterLibraryEntries:  thmsgbx version 1.01
+[    0.9732] RegisterLibraryEntries:  thfpool version 1.01
+[    0.9733] RegisterLibraryEntries:  thvpool version 1.01
+[    0.9740] RegisterLibraryEntries:   vblank version 1.01
+[    0.9745] RegisterLibraryEntries:    ioman version 1.02
+[    0.9752] RegisterLibraryEntries:  modload version 1.01
+[    0.9755] RegisterLibraryEntries:   romdrv version 2.01
+[    0.9757] RegisterLibraryEntries:    stdio version 1.02
+[    0.9761] RegisterLibraryEntries:   sifman version 1.01
+[    0.9764] 
+[    0.9764] PlayStation 2 ======== Hard reset boot
+[    0.9766]  ROMGEN=2004-0614, IOP info (CPUID=1f, CACH_CONFIG=0, 2MB, IOP mode)
+[    0.9767]  <20040614-100914,ROMconf,PS20200EC20040614.bin:11696>
+[    0.9860] # Total accessable memory size: 32 MB (B:2:8:0) (370:2:7c30)
+[    0.9870] # TLB spad=0 kernel=1:12 default=13:30 extended=31:38
+[    1.0479] # Initialize Start.
+[    1.0484] # Initialize GS ...
+[    1.0484] # Initialize INTC ...
+[    1.0484] # Initialize TIMER ...
+[    1.0485] # Initialize DMAC ...
+[    1.0486] # Initialize VU1 ...
+[    1.0488] # Initialize VIF1 ...
+[    1.0490] # Initialize GIF ...
+[    1.0490] # Initialize VU0 ...
+[    1.0491] # Initialize VIF0 ...
+[    1.0492] # Initialize IPU ...
+[    1.0493] # Initialize FPU ...
+[    1.0493] # Initialize User Memory ...
+[    1.1072] # Initialize Scratch Pad ...
+[    1.1072] # Initialize Done.
+[    1.1082] 
+[    1.1082] EE DECI2 Manager version 0.06 Feb  6 2003 08:38:48
+[    1.1082]   CPUID=2e20, BoardID=0, ROMGEN=2004-0614, 32M
+[    1.1082] 
+[    1.1085] RegisterLibraryEntries:   sifcmd version 1.01
+[    1.1387] Initializing Elf: 4470908 bytes
+[    1.1416] ELF Loading: host:vehicle-playground.elf, Game CRC = 8967CAC6, EntryPoint = 0x00100E78
+[    1.1445] PINE: New client with FD 14 connected.
+[    1.1446] RegisterLibraryEntries:  cdvdman version 1.01
+[    1.1449] PINE: Client disconnected.
+[    1.1486] Imported 823 symbols.
+[    1.1520] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    1.1535] RegisterLibraryEntries:  secrman version 1.03
+[    1.1536] RegisterLibraryEntries:   eesync version 1.01
+[    1.1537] 
+[    1.1537] IOP Realtime Kernel Ver.0.9.1
+[    1.1538]     Copyright 1999 (C) Sony Computer Entertainment Inc. 
+[    1.1543] Reboot service module.(99/11/10)
+[    1.1564] cdvd driver module version 0.1.1 (C)SCEI
+[    1.1569] Load File service.(99/11/05)
+[    1.1570] Multi Threaded Fileio module.(99/11/15) 
+[    1.1570] iop heap service (99/11/03)
+[    1.1795] loadelf: fname host:vehicle-playground.elf secname all
+[    1.1796] loadelf version 3.30
+[    1.1818] Input ELF format filename = host:vehicle-playground.elf
+[    1.2261] 1 00100000 003f783c ................................................................
+[    1.2262] Loaded, host:vehicle-playground.elf
+[    1.2262] start address 0x100e78
+[    1.2262] gp address 00000000
+[    1.2270] (VMManager) Pausing...
+[    1.2271] (VMManager) Resuming...
+[    1.2393] Failed to inhibit screen saver.
+[    1.2394] EE/iR5900 Recompiler Reset
+[    1.2455] PINE: New client with FD 14 connected.
+[    1.2459] PINE: Client disconnected.
+[    1.2567] # Restart Without Memory Clear.
+[    1.2673] # Initialize GS ...
+[    1.2674] # Initialize INTC ...
+[    1.2674] # Initialize TIMER ...
+[    1.2675] # Initialize DMAC ...
+[    1.2677] # Initialize VU1 ...
+[    1.2678] # Initialize VIF1 ...
+[    1.2679] # Initialize GIF ...
+[    1.2679] # Initialize VU0 ...
+[    1.2681] # Initialize VIF0 ...
+[    1.2681] # Initialize IPU ...
+[    1.2682] # Initialize FPU ...
+[    1.2682] # Initialize Scratch Pad ...
+[    1.2683] # Restart Without Memory Clear Done.
+[    1.2685] ELF host:vehicle-playground.elf with entry point at 0x00100E78 is executing.
+[    1.2686] ELF changed, active CRC 8967CAC6 (host:vehicle-playground.elf)
+[    1.2690] Applying core settings...
+[    1.2695] Updating CPU configuration...
+[    1.2695] iR3000A Recompiler reset.
+[    1.2727] Debugger Settings Manager: Failed to read Saved Addresses array from settings file: '/home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/inis/debuggersettings/vehicle-playground_8967CAC6.json'
+[    1.2728] Debugger Settings Manager: Failed to read Saved Addresses array from settings file: '/home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/inis/debuggersettings/vehicle-playground_8967CAC6.json'
+[    1.2921] iR3000A Recompiler reset.
+[    1.2997] EE/iR5900 Recompiler Reset
+[    1.3178] (VMManager) Pausing...
+[    1.3181] EE/iR5900 Recompiler Reset
+[    1.3337] EE/iR5900 Recompiler Reset
+[    1.3465] PINE: New client with FD 14 connected.
+[    1.3469] PINE: Client disconnected.
+[    1.3488] iR3000A Recompiler reset.
+[    1.3525] EE/iR5900 Recompiler Reset
+[    1.3688] iR3000A Recompiler reset.
+[    1.3730] EE/iR5900 Recompiler Reset
+[    1.3880] iR3000A Recompiler reset.
+[    1.3919] EE/iR5900 Recompiler Reset
+[    1.4058] iR3000A Recompiler reset.
+[    1.4106] EE/iR5900 Recompiler Reset
+[    1.4811] PINE: New client with FD 14 connected.
+[    1.4815] OSD [SaveStateSlot140]: Saving state to slot 140...
+[    1.5089]   Saving SPU2
+[    1.5094]   Saving GS
+[    1.6060] OSD [SaveStateSlot140]: Saved state to slot 140.
+[    1.6060] Zipping save state to '/home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/sstates/vehicle-playground (8967CAC6).140.p2s' took 90.85 ms
+[    2.7787] PINE: Client disconnected.
+[    3.3094] PINE: New client with FD 14 connected.
+[    3.3153] (VMManager) Resuming...
+[    3.3309] Failed to inhibit screen saver.
+[    3.3326] BIOS: Successfully found the instruction pattern. Assuming the thread list is here: 8001a640
+[    3.3361] Warning: GetOsdConfigParam2 Reading extended language/version configs, may be incorrect!
+[    3.3475] read/write allocate memory 4000
+[    3.3476] open name host:/ps2link.run flag 1 data 41378
+[    3.3483] open fd = -5
+[    3.3524] Get Reboot Request From EE
+[    3.3539] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    3.3562] RegisterLibraryEntries: excepman version 1.01
+[    3.3577] RegisterLibraryEntries:  intrman version 1.02
+[    3.3579] RegisterLibraryEntries:   ssbusc version 1.01
+[    3.3585] RegisterLibraryEntries:  dmacman version 1.02
+[    3.3594] RegisterLibraryEntries:  timrman version 1.01
+[    3.3602] RegisterLibraryEntries:  sysclib version 1.01
+[    3.3603] RegisterLibraryEntries:    stdio version 1.01
+[    3.3606] RegisterLibraryEntries:  heaplib version 1.01
+[    3.3630] RegisterLibraryEntries:   thbase version 1.01
+[    3.3630] RegisterLibraryEntries:  thevent version 1.01
+[    3.3631] RegisterLibraryEntries:  thsemap version 1.01
+[    3.3631] RegisterLibraryEntries:  thmsgbx version 1.01
+[    3.3631] RegisterLibraryEntries:  thfpool version 1.01
+[    3.3632] RegisterLibraryEntries:  thvpool version 1.01
+[    3.3642] RegisterLibraryEntries:   vblank version 1.01
+[    3.3647] RegisterLibraryEntries:    ioman version 1.02
+[    3.3658] RegisterLibraryEntries:  modload version 1.01
+[    3.3745] RegisterLibraryEntries:   romdrv version 2.01
+[    3.3748] RegisterLibraryEntries:    stdio version 1.02
+[    3.3753] RegisterLibraryEntries:   sifman version 1.01
+[    3.3758] 
+[    3.3758] PlayStation 2 ======== Soft reboot
+[    3.3767] RegisterLibraryEntries:   sifcmd version 1.01
+[    3.3808] RegisterLibraryEntries:  cdvdman version 1.01
+[    3.3829] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    3.3915] RegisterLibraryEntries:  secrman version 1.03
+[    3.3919] RegisterLibraryEntries:   eesync version 1.01
+[    3.3920] 
+[    3.3920] IOP Realtime Kernel Ver.0.9.1
+[    3.3921]     Copyright 1999 (C) Sony Computer Entertainment Inc. 
+[    3.3926] Reboot service module.(99/11/10)
+[    3.3946] [EE] Skipping timeout loop at 0x002D5340 -> 0x002D5360
+[    3.3947] cdvd driver module version 0.1.1 (C)SCEI
+[    3.3951] Load File service.(99/11/05)
+[    3.3951] Multi Threaded Fileio module.(99/11/15) 
+[    3.3952] iop heap service (99/11/03)
+[    3.4156] PINE: Client disconnected.
+[    3.4228] RegisterLibraryEntries:   iomanx version 1.01
+[    3.4240] fileXio: fileXio: fileXio RPC Server v1.00
+[    3.4240] Copyright (c) 2003 adresd
+[    3.4242] RegisterLibraryEntries:  sio2man version 2.07
+[    3.4243] RegisterLibraryEntries:  sio2man version 1.02
+[    3.4250] RegisterLibraryEntries:   padman version 1.02
+[    3.4251] Pad Driver for OSD
+[    3.4255] FREESD v1.01
+[    3.4255] RegisterLibraryEntries:    libsd version 1.04
+[    3.4361] debug_level = 1 (ps2snd 0.1
+[    3.4370] greetings from version 0.93 !
+[    3.4370] RegisterLibraryEntries:   audsrv version 1.04
+[    3.4370] audsrv_adpcm_init()
+[    3.4384] UpdateVSyncRate: Mode Changed to SDTV 480p.
+[    3.4385] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 16683350
+[    3.4385] Set GS CRTC configuration. SDTV   720x480 @ 59.94 Progressive (FRAME)
+[    5.5284] read/write allocate memory 4000
+[    5.5287] 
+[    5.5295] -----------------------------------------
+[    5.5295]         _____        ____   ___
+[    5.5296]           |     /   ____| |___|
+[    5.5296]           |     |   |     |   |
+[    5.5297] -----------------------------------------
+[    5.5297] Copyright 2022
+[    5.5298] Repository: https://github.com/h4570/tyra
+[    5.5299] Licensed under Apache License 2.0
+[    5.5303] Version: 2.2.0
+[    5.5303] -----------------------------------------
+[    5.5304] 
+[    5.6918] audsrv_adpcm_init()
+[    5.6928] [EE] Skipping timeout loop at 0x00102CB0 -> 0x00102CD0
+[    5.7252] Curent pad(0,0) status: EXECCMD
+[    5.9242] Pad: DS2 Config Finished - P1/S1 - AL: Off - AB: Usable - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.9603] Curent pad(0,0) status: EXECCMD
+[    6.0233] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    6.2231] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    6.2597] Curent pad(0,0) status: EXECCMD
+[    6.5237] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    6.7249] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    6.7615] open name host:/pool2-probe.cfg flag 1 data 41378
+[    6.7629] open fd = 256
+[    6.7685] open name host:/hud/flare-corona.png flag 1 data 41378
+[    6.7705] open fd = 256
+[    6.7939] LOG: POOL2PROBE_CONFIG arm=0 vertices=96 members=1 repeats=2 package=75 alpha=128
+[    6.7941] LOG: POOL2EEPROBE_CONFIG kind=8 clip=0 lazy=1 table=1 lattice=0 fog=1 fogStart=19 fogEnd=23 oracle=0
+[    6.7952] FRAMEARENA allocated=1 bytes=1048576
+[    6.8085] microVU1: Cached Prog = [000] [PC=18e0] [List=01] (Cache=0.000%) [0.0mb]
+[    6.8096] microVU1: 3 cycle stall on branch instruction [2008]
+[    6.8113] microVU1: Branch Optimization
+[    6.8114] microVU1: Cached Prog = [001] [PC=2788] [List=01] (Cache=0.339%) [0.2mb]
+[    6.8125] microVU1: 3 cycle stall on branch instruction [2008]
+[    6.8143] microVU1: Branch Optimization
+[    6.8261] LOG: POOL2EEPROBE_SOURCE clip=0 ready=0 total=96 generation=1 coldOracle=0
+[    6.8262] LOG: POOL2PROBE_FRAME frame=1 cold=1 arm=0 eligible=0 applied=0 compared=0 mismatches=0
+[    6.8424] LOG: POOL2EEPROBE_SOURCE clip=0 ready=0 total=96 generation=2 coldOracle=0
+[    6.8424] LOG: POOL2PROBE_FRAME frame=2 cold=0 arm=0 eligible=0 applied=0 compared=0 mismatches=0
+[    6.8425] LOG: POOL2PROBE_READY arm=0 vertices=96 repeats=2 completed=2 warmBypass=0
+[    6.8426] (VMManager) Pausing...
+[    6.8428] PINE: New client with FD 14 connected.
+[    6.8431] PINE: Client disconnected.
+[    6.9643] PINE: New client with FD 14 connected.
+[    6.9646] OSD [SaveStateSlot198]: Saving state to slot 198...
+[    6.9935]   Saving SPU2
+[    6.9940]   Saving GS
+[    7.1069] OSD [SaveStateSlot198]: Saved state to slot 198.
+[    7.1069] Zipping save state to '/home/spider/pool-lattice-fog-probe-a96-arm0-repeat2-20261005-v1/profile/PCSX2/sstates/vehicle-playground (8967CAC6).198.p2s' took 108.04 ms
+[    8.2522] PINE: Client disconnected.

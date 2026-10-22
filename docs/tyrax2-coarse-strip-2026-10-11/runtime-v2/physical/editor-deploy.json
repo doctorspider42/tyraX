@@ -1,0 +1,16 @@
+{
+  "pid": 16524,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-coarse-strip-20261011-runtime-v2\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "09a9fbb0da6070177a83a36911440dea4c4c979c6cc5e4ac34e0d9aa012ed00a",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-11T04:05:51.7792920+02:00"
+}

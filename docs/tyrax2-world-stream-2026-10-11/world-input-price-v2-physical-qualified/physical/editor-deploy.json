@@ -1,0 +1,16 @@
+{
+  "pid": 10940,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-world-input-price-game-20261012-v2\\physical-v1\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "0c59779f05b7594a524acb6a77a47e4ec2483e3203baa0021c292e4a479b9baa",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-12T19:11:37.6387609+02:00"
+}

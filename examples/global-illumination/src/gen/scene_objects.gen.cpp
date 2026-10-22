@@ -22,6 +22,7 @@ const SceneObjectData SCENE_0_OBJECTS[13] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {13};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[13] = {0xf69dc7f89d2f34deULL, 0x3052983dd232f048ULL, 0x7111121587e39fc7ULL, 0x83db9365575acc6cULL, 0xe5a6bb3ad540f4abULL, 0x1f7506302dd2aa48ULL, 0x0ee124c1a48c95c3ULL, 0xa6027b89087bbf41ULL, 0x8dbdc9845a44e890ULL, 0xeb83df89144f58e6ULL, 0x80d7c3a9fa4e7cb2ULL, 0xfe8f8f4795a9c413ULL, 0xccf3eb9188c0930aULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[13] = {1,1,1,1,1,1,1,1,1,1,1,1,1};
 
 }  // namespace Global_illumination
 

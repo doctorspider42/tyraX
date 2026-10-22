@@ -1,0 +1,193 @@
+--- a/game/src/gen/game_lighting.gen.cpp
++++ b/game/src/gen/game_lighting.gen.cpp
+@@ -496,31 +496,82 @@
+     pb.bag->texture = pb.texBag.get();
+     pb.bag->lighting = nullptr;
+   }
+-  if (pb.key != pb.lastKey) {
+-    pb.verts.clear();
+-    pb.sts.clear();
+-    pb.colors.clear();
+-    for (size_t m = 0; m < pb.members.size(); ++m) {
+-      const LightPool& b = *pb.members[m];
+-      // The old pass drew Cs * FIX / 128 with Cs = tex * colour / 128; the
+-      // batch draws at FIX 128, so FIX / 128 moves into the colour.
+-      const float f = pb.memberFix[m] / 128.0F;
+-      const Tyra::Color c(b.color.r * f, b.color.g * f, b.color.b * f, 128.0F);
+-      const BagArray<Tyra::Vec4>& cv = b.verts;
+-      const BagArray<Tyra::Vec4>& cs = b.sts;
+-      for (size_t k = 0; k < cv.size(); ++k) {
+-        pb.verts.push_back(cv[k]);
+-        pb.sts.push_back(cs[k]);
+-        pb.colors.push_back(c);
+-      }
+-    }
+-    pb.verts.bind(pb.bag);
+-    pb.bag->count = (u32)pb.verts.size();
+-    pb.sts.bind(pb.texBag);
+-    pb.colors.bind(pb.colorBag);
+-    pb.colorBag->single = nullptr;
+-    pb.bag->bboxVersion = ++g_bboxStamp;
+-    pb.lastKey = pb.key;
++  const auto poolReasonResult = NightAblation::poolReason(pb.key, pb.lastKey);
++  if (NightAblation::collectCounters) {
++    size_t poolVertices = 0;
++    bool poolVertexOverflow = false;
++    for (const LightPool* member : pb.members) {
++      if (member->verts.size() > 0xffffffffu - poolVertices) {
++        poolVertexOverflow = true;
++        break;
++      }
++      poolVertices += member->verts.size();
++    }
++    NightAblation::observePoolCache(poolVertexOverflow ? NightAblation::PoolInvalid : poolReasonResult,
++                                  pb.lastKey.empty(), poolVertices);
++  }
++  if (NightAblation::poolColorSplitCandidate) {
++    if (pb.key != pb.lastKey) {
++      // PRIVATE candidate: the existing member key separates geometry identity
++      // and source stamps (words 0..2) from RGB/FIX (words 3..6).
++      const bool geometryChanged = poolReasonResult != NightAblation::PoolColorOnly;
++      if (geometryChanged) {
++        pb.verts.clear();
++        pb.sts.clear();
++      }
++      pb.colors.clear();
++      for (size_t m = 0; m < pb.members.size(); ++m) {
++        const LightPool& b = *pb.members[m];
++        // Keep the original arithmetic and member/vertex order for every color.
++        const float f = pb.memberFix[m] / 128.0F;
++        const Tyra::Color c(b.color.r * f, b.color.g * f, b.color.b * f, 128.0F);
++        const BagArray<Tyra::Vec4>& cv = b.verts;
++        const BagArray<Tyra::Vec4>& cs = b.sts;
++        for (size_t k = 0; k < cv.size(); ++k) {
++          if (geometryChanged) {
++            pb.verts.push_back(cv[k]);
++            pb.sts.push_back(cs[k]);
++          }
++          pb.colors.push_back(c);
++        }
++      }
++      if (geometryChanged) {
++        pb.verts.bind(pb.bag);
++        pb.bag->count = (u32)pb.verts.size();
++        pb.sts.bind(pb.texBag);
++        pb.bag->bboxVersion = ++g_bboxStamp;
++      }
++      pb.colors.bind(pb.colorBag);
++      pb.colorBag->single = nullptr;
++      pb.lastKey = pb.key;
++    }
++  } else {
++    if (pb.key != pb.lastKey) {
++      pb.verts.clear();
++      pb.sts.clear();
++      pb.colors.clear();
++      for (size_t m = 0; m < pb.members.size(); ++m) {
++        const LightPool& b = *pb.members[m];
++        // The old pass drew Cs * FIX / 128 with Cs = tex * colour / 128; the
++        // batch draws at FIX 128, so FIX / 128 moves into the colour.
++        const float f = pb.memberFix[m] / 128.0F;
++        const Tyra::Color c(b.color.r * f, b.color.g * f, b.color.b * f, 128.0F);
++        const BagArray<Tyra::Vec4>& cv = b.verts;
++        const BagArray<Tyra::Vec4>& cs = b.sts;
++        for (size_t k = 0; k < cv.size(); ++k) {
++          pb.verts.push_back(cv[k]);
++          pb.sts.push_back(cs[k]);
++          pb.colors.push_back(c);
++        }
++      }
++      pb.verts.bind(pb.bag);
++      pb.bag->count = (u32)pb.verts.size();
++      pb.sts.bind(pb.texBag);
++      pb.colors.bind(pb.colorBag);
++      pb.colorBag->single = nullptr;
++      pb.bag->bboxVersion = ++g_bboxStamp;
++      pb.lastKey = pb.key;
++    }
+   }
+   (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(pb.bag.get()));
+   pb.members.clear();
+--- a/tyra/engine/inc/debug/night_ablation.hpp
++++ b/tyra/engine/inc/debug/night_ablation.hpp
+@@ -1,6 +1,8 @@
+ #pragma once
+ // PRIVATE experiment only: common counters do not read clocks or submit work.
+ #include <stdint.h>
++#include <vector>
++#include <cstddef>
+ namespace NightAblation {
+ enum Group : unsigned { Live=1, LightEffects=2, Shadows=4, Particles=8,
+                        PostFx=16, Env=32, Sky=64 };
+@@ -41,4 +43,40 @@
+  if(disabled(bit)){++c.skipped;return true;}++c.executed;return false;
+ }
+ inline void submitted(unsigned bit){if(collectCounters)++commonCounter[slot(bit)].submitted;}
++
++// PRIVATE same-ELF pool cache diagnostic; common reason work is unpriced.
++inline bool poolColorSplitCandidate=false;
++inline bool setPoolColorSplitCandidate(bool value){poolColorSplitCandidate=value;return true;}
++struct PoolCacheCounter {
++ uint32_t flushes=0,unchanged=0,initial=0,geometryChanged=0,colorOnlyEligible=0;
++ uint32_t geometryRebuilds=0,colorOnlyUpdates=0,eligibleBatchVerts=0,invalid=0;
++};
++inline PoolCacheCounter poolCacheCounter{};
++enum PoolReason : unsigned { PoolUnchanged=0,PoolGeometryChanged=1,PoolColorOnly=2,PoolInvalid=3 };
++inline PoolReason poolReason(const std::vector<unsigned int>& key,
++                             const std::vector<unsigned int>& last){
++ if(key.empty()||key.size()%7||last.size()%7)return PoolInvalid;
++ if(key==last)return PoolUnchanged;
++ if(key.size()!=last.size())return PoolGeometryChanged;
++ for(std::size_t k=0;k<key.size();k+=7)
++  if(key[k]!=last[k]||key[k+1]!=last[k+1]||key[k+2]!=last[k+2])return PoolGeometryChanged;
++ return PoolColorOnly;
+ }
++inline void poolAdd(uint32_t& value,uint32_t delta){
++ if(delta>~uint32_t(0)-value){if(poolCacheCounter.invalid!=~uint32_t(0)){++poolCacheCounter.invalid;}
++  valid=false;return;}
++ value+=delta;
++}
++inline void observePoolCache(PoolReason reason,bool initial,std::size_t vertices){
++ if(!collectCounters)return;
++ if(reason>PoolColorOnly||vertices>0xffffffffu||(initial&&reason!=PoolGeometryChanged)){
++  if(poolCacheCounter.invalid!=~uint32_t(0)){++poolCacheCounter.invalid;}
++  valid=false;return;
++ }
++ auto& c=poolCacheCounter;poolAdd(c.flushes,1);poolAdd(c.eligibleBatchVerts,static_cast<uint32_t>(vertices));
++ if(initial)poolAdd(c.initial,1);
++ if(reason==PoolUnchanged)poolAdd(c.unchanged,1);
++ else if(reason==PoolGeometryChanged){poolAdd(c.geometryChanged,1);poolAdd(c.geometryRebuilds,1);}
++ else{poolAdd(c.colorOnlyEligible,1);if(poolColorSplitCandidate)poolAdd(c.colorOnlyUpdates,1);else poolAdd(c.geometryRebuilds,1);}
++}
++}
+--- a/tyra/engine/inc/debug/night_plan.hpp
++++ b/tyra/engine/inc/debug/night_plan.hpp
+@@ -4,10 +4,11 @@
+ #include <ctype.h>
+ namespace NightPlan {
+ struct Config {unsigned kind,order,joint,restored;};
+-inline bool valid(const Config& c){return c.order<=1&&((c.kind==0&&c.joint==0&&c.restored==0)||(c.kind==1&&c.joint==31&&c.restored==0)||(c.kind==2&&c.joint==31&&c.restored>0&&(c.restored&~c.joint)==0)||(c.kind==3&&c.joint==0&&c.restored>0&&c.restored<=7));}
++inline bool valid(const Config& c){return c.order<=1&&((c.kind==0&&c.joint==0&&c.restored==0)||(c.kind==1&&c.joint==31&&c.restored==0)||(c.kind==2&&c.joint==31&&c.restored>0&&(c.restored&~c.joint)==0)||(c.kind==3&&c.joint==0&&c.restored>0&&c.restored<=7)||(c.kind==4&&c.joint==0&&c.restored==0));}
+ inline bool readConfig(const char* path,Config& cfg){FILE* f=fopen(path,"r");if(!f)return false;unsigned values[4]{};bool good=true;int c=fgetc(f);
+  for(unsigned i=0;i<4;++i){while(c!=EOF&&isspace(static_cast<unsigned char>(c)))c=fgetc(f);if(c<'0'||c>'9'){good=false;break;}unsigned n=0;do{unsigned digit=unsigned(c-'0');if(n>(0xffffffffu-digit)/10u){good=false;break;}n=n*10u+digit;c=fgetc(f);}while(c>='0'&&c<='9');if(!good)break;values[i]=n;if(c!=EOF&&!isspace(static_cast<unsigned char>(c))){good=false;break;}}
+  while(good&&c!=EOF){if(!isspace(static_cast<unsigned char>(c)))good=false;c=fgetc(f);}if(ferror(f))good=false;fclose(f);cfg={values[0],values[1],values[2],values[3]};return good&&valid(cfg);}
+-inline bool build(const Config& c,NightSampler::PhaseConfig (&out)[3]){if(!valid(c))return false;for(unsigned p=0;p<3;++p){bool middle=(p==1)!=(c.order==1);out[p]=c.kind==0?NightSampler::PhaseConfig{0,middle?1u:0u}:c.kind==1?NightSampler::PhaseConfig{middle?c.joint:0u,1}:c.kind==3?NightSampler::PhaseConfig{0,1}:NightSampler::PhaseConfig{middle?(c.joint&~c.restored):c.joint,1};}return true;}
++inline bool build(const Config& c,NightSampler::PhaseConfig (&out)[3]){if(!valid(c))return false;for(unsigned p=0;p<3;++p){bool middle=(p==1)!=(c.order==1);out[p]=c.kind==0?NightSampler::PhaseConfig{0,middle?1u:0u}:c.kind==1?NightSampler::PhaseConfig{middle?c.joint:0u,1}:(c.kind==3||c.kind==4)?NightSampler::PhaseConfig{0,1}:NightSampler::PhaseConfig{middle?(c.joint&~c.restored):c.joint,1};}return true;}
+ inline unsigned extraMask(const Config& c,unsigned p){if(c.kind!=3)return 0;bool middle=(p==1)!=(c.order==1);return middle?c.restored:0;}
++inline bool poolCandidate(const Config& c,unsigned p){return c.kind==4&&((p==1)!=(c.order==1));}
+ }
+--- a/tyra/engine/inc/debug/night_runtime.hpp
++++ b/tyra/engine/inc/debug/night_runtime.hpp
+@@ -13,10 +13,10 @@
+  printf("LOG: NIGHTCONFIG order=%u valid=%u profile=0 hardwareTrace=0 ringBytes=0 ordinaryClocks=1 fixedDt=0 sampleBytes=%u chunkBytes=%u phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 chunkFrames=64 sampleFirst=900 sampleCount=128 video=%u display=%u depth=%u width=%u height=%u refreshMilliHz=%u requested=%u night=%u\n",unsigned(planConfig.order),unsigned(NightSampler::valid?1u:0u),unsigned(sizeof(NightSampler::samples)),unsigned(sizeof(NightSampler::chunks)),unsigned(video),unsigned(display),unsigned(depth),unsigned(width),unsigned(height),unsigned(refreshMilliHz),unsigned(requested),unsigned(night));
+  printf("LOG: NIGHTQUALITY rasterWidth=%u rasterHeight=%u scaleX=%u scaleY=%u\n",unsigned(rasterWidth),unsigned(rasterHeight),unsigned(scaleX),unsigned(scaleY));fflush(stdout);
+ }
+-inline void begin(unsigned pacing){if(!initialized)return;unsigned index=NightSampler::expectedIndex,p=index/1800,o=index%1800;if(p<3&&o==0){bool applied=NightAblation::setMask(NightSampler::phaseMask(index));bool extraApplied=NightAblation::setExtraMask(NightPlan::extraMask(planConfig,p));NightSampler::valid=NightSampler::valid&&applied&&extraApplied&&NightAblation::valid;printf("LOG: NIGHTPHASE phase=%u first=%u mask=%u appliedMask=%u sampler=%u countReads=%u samplePtr=%08x\n",unsigned(p),unsigned(index),unsigned(NightSampler::plan[p].mask),unsigned(NightAblation::mask),unsigned(NightSampler::mode(p)?1u:0u),unsigned(NightSampler::mode(p)?262u:6u),unsigned(reinterpret_cast<uintptr_t>(NightSampler::samples)));printf("LOG: NIGHTEXTRAPHASE phase=%u first=%u extraMask=%u appliedExtraMask=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::extraMask(planConfig,p)),unsigned(NightAblation::extraMask));fflush(stdout);}NightAblation::collectCounters=p<3&&(o==750||o==1155);if(NightAblation::collectCounters){for(unsigned i=0;i<7;++i)NightAblation::commonCounter[i]=Counter{};for(unsigned i=0;i<3;++i)NightAblation::extraCounter[i]=Counter{};}NightSampler::beginLoop(index,pacing);}
++inline void begin(unsigned pacing){if(!initialized)return;unsigned index=NightSampler::expectedIndex,p=index/1800,o=index%1800;if(p<3&&o==0){bool applied=NightAblation::setMask(NightSampler::phaseMask(index));bool extraApplied=NightAblation::setExtraMask(NightPlan::extraMask(planConfig,p));bool poolApplied=NightAblation::setPoolColorSplitCandidate(NightPlan::poolCandidate(planConfig,p));NightSampler::valid=NightSampler::valid&&applied&&extraApplied&&poolApplied&&NightAblation::valid;printf("LOG: NIGHTPHASE phase=%u first=%u mask=%u appliedMask=%u sampler=%u countReads=%u samplePtr=%08x\n",unsigned(p),unsigned(index),unsigned(NightSampler::plan[p].mask),unsigned(NightAblation::mask),unsigned(NightSampler::mode(p)?1u:0u),unsigned(NightSampler::mode(p)?262u:6u),unsigned(reinterpret_cast<uintptr_t>(NightSampler::samples)));printf("LOG: NIGHTEXTRAPHASE phase=%u first=%u extraMask=%u appliedExtraMask=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::extraMask(planConfig,p)),unsigned(NightAblation::extraMask));printf("LOG: NIGHTPOOLPHASE phase=%u first=%u candidate=%u appliedCandidate=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::poolCandidate(planConfig,p)?1u:0u),unsigned(NightAblation::poolColorSplitCandidate?1u:0u));fflush(stdout);}NightAblation::collectCounters=p<3&&(o==750||o==1155);if(NightAblation::collectCounters){for(unsigned i=0;i<7;++i)NightAblation::commonCounter[i]=Counter{};for(unsigned i=0;i<3;++i)NightAblation::extraCounter[i]=Counter{};NightAblation::poolCacheCounter=NightAblation::PoolCacheCounter{};}NightSampler::beginLoop(index,pacing);}
+ inline void afterLoop(unsigned pacing){if(!initialized)return;using namespace NightSampler;endLoop(pacing);unsigned p=frame/1800,o=frame%1800;valid=valid&&NightAblation::valid;if(p>=3)return;
+  NightAblation::collectCounters=false;
+- if(o==750||o==1155){printf("LOG: NIGHTGATES phase=%u offset=%u first=%u frames=1 mask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(plan[p].mask));for(unsigned i=0;i<7;++i){unsigned bit=1u<<i;const auto& c=NightAblation::commonCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");printf("LOG: NIGHTEXTRAGATES phase=%u offset=%u first=%u frames=1 extraMask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::extraMask));for(unsigned i=0;i<3;++i){unsigned bit=1u<<i;const auto& c=NightAblation::extraCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");fflush(stdout);}
++ if(o==750||o==1155){printf("LOG: NIGHTGATES phase=%u offset=%u first=%u frames=1 mask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(plan[p].mask));for(unsigned i=0;i<7;++i){unsigned bit=1u<<i;const auto& c=NightAblation::commonCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");printf("LOG: NIGHTEXTRAGATES phase=%u offset=%u first=%u frames=1 extraMask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::extraMask));for(unsigned i=0;i<3;++i){unsigned bit=1u<<i;const auto& c=NightAblation::extraCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");const auto& pc=NightAblation::poolCacheCounter;printf("LOG: NIGHTPOOLGATES phase=%u offset=%u first=%u frames=1 candidate=%u flushes=%u unchanged=%u initial=%u geometryChanged=%u colorOnlyEligible=%u geometryRebuilds=%u colorOnlyUpdates=%u eligibleBatchVerts=%u invalid=%u\n",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::poolColorSplitCandidate?1u:0u),unsigned(pc.flushes),unsigned(pc.unchanged),unsigned(pc.initial),unsigned(pc.geometryChanged),unsigned(pc.colorOnlyEligible),unsigned(pc.geometryRebuilds),unsigned(pc.colorOnlyUpdates),unsigned(pc.eligibleBatchVerts),unsigned(pc.invalid));fflush(stdout);}
+  if(o>=1200&&o<1328){if(!file){valid=false;return;}unsigned i=o-1200;if(i<5){const auto& c=chunks[p][i];fprintf(file,"LOG: NIGHTCHUNK phase=%u i=%u first=%u loops=%u elapsed=%u pacing=%u totalFlips=%u renderedFlips=%u syntheticFlips=%u\n",unsigned(p),unsigned(i),unsigned(c.first),unsigned(c.loops),unsigned(c.elapsed),unsigned(c.pacing),unsigned(c.totalFlips),unsigned(c.renderedFlips),unsigned(c.syntheticFlips));}if(mode(p)){const auto& s=samples[i];fprintf(file,"LOG: NIGHTRAW phase=%u i=%u frame=%u entryPeriod=%u wholeLoop=%u pacing=%u totalFlips=%u renderedFlips=%u syntheticFlips=%u presentPeriod=%u renderedPeriod=%u lastKind=%u sequence=%u context=%u\n",unsigned(p),unsigned(i),unsigned(s.frame),unsigned(s.entryPeriod),unsigned(s.wholeLoop),unsigned(s.pacing),unsigned(s.totalFlips),unsigned(s.renderedFlips),unsigned(s.syntheticFlips),unsigned(s.presentPeriod),unsigned(s.renderedPeriod),unsigned(s.lastKind),unsigned(s.sequence),unsigned(s.context));}if(ferror(file))valid=false;if(i==127){markExported(p);fprintf(file,"LOG: NIGHTWINDOW phase=%u sampler=%u raw=%u chunks=%u valid=%u\n",unsigned(p),unsigned(mode(p)?1u:0u),unsigned(counts[p]),unsigned(chunkCounts[p]),unsigned(valid?1u:0u));if(fflush(file)!=0)valid=false;}}
+  if(frame==5399&&!done){done=true;if(file){if(fclose(file)!=0)valid=false;file=nullptr;}printf("LOG: NIGHTDONE order=%u valid=%u loops=5400\n",unsigned(planConfig.order),unsigned(complete()?1u:0u));fflush(stdout);}
+ }

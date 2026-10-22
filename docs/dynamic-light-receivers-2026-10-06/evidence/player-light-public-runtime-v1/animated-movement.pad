@@ -1,0 +1,9 @@
+neutral
+pad 1
+stick l -80 0
+wait 0.5
+stick l 0 0
+pad 2
+stick l 80 0
+wait 0.5
+neutral

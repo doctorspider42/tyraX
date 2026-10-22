@@ -1,0 +1,6 @@
+{
+  "status": "REJECTED_NO_DEVICE_START_NO_PROTOCOL",
+  "reason": "PS2 no ping after preceding reset; client log empty, no loadelf/NIGHTCONFIG/live artifact. Not a runtime renderer failure or performance result.",
+  "rawLogSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "physicalPerformanceAccepted": false
+}

@@ -1,0 +1,11 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\cycle-reuse-controls-v1\\analyze-loop.py": "58e19cee054b237f13f797de6237d283811757c05c84742cfd62483aff7bc2a8",
+    "F:\\Projects\\tyrax2-lab-20261001\\cycle-reuse-controls-v1\\analyze-night.py": "cd7f127e661c3e1bd46bd33cb7a652c741989d8ad11054d7f0612668e9f73097",
+    "F:\\Projects\\tyrax2-lab-20261001\\cycle-reuse-controls-v1\\analyze-night-cli.py": "ea8219c36dfa65d09c6996276f526c953bce3f974ca8675125de3f43e0bba69c",
+    "F:\\Projects\\tyrax2-lab-20261001\\cycle-reuse-controls-v1\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\cycle-reuse-controls-v1\\source-controls\\night_plan.hpp": "b23edc913381df199466a721fef8ce9992781b892ccbee1f089f3a7be0bb2e1e",
+    "F:\\Projects\\tyrax2-lab-20261001\\cycle-reuse-controls-v1\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "7797dd959d9a24c8859d2669219de77541519a17c004d273f08e11bdce727ecb"
+}

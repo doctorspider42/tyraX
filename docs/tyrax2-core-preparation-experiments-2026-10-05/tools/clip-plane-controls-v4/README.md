@@ -1,0 +1,9 @@
+# Kind9 parser revision2: qualified emulator prefixes
+
+The first complete ordinary emulator capture was rejected by revision1 because its corona-only checker expected records at column0. The qualified loop parser already searches each line for `LOG: <label>`. Revision2 uses the same `LOG: (.*)` search before corona schema checking, preserving the full record and every existing duplicate, ordering, unknown-field, decimal, partition and fallback check. No kind conversion or raw-byte normalization occurs. Actual input bytes and their hashes remain authoritative.
+
+Both host orders and the original4positive/54negative/12legacy regression suite pass. Six prefix-format/order controls preserve every parsed result field; sixteen timestamped negative controls retain strict rejection. Two timestamped authoritative CLI host captures pass. The exact actual emulator log and authoritative artifact reparse completed5400loops/384samples/15chunks with kind9 order0 and tableOnallphases.
+
+Actual cold requests are0 and remain explicitly `ZERO_COLD_REQUESTS_CACHE_REPLAY_OR_INACTIVE_UNKNOWN`. This accepts completion and protocol, not ordinary SPRITE activation, output, pixel equality or performance. The old rejected report and observed launch/runtime authority remain unchanged. `additional-reanalysis-authority.json` pins the new six parser dependencies, the actual reanalysis and the original launch/failed-analysis records; root must separately close observed ownership/assets/source/native and preserve the original raw bytes. No new device execution was performed.
+
+Authoritative CLI: use this directory's `analyze-night-cli.py` with the preserved complete stdout and artifact, `--kind 9 --order 0 --joint 0 --restored 0`, and a NEW report. The actual report records exact executable arguments in its requestedPlan/inputPins fields.

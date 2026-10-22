@@ -1,0 +1,34 @@
+{
+  "status": "PASS_HOST_ACTUAL_SELECTION_AND_RAW_BIT_GATE",
+  "commands": [
+    [
+      "wsl",
+      "-d",
+      "Ubuntu",
+      "--",
+      "g++",
+      "-std=c++17",
+      "-O2",
+      "-ffp-contract=off",
+      "-I/mnt/f/Projects/tyrax2-lab-20261001/light-pick-far-physical-v1/tyra/engine/inc",
+      "/mnt/f/Projects/tyrax2-lab-20261001/light-pick-far-host-v2/probe.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-lab-20261001/light-pick-far-host-v2/probe"
+    ],
+    [
+      "wsl",
+      "-d",
+      "Ubuntu",
+      "--",
+      "/mnt/f/Projects/tyrax2-lab-20261001/light-pick-far-host-v2/probe"
+    ]
+  ],
+  "pins": {
+    "command-0.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "command-1.log": "6ee6a89063f906800d6a2b383b8a04d278a487c3d808c0ab7d066f133236f071",
+    "probe": "9cf644927fffd74702361c5b422892f37f7999ac74b8a6f4dcb0c85ae9e4df4f",
+    "probe.cpp": "fec57eb48c35d10dd098dd575a33fa3dc33eb54cb054fc78f554cfef4f756593"
+  },
+  "previousAttempt": "v1 failed missing host-only u32 typedef; no native source change",
+  "targetParityStillRequired": true
+}

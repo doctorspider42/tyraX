@@ -1,0 +1,306 @@
+{
+  "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-attribution-physical-snapshot.log",
+  "first": 1100,
+  "frames": 512,
+  "hz": 60,
+  "budget_ms": 16.666666666666668,
+  "mean_ms": 18.30581964386834,
+  "median_ms": 18.3848876953125,
+  "p95_ms": 18.981953938802082,
+  "max_ms": 20.397505018446182,
+  "over_budget": 512,
+  "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+  "profile_windows": [
+    {
+      "frame": 1100,
+      "samples": 50,
+      "missed": 0,
+      "calls": [
+        50,
+        50,
+        50,
+        4355,
+        4355,
+        4355
+      ],
+      "vif_wait_ms": 0.00125,
+      "finish_wait_ms": 0.00135,
+      "cache_ms": 0.00833,
+      "snapshot_ms": 2.70408,
+      "convert_ms": 0.72244,
+      "submit_total_ms": 3.61782,
+      "consumer_observed_upper_bound_ms": 12.68885
+    },
+    {
+      "frame": 1150,
+      "samples": 50,
+      "missed": 0,
+      "calls": [
+        50,
+        50,
+        50,
+        4250,
+        4250,
+        4250
+      ],
+      "vif_wait_ms": 0.00125,
+      "finish_wait_ms": 0.00136,
+      "cache_ms": 0.00898,
+      "snapshot_ms": 2.68585,
+      "convert_ms": 0.72785,
+      "submit_total_ms": 3.60402,
+      "consumer_observed_upper_bound_ms": 12.77617
+    },
+    {
+      "frame": 1200,
+      "samples": 50,
+      "missed": 0,
+      "calls": [
+        50,
+        50,
+        50,
+        4418,
+        4418,
+        4418
+      ],
+      "vif_wait_ms": 0.00124,
+      "finish_wait_ms": 0.00136,
+      "cache_ms": 0.00948,
+      "snapshot_ms": 2.71943,
+      "convert_ms": 0.72188,
+      "submit_total_ms": 3.63355,
+      "consumer_observed_upper_bound_ms": 12.81158
+    },
+    {
+      "frame": 1250,
+      "samples": 50,
+      "missed": 0,
+      "calls": [
+        50,
+        50,
+        50,
+        4250,
+        4250,
+        4250
+      ],
+      "vif_wait_ms": 0.00125,
+      "finish_wait_ms": 0.00136,
+      "cache_ms": 0.00883,
+      "snapshot_ms": 2.70862,
+      "convert_ms": 0.71632,
+      "submit_total_ms": 3.61379,
+      "consumer_observed_upper_bound_ms": 12.77352
+    },
+    {
+      "frame": 1300,
+      "samples": 50,
+      "missed": 0,
+      "calls": [
+        50,
+        50,
+        50,
+        4586,
+        4586,
+        4586
+      ],
+      "vif_wait_ms": 0.00123,
+      "finish_wait_ms": 0.00136,
+      "cache_ms": 0.00828,
+      "snapshot_ms": 2.72139,
+      "convert_ms": 0.74251,
+      "submit_total_ms": 3.66375,
+      "consumer_observed_upper_bound_ms": 12.69853
+    },
+    {
+      "frame": 1350,
+      "samples": 50,
+      "missed": 0,
+      "calls": [
+        50,
+        50,
+        50,
+        5300,
+        5300,
+        5300
+      ],
+      "vif_wait_ms": 0.0012,
+      "finish_wait_ms": 0.00136,
+      "cache_ms": 0.00859,
+      "snapshot_ms": 2.77761,
+      "convert_ms": 0.78894,
+      "submit_total_ms": 3.7865,
+      "consumer_observed_upper_bound_ms": 12.79089
+    },
+    {
+      "frame": 1400,
+      "samples": 50,
+      "missed": 0,
+      "calls": [
+        50,
+        50,
+        50,
+        5216,
+        5216,
+        5216
+      ],
+      "vif_wait_ms": 0.00121,
+      "finish_wait_ms": 0.00293,
+      "cache_ms": 0.00815,
+      "snapshot_ms": 2.77224,
+      "convert_ms": 0.76981,
+      "submit_total_ms": 3.75856,
+      "consumer_observed_upper_bound_ms": 12.7048
+    },
+    {
+      "frame": 1450,
+      "samples": 50,
+      "missed": 0,
+      "calls": [
+        50,
+        50,
+        50,
+        4334,
+        4334,
+        4334
+      ],
+      "vif_wait_ms": 0.00124,
+      "finish_wait_ms": 0.00136,
+      "cache_ms": 0.00951,
+      "snapshot_ms": 2.69289,
+      "convert_ms": 0.73173,
+      "submit_total_ms": 3.61711,
+      "consumer_observed_upper_bound_ms": 12.75062
+    },
+    {
+      "frame": 1500,
+      "samples": 50,
+      "missed": 0,
+      "calls": [
+        50,
+        50,
+        50,
+        4250,
+        4250,
+        4250
+      ],
+      "vif_wait_ms": 0.00125,
+      "finish_wait_ms": 0.00137,
+      "cache_ms": 0.00839,
+      "snapshot_ms": 2.70374,
+      "convert_ms": 0.7353,
+      "submit_total_ms": 3.62534,
+      "consumer_observed_upper_bound_ms": 12.86866
+    },
+    {
+      "frame": 1550,
+      "samples": 50,
+      "missed": 0,
+      "calls": [
+        50,
+        50,
+        50,
+        4964,
+        4964,
+        4964
+      ],
+      "vif_wait_ms": 0.00122,
+      "finish_wait_ms": 0.00202,
+      "cache_ms": 0.00876,
+      "snapshot_ms": 2.75297,
+      "convert_ms": 0.77108,
+      "submit_total_ms": 3.73382,
+      "consumer_observed_upper_bound_ms": 12.9297
+    }
+  ],
+  "profile_mean": {
+    "vif_wait_ms": 0.001234,
+    "finish_wait_ms": 0.001583,
+    "cache_ms": 0.00873,
+    "snapshot_ms": 2.7238819999999997,
+    "convert_ms": 0.742786,
+    "submit_total_ms": 3.665426,
+    "consumer_observed_upper_bound_ms": 12.779332
+  },
+  "elf_sha256": "97b9b9f5e3e4144f47369a9c3c636ec4f3241b613a8f068db267d621d9770031",
+  "log_sha256": "bc733453e01d1c2c89138ce97c363b4ca507835a94d6a785c39a1345cb93e7f7",
+  "fixture": {
+    "scope": "Existing wait/cache/snapshot/conversion brackets only, no new waits, no GPU-hold; inclusive nested diagnostic timings, not VU/GS utilization.",
+    "first": 1100,
+    "frames": 512,
+    "engine": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-attribution\\tyra",
+    "artifacts": {
+      "tyra\\engine\\inc\\debug\\pipeline_attribution.hpp": "168cf65c656d00282ff1240e69cccb92882cea307eaf27014eaa4aae7f1398f6",
+      "tyra\\engine\\src\\renderer\\core\\renderer_core.cpp": "cbdd37e5398378ff0aa4ad525db497108f6ac6965cf3b137f28fb2c30a050759",
+      "tyra\\engine\\src\\renderer\\core\\paths\\path1\\vif1_queue.cpp": "67e4fec64d37a8c366b9bafe2a2b8c5c829ab69b15f498ac9730dc263c8c01f1",
+      "game\\src\\terrain_game.cpp": "157beaab18199322243df2dd054e757a38a89abd3776d647af0632025be24515"
+    },
+    "observer_note": "Read-only GS FINISH sampled every eighth submit and before existing completion; timestamp from final-prefix VIF1 start to first observation is an upper bound for combined consumer completion, not VU-only duration. No extra wait or bit clear. samples=50 and missed=0 required per warm window."
+  },
+  "reproduction_scripts": {
+    "prepare-pipeline-attribution.py": {
+      "source": "from pathlib import Path\nimport hashlib,json,shutil\nlab=Path('F:/Projects/tyrax2-lab-20261001');base=lab/'arena-check-night'\ndst=lab/'pipeline-attribution';assert not dst.exists()\nshutil.copytree(base/'tyra',dst/'tyra',ignore=shutil.ignore_patterns('obj','*.log'))\nshutil.copytree(base/'game',dst/'game',ignore=shutil.ignore_patterns('obj','*.log','*.elf','*.elf.sym','*.p2s','ps2link.run'))\nheader=r'''// Modified by TyraX: scratch diagnostic, no new waits or GPU hold.\n#pragma once\n#include <cstdio>\n#include \"debug/frame_profile.hpp\"\nnamespace Tyra { namespace PipelineAttrib {\ninline unsigned long long ticks[6]={};\ninline unsigned calls[6]={};\nstruct Scope {\n unsigned i,begin;\n explicit Scope(unsigned index):i(index),begin(FrameProfile::ticks()){}\n ~Scope(){ticks[i]+=unsigned(FrameProfile::ticks()-begin);++calls[i];}\n};\ninline void report(unsigned f){\n static unsigned prev=0;\n if(!f || f%50 || prev==f)return;\n const unsigned n=f-prev;prev=f;\n printf(\"LOG: PIPEATTR f=%u n=%u vifWait=%.5f finishWait=%.5f cache=%.5f snapshot=%.5f convert=%.5f submit=%.5f calls=%u/%u/%u/%u/%u/%u\\n\",\n f,n,float(ticks[0])/294912/n,float(ticks[1])/294912/n,float(ticks[2])/294912/n,\n float(ticks[3])/294912/n,float(ticks[4])/294912/n,float(ticks[5])/294912/n,\n calls[0],calls[1],calls[2],calls[3],calls[4],calls[5]);\n for(unsigned i=0;i<6;++i){ticks[i]=0;calls[i]=0;}\n}\n}}\n'''\n(dst/'tyra/engine/inc/debug/pipeline_attribution.hpp').write_bytes(header.encode())\ndef edit(p,old,new):\n s=p.read_text(encoding='utf-8');assert s.count(old)==1,(p,old,s.count(old));p.write_bytes(s.replace(old,new).encode())\nrc=dst/'tyra/engine/src/renderer/core/renderer_core.cpp'\nq=dst/'tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp'\nfor p in [rc,q]:p.write_bytes(('#include \"debug/pipeline_attribution.hpp\"\\n'+p.read_text(encoding='utf-8')).encode())\nedit(rc,'  Vif1Queue::waitFor(pipelineSequence);','  { PipelineAttrib::Scope timing(0); Vif1Queue::waitFor(pipelineSequence); }')\n# Only the existing final FINISH wait inside pipeline completion, not unrelated syncs.\nedit(rc,'  sync.waitAndClear();\\n  u32 t0, t1;','  { PipelineAttrib::Scope timing(1); sync.waitAndClear(); }\\n  u32 t0, t1;')\nedit(q,'    FlushCache(0);\\n    flushedUpTo = submitted;','    { PipelineAttrib::Scope timing(2); FlushCache(0); }\\n    flushedUpTo = submitted;')\nedit(q,'u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {','u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {\\n  PipelineAttrib::Scope submissionTiming(5);')\nedit(q,'  if (chainArena) {\\n    auto snapshot = chainArena->copy(chain,','  if (chainArena) {\\n    PipelineAttrib::Scope snapshotTiming(3);\\n    auto snapshot = chainArena->copy(chain,')\nedit(q,'      sourceCopied && *sourceCopied) {\\n    u32 records = 0;','      sourceCopied && *sourceCopied) {\\n    PipelineAttrib::Scope conversionTiming(4);\\n    u32 records = 0;')\np=dst/'game/src/terrain_game.cpp'\np.write_bytes(('#include \"debug/pipeline_attribution.hpp\"\\n'+p.read_text(encoding='utf-8')).encode())\nedit(p,'void TerrainGame::loop() {','void TerrainGame::loop() {\\n  Tyra::PipelineAttrib::report(ftrig::frame);')\npaths=[dst/'tyra/engine/inc/debug/pipeline_attribution.hpp',rc,q,p]\nmeta={'scope':'Existing wait/cache/snapshot/conversion brackets only, no new waits, no GPU-hold; inclusive nested diagnostic timings, not VU/GS utilization.', 'first':1100,'frames':512,'engine':str(dst/'tyra'),'artifacts':{str(p.relative_to(dst)):hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}}\n(dst/'fixture.json').write_bytes((json.dumps(meta,indent=2)+'\\n').encode())\nprint('Private diagnostic engine/game prepared')\n",
+      "sha256": "fa1ba10e34f3f41e3ffa61c706dc556e586a9116ff1c541862c691ad2848e86a"
+    },
+    "add-finish-observer.py": {
+      "source": "from pathlib import Path\nimport hashlib,json\nroot=Path('F:/Projects/tyrax2-lab-20261001/pipeline-attribution')\ndef edit(p,old,new):\n s=p.read_text(encoding='utf-8');assert s.count(old)==1,(p,old,s.count(old));p.write_bytes(s.replace(old,new).encode())\nh=root/'tyra/engine/inc/debug/pipeline_attribution.hpp'\nedit(h,'#include <cstdio>','#include <cstdio>\\n#include <gs_privileged.h>')\nedit(h,'inline unsigned long long ticks[6]={};\\ninline unsigned calls[6]={};',r'''inline unsigned long long ticks[7]={};\ninline unsigned calls[7]={};\ninline unsigned nextSequence=0, started=0, poll=0, missed=0;\ninline bool tracking=false;\ninline void beginIfSequence(unsigned sequence){\n if(sequence!=nextSequence || !nextSequence)return;\n if(tracking)++missed;\n nextSequence=0;started=FrameProfile::ticks();tracking=true;poll=0;\n}\ninline void finishObserved(){\n if(!tracking)return;\n ticks[6]+=unsigned(FrameProfile::ticks()-started);++calls[6];tracking=false;\n}\ninline void observeFinish(bool force=false){\n if(!tracking)return;\n if(!force && (++poll&7))return;\n if(*GS_REG_CSR&2)finishObserved();\n}''')\nedit(h,'submit=%.5f calls=%u/%u/%u/%u/%u/%u\\\\n','submit=%.5f consumerObserved=%.5f samples=%u missed=%u calls=%u/%u/%u/%u/%u/%u\\\\n')\nedit(h,'float(ticks[3])/294912/n,float(ticks[4])/294912/n,float(ticks[5])/294912/n,','float(ticks[3])/294912/n,float(ticks[4])/294912/n,float(ticks[5])/294912/n,\\n float(ticks[6])/294912/n,calls[6],missed,')\nedit(h,'for(unsigned i=0;i<6;++i){ticks[i]=0;calls[i]=0;}','for(unsigned i=0;i<7;++i){ticks[i]=0;calls[i]=0;}\\n missed=0;')\nq=root/'tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp'\nedit(q,'  *kChcr = kChainChcr;','  PipelineAttrib::beginIfSequence(sequence);\\n  *kChcr = kChainChcr;')\nedit(q,'  PipelineAttrib::Scope submissionTiming(5);','  PipelineAttrib::observeFinish();\\n  PipelineAttrib::Scope submissionTiming(5);')\nedit(q,'  enqueue(nativeWriter->data(), sequence);','  if(framePipelined && !frameRecording) PipelineAttrib::nextSequence=sequence;\\n  enqueue(nativeWriter->data(), sequence);')\nrc=root/'tyra/engine/src/renderer/core/renderer_core.cpp'\nedit(rc,'  { PipelineAttrib::Scope timing(0); Vif1Queue::waitFor(pipelineSequence); }','  PipelineAttrib::observeFinish(true);\\n  { PipelineAttrib::Scope timing(0); Vif1Queue::waitFor(pipelineSequence); }')\nedit(rc,'  { PipelineAttrib::Scope timing(1); sync.waitAndClear(); }','  { PipelineAttrib::Scope timing(1); sync.waitAndClear(); }\\n  PipelineAttrib::finishObserved();')\np=root/'fixture.json';d=json.loads(p.read_text());d['observer_note']='Read-only GS FINISH sampled every eighth submit and before existing completion; timestamp from final-prefix VIF1 start to first observation is an upper bound for combined consumer completion, not VU-only duration. No extra wait or bit clear. samples=50 and missed=0 required per warm window.'\nfor f in [h,q,rc]:d['artifacts'][str(f.relative_to(root))]=hashlib.sha256(f.read_bytes()).hexdigest()\np.write_bytes((json.dumps(d,indent=2)+'\\n').encode());print('Read-only FINISH observation added')\n",
+      "sha256": "c3cdeb91be706188e4af225166b4fcfebcf02efd82f393470026b959d970ce86"
+    },
+    "analyze-pipeline-attribution.py": {
+      "source": "from pathlib import Path\nimport hashlib,json,re,shutil,statistics,subprocess,sys\nlab=Path('F:/Projects/tyrax2-lab-20261001');stem='pipeline-attribution-physical'\nsnap=lab/(stem+'-snapshot.log');assert not snap.exists();snap.write_bytes((lab/(stem+'.log')).read_bytes())\nflat=snap.read_text(errors='replace').replace('\\r','').replace('\\n','')\nwork=json.loads(subprocess.check_output([sys.executable,'F:/Projects/tyra-editor/tools/tyrax2-timing.py',str(snap),'--first','1100','--frames','512','--hz','60'],text=True))\npattern=r'LOG: PIPEATTR f=(\\d+) n=(\\d+) vifWait=([0-9.]+) finishWait=([0-9.]+) cache=([0-9.]+) snapshot=([0-9.]+) convert=([0-9.]+) submit=([0-9.]+) consumerObserved=([0-9.]+) samples=(\\d+) missed=(\\d+) calls=([0-9/]+)'\nrows=[]\nnames=['vif_wait_ms','finish_wait_ms','cache_ms','snapshot_ms','convert_ms','submit_total_ms','consumer_observed_upper_bound_ms']\nfor m in re.finditer(pattern,flat):\n if 1100<=int(m[1])<1600:\n  assert int(m[2])==50 and int(m[10])==50 and int(m[11])==0,m[0]\n  rows.append(dict(frame=int(m[1]),samples=int(m[10]),missed=int(m[11]),calls=list(map(int,m[12].split('/'))),**{n:float(m[i+3]) for i,n in enumerate(names)}))\nassert [r['frame'] for r in rows]==list(range(1100,1600,50)),rows\nwork['profile_windows']=rows;work['profile_mean']={n:statistics.mean(r[n] for r in rows) for n in names}\nwork['elf_sha256']=hashlib.sha256((lab/(stem+'.elf')).read_bytes()).hexdigest();work['log_sha256']=hashlib.sha256(snap.read_bytes()).hexdigest()\nwork['fixture']=json.loads((lab/'pipeline-attribution/fixture.json').read_text())\nwork['reproduction_scripts']={}\nfor name in ['prepare-pipeline-attribution.py','add-finish-observer.py','analyze-pipeline-attribution.py']:\n p=lab/name;work['reproduction_scripts'][name]={'source':p.read_text(),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()}\nfor rel,h in work['fixture']['artifacts'].items():assert hashlib.sha256((lab/'pipeline-attribution'/rel).read_bytes()).hexdigest()==h,rel\nwork['limitations']=['One instrumented physical boot; these are diagnostic brackets, not a new ordinary production benchmark.', 'Consumer is DMA/VIF/VU1/GIF/GS combined; first sampled GS FINISH observation is an upper bound, not VU-only duration or utilization.', 'Snapshot and conversion brackets are included in submission total; do not add nested values.', 'Read-only FINISH sampling adds overhead; no new waits, no FINISH clear, no GPU-hold or interrupts.', 'Profile windows are neighboring 50-frame summaries, different from exact 512 raw work samples.']\ndst=lab/'pipeline-attribution-emulator';src=Path('C:/Users/pawel/AppData/Local/Temp/tyra-editor-test/pcsx2-capture-28745')\nshutil.copyfile(src/'emulog.txt',dst/'emulog.txt');shutil.copyfile(src/'game/log.txt',dst/'game-log.txt')\nwork['evidence_sha256']={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in [lab/'pipeline-attribution-observer-build.log',dst/'emulog.txt',dst/'game-log.txt',dst/'report.txt',dst/'state1.p2s']}\n(lab/(stem+'-summary.json')).write_bytes((json.dumps(work,indent=2)+'\\n').encode())\nprint(json.dumps(work['profile_mean'],indent=2));print('raw work',work['mean_ms'],work['p95_ms'])\n",
+      "sha256": "1d5243963cd55f50c92c24ae708948d4341be7402f7d490eaa774fef64722084"
+    }
+  },
+  "limitations": [
+    "One instrumented physical boot; these are diagnostic brackets, not a new ordinary production benchmark.",
+    "Consumer is DMA/VIF/VU1/GIF/GS combined; first sampled GS FINISH observation is an upper bound, not VU-only duration or utilization.",
+    "Snapshot and conversion brackets are included in submission total; do not add nested values.",
+    "Read-only FINISH sampling adds overhead; no new waits, no FINISH clear, no GPU-hold or interrupts.",
+    "Profile windows are neighboring 50-frame summaries, different from exact 512 raw work samples."
+  ],
+  "evidence_sha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pipeline-attribution-observer-build.log": "43ee083296bdc4e3e78b0229599cc7387fedd56e584de0e6e3e579ece96571d4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pipeline-attribution-emulator\\emulog.txt": "c8c1fbba0e624067a0aee4022f75580b3eefaf5774cdcc693d127780677aca76",
+    "F:\\Projects\\tyrax2-lab-20261001\\pipeline-attribution-emulator\\game-log.txt": "e39f8f5eafacc1be821e023608971cf00b2d9312b9e928e00ad2f1f2d4e551ff",
+    "F:\\Projects\\tyrax2-lab-20261001\\pipeline-attribution-emulator\\report.txt": "f9b3a03cfe604480d70d3f528c458d598817c58665336b60403f9dad5f305ef5",
+    "F:\\Projects\\tyrax2-lab-20261001\\pipeline-attribution-emulator\\state1.p2s": "e020eb6eb4be4ebecbbc7ed54c1fddd353ee66ddc213fb73ca08923c0709095a"
+  },
+  "date": "2026-10-02",
+  "verification": "Native build; PCSX2 2.9.93 reached frame 1700; physical PS2 ten complete 50-frame profile windows with 50 consumer samples and zero missed, plus exact 512 raw work samples. Diagnostic only.",
+  "vu0_source_audit": {
+    "date": "2026-10-02",
+    "scope": "read-only source/SDK audit; diagnostic timings supplied by root, raw artifact not independently reviewed",
+    "root_diagnostic_ms": {
+      "snapshot": 2.723882,
+      "native_conversion": 0.742786,
+      "submit_parent": 3.665426,
+      "flush": 0.00873,
+      "vif_wait": 0.001234,
+      "finish_wait": 0.001583,
+      "consumer_finish_upperbound": 12.779332,
+      "renderer_work": 18.3058
+    },
+    "source_sha256": {
+      "vendor/tyra/engine/src/math/vec4.cpp": "aaf2f470b1bbe3c42c1d1d9fa2bd6ce06ff372f34b44dfe174aeaa275bc851ea",
+      "vendor/tyra/engine/src/math/m4x4.cpp": "226a30c8f7cff7bad6df9f5043bcf49d6ba2fcd744e33fb94c0a8d962f09a5c3",
+      "vendor/tyra/engine/src/math/plane.cpp": "cb0765288ecc782fa82eb989017929f46e6b838da1a86fa69063694483f99625",
+      "vendor/tyra/engine/src/math/math.cpp": "a156a9b2b440a27a108c0371f15663a45dd407de7ab11a756715054fe2e2b14d",
+      "vendor/tyra/engine/inc/math/math.hpp": "87fefd0df58d2c0d9cdb9b3e16a32a4da2678ab45e89e6eee0e813258ef950da",
+      "vendor/tyra/engine/src/renderer/core/3d/bbox/core_bbox.cpp": "5531eccf89d1debfc66dfa23175def2d7ddba1c91cbc567c50b9cfa11ff9bc2b",
+      "vendor/tyra/engine/src/renderer/3d/mesh/dynamic/skel_instance.cpp": "4c62a67d4b6e4b5df731a1005911c17b924767a568ecd6ea985bdb8951c2bf65",
+      "vendor/tyra/engine/src/renderer/rt/vu0_raytracer.cpp": "2a490422612da4617303122358368f086faa281140c25519ecb75de4e5a0b8e0",
+      "vendor/tyra/engine/inc/renderer/rt/vu0_raytracer.hpp": "12b8e071317dcf64255147b05fe32adf72b1901779126844fe6230a66b7b9902",
+      "vendor/tyra/engine/src/renderer/core/renderer_core.cpp": "520c81dbc1ac36e829c9c76408a15fe987567450ddbdd8341ccb5e1cce2fbd6f",
+      "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": "b805bf42bd72a34761764eaaa207ce7ff8d3b8862183b135091bc88e3b874932",
+      "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "597e444875e6f5d45cff7359f0430ca89f27bd77657cbb7194554c7c9baa9825",
+      "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp": "8d26d6f61b882897c930482f42ce64342a883691be6cf2acba06e641d526f94b",
+      "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp": "0ee77091872dca566a642212fbaad2dc19e6c7202ff73917feef6fc61211ce5d",
+      "vendor/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp": "41c13286b8a3140b862013a21ae438d68a3edfec27dab1fde32bdbc9702a8f93",
+      "vendor/tyra/engine/src/renderer/core/blss/renderer_core_blss.cpp": "e957b553464799bc221636d9883b0a4933d5ffd00f9bf7aa74c61625e9b5f1e9",
+      "src/vugen.cpp": "d93b3be18df8b6be62434eb298dc613df725fe16afd19f753fdb77b012287026",
+      "src/game_templates.inc": "ebf0ec5aabaf4113f97506718af634ad02be0e50d85d029dbee6b87fdcec170f",
+      "docs/vu-authoring.md": "eadf665078665570237e2f2f4dc9f545fdd91a3fe55445caa73e0fa41bb40c1f"
+    },
+    "report_sha256": "58817f0806396557bba50e048b856f8f4becc27a76a1f8154fe9c72f9d0d2e0b"
+  },
+  "vu0_audit_report": "# EE/VU0 offload audit after the ordered-frame diagnostic\n\n2026-10-02. Read-only local source/SDK audit. No new implementation, builds, emulator or hardware use.\n\n## Main finding\n\nVU0 is already used extensively in macro mode; it is not an unused spare CPU. The measured dominant submission work is memory copying, tag traversal, pointer/range checks and immutable lease bookkeeping. Moving those paths to vector arithmetic does not remove their memory ownership and publication costs. The strongest immediate experiment is to subdivide and reduce the snapshot/native conversion work, while pricing a narrowly selected scalar math block separately before proposing a VU0 rewrite.\n\n## Newly supplied physical diagnostic (root-owned evidence)\n\nOne diagnostic night boot: source snapshot 2.723882 ms; native conversion 0.742786 ms; total Vif1Queue::submit 3.665426 ms. The first two are nested within submit, not additive to it. They sum to 3.466668 ms, leaving about 0.198758 ms elsewhere in that bracket. FlushCache 0.008730 ms; VIF completion wait 0.001234 ms; FINISH wait 0.001583 ms; consumer FINISH observation upper bound 12.779332 ms; renderer critical-path work 18.305800 ms.\n\nThese values were supplied by root; this audit did not parse or hash the diagnostic raw log, and it is one boot. FINISH observation is not an isolated GS/VU1 processing measurement, and nearly zero explicit waits do not prove an idle consumer. Current FlushCache timing decisively weakens the old S1 premise for this pose: the old 1.09 ms flush-removal estimate must not be reused. No future gain is inferred by adding nested brackets or subtracting the consumer upper bound from frame work.\n\n## Actual VU0 users\n\n| Source | Current work | Mode / ownership |\n| --- | --- | --- |\n| math/vec4.cpp | Add/subtract/multiply/divide, copy/set, cross/dot, lengths/distances, normalize, lerp and clipping helpers | EE-issued COP2 macro assembly, VF registers and Q |\n| math/m4x4.cpp | Matrix copy, vector transform, matrix multiplication/composition and camera math | COP2 macro; VF/ACC state |\n| math/plane.cpp | Plane distance and construction/update | Calls Vec4 dot/cross/normalize: indirect macro use |\n| renderer/core/3d/bbox/core_bbox.cpp | Contiguous vertex min/max reduction, transformed corners, legacy plane/corner tests | Macro vmini/vmax and M4x4/Vec4; newer object-space AABB checks are scalar C++ |\n| math/math.cpp | Some scalar trigonometric approximations, notably atan2, include COP2 operations | Mixed COP1/COP2; cannot assume Math calls avoid VU0 |\n| renderer/3d/mesh/dynamic/skel_instance.cpp | Blended palette, position/normal skinning, normal normalization, running AABB | Macro; VF5-8 span blend/tail blocks, VF20-21 span the whole loop; explicitly forbids helper calls between those blocks |\n| renderer/rt/vu0_raytracer.cpp | Optional raytraced-mirror kernel | Synchronous micro mode; raw micro/data memory, vcallms, busy polling; EE also packs/shades returned hits |\n| src/vugen.cpp generated VU0 kernel drivers | User compute kernels, quadwords in/out | Synchronous micro mode: init/upload, MMIO data stores, sync.l, vcallms, busy polling, MMIO reads |\n\nThis is static evidence of use, not a measured utilization percentage. In the current arena-check-night fixture, src/vu0 contains no kernel sources and the main/dense/procedural project object lists have no mirrors. Therefore those two explicit fixture micro-mode entry paths are absent by authoring; this does not make macro mode idle. Animated model visibility/update, camera transforms, bounds and other engine math still need a runtime census. An avatar hidden while seated may still update; source presence alone does not establish per-frame count.\n\nMath::sqrtNonNegative in inc/math/math.hpp currently uses EE COP1 sqrt.s, not VU0. Do not count every square root as VU0 work or propose replacing it on the premise that it is a software loop. Beam geometry still calls sqrtf/cosf/sinf explicitly; its per-cone trigonometry is already guarded by coneValid, and the unchanged-state candidate can avoid the remaining assembly entirely.\n\n## Why an asynchronous micro-mode job is not currently drop-in\n\nVec4/M4x4 macro instructions and microcode share VU0 state in the source's explicit contract. Existing drivers block until micro execution ends before ordinary engine math resumes. Skinning deliberately retains register state across several inline-assembly blocks, so inserting a helper/kernel there corrupts the blended matrix/AABB. Merely saving a few VF registers is insufficient as a general policy: the dispatcher needs a complete VF/VI/ACC/Q/control/ownership contract, no overlapping macro use while micro runs, and lifetime rules for inputs/outputs.\n\nThe generated kernel driver and raytracer each have an instance-local uploaded boolean but upload different programs into the same VU0 micro-memory address, then kick instruction 0. This audit found no shared micro-image owner/token in those paths. Sequentially alternating a new compute kernel with a raytracer or another independently initialized kernel therefore needs an explicit reload/ownership policy; an instance's old uploaded=true is not proof its code remains resident. This is a source-derived integration hazard, not a reproduced fixture failure (the fixture has no such micro users).\n\nLocal pinned ps2sdk headers expose VIF0/VU0 interrupts and MMIO registers, kernel context constants and math3d vector/matrix APIs; existing in-tree code demonstrates the relevant accesses. This audit did not establish all hardware context-save guarantees or manual-level interlocks for an asynchronous design. No exact instruction-cycle budget or hardware overlap claim is made. Before using VIF0 DMA, reserve that channel rather than assuming custom users cannot own it. Before touching VU0 data/micro memory, preserve the existing idle checks and publication barriers.\n\n## Candidate map: arithmetic versus control/memory\n\n1. **Snapshot/native conversion (measured priority): do not offload to VU0 first.** FrameChainArena::copy walks DMA tags twice for preflight/copy, bounds/range checks, resolves references and immutable spans, copies original packet bytes and mutable REF payloads, then native recording traverses the owned snapshot. FrameVifWriter emits integer tag fields and CNT/REF records. The aligned copy path already uses EE LQ/SQ, four 16-byte loads and stores per loop; it is not scalar floating-point math waiting for SIMD. A VU0 detour introduces setup/data transport and still requires EE ownership/lease/tag work. Better candidates are eliminating redundant producer/snapshot copies, safely recording owned operations directly, and reducing repeated decoding/resolution. These require the existing rollback, leases, malformed-input and bounded fallback oracle; no live END-to-NEXT splice.\n\n2. **CoreBBox::computeObjectSpacePlanes: narrow synchronous MACRO candidate after measurement.** Six world planes transformed into object space per needed model: the scalar body performs three 3-term dot products plus a translated plane distance per plane (72 multiplies / 54 additions total by source expression count, before compiler simplification). Matrix columns can be loaded once and planes transformed through a contiguous macro block without VU0 micro upload or MMIO input/output staging. Actual output Plane layout includes normal.w=1 and a separate distance; preserve it and the intentional omission of model-column w terms. Existing transformCache can skip this entirely, so count actual calls/misses and exclusive ticks first. Do not price it from render-call count.\n\n3. **Frustum/package AABB classification: math exists, but batch/branch tradeoff matters.** frustumCheckAABB uses center/extent, abs-normal radius and early OUT return. Many boxes exit on the first plane, and coarse grouping already avoids detailed calls. A full fixed six-plane micro batch may perform more work while creating result-transfer latency and losing those exits. Start with actual planes-visited and package counts; only compare a same-contract macro/batched classifier if enough arithmetic remains. Preserve crossing masks, equality <=0, near/guard-band eligibility and partially-visible classifications. VU arithmetic/FMA reassociation can change boundary decisions; numerical comparison must not silently hide or fail to clip geometry. The source's prior scalar bit-equivalence oracle does not prove any new VU variant.\n\n4. **Light selection/transform: a real scalar-math seam, still small and conditional.** RendererCore::pickDynLight loops registered lamps, computes length (hardware COP1 sqrt.s), quadratic range attenuation, optional cone score and ordered best-score selection. StaPipCore builds a world sphere; its m*mid is ALREADY VU0 macro. Qbuffer object-space spot preparation is another separate bracket. A batched macro implementation could keep light arrays loaded/reduce scalar math, but must preserve first-winner ties, skipSlot, disabled global flashlight, missing candidates, threshold and exact scoring behavior. A new micro job per bag is especially suspect because inputs/results are small and synchronous. Prior old-view ~0.47 ms selection and ~0.28 ms local transform are historical references, not current 1.169.1 measurements. Full transformed-light caching previously regressed; do not reintroduce it without a same-ELF price.\n\n5. **Beam assembly: avoid unnecessary work before moving it.** Corona basis/corners and scaled colors have arithmetic, but only eight fixture lamps; cones already cache stationary shape. The scalar-signature shortcut attacks repeated allocation/assembly/comparison without new VU data transport. For moving/flickering lamps, a bulk macro transform could be priced later. Existing shader billboards on VU1 could avoid CPU-generated corona vertices, but their culling/near-plane/self-fixture pull, additive color, per-view batching and exact pixels form a distinct visual contract\u00e2\u20ac\u201dnot a harmless offload switch.\n\n6. **BLSS projection/network: plausible bulk math only when active.** frame_profile.hpp already separates proxy projection from tile accumulation, reprojection, features and network. Eight-corner projection and a small MLP are different candidates from per-tile read-modify-write accumulation. Current BLSS compatibility disables ordinary N/N-1 pipeline; this night's diagnostic does not establish an active BLSS bottleneck. Do not spend this fixture's optimization budget on an inactive optional path. Source has prior substantial MLP math fixes; profile the remainder before a kernel.\n\n7. **Animation/physics: not an unclaimed free win.** Skeletal skinning is already VU0 macro. Rewriting it as micro only earns anything if bulk transport/scheduling beats its existing register-resident inner loop. General generated physics includes contact branching and memory access, not just vector arithmetic; stationary vehicle update cannot justify a large offload project. Price any bulk math kernel separately with changing contacts/state before moving ownership.\n\n## Concrete next measurements and experiments\n\nA. Root's next diagnostic should split FrameChainArena::copy into preflight tag/range/lease lookup, original-chain copy, mutable REF copy and second-pass fixups; split native conversion into decoding/operation counts and final writer stores. Count source tags/qwords, copied mutable/inline bytes, borrowed bytes, resolver/immutable queries and producer category. Collect only aggregated counters outside timing windows; avoid stage logs that already hid a physical race. This identifies whether the 2.724 ms is copy bandwidth or bookkeeping before choosing direct native recording or SPR.\n\nB. In the same ordinary night/day/driving fixture, add exclusive ticks and call counts for computeObjectSpacePlanes, computeClipObjectSpacePlanes, frustumCheckAABB (planes visited), pickDynLight (candidate counts) and object-space light preparation. The existing prepLight bracket nests sphere/pick/transform-like work; do not add its children to the parent. Count macro-heavy math call categories rather than claiming a hardware VU0 busy percentage from wrapper elapsed ticks. Report probe overhead against the quiet same ELF control.\n\nC. If object-space planes is a material current term, first prototype synchronous macro transformation of the SIX planes, keeping micro memory and scheduling untouched. Use a real scalar oracle over randomized finite affine matrices (rotation, nonuniform/negative/zero scale), exact near-plane/equality cases and guard-band/crossing masks. Compare outputs AND downstream classification against actual target arithmetic on hardware. Conservative fallback for uncertain boundary cases must have a priced rule; tolerances alone cannot authorize invisible geometry. Measure complete function cost including loads/stores plus full renderer work/period on two fresh boots per arm.\n\nD. Only if a bulk arithmetic census justifies micro mode, measure an identity/no-op kernel with identical input packing/output unpacking, launch/idle waits and program selection. Compare against scalar and macro implementations over realistic batch sizes; setup+transfer is a mandatory cost, not excluded overhead. Define a VU0 owner dispatcher and test alternating custom kernels, raytracer and skinning before considering asynchronous execution. Identify a genuinely COP2-free independent EE interval; simple saving/restoring does not manufacture overlap.\n\nAcceptance requires lower physical complete cost, preserved output/culling/image, documented ownership, fallback behavior and stress across scene/view/pipeline changes. No implementation or speed gain is claimed by this read-only audit.\n\n## Concrete first follow-up seam: duplicate immutable lookup\n\nImmutableSpanTable::borrow calls contains(address,qwords), which performs lowerBound(address), then repeats lowerBound(address) for the identical successful query before setting reader bits. FrameChainArena::copy calls the immutable resolver during preflight and again during copying; a successful immutable REF therefore currently incurs four lowerBound searches across the two passes. This is source-established search-count redundancy, not a measured frame gain.\n\nA narrow follow-up can locate the span once inside borrow, test exactly the current retired/range/length conditions and bank-mask legality against that same result, then apply the reader bits. Retain contains for its public read-only contract if other callers need it. Root should price one-search borrow with all other assembly, copies, ownership and flushes unchanged before attempting producer-native integration. Avoid changing the two-pass resolver contract at the same time: preflight space/range validation and lease behavior are separate correctness obligations.\n\nTests must include exact base/interior/end-boundary ranges, retired spans, overlapping registration rejection, full 512-entry table, malformed lengths and bank masks, two-bank retirement, scene replacement, and copied fallback. Record resolver/borrow calls and search counts per warm frame alongside physical full work/period. Guaranteed fewer searches is evidence about the implementation; lower frame work needs hardware A/B.\n"
+}

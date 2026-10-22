@@ -1,0 +1,60 @@
+{
+  "status": "PASS_INDEPENDENT_LATTICE_POST_NATIVE_FILE_CONFIRMATION",
+  "rootAuditSha256": "dc00e55415e41d07f49d848ebf9e85ffff6fc9b7a244eea3c6ee07d5f498199c",
+  "checkerSha256": "ae738c7740f5d15ac4ec16c211b0065c6677b8797182a868782e1a0a69b78cea",
+  "sourceManifestSha256": "08260273c9caebf7de11ae06cc5642403df23ef8328ac42399bf5714c95e29d6",
+  "sourceFiles": 501,
+  "rehashInputPins": 1958,
+  "sourceMirrors": 492,
+  "dependencies": 171,
+  "objects": 171,
+  "elfSha256": "7bf09a918d7742abf57b4afa83fca3c8593edf8f75bfdab351bf2cab57114c4e",
+  "symbolSha256": "ec3d9b474ab626ae903f68210ba5d431d1f89dbf866b1117111c2f011651f673",
+  "matchingTextSha256": "c98085e75b30470091b158590dafc1255ebfda40c37bec0d33364ef39366c3b0",
+  "tcImageSha256": "f2d31aaae74f90870a6af7f11206289ffe2188e731c398aa9fa49c944a31a1fc",
+  "tcMicroInstructions": 464,
+  "tcMatchesActualAndRetainedSuccessfulV17Objects": true,
+  "otherVUImagesIdenticalToQualifiedPool2": [
+    "StaPipVU1As_Is_D_FOLD_CodeStart",
+    "StaPipVU1Clip_C_FOLD_CodeStart",
+    "StaPipVU1As_Is_TC_CodeStart",
+    "Vu0RtKernel_CodeStart",
+    "StaPipVU1Cull_C_CodeStart",
+    "StaPipVU1As_Is_C_CodeStart",
+    "StaPipVU1Cull_TD_FOLD_CodeStart",
+    "VU1DrawFinish_CodeStart",
+    "StaPipVU1Billboard_T_CodeStart",
+    "StaPipVU1Cull_D_FOLD_CodeStart",
+    "StaPipVU1Billboard_C_CodeStart",
+    "StaPipVU1Cull_TCE_ENVN_CodeStart",
+    "StaPipVU1AsIs_TCE_CodeStart",
+    "StaPipVU1As_Is_TD_FOLD_CodeStart",
+    "StaPipVU1Clip_TC_FOLD_CodeStart"
+  ],
+  "residentWithBillboardWords": {
+    "VU1Clip": 1998,
+    "EEClip": 1798
+  },
+  "r5900ABIWords": [
+    48,
+    6144,
+    28,
+    420,
+    16,
+    112,
+    48,
+    44,
+    44,
+    28
+  ],
+  "assetsExactBaseline": 298,
+  "adpcm": [
+    "sfx/engine_high.adpcm",
+    "sfx/engine_idle.adpcm",
+    "sfx/gear-shift.adpcm",
+    "sfx/tires_screech.adpcm"
+  ],
+  "noBuildDeviceSourceOrMirrorMutations": true,
+  "runtimeActivationPixelOutputOrPhysicalGainAccepted": false,
+  "limits": "Independent read-only source, dependency, object, linked-image, ABI and runtime-asset identity. No target execution or semantic acceptance."
+}

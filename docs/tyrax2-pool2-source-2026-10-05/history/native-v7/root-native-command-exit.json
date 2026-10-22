@@ -1,0 +1,14 @@
+{
+  "errorLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v7.err",
+  "sourceManifestSha256": "419fdd9e4b206fdab352449ca135bad04d91c7227d3ea9c4ca23c710c90de5d1",
+  "processExitCode": 2,
+  "buildLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v7.log",
+  "status": "ROOT_OBSERVED_NATIVE_CHILD_EXIT",
+  "parameters": {
+    "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+    "Project": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v1/game",
+    "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+    "Engine": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v1/tyra"
+  },
+  "pid": 49764
+}

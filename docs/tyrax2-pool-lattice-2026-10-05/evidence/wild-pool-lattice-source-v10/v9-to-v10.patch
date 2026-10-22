@@ -1,0 +1,11 @@
+--- v9-qbuffer_renderer.cpp
++++ v10-qbuffer_renderer.cpp
+@@ -2037,7 +2037,7 @@
+       !repository.hasAnyOverride() &&
+       dBufferPrograms[getQBufferIndex(buffer)]->getName() == StaPipCullTextureColor;
+   bool poolCompared=false, poolMismatch=false;
+-  if (NightAblation::poolReplayBypass() && poolEligible) {
++  if (NightAblation::poolTableSelected && NightAblation::collectCounters && poolEligible) {
+     if(!ExperimentalPoolTable::materializeRange(poolBag->experimentalPoolTable,
+         buffer->colors,buffer->size)) { TYRA_TRAP("Invalid lazy pool oracle source"); return; }
+     poolCompared=true;

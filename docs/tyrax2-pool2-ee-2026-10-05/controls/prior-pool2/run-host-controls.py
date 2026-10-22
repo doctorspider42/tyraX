@@ -1,0 +1,109 @@
+from pathlib import Path
+import subprocess,json,importlib.util,hashlib,argparse
+p=Path(__file__).parent;ap=argparse.ArgumentParser();ap.add_argument('--gate-header',type=Path,required=True);ap.add_argument('--host-dir',default='host');a=ap.parse_args();header=a.gate_header;host=p/a.host_dir;host.mkdir(exist_ok=False)
+sp=importlib.util.spec_from_file_location('night',p/'analyze-night.py');m=importlib.util.module_from_spec(sp);sp.loader.exec_module(m);sha=lambda f:hashlib.sha256(f.read_bytes()).hexdigest();commands=[];runs=[];negatives=[]
+plans=[(0,0,0),(1,31,0),(2,31,3),(3,0,1),(5,0,0),(6,0,0),(7,0,0)]
+for opt in('O0','O2'):
+ exe=host/f'controls-{opt}.exe';cmd=['C:/Users/pawel/scoop/apps/mingw/current/bin/g++.exe','-std=c++17','-'+opt,'-Wall','-Wextra','-Werror','-static','-I',str(p),'-I',str(header.parent.parent),str(p/'host-controls.cpp'),'-o',str(exe)];r=subprocess.run(cmd,capture_output=True,text=True);(host/f'build-{opt}.txt').write_text(r.stdout+r.stderr);assert r.returncode==0,r.stderr;commands.append(cmd)
+ for kind,joint,restored in plans:
+  for order in(0,1):
+   stem=f'{opt}-{kind}-{order}-{joint}-{restored}';artifact=host/(stem+'-artifact.log');r=subprocess.run([str(exe),str(kind),str(order),str(joint),str(restored),str(artifact)],cwd=host,capture_output=True,text=True);(host/(stem+'-stdout.log')).write_text(r.stdout);(host/(stem+'-run.txt')).write_text(r.stderr);assert r.returncode==0,r.stderr;art=artifact.read_text();v=m.analyze(r.stdout,art,'host',kind,order,joint,restored);runs.append(dict(plan=[kind,order,joint,restored],optimization=opt,sampleRows=v['sample_rows'],extraMasks=v['extraDisabledMasks'],checks=r.stderr.strip(),buildExit=0,runExit=0))
+   if opt=='O0'and(kind,order,joint,restored)==(7,0,0,0):
+    t=r.stdout;phaseLine=next(x for x in t.splitlines()if x.startswith('LOG: NIGHTTABLEPHASE phase=1 '));gateLine=next(x for x in t.splitlines()if x.startswith('LOG: NIGHTTABLEGATES phase=1 offset=750 '));change=lambda a,b:t.replace(gateLine,gateLine.replace(a,b,1),1)
+    mutants={
+     'tableMissingPhase':('\n'.join(x for x in t.splitlines()if not x.startswith('LOG: NIGHTTABLEPHASE phase=2 ')),art),
+     'tableDuplicatePhase':(t+'\n'+phaseLine,art),
+     'tableUnknownPhaseKey':(t.replace('NIGHTTABLEPHASE phase=1','NIGHTTABLEPHASE junk=0 phase=1',1),art),
+     'tableWrongPhaseFirst':(t.replace(phaseLine,phaseLine.replace('first=1800','first=1801'),1),art),
+     'tableWrongAppliedFlag':(t.replace(phaseLine,phaseLine.replace('appliedEnabled=1','appliedEnabled=0'),1),art),
+     'tableMissingGate':('\n'.join(x for x in t.splitlines()if not x.startswith('LOG: NIGHTTABLEGATES phase=2 offset=1155 ')),art),
+     'tableDuplicateGate':(t+'\n'+gateLine,art),
+     'tableUnknownGateKey':(t.replace(gateLine,gateLine+' junk=0',1),art),
+     'tableWrongCold':(change('offset=750','offset=800'),art),
+     'tablePartition':(change('invocations=2','invocations=3'),art),
+     'tableApplied':(change('applied=1','applied=0'),art),
+     'tableBaselineDenominator':(change('baselineColorQwords=151','baselineColorQwords=150'),art),
+     'tableTwoEntryDenominator':(change('tableColorQwords=2','tableColorQwords=1'),art),
+     'tableAdmittedBounds':(change('admittedVertices=75','admittedVertices=76'),art),
+     'tableCompareSubset':(change('coldCompared=2','coldCompared=3'),art),
+     'tableMismatch':(change('coldMismatches=0','coldMismatches=1'),art),
+     'tableInvalid':(change('invalid=0','invalid=1'),art),
+     'tableUint32':(change('sourceVertices=151','sourceVertices=4294967296'),art),
+     'tableOrdinaryMask':(t.replace('mask=0 appliedMask=0','mask=1 appliedMask=1',1),art),
+     'tablePointer':(t.replace('samplePtr=','samplePtr=z',1),art),
+    }
+    for name,(x,y)in mutants.items():
+     assert(x,y)!=(t,art),'mutant not applied '+name
+     try:m.analyze(x,y,'host',kind,order,joint,restored)
+     except(ValueError,KeyError):negatives.append(name)
+     else:raise AssertionError('accepted '+name)
+   if opt=='O0' and(kind,order,joint,restored)==(3,0,0,1):
+    t=r.stdout;line=lambda prefix:next(x for x in t.splitlines()if x.startswith(prefix));remove=lambda prefix:'\n'.join(x for x in t.splitlines()if not x.startswith(prefix))
+    mutations={
+     'extraUnknownPhaseField':(t.replace('NIGHTEXTRAPHASE phase=0','NIGHTEXTRAPHASE junk=0 phase=0',1),art),
+     'extraUnknownGateField':(t.replace('NIGHTEXTRAGATES phase=0','NIGHTEXTRAGATES junk=0 phase=0',1),art),
+     'extraMissingPhase':(remove('LOG: NIGHTEXTRAPHASE phase=2 '),art),
+     'extraDuplicatePhase':(t+'\n'+line('LOG: NIGHTEXTRAPHASE phase=0 '),art),
+     'extraMissingGate':(remove('LOG: NIGHTEXTRAGATES phase=2 offset=1155 '),art),
+     'extraDuplicateGate':(t+'\n'+line('LOG: NIGHTEXTRAGATES phase=0 offset=750 '),art),
+     'extraWrongFirst':(t.replace('NIGHTEXTRAPHASE phase=1 first=1800','NIGHTEXTRAPHASE phase=1 first=1801',1),art),
+     'extraWrongApplied':(t.replace('extraMask=1 appliedExtraMask=1','extraMask=1 appliedExtraMask=0',1),art),
+     'extraWrongSubset':(t.replace('extraMask=1 appliedExtraMask=1','extraMask=8 appliedExtraMask=8',1),art),
+     'extraGateWrongMask':(t.replace('frames=1 extraMask=1','frames=1 extraMask=0',1),art),
+     'extraSelectedSubmit':(t.replace('frames=1 extraMask=1 attempted1=1 executed1=0 skipped1=1 submitted1=0','frames=1 extraMask=1 attempted1=1 executed1=0 skipped1=1 submitted1=1',1),art),
+     'extraPartition':(t.replace('frames=1 extraMask=1 attempted1=1 executed1=0 skipped1=1','frames=1 extraMask=1 attempted1=1 executed1=0 skipped1=0',1),art),
+     'extraEnabledSkip':(t.replace('frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0','frames=1 extraMask=0 attempted1=1 executed1=0 skipped1=1',1),art),
+     'extraWrongColdWindow':(t.replace('NIGHTEXTRAGATES phase=0 offset=750 first=750 frames=1','NIGHTEXTRAGATES phase=0 offset=800 first=800 frames=1',1),art),
+     'ordinaryMaskNonzeroKind3':(t.replace('mask=0 appliedMask=0','mask=1 appliedMask=1',1),art),
+     'samplerOffKind3':(t.replace('sampler=1 countReads=262','sampler=0 countReads=6',1),art),
+     'ordinaryReservedCounter':(t.replace('attempted32=0','attempted32=1',1),art),
+     'phaseWrongFirst':(t.replace('NIGHTPHASE phase=1 first=1800','NIGHTPHASE phase=1 first=1801',1),art),
+     'malformedPointer':(t.replace('samplePtr=','samplePtr=z',1),art),
+     'driftPointer':(t.replace(line('LOG: NIGHTPHASE phase=1 ').split('samplePtr=')[1],'12345678',1) if False else t.replace(line('LOG: NIGHTPHASE phase=1 '),line('LOG: NIGHTPHASE phase=1 ').split('samplePtr=')[0]+'samplePtr=12345678',1),art),
+     'missingRaw':(t,'\n'.join(x for x in art.splitlines()if not x.startswith('LOG: NIGHTRAW phase=2 i=127 '))),
+     'unknownRawField':(t,art.replace('NIGHTRAW phase=0','NIGHTRAW junk=0 phase=0',1)),
+     'missingCamera':(remove('LOG: NIGHTCAMERA phase=2 offset=1155 '),art),
+    }
+    for name,(x,y)in mutations.items():
+     assert(x,y)!=(t,art),'mutant did not apply '+name
+     try:m.analyze(x,y,'host',kind,order,joint,restored)
+     except(ValueError,KeyError):negatives.append(name)
+     else:raise AssertionError('accepted '+name)
+   if opt=='O0'and kind in(5,6)and order==0:
+    t=r.stdout;prefix='plane'if kind==5 else'cone';line=next(x for x in t.splitlines()if x.startswith('LOG: NIGHTWILDGATES phase=1 offset=750 '));phase=next(x for x in t.splitlines()if x.startswith('LOG: NIGHTWILDPHASE phase=1 '));mut=lambda old,new:t.replace(line,line.replace(old,new,1),1)
+    mutants={
+     'missingWildPhase':('\n'.join(x for x in t.splitlines()if not x.startswith('LOG: NIGHTWILDPHASE phase=2 ')),art),
+     'duplicateWildPhase':(t+'\n'+phase,art),
+     'wrongWildApplied':(t.replace('appliedEnabled=1','appliedEnabled=0',1),art),
+     'wrongWildVariant':(t.replace('appliedVariant='+str(kind),'appliedVariant=0',1),art),
+     'unknownWildPhaseKey':(t.replace('NIGHTWILDPHASE phase=0','NIGHTWILDPHASE junk=0 phase=0',1),art),
+     'missingWildGate':('\n'.join(x for x in t.splitlines()if not x.startswith('LOG: NIGHTWILDGATES phase=2 offset=1155 ')),art),
+     'duplicateWildGate':(t+'\n'+line,art),
+     'wrongWildColdIdentity':(mut('offset=750 first=750','offset=800 first=800'),art),
+     'wildPartition':(mut(prefix+'Invocations=2',prefix+'Invocations=3'),art),
+     'wildApplied':(mut(prefix+'Applied=1',prefix+'Applied=0'),art),
+     'wildMismatch':(mut(prefix+'ColdMismatches=0',prefix+'ColdMismatches=1'),art),
+     'wildOverflow':(mut(prefix+'Invalid=0',prefix+'Invalid=1'),art),
+     'wildSubset':(mut(prefix+'Boundary=1',prefix+'Boundary=2'),art),
+     'wildUnits':(mut(prefix+'OutputUnits=1',prefix+'OutputUnits=4'),art),
+     'wildOtherFamily':(mut(('cone'if kind==5 else'plane')+'Invocations=0',('cone'if kind==5 else'plane')+'Invocations=1'),art),
+     'wildUnknownGateKey':(t.replace('NIGHTWILDGATES phase=0','NIGHTWILDGATES junk=0 phase=0',1),art),
+     'wildOrdinaryMask':(t.replace('mask=0 appliedMask=0','mask=1 appliedMask=1',1),art),
+     'wildPointer':(t.replace('samplePtr=','samplePtr=z',1),art),
+    }
+    for name,(x,y)in mutants.items():
+     assert(x,y)!=(t,art),'mutant not applied '+name
+     try:m.analyze(x,y,'host',kind,order,joint,restored)
+     except(ValueError,KeyError):negatives.append(str(kind)+'-'+name)
+     else:raise AssertionError('accepted '+name)
+   if opt=='O0'and(kind,order,joint,restored)==(0,0,0,0):
+    x=r.stdout.replace('extraMask=0 appliedExtraMask=0','extraMask=1 appliedExtraMask=1',1)
+    try:m.analyze(x,art,'host',kind,order,joint,restored)
+    except(ValueError,KeyError):negatives.append('oldKindExtraMustZero')
+    else:raise AssertionError('old extra accepted')
+for kind in(5,6,7):
+ for order in(0,1):
+  stem=f'O2-{kind}-{order}-0-0';cliCmd=['python',str(p/'analyze-night-cli.py'),'--stdout',str(host/(stem+'-stdout.log')),'--artifact',str(host/(stem+'-artifact.log')),'--environment','host','--kind',str(kind),'--order',str(order),'--joint','0','--restored','0','--report',str(host/(stem+'-cli.json'))];cli=subprocess.run(cliCmd,capture_output=True,text=True);assert cli.returncode==0,cli.stderr;commands.append(cliCmd);(host/(stem+'-cli-command.log')).write_text(cli.stdout+cli.stderr)
+files=[p/n for n in('night_sampler.hpp','night_plan.hpp','night_runtime.hpp','quiet_runtime.hpp','quiet_cadence.hpp','analyze-loop.py','analyze-night.py','analyze-night-cli.py','host-controls.cpp','run-host-controls.py','README.md')]+[header]
+proof=dict(status='PASS_PREPARED_TABLE_KIND7_AND_PRESERVED_WILD_PROTOCOL_HOST_ONLY',positiveCompleteTranscripts=len(runs),negativeParserGuards=negatives,runs=runs,commands=commands,sourcePins={str(f):sha(f)for f in files},artifactPins={str(f):sha(f)for f in host.iterdir()if f.is_file()},sourceGateHeaderSha256=sha(header),samplerOnReads262OffReads6=True,oldKindsWildVariantZero=True,allFiveCounterStructuresUntimed7501155Only=True,nativeOrRuntimeAccepted=False,productionGainAccepted=False,notFullOldSuiteRerun=True)
+(host/'proof.json').write_text(json.dumps(proof,indent=2)+'\n');print('PASS',len(runs),len(negatives),sha(host/'proof.json'))

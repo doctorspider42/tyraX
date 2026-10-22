@@ -4389,7 +4389,7 @@ private:
      * chunk, and canonicalizes bin/replay.out into recordings/<name>.tyrarep.
      * Returns "" or an error. */
     std::string replayStopAndSave(const std::string& name);
-    /** recordings/*.tyrarep, refreshed at most a few times a second. */
+    /** Replay files in recordings/, refreshed at most a few times a second. */
     void replayRescan(bool force);
 
     // Remote Pad (docs/remote-pad.md): the fourth direction of the same host:

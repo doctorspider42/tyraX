@@ -1,0 +1,20 @@
+#pragma once
+#include <cstdint>
+#include "stapip_pool_color_table.hpp"
+using u32=uint32_t;
+namespace Tyra {
+struct alignas(16) Vec4 {float x=0,y=0,z=0,w=0;};
+struct alignas(16) Color {
+ union {struct {float r,g,b,a;}; float rgba[4];};
+ Color():r(0),g(0),b(0),a(0){} Color(float x,float y,float z,float t):r(x),g(y),b(z),a(t){}
+};
+struct M4x4 {void identity(){}};
+struct StaPipInfoBag {M4x4* model=nullptr; int shadingType=0,additiveBlendFix=0; bool dateLit=true;};
+struct StaPipColorBag {Color* single=nullptr; Color* many=nullptr; const unsigned int* contentVersion=nullptr;};
+struct StaPipTextureBag {void* texture=nullptr; Vec4* coordinates=nullptr; const unsigned int* contentVersion=nullptr;};
+struct StaPipLightingBag {Vec4* normals=nullptr; const unsigned int* contentVersion=nullptr;};
+struct StaPipBag {StaPipInfoBag* info=nullptr; StaPipColorBag* color=nullptr; StaPipTextureBag* texture=nullptr;
+ StaPipLightingBag* lighting=nullptr; Vec4* vertices=nullptr; u32 count=0; const unsigned int* contentVersion=nullptr;
+ unsigned int bboxVersion=0; ExperimentalPoolTable::View* experimentalPoolTable=nullptr;};
+}
+constexpr int TyraShadingGouraud=1;

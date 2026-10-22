@@ -1,0 +1,10 @@
+{
+  "status": "OPERATOR_QUALITATIVE_PHYSICAL_APPEARANCE_CONFIRMED",
+  "answer": "Tak, obraz wygl\u0105da normalnie",
+  "run": "night-ablation-ps2-pool2-ee-order1-20261005",
+  "retainedFinalArm": 1,
+  "machineEvidenceSha256": "b438eaf8f3f73a04d3e3a254acd4b2bf2c8a108f6ac22874f6ab7975e4ab52a8",
+  "limits": [
+    "Qualitative car/lights/shadows/HUD appearance only; not pixel or VU packet equality."
+  ]
+}

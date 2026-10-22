@@ -1,0 +1,103 @@
+{
+  "status": "COMPLETED_PRIVATE_KIND5_BOTH_ORDER_PS2_NO_GAIN_NO_PROMOTION",
+  "date": "2026-10-05",
+  "kind": 5,
+  "sameSourceAndElfWithinPair": true,
+  "sourceManifestSha256": "aa1b27d92b8f560836fd70fc6fb25ee1852f2b48e16f41dcc512bc2395289c19",
+  "selectedElfSha256": "fef3f5721524a333e392be4a753fefa6216bc0de4321a9e88a5c6e096adcf2f6",
+  "runs": [
+    {
+      "order": 0,
+      "stem": "night-ablation-ps2-wild-plane-order0-20261005",
+      "machineEvidenceSha256": "89e37b339d81d4332bdaaac833539eccd2b1779b4496d073863364b35114cddd",
+      "independentReviewSha256": "364ce4ac8accb7465bbaa9c532d5d94d846ea8c983848a935c129cedb635a04e",
+      "phases": [
+        {
+          "phase": 0,
+          "candidate": 0,
+          "mean_non_pacing_ms": 18.98937046262953,
+          "mean_present_period_ms": 33.3666672706604
+        },
+        {
+          "phase": 1,
+          "candidate": 1,
+          "mean_non_pacing_ms": 19.086021857791476,
+          "mean_present_period_ms": 33.366666634877525
+        },
+        {
+          "phase": 2,
+          "candidate": 0,
+          "mean_non_pacing_ms": 18.915335167778863,
+          "mean_present_period_ms": 33.366666846805145
+        }
+      ],
+      "candidateMinusEachControl_ms": [
+        0.09665139516194543,
+        0.17068669001261227
+      ],
+      "outerSpread_ms": 0.07403529485066684
+    },
+    {
+      "order": 1,
+      "stem": "night-ablation-ps2-wild-plane-order1-20261005",
+      "machineEvidenceSha256": "889e42114f94cb392a4ae7a8ecff068f83a23e8f3ed0f7bd120bb5841ac7b61a",
+      "independentReviewSha256": "3ba5ac7a55bef814a493ef12fe86839a47379e1c513b05b94a2ccb23df36c4f7",
+      "phases": [
+        {
+          "phase": 0,
+          "candidate": 1,
+          "mean_non_pacing_ms": 19.089425775739883,
+          "mean_present_period_ms": 33.366665045420326
+        },
+        {
+          "phase": 1,
+          "candidate": 0,
+          "mean_non_pacing_ms": 19.082041856977675,
+          "mean_present_period_ms": 33.36666615804037
+        },
+        {
+          "phase": 2,
+          "candidate": 1,
+          "mean_non_pacing_ms": 19.089383347829184,
+          "mean_present_period_ms": 33.36666414472792
+        }
+      ],
+      "candidateMinusEachControl_ms": [
+        0.007383918762208452,
+        0.007341490851509036
+      ],
+      "outerSpread_ms": 4.2427910699416316e-05
+    }
+  ],
+  "engineLoopsTotal": 10800,
+  "ordinaryDisabledMasks": [
+    0,
+    0,
+    0
+  ],
+  "extraDisabledMasks": [
+    0,
+    0,
+    0
+  ],
+  "samplers": [
+    1,
+    1,
+    1
+  ],
+  "physicalVisualAccepted": false,
+  "exactPixelEqualityAccepted": false,
+  "performanceGainAccepted": false,
+  "nativeSixtyFPSAccepted": false,
+  "productionPromotion": false,
+  "physicalPayloadManifest": "tyrax2-wild-physical-2026-10-05/SHA256.json",
+  "physicalPayloadManifestSha256": "9db4529d27ec204cdd6969e924b793aa30801819625cf12926808b6651eb9e34",
+  "independentPairReviewSha256": "d8ed2156610cacc87adb4f636a21c3f19e993eea9ffd756d5c434fade1c24613",
+  "limitations": [
+    "Sparse cold checks do not establish timed-window branch counts.",
+    "Observed target selfguard cases do not prove universal R5900/VU0 arithmetic equivalence.",
+    "Existing common observer and changed layout remain unpriced; no fixed observer subtraction.",
+    "Inclusive elapsed-minus-pacing contrasts are not pure EE/VU/GS bills.",
+    "Qualitative emulator rasters only; forward phase0 was missed; no operator physical image acceptance."
+  ]
+}

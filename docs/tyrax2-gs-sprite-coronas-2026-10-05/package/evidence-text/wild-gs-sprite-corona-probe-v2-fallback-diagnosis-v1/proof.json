@@ -1,0 +1,31 @@
+{
+  "status": "REJECT_ACTUAL_V2_CAPABILITY_FALSE_NEGATIVE_FMAND_MAC_LATENCY_SOURCE_DIAGNOSIS",
+  "actualQuadsBothArmsPass": true,
+  "actualSpriteRequestPresent": true,
+  "actualCompletedSprite": false,
+  "actualTrianglePayloadsIdentical": true,
+  "bufferHeaderAliasHypothesisSupported": false,
+  "flagReadIssuedDistance": 1,
+  "pinnedFMACCompletionCycles": 4,
+  "sixFlagSitesRequireScheduleReview": true,
+  "nativeResidentWithBillboards": 2040,
+  "limit": 2042,
+  "instructionTraceCaptured": false,
+  "ordinaryHybridInapplicabilityUnchanged": true,
+  "inputs": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-probe-v2-fallback-diagnosis-v1/actual.json": "0806951aa6f17597d988f0831b9d0a272095d38ab9205250b46d9a28c27af585",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-probe-v2-fallback-diagnosis-v1/review.md": "e80adb39f6834d765e73c2a810c741af08bea25faefa493117c70ca0a158cd5d",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-tc-native-v23-v6/artifacts/stapip_cull_tc_vu1.o.vsm": "db89f04a3b8b8f245ca0fea9c6fb01c03cb7e80bf4f047ad1cddf3e4076d5cbe",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-tc-native-v23-v6/artifacts/stapip_cull_tc_vu1.o": "811e6ebf181f22c73dadd1a62751b58de6d43105e72560258121b8f364ffef21",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-tc-native-v23-v6/artifacts/linked-tc-image.bin": "1239bcee9da5f46f6d62fe05b685ad050ff909661b9a2df42137745f637d4f62",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-tc-native-v23-v6/proof.json": "2108018c9620879b5515491e5bbbb3110479c835501d70c8576366f251acd336",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pcsx2-control-routes/source-all/pcsx2/VUops.cpp": "37d5098321e062956880637e90b6a975a8f28d88092a2f333f8f0d2e3750bd16",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-probe-native-root-review-v2/proof.json": "e2356b2fba787fe80b56515ef5d8e05e15b000d4f42d42f462d0fc1da365b2ef",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-probe-design-v2/preparation-proof.json": "e92195483fd15bf3979e6b11427b508ae98a9ea3806961e79c7b6a29381c1592"
+  },
+  "limitations": [
+    "Schedule/flag mechanism is inferred from actual native artifact and pinned PCSX2 semantics; no target single-step trace.",
+    "No source changes, devices, builds or mutable cache access.",
+    "Black raster remains unaccepted."
+  ]
+}

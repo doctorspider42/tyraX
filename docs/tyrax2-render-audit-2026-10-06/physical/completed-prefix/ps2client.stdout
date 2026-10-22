@@ -1,0 +1,291 @@
+loadelf: fname host:vehicle-playground.elf secname all
+ (úv„Input ELF format filename = host:vehicle-playground.elf
+1 00100000 0040ebbc .................................................................
+Loaded, host:vehicle-playground.elf
+start address 0x100e78
+gp address 00000000
+read/write allocate memory 4000
+open name host:/ps2link.run flag 1 data 41378
+open fd = 3
+Pad Driver for OSD
+FREESD v1.01
+debug_level = 1 (ps2snd 0.1
+greetings from version 0.93 !
+audsrv_adpcm_init()
+
+-----------------------------------------
+        _____        ____   ___
+          |     \/   ____| |___|
+          |     |   |   \  |   |
+-----------------------------------------
+Copyright 2022
+Repository: https://github.com/h4570/tyra
+Licensed under Apache License 2.0
+Version: 2.2.0
+-----------------------------------------
+
+audsrv_adpcm_init()
+Curent pad(0,0) status: EXECCMD
+Curent pad(0,0) status: EXECCMD
+Curent pad(0,0) status: EXECCMD
+open name host:/closeout.cfg flag 1 data 41378
+open fd = 3
+open name host:/closeout-samples.txt flag 602 data 41378
+open fd = 3
+LOG: CLOSEOUTCONFIG order=0 kind=3 valid=1 phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 sampleFirst=900 sampleCount=128 ordinaryClocks=1 addedWaits=0 frameProfile=0 hardwareTrace=0 devkit=0 sampleBytes=6144 chunkBytes=420
+loadmodule: fname rom0:XMCMAN args 0 arg 
+loadmodule: id 38, ret 0
+loadmodule: fname rom0:XMCSERV args 0 arg 
+loadmodule: id 39, ret 0
+open name host:/save0.sav flag 1 data 41378
+open fd = -1
+open name host:/save1.sav flag 1 data 41378
+open fd = -1
+open name host:/save2.sav flag 1 data 41378
+open fd = -1
+open name host:/menus/save.png flag 1 data 41378
+open fd = 4
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 4
+open name host:/hud/save-used.png flag 1 data 41378
+open fd = 4
+open name host:/hud/save-saved.png flag 1 data 41378
+open fd = 4
+open name host:/hud/save-loaded.png flag 1 data 41378
+open fd = 4
+open name host:/hud/save-error.png flag 1 data 41378
+open fd = 4
+open name host:/hud/save-busy.png flag 1 data 41378
+open fd = 4
+open name host:/hud/save-spinner.png flag 1 data 41378
+open fd = 4
+open name host:/menus/save.png flag 1 data 41378
+open fd = 4
+open name host:/menus/district-pause.png flag 1 data 41378
+open fd = 4
+open name host:/menus/district-pause-values.png flag 1 data 41378
+open fd = 4
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 4
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 4
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 4
+open name host:/hud/menu-dim.png flag 1 data 41378
+open fd = 4
+open name host:/hud/flare-corona.png flag 1 data 41378
+open fd = 4
+open name host:/hud/flashlight-gobo.png flag 1 data 41378
+open fd = 4
+open name host:/hud/flare-glow.png flag 1 data 41378
+open fd = 4
+open name host:/hud/sun-disc.png flag 1 data 41378
+open fd = 4
+open name host:/hud/moon-disc.png flag 1 data 41378
+open fd = 4
+open name host:/hud/use-text.png flag 1 data 41378
+open fd = 4
+open name host:/hud/pick-text.png flag 1 data 41378
+open fd = 4
+open name host:/sfx/engine_idle.adpcm flag 1 data 41378
+open fd = 4
+open name host:/sfx/engine_high.adpcm flag 1 data 41378
+open fd = 4
+open name host:/sfx/tires_screech.adpcm flag 1 data 41378
+open fd = 4
+open name host:/sfx/gear-shift.adpcm flag 1 data 41378
+open fd = 4
+LOG: CLOSEOUTPHASE phase=0 first=0 players=0 geometryHidden=0 sampler=1 countReads=262
+open name host:/launch.scene flag 1 data 41378
+open fd = -1
+open name host:/hud/loading.png flag 1 data 41378
+open fd = 4
+FRAMEARENA allocated=1 bytes=1048576
+open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+open fd = 4
+open name host:/textures/district-ground.png flag 1 data 41378
+open fd = 4
+open name host:/textures/district-ground.png flag 1 data 41378
+open fd = 4
+open name host:/materials/district-asphalt.mtl flag 1 data 41378
+open fd = 4
+open name host:/textures/district-asphalt.png flag 1 data 41378
+open fd = 4
+open name host:/textures/district-asphalt.png flag 1 data 41378
+open fd = 4
+open name host:/materials/district-sign.mtl flag 1 data 41378
+open fd = 4
+open name host:/textures/district-sign.png flag 1 data 41378
+open fd = 4
+open name host:/textures/district-sign.png flag 1 data 41378
+open fd = 4
+open name host:/materials/night-warm.mtl flag 1 data 41378
+open fd = 4
+open name host:/materials/night-cyan.mtl flag 1 data 41378
+open fd = 4
+open name host:/materials/night-pink.mtl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/district-workshop.tmdl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/district-tower.tmdl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/district-loft.tmdl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/detail-light-double.tmdl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/metal.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/metal.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/detail-light-traffic.tmdl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/roof.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/roof.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/tree-park-large.tmdl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/tree-park-pine-large.tmdl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/detail-barrier-type-a.tmdl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/signs.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/signs.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/detail-dumpster-closed.tmdl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/wall.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/wall.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/detail-bench.tmdl flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/planks.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/Textures/planks.png flag 1 data 41378
+open fd = 4
+open name host:/models/urban/pallet.tmdl flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-ravager000001-body.tmdl flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-pica00000001-body.tmdl flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-strix0000001-body.tmdl flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+open fd = 4
+open name host:/sky/scene0.png flag 1 data 41378
+open fd = 4
+open name host:/sky/scene0.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/fx-skid.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/fx-skid.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/fx-smoke.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/fx-smoke.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+open fd = 4
+open name host:/fonts/atlas-default.png flag 1 data 41378
+open fd = 4
+open name host:/hud/icons.png flag 1 data 41378
+open fd = 4
+open name host:/hud/loading-white.png flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+open fd = 4
+open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+open fd = 4
+open name host:/textures/district-road.png flag 1 data 41378
+open fd = 4
+open name host:/textures/district-road.png flag 1 data 41378
+open fd = 4
+open name host:/textures/district-asphalt.png flag 1 data 41378
+open fd = 4
+open name host:/textures/district-asphalt.png flag 1 data 41378
+open fd = 4
+open name host:/textures/district-plaza.png flag 1 data 41378
+open fd = 4
+open name host:/textures/district-plaza.png flag 1 data 41378
+open fd = 4
+LOG: CLOSEOUTCONTEXT phase=0 offset=750 players=0 oneArm=1 route=1 scene=0 night=0 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 vehicleX=00000000 vehicleY=3edf3b5f vehicleZ=c2949b64 vehicleSpeed=00000000 playerX=00000000 playerY=4028b436 playerZ=c2a19b64 valid=1
+LOG: DAYPOSE chunk=0 sampleFrame=832 workTicks=278982880 carX=00000000 carY=3edf3b5f carZ=c291734a yaw=00000000 pitch=32ebf5b0 roll=32f93788 camX=00000000 camY=4028b436 camZ=c29e734a lookX=00000000 lookY=3f9a5e32 lookZ=c291734a
+LOG: DAYPOSE chunk=1 sampleFrame=896 workTicks=326768173 carX=bf6a56c2 carY=3ee6d714 carZ=c26cdf23 yaw=c131d83a pitch=3e8ad5ba roll=3cc41a15 camX=3cc17da0 camY=4029a7ad camZ=c2834ca8 lookX=bf6a56c2 lookY=3f9c451f lookZ=c26cdf23
+LOG: DAYPOSE chunk=2 sampleFrame=960 workTicks=337588990 carX=c12b9336 carY=3ea1cb16 carZ=c1de3c0c yaw=c0bd582e pitch=3aa9af72 roll=bb2ceb53 camX=c11a2d31 camY=4021062d camZ=c208c038 lookX=c12b9336 lookY=3f8b0220 lookZ=c1de3c0c
+LOG: DAYPOSE chunk=3 sampleFrame=1024 workTicks=267932866 carX=c134c784 carY=3ea1cac1 carZ=c190dcdf yaw=4089c462 pitch=afa241da roll=302ecbd7 camX=c13c87df camY=40210623 camZ=c1c4b7d8 lookX=c134c784 lookY=3f8b020a lookZ=c190dcdf
+LOG: DAYPOSE chunk=4 sampleFrame=1088 workTicks=235786019 carX=c13944c0 carY=3ea1cac1 carZ=c1aeae85 yaw=4089c462 pitch=a7a62dbd roll=28307e70 camX=c141135a camY=40210623 camZ=c1e288f5 lookX=c13944c0 lookY=3f8b020a lookZ=c1aeae85
+LOG: DAYSELECT chunk=2 captured=31 valid=1
+LOG: CLOSEOUTCONTEXT phase=0 offset=1155 players=0 oneArm=1 route=1 scene=0 night=0 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=c14164ce positionY=40210623 positionZ=c1e4a5d0 lookX=c1399628 lookY=3f8b020a lookZ=c1b0cb60 vehicleX=c1399628 vehicleY=3ea1cac1 vehicleZ=c1b0cb60 vehicleSpeed=00000000 playerX=c14164ce playerY=40210623 playerZ=c1e4a5d0 valid=1
+LOG: DAYPARK frame=1700 selected=2 parked=1 valid=1
+LOG: CLOSEOUTPHASE phase=1 first=1800 players=0 geometryHidden=0 sampler=1 countReads=262
+LOG: CLOSEOUTCONTEXT phase=1 offset=750 players=0 oneArm=1 route=1 scene=0 night=0 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=c11a2d31 positionY=4021062d positionZ=c208c038 lookX=c12b9336 lookY=3f8b0220 lookZ=c1de3c0c vehicleX=c12b9336 vehicleY=3ea1cac1 vehicleZ=c1de3c0c vehicleSpeed=00000000 playerX=c120da9a playerY=40210623 playerZ=c208fa8f valid=1
+LOG: CLOSEOUTCONTEXT phase=1 offset=1155 players=0 oneArm=1 route=1 scene=0 night=0 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=c11a2d31 positionY=4021062d positionZ=c208c038 lookX=c12b9336 lookY=3f8b0220 lookZ=c1de3c0c vehicleX=c12b9336 vehicleY=3ea1cac1 vehicleZ=c1de3c0c vehicleSpeed=00000000 playerX=c120da9a playerY=40210623 playerZ=c208fa8f valid=1
+LOG: CLOSEOUTPHASE phase=2 first=3600 players=0 geometryHidden=0 sampler=1 countReads=262
+LOG: CLOSEOUTCONTEXT phase=2 offset=750 players=0 oneArm=1 route=1 scene=0 night=0 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=c11a2d31 positionY=4021062d positionZ=c208c038 lookX=c12b9336 lookY=3f8b0220 lookZ=c1de3c0c vehicleX=c12b9336 vehicleY=3ea1cac1 vehicleZ=c1de3c0c vehicleSpeed=00000000 playerX=c120da9a playerY=40210623 playerZ=c208fa8f valid=1
+LOG: CLOSEOUTCONTEXT phase=2 offset=1155 players=0 oneArm=1 route=1 scene=0 night=0 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=c11a2d31 positionY=4021062d positionZ=c208c038 lookX=c12b9336 lookY=3f8b0220 lookZ=c1de3c0c vehicleX=c12b9336 vehicleY=3ea1cac1 vehicleZ=c1de3c0c vehicleSpeed=00000000 playerX=c120da9a playerY=40210623 playerZ=c208fa8f valid=1
+LOG: CLOSEOUTDONE order=0 kind=3 valid=1 loops=5400

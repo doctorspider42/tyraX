@@ -1,0 +1,3 @@
+from pathlib import Path
+import hashlib,json
+r=Path('F:/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-v1');p=r/'empty-car/src/gen/game_lighting.gen.cpp';s=p.read_text(encoding='utf8');assert '#include "debug/empty_witness.hpp"'not in s;s='#include "debug/empty_witness.hpp"\n'+s;p.write_bytes(s.encode());p=r/'source-review.json';d=json.loads(p.read_text());d['files']['game/src/gen/game_lighting.gen.cpp']=hashlib.sha256((r/'empty-car/src/gen/game_lighting.gen.cpp').read_bytes()).hexdigest();d['buildRepair']='First build missing explicit EmptyWitness include in generated lighting translation unit; native-build.log retained, only include added before retry.';p.write_bytes((json.dumps(d,indent=2)+'\n').encode())

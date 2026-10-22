@@ -1,0 +1,8 @@
+{
+  "socket": "/mnt/wslg/runtime-dir/pcsx2.sock.28205",
+  "inode": 81,
+  "owningPid": 13811,
+  "ownedProcessDead": true,
+  "noBoundProcNetUnixEntry": true,
+  "reason": "forceful second exact-owned signal left unbound socket filename after accepted capture"
+}

@@ -1,0 +1,37 @@
+SCE CONFIDENTIAL                                                                                      EE Core User's Manual Version 6.0 
+ 
+ 
+© SCEI 
+-146- 
+7.2. Performance Counter Operation Details 
+7.2.1. Counter Increment 
+Counters PCR0 and PCR1 increment by 1 whenever the events specified in PCCR.EVENT0 and 
+PCCR.EVENT1 are generated.  However, the following three conditions must be met: 
+1. Counter enable flag PCCR.CTE is set to 1. 
+2. The processor’s operation mode  matches the operation mode specified in PCCR.U0 / PCCR.S0 / 
+PCCR.K0 / PCCR.EXL0 or PCCR.U1 / PCCR.S1 / PCCR.K1 / PCCR.EXL1. 
+3. Level 2 exception handlers  are not being executed. 
+7.2.2. Counter Event 
+The following table lists the events performance counters PCR0 and PCR1 can detect respectively and the values 
+that are specified in PCCR.EVENT0 and PCCR.EVENT1. 
+ 
+EVENT0/1 Counter 0 (PCR0) Counter 1 (PCR1) 
+0 (reserved) Low-order branch issued 
+1 Processor cycle Processor cycle 
+2 Single instruction issue Dual instruction issue 
+3 Branch issued Branch mispredicted 
+4 BTAC miss TLB miss 
+5 ITLB miss DTLB miss 
+6 Instruction cache (I$) miss Data cache (D$) miss 
+7 Access to DTLB WBB single request unavailable 
+8 Non-blocking load WBB burst request unavailable 
+9 WBB single request WBB burst request almost full 
+10 WBB burst request WBB burst request full 
+11 CPU address bus busy  CPU data bus busy 
+12 Instruction completed Instruction completed 
+13 Non-BDS instruction completed Non-BDS instruction completed 
+14 COP2 instruction completed COP1 instruction completed 
+15 Load completed Store completed 
+16 No event No event 
+17-31 (reserved) (reserved) 
+Table 7-1 Events that the Performance Counters Support 

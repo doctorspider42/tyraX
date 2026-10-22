@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-render-audit-v2/analyze-render.py", line 34, in <module>
+    assert d['wait']==sum(b['wait2'+str(k)]for k in range(3))and d['pacing']==b['pace2']
+AssertionError

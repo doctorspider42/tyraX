@@ -1,0 +1,80 @@
+{
+  "status": "READY_PRIVATE_POOL2_KIND7_SOURCE_HOST_INPUT_NOT_NATIVE_ACCEPTED",
+  "baseline": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3",
+  "baselineManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+  "sourceFiles": 499,
+  "outputPins": {
+    "game/inc/terrain_game.hpp": "0740eef0342efa61616248e21f534e47e3d4cee468eb6f10d8b34e981a28f15b",
+    "game/src/gen/game_lighting.gen.cpp": "6b3e17cfdb7000dce317d1d7115ae8f0155c548e4b2a0de05bfb03e2fbf5a2a8",
+    "tyra/engine/inc/debug/night_ablation.hpp": "7002e5fe126c658542bc6bc8a587c488700e249e93895c091b0c02366987b560",
+    "tyra/engine/inc/debug/night_plan.hpp": "c08f89dd4da630c516eddc6e779c1b22e6092c8cce6b360a3de360cfb8c83c9b",
+    "tyra/engine/inc/debug/night_runtime.hpp": "b3f0c8c2e0b58d351544ea5dcc2f05898ca80a1bb5889896d6beb7af2adbc162",
+    "tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "tyra/engine/inc/debug/quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "tyra/engine/inc/debug/quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_bag.hpp": "0090c8b940c640b333beaa920d036643ef550c8d0c7a30dcb7bfa99c250bcfbf",
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h": "275daf8412e0c18e6164214419153248a784a2c3e1a0220aa950b8890bbf6c09",
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_pool_color_packet.hpp": "1452774bfae877b9017bf9d8fbba3a5d7c7ad7b248475b912e3a679d2ac1a7b5",
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_pool_color_table.hpp": "1ef2540488e15f722637910510e51cb1defc74b0ee92ab5d090aaa1ebfb2670e",
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp": "397313a8bda017deeb0ed2eef497a192c39552e081911056c4e538a61dd016f7",
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp": "d1266c96bdef0bc5b77a4f1e7cced007c53b607bcd4e4c32dfe0355597256126",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp": "f5aee36f44afb37a550a7156b9f85fcf65648e296888101afce6e85710bc944b",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.cpp": "f55a72115394dc1321263d92909e3d763b12163c402f6b77d11914f57dd9d189",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp": "8a3bb29a7960bc67a6d5579f316074c559f7ce783d9c17d9f1d930824276339a",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "be77677a29e372294e3a4386b667a4ec3546157d78e4acc2160e52a840a7d60f",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp": "32d5d26e478145811429d39d233a78ec35814ef536e1e21aa2b1bc6426acb8e2"
+  },
+  "targetManifestSha256": "ada81c25fb2b6c1de861ec7aba76dd71f87d4bca71945c6343588bbc0dc5734b",
+  "sourcePatchSha256": "0335fb338d7b8353b9102a7897c85267926c74644273dedde2dd1d615935e974",
+  "requiredProofs": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host-proof.json",
+      "sha256": "5b8f4f941dc023a7752c360f35bdaffdc86e24b0b43b2d8463cf92a4c7c0b253",
+      "status": "PASS_PRIVATE_INTEGRATED_POOL2_ACTUAL_HEADERS_CAPTURE_ROUTING_PACKET_CALL_HOST_ONLY"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\final-proof.json",
+      "sha256": "9907402956e646c43a83c14f5f4560efb1d9804aaca8cfae4beea24220cb823a",
+      "status": "PASS_PREPARED_TABLE_KIND7_AND_PRESERVED_WILD_PROTOCOL_HOST_ONLY"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source-lifetime-proof.json",
+      "sha256": "edc56828a6fe3f2dd28caf119a0eacef045d60f811d2474da3a426ae92ecbcd9",
+      "status": "PASS_PRIVATE_POOL2_SOURCE_OWNERSHIP_ORDER_ONLY"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\v3-fix-proof.json",
+      "sha256": "2ec72111597a21b814f75c276d62d6a359557227dd4cf3f1c5d1d7656ea0fa68",
+      "status": "READY_PRIVATE_POOL2_V3_NEGATIVE_STRIDE_REGISTER_LIFETIME_FIX_ISOLATED_ASSEMBLY_ONLY"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pool2-v3-isolated-assembly-v1\\windows-binding-proof.json",
+      "sha256": "9afbc893fe7dbbaaaf4f55458db3508c0fc80d8ea30fcbd4185ca145e0a0ffb7",
+      "status": "PASS_WINDOWS_REHASHED_POOL2_V3_ISOLATED_SOURCE_PREPROCESS_OPENVCL_DVP_BUDGET_EVIDENCE"
+    }
+  ],
+  "proposalPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\README.md": "4fe60c55bbb7714faeb54929e367fb7bf382b2db99f396330811fd4d8b1ca310",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\integrate-root.py": "7d34644b6b24b94bde6a1a455dac9cc4a67090a240bdc74879608b58d775eec7",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source-diff.json": "7600cd8df51f5fbf7ca49c6ce088766e9f53b483b2bbe4849a42f3186fb380ce",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source-layout-check.json": "60d4b66b26c71c4c67d91e523644747d9a340d3912379132de4c027dba9d34d4",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source-lifetime-proof.json": "edc56828a6fe3f2dd28caf119a0eacef045d60f811d2474da3a426ae92ecbcd9",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\v2-to-v3.patch": "6decd4aa712cedacf435227a215b9978567c9cc9d78e92fd5e96a935b40524a1"
+  },
+  "nativeAccepted": false,
+  "VUAssembled": false,
+  "runtimeAccepted": false,
+  "gainClaimed": false,
+  "remainingGates": [
+    "Independent integrated source review",
+    "Actual installed SDK compile and VU assembly/register/delay/resident-code budget",
+    "Actual positive candidate marker/table and baked key/lease activation",
+    "Actual VU/GS output/raster correctness",
+    "Own same-ELF both-order physical pricing; no cross-source subtraction"
+  ],
+  "v3OnlySourceDeltaFromV2": [
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp"
+  ],
+  "isolatedVUAssemblyAccepted": true,
+  "fullNativeNotAccepted": true
+}

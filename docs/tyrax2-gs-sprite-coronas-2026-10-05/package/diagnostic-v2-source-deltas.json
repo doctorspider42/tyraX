@@ -1,0 +1,24 @@
+{
+  "pricingManifestSha256": "b9582677a88857c64d7c807e8c7acfb170d4aa84b5ef826bdd62734f1e26ebe3",
+  "diagnosticManifestSha256": "46fd3e84a75ecd665c199496dc3d11d6bc44e1959793b2e2d837efeebb1f2f01",
+  "sourceFiles": 501,
+  "changedFromPricing": [
+    {
+      "path": "game/inc/pool2_static_probe.hpp",
+      "pricingSha256": null,
+      "diagnosticSha256": "6236153c2bc783bf8888e43288ab19ea2994a124951ad0a6c6b20e745fe28a7f"
+    },
+    {
+      "path": "game/src/main.cpp",
+      "pricingSha256": "1c054a43d14d6846fb3163c9b712d4f659654da17b1ad87056481edba4a0c712",
+      "diagnosticSha256": "700e17d34490a80a6e3a36a70e8b80731d63d654ab86acf0dca798e8657dc054"
+    },
+    {
+      "path": "game/src/terrain_game.cpp",
+      "pricingSha256": "62396e22f9a54af27d1c4ac0acfd1444747a8a033f11564cd9d85fa85aa738ab",
+      "diagnosticSha256": "789ce16faa0853bc1d44046e80da8cd53ab3552d249bf5815d4373d91118a8ce"
+    }
+  ],
+  "capabilityOnly": true,
+  "ordinaryHybridPricingEquivalent": false
+}

@@ -1,0 +1,67 @@
+{
+  "valid": true,
+  "sources": {
+    "tyrax2-hybrid-copy-protocol.hpp": "cb8872628f09eb6db8722478efbb3d4b7740f3cafd46f3e0a78e2da7f5f9fd34",
+    "verify-hybrid-copy-protocol.cpp": "d6f108bb0050273245cfc807a4bb1b3ad6815031b5401f2b8cb41cecea6f28a7",
+    "verify-hybrid-copy-protocol.py": "6021292273af514c2cee73667a5bcf96d9c89a2b144b9f161818d9275b2b7631"
+  },
+  "commands": [
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O2",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-protocol-20261011-v1/verify-hybrid-copy-protocol.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-protocol-20261011-v1/optimized"
+    ],
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O1",
+      "-g",
+      "-fsanitize=address,undefined",
+      "-fno-omit-frame-pointer",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-protocol-20261011-v1/verify-hybrid-copy-protocol.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-protocol-20261011-v1/sanitized"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/bin/mips64r5900el-ps2-elf-g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O2",
+      "-c",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-protocol-20261011-v1/verify-hybrid-copy-protocol.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-protocol-20261011-v1/protocol-ee.o"
+    ]
+  ],
+  "hostCompiler": "g++ (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0\nCopyright (C) 2021 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "eeCompiler": "mips64r5900el-ps2-elf-g++ (GCC) 15.2.0\nCopyright (C) 2025 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "eeObjectSha256": "eef4054ded80d5bbf6199c9cea6c570f1b009250abcecfadb3b65db8f2bc9942",
+  "guards": 144,
+  "schedulesPerHostMode": 161280,
+  "hostModes": [
+    "optimized",
+    "ASan+UBSan"
+  ],
+  "fixedABI": {
+    "protocolBytes": 36,
+    "readyBytes": 12
+  },
+  "limits": [
+    "Isolated protocol, not actual Core/queue/MMIO target adapter.",
+    "Main/ISR transitions require an external atomic critical section and memory publication.",
+    "Readiness/copy-DMA/exclusive-FINISH predicates are modeled, not hardware-derived.",
+    "ISR claims must be called immediately at VBlank start; active blank alone does not establish a remaining copy budget.",
+    "Cross-compilation is not target execution, cache/lifetime qualification or speedup."
+  ]
+}

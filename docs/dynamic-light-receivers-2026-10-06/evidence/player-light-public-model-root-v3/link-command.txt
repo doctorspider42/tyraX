@@ -1,0 +1,1 @@
+"C:\Users\pawel\scoop\apps\mingw\current\bin\g++.exe" -static @"F:\Projects\tyrax2-lab-20261001\player-light-public-model-root-v3\controls.rsp" -o "F:\Projects\tyrax2-lab-20261001\player-light-public-model-root-v3\controls.exe"

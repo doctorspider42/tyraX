@@ -1,0 +1,138 @@
+#pragma once
+// PRIVATE experiment only: common counters do not read clocks or submit work.
+#include <stdint.h>
+namespace NightAblation {
+enum Group : unsigned { Live=1, LightEffects=2, Shadows=4, Particles=8,
+                       PostFx=16, Env=32, Sky=64 };
+struct Counter { uint32_t attempted=0, executed=0, skipped=0, submitted=0; };
+inline Counter commonCounter[7]{};
+enum Extra : unsigned { Pools=1, BeamsCoronas=2, VehicleLampGlow=4 };
+inline Counter extraCounter[3]{};
+inline unsigned extraMask=0;
+inline unsigned mask=0;
+inline bool collectCounters=false;
+inline bool valid=true;
+// PRIVATE producer observer. Common branch/code footprint remains unpriced.
+inline bool producerSelected=false,producerEnabled=false,producerTiming=false;
+struct ProducerStat {uint64_t ticks=0;uint32_t calls=0,reads=0;};
+inline ProducerStat producerStats[5]{};
+inline uint32_t producerCold[5][5]{};
+inline uint32_t producerTick(){uint32_t v;asm volatile("mfc0 %0, $9":"=r"(v)::"memory");return v;}
+inline void producerCount(unsigned s,unsigned k,uint32_t n=1){if(producerSelected&&collectCounters)producerCold[s][k]+=n;}
+struct ProducerScope {
+ unsigned stage;uint32_t start=0;bool active=false;
+ explicit ProducerScope(unsigned s):stage(s){producerCount(s,0);active=producerTiming;if(active)start=producerTick();}
+ void stop(){if(active){uint32_t end=producerTick();auto& s=producerStats[stage];s.ticks+=uint32_t(end-start);++s.calls;s.reads+=2;active=false;}}
+ ~ProducerScope(){stop();}
+};
+
+inline unsigned slot(unsigned bit) {
+ for(unsigned i=0;i<7;++i) if(bit==(1U<<i)) return i;
+ valid=false;return 0;
+}
+inline bool setMask(unsigned value) {
+ // Optional Env/Sky cuts are reserved, not implemented by this first proposal.
+ if(value>31){valid=false;return false;}mask=value;return true;
+}
+inline unsigned extraSlot(unsigned bit) {
+ for(unsigned i=0;i<3;++i) if(bit==(1U<<i)) return i;
+ valid=false;return 0;
+}
+inline bool setExtraMask(unsigned value) {
+ if(value>7){valid=false;return false;}extraMask=value;return true;
+}
+inline bool extraDisabled(unsigned bit){return (extraMask&bit)!=0;}
+inline bool extraSkip(unsigned bit){
+ if(!collectCounters)return extraDisabled(bit);
+ auto& c=extraCounter[extraSlot(bit)];++c.attempted;
+ if(extraDisabled(bit)){++c.skipped;return true;}++c.executed;return false;
+}
+inline void extraSubmitted(unsigned bit){if(collectCounters)++extraCounter[extraSlot(bit)].submitted;}
+inline bool disabled(unsigned bit){return (mask&bit)!=0;}
+inline bool skip(unsigned bit){
+ if(!collectCounters)return disabled(bit);
+ auto& c=commonCounter[slot(bit)];++c.attempted;
+ if(disabled(bit)){++c.skipped;return true;}++c.executed;return false;
+}
+inline void submitted(unsigned bit){if(collectCounters)++commonCounter[slot(bit)].submitted;}
+// PRIVATE independent wild variants; no pool-cache candidate in this dialect.
+inline unsigned wildVariant=0;
+inline bool wildEnabled=false;
+inline bool setWildVariant(unsigned variant,bool enabled){
+ if((variant!=0&&variant!=5&&variant!=6)||(variant==0&&enabled)){valid=false;return false;}
+ wildVariant=variant;wildEnabled=enabled;return true;
+}
+inline bool wildActive(unsigned variant){return wildVariant==variant&&wildEnabled;}
+struct WildCounter{uint32_t invocations=0,eligible=0,applied=0,fallback=0,boundary=0,nonfinite=0,coldCompared=0,coldMismatches=0,inputUnits=0,outputUnits=0,invalid=0;};
+inline WildCounter wildPlaneCounter{},wildConeCounter{};
+inline void wildAdd(WildCounter& c,uint32_t& field,uint32_t value){
+ if(value>~uint32_t(0)-field){if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;}field+=value;
+}
+inline void observeWild(unsigned variant,bool eligible,bool applied,bool boundary,bool nonfinite,bool compared,bool mismatch,uint32_t inputUnits,uint32_t outputUnits){
+ if(!collectCounters)return;
+ if(variant!=5&&variant!=6){valid=false;return;}
+ auto& c=variant==5?wildPlaneCounter:wildConeCounter;
+ if((applied&&!eligible)||(applied!=bool(wildActive(variant)&&eligible))||((boundary||nonfinite)&&eligible)||(mismatch&&!compared)){
+  if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;
+ }
+ wildAdd(c,c.invocations,1);wildAdd(c,c.eligible,eligible?1u:0u);wildAdd(c,c.applied,applied?1u:0u);wildAdd(c,c.fallback,eligible?0u:1u);wildAdd(c,c.boundary,boundary?1u:0u);wildAdd(c,c.nonfinite,nonfinite?1u:0u);wildAdd(c,c.coldCompared,compared?1u:0u);wildAdd(c,c.coldMismatches,mismatch?1u:0u);wildAdd(c,c.inputUnits,inputUnits);wildAdd(c,c.outputUnits,outputUnits);
+ if(mismatch){valid=false;}
+}
+
+// PRIVATE independent kind7 source color-table experiment.
+inline bool poolTableSelected=false,poolTableEnabled=false;
+inline bool setPoolTableEnabled(bool enabled){poolTableEnabled=enabled;return true;}
+struct PoolTableCounter{uint32_t invocations=0,eligible=0,applied=0,fallback=0,sourceVertices=0,admittedVertices=0,baselineColorQwords=0,tableColorQwords=0,coldCompared=0,coldMismatches=0,invalid=0;};
+inline PoolTableCounter poolTableCounter{};
+inline void tableAdd(uint32_t& field,uint32_t value){auto& c=poolTableCounter;if(value>~uint32_t(0)-field){if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;}field+=value;}
+inline void observePoolTable(bool eligible,uint32_t sourceVertices,bool compared,bool mismatch){
+ if(!poolTableSelected||!collectCounters)return;
+ auto& c=poolTableCounter;
+ if((eligible&&(sourceVertices==0||sourceVertices>75))||(mismatch&&!compared)){if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;}
+ const bool applied=poolTableEnabled&&eligible;
+ tableAdd(c.invocations,1);tableAdd(c.eligible,eligible?1u:0u);tableAdd(c.applied,applied?1u:0u);tableAdd(c.fallback,eligible?0u:1u);tableAdd(c.sourceVertices,sourceVertices);tableAdd(c.admittedVertices,applied?sourceVertices:0u);tableAdd(c.baselineColorQwords,sourceVertices);tableAdd(c.tableColorQwords,applied?2u:0u);tableAdd(c.coldCompared,compared?1u:0u);tableAdd(c.coldMismatches,mismatch?1u:0u);
+ if(mismatch){valid=false;}
+}
+
+// PRIVATE kind9: cold EE admission observations, never accepted VU sprites.
+inline bool coronaSpriteSelected=false;
+struct CoronaCounter {uint32_t coldPackets=0,eligible=0,requested=0,fallback=0,sourceVertices=0,requestedVertices=0,fogOn=0,shaderLit=0,invalid=0;};
+inline CoronaCounter coronaCounter{};
+inline void coronaAdd(uint32_t& field,uint32_t value){auto& c=coronaCounter;if(value>~uint32_t(0)-field){if(c.invalid!=~uint32_t(0))++c.invalid;valid=false;return;}field+=value;}
+inline void observeCorona(bool eligible,bool requested,bool enabled,uint32_t count,bool fogOn,bool shaderLit){
+ if(!coronaSpriteSelected||!collectCounters)return;
+ auto& c=coronaCounter;
+ if(requested!=(enabled&&eligible)||(eligible&&(count==0||count>72||count%6!=0))){if(c.invalid!=~uint32_t(0))++c.invalid;valid=false;return;}
+ coronaAdd(c.coldPackets,1);coronaAdd(c.eligible,eligible?1u:0u);coronaAdd(c.requested,requested?1u:0u);coronaAdd(c.fallback,eligible?0u:1u);coronaAdd(c.sourceVertices,count);coronaAdd(c.requestedVertices,requested?count:0u);coronaAdd(c.fogOn,fogOn?1u:0u);coronaAdd(c.shaderLit,shaderLit?1u:0u);
+}
+}
+
+#include <stdio.h>
+
+// PRIVATE kind29: sparse semantic witnesses, no clocks or per-bag IO.
+namespace NightMainBatch {
+struct Stat { uint32_t invocations=0;uint32_t sourceGroups=0;uint32_t sourceMembers=0;uint32_t groups=0;uint32_t members=0;uint32_t candidateGroups=0;uint32_t candidateMembers=0;uint32_t controlMainSubmits=0;uint32_t candidateMainSubmits=0;uint32_t reflectionCarriers=0;uint32_t reflectionUses=0;uint32_t fallbackGroups=0;uint32_t demotedGroups=0;uint32_t eligibilityRefused=0;uint32_t dirtyDemotions=0;uint32_t geometryCompared=0;uint32_t geometryMismatches=0;uint32_t duplicateMainSubmits=0;uint32_t verticesCompared=0;uint32_t colorBytesCompared=0; };
+struct Group { uint32_t ready=0;uint32_t admitted=0;uint32_t demoted=0;uint32_t submitted=0;uint32_t first=0;uint32_t count=0;uint32_t members=0;uint32_t geometryHash=0;uint32_t infoHash=0;uint32_t lightKey=0;uint32_t spotEnabled=0; };
+struct Member { uint32_t object=0;uint32_t idLo=0;uint32_t idHi=0;uint32_t group=0;uint32_t ready=0;uint32_t admitted=0;uint32_t mainOriginal=0;uint32_t mainGrouped=0;uint32_t reflectionUses=0;uint32_t count=0;uint32_t positionHash=0;uint32_t colorHash=0;uint32_t copiedPositionHash=0;uint32_t copiedColorHash=0;uint32_t infoHash=0;uint32_t lightKey=0;uint32_t spotEnabled=0; };
+struct Why{uint32_t reason=0,firstDiff=~uint32_t(0),keyReady=0,keyAdmitted=0;};
+inline Why why[3]{};
+inline Stat stat{};inline Group group[3]{};inline Member member[11]{};
+inline int pendingGroup=-1,pendingMember=-1;inline bool pendingMerged=false,pendingReflection=false;
+inline void clearPending(){pendingGroup=pendingMember=-1;pendingMerged=pendingReflection=false;}
+inline void accepted(){
+ if(!NightAblation::collectCounters||pendingGroup<0)return;
+ auto& g=group[pendingGroup];
+ if(pendingReflection){if(pendingMember>=0){++member[pendingMember].reflectionUses;++stat.reflectionUses;}return;}
+ if(pendingMerged){if(g.submitted)++stat.duplicateMainSubmits;g.submitted=1;++stat.candidateGroups;stat.candidateMembers+=g.members;++stat.candidateMainSubmits;
+  for(unsigned j=0;j<g.members;++j){auto& x=member[g.first+j];if(x.mainOriginal||x.mainGrouped)++stat.duplicateMainSubmits;++x.mainGrouped;}
+ }else if(pendingMember>=0){auto& x=member[pendingMember];if(x.mainOriginal||x.mainGrouped)++stat.duplicateMainSubmits;++x.mainOriginal;++stat.controlMainSubmits;}
+}
+inline void reset(){clearPending();stat=Stat{};for(auto& g:group)g=Group{};for(auto& x:member)x=Member{};for(auto& w:why)w=Why{};}
+inline void emit(unsigned phase,unsigned offset,bool enabled){
+ for(unsigned i=0;i<3;++i){const auto& w=why[i];printf("LOG: NIGHTMAINBATCHWHY phase=%u offset=%u enabled=%u group=%u reason=%u firstDiff=%u keyReady=%u keyAdmitted=%u\n",phase,offset,unsigned(enabled),i,w.reason,w.firstDiff,w.keyReady,w.keyAdmitted);}
+ for(const auto& g:group){if(g.admitted){++stat.groups;stat.members+=g.members;}else ++stat.fallbackGroups;}
+ printf("LOG: NIGHTMAINBATCH phase=%u offset=%u enabled=%u invocations=%u sourceGroups=%u sourceMembers=%u groups=%u members=%u candidateGroups=%u candidateMembers=%u controlMainSubmits=%u candidateMainSubmits=%u reflectionCarriers=%u reflectionUses=%u fallbackGroups=%u demotedGroups=%u eligibilityRefused=%u dirtyDemotions=%u geometryCompared=%u geometryMismatches=%u duplicateMainSubmits=%u verticesCompared=%u colorBytesCompared=%u\n",phase,offset,unsigned(enabled),stat.invocations,stat.sourceGroups,stat.sourceMembers,stat.groups,stat.members,stat.candidateGroups,stat.candidateMembers,stat.controlMainSubmits,stat.candidateMainSubmits,stat.reflectionCarriers,stat.reflectionUses,stat.fallbackGroups,stat.demotedGroups,stat.eligibilityRefused,stat.dirtyDemotions,stat.geometryCompared,stat.geometryMismatches,stat.duplicateMainSubmits,stat.verticesCompared,stat.colorBytesCompared);
+ for(unsigned i=0;i<3;++i){const auto& g=group[i];printf("LOG: NIGHTMAINBATCHGROUP phase=%u offset=%u enabled=%u group=%u ready=%u admitted=%u demoted=%u submitted=%u first=%u count=%u members=%u geometryHash=%u infoHash=%u lightKey=%u spotEnabled=%u\n",phase,offset,unsigned(enabled),i,g.ready,g.admitted,g.demoted,g.submitted,g.first,g.count,g.members,g.geometryHash,g.infoHash,g.lightKey,g.spotEnabled);}
+ for(unsigned i=0;i<11;++i){const auto& x=member[i];printf("LOG: NIGHTMAINBATCHMEMBER phase=%u offset=%u enabled=%u ordinal=%u object=%u idLo=%u idHi=%u group=%u ready=%u admitted=%u mainOriginal=%u mainGrouped=%u reflectionUses=%u count=%u positionHash=%u colorHash=%u copiedPositionHash=%u copiedColorHash=%u infoHash=%u lightKey=%u spotEnabled=%u\n",phase,offset,unsigned(enabled),i,x.object,x.idLo,x.idHi,x.group,x.ready,x.admitted,x.mainOriginal,x.mainGrouped,x.reflectionUses,x.count,x.positionHash,x.colorHash,x.copiedPositionHash,x.copiedColorHash,x.infoHash,x.lightKey,x.spotEnabled);}
+}
+}

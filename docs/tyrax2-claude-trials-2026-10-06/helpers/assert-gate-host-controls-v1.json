@@ -1,0 +1,25 @@
+{
+  "status": "PASS_KIND25_HOST_SYNTHETIC_AND_CLI_ONLY",
+  "results": [
+    "positive0",
+    "rejected0calls=134",
+    "rejected0units1=1608",
+    "rejected0units2=1608",
+    "rejected0units3=0",
+    "rejected0units4=134",
+    "rejected0reads=0",
+    "rejected0timedCalls=0",
+    "cli0",
+    "positive1",
+    "rejected1calls=134",
+    "rejected1units1=1608",
+    "rejected1units2=1608",
+    "rejected1units3=0",
+    "rejected1units4=134",
+    "rejected1reads=0",
+    "rejected1timedCalls=0",
+    "cli1"
+  ],
+  "physicalExecutionAccepted": false,
+  "sourceGateCorrectnessNotEstablishedByParser": true
+}

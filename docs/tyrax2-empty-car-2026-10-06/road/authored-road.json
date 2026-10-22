@@ -1,0 +1,1 @@
+{ "id": "emptyroad0000001", "name": "Only mild S road", "type": "road", "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "castShadow": false, "roadPoints": [0, -15, 0, 0, 0, 16, 3, 30, -3, 44, 0, 60, 0, 80], "roadWidth": 10 }

@@ -1,0 +1,21 @@
+{
+  "status": "final layout and whitespace seam review; no semantic blocker",
+  "schema": 1,
+  "pins": [
+    {
+      "bytes": 1797160,
+      "path": "F:\\Projects\\tyra-editor\\src\\templates.cpp",
+      "sha256": "25ce5dc9e65cf68ef205e2f704a1dedda308a88b458fb8286aa2b9d2c2d8cfe5"
+    },
+    {
+      "bytes": 898026,
+      "path": "F:\\Projects\\tyra-editor\\src\\app.cpp",
+      "sha256": "045d3c3577dd54c85028b35da7fc09c5cbf1e8a0257a41fee8a029ef644d87d4"
+    },
+    {
+      "bytes": 1332402,
+      "path": "F:\\Projects\\tyra-editor\\src\\game_templates.inc",
+      "sha256": "8afe4a04ba0000293a019f84d842480f2c095f684cb215e3fd22a10a604c711d"
+    }
+  ]
+}

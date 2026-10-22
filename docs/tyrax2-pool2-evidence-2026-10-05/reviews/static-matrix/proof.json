@@ -1,0 +1,542 @@
+{
+  "status": "ROOT_CLOSED_TWELVE_OWNED_STATIC_CAPTURES_SIX_ACTUAL_PACKED_VU_EQUAL_PAIRS",
+  "diagnosticSourceFiles": 500,
+  "captures": [
+    {
+      "case": "A96",
+      "arm": 0,
+      "repeats": 1,
+      "completedProofSha256": "75816b9be4e2d34bbeeab2ec7b1e636b67d31686a86e2d3a35c52c2a8dfcdea1",
+      "stateSha256": "35d761b92069f0c2482635a7f61797078275151abfd3278f9cb064342f922683",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        21,
+        75
+      ],
+      "repairs": [
+        "root-ui-repair-record.json"
+      ]
+    },
+    {
+      "case": "A96",
+      "arm": 1,
+      "repeats": 1,
+      "completedProofSha256": "ad99db8f94d4e26fe5748ff04354d976e63bce15dce9c8af00a7f1e96473e761",
+      "stateSha256": "4f70ab8d62882c89fe2e0f6810b09780bb16acbe0642ba5f0992d92e6bf6c7d4",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        21,
+        75
+      ],
+      "repairs": [
+        "owned-stop-second-signal.json",
+        "owned-stale-socket-cleanup.json"
+      ]
+    },
+    {
+      "case": "A96",
+      "arm": 0,
+      "repeats": 2,
+      "completedProofSha256": "4fa3e9f6940c1b12ad7c36ab05a44060d40937094ade24c0fa19cc6ea41b6db0",
+      "stateSha256": "ef86ff3ff7eab4b76d97e885b3324397e99868e9bf6a9b9b6993710a4b127053",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        21,
+        75
+      ],
+      "repairs": [
+        "owned-stop-second-signal.json"
+      ]
+    },
+    {
+      "case": "A96",
+      "arm": 1,
+      "repeats": 2,
+      "completedProofSha256": "1f29e40b0c2411a85ffe647519a3e9159ae8f456c74367905d0c455e441700ac",
+      "stateSha256": "11399d1375f07b777be71b1c4b820158fba960cef4d2c53707517d81e155d2d6",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        21,
+        75
+      ],
+      "repairs": [
+        "owned-stop-second-signal.json"
+      ]
+    },
+    {
+      "case": "A96",
+      "arm": 0,
+      "repeats": 3,
+      "completedProofSha256": "abed5670ab83a5e6aa894c62a300bc7027bd35e6fdbfa464b78e6fe4389c6051",
+      "stateSha256": "678dfee95e4ba70356a2d6aad6b8b6f032d6f4e7debc9ab09287a1a8c66423ec",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        21,
+        75
+      ],
+      "repairs": [
+        "owned-stop-second-signal.json"
+      ]
+    },
+    {
+      "case": "A96",
+      "arm": 1,
+      "repeats": 3,
+      "completedProofSha256": "eddaab2351091d3312af40b852ecbb92fbcb90c86057d723cd4d3b9b737e7da3",
+      "stateSha256": "61b921bcedde98c607176349de8522a3bca0642e8929c156d83176bcb7a6c864",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        21,
+        75
+      ],
+      "repairs": [
+        "owned-stop-second-signal.json"
+      ]
+    },
+    {
+      "case": "B192",
+      "arm": 0,
+      "repeats": 1,
+      "completedProofSha256": "f147760ad73127d21dfdb4ab3a9b9dc2e2bdf360517ebf621d2c9667117bbc56",
+      "stateSha256": "4327f2723dd82180eda864069e3740a6ededfc29923a7fa49ecd201b795b55d1",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        42,
+        75
+      ],
+      "repairs": [
+        "modal-recovery-record.json",
+        "owned-stop-second-signal.json"
+      ]
+    },
+    {
+      "case": "B192",
+      "arm": 1,
+      "repeats": 1,
+      "completedProofSha256": "8ccc3f978a758a6105f333e4fae14dac30baa9a87dcec4cb4629f791f69141de",
+      "stateSha256": "005e54711698b42a0b53b83ef0f163ed36323554b1fda44c36f2cebe7aef3bb1",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        42,
+        75
+      ],
+      "repairs": [
+        "owned-stop-second-signal.json"
+      ]
+    },
+    {
+      "case": "B192",
+      "arm": 0,
+      "repeats": 2,
+      "completedProofSha256": "c2d6f5a7f3563627629668c720e6a16175d2a71074e20812dda400326d4bbf8c",
+      "stateSha256": "17b700c693c0def67299dcc2312ecdb0cf496ff3de71efa55708bf78051e0247",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        42,
+        75
+      ],
+      "repairs": [
+        "owned-stop-second-signal.json"
+      ]
+    },
+    {
+      "case": "B192",
+      "arm": 1,
+      "repeats": 2,
+      "completedProofSha256": "97c4eddeae59e4999078de5655300c7d56e491bdfde4976c8aab26cb0f6796a4",
+      "stateSha256": "2b413f9be399b14e02fb46cd947a5f7097bc3cc0d7a88a8963a88f6f92654490",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        42,
+        75
+      ],
+      "repairs": [
+        "owned-stop-second-signal.json"
+      ]
+    },
+    {
+      "case": "B192",
+      "arm": 0,
+      "repeats": 3,
+      "completedProofSha256": "7bbb4ad9d4d1bb2f0267c9d6d462032eb58f5937e98a8de7dd304183ec8751ae",
+      "stateSha256": "037ef83cd583e3111d7cd759f156db601248717c0ee642ada8a8993ad1fcddf6",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        42,
+        75
+      ],
+      "repairs": [
+        "owned-stop-second-signal.json"
+      ]
+    },
+    {
+      "case": "B192",
+      "arm": 1,
+      "repeats": 3,
+      "completedProofSha256": "476d9b5e50b363304df49c153a096e8f99d2acf7f4184abd159a13e0e368b694",
+      "stateSha256": "253096e3ca4be1dea33ca0a8131e6ddad7757f81ae90c9dbc9960d8d4a83f14c",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "finalPackageCounts": [
+        42,
+        75
+      ],
+      "repairs": [
+        "owned-stop-second-signal.json"
+      ]
+    }
+  ],
+  "pairs": [
+    {
+      "case": "A96",
+      "repeats": 1,
+      "proofSha256": "c24170dbaa4166a12017917e57555babe36b59849b78df0799cf6cf04bc815d0",
+      "packages": [
+        {
+          "count": 21,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 548,
+          "tableKick": 530,
+          "stateQwords": 1,
+          "headerSha256": "7842adf20f58f2fcb4f5ca80b41bd76d078f4a5bf561a480de209eef921b47be",
+          "outputSha256": "af438fe792bfa8dae1e47d17e54704d02f35cd1d7a4dd26517e56d3facdfb875",
+          "outputQwords": 63
+        },
+        {
+          "count": 75,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 249,
+          "tableKick": 177,
+          "stateQwords": 9,
+          "headerSha256": "57eb2fcef6ade6ccc2db12b0e95030efa559644cec7a6df0aabee575d9b9ee43",
+          "outputSha256": "642c47620f108c879d6ccee491cb6f269868dc290d11b4cfa37aab8c89b680d2",
+          "outputQwords": 225
+        }
+      ],
+      "outputQwords": 288,
+      "headerQwords": 10,
+      "first75Overwritten": false
+    },
+    {
+      "case": "A96",
+      "repeats": 2,
+      "proofSha256": "a8df06eed4f49349829f3d035fe8d0a6af3305936db83cd63aa32affd05f36ee",
+      "packages": [
+        {
+          "count": 21,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 548,
+          "tableKick": 530,
+          "stateQwords": 1,
+          "headerSha256": "7842adf20f58f2fcb4f5ca80b41bd76d078f4a5bf561a480de209eef921b47be",
+          "outputSha256": "af438fe792bfa8dae1e47d17e54704d02f35cd1d7a4dd26517e56d3facdfb875",
+          "outputQwords": 63
+        },
+        {
+          "count": 75,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 249,
+          "tableKick": 177,
+          "stateQwords": 9,
+          "headerSha256": "57eb2fcef6ade6ccc2db12b0e95030efa559644cec7a6df0aabee575d9b9ee43",
+          "outputSha256": "642c47620f108c879d6ccee491cb6f269868dc290d11b4cfa37aab8c89b680d2",
+          "outputQwords": 225
+        }
+      ],
+      "outputQwords": 288,
+      "headerQwords": 10,
+      "first75Overwritten": false
+    },
+    {
+      "case": "A96",
+      "repeats": 3,
+      "proofSha256": "628213d18e6750beef7859b3eebdf7cf8c1d0c35c393ae4aff4b78eb56717681",
+      "packages": [
+        {
+          "count": 21,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 548,
+          "tableKick": 530,
+          "stateQwords": 1,
+          "headerSha256": "7842adf20f58f2fcb4f5ca80b41bd76d078f4a5bf561a480de209eef921b47be",
+          "outputSha256": "af438fe792bfa8dae1e47d17e54704d02f35cd1d7a4dd26517e56d3facdfb875",
+          "outputQwords": 63
+        },
+        {
+          "count": 75,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 249,
+          "tableKick": 177,
+          "stateQwords": 9,
+          "headerSha256": "57eb2fcef6ade6ccc2db12b0e95030efa559644cec7a6df0aabee575d9b9ee43",
+          "outputSha256": "642c47620f108c879d6ccee491cb6f269868dc290d11b4cfa37aab8c89b680d2",
+          "outputQwords": 225
+        }
+      ],
+      "outputQwords": 288,
+      "headerQwords": 10,
+      "first75Overwritten": false
+    },
+    {
+      "case": "B192",
+      "repeats": 1,
+      "proofSha256": "5f9e83e9ba6a55d201b9cc0c1ee1ea849931737bb57bc6a4a8042064a728db13",
+      "packages": [
+        {
+          "count": 42,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 150,
+          "tableKick": 111,
+          "stateQwords": 1,
+          "headerSha256": "0b06dd8bbdf5c9588e7d2c40d5bc2992e9e18aa12bba14bdc164810337c6ed84",
+          "outputSha256": "7c93586e42cd077865a6c5dee5b57e59e63dcccff74135b9defcd01647a2afba",
+          "outputQwords": 126
+        },
+        {
+          "count": 75,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 710,
+          "tableKick": 638,
+          "stateQwords": 1,
+          "headerSha256": "8abb67a5c436a09d88a713490cec87603530424c2e91c49255a2cb36a9df073e",
+          "outputSha256": "2fc809910971484d5ba1f1f04714aaf8330108efef533409149f685e5aef16c1",
+          "outputQwords": 225
+        }
+      ],
+      "outputQwords": 351,
+      "headerQwords": 2,
+      "first75Overwritten": true
+    },
+    {
+      "case": "B192",
+      "repeats": 2,
+      "proofSha256": "db5ca7d55a9013cfc3841b9ff88a08c591ba1ffd436413942c23110979577f24",
+      "packages": [
+        {
+          "count": 42,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 611,
+          "tableKick": 572,
+          "stateQwords": 1,
+          "headerSha256": "0b06dd8bbdf5c9588e7d2c40d5bc2992e9e18aa12bba14bdc164810337c6ed84",
+          "outputSha256": "7c93586e42cd077865a6c5dee5b57e59e63dcccff74135b9defcd01647a2afba",
+          "outputQwords": 126
+        },
+        {
+          "count": 75,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 249,
+          "tableKick": 177,
+          "stateQwords": 1,
+          "headerSha256": "8abb67a5c436a09d88a713490cec87603530424c2e91c49255a2cb36a9df073e",
+          "outputSha256": "2fc809910971484d5ba1f1f04714aaf8330108efef533409149f685e5aef16c1",
+          "outputQwords": 225
+        }
+      ],
+      "outputQwords": 351,
+      "headerQwords": 2,
+      "first75Overwritten": true
+    },
+    {
+      "case": "B192",
+      "repeats": 3,
+      "proofSha256": "d1a48831f8a22375c1bc7c697b3c672ca8abfe4131e2899e74afd4d2e1eeb239",
+      "packages": [
+        {
+          "count": 42,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 150,
+          "tableKick": 111,
+          "stateQwords": 1,
+          "headerSha256": "0b06dd8bbdf5c9588e7d2c40d5bc2992e9e18aa12bba14bdc164810337c6ed84",
+          "outputSha256": "7c93586e42cd077865a6c5dee5b57e59e63dcccff74135b9defcd01647a2afba",
+          "outputQwords": 126
+        },
+        {
+          "count": 75,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 710,
+          "tableKick": 638,
+          "stateQwords": 1,
+          "headerSha256": "8abb67a5c436a09d88a713490cec87603530424c2e91c49255a2cb36a9df073e",
+          "outputSha256": "2fc809910971484d5ba1f1f04714aaf8330108efef533409149f685e5aef16c1",
+          "outputQwords": 225
+        }
+      ],
+      "outputQwords": 351,
+      "headerQwords": 2,
+      "first75Overwritten": true
+    }
+  ],
+  "totalComparedOutputQwords": 1917,
+  "totalComparedHeaderQwords": 36,
+  "microcodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+  "inputPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\owned-launch.json": "af5095bf67f117c22e660606b07adc114daccfe10a517240826579bdb11ff1a3",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\completed-probe-proof.json": "75816b9be4e2d34bbeeab2ec7b1e636b67d31686a86e2d3a35c52c2a8dfcdea1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\verified-capture.json": "bd63e351a95aa9619e12c263859d03590fe29e4ab512e059ff06904ce6613fcb",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\capture-report.json": "b17fd359d151815eb1242301f724aae333680f7c0d9b1c752141506d66f3b4c4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\owned-stop.json": "54ee443ce802f7620fb285678384c3ced1055dd47fad2248a44e72f40ca3f5ed",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\state.p2s": "35d761b92069f0c2482635a7f61797078275151abfd3278f9cb064342f922683",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\emulator.log": "2fb59b36ec6dfa913037ef2c979e7bec37a9a1be863c1388c2b2f6a7979a0b17",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\PCSX2-after.ini": "275e02ee55032b361112f12261ad5542c13dbfa42a941b22bb2daeb537584e9c",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\pool2-probe.cfg": "a95e68cba94dc54ff3ccb3a1e3db7dd3c37932a913d4d1827b44cb2e80589677",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\root-ui-repair-record.json": "dbb2ee3db3824f12287d8fdddae19fbb9e04a5652773ae72e60c4350804ac480",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\owned-launch.json": "86b3faeea2f46538eb99e1caf138bd6d74018a2027f0d3df8d1ea814900cb087",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\completed-probe-proof.json": "ad99db8f94d4e26fe5748ff04354d976e63bce15dce9c8af00a7f1e96473e761",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\verified-capture.json": "d1677a4dc312084c7a13b54f465759a8ec07c585fa20491114be06db2055a30a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\capture-report.json": "e8bb9ea15486e5f7f8c2e38795a041278942d5d2d569a135e63fb68deb08f942",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\owned-stop.json": "b648e9f968cc67e135a716c4d7df47bf4346f93fc11f477a5e0257f9cad55b7a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\state.p2s": "4f70ab8d62882c89fe2e0f6810b09780bb16acbe0642ba5f0992d92e6bf6c7d4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\emulator.log": "6f96cd5dcdc091aafbc4a41a80509712de5d368569da21e7bc2699a1e5cb8e4c",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\PCSX2-after.ini": "ec86c7ffa05d03ded74a3c3179903a0357d464dc5ffb57517900f2369565a5e7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\pool2-probe.cfg": "36e0e6d278de508015c9d1de8928f24f58c993126a240a60152fd48af8d17ebe",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\owned-stop-second-signal.json": "f64068b03bc4719fe1de3c42fa1b6c156752908e4b88b35aca95e973f4b79daf",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\owned-stale-socket-cleanup.json": "bb7205cc73c239412d7e7ec096846ec5b20752c91a85164010d5ed7803d7b7c4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-repeat1-pair.json": "c24170dbaa4166a12017917e57555babe36b59849b78df0799cf6cf04bc815d0",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\owned-launch.json": "374d6d010515502bdf026c7359427e02bf46bf8245ed72d2eecec89c25f2bfb5",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\completed-probe-proof.json": "4fa3e9f6940c1b12ad7c36ab05a44060d40937094ade24c0fa19cc6ea41b6db0",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\verified-capture.json": "7bfe6624132ba2f218facd1a9c8dc1e98caff9611d46969b92c55a53e2447490",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\capture-report.json": "680171ca96c955160dbf6c9bac91d2ee1e1df3a4ec3c675f3571ef6e3cb7ac2e",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\owned-stop.json": "c632a3a8b318c45c9f72ac5267c2085a1f31e6c5e34fdf037571b1dbc4a3b9c7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\state.p2s": "ef86ff3ff7eab4b76d97e885b3324397e99868e9bf6a9b9b6993710a4b127053",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\emulator.log": "e94ae14c0cb5912f7d6b5bc685665c80737f92472f885f955f550c5f8bbd7585",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\pool2-probe.cfg": "9baddd2e6b491ed6cca2c234bfe76df6c8ae7dce160c30042f69b7fcf2ae7242",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\owned-stop-second-signal.json": "ca997148db952d7d43992b5857623db67155c5e18384fb97d44e2a853efcfe51",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\owned-launch.json": "ea73f40835615991acb16e1231817d38ee177fc1172dd00b48464dd39d32b92e",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\completed-probe-proof.json": "1f29e40b0c2411a85ffe647519a3e9159ae8f456c74367905d0c455e441700ac",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\verified-capture.json": "dd98846eb2787aaea5d3024de4e1139ce83cb7358a290b6d95263e26c26fe0bd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\capture-report.json": "b45bc074d703c7846e94db914a43c1f5e907ab30e138d3c3864ce9b2286caabb",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\owned-stop.json": "3768625628c764461c788e321240edcccdbdcaa71cc16787f9e0033e903b4a47",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\state.p2s": "11399d1375f07b777be71b1c4b820158fba960cef4d2c53707517d81e155d2d6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\emulator.log": "633b0b731ccc28847a85b3d30ef179678b5157afd2bbcfd069dbe7f174116e1f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\pool2-probe.cfg": "ec0df286ebb1374ae32314e58d6b412f02e4519dec11852507966ef4087f7183",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\owned-stop-second-signal.json": "d6e5818b40a9a65f883234a83f47dcf1c8f138c80e81a8eb366c84b8e41e2b85",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-repeat2-pair.json": "a8df06eed4f49349829f3d035fe8d0a6af3305936db83cd63aa32affd05f36ee",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\owned-launch.json": "e451ac031f50df9c625ce3dbd2fa453f512eaa05048bbc187b89fa14bb46f1eb",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\completed-probe-proof.json": "abed5670ab83a5e6aa894c62a300bc7027bd35e6fdbfa464b78e6fe4389c6051",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\verified-capture.json": "8618843adf154e0b9d377725ca1ddfe4883ad716b5f5bbaf3d7e9da505d6d954",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\capture-report.json": "20354c67f8428cd576a6af7f9ef4e38a2e7cfa3eae160cefa1277068f72340ad",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\owned-stop.json": "c6c566834099f23234e6150d14da64e1f1fafff4d242935e9eb13086f73d8509",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\state.p2s": "678dfee95e4ba70356a2d6aad6b8b6f032d6f4e7debc9ab09287a1a8c66423ec",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\emulator.log": "6677501e4a175d6ad70af083de6bc2585c85dd3bff203690a48e6c2afaed6d40",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\pool2-probe.cfg": "bcfc9cf1e462f3b99cd9929d6dc18e2210c83758d8d2c2a3b1410405a3a29f69",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\owned-stop-second-signal.json": "22acf9d7d73e836963ab9a5f423112c333080941819133ca3ea011b2468e64cd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\owned-launch.json": "95e5ba7f6c1d8771c938205832a1108bded514a3e8ed7e621116f7dc10ded14d",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\completed-probe-proof.json": "eddaab2351091d3312af40b852ecbb92fbcb90c86057d723cd4d3b9b737e7da3",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\verified-capture.json": "7d7e0ef56cdcacee6b20e241d2535af86e33f951dac4813053f1fd7bf6b9b28d",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\capture-report.json": "2b2bec89618d0ac3ce5d137906ddf0afae6e8b006ddf8d746504f566b8fb95be",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\owned-stop.json": "0d03b7a8a7f12cfc95f34279c767a9cdf1c2d916583a72cdb78f07c092ea81dc",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\state.p2s": "61b921bcedde98c607176349de8522a3bca0642e8929c156d83176bcb7a6c864",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\emulator.log": "cf20fa4f85e6c91f3afd89ec8d0ad0df34e4f2016c79f645a5ed6bfab866d546",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\pool2-probe.cfg": "42e68e73941e0563ece557324eba79fce999bfd80f44d331522a33e8483ea588",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\owned-stop-second-signal.json": "c421ec8c8c7217eaec2a7970464af48a0cbc65db9cebfddfa1e3ccbdf6fdb041",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-repeat3-pair.json": "628213d18e6750beef7859b3eebdf7cf8c1d0c35c393ae4aff4b78eb56717681",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\owned-launch.json": "de611fc5dae1163b60d09324f6bc2b4753331834de6ac25aaa8ec4dc08450a78",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\completed-probe-proof.json": "f147760ad73127d21dfdb4ab3a9b9dc2e2bdf360517ebf621d2c9667117bbc56",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\verified-capture.json": "24b039e661272cf5959d8de5e4fa197541d78b40f0d86fcf45767b498dbcd600",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\capture-report.json": "e7da5ce57de2aeb1152bce9bb82c36ae6011c57aff14c9c67997905a02044a98",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\owned-stop.json": "e0abf83c8a099f74bc23626324838caf3ff628c719fa1496ea67b0f097770697",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\state.p2s": "4327f2723dd82180eda864069e3740a6ededfc29923a7fa49ecd201b795b55d1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\emulator.log": "1ee3b4b1897253acaf1901a89de8bfb0b43c00cb52a13c9cae0d0c0098d3c3da",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\PCSX2-after.ini": "ec86c7ffa05d03ded74a3c3179903a0357d464dc5ffb57517900f2369565a5e7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\pool2-probe.cfg": "4a3ea3a69754a27f80d18f43ac6f99c5f60edad06f132da08a8ccbea84249667",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\modal-recovery-record.json": "b3ff389e0a256f8aceac9d33881697961251e552407ef9aeec317378154ba060",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\owned-stop-second-signal.json": "950be554c6867e937dc925d5f80d5dd6f520790c924ec77427eac86e5f2ec163",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\owned-launch.json": "68793739c631642b723035d877940246fafae384e36fbd7c71243007149ace25",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\completed-probe-proof.json": "8ccc3f978a758a6105f333e4fae14dac30baa9a87dcec4cb4629f791f69141de",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\verified-capture.json": "3f6c6c8213366f00827d254c34bf68582af220ca33203bb4a8dd5e3734e6a7f8",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\capture-report.json": "183a1e8e6ff5f4ac8366fd5036a8faeed7a696bab9ada797e20f31309a3491a1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\owned-stop.json": "806ee47c75424af097f563ace2809df1f26d4c75338b2e13142a024a0c6145cc",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\state.p2s": "005e54711698b42a0b53b83ef0f163ed36323554b1fda44c36f2cebe7aef3bb1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\emulator.log": "529069b73006de35f8ebf2e76a659ad62e172e5927e4d849f51c75926cbfcd28",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\pool2-probe.cfg": "15e8e35c92c58cb6273c5b26897e0d8c4a70e2bdeba662f834e339045e573b6b",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\owned-stop-second-signal.json": "53cbb8d8ed2708afc6416ab2e31ec4095c8ee480737dd05fb896fd675891d3bc",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-repeat1-pair.json": "5f9e83e9ba6a55d201b9cc0c1ee1ea849931737bb57bc6a4a8042064a728db13",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\owned-launch.json": "e6cf77f05b318834515c2ada5f4a9abc497e6bd33321e5f6742c6c846ea8cd11",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\completed-probe-proof.json": "c2d6f5a7f3563627629668c720e6a16175d2a71074e20812dda400326d4bbf8c",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\verified-capture.json": "9d44793ae096a08477c3431ff779d49b2016dc906269ae327f20eb4dfab7a917",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\capture-report.json": "29b3a0fcd8a63a57263a0effbbdbec855c6280bf5968abda9308e52bd316b6d1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\owned-stop.json": "f4e0d4396a92e6903b734845986ccd1b20af9444113f2f130a9b1b46dc804fbe",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\state.p2s": "17b700c693c0def67299dcc2312ecdb0cf496ff3de71efa55708bf78051e0247",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\emulator.log": "41bb751a59fc6cd84600fe275f1b53daf25c759e02ab1bb269697c6fc9400608",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\pool2-probe.cfg": "ba3e8428a0218265e0325610c9600cbef1b361e400ec37eec2e9a66e207af27f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\owned-stop-second-signal.json": "35baaf5c3cce756a3ac92a020ce90ce2abf83ebf9e00380ce275def973a63c77",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\owned-launch.json": "d2e9c0a05098b1b178b7d51d51139ae55ce33f7b749138b76d4dfa45b2695b63",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\completed-probe-proof.json": "97c4eddeae59e4999078de5655300c7d56e491bdfde4976c8aab26cb0f6796a4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\verified-capture.json": "233e95f088650910c0c60bfdab7c2b5b75aa0a6af2cc8dd650cfeda7fd21fe7d",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\capture-report.json": "f034d956a0bc35252952ed508cf39b801ce20983773174126925be07675c0904",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\owned-stop.json": "425dba2c0b1710e1ff2c7f5292f651b572c6aca81746a15cda9f7acb474dcac6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\state.p2s": "2b413f9be399b14e02fb46cd947a5f7097bc3cc0d7a88a8963a88f6f92654490",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\emulator.log": "0b2025961effdc54120d6e7b54e777670997c7f67725a7e03f24d7a024cff322",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\pool2-probe.cfg": "861a624a60598dd7df9cbe99c7599b76366aa02529bd9150546db88731be46a4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\owned-stop-second-signal.json": "4dee7f837d7b440cf0e8130075f89aee7a0ea10391c9ca4174578ac53cab21c7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-repeat2-pair.json": "db5ca7d55a9013cfc3841b9ff88a08c591ba1ffd436413942c23110979577f24",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\owned-launch.json": "fb0537f4b8311fdf7a34a6671ada4cad66684749fe1baa43b28af9b9f4ff48dd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\completed-probe-proof.json": "7bbb4ad9d4d1bb2f0267c9d6d462032eb58f5937e98a8de7dd304183ec8751ae",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\verified-capture.json": "12c4f104f42eae8fbb974a1659e8ae8c4e691bd0f0ace4ec9224c3f871b3c2f6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\capture-report.json": "0af458398769dbad8fac9fc5e8a64b41c5b0a5d05eb6958a7dd17188a89aaf1d",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\owned-stop.json": "f436718f8f2668d0c45a519116ebfeeb7e887ea993cf2f7d215f69ce6b44341e",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\state.p2s": "037ef83cd583e3111d7cd759f156db601248717c0ee642ada8a8993ad1fcddf6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\emulator.log": "27e88674dc23afc0f87ea2c7d391357bbb586cc37cf0e0e9580264653c895987",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\pool2-probe.cfg": "9a2457e4e3df579aec9ab353de74a2641c0b4b224dbfabf31dbce095d7afdd50",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\owned-stop-second-signal.json": "1309f3b051b42cc31c0d9e376f6de8a3dcf81b123edff4255b069d3ed05a22fc",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\owned-launch.json": "3e51e5b624928e6a41ee915664b107e408ae2cd37a85242245e0d14badf86a86",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\completed-probe-proof.json": "476d9b5e50b363304df49c153a096e8f99d2acf7f4184abd159a13e0e368b694",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\verified-capture.json": "c19c745cc696eee957994a739a164fd0b0bd9a1835fc1b756cb9fafc1091f685",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\capture-report.json": "897512e21fed4371576e8104e7161d419ffb1b5e4e1be22c82a0b2f92d750cb4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\owned-stop.json": "dae5558ccd48153570722d7a09b3964cae007f705f9fc802e60a73f745f22dcb",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\state.p2s": "253096e3ca4be1dea33ca0a8131e6ddad7757f81ae90c9dbc9960d8d4a83f14c",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\emulator.log": "07d3ac7dc8919ebdf26993b532f7d493afa33e4547620e1fa8d2b2b278a0abdd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\pool2-probe.cfg": "a17d61c9baec08bcc6fa4d2a6f6ff92c6214be67a0622a9c95e9e70f6207a540",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\owned-stop-second-signal.json": "5b0317f28d30699c4703e6bbdaccda50f7e2373d10c6d348c8687d98aeef2ac8",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-repeat3-pair.json": "d1a48831f8a22375c1bc7c697b3c672ca8abfe4131e2899e74afd4d2e1eeb239",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-native-review-v1\\proof.json": "b609ee458adb5fa11074949c0bb44206253717088d8463f6d4a0c5ab938e42b2",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-native-review-v1-confirmation\\proof.json": "1d33dff3bc5b867a50678cb395a1f38bcd61e6ba8f6886794cb5575fdee2ee44",
+    "F:\\Projects\\tyrax2-lab-20261001\\close-pool2-static-matrix.py": "a85c591cfbc6b21f146793b80982ec166fd00efd8754fa3fd0cf792613d53ea7"
+  },
+  "pausedCompletionReadyTextIdentityPassed": true,
+  "fixedCasePackedEqualityAccepted": true,
+  "warmIndependentExecutionEpoch": false,
+  "universalGSOrHardwareEqualityAccepted": false,
+  "performanceAccepted": false,
+  "limits": [
+    "Static identical final bank payload has no per-iteration epoch. Repeated source calls/protocol and final completion are bound; fresh warm VU execution is not independently timestamped.",
+    "B192 final crossing75 and tail42 are retained; the first75 was overwritten. It is not accepted from this snapshot.",
+    "Packed STQ/RGBAQ/XYZF2/ADC and GIF header equality applies to these fixed inputs only; GS consumption and all floating boundaries remain outside this proof.",
+    "Initial A96 baseline required an observed breakpoint checkbox repair after READY; B192 baseline required dismissing host SDL audio error modal. Later profiles use host Null output, with the same guest ELF.",
+    "SaveState drains and host output configuration are separate correctness observers, not physical performance data."
+  ]
+}

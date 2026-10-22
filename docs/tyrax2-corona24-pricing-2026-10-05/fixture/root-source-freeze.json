@@ -1,0 +1,13 @@
+{
+  "sourceManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "sourceFiles": 501,
+  "pricingOnly": true,
+  "baseManifestSha256": "b9582677a88857c64d7c807e8c7acfb170d4aa84b5ef826bdd62734f1e26ebe3",
+  "engineDeltas": [
+    "tyra/Makefile.base",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/corona_flag_interlock.py"
+  ],
+  "gameSourceUnchanged": true
+}

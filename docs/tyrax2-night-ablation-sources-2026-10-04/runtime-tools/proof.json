@@ -1,0 +1,12 @@
+{
+  "status": "PREPARED_ROOT_ONLY_COMPLETED_NIGHT_EVIDENCE_AND_LOSSLESS_NORMALIZATION_HELPERS",
+  "scriptsExecutedOnActualCaptures": false,
+  "processOrDeviceControl": false,
+  "liveFileDeletion": false,
+  "pythonASTChecks": 2,
+  "files": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-runtime-tools-v1\\freeze-completed.py": "00ac0cd36071863508710d598012a7c2e5f406d5acf3596b1dcae30ebae8085f",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-runtime-tools-v1\\normalize-physical.py": "c05aa35f381d7ae9dc38aa798e469b573077defffd993efa919f145df54b37df",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-runtime-tools-v1\\README.md": "5f9fbb39e565f87b5479ae9ac1e43a2d6e824a10898e717a62e6ef2b03cccde0"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "command": [
+    "git",
+    "-c",
+    "core.autocrlf=false",
+    "-c",
+    "core.eol=lf",
+    "apply",
+    "--whitespace=nowarn",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-publication-v3\\patches\\frozen-v2-to-frozen-v3.patch"
+  ],
+  "exit": 0,
+  "stdout": "",
+  "stderr": ""
+}

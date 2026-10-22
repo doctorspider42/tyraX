@@ -1,0 +1,45 @@
+{
+  "status": "ROOT_REVIEWED_CLOSEOUT_INPUTS",
+  "rootReviewed": true,
+  "noAddedWaitsReviewed": true,
+  "ordinarySamplerOnlyReviewed": true,
+  "sourceFrozenByRoot": true,
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-model-v1/empty-car",
+  "inputs": [
+    {
+      "role": "source-review",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-model-v1/source-review.json",
+      "sha256": "a435409d4a82b7de38b2a35bcf3b1691cf630138d9705e91b5d59e494c2e5f6b"
+    },
+    {
+      "role": "native-proof",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-model-v1/native-proof.json",
+      "sha256": "1fbf030ece80f54d72b4d2bc7faed1d37cfbb4e4c612b27ac79744df9fb7ec10"
+    },
+    {
+      "role": "elf",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-model-v1/empty-car/bin/empty-car.elf",
+      "sha256": "526c635171b0daee8097e0a7ac055fc1b858f5adf7fa1700e1b8dfdfb4f2e82a"
+    },
+    {
+      "role": "symbol",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-model-v1/empty-car/bin/empty-car.elf.sym",
+      "sha256": "3b00e06d179e6f154960566581d78bd81825aefb4ef605d5a662ebd2b82e659b"
+    },
+    {
+      "role": "sample-config",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-model-v1/empty-car/bin/closeout.cfg",
+      "sha256": "968c76efed47eb02a2a77c542c9128dfd4e9c7066629920b2d8c3231081e7623"
+    }
+  ],
+  "changedSources": [
+    "game/empty-car.tyra",
+    "game/inc/model_data.gen.hpp",
+    "game/inc/scene_data.hpp",
+    "game/src/gen/game_scene.gen.cpp",
+    "game/src/gen/scene_objects.gen.cpp",
+    "game/src/terrain_game.cpp",
+    "tyra/engine/inc/debug/empty_witness.hpp"
+  ],
+  "reviewScope": "Same two cars, short controller and moving point; one static public tree with one textured96-vertex material at x5.6,z8, collision/shadows off. Authored/generated model tables rebuilt coherently; vehicle slots shifted and cold identities remain actual definition-based. Synchronous actual owner4 scope sets carrier5 only at cold frames; car/model/road accepted sums close. Four car light hooks and sampler unchanged. No new waits/clocks/FX/audio. Native and three original model runtime asset hashes checked. Sparse acceptance is not raster or every-frame proof."
+}

@@ -1,0 +1,306 @@
+--- a/game/src/gen/game_collision.gen.cpp
++++ b/game/src/gen/game_collision.gen.cpp
+@@ -3372,7 +3372,8 @@
+ // terrain-hugging gobo projection, the camera flashlight's attractive part
+ // without its unbounded grazing-angle receiver.
+ void TerrainGame::renderVehicleGlow() {
+-  if (NightAblation::skip(NightAblation::LightEffects)) return;
++  if (NightAblation::skip(NightAblation::LightEffects) ||
++      NightAblation::extraSkip(NightAblation::VehicleLampGlow)) return;
+   glowCount_ = 0;
+   headlightCount_ = 0;
+   bool headlightWrote = false;  // any pool slot's bytes changed this frame
+@@ -3636,7 +3637,7 @@
+         headlightCount_ != headlightCountPrev_)
+       headlightBag_->bboxVersion = ++g_bboxStamp;
+     headlightCountPrev_ = headlightCount_;
+-    (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(headlightBag_.get()));
++    (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::VehicleLampGlow), stapip.core.render(headlightBag_.get()));
+   } else {
+     headlightCountPrev_ = 0;
+   }
+@@ -3663,7 +3664,7 @@
+   }
+   glowBag_->count = (u32)(glowCount_ * 6);
+   glowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
+-  (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(glowBag_.get()));
++  (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::VehicleLampGlow), stapip.core.render(glowBag_.get()));
+ }
+ 
+ // The gearbox, the per-frame twin of vehiclesim::gearCount/gearTopSpeed/
+@@ -4466,7 +4467,8 @@
+ }
+ 
+ void TerrainGame::renderVehicleLampGlow() {
+-  if (NightAblation::skip(NightAblation::LightEffects)) return;
++  if (NightAblation::skip(NightAblation::LightEffects) ||
++      NightAblation::extraSkip(NightAblation::VehicleLampGlow)) return;
+   if (VEHICLE_DEF_COUNT <= 0 || !beamCoronaTex) return;
+   const float kDeg = 0.017453293F;
+   // The nitrous flame's flicker clock (real seconds, frozen with the game).
+@@ -4710,7 +4712,7 @@
+   if (!TYRA_VEH_LIGHTS_KEEP || lampGlowWrote || quads != lampGlowQuadsPrev_)
+     lampGlowBag_->bboxVersion = ++g_bboxStamp;
+   lampGlowQuadsPrev_ = quads;
+-  (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(lampGlowBag_.get()));
++  (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::VehicleLampGlow), stapip.core.render(lampGlowBag_.get()));
+ }
+ 
+ void TerrainGame::updateVehicleDamage(float dt) {
+--- a/game/src/gen/game_lighting.gen.cpp
++++ b/game/src/gen/game_lighting.gen.cpp
+@@ -522,7 +522,7 @@
+     pb.bag->bboxVersion = ++g_bboxStamp;
+     pb.lastKey = pb.key;
+   }
+-  (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(pb.bag.get()));
++  (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(pb.bag.get()));
+   pb.members.clear();
+   pb.memberFix.clear();
+ }
+@@ -530,7 +530,8 @@
+ 
+ 
+ void TerrainGame::updateAndRenderLightPools() {
+-  if (NightAblation::skip(NightAblation::LightEffects)) return;
++  if (NightAblation::skip(NightAblation::LightEffects) ||
++      NightAblation::extraSkip(NightAblation::Pools)) return;
+   if (lightPools.empty()) return;
+   // Last frame's receivers get their lamp back; this frame's pass re-applies
+   // (a rebuilt part arrives with a fresh info bag, so it is every frame).
+@@ -728,13 +729,13 @@
+         front.bind(setBag);
+         setBag->count = (u32)front.size();
+         setBag->bboxVersion = ++g_bboxStamp;
+-        (NightAblation::submitted(NightAblation::Shadows), stapip.core.render(setBag));
++        (NightAblation::submitted(NightAblation::Shadows), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(setBag));
+       }
+       if (!back.empty() && SHADOW_VOLUMES_DEBUG != 2) {
+         back.bind(clrBag);
+         clrBag->count = (u32)back.size();
+         clrBag->bboxVersion = ++g_bboxStamp;
+-        (NightAblation::submitted(NightAblation::Shadows), stapip.core.render(clrBag));
++        (NightAblation::submitted(NightAblation::Shadows), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(clrBag));
+       }
+       if (SHADOW_VOLUMES_DEBUG != 1)
+         rc.alphaMask.countResolve(rx0, ry0, rx1, ry1, by);
+@@ -1244,7 +1245,7 @@
+         b.wColorBag->single = nullptr;
+         b.wInfo->additiveBlendFix = (u8)wfix;
+         b.wBag->bboxVersion = ++g_bboxStamp;
+-        (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(b.wBag.get()));
++        (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(b.wBag.get()));
+       };
+       // The occluder candidates (pickVolCasters above, shared with the
+       // scene's spot lights). Nothing nearer than the VIRTUAL torch may
+@@ -1348,13 +1349,13 @@
+               b.volFront.bind(b.volSetBag);
+               b.volSetBag->count = (u32)b.volFront.size();
+               b.volSetBag->bboxVersion = ++g_bboxStamp;
+-              (NightAblation::submitted(NightAblation::Shadows), stapip.core.render(b.volSetBag.get()));
++              (NightAblation::submitted(NightAblation::Shadows), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(b.volSetBag.get()));
+             }
+             if (!b.volBack.empty()) {
+               b.volBack.bind(b.volClrBag);
+               b.volClrBag->count = (u32)b.volBack.size();
+               b.volClrBag->bboxVersion = ++g_bboxStamp;
+-              (NightAblation::submitted(NightAblation::Shadows), stapip.core.render(b.volClrBag.get()));
++              (NightAblation::submitted(NightAblation::Shadows), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(b.volClrBag.get()));
+             }
+             rc.alphaMask.end();
+           }
+@@ -1850,7 +1851,7 @@
+       }
+       b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
+       b.bag->bboxVersion = ++g_bboxStamp;
+-      (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(b.bag.get()));
++      (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(b.bag.get()));
+       finishVolMask();
+       continue;
+     }
+@@ -2001,7 +2002,7 @@
+         b.texBag->texture == flashGoboTex && b.colorBag->single != nullptr)
+       poolBatchAdd(b, (float)b.info->additiveBlendFix);
+     else
+-      (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(b.bag.get()));
++      (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(b.bag.get()));
+     // --- the carving spot's RECEIVER pass ----------------------------------
+     // The torch's wall pass on a scene lamp (docs/shadows.md): the solids
+     // its cone touches - nearest three, the torch's rules - are rendered a
+@@ -2171,7 +2172,7 @@
+           w.sWColors.bind(w.sWColorBag);
+           w.sWColorBag->single = nullptr;
+           w.sWBag->bboxVersion = ++g_bboxStamp;
+-          (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(w.sWBag.get()));
++          (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(w.sWBag.get()));
+         }
+       }
+     }
+@@ -4089,7 +4090,8 @@
+ // finished z-buffer occludes the beams behind walls.
+ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
+                                           const Vec4* viewAt, int portal) {
+-  if (NightAblation::skip(NightAblation::LightEffects)) return;
++  if (NightAblation::skip(NightAblation::LightEffects) ||
++      NightAblation::extraSkip(NightAblation::BeamsCoronas)) return;
+   if (lightBeams.empty() || !beamCoronaTex) return;
+   const Vec4& beamEye = viewEye ? *viewEye : cameraPosition;
+   const Vec4& beamAt = viewAt ? *viewAt : cameraLookAt;
+@@ -4321,7 +4323,7 @@
+       bb.coronaSts.bind(bb.coronaTexBag);
+       bb.coronaColors.bind(bb.coronaColorBag);
+       if (cw) bb.coronaBag->bboxVersion = ++g_bboxStamp;
+-      (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(bb.coronaBag.get()));
++      (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::BeamsCoronas), stapip.core.render(bb.coronaBag.get()));
+     }
+     bool nw = keepWrite(bb.coneVerts, kConeV);
+     nw = keepWrite(bb.coneColors, kConeC) || nw;
+@@ -4329,7 +4331,7 @@
+       bb.coneVerts.bind(bb.coneBag);
+       bb.coneColors.bind(bb.coneColorBag);
+       if (nw) bb.coneBag->bboxVersion = ++g_bboxStamp;
+-      (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(bb.coneBag.get()));
++      (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::BeamsCoronas), stapip.core.render(bb.coneBag.get()));
+     }
+     return;
+   }
+@@ -4341,13 +4343,13 @@
+     bb.coronaSts.bind(bb.coronaTexBag);
+     bb.coronaColors.bind(bb.coronaColorBag);
+     bb.coronaBag->bboxVersion = ++g_bboxStamp;
+-    (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(bb.coronaBag.get()));
++    (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::BeamsCoronas), stapip.core.render(bb.coronaBag.get()));
+   }
+   if (!bb.coneVerts.empty()) {
+     bb.coneVerts.bind(bb.coneBag);
+     bb.coneColors.bind(bb.coneColorBag);
+     bb.coneBag->bboxVersion = ++g_bboxStamp;
+-    (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(bb.coneBag.get()));
++    (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::BeamsCoronas), stapip.core.render(bb.coneBag.get()));
+   }
+ }
+ 
+--- a/game/src/gen/game_vehicles.gen.cpp
++++ b/game/src/gen/game_vehicles.gen.cpp
+@@ -925,7 +925,8 @@
+ // terrain-hugging gobo projection, the camera flashlight's attractive part
+ // without its unbounded grazing-angle receiver.
+ void TerrainGame::renderVehicleGlow() {
+-  if (NightAblation::skip(NightAblation::LightEffects)) return;
++  if (NightAblation::skip(NightAblation::LightEffects) ||
++      NightAblation::extraSkip(NightAblation::VehicleLampGlow)) return;
+   glowCount_ = 0;
+   headlightCount_ = 0;
+   bool headlightWrote = false;  // any pool slot's bytes changed this frame
+@@ -1189,7 +1190,7 @@
+         headlightCount_ != headlightCountPrev_)
+       headlightBag_->bboxVersion = ++g_bboxStamp;
+     headlightCountPrev_ = headlightCount_;
+-    (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(headlightBag_.get()));
++    (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::VehicleLampGlow), stapip.core.render(headlightBag_.get()));
+   } else {
+     headlightCountPrev_ = 0;
+   }
+@@ -1216,7 +1217,7 @@
+   }
+   glowBag_->count = (u32)(glowCount_ * 6);
+   glowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
+-  (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(glowBag_.get()));
++  (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::VehicleLampGlow), stapip.core.render(glowBag_.get()));
+ }
+ 
+ // The gearbox, the per-frame twin of vehiclesim::gearCount/gearTopSpeed/
+@@ -2019,7 +2020,8 @@
+ }
+ 
+ void TerrainGame::renderVehicleLampGlow() {
+-  if (NightAblation::skip(NightAblation::LightEffects)) return;
++  if (NightAblation::skip(NightAblation::LightEffects) ||
++      NightAblation::extraSkip(NightAblation::VehicleLampGlow)) return;
+   if (VEHICLE_DEF_COUNT <= 0 || !beamCoronaTex) return;
+   const float kDeg = 0.017453293F;
+   // The nitrous flame's flicker clock (real seconds, frozen with the game).
+@@ -2263,7 +2265,7 @@
+   if (!TYRA_VEH_LIGHTS_KEEP || lampGlowWrote || quads != lampGlowQuadsPrev_)
+     lampGlowBag_->bboxVersion = ++g_bboxStamp;
+   lampGlowQuadsPrev_ = quads;
+-  (NightAblation::submitted(NightAblation::LightEffects), stapip.core.render(lampGlowBag_.get()));
++  (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::VehicleLampGlow), stapip.core.render(lampGlowBag_.get()));
+ }
+ 
+ void TerrainGame::updateVehicleDamage(float dt) {
+--- a/game/src/terrain_game.cpp
++++ b/game/src/terrain_game.cpp
+@@ -762,7 +762,8 @@
+   // lights (the engine picks the strongest per mesh, flashlight included).
+   // A suppressed receiver pass must not retain last frame's lighting flags.
+   // This cleanup precedes base geometry and is empty after the first cut frame.
+-  if (NightAblation::disabled(NightAblation::LightEffects)) {
++  if (NightAblation::disabled(NightAblation::LightEffects) ||
++      NightAblation::extraDisabled(NightAblation::Pools)) {
+     for (int prev : spotSkipList) setDynLightSkip(prev, -1);
+     spotSkipList.clear();
+     for (int prev : flashSpotOffList) setFlashSpotOff(prev, true);
+--- a/tyra/engine/inc/debug/night_ablation.hpp
++++ b/tyra/engine/inc/debug/night_ablation.hpp
+@@ -6,6 +6,9 @@
+                        PostFx=16, Env=32, Sky=64 };
+ struct Counter { uint32_t attempted=0, executed=0, skipped=0, submitted=0; };
+ inline Counter commonCounter[7]{};
++enum Extra : unsigned { Pools=1, BeamsCoronas=2, VehicleLampGlow=4 };
++inline Counter extraCounter[3]{};
++inline unsigned extraMask=0;
+ inline unsigned mask=0;
+ inline bool collectCounters=false;
+ inline bool valid=true;
+@@ -17,6 +20,20 @@
+  // Optional Env/Sky cuts are reserved, not implemented by this first proposal.
+  if(value>31){valid=false;return false;}mask=value;return true;
+ }
++inline unsigned extraSlot(unsigned bit) {
++ for(unsigned i=0;i<3;++i) if(bit==(1U<<i)) return i;
++ valid=false;return 0;
++}
++inline bool setExtraMask(unsigned value) {
++ if(value>7){valid=false;return false;}extraMask=value;return true;
++}
++inline bool extraDisabled(unsigned bit){return (extraMask&bit)!=0;}
++inline bool extraSkip(unsigned bit){
++ if(!collectCounters)return extraDisabled(bit);
++ auto& c=extraCounter[extraSlot(bit)];++c.attempted;
++ if(extraDisabled(bit)){++c.skipped;return true;}++c.executed;return false;
++}
++inline void extraSubmitted(unsigned bit){if(collectCounters)++extraCounter[extraSlot(bit)].submitted;}
+ inline bool disabled(unsigned bit){return (mask&bit)!=0;}
+ inline bool skip(unsigned bit){
+  if(!collectCounters)return disabled(bit);
+--- a/tyra/engine/inc/debug/night_plan.hpp
++++ b/tyra/engine/inc/debug/night_plan.hpp
+@@ -4,9 +4,10 @@
+ #include <ctype.h>
+ namespace NightPlan {
+ struct Config {unsigned kind,order,joint,restored;};
+-inline bool valid(const Config& c){return c.order<=1&&((c.kind==0&&c.joint==0&&c.restored==0)||(c.kind==1&&c.joint==31&&c.restored==0)||(c.kind==2&&c.joint==31&&c.restored>0&&(c.restored&~c.joint)==0));}
++inline bool valid(const Config& c){return c.order<=1&&((c.kind==0&&c.joint==0&&c.restored==0)||(c.kind==1&&c.joint==31&&c.restored==0)||(c.kind==2&&c.joint==31&&c.restored>0&&(c.restored&~c.joint)==0)||(c.kind==3&&c.joint==0&&c.restored>0&&c.restored<=7));}
+ inline bool readConfig(const char* path,Config& cfg){FILE* f=fopen(path,"r");if(!f)return false;unsigned values[4]{};bool good=true;int c=fgetc(f);
+  for(unsigned i=0;i<4;++i){while(c!=EOF&&isspace(static_cast<unsigned char>(c)))c=fgetc(f);if(c<'0'||c>'9'){good=false;break;}unsigned n=0;do{unsigned digit=unsigned(c-'0');if(n>(0xffffffffu-digit)/10u){good=false;break;}n=n*10u+digit;c=fgetc(f);}while(c>='0'&&c<='9');if(!good)break;values[i]=n;if(c!=EOF&&!isspace(static_cast<unsigned char>(c))){good=false;break;}}
+  while(good&&c!=EOF){if(!isspace(static_cast<unsigned char>(c)))good=false;c=fgetc(f);}if(ferror(f))good=false;fclose(f);cfg={values[0],values[1],values[2],values[3]};return good&&valid(cfg);}
+-inline bool build(const Config& c,NightSampler::PhaseConfig (&out)[3]){if(!valid(c))return false;for(unsigned p=0;p<3;++p){bool middle=(p==1)!=(c.order==1);out[p]=c.kind==0?NightSampler::PhaseConfig{0,middle?1u:0u}:c.kind==1?NightSampler::PhaseConfig{middle?c.joint:0u,1}:NightSampler::PhaseConfig{middle?(c.joint&~c.restored):c.joint,1};}return true;}
++inline bool build(const Config& c,NightSampler::PhaseConfig (&out)[3]){if(!valid(c))return false;for(unsigned p=0;p<3;++p){bool middle=(p==1)!=(c.order==1);out[p]=c.kind==0?NightSampler::PhaseConfig{0,middle?1u:0u}:c.kind==1?NightSampler::PhaseConfig{middle?c.joint:0u,1}:c.kind==3?NightSampler::PhaseConfig{0,1}:NightSampler::PhaseConfig{middle?(c.joint&~c.restored):c.joint,1};}return true;}
++inline unsigned extraMask(const Config& c,unsigned p){if(c.kind!=3)return 0;bool middle=(p==1)!=(c.order==1);return middle?c.restored:0;}
+ }
+--- a/tyra/engine/inc/debug/night_runtime.hpp
++++ b/tyra/engine/inc/debug/night_runtime.hpp
+@@ -13,10 +13,10 @@
+  printf("LOG: NIGHTCONFIG order=%u valid=%u profile=0 hardwareTrace=0 ringBytes=0 ordinaryClocks=1 fixedDt=0 sampleBytes=%u chunkBytes=%u phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 chunkFrames=64 sampleFirst=900 sampleCount=128 video=%u display=%u depth=%u width=%u height=%u refreshMilliHz=%u requested=%u night=%u\n",unsigned(planConfig.order),unsigned(NightSampler::valid?1u:0u),unsigned(sizeof(NightSampler::samples)),unsigned(sizeof(NightSampler::chunks)),unsigned(video),unsigned(display),unsigned(depth),unsigned(width),unsigned(height),unsigned(refreshMilliHz),unsigned(requested),unsigned(night));
+  printf("LOG: NIGHTQUALITY rasterWidth=%u rasterHeight=%u scaleX=%u scaleY=%u\n",unsigned(rasterWidth),unsigned(rasterHeight),unsigned(scaleX),unsigned(scaleY));fflush(stdout);
+ }
+-inline void begin(unsigned pacing){if(!initialized)return;unsigned index=NightSampler::expectedIndex,p=index/1800,o=index%1800;if(p<3&&o==0){bool applied=NightAblation::setMask(NightSampler::phaseMask(index));NightSampler::valid=NightSampler::valid&&applied&&NightAblation::valid;printf("LOG: NIGHTPHASE phase=%u first=%u mask=%u appliedMask=%u sampler=%u countReads=%u samplePtr=%08x\n",unsigned(p),unsigned(index),unsigned(NightSampler::plan[p].mask),unsigned(NightAblation::mask),unsigned(NightSampler::mode(p)?1u:0u),unsigned(NightSampler::mode(p)?262u:6u),unsigned(reinterpret_cast<uintptr_t>(NightSampler::samples)));fflush(stdout);}NightAblation::collectCounters=p<3&&(o==750||o==1155);if(NightAblation::collectCounters)for(unsigned i=0;i<7;++i)NightAblation::commonCounter[i]=Counter{};NightSampler::beginLoop(index,pacing);}
++inline void begin(unsigned pacing){if(!initialized)return;unsigned index=NightSampler::expectedIndex,p=index/1800,o=index%1800;if(p<3&&o==0){bool applied=NightAblation::setMask(NightSampler::phaseMask(index));bool extraApplied=NightAblation::setExtraMask(NightPlan::extraMask(planConfig,p));NightSampler::valid=NightSampler::valid&&applied&&extraApplied&&NightAblation::valid;printf("LOG: NIGHTPHASE phase=%u first=%u mask=%u appliedMask=%u sampler=%u countReads=%u samplePtr=%08x\n",unsigned(p),unsigned(index),unsigned(NightSampler::plan[p].mask),unsigned(NightAblation::mask),unsigned(NightSampler::mode(p)?1u:0u),unsigned(NightSampler::mode(p)?262u:6u),unsigned(reinterpret_cast<uintptr_t>(NightSampler::samples)));printf("LOG: NIGHTEXTRAPHASE phase=%u first=%u extraMask=%u appliedExtraMask=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::extraMask(planConfig,p)),unsigned(NightAblation::extraMask));fflush(stdout);}NightAblation::collectCounters=p<3&&(o==750||o==1155);if(NightAblation::collectCounters){for(unsigned i=0;i<7;++i)NightAblation::commonCounter[i]=Counter{};for(unsigned i=0;i<3;++i)NightAblation::extraCounter[i]=Counter{};}NightSampler::beginLoop(index,pacing);}
+ inline void afterLoop(unsigned pacing){if(!initialized)return;using namespace NightSampler;endLoop(pacing);unsigned p=frame/1800,o=frame%1800;valid=valid&&NightAblation::valid;if(p>=3)return;
+  NightAblation::collectCounters=false;
+- if(o==750||o==1155){printf("LOG: NIGHTGATES phase=%u offset=%u first=%u frames=1 mask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(plan[p].mask));for(unsigned i=0;i<7;++i){unsigned bit=1u<<i;const auto& c=NightAblation::commonCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");fflush(stdout);}
++ if(o==750||o==1155){printf("LOG: NIGHTGATES phase=%u offset=%u first=%u frames=1 mask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(plan[p].mask));for(unsigned i=0;i<7;++i){unsigned bit=1u<<i;const auto& c=NightAblation::commonCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");printf("LOG: NIGHTEXTRAGATES phase=%u offset=%u first=%u frames=1 extraMask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::extraMask));for(unsigned i=0;i<3;++i){unsigned bit=1u<<i;const auto& c=NightAblation::extraCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");fflush(stdout);}
+  if(o>=1200&&o<1328){if(!file){valid=false;return;}unsigned i=o-1200;if(i<5){const auto& c=chunks[p][i];fprintf(file,"LOG: NIGHTCHUNK phase=%u i=%u first=%u loops=%u elapsed=%u pacing=%u totalFlips=%u renderedFlips=%u syntheticFlips=%u\n",unsigned(p),unsigned(i),unsigned(c.first),unsigned(c.loops),unsigned(c.elapsed),unsigned(c.pacing),unsigned(c.totalFlips),unsigned(c.renderedFlips),unsigned(c.syntheticFlips));}if(mode(p)){const auto& s=samples[i];fprintf(file,"LOG: NIGHTRAW phase=%u i=%u frame=%u entryPeriod=%u wholeLoop=%u pacing=%u totalFlips=%u renderedFlips=%u syntheticFlips=%u presentPeriod=%u renderedPeriod=%u lastKind=%u sequence=%u context=%u\n",unsigned(p),unsigned(i),unsigned(s.frame),unsigned(s.entryPeriod),unsigned(s.wholeLoop),unsigned(s.pacing),unsigned(s.totalFlips),unsigned(s.renderedFlips),unsigned(s.syntheticFlips),unsigned(s.presentPeriod),unsigned(s.renderedPeriod),unsigned(s.lastKind),unsigned(s.sequence),unsigned(s.context));}if(ferror(file))valid=false;if(i==127){markExported(p);fprintf(file,"LOG: NIGHTWINDOW phase=%u sampler=%u raw=%u chunks=%u valid=%u\n",unsigned(p),unsigned(mode(p)?1u:0u),unsigned(counts[p]),unsigned(chunkCounts[p]),unsigned(valid?1u:0u));if(fflush(file)!=0)valid=false;}}
+  if(frame==5399&&!done){done=true;if(file){if(fclose(file)!=0)valid=false;file=nullptr;}printf("LOG: NIGHTDONE order=%u valid=%u loops=5400\n",unsigned(planConfig.order),unsigned(complete()?1u:0u));fflush(stdout);}
+ }

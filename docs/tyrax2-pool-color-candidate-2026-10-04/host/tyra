@@ -1,0 +1,15 @@
+#pragma once
+#include "renderer/models/color.hpp"
+#include <cstdint>
+namespace Tyra {
+inline void Color::copy(Color* o,const float* i){std::memcpy(static_cast<void*>(o),i,16);}
+inline void Color::operator=(const Color& v){copy(this,v);}
+using u32=unsigned;
+struct M4x4 {float v[16]{};void identity(){for(unsigned i=0;i<16;++i)v[i]=(i%5==0)?1.f:0.f;}};
+enum {TyraShadingGouraud=1};
+struct StaPipInfoBag {M4x4* model=nullptr;unsigned shadingType=0,additiveBlendFix=0;bool dateLit=false;};
+struct StaPipColorBag {Color* single=nullptr;Color* many=nullptr;const unsigned* contentVersion=nullptr;};
+struct StaPipTextureBag {void* texture=nullptr;Vec4* coordinates=nullptr;const unsigned* contentVersion=nullptr;};
+struct StaPipLightingBag {Vec4* normals=nullptr;const unsigned* contentVersion=nullptr;};
+struct StaPipBag {StaPipInfoBag* info=nullptr;StaPipColorBag* color=nullptr;StaPipTextureBag* texture=nullptr;StaPipLightingBag* lighting=nullptr;Vec4* vertices=nullptr;unsigned count=0,bboxVersion=0;const unsigned* contentVersion=nullptr;};
+}

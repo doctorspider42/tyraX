@@ -1,0 +1,13 @@
+# Kind29 parser-repair independent review
+
+PASS: the three parser blockers in the original candidate review are repaired. Source guard qualification plus this repair has no remaining blocker to freezing the pinned unchanged-scene experiment, subject to parent source-agent/native/ownership gates. This is not runtime, image or performance approval. Original report/pins preserved.
+
+Eligibility refusal and dirty-demotion events are bounded by sourceMembers, while fallback/demoted group counts use sourceGroups. Unready merged groups require zero copied count but individually ready original carriers can have positive count. Ready groups require source member-count sum to match copied group count and full geometry oracle denominator; reflectionCarriers equals sum of member.ready. Current parser/analysis/header source pins in host-authority match reviewed bytes. All501 current draft source hashes match.
+
+Root host proof contains52 checks with both-order active positives, completed inactive/unpriced fallback positives, and unready copied-group/ready original-carrier positives with11 dirty member events. Negative controls cover mismatches, duplicates, actual grouped inventory, geometry/color denominators, original/reflection sums, duplicate IDs/object ownership/group overlap, wrong readiness/semantic copy, member refusal overflow, missing/duplicate aggregate/group/member rows, plus CLI paths for both orders. Root synthetic-file hashes match. Tests were read, not rerun by this reviewer.
+
+Proof is synthetic/CLI schema behavior and is explicitly not actual source oracle, native execution or VU/GS output. Root proof itself records synthetic payload pins rather than parser/harness hashes; this audit archives exact current source hashes and binds them through the matching host-authority source pins. It should not be described as independently immutable historic execution proof unless root also pins its command input sources.
+
+Remaining scope caveat: ready-but-demoted original geometry can differ from old copied storage; current source still compares it and parser globally rejects geometryMismatches. Therefore a controlled dirty transform can correctly fall back but yield an invalid semantic capture. The host unready-group positive does not prove acceptance of real ready-but-demoted geometry changes. This does not block the unchanged fixed-fixture measurement; qualify dirty fallback independently or explicitly expect invalidation, without claiming broad mutable-scene promotion.
+
+Activation remains cold-only evidence; timed continuous replacement, reflection packet cadence and target image require parent qualification. No new runtime or fps claim.

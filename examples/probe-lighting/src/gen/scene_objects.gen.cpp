@@ -24,6 +24,7 @@ const SceneObjectData SCENE_0_OBJECTS[15] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {15};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[15] = {0xff3f645a0ec54ec6ULL, 0xff3d645a0ec4cbefULL, 0xff39645a0ec0e318ULL, 0xff35645a0ebcfa41ULL, 0xff33645a0ebc776aULL, 0xff2f645a0eb88e93ULL, 0xff2b645a0eb4a5bcULL, 0xff27645a0eb0bce5ULL, 0xff25645a0eb03a0eULL, 0xff21645a0eac5137ULL, 0xf62a3b5a0982bc91ULL, 0xf62e3b5a0986a568ULL, 0xf6303b5a0987283fULL, 0xf6343b5a098b1116ULL, 0x77caa9edc9057cdeULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[15] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
 
 }  // namespace Probe_lighting
 

@@ -1,0 +1,63 @@
+serial SLES-52584  crc 75BECC18  state version 9
+PMODE EN1=0 EN2=1 MMOD=1 AMOD=1 ALP=0 | SMODE2 INT=1 FFMD=0
+DISPFB1 FBP=0 FBW=0 PSM=CT32 | DISPLAY DX=0 DY=0 DW=1 DH=1
+DISPFB2 FBP=0 FBW=10 PSM=CT16S | DISPLAY DX=636 DY=50 DW=2560 DH=448
+vsyncs in dump: 4 (per-vsync figures below are the dump total / 4)
+pixels/vsync 4471753 (textured 3818441, blended 4471753)  prims/vsync 33239  vertex kicks/vsync 56762
+per vsync: PRIM writes 1330, TEX0 changes 188, FRAME changes 194, uploads 640 (3144.1 KB IMAGE)
+primitives: {'SPRITE': 1648, 'TSTRIP': 130123, 'LINE': 160, 'POINT': 1024}
+dithering x target format (pixels): DTHE=0 CT32 15593254, DTHE=1 CT16S 1146880, DTHE=0 CT16 1146880
+fill per render target (block address, format):
+  FBP=2240   CT32     11307512 px   115809 prims
+  FBP=11616  CT32      1806028 px     5732 prims
+  FBP=0      CT16S     1146880 px       80 prims
+  FBP=2240   CT16      1146880 px      160 prims
+  FBP=7616   CT32       640768 px      140 prims
+  FBP=6720   CT32       630784 px       44 prims
+  FBP=6752   CT32       573440 px       40 prims
+  FBP=12640  CT32       208109 px     4248 prims
+  FBP=12896  CT32       166622 px     2820 prims
+  FBP=13152  CT32       163734 px     2778 prims
+  FBP=11200  CT32        71680 px       20 prims
+  FBP=11584  CT32        24576 px       60 prims
+  FBP=11552  CT32            0 px     1024 prims
+textured fill by texture format: {'CT32': 7274931, 'T8': 2412578, 'T8H': 1831154, 'T4': 1461341, 'CT24': 1146880, 'Z16': 1146880}
+uploads by format: {'CT32': 1140, 'CT16': 1420}
+note: pixels are geometric coverage clipped to the scissor box - an upper bound, no depth test
+
+pass timeline, vsync 1 (runs >= 20000 px)
+  FBP=0      CT16S DTHE=1 tex=('CT24', 2240)     alpha=0000000044  SPRITE msk=00000000    286720 px     20 prims
+  FBP=11616  CT32  DTHE=0 tex=None               alpha=00000000A8  SPRITE msk=00000000     32768 px      1 prims
+  FBP=2240   CT32  DTHE=0 tex=('CT32', 11584)    alpha=000000002A  TSTRIP msk=00000000    287522 px    214 prims
+  FBP=2240   CT32  DTHE=0 tex=('T8H', 6848)      alpha=0000000044  TSTRIP msk=FF000000    129035 px    216 prims
+  FBP=12640  CT32  DTHE=0 tex=None               alpha=00000000A8  SPRITE msk=00000000     32768 px      1 prims
+  FBP=2240   CT32  DTHE=0 tex=('T8', 15296)      alpha=8000000064  TSTRIP msk=00000000     28393 px    145 prims
+  FBP=2240   CT32  DTHE=0 tex=('T4', 15104)      alpha=8000000064  TSTRIP msk=00000000    128825 px    673 prims
+  FBP=2240   CT32  DTHE=0 tex=('T8', 15392)      alpha=8000000064  TSTRIP msk=00000000     33572 px    383 prims
+  FBP=2240   CT32  DTHE=0 tex=('T4', 16128)      alpha=8000000064  TSTRIP msk=00000000     37917 px     74 prims
+  FBP=2240   CT32  DTHE=0 tex=('T8', 16224)      alpha=8000000064  TSTRIP msk=00000000     59188 px    173 prims
+  FBP=2240   CT32  DTHE=0 tex=('T8', 14272)      alpha=2600000064  TSTRIP msk=00000000     79355 px    229 prims
+  FBP=11616  CT32  DTHE=0 tex=('CT32', 12640)    alpha=80000000A8  TSTRIP msk=00000000     20739 px    444 prims
+  FBP=2240   CT32  DTHE=0 tex=('T8', 15584)      alpha=8000000064  TSTRIP msk=00000000     36482 px    520 prims
+  FBP=2240   CT32  DTHE=0 tex=None               alpha=0000000058  SPRITE msk=00000000    286720 px     20 prims
+  FBP=2240   CT32  DTHE=0 tex=('T8', 13984)      alpha=8000000064  TSTRIP msk=00000000     74189 px   2583 prims
+  FBP=2240   CT32  DTHE=0 tex=('T8', 13984)      alpha=8000000064  TSTRIP msk=00000000     90797 px   3492 prims
+  FBP=2240   CT16  DTHE=0 tex=('Z16', 6720)      alpha=000000002A  SPRITE msk=00003FFF    286720 px     40 prims
+  FBP=2240   CT32  DTHE=0 tex=('T8H', 2240)      alpha=0000000044  SPRITE msk=FF000000    286720 px     20 prims
+  FBP=6720   CT32  DTHE=0 tex=('CT32', 2240)     alpha=FF000000A4  SPRITE msk=FF000000     28672 px      2 prims
+  FBP=6752   CT32  DTHE=0 tex=('CT32', 2240)     alpha=FF000000A4  SPRITE msk=FF000000     28672 px      2 prims
+  FBP=6720   CT32  DTHE=0 tex=('CT32', 2240)     alpha=FF000000A4  SPRITE msk=FF000000     28672 px      2 prims
+  FBP=6752   CT32  DTHE=0 tex=('CT32', 2240)     alpha=FF000000A4  SPRITE msk=FF000000     28672 px      2 prims
+  FBP=6720   CT32  DTHE=0 tex=('CT32', 2240)     alpha=FF000000A4  SPRITE msk=FF000000     28672 px      2 prims
+  FBP=6752   CT32  DTHE=0 tex=('CT32', 2240)     alpha=FF000000A4  SPRITE msk=FF000000     28672 px      2 prims
+  FBP=6720   CT32  DTHE=0 tex=('CT32', 2240)     alpha=FF000000A4  SPRITE msk=FF000000     28672 px      2 prims
+  FBP=6752   CT32  DTHE=0 tex=('CT32', 2240)     alpha=FF000000A4  SPRITE msk=FF000000     28672 px      2 prims
+  FBP=6720   CT32  DTHE=0 tex=('CT32', 2240)     alpha=FF000000A4  SPRITE msk=FF000000     28672 px      2 prims
+  FBP=6752   CT32  DTHE=0 tex=('CT32', 2240)     alpha=FF000000A4  SPRITE msk=FF000000     28672 px      2 prims
+  FBP=7616   CT32  DTHE=0 tex=('CT32', 7616)     alpha=5400000064  SPRITE msk=FF000000     70592 px     20 prims
+  FBP=2240   CT32  DTHE=0 tex=('CT32', 11200)    alpha=8000000029  SPRITE msk=FF000000    286720 px     20 prims
+  FBP=11616  CT32  DTHE=0 tex=('CT32', 2240)     alpha=000000002A  SPRITE msk=00000000     71680 px     20 prims
+  FBP=11616  CT32  DTHE=0 tex=('CT32', 15936)    alpha=000000002A  SPRITE msk=00FFFFFF     71680 px     20 prims
+  FBP=11616  CT32  DTHE=0 tex=('CT32', 11616)    alpha=4000000064  SPRITE msk=FF000000    215040 px     60 prims
+  FBP=2240   CT32  DTHE=0 tex=('CT32', 11616)    alpha=0000000044  SPRITE msk=FF000000    286720 px     20 prims
+  FBP=2240   CT32  DTHE=0 tex=None               alpha=0000000081  SPRITE msk=00000000    286720 px     20 prims

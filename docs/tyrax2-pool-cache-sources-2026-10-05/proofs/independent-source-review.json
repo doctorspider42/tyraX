@@ -1,0 +1,353 @@
+{
+  "status": "PASS_INDEPENDENT_SAME_ELF_POOL_CACHE_KIND4_PROPOSAL_SOURCE_HOST_COLD_PROTOCOL",
+  "blockers": [],
+  "compilerBlockers": [],
+  "sourceManifestSha256": "d279c45d1a9f6b22fd71051e9f3a9b9570512242a863e18a096c1d17846c636e",
+  "sourceFiles": 497,
+  "changedFiles": [
+    "game/src/gen/game_lighting.gen.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp"
+  ],
+  "unchangedFiles": 493,
+  "actualDualArmOracleCasesEach": 1329,
+  "actualDualArmOracleChecksEach": 11722,
+  "savedProtocolTranscriptsReparsed": 20,
+  "negativeParserArtifactsBound": 47,
+  "reviewerHostRuns": 0,
+  "literalOriginalRebuildArmVerified": true,
+  "outsidePoolFlushSourceTextEqual": true,
+  "samplerQuietAliasByteEquality": true,
+  "kind4Flags": {
+    "order0": [
+      0,
+      1,
+      0
+    ],
+    "order1": [
+      1,
+      0,
+      1
+    ],
+    "ordinaryMasks": [
+      0,
+      0,
+      0
+    ],
+    "extraMasks": [
+      0,
+      0,
+      0
+    ],
+    "samplers": [
+      1,
+      1,
+      1
+    ]
+  },
+  "sourceSemantics": [
+    "Flag changes only at existing1800-loop phase boundary beforeframe; no warm cache reset, new clock, fence or native lease.",
+    "Common key-reason classification executes in both arms and remains unpriced; baseline false arm retains literal original rebuild statements.",
+    "Candidate only skips geometry/ST refresh for ordered equal identity/position/ST stamp key and changedRGB/FIX; fresh color version invalidates baked contents.",
+    "Pool reason and common/extra counters reset/write only cold750/1155; exportedNIGHTPOOLPHASE/GATES bind appliedflag/reason/action partitions.",
+    "Invalid key shape and counter/vertex overflow mark invalid and strict parser rejects; no malformed state accepted as optimized hit.",
+    "Oldkind0123 poolflagfalse; same source oldplan semantics retained, no timingequivalence to oldELF inferred."
+  ],
+  "limits": [
+    "Candidate activation not yet measured in current scene; color-only sparse witnesses must be positive before claiming active behavior.",
+    "No full-window hit census from cold750/1155 snapshots.",
+    "Header/control oracle uses explicit renderer/Vec4/matrix/bag shims, bounded stamp wrap and hostFP; actualEE/runtime/cache/queuedDMA/pixel gates remain pending.",
+    "Common reason scanning/branch/code footprint and cache route response remain part of own same-ELF apparatus, not a uniform removable fee.",
+    "Prior source-onlysplit targetcompile is historical and cannot qualify this actualdual-arm TU."
+  ],
+  "nativeRuntimePixelsOptimizationGainOr60Accepted": false,
+  "artifactSha256": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/baseline-function.cpp": "5b5c00148aa3ee3bf0dfe608775f13745539e22d0dd28222b9f27258cc998306",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/candidate-function.cpp": "76d6c205f18a85a263bf4570abb17c7bfbbf1cea1a6f6aeb9ec57c60defe4275",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host-proof.json": "a6c14aa0a5ac320d06da2b3f20dd0a6c850f6ad9315874859a6941f14dcffc26",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/integrate-root.py": "e3d329caa1d07a8617ad474d7d183cef13cc7f646b5d05b680aafd1c7b64c9c9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/PLAN.md": "19abc73e6b0914c535774245249341ffce504192b06385328dab2512072b0e1d",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/pool-color-split.patch": "fe7471c3d5fc1410bc044681b4d1267abb3a4ff03b82f8d92e701ed0690bc40d",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/README.md": "9177e273f0d0889dfd115587f236ff57432935463191b0925c041a7bfb1a0173",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/run-host-oracle.py": "1cbfc0a818a644e2b7873df1b9d9c8b32fc2101fd1e31defb0352ea57cad4fab",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/source-proof.json": "3ed22464c232386cc75006cf1d4fe0f7483a2ffc4658c9d520e17ee19bfeef3a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/target-source-manifest.json": "d279c45d1a9f6b22fd71051e9f3a9b9570512242a863e18a096c1d17846c636e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/bag_array.gen.hpp": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/candidate.inc": "c5b42a62467ff7f3f1876ee6131b28c29d2eb7f42491f1d02cf80739c7c3e5af",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/night_ablation.hpp": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/O0-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/O0-run.log": "462af4cc47b815e1cdc6edf9a2d9be021f5d6cfa8ec9ef5c13a614a0130c3cc2",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/O2-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/O2-run.log": "462af4cc47b815e1cdc6edf9a2d9be021f5d6cfa8ec9ef5c13a614a0130c3cc2",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/oracle-O0.exe": "ca51c924b36dc22c3cf9c3968881f86f5963de79c6ece4e8cb61c5c717e827bd",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/oracle-O2.exe": "b9127ad61bd9a1949636904256c4a0439991e41d18808e8292f3e3076d1f7baa",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/oracle.cpp": "94061b3b72433abf1db42f36717fa3078bdc3f082b2404200e4bd9962f0310dc",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/original.inc": "3bbbddde56c576e09b99b1686858536ccb1d4ee90780ab638f0b489a899d5f6b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/tyra": "1307da4266daedde7acc44fa7aca637b88222bc5020c0a93a10f9da9d0743295",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/math/vec4.hpp": "285634435d7888a29defbddec63856d672959c97e5faa3b751d51eca1d31ce21",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/host/renderer/models/color.hpp": "2ccdf2b171fad8c4349cd1f8cb88d1c11a54cc554c416ed091d33f33a4afe588",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/source/game/src/gen/game_lighting.gen.cpp": "cdcacb7fe39db886a0421745d3875950fe3524683923aeb595de3b58febfede8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/source/tyra/engine/inc/debug/night_ablation.hpp": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/source/tyra/engine/inc/debug/night_plan.hpp": "19f1484f376dd5614ca28985cab2eb60cf9c802521c1b89d01c3cc0c7a30a037",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/source/tyra/engine/inc/debug/night_runtime.hpp": "e67309ec355823c45f400066f396c1f342b8a725dcbd10b02ac2323965533538",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/source/tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/source/tyra/engine/inc/debug/quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/source/tyra/engine/inc/debug/quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\night_plan.hpp": "19f1484f376dd5614ca28985cab2eb60cf9c802521c1b89d01c3cc0c7a30a037",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\night_runtime.hpp": "e67309ec355823c45f400066f396c1f342b8a725dcbd10b02ac2323965533538",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\analyze-night.py": "a5557c0a57a82025c96c86d18ee0b370e3f719c7dc443edbcd30c1c88ee7579f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\analyze-night-cli.py": "eadb1cc98e596b3c6e527bf0b397241d5555278eb12ce3f795898c1bcc9213f1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host-controls.cpp": "516bb4e57391e4472424f302b47797b4b79b729450401a7695bcfd50a4c7f456",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\run-host-controls.py": "3860c13bfa14b5804aeef71c399dae3183e1827afe55c40f24cc1ca207fb79cd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\README.md": "514a9df2073ecbb7e878824258abed86b6c0b75167b33a5966cafcf1830c92b1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\source\\tyra\\engine\\inc\\debug\\night_ablation.hpp": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\source\\game\\src\\gen\\game_lighting.gen.cpp": "cdcacb7fe39db886a0421745d3875950fe3524683923aeb595de3b58febfede8",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\pool-color-split.patch": "fe7471c3d5fc1410bc044681b4d1267abb3a4ff03b82f8d92e701ed0690bc40d",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\run-host-oracle.py": "1cbfc0a818a644e2b7873df1b9d9c8b32fc2101fd1e31defb0352ea57cad4fab",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\bag_array.gen.hpp": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\night_ablation.hpp": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\math\\vec4.hpp": "285634435d7888a29defbddec63856d672959c97e5faa3b751d51eca1d31ce21",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\renderer\\models\\color.hpp": "2ccdf2b171fad8c4349cd1f8cb88d1c11a54cc554c416ed091d33f33a4afe588",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\tyra": "1307da4266daedde7acc44fa7aca637b88222bc5020c0a93a10f9da9d0743295",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle.cpp": "94061b3b72433abf1db42f36717fa3078bdc3f082b2404200e4bd9962f0310dc",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\original.inc": "3bbbddde56c576e09b99b1686858536ccb1d4ee90780ab638f0b489a899d5f6b",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\candidate.inc": "c5b42a62467ff7f3f1876ee6131b28c29d2eb7f42491f1d02cf80739c7c3e5af",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\O0-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\O0-run.log": "462af4cc47b815e1cdc6edf9a2d9be021f5d6cfa8ec9ef5c13a614a0130c3cc2",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\O2-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\O2-run.log": "462af4cc47b815e1cdc6edf9a2d9be021f5d6cfa8ec9ef5c13a614a0130c3cc2",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle-O0.exe": "ca51c924b36dc22c3cf9c3968881f86f5963de79c6ece4e8cb61c5c717e827bd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host\\oracle-O2.exe": "b9127ad61bd9a1949636904256c4a0439991e41d18808e8292f3e3076d1f7baa",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-proposal-v1/proposal-manifest.json": "d2ef979cc8c32eca0ed773eb5422f7d4cdc1fe4a417a91cb0145dde62f7b4352",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/final-proof.json": "01b0a05454ca4a13f65758cb32a6b4028de0b47390b9691fa68b62a36f2d874f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-v3/target-source-manifest.json": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad"
+  },
+  "transcripts": [
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O0-0-0-0-0-stdout.log",
+      "kind": 0,
+      "order": 0,
+      "sampleRows": 128,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O0-0-1-0-0-stdout.log",
+      "kind": 0,
+      "order": 1,
+      "sampleRows": 256,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O0-1-0-31-0-stdout.log",
+      "kind": 1,
+      "order": 0,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O0-1-1-31-0-stdout.log",
+      "kind": 1,
+      "order": 1,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O0-2-0-31-3-stdout.log",
+      "kind": 2,
+      "order": 0,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O0-2-1-31-3-stdout.log",
+      "kind": 2,
+      "order": 1,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O0-3-0-0-1-stdout.log",
+      "kind": 3,
+      "order": 0,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O0-3-1-0-1-stdout.log",
+      "kind": 3,
+      "order": 1,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O0-4-0-0-0-stdout.log",
+      "kind": 4,
+      "order": 0,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O0-4-1-0-0-stdout.log",
+      "kind": 4,
+      "order": 1,
+      "sampleRows": 384,
+      "poolFlags": [
+        1,
+        0,
+        1
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O2-0-0-0-0-stdout.log",
+      "kind": 0,
+      "order": 0,
+      "sampleRows": 128,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O2-0-1-0-0-stdout.log",
+      "kind": 0,
+      "order": 1,
+      "sampleRows": 256,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O2-1-0-31-0-stdout.log",
+      "kind": 1,
+      "order": 0,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O2-1-1-31-0-stdout.log",
+      "kind": 1,
+      "order": 1,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O2-2-0-31-3-stdout.log",
+      "kind": 2,
+      "order": 0,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O2-2-1-31-3-stdout.log",
+      "kind": 2,
+      "order": 1,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O2-3-0-0-1-stdout.log",
+      "kind": 3,
+      "order": 0,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O2-3-1-0-1-stdout.log",
+      "kind": 3,
+      "order": 1,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O2-4-0-0-0-stdout.log",
+      "kind": 4,
+      "order": 0,
+      "sampleRows": 384,
+      "poolFlags": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/pool-cache-same-elf-controls-v1/host/O2-4-1-0-0-stdout.log",
+      "kind": 4,
+      "order": 1,
+      "sampleRows": 384,
+      "poolFlags": [
+        1,
+        0,
+        1
+      ]
+    }
+  ],
+  "noDeviceBuildSourceCandidateRepositoryMutation": true
+}

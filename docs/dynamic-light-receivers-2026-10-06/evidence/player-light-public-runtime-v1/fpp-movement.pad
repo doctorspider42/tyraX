@@ -1,0 +1,9 @@
+neutral
+press circle 0.15
+wait 1
+stick l 0 -80
+wait 1
+stick l 0 0
+stick r 50 0
+wait 0.5
+neutral

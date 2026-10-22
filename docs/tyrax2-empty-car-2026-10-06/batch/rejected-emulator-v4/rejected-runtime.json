@@ -1,0 +1,7 @@
+{
+  "status": "REJECTED_AUTHORED_MAP_VERSUS_RESERVED_RUNTIME_POOL_GUARD",
+  "pid": 9717,
+  "terminalAbsenceConfirmed": true,
+  "hardwareTimingQualified": false,
+  "reason": "Prep incorrectly equates authored map length to runtime pool with MAX_SPAWNED_OBJECTS reserve. Correct ON37/OFF313, both80187, but valid0; no timing accepted."
+}

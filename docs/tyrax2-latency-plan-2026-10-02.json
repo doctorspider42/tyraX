@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-02",
+  "status": "Read-only acceptance preparation; no implementation/build/emulator/hardware latency measurement",
+  "sources": {
+    "vendor/tyra/engine/src/engine.cpp": "3408c99acc06f5f90386e01f7c2051683e53b7daebbdcf4f1276b70373d1b7f7",
+    "vendor/tyra/engine/src/pad/pad.cpp": "b8d3025633a46590591ccd479f8ead1c9d6b03d308ad72102e6958a20e0e99ef",
+    "vendor/tyra/engine/inc/pad/pad.hpp": "86c9025bb41287c47442e2d2dae3063c0b0c9f642ecd63c3329ef41ae1886304",
+    "vendor/tyra/engine/src/renderer/core/renderer_core.cpp": "520c81dbc1ac36e829c9c76408a15fe987567450ddbdd8341ccb5e1cce2fbd6f",
+    "vendor/tyra/engine/inc/renderer/core/renderer_core.hpp": "736d0cba3623e87e1b566884fc0f9af6df612bf43f4e0564aa67f1c5da7ea93d",
+    "vendor/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp": "41c13286b8a3140b862013a21ae438d68a3edfec27dab1fde32bdbc9702a8f93",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp": "f283e5a1fb2acbe94582403d866f95c3e9cc247c623e3cc0329103a475fd7376",
+    "vendor/tyra/engine/src/renderer/core/gs/renderer_core_gs.cpp": "4f214a89ee91601463c4e008edc0cae11a117638f61429661f6d8ee57db8f80c",
+    "vendor/tyra/engine/inc/renderer/core/2d/sprite/sprite.hpp": "366b5e9a837a6557494138fafc5f84b258702d704993ab95bcfb5fa4d31de274",
+    "vendor/tyra/engine/src/renderer/2d/renderer_2d.cpp": "06879f5737cd16406e1e2a5c6d93c016f48fe59cad9f505d202e4a5a3e807a45",
+    "docs/tyrax2.md": "8a03f1fb75f52eafcf02104101a19addec293f6be72c16ae54755fd298eeb346",
+    "docs/backlog.md": "25c1e910b35f9a1935409f562ce2f8f98cf85b59139ab920205e695f26b74f19"
+  },
+  "artifacts": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-latency-plan\\plan.md",
+      "sha256": "b724f6bc50bde0fe796bc0c42c797da73bbbb9f517eeec92672894d0e8d6e83a",
+      "bytes": 10662
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-latency-plan\\source-hashes.json",
+      "sha256": "0526172d278178a6d423b2322174b2d9cf834785bd2bce390fe32decee4bcbcc",
+      "bytes": 1436
+    }
+  ],
+  "limits": [
+    "Game/presentation counters lack input-edge-to-displayed-buffer identity.",
+    "Display register selection is not TV light emission.",
+    "Requested pipeline state differs from actual activity/fallback.",
+    "No fixed millisecond penalty or default promotion is accepted.",
+    "Doc source hashes capture audit-time snapshots; backlog documentation subsequently changes independently."
+  ]
+}

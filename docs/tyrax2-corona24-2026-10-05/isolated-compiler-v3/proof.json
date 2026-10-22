@@ -1,0 +1,38 @@
+{
+  "status": "PASS_ISOLATED_ASSEMBLY_ONLY",
+  "words": 506,
+  "pairedUpperDependencies": [
+    {
+      "line": 426,
+      "mask": "z",
+      "source": "VF18"
+    },
+    {
+      "line": 432,
+      "mask": "z",
+      "source": "VF18"
+    },
+    {
+      "line": 447,
+      "mask": "xyzw",
+      "source": "VF18"
+    },
+    {
+      "line": 453,
+      "mask": "zw",
+      "source": "VF18"
+    },
+    {
+      "line": 458,
+      "mask": "z",
+      "source": "VF18"
+    },
+    {
+      "line": 470,
+      "mask": "xy",
+      "source": "VF18"
+    }
+  ],
+  "actualRuntimeAccepted": false,
+  "sourceSha256": "dd36848a5b104789ebd22e2c9745d0eaf0644e13c5897fd6382686e55f64b814"
+}

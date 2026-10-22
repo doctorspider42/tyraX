@@ -1,0 +1,69 @@
+{
+  "status": "PRIVATE_KIND9_SIX_DEPENDENCY_CLI_AND_HELPER_SOURCE_CONTROLS_PASS_NO_EXECUTION",
+  "CLIHostOrders": [
+    {
+      "order": 0,
+      "command": [
+        "F:\\Python\\Conda\\python.exe",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\analyze-night-cli.py",
+        "--stdout",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\host-v2\\kind9-order0-stdout.log",
+        "--artifact",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\host-v2\\kind9-order0-artifact.log",
+        "--environment",
+        "host",
+        "--kind",
+        "9",
+        "--order",
+        "0",
+        "--joint",
+        "0",
+        "--restored",
+        "0",
+        "--report",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-root-helpers-v1\\host-kind9-order0.json"
+      ],
+      "reportSha256": "9034976421e428087062ea8109ee4dfce37b395f3aeb2ebfdc16ee09f28d273a",
+      "stdoutSha256": "880eb81c3a1465fee1918dc5ac087635a9d9d3ca60f1cc8c70660eecd0098bb7",
+      "artifactSha256": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+      "phaseRegexMatchesActualHostProtocol": true
+    },
+    {
+      "order": 1,
+      "command": [
+        "F:\\Python\\Conda\\python.exe",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\analyze-night-cli.py",
+        "--stdout",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\host-v2\\kind9-order1-stdout.log",
+        "--artifact",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v1\\host-v2\\kind9-order1-artifact.log",
+        "--environment",
+        "host",
+        "--kind",
+        "9",
+        "--order",
+        "1",
+        "--joint",
+        "0",
+        "--restored",
+        "0",
+        "--report",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-root-helpers-v1\\host-kind9-order1.json"
+      ],
+      "reportSha256": "8dd8df206a5282ec2b52cd6950eec000bf01c44633c95afdcc93c35a5be25e05",
+      "stdoutSha256": "5c5254efcb584b9113a28084d970a605f1e6c86ffdae7d942d467035b028c743",
+      "artifactSha256": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+      "phaseRegexMatchesActualHostProtocol": true
+    }
+  ],
+  "sourceManifestSha256": "b9582677a88857c64d7c807e8c7acfb170d4aa84b5ef826bdd62734f1e26ebe3",
+  "sourceFiles": 500,
+  "samplerReads": 262,
+  "helperPythonSyntaxPass": true,
+  "phaseRasterRegexMatchesActualKind9HostProtocol": true,
+  "allSixParserDependenciesPreservedOnFreeze": true,
+  "completedRootRuntimeAuthorityRequiredBeforeConfigurationWrites": true,
+  "normalizationHelperSha256": "8fabee7d7ee6c471b1f9e782eb727a6902a0a53a31dbbb4058b11c351e7cdad1",
+  "nativeBuildDeviceCacheFixtureOrRepoMutated": false,
+  "runtimeExecutionAccepted": false
+}

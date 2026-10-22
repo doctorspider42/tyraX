@@ -1,0 +1,41 @@
+{
+  "experiment": "A41",
+  "parentElf": "6f6ea95f06d287baacba28d06b8ddc80ebf875b765b389076979205a067daae3",
+  "source": "F:\\Projects\\tyrax2-hybrid-triple-20261011-reverse-v1",
+  "modes": [
+    0,
+    1,
+    0,
+    0,
+    1,
+    0
+  ],
+  "held": [
+    0,
+    1,
+    0
+  ],
+  "buffers": [
+    2,
+    2,
+    2,
+    2,
+    2,
+    2
+  ],
+  "headers": {
+    "tyrax2-hybrid-copy-protocol.hpp": "cb8872628f09eb6db8722478efbb3d4b7740f3cafd46f3e0a78e2da7f5f9fd34",
+    "tyrax2-hybrid-copy-adapter.hpp": "9afd2393f4ff635272cbd83d3e46bf37cdfe3a6cc62e513b4f4e4482a82a8e1c",
+    "tyrax2-hybrid-copy-ee.hpp": "6c7e2363f8874035a1f410cba412935c4268b762b3773c469afb01b4289b8f98",
+    "tyrax2-hybrid-copy-window.hpp": "ce680d1b09ed5475bad47f4a3f1f40c16598bf0e312bf24d9c920a724e8489e9",
+    "tyrax2-hybrid-copy-trial.hpp": "7f1d2e9b437ee890e142431bb3649d490405eaaa84d19ca5c9738db501837f8e"
+  },
+  "scope": "Actual Core/native ownership, immutable original copy, independent S/E/FINISH IRQ; experimental physical budget, no default",
+  "nextGates": [
+    "native binding",
+    "held main/env raster equality",
+    "positive old-job ISR and fallback witnesses",
+    "actual physical blank completion",
+    "same-ELF PS2 Off/On/Off and reverse"
+  ]
+}

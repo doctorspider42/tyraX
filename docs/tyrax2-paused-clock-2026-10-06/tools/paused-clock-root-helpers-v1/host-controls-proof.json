@@ -1,0 +1,30 @@
+{
+  "status": "PASS_KIND20_HOST_SYNTHETIC_AND_CLI_ONLY",
+  "results": [
+    "positive0",
+    "rejected0paused=1",
+    "rejected0after=00000000",
+    "rejected0after=38e00000",
+    "rejected0scene=0 paused=",
+    "rejected00calls",
+    "rejected00units3",
+    "rejected01units4",
+    "rejected02calls",
+    "cli0",
+    "positive1",
+    "rejected1paused=1",
+    "rejected1after=00000000",
+    "rejected1after=38e00000",
+    "rejected1scene=0 paused=",
+    "rejected10calls",
+    "rejected10units3",
+    "rejected11units4",
+    "rejected12calls",
+    "cli1"
+  ],
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\paused-clock-controls-v1\\analyze-night.py": "8ab11b84c0f34a81b0f20faf09f85123bc3377694d35ed064021195c736f9c95",
+    "F:\\Projects\\tyrax2-lab-20261001\\paused-clock-controls-v1\\analyze-night-cli.py": "71afcd3de3b6c2102915ce1d6c5330dbcedb5072e0e291da602fbe1dba5e22f7"
+  },
+  "physicalExecutionAccepted": false
+}

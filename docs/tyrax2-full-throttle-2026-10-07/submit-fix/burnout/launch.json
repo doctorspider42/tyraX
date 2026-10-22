@@ -1,0 +1,17 @@
+{
+  "pid": 131,
+  "xvfbPid": 127,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-submit-fix-20261007-v1/burnout/live/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-submit-fix-20261007-v1/burnout/live/emulator.log",
+    "-debugger",
+    "-statefile",
+    "/mnt/c/Users/pawel/OneDrive/Documents/PCSX2/sstates/SLES-52584 (75BECC18).06.p2s",
+    "--",
+    "/mnt/f/PS2/Games/Burnout 3 - Takedown (Europe, Australia) (En,Es,Nl,Sv).iso"
+  ],
+  "display": ":98"
+}

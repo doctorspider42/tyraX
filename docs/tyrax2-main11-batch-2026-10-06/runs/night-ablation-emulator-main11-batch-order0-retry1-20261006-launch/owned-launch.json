@@ -1,0 +1,37 @@
+{
+  "pid": 15937,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-main11-batch-order0-retry1-20261006/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-main11-batch-order0-retry1-20261006/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-main11-batch-physical-v1/game/bin/vehicle-playground.elf"
+  ],
+  "exe": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt",
+  "exeSha256": "c4629baf9c5daca45a9df6ad1ee84a188aeb025627b822a3ea62bdc48b23da18",
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/night-main11-batch-physical-v1",
+  "stem": "night-ablation-emulator-main11-batch-order0-retry1-20261006",
+  "kind": 29,
+  "order": 0,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "c0b2c47df80dd51042645bd14545e0ec55d55714a142e69cc18f8fe8eaec25c3",
+  "profile": "/home/spider/night-ablation-emulator-main11-batch-order0-retry1-20261006/profile",
+  "launchArchive": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-main11-batch-order0-retry1-20261006-launch",
+  "helperSha256": "bc427ed0f1771a2a5ff9f345582554472b2ec8901639bf25e516aa269bb3a39f",
+  "launchFiles": {
+    "night-ablation.cfg": "6832cf611574763ac674f309c92807c5c8726fac3215238e26656f3aba4da8d0",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "b7018fd13a7ff615b64aa457a80e6219a6ff7e8de058fec2b647750778edd2a4",
+    "root-runtime-authority.json": "32647c8ba964d502ec0c69b6c7b1c7829c85bda1ba62c33a86b9031dae7293e8",
+    "root-source-freeze.json": "3a953907c09350276ff0e2c14505cde50706b1910ea59d64bed02af5814955e3",
+    "runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "target-source-manifest.json": "cb9ae8eb8b5865a61b9f8e697952497474bdce1a0d8cad915e52d0487988d716",
+    "vehicle-playground.elf": "c0b2c47df80dd51042645bd14545e0ec55d55714a142e69cc18f8fe8eaec25c3",
+    "vehicle-playground.elf.sym": "b607e104a17327a7eb32ea89fd8d24f78a4ae410cb397b10507cfe520bb82ab5"
+  }
+}

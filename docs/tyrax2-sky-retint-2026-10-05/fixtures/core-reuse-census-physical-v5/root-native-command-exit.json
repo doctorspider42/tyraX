@@ -1,0 +1,14 @@
+{
+  "errorLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v44.err",
+  "sourceManifestSha256": "31c0b5b2c3cdc14f618e73b6f2d924ea0e2b46fad5e6bf474d147b27f1baa2a4",
+  "childProcessId": 49396,
+  "actualCommandParameters": {
+    "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+    "Engine": "F:/Projects/tyrax2-lab-20261001/core-reuse-census-physical-v5/tyra",
+    "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+    "Project": "F:/Projects/tyrax2-lab-20261001/core-reuse-census-physical-v5/game"
+  },
+  "buildLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v44.log",
+  "status": "ROOT_observed_native_child_process_completion",
+  "processExitCode": 0
+}

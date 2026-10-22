@@ -161,3 +161,10 @@ coarser (8-package) frustum classification (+4.59 ms); package size above 75 (81
 | references/audio.md | audsrv fork, ADPCM, streaming, reverb, channel buses, sound conversion/loop flags |
 | references/loaders-files.md | `LeanObjLoader`, `TmdlLoader`, soft-fail loaders, `host:`/`cdrom0:` paths, `fromCwd` |
 | references/devkit-debugging.md | VU1 packet tap, EE crash handler, free-RAM probe |
+
+## TyraX 2.0 integration
+
+The editor is 2.0.0; the combined project format is 114. Read
+[TyraX2 integration notes](references/tyrax2-integration.md) before changing
+frame ownership, pipeline recording or the associated acceptance tooling.
+The consolidated branch notes retain the full historical qualification record.

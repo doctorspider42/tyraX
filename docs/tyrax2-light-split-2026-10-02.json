@@ -1,0 +1,542 @@
+{
+  "fixture": {
+    "phases": [
+      "full night before",
+      "no scene pools",
+      "no scene beams/coronas",
+      "no scene pools or beams",
+      "full night restored"
+    ],
+    "frames_per_phase": 2200,
+    "warm_work_start_offset": 1100,
+    "work_sample_count": 512,
+    "engine": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\tyra",
+    "source_game": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game",
+    "artifacts": {
+      "inc\\light_split.hpp": "7ab8a4d33392771df566b76949f8eb2379505dedbb7c6bf7de2e2da1e9f09942",
+      "src\\terrain_game.cpp": "e73c5e6482347a5e5224601fbec7047e5bacda8e179795f0d2323d49e7f867db",
+      "src\\gen\\game_lighting.gen.cpp": "29d8cab94a54f2d86e54288d40be8820029c2987ab2356031c0868da2716c0c6"
+    },
+    "profile_note": "Scratch per-pass COP0 duration includes EE work and submission waits; render subtime is included in total, not additive. Does not measure GS raster utilization."
+  },
+  "log": "F:\\Projects\\tyrax2-lab-20261001\\light-split-physical-snapshot.log",
+  "log_sha256": "816052caa4aa05e9843530227600d4dde90e479a66bb2c84b4805124a681fea8",
+  "elf_sha256": "c9d46564a6499f03535eeb91babdb62ce2f3da7472bdeb1efd0db1daad713587",
+  "results": [
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\light-split-physical-snapshot.log",
+      "first": 1100,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.345221585697598,
+      "median_ms": 18.342831081814236,
+      "p95_ms": 18.886579725477432,
+      "max_ms": 20.447957356770832,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 0,
+      "name": "full night before",
+      "period_windows": [
+        {
+          "frame": 1100,
+          "period": 33.7,
+          "pre": 1.64,
+          "stall": 13.54
+        },
+        {
+          "frame": 1150,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 13.32
+        },
+        {
+          "frame": 1200,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 13.2
+        },
+        {
+          "frame": 1250,
+          "period": 33.37,
+          "pre": 1.65,
+          "stall": 13.15
+        },
+        {
+          "frame": 1300,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 13.13
+        },
+        {
+          "frame": 1350,
+          "period": 33.37,
+          "pre": 1.66,
+          "stall": 13.17
+        },
+        {
+          "frame": 1400,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 13.45
+        },
+        {
+          "frame": 1450,
+          "period": 33.37,
+          "pre": 1.65,
+          "stall": 13.46
+        },
+        {
+          "frame": 1500,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 13.48
+        },
+        {
+          "frame": 1550,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 13.47
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "mean_pre_ms": 1.609,
+      "profile_means": {
+        "pool_total_ms": 0.9095,
+        "pool_submit_ms": 0.71553,
+        "pool_collect_ms": 0.0,
+        "beam_total_ms": 0.74755,
+        "beam_submit_ms": 0.50121,
+        "pool_submits_per_frame": 1.0,
+        "beam_submits_per_frame": 2.0,
+        "pool_batch_rebuilds_per_frame": 0.322,
+        "beam_batch_rebuilds_per_frame": 0.0,
+        "pool_other_ms": 0.19396999999999998,
+        "beam_other_ms": 0.24634
+      },
+      "delivered_rate_from_period_hz": 29.937430769691346
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\light-split-physical-snapshot.log",
+      "first": 3300,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 17.328127562999725,
+      "median_ms": 17.430755615234375,
+      "p95_ms": 17.609561496310764,
+      "max_ms": 18.832906087239582,
+      "over_budget": 434,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 1,
+      "name": "no scene pools",
+      "period_windows": [
+        {
+          "frame": 3300,
+          "period": 33.7,
+          "pre": 1.59,
+          "stall": 14.48
+        },
+        {
+          "frame": 3350,
+          "period": 33.37,
+          "pre": 1.66,
+          "stall": 14.36
+        },
+        {
+          "frame": 3400,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 14.46
+        },
+        {
+          "frame": 3450,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 14.33
+        },
+        {
+          "frame": 3500,
+          "period": 33.37,
+          "pre": 1.64,
+          "stall": 14.35
+        },
+        {
+          "frame": 3550,
+          "period": 33.37,
+          "pre": 1.61,
+          "stall": 14.3
+        },
+        {
+          "frame": 3600,
+          "period": 33.37,
+          "pre": 1.65,
+          "stall": 14.17
+        },
+        {
+          "frame": 3650,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 14.41
+        },
+        {
+          "frame": 3700,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 14.29
+        },
+        {
+          "frame": 3750,
+          "period": 33.37,
+          "pre": 1.63,
+          "stall": 14.37
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "mean_pre_ms": 1.611,
+      "profile_means": {
+        "pool_total_ms": 0.0,
+        "pool_submit_ms": 0.0,
+        "pool_collect_ms": 0.0,
+        "beam_total_ms": 0.74865,
+        "beam_submit_ms": 0.497,
+        "pool_submits_per_frame": 0.0,
+        "beam_submits_per_frame": 2.0,
+        "pool_batch_rebuilds_per_frame": 0.0,
+        "beam_batch_rebuilds_per_frame": 0.0,
+        "pool_other_ms": 0.0,
+        "beam_other_ms": 0.25165000000000004
+      },
+      "delivered_rate_from_period_hz": 29.937430769691346,
+      "saving_against_controls_ms": [
+        1.0170940226978722,
+        1.1308267447683562
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\light-split-physical-snapshot.log",
+      "first": 5500,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 17.574793106979794,
+      "median_ms": 17.58984375,
+      "p95_ms": 18.215708414713543,
+      "max_ms": 19.63668484157986,
+      "over_budget": 469,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 2,
+      "name": "no scene beams/coronas",
+      "period_windows": [
+        {
+          "frame": 5500,
+          "period": 33.37,
+          "pre": 1.63,
+          "stall": 14.06
+        },
+        {
+          "frame": 5550,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 14.23
+        },
+        {
+          "frame": 5600,
+          "period": 33.37,
+          "pre": 1.65,
+          "stall": 14.09
+        },
+        {
+          "frame": 5650,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 14.12
+        },
+        {
+          "frame": 5700,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 13.91
+        },
+        {
+          "frame": 5750,
+          "period": 33.37,
+          "pre": 1.65,
+          "stall": 13.79
+        },
+        {
+          "frame": 5800,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 14.11
+        },
+        {
+          "frame": 5850,
+          "period": 33.37,
+          "pre": 1.65,
+          "stall": 14.07
+        },
+        {
+          "frame": 5900,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 14.17
+        },
+        {
+          "frame": 5950,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 14.16
+        }
+      ],
+      "mean_period_ms": 33.37,
+      "mean_pre_ms": 1.61,
+      "profile_means": {
+        "pool_total_ms": 0.91553,
+        "pool_submit_ms": 0.71111,
+        "pool_collect_ms": 0.0,
+        "beam_total_ms": 0.0,
+        "beam_submit_ms": 0.0,
+        "pool_submits_per_frame": 1.0,
+        "beam_submits_per_frame": 0.0,
+        "pool_batch_rebuilds_per_frame": 0.334,
+        "beam_batch_rebuilds_per_frame": 0.0,
+        "pool_other_ms": 0.20441999999999994,
+        "beam_other_ms": 0.0
+      },
+      "delivered_rate_from_period_hz": 29.967036260113876,
+      "saving_against_controls_ms": [
+        0.770428478717804,
+        0.884161200788288
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\light-split-physical-snapshot.log",
+      "first": 7700,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 16.511334273550247,
+      "median_ms": 16.674229939778645,
+      "p95_ms": 16.839060465494793,
+      "max_ms": 18.356736924913193,
+      "over_budget": 271,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 3,
+      "name": "no scene pools or beams",
+      "period_windows": [
+        {
+          "frame": 7700,
+          "period": 33.37,
+          "pre": 1.57,
+          "stall": 15.12
+        },
+        {
+          "frame": 7750,
+          "period": 33.37,
+          "pre": 1.65,
+          "stall": 15.07
+        },
+        {
+          "frame": 7800,
+          "period": 33.37,
+          "pre": 1.57,
+          "stall": 15.22
+        },
+        {
+          "frame": 7850,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 15.15
+        },
+        {
+          "frame": 7900,
+          "period": 33.37,
+          "pre": 1.62,
+          "stall": 15.26
+        },
+        {
+          "frame": 7950,
+          "period": 33.37,
+          "pre": 1.57,
+          "stall": 15.12
+        },
+        {
+          "frame": 8000,
+          "period": 33.37,
+          "pre": 1.63,
+          "stall": 15.19
+        },
+        {
+          "frame": 8050,
+          "period": 33.37,
+          "pre": 1.57,
+          "stall": 15.24
+        },
+        {
+          "frame": 8100,
+          "period": 33.37,
+          "pre": 1.64,
+          "stall": 15.12
+        },
+        {
+          "frame": 8150,
+          "period": 33.37,
+          "pre": 1.57,
+          "stall": 15.02
+        }
+      ],
+      "mean_period_ms": 33.37,
+      "mean_pre_ms": 1.597,
+      "profile_means": {
+        "pool_total_ms": 0.0,
+        "pool_submit_ms": 0.0,
+        "pool_collect_ms": 0.0,
+        "beam_total_ms": 0.0,
+        "beam_submit_ms": 0.0,
+        "pool_submits_per_frame": 0.0,
+        "beam_submits_per_frame": 0.0,
+        "pool_batch_rebuilds_per_frame": 0.0,
+        "beam_batch_rebuilds_per_frame": 0.0,
+        "pool_other_ms": 0.0,
+        "beam_other_ms": 0.0
+      },
+      "delivered_rate_from_period_hz": 29.967036260113876,
+      "saving_against_controls_ms": [
+        1.8338873121473505,
+        1.9476200342178345
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\light-split-physical-snapshot.log",
+      "first": 9900,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.45895430776808,
+      "median_ms": 18.42279730902778,
+      "p95_ms": 19.014563666449654,
+      "max_ms": 20.499247233072918,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 4,
+      "name": "full night restored",
+      "period_windows": [
+        {
+          "frame": 9900,
+          "period": 33.7,
+          "pre": 1.65,
+          "stall": 13.18
+        },
+        {
+          "frame": 9950,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 13.2
+        },
+        {
+          "frame": 10000,
+          "period": 33.37,
+          "pre": 1.65,
+          "stall": 13.1
+        },
+        {
+          "frame": 10050,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 13.15
+        },
+        {
+          "frame": 10100,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 13.24
+        },
+        {
+          "frame": 10150,
+          "period": 33.37,
+          "pre": 1.65,
+          "stall": 13.28
+        },
+        {
+          "frame": 10200,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 13.31
+        },
+        {
+          "frame": 10250,
+          "period": 33.37,
+          "pre": 1.66,
+          "stall": 13.27
+        },
+        {
+          "frame": 10300,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 13.28
+        },
+        {
+          "frame": 10350,
+          "period": 33.37,
+          "pre": 1.66,
+          "stall": 13.19
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "mean_pre_ms": 1.617,
+      "profile_means": {
+        "pool_total_ms": 0.88501,
+        "pool_submit_ms": 0.70448,
+        "pool_collect_ms": 0.0,
+        "beam_total_ms": 0.7462,
+        "beam_submit_ms": 0.49662,
+        "pool_submits_per_frame": 1.0,
+        "beam_submits_per_frame": 2.0,
+        "pool_batch_rebuilds_per_frame": 0.252,
+        "beam_batch_rebuilds_per_frame": 0.0,
+        "pool_other_ms": 0.18052999999999997,
+        "beam_other_ms": 0.24957999999999997
+      },
+      "delivered_rate_from_period_hz": 29.937430769691346
+    }
+  ],
+  "control_spread_ms": 0.11373272207048402,
+  "limitations": [
+    "One sequential instrumented diagnostic boot; ranges between controls are not confidence intervals or additive costs.",
+    "Per-pass COP0 durations include submission CPU work and waits; nested render time is already included in total.",
+    "pool_collect_ms covers only three explicit receiver/box collection call sites in the pool pass, not every terrain query in helpers.",
+    "Profile summaries and periods are neighboring 50-frame windows, distinct from exact 512 raw work samples.",
+    "No production renderer or visual change, no accepted night FPS improvement; all arms remain approximately 30 Hz.",
+    "Host/emulator speed does not establish physical EE/GPU utilization."
+  ],
+  "reproduction_scripts": {
+    "prepare-light-split.py": {
+      "sha256": "6d0a922c1c504de9aa17632ed5808854a849882ee2f65b89eac68a4b6948832d",
+      "source": "from pathlib import Path\nimport hashlib,json,re,shutil\nlab=Path('F:/Projects/tyrax2-lab-20261001')\nsrc=lab/'arena-check-night/game'\ndst=lab/'light-split/game'\nassert not (dst/\"bin/vehicle-playground.elf\").exists()\nshutil.copytree(src,dst,dirs_exist_ok=True,ignore=shutil.ignore_patterns('obj','*.log','*.elf','*.elf.sym','*.p2s','ps2link.run'))\nheader=r'''#pragma once\n#include <cstdio>\n#include \"debug/frame_profile.hpp\"\nnamespace lightSplit {\ninline unsigned phase=0;\ninline unsigned long long ticks[5]={};\ninline unsigned calls[5]={};\ninline unsigned poolRebuild=0, beamRebuild=0;\nstruct Scope {\n  unsigned index, begin;\n  explicit Scope(unsigned i):index(i),begin(Tyra::FrameProfile::ticks()) {}\n  ~Scope(){ ticks[index]+=unsigned(Tyra::FrameProfile::ticks()-begin); ++calls[index]; }\n};\ntemplate<class F> inline void render(unsigned i,F f){ Scope s(i); f(); }\ninline void report(unsigned frame){\n  static unsigned previous=0;\n  if(!frame || frame%50 || frame==previous) return;\n  const unsigned n=frame-previous; previous=frame;\n  printf(\"LOG: LIGHTSPLIT phase=%u f=%u n=%u pool=%.4f render=%.4f recv=%.4f beam=%.4f render=%.4f poolcalls=%u beamcalls=%u rebuild=%u/%u\\n\",\n    phase,frame,n,float(ticks[0])/294912/n,float(ticks[1])/294912/n,\n    float(ticks[2])/294912/n,float(ticks[3])/294912/n,float(ticks[4])/294912/n,\n    calls[1],calls[4],poolRebuild,beamRebuild);\n  for(unsigned i=0;i<5;++i){ticks[i]=0;calls[i]=0;}\n  poolRebuild=beamRebuild=0;\n}\n}\n'''\n(dst/'inc/light_split.hpp').write_bytes(header.encode())\ndef edit(rel,old,new):\n p=dst/rel; s=p.read_text(encoding='utf-8'); assert s.count(old)==1,(rel,old,s.count(old)); p.write_bytes(s.replace(old,new).encode())\nfor rel in ['src/terrain_game.cpp','src/gen/game_lighting.gen.cpp']:\n p=dst/rel; p.write_bytes(('#include \"light_split.hpp\"\\n'+p.read_text(encoding='utf-8')).encode())\nedit('src/terrain_game.cpp','void TerrainGame::loop() {',r'''void TerrainGame::loop() {\n  lightSplit::report(ftrig::frame);\n  static bool announced=false,done=false;\n  if(!announced){printf(\"LOG: LIGHTSPLITPHASE phase=0 first=%lu\\n\",(unsigned long)ftrig::frame);fflush(stdout);announced=true;}\n  const unsigned desired=ftrig::frame/2200;\n  if(desired<=4 && desired!=lightSplit::phase){\n    engine->renderer.core.synchronizeFrame();lightSplit::phase=desired;\n    printf(\"LOG: LIGHTSPLITPHASE phase=%u first=%lu\\n\",desired,(unsigned long)ftrig::frame);fflush(stdout);\n    loadScene(currentScene);\n  }\n  if(desired>4 && !done){printf(\"LOG: LIGHTSPLITPHASE done first=%lu\\n\",(unsigned long)ftrig::frame);fflush(stdout);done=true;}\n''')\nrel='src/gen/game_lighting.gen.cpp'\nedit(rel,'void TerrainGame::updateAndRenderLightPools() {','''void TerrainGame::updateAndRenderLightPools() {\n  if(lightSplit::phase==1 || lightSplit::phase==3) return;\n  lightSplit::Scope timing(0);''')\nedit(rel,'const Vec4* viewAt, int portal) {','''const Vec4* viewAt, int portal) {\n  if(lightSplit::phase==2 || lightSplit::phase==3) return;\n  lightSplit::Scope timing(3);''')\nedit(rel,'  if (pb.key != pb.lastKey) {','  if (pb.key != pb.lastKey) {\\n    ++lightSplit::poolRebuild;')\nedit(rel,'      if (cw) bb.coronaBag->bboxVersion = ++g_bboxStamp;','      if (cw) { ++lightSplit::beamRebuild; bb.coronaBag->bboxVersion = ++g_bboxStamp; }')\nedit(rel,'      if (nw) bb.coneBag->bboxVersion = ++g_bboxStamp;','      if (nw) { ++lightSplit::beamRebuild; bb.coneBag->bboxVersion = ++g_bboxStamp; }')\np=dst/rel;s=p.read_text(encoding='utf-8')\n# Include the pool-batch helper in submission time, plus every render call\n# within the pool and beam functions. Keep unrelated shadow passes untouched.\nfor start,end,bucket in [('void TerrainGame::poolBatchFlush()', '// Blob shadows: per-scene setup.',1),('void TerrainGame::updateAndRenderLightBeams(', '// Runtime texts:',4)]:\n a=s.index(start);b=s.index(end,a);part=s[a:b]\n part,n=re.subn(r'(stapip\\.core\\.render\\([^;]+\\);)',lambda m:'lightSplit::render('+str(bucket)+',[&] { '+m[1]+' });',part)\n assert n==(9 if bucket==1 else 4),(bucket,n)\n s=s[:a]+part+s[b:]\n# Receiver collection is shared with shadow passes; count only collection\n# while the pool pass is active, using a separate scope flag.\n# For this fixture the selected garage pools use these three explicit calls.\na=s.index('void TerrainGame::updateAndRenderLightPools()');b=s.index('// Blob shadows: per-scene setup.',a)\npart=s[a:b]\npart,n=re.subn(r'((?:projCollectReceivers|projCollectBoxes)\\([^;]+\\);)',lambda m:'{ lightSplit::Scope receiverTiming(2); '+m[1]+' }',part)\nassert n==3,n\ns=s[:a]+part+s[b:];p.write_bytes(s.encode())\nfiles=[dst/'inc/light_split.hpp',dst/'src/terrain_game.cpp',p]\nmeta={'phases':['full night before','no scene pools','no scene beams/coronas','no scene pools or beams','full night restored'], 'frames_per_phase':2200,'warm_work_start_offset':1100,'work_sample_count':512,'engine':str(lab/'arena-check-night/tyra'),'source_game':str(src),'artifacts':{str(p.relative_to(dst)):hashlib.sha256(p.read_bytes()).hexdigest() for p in files},'profile_note':'Scratch per-pass COP0 duration includes EE work and submission waits; render subtime is included in total, not additive. Does not measure GS raster utilization.'}\n(lab/'light-split/fixture.json').write_bytes((json.dumps(meta,indent=2)+'\\n').encode())\nprint(meta['phases'])\n"
+    },
+    "analyze-light-split.py": {
+      "sha256": "80eed28b8c682a8727560a0c28951e62e4a99c765f96191aae4cc78b19535d6c",
+      "source": "from pathlib import Path\nimport argparse,hashlib,json,re,statistics,subprocess,sys\np=argparse.ArgumentParser();p.add_argument('stem');a=p.parse_args()\nlab=Path('F:/Projects/tyrax2-lab-20261001');log=lab/(a.stem+'.log');snap=lab/(a.stem+'-snapshot.log')\nassert not snap.exists();snap.write_bytes(log.read_bytes())\nflat=snap.read_text(errors='replace').replace('\\r','').replace('\\n','')\nassert 'LIGHTSPLITPHASE done first=11000' in flat\nfixture=json.loads((lab/'light-split/fixture.json').read_text());results=[]\npattern=r'LOG: LIGHTSPLIT phase=(\\d+) f=(\\d+) n=(\\d+) pool=([0-9.]+) render=([0-9.]+) recv=([0-9.]+) beam=([0-9.]+) render=([0-9.]+) poolcalls=(\\d+) beamcalls=(\\d+) rebuild=(\\d+)/(\\d+)'\nprofile=list(re.finditer(pattern,flat))\nfor phase,name in enumerate(fixture['phases']):\n first=phase*2200+1100\n row=json.loads(subprocess.check_output([sys.executable,'F:/Projects/tyra-editor/tools/tyrax2-timing.py',str(snap),'--first',str(first),'--frames','512','--hz','60'],text=True))\n periods=[]\n for b in flat.split('LOG: FRAMETIME ')[1:]:\n  b=b.split('LOG:')[0];f=re.search(r'\\bf=(\\d+)',b)\n  if f and first<=int(f[1])<first+500:\n   vals={field:float(re.search(r'\\b'+field+r'=([0-9.]+)',b)[1]) for field in ['period','pre','stall']}\n   periods.append(dict(frame=int(f[1]),**vals))\n assert [x['frame'] for x in periods]==list(range(first,first+500,50)),periods\n prof=[m for m in profile if int(m[1])==phase and first<=int(m[2])<first+500]\n assert [int(m[2]) for m in prof]==list(range(first,first+500,50)),[(m[1],m[2]) for m in prof]\n names=['pool_total_ms','pool_submit_ms','pool_collect_ms','beam_total_ms','beam_submit_ms','pool_submits_per_frame','beam_submits_per_frame','pool_batch_rebuilds_per_frame','beam_batch_rebuilds_per_frame']\n means={n:statistics.mean(float(m[i+4])/(int(m[3]) if i>=5 else 1) for m in prof) for i,n in enumerate(names)}\n means['pool_other_ms']=means['pool_total_ms']-means['pool_submit_ms']\n means['beam_other_ms']=means['beam_total_ms']-means['beam_submit_ms']\n row.update(phase=phase,name=name,period_windows=periods,mean_period_ms=statistics.mean(x['period'] for x in periods),mean_pre_ms=statistics.mean(x['pre'] for x in periods),profile_means=means)\n row['delivered_rate_from_period_hz']=1000/row['mean_period_ms'];results.append(row)\nout=dict(fixture=fixture,log=str(snap),log_sha256=hashlib.sha256(snap.read_bytes()).hexdigest(),elf_sha256=hashlib.sha256((lab/(a.stem+'.elf')).read_bytes()).hexdigest(),results=results)\n(lab/(a.stem+'-summary.json')).write_bytes((json.dumps(out,indent=2)+'\\n').encode())\nfor r in results: print(r['phase'],r['name'],round(r['mean_ms'],3),'ms',round(r['delivered_rate_from_period_hz'],2),'Hz',r['profile_means'])\n"
+    }
+  },
+  "evidence_sha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\light-split-build.log": "444a7a4aac80c702194f85ebd4947a9a146d13318eb6d2917c06d6fef7451b8e",
+    "F:\\Projects\\tyrax2-lab-20261001\\light-split-full-emulator\\emulog.txt": "7692fc58ed847fca2ca0cf3032d9cdfc5ff1526f0f2b1f31678f9b122bcecee2",
+    "F:\\Projects\\tyrax2-lab-20261001\\light-split-full-emulator\\game-log.txt": "2dc8807ca0d76048ded65d298c4604c93892f1707023d7379b7dc95561b0fe03",
+    "F:\\Projects\\tyrax2-lab-20261001\\light-split-full-emulator\\report.txt": "5e8cc0d230b1943803e89da3667211ed1309c292675dfa98fcd042f2ef24e45f",
+    "F:\\Projects\\tyrax2-lab-20261001\\light-split-full-emulator\\state1.p2s": "3fdc3df1e068667d7cd7a366d99c8e6d44f792023936983063ff1ff1a6ac6652",
+    "F:\\Projects\\tyrax2-lab-20261001\\light-split-and-spr-editor-build.log": "18d42b8cb85819c72380259df2ea9f3750c75373efbfdba3db831b99be88ec74"
+  },
+  "physical_phase_markers": [
+    "LIGHTSPLITPHASE phase=0 first=0",
+    "LIGHTSPLITPHASE phase=1 first=2200",
+    "LIGHTSPLITPHASE phase=2 first=4400",
+    "LIGHTSPLITPHASE phase=3 first=6600",
+    "LIGHTSPLITPHASE phase=4 first=8800",
+    "LIGHTSPLITPHASE done first=11000"
+  ],
+  "final_arena_record": "FRAMEARENA frames=11760 peak=1040416 resets=10 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10645",
+  "final_ordered_record": "ORDEREDFRAME frames=11760 splitFrames=5",
+  "verification": "Native build, PCSX2 2.9.93 all five phases and return, physical PS2 all phases and five complete warm 512-frame windows; exact fixture/ELF/log hashes verified. Windows editor rebuilt with both updated documentation pages."
+}

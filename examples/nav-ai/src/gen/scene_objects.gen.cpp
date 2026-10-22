@@ -16,6 +16,7 @@ const SceneObjectData SCENE_0_OBJECTS[7] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {7};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[7] = {0x8ab5915f8af04b8bULL, 0xd236913880e4efffULL, 0xd232913880e10728ULL, 0xd230913880e08451ULL, 0xd22c913880dc9b7aULL, 0xd228913880d8b2a3ULL, 0xd224913880d4c9ccULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[7] = {1,0,0,1,1,1,1};
 
 }  // namespace Nav_ai
 

@@ -1,0 +1,93 @@
+{
+  "baselineManifestSha256": "769f1403389da4d3683a17806fce1b75b381a4cf4f8229ee4d3306a44ca806de",
+  "pricingManifestSha256": "b9582677a88857c64d7c807e8c7acfb170d4aa84b5ef826bdd62734f1e26ebe3",
+  "baselineFiles": 499,
+  "pricingFiles": 500,
+  "unchangedFiles": 486,
+  "changes": [
+    {
+      "path": "game/inc/terrain_game.hpp",
+      "action": "modified",
+      "baselineSha256": "e66e86bf0e4bf2538546095f0aca05c4a637c88a6e675259dd12c9c13e7f15b5",
+      "postimageSha256": "7a11012c20872d85480916b30da0cd51726d7f13b1a6fcb36bbb42a45b425fbe"
+    },
+    {
+      "path": "game/src/gen/game_lighting.gen.cpp",
+      "action": "modified",
+      "baselineSha256": "e563dd4148a022fe5d6987e1a6dde801fa21b3916701ef1d1c0a28fcbb40b282",
+      "postimageSha256": "2cc336ce25414891fb148930a3201a452cd241cab2b50933b2765d4218853da5"
+    },
+    {
+      "path": "tyra/engine/inc/debug/night_ablation.hpp",
+      "action": "modified",
+      "baselineSha256": "7002e5fe126c658542bc6bc8a587c488700e249e93895c091b0c02366987b560",
+      "postimageSha256": "75f683b8c9b352445cf37ca8ae6fd718f3825717b8d62cfbadd8b06d408da191"
+    },
+    {
+      "path": "tyra/engine/inc/debug/night_plan.hpp",
+      "action": "modified",
+      "baselineSha256": "c08f89dd4da630c516eddc6e779c1b22e6092c8cce6b360a3de360cfb8c83c9b",
+      "postimageSha256": "b0b398247d277e56c66cc8a35083745f37fed5cdc95c30839927c20ce5ebeac0"
+    },
+    {
+      "path": "tyra/engine/inc/debug/night_runtime.hpp",
+      "action": "modified",
+      "baselineSha256": "b3f0c8c2e0b58d351544ea5dcc2f05898ca80a1bb5889896d6beb7af2adbc162",
+      "postimageSha256": "8dc12e4a11d5db9720b21686a1c922b51f0d6a7fd42b47d81d2851fafff88f8c"
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_bag.hpp",
+      "action": "modified",
+      "baselineSha256": "0090c8b940c640b333beaa920d036643ef550c8d0c7a30dcb7bfa99c250bcfbf",
+      "postimageSha256": "acb49022637be4c81b0b37be1b8e1efe0f76fb97caad157cc6270f6e806a40b4"
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h",
+      "action": "modified",
+      "baselineSha256": "275daf8412e0c18e6164214419153248a784a2c3e1a0220aa950b8890bbf6c09",
+      "postimageSha256": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_corona_sprite.hpp",
+      "action": "added",
+      "baselineSha256": null,
+      "postimageSha256": "d9afb3a3a0e425587ab2886ead47e0c8aeb7b2b401634050fa5492dd58b9d9c3"
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp",
+      "action": "modified",
+      "baselineSha256": "397313a8bda017deeb0ed2eef497a192c39552e081911056c4e538a61dd016f7",
+      "postimageSha256": "ca597c7664bd62cd22256e3502757828e629498aab8959523a280f935838708b"
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp",
+      "action": "modified",
+      "baselineSha256": "d1266c96bdef0bc5b77a4f1e7cced007c53b607bcd4e4c32dfe0355597256126",
+      "postimageSha256": "cae05fb19e2132087e2261039ba19ff297289ad9a789975482e6bb8dc7cc11d1"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp",
+      "action": "modified",
+      "baselineSha256": "f5aee36f44afb37a550a7156b9f85fcf65648e296888101afce6e85710bc944b",
+      "postimageSha256": "96b71049a8c2d171e087514c2b2bfa8d774e33d23690255bb51d60b1b57f41f1"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp",
+      "action": "modified",
+      "baselineSha256": "89d2d0c2bd81d09568e66df21afe9c4b66f482c0a3d6156a01ecea31b25bf31f",
+      "postimageSha256": "731961bc98632954e62a84265d89596877e4ee4e7935ce02ae6b5c9a6ee452d1"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+      "action": "modified",
+      "baselineSha256": "f3fb9dcc4a38953e00beb9b05b4f25b9187929b0d24232046fb35af171997ad1",
+      "postimageSha256": "99643dabaf064821410e4d5aab57a69e8c5f3cd3d06f925f3406dd69652808d6"
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp",
+      "action": "modified",
+      "baselineSha256": "32d5d26e478145811429d39d233a78ec35814ef536e1e21aa2b1bc6426acb8e2",
+      "postimageSha256": "650c11c9944e3e9522009af82919c18472888f3317ee7ccab8bdc57f70c8bbcb"
+    }
+  ]
+}

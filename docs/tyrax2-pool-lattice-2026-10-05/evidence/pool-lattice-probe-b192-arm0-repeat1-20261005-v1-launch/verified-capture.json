@@ -1,0 +1,60 @@
+{
+  "status": "PASS_OFFLINE_SINGLE_PAUSED_STATIC_PROBE_CAPTURE_ONLY",
+  "arm": 0,
+  "vertices": 192,
+  "repeats": 1,
+  "sourceManifestSha256": "c80df47f0318dfb1318b44dad25911c8372a2cce90e1df659a7d5743e7789553",
+  "nativeProofSha256": "e3d98b545cc7fe3998921a0315011143da521c4409d6e68cc7e139441efbfe40",
+  "symbols": {
+    "pool2ProbeHalt": {
+      "address": 1716576,
+      "bytes": 8,
+      "type": 2
+    },
+    "pool2ProbeReady": {
+      "address": 5253100,
+      "bytes": 4,
+      "type": 1
+    }
+  },
+  "registers": {
+    "pc": 1716576,
+    "cycle": 1043280838,
+    "cp0Count": 1043046539,
+    "spLow64": 33487840,
+    "raLow64": 3122956,
+    "isDelaySlot": 0
+  },
+  "readyMarker": "504f4f32",
+  "actualVuCountAndArmLayoutValidated": true,
+  "inputTopologyValidated": true,
+  "finalEpochRGBAValidated": true,
+  "finalEpoch": 1,
+  "actualMicrocodeSha256": "a68542268a08dd657eaae1b5d5fcaa321669cdda576b5fc5c55b36d9ef3244c7",
+  "vuMemorySha256": "3f0f5eb76721b406b1e0f1186340d0abb78364bdfe19ca4cd01cf58736100ecf",
+  "finalPackageCounts": [
+    42,
+    75
+  ],
+  "wholeArchiveMembersCRCValidated": true,
+  "configAndMTVUOffProfilePinned": true,
+  "guestTextUnchanged": true,
+  "elfSymTextEqual": true,
+  "files": {
+    "/home/spider/pool-lattice-probe-b192-arm0-repeat1-20261005-v1/profile/PCSX2/sstates/vehicle-playground (57773078).190.p2s": "86ddae7a2a6a5bd0cf26ce2f9a9f1845c102e65be1b5ce74ac2f0ec8e8ea157b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-probe-physical-v1/game/bin/vehicle-playground.elf": "fc9e6ac3eb7ef0d7db1696e9bd28621a53740afbd1463bcaba3388048e1beffc",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-probe-physical-v1/game/bin/vehicle-playground.elf.sym": "f8df5e9610b14f1dc1b62929e6075bf21fa301730c6e89ceeb418362872b2e12",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-lattice-probe-b192-arm0-repeat1-20261005-v1-launch/capture-report.json": "268c69b3ca0a5163b64de5fab50b045b663dba967d776e5f1ed204f4db177014",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-lattice-probe-b192-arm0-repeat1-20261005-v1-launch/pool2-probe.cfg": "4a3ea3a69754a27f80d18f43ac6f99c5f60edad06f132da08a8ccbea84249667",
+    "/home/spider/pool-lattice-probe-b192-arm0-repeat1-20261005-v1/profile/PCSX2/inis/PCSX2.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-probe-physical-v1/target-source-manifest.json": "c80df47f0318dfb1318b44dad25911c8372a2cce90e1df659a7d5743e7789553",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-probe-native-root-review-v1/proof.json": "e3d98b545cc7fe3998921a0315011143da521c4409d6e68cc7e139441efbfe40",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-probe-runtime-v1/verify-capture.py": "6d4683897d70eb69cc8e1f0bcca5b644a0bfad79e797ee3febb427ebddee675b"
+  },
+  "limitations": [
+    "Native proof is pinned external authority; native acceptance requires its independent review.",
+    "Caller must bind source/native/profile/config to the exact owned launch and protocol ready/frame records.",
+    "Final requested color epoch is independently validated in every saved VU output RGBA; intermediate epochs require their own captures.",
+    "One capture is not paired packed-output equality, GS consumption, raster or performance acceptance."
+  ]
+}

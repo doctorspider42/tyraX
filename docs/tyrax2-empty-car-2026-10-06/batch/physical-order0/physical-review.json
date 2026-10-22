@@ -1,0 +1,1247 @@
+{
+  "status": "PASS_PHYSICAL_COMPLETE_PINNED_PROTOCOL_NOT_TV_CERTIFICATION",
+  "rawSha256": "0f0269b11b1939c0b9c1d16f66cd6efff958a1381f89a653d9e172dcf102783a",
+  "rawSnapshot": "completed-stdout.raw",
+  "normalizedSha256": "0f0269b11b1939c0b9c1d16f66cd6efff958a1381f89a653d9e172dcf102783a",
+  "sampleSha256": "8cb411793d3b5f85052687e92072f48654f36929cd6ee5549daf50173b02eba0",
+  "launchInputsSha256": "795389601245df5af792bda9fdc479fd41b4b318e4dd7bd02cb4b8946a979615",
+  "rawEncoding": "original completion snapshot bytes retained; bijective latin1 to UTF8; protocol rows ASCII; live client may append after snapshot",
+  "protocol": {
+    "status": "PASS_COMPLETED_PRIVATE_STATIONARY_STATIC_BATCH_CONTRAST_PROTOCOL",
+    "batchColdWitnesses": {
+      "0": {
+        "750": {
+          "phase": "0",
+          "offset": "750",
+          "enabled": "1",
+          "mappedOwners": "50",
+          "retainedBatches": "24",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "0",
+          "offset": "1155",
+          "enabled": "1",
+          "mappedOwners": "50",
+          "retainedBatches": "24",
+          "valid": "1"
+        }
+      },
+      "1": {
+        "750": {
+          "phase": "1",
+          "offset": "750",
+          "enabled": "0",
+          "mappedOwners": "0",
+          "retainedBatches": "24",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "1",
+          "offset": "1155",
+          "enabled": "0",
+          "mappedOwners": "0",
+          "retainedBatches": "24",
+          "valid": "1"
+        }
+      },
+      "2": {
+        "750": {
+          "phase": "2",
+          "offset": "750",
+          "enabled": "1",
+          "mappedOwners": "50",
+          "retainedBatches": "24",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "2",
+          "offset": "1155",
+          "enabled": "1",
+          "mappedOwners": "50",
+          "retainedBatches": "24",
+          "valid": "1"
+        }
+      }
+    },
+    "order": 0,
+    "blobColdWitnesses": {
+      "0": {
+        "750": {
+          "phase": "0",
+          "offset": "750",
+          "owner": "1",
+          "acceptedBags": "1",
+          "acceptedVertices": "54",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "0",
+          "offset": "1155",
+          "owner": "1",
+          "acceptedBags": "1",
+          "acceptedVertices": "54",
+          "valid": "1"
+        }
+      },
+      "1": {
+        "750": {
+          "phase": "1",
+          "offset": "750",
+          "owner": "1",
+          "acceptedBags": "1",
+          "acceptedVertices": "54",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "1",
+          "offset": "1155",
+          "owner": "1",
+          "acceptedBags": "1",
+          "acceptedVertices": "54",
+          "valid": "1"
+        }
+      },
+      "2": {
+        "750": {
+          "phase": "2",
+          "offset": "750",
+          "owner": "1",
+          "acceptedBags": "1",
+          "acceptedVertices": "54",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "2",
+          "offset": "1155",
+          "owner": "1",
+          "acceptedBags": "1",
+          "acceptedVertices": "54",
+          "valid": "1"
+        }
+      }
+    },
+    "renderColdWitnesses": {
+      "0": {
+        "750": {
+          "phase": "0",
+          "offset": "750",
+          "acceptedBags": "37",
+          "acceptedVertices": "80187",
+          "billboards": "0",
+          "roadBags": "3",
+          "roadVertices": "213",
+          "carBags": "8",
+          "carVertices": "9024",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "0",
+          "offset": "1155",
+          "acceptedBags": "37",
+          "acceptedVertices": "80187",
+          "billboards": "0",
+          "roadBags": "3",
+          "roadVertices": "213",
+          "carBags": "8",
+          "carVertices": "9024",
+          "valid": "1"
+        }
+      },
+      "1": {
+        "750": {
+          "phase": "1",
+          "offset": "750",
+          "acceptedBags": "313",
+          "acceptedVertices": "80187",
+          "billboards": "0",
+          "roadBags": "3",
+          "roadVertices": "213",
+          "carBags": "8",
+          "carVertices": "9024",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "1",
+          "offset": "1155",
+          "acceptedBags": "313",
+          "acceptedVertices": "80187",
+          "billboards": "0",
+          "roadBags": "3",
+          "roadVertices": "213",
+          "carBags": "8",
+          "carVertices": "9024",
+          "valid": "1"
+        }
+      },
+      "2": {
+        "750": {
+          "phase": "2",
+          "offset": "750",
+          "acceptedBags": "37",
+          "acceptedVertices": "80187",
+          "billboards": "0",
+          "roadBags": "3",
+          "roadVertices": "213",
+          "carBags": "8",
+          "carVertices": "9024",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "2",
+          "offset": "1155",
+          "acceptedBags": "37",
+          "acceptedVertices": "80187",
+          "billboards": "0",
+          "roadBags": "3",
+          "roadVertices": "213",
+          "carBags": "8",
+          "carVertices": "9024",
+          "valid": "1"
+        }
+      }
+    },
+    "route": "same-two-car-road-light-pine-plus-fifty-buildings-80k-target",
+    "nominalInputTarget": 80187,
+    "actualInputTargetMetAtSixColdFrames": true,
+    "buildingColdWitnesses": {
+      "0": {
+        "750": {
+          "phase": "0",
+          "offset": "750",
+          "acceptedBags": "24",
+          "acceptedVertices": "70800",
+          "refs0": "7",
+          "refs1": "5",
+          "refs2": "7",
+          "refs3": "5",
+          "refs4": "7",
+          "refs5": "5",
+          "refs6": "7",
+          "refs7": "5",
+          "refs8": "7",
+          "refs9": "5",
+          "refs10": "7",
+          "refs11": "5",
+          "refs12": "7",
+          "refs13": "5",
+          "refs14": "7",
+          "refs15": "5",
+          "refs16": "7",
+          "refs17": "5",
+          "refs18": "7",
+          "refs19": "5",
+          "refs20": "7",
+          "refs21": "5",
+          "refs22": "7",
+          "refs23": "5",
+          "refs24": "7",
+          "refs25": "5",
+          "refs26": "7",
+          "refs27": "5",
+          "refs28": "7",
+          "refs29": "5",
+          "refs30": "7",
+          "refs31": "5",
+          "refs32": "7",
+          "refs33": "5",
+          "refs34": "7",
+          "refs35": "5",
+          "refs36": "7",
+          "refs37": "5",
+          "refs38": "7",
+          "refs39": "5",
+          "refs40": "7",
+          "refs41": "5",
+          "refs42": "7",
+          "refs43": "5",
+          "refs44": "7",
+          "refs45": "5",
+          "refs46": "7",
+          "refs47": "5",
+          "refs48": "7",
+          "refs49": "5",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "0",
+          "offset": "1155",
+          "acceptedBags": "24",
+          "acceptedVertices": "70800",
+          "refs0": "7",
+          "refs1": "5",
+          "refs2": "7",
+          "refs3": "5",
+          "refs4": "7",
+          "refs5": "5",
+          "refs6": "7",
+          "refs7": "5",
+          "refs8": "7",
+          "refs9": "5",
+          "refs10": "7",
+          "refs11": "5",
+          "refs12": "7",
+          "refs13": "5",
+          "refs14": "7",
+          "refs15": "5",
+          "refs16": "7",
+          "refs17": "5",
+          "refs18": "7",
+          "refs19": "5",
+          "refs20": "7",
+          "refs21": "5",
+          "refs22": "7",
+          "refs23": "5",
+          "refs24": "7",
+          "refs25": "5",
+          "refs26": "7",
+          "refs27": "5",
+          "refs28": "7",
+          "refs29": "5",
+          "refs30": "7",
+          "refs31": "5",
+          "refs32": "7",
+          "refs33": "5",
+          "refs34": "7",
+          "refs35": "5",
+          "refs36": "7",
+          "refs37": "5",
+          "refs38": "7",
+          "refs39": "5",
+          "refs40": "7",
+          "refs41": "5",
+          "refs42": "7",
+          "refs43": "5",
+          "refs44": "7",
+          "refs45": "5",
+          "refs46": "7",
+          "refs47": "5",
+          "refs48": "7",
+          "refs49": "5",
+          "valid": "1"
+        }
+      },
+      "1": {
+        "750": {
+          "phase": "1",
+          "offset": "750",
+          "acceptedBags": "300",
+          "acceptedVertices": "70800",
+          "refs0": "7",
+          "refs1": "5",
+          "refs2": "7",
+          "refs3": "5",
+          "refs4": "7",
+          "refs5": "5",
+          "refs6": "7",
+          "refs7": "5",
+          "refs8": "7",
+          "refs9": "5",
+          "refs10": "7",
+          "refs11": "5",
+          "refs12": "7",
+          "refs13": "5",
+          "refs14": "7",
+          "refs15": "5",
+          "refs16": "7",
+          "refs17": "5",
+          "refs18": "7",
+          "refs19": "5",
+          "refs20": "7",
+          "refs21": "5",
+          "refs22": "7",
+          "refs23": "5",
+          "refs24": "7",
+          "refs25": "5",
+          "refs26": "7",
+          "refs27": "5",
+          "refs28": "7",
+          "refs29": "5",
+          "refs30": "7",
+          "refs31": "5",
+          "refs32": "7",
+          "refs33": "5",
+          "refs34": "7",
+          "refs35": "5",
+          "refs36": "7",
+          "refs37": "5",
+          "refs38": "7",
+          "refs39": "5",
+          "refs40": "7",
+          "refs41": "5",
+          "refs42": "7",
+          "refs43": "5",
+          "refs44": "7",
+          "refs45": "5",
+          "refs46": "7",
+          "refs47": "5",
+          "refs48": "7",
+          "refs49": "5",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "1",
+          "offset": "1155",
+          "acceptedBags": "300",
+          "acceptedVertices": "70800",
+          "refs0": "7",
+          "refs1": "5",
+          "refs2": "7",
+          "refs3": "5",
+          "refs4": "7",
+          "refs5": "5",
+          "refs6": "7",
+          "refs7": "5",
+          "refs8": "7",
+          "refs9": "5",
+          "refs10": "7",
+          "refs11": "5",
+          "refs12": "7",
+          "refs13": "5",
+          "refs14": "7",
+          "refs15": "5",
+          "refs16": "7",
+          "refs17": "5",
+          "refs18": "7",
+          "refs19": "5",
+          "refs20": "7",
+          "refs21": "5",
+          "refs22": "7",
+          "refs23": "5",
+          "refs24": "7",
+          "refs25": "5",
+          "refs26": "7",
+          "refs27": "5",
+          "refs28": "7",
+          "refs29": "5",
+          "refs30": "7",
+          "refs31": "5",
+          "refs32": "7",
+          "refs33": "5",
+          "refs34": "7",
+          "refs35": "5",
+          "refs36": "7",
+          "refs37": "5",
+          "refs38": "7",
+          "refs39": "5",
+          "refs40": "7",
+          "refs41": "5",
+          "refs42": "7",
+          "refs43": "5",
+          "refs44": "7",
+          "refs45": "5",
+          "refs46": "7",
+          "refs47": "5",
+          "refs48": "7",
+          "refs49": "5",
+          "valid": "1"
+        }
+      },
+      "2": {
+        "750": {
+          "phase": "2",
+          "offset": "750",
+          "acceptedBags": "24",
+          "acceptedVertices": "70800",
+          "refs0": "7",
+          "refs1": "5",
+          "refs2": "7",
+          "refs3": "5",
+          "refs4": "7",
+          "refs5": "5",
+          "refs6": "7",
+          "refs7": "5",
+          "refs8": "7",
+          "refs9": "5",
+          "refs10": "7",
+          "refs11": "5",
+          "refs12": "7",
+          "refs13": "5",
+          "refs14": "7",
+          "refs15": "5",
+          "refs16": "7",
+          "refs17": "5",
+          "refs18": "7",
+          "refs19": "5",
+          "refs20": "7",
+          "refs21": "5",
+          "refs22": "7",
+          "refs23": "5",
+          "refs24": "7",
+          "refs25": "5",
+          "refs26": "7",
+          "refs27": "5",
+          "refs28": "7",
+          "refs29": "5",
+          "refs30": "7",
+          "refs31": "5",
+          "refs32": "7",
+          "refs33": "5",
+          "refs34": "7",
+          "refs35": "5",
+          "refs36": "7",
+          "refs37": "5",
+          "refs38": "7",
+          "refs39": "5",
+          "refs40": "7",
+          "refs41": "5",
+          "refs42": "7",
+          "refs43": "5",
+          "refs44": "7",
+          "refs45": "5",
+          "refs46": "7",
+          "refs47": "5",
+          "refs48": "7",
+          "refs49": "5",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "2",
+          "offset": "1155",
+          "acceptedBags": "24",
+          "acceptedVertices": "70800",
+          "refs0": "7",
+          "refs1": "5",
+          "refs2": "7",
+          "refs3": "5",
+          "refs4": "7",
+          "refs5": "5",
+          "refs6": "7",
+          "refs7": "5",
+          "refs8": "7",
+          "refs9": "5",
+          "refs10": "7",
+          "refs11": "5",
+          "refs12": "7",
+          "refs13": "5",
+          "refs14": "7",
+          "refs15": "5",
+          "refs16": "7",
+          "refs17": "5",
+          "refs18": "7",
+          "refs19": "5",
+          "refs20": "7",
+          "refs21": "5",
+          "refs22": "7",
+          "refs23": "5",
+          "refs24": "7",
+          "refs25": "5",
+          "refs26": "7",
+          "refs27": "5",
+          "refs28": "7",
+          "refs29": "5",
+          "refs30": "7",
+          "refs31": "5",
+          "refs32": "7",
+          "refs33": "5",
+          "refs34": "7",
+          "refs35": "5",
+          "refs36": "7",
+          "refs37": "5",
+          "refs38": "7",
+          "refs39": "5",
+          "refs40": "7",
+          "refs41": "5",
+          "refs42": "7",
+          "refs43": "5",
+          "refs44": "7",
+          "refs45": "5",
+          "refs46": "7",
+          "refs47": "5",
+          "refs48": "7",
+          "refs49": "5",
+          "valid": "1"
+        }
+      }
+    },
+    "buildingRefsMeaning": "accepted-carrier membership for each actual shown owner, not per-owner raster or postclip triangle count",
+    "staticModelColdWitnesses": {
+      "0": {
+        "750": {
+          "phase": "0",
+          "offset": "750",
+          "owner": "4",
+          "acceptedBags": "1",
+          "acceptedVertices": "96",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "0",
+          "offset": "1155",
+          "owner": "4",
+          "acceptedBags": "1",
+          "acceptedVertices": "96",
+          "valid": "1"
+        }
+      },
+      "1": {
+        "750": {
+          "phase": "1",
+          "offset": "750",
+          "owner": "4",
+          "acceptedBags": "1",
+          "acceptedVertices": "96",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "1",
+          "offset": "1155",
+          "owner": "4",
+          "acceptedBags": "1",
+          "acceptedVertices": "96",
+          "valid": "1"
+        }
+      },
+      "2": {
+        "750": {
+          "phase": "2",
+          "offset": "750",
+          "owner": "4",
+          "acceptedBags": "1",
+          "acceptedVertices": "96",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "2",
+          "offset": "1155",
+          "owner": "4",
+          "acceptedBags": "1",
+          "acceptedVertices": "96",
+          "valid": "1"
+        }
+      }
+    },
+    "lightColdContexts": {
+      "0": {
+        "750": {
+          "phase": "0",
+          "offset": "750",
+          "count": "1",
+          "slot": "0",
+          "enabled": "1",
+          "point": "1",
+          "x": "bffba6e2",
+          "y": "40400000",
+          "z": "404a4ca5",
+          "range": "20",
+          "r": "32",
+          "g": "96",
+          "b": "128",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "0",
+          "offset": "1155",
+          "count": "1",
+          "slot": "0",
+          "enabled": "1",
+          "point": "1",
+          "x": "bf320071",
+          "y": "40400000",
+          "z": "404302d5",
+          "range": "20",
+          "r": "32",
+          "g": "96",
+          "b": "128",
+          "valid": "1"
+        }
+      },
+      "1": {
+        "750": {
+          "phase": "1",
+          "offset": "750",
+          "count": "1",
+          "slot": "0",
+          "enabled": "1",
+          "point": "1",
+          "x": "bffba6e2",
+          "y": "40400000",
+          "z": "404a4ca5",
+          "range": "20",
+          "r": "32",
+          "g": "96",
+          "b": "128",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "1",
+          "offset": "1155",
+          "count": "1",
+          "slot": "0",
+          "enabled": "1",
+          "point": "1",
+          "x": "bf320071",
+          "y": "40400000",
+          "z": "404302d5",
+          "range": "20",
+          "r": "32",
+          "g": "96",
+          "b": "128",
+          "valid": "1"
+        }
+      },
+      "2": {
+        "750": {
+          "phase": "2",
+          "offset": "750",
+          "count": "1",
+          "slot": "0",
+          "enabled": "1",
+          "point": "1",
+          "x": "bffba6e2",
+          "y": "40400000",
+          "z": "404a4ca5",
+          "range": "20",
+          "r": "32",
+          "g": "96",
+          "b": "128",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "2",
+          "offset": "1155",
+          "count": "1",
+          "slot": "0",
+          "enabled": "1",
+          "point": "1",
+          "x": "bf320071",
+          "y": "40400000",
+          "z": "404302d5",
+          "range": "20",
+          "r": "32",
+          "g": "96",
+          "b": "128",
+          "valid": "1"
+        }
+      }
+    },
+    "lightEffectiveWitnesses": {
+      "0": {
+        "750": {
+          "phase": "0",
+          "offset": "750",
+          "ravagerBodySelected": "3",
+          "picaBodySelected": "3",
+          "ravagerWheelSelected": "1",
+          "picaWheelSelected": "1",
+          "ravagerBodyEffective": "3",
+          "picaBodyEffective": "3",
+          "ravagerWheelEffective": "1",
+          "picaWheelEffective": "1",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "0",
+          "offset": "1155",
+          "ravagerBodySelected": "3",
+          "picaBodySelected": "3",
+          "ravagerWheelSelected": "1",
+          "picaWheelSelected": "1",
+          "ravagerBodyEffective": "3",
+          "picaBodyEffective": "3",
+          "ravagerWheelEffective": "1",
+          "picaWheelEffective": "1",
+          "valid": "1"
+        }
+      },
+      "1": {
+        "750": {
+          "phase": "1",
+          "offset": "750",
+          "ravagerBodySelected": "3",
+          "picaBodySelected": "3",
+          "ravagerWheelSelected": "1",
+          "picaWheelSelected": "1",
+          "ravagerBodyEffective": "3",
+          "picaBodyEffective": "3",
+          "ravagerWheelEffective": "1",
+          "picaWheelEffective": "1",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "1",
+          "offset": "1155",
+          "ravagerBodySelected": "3",
+          "picaBodySelected": "3",
+          "ravagerWheelSelected": "1",
+          "picaWheelSelected": "1",
+          "ravagerBodyEffective": "3",
+          "picaBodyEffective": "3",
+          "ravagerWheelEffective": "1",
+          "picaWheelEffective": "1",
+          "valid": "1"
+        }
+      },
+      "2": {
+        "750": {
+          "phase": "2",
+          "offset": "750",
+          "ravagerBodySelected": "3",
+          "picaBodySelected": "3",
+          "ravagerWheelSelected": "1",
+          "picaWheelSelected": "1",
+          "ravagerBodyEffective": "3",
+          "picaBodyEffective": "3",
+          "ravagerWheelEffective": "1",
+          "picaWheelEffective": "1",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "2",
+          "offset": "1155",
+          "ravagerBodySelected": "3",
+          "picaBodySelected": "3",
+          "ravagerWheelSelected": "1",
+          "picaWheelSelected": "1",
+          "ravagerBodyEffective": "3",
+          "picaBodyEffective": "3",
+          "ravagerWheelEffective": "1",
+          "picaWheelEffective": "1",
+          "valid": "1"
+        }
+      }
+    },
+    "roadColdWitnesses": {
+      "0": {
+        "750": {
+          "phase": "0",
+          "offset": "750",
+          "paved": "4",
+          "grounded": "1",
+          "roadY": "3df5c28e",
+          "centerOffset": "00000000",
+          "grip": "3f800000",
+          "cover": "3f800000"
+        },
+        "1155": {
+          "phase": "0",
+          "offset": "1155",
+          "paved": "4",
+          "grounded": "1",
+          "roadY": "3df5c28e",
+          "centerOffset": "00000000",
+          "grip": "3f800000",
+          "cover": "3f800000"
+        }
+      },
+      "1": {
+        "750": {
+          "phase": "1",
+          "offset": "750",
+          "paved": "4",
+          "grounded": "1",
+          "roadY": "3df5c28e",
+          "centerOffset": "00000000",
+          "grip": "3f800000",
+          "cover": "3f800000"
+        },
+        "1155": {
+          "phase": "1",
+          "offset": "1155",
+          "paved": "4",
+          "grounded": "1",
+          "roadY": "3df5c28e",
+          "centerOffset": "00000000",
+          "grip": "3f800000",
+          "cover": "3f800000"
+        }
+      },
+      "2": {
+        "750": {
+          "phase": "2",
+          "offset": "750",
+          "paved": "4",
+          "grounded": "1",
+          "roadY": "3df5c28e",
+          "centerOffset": "00000000",
+          "grip": "3f800000",
+          "cover": "3f800000"
+        },
+        "1155": {
+          "phase": "2",
+          "offset": "1155",
+          "paved": "4",
+          "grounded": "1",
+          "roadY": "3df5c28e",
+          "centerOffset": "00000000",
+          "grip": "3f800000",
+          "cover": "3f800000"
+        }
+      }
+    },
+    "twoCarContexts": {
+      "0": {
+        "750": {
+          "phase": "0",
+          "offset": "750",
+          "vehicleCount": "2",
+          "driverDef": "0",
+          "secondDef": "1",
+          "driverObject": "1",
+          "secondObject": "3",
+          "secondX": "c0133333",
+          "secondY": "3ec3e26b",
+          "secondZ": "41000000",
+          "secondSpeed": "00000000"
+        },
+        "1155": {
+          "phase": "0",
+          "offset": "1155",
+          "vehicleCount": "2",
+          "driverDef": "0",
+          "secondDef": "1",
+          "driverObject": "1",
+          "secondObject": "3",
+          "secondX": "c0133333",
+          "secondY": "3ec3e26b",
+          "secondZ": "41000000",
+          "secondSpeed": "00000000"
+        }
+      },
+      "1": {
+        "750": {
+          "phase": "1",
+          "offset": "750",
+          "vehicleCount": "2",
+          "driverDef": "0",
+          "secondDef": "1",
+          "driverObject": "1",
+          "secondObject": "3",
+          "secondX": "c0133333",
+          "secondY": "3ec3e26b",
+          "secondZ": "41000000",
+          "secondSpeed": "00000000"
+        },
+        "1155": {
+          "phase": "1",
+          "offset": "1155",
+          "vehicleCount": "2",
+          "driverDef": "0",
+          "secondDef": "1",
+          "driverObject": "1",
+          "secondObject": "3",
+          "secondX": "c0133333",
+          "secondY": "3ec3e26b",
+          "secondZ": "41000000",
+          "secondSpeed": "00000000"
+        }
+      },
+      "2": {
+        "750": {
+          "phase": "2",
+          "offset": "750",
+          "vehicleCount": "2",
+          "driverDef": "0",
+          "secondDef": "1",
+          "driverObject": "1",
+          "secondObject": "3",
+          "secondX": "c0133333",
+          "secondY": "3ec3e26b",
+          "secondZ": "41000000",
+          "secondSpeed": "00000000"
+        },
+        "1155": {
+          "phase": "2",
+          "offset": "1155",
+          "vehicleCount": "2",
+          "driverDef": "0",
+          "secondDef": "1",
+          "driverObject": "1",
+          "secondObject": "3",
+          "secondX": "c0133333",
+          "secondY": "3ec3e26b",
+          "secondZ": "41000000",
+          "secondSpeed": "00000000"
+        }
+      }
+    },
+    "twoCarAcceptedWitnesses": {
+      "0": {
+        "750": {
+          "phase": "0",
+          "offset": "750",
+          "ravagerBodyBags": "3",
+          "ravagerBodyVertices": "3660",
+          "picaBodyBags": "3",
+          "picaBodyVertices": "2964",
+          "ravagerWheelBags": "1",
+          "ravagerWheelVertices": "1200",
+          "picaWheelBags": "1",
+          "picaWheelVertices": "1200",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "0",
+          "offset": "1155",
+          "ravagerBodyBags": "3",
+          "ravagerBodyVertices": "3660",
+          "picaBodyBags": "3",
+          "picaBodyVertices": "2964",
+          "ravagerWheelBags": "1",
+          "ravagerWheelVertices": "1200",
+          "picaWheelBags": "1",
+          "picaWheelVertices": "1200",
+          "valid": "1"
+        }
+      },
+      "1": {
+        "750": {
+          "phase": "1",
+          "offset": "750",
+          "ravagerBodyBags": "3",
+          "ravagerBodyVertices": "3660",
+          "picaBodyBags": "3",
+          "picaBodyVertices": "2964",
+          "ravagerWheelBags": "1",
+          "ravagerWheelVertices": "1200",
+          "picaWheelBags": "1",
+          "picaWheelVertices": "1200",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "1",
+          "offset": "1155",
+          "ravagerBodyBags": "3",
+          "ravagerBodyVertices": "3660",
+          "picaBodyBags": "3",
+          "picaBodyVertices": "2964",
+          "ravagerWheelBags": "1",
+          "ravagerWheelVertices": "1200",
+          "picaWheelBags": "1",
+          "picaWheelVertices": "1200",
+          "valid": "1"
+        }
+      },
+      "2": {
+        "750": {
+          "phase": "2",
+          "offset": "750",
+          "ravagerBodyBags": "3",
+          "ravagerBodyVertices": "3660",
+          "picaBodyBags": "3",
+          "picaBodyVertices": "2964",
+          "ravagerWheelBags": "1",
+          "ravagerWheelVertices": "1200",
+          "picaWheelBags": "1",
+          "picaWheelVertices": "1200",
+          "valid": "1"
+        },
+        "1155": {
+          "phase": "2",
+          "offset": "1155",
+          "ravagerBodyBags": "3",
+          "ravagerBodyVertices": "3660",
+          "picaBodyBags": "3",
+          "picaBodyVertices": "2964",
+          "ravagerWheelBags": "1",
+          "ravagerWheelVertices": "1200",
+          "picaWheelBags": "1",
+          "picaWheelVertices": "1200",
+          "valid": "1"
+        }
+      }
+    },
+    "portalColdCounts": null,
+    "byPhase": {
+      "0": {
+        "players": 0,
+        "geometryHidden": 0,
+        "sampler": 1,
+        "chunkMeanNonPacingMs": 15.475144502851698,
+        "chunkMeanEntryMs": 16.683369403415256,
+        "perChunkMeanEntryMs": [
+          16.68332862854004,
+          16.683356285095215,
+          16.683908886379665,
+          16.68273639678955,
+          16.68351682027181
+        ],
+        "maxObservedChunkMeanEntryMs": 16.683908886379665,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "rawStats": {
+          "entryPeriod": {
+            "count": 128,
+            "meanMs": 16.68334452311198,
+            "p50Ms": 16.683369954427082,
+            "p95Ms": 16.712822469075522,
+            "maxMs": 16.719716389973957,
+            "over16_68": 99,
+            "over16_68Percent": 77.34375,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "wholeLoop": {
+            "count": 128,
+            "meanMs": 16.67858510547214,
+            "p50Ms": 16.67908393012153,
+            "p95Ms": 16.708434719509548,
+            "maxMs": 16.715013292100693,
+            "over16_68": 28,
+            "over16_68Percent": 21.875,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "nonPacingLoop": {
+            "count": 128,
+            "meanMs": 15.471045547061497,
+            "p50Ms": 15.472371419270834,
+            "p95Ms": 15.501963636610242,
+            "maxMs": 15.503682454427084,
+            "over16_68": 0,
+            "over16_68Percent": 0.0,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "singleRenderedPeriod": {
+            "count": 128,
+            "meanMs": 16.6833332379659,
+            "p50Ms": 16.683319091796875,
+            "p95Ms": 16.69930453830295,
+            "maxMs": 16.704359266493057,
+            "over16_68": 117,
+            "over16_68Percent": 91.40625,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          }
+        }
+      },
+      "1": {
+        "players": 0,
+        "geometryHidden": 0,
+        "sampler": 1,
+        "chunkMeanNonPacingMs": 20.072768041822645,
+        "chunkMeanEntryMs": 33.36676962110731,
+        "perChunkMeanEntryMs": [
+          33.366659800211586,
+          33.366692860921226,
+          33.36666202545166,
+          33.36688147650825,
+          33.36695194244385
+        ],
+        "maxObservedChunkMeanEntryMs": 33.36695194244385,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "rawStats": {
+          "entryPeriod": {
+            "count": 128,
+            "meanMs": 33.36668221155802,
+            "p50Ms": 33.366668701171875,
+            "p95Ms": 33.4017079671224,
+            "maxMs": 33.431925455729164,
+            "over16_68": 128,
+            "over16_68Percent": 100.0,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "wholeLoop": {
+            "count": 128,
+            "meanMs": 33.36199818717109,
+            "p50Ms": 33.36235215928819,
+            "p95Ms": 33.39734564887153,
+            "maxMs": 33.425503200954864,
+            "over16_68": 128,
+            "over16_68Percent": 100.0,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "nonPacingLoop": {
+            "count": 128,
+            "meanMs": 20.07848638958401,
+            "p50Ms": 20.04763454861111,
+            "p95Ms": 20.280837673611114,
+            "maxMs": 20.32928466796875,
+            "over16_68": 128,
+            "over16_68Percent": 100.0,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "singleRenderedPeriod": {
+            "count": 128,
+            "meanMs": 33.366665840148926,
+            "p50Ms": 33.36666191948785,
+            "p95Ms": 33.38517116970486,
+            "maxMs": 33.394619411892364,
+            "over16_68": 128,
+            "over16_68Percent": 100.0,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          }
+        }
+      },
+      "2": {
+        "players": 0,
+        "geometryHidden": 0,
+        "sampler": 1,
+        "chunkMeanNonPacingMs": 15.47479666603936,
+        "chunkMeanEntryMs": 16.683335134718153,
+        "perChunkMeanEntryMs": [
+          16.683337847391766,
+          16.68381468454997,
+          16.682868639628094,
+          16.68331633673774,
+          16.683338165283203
+        ],
+        "maxObservedChunkMeanEntryMs": 16.68381468454997,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "rawStats": {
+          "entryPeriod": {
+            "count": 128,
+            "meanMs": 16.683347596062553,
+            "p50Ms": 16.68333943684896,
+            "p95Ms": 16.712596638997397,
+            "maxMs": 16.714396158854168,
+            "over16_68": 97,
+            "over16_68Percent": 75.78125,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "wholeLoop": {
+            "count": 128,
+            "meanMs": 16.6785798602634,
+            "p50Ms": 16.679053412543404,
+            "p95Ms": 16.707896592881944,
+            "maxMs": 16.709947374131943,
+            "over16_68": 30,
+            "over16_68Percent": 23.4375,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "nonPacingLoop": {
+            "count": 128,
+            "meanMs": 15.469655725691053,
+            "p50Ms": 15.471934000651041,
+            "p95Ms": 15.500492011176215,
+            "maxMs": 15.501566569010416,
+            "over16_68": 0,
+            "over16_68Percent": 0.0,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "singleRenderedPeriod": {
+            "count": 128,
+            "meanMs": 16.68333387374878,
+            "p50Ms": 16.683353000217014,
+            "p95Ms": 16.694371541341145,
+            "maxMs": 16.7049560546875,
+            "over16_68": 116,
+            "over16_68Percent": 90.625,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          }
+        }
+      }
+    },
+    "movedAtColdEndpoints": {
+      "0": false,
+      "1": false,
+      "2": false
+    },
+    "oneArm": false,
+    "matchedAB": true,
+    "hardwarePerformanceQualified": false,
+    "nativeSixtyFpsAccepted": false,
+    "commonControllerObserverCostUnpriced": true,
+    "limitations": [
+      "Cold positions/contact and accepted render counts are six sparse witnesses, not whole-run wheel path or image proof; centerOffset uses piecewise authored-anchor approximation, not exact tessellated Catmull-Rom centerline.",
+      "All three phases are parked for ON/OFF/ON or reverse representation comparison. Invisible analytic y0 floor retains driving physics; public tessellated road supplies normal raised contact geometry. All phases parked with unchanged normal physics; point time is phase-local frame offset/60, common to all arms. Comparison is net batching representation cost, not pure fixed bag price. Full S geometry retained but bends not traversed.",
+      "Worst window is maximum observed64-loop mean, not worst frame or p99.",
+      "128 raw loops per phase do not cover all measured chunks.",
+      "Emulator qualifies controller/scene correctness only; hardware cadence remains separate.",
+      "Private quieting, controller and observer footprint remain unpriced; hardware performance needs root qualification."
+    ]
+  },
+  "sourceNativeProvenance": "road-two-cars-light-buildings-80k-shadow-v1 native proof and root source review; all runtime launch input hashes verified",
+  "publicCommonCodeCostUnpriced": true,
+  "observerCommonFootprintUnpriced": true,
+  "nativeSixtyFpsAccepted": false
+}

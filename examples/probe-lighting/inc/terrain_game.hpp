@@ -35,12 +35,25 @@ class TerrainGame : public Tyra::Game {
   // crosses a snap line, instead of on every centimetre of walking.
   float terrainLodFocus[2][2] = {{0.0F, 0.0F}, {0.0F, 0.0F}};
   int terrainLodFocusCount = 0;
+  // The view rects of the last streaming pass, in chunk indices
+  // (cx0, cz0, cx1, cz1). When the whole map fits the slot pool nothing is
+  // evicted, and these rects only decide what renderTerrain draws.
+  int terrainDrawRect[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+  int terrainDrawRectCount = 0;
+  bool terrainWholeMapResident() const;
+  // The vertex shade of every heightfield node, computed once (r, g, b and a
+  // "valid" flag per node). Only kept for a whole-map-resident terrain; see
+  // buildTerrainChunk.
+  std::vector<float> terrainShadeCache;
   // Streams the chunk ring around one or two view foci (two-player modes:
   // P2's avatar is the second focus) - a chunk near EITHER focus stays
   // resident, so the split halves stop evicting each other's terrain.
   void updateTerrainChunks(float focusX, float focusZ, float focus2X,
                            float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
+  // Chunks built this frame (reset where the frame streams): the amortised
+  // reflection capture skips a half on such a frame so the costs never stack.
+  int terrainBuiltThisFrame = 0;
   void renderTerrain();
   void updatePlayer();
 
@@ -48,6 +61,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  float terrainFocusX = 0.0F, terrainFocusZ = 0.0F;
   // Camera up vector. World up unless a cutscene rolls the camera
   // (Dutch angle); CameraInfo3D takes it and both the view matrix and
   // the frustum planes honour it.
@@ -78,6 +92,9 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
+    // The TERRAINSTRIP diagnostic ran for this slot's first build (the scene
+    // load); LOD rebuilds while driving skip its per-vertex walk.
+    bool stripLogged = false;
     // The terrain lightmap passes, both blended over the base (and the
     // layers) and both sampling ONE map with the chunk's extent-normalized
     // STs - texturing is MODULATE, so the vertex color of each pass picks
@@ -123,6 +140,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
   int terrainChunksX = 0, terrainChunksZ = 0;
+  std::vector<std::string> groundShadowPins;
+  void prepareGroundShadowTextures();
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
@@ -301,6 +320,11 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+#if TYRA_VU1_EXP_PAINT
+    const void* envPaintSource = nullptr;
+    u32 envPaintCount = 0, envPaintVersion = 0, paintMapVersion = 0;
+    bool envPaintEeReady = false;
+#endif
     // The paint pass evaluates each DISTINCT normal once (see renderEnvPass):
     // paintMap[k] is vertex k's slot in paintNormals, built from the array
     // the env bag reads, and rebuilt whenever that array or its size changes.
@@ -480,6 +504,11 @@ class TerrainGame : public Tyra::Game {
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
+  bool isLivePlayerReceiver(int i) const;
+  void renderObjectBag(int owner, Tyra::StaPipBag* bag);
+  void renderWorldBag(Tyra::StaPipBag* bag);
+  void fillAnimLightColors(int i);
+  unsigned int dynamicReceiverGeneration_ = ~0U;
   void updateDynLitObjects();
   void fillDynLitColors(int index);
   // Directional light for the animated pass, mirroring the baked static
@@ -593,6 +622,10 @@ class TerrainGame : public Tyra::Game {
   };
   struct StaticBatch {
     Tyra::Texture* texture = nullptr;  // group key; colors already carry Kd
+    // Group key too: every member is "Show in reflections", so the
+    // environment-map passes submit this batch whole (and a reflected batch
+    // never drags a non-reflected object into the map).
+    bool reflected = false;
     std::vector<StaticBatchMember> members;
     std::vector<unsigned char> shown;  // per member: baked as visible?
     BagArray<Tyra::Vec4> vertices;  // world-space baked, like terrain
@@ -630,6 +663,7 @@ class TerrainGame : public Tyra::Game {
   // are flat-shaded by design.
   std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
   std::unique_ptr<Tyra::StaPipInfoBag> roadBlendInfoBag;  // road spills
+  std::unique_ptr<Tyra::StaPipInfoBag> roadInfoBag;  // road chunks (tight clip band)
   // The same settings with the camera spot switched off, for a batch that holds
   // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
   // one bag for many objects, so this is only ever swapped in for a batch of
@@ -696,6 +730,11 @@ class TerrainGame : public Tyra::Game {
     // equal corner colours is the flat result, so a chunk that mixes blocks
     // with ordinary instances loses nothing.
     bool smooth = false;
+    // Baked static lamps (BAKE_STATIC_LAMPS): the colours as built, before
+    // any lamp light was added - applyBakedLampsToChunk re-derives the
+    // chunk from these whenever the lamps change. Empty = never lamp-lit.
+    std::vector<Tyra::Color> lampBase;
+    unsigned int lampStamp = 0;  // colors.stamp() after the last lamp write
   };
   std::vector<ProcChunk> procChunks;
   // Collision for generated geometry. Merged geometry has no objects, so a
@@ -752,6 +791,9 @@ class TerrainGame : public Tyra::Game {
                            unsigned char faces,
                            const unsigned char* blockAo = nullptr);
   void procFinishChunks();
+  // Baked static lamps (docs/dynamic-light-receivers.md, "Baked lamp light").
+  void applyBakedLampsToChunk(ProcChunk& c, bool force);
+  void rebakeLampLight();
   void renderProcChunks();
   void renderRoadChunks();
   // Interleaved passes (docs/interleaved-passes.md, INTERLEAVE_PASSES).
@@ -761,7 +803,7 @@ class TerrainGame : public Tyra::Game {
   // object that may blend and after the loop.
   void submitHeavy(Tyra::StaPipBag* bag);
   void dripHeavy(bool all);
-  bool interleaveBegin();
+  bool interleaveBegin(bool serializedCost = false);
   void interleaveEnd();
   void ilAccount(u32 work);
   bool objectMayBlend(int index);
@@ -772,16 +814,38 @@ class TerrainGame : public Tyra::Game {
   int heavyDrawn = 0, heavyPrevDrawn = 16;
   int heavyBlendAt = -1;  // drawn-object index of this frame's blend flush
   int ilLastBlendAt = -1;  // the same, for the last interleaved frame
-  // The auto tuner: 8 probe pairs (one frame in each order), then the order
-  // that won most pairs is held for 100 frames before probing again.
+  // Settled homogeneous blocks: four reversed-order block pairs, then hold.
+  // Observation is inclusive loop wall work minus pacing, not per-job GPU cost.
+  void ilReset();
   bool ilProbing = true, ilChoice = false;
-  int ilFrame = 0, ilWins = 0;
-  u32 ilPairOn = 0, ilSumOn = 0, ilSumOff = 0;
+  int ilFrame = 0, ilWins = 0, ilPair = 0, ilBlock = 0, ilAccepted = 0;
+  int ilWarmup = 2, ilViews = 0, ilCameraRig = 0;
+  u32 ilPairOn = 0, ilPairOff = 0;
+  unsigned long long ilBlockSum = 0, ilSumOn = 0, ilSumOff = 0;
   int ilLastHeavy = 0;
-  // Whole-loop work of the previous frame: COP0 period minus the renderer's
-  // stall (vsync / display buffer), taken from one interleaveBegin to the next.
-  bool ilHaveMark = false, ilMarkActive = false;
-  u32 ilMark = 0, ilStallMark = 0;
+  bool ilHaveMark = false, ilMarkActive = false, ilHaveGeneration = false;
+  bool ilPipelined = false, ilRequested = false, ilCameraOverride = false;
+  u32 ilMark = 0, ilStallMark = 0, ilGeneration = 0;
+  // Exact mode/geometry fields: no packed-key collisions or frame-address key.
+  struct InterleaveMode {
+    u32 video, display, color, buffers;
+    bool field, blss, limiter, yield, widescreen, dither, network;
+    float width, height, renderHeight, rasterWidth, rasterHeight;
+    int lowW, lowH, frameWidth, x0, x1, y0, y1;
+    bool operator==(const InterleaveMode& o) const {
+      return video == o.video && display == o.display && color == o.color &&
+             buffers == o.buffers && field == o.field && blss == o.blss &&
+             limiter == o.limiter && yield == o.yield && widescreen == o.widescreen &&
+             dither == o.dither && network == o.network && width == o.width &&
+             height == o.height && renderHeight == o.renderHeight &&
+             rasterWidth == o.rasterWidth && rasterHeight == o.rasterHeight &&
+             lowW == o.lowW && lowH == o.lowH && frameWidth == o.frameWidth &&
+             x0 == o.x0 && x1 == o.x1 && y0 == o.y0 && y1 == o.y1;
+    }
+  } ilMode{};
+  unsigned int ilSceneGeneration = 0;
+  uintptr_t ilCameraSource = 0;
+  std::vector<unsigned char> ilPortalTopology;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
   float roadSurfaceAt(float x, float z, float* grip = nullptr,
@@ -800,6 +864,7 @@ class TerrainGame : public Tyra::Game {
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
+  void liftLatticeOverRoadStep(Tyra::Vec4* grid, int nx, int nz) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
@@ -866,6 +931,7 @@ class TerrainGame : public Tyra::Game {
   void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
 
   void buildSkyDome();
+  bool retintSkyDomeColors();
   // Pins every pass that draws one vertex array to a single VU1 package size -
   // see the implementation for why coplanar passes must classify identically.
   // `stripRun` non-zero: the bags draw a TRIANGLE STRIP whose packages must
@@ -1256,6 +1322,20 @@ class TerrainGame : public Tyra::Game {
   // excluded (the swept object itself). Also carries/throws pickable objects.
   float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
                     float maxDist, float radius, int skipIndex) const;
+  // Its pieces, shared with the chase camera's sweep over the vehicle
+  // collider list: the segment's broad-phase box, one object (filters, cached
+  // box, broad + narrow phase), one already placed box (narrow phase only)
+  // and the terrain march. Each returns the new nearest distance.
+  struct SweepSeg {
+    float p[3], d[3], r, mn[3], mx[3];
+  };
+  SweepSeg sweepSegment(float px, float py, float pz, float dx, float dy,
+                        float dz, float maxDist, float r) const;
+  float sweepObject(const SweepSeg& s, int oi, float best) const;
+  float sweepBoxHit(const SweepSeg& s, const SceneObjectData& d, float cx,
+                    float cy, float cz, float ex, float ey, float ez,
+                    float best) const;
+  float sweepTerrain(const SweepSeg& s, float best) const;
 
   // --- the collision box (docs/collision-boxes.md) --------------------------
   // What an object reduces to for the walker, the camera boom and the
@@ -1272,6 +1352,44 @@ class TerrainGame : public Tyra::Game {
     float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
   };
   CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+
+  // --- the broad phase (docs/collision-boxes.md, "The broad phase") ---------
+  // ONE broad phase for every contact query against scene objects - the
+  // walker (and collideActor), sweepSphere (camera boom, carry, throw), the
+  // physics step's static obstacles and traceLine: Tyra::BroadPhase (engine,
+  // physics/broad_phase), backend per project (SCENE_BROADPHASE: height-aware
+  // grid or loose octree). Refreshed on the first query of a frame
+  // (g_frameStamp), at the frame loop's refresh boundaries (after the script
+  // stage, after the spinners) and after any spawn or (de)activation; a query
+  // fills `out` with every object whose box may reach it - never fewer - in
+  // ascending order, and the caller's own exact tests decide.
+  void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
+  void broadPhaseAlong(const float* a, const float* b, float radius,
+                       std::vector<int>& out) const;
+  // The next query refreshes first. The contract for code that moves, turns
+  // or rescales a collider (or changes its model or collision mode) and then
+  // queries before the next boundary: call this in between. Cheap when little
+  // changed - a refresh that changes nothing placed skips the rebuild.
+  void broadPhaseInvalidate() const { bpFrame = ~0u; }
+  void broadPhaseRefresh() const;
+  void broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const;
+  void broadPhaseVerify(const Tyra::BroadBox* area, const float* a, const float* b,
+                        float radius, const std::vector<int>& out) const;
+  struct BroadPhaseCache {
+    float key[12] = {};      // pose + model + collision mode the box was made for
+    Tyra::BroadBox box;      // world box, padded
+    bool valid = false;
+    bool stale = false;      // key moved on while moving: box not rebuilt yet
+    bool present = false;    // what the last commit was handed for it
+    bool moving = false;
+    unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
+  };
+  mutable Tyra::BroadPhase broadPhase;
+  mutable std::vector<BroadPhaseCache> bpCache;
+  mutable unsigned bpFrame = ~0u, bpGen = ~0u;
+  mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
+  // One candidate list per call site: the queries never nest inside a site.
+  mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;
   // Debug overlay: draws those boxes as red wireframes in the running game
   // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
   // constexpr, so a shipping build emits nothing). Rebuilt every frame from
@@ -1577,6 +1695,18 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
     std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+    // TYRA_BEAM_CORONA_VU1 (docs/flashlight.md, "Coronas on VU1"): the
+    // coronas as ONE billboard bag - a centre, a 2x2 basis weight and a
+    // colour per lamp, expanded into camera-facing quads by the VU1
+    // billboard program the particles use - instead of six EE-built
+    // vertices a lamp re-staged on every camera move.
+    BagArray<Tyra::Vec4> bbCenters, bbWeights;
+    BagArray<Tyra::Color> bbColors;
+    std::unique_ptr<Tyra::StaPipInfoBag> bbInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> bbColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> bbTexBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> bbBasis;
+    std::unique_ptr<Tyra::StaPipBag> bbBag;
   };
   std::vector<std::unique_ptr<BeamBatch>> beamBatches;
   int beamBatchCall = 0;  // reset by loop() every frame
@@ -1769,6 +1899,16 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<ProjShadow> projShadows;  // one per engine slot in use
   std::vector<int> projCasters;         // authored caster object indices
+  // A still caster's below-the-floor clamped copy, per bag, kept between
+  // frames so it is rewritten (behind a queue drain) only when the bag or
+  // the floor moved - renderProjShadows, docs/shadows.md.
+  struct ProjClampEntry {
+    BagArray<Tyra::Vec4> arr;
+    const Tyra::Vec4* src = nullptr;
+    u32 count = 0, bbox = 0, content = 0, stamp = 0;
+    float floorY = 0.0F;
+  };
+  std::map<const Tyra::StaPipBag*, ProjClampEntry> projClampCache;
   void setupProjShadows();   // per scene load
   void renderProjShadows();  // per frame, end of renderScene
   // The floor a shadow lands on. Terrain OR geometry: an indoor level's real

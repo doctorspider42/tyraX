@@ -1,0 +1,21 @@
+{
+  "pid": 11363,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/paused-clock-production-v5/profile",
+    "-logfile",
+    "/home/spider/paused-clock-production-v5/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/paused-clock-production-vehicle-v1/game/bin/vehicle-playground.elf"
+  ],
+  "exe": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt",
+  "exeSha256": "c4629baf9c5daca45a9df6ad1ee84a188aeb025627b822a3ea62bdc48b23da18",
+  "elfSha256": "2073bac24336b81d39f88ae13d1ea85f0e809572f54aed18feacf05b14512167",
+  "symbolSha256": "a439670963bd98c6576f0c42b06b4bd9aeb46f3eb1aa6987919d4eea71cffaf8",
+  "sourceManifestSha256": "8fbcd3db6dd92be9703d5def4d69b1deb9246a9c4e460fb7dda1da6e3c4a93a3",
+  "buildRecordSha256": "9f26a0ac95bf10671c22f170e1cca4b53cf9ba20562ef301aa38ef1e87b11fd2",
+  "helperSha256": "1f29185fc050651cb5a7c9df5a75ccb4793b1e132c5491135ef1df2cbe506a08"
+}

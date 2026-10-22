@@ -1,0 +1,58 @@
+{
+  "scope": "Read-only source diagnosis; supplied emulator facts attributed to parent, no independent runtime parse or elapsed claim.",
+  "source_files": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\target-source-manifest.json",
+      "sha256": "a1c147f20be0ad43a69aea19a4d41f5d1a14e9d8b885649e97b85fb0541db73b"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\game\\src\\gen\\game_collision.gen.cpp",
+      "sha256": "82d82862caafa40df6f10a717d51b4051c534982f9050338d4ce37b27b9dfe1f"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\game\\src\\gen\\scene_objects.gen.cpp",
+      "sha256": "7746cfeb68f2d88bf9fe111950e85b9d2f97efd54661b821bea86a80529a7a52"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\game\\inc\\game_runtime.gen.hpp",
+      "sha256": "adea1c59013f8a163a1642a8465a5c0645c2fea636515aca45a8ee6714613b8f"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\tyra\\engine\\src\\renderer\\core\\renderer_core.cpp",
+      "sha256": "3b182efa6acbfa4636afbf1bcc28f4493c4ed3d357878f00ed03c0a3e702f83c"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp",
+      "sha256": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v2\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_spot_bounds.hpp",
+      "sha256": "12f608e80f16ca73209c01160b92afda971f6a93203e4e08b40399fe84493344"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\examples\\vehicle-playground\\authoring\\build-district.py",
+      "sha256": "53fda1830a5906a98981e550f3f560aee2d428a10590097bba0dfa1e9b60614f"
+    }
+  ],
+  "reportSha256": "3adc466852db5fcf37ec9942cad0c205bd8eea0b3daba619510f29fa0d033cf7",
+  "key147": {
+    "slot": 6,
+    "field": "color.r",
+    "lightWordStart": 139,
+    "fieldOffset": 8
+  },
+  "parentReported": {
+    "zeroCandidate": true,
+    "originalMain": 11,
+    "carriers": 11,
+    "semanticVertexComparisons": 396,
+    "mismatches": 0,
+    "why": {
+      "groups0and1": 1050880,
+      "group2": 1051136,
+      "firstDiff": 147,
+      "keyReady": 1,
+      "keyAdmitted": 0
+    }
+  }
+}

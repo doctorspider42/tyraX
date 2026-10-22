@@ -1,0 +1,9 @@
+{
+  "status": "USER_CONFIRMED_PHYSICAL_FULL_NIGHT_APPEARANCE_NORMAL",
+  "reply": "Tak, obraz wygl\u0105da normalnie",
+  "question": "Car, lights, shadows and HUD normal without new artifacts",
+  "kind": 7,
+  "finalCandidateEnabled": true,
+  "completedReverseTrialMachineEvidenceSha256": "4ebcf346127d397ef6bb19c523e878c74e6946c6dde5bc4b674320e18ea7f4cf",
+  "exactPixelEqualityOrGainClaim": false
+}

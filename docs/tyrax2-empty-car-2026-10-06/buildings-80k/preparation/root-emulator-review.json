@@ -1,0 +1,44 @@
+{
+  "status": "ROOT_REVIEWED_CLOSEOUT_INPUTS",
+  "rootReviewed": true,
+  "noAddedWaitsReviewed": true,
+  "ordinarySamplerOnlyReviewed": true,
+  "sourceFrozenByRoot": true,
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-v1/empty-car",
+  "inputs": [
+    {
+      "role": "source-review",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-v1/source-review.json",
+      "sha256": "09a847968b6272156233e97f317f9c812b0b41beb686aa8c38a9765df3ed3eb6"
+    },
+    {
+      "role": "native-proof",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-v1/native-proof.json",
+      "sha256": "92f8e6ab2ca47003c1a8e8b447c41bea2c31da61bd059835e3cc8449d28dc96d"
+    },
+    {
+      "role": "elf",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-v1/empty-car/bin/empty-car.elf",
+      "sha256": "108425457964332a68f2507970f2aa7168760e10dd35777cb8db810e012f3c0e"
+    },
+    {
+      "role": "symbol",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-v1/empty-car/bin/empty-car.elf.sym",
+      "sha256": "c88f21f80fb85b66be9c4df0ff9a66268537c9444772ae7114ac2c720cf7b8d3"
+    },
+    {
+      "role": "sample-config",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-v1/empty-car/bin/closeout.cfg",
+      "sha256": "968c76efed47eb02a2a77c542c9128dfd4e9c7066629920b2d8c3231081e7623"
+    }
+  ],
+  "changedSources": [
+    "game/empty-car.tyra",
+    "game/src/gen/game_collision.gen.cpp",
+    "game/src/gen/game_scene.gen.cpp",
+    "game/src/gen/scene_objects.gen.cpp",
+    "game/src/terrain_game.cpp",
+    "tyra/engine/inc/debug/empty_witness.hpp"
+  ],
+  "reviewScope": "Fifty facade instances expand the prior eight-building two-car/moving-point/pine fixture. Native/source bindings verified. Root reviewed solo owner scope and stable shown-member static batch registration; table scans occur only at six off-clock cold frames. Four vehicle light arrays remain guarded. Accepted building carriers counted once with checked 64-bit membership bits for 50 owners, preserving public batching; mixed carriers rejected. No new clocks/waits, same route/controller and ordinary sampler. Accepted input vertices are not postclip emitted triangles or per-owner raster proof. Common disabled observer footprint remains unpriced."
+}

@@ -1,0 +1,36 @@
+{
+  "status": "DRAFT_PRIVATE_PMU_SCENE_UNRELEASED",
+  "frozen": false,
+  "sourceManifestSha256": "57bf6300bc93375623ae3ce32504e417d867dd833c642f8aba891ea4d48eef77",
+  "sourceFiles": 501,
+  "baseManifestSha256": "2abb237cdd009fe5ceb638550e5e61be639e9656cd0390c1988686b25003a81b",
+  "changes": [
+    "game/src/gen/game_physics.gen.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp"
+  ],
+  "stoppedPcr": "000340d0",
+  "enabledPcr": "800340d0",
+  "sampleFrames": 128,
+  "extraPMUReadsPerOnSample": 4,
+  "commonControlReadsPerSample": 3,
+  "newCountReads": 0,
+  "newWaits": 0,
+  "rawActivationOnly": true,
+  "pmuOverflowSemanticsWidthKnown": 31,
+  "pmuOverflowUnmaskable": true,
+  "pmuMaximumEventRateQualified": false,
+  "boundedEnabledLifetimeQualified": false,
+  "runtimeReleaseBlocked": true,
+  "DsideEvent": "D-side bus-read/cache-miss event, including uncached loads",
+  "productionAssertionsRetained": true,
+  "commonResetEnableStopCostUnpriced": true,
+  "preservedUnsafeV1ManifestSha256": "9d5e4a535f0e98a58fe3718f8b5341c64c16da6c3ee0042dc6d0d5fb471514cc",
+  "primaryOverflowReport": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\pmu-overflow-review-v1\\report.md",
+    "sha256": "333feade6c802da52cac384a3ff8cf5047231a5e6cca77e040f1187064888d2c"
+  }
+}

@@ -1,0 +1,4 @@
+void TerrainGame::poolBatchAdd(const LightPool& b, float fix) {
+  poolBatch_.members.push_back(&b);
+  poolBatch_.memberFix.push_back(fix);
+}

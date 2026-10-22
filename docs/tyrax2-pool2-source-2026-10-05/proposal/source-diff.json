@@ -1,0 +1,102 @@
+{
+  "baselineSourceCount": 497,
+  "candidateSourceCount": 499,
+  "files": [
+    {
+      "path": "game/inc/terrain_game.hpp",
+      "baseSha256": "3550b0e0cfc2ae3c3e780d605ba226b74a2a49aaf3951ebbcf268e62b722fbbd",
+      "candidateSha256": "0740eef0342efa61616248e21f534e47e3d4cee468eb6f10d8b34e981a28f15b",
+      "new": false
+    },
+    {
+      "path": "game/src/gen/game_lighting.gen.cpp",
+      "baseSha256": "3eb0c90c1b2efe879b247baab4b1acda1868abd7064ab16b30021db5355c6cf4",
+      "candidateSha256": "6b3e17cfdb7000dce317d1d7115ae8f0155c548e4b2a0de05bfb03e2fbf5a2a8",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/inc/debug/night_ablation.hpp",
+      "baseSha256": "afac4fddf3c41977f22e64a00c15cdbf0e17342de49149fb529bc533a3fb54c3",
+      "candidateSha256": "7002e5fe126c658542bc6bc8a587c488700e249e93895c091b0c02366987b560",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/inc/debug/night_plan.hpp",
+      "baseSha256": "01b144f310cea1dc01df440001b127ff5f69b2f0d83db635dd9d44af105a48ca",
+      "candidateSha256": "c08f89dd4da630c516eddc6e779c1b22e6092c8cce6b360a3de360cfb8c83c9b",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/inc/debug/night_runtime.hpp",
+      "baseSha256": "9d0c22a1e27a2c37ce37c235e8a757db9251566bcdb959e6bde89921d30070fc",
+      "candidateSha256": "b3f0c8c2e0b58d351544ea5dcc2f05898ca80a1bb5889896d6beb7af2adbc162",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_bag.hpp",
+      "baseSha256": "70acb7183b0dfbf919905d8553e632b3f4211a28179c2f82a1d4657b26299c41",
+      "candidateSha256": "0090c8b940c640b333beaa920d036643ef550c8d0c7a30dcb7bfa99c250bcfbf",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h",
+      "baseSha256": "85f7f7164fbafbb96dde9b6590748a3f94bbf8fa91e23de929aea48aa3f10d71",
+      "candidateSha256": "275daf8412e0c18e6164214419153248a784a2c3e1a0220aa950b8890bbf6c09",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_pool_color_packet.hpp",
+      "baseSha256": null,
+      "candidateSha256": "1452774bfae877b9017bf9d8fbba3a5d7c7ad7b248475b912e3a679d2ac1a7b5",
+      "new": true
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_pool_color_table.hpp",
+      "baseSha256": null,
+      "candidateSha256": "1ef2540488e15f722637910510e51cb1defc74b0ee92ab5d090aaa1ebfb2670e",
+      "new": true
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp",
+      "baseSha256": "e2b73d7845243135495fea98c20e81f46f978d970a322ec187e5d8f6d2c3d863",
+      "candidateSha256": "397313a8bda017deeb0ed2eef497a192c39552e081911056c4e538a61dd016f7",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp",
+      "baseSha256": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145",
+      "candidateSha256": "d1266c96bdef0bc5b77a4f1e7cced007c53b607bcd4e4c32dfe0355597256126",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp",
+      "baseSha256": "b7231de7546ddd540316ffa63f2ee978c7d60feebb81676f0ae20c45c7a6b75a",
+      "candidateSha256": "f5aee36f44afb37a550a7156b9f85fcf65648e296888101afce6e85710bc944b",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.cpp",
+      "baseSha256": "6b9aa76f2a1d79605a1bf2a0c7cf063d5cfcc539cbfc37e0ac660f894058927a",
+      "candidateSha256": "f55a72115394dc1321263d92909e3d763b12163c402f6b77d11914f57dd9d189",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp",
+      "baseSha256": "ba059bd60f30728a7ebb0e96ca2e370676a9f26f0c278b379b0a02f130298eab",
+      "candidateSha256": "8a3bb29a7960bc67a6d5579f316074c559f7ce783d9c17d9f1d930824276339a",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+      "baseSha256": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d",
+      "candidateSha256": "be77677a29e372294e3a4386b667a4ec3546157d78e4acc2160e52a840a7d60f",
+      "new": false
+    },
+    {
+      "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp",
+      "baseSha256": "1a078e0cb07452a72fec34a300a78204fe9323dfe15a6e0a86e078be59e561a6",
+      "candidateSha256": "32d5d26e478145811429d39d233a78ec35814ef536e1e21aa2b1bc6426acb8e2",
+      "new": false
+    }
+  ]
+}

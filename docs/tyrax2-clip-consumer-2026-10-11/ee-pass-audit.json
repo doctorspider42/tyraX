@@ -1,0 +1,262 @@
+{
+  "source": "/mnt/f/Projects/tyra-editor/docs/tyrax2-scene-capture-2026-10-09/accepted-v4/physical/scene-bags.csv",
+  "sha256": "2af0877ed0b65c9c9bb3422bf8a5bb2e66496dd31833cdcb034a5f9c63d00130",
+  "rows": 1027,
+  "sameAddressGroups": 14,
+  "sameRecordedGeometryKeyGroups": 0,
+  "groups": [
+    {
+      "pose": {
+        "phase": "1",
+        "offset": "1300",
+        "view": "0",
+        "vertices": "27933456"
+      },
+      "counts": [
+        3390,
+        2025
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "1",
+        "offset": "1300",
+        "view": "0",
+        "vertices": "28322848"
+      },
+      "counts": [
+        3204,
+        1725
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "1",
+        "offset": "1336",
+        "view": "0",
+        "vertices": "27933456"
+      },
+      "counts": [
+        3390,
+        2025
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "1",
+        "offset": "1336",
+        "view": "0",
+        "vertices": "28322848"
+      },
+      "counts": [
+        3204,
+        1725
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "1",
+        "offset": "1337",
+        "view": "0",
+        "vertices": "27933456"
+      },
+      "counts": [
+        3390,
+        2025
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "1",
+        "offset": "1337",
+        "view": "0",
+        "vertices": "28322848"
+      },
+      "counts": [
+        3204,
+        1725
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "1",
+        "offset": "1576",
+        "view": "0",
+        "vertices": "27933456"
+      },
+      "counts": [
+        3390,
+        2025
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "1",
+        "offset": "1576",
+        "view": "0",
+        "vertices": "28322848"
+      },
+      "counts": [
+        3204,
+        1725
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "1",
+        "offset": "1577",
+        "view": "0",
+        "vertices": "27933456"
+      },
+      "counts": [
+        3390,
+        2025
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "1",
+        "offset": "1577",
+        "view": "0",
+        "vertices": "28322848"
+      },
+      "counts": [
+        3204,
+        1725
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "4",
+        "offset": "1380",
+        "view": "0",
+        "vertices": "22005696"
+      },
+      "counts": [
+        3390,
+        2025
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "4",
+        "offset": "1381",
+        "view": "0",
+        "vertices": "22005696"
+      },
+      "counts": [
+        3390,
+        2025
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "4",
+        "offset": "1500",
+        "view": "0",
+        "vertices": "22005696"
+      },
+      "counts": [
+        3390,
+        2025
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    },
+    {
+      "pose": {
+        "phase": "4",
+        "offset": "1501",
+        "view": "0",
+        "vertices": "22005696"
+      },
+      "counts": [
+        3390,
+        2025
+      ],
+      "passes": [
+        1,
+        6
+      ],
+      "clips": 0,
+      "culls": 0
+    }
+  ],
+  "scope": "Historical nine-frame sample, not current A25 pricing; no complete model/view/program-capacity contract in CSV"
+}

@@ -1,0 +1,244 @@
+{
+  "valid": true,
+  "experiment": "A44-terrain-four-view-display",
+  "platform": "emulator",
+  "phase": 1,
+  "activation": {
+    "submittedByView": [
+      3,
+      4,
+      13,
+      13
+    ],
+    "cells": 25,
+    "passes": 43,
+    "textures": 19,
+    "words": 39104,
+    "heap": 501760,
+    "fallback": 0
+  },
+  "images": [
+    {
+      "view": 0,
+      "kind": "main",
+      "files": [
+        "game/bin/cell-12-main.bin",
+        "game/bin/cell-13-main.bin",
+        "game/bin/cell-14-main.bin"
+      ],
+      "hashes": [
+        "08ffa82a38e80d8ce33a835a566b0a471b4c604ef349af0da6261723580be12f",
+        "dd64556d3f47cee710e875b327ec3513536a47b1fa5da564a164569565e02957",
+        "9211cc092a8b728933ed343c56567c56ef13e25b9e75d57d298ca0649231f371"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 0,
+      "kind": "env",
+      "files": [
+        "game/bin/cell-12-env.bin",
+        "game/bin/cell-13-env.bin",
+        "game/bin/cell-14-env.bin"
+      ],
+      "hashes": [
+        "caaf45d9cab4d8a1c79583156bac742477d2617f643b069c9b8d9cc3461b5cb2",
+        "7b54ad9589cbb72f29ac70dfaa0d0327c239002830ac9e4c17ddc35365ce6d7e",
+        "3bcd117c50a9aa90261098c93399fcfb225f3bc315bc5a4250998ec5fd8ac5f9"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 0,
+      "kind": "display",
+      "files": [
+        "game/bin/cell-12-display.bin",
+        "game/bin/cell-13-display.bin",
+        "game/bin/cell-14-display.bin"
+      ],
+      "hashes": [
+        "38d138fd1510e01ce971f94334c07f730030623e86cf7dcbbe98bc4522823a67",
+        "14be4a7466cc0c997feccd03efb7cafc63e37378c9509db33b31f7f0a3605eee",
+        "2f1832e677c2fee011b8cfc1599f378908a12a5b78260681cc6d573efddd7e08"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 1,
+      "kind": "main",
+      "files": [
+        "game/bin/cell-15-main.bin",
+        "game/bin/cell-16-main.bin",
+        "game/bin/cell-17-main.bin"
+      ],
+      "hashes": [
+        "519f83306208a53d4584a2673941a66f26da7114fb10d66cfbd637a7ef7f5ff4",
+        "b3f5f8a2e7073803f7e849c407a918bfac3bfb1950b9dac43e66b4d2aaf167d8",
+        "6768ee9253f5525ff71f6c787a74f3564b103e2ddc7ae2341409c4a3f9898d7c"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 1,
+      "kind": "env",
+      "files": [
+        "game/bin/cell-15-env.bin",
+        "game/bin/cell-16-env.bin",
+        "game/bin/cell-17-env.bin"
+      ],
+      "hashes": [
+        "acf9317c320b84796eb396e3b21888222a3baa6fabe7f2d8262b5d474f0282a6",
+        "990057c2b94d370c1c9e51f2072d50535b60584b60290676f4c40e77e7ad8705",
+        "69a2e7a74ef51449f12b40d307f86df2e4708d5c0ba8e7c2be677d5ad1fcada9"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 1,
+      "kind": "display",
+      "files": [
+        "game/bin/cell-15-display.bin",
+        "game/bin/cell-16-display.bin",
+        "game/bin/cell-17-display.bin"
+      ],
+      "hashes": [
+        "feac8ceab698c71b61792c2ee4f110e19a2f37e22c3ee3c0827afdd2b03e26ef",
+        "d712878699b81fe27a48eec1ec0260136d833a0cbba074faca762fb7ffb286f6",
+        "164fa452c12c585666083b1852b2b3eb7626398e878378cd15d7bed7115da803"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 2,
+      "kind": "main",
+      "files": [
+        "game/bin/cell-18-main.bin",
+        "game/bin/cell-19-main.bin",
+        "game/bin/cell-20-main.bin"
+      ],
+      "hashes": [
+        "66e9bbb15217108edaba50f4cdf2dd8e9e11bad5e173d3c03c77d3d51a3331ff",
+        "24d860788c04ba1a7c61dc535586dc0ea380a604daca0971a601acb50e7ea003",
+        "5bb209740aa4f9364188fe5b23722f021de1cf1946ca87352d383bc7405ef1a1"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 2,
+      "kind": "env",
+      "files": [
+        "game/bin/cell-18-env.bin",
+        "game/bin/cell-19-env.bin",
+        "game/bin/cell-20-env.bin"
+      ],
+      "hashes": [
+        "f605e84b30f28d5afb700aa3b2f8b80a27c96e62c4242d2b39a0abf583234bfa",
+        "8cb5103532c65bf4c9bca4896d3addada9e862e8c9872730240662debcaa7626",
+        "aff1c026f3adc372c9d5e55cd836d62d87eb6d2580393968c17a7ec81eb88eef"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 2,
+      "kind": "display",
+      "files": [
+        "game/bin/cell-18-display.bin",
+        "game/bin/cell-19-display.bin",
+        "game/bin/cell-20-display.bin"
+      ],
+      "hashes": [
+        "cd5ad8fda9a87754f0c3e65bd7c98720552eaa42b99630e3520754a732b8a4b0",
+        "539b353dec566fa7fa28069ca6fd2b2adb5c394d1a93818e2785a42277d5806c",
+        "a3d9f61c1b955b4c69c335e63c522a09812cde7a7954f5c40fed5b618840e44c"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 3,
+      "kind": "main",
+      "files": [
+        "game/bin/cell-21-main.bin",
+        "game/bin/cell-22-main.bin",
+        "game/bin/cell-23-main.bin"
+      ],
+      "hashes": [
+        "e1fe07fc1ba747cc0d1bb26d82f9365f5116d089a315fcf579c177fe36df1e22",
+        "729907df317e888261598c0e21414b25ff617a89a306d5b002b30ad56d53645b",
+        "9bc7b774e2e558453864670a19e0d2a1e04257b4166f694d28f955421204e811"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 3,
+      "kind": "env",
+      "files": [
+        "game/bin/cell-21-env.bin",
+        "game/bin/cell-22-env.bin",
+        "game/bin/cell-23-env.bin"
+      ],
+      "hashes": [
+        "9e8005391b776fbc307d3e98a257eead03dbcfc490817a155d8507b65abec409",
+        "adf0e8254a2701c682a92f54ece62f0aa5536606078f8779c17e9b8e6e5838c6",
+        "2de169494f5dc173875aa7ea5ac405d565bbd74ada8f0e6fcfb5cdc761c2b4d0"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    },
+    {
+      "view": 3,
+      "kind": "display",
+      "files": [
+        "game/bin/cell-21-display.bin",
+        "game/bin/cell-22-display.bin",
+        "game/bin/cell-23-display.bin"
+      ],
+      "hashes": [
+        "ebdcaa74f53008e176ecd2aa53df166b546276e0d6f8ca007b43a85190b20b5c",
+        "4d03a98f9be85a50a23489610c7087c82fa67d6b9dbc997812958403bc0f6435",
+        "fa945b2cdbf7d8f66c600c907e85562aa4fdbd598101d24e123c760570fa32fb"
+      ],
+      "candidateDifferentBytes": 0,
+      "candidateReturnDifferentBytes": 0,
+      "returnDifferentBytes": 0
+    }
+  ],
+  "readerNegativeControls": [
+    "missing",
+    "duplicate",
+    "partial",
+    "fallback",
+    "wrongTarget",
+    "viewLoss",
+    "budget"
+  ],
+  "ordinaryOnly": false,
+  "ordinarySettlingFrames": 32,
+  "elfSha256": "b536f91461e802a015fd2ebce2c21a0b0e57759455b0e5ec8fa25f1562180157",
+  "logSha256": "ed1ee1e5192ea71b8ae8345531ad21323526a697d6b9e11bdc6b601cd8ac00a6",
+  "promotionAllowed": false,
+  "limits": [
+    "Four directions at one end-of-drive position, not every possible cell/view.",
+    "No moving candidate, sustained pressure, physical price or60fps proof."
+  ]
+}

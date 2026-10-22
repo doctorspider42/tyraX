@@ -1,0 +1,41 @@
+{
+  "status": "ROLE_DERIVED_NONPACING_POINT_ESTIMATES",
+  "rows": [
+    {
+      "order": 0,
+      "phaseFlags": [
+        0,
+        1,
+        0
+      ],
+      "phaseMeans_ms": [
+        19.00268779330783,
+        18.909617201487222,
+        18.944845496283637
+      ],
+      "candidateMean_ms": 18.909617201487222,
+      "controlMean_ms": 18.973766644795734,
+      "candidateMinusControl_ms": -0.06414944330851213,
+      "inputSha256": "eb22ff5fed2d39f4b760e08afce103d0da3656c6f9755c825d3ed89795d56932"
+    },
+    {
+      "order": 1,
+      "phaseFlags": [
+        1,
+        0,
+        1
+      ],
+      "phaseMeans_ms": [
+        19.09283249113295,
+        19.164022339714897,
+        19.089062839084203
+      ],
+      "candidateMean_ms": 19.090947665108576,
+      "controlMean_ms": 19.164022339714897,
+      "candidateMinusControl_ms": -0.07307467460632111,
+      "inputSha256": "0fb890a9573dbdbeb60e9cb565fbb71f2604405db671826ed95adfa71f7dcc08"
+    }
+  ],
+  "actualOrdinaryAcceptedSpritesKnown": false,
+  "correction": "Initial prose applied middle-minus-outer without reversing roles in the reverse order. Raw analyses already had the correct candidate sign; they are unchanged."
+}

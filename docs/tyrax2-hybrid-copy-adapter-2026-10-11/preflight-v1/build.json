@@ -1,0 +1,31 @@
+{
+  "command": [
+    "/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/bin/mips64r5900el-ps2-elf-g++",
+    "-std=c++17",
+    "-D_EE",
+    "-G0",
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include",
+    "-I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include",
+    "-T/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/startup/linkfile",
+    "-L/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/lib",
+    "-Wl,-zmax-page-size=128",
+    "/mnt/f/Projects/tyrax2-window-preflight-20261011-v1/tyrax2-window-preflight.cpp",
+    "-lgraph",
+    "-o",
+    "/mnt/f/Projects/tyrax2-window-preflight-20261011-v1/game/bin/vehicle-playground.elf"
+  ],
+  "files": {
+    "build.stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "build.stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tyrax2-window-preflight.cpp": "008500f17cffb7e9d166ab12a5b0a7e8d2b27168c1d6ade944166f43cfce2a53",
+    "tyrax2-window-preflight.py": "c739c711c817121ce4b75a91da6b8394c8b556946c9246b5bcf86e1b4273d700",
+    "game/bin/vehicle-playground.elf": "6489c9eed2cbb74627ec194f459700c3fcb21568175b2bfd6b225b0cb410653a"
+  },
+  "signal": "480p noninterlaced FRAME, same A40 graph_set_mode",
+  "copyEnabled": false,
+  "scope": "Isolated timer ownership/polarity/interval preflight, not full game or copy budget"
+}

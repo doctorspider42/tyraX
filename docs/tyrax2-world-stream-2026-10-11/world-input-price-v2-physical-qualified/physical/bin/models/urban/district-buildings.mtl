@@ -1,0 +1,4 @@
+# Exterior shells; shared opaque atlas, CC0 Kenney source textures
+newmtl district_facade
+Kd 1 1 1
+map_Kd Textures/district-facades.png

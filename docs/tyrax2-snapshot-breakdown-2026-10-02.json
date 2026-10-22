@@ -1,0 +1,1363 @@
+{
+  "fixture": {
+    "phases": [
+      "compiled-on probe runtime disabled before",
+      "snapshot/native attribution enabled",
+      "compiled-on probe runtime disabled restored"
+    ],
+    "frames_per_phase": 2200,
+    "warm_work_start_offset": 1100,
+    "work_sample_count": 512,
+    "source_game": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game",
+    "source_engine": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\tyra",
+    "note": "Diagnostic overhead gate false/true/false in same ELF. Does not substitute for pristine/compiled-off physical controls. No candidate borrow optimization; baseline unchanged apart from scratch probes. Nested snapshot total includes children; fixups shown exclusive of mutable copying.",
+    "artifacts": {
+      "tyra\\engine\\inc\\renderer\\core\\paths\\path1\\frame_chain_arena.hpp": "364a43bfaa2215964ef3c0a581e4fa6325ea3efc0f0c0d5d6d05eb961bb2ca69",
+      "tyra\\engine\\inc\\renderer\\core\\paths\\path1\\snapshot_breakdown.hpp": "979e779b16d946add044cd3eb627d3bf90792728ef2207dfe3062018fbcbdb4b",
+      "tyra\\engine\\src\\renderer\\core\\paths\\path1\\vif1_queue.cpp": "6340b9904c2fcede93f23f0046594cc137ce845e76cb16e3a59edfb33bd1027d",
+      "game\\src\\terrain_game.cpp": "70f42dcf96a1963e70dd4911c59acc7e6903067f5a0a214a999b8c7ce23c3d42"
+    }
+  },
+  "log": "F:\\Projects\\tyrax2-lab-20261001\\snapshot-trial-physical-snapshot.log",
+  "log_sha256": "17499df8c18e0fa876debe0afcbba1517fa3d554145d6551524f50ba6f7d0b5e",
+  "elf_sha256": "465de821814761887e64c50864d6a58528e09b976b1df2b605dc5b4a3c8870c1",
+  "results": [
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\snapshot-trial-physical-snapshot.log",
+      "first": 1100,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 19.164984060658348,
+      "median_ms": 19.13756306966146,
+      "p95_ms": 19.632093641493057,
+      "max_ms": 21.57192654079861,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 0,
+      "name": "compiled-on probe runtime disabled before",
+      "period_windows": [
+        {
+          "frame": 1100,
+          "period": 33.7,
+          "pre": 1.66,
+          "stall": 12.58
+        },
+        {
+          "frame": 1150,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 12.51
+        },
+        {
+          "frame": 1200,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 12.48
+        },
+        {
+          "frame": 1250,
+          "period": 33.37,
+          "pre": 1.66,
+          "stall": 12.4
+        },
+        {
+          "frame": 1300,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 12.52
+        },
+        {
+          "frame": 1350,
+          "period": 33.37,
+          "pre": 1.66,
+          "stall": 12.48
+        },
+        {
+          "frame": 1400,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 12.47
+        },
+        {
+          "frame": 1450,
+          "period": 33.37,
+          "pre": 1.65,
+          "stall": 12.56
+        },
+        {
+          "frame": 1500,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 12.48
+        },
+        {
+          "frame": 1550,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 12.62
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "mean_pre_ms": 1.616,
+      "profile_windows": [
+        {
+          "frame": 1100,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 1150,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 1200,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 1250,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 1300,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 1350,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 1400,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 1450,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 1500,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 1550,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        }
+      ],
+      "count_windows": [
+        {
+          "frame": 1100,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 1150,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 1200,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 1250,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 1300,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 1350,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 1400,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 1450,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 1500,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 1550,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        }
+      ],
+      "stage_means_ms": {
+        "total": 0.0,
+        "preflight": 0.0,
+        "chaincopy": 0.0,
+        "fixups": 0.0,
+        "mutable": 0.0,
+        "sizing": 0.0,
+        "emit": 0.0
+      },
+      "count_means_per_frame": {
+        "calls": 0.0,
+        "success": 0.0,
+        "preTags": 0.0,
+        "preRefs": 0.0,
+        "secondTags": 0.0,
+        "secondRefs": 0.0,
+        "resolver": 0.0,
+        "immutable": 0.0,
+        "chainqw": 0.0,
+        "mutableqw": 0.0,
+        "borrowedqw": 0.0,
+        "publishedqw": 0.0,
+        "countTags": 0.0,
+        "emitTags": 0.0,
+        "emits": 0.0
+      },
+      "delivered_rate_from_period_hz": 29.937430769691346
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\snapshot-trial-physical-snapshot.log",
+      "first": 3300,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 19.596451203028362,
+      "median_ms": 19.616736518012154,
+      "p95_ms": 20.139383951822918,
+      "max_ms": 21.35236273871528,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 1,
+      "name": "snapshot/native attribution enabled",
+      "period_windows": [
+        {
+          "frame": 3300,
+          "period": 33.7,
+          "pre": 1.6,
+          "stall": 12.21
+        },
+        {
+          "frame": 3350,
+          "period": 33.37,
+          "pre": 1.67,
+          "stall": 11.98
+        },
+        {
+          "frame": 3400,
+          "period": 33.37,
+          "pre": 1.6,
+          "stall": 11.99
+        },
+        {
+          "frame": 3450,
+          "period": 33.37,
+          "pre": 1.6,
+          "stall": 12.08
+        },
+        {
+          "frame": 3500,
+          "period": 33.37,
+          "pre": 1.68,
+          "stall": 12.26
+        },
+        {
+          "frame": 3550,
+          "period": 33.37,
+          "pre": 1.63,
+          "stall": 12.36
+        },
+        {
+          "frame": 3600,
+          "period": 33.37,
+          "pre": 1.66,
+          "stall": 11.98
+        },
+        {
+          "frame": 3650,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 11.99
+        },
+        {
+          "frame": 3700,
+          "period": 33.37,
+          "pre": 1.6,
+          "stall": 12.03
+        },
+        {
+          "frame": 3750,
+          "period": 33.37,
+          "pre": 1.62,
+          "stall": 11.89
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "mean_pre_ms": 1.625,
+      "profile_windows": [
+        {
+          "frame": 3300,
+          "total": 3.32928,
+          "preflight": 1.1141,
+          "chaincopy": 0.26552,
+          "fixups": 0.77478,
+          "mutable": 1.06192,
+          "sizing": 0.15871,
+          "emit": 0.51708
+        },
+        {
+          "frame": 3350,
+          "total": 3.36737,
+          "preflight": 1.11993,
+          "chaincopy": 0.27926,
+          "fixups": 0.79815,
+          "mutable": 1.05327,
+          "sizing": 0.15993,
+          "emit": 0.52125
+        },
+        {
+          "frame": 3400,
+          "total": 3.32746,
+          "preflight": 1.12673,
+          "chaincopy": 0.26286,
+          "fixups": 0.77565,
+          "mutable": 1.05213,
+          "sizing": 0.15982,
+          "emit": 0.52113
+        },
+        {
+          "frame": 3450,
+          "total": 3.34012,
+          "preflight": 1.11393,
+          "chaincopy": 0.2716,
+          "fixups": 0.78392,
+          "mutable": 1.06105,
+          "sizing": 0.16346,
+          "emit": 0.52863
+        },
+        {
+          "frame": 3500,
+          "total": 3.29932,
+          "preflight": 1.10523,
+          "chaincopy": 0.25912,
+          "fixups": 0.76952,
+          "mutable": 1.06142,
+          "sizing": 0.1564,
+          "emit": 0.52591
+        },
+        {
+          "frame": 3550,
+          "total": 3.21222,
+          "preflight": 1.0557,
+          "chaincopy": 0.255,
+          "fixups": 0.75289,
+          "mutable": 1.04727,
+          "sizing": 0.15218,
+          "emit": 0.50629
+        },
+        {
+          "frame": 3600,
+          "total": 3.23018,
+          "preflight": 1.06817,
+          "chaincopy": 0.25739,
+          "fixups": 0.75996,
+          "mutable": 1.04044,
+          "sizing": 0.156,
+          "emit": 0.48991
+        },
+        {
+          "frame": 3650,
+          "total": 3.32619,
+          "preflight": 1.11186,
+          "chaincopy": 0.2655,
+          "fixups": 0.77256,
+          "mutable": 1.06665,
+          "sizing": 0.1569,
+          "emit": 0.521
+        },
+        {
+          "frame": 3700,
+          "total": 3.34061,
+          "preflight": 1.11565,
+          "chaincopy": 0.27215,
+          "fixups": 0.78458,
+          "mutable": 1.05845,
+          "sizing": 0.15816,
+          "emit": 0.5101
+        },
+        {
+          "frame": 3750,
+          "total": 3.35014,
+          "preflight": 1.11626,
+          "chaincopy": 0.26758,
+          "fixups": 0.79656,
+          "mutable": 1.05962,
+          "sizing": 0.16302,
+          "emit": 0.51544
+        }
+      ],
+      "count_windows": [
+        {
+          "frame": 3300,
+          "calls": 5203.0,
+          "success": 5203.0,
+          "preTags": 80535.0,
+          "preRefs": 27198.0,
+          "secondTags": 80535.0,
+          "secondRefs": 27198.0,
+          "resolver": 48298.0,
+          "immutable": 54396.0,
+          "chainqw": 179969.0,
+          "mutableqw": 540708.0,
+          "borrowedqw": 6718524.0,
+          "publishedqw": 720677.0,
+          "countTags": 80485.0,
+          "emitTags": 80485.0,
+          "emits": 5153.0
+        },
+        {
+          "frame": 3350,
+          "calls": 5350.0,
+          "success": 5350.0,
+          "preTags": 80600.0,
+          "preRefs": 27150.0,
+          "secondTags": 80600.0,
+          "secondRefs": 27150.0,
+          "resolver": 48200.0,
+          "immutable": 54300.0,
+          "chainqw": 180000.0,
+          "mutableqw": 537000.0,
+          "borrowedqw": 6722350.0,
+          "publishedqw": 717000.0,
+          "countTags": 80550.0,
+          "emitTags": 80550.0,
+          "emits": 5300.0
+        },
+        {
+          "frame": 3400,
+          "calls": 5182.0,
+          "success": 5182.0,
+          "preTags": 80432.0,
+          "preRefs": 27150.0,
+          "secondTags": 80432.0,
+          "secondRefs": 27150.0,
+          "resolver": 48200.0,
+          "immutable": 54300.0,
+          "chainqw": 179832.0,
+          "mutableqw": 537000.0,
+          "borrowedqw": 6722350.0,
+          "publishedqw": 716832.0,
+          "countTags": 80382.0,
+          "emitTags": 80382.0,
+          "emits": 5132.0
+        },
+        {
+          "frame": 3450,
+          "calls": 5350.0,
+          "success": 5350.0,
+          "preTags": 80600.0,
+          "preRefs": 27150.0,
+          "secondTags": 80600.0,
+          "secondRefs": 27150.0,
+          "resolver": 48200.0,
+          "immutable": 54300.0,
+          "chainqw": 180000.0,
+          "mutableqw": 537000.0,
+          "borrowedqw": 6722350.0,
+          "publishedqw": 717000.0,
+          "countTags": 80550.0,
+          "emitTags": 80550.0,
+          "emits": 5300.0
+        },
+        {
+          "frame": 3500,
+          "calls": 5098.0,
+          "success": 5098.0,
+          "preTags": 80348.0,
+          "preRefs": 27150.0,
+          "secondTags": 80348.0,
+          "secondRefs": 27150.0,
+          "resolver": 48200.0,
+          "immutable": 54300.0,
+          "chainqw": 179748.0,
+          "mutableqw": 537000.0,
+          "borrowedqw": 6722350.0,
+          "publishedqw": 716748.0,
+          "countTags": 80298.0,
+          "emitTags": 80298.0,
+          "emits": 5048.0
+        },
+        {
+          "frame": 3550,
+          "calls": 4300.0,
+          "success": 4300.0,
+          "preTags": 79550.0,
+          "preRefs": 27150.0,
+          "secondTags": 79550.0,
+          "secondRefs": 27150.0,
+          "resolver": 48200.0,
+          "immutable": 54300.0,
+          "chainqw": 178950.0,
+          "mutableqw": 537000.0,
+          "borrowedqw": 6722350.0,
+          "publishedqw": 715950.0,
+          "countTags": 79500.0,
+          "emitTags": 79500.0,
+          "emits": 4250.0
+        },
+        {
+          "frame": 3600,
+          "calls": 4342.0,
+          "success": 4342.0,
+          "preTags": 79592.0,
+          "preRefs": 27150.0,
+          "secondTags": 79592.0,
+          "secondRefs": 27150.0,
+          "resolver": 48200.0,
+          "immutable": 54300.0,
+          "chainqw": 178992.0,
+          "mutableqw": 537000.0,
+          "borrowedqw": 6722350.0,
+          "publishedqw": 715992.0,
+          "countTags": 79542.0,
+          "emitTags": 79542.0,
+          "emits": 4292.0
+        },
+        {
+          "frame": 3650,
+          "calls": 5224.0,
+          "success": 5224.0,
+          "preTags": 80474.0,
+          "preRefs": 27150.0,
+          "secondTags": 80474.0,
+          "secondRefs": 27150.0,
+          "resolver": 48200.0,
+          "immutable": 54300.0,
+          "chainqw": 179874.0,
+          "mutableqw": 537000.0,
+          "borrowedqw": 6722350.0,
+          "publishedqw": 716874.0,
+          "countTags": 80424.0,
+          "emitTags": 80424.0,
+          "emits": 5174.0
+        },
+        {
+          "frame": 3700,
+          "calls": 5350.0,
+          "success": 5350.0,
+          "preTags": 80600.0,
+          "preRefs": 27150.0,
+          "secondTags": 80600.0,
+          "secondRefs": 27150.0,
+          "resolver": 48200.0,
+          "immutable": 54300.0,
+          "chainqw": 180000.0,
+          "mutableqw": 537000.0,
+          "borrowedqw": 6722350.0,
+          "publishedqw": 717000.0,
+          "countTags": 80550.0,
+          "emitTags": 80550.0,
+          "emits": 5300.0
+        },
+        {
+          "frame": 3750,
+          "calls": 5182.0,
+          "success": 5182.0,
+          "preTags": 80432.0,
+          "preRefs": 27150.0,
+          "secondTags": 80432.0,
+          "secondRefs": 27150.0,
+          "resolver": 48200.0,
+          "immutable": 54300.0,
+          "chainqw": 179832.0,
+          "mutableqw": 537000.0,
+          "borrowedqw": 6722350.0,
+          "publishedqw": 716832.0,
+          "countTags": 80382.0,
+          "emitTags": 80382.0,
+          "emits": 5132.0
+        }
+      ],
+      "stage_means_ms": {
+        "total": 3.312289,
+        "preflight": 1.104756,
+        "chaincopy": 0.265598,
+        "fixups": 0.776857,
+        "mutable": 1.056222,
+        "sizing": 0.158458,
+        "emit": 0.515674
+      },
+      "count_means_per_frame": {
+        "calls": 101.162,
+        "success": 101.162,
+        "preTags": 1606.326,
+        "preRefs": 543.096,
+        "secondTags": 1606.326,
+        "secondRefs": 543.096,
+        "resolver": 964.196,
+        "immutable": 1086.192,
+        "chainqw": 3594.3940000000002,
+        "mutableqw": 10747.416,
+        "borrowedqw": 134439.348,
+        "publishedqw": 14341.81,
+        "countTags": 1605.326,
+        "emitTags": 1605.326,
+        "emits": 100.162
+      },
+      "delivered_rate_from_period_hz": 29.937430769691346,
+      "observer_work_increase_against_controls_ms": [
+        0.43146714237001405,
+        0.25205747286478797
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\snapshot-trial-physical-snapshot.log",
+      "first": 5500,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 19.344393730163574,
+      "median_ms": 19.37765842013889,
+      "p95_ms": 19.95901828342014,
+      "max_ms": 22.03921169704861,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 2,
+      "name": "compiled-on probe runtime disabled restored",
+      "period_windows": [
+        {
+          "frame": 5500,
+          "period": 33.7,
+          "pre": 1.68,
+          "stall": 12.61
+        },
+        {
+          "frame": 5550,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 12.44
+        },
+        {
+          "frame": 5600,
+          "period": 33.37,
+          "pre": 1.66,
+          "stall": 12.4
+        },
+        {
+          "frame": 5650,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 12.43
+        },
+        {
+          "frame": 5700,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 12.16
+        },
+        {
+          "frame": 5750,
+          "period": 33.37,
+          "pre": 1.66,
+          "stall": 12.04
+        },
+        {
+          "frame": 5800,
+          "period": 33.37,
+          "pre": 1.6,
+          "stall": 12.41
+        },
+        {
+          "frame": 5850,
+          "period": 33.37,
+          "pre": 1.63,
+          "stall": 12.44
+        },
+        {
+          "frame": 5900,
+          "period": 33.37,
+          "pre": 1.59,
+          "stall": 12.31
+        },
+        {
+          "frame": 5950,
+          "period": 33.37,
+          "pre": 1.58,
+          "stall": 12.14
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "mean_pre_ms": 1.617,
+      "profile_windows": [
+        {
+          "frame": 5500,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 5550,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 5600,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 5650,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 5700,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 5750,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 5800,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 5850,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 5900,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        },
+        {
+          "frame": 5950,
+          "total": 0.0,
+          "preflight": 0.0,
+          "chaincopy": 0.0,
+          "fixups": 0.0,
+          "mutable": 0.0,
+          "sizing": 0.0,
+          "emit": 0.0
+        }
+      ],
+      "count_windows": [
+        {
+          "frame": 5500,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 5550,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 5600,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 5650,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 5700,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 5750,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 5800,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 5850,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 5900,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        },
+        {
+          "frame": 5950,
+          "calls": 0.0,
+          "success": 0.0,
+          "preTags": 0.0,
+          "preRefs": 0.0,
+          "secondTags": 0.0,
+          "secondRefs": 0.0,
+          "resolver": 0.0,
+          "immutable": 0.0,
+          "chainqw": 0.0,
+          "mutableqw": 0.0,
+          "borrowedqw": 0.0,
+          "publishedqw": 0.0,
+          "countTags": 0.0,
+          "emitTags": 0.0,
+          "emits": 0.0
+        }
+      ],
+      "stage_means_ms": {
+        "total": 0.0,
+        "preflight": 0.0,
+        "chaincopy": 0.0,
+        "fixups": 0.0,
+        "mutable": 0.0,
+        "sizing": 0.0,
+        "emit": 0.0
+      },
+      "count_means_per_frame": {
+        "calls": 0.0,
+        "success": 0.0,
+        "preTags": 0.0,
+        "preRefs": 0.0,
+        "secondTags": 0.0,
+        "secondRefs": 0.0,
+        "resolver": 0.0,
+        "immutable": 0.0,
+        "chainqw": 0.0,
+        "mutableqw": 0.0,
+        "borrowedqw": 0.0,
+        "publishedqw": 0.0,
+        "countTags": 0.0,
+        "emitTags": 0.0,
+        "emits": 0.0
+      },
+      "delivered_rate_from_period_hz": 29.937430769691346
+    }
+  ],
+  "control_spread_ms": 0.17940966950522608,
+  "limitations": [
+    "One sequential instrumented diagnostic boot; not a new production benchmark.",
+    "Runtime-gate controls do not replace pristine/compiled-off physical controls.",
+    "Total includes preflight/chaincopy/fixups/mutable; fixups is exclusive of mutable. Sizing and emit sit inside submit, alongside snapshot.",
+    "Profile windows are neighboring 50-frame summaries distinct from 512 raw work samples.",
+    "Counters and clocks add overhead; no VU/GS utilization or speed gain claim."
+  ],
+  "date": "2026-10-02",
+  "verification": "Native build; integrated 1074 arena cases / 10000 malformed streams / 43 writer cases; two host macro variants with 10047 callback/state differential cases each; PCSX2 2.9.93 and physical PS2 all three phases and two reloads. Diagnostic only.",
+  "probe_report": "# Bounded snapshot/native attribution preparation\n\n2026-10-02. Scratch output against pristine LAB/arena-check-night/tyra. Initial preparation was read-only; subsequent authorized HOST compilation/differential verification is recorded below. No engine/cache/repository mutation, console or emulator use.\n\n## Artifacts and application\n\nprepare.py reads two pristine files and emits instrumented copies plus instrumentation.patch. The patch also creates engine/inc/renderer/core/paths/path1/snapshot_breakdown.hpp. Applying the patch to a NEW private engine copy is root's step. Do not overwrite a private one-search-borrow header wholesale with the instrumented full header: apply the narrow patch so that independent borrow change survives. The preparation script always reads pristine sources, never writes them. source-hashes.json captures those inputs.\n\n## Gates and reporting API\n\nTYRA_SNAPSHOT_BREAKDOWN defaults to 0, compiling clock/counter work out. With it set to 1, SnapshotBreakdown::gate() still defaults false; root enables it at a normal frame boundary. SnapshotBreakdown::reset() clears the aggregate, data() exposes counters and ticks. Set the gate false before copying/printing/resetting the metrics at a frame boundary, and print outside the timed sampling window. No callback, DMA, queue, interrupt or wait behavior was added. Function-local static objects keep the header C++11-compatible and shared across translation units under the normal inline-function ODR contract.\n\nThe COP0 counter uses the same mfc0 $9 source as existing renderer diagnostics. Use the existing project's tick conversion. Individual elapsed differences are 32-bit wrap-safe when a scope is shorter than a counter period; accumulated sums use uint64_t. Very long stalls exceeding that period are not reliably timed and require the separate watchdog/register diagnosis. Do not toggle gate mid-scope: Scope captures its active state while per-event counts check the current gate.\n\n## Timing hierarchy (nested, not additive)\n\n* SnapshotTotal: complete FrameChainArena::copy attempt, including invalid-entry refusals and failed preflight/copy attempts. snapshotCalls versus snapshotSuccess separates attempts from publication.\n* Preflight: the original first tag/range/capacity pass including resolver/immutable callbacks and final extent/capacity checks. RAII records all its early returns. Initial base/alignment/qword refusal occurs only in SnapshotTotal.\n* ChainCopy: full original chain copyQwords call plus its attempt/done counter overhead. Under EE it uses the unchanged LQ/SQ implementation; under a guarded build its existing memcmp verification is included.\n* SecondPassInclusive: the existing rebase/borrow second pass, INCLUDING MutableCopy children.\n* MutableCopy: only nonempty mutable REF copyQwords calls plus their attempt/done counters. Resolver/immutable decisions stay in the second-pass parent.\n* secondPassExclusiveTicks() = SecondPassInclusive minus MutableCopy, guarded against underflow. This is the traversal/callback/fixup residual, including observer overhead; it is not a pure instruction cost. Never add SecondPassInclusive and MutableCopy.\n* NativeCountPass: existing record-count loop and one aggregate nativeCountTags update, before capacity waits/flushes.\n* NativeConvertInclusive: the existing native decode+emit loop, including nativeWriter validation/resolver calls, counts and failure break. It closes BEFORE success return/rewind/fallback and excludes the queue's preceding capacity waits/flushes. This is a sibling of native count, not a child of snapshot. Both still sit inside the existing submit parent.\n\nNo per-record writer leaf clocks were added: separating decode from emit with two clocks per record could dominate the measured 0.743 ms bracket. Root can first price count-pass versus combined conversion; a later sampled leaf probe would need a separate overhead control. Native resolver calls inside FrameVifWriter are not included in the snapshot resolverQueries metric.\n\n## Counts and semantics\n\npreflightTags/secondPassTags count visited source tags, including the tag causing rejection where applicable. preflightRefs/secondPassRefs count REF/REFE tags even with size zero. resolverQueries counts ACTUAL snapshot callback invocations, only where original short-circuit conditions allowed them. immutableQueries counts ACTUAL immutable callback invocations, with the original two-pass invocation order and no additional queries. Wrapping callback invocation merely increments a counter then forwards exactly the same address/size/context.\n\nchainCopyAttemptQwords/DoneQwords and mutableCopyAttemptQwords/DoneQwords distinguish attempted copy volume from completed copy. borrowedQwords counts accepted borrowed payload visited in the second pass, even if a later failure prevents snapshot publication. publishedCopiedQwords counts successful published arena bytes (needed/16), including full original chain plus copied mutable REF payload; borrowed payload is NOT part of needed and must not be subtracted. snapshotSuccess identifies actual cursor commit. Repeated overflow/retry attempts legitimately add additional observed work/counts. Counters do not deduplicate source addresses.\n\nNativeCountTags counts tags seen by the capacity-sizing pass; NativeConvertTags counts actual emission attempts, including an attempt that fails. NativeConvertSuccess counts successful source conversions, not entire frame chains. Source sequence reservation, writer rollback, leases, prefix finalization and all falls back remain unchanged.\n\n## Review/verification performed and remaining gates\n\nPreparation script parses successfully with Python AST. Baseline input hashes remained unchanged; default-off macro and runtime gate presence were checked. Callback guards verified one forwarding site each and the same two preflight/second-pass call sites, with no introduced extra callback or wait. Native scope placement and success closure were inspected. Those were static preparation checks; the separately authorized host differential below adds executable evidence. Neither establishes hardware acceptance.\n\nRoot must native-compile a private engine, run the existing arena/writer/ownership harnesses against the instrumentation, and verify exact callback traces/failure states before hardware attribution. Capture malformed control bits, missing END, unsafe/unreadable REF, no-memory/capacity refusal, second-pass resolver failure and copy guard failure as separate controls. A disabled probe must leave source bytes and counters unchanged; an enabled probe must retain identical snapshots and sequences.\n\n## Observer overhead controls\n\nCompare pristine baseline, patch compiled with macro=0, macro=1 with runtime gate false, and macro=1/gate true under the SAME fixture pose/video/input and native settings. Runtime-disabled adds possible branch/scaffold overhead; compiled-out code relies on optimization and must not be assumed byte-identical to pristine. Enabled probes add COP0 reads per snapshot/stage/mutable-copy, uint64 counter increments per tag/reference and callback wrappers; these can alter register pressure, inlining and cache behavior. Count overhead is particularly relevant on REF-heavy scenes. This probe uses bounded memory (a fixed aggregate and small RAII/lambda locals), but execution overhead scales with tags/copy spans.\n\nNo per-REF logs, allocations, waits or callback-order changes are introduced. Reporting must remain outside warm raw timing windows. Attribution results are diagnostic; confirm a quiet unchanged production timing control before claiming a gain, and never add these nested components to the parent submit/frame work.\n\n## Subsequent authorized host differential (completed)\n\nActual pristine FrameChainArena and the prepared instrumented class bodies are compiled side by side, with private fields exposed ONLY for state inspection. The existing actual VIF resolver type is reused. No snapshot arithmetic/branching is reimplemented. A test-only copy of snapshot_breakdown.hpp substitutes a deterministic +17-tick function for mfc0; the production diagnostic header remains unchanged. The test starts ticks near UINT32 wrap and checks nested/exclusive accounting. Those ticks have no speed interpretation.\n\nInstalled MinGW GCC 16.1.0 compiled both macro=0 and macro=1 variants with C++17 O2, Wall/Wextra/Werror and static linking. Both exercise runtime gate false and true. PASS macro=0: 10,047 cases, 251,305 assertions. PASS macro=1: 10,047 cases, 241,264 assertions. Difference in assertion count comes from checking disabled aggregate zeros versus enabled counters/timing identities, not fewer snapshot inputs.\n\nThe oracle compares returned success, bytes, borrowedBytes, chain offset, arena cursor, EVERY storage byte (including partially written failure storage and untouched canaries), actual ordered resolver/immutable callback traces, and each registered span's base/size/readers/retired state. It also checks lease retirement, alternating bank bits, release/collection parity and known success volume: chain 5 qwords, mutable copy 2, borrowed 2, published copied 7; resolver 3, immutable 4 calls. Instrumentation-disabled counters/ticks remain zero.\n\nControls cover mixed inline/borrowed/mutable REF input, no immutable callback, retired span copy fallback, second-pass resolver instability, exact capacity and bounded repeated snapshots, DMA-base overflow/misalignment, null source/memory/resolver, empty and oversized chain extents, zero-size REF, unsafe/misaligned/unreadable REF, IRQ/control rejection, missing/truncated END and unsupported jump tag. Then 10,000 deterministic malformed streams run with gates alternating. Original/candidate callback sequences and mutations match even on rejected inputs and partial second-pass failure.\n\nThe initial harness used a C++ using-declaration for Vif1ChainCheck (which is a namespace), corrected to a namespace alias; final warning-clean builds and execution pass. No sanitizer was run. Native conversion edits in vif1_queue.cpp were NOT executable-tested by this standalone snapshot harness. Host copyQwords uses memcpy; it does not test R5900 LQ/SQ or induce assembly/memcmp guard failure. Native compile, real COP0 behavior, production timing overhead and hardware still require root's gates.\n\nArtifacts: host-differential.cpp contains actual class bodies; host-only-metrics.hpp is clearly test-only; host-macro0/1.exe, separate build/result logs, host-evidence.json and updated hashes. Production snapshot_breakdown.hpp and instrumented source/patch remain unchanged by host verification.\n",
+  "probe_host_evidence": {
+    "status": "host differential passed for snapshot only; native conversion not executed",
+    "compiler": "MinGW GCC16.1.0",
+    "commands": [
+      "g++ -std=c++17 -O2 -Wall -Wextra -Werror -static -DTYRA_SNAPSHOT_BREAKDOWN=0 host-differential.cpp -o host-macro0.exe",
+      "g++ -std=c++17 -O2 -Wall -Wextra -Werror -static -DTYRA_SNAPSHOT_BREAKDOWN=1 host-differential.cpp -o host-macro1.exe"
+    ],
+    "results": {
+      "macro0": {
+        "cases": 10047,
+        "assertions": 251305,
+        "exit": 0
+      },
+      "macro1": {
+        "cases": 10047,
+        "assertions": 241264,
+        "exit": 0
+      }
+    },
+    "timing": "deterministic fake clock in test-only header; no host timing gain claim",
+    "baseline_sha256": {
+      "engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp": "8d26d6f61b882897c930482f42ce64342a883691be6cf2acba06e641d526f94b",
+      "engine/src/renderer/core/paths/path1/vif1_queue.cpp": "41c13286b8a3140b862013a21ae438d68a3edfec27dab1fde32bdbc9702a8f93"
+    },
+    "artifacts_sha256": {
+      "frame_chain_arena.hpp": "364a43bfaa2215964ef3c0a581e4fa6325ea3efc0f0c0d5d6d05eb961bb2ca69",
+      "host-differential.cpp": "6473a9ba7b27ec258b0ab1cbabd90d052262e6da630f991f80d0b3abed25cc27",
+      "host-macro0-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "host-macro0-result.log": "6d914387ed27dc626b97b96a87cd216d4209fe12697fa76a8a5c9a44efa3cdae",
+      "host-macro0.exe": "1da9d427dfd277604c017f416448a639907b3d85a0b471714f9bc6dfba56c842",
+      "host-macro1-build.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "host-macro1-result.log": "cf6dfaf3dd8e6dce212e533d3782cd27238049bccfb7845c36dec27574a67170",
+      "host-macro1.exe": "3ed49478657646f4af1ca2e4377a2d9774ba96b39b1ff3d5a54c2ea82c948807",
+      "host-only-metrics.hpp": "67b405f6f18860736adaa1b9f3135305008c48375fb90a775b28e7bd7c4f8bfe",
+      "instrumentation.patch": "1c606f5c35c811abe72a33d8eaf3714f0285c2590cc97bfe2e773df08a55b761",
+      "prepare.py": "97fd538a10ae6dcccaccd93323b1b812cb859673c85defe9419e44cf5da4f607",
+      "report.md": "94455c09419a5450d95b968e5c0598d7be8746b3137f563107e6ab05c32abd53",
+      "snapshot_breakdown.hpp": "c2714dd82f7c129354ecd805ab885a7eb83fdf160cccfa3d8d67bcda601204a2",
+      "source-hashes.json": "8e182f6818e91dba9a20f7af5c9ea758cb1558c627b7f3967b86c92a6766e6e2",
+      "vif1_queue.cpp": "6340b9904c2fcede93f23f0046594cc137ce845e76cb16e3a59edfb33bd1027d"
+    }
+  },
+  "probe_patch": "--- a/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp\n+++ b/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp\n@@ -3,6 +3,7 @@\n #pragma once\n #include <string.h>\n #include \"vif1_chain_check.hpp\"\n+#include \"snapshot_breakdown.hpp\"\n \n #ifndef TYRA_FRAME_PIPELINE_SUPPORT\n #define TYRA_FRAME_PIPELINE_SUPPORT 1\n@@ -106,6 +107,16 @@\n   Snapshot copy(const void* base, uint32_t qwords,\n                 Vif1ChainCheck::Resolver resolver, void* context,\n                 uint32_t dmaBase, ImmutableResolver immutable = nullptr) {\n+    SnapshotBreakdown::Scope totalScope(SnapshotBreakdown::SnapshotTotal);\n+    SnapshotBreakdown::add(SnapshotBreakdown::data().snapshotCalls);\n+    auto resolveMeasured = [&](uint32_t a, uint32_t n) {\n+      SnapshotBreakdown::add(SnapshotBreakdown::data().resolverQueries);\n+      return resolver(a, n, context);\n+    };\n+    auto immutableMeasured = [&](uint32_t a, uint32_t n) {\n+      SnapshotBreakdown::add(SnapshotBreakdown::data().immutableQueries);\n+      return immutable(a, n);\n+    };\n     if (!memory || !base || !qwords || qwords > 65536 ||\n         (reinterpret_cast<uintptr_t>(base) & 15) ||\n         (reinterpret_cast<uintptr_t>(memory) & 15) || (dmaBase & 15)) return {};\n@@ -115,7 +126,10 @@\n     bool ended = false;\n     // Preflight all ranges and space before writing anything. The original\n     // source stays owned by the synchronous caller throughout both passes.\n+    {\n+    SnapshotBreakdown::Scope preflightScope(SnapshotBreakdown::Preflight);\n     while (at < qwords) {\n+      SnapshotBreakdown::add(SnapshotBreakdown::data().preflightTags);\n       const auto* tag = words + at * 4;\n       const uint32_t size = tag[0] & 65535, id = (tag[0] >> 28) & 7;\n       if (tag[0] & 0x8c000000u) return {};\n@@ -125,9 +139,10 @@\n         if (size > qwords - at - 1) return {};\n         at += size + 1;\n       } else if (id == 0 || id == 3) {\n+        SnapshotBreakdown::add(SnapshotBreakdown::data().preflightRefs);\n         if (size && ((tag[1] & 0x8000000f) || !resolver ||\n-                     !resolver(tag[1], size, context))) return {};\n-        if (size && !(immutable && immutable(tag[1], size))) {\n+                     !resolveMeasured(tag[1], size))) return {};\n+        if (size && !(immutable && immutableMeasured(tag[1], size))) {\n           if (size * 16 > capacity || needed > capacity - size * 16) return {};\n           needed += size * 16;\n         }\n@@ -138,30 +153,49 @@\n     if (!ended || at != qwords || cursor > capacity ||\n         needed > capacity - cursor || dmaBase > UINT32_MAX - cursor ||\n         needed > UINT32_MAX - (dmaBase + cursor)) return {};\n+    } // preflightScope\n     uint8_t* target = memory + cursor;\n-    if (!copyQwords(target, base, qwords)) return {};\n+    {\n+      SnapshotBreakdown::Scope chainScope(SnapshotBreakdown::ChainCopy);\n+      SnapshotBreakdown::add(SnapshotBreakdown::data().chainCopyAttemptQwords,qwords);\n+      if (!copyQwords(target,base,qwords)) return {};\n+      SnapshotBreakdown::add(SnapshotBreakdown::data().chainCopyDoneQwords,qwords);\n+    }\n     uint32_t payload = qwords * 16;\n     uint32_t borrowed = 0;\n     at = 0;\n+    {\n+    SnapshotBreakdown::Scope secondScope(SnapshotBreakdown::SecondPassInclusive);\n     while (at < qwords) {\n+      SnapshotBreakdown::add(SnapshotBreakdown::data().secondPassTags);\n       const auto* source = words + at * 4;\n       auto* tag = reinterpret_cast<uint32_t*>(target) + at * 4;\n       const uint32_t size = source[0] & 65535, id = (source[0] >> 28) & 7;\n       if (id == 1 || id == 7) at += size + 1;\n       else {\n-        if (size && immutable && immutable(source[1], size)) {\n+        SnapshotBreakdown::add(SnapshotBreakdown::data().secondPassRefs);\n+        if (size && immutable && immutableMeasured(source[1], size)) {\n           borrowed += size * 16;\n+          SnapshotBreakdown::add(SnapshotBreakdown::data().borrowedQwords,size);\n         } else if (size) {\n-          const auto* ref = resolver(source[1], size, context);\n+          const auto* ref = resolveMeasured(source[1], size);\n           if (!ref) return {}; // resolver contract must be stable\n-          if (!copyQwords(target + payload, ref, size)) return {};\n+          {\n+            SnapshotBreakdown::Scope mutableScope(SnapshotBreakdown::MutableCopy);\n+            SnapshotBreakdown::add(SnapshotBreakdown::data().mutableCopyAttemptQwords,size);\n+            if (!copyQwords(target+payload,ref,size)) return {};\n+            SnapshotBreakdown::add(SnapshotBreakdown::data().mutableCopyDoneQwords,size);\n+          }\n           tag[1] = dmaBase + cursor + payload;\n           payload += size * 16;\n         }\n         ++at;\n       }\n     }\n+    } // secondScope inclusive; subtract MutableCopy child\n     cursor += needed;\n+    SnapshotBreakdown::add(SnapshotBreakdown::data().snapshotSuccess);\n+    SnapshotBreakdown::add(SnapshotBreakdown::data().publishedCopiedQwords,needed/16);\n     return {target, needed, borrowed};\n   }\n \n--- a/engine/src/renderer/core/paths/path1/vif1_queue.cpp\n+++ b/engine/src/renderer/core/paths/path1/vif1_queue.cpp\n@@ -390,10 +390,14 @@\n       sourceCopied && *sourceCopied) {\n     u32 records = 0;\n     const u32* ownedWords = static_cast<const u32*>(chain);\n+    {\n+    SnapshotBreakdown::Scope countScope(SnapshotBreakdown::NativeCountPass);\n     for (u32 at = 0; at < qwords; ++records) {\n       const u32 header = ownedWords[at * 4];\n       const u32 id = (header >> 28) & 7;\n       at += (id == 1 || id == 7) ? 1 + (header & 65535) : 1;\n+    }\n+    SnapshotBreakdown::add(SnapshotBreakdown::data().nativeCountTags,records);\n     }\n     if (nativeInFlight) {\n       waitFor(nativeInFlight);\n@@ -410,7 +414,10 @@\n       const u32 mark = nativeWriter->checkpoint();\n       const u32* words = static_cast<const u32*>(chain);\n       bool recorded = true;\n+      {\n+      SnapshotBreakdown::Scope convertScope(SnapshotBreakdown::NativeConvertInclusive);\n       for (u32 at = 0; at < qwords;) {\n+        SnapshotBreakdown::add(SnapshotBreakdown::data().nativeConvertTags);\n         const u32* tag = words + at * 4;\n         const u32 size = tag[0] & 65535, id = (tag[0] >> 28) & 7;\n         if (id == 1 || id == 7) {\n@@ -427,7 +434,12 @@\n         } else recorded = false;\n         if (!recorded) break;\n       }\n-      if (recorded) { nativePendingSequence = sequence; return sequence; }\n+      }\n+      if (recorded) {\n+        SnapshotBreakdown::add(SnapshotBreakdown::data().nativeConvertSuccess);\n+        nativePendingSequence = sequence;\n+        return sequence;\n+      }\n       nativeWriter->rewind(mark);\n     }\n   }\n--- /dev/null\n+++ b/engine/inc/renderer/core/paths/path1/snapshot_breakdown.hpp\n@@ -0,0 +1,43 @@\n+/* Scratch diagnostic only: aggregate scopes, no logging/waits. */\n+#pragma once\n+#include <stdint.h>\n+namespace Tyra { namespace SnapshotBreakdown {\n+enum Stage { SnapshotTotal, Preflight, ChainCopy, SecondPassInclusive, MutableCopy, NativeCountPass, NativeConvertInclusive, StageCount };\n+struct Metrics {\n+ uint64_t ticks[StageCount]={};\n+ uint64_t snapshotCalls=0,snapshotSuccess=0,preflightTags=0,preflightRefs=0,secondPassTags=0,secondPassRefs=0;\n+ uint64_t resolverQueries=0,immutableQueries=0,chainCopyAttemptQwords=0,chainCopyDoneQwords=0;\n+ uint64_t mutableCopyAttemptQwords=0,mutableCopyDoneQwords=0,borrowedQwords=0,publishedCopiedQwords=0;\n+ uint64_t nativeCountTags=0,nativeConvertTags=0,nativeConvertSuccess=0;\n+};\n+#ifndef TYRA_SNAPSHOT_BREAKDOWN\n+#define TYRA_SNAPSHOT_BREAKDOWN 0\n+#endif\n+inline bool& gate(){static bool enabled=false;return enabled;}\n+inline Metrics& data(){static Metrics metrics;return metrics;}\n+inline uint32_t clock(){\n+#if defined(_EE)\n+ uint32_t t;asm volatile(\"mfc0 %0, $9\":\"=r\"(t));return t;\n+#else\n+ return 0; // no host timing claims\n+#endif\n+}\n+struct Scope {\n+#if TYRA_SNAPSHOT_BREAKDOWN\n+ Stage stage;uint32_t start;bool active;\n+ explicit Scope(Stage s):stage(s),start(0),active(gate()){if(active)start=clock();}\n+ ~Scope(){if(active)data().ticks[stage]+=uint32_t(clock()-start);}\n+#else\n+ explicit Scope(Stage){}\n+#endif\n+};\n+inline void add(uint64_t& c,uint32_t n=1){\n+#if TYRA_SNAPSHOT_BREAKDOWN\n+ if(gate())c+=n;\n+#else\n+ (void)c;(void)n;\n+#endif\n+}\n+inline void reset(){data()=Metrics{};}\n+inline uint64_t secondPassExclusiveTicks(){return data().ticks[SecondPassInclusive]>=data().ticks[MutableCopy]?data().ticks[SecondPassInclusive]-data().ticks[MutableCopy]:0;}\n+}}\n",
+  "emulator_verification": {
+    "verification": "Native build, actual probe header arena/writer gates and PCSX2 2.9.93 three phases/two scene reloads; physical timing pending restart.",
+    "markers": [
+      "LOG: SNAPTRIAL phase=0 first=0 enabled=0",
+      "LOG: SNAPTRIAL phase=1 first=2200 enabled=1",
+      "LOG: SNAPTRIAL phase=2 first=4400 enabled=0",
+      "LOG: SNAPTRIAL done first=6600"
+    ],
+    "sha256": {
+      "F:\\Projects\\tyrax2-lab-20261001\\snapshot-trial-emulator\\emulog.txt": "f751f32c5e8e92648601933b47f1971b44226a98576be76e7285343b853c58bc",
+      "F:\\Projects\\tyrax2-lab-20261001\\snapshot-trial-emulator\\game-log.txt": "7800708abd91fbcae77117bb84ede2607d817d44a2c4b4e9b95b7c237b7aa9b6",
+      "F:\\Projects\\tyrax2-lab-20261001\\snapshot-trial-emulator\\report.txt": "389dc6a46789733e4aa14a4282772e897d5b4eda53aab4cd0b870c0a548e07aa",
+      "F:\\Projects\\tyrax2-lab-20261001\\snapshot-trial-emulator\\state1.p2s": "4567d9cb8c0b1bb2385f2931286ef83c541cf02582c46c1523b4bc3b202fd85b",
+      "F:\\Projects\\tyrax2-lab-20261001\\snapshot-trial-build.log": "61d85686b478a312445160cb58fbb8139f0d80256041da850bca867a8e236fce",
+      "F:\\Projects\\tyrax2-lab-20261001\\snapshot-trial\\game\\bin\\vehicle-playground.elf": "465de821814761887e64c50864d6a58528e09b976b1df2b605dc5b4a3c8870c1"
+    }
+  },
+  "host_integrated_results": [
+    {
+      "kind": "arena",
+      "output": "Frame arena checks passed: 1074 cases + 10000 malformed streams\n",
+      "source_sha256": "59f23fb6cda5db715868631ef50275c49a8ccb9389b348f1ae6c6b7efeaf6cd6"
+    },
+    {
+      "kind": "writer",
+      "output": "Frame writer checks passed: 43 cases\n",
+      "source_sha256": "c1ff69dba96bcad829c1c2ac3569312b0100afb5fcdf28ac4576b16fd6cf86c0"
+    }
+  ],
+  "scripts": {
+    "prepare-snapshot-trial.py": {
+      "sha256": "a072f8cecb261f21f9125d16312cdafe5019894b67e182a06d70569e2dfcdd13",
+      "source": "from pathlib import Path\nimport shutil,hashlib,json\nlab=Path('F:/Projects/tyrax2-lab-20261001');base=lab/'arena-check-night';dst=lab/'snapshot-trial'\nassert not dst.exists()\nignore=shutil.ignore_patterns('obj','*.log','*.elf','*.elf.sym','*.p2s','ps2link.run')\nshutil.copytree(base/'tyra',dst/'tyra',ignore=ignore);shutil.copytree(base/'game',dst/'game',ignore=ignore)\nfor filename,rel in [('frame_chain_arena.hpp','engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp'),('snapshot_breakdown.hpp','engine/inc/renderer/core/paths/path1/snapshot_breakdown.hpp'),('vif1_queue.cpp','engine/src/renderer/core/paths/path1/vif1_queue.cpp')]:\n shutil.copyfile(lab/'snapshot-breakdown'/filename,dst/'tyra'/rel)\np=dst/'tyra/engine/inc/renderer/core/paths/path1/snapshot_breakdown.hpp'\ns=p.read_text(encoding='utf-8');assert s.count('#define TYRA_SNAPSHOT_BREAKDOWN 0')==1\np.write_bytes(s.replace('#define TYRA_SNAPSHOT_BREAKDOWN 0','#define TYRA_SNAPSHOT_BREAKDOWN 1').encode())\np=dst/'game/src/terrain_game.cpp';s=p.read_text(encoding='utf-8')\ns='#include \"renderer/core/paths/path1/snapshot_breakdown.hpp\"\\n'+s\nneedle='void TerrainGame::loop() {';assert s.count(needle)==1\ns=s.replace(needle,r'''void TerrainGame::loop() {\n  namespace S = Tyra::SnapshotBreakdown;\n  static unsigned phase=0,previous=0;\n  static bool announced=false,done=false;\n  const unsigned frame=ftrig::frame;\n  if(frame && frame%50==0 && frame!=previous){\n    const unsigned n=frame-previous;previous=frame;\n    const auto& m=S::data();\n    printf(\"LOG: SNAPBREAK phase=%u f=%u n=%u total=%.5f preflight=%.5f chaincopy=%.5f fixups=%.5f mutable=%.5f sizing=%.5f emit=%.5f\\n\",phase,frame,n,\n      float(m.ticks[S::SnapshotTotal])/294912/n,float(m.ticks[S::Preflight])/294912/n,float(m.ticks[S::ChainCopy])/294912/n,\n      float(S::secondPassExclusiveTicks())/294912/n,float(m.ticks[S::MutableCopy])/294912/n,\n      float(m.ticks[S::NativeCountPass])/294912/n,float(m.ticks[S::NativeConvertInclusive])/294912/n);\n    printf(\"LOG: SNAPCOUNT phase=%u f=%u n=%u calls=%u success=%u preTags=%u preRefs=%u secondTags=%u secondRefs=%u resolver=%u immutable=%u chainqw=%u mutableqw=%u borrowedqw=%u publishedqw=%u countTags=%u emitTags=%u emits=%u\\n\",phase,frame,n,\n      (unsigned)m.snapshotCalls,(unsigned)m.snapshotSuccess,(unsigned)m.preflightTags,(unsigned)m.preflightRefs,(unsigned)m.secondPassTags,(unsigned)m.secondPassRefs,\n      (unsigned)m.resolverQueries,(unsigned)m.immutableQueries,(unsigned)m.chainCopyDoneQwords,(unsigned)m.mutableCopyDoneQwords,(unsigned)m.borrowedQwords,(unsigned)m.publishedCopiedQwords,\n      (unsigned)m.nativeCountTags,(unsigned)m.nativeConvertTags,(unsigned)m.nativeConvertSuccess);\n    S::reset();\n  }\n  if(!announced){printf(\"LOG: SNAPTRIAL phase=0 first=%u enabled=0\\n\",frame);fflush(stdout);announced=true;}\n  const unsigned desired=frame/2200;\n  if(desired<=2 && desired!=phase){\n    engine->renderer.core.synchronizeFrame();phase=desired;S::gate()=phase==1;S::reset();\n    printf(\"LOG: SNAPTRIAL phase=%u first=%u enabled=%u\\n\",phase,frame,(unsigned)S::gate());fflush(stdout);\n    loadScene(currentScene);\n  }\n  if(desired>2 && !done){printf(\"LOG: SNAPTRIAL done first=%u\\n\",frame);fflush(stdout);done=true;}\n''')\np.write_bytes(s.encode())\nfiles=[dst/'tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp',dst/'tyra/engine/inc/renderer/core/paths/path1/snapshot_breakdown.hpp',dst/'tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp',p]\nmeta={'phases':['compiled-on probe runtime disabled before','snapshot/native attribution enabled','compiled-on probe runtime disabled restored'],'frames_per_phase':2200,'warm_work_start_offset':1100,'work_sample_count':512,'source_game':str(base/'game'),'source_engine':str(base/'tyra'),'note':'Diagnostic overhead gate false/true/false in same ELF. Does not substitute for pristine/compiled-off physical controls. No candidate borrow optimization; baseline unchanged apart from scratch probes. Nested snapshot total includes children; fixups shown exclusive of mutable copying.','artifacts':{str(p.relative_to(dst)):hashlib.sha256(p.read_bytes()).hexdigest() for p in files}}\n(dst/'fixture.json').write_bytes((json.dumps(meta,indent=2)+'\\n').encode())\nprint('Private gated attribution fixture prepared; not used on console.')\n"
+    },
+    "verify-snapshot-trial.py": {
+      "sha256": "b508ef4e849473a48cb8bb1bd205e59a60aa6bb332ec924726592a1ef08da3b3",
+      "source": "from pathlib import Path\nimport subprocess,json,hashlib\nlab=Path('F:/Projects/tyrax2-lab-20261001');repo=Path('F:/Projects/tyra-editor');out=lab/'snapshot-trial/host'\nout.mkdir(exist_ok=True)\nresults=[]\nfor kind in ['arena','writer']:\n src=repo/f'tools/verify-frame-{kind}.cpp'\n s=src.read_text(encoding='utf-8').replace('../vendor/tyra/engine/inc',str(lab/'snapshot-trial/tyra/engine/inc'))\n s=s.replace('int main() {','int main() { Tyra::SnapshotBreakdown::gate() = true;',1)\n p=out/f'{kind}.cpp';p.write_bytes(s.encode())\n exe=out/f'{kind}.exe'\n b=subprocess.run(['g++','-std=c++17','-O2','-Wall','-Wextra','-Werror','-static',str(p),'-o',str(exe)],capture_output=True,text=True)\n (out/f'{kind}-build.log').write_bytes((b.stdout+b.stderr).encode());assert b.returncode==0,b.stderr\n r=subprocess.run([str(exe)],capture_output=True,text=True)\n (out/f'{kind}-result.log').write_bytes((r.stdout+r.stderr).encode());assert r.returncode==0,r.stderr\n print(r.stdout.strip());results.append({'kind':kind,'output':r.stdout,'source_sha256':hashlib.sha256(p.read_bytes()).hexdigest()})\n(out/'results.json').write_bytes((json.dumps(results,indent=2)+'\\n').encode())\n"
+    },
+    "analyze-snapshot-trial.py": {
+      "sha256": "4f529092262d32f0d77e5da9ed85c636aa7eac0311218ae4be0307506e651b7c",
+      "source": "from pathlib import Path\nimport argparse,hashlib,json,re,statistics,subprocess,sys\np=argparse.ArgumentParser();p.add_argument('stem');a=p.parse_args()\nlab=Path('F:/Projects/tyrax2-lab-20261001');log=lab/(a.stem+'.log');snap=lab/(a.stem+'-snapshot.log')\nassert not snap.exists();snap.write_bytes(log.read_bytes())\nflat=snap.read_text(encoding='utf-8',errors='replace').replace('\\r','').replace('\\n','')\nassert 'SNAPTRIAL done first=6600' in flat\nfixture=json.loads((lab/'snapshot-trial/fixture.json').read_text());results=[]\nstages=['total','preflight','chaincopy','fixups','mutable','sizing','emit']\ncountnames=['calls','success','preTags','preRefs','secondTags','secondRefs','resolver','immutable','chainqw','mutableqw','borrowedqw','publishedqw','countTags','emitTags','emits']\nfor phase,name in enumerate(fixture['phases']):\n first=phase*2200+1100\n row=json.loads(subprocess.check_output([sys.executable,'F:/Projects/tyra-editor/tools/tyrax2-timing.py',str(snap),'--first',str(first),'--frames','512','--hz','60'],text=True))\n periods=[];profiles=[];counts=[]\n for kind,target,fields in [('FRAMETIME',periods,['period','pre','stall']),('SNAPBREAK',profiles,stages),('SNAPCOUNT',counts,countnames)]:\n  for b in flat.split('LOG: '+kind+' ')[1:]:\n   b=b.split('LOG:')[0];f=re.search(r'\\bf=(\\d+)',b)\n   if f and first<=int(f[1])<first+500:\n    vals={field:float(re.search(r'\\b'+field+r'=([0-9.]+)',b)[1]) for field in fields}\n    if kind!='FRAMETIME':\n     assert int(re.search(r'\\bphase=(\\d+)',b)[1])==phase\n     assert int(re.search(r'\\bn=(\\d+)',b)[1])==50\n    target.append(dict(frame=int(f[1]),**vals))\n  assert [x['frame'] for x in target]==list(range(first,first+500,50)),(kind,target)\n if phase!=1:\n  assert all(all(r[k]==0 for k in stages) for r in profiles)\n  assert all(all(r[k]==0 for k in countnames) for r in counts)\n else:\n  for c in counts:\n   assert c['calls']==c['success'] and c['calls']>0,c\n   assert c['preTags']==c['secondTags'] and c['preRefs']==c['secondRefs'],c\n   assert c['publishedqw']==c['chainqw']+c['mutableqw'],c\n   assert c['countTags']==c['emitTags'] and c['emits']>0,c\n row.update(phase=phase,name=name,period_windows=periods,mean_period_ms=statistics.mean(x['period'] for x in periods),mean_pre_ms=statistics.mean(x['pre'] for x in periods),profile_windows=profiles,count_windows=counts,stage_means_ms={k:statistics.mean(r[k] for r in profiles) for k in stages},count_means_per_frame={k:statistics.mean(r[k]/50 for r in counts) for k in countnames})\n row['delivered_rate_from_period_hz']=1000/row['mean_period_ms'];results.append(row)\ncontrols=[results[0]['mean_ms'],results[2]['mean_ms']]\nresults[1]['observer_work_increase_against_controls_ms']=[results[1]['mean_ms']-x for x in controls]\nout=dict(fixture=fixture,log=str(snap),log_sha256=hashlib.sha256(snap.read_bytes()).hexdigest(),elf_sha256=hashlib.sha256((lab/(a.stem+'.elf')).read_bytes()).hexdigest(),results=results,control_spread_ms=abs(controls[1]-controls[0]),limitations=['One sequential instrumented diagnostic boot; not a new production benchmark.','Runtime-gate controls do not replace pristine/compiled-off physical controls.','Total includes preflight/chaincopy/fixups/mutable; fixups is exclusive of mutable. Sizing and emit sit inside submit, alongside snapshot.','Profile windows are neighboring 50-frame summaries distinct from 512 raw work samples.','Counters and clocks add overhead; no VU/GS utilization or speed gain claim.'])\n(lab/(a.stem+'-summary.json')).write_bytes((json.dumps(out,indent=2)+'\\n').encode())\nfor r in results:print(r['phase'],r['name'],round(r['mean_ms'],6),'ms',r['stage_means_ms'],r.get('observer_work_increase_against_controls_ms'))\n"
+    }
+  },
+  "remaining_math_census_plan": "# Remaining EE render math: minimal census plan\n\nRead-only audit, 2026-10-02. No implementation, compilation, cache updates, emulator or console access. Source hashes are in `ee-math-census-source-hashes.json`; source line references below refer to the audited repository files unless explicitly marked generated fixture. Existing VU0 macro-mode use/ownership remains as documented in `vu0-audit/report.md`. This report neither assumes VU0 idle nor attributes all render cost to scalar math.\n\n## Recommended next measurement\n\nFirst capture the existing attribution buckets in the unchanged night fixture, with real submission batching and recording maintained. Then add only aggregate counts plus four exclusive math scopes: actual six-plane transform misses, actual eight-plane clip transforms, world-sphere/pick, and local-light preparation. Measure AABB visits with counters in a separate count-only arm if needed; do not put a clock around each plane. This separates amortizable repeated preparation from useful scalar arithmetic without building an offload kernel prematurely.\n\nThe existing live render-cost request is useful for broad source attribution, but is NOT the normal frame control: `game_physics.gen.cpp:1073` performs `sync.align3D()` and `2050/2082` ends/restarts a submission batch around each object. It changes grouping/flush behavior. Prefer frame-boundary bounded telemetry sampling with normal batching; defer serialization until after the sample. The objects-only exported attribution also omits later light pools/beams/shadows, so use full-scene totals and separately labelled non-overlapping game phases. `takeTelemetry()` resets counters, and reads must be coordinated rather than competing with an existing consumer.\n\n## Existing parents and exact seams\n\n| Source seam | Existing parent | Minimal child/count to add | Interpretation |\n|---|---|---|---|\n| `stapip_core.cpp:638\u00e2\u20ac\u201c646` | `bdPlanesTicks`, inside bounds | transformCalls / copiedCachePlanes; ticks around ONLY computeObjectSpacePlanes call | Existing bucket combines six-plane copy hits and scalar misses. A large bucket alone is not evidence for offload. |\n| `stapip_core.cpp:601\u00e2\u20ac\u201c609`, `678\u00e2\u20ac\u201c703` | bdXform key comparisons; prepPackager MVP/cache stores | reuseTransform hits/misses, MVP multiplies/copies | Existing matrix multiply is VU0 macro math, not scalar offload headroom. No new per-matrix clock initially. |\n| `stapip_core.cpp:719,731` / function314\u00e2\u20ac\u201c348 | prepPackager | clipTransforms, guardAttempt, guardDirect, secondClipTransform; one function scope per actual call | Potential duplicated transform described below. Do not count caller scope plus function scope twice. |\n| `stapip_core.cpp:649` | bdMainTicks | mainAabbCalls/outside/partial/inside; visited planes | Main box cost already separated; counts establish early-out frequency. |\n| `stapip_bag_packager.cpp:80` | package creation, dsCreate | coarseAabbCalls, visits/results | Coarse groups may avoid eight later package tests. Must not merge into dsClassify blindly. |\n| `stapip_bag_packager.cpp:271,282` | dsClassifyTicks, nested in dsCreate; HardwareTrace Package_classify | packageAabbCalls/visits/results, activeMaskCalls/visits | Existing classify cost includes bbox merge walk plus arithmetic. |\n| `stapip_core.cpp:721` | prepPackager | guardMainMaskCalls/8-plane visits | Separate from package masks to avoid attributing all masks to dispatch. |\n| `stapip_core.cpp:851\u00e2\u20ac\u201c864,868` | prepLight | sphereCalls, pickCalls; scope sphere and actual pick independently | World-center matrix multiply already VU0 macro; two scale/radius square roots are COP1 sqrt.s. setBagLight is state setup, not local transform. |\n| `renderer_core.cpp:291\u00e2\u20ac\u201c329` | pick child | candidateCount, sqrtCount, rangeRejected, pointCandidates, spotConeTests | DYN_LIGHTS_MAX=8, plus enabled camera spot; named skip slot changes actual candidates. Do not treat every bag as nine candidates. |\n| `stapip_qbuffer_renderer.cpp:1309\u00e2\u20ac\u201c1315` | sendObjectData, prepObjectData; packet scope as applicable | localPrep calls/enabled/disabled; exclusive buildSpot ticks; influence-test ticks/count | Important: local inverse/normalization is NOT inside prepLight. Packet/uniform emission is outside these children. |\n| `stapip_qbuffer_renderer.cpp:1023\u00e2\u20ac\u201c1041,1048\u00e2\u20ac\u201c1117` | buildSpotForBag | optional inverse child ONLY if buildSpot is materially expensive | Affine inverse/determinant + position/direction transforms, sqrt/reciprocal; disabled lights return before inverse. No cache found in this function. |\n\nFor exact attribution choose one ownership route: scope the two transforms at StaPipCore call sites (renderer-only) and generated coarse-object caller separately; OR scope shared function entry with a context tag. Do not both sum function-entry and caller scopes. Context must restore on early exits and cannot allocate.\n\nThe smallest scope set is transform6, transform8, sphere, pick, buildSpot, influenceTest (six tiny scopes, rather than an exhaustive nested profiler). Sphere/pick can initially remain combined if existing prepLight is below the decision threshold. AABB timing can initially reuse bdMain and dsClassify; only escalate to AABB function timing in a separate arm if plane visits fail to explain the cost. Adding per-call clocks to very cheap AABB tests may dominate them.\n\n## AABB counters and outside-pipeline math\n\n`CoreBBox::frustumCheckAABB:386\u00e2\u20ac\u201c412` computes centre/extent once and loops up to six planes, exits on the first outside plane, resets crossing mask on outside. Count the actual loop visit before the first possible return and report tests + visits + classification. For each test visits are 1..6 (not blindly six). `activePlaneMaskAABB:415\u00e2\u20ac\u201c427` clamps count to eight and scans every requested plane, no outside early-out; counts in current renderer are eight per actual call. Preserve comparison boundaries `<=0`, mask reset, signed zeros and all early returns.\n\nGenerated `game_collision.gen.cpp:1732\u00e2\u20ac\u201c1747` coarseObjectOutside independently computes six local planes only for matrixMode; impostors, invalid coarse boxes and VU scripts moving geometry bypass it. The matching generator seam is `src/game_templates.inc:19576`. This is inside generated Objects loop/coarse-cull lap, before StaPipCore: an engine-only census misses it. Other generated lighting/vehicle/terrain callers use world-space AABBs; list them separately as game AABB calls, not engine-main or package calls. They may be important after engine caches have already cut most transforms.\n\nThe packager has coarse classification, package AABB classification, merge-box walking, and optional active masks. Instrument counts per call origin rather than conflating every shared CoreBBox invocation. Coarse classify probe defaults to zero; check the actual compiler flags before counting probe-only mask paths as active. Existing `dsMergeParts` counts the merge walk and `dsMaskCalls` counts partial package mask calls, not total plane visits. `dsPackages` and renderCalls are useful denominators; packagesGuardBand is a subset of packagesCull.\n\n## Existing caching and a concrete redundancy\n\nConsecutive materials using the same model pointer + exact model bytes + view-projection bytes reuse object-space planes and MVP. Key checks cost two memcmps; cached plane hits still copy six Plane objects. Culled bags return before the cache-store section; misses on successive culled material bags can therefore recompute planes. Quantify this with transform misses + culled outcomes before proposing broader cache storage. Moving cameras, portal/split views and live transforms legitimately invalidate the existing key.\n\nWith TYRA_STAPIP_GUARD_BAND_BAGS default1, a partial non-billboard fullClipChecks bag under VU1 clipping computes clip planes for the whole-bag eight-plane guard test at line719. If that test does not promote the bag to direct, classifyPackages remains true, and line731 computes the identical planes again. This is source-established redundant work in the active branch, but frequency and time in the current fixture are unmeasured. Count guard attempts/direct promotions and duplicate calls first. Caching that result within this render() invocation could avoid a duplicate without a long-lived key; do not implement before measuring and differential boundary verification.\n\nWhole-bag baked replay occurs after sendObjectData: it removes repeated geometry packet assembly but still pays bounds, MVP/plane preparation, light selection/local preparation and uniforms. Retained clip constants already cache mesh-independent near/far/guard uniform data; do not confuse those stored clip-space constants with object-space classification planes that depend on MVP. A large prepObjectData value can be a mix of inverse arithmetic, emission and recorded mutable bytes; identify those children before considering VU0.\n\nLocal-light inverse reuse across materials is a possible subsequent caching candidate if calls dominate. Inverse depends on exact model values, while the final local light also depends on selected light content, not just its pointer: dynamic lights are repopulated into the same slots each frame. Final zero-influence result additionally depends on bbox version/geometry and override state. Any candidate must separate inverse cache from final-light cache or include all these inputs; scene teardown and pointer reuse require invalidation.\n\n## Fixture activation and measurement integrity\n\n`arena-check-night/game/inc/scene_data.hpp:2705` enables VU1 clipping for all three fixture scenes. Header defaults retain commands and baked streams enabled, TYRA_STAPIP_ATTRIB=0; build command overrides must be captured to establish actual arm. Night presence does not prove every mesh is on dynLightPick: pools, volumetric/shadow patches explicitly turn it off, often also spotLit=false. Directionally lit bags bypass pick/buildSpot, while unlit color bags can still call buildSpot for a disabled no-light and return immediately. Measure enabled buildSpot calls separately.\n\n`game/inc/game_runtime.gen.hpp:634\u00e2\u20ac\u201c685` clears/re-registers dynamic lights each frame, respects on/intensity/visible/active and mutable transforms, computes flicker and spot rotation before rendering. This is update-side cost; it is excluded from renderer math and must not be charged to pickDynLight. Eight lights in authored data does not establish eight registered candidates every frame. Sky/terrain opting out of pick, selected light exclusions and night flicker all affect activation. BLSS wantsProxies gates shared world sphere work; record that flag and actual sphereCalls rather than assuming BLSS disabled from a visual preset.\n\nImportant existing observer caveats: packager attribution clocks/counters under TYRA_STAPIP_ATTRIB in checkFrustum and bbox-cacher statistics are compile-time gated, without the StaPipCore telemetryEnabled runtime predicate at every site. Toggling only setTelemetryEnabled(false) is therefore not a clean compiled-in gateoff for ALL existing observers. Also setTelemetryEnabled requests capturePlaneMasks even with the EE clipper; the current fixture uses VU1 clipping (where masks are already required), but an EE-clip control could change work. A new census must have its own consistent gate at each new site; quote existing macro-only overhead separately.\n\nHardwareTrace labels include Static_bag, Bounds, Dispatch, Package_create, Package_classify, Packet_build, QBuffer_copy, VIF1_submit and waits. They are nested events, NOT additive flat cost. HardwareTrace has 32768 event capacity, reads startup config, and exports after capture; dropped must be zero. It does not expose the six requested math children. Capture a few frames for hierarchy inspection, use aggregate bounded counters for the census. Register snapshots are observations, not continuous VU utilization. Do not sum Game+Scene+Objects+Static_bag or dispatch+Packet_build+VIF1_submit.\n\nA frame-exclusive ledger should use render total as parent, existing head/bounds/prepare/dispatch/tail as siblings; children subdivide parents only. Within prepare, sum named siblings once and subtract to obtain residual. Within dispatch, dsCreate/dsDirect/dsRender/dsFlush include nested packet work; subtract nested components only in their owning intervals. Add snapshot/native conversion only at their actual owner level: do not add them again to submission-inclusive or rendererwork. The clock uses unsigned differences; accumulate bounded windows in uint64 to avoid sum overflow.\n\n## Acceptance and next decision\n\nUse unchanged fixed night camera first, then moving camera and dense scene controls. Warm caches before each bounded sample; record scene/camera, rendered/culled bags, clip/classification counts, candidates, bbox hits/recalcs and bytes/qwords. Run compiled-out, compiled-in gateoff, gateon, gateoff controls with ordinary batch/queue flow and no per-reference/per-plane logs or added waits. Collect measured work ms and period separately. Reject a census whose observer overhead changes grouping, counts or rendering; price overhead before trusting child costs.\n\nProceed to a scalar plane/local-light offload prototype only if its enabled exclusive time is material relative to the remaining frame gap and its actual call count is substantial. Compare against the cheaper same-call clip-plane reuse or consecutive-material inverse cache first when repeat counts are high. An offload needs target boundary oracle (classification/masks/selected-light identity, not merely approximate floats), setup/transfer/ownership price, and whole-frame A/B. If math children are small while emission/copy/classification merge residuals dominate, prioritize direct producer/recording or key/version reuse instead. No current source audit establishes a hardware gain.\n",
+  "remaining_math_census_sources": [
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_attrib.hpp",
+      "sha256": "404b4c1542bc870794e4e678490e268c58b0b8b9735c2d62084c97811755661c",
+      "fixture_sha256": "404b4c1542bc870794e4e678490e268c58b0b8b9735c2d62084c97811755661c",
+      "same_as_fixture": true
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp",
+      "sha256": "b805bf42bd72a34761764eaaa207ce7ff8d3b8862183b135091bc88e3b874932",
+      "fixture_sha256": "b805bf42bd72a34761764eaaa207ce7ff8d3b8862183b135091bc88e3b874932",
+      "same_as_fixture": true
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\core\\3d\\bbox\\core_bbox.cpp",
+      "sha256": "5531eccf89d1debfc66dfa23175def2d7ddba1c91cbc567c50b9cfa11ff9bc2b",
+      "fixture_sha256": "5531eccf89d1debfc66dfa23175def2d7ddba1c91cbc567c50b9cfa11ff9bc2b",
+      "same_as_fixture": true
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\core\\renderer_core.cpp",
+      "sha256": "520c81dbc1ac36e829c9c76408a15fe987567450ddbdd8341ccb5e1cce2fbd6f",
+      "fixture_sha256": "520c81dbc1ac36e829c9c76408a15fe987567450ddbdd8341ccb5e1cce2fbd6f",
+      "same_as_fixture": true
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp",
+      "sha256": "597e444875e6f5d45cff7359f0430ca89f27bd77657cbb7194554c7c9baa9825",
+      "fixture_sha256": "597e444875e6f5d45cff7359f0430ca89f27bd77657cbb7194554c7c9baa9825",
+      "same_as_fixture": true
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\bag\\packaging\\stapip_bag_packager.cpp",
+      "sha256": "fabf68c9ed340edc54c561da4f6857958ac9605bdb70e850093fba52781a1a65",
+      "fixture_sha256": "fabf68c9ed340edc54c561da4f6857958ac9605bdb70e850093fba52781a1a65",
+      "same_as_fixture": true
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\debug\\hardware_trace.cpp",
+      "sha256": "a3fd58cf5c47218a275a50e8ec15aeb081b3bce63bc8f5b44bbb276c65a48d80",
+      "fixture_sha256": "a3fd58cf5c47218a275a50e8ec15aeb081b3bce63bc8f5b44bbb276c65a48d80",
+      "same_as_fixture": true
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game\\src\\gen\\game_collision.gen.cpp",
+      "sha256": "5f04b5c5529ba0bcdb9baffb9d47facaafcf4566619cdde37fabbe1d19c2bd61"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game\\src\\gen\\game_physics.gen.cpp",
+      "sha256": "dfc2cba59807e044e1eba41d1883911117921462c44ba3209d2938c0c9050a93"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game\\src\\gen\\game_lighting.gen.cpp",
+      "sha256": "f333064891fc7d0a05ea3b8a53066c6985d000cc4fc9ef733b3d5dc1faf8787d"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game\\inc\\game_runtime.gen.hpp",
+      "sha256": "20bb909088d52b52dc59416b060e52166d93e0dd9eccc1912d51a96992c61d80"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game\\inc\\scene_data.hpp",
+      "sha256": "a6b08faa745a430790d3d386208b56c0c275754e56e987dcf3038db65445b2e7"
+    }
+  ],
+  "decision": "Snapshot validation/fixups and mutable payload copying are substantial diagnostic terms. Keep the narrow borrow candidate private; prioritize reducing repeated preparation/copies and census actual scalar math before VU0 offload. No production gain accepted."
+}

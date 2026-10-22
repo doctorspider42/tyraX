@@ -1,0 +1,25 @@
+{
+  "command": [
+    "F:\\Python\\Conda\\python.exe",
+    "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-controls-v1\\analyze-night-cli.py",
+    "--stdout",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-assert-gate-order0-20261006-utf8.log",
+    "--artifact",
+    "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-physical-v1\\game\\bin\\night-ablation.log",
+    "--environment",
+    "ps2",
+    "--kind",
+    "25",
+    "--order",
+    "0",
+    "--joint",
+    "0",
+    "--restored",
+    "0",
+    "--report",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-assert-gate-order0-20261006-evidence\\strict-analysis.json"
+  ],
+  "exitCode": 0,
+  "stdout": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE\n",
+  "stderr": ""
+}

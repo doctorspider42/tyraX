@@ -1,0 +1,11 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\matrix-key-controls-v1\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\matrix-key-controls-v1\\analyze-night.py": "da2e851bd9296e153b51a8ffd71f18736de3e972019cfa237cb01ec229d39170",
+    "F:\\Projects\\tyrax2-lab-20261001\\matrix-key-controls-v1\\analyze-night-cli.py": "ed697ad4d565dba58753bdf6f2c7a9266fcb38fb42a2fe546ff9b12f2c749c27",
+    "F:\\Projects\\tyrax2-lab-20261001\\matrix-key-controls-v1\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\matrix-key-controls-v1\\source-controls\\night_plan.hpp": "67e0d7784ee01a20c5fa5bbc75729a6898051d71f85e808cbae14ae3e13e5932",
+    "F:\\Projects\\tyrax2-lab-20261001\\matrix-key-controls-v1\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "d2badd8b28f1a5fe78dedc809450b99b5a2d60dd0f20166f1c369d28055385a5"
+}

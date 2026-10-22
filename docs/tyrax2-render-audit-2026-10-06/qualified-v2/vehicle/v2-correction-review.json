@@ -1,0 +1,13 @@
+{
+  "status": "SUPPLEMENTAL_V2_PACING_COVERAGE_CORRECTION",
+  "elfSha256": "d686eda2e78d488fd3c7dada64821a6663825c2f28aa566776150de245c16b00",
+  "nativeProofSha256": "269d90e71a9b8669d0c769c30b91bd1194ea50231418376f66cd6ee538b12879",
+  "inheritedCoverageSha256": "80f6ec114ed86545722f76e84cf2c1b859948fc4084461381f4f876137d9206e",
+  "loopBalanceHeaderSha256": "fec647bd3ac73b185960e7db135224acdd4e08b2a2e4d1a6370991744732e03b",
+  "balanceRowBytes": 136,
+  "balanceSampleBufferBytes": 17408,
+  "renderAuditRowBytes": 188,
+  "renderAuditSampleBufferBytes": 24064,
+  "correction": "The inherited coverage reviewer still prints the v1 15872-byte buffer descriptor and outer-leaf phrasing. The bound v2 native proof carries the actual 17408-byte symbol. Presentation starts exclusion before flipBuffers; leaf wait calls made while pacingActive are counted separately with no new clock and no duplicated interval. Strict runtime closes both partitions and matches existing pacing. Original pinned reviewer files are retained rather than silently rewritten.",
+  "historicalLoopBalanceCaveat": "The earlier 49fbb9d2 ELF timed two GIF waits inside pacing again. Its explicit wait sum and exclusive render estimate overlap/subtract that tiny interval; the v2 fixture corrects ownership. Historical evidence stays unchanged; render dominance is supported by the follow-up, not by claiming the old categories were disjoint."
+}

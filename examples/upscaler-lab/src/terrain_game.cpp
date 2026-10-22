@@ -57,6 +57,8 @@ TerrainGame::~TerrainGame() {}
 
 
 void TerrainGame::init() {
+  engine->renderer.core.setFramePipeline(true);
+  stapip.core.setStampEnabled(true);
   // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
   // engine (its keyboard/mouse half needs it) and resolve the boot preset into
   // the live bindings before anything reads a button.
@@ -232,7 +234,7 @@ void TerrainGame::init() {
 
 
 void TerrainGame::loop() {
-  const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
+  Tyra::HardwareTrace::Scope traceUpdate("Update", Tyra::HardwareTrace::Kind::Span, false);
   beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
 #if TYRA_FRAME_PROFILE
   // FTUPD (docs/profiling.md, "The update half of pre"): lap i adds the time
@@ -503,6 +505,13 @@ void TerrainGame::loop() {
     }
   }
 
+  // Broad-phase refresh boundary (docs/collision-boxes.md, "The broad
+  // phase"): the walker's queries refreshed it this frame, and since then the
+  // scripts, the flow graph, a scene switch, layer streaming and teleports may
+  // have moved, turned, rescaled or (de)activated colliders. The physics step,
+  // vehicles, portals and the carry sweep below must see them where they are
+  // now. One walk over the objects; a rebuild only if something changed.
+  broadPhaseInvalidate();
 #if TYRA_FRAME_PROFILE
   { const u32 phT = Tyra::FrameProfile::ticks();
     if (!menuActive) updateObjectPhysics();
@@ -514,6 +523,9 @@ void TerrainGame::loop() {
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
   if (!menuActive) updateSpinners();
+  // Refresh boundary: the spinners turned colliders after the physics step,
+  // and the vehicles, portals and carry sweep below query them.
+  broadPhaseInvalidate();
   UPD_LAP(4);
 
   UPD_LAP(5);
@@ -646,6 +658,9 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  // Visual shake must not move the terrain residency/LOD focus.
+  terrainFocusX = cameraLookAt.x;
+  terrainFocusZ = cameraLookAt.z;
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.
@@ -694,7 +709,7 @@ void TerrainGame::loop() {
   if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
     runtimeObjects[players[1].objIndex].visible =
         !scriptCtx.hidePlayer && playerTwoActive;
-  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // Runtime video output and deferred Frame Pipeline flow-node requests +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
   // open game menu: the player judges the new picture unobstructed and the
@@ -749,6 +764,7 @@ void TerrainGame::loop() {
   // Dynamic point lights: apply Set Light requests + register this frame's
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
+  if (g_lampRebake) rebakeLampLight();  // baked static lamps changed state
   updateDynLitObjects();
   // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
   // range reduction folds through a 2^23 add, so an unbounded seconds counter
@@ -766,7 +782,7 @@ void TerrainGame::loop() {
   }
   UPD_LAP(9);
 #undef UPD_LAP
-  if (Tyra::HardwareTrace::active) Tyra::HardwareTrace::record("Update", traceUpdateStart, Tyra::HardwareTrace::ticks());
+  traceUpdate.finish();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -2118,12 +2134,14 @@ void TerrainGame::processOneStreamJob() {
   // ring and layer residency; freeing the built chunks lets the ordinary
   // budgeted pass rebuild them with the texture bound (the buffers keep their
   // capacity, so it costs a rebuild, not an allocation).
-  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0)
+  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0) {
+    terrainShadeCache.clear();
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
       terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
       ch.cx = ch.cz = -1;
     }
+  }
 
   // A clone spawned before its template's assets were resident built empty
   // geometry - re-arm it now that the asset landed (authored objects go
@@ -2136,6 +2154,10 @@ void TerrainGame::processOneStreamJob() {
         (kind == 2 && o.data.animModel == index)) {
       o.dirty = true;
       if (kind == 2) setupAnimObject(i);
+      // Its broad-phase box was sized from the placeholder bounds and the
+      // cache key (pose, model, collision) did not change when they did.
+      if (i < (int)bpCache.size()) bpCache[(size_t)i].valid = false;
+      broadPhaseInvalidate();
     }
   }
 }
@@ -2146,6 +2168,7 @@ void TerrainGame::processOneStreamJob() {
 // data - like a scene load, a re-entered GTA3 interior resets the same way.
 // Geometry rebuilds lazily through the dirty flag.
 void TerrainGame::activateObject(int i) {
+  broadPhaseInvalidate();  // it joined the world mid-frame
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[i];
@@ -2161,6 +2184,7 @@ void TerrainGame::activateObject(int i) {
 // bags, skeletal instance, hull) is released. The constexpr scene data
 // stays, so activateObject() can rebuild it exactly.
 void TerrainGame::deactivateObject(int i) {
+  broadPhaseInvalidate();  // it left the world mid-frame
   runtimeObjects[i].active = false;
   runtimeObjects[i].visible = false;
   runtimeObjects[i].dirty = false;
@@ -2200,6 +2224,7 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
   o.visible = o.data.type != 4 && o.data.type != 6 &&
               !(o.data.type == 7 && !o.data.emitEnabled);
   o.dirty = true;
+  broadPhaseInvalidate();  // a clone joined the world mid-frame
   objectGeometry[slot] = ObjectGeometry();
   setupAnimObject(slot);
   applyLayerResidency();  // queue the template's assets if not resident yet

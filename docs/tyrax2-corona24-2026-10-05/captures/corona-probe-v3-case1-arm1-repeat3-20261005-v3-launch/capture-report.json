@@ -1,0 +1,47 @@
+{
+  "pineStatusBefore": 1,
+  "status": "PASS_exact_tag_paused_state_decode_text_identity",
+  "sourceCommit": "94d86c891b1621c0b252e4fc2e155bf90274dcc0",
+  "savestateVersion": 2589523968,
+  "savestateTag": "v2.9.93",
+  "stateSha256": "5ec2da754fec79d74b9505319f53936f97a2dd2f4acff4188cf8ce5e0c8a63e1",
+  "internalsSha256": "a4751cb0e32db8a330c03cddb8b708ea400b692d7fdc6847cda6447f5d4e1058",
+  "cpuRawSha256": "633cfe1c279cba94b048970e87abd06c069b9a0c31916145f3286a2000b6a592",
+  "cpuRegsPayloadOffset": 360,
+  "offsets": {
+    "cpuSize": 1160,
+    "cpuAlign": 8,
+    "pc": 680,
+    "cycle": 1088,
+    "count": 580,
+    "sp": 464,
+    "ra": 496,
+    "delaySlot": 676
+  },
+  "registers": {
+    "pc": 1716624,
+    "cycle": 1053074736,
+    "cp0Count": 1052840437,
+    "spLow64": 33487856,
+    "raLow64": 1717716,
+    "isDelaySlot": 0
+  },
+  "elf": {
+    "path": "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-physical-v1/game/bin/vehicle-playground.elf",
+    "sha256": "53872fde4ad620c38f4c949e426bc3e2154eb179093d0c78a50e5df7495fb90f",
+    "textAddress": 1048576,
+    "textBytes": 2958240,
+    "textSha256": "d2885f48545ed028d08c1c98c87a396c86c6d1ed7351fba40f9323e661468622"
+  },
+  "eeMemoryBytes": 33554432,
+  "unchangedGuestText": true,
+  "limits": [
+    "Registers decoded from raw emulator serialization; root must bind this exact layout source to Linux64 compiler result.",
+    "cycle is internal64-bit emulated schedule time, not physical EE cost.",
+    "Snapshot completion and EE breakpoint identity require separate paused PINE status bracket."
+  ],
+  "layoutReportSha256": "bf8a19fc75236e07a496b6018a9673ff46c6650c25b7b94b72a2020351c6541b",
+  "statePath": "/home/spider/corona-probe-v3-case1-arm1-repeat3-20261005-v3/profile/PCSX2/sstates/vehicle-playground (8F787F06).233.p2s",
+  "pineStatusAfter": 1,
+  "helperSha256": "29b9f7095b69be598c0fd63031bd210a60c93028baeb546e07efeef2bb5aa3ae"
+}

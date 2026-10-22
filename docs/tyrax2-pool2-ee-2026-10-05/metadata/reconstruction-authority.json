@@ -1,0 +1,53 @@
+{
+  "baseFiles": 499,
+  "pricingFiles": 499,
+  "probeFiles": 500,
+  "overlays": {
+    "pricing": {
+      "game/inc/terrain_game.hpp": {
+        "before": "0740eef0342efa61616248e21f534e47e3d4cee468eb6f10d8b34e981a28f15b",
+        "sha256": "e66e86bf0e4bf2538546095f0aca05c4a637c88a6e675259dd12c9c13e7f15b5",
+        "new": false
+      },
+      "game/src/gen/game_lighting.gen.cpp": {
+        "before": "6b3e17cfdb7000dce317d1d7115ae8f0155c548e4b2a0de05bfb03e2fbf5a2a8",
+        "sha256": "e563dd4148a022fe5d6987e1a6dde801fa21b3916701ef1d1c0a28fcbb40b282",
+        "new": false
+      },
+      "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_pool_color_table.hpp": {
+        "before": "1ef2540488e15f722637910510e51cb1defc74b0ee92ab5d090aaa1ebfb2670e",
+        "sha256": "260b62887ed750ff959028ea3d232e37c666e016282528017183e94d5a0765c9",
+        "new": false
+      },
+      "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp": {
+        "before": "8a3bb29a7960bc67a6d5579f316074c559f7ce783d9c17d9f1d930824276339a",
+        "sha256": "89d2d0c2bd81d09568e66df21afe9c4b66f482c0a3d6156a01ecea31b25bf31f",
+        "new": false
+      },
+      "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": {
+        "before": "be77677a29e372294e3a4386b667a4ec3546157d78e4acc2160e52a840a7d60f",
+        "sha256": "f3fb9dcc4a38953e00beb9b05b4f25b9187929b0d24232046fb35af171997ad1",
+        "new": false
+      }
+    },
+    "probe": {
+      "game/inc/pool2_static_probe.hpp": {
+        "before": null,
+        "sha256": "6d825e3e7c129adc4bd6085a6d91a25cd4778654397126ba41d8d45cf0acb81c",
+        "new": true
+      },
+      "game/src/terrain_game.cpp": {
+        "before": "62396e22f9a54af27d1c4ac0acfd1444747a8a033f11564cd9d85fa85aa738ab",
+        "sha256": "789ce16faa0853bc1d44046e80da8cd53ab3552d249bf5815d4373d91118a8ce",
+        "new": false
+      }
+    }
+  },
+  "manifests": {
+    "metadata/base499-source-manifest.json": "c0da3cd8dadd3072fce0381808a8a312d926726820b6e14f1e7ae96f84048581",
+    "metadata/pricing/target-source-manifest.json": "769f1403389da4d3683a17806fce1b75b381a4cf4f8229ee4d3306a44ca806de",
+    "metadata/probe/target-source-manifest.json": "c8e7f094b2f3c35e71d112421a8a7cc29971b5f8c6adea22a768a6d15e012313"
+  },
+  "resourcesShipped": false,
+  "authoredResRequiredForNativeAssetConversion": true
+}

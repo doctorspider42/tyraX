@@ -1,0 +1,3 @@
+# Cold Core reuse census
+
+Original algorithms unchanged. Only producerSelected && producerEnabled && collectCounters reaches increments. Sparse 750/1155 frames outside priced window. No new clock reads, fences, geometry changes, COP2 use or VU images. Common branch/code footprint remains unpriced. Stage0 normals and stage1 bbox; stage2..4 unused. Requires actual cold counters before diagnosing stale work.

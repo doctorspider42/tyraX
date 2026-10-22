@@ -1,0 +1,19 @@
+{
+  "status": "PASS_ACTUAL_SOURCE_HOST_GS_TEX1_ORACLE_ONLY",
+  "oracle": "compared=200001 mutableChecks=70000 firstBag=1 mixedFilters=1 reinitGeneric=1",
+  "sourceSha256": "3dfafe8ffc8412fb6b6a95503ca8abfb2369508a66289e91fb59b5a78a7e3d22",
+  "sdkPins": {
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/common/include/gs_gp.h": "3e93c3d7a16028bbae8894c07423964b263328b44a0c43bab3ec92c725b778a4",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include/draw_sampling.h": "5c313b150e07135e6a37e6a058cfe8c3f2d78e830485023876ee1fe11aef58d6"
+  },
+  "payloads": {
+    "compile.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "compile.stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "draw_sampling.h": "5c313b150e07135e6a37e6a058cfe8c3f2d78e830485023876ee1fe11aef58d6",
+    "gs_gp.h": "3e93c3d7a16028bbae8894c07423964b263328b44a0c43bab3ec92c725b778a4",
+    "harness": "5bc062e05bab85dd2767deff92fcb0b7db46f01cd7ac2e201b366654f12be111",
+    "harness.cpp": "e2a1df6e8599024a2d5aff3584ccc5506610bcded0793e8fd64a1389b7f53a18",
+    "oracle.stdout": "232875ace3de67ec3ccc2318da07664fde081001ce78218279384e156ef2a584"
+  },
+  "actualTargetAbiQualified": false
+}

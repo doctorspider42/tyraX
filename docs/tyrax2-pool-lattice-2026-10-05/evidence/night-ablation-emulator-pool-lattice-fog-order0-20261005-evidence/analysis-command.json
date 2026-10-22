@@ -1,0 +1,25 @@
+{
+  "command": [
+    "/usr/bin/python3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-controls-v1/analyze-night-cli.py",
+    "--stdout",
+    "/home/spider/night-ablation-emulator-pool-lattice-fog-order0-20261005/emulator.log",
+    "--artifact",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-physical-v7/game/bin/night-ablation.log",
+    "--environment",
+    "emulator",
+    "--kind",
+    "8",
+    "--order",
+    "0",
+    "--joint",
+    "0",
+    "--restored",
+    "0",
+    "--report",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-pool-lattice-fog-order0-20261005-evidence/strict-analysis.json"
+  ],
+  "exitCode": 0,
+  "stdout": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE\n",
+  "stderr": ""
+}

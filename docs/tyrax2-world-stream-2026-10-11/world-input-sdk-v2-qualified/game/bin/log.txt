@@ -1,0 +1,50 @@
+LOG: IRX: Loading audsrv...
+LOG: IRX: Audsrv loaded!
+LOG: Path3 initialized
+LOG: GS buffers: frame 448x448 x2, z 448x448 at 301056, drawing into 0, showing 1
+LOG: Framebuffers, zBuffer set and allocated!
+LOG: Drawing environment initialized!
+LOG: Renderer core initialized!
+LOG: PostFx initialized!
+LOG: Dynamic env map initialized (VRAM at 514048)
+LOG: Env map target disabled - no VRAM reserved
+LOG: Renderer texture initialized!
+LOG: Clut set!
+LOG: Frustum planes initialized!
+LOG: RendererCore3D initialized!
+LOG: Creating audio semaphore
+LOG: AudioSong semaphore created
+LOG: Audio initialized!
+LOG: Initializing pad
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Enabling dual shock functions.
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Pad has pressure sensitive buttons? 1
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: # of actuators: 2
+LOG: padSetActAlign: 1
+LOG: Pad state changed
+LOG: Pad is ready!
+LOG: Pad initialized!
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+LOG: StaPipQBufferRenderer initialized
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+LOG: Save icons: written to the card
+LOG: Save system: memory card ready
+LOG: ADPCM loaded: host:/sfx/engine_idle.adpcm (26672 bytes, pitch 1881, id 6921376)
+LOG: ADPCM loaded: host:/sfx/engine_high.adpcm (32656 bytes, pitch 1881, id 6921424)
+LOG: ADPCM loaded: host:/sfx/tires_screech.adpcm (8560 bytes, pitch 1881, id 6921472)
+LOG: ADPCM loaded: host:/sfx/gear-shift.adpcm (1552 bytes, pitch 1881, id 6921536)
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+LOG: SIF RPC guard: seen 646, guarded 0
+LOG: VEH setup obj 131 def 0
+LOG: VEH setup obj 132 def 1
+LOG: VEH setup obj 133 def 2
+LOG: Static batching: 37 objects in 28 batches
+LOG: Static batching: eligible 77, solo 40, base cell 80, widest cell 80
+LOG: Static batching: partial models kept solo 13
+LOG: ROADINDEX cells 1x1 entries 12

@@ -38,7 +38,9 @@ class PipelineInfoBag {
     additiveBlendFix = 0;
     subtractiveBlendFix = 0;
     dynLightPick = true;
+    dynamicLightReceive = true;
     dynLightSkipSlot = -1;
+    dynLightSkipBaked = false;
     spotLit = true;
     dateLit = false;
     blssProxy = true;
@@ -110,6 +112,11 @@ class PipelineInfoBag {
    */
   bool dynLightPick;
 
+  /** Modified by TyraX: receive live scene lights and the camera flashlight.
+   * False leaves baked, probe and directional terms unchanged. Unlike
+   * dynLightPick=false, this also suppresses the fallback flashlight. */
+  bool dynamicLightReceive;
+
   /**
    * Modified by TyraX: one scene light this bag must NOT be lit by through
    * the per-vertex slot (an index into RendererCore's dynLights, -1 = none).
@@ -121,6 +128,16 @@ class PipelineInfoBag {
    * it and picks the next best light - or the torch - for that bag.
    */
   int dynLightSkipSlot;
+
+  /**
+   * Modified by TyraX: this bag's vertex colours already carry every scene
+   * light registered as BAKED (RendererCore::markDynLightBaked - a static
+   * lamp whose light the game folded into static geometry when it switched
+   * on), so pickDynLight must skip all of them for it. The camera torch and
+   * the lights that stay live (a flickering lamp) are still picked; a moving
+   * receiver leaves this false and keeps every light per vertex.
+   */
+  bool dynLightSkipBaked;
 
   /**
    * Modified by TyraX: opt-out from the camera SPOT light (the flashlight)

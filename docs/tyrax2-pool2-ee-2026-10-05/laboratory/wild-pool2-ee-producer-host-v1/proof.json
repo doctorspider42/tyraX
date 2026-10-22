@@ -1,0 +1,109 @@
+{
+  "sources": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v1\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_pool_color_table.hpp": {
+      "sha256": "260b62887ed750ff959028ea3d232e37c666e016282528017183e94d5a0765c9",
+      "bytes": 3552
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v1\\game\\inc\\bag_array.gen.hpp": {
+      "sha256": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+      "bytes": 8140
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\game\\inc\\bag_array.gen.hpp": {
+      "sha256": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+      "bytes": 8140
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\game\\src\\gen\\game_lighting.gen.cpp": {
+      "sha256": "6b3e17cfdb7000dce317d1d7115ae8f0155c548e4b2a0de05bfb03e2fbf5a2a8",
+      "bytes": 220258
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\game\\inc\\terrain_game.hpp": {
+      "sha256": "0740eef0342efa61616248e21f534e47e3d4cee468eb6f10d8b34e981a28f15b",
+      "bytes": 132351
+    },
+    "Legacy-flush": {
+      "sha256": "a556cce3c87a71858713a06d1f22fb067a978581e5030b2a9ca9af0c3b6341ea",
+      "bytes": 3068
+    },
+    "Legacy-add": {
+      "sha256": "840c1fef489ce4d344d41d028d9d6d0d129244bd71f8b77e7fd27ab8d246ecfd",
+      "bytes": 140
+    },
+    "Legacy-declaration": {
+      "sha256": "827d4a2645a517c6c11117c0c693b0fa170b34796d127752fd7dec2ae770fec2",
+      "bytes": 545
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v1\\game\\src\\gen\\game_lighting.gen.cpp": {
+      "sha256": "6d37722c11b55c15ee5db7bccb74c6382c3042c6b54a9de0a6b564ca7b348e20",
+      "bytes": 221534
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v1\\game\\inc\\terrain_game.hpp": {
+      "sha256": "e66e86bf0e4bf2538546095f0aca05c4a637c88a6e675259dd12c9c13e7f15b5",
+      "bytes": 132607
+    },
+    "Candidate-flush": {
+      "sha256": "e5521001a84bc321b8c31a16aa6933c3085815c0d387713df82fd233e1827d8a",
+      "bytes": 4323
+    },
+    "Candidate-add": {
+      "sha256": "840c1fef489ce4d344d41d028d9d6d0d129244bd71f8b77e7fd27ab8d246ecfd",
+      "bytes": 140
+    },
+    "Candidate-declaration": {
+      "sha256": "af4d4025811033d46d1c128f439d8fd567f24a5005c2210dadddab31b1443560",
+      "bytes": 801
+    },
+    "oracle.cpp": {
+      "sha256": "e7c2f7b5de145993cce2c955c256dfc082cbb990dcebeae4785e4b158e979518"
+    },
+    "tests.inc": {
+      "sha256": "31b3cdc54a750b3b8056fa24ed9132e6479f939ed2d4b8dd2881d8e7c85404aa"
+    }
+  },
+  "runs": [
+    {
+      "optimization": "-O0",
+      "command": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.exe",
+        "-std=c++17",
+        "-O0",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v1",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v1\\oracle.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v1\\oracle-O0.exe"
+      ],
+      "compile_exit": 0,
+      "run_exit": 0,
+      "stdout": "PASS checks=628782 flushes=1372 compact_color_only=256 partial_ranges=686\n",
+      "stderr": "",
+      "exe_sha256": "342524aaf17dd1d55e986289e88f44d65cb5ff636a81d602f95ca02f1b326fe0"
+    },
+    {
+      "optimization": "-O2",
+      "command": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.exe",
+        "-std=c++17",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v1",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v1\\oracle.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-producer-host-v1\\oracle-O2.exe"
+      ],
+      "compile_exit": 0,
+      "run_exit": 0,
+      "stdout": "PASS checks=628782 flushes=1372 compact_color_only=256 partial_ranges=686\n",
+      "stderr": "",
+      "exe_sha256": "a7e67e81d4fc6cb2a4de0d968af33b8cc2c6abeac878467f5af81584c6f67076"
+    }
+  ],
+  "limitations": "Host-only actual extracted producer/BagArray/materializeRange semantics. No DMA/cache/target ABI, pixel, native or hardware performance proof."
+}

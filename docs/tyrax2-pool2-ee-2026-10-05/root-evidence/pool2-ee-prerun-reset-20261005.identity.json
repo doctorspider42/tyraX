@@ -1,0 +1,5 @@
+{
+  "ProcessId": 52196,
+  "ExecutablePath": "F:\\Projects\\tyra-editor\\tools\\ps2client\\bin\\ps2client.exe",
+  "CommandLine": "\"F:\\Projects\\tyra-editor\\tools\\ps2client\\bin\\ps2client.exe\" -h 192.168.100.150 reset"
+}

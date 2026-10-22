@@ -1,0 +1,1 @@
+Private kind17 compile-time clip plane specialization. Original four products/add order, distance-leading offset and zero terms retained; no fast math. Cold actual20byte-per-plane bit oracle; zero timed added clocks. Native price unqualified until both physical orders. Original callers/waits/program images and game sources retained.

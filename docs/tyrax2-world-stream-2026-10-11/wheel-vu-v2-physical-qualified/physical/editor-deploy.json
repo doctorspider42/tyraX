@@ -1,0 +1,16 @@
+{
+  "pid": 5748,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-wheel-vu-game-20261012-v2\\physical-v1\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "6ff78953ca98ff5ae579f0291b74a9fcdd53ca345c290b5b2663b300c018e1ee",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-12T12:28:46.6022204+02:00"
+}

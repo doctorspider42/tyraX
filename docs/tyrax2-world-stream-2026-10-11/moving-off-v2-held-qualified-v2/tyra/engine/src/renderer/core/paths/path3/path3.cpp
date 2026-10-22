@@ -1,0 +1,145 @@
+/*
+# _____        ____   ___
+#   |     \/   ____| |___|
+#   |     |   |   \  |   |
+#-----------------------------------------------------------------------
+# Copyright 2022, tyra - https://github.com/h4570/tyra
+# Licensed under Apache License 2.0
+# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: clearScreen() no longer emits a FINISH giftag, and it
+# re-asserts the GS texture wrap mode for the frame (see clearScreen).
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
+*/
+
+#include "renderer/core/paths/path1/frame_submission.hpp"
+#include <gif_tags.h>
+#include "renderer/core/paths/path3/path3_fence.hpp"
+#include <gs_gp.h>
+#include "renderer/core/paths/path3/path3.hpp"
+
+namespace Tyra {
+
+Path3::Path3() {
+  drawFinishPacket = packet2_create(3, P2_TYPE_NORMAL, P2_MODE_CHAIN, false);
+  clearScreenPacket = packet2_create(36, P2_TYPE_NORMAL, P2_MODE_CHAIN, false);
+  texturePacket = packet2_create(128, P2_TYPE_NORMAL, P2_MODE_CHAIN, false);
+
+  packet2_chain_open_end(drawFinishPacket, 0, 0);
+  packet2_update(drawFinishPacket, frameDrawFinish(drawFinishPacket->next));
+  packet2_chain_close_tag(drawFinishPacket);
+}
+
+Path3::~Path3() {
+  packet2_free(drawFinishPacket);
+  packet2_free(clearScreenPacket);
+  packet2_free(texturePacket);
+}
+
+void Path3::init(RendererSettings* t_settings) {
+  settings = t_settings;
+
+  dma_channel_initialize(DMA_CHANNEL_GIF, nullptr, 0);
+
+  TYRA_LOG("Path3 initialized");
+}
+
+void Path3::sendDrawFinishTag() {
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
+  frameSendPacket(drawFinishPacket, DMA_CHANNEL_GIF, true);
+}
+
+void Path3::clearScreen(zbuffer_t* z, const Color& color) {
+  packet2_reset(clearScreenPacket, false);
+  packet2_chain_open_end(clearScreenPacket, 0, 0);
+  packet2_update(clearScreenPacket,
+                 draw_disable_tests(clearScreenPacket->next, 0, z));
+  // Modified by TyraX: clear the PHYSICAL buffer - half the logical height
+  // when field rendering (InterlacedField).
+  packet2_update(
+      clearScreenPacket,
+      draw_clear(clearScreenPacket->next, 0,
+                 2048.0F - (settings->getWidth() / 2),
+                 2048.0F - (settings->getRenderHeightF() / 2),
+                 settings->getWidth(), settings->getRenderHeightF(),
+                 static_cast<int>(color.r), static_cast<int>(color.g),
+                 static_cast<int>(color.b)));
+  packet2_update(clearScreenPacket,
+                 draw_enable_tests(clearScreenPacket->next, 0, z));
+  // Modified by TyraX: re-assert texture REPEAT for the frame about to be
+  // drawn. GS_REG_CLAMP is global state and NOTHING in the 3D pipelines ever
+  // writes it: ps2sdk's draw_setup_environment() leaves it at CLAMP/CLAMP at
+  // init, and the post-fx blits and 2D texture uploads each overwrite it with
+  // whatever they need. A 3D mesh therefore sampled with whatever the last
+  // unrelated draw happened to leave behind - and the terrain, whose STs are
+  // world position x tile factor and run far outside 0..1, was clamped: one
+  // tile of ground around the world origin and the texture's edge texels
+  // stretched along the world axes for the rest of the map (long streaks
+  // converging on the vanishing point, worst at grazing angles). Asserting it
+  // once per frame here - the one PATH3 packet that always precedes the 3D
+  // pass, so it costs no extra transfer - makes REPEAT the contract every 3D
+  // mesh can rely on. A 3D mesh that needs clamping still clamps its STs on
+  // the EE (projected shadows, decals); per-mesh wrap would mean two more
+  // quadwords in every textured StaPip program's tag block, and the clipping
+  // program set has ~6 instructions of micro memory left.
+  {
+    qword_t* q = clearScreenPacket->next;
+    PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    q++;
+    PACK_GIFTAG(q, GS_SET_CLAMP(WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0),
+                GS_REG_CLAMP_1);
+    q++;
+    packet2_update(clearScreenPacket, q);
+  }
+  // Terminate the PATH3 stream with a data-less EOP giftag instead of
+  // upstream's frameDrawFinish(): the EOP bit is load-bearing (without it the
+  // GIF never releases PATH3 and PATH1/XGKICK deadlocks on the first 3D
+  // frame), but the FINISH register write is a stray nobody consumes and it
+  // can release RendererCoreSync::align3D()'s barrier early (the GS FINISH
+  // flag is shared by every path). See renderer_core_2d.cpp for the story.
+  {
+    qword_t* q = clearScreenPacket->next;
+    PACK_GIFTAG(q, GIF_SET_TAG(0, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    q++;
+    packet2_update(clearScreenPacket, q);
+  }
+  packet2_chain_close_tag(clearScreenPacket);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
+  frameSendPacket(clearScreenPacket, DMA_CHANNEL_GIF, true);
+}
+
+void Path3::sendTexture(const Texture* texture,
+                        const RendererCoreTextureBuffers& texBuffers) {
+  packet2_reset(texturePacket, false);
+
+  packet2_update(
+      texturePacket,
+      draw_texture_transfer(texturePacket->base, texture->core->data,
+                            texture->getWidth(), texture->getHeight(),
+                            texture->core->psm, texBuffers.core->address,
+                            texBuffers.core->width));
+
+  if (texBuffers.clut != nullptr) {
+    auto* clut = texture->clut;
+    packet2_update(
+        texturePacket,
+        draw_texture_transfer(texturePacket->next, clut->data, clut->width,
+                              clut->height, clut->psm, texBuffers.clut->address,
+                              texBuffers.clut->width));
+  }
+
+  packet2_chain_open_cnt(texturePacket, 0, 0, 0);
+  packet2_update(texturePacket,
+                 draw_texture_wrapping(
+                     texturePacket->next, 0,
+                     const_cast<texwrap_t*>(texture->getWrapSettings())));
+  packet2_chain_close_tag(texturePacket);
+
+  packet2_update(texturePacket, draw_texture_flush(texturePacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
+  frameSendPacket(texturePacket, DMA_CHANNEL_GIF, true);
+}
+
+}  // namespace Tyra

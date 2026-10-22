@@ -1,0 +1,15 @@
+{
+  "status": "PASS_SOURCE_V5_TO_V6_REDUNDANCY_EQUIVALENCE",
+  "checks": 720915,
+  "exactDeterministicPatchReplay": true,
+  "sourceInstructionsRemoved": 7,
+  "allUpperDataOperationsAndBranchInstructionsIdentical": true,
+  "stockBodyByteIdentical": true,
+  "adcMaskInitializedBeforeBeginAndNotWrittenInPostpass": true,
+  "FMANDExpectedVILoadedBeforeMaskAndUnchangedUntilBranch": true,
+  "exhaustive16bitFlagMaskADCAndHeaderDomains": true,
+  "checkerSha256": "e296e9e379fa099ab46f50cb197c4fbb5e875fe6298f315dfb81048ba42cc8b2",
+  "v5KernelSha256": "b55c7f9efc2ce32880d4ca697c6bbba60d7a33b73d1862f3d80349cab2f8c20c",
+  "v6KernelSha256": "96b71049a8c2d171e087514c2b2bfa8d774e33d23690255bb51d60b1b57f41f1",
+  "limits": "Source and mathematical VI/flag-mask equivalence only. Does not execute MAC timing, assembler allocation/scheduling or actual VU output; native V6 allocation/flag schedule/resident budget and target output remain pending."
+}

@@ -1,0 +1,6 @@
+PASS components=73500 maxAbs=0.000396729 disabledModes=3 emptyMasks=64 negativeControl=specular-zero
+PASS fullShader trials=300 gifWords=109980 colorWordsWithinOne=0 nonempty=300 clippedCountChanged=295
+PASS components=73500 maxAbs=0.000396729 disabledModes=3 emptyMasks=64 negativeControl=specular-zero
+PASS fullShader trials=300 gifWords=109980 colorWordsWithinOne=0 nonempty=300 clippedCountChanged=295
+PASS components=73500 maxAbs=0.000396729 disabledModes=3 emptyMasks=64 negativeControl=specular-zero
+PASS fullShader trials=300 gifWords=54000 colorWordsWithinOne=0 nonempty=300 clippedCountChanged=0

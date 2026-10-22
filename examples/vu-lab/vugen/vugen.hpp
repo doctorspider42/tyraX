@@ -632,6 +632,15 @@ struct Built {
 
 Built build(const Desc& d);
 
+/** Private C16 paint qualification, deliberately absent from allDescs() and
+ * --vu-emit. Produces separately named whole images for built-in Cull TCE,
+ * Clip TC and the Clip TCE reference only. OPTIONS.y == 2 overwrites the VU
+ * colour input using the accepted basis at 12/13 BEFORE clipping. The caller
+ * must supply many colours, unit normals, ordinary MVP and no lighting/script.
+ * Does not install an engine capability, select wrappers or change defaults.
+ * Check errors before consuming any output. */
+Built buildPaintExperiment(const Desc& d);
+
 // ---------------------------------------------------------------------------
 // VU0 kernels - the second skeleton
 // ---------------------------------------------------------------------------
@@ -741,6 +750,26 @@ Equivalence equivalence(const vuir::Program& a, const vuir::Program& b,
                         const Desc& d, int trials, uint32_t seed,
                         const float customParams[4] = nullptr,
                         float customTime = 0.0f);
+
+/** Modified by TyraX: the CLIP family's streamed output (docs/vu1-clipping.md,
+ * "A whole package, streamed"). Runs `whole` once over a full-size package - a
+ * triangle list, or a strip with the packed strip bit - and `reference` over
+ * the same triangles the way the EE used to feed it: the strip expanded into a
+ * list, cut into small slices that can never fan out past one output chunk.
+ * The vertex payload the GIF receives across all kicks must match bit for bit.
+ * `kicks` reports how many XGKICKs the whole-package runs made in total. */
+struct StreamEquivalence {
+    bool identical = false;
+    std::string detail;
+    int trials = 0;
+    int kicks = 0;
+    int maxVertices = 0;
+    int stripTrials = 0;
+    long long vertices = 0;  // GS vertices compared, all trials
+};
+StreamEquivalence streamEquivalence(const vuir::Program& whole,
+                                    const vuir::Program& reference,
+                                    const Desc& d, int trials, uint32_t seed);
 
 /** The input the EE hands an EXPERIMENT image (stapip_vu1_experiments.hpp)
  * that it does not hand the shipping one. `b` runs on memory staged exactly

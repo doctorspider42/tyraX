@@ -1,0 +1,26 @@
+{
+  "status": "PASS_INDEPENDENT_POOL2_EE_V2_POST_NATIVE_CONFIRMATION",
+  "sourceFiles": 499,
+  "sourceEqualsFinalReviewV1": true,
+  "producerOracleV2SourceHashesBound": true,
+  "rehashInputPins": 1956,
+  "dependencies": 171,
+  "objects": 171,
+  "sourceMirrors": 490,
+  "runtimeAssetsExactBaseline": 298,
+  "adpcm": [
+    "sfx/engine_high.adpcm",
+    "sfx/engine_idle.adpcm",
+    "sfx/gear-shift.adpcm",
+    "sfx/tires_screech.adpcm"
+  ],
+  "elfSha256": "0a57efc5f486bae45c0a9ed9b312ef495d06944f899cc0c6285712d4d9ca29e4",
+  "symbolSha256": "5d55eb197e1a439f7bfa9fb9db05cd9f2877c46b4a7345b805e712f789649f52",
+  "matchingTextSha256": "3e3c83df398d48bb9de45983ec01ab51681acfc7826569f0dc98709f671f7226",
+  "rootAuditSha256": "ca2f293ce7982f74fda15ca46bb3f688d043479236f2f2e5e22bec9e5027c158",
+  "rootProvenanceSha256": "7551e9621d040f633419f58f0c56f58c402f250adbd3df412c45ba43f419f85d",
+  "checkerSha256": "4affc5a007e6baead98321f6acfbbb21a5e1892ec84398c052e5eacadb5636f4",
+  "oracleProofSha256": "cedf48b259ed477e2dbd2cfb099d6591904d771ccae18b894719607dfc4bfc26",
+  "noBuildDeviceOrMirrorMutations": true,
+  "limits": "Post-native file identity only; no physical benefit or target runtime output qualification."
+}

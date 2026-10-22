@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "negativeControls": [
+    "missing completion",
+    "capture rejected",
+    "descriptor mismatch",
+    "unexpected frozen file IO",
+    "wrong sample count",
+    "wrong sample order",
+    "changed raster",
+    "wrong raw image stage",
+    "changed resident program",
+    "changed ELF",
+    "changed source",
+    "fatal allocation failure",
+    "undersized closure allocation",
+    "missing heap stage"
+  ],
+  "analyzerSha256": "8cbeb71ea6b2f59d520d66364d0c5c0bbf3db71d93af5b56c1b2cb7f3b1545f2"
+}

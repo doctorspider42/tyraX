@@ -1,0 +1,21 @@
+{
+  "status": "READ_ONLY_FIRST_CAPTURE_FOCUS_REPAIR_DISCLOSURE_NOT_NEW_RUNTIME_ACCEPTANCE",
+  "sourcePins": {
+    "F:/Projects/tyrax2-lab-20261001/pcsx2-control-routes/source-all/pcsx2-qt/Debugger/Breakpoints/BreakpointModel.cpp": "98a8a8ebe3565a0f090dd51652e55b10e73184686e68d86aae451c398715ebf7"
+  },
+  "rootReportedNoFurtherVUJobs": true,
+  "actualUIOrPineOrDeviceInvoked": false,
+  "oldProofsOrCapturesModified": false,
+  "rootReportedReenabledAfterReadyHitExactPC": "001a27f8",
+  "rootReportedSecondSpaceDisabledSelectedHalt": true,
+  "files": {
+    "F:/Projects/tyrax2-lab-20261001/wild-pool2-observed-run-v1/FOCUS-PITFALL-SUPPLEMENT.md": "b7e34f1c9d27c732e0e723558b393d94c016ef998ab40c5173e22c5e0492de8a",
+    "F:/Projects/tyrax2-lab-20261001/pool2-static-a96-arm0-repeat1-20261005-launch/debugger-settings-after.json": "f9acd1cf924a0c258fab6e181ec118c9cddcac1c23360d1fdea66870f3b1fd3d",
+    "F:/Projects/tyrax2-lab-20261001/pool2-static-a96-arm0-repeat1-20261005-launch/verified-capture.json": "bd63e351a95aa9619e12c263859d03590fe29e4ab512e059ff06904ce6613fcb",
+    "F:/Projects/tyrax2-lab-20261001/pool2-static-a96-arm0-repeat1-20261005-launch/ready-running-debugger.png": "7bdaeb05c3ea15a4b449a2ec47058723698a9c5910a528bc5c6950ba9c172429",
+    "F:/Projects/tyrax2-lab-20261001/pool2-static-a96-arm0-repeat1-20261005-launch/second-space-debugger.png": "855c644cdb6906864ea8c4812ca5232fec1e4bc5e76a265a267c8d67b2ae12fa",
+    "F:/Projects/tyrax2-lab-20261001/pool2-static-a96-arm0-repeat1-20261005-launch/halt-debugger.png": "74c56bf473dd37919e9bc5b13445ea0979edeab0489e3574c2e7cac297aee9ad",
+    "F:/Projects/tyrax2-lab-20261001/pool2-static-a96-arm0-repeat1-20261005-launch/completed-probe-proof.json": "75816b9be4e2d34bbeeab2ec7b1e636b67d31686a86e2d3a35c52c2a8dfcdea1",
+    "F:/Projects/tyrax2-lab-20261001/pool2-static-a96-arm0-repeat1-20261005-launch/capture-report.json": "b17fd359d151815eb1242301f724aae333680f7c0d9b1c752141506d66f3b4c4"
+  }
+}

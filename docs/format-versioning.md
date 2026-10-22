@@ -2,6 +2,10 @@
 
 TyraX tracks two independent versions (both defined in `src/version.hpp`):
 
+Format v96 adds [dynamic light receiver tokens](dynamic-light-receivers.md)
+and an independent scene override. Missing/invalid values use full reception;
+this additive change needs no destructive migration or automatic resave.
+
 | | What | Where | Who reads it |
 |---|---|---|---|
 | **Editor version** | semver `MAJOR.MINOR.PATCH` | window title (Mission Control / taskbar when the title bar is merged), *Help* menu, `"editorVersion"` in the `.tyra` manifest | humans (diagnostics: *which editor wrote this file*) |
@@ -23,6 +27,15 @@ reason the per-version history is not (below) — a number copied into prose is 
 number that goes stale. The refusal messages quote the live values.
 
 ## What happens when you open a project
+
+TyraX 2.0 writes format **114**, combining TyraX2 settings through v113,
+Outliner visibility and the project/scene collision broad phase. These are
+additive fields and need no destructive migration. Earlier development branches
+reused v95 for different features, so an absent `settings.framePipeline` now
+means false regardless of the stamp. Explicit true/false always wins. New
+projects enable the pipeline and current writers always emit its boolean;
+existing main/interface projects do not silently opt in when opened.
+Format-less settings wire blobs likewise retain false when the request is absent.
 
 - **Same version** — opens normally.
 - **Newer than the editor** (`formatVersion` > `kFormatVersion`) — refused,

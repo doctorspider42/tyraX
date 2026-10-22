@@ -1,0 +1,16 @@
+{
+  "pid": 5288,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-world-cell-price-game-20261012-v2\\physical-v1\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "33e15dfe44f7ac7b455d00dc3966003e526e7c653acdfbd4c97cd0bb1b399db6",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-12T04:14:30.7320353+02:00"
+}

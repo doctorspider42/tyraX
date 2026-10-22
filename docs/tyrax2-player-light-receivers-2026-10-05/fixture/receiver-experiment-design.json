@@ -1,0 +1,30 @@
+{
+  "status": "DRAFT_NOT_RUNTIME_RELEASED",
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "changes": [
+    "game/inc/game_runtime.gen.hpp",
+    "game/inc/terrain_game.hpp",
+    "game/src/gen/game_physics.gen.cpp",
+    "game/src/gen/game_scene.gen.cpp",
+    "game/src/gen/game_vehicles.gen.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp"
+  ],
+  "modes": {
+    "0": "full",
+    "1": "player_and_driven_vehicle_only_pools_retained",
+    "2": "same_receivers_scene_pools_suppressed"
+  },
+  "coronaSprite": false,
+  "extraTimedClockReads": 0,
+  "wheelBatchSplitOnlyRestrictedMode": true,
+  "remaining": [
+    "native build",
+    "all render-path audit",
+    "strict host dialect",
+    "emulator activation and image review",
+    "physical comparison"
+  ]
+}

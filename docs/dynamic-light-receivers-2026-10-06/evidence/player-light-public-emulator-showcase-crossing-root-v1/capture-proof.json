@@ -1,0 +1,25 @@
+{
+  "status": "PASS_OWNED_EMULATOR_PROGRESS_AND_CAPTURE_IDENTITY_ONLY",
+  "launchSha256": "c88498891e32c8412b645ce8de8c144c8e41ff312538a17c364a79c257978b06",
+  "images": [
+    {
+      "label": "boot",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-emulator-showcase-crossing-root-v1/boot.png",
+      "sha256": "d4ff2b91a87ea319b8065e47596e07d77a6e2fbb77602245e469ca2c11b82235",
+      "window": "0x200007",
+      "liveDebugSha256": "c277c60807eb85d05325be5338d021846db2552052b00efd706244c4deaab79e"
+    },
+    {
+      "label": "after-pad",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/player-light-public-emulator-showcase-crossing-root-v1/after-pad.png",
+      "sha256": "f279d1c88f7ee1729130559a65f9a7c4bf00809ac25e0de85c6f72648c2c0de1",
+      "window": "0x200007",
+      "liveDebugSha256": "fb7319817c4dcf6b7c5b18879291ee5eeb6c6f7709938077802df69cef116a93"
+    }
+  ],
+  "padApplied": true,
+  "qualitativeVisualReviewPending": true,
+  "actualReceiverActivationQualified": false,
+  "hardwarePerformanceQualified": false,
+  "helperSha256": "415a700a2017bc203bf8d92ff86ac58504c07beebb0a87cb2542c8b3d3390b4d"
+}

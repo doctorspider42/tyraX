@@ -1,0 +1,338 @@
+{
+  "valid": true,
+  "rasterEqual": true,
+  "presentationFence": true,
+  "phase": 0,
+  "offset": 1380,
+  "pose": {
+    "z": -58.901272,
+    "speed": 13.985008,
+    "yaw": 0.0
+  },
+  "target": "physical",
+  "elfSha256": "0839a8acec9610f9cbf3697d84d542b2b15f83e34ccdcbaf99053d38440e5f59",
+  "logSha256": "7931f001255d7bd3b1402e9f36a94de04e2d489594b8bed49fcf591665b516fa",
+  "timesSha256": "350d006790678612559aebd275e4aebb6f05ee86458ab4e919ecaeab8be140b4",
+  "checks": [
+    [
+      0,
+      0,
+      0,
+      0,
+      103,
+      107,
+      1896576,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      1,
+      0,
+      0,
+      0,
+      103,
+      107,
+      1896576,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      2,
+      1,
+      0,
+      0,
+      103,
+      107,
+      1896576,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      3,
+      0,
+      0,
+      0,
+      103,
+      107,
+      1896576,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      4,
+      2,
+      0,
+      0,
+      103,
+      107,
+      1896576,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      5,
+      0,
+      0,
+      0,
+      103,
+      107,
+      1896576,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      6,
+      2,
+      0,
+      0,
+      103,
+      107,
+      1896576,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      7,
+      0,
+      0,
+      0,
+      103,
+      107,
+      1896576,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      8,
+      1,
+      0,
+      0,
+      103,
+      107,
+      1896576,
+      0,
+      0,
+      2,
+      0
+    ],
+    [
+      9,
+      0,
+      0,
+      0,
+      103,
+      107,
+      1896576,
+      0,
+      0,
+      2,
+      0
+    ]
+  ],
+  "images": {
+    "main": {
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "rawSha256": [
+        "2feb62ce74fdc468c8202f03f17f239125d5fc3dcc656bf51ef9fa3f502d3a77",
+        "68f4a85e986830dbbe5aed2568a0b4a7306e6c6526a0987e650c6b91e3de9a98",
+        "6456138754de60452a52b64ca9ea8566ed5ef4ff20a34af472f9da81c4a1d772",
+        "0229c4dfce47a46f0a4a13dc3d203e9e0daab91191b4adfdcd3546240cf53179",
+        "f33a8cdf0c17e4219ffdbd3ea20b8d6c3ec922efd7eb01ec1521b24392bfaa6f",
+        "ee29350c8d999c338eece923219007a0eff4528d7cc771ebf5ceb73dfee78f07",
+        "7d3cafea8fecf7b86657ce3b8bedf68901652c716ba7ebf7a94af95f5f7323d0",
+        "d605be42ce1961f54797a733e70a73f3d064112376c7c6833b31debb36a10e47",
+        "243e7423bad5f12e4b45b75dafbabbd15c9859ec6b4d2f366b04f1b5474d2c28",
+        "5e8c5e208b3c410c00b2e90a42bd4e694717ede98f9f03383bf01ffe38c4a1e2"
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "env": {
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "rawSha256": [
+        "5ecee7c83e8015d288a80496cefcef732f1eddf531bbb9fb9848b38ebe7cffd6",
+        "967b2d52b833e9b27e134834157cd5cc72e89b5b095f2a5c9004f71f41498b7f",
+        "67862e2492d8b967df25e21452367c505edfa50526e577f31c2462276d175a31",
+        "b7de3e78f3ba6057748962312d2d474e637b5aedbb38e5ed52ffcfd3112f3fdb",
+        "c2438ed942813bc8fca8cdfe20adce8f504fd477b7d204a5459e6faf168da713",
+        "d27e68a675f6f936394dd48e9688f2f963f327dc5f766353a043dc2928f060ed",
+        "249524d892243042a1ea49ae2c4f607f5fa777b1e929f91c1e25615f20c61369",
+        "f7db7f172036d44deb351e88d3ca24195b66a0a1f3e0af4943bad42b04554fde",
+        "0f9adddf65fc41656417cfff5a1d237457f7f354eadc3e5dae353b32d7f99402",
+        "d7b8b01cfffb07fe3b3931c99a47279b938c431ef6e3c9f7ad03ad688dd41b94"
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "closure": {
+    "qwords": 2191,
+    "bytes": 1875184,
+    "vuCalls": 759,
+    "sha256": "c2b178ee1be8e67cfae4bd83e4f5ab750e42c2f5ef0f64dbe975e25ddb027de4"
+  },
+  "scope": "Frozen Scene incl roads and live capture; pinned target/order; no update/HUD/postFX; not moving FPS or pure EE/VU/GS cost",
+  "units": "ms from EE Count / 294912; pacing subtracted, startup included",
+  "stages": [
+    {
+      "stage": 1,
+      "mode": "ordinary",
+      "mean": 25.61860834227668,
+      "median": 25.618481106228298,
+      "p95": 25.67215304904514,
+      "maximum": 25.69595675998264,
+      "startup": 0.0,
+      "prepareInclusive": 16.130039268069797
+    },
+    {
+      "stage": 2,
+      "mode": "list",
+      "mean": 25.208265384038288,
+      "median": 25.207578870985245,
+      "p95": 25.272108289930557,
+      "maximum": 25.3077392578125,
+      "startup": 0.0,
+      "prepareInclusive": 15.712396992577446
+    },
+    {
+      "stage": 3,
+      "mode": "ordinary",
+      "mean": 25.838122685750324,
+      "median": 25.8411865234375,
+      "p95": 25.875135633680557,
+      "maximum": 25.89571804470486,
+      "startup": 0.0,
+      "prepareInclusive": 16.34363685713874
+    },
+    {
+      "stage": 4,
+      "mode": "commands",
+      "mean": 9.564739253785875,
+      "median": 9.555252075195312,
+      "p95": 9.595801459418404,
+      "maximum": 9.626319037543404,
+      "startup": 0.09454705980088976,
+      "prepareInclusive": 0.09454705980088976
+    },
+    {
+      "stage": 5,
+      "mode": "ordinary",
+      "mean": 25.615248521169026,
+      "median": 25.61599392361111,
+      "p95": 25.66259087456597,
+      "maximum": 25.674513075086807,
+      "startup": 0.0,
+      "prepareInclusive": 16.126012908087837
+    },
+    {
+      "stage": 6,
+      "mode": "commands",
+      "mean": 9.531930022769505,
+      "median": 9.525604248046875,
+      "p95": 9.561893039279514,
+      "maximum": 9.590328640407986,
+      "startup": 0.07230091094970703,
+      "prepareInclusive": 0.07230091094970703
+    },
+    {
+      "stage": 7,
+      "mode": "ordinary",
+      "mean": 25.618821779886883,
+      "median": 25.61600070529514,
+      "p95": 25.67483859592014,
+      "maximum": 25.69430881076389,
+      "startup": 0.0,
+      "prepareInclusive": 16.129860507117378
+    },
+    {
+      "stage": 8,
+      "mode": "list",
+      "mean": 25.23068494266934,
+      "median": 25.236833360460068,
+      "p95": 25.28235541449653,
+      "maximum": 25.306810167100693,
+      "startup": 0.0,
+      "prepareInclusive": 15.731949965159098
+    },
+    {
+      "stage": 9,
+      "mode": "ordinary",
+      "mean": 25.831159909566242,
+      "median": 25.834150526258682,
+      "p95": 25.878238254123264,
+      "maximum": 25.885955810546875,
+      "startup": 0.0,
+      "prepareInclusive": 16.33657874001397
+    }
+  ],
+  "comparisons": [
+    {
+      "stage": 2,
+      "mode": "list",
+      "savedVsBefore": 0.41034295823839173,
+      "savedVsAfter": 0.6298573017120361
+    },
+    {
+      "stage": 4,
+      "mode": "commands",
+      "savedVsBefore": 16.273383431964447,
+      "savedVsAfter": 16.05050926738315
+    },
+    {
+      "stage": 6,
+      "mode": "commands",
+      "savedVsBefore": 16.08331849839952,
+      "savedVsAfter": 16.086891757117378
+    },
+    {
+      "stage": 8,
+      "mode": "list",
+      "savedVsBefore": 0.38813683721754444,
+      "savedVsAfter": 0.600474966896904
+    }
+  ]
+}

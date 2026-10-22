@@ -1,0 +1,6 @@
+{
+  "reason": "Comparator read disabled Vec4 fields; even control arms mismatch. V2 compares active initialized outputs and inactive enabled flag.",
+  "loops": 5400,
+  "acceptedPerformance": false,
+  "status": "REJECTED_COMPLETE_ORACLE_INACTIVE_UNINITIALIZED_FIELDS"
+}

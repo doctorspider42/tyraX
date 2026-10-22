@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "F:\Projects\tyrax2-lab-20261001\tyrax2-closeout-road-two-cars-light-buildings-v1\analyze-buildings.py", line 90, in <module>
+    roadRows=rows(stdout,'ROADCONTEXT');assert len(roadRows)==6
+                                               ^^^^^^^^^^^^^^^^
+AssertionError

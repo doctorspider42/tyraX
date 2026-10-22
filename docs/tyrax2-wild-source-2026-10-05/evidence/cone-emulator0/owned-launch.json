@@ -1,0 +1,36 @@
+{
+  "pid": 10894,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-wild-cone-order0-20261005/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-wild-cone-order0-20261005/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-physical-v1/game/bin/vehicle-playground.elf"
+  ],
+  "exe": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt",
+  "exeSha256": "c4629baf9c5daca45a9df6ad1ee84a188aeb025627b822a3ea62bdc48b23da18",
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/wild-cone-physical-v1",
+  "stem": "night-ablation-emulator-wild-cone-order0-20261005",
+  "kind": 6,
+  "order": 0,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "7781c000654732288cde4ea5967c222055bc89c2d10bc2a7bf5979381f937482",
+  "profile": "/home/spider/night-ablation-emulator-wild-cone-order0-20261005/profile",
+  "launchArchive": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-wild-cone-order0-20261005-launch",
+  "helperSha256": "b49064836c4f75de85ab2b3b882d12ef1ba2e290867d3246204bfbe6b26f570e",
+  "launchFiles": {
+    "night-ablation.cfg": "6e3e5f387607e15b655627d9074ee3722b09aeac3b90ba72a54dd6fbcbdf68a6",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "7c4275962e57e401533ab824e522e727e10411f3a74466b9b019d368bc698b57",
+    "root-source-freeze.json": "21f0686990c338fb6d7418d0df183a11515538a64d882f4581d8184ed8af7a04",
+    "runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "target-source-manifest.json": "d4b88498e3ccd8f07a7b7b19245ece76f552ca54c1f9191f191ba2a0ff86fa24",
+    "vehicle-playground.elf": "7781c000654732288cde4ea5967c222055bc89c2d10bc2a7bf5979381f937482",
+    "vehicle-playground.elf.sym": "ba318c245edb6396a2727ac4242cdf370514213ef2c4e858e707cafdf09c13f8"
+  }
+}

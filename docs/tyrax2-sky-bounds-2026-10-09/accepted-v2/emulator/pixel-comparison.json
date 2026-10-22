@@ -1,0 +1,117 @@
+{
+  "scope": "stationary screenshots at different offsets; no moving/depth oracle",
+  "regions": {
+    "worldNoFps": [
+      1,
+      65,
+      640,
+      505
+    ],
+    "skyAndBuildings": [
+      1,
+      65,
+      640,
+      185
+    ],
+    "paint": [
+      215,
+      265,
+      420,
+      355
+    ]
+  },
+  "comparisons": [
+    {
+      "phases": [
+        0,
+        1
+      ],
+      "regions": {
+        "worldNoFps": {
+          "differentPixels": 6464,
+          "meanAbsRgb": 0.06799094228671694,
+          "maxAbsChannel": 92
+        },
+        "skyAndBuildings": {
+          "differentPixels": 0,
+          "meanAbsRgb": 0.0,
+          "maxAbsChannel": 0
+        },
+        "paint": {
+          "differentPixels": 144,
+          "meanAbsRgb": 0.014381210478771455,
+          "maxAbsChannel": 8
+        }
+      }
+    },
+    {
+      "phases": [
+        0,
+        2
+      ],
+      "regions": {
+        "worldNoFps": {
+          "differentPixels": 7314,
+          "meanAbsRgb": 0.07227438706311946,
+          "maxAbsChannel": 92
+        },
+        "skyAndBuildings": {
+          "differentPixels": 0,
+          "meanAbsRgb": 0.0,
+          "maxAbsChannel": 0
+        },
+        "paint": {
+          "differentPixels": 293,
+          "meanAbsRgb": 0.01985546522131888,
+          "maxAbsChannel": 11
+        }
+      }
+    },
+    {
+      "phases": [
+        3,
+        4
+      ],
+      "regions": {
+        "worldNoFps": {
+          "differentPixels": 6264,
+          "meanAbsRgb": 0.0623334281784986,
+          "maxAbsChannel": 85
+        },
+        "skyAndBuildings": {
+          "differentPixels": 0,
+          "meanAbsRgb": 0.0,
+          "maxAbsChannel": 0
+        },
+        "paint": {
+          "differentPixels": 85,
+          "meanAbsRgb": 0.015356820234869015,
+          "maxAbsChannel": 85
+        }
+      }
+    },
+    {
+      "phases": [
+        3,
+        5
+      ],
+      "regions": {
+        "worldNoFps": {
+          "differentPixels": 6264,
+          "meanAbsRgb": 0.0623334281784986,
+          "maxAbsChannel": 85
+        },
+        "skyAndBuildings": {
+          "differentPixels": 0,
+          "meanAbsRgb": 0.0,
+          "maxAbsChannel": 0
+        },
+        "paint": {
+          "differentPixels": 85,
+          "meanAbsRgb": 0.015356820234869015,
+          "maxAbsChannel": 85
+        }
+      }
+    }
+  ]
+}

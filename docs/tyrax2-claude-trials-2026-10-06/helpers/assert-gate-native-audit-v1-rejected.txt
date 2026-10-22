@@ -1,0 +1,1 @@
+Root audit rejected inherited header expectation: production qbuffer renderer has no night_ablation dependency. No source or ELF changed. Retry audit v2 retains all other checks.

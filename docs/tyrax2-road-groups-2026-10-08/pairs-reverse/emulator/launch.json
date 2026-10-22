@@ -1,0 +1,16 @@
+{
+  "pid": 463,
+  "xvfbPid": 452,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-road-pairs-day-reverse-20261008-v1/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-road-pairs-day-reverse-20261008-v1/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-road-pairs-day-reverse-20261008-v1/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "55612657f9ca8db955f406852e18f8c263a361d1e131c4817a52c22d835e1d4d"
+}

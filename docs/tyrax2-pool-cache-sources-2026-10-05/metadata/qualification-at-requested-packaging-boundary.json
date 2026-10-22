@@ -1,0 +1,13 @@
+{
+  "sourceManifestSha256": "685102d3e3f681cf52e538fa13ccad0d5ffd2ce86697bb10021603884f25bb3b",
+  "requestedBoundary": "Root packaging instruction: kind4 first emulator order0 strict/rasters and source activation positive; emulator pair and physical pending",
+  "firstEmulatorMachinePath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-pool-cache-order0-20261005-evidence\\machine-evidence.json",
+  "firstEmulatorMachineSha256": "a5f18fd92b11a43412fc5ff02d54e8cc9d206c699e9f9f65ff05e8cffa646ee2",
+  "normalRasterAndActivationReportedByRoot": true,
+  "independentRuntimeReanalysisPerformedByPackager": false,
+  "emulatorPairAcceptedByThisSourcePackage": false,
+  "hardwareAcceptedByThisSourcePackage": false,
+  "laterRuntimeDirectoriesNotPromotedToAuthority": true,
+  "commonClassificationAndObserverCostPriced": false,
+  "shippingGainOr60FpsClaim": false
+}

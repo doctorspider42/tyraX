@@ -1,0 +1,17 @@
+{
+  "files": {
+    "audit-native.py": "56b839674f8df82d1341091e1a227ad23d2cde60ba9328aba51fc3720b4cd58b",
+    "build-native.ps1": "f1ba782eff8a5db613b028b30f9d93b90452eec15890770de00c18679dcf2255",
+    "compile-abi.py": "d628b77ded38941eb08fcd1cb473b93826a7c9bf38d7f2821dd7316fd4e9d7bb",
+    "complete-native-provenance.py": "a70636f6d3da4c37052b241e396cc2e072b54bc963b4f809d2fefc70da6fccda",
+    "finish-physical-no-reset.ps1": "3be7161c2d94905ee54732ab72a7d70ee9763166a8d886219902c9edc126388a",
+    "finish-physical.ps1": "33cd47aed7c52444771af2ac26906ed412e92d0acf782e568b53fe629eb854e4",
+    "freeze-input.py": "4137e050a84a1f72be92b3f7c3fb6200ca45904286fb66d9f8f6109520548f42",
+    "launch-emulator.py": "7022ea6f7002ae45667b7f43740477c643ca07a589107a4bf3cf363d20be667c",
+    "launch-physical-observed.py": "ce00cde47e44dcaa1d4ab79f04d4458594a4e901dd23500fffee50807e6a7838",
+    "prepare-physical.py": "1caae9a23b8d4ee7723875391a2cf1d128b08882edb47a9c988e3ac38d1d3a7b",
+    "qualify-emulator.py": "bebef94ea93eb667588247b26da65252e876dfcf66c6fb21374996c41fe300b2",
+    "stop-emulator.py": "c50fcd43b02e253014de9c3e3cdb3d09b3e16d59a49a3503e0e61961e4745597"
+  },
+  "scope": "Adapted private root helpers; no process/build/device started by preparation"
+}

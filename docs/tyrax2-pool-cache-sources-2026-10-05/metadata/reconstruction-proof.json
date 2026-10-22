@@ -1,0 +1,11 @@
+{
+  "status": "PASS_EXACT_497_SOURCE_RECONSTRUCTION_KIND4_FROM_FROZEN_V3",
+  "inputs": 497,
+  "changed": 4,
+  "unchanged": 493,
+  "baselineManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+  "targetManifestSha256": "685102d3e3f681cf52e538fa13ccad0d5ffd2ce86697bb10021603884f25bb3b",
+  "patchSha256": "fe7471c3d5fc1410bc044681b4d1267abb3a4ff03b82f8d92e701ed0690bc40d",
+  "noBuildOrDeviceRun": true,
+  "helperSha256": "71a832a09fe206b1556ce715db41d204eb2d20501de2a94b809df346c88b2cd0"
+}

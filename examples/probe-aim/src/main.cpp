@@ -73,6 +73,10 @@ int main(int argc, char** argv) {
   // map, a feed camera for the camera feed. Computed at build time - see
   // projectNeedsEnvMap / projectNeedsCamFeed in the editor's templates.cpp.
   options.envMapTarget = true;
+  // A second 64 KB env target: the shared reflection probe is captured over
+  // two frames into it and swapped in, so no frame pays the whole capture
+  // (docs/reflective-materials.md, "Amortised capture").
+  options.envMapDoubleBuffered = true;
   options.camFeedTarget = false;
   // Triple buffering (Preferences > Display > Triple buffering, docs/
   // frame-pacing.md): present from a vblank interrupt instead of stalling

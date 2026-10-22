@@ -1,0 +1,14 @@
+{
+  "status": "PASS_READ_ONLY_HYPOTHESIS_REVIEW_NOT_IMPLEMENTATION_OR_GAIN_ACCEPTANCE",
+  "materialReportBlockers": [],
+  "reportUnderReview": "F:\\Projects\\tyrax2-lab-20261001\\wild-optimizations-20261005\\report.md",
+  "reportUnderReviewSha256": "2783ddf22402be8b085b4b6dd5ad358e22a1f805ab142799246389f536649ec4",
+  "reviewSha256": "649288f77cc9dec9a63e9c70e73e82c97cf24eec05afcf6f21789890acadbc34",
+  "prioritizedCandidates": [
+    3,
+    13,
+    1
+  ],
+  "actualCandidateSourceReviewPending": true,
+  "noBuildDeviceRepositoryMutation": true
+}

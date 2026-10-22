@@ -1,0 +1,424 @@
+		.vu
+		.align 4
+		.global	StaPipVU1Clip_C_ring_hybrid_once_fold_CodeStart
+		.global	StaPipVU1Clip_C_ring_hybrid_once_fold_CodeEnd
+StaPipVU1Clip_C_ring_hybrid_once_fold_CodeStart:
+                    nop                             lq VF10, 20(VI00)
+                    max.xyzw VF11, VF10, VF10       lq VF06, 8(VI00)
+                    addz.x VF06, VF00, VF06z        lq VF01, 0(VI00)
+                    nop                             lq VF02, 1(VI00)
+                    nop                             lq VF03, 2(VI00)
+                    nop                             lq VF04, 3(VI00)
+                    nop                             lq VF05, 7(VI00)
+                    nop                             lq VF07, 12(VI00)
+                    nop                             lq VF08, 13(VI00)
+                    nop                             lq VF09, 14(VI00)
+                    nop                             fcset 0x000000
+begin:
+                    nop                             ilw.y VI04, 8(VI00)
+                    nop                             xtop VI05
+                    nop                             ilw.w VI01, 0(VI05)
+                    nop                             lq.xyz VF12, 0(VI05)
+                    nop                             lq VF13, 1(VI05)
+                    nop                             iaddiu VI03, VI00, 1023
+                    nop                             iaddiu VI02, VI05, 2
+                    nop                             iand VI01, VI01, VI03
+                    nop                             iblez VI04, setDestAddrColor
+                    nop                             iadd VI03, VI02, VI01
+                    nop                             b setDestAddr
+                    nop                             iadd VI04, VI03, VI01
+setDestAddrColor:
+                    nop                             ilw.x VI07, 8(VI00)
+                    nop                             iblez VI07, setDestAddrMultiColor
+                    nop                             nop
+                    nop                             b setDestAddr
+                    nop                             iadd VI04, VI02, VI01
+setDestAddrMultiColor:
+                    nop                             iadd VI04, VI03, VI01
+setDestAddr:
+                    nop                             isw.x VI04, 1016(VI00)
+                    nop                             isw.y VI04, 1016(VI00)
+                    nop                             ilw.w VI04, 1(VI05)
+                    nop                             isw.z VI05, 1016(VI00)
+                    nop                             iaddiu VI05, VI00, 1
+                    nop                             iand VI06, VI04, VI05
+                    nop                             isw.w VI06, 1016(VI00)
+                    nop                             iaddiu VI05, VI00, 2
+                    nop                             iand VI06, VI04, VI05
+                    nop                             iaddiu VI04, VI00, 3
+                    nop                             isub VI05, VI04, VI06
+                    nop                             isw.x VI05, 1017(VI00)
+                    nop                             isw.y VI00, 1017(VI00)
+                    nop                             ilw.x VI04, 1017(VI00)
+                    nop                             iaddiu VI05, VI00, 0
+                    nop                             nop
+                    nop                             iadd VI06, VI01, VI04
+                    nop                             iaddi VI06, VI06, -3
+triLoop:
+                    nop                             ilw.z VI01, 1016(VI00)
+                    nop                             ilw.y VI04, 1016(VI00)
+                    nop                             lq VF14, 19(VI00)
+                    nop                             lq VF13, 1(VI01)
+                    sub.w VF13, VF00, VF00          ilw.w VI01, 1016(VI00)
+                    nop                             lq VF15, 9(VI00)
+                    nop                             lq VF16, 10(VI00)
+                    nop                             lq VF17, 21(VI00)
+                    nop                             lq VF20, 2(VI02)
+                    nop                             iadd VI07, VI02, VI01
+                    nop                             ilw.w VI01, 1016(VI00)
+                    nop                             lq VF18, 0(VI07)
+                    nop                             sq VF14, 0(VI04)
+                    nop                             isub VI07, VI02, VI01
+                    nop                             iaddiu VI01, VI07, 1
+                    nop                             lq VF19, 0(VI01)
+                    nop                             ilw.y VI01, 8(VI00)
+                    nop                             sq VF16, 1(VI04)
+                    nop                             sq VF14, 2(VI04)
+                    nop                             sq VF15, 3(VI04)
+                    nop                             sq VF14, 4(VI04)
+                    nop                             sq VF17, 5(VI04)
+                    nop                             sq VF13, 6(VI04)
+                    nop                             iaddiu VI04, VI04, 7
+                    nop                             iblez VI01, sharedColorMode
+                    nop                             iaddiu VI05, VI00, 0
+                    nop                             ilw.w VI07, 1016(VI00)
+                    nop                             lq.xyz VF24, 12(VI00)
+                    nop                             lq.xyz VF25, 13(VI00)
+                    nop                             iadd VI01, VI03, VI07
+                    nop                             lq.xyz VF21, 0(VI01)
+                    mulax.xyz ACC, VF24, VF21x      lq.xyz VF26, 14(VI00)
+                    madday.xyz ACC, VF25, VF21y     lq VF30, 18(VI00)
+                    maddz.xyz VF31, VF26, VF21z     lq.xyz VF27, 15(VI00)
+                    miniw.xyz VF31, VF31, VF00w     lq.xyz VF28, 16(VI00)
+                    maxw.xyz VF31, VF31, VF30w      ilw.w VI01, 1016(VI00)
+                    mulax.xyz ACC, VF27, VF31x      lq.xyz VF29, 17(VI00)
+                    madday.xyz ACC, VF28, VF31y     isub VI07, VI03, VI01
+                    maddaz.xyz ACC, VF29, VF31z     iaddiu VI01, VI07, 1
+                    maddw.xyz VF31, VF30, VF00w     lq.xyz VF22, 0(VI01)
+                    mulax.xyz ACC, VF24, VF22x      lq.xyz VF23, 2(VI03)
+                    madday.xyz ACC, VF25, VF22y     loi 0x437f0000
+                    minii.xyz VF31, VF31, i         nop
+                    maddz.xyz VF16, VF26, VF22z     loi 0x43000000
+                    addi.w VF31, VF00, i            nop
+                    maxx.xyz VF31, VF31, VF00x      loi 0x437f0000
+                    miniw.xyz VF16, VF16, VF00w     nop
+                    maxw.xyz VF16, VF16, VF30w      nop
+                    mulax.xyz ACC, VF27, VF16x      nop
+                    madday.xyz ACC, VF28, VF16y     nop
+                    maddaz.xyz ACC, VF29, VF16z     nop
+                    maddw.xyz VF16, VF30, VF00w     nop
+                    minii.xyz VF16, VF16, i         nop
+                    mulax.xyz ACC, VF24, VF23x      loi 0x43000000
+                    addi.w VF16, VF00, i            nop
+                    madday.xyz ACC, VF25, VF23y     loi 0x437f0000
+                    maddz.xyz VF15, VF26, VF23z     nop
+                    maxx.xyz VF16, VF16, VF00x      nop
+                    miniw.xyz VF15, VF15, VF00w     nop
+                    maxw.xyz VF15, VF15, VF30w      nop
+                    mulax.xyz ACC, VF27, VF15x      nop
+                    madday.xyz ACC, VF28, VF15y     nop
+                    maddaz.xyz ACC, VF29, VF15z     nop
+                    maddw.xyz VF15, VF30, VF00w     nop
+                    minii.xyz VF15, VF15, i         nop
+                    maxx.xyz VF15, VF15, VF00x      loi 0x43000000
+                    addi.w VF15, VF00, i            b sharedAttributesReady
+                    nop                             nop
+sharedColorMode:
+                    nop                             ibltz VI01, litColorMode
+                    nop                             nop
+                    nop                             ilw.x VI01, 8(VI00)
+                    nop                             iblez VI01, multiColorNoSpot
+                    nop                             nop
+                    add.xyzw VF31, VF00, VF05       nop
+                    add.xyzw VF16, VF00, VF05       nop
+                    add.xyzw VF15, VF00, VF05       b processingNoSpot
+                    nop                             nop
+multiColorNoSpot:
+                    nop                             ilw.w VI01, 1016(VI00)
+                    nop                             lq VF15, 2(VI03)
+                    nop                             nop
+                    nop                             iadd VI07, VI03, VI01
+                    nop                             ilw.w VI01, 1016(VI00)
+                    nop                             lq VF31, 0(VI07)
+                    nop                             nop
+                    nop                             isub VI07, VI03, VI01
+                    nop                             iaddiu VI01, VI07, 1
+                    nop                             lq VF16, 0(VI01)
+processingNoSpot:
+                    nop                             loi 0x437f0000
+                    minii.xyz VF31, VF31, i         nop
+                    nop                             loi 0x437f0000
+                    minii.xyz VF16, VF16, i         nop
+                    nop                             loi 0x437f0000
+                    minii.xyz VF15, VF15, i         b sharedAttributesReady
+                    nop                             nop
+litColorMode:
+                    nop                             ilw.x VI01, 8(VI00)
+                    nop                             iblez VI01, multiColor
+                    nop                             nop
+                    add.xyzw VF31, VF00, VF05       nop
+                    add.xyzw VF16, VF00, VF05       nop
+                    add.xyzw VF15, VF00, VF05       b processing
+                    nop                             nop
+multiColor:
+                    nop                             ilw.w VI05, 1016(VI00)
+                    nop                             ilw.w VI01, 1016(VI00)
+                    nop                             lq VF15, 2(VI03)
+                    nop                             iadd VI04, VI03, VI05
+                    nop                             lq VF31, 0(VI04)
+                    nop                             isub VI04, VI03, VI01
+                    nop                             iaddiu VI04, VI04, 1
+                    nop                             lq VF16, 0(VI04)
+processing:
+                    sub.xyz VF14, VF18, VF07        loi 0x437f0000
+                    addaw.x ACC, VF00, VF00w        nop
+                    sub.xyz VF26, VF19, VF07        nop
+                    mul.xyz VF17, VF14, VF14        nop
+                    mul.xyz VF21, VF14, VF08        nop
+                    mul.xyz VF29, VF26, VF08        nop
+                    mul.xyz VF27, VF26, VF26        nop
+                    addy.x VF13, VF17, VF17y        nop
+                    addy.x VF22, VF21, VF21y        nop
+                    addy.x VF30, VF29, VF29y        nop
+                    addy.x VF28, VF27, VF27y        nop
+                    addz.x VF13, VF13, VF17z        nop
+                    addz.x VF22, VF22, VF21z        nop
+                    addz.x VF30, VF30, VF29z        nop
+                    addz.x VF28, VF28, VF27z        nop
+                    mulw.x VF24, VF13, VF08w        nop
+                    maxx.x VF22, VF22, VF00x        nop
+                    msubw.x VF25, VF13, VF07w       nop
+                    maxx.x VF30, VF30, VF00x        nop
+                    mulw.x VF17, VF28, VF08w        nop
+                    mul.x VF22, VF22, VF22          nop
+                    miniw.x VF25, VF25, VF00w       nop
+                    mul.x VF30, VF30, VF30          nop
+                    addaw.x ACC, VF00, VF00w        nop
+                    sub.x VF24, VF22, VF24          nop
+                    maxx.x VF25, VF25, VF00x        nop
+                    sub.xyz VF22, VF20, VF07        nop
+                    sub.x VF17, VF30, VF17          nop
+                    mulw.x VF24, VF24, VF09w        nop
+                    msubw.x VF14, VF28, VF07w       nop
+                    mul.xyz VF13, VF22, VF22        nop
+                    mulw.x VF17, VF17, VF09w        nop
+                    miniw.x VF24, VF24, VF00w       nop
+                    addaw.x ACC, VF00, VF00w        nop
+                    miniw.x VF14, VF14, VF00w       nop
+                    miniw.x VF17, VF17, VF00w       nop
+                    maxx.x VF24, VF24, VF00x        nop
+                    maxx.x VF14, VF14, VF00x        nop
+                    maxx.x VF17, VF17, VF00x        nop
+                    mul.x VF24, VF24, VF25          nop
+                    addy.x VF25, VF13, VF13y        nop
+                    mul.x VF17, VF17, VF14          nop
+                    mulx.xyz VF23, VF09, VF24x      nop
+                    mul.xyz VF24, VF22, VF08        nop
+                    addz.x VF25, VF25, VF13z        nop
+                    mulx.xyz VF21, VF09, VF17x      nop
+                    add.xyz VF31, VF31, VF23        nop
+                    addy.x VF23, VF24, VF24y        nop
+                    mulw.x VF27, VF25, VF08w        nop
+                    msubw.x VF26, VF25, VF07w       nop
+                    add.xyz VF16, VF16, VF21        nop
+                    addz.x VF23, VF23, VF24z        nop
+                    minii.xyz VF31, VF31, i         nop
+                    miniw.x VF26, VF26, VF00w       loi 0x437f0000
+                    minii.xyz VF16, VF16, i         nop
+                    maxx.x VF23, VF23, VF00x        loi 0x437f0000
+                    maxx.x VF26, VF26, VF00x        nop
+                    mul.x VF23, VF23, VF23          nop
+                    sub.x VF27, VF23, VF27          nop
+                    mulw.x VF27, VF27, VF09w        nop
+                    miniw.x VF27, VF27, VF00w       nop
+                    maxx.x VF27, VF27, VF00x        nop
+                    mul.x VF27, VF27, VF26          nop
+                    mulx.xyz VF29, VF09, VF27x      nop
+                    add.xyz VF15, VF15, VF29        nop
+                    minii.xyz VF15, VF15, i         nop
+sharedAttributesReady:
+                    mulax.xyzw ACC, VF01, VF18x     sq VF31, 957(VI00)
+                    madday.xyzw ACC, VF02, VF18y    sq VF16, 959(VI00)
+                    maddaz.xyzw ACC, VF03, VF18z    iaddiu VI08, VI00, 956
+                    maddw.xyzw VF18, VF04, VF18w    sq VF15, 961(VI00)
+                    mulax.xyzw ACC, VF01, VF19x     sq VF18, 956(VI00)
+                    madday.xyzw ACC, VF02, VF19y    nop
+                    maddaz.xyzw ACC, VF03, VF19z    nop
+                    maddw.xyzw VF19, VF04, VF19w    nop
+                    clipw.xyz VF18, VF18w           sq VF19, 958(VI00)
+                    subz.x VF11, VF10, VF18z        nop
+                    addz.y VF11, VF10, VF18z        nop
+                    mulax.xyzw ACC, VF01, VF20x     nop
+                    madday.xyzw ACC, VF02, VF20y    nop
+                    maddaz.xyzw ACC, VF03, VF20z    nop
+                    clipw.xyz VF11, VF11w           nop
+                    clipw.xyz VF19, VF19w           nop
+                    subz.x VF11, VF10, VF19z        nop
+                    addz.y VF11, VF10, VF19z        nop
+                    maddw.xyzw VF20, VF04, VF20w    nop
+                    clipw.xyz VF11, VF11w           sq VF20, 960(VI00)
+                    subz.x VF11, VF10, VF20z        nop
+                    addz.y VF11, VF10, VF20z        nop
+                    nop                             nop
+                    nop                             fcand VI01, 0x3CA3CA
+                    clipw.xyz VF20, VF20w           iadd VI07, VI01, VI00
+                    clipw.xyz VF11, VF11w           nop
+                    nop                             nop
+                    nop                             nop
+                    nop                             nop
+                    nop                             fcand VI01, 0x3CA
+                    nop                             ior VI07, VI07, VI01
+                    nop                             nop
+                    nop                             ibeq VI07, VI00, fanStart
+                    nop                             iaddiu VI09, VI08, 6
+                    nop                             xtop VI01
+                    nop                             ilw.w VI14, 0(VI01)
+                    nop                             iaddiu VI07, VI00, 944
+                    nop                             iaddiu VI10, VI00, 986
+planeLoop:
+                    nop                             nop
+                    nop                             ibltz VI14, planeActive
+                    nop                             nop
+                    nop                             b planeAdvance
+                    nop                             nop
+planeActive:
+                    nop                             lq VF21, 0(VI07)
+                    nop                             iaddi VI01, VI09, -2
+                    nop                             lq VF24, 0(VI01)
+                    mul.xyzw VF23, VF24, VF21       lq VF22, 1(VI07)
+                    addy.x VF23, VF23, VF23y        lq VF25, 1(VI01)
+                    addz.x VF23, VF23, VF23z        iadd VI11, VI08, VI00
+                    addw.x VF23, VF23, VF23w        iadd VI13, VI10, VI00
+                    addx.x VF26, VF23, VF22x        nop
+edgeLoop:
+                    addx.x VF11, VF00, VF26x        lq VF27, 0(VI11)
+                    mul.xyzw VF23, VF27, VF21       lq VF28, 1(VI11)
+                    addy.x VF23, VF23, VF23y        nop
+                    addz.x VF23, VF23, VF23z        nop
+                    addw.x VF23, VF23, VF23w        nop
+                    addx.x VF29, VF23, VF22x        nop
+                    addx.y VF11, VF00, VF29x        nop
+                    subw.xy VF11, VF11, VF10w       nop
+                    clipw.xyz VF11, VF11w           nop
+                    nop                             nop
+                    nop                             nop
+                    nop                             nop
+                    nop                             fcand VI01, 0x2
+                    nop                             iadd VI12, VI01, VI00
+                    nop                             fcand VI01, 0x8
+                    nop                             ibne VI12, VI01, edgeCross
+                    nop                             nop
+                    nop                             ibne VI01, VI00, edgeAdvance
+                    nop                             nop
+                    nop                             b edgeEmitCur
+                    nop                             nop
+edgeCross:
+                    subx.x VF23, VF26, VF29x        nop
+                    sub.xyzw VF30, VF27, VF24       div q, VF26x, VF23x
+                    sub.xyzw VF18, VF28, VF25       nop
+                    mulq.xyzw VF30, VF30, q         waitq
+                    add.xyzw VF30, VF30, VF24       nop
+                    mulq.xyzw VF18, VF18, q         sq VF30, 0(VI13)
+                    add.xyzw VF18, VF18, VF25       nop
+                    nop                             sq VF18, 1(VI13)
+                    nop                             ibne VI01, VI00, edgeAdvance
+                    nop                             iaddiu VI13, VI13, 2
+edgeEmitCur:
+                    nop                             sq VF27, 0(VI13)
+                    nop                             sq VF28, 1(VI13)
+                    nop                             iaddiu VI13, VI13, 2
+edgeAdvance:
+                    max.xyzw VF24, VF27, VF27       iaddiu VI11, VI11, 2
+                    max.xyzw VF25, VF28, VF28       nop
+                    addx.x VF26, VF00, VF29x        ibne VI11, VI09, edgeLoop
+                    nop                             nop
+                    nop                             ibeq VI13, VI10, triNext
+                    nop                             iadd VI09, VI13, VI00
+                    nop                             iadd VI12, VI08, VI00
+                    nop                             iadd VI08, VI10, VI00
+                    nop                             iadd VI10, VI12, VI00
+planeAdvance:
+                    nop                             iaddiu VI07, VI07, 2
+                    nop                             iaddiu VI12, VI00, 956
+                    nop                             nop
+                    nop                             ibne VI07, VI12, planeLoop
+                    nop                             iadd VI14, VI14, VI14
+fanStart:
+                    nop                             iaddiu VI12, VI08, 6
+                    nop                             isub VI12, VI09, VI12
+                    nop                             nop
+                    nop                             ibltz VI12, triNext
+                    nop                             iaddiu VI01, VI08, 2
+fanLoop:
+                    nop                             iaddiu VI07, VI01, 2
+                    nop                             nop
+                    nop                             ibeq VI07, VI09, triNext
+                    nop                             iadd VI10, VI08, VI00
+                    nop                             iadd VI11, VI01, VI00
+                    nop                             iaddiu VI12, VI00, 3
+fanEmitLoop:
+                    mulaw.xyz ACC, VF12, VF00w      lq VF14, 0(VI10)
+                    mulw.x VF13, VF06, VF14w        lq VF17, 1(VI10)
+                    maxx.xyz VF17, VF17, VF00x      div q, VF00w, VF14w
+                    addw.x VF13, VF13, VF06w        loi 0x437f0000
+                    ftoi0.xyzw VF17, VF17           iadd VI10, VI11, VI00
+                    minii.x VF13, VF13, i           iaddi VI12, VI12, -1
+                    maxx.x VF13, VF13, VF00x        sq VF17, 0(VI04)
+                    ftoi4.x VF13, VF13              nop
+                    nop                             mtir VI13, VF13x
+                    nop                             isw.w VI13, 1(VI04)
+                    mulq.xyz VF14, VF14, q          nop
+                    madd.xyz VF14, VF14, VF12       nop
+                    ftoi4.xyz VF14, VF14            nop
+                    nop                             sq.xyz VF14, 1(VI04)
+                    nop                             iaddiu VI04, VI04, 2
+                    nop                             ibgtz VI12, fanEmitLoop
+                    nop                             iadd VI11, VI07, VI00
+                    nop                             iaddiu VI05, VI05, 3
+                    nop                             b fanLoop
+                    nop                             iadd VI01, VI07, VI00
+triNext:
+                    nop                             ilw.y VI04, 1016(VI00)
+                    nop                             iaddiu VI01, VI05, 16384
+                    nop                             iaddiu VI05, VI01, 16384
+                    nop                             ilw.y VI01, 1017(VI00)
+                    nop                             isw.x VI05, 6(VI04)
+                    nop                             nop
+                    nop                             iadd VI05, VI04, VI01
+                    nop                             xgkick VI05
+                    nop                             iaddiu VI01, VI00, 6
+                    nop                             isw.y VI01, 1017(VI00)
+                    nop                             ilw.x VI01, 1016(VI00)
+                    nop                             nop
+                    nop                             nop
+                    nop                             iadd VI05, VI01, VI01
+                    nop                             iaddiu VI01, VI05, 49
+                    nop                             isub VI05, VI01, VI04
+                    nop                             ilw.x VI04, 1017(VI00)
+                    nop                             isw.y VI05, 1016(VI00)
+                    nop                             ilw.x VI05, 1017(VI00)
+                    nop                             iadd VI02, VI02, VI04
+                    nop                             nop
+                    nop                             iaddi VI05, VI05, -1
+                    nop                             nop
+                    nop                             ibgtz VI05, keepListParity
+                    nop                             iadd VI03, VI03, VI04
+                    nop                             ilw.w VI01, 1016(VI00)
+                    nop                             iaddiu VI05, VI00, 1
+                    nop                             nop
+                    nop                             isub VI04, VI05, VI01
+                    nop                             isw.w VI04, 1016(VI00)
+keepListParity:
+                    nop                             ilw.x VI01, 1017(VI00)
+                    nop                             nop
+                    nop                             nop
+                    nop                             isub VI06, VI06, VI01
+                    nop                             nop
+                    nop                             ibgtz VI06, triLoop
+                    nop                             nop
+                    nop[E]                          nop
+                    nop                             nop
+                    nop                             b begin
+                    nop                             nop
+		.align 4
+StaPipVU1Clip_C_ring_hybrid_once_fold_CodeEnd:

@@ -1,0 +1,49 @@
+{
+  "valid": true,
+  "qualificationOnly": true,
+  "target": "emulator",
+  "elfSha256": "a87be09eeee5f91ee90f75876a62be9daca35d3ca368ce07ba739fefc0caf2c3",
+  "logSha256": "2b8e8c176c0a4085d2e208a44d090e6abb0a3d81d02fc2e91310d98d089e423f",
+  "csvSha256": "525201356a07b718cad71949a2c412c35f3ff52589dd24f0dfd881387bf49d5b",
+  "phases": [
+    {
+      "phase": 0,
+      "samples": 119,
+      "callbackLeafHits": 118,
+      "epcLeafHits": 0,
+      "callbackEqualsEpc": 0
+    },
+    {
+      "phase": 1,
+      "samples": 119,
+      "callbackLeafHits": 119,
+      "epcLeafHits": 0,
+      "callbackEqualsEpc": 0
+    },
+    {
+      "phase": 2,
+      "samples": 69,
+      "callbackLeafHits": 68,
+      "epcLeafHits": 0,
+      "callbackEqualsEpc": 0
+    },
+    {
+      "phase": 3,
+      "samples": 68,
+      "callbackLeafHits": 66,
+      "epcLeafHits": 0,
+      "callbackEqualsEpc": 0
+    }
+  ],
+  "negativeControls": [
+    "missing-stop",
+    "fake-last-function",
+    "overflow",
+    "missing-row",
+    "false-epc-only"
+  ],
+  "limitations": [
+    "known leaf calibration, not renderer timing or sampler bias qualification",
+    "CP0 EPC may differ from callback address; retain both raw"
+  ]
+}

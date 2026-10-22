@@ -1,0 +1,80 @@
+{
+  "status": "COMPLETED_PRIVATE_EXPERIMENT_NO_REPEATABLE_GAIN_NO_PROMOTION",
+  "packages": [
+    {
+      "path": "docs/tyrax2-pool2-source-2026-10-05",
+      "files": 170,
+      "manifestSha256": "b6a235b52f519a55bbee80ba447a289e74c0fa7157a2e7f2520a4e8db5aaad1c"
+    },
+    {
+      "path": "docs/tyrax2-pool2-evidence-2026-10-05",
+      "files": 205,
+      "manifestSha256": "44599611638a8136e1b094529dc8bf9dc43d3c05a016f54d95795438607bf611"
+    }
+  ],
+  "criticalProofs": {
+    "pricingNative": {
+      "path": "docs/tyrax2-pool2-source-2026-10-05/reviews/pricing-native/proof.json",
+      "sha256": "34c93ef8275ad52f6292610cae39947354ea50c917c9e78be7ed3689889d21d1"
+    },
+    "pricingNativeIndependentConfirmation": {
+      "path": "docs/tyrax2-pool2-source-2026-10-05/reviews/pricing-native-confirmation/proof.json",
+      "sha256": "a49bb0c22c750bb6cb329c11fb827c3cea44f7a3461254be8a153d4fe2b50213"
+    },
+    "probeNative": {
+      "path": "docs/tyrax2-pool2-source-2026-10-05/reviews/probe-native/proof.json",
+      "sha256": "b609ee458adb5fa11074949c0bb44206253717088d8463f6d4a0c5ab938e42b2"
+    },
+    "probeNativeIndependentConfirmation": {
+      "path": "docs/tyrax2-pool2-source-2026-10-05/reviews/probe-native-confirmation/proof.json",
+      "sha256": "1d33dff3bc5b867a50678cb395a1f38bcd61e6ba8f6886794cb5575fdee2ee44"
+    },
+    "physicalPairRootReanalysis": {
+      "path": "docs/tyrax2-pool2-evidence-2026-10-05/reviews/physical-pair/proof.json",
+      "sha256": "ac1b57e514760b6cf369e2fc3e3c6aa21509202f96854b7dc206eb09896abfa7"
+    },
+    "staticMatrixRootClosure": {
+      "path": "docs/tyrax2-pool2-evidence-2026-10-05/reviews/static-matrix/proof.json",
+      "sha256": "7a526960d19cab607ef97c7a73b0daffd69d5ddd6114d0f487566a40e0f939ed"
+    },
+    "ordinaryEmulatorIndependentReview": {
+      "path": "docs/tyrax2-pool2-evidence-2026-10-05/reviews/ordinary-emulator/emulator-pair-proof.json",
+      "sha256": "db0041b3c77c1978fe61fb2dae2d663b70c60c6790079adc071c35e1fb7214f7"
+    },
+    "sourceReconstruction": {
+      "path": "docs/tyrax2-pool2-source-2026-10-05/metadata/reconstruction-verification.json",
+      "sha256": "20a8b2b172316310f1c3d572ad693c68ffafbcb659586635b2ed0b522a94eae8"
+    }
+  },
+  "originalTextFilesByteExact": 370,
+  "physical": {
+    "orders": [
+      "off/on/off",
+      "on/off/on"
+    ],
+    "loopsEach": 5400,
+    "samplesEach": 384,
+    "presentationMs": 33.366667,
+    "candidateMinusControlsMs": [
+      [
+        -0.12831928465101683,
+        -0.11845993465847471
+      ],
+      [
+        -0.021524906158447266,
+        0.00058238771226371
+      ]
+    ],
+    "scope": "inclusive elapsed minus existing pacing; own-arm contrasts only"
+  },
+  "actualVUOutput": {
+    "freshBoots": 12,
+    "pairedComparisons": 6,
+    "equalPayloadQwords": 1917,
+    "equalHeaderQwords": 36,
+    "scope": "fixed emulator cases; no GS/hardware precision or per-iteration warm epoch claim"
+  },
+  "productionChanges": false,
+  "sixtyFpsAchieved": false,
+  "externalPayloads": "ELFs, SaveStates, screenshots, runtime assets remain hash-pinned laboratory files"
+}

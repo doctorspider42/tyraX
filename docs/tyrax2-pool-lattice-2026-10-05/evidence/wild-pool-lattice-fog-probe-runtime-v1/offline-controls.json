@@ -1,0 +1,5 @@
+{
+  "status": "PASS_OFFLINE_SYNTHETIC_FOG_LATTICE_HELPER_CONTROLS_ONLY",
+  "checks": 241,
+  "limits": "Helper acceptance/rejection only; no actual packets/VU execution/native/device acceptance."
+}

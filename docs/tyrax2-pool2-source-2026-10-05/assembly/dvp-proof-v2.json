@@ -1,0 +1,300 @@
+{
+  "status": "PASS_ISOLATED_POOL2_V3_DVP_OBJECT_AND_RESIDENT_IMAGE_BUDGET_SOURCE_FAMILY_ONLY",
+  "additionalIsolatedMissingImageCommands": [
+    {
+      "image": "StaPipVU1Cull_TD_FOLD_CodeStart",
+      "commands": [
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/bin/vclpp",
+          "src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_fold_vu1.vclpp",
+          "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/StaPipVU1Cull_TD_FOLD-missing.vcl"
+        ],
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/bin/vcl",
+          "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/StaPipVU1Cull_TD_FOLD-missing.vcl"
+        ],
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/dvp/bin/dvp-as",
+          "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/StaPipVU1Cull_TD_FOLD-missing.vsm",
+          "-o",
+          "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/StaPipVU1Cull_TD_FOLD-missing.o"
+        ]
+      ],
+      "exitCodes": [
+        0,
+        0,
+        0
+      ],
+      "qualification": "Missing unchanged selected image assembled in isolated copied inputs after failed rootbuild"
+    }
+  ],
+  "command": [
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/dvp/bin/dvp-as",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/v3-source.vsm",
+    "-o",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/v3-source.o"
+  ],
+  "exit": 0,
+  "seconds": 8.197243043003255,
+  "programs": {
+    "StaPipVU1As_Is_D_FOLD_CodeStart": {
+      "bytes": 832,
+      "roundedWords": 104,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.o",
+      "objectSha256": "9602e98a473e61dae130c6a3548c495dff26f6e54ab1b01815941c9cfef87fb4"
+    },
+    "StaPipVU1As_Is_D_CodeStart": {
+      "bytes": 928,
+      "roundedWords": 116,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.o",
+      "objectSha256": "bf1f93fd40370c67dfdfa92d6f7451b5a67001f3da691c904285eeff04c57ede"
+    },
+    "StaPipVU1AsIs_TCE_CodeStart": {
+      "bytes": 928,
+      "roundedWords": 116,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.o",
+      "objectSha256": "9c09102f37b338f7020ad8f34f529bf93dbf307ac2ef78c19e28181c66903ab5"
+    },
+    "StaPipVU1As_Is_TD_FOLD_CodeStart": {
+      "bytes": 912,
+      "roundedWords": 114,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.o",
+      "objectSha256": "83f572aa206e93da0bc098e1316a2dbd11812fee23bb34d590bc6ae9847ceb7b"
+    },
+    "StaPipVU1As_Is_C_CodeStart": {
+      "bytes": 624,
+      "roundedWords": 78,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.o",
+      "objectSha256": "8eed945154236f8011decf0d8b980a15ea0d7338716be1c80690442982a12a6c"
+    },
+    "StaPipVU1As_Is_TC_CodeStart": {
+      "bytes": 720,
+      "roundedWords": 90,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.o",
+      "objectSha256": "4028720e54d8b4752617992a0b32624d4822bd1d22ed6021a0acf852fe45bff1"
+    },
+    "StaPipVU1As_Is_TD_CodeStart": {
+      "bytes": 1024,
+      "roundedWords": 128,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.o",
+      "objectSha256": "fc36a837d056976112cd7934546d71cc29ec07f4b99178e2cbb57fe0f86f729e"
+    },
+    "StaPipVU1Clip_C_CodeStart": {
+      "bytes": 2768,
+      "roundedWords": 346,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o",
+      "objectSha256": "be6b70f08030c32a41a9251ebe15e0558c95410216e2177aa6304575efa4b943"
+    },
+    "StaPipVU1Clip_TC_FOLD_CodeStart": {
+      "bytes": 2912,
+      "roundedWords": 364,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.o",
+      "objectSha256": "266cc9cc1505f3f1de2ad8d5cf5c440370a5b690fca08d681a4db613f9ea3f76"
+    },
+    "StaPipVU1Clip_TC_CodeStart": {
+      "bytes": 2976,
+      "roundedWords": 372,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.o",
+      "objectSha256": "79e25cb2a60e8e9b9cfdb8f5ebbaa8515ce5bb49a0fe574e5977a352414a28d4"
+    },
+    "StaPipVU1Clip_D_CodeStart": {
+      "bytes": 1760,
+      "roundedWords": 220,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.o",
+      "objectSha256": "0e6d091ca5c0cf33e8a2d8453e19356fd426aad38dae4d138fb6d2984eea7796"
+    },
+    "StaPipVU1Clip_C_FOLD_CodeStart": {
+      "bytes": 2704,
+      "roundedWords": 338,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.o",
+      "objectSha256": "c1139b73da62f4529931994140166e059ee74dbed2e87b0fd91f8315d71d7a12"
+    },
+    "StaPipVU1Clip_TCE_CodeStart": {
+      "bytes": 1904,
+      "roundedWords": 238,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.o",
+      "objectSha256": "c409363e366dd6fe9bc1011c7b81b575f846b1c5c5b7b22ab1d032fe6251be32"
+    },
+    "StaPipVU1Clip_TD_CodeStart": {
+      "bytes": 1840,
+      "roundedWords": 230,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.o",
+      "objectSha256": "c22165ad3d9abb4a7d74a1723590e17c6f571be05f4ed7115ac74cc5a1609b71"
+    },
+    "StaPipVU1Cull_D_FOLD_CodeStart": {
+      "bytes": 1040,
+      "roundedWords": 130,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.o",
+      "objectSha256": "ba03b0b42c8b04684a4a3e0318e81dc7e7195f83202ae950d2b345c0f2109cc5"
+    },
+    "StaPipVU1Cull_TCE_CodeStart": {
+      "bytes": 1200,
+      "roundedWords": 150,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.o",
+      "objectSha256": "9baf31d1fe6f430c0648f270f3658862fbcc2b93f6d6a5150c157a4c84259875"
+    },
+    "StaPipVU1Cull_D_CodeStart": {
+      "bytes": 1136,
+      "roundedWords": 142,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.o",
+      "objectSha256": "01124204a5ba3a7d6482c35dae067b73d4a87b7f5fa98e827780fa6f386a9f81"
+    },
+    "StaPipVU1Cull_C_CodeStart": {
+      "bytes": 1808,
+      "roundedWords": 226,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.o",
+      "objectSha256": "96adab690381c1f64f5d4e3ad5198ec893f1dfce91d95c6cb592367f3641f051"
+    },
+    "StaPipVU1Cull_TCE_ENVN_CodeStart": {
+      "bytes": 1008,
+      "roundedWords": 126,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.o",
+      "objectSha256": "9038cecf74df733d94b32fbfa1c0b2e3c39f5bf2916986af309e319825eef581"
+    },
+    "StaPipVU1Billboard_C_CodeStart": {
+      "bytes": 768,
+      "roundedWords": 96,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.o",
+      "objectSha256": "18ea39168f65e5ff2486e52cc303a141f59483ec1e743f3333e0994414b1d286"
+    },
+    "StaPipVU1Billboard_T_CodeStart": {
+      "bytes": 880,
+      "roundedWords": 110,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.o",
+      "objectSha256": "514d373c02db47e525172d3ffc27297f373588731311dc5c2e0308df89380229"
+    },
+    "VU1DrawFinish_CodeStart": {
+      "bytes": 48,
+      "roundedWords": 6,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/core/paths/path1/draw_finish.o",
+      "objectSha256": "e71497224c1828b0a7a48148c26ed56844fddbe32842d50b4f652fdd7a1bb457"
+    },
+    "StaPipVU1Cull_TC_CodeStart": {
+      "bytes": 2992,
+      "roundedWords": 374,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/v3-source.o",
+      "objectSha256": "ac2f769b9242426c95ea58f5027e648d0bc9e6954c4b108f2826cb7b54fcbd03"
+    },
+    "StaPipVU1Cull_TD_FOLD_CodeStart": {
+      "bytes": 1152,
+      "roundedWords": 144,
+      "object": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/StaPipVU1Cull_TD_FOLD-missing.o",
+      "objectSha256": "287f47f655ae1605a313a8a2a23fda78a08c6622edc36a83385e6c0032b0d38f"
+    }
+  },
+  "wrapperActualObjectReferences": {
+    "stapip_as_is_tc_vu1_program": "StaPipVU1As_Is_TC_CodeStart",
+    "stapip_as_is_d_vu1_program": "StaPipVU1As_Is_D_FOLD_CodeStart",
+    "stapip_as_is_td_vu1_program": "StaPipVU1As_Is_TD_FOLD_CodeStart",
+    "stapip_as_is_tce_vu1_program": "StaPipVU1AsIs_TCE_CodeStart",
+    "stapip_as_is_c_vu1_program": "StaPipVU1As_Is_C_CodeStart",
+    "stapip_clip_d_vu1_program": "StaPipVU1Clip_C_FOLD_CodeStart",
+    "stapip_clip_tc_vu1_program": "StaPipVU1Clip_TC_FOLD_CodeStart",
+    "stapip_clip_c_vu1_program": "StaPipVU1Clip_C_FOLD_CodeStart",
+    "stapip_clip_td_vu1_program": "StaPipVU1Clip_TC_FOLD_CodeStart",
+    "stapip_clip_tce_vu1_program": "StaPipVU1Clip_TC_FOLD_CodeStart",
+    "stapip_cull_d_vu1_program": "StaPipVU1Cull_D_FOLD_CodeStart",
+    "stapip_cull_tce_vu1_program": "StaPipVU1Cull_TCE_ENVN_CodeStart",
+    "stapip_cull_tc_vu1_program": "StaPipVU1Cull_TC_CodeStart",
+    "stapip_cull_td_vu1_program": "StaPipVU1Cull_TD_FOLD_CodeStart",
+    "stapip_cull_c_vu1_program": "StaPipVU1Cull_C_CodeStart",
+    "stapip_billboard_t_vu1_program": "StaPipVU1Billboard_T_CodeStart",
+    "stapip_billboard_c_vu1_program": "StaPipVU1Billboard_C_CodeStart"
+  },
+  "budgets": {
+    "VU1Clip": {
+      "images": [
+        "StaPipVU1Clip_C_FOLD_CodeStart",
+        "StaPipVU1Clip_TC_FOLD_CodeStart",
+        "StaPipVU1Cull_C_CodeStart",
+        "StaPipVU1Cull_D_FOLD_CodeStart",
+        "StaPipVU1Cull_TCE_ENVN_CodeStart",
+        "StaPipVU1Cull_TC_CodeStart",
+        "StaPipVU1Cull_TD_FOLD_CodeStart"
+      ],
+      "mainWords": 1702,
+      "billboardWords": 206,
+      "combinedWords": 1908,
+      "drawFinishLimit": 2042,
+      "mainFits": true,
+      "billboardsFit": true
+    },
+    "EEClip": {
+      "images": [
+        "StaPipVU1AsIs_TCE_CodeStart",
+        "StaPipVU1As_Is_C_CodeStart",
+        "StaPipVU1As_Is_D_FOLD_CodeStart",
+        "StaPipVU1As_Is_TC_CodeStart",
+        "StaPipVU1As_Is_TD_FOLD_CodeStart",
+        "StaPipVU1Cull_C_CodeStart",
+        "StaPipVU1Cull_D_FOLD_CodeStart",
+        "StaPipVU1Cull_TCE_ENVN_CodeStart",
+        "StaPipVU1Cull_TC_CodeStart",
+        "StaPipVU1Cull_TD_FOLD_CodeStart"
+      ],
+      "mainWords": 1502,
+      "billboardWords": 206,
+      "combinedWords": 1708,
+      "drawFinishLimit": 2042,
+      "mainFits": true,
+      "billboardsFit": true
+    }
+  },
+  "sourcePins": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.o": "9602e98a473e61dae130c6a3548c495dff26f6e54ab1b01815941c9cfef87fb4",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.o": "bf1f93fd40370c67dfdfa92d6f7451b5a67001f3da691c904285eeff04c57ede",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.o": "6e87ec27ee624bacadf3e8e24fcb3b02b740b01e8857fa9896057c9dc8bc7d57",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.o": "9c09102f37b338f7020ad8f34f529bf93dbf307ac2ef78c19e28181c66903ab5",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.o": "83f572aa206e93da0bc098e1316a2dbd11812fee23bb34d590bc6ae9847ceb7b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.o": "e0b8745fd695d86db5644f059c3a796c31f4caed991fea34c74de99524a110c3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.o": "965003f592043e1a6bffcc18e0ecf2062ea5002e3bdf5024313ff3bac956c97c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.o": "8eed945154236f8011decf0d8b980a15ea0d7338716be1c80690442982a12a6c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.o": "4028720e54d8b4752617992a0b32624d4822bd1d22ed6021a0acf852fe45bff1",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.o": "e0d765ea3489e75ace40b8051863191d615fec692ab335238900413728718be9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.o": "b77234472fcd296ea7201de126b26a1eb6cab0d14396ffcf10a313115c2ac5c2",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.o": "fc36a837d056976112cd7934546d71cc29ec07f4b99178e2cbb57fe0f86f729e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.o": "989f9ea305a2f8e57e0a23fb7f38ed2aefef21392eeefd7b44e6a6764072ad64",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.o": "a1cf73744b5120bf881bd225fcb8fd72afda8fb95ee7c56ba92a7daa43eff680",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o": "be6b70f08030c32a41a9251ebe15e0558c95410216e2177aa6304575efa4b943",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.o": "975309057abc963d312531745d30e847d0f3935269aa5ac51ad8620bb33a3068",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.o": "266cc9cc1505f3f1de2ad8d5cf5c440370a5b690fca08d681a4db613f9ea3f76",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.o": "79e25cb2a60e8e9b9cfdb8f5ebbaa8515ce5bb49a0fe574e5977a352414a28d4",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.o": "e40255d08784b94dda7161f9e5ad056df2fbaf8292f7b90bf2e0c7afb670d33c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.o": "dcb38300b2ac6ab7d677b59cc277fbcb946adf261e7e34e82f41238278144cee",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.o": "0e6d091ca5c0cf33e8a2d8453e19356fd426aad38dae4d138fb6d2984eea7796",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.o": "c1139b73da62f4529931994140166e059ee74dbed2e87b0fd91f8315d71d7a12",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.o": "c409363e366dd6fe9bc1011c7b81b575f846b1c5c5b7b22ab1d032fe6251be32",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.o": "c22165ad3d9abb4a7d74a1723590e17c6f571be05f4ed7115ac74cc5a1609b71",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.o": "5f2d597697eccaba7b4c4bc767fc7aa878ed45d2a5fc2ecde6b62f516cf19c1f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.o": "ba03b0b42c8b04684a4a3e0318e81dc7e7195f83202ae950d2b345c0f2109cc5",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.o": "9998b8b069f3e89e41c776c6cb10e077665cec7fc430314da26862870206a98a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.o": "9baf31d1fe6f430c0648f270f3658862fbcc2b93f6d6a5150c157a4c84259875",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.o": "a57a9955b47b47a82e4f95f54c233ee2032dae7574bc8f8cd5440b6cbbb0cff4",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.o": "19f0b21fe41dafe5277a1f6d9360c31083b089173a888131888e9259949674db",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.o": "01124204a5ba3a7d6482c35dae067b73d4a87b7f5fa98e827780fa6f386a9f81",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.o": "d271841171182cb614df22ae5928fd9d000127aa582a31d9100f78c6c3580de8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.o": "96adab690381c1f64f5d4e3ad5198ec893f1dfce91d95c6cb592367f3641f051",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.o": "9038cecf74df733d94b32fbfa1c0b2e3c39f5bf2916986af309e319825eef581",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.o": "18ea39168f65e5ff2486e52cc303a141f59483ec1e743f3333e0994414b1d286",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.o": "f6a130c1948e0cc8bd2339600f9490a0ae9215107a2dd735570311ba7873196e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.o": "514d373c02db47e525172d3ffc27297f373588731311dc5c2e0308df89380229",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.o": "b929533febfeb44f02963866783a201f840b2151118d081f7570255dc59221fe",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/family-objects-v2/renderer/core/paths/path1/draw_finish.o": "e71497224c1828b0a7a48148c26ed56844fddbe32842d50b4f652fdd7a1bb457",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_fold_vu1.vclpp": "2866232d09019ef05802992eed4ae77d1746c449b8c68dcb141633e1c0436b1f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/StaPipVU1Cull_TD_FOLD-missing.vcl": "6da76011c595f9d386cac16e32129bf254ae1b112f58b70c9d91248d89d8f1b7",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/StaPipVU1Cull_TD_FOLD-missing.vsm": "94eae35c401da50be9c11eda18db38ca66d9b00f1b4b6fa9bc5c4d9f2cef2b36",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/StaPipVU1Cull_TD_FOLD-missing.o": "287f47f655ae1605a313a8a2a23fda78a08c6622edc36a83385e6c0032b0d38f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/StaPipVU1Cull_TD_FOLD-missing.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/bin/vclpp": "4dbc06bba327f9c5fcb328e501a6a689f329cfa47e89564e9bc640e54ff41e27",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/bin/vcl": "c327d01abf7ab172bd6023c01e848342497e3a91ff12b4a2fe2f4c57c603addd",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/bin/openvcl": "f2a5c0f67b56a46d220d482eb72b1a3dc57256a45c998a35647aeaa93a8a6cdf",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/dvp/bin/dvp-as": "e3953d8a6cec9db1abc07c50cf42d72fda5ed09bca3b1f431623adce2e7408da",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/v3-source.vsm": "f63dba41d9f1e6611105df0b30b45b564a29cc93da47a134089a2351b81e00a5",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/v3-source.o": "ac2f769b9242426c95ea58f5027e648d0bc9e6954c4b108f2826cb7b54fcbd03",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/v3-dvp.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-v3-isolated-assembly-v1/run-dvp-v2.py": "ef311ae40a60cae5120419e05d2911ed8dcaf8f89d4e38b66d9f8aafe4e34037"
+  },
+  "actualLinkedNewELF": false,
+  "runtimeActualProgramSelection": false,
+  "sharedCacheMutation": false
+}

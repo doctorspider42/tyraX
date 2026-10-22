@@ -1,0 +1,31 @@
+{
+  "status": "ROOT_ACCEPTED_BOUNDED_PHYSICAL_SELECTIVE_QUEUE_AUDIT",
+  "UTC": "2026-10-06T21:49:50.867519+00:00",
+  "sourceHead": "f91f587b0",
+  "nativeELFSha256": "6e6dd0f6b8b526c4ec188ef5788d12d17a6db6288a1c138f201b265f50ab9794",
+  "strictResultSha256": "3d7eca2172e933c3ba0ffaac5904c515b49f00e74b79f4ba1a5d576d3f5e1ac8",
+  "rawLoops": 384,
+  "enabledRows": 256,
+  "queueCountReads": 125496,
+  "balanceCountReads": 3328,
+  "pacedWaitCallHistogram": {
+    "0,2,0": 256
+  },
+  "observerContrastsMs": [
+    0.7864929340503846,
+    0.4151880334924769
+  ],
+  "outerSpreadMs": [
+    0.005654059516059462,
+    0.000803120930990886
+  ],
+  "uniformTaxSubtractionAccepted": false,
+  "commonFootprintUnpriced": true,
+  "closure": true,
+  "completionOwner": "preceding EE loop",
+  "physicalTV": "not independently inspected; emulator raster inspected",
+  "audioQualified": false,
+  "productionChange": false,
+  "nativeSixtyFpsAccepted": false,
+  "terminalClientExitClaim": false
+}

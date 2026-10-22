@@ -1,0 +1,522 @@
+{
+  "status": "PASS_COMPLETED_PRIVATE_ROAD_AND_TWO_DISTINCT_CARS_PROTOCOL",
+  "renderColdWitnesses": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "acceptedBags": "11",
+        "acceptedVertices": "9237",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "213",
+        "carBags": "8",
+        "carVertices": "9024",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "acceptedBags": "11",
+        "acceptedVertices": "9237",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "213",
+        "carBags": "8",
+        "carVertices": "9024",
+        "valid": "1"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "acceptedBags": "11",
+        "acceptedVertices": "9237",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "213",
+        "carBags": "8",
+        "carVertices": "9024",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "acceptedBags": "11",
+        "acceptedVertices": "9237",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "213",
+        "carBags": "8",
+        "carVertices": "9024",
+        "valid": "1"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "acceptedBags": "11",
+        "acceptedVertices": "9237",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "213",
+        "carBags": "8",
+        "carVertices": "9024",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "acceptedBags": "11",
+        "acceptedVertices": "9237",
+        "billboards": "0",
+        "roadBags": "3",
+        "roadVertices": "213",
+        "carBags": "8",
+        "carVertices": "9024",
+        "valid": "1"
+      }
+    }
+  },
+  "route": "same-s-road-plus-ravager-and-pica-short-drive",
+  "roadColdWitnesses": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28f",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28f",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28f",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28e",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28e",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "paved": "4",
+        "grounded": "1",
+        "roadY": "3df5c28e",
+        "centerOffset": "00000000",
+        "grip": "3f800000",
+        "cover": "3f800000"
+      }
+    }
+  },
+  "twoCarContexts": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec3d9bf",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec3d9bf",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec3d9bf",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec3d9bf",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec3d9bf",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "vehicleCount": "2",
+        "driverDef": "0",
+        "secondDef": "1",
+        "driverObject": "1",
+        "secondObject": "3",
+        "secondX": "c0133333",
+        "secondY": "3ec3d9bf",
+        "secondZ": "41000000",
+        "secondSpeed": "00000000"
+      }
+    }
+  },
+  "twoCarAcceptedWitnesses": {
+    "0": {
+      "750": {
+        "phase": "0",
+        "offset": "750",
+        "ravagerBodyBags": "3",
+        "ravagerBodyVertices": "3660",
+        "picaBodyBags": "3",
+        "picaBodyVertices": "2964",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "1200",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "1200",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "0",
+        "offset": "1155",
+        "ravagerBodyBags": "3",
+        "ravagerBodyVertices": "3660",
+        "picaBodyBags": "3",
+        "picaBodyVertices": "2964",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "1200",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "1200",
+        "valid": "1"
+      }
+    },
+    "1": {
+      "750": {
+        "phase": "1",
+        "offset": "750",
+        "ravagerBodyBags": "3",
+        "ravagerBodyVertices": "3660",
+        "picaBodyBags": "3",
+        "picaBodyVertices": "2964",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "1200",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "1200",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "1",
+        "offset": "1155",
+        "ravagerBodyBags": "3",
+        "ravagerBodyVertices": "3660",
+        "picaBodyBags": "3",
+        "picaBodyVertices": "2964",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "1200",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "1200",
+        "valid": "1"
+      }
+    },
+    "2": {
+      "750": {
+        "phase": "2",
+        "offset": "750",
+        "ravagerBodyBags": "3",
+        "ravagerBodyVertices": "3660",
+        "picaBodyBags": "3",
+        "picaBodyVertices": "2964",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "1200",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "1200",
+        "valid": "1"
+      },
+      "1155": {
+        "phase": "2",
+        "offset": "1155",
+        "ravagerBodyBags": "3",
+        "ravagerBodyVertices": "3660",
+        "picaBodyBags": "3",
+        "picaBodyVertices": "2964",
+        "ravagerWheelBags": "1",
+        "ravagerWheelVertices": "1200",
+        "picaWheelBags": "1",
+        "picaWheelVertices": "1200",
+        "valid": "1"
+      }
+    }
+  },
+  "portalColdCounts": null,
+  "byPhase": {
+    "0": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 0.6006000518798829,
+      "chunkMeanEntryMs": 16.683349641164146,
+      "perChunkMeanEntryMs": [
+        16.683349556393093,
+        16.68335723876953,
+        16.683628612094456,
+        16.68306318918864,
+        16.683349609375
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683628612094456,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.68335337109036,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.692681715223525,
+          "maxMs": 16.70581732855903,
+          "over16_68": 120,
+          "over16_68Percent": 93.75,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.682208246654934,
+          "p50Ms": 16.682315402560764,
+          "p95Ms": 16.685936482747397,
+          "maxMs": 16.704783121744793,
+          "over16_68": 120,
+          "over16_68Percent": 93.75,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 0.599654859966702,
+          "p50Ms": 0.5936008029513888,
+          "p95Ms": 0.6157823350694444,
+          "maxMs": 0.6293097601996528,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68334958288405,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.683363172743057,
+          "maxMs": 16.70581732855903,
+          "over16_68": 122,
+          "over16_68Percent": 95.3125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "1": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 0.9016509162055121,
+      "chunkMeanEntryMs": 16.68334975772434,
+      "perChunkMeanEntryMs": [
+        16.683350139194065,
+        16.683357397715252,
+        16.683381610446506,
+        16.683309978908962,
+        16.683349662356907
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683381610446506,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683353344599407,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.69383833143446,
+          "maxMs": 16.717898898654514,
+          "over16_68": 118,
+          "over16_68Percent": 92.1875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.682223558425903,
+          "p50Ms": 16.682315402560764,
+          "p95Ms": 16.691678873697917,
+          "maxMs": 16.71686469184028,
+          "over16_68": 118,
+          "over16_68Percent": 92.1875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 0.7977706061469184,
+          "p50Ms": 0.6105550130208334,
+          "p95Ms": 1.3139168633355034,
+          "maxMs": 1.331939697265625,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.683255169126724,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.693297153049045,
+          "maxMs": 16.717898898654514,
+          "over16_68": 119,
+          "over16_68Percent": 92.96875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "2": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 0.6048112021552191,
+      "chunkMeanEntryMs": 16.683349651760526,
+      "perChunkMeanEntryMs": [
+        16.683349556393093,
+        16.68335723876953,
+        16.683381875356037,
+        16.683309925927055,
+        16.683349662356907
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683381875356037,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.68335337109036,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.695550198025174,
+          "maxMs": 16.70777045355903,
+          "over16_68": 119,
+          "over16_68Percent": 92.96875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.682208670510185,
+          "p50Ms": 16.682315402560764,
+          "p95Ms": 16.693226623535157,
+          "maxMs": 16.706736246744793,
+          "over16_68": 119,
+          "over16_68Percent": 92.96875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 0.6045269171396891,
+          "p50Ms": 0.6014641655815973,
+          "p95Ms": 0.6254801432291667,
+          "maxMs": 0.6399773491753472,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68334958288405,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.68538631863064,
+          "maxMs": 16.705732557508682,
+          "over16_68": 123,
+          "over16_68Percent": 96.09375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    }
+  },
+  "movedAtColdEndpoints": {
+    "0": false,
+    "1": true,
+    "2": false
+  },
+  "oneArm": true,
+  "matchedAB": false,
+  "hardwarePerformanceQualified": false,
+  "nativeSixtyFpsAccepted": false,
+  "commonControllerObserverCostUnpriced": true,
+  "limitations": [
+    "Cold positions/contact and accepted render counts are six sparse witnesses, not whole-run wheel path or image proof; centerOffset uses piecewise authored-anchor approximation, not exact tessellated Catmull-Rom centerline.",
+    "Phase0 is initial parked; phase1 bounded virtual-pad steering/throttle/braking; phase2 neutral post-drive, not matched savings. Invisible analytic y0 floor retains driving physics; public tessellated road supplies normal raised contact geometry. Controller shortened to keep both models visible, changed and included in the price; no causal incremental subtraction. Full S geometry retained but bends not traversed.",
+    "Worst window is maximum observed64-loop mean, not worst frame or p99.",
+    "128 raw loops per phase do not cover all measured chunks.",
+    "Emulator qualifies controller/scene correctness only; hardware cadence remains separate.",
+    "Private quieting, controller and observer footprint remain unpriced; hardware performance needs root qualification."
+  ]
+}

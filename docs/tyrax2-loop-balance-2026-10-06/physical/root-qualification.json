@@ -1,0 +1,29 @@
+{
+  "status": "ROOT_ACCEPTED_BOUNDED_PHYSICAL_LOOP_BALANCE",
+  "UTC": "2026-10-06T21:06:50.902384+00:00",
+  "sourceHead": "5d7f6df7e",
+  "nativeELFSha256": "49fbb9d2bcec09a5ff48e09373492b553e67c379a48277c9a2e78a009af7a245",
+  "physicalResultSha256": "aa5ed7c0c25684bb4c8480b9f23bcf6e5d83f92ae4ee03972e522f135c4a9f3b",
+  "rawLoops": 384,
+  "balanceRows": 384,
+  "enabledRows": 256,
+  "addedCountReadsInRawRows": 4352,
+  "sameELFObserverContrastsMs": [
+    -0.08331099616156656,
+    0.09376265914351833
+  ],
+  "outerSpreadMs": [
+    0.0007125006781691923,
+    0.0007447984483519576
+  ],
+  "uniformTaxSubtractionAccepted": false,
+  "commonFootprintUnpriced": true,
+  "wholeLoopClosure": true,
+  "nestingObserved": 0,
+  "completionOwner": "all enabled raw rows record preceding EE loop",
+  "pureEEOrGPUPrice": false,
+  "physicalTV": "pending; diagnostic does not change rendering semantics",
+  "terminalClientExitClaim": false,
+  "productionChange": false,
+  "nativeSixtyFpsAccepted": false
+}

@@ -1,0 +1,406 @@
+[toolchain] Linux host prerequisites are ready.
+[toolchain] ready: /mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain
+[editor] Using WSL filesystem build cache...
+[editor] Game toolchain changed - rebuilding game objects...
+[editor] Engine sources changed - rebuilding libtyra...
+make: Entering directory '/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine'
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.d -c -o obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.o src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.d -c -o obj/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.o src/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/bag/stapip_bag.d -c -o obj/renderer/3d/pipeline/static/core/bag/stapip_bag.o src/renderer/3d/pipeline/static/core/bag/stapip_bag.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.o src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.o src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.o src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.o src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.o src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.o src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.o src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.o src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.o src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.o src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.o src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.o src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.o src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.o src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.o src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.o src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.o src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_clipper.d -c -o obj/renderer/3d/pipeline/static/core/stapip_clipper.o src/renderer/3d/pipeline/static/core/stapip_clipper.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_core.d -c -o obj/renderer/3d/pipeline/static/core/stapip_core.o src/renderer/3d/pipeline/static/core/stapip_core.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_programs_repository.d -c -o obj/renderer/3d/pipeline/static/core/stapip_programs_repository.o src/renderer/3d/pipeline/static/core/stapip_programs_repository.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_qbuffer.d -c -o obj/renderer/3d/pipeline/static/core/stapip_qbuffer.o src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopyMax(const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:193:11: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  193 |     memcpy(vertices + offset, pkg->vertices, bytes);
+      |     ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from inc/renderer/3d/pipeline/static/core/./bag/packaging/../stapip_bag.hpp:13,
+                 from inc/renderer/3d/pipeline/static/core/./bag/packaging/stapip_bag_package.hpp:13,
+                 from inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp:16,
+                 from src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:12:
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:194:34: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  194 |     if (pkg1.bag->texture) memcpy(sts + offset, pkg->sts, bytes);
+      |                            ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:195:38: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  195 |     if (pkg1.bag->color->many) memcpy(colors + offset, pkg->colors, bytes);
+      |                                ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:196:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  196 |     if (pkg1.bag->lighting) memcpy(normals + offset, pkg->normals, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopy1By2(const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:226:11: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  226 |     memcpy(vertices + offset, pkg->vertices, bytes);
+      |     ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:227:34: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  227 |     if (pkg1.bag->texture) memcpy(sts + offset, pkg->sts, bytes);
+      |                            ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:228:38: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  228 |     if (pkg1.bag->color->many) memcpy(colors + offset, pkg->colors, bytes);
+      |                                ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:229:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  229 |     if (pkg1.bag->lighting) memcpy(normals + offset, pkg->normals, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopy1By3(const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:253:9: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  253 |   memcpy(vertices, pkg.vertices, bytes);
+      |   ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:254:31: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  254 |   if (pkg.bag->texture) memcpy(sts, pkg.sts, bytes);
+      |                         ~~~~~~^~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:255:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  255 |   if (pkg.bag->color->many) memcpy(colors, pkg.colors, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:256:32: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  256 |   if (pkg.bag->lighting) memcpy(normals, pkg.normals, bytes);
+      |                          ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.d -c -o obj/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.o src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/core/stapip_vu1_program.d -c -o obj/renderer/3d/pipeline/static/core/stapip_vu1_program.o src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp
+mips64r5900el-ps2-elf-g++ -D_EE -G0 -Wall -O3 -fdebug-prefix-map=/home/spider/.cache/tyrax/native/projects/5344190ed0d664fc56d5fe07=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/game -fdebug-prefix-map=/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine=/mnt/f/Projects/tyrax2-world-cell-direct-game-20261012-v2/tyra/engine -fdebug-prefix-map=/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63=/mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain  -Iinc -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ee/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/common/include -I/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ps2sdk/ports/include -MMD -MP -MF obj/renderer/3d/pipeline/static/static_pipeline.d -c -o obj/renderer/3d/pipeline/static/static_pipeline.o src/renderer/3d/pipeline/static/static_pipeline.cpp
+In file included from src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp:3:
+inc/debug/world_cell_direct.hpp: In function 'void WorldCellDirect::partitions(const WorldCellPlan::PassSource&, Emit)':
+inc/debug/world_cell_direct.hpp:29:36: error: no matching function for call to 'min(const unsigned int&, long unsigned int)' [-Wtemplate-body]
+   29 |       const unsigned count=std::min(step,s.count-at);
+      |                            ~~~~~~~~^~~~~~~~~~~~~~~~~
+inc/debug/world_cell_direct.hpp:29:36: note: there are 4 candidates
+In file included from /home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/algorithm:62,
+                 from inc/debug/world_strip_plan.hpp:2,
+                 from inc/debug/world_cell_plan.hpp:3,
+                 from inc/debug/world_cell_sdk.hpp:3,
+                 from inc/debug/world_cell_sdk_check.hpp:2,
+                 from src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp:2:
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algobase.h:234:5: note: candidate 1: 'template<class _Tp> constexpr const _Tp& std::min(const _Tp&, const _Tp&)'
+  234 |     min(const _Tp& __a, const _Tp& __b)
+      |     ^~~
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algobase.h:234:5: note: template argument deduction/substitution failed:
+inc/debug/world_cell_direct.hpp:29:36: note:   deduced conflicting types for parameter 'const _Tp' ('unsigned int' and 'long unsigned int')
+   29 |       const unsigned count=std::min(step,s.count-at);
+      |                            ~~~~~~~~^~~~~~~~~~~~~~~~~
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algobase.h:282:5: note: candidate 2: 'template<class _Tp, class _Compare> constexpr const _Tp& std::min(const _Tp&, const _Tp&, _Compare)'
+  282 |     min(const _Tp& __a, const _Tp& __b, _Compare __comp)
+      |     ^~~
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algobase.h:282:5: note: candidate expects 3 arguments, 2 provided
+In file included from /home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/algorithm:63:
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algo.h:5764:5: note: candidate 3: 'template<class _Tp> constexpr _Tp std::min(initializer_list<_Tp>)'
+ 5764 |     min(initializer_list<_Tp> __l)
+      |     ^~~
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algo.h:5764:5: note: candidate expects 1 argument, 2 provided
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algo.h:5774:5: note: candidate 4: 'template<class _Tp, class _Compare> constexpr _Tp std::min(initializer_list<_Tp>, _Compare)'
+ 5774 |     min(initializer_list<_Tp> __l, _Compare __comp)
+      |     ^~~
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algo.h:5774:5: note: template argument deduction/substitution failed:
+inc/debug/world_cell_direct.hpp:29:36: note:   mismatched types 'std::initializer_list<_Tp>' and 'unsigned int'
+   29 |       const unsigned count=std::min(step,s.count-at);
+      |                            ~~~~~~~~^~~~~~~~~~~~~~~~~
+inc/debug/world_cell_direct.hpp:38:42: error: no matching function for call to 'min(long unsigned int, unsigned int)' [-Wtemplate-body]
+   38 |         const unsigned triangles=std::min(s.capacity-2,count-2-at);
+      |                                  ~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~
+inc/debug/world_cell_direct.hpp:38:42: note: there are 4 candidates
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algobase.h:234:5: note: candidate 1: 'template<class _Tp> constexpr const _Tp& std::min(const _Tp&, const _Tp&)'
+  234 |     min(const _Tp& __a, const _Tp& __b)
+      |     ^~~
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algobase.h:234:5: note: template argument deduction/substitution failed:
+inc/debug/world_cell_direct.hpp:38:42: note:   deduced conflicting types for parameter 'const _Tp' ('long unsigned int' and 'unsigned int')
+   38 |         const unsigned triangles=std::min(s.capacity-2,count-2-at);
+      |                                  ~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algobase.h:282:5: note: candidate 2: 'template<class _Tp, class _Compare> constexpr const _Tp& std::min(const _Tp&, const _Tp&, _Compare)'
+  282 |     min(const _Tp& __a, const _Tp& __b, _Compare __comp)
+      |     ^~~
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algobase.h:282:5: note: candidate expects 3 arguments, 2 provided
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algo.h:5764:5: note: candidate 3: 'template<class _Tp> constexpr _Tp std::min(initializer_list<_Tp>)'
+ 5764 |     min(initializer_list<_Tp> __l)
+      |     ^~~
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algo.h:5764:5: note: candidate expects 1 argument, 2 provided
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algo.h:5774:5: note: candidate 4: 'template<class _Tp, class _Compare> constexpr _Tp std::min(initializer_list<_Tp>, _Compare)'
+ 5774 |     min(initializer_list<_Tp> __l, _Compare __comp)
+      |     ^~~
+/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_algo.h:5774:5: note: template argument deduction/substitution failed:
+inc/debug/world_cell_direct.hpp:38:42: note:   mismatched types 'std::initializer_list<_Tp>' and 'long unsigned int'
+   38 |         const unsigned triangles=std::min(s.capacity-2,count-2-at);
+      |                                  ~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from inc/renderer/core/paths/path1/frame_submission.hpp:7,
+                 from src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp:7:
+inc/debug/command_tape.hpp: In function 'void CommandTape::binary(const char*, const void*, U)':
+inc/debug/command_tape.hpp:93:65: warning: format '%u' expects argument of type 'unsigned int', but argument 4 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+   93 |   char output[96];snprintf(output,sizeof(output),"host:command-%u-%s",stageNumber,path);
+      |                                                                ~^     ~~~~~~~~~~~
+      |                                                                 |     |
+      |                                                                 |     CommandTape::U {aka long unsigned int}
+      |                                                                 unsigned int
+      |                                                                %lu
+inc/debug/command_tape.hpp: In function 'void CommandTape::finish()':
+inc/debug/command_tape.hpp:101:29: warning: format '%u' expects argument of type 'unsigned int', but argument 2 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                            ~^
+      |                             |
+      |                             unsigned int
+      |                            %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+      |     ~~~~~~~~~~~              
+      |     |
+      |     CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:38: warning: format '%u' expects argument of type 'unsigned int', but argument 3 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                     ~^
+      |                                      |
+      |                                      unsigned int
+      |                                     %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+      |                 ~~~~~~~~              
+      |                 |
+      |                 CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:49: warning: format '%u' expects argument of type 'unsigned int', but argument 4 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                ~^
+      |                                                 |
+      |                                                 unsigned int
+      |                                                %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+      |                          ~~~~~~~                 
+      |                          |
+      |                          CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:64: warning: format '%u' expects argument of type 'unsigned int', but argument 5 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                               ~^
+      |                                                                |
+      |                                                                unsigned int
+      |                                                               %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+      |                                  ~~~~~~~~~~~                    
+      |                                  |
+      |                                  CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:74: warning: format '%u' expects argument of type 'unsigned int', but argument 6 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                         ~^
+      |                                                                          |
+      |                                                                          unsigned int
+      |                                                                         %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+      |                                              ~~~~~~                       
+      |                                              |
+      |                                              CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:83: warning: format '%u' expects argument of type 'unsigned int', but argument 7 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                  ~^
+      |                                                                                   |
+      |                                                                                   unsigned int
+      |                                                                                  %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+      |                                                     ~~~~~                          
+      |                                                     |
+      |                                                     CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:90: warning: format '%u' expects argument of type 'unsigned int', but argument 8 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                         ~^
+      |                                                                                          |
+      |                                                                                          unsigned int
+      |                                                                                         %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+      |                                                           ~~~                             
+      |                                                           |
+      |                                                           CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:99: warning: format '%u' expects argument of type 'unsigned int', but argument 9 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                                  ~^
+      |                                                                                                   |
+      |                                                                                                   unsigned int
+      |                                                                                                  %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+      |                                                               ~~~~~                                
+      |                                                               |
+      |                                                               CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:110: warning: format '%x' expects argument of type 'unsigned int', but argument 10 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                                           ~~~^
+      |                                                                                                              |
+      |                                                                                                              unsigned int
+      |                                                                                                           %08lx
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+      |                                                                     ~~~~~~~~~                                 
+      |                                                                     |
+      |                                                                     CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:126: warning: format '%u' expects argument of type 'unsigned int', but argument 11 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                                                             ~^
+      |                                                                                                                              |
+      |                                                                                                                              unsigned int
+      |                                                                                                                             %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+      |                                                                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~    
+      |                                                                               |
+      |                                                                               CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:134: warning: format '%u' expects argument of type 'unsigned int', but argument 12 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                                                                     ~^
+      |                                                                                                                                      |
+      |                                                                                                                                      unsigned int
+      |                                                                                                                                     %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+  103 |     before.base,before.ofst,before.tops,before.top,(before.stat>>7)&1,before.cycle,before.mode);
+      |     ~~~~~~~~~~~                                                                                                                       
+      |            |
+      |            CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:142: warning: format '%u' expects argument of type 'unsigned int', but argument 13 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                                                                             ~^
+      |                                                                                                                                              |
+      |                                                                                                                                              unsigned int
+      |                                                                                                                                             %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+  103 |     before.base,before.ofst,before.tops,before.top,(before.stat>>7)&1,before.cycle,before.mode);
+      |                 ~~~~~~~~~~~                                                                                                                   
+      |                        |
+      |                        CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:150: warning: format '%u' expects argument of type 'unsigned int', but argument 14 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                                                                                     ~^
+      |                                                                                                                                                      |
+      |                                                                                                                                                      unsigned int
+      |                                                                                                                                                     %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+  103 |     before.base,before.ofst,before.tops,before.top,(before.stat>>7)&1,before.cycle,before.mode);
+      |                             ~~~~~~~~~~~                                                                                                               
+      |                                    |
+      |                                    CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:157: warning: format '%u' expects argument of type 'unsigned int', but argument 15 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                                                                                            ~^
+      |                                                                                                                                                             |
+      |                                                                                                                                                             unsigned int
+      |                                                                                                                                                            %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+  103 |     before.base,before.ofst,before.tops,before.top,(before.stat>>7)&1,before.cycle,before.mode);
+      |                                         ~~~~~~~~~~                                                                                                           
+      |                                                |
+      |                                                CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:164: warning: format '%u' expects argument of type 'unsigned int', but argument 16 has type 'long unsigned int' [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                                                                                                   ~^
+      |                                                                                                                                                                    |
+      |                                                                                                                                                                    unsigned int
+      |                                                                                                                                                                   %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+  103 |     before.base,before.ofst,before.tops,before.top,(before.stat>>7)&1,before.cycle,before.mode);
+      |                                                    ~~~~~~~~~~~~~~~~~~                                                                                               
+      |                                                                    |
+      |                                                                    long unsigned int
+inc/debug/command_tape.hpp:101:173: warning: format '%u' expects argument of type 'unsigned int', but argument 17 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                                                                                                            ~^
+      |                                                                                                                                                                             |
+      |                                                                                                                                                                             unsigned int
+      |                                                                                                                                                                            %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+  103 |     before.base,before.ofst,before.tops,before.top,(before.stat>>7)&1,before.cycle,before.mode);
+      |                                                                       ~~~~~~~~~~~~                                                                                           
+      |                                                                              |
+      |                                                                              CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:101:181: warning: format '%u' expects argument of type 'unsigned int', but argument 18 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  101 |   printf("COMMANDCAP stage=%u valid=%u flushes=%u submissions=%u qwords=%u bytes=%u mpg=%u calls=%u first=%08x programEqual=%u base=%u ofst=%u tops=%u top=%u dbf=%u cycle=%u mode=%u\n",
+      |                                                                                                                                                                                    ~^
+      |                                                                                                                                                                                     |
+      |                                                                                                                                                                                     unsigned int
+      |                                                                                                                                                                                    %lu
+  102 |     stageNumber,U(valid),flushes,submissions,qwords,bytes,mpg,calls,firstCall,U(!memcmp(programBefore,programAfter,16384)),
+  103 |     before.base,before.ofst,before.tops,before.top,(before.stat>>7)&1,before.cycle,before.mode);
+      |                                                                                    ~~~~~~~~~~~                                                                                       
+      |                                                                                           |
+      |                                                                                           CommandTape::U {aka long unsigned int}
+inc/debug/command_tape.hpp:105:29: warning: format '%u' expects argument of type 'unsigned int', but argument 2 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  105 |   printf("COMMANDMEM stage=%u allocated=%u used=%u limit=%u base=%u\n",stageNumber,allocated,bytes,capacity,U(reinterpret_cast<uintptr_t>(memory)));fflush(stdout);
+      |                            ~^                                          ~~~~~~~~~~~
+      |                             |                                          |
+      |                             unsigned int                               CommandTape::U {aka long unsigned int}
+      |                            %lu
+inc/debug/command_tape.hpp:105:42: warning: format '%u' expects argument of type 'unsigned int', but argument 3 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  105 |   printf("COMMANDMEM stage=%u allocated=%u used=%u limit=%u base=%u\n",stageNumber,allocated,bytes,capacity,U(reinterpret_cast<uintptr_t>(memory)));fflush(stdout);
+      |                                         ~^                                         ~~~~~~~~~
+      |                                          |                                         |
+      |                                          unsigned int                              CommandTape::U {aka long unsigned int}
+      |                                         %lu
+inc/debug/command_tape.hpp:105:50: warning: format '%u' expects argument of type 'unsigned int', but argument 4 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  105 |   printf("COMMANDMEM stage=%u allocated=%u used=%u limit=%u base=%u\n",stageNumber,allocated,bytes,capacity,U(reinterpret_cast<uintptr_t>(memory)));fflush(stdout);
+      |                                                 ~^                                           ~~~~~
+      |                                                  |                                           |
+      |                                                  unsigned int                                CommandTape::U {aka long unsigned int}
+      |                                                 %lu
+inc/debug/command_tape.hpp:105:59: warning: format '%u' expects argument of type 'unsigned int', but argument 5 has type 'long unsigned int' [-Wformat=]
+  105 |   printf("COMMANDMEM stage=%u allocated=%u used=%u limit=%u base=%u\n",stageNumber,allocated,bytes,capacity,U(reinterpret_cast<uintptr_t>(memory)));fflush(stdout);
+      |                                                          ~^                                        ~~~~~~~~
+      |                                                           |                                        |
+      |                                                           unsigned int                             long unsigned int
+      |                                                          %lu
+inc/debug/command_tape.hpp:105:67: warning: format '%u' expects argument of type 'unsigned int', but argument 6 has type 'CommandTape::U' {aka 'long unsigned int'} [-Wformat=]
+  105 |   printf("COMMANDMEM stage=%u allocated=%u used=%u limit=%u base=%u\n",stageNumber,allocated,bytes,capacity,U(reinterpret_cast<uintptr_t>(memory)));fflush(stdout);
+      |                                                                  ~^                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                                                   |                                         |
+      |                                                                   unsigned int                              CommandTape::U {aka long unsigned int}
+      |                                                                  %lu
+src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp: In member function 'bool Tyra::StaPipQBufferRenderer::fillCachedStrip(Tyra::StaPipQBuffer*, const Tyra::StaPipBagPackage&, u32, u32)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp:2310:15: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+ 2310 |         memcpy(out, data, n * 3 * sizeof(Vec4));
+      |         ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from inc/renderer/3d/pipeline/static/core/././bag/packaging/../stapip_bag.hpp:13,
+                 from inc/renderer/3d/pipeline/static/core/././bag/packaging/stapip_bag_package.hpp:13,
+                 from inc/renderer/3d/pipeline/static/core/./stapip_qbuffer.hpp:16,
+                 from inc/renderer/3d/pipeline/static/core/stapip_vu1_program.hpp:16,
+                 from inc/debug/world_cell_sdk.hpp:11:
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+make: *** [../Makefile.base:167: obj/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.o] Error 1
+make: *** Waiting for unfinished jobs....
+make: Leaving directory '/home/spider/.cache/tyrax/native/engines/9fe1eba832972a07c93bd5bd/tyra/engine'

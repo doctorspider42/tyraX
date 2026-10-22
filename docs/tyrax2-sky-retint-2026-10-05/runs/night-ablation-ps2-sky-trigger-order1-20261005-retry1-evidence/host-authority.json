@@ -1,0 +1,11 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-controls-v1\\analyze-loop.py": "58e19cee054b237f13f797de6237d283811757c05c84742cfd62483aff7bc2a8",
+    "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-controls-v1\\analyze-night.py": "2b71ab46a06b5ed90971458927c0a3e6bcf9f68499553974df500804bc76c224",
+    "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-controls-v1\\analyze-night-cli.py": "7f59df29e3f0612f53a00a4cfac04677737cf4741ffa9dc303a2452fee0661e2",
+    "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-controls-v1\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-controls-v1\\source-controls\\night_plan.hpp": "73be32c06bedcfad931876b7b6faa0286384a74fe7ca27d8447b4830862093f1",
+    "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-controls-v1\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "77d2126401e8f8d55c86b8a8bc6506deca2b4a4313f4f035e10fe087d6a67f4e"
+}

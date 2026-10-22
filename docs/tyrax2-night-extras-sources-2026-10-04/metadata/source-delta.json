@@ -1,0 +1,44 @@
+{
+  "game/src/gen/game_collision.gen.cpp": {
+    "beforeSha256": "e4979af1242d71541c27bd0c19d2894c97cb12e8568e7603fd5d41d4bab06737",
+    "afterSha256": "5179302e82a94c74f751a4cfad59863974de72beb2e7e5a57ef606dbc9549619",
+    "beforeBytes": 442682,
+    "afterBytes": 443003
+  },
+  "game/src/gen/game_lighting.gen.cpp": {
+    "beforeSha256": "88552805fa1520c3caff7ff616926ef7e041d6bd665a2de404a42a25037e6f3e",
+    "afterSha256": "3eb0c90c1b2efe879b247baab4b1acda1868abd7064ab16b30021db5355c6cf4",
+    "beforeBytes": 218868,
+    "afterBytes": 219704
+  },
+  "game/src/gen/game_vehicles.gen.cpp": {
+    "beforeSha256": "48741694a7d7fcab5a4c51782cb3f647f5c4263b1434a4b1acf4cd5a49aad8cf",
+    "afterSha256": "9ceb8b604808e4093b0741dbefa3ae53a6b371316590b136719ab96f59bb7026",
+    "beforeBytes": 339144,
+    "afterBytes": 339465
+  },
+  "game/src/terrain_game.cpp": {
+    "beforeSha256": "3b794b119af9ed8f7a89e68832abf39db4313e34945d7c7d71017ebd18d1048b",
+    "afterSha256": "62396e22f9a54af27d1c4ac0acfd1444747a8a033f11564cd9d85fa85aa738ab",
+    "beforeBytes": 116831,
+    "afterBytes": 116891
+  },
+  "tyra/engine/inc/debug/night_ablation.hpp": {
+    "beforeSha256": "c7719fa677b55c246624419b32e457f66d28a5965e074f31980a6e610149d5eb",
+    "afterSha256": "afac4fddf3c41977f22e64a00c15cdbf0e17342de49149fb529bc533a3fb54c3",
+    "beforeBytes": 1109,
+    "afterBytes": 1863
+  },
+  "tyra/engine/inc/debug/night_plan.hpp": {
+    "beforeSha256": "cc3a59f8d8291f51f08284ffef2aa34e1c73bfca0599cbc94b905f1084707c6d",
+    "afterSha256": "01b144f310cea1dc01df440001b127ff5f69b2f0d83db635dd9d44af105a48ca",
+    "beforeBytes": 1435,
+    "afterBytes": 1669
+  },
+  "tyra/engine/inc/debug/night_runtime.hpp": {
+    "beforeSha256": "a54fd47eb42bce56e434edb8ccb54bb266a32f639453b1d6c5d295e55a991eb5",
+    "afterSha256": "9d0c22a1e27a2c37ce37c235e8a757db9251566bcdb959e6bde89921d30070fc",
+    "beforeBytes": 5415,
+    "afterBytes": 6236
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "sourceManifestSha256": "ba7683fbc6067ddb4d9ef2acc773edcf5f1aef79b29a940c73706057c9e6b420",
+  "sourceFiles": 501,
+  "changes": [
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp",
+    "tyra/engine/src/renderer/core/renderer_core.cpp"
+  ],
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "timedExtraClocks": 0
+}

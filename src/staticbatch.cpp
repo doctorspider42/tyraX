@@ -83,7 +83,7 @@ const char* reasonLabel(Reason r) {
         case Reason::Usable: return "usable";
         case Reason::Pickable: return "pickable";
         case Reason::SaveState: return "save state";
-        case Reason::Reflected: return "reflected";
+        case Reason::Reflected: return "reflection proxy";
         case Reason::DynamicLighting: return "dynamic lighting";
         case Reason::TextureFeed: return "texture feed";
         case Reason::VuParams: return "VU parameters";
@@ -126,8 +126,8 @@ const char* reasonDetail(Reason r) {
             return "Loading a save repositions it, so its baked vertices "
                    "would be stale.";
         case Reason::Reflected:
-            return "Re-submitted into the reflection pass, which needs the "
-                   "object's own bag.";
+            return "Shown in reflections through a proxy box - a different "
+                   "shape in the map than on screen, so it keeps its own bag.";
         case Reason::DynamicLighting:
             return "Wants its own VU1-lit bag refilled every frame. A batch "
                    "is one baked bag and cannot carry it.";
@@ -234,7 +234,7 @@ Reason eligibility(const Project& p, const SceneObject& o,
     if (o.usable) return Reason::Usable;
     if (o.pickable) return Reason::Pickable;
     if (o.saveState) return Reason::SaveState;
-    if (o.reflected) return Reason::Reflected;
+    if (o.reflected && o.reflectionProxy) return Reason::Reflected;
     if (o.dynamicLighting) return Reason::DynamicLighting;
     if (!o.textureFeed.empty()) return Reason::TextureFeed;
     if (o.vuParams[0] != 0.0f || o.vuParams[1] != 0.0f ||
@@ -342,13 +342,15 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
     std::vector<int> keyX, keyZ;
     auto addMember = [&](int object, int part, const std::string& texture,
                          int cx, int cz, float cellW, float dd, int lamp,
-                         unsigned int stripRun, unsigned int verts) {
+                         unsigned int stripRun, unsigned int verts,
+                         bool reflected) {
         int bi = -1;
         for (int b = 0; b < (int)res.batches.size(); ++b)
             if (res.batches[(size_t)b].texture == texture && keyX[(size_t)b] == cx &&
                 keyZ[(size_t)b] == cz && res.batches[(size_t)b].drawDistance == dd &&
                 res.batches[(size_t)b].lamp == lamp &&
-                res.batches[(size_t)b].stripRun == stripRun) {
+                res.batches[(size_t)b].stripRun == stripRun &&
+                res.batches[(size_t)b].reflected == reflected) {
                 bi = b;
                 break;
             }
@@ -361,6 +363,7 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
             nb.drawDistance = dd;
             nb.lamp = lamp;
             nb.stripRun = stripRun;
+            nb.reflected = reflected;
             res.batches.push_back(nb);
             keyX.push_back(cx);
             keyZ.push_back(cz);
@@ -423,7 +426,8 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
                 const bool stripped = mp.stripVertexCount > 0 && mp.stripRun > 0;
                 addMember(i, pi, mp.texture, cx, cz, cellW, d.drawDistance,
                           lamp, stripped ? mp.stripRun : 0u,
-                          stripped ? mp.stripVertexCount : mp.vertexCount);
+                          stripped ? mp.stripVertexCount : mp.vertexCount,
+                          d.reflected);
             }
         } else {
             MaterialInfo mat =
@@ -443,7 +447,7 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
             const unsigned int verts =
                 in.primVertices ? in.primVertices(d) : 0u;
             addMember(i, -1, texture, cx, cz, cellW, d.drawDistance, lamp, 0u,
-                      verts);
+                      verts, d.reflected);
         }
     }
 

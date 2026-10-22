@@ -1,0 +1,25 @@
+{
+  "status": "PASS_PURE_HOST_NATIVE_IDENTITY_CLOSURE_ONLY",
+  "checks": [
+    "positive_symbolic_consistent_identity",
+    "reject_proof_sourceManifestSha256",
+    "reject_proof_actualELFSha256",
+    "reject_proof_actualSymbolSha256",
+    "reject_proof_sourceFiles",
+    "reject_proof_blockers",
+    "reject_proof_status",
+    "reject_native_target_source_manifest_sha256",
+    "reject_native_selected_elf_sha256",
+    "reject_native_selected_symbol_sha256",
+    "reject_native_verified_source_files",
+    "reject_native_build_backend",
+    "reject_native_build_exit_code",
+    "reject_current_manifest",
+    "reject_current_ELF",
+    "reject_current_symbol",
+    "reject_native_proof_hash",
+    "reject_release_native_hash"
+  ],
+  "nativeRuntimeAccepted": false,
+  "fabricatedRuntimeAuthority": false
+}

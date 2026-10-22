@@ -1,0 +1,11 @@
+{
+  "status": "INCOMPLETE_THREE_PHASE_RASTER_OBSERVATION",
+  "cause": "Root started the raster observer after the first phase had already passed.",
+  "retainedImages": ["phase-1.png", "phase-2.png"],
+  "missingPhases": [0],
+  "captureBracketProofAvailable": false,
+  "qualifierExitCode": 1,
+  "protocolCompletedSeparately": true,
+  "completedProtocolEvidence": "../night-ablation-emulator-wild-plane-order0-20261005-evidence/machine-evidence.json",
+  "fullVisualCoverageAccepted": false
+}

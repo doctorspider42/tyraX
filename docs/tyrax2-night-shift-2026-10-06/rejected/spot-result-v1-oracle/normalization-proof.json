@@ -1,0 +1,13 @@
+{
+  "status": "PASS_LOSSLESS_LATIN1_ASCII_NIGHT_PROTOCOL_NORMALIZATION",
+  "rawPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-spot-result-order1-20261006.log",
+  "normalizedPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-spot-result-order1-20261006-rejected-oracle\\stdout.log",
+  "rawSha256": "ca3074a142a1aaf43fb493f6786fcdbf2f4aefd7e92158b02fec28eaef0a3994",
+  "normalizedSha256": "01d86ca06a3f1691c6b18407034b237f769f1ed2003203a45e8c5042413414e0",
+  "rawBytes": 31060,
+  "normalizedBytes": 31062,
+  "authoritativeASCIIProtocolRows": 94,
+  "authoritativeASCIIProtocolSha256": "a130f0bf72292fb02d8974a991062292d5c4230ee170bbbdf92c98e2b44f0887",
+  "losslessLatin1Roundtrip": true,
+  "originalRawChanged": false
+}

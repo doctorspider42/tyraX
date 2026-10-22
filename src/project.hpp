@@ -1705,6 +1705,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
 
 // General project preferences (Project > Preferences in the editor).
 // Baked into the generated terrain_config.hpp on every build.
+enum class DynamicLightReceivers : uint8_t { All, Players };
+
 struct ProjectSettings {
     // Build target. videoSystem: "auto" follows the console region, "ntsc"
     // forces 60 Hz, "pal" forces 50 Hz (gameplay speed is wall-clock
@@ -1784,6 +1786,10 @@ struct ProjectSettings {
     // It is off by default and the engine falls back to two buffers when
     // it does not fit. Decided at engine init; no runtime switch.
     bool tripleBuffering = false;
+    // TyraX2: requested for new projects; record N while VIF/VU1/GS execute N-1.
+    // Costs about 2.25 MiB EE RAM when available; compatibility modes fall back.
+    // The reader preserves an absent legacy request as false (format <= 94).
+    bool framePipeline = true;
 
     // Frame extrapolation (docs/frame-extrapolation.md): after each rendered
     // frame the game presents a SYNTHESISED one, re-drawing it under the
@@ -2086,6 +2092,13 @@ struct ProjectSettings {
     // resident terrain and road chunks - which were 4.65 ms of every capture
     // on the Motor District's outer road (PS2). Off = the real chunks.
     bool reflectionGroundProxy = false;
+    // Shared reflection probe: draw the STATIC world - the ground within the
+    // reflection ground radius and the "Reflection box proxy" objects that
+    // cannot move - as one editor-baked panorama per 16-unit road cell
+    // (docs/reflective-materials.md, "The baked background", src/reflpano.*)
+    // instead of re-rendering it on every capture. The sky and everything that
+    // can change stay live. Off = the live chunks and proxies.
+    bool reflectionPanorama = false;
     // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
     // false = silhouette slots: the caster's mesh silhouette from the torch,
     // sampled on a ground patch and painted on the wall behind - mesh-accurate
@@ -2123,6 +2136,15 @@ struct ProjectSettings {
     // the flashlight costs no second allocation - which is why
     // textureHeapEstimate charges the band once for the pair.
     bool spotShadowVolumes = false;
+    // Baked lamp light (docs/dynamic-light-receivers.md, "Baked lamp light"): a DYNAMIC
+    // point/spot light that the build can see never moves (not referenced by
+    // any flow node, script binding or layer) and never flickers is folded
+    // into the static geometry's vertex colours whenever its state changes
+    // (a day/night switch), instead of being picked and evaluated per bag
+    // every frame. Cars, the player and other moving receivers still take it
+    // live; the pools, beams and coronas are unchanged. false = every
+    // dynamic light live, as every earlier file did.
+    bool bakeStaticLamps = false;
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
@@ -2333,6 +2355,12 @@ struct ProjectSettings {
     // the ground up against ALL casters and drawn as one more pass of the
     // chunk. Then the decals skip the terrain. Written only when non-zero.
     int bakedShadowGround = 0;
+    // The same maps folded into the terrain's VERTEX colour instead of drawn as
+    // a pass (docs/shadows.md, "Folded into the vertex colour"): each terrain
+    // node takes the masks' mean over the half cell around it and that share of
+    // its shade drops to the ambient level. One sample per node (softer, coarser
+    // edges) for no pass at all. Needs bakedShadowGround; written only when on.
+    bool bakedShadowGroundFold = false;
 
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
@@ -2502,6 +2530,8 @@ struct ProjectSettings {
     // that fades outward into a rim) instead of only a rim BEHIND it. Off =
     // the classic silhouette outline (shells pushed behind object depth).
     bool highlightOverlay = false;
+    // Live point/spot/flashlight model reception; projected pools stay separate.
+    DynamicLightReceivers dynamicLightReceivers = DynamicLightReceivers::All;
 };
 
 // The number depends on the standard library: libc++ (macOS) has a 24-byte
@@ -2544,6 +2574,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.colorDepth == b.colorDepth && a.dither == b.dither &&
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
            a.tripleBuffering == b.tripleBuffering &&
+           a.framePipeline == b.framePipeline &&
+           a.dynamicLightReceivers == b.dynamicLightReceivers &&
            a.frameExtrapolation == b.frameExtrapolation &&
            a.frameExtrapolationPlane == b.frameExtrapolationPlane &&
            a.frameExtrapolationForce == b.frameExtrapolationForce &&
@@ -2583,9 +2615,11 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.reflectionGroundRadius == b.reflectionGroundRadius &&
            a.reflectionScenery == b.reflectionScenery &&
            a.reflectionGroundProxy == b.reflectionGroundProxy &&
+           a.reflectionPanorama == b.reflectionPanorama &&
            a.flashShadowVolumes == b.flashShadowVolumes &&
            a.shadowVolumesDebug == b.shadowVolumesDebug &&
            a.spotShadowVolumes == b.spotShadowVolumes &&
+           a.bakeStaticLamps == b.bakeStaticLamps &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.skyTexture == b.skyTexture && a.skyTextureYaw == b.skyTextureYaw &&
@@ -2625,6 +2659,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.bakedShadowMaxLength == b.bakedShadowMaxLength &&
            a.bakedShadowAutoBake == b.bakedShadowAutoBake &&
            a.bakedShadowGround == b.bakedShadowGround &&
+           a.bakedShadowGroundFold == b.bakedShadowGroundFold &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
@@ -2706,6 +2741,7 @@ inline int motionBlurMaxFix(const ProjectSettings& s) {
 // Camera, physics, terrain detail and the game template stay project-wide.
 struct SceneOverrides {
     bool lighting = false;    // lightDir, ambient, diffuse, lightColor, brightness
+    bool dynamicLightReceivers = false;  // independent of baked lighting/ambience
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
@@ -2743,7 +2779,8 @@ inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
            a.terrainMat == b.terrainMat && a.postFx == b.postFx &&
            a.fog == b.fog && a.highlight == b.highlight &&
-           a.upscaler == b.upscaler && a.broadPhase == b.broadPhase;
+           a.upscaler == b.upscaler && a.broadPhase == b.broadPhase &&
+           a.dynamicLightReceivers == b.dynamicLightReceivers;
 }
 
 class History;

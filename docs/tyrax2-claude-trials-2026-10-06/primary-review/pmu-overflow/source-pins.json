@@ -1,0 +1,105 @@
+{
+  "schema": "tyrax2-pmu-overflow-primary-review-v1",
+  "date": "2026-10-06",
+  "mode": "documentation-only source capture; no implementation/build/runtime",
+  "hardwareManual": {
+    "author": "Sony Computer Entertainment Inc.",
+    "title": "EE Core User's Manual",
+    "version": "6.0",
+    "mirrorUrl": "https://docs.alexrp.com/mips/ee.pdf",
+    "copy": "ee-core-users-manual-v6.pdf",
+    "sha256": "0ad766eb827157fad19aa579fd9df54f2ca312211e7f0dbdb4b723992b566ce3",
+    "pages": {
+      "performanceException": {
+        "section": "4.2.3",
+        "printedPage": 97,
+        "pdfPageIndex": 96
+      },
+      "control": {
+        "section": "7.1.1",
+        "printedPage": 144,
+        "pdfPageIndex": 143
+      },
+      "widthAndSyntax": {
+        "section": "7.1.2-7.1.4",
+        "printedPage": 145,
+        "pdfPageIndex": 144
+      },
+      "increment": {
+        "section": "7.2.1",
+        "printedPage": 146,
+        "pdfPageIndex": 145
+      },
+      "instructionCacheEvent": {
+        "section": "7.2.3",
+        "printedPage": 147,
+        "pdfPageIndex": 146
+      },
+      "dataCacheEvent": {
+        "section": "7.2.3",
+        "printedPage": 148,
+        "pdfPageIndex": 147
+      },
+      "exceptionGeneration": {
+        "section": "7.2.4-7.2.5",
+        "printedPage": 150,
+        "pdfPageIndex": 149
+      },
+      "initialization": {
+        "section": "7.2.6-7.2.7",
+        "printedPage": 151,
+        "pdfPageIndex": 150
+      },
+      "continuesAfterOverflow": {
+        "section": "7.2.8",
+        "printedPage": 152,
+        "pdfPageIndex": 151
+      }
+    },
+    "textExtraction": {
+      "path": "ee-core-users-manual-v6.txt",
+      "tool": "pypdf6.10.2 extract_text(layout)",
+      "sha256": "07f187409c5fac8a85b0ac178deeda02350f0766b4c6d697e0c9c8ef36f1ebaa",
+      "limitations": "Rotated text and mathematical negation/diagram superscripts are not faithfully represented; exception equation not transcribed as authoritative."
+    }
+  },
+  "opcodePrimary": {
+    "repository": "https://github.com/ps2dev/binutils-gdb",
+    "commit": "530530b9df4ca59bb66fa01f31a6fc5600f67c97",
+    "path": "opcodes/mips-opc.c",
+    "url": "https://github.com/ps2dev/binutils-gdb/blob/530530b9df4ca59bb66fa01f31a6fc5600f67c97/opcodes/mips-opc.c",
+    "copy": "binutils-mips-opc.c",
+    "sha256": "204f010f1c9eec9ec672373a1969593fac631a06da52383e92a265711677dd8a",
+    "mfps": {
+      "opcodeHex": "0x4000c800",
+      "maskHex": "0xffe0ffc1",
+      "operandFormat": "t,P",
+      "eeAdmitted": true,
+      "installedBuildAcceptanceEstablished": false
+    }
+  },
+  "priorInstalledPrimary": {
+    "corePath": "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include/ps2s/core.h",
+    "coreCopy": "installed-ps2stuff-core.h",
+    "coreSha256": "42346e34aeada019a8280f605d224e6f22bb93c6badf178d8707ed67a643f5f3",
+    "perfmonPath": "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include/ps2s/perfmon.h",
+    "perfmonCopy": "installed-ps2stuff-perfmon.h",
+    "perfmonSha256": "8e06949c35b738d815e2e3eb9c845570709c94be1c76868e8b8eb9d6c8c2bfe3",
+    "upstreamCommit": "c8541baad8f1ad5462bf5955c66f51a15fcf20e2"
+  },
+  "gates": {
+    "counterValueBits": 31,
+    "overflowFlagBit": 31,
+    "overflowExceptionUnmaskable": true,
+    "cteGatesCountingAndExceptions": true,
+    "immediateStopOnOverflow": false,
+    "maxSelector6EventsPerCycleEstablished": false,
+    "generalModuloDeltaQualified": false,
+    "safeEnabledLifetimeQualified": false,
+    "actualHardwareActivationQualified": false
+  },
+  "report": {
+    "path": "report.md",
+    "sha256": "333feade6c802da52cac384a3ff8cf5047231a5e6cca77e040f1187064888d2c"
+  }
+}

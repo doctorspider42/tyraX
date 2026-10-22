@@ -1,0 +1,354 @@
+{
+  "cells": [
+    {
+      "fixture": "F:\\Projects\\tyrax2-vu-paint-day-no-roads-20261008-v2",
+      "night": false,
+      "roads": false,
+      "elfSha256": "22fa2aa5a0d4dc0492c0767c81f4380f785329930d760865d5341bd3a61f9131",
+      "phases": [
+        {
+          "rows": 720,
+          "workMs": 14.17152340264968,
+          "p50Ms": 13.480578952365452,
+          "p95Ms": 17.731380886501736,
+          "maxMs": 21.25794135199653,
+          "loopHz": 51.622865857652194,
+          "periodP95Ms": 33.36689588758681,
+          "maxPeriodMs": 33.40680948893229,
+          "presentations": 720,
+          "workOverField": 112,
+          "longEntryPeriods": 116,
+          "counts": {
+            "probeCapture": 174,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 0
+          }
+        },
+        {
+          "rows": 720,
+          "workMs": 12.227628999874916,
+          "p50Ms": 11.41324191623264,
+          "p95Ms": 15.6690673828125,
+          "maxMs": 17.012976752387154,
+          "loopHz": 59.77377973875361,
+          "periodP95Ms": 16.71826171875,
+          "maxPeriodMs": 33.39019775390625,
+          "presentations": 720,
+          "workOverField": 2,
+          "longEntryPeriods": 2,
+          "counts": {
+            "probeCapture": 179,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 1440
+          }
+        },
+        {
+          "rows": 720,
+          "workMs": 14.170143744386273,
+          "p50Ms": 13.470352172851562,
+          "p95Ms": 17.701032850477432,
+          "maxMs": 21.42639838324653,
+          "loopHz": 51.012741760365515,
+          "periodP95Ms": 33.371541341145836,
+          "maxPeriodMs": 33.41618855794271,
+          "presentations": 720,
+          "workOverField": 118,
+          "longEntryPeriods": 126,
+          "counts": {
+            "probeCapture": 174,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 0
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "F:\\Projects\\tyrax2-vu-paint-roads-day-20261008-v1",
+      "night": false,
+      "roads": true,
+      "elfSha256": "cb65f0007f92437661a23ded78ad7166039fcfee0f3265deeb9dc6ba51f30e28",
+      "phases": [
+        {
+          "rows": 720,
+          "workMs": 17.494671126942574,
+          "p50Ms": 16.742506239149307,
+          "p95Ms": 21.66274685329861,
+          "maxMs": 24.739515516493057,
+          "loopHz": 39.2692398354755,
+          "periodP95Ms": 33.395487467447914,
+          "maxPeriodMs": 33.422139485677086,
+          "presentations": 720,
+          "workOverField": 371,
+          "longEntryPeriods": 379,
+          "counts": {
+            "probeCapture": 174,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 0
+          }
+        },
+        {
+          "rows": 720,
+          "workMs": 15.565497650334864,
+          "p50Ms": 14.60050794813368,
+          "p95Ms": 19.38079155815972,
+          "maxMs": 21.22118462456597,
+          "loopHz": 47.84569896200843,
+          "periodP95Ms": 33.380940755208336,
+          "maxPeriodMs": 33.436442057291664,
+          "presentations": 720,
+          "workOverField": 182,
+          "longEntryPeriods": 182,
+          "counts": {
+            "probeCapture": 179,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 1440
+          }
+        },
+        {
+          "rows": 720,
+          "workMs": 17.58768963754913,
+          "p50Ms": 16.834320068359375,
+          "p95Ms": 21.73186577690972,
+          "maxMs": 24.779737684461807,
+          "loopHz": 38.39564974288753,
+          "periodP95Ms": 33.39630126953125,
+          "maxPeriodMs": 33.455952962239586,
+          "presentations": 720,
+          "workOverField": 401,
+          "longEntryPeriods": 404,
+          "counts": {
+            "probeCapture": 174,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 0
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "F:\\Projects\\tyrax2-vu-paint-night-no-roads-20261008-v3",
+      "night": true,
+      "roads": false,
+      "elfSha256": "f09f30062985845bf1e79ad3197cad231bfb9e4b440b2b656b4ab0d4507da0a0",
+      "phases": [
+        {
+          "rows": 720,
+          "workMs": 17.11490754492489,
+          "p50Ms": 16.469885932074654,
+          "p95Ms": 21.376302083333332,
+          "maxMs": 23.878553602430557,
+          "loopHz": 41.337894766730344,
+          "periodP95Ms": 33.392923990885414,
+          "maxPeriodMs": 33.44524468315972,
+          "presentations": 720,
+          "workOverField": 316,
+          "longEntryPeriods": 324,
+          "counts": {
+            "probeCapture": 174,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 0
+          }
+        },
+        {
+          "rows": 720,
+          "workMs": 15.17681718049226,
+          "p50Ms": 14.357052273220486,
+          "p95Ms": 18.97968207465278,
+          "maxMs": 20.21872287326389,
+          "loopHz": 47.952038725719945,
+          "periodP95Ms": 33.385470920138886,
+          "maxPeriodMs": 33.43598768446181,
+          "presentations": 720,
+          "workOverField": 180,
+          "longEntryPeriods": 180,
+          "counts": {
+            "probeCapture": 179,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 1440
+          }
+        },
+        {
+          "rows": 720,
+          "workMs": 17.113993072509764,
+          "p50Ms": 16.454118516710068,
+          "p95Ms": 21.365464952256943,
+          "maxMs": 24.61559380425347,
+          "loopHz": 41.53671156812811,
+          "periodP95Ms": 33.39568413628472,
+          "maxPeriodMs": 33.4434814453125,
+          "presentations": 720,
+          "workOverField": 312,
+          "longEntryPeriods": 319,
+          "counts": {
+            "probeCapture": 174,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 0
+          }
+        }
+      ]
+    },
+    {
+      "fixture": "F:\\Projects\\tyrax2-vu-paint-night-roads-20261008-v1",
+      "night": true,
+      "roads": true,
+      "elfSha256": "a70830e7bb9ebb5a04b2d8f707371b37b50396b133fb8ef8d2463467abba65c2",
+      "phases": [
+        {
+          "rows": 720,
+          "workMs": 20.982464006212023,
+          "p50Ms": 20.22313435872396,
+          "p95Ms": 26.100233289930557,
+          "maxMs": 28.41268581814236,
+          "loopHz": 30.47798106352719,
+          "periodP95Ms": 33.41008843315972,
+          "maxPeriodMs": 33.470458984375,
+          "presentations": 720,
+          "workOverField": 696,
+          "longEntryPeriods": 696,
+          "counts": {
+            "probeCapture": 174,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 0
+          }
+        },
+        {
+          "rows": 720,
+          "workMs": 19.129613005084757,
+          "p50Ms": 18.274512396918404,
+          "p95Ms": 23.777567545572918,
+          "maxMs": 25.14499240451389,
+          "loopHz": 31.920624750720467,
+          "periodP95Ms": 33.402547200520836,
+          "maxPeriodMs": 33.504374186197914,
+          "presentations": 720,
+          "workOverField": 629,
+          "longEntryPeriods": 632,
+          "counts": {
+            "probeCapture": 179,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 1440
+          }
+        },
+        {
+          "rows": 720,
+          "workMs": 21.02904081462342,
+          "p50Ms": 20.238243950737846,
+          "p95Ms": 26.152845594618057,
+          "maxMs": 28.34128146701389,
+          "loopHz": 30.478004039425148,
+          "periodP95Ms": 33.41302490234375,
+          "maxPeriodMs": 33.49885389539931,
+          "presentations": 720,
+          "workOverField": 696,
+          "longEntryPeriods": 696,
+          "counts": {
+            "probeCapture": 174,
+            "paint": 568,
+            "captureBlocked": 0,
+            "envEligible": 1440,
+            "envDrawn": 1440,
+            "envSkipped": 0,
+            "paintBlocked": 0,
+            "paintVu": 0
+          }
+        }
+      ]
+    }
+  ],
+  "contrasts": {
+    "eeBefore": {
+      "roadsDayMs": 3.3231477242928946,
+      "roadsNightMs": 3.8675564612871334,
+      "nightNoRoadsMs": 2.9433841422752103,
+      "nightRoadsMs": 3.487792879269449,
+      "interactionMs": 0.5444087369942388
+    },
+    "vuPaint": {
+      "roadsDayMs": 3.3378686504599475,
+      "roadsNightMs": 3.9527958245924975,
+      "nightNoRoadsMs": 2.949188180617343,
+      "nightRoadsMs": 3.5641153547498927,
+      "interactionMs": 0.6149271741325499
+    },
+    "eeAfter": {
+      "roadsDayMs": 3.417545893162856,
+      "roadsNightMs": 3.915047742113657,
+      "nightNoRoadsMs": 2.943849328123491,
+      "nightRoadsMs": 3.441351177074292,
+      "interactionMs": 0.49750184895080096
+    }
+  },
+  "identicalStagedNonElfFiles": 302,
+  "sameNormalizedManifest": true,
+  "commonMainObjects": 135,
+  "identicalSourceInvariants": [
+    "game/inc/shadow_data.gen.hpp",
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_texture_bag.hpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.vclpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.vclpp"
+  ],
+  "strictIdenticalWorldPose": false,
+  "verifiedRoadHeightShifts": [
+    0.0,
+    0.12,
+    0.0,
+    0.12
+  ],
+  "residualPoseTolerance": 2e-05,
+  "limitation": "Separate fixtures; road contrasts include the 0.12-unit ride/camera height change. Not pure draw or EE/VU/GS costs."
+}

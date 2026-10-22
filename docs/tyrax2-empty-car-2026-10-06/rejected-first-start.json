@@ -1,0 +1,5 @@
+{
+  "hardwarePerformanceQualified": false,
+  "status": "REJECTED_MISSING_DEFAULT_HUD_STARTUP_ASSETS",
+  "reason": "Fresh generated asset staging omitted default preloaded HUD/menu resources; not used as accepted cadence evidence"
+}

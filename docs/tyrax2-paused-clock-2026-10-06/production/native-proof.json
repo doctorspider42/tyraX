@@ -1,0 +1,8 @@
+{
+  "status": "PASS_GENERATED_CLOCK_ACTUAL_NATIVE_MIRROR",
+  "sourceFiles": 75,
+  "mirror": "/home/spider/.cache/tyrax/native/projects/b81a3a12d0e4f28d09f0c980",
+  "sourceManifestSha256": "8fbcd3db6dd92be9703d5def4d69b1deb9246a9c4e460fb7dda1da6e3c4a93a3",
+  "elfSha256": "2073bac24336b81d39f88ae13d1ea85f0e809572f54aed18feacf05b14512167",
+  "symbolSha256": "a439670963bd98c6576f0c42b06b4bd9aeb46f3eb1aa6987919d4eea71cffaf8"
+}

@@ -1,0 +1,14 @@
+{
+  "status": "ROOT_REVIEWED_THREE_ORDINARY_CORONA_ADMISSION_IMAGES",
+  "images": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-corona-admission-order0-20261005-launch\\phase-0.png": "010b277111a5292262696ce0898ec58ef75ba4a14c24e7b4a0b8d910c94e07a2",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-corona-admission-order0-20261005-launch\\phase-1.png": "2624db4987e3f9360da00dcfc6ee1884eb1a0d21412746b9061516b55d6bd518",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-corona-admission-order0-20261005-launch\\phase-2.png": "7386f5707c6f39eed2f2fd5ffffcdfd0e68b439e895f640648d59bed805483ae"
+  },
+  "review": "Car, road, lamp beams, distant buildings and HUD appear normal across Off/On/Off. No new stretched polygons apparent. Candidate EE requests were zero at all six observed cold points; these images are ordinary fallback appearance, not positive SPRITE evidence. Emulator HUD fps is not physical timing.",
+  "physicalVisualAccepted": false,
+  "positiveSpriteRasterAccepted": false,
+  "limits": [
+    "Qualitative image inspection only; no pixel equivalence or whole-frame hardware coverage."
+  ]
+}

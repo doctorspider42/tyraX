@@ -1,0 +1,36 @@
+{
+  "pid": 13082,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-pool-table-order1-20261005/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-pool-table-order1-20261005/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-table-physical-v3/game/bin/vehicle-playground.elf"
+  ],
+  "exe": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt",
+  "exeSha256": "c4629baf9c5daca45a9df6ad1ee84a188aeb025627b822a3ea62bdc48b23da18",
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-table-physical-v3",
+  "stem": "night-ablation-emulator-pool-table-order1-20261005",
+  "kind": 7,
+  "order": 1,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "d81763a17f7a1c66c620a52e31c6420a5b820f19f973eb9a3f9299281006556e",
+  "profile": "/home/spider/night-ablation-emulator-pool-table-order1-20261005/profile",
+  "launchArchive": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-pool-table-order1-20261005-launch",
+  "helperSha256": "7022ea6f7002ae45667b7f43740477c643ca07a589107a4bf3cf363d20be667c",
+  "launchFiles": {
+    "night-ablation.cfg": "291918bd96dab496dee4817dc303d9f6ec3f8dfb692ae27ebdb9e5d78ace152e",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "09eb6ecb62e9d9872acccbe9923b554fd9ecef8f6f24dba23ec548c18b699575",
+    "root-source-freeze.json": "46318c9379b3aa8b79965f1ad0c920fecf11ab6fd667dd022ad3e241369226b4",
+    "runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "target-source-manifest.json": "c0da3cd8dadd3072fce0381808a8a312d926726820b6e14f1e7ae96f84048581",
+    "vehicle-playground.elf": "d81763a17f7a1c66c620a52e31c6420a5b820f19f973eb9a3f9299281006556e",
+    "vehicle-playground.elf.sym": "39bbaab34ac7d0d2af124c7777463ff968fb3b92890ff9f4b1eab1e6478cd550"
+  }
+}

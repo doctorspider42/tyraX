@@ -1,0 +1,703 @@
+{
+  "status": "PASS_PREPARED_NIGHT_V3_EXTRA_SUBSET_ACTUAL_HEADER_HOST_CONTROLS_ONLY",
+  "positiveCompleteTranscripts": 28,
+  "negativeParserGuards": [
+    "oldKindExtraMustZero",
+    "extraUnknownPhaseField",
+    "extraUnknownGateField",
+    "extraMissingPhase",
+    "extraDuplicatePhase",
+    "extraMissingGate",
+    "extraDuplicateGate",
+    "extraWrongFirst",
+    "extraWrongApplied",
+    "extraWrongSubset",
+    "extraGateWrongMask",
+    "extraSelectedSubmit",
+    "extraPartition",
+    "extraEnabledSkip",
+    "extraWrongColdWindow",
+    "ordinaryMaskNonzeroKind3",
+    "samplerOffKind3",
+    "ordinaryReservedCounter",
+    "phaseWrongFirst",
+    "malformedPointer",
+    "driftPointer",
+    "missingRaw",
+    "unknownRawField",
+    "missingCamera"
+  ],
+  "runs": [
+    {
+      "plan": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 128,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 256,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        0,
+        31,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        1,
+        31,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        0,
+        31,
+        3
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        1,
+        31,
+        3
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        1
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        1,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        1
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        1,
+        0,
+        1
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        2
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        2,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        2
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        2,
+        0,
+        2
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        4
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        4,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        4
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        4,
+        0,
+        4
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        7
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        7,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        7
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        7,
+        0,
+        7
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 128,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 256,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        0,
+        31,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        1,
+        31,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        0,
+        31,
+        3
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        1,
+        31,
+        3
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        1
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        1,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        1
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        1,
+        0,
+        1
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        2
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        2,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        2
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        2,
+        0,
+        2
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        4
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        4,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        4
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        4,
+        0,
+        4
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        7
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        7,
+        0
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        7
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        7,
+        0,
+        7
+      ],
+      "checks": "HOSTCHECKS=10810",
+      "buildExit": 0,
+      "runExit": 0
+    }
+  ],
+  "commands": [
+    [
+      "C:/Users/pawel/scoop/apps/mingw/current/bin/g++.exe",
+      "-std=c++17",
+      "-O0",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-static",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-extra-v3-proposal\\source\\tyra\\engine\\inc",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-controls.cpp",
+      "-o",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\controls-O0.exe"
+    ],
+    [
+      "C:/Users/pawel/scoop/apps/mingw/current/bin/g++.exe",
+      "-std=c++17",
+      "-O2",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-static",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-extra-v3-proposal\\source\\tyra\\engine\\inc",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-controls.cpp",
+      "-o",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\controls-O2.exe"
+    ],
+    [
+      "python",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\analyze-night-cli.py",
+      "--stdout",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-7-stdout.log",
+      "--artifact",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-7-artifact.log",
+      "--environment",
+      "host",
+      "--kind",
+      "3",
+      "--order",
+      "0",
+      "--joint",
+      "0",
+      "--restored",
+      "7",
+      "--report",
+      "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\actual-cli-kind3.json"
+    ]
+  ],
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\night_plan.hpp": "01b144f310cea1dc01df440001b127ff5f69b2f0d83db635dd9d44af105a48ca",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\night_runtime.hpp": "9d0c22a1e27a2c37ce37c235e8a757db9251566bcdb959e6bde89921d30070fc",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\analyze-night.py": "1501b41d9a0f169fd540f60e1839910e82c103734f03d9a5e7b4d56b6a8e60f8",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\analyze-night-cli.py": "3bc1e85d9cc2464c1b41dce157ab4eb2ee65324ef891853a2e98aecfd8e3b198",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-controls.cpp": "4ceeee362d5eba05176288e4562f3f3a5f721764ef494a76c7e038776e20594a",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\run-host-controls.py": "eb5ccafd76a8a1855e1883183331ba053cc4eb46d308da06f64cc879f3f06cf4",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\README.md": "c52bad193b69480ccea221b7f7a244be3308d7b8bc103810eea05364330e4ea6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-extra-v3-proposal\\source\\tyra\\engine\\inc\\debug\\night_ablation.hpp": "afac4fddf3c41977f22e64a00c15cdbf0e17342de49149fb529bc533a3fb54c3"
+  },
+  "artifactPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\actual-cli-command.log": "b596b75467acff0277efb3eb43d866745aaf23848397ab2a016f5e54dce92bd0",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\actual-cli-kind3.json": "6364fade991a1f457e02d35b7857ed7841c2b3aee39cd1f4a027df8ecf6d9fe8",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\build-O0.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\build-O2.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\controls-O0.exe": "5d44ad63cd194945ab166c7f0485da29dbc9cfd60510d00a0009dee55c4ff11d",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\controls-O2.exe": "06f8cca61affab9270d880010db21330b3e22c49857efbbbe352670a5ba89ad2",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-0-0-0-0-artifact.log": "70892abdbb70f7c3b4dcb0c5e03de4f59234bddc33e3ce56ba40ef9b052eeac0",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-0-0-0-0-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-0-0-0-0-stdout.log": "0b90a7d24af544d0598dc1c759d6e01ac6b6b30542bd05652854baa5c7d2de6a",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-0-1-0-0-artifact.log": "bed06a8a6c1d0b54e7d316ad1e36b4574ab8268ed965f4eea1f8b775f39c57d0",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-0-1-0-0-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-0-1-0-0-stdout.log": "c63b110df1c86da6c95cea372e7a6817d7040801bc91c21628353d9edfa8be96",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-1-0-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-1-0-31-0-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-1-0-31-0-stdout.log": "9ff499dd7e5f103bd1d8e51d161139461aecc0fe336c842349b1b923e1050de8",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-1-1-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-1-1-31-0-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-1-1-31-0-stdout.log": "cde3e435e462ae46616367b56f0d3ec53c9b23e1cfc058c812308cabeafaa33e",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-2-0-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-2-0-31-3-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-2-0-31-3-stdout.log": "de1530a9eed8f9cede36461d3cd778c154712256fc2a566f64e21c513556d322",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-2-1-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-2-1-31-3-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-2-1-31-3-stdout.log": "b98efc63f8fb7ba8e0a8eac588194fe03590d4e4fbf8fd0b452918ae1cdb1436",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-1-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-1-stdout.log": "37230280efc6e0d08d7d7d6a3b712da7a3e95df99242f5b1efdd072e0c572b09",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-2-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-2-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-2-stdout.log": "6a5b3bf58091e3b4a3ece73896203e5dcb3f36c7d2c49f8f10ff9ff7b762c9a0",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-4-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-4-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-4-stdout.log": "5af216e1492d36bca45a3e0ea39997e6bde0bee328b58f8a0c0c058b02f46a28",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-7-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-7-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-0-0-7-stdout.log": "407d6b5bd7d54a4f060ed07b154782b1f97c117930f6c4b81e2141e82270056b",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-1-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-1-stdout.log": "1988fb1b348279bdc8fe5c12891ce635cf147fb9fc64b19de76c038549e424ef",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-2-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-2-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-2-stdout.log": "3d9e49287ce27f6f113aa54056df4176d19d40e1f7fae53b0909339696ae6798",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-4-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-4-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-4-stdout.log": "f974cce2c093fec98b1085e24a71fc0b0ea6ef5ea678a2dfa9741da88b12c459",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-7-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-7-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O0-3-1-0-7-stdout.log": "73d3418335e8bfa128a2264fc834f4ec67ba8e421641dcbe7601b7a4e6a48367",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-0-0-0-0-artifact.log": "70892abdbb70f7c3b4dcb0c5e03de4f59234bddc33e3ce56ba40ef9b052eeac0",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-0-0-0-0-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-0-0-0-0-stdout.log": "baca6ed1d65cafb8c54203ff5645478e88129e024827741e21e590f0a7ef75c3",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-0-1-0-0-artifact.log": "bed06a8a6c1d0b54e7d316ad1e36b4574ab8268ed965f4eea1f8b775f39c57d0",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-0-1-0-0-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-0-1-0-0-stdout.log": "8a6d2a89173ff71b552a9e215098315431b671f009ad24e6ad14d50b02bf79e2",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-1-0-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-1-0-31-0-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-1-0-31-0-stdout.log": "08439f7857d5b63ef386dca2aba5b5d585a291efb3adec2368de384e41f8b220",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-1-1-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-1-1-31-0-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-1-1-31-0-stdout.log": "75f452d267fe515cf1a32d379e789c73a7713e2cef3bbfb706e68cfd6d95a31c",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-2-0-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-2-0-31-3-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-2-0-31-3-stdout.log": "97481ff8d58c6085c1046cd4ba1da8a5f2edc6d5c4f1e8efbe02b0a28527fd36",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-2-1-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-2-1-31-3-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-2-1-31-3-stdout.log": "87a3a56c0c3944dffc8678d37f0f044f7060397a7309a8cbc82a9cd231f15b6d",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-1-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-1-stdout.log": "6303cecacf676a769ca0e7471d2540054a2f9ebe812228375783d909f37032a3",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-2-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-2-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-2-stdout.log": "1a2bcb035bfe5d7fb86826a10a31735f2614bab787f81411f5a55ce2b42e2bf3",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-4-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-4-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-4-stdout.log": "5f58b089b541b2522bd7c171977ba49d2dee6e595bf6dfb02ce41dedff0512da",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-7-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-7-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-0-0-7-stdout.log": "3e856ffdcd0766dbff76e41b709b53e693e077cf28a56ed8f6a9190699a1e63a",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-1-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-1-stdout.log": "06b4b65675700586261770547d766f25f67c2d509883d5889de1db41ba698133",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-2-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-2-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-2-stdout.log": "72a0bebbb499955037111403dc5685bbea9a4306f3a55e81dc402bb2e3155514",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-4-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-4-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-4-stdout.log": "6f5339920407826d0e54b02424a2f5472bd76e55ea885fe88c2089de096570e4",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-7-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-7-run.txt": "487e8ba83853bdeb0795b2686dbae4ee4fc7fba559fa9cac6929b6ac928bff45",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\O2-3-1-0-7-stdout.log": "00942fc60051e79f91c230c9bf6dd0efb7434ae7fea4464df1d0c3086933ff8a"
+  },
+  "sourceGateHeaderSha256": "afac4fddf3c41977f22e64a00c15cdbf0e17342de49149fb529bc533a3fb54c3",
+  "samplerOnReads262OffReads6": true,
+  "ordinaryOldKindsExtraZero": true,
+  "extraCountersUntimed7501155Only": true,
+  "nativeOrRuntimeAccepted": false,
+  "productionGainAccepted": false,
+  "notFullOldSuiteRerun": true
+}

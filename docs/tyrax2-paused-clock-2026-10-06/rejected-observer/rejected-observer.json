@@ -1,0 +1,5 @@
+{
+  "reason": "Target correctly logs to log.txt; observer watched emulator.log, so historical six-phase raster qualification unavailable",
+  "targetLifecycleComplete": true,
+  "acceptedVisualQualification": false
+}

@@ -1,0 +1,17 @@
+# Preload one exact EE execute breakpoint
+
+Exact PCSX2 v2.9.93 commit94d86c891b1621c0b252e4fc2e155bf90274dcc0 supports source-derived preload. DebuggerSettingsManager loads an object with Version string0.01 and Breakpoints array. Each row has exactly eight string-valued keys: X, TYPE, OFFSET, DESCRIPTION, SIZE / LABEL, INSTRUCTION, CONDITION, HITS. TYPE="8" is MEMCHECK_INVALID and selects a BreakPoint, not a memory check; OFFSET is hex, X="1" enables it and empty CONDITION means unconditional. Default maxHits0/instrumentationEnabledfalse/continueOnHitfalse make it a stopping breakpoint, not a logpoint.
+
+Only the EE BreakpointModel constructor loads these settings. It also listens for onGameChanged and reloads when its model is empty. InsertBreakpointRows schedules actual CBreakPoints::AddBreakPoint on the CPU thread. Therefore root should preload into a fresh owned profile while the emulator is stopped, launch a fresh process with -debugger (the exact CLI opens debugger and breaks on ELF entry), verify the loaded single enabled row, then resume through the already-owned UI control. There is no PINE pause or breakpoint-import command. Reuse this same profile/same ELF for all12 fresh boots; no12 coordinate setups are needed. A running model with old rows may suppress automatic reload, so this is not a hot-edit mechanism.
+
+VMManager chooses debugger filename `<s_disc_serial>_<s_current_crc:08X>.json` under configured EmuFolders::DebuggerSettings. Under direct ELF override with NoDisc, serial is Path::GetFileTitle(ELF); current CRC is ElfObject::GetCRC(). That CRC is XOR of all little-endian32-bit words in the complete loaded ELF file; trailing1..3 bytes are ignored. It is neither CRC32 nor the .text hash. The actual boot ELF, not the unstripped .sym, determines the filename. With a mounted disc the serial rule differs: reject that assumption and use actual owned game identity instead. Default DebuggerSettings path is relative to EmuFolders::Settings (`inis/debuggersettings` in the prior Linux profile); caller must pass the actual configured/reported directory, including any Folders override.
+
+prepare-preload.py reads only the diagnostic ELF/.sym and source-bound offline helpers. It checks identical .text, derives exact exported halt/ready symbols and requires halt inside boot text. It prepares the named JSON and proof in a NEW external output directory, never writes the profile or calls devices/UI. Root copies that sole payload to the fresh configured debugger-settings directory before boot and hashes both copies. Root verifies the owned emulator loaded it and the final PINE paused PC equals the exact halt entry outside a delay slot. Ready0x504f4f32 and capture text/ZIP checks remain mandatory; rejection halt or a nearby spin PC cannot pass.
+
+Example after the separate diagnostic ELF/native source closure exists:
+
+```
+python prepare-preload.py --elf DIAGNOSTIC.elf --sym DIAGNOSTIC.sym --debugger-settings-dir ACTUAL_OWNED_PROFILE_DEBUGGER_SETTINGS --out NEW_EXTERNAL_PRELOAD_DIR
+```
+
+No payload has yet been generated from an actual diagnostic ELF, installed or executed. The source format enables the workflow; source-only preparation is not proof of runtime loading/pause. The static final VU bank has no iteration epoch: warm qualification is source-called warm route plus completed final packed-output comparison, not independently timestamped fresh VU execution.

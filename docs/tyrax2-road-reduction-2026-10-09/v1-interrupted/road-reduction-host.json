@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "targetInputSets": 8,
+  "headerSha256": "290e9cc75ccf82e8534aa54cdf47619738684457dae5e9195f5572f89650fa5d",
+  "controls": [
+    "plan indices",
+    "both platform payloads",
+    "null",
+    "count",
+    "every vertex position",
+    "every UV",
+    "every alpha",
+    "unknown ID"
+  ],
+  "sanitizers": "ASan/UBSan"
+}

@@ -1,0 +1,15 @@
+{
+  "sourceManifestSha256": "d2badd8b28f1a5fe78dedc809450b99b5a2d60dd0f20166f1c369d28055385a5",
+  "sourceFiles": 501,
+  "changes": [
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp"
+  ],
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "candidate": "EE integer quadword matrix bit equality; aligned64byte keys; 4104 target oracle cases plus sparse real comparisons; zero extra clocks",
+  "commonCodeFootprintUnpriced": true,
+  "allGameSourcesUnchanged": true,
+  "existingWaitsRetained": true
+}

@@ -1,0 +1,1 @@
+{ "id": "onlybuilding018", "name": "Only building 18 facade-north", "type": "model", "position": [-6.6, 0, 84], "rotation": [0, 90, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/kenney/facade-north.obj" }

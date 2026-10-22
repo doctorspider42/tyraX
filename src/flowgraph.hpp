@@ -1320,6 +1320,24 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "back on its own. 0 = switch blind, which strands the "
                      "player on a black screen if the TV cannot show the mode."},
          .desc = "Switches the console's video mode at runtime."},
+        {.key = "SetFramePipeline", .title = "Set Frame Pipeline",
+         .category = "Scene", .numCount = 1, .numLabels = {"On"},
+         .numTips = {"Off or On. The request is applied before the next frame "
+                     "begins; the last request in that interval wins."},
+         .numChoices = {"Off|On"},
+         .execThrough = true,
+         .desc = "Requests frame pipeline overlap between CPU preparation and "
+                 "GPU rendering. Applied between frames, never during "
+                 "recording. Compatibility fallback can keep overlap inactive "
+                 "while the request is On. Requires a game rebuild; Live Logic "
+                 "cannot patch this node."},
+        {.key = "GetFramePipeline", .title = "Get Frame Pipeline (Requested)",
+         .category = "Scene", .pure = true, .boolOut = true,
+         .desc = "Reads the engine's current frame pipeline request as a bool. "
+                 "A pending Set Frame Pipeline request is visible only after "
+                 "it is applied before the next frame. True does not guarantee "
+                 "active overlap: compatibility fallback may disable it. "
+                 "Requires a game rebuild; Live Logic cannot patch this node."},
         {.key = "SetFrameExtrapolation", .title = "Set Frame Extrapolation",
          .category = "Scene", .numCount = 1, .numLabels = {"Mode"},
          .numTips = {"0 = off, 1 = on but only while it pays for itself, "

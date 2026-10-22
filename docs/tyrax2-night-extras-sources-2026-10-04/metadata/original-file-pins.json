@@ -1,0 +1,171 @@
+{
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\target-source-manifest.json": {
+    "archive": "metadata/frozen-v2-source-manifest.json",
+    "sha256": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\target-source-manifest.json": {
+    "archive": "metadata/frozen-v3-source-manifest.json",
+    "sha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\inc\\debug\\night_ablation.hpp": {
+    "archive": "changed-headers/tyra/engine/inc/debug/night_ablation.hpp",
+    "sha256": "afac4fddf3c41977f22e64a00c15cdbf0e17342de49149fb529bc533a3fb54c3"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\inc\\debug\\night_plan.hpp": {
+    "archive": "changed-headers/tyra/engine/inc/debug/night_plan.hpp",
+    "sha256": "01b144f310cea1dc01df440001b127ff5f69b2f0d83db635dd9d44af105a48ca"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\inc\\debug\\night_runtime.hpp": {
+    "archive": "changed-headers/tyra/engine/inc/debug/night_runtime.hpp",
+    "sha256": "9d0c22a1e27a2c37ce37c235e8a757db9251566bcdb959e6bde89921d30070fc"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\night_sampler.hpp": {
+    "archive": "controls-v3/night_sampler.hpp",
+    "sha256": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\night_plan.hpp": {
+    "archive": "controls-v3/night_plan.hpp",
+    "sha256": "01b144f310cea1dc01df440001b127ff5f69b2f0d83db635dd9d44af105a48ca"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\night_runtime.hpp": {
+    "archive": "controls-v3/night_runtime.hpp",
+    "sha256": "9d0c22a1e27a2c37ce37c235e8a757db9251566bcdb959e6bde89921d30070fc"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\quiet_runtime.hpp": {
+    "archive": "controls-v3/quiet_runtime.hpp",
+    "sha256": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\quiet_cadence.hpp": {
+    "archive": "controls-v3/quiet_cadence.hpp",
+    "sha256": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\analyze-night.py": {
+    "archive": "controls-v3/analyze-night.py",
+    "sha256": "1501b41d9a0f169fd540f60e1839910e82c103734f03d9a5e7b4d56b6a8e60f8"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\analyze-loop.py": {
+    "archive": "controls-v3/analyze-loop.py",
+    "sha256": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\analyze-night-cli.py": {
+    "archive": "controls-v3/analyze-night-cli.py",
+    "sha256": "3bc1e85d9cc2464c1b41dce157ab4eb2ee65324ef891853a2e98aecfd8e3b198"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-controls.cpp": {
+    "archive": "controls-v3/host-controls.cpp",
+    "sha256": "4ceeee362d5eba05176288e4562f3f3a5f721764ef494a76c7e038776e20594a"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\run-host-controls.py": {
+    "archive": "controls-v3/run-host-controls.py",
+    "sha256": "eb5ccafd76a8a1855e1883183331ba053cc4eb46d308da06f64cc879f3f06cf4"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\README.md": {
+    "archive": "controls-v3/README.md",
+    "sha256": "c52bad193b69480ccea221b7f7a244be3308d7b8bc103810eea05364330e4ea6"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\CLI-CORRECTION.md": {
+    "archive": "controls-v3/CLI-CORRECTION.md",
+    "sha256": "9afb95bc550fd2ce4526c0916be14e4c9fa93654382cc154b48d0154718f6b7a"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\final-proof-v3.json": {
+    "archive": "controls-v3/final-proof-v3.json",
+    "sha256": "17d928aacd6a6b67fceda7b1026f35e947138191704b5bff035a03c0c74df081"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\proof.json": {
+    "archive": "proofs/actual-header-host-proof.json",
+    "sha256": "1096f4f666a29e57fb53facee3dc7db5d73f46521609b3540c397d96f42f68fb"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\build-native.ps1": {
+    "archive": "root-helpers/build-native.ps1",
+    "sha256": "f1ba782eff8a5db613b028b30f9d93b90452eec15890770de00c18679dcf2255"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\compile-abi.py": {
+    "archive": "root-helpers/compile-abi.py",
+    "sha256": "4228700b0135c38a1a25f1936df06556a3c18f8fb5dd00a505e9709af38639c4"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\complete-native-provenance.py": {
+    "archive": "root-helpers/complete-native-provenance.py",
+    "sha256": "a70636f6d3da4c37052b241e396cc2e072b54bc963b4f809d2fefc70da6fccda"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\finish-physical.ps1": {
+    "archive": "root-helpers/finish-physical.ps1",
+    "sha256": "5c7210868ac07661d7c0caab25a9eb9d5bcc38bdb3dabcfe17cbc67028b630b1"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\freeze-input.py": {
+    "archive": "root-helpers/freeze-input.py",
+    "sha256": "77782bdac4362671e6a14a8078665eb541e7e19ffb73d1592388020d7fb97550"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\launch-emulator.py": {
+    "archive": "root-helpers/launch-emulator.py",
+    "sha256": "05ea639479dd1d7abd7b9b3f0ba37c53d168ed2fe494d8017c90d2fe949c7e54"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\launch-physical-observed.py": {
+    "archive": "root-helpers/launch-physical-observed.py",
+    "sha256": "ce00cde47e44dcaa1d4ab79f04d4458594a4e901dd23500fffee50807e6a7838"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\preparation-proof.json": {
+    "archive": "root-helpers/preparation-proof.json",
+    "sha256": "11dbd31c9c80be03c6b47d14b4e0cd056fe8b332c584329c62e982a7d8551f92"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\prepare-physical.py": {
+    "archive": "root-helpers/prepare-physical.py",
+    "sha256": "ee38d971ef20525464a0981945a0b4259b954f5482ef3479a351be66719af518"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\qualify-emulator.py": {
+    "archive": "root-helpers/qualify-emulator.py",
+    "sha256": "5b411a2f8c8b693788889a4ecd5030ac2406ae11b99edcd7a4316d484840ab0b"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\stop-emulator.py": {
+    "archive": "root-helpers/stop-emulator.py",
+    "sha256": "c50fcd43b02e253014de9c3e3cdb3d09b3e16d59a49a3503e0e61961e4745597"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-runtime-tools-v3\\freeze-completed.py": {
+    "archive": "runtime-tools/freeze-completed.py",
+    "sha256": "43cf77805cf3f93642e41bf00e75c9c5385057f5a08b788cf7c836c2a5b0fb10"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-runtime-tools-v3\\normalize-physical.py": {
+    "archive": "runtime-tools/normalize-physical.py",
+    "sha256": "8fabee7d7ee6c471b1f9e782eb727a6902a0a53a31dbbb4058b11c351e7cdad1"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\integration-proof.json": {
+    "archive": "proofs/integration-proof.json",
+    "sha256": "de014d8b2ea6f86aa37cf055b7b5cf0be05df9cd31b015d9069a01b491698f83"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\root-integration-execution.json": {
+    "archive": "proofs/root-integration-execution.json",
+    "sha256": "686017009183816f3f53dd16184434f1919a1e030e151bae4abb29a3648ccbc3"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\root-source-freeze.json": {
+    "archive": "proofs/root-source-freeze.json",
+    "sha256": "e4a5aa367f75b2d9fcac3ba4ce21630bd77156e662ba5ba7e4f290d2f612ccac"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\root-native-command-exit.json": {
+    "archive": "proofs/root-native-command-exit.json",
+    "sha256": "56d5e16000311f18607d731895e18ec06d53c931f18f5554cc27311fe02f08f0"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\root-native-provenance.json": {
+    "archive": "proofs/root-native-provenance.json",
+    "sha256": "0d607fc572ed8e56ae261362e94793d647e61cea89fc4d5b3673854cac3a49c8"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-extra-v3-independent-review\\proof.json": {
+    "archive": "proofs/independent-source-review.json",
+    "sha256": "a7104ea8bfefa65b7065d45c87f8f71ce3b1246c81d023caa5c233fea329497f"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-target-abi-v3\\proof.json": {
+    "archive": "proofs/actual-target-abi-proof.json",
+    "sha256": "8842e9173c9469c80734e94701264d860507abd94a4ddbe2aae61051ead7efcd"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-native-review-v3\\proof.json": {
+    "archive": "proofs/independent-native-review-excerpt.json",
+    "sha256": "db931089f77d0cac76e71de32b71fb4f6a720adedc0af6a181fc2a2d6bdb171a",
+    "fullCopy": false
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-eight-run-summary-v1\\REPORT.md": {
+    "archive": "prior-v2-runtime/REPORT.md",
+    "sha256": "387ec4f5dbfd5570f0fb5f3c8c5ebdc56f91bc3660542e6baf91014ebe9c7152"
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-eight-run-summary-v1\\proof.json": {
+    "archive": "prior-v2-runtime/proof.json",
+    "sha256": "4a85237ddaba75212f0b5ce4e673b2207f329ee0d93cfb306587117878f463c9"
+  }
+}

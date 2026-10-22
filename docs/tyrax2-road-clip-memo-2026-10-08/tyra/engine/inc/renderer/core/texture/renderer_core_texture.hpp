@@ -1,0 +1,170 @@
+/*
+# _____        ____   ___
+#   |     \/   ____| |___|
+#   |     |   |   \  |   |
+#-----------------------------------------------------------------------
+# Copyright 2022, tyra - https://github.com/h4570/tyra
+# Licensed under Apache License 2.0
+# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: isResident()/findAllocation() - hinted resident lookup.
+*/
+
+#pragma once
+
+#include <tamtypes.h>
+#include <vector>
+#include "./texture_repository.hpp"
+#include "./renderer_core_texture_sender.hpp"
+#include "renderer/core/paths/path3/path3.hpp"
+#include "./renderer_core_texture_buffers.hpp"
+
+// Modified by TyraX: the GS VRAM residency census (docs/gs-vram.md). OFF by
+// default and deliberately not keyed to NDEBUG - the engine's Makefile defines
+// that for one target only, so a "debug-only" census gated on it shipped live
+// in a release-profile game and cost about 1 ms a frame on a physical console.
+// Build with -DTYRA_VRAM_CENSUS=1 to name what is resident.
+#ifndef TYRA_VRAM_CENSUS
+#define TYRA_VRAM_CENSUS 0
+#endif
+
+// The 120-frame VRAMSTAT summary. The eviction-driven line is unconditional -
+// that one reports an event. This one is a timer, and a timer that writes to
+// host: inside a measurement window is noise with a period.
+#ifndef TYRA_VRAM_PERIODIC_STAT
+#define TYRA_VRAM_PERIODIC_STAT 0
+#endif
+
+namespace Tyra {
+
+/**
+ * Modified by TyraX: GS VRAM residency counters. Cheap (a handful of
+ * integer increments per bind) and always compiled, but only *reported* in
+ * debug builds - RendererCoreTexture::traceFrame() logs through TYRA_LOG,
+ * which NDEBUG compiles away. See docs/gs-vram.md.
+ */
+struct RendererCoreVRamStats {
+  u32 binds = 0;        // useTexture() calls that need a VRAM allocation
+  u32 hits = 0;         // ...of which were already resident
+  u32 uploads = 0;      // PATH3 texture transfers (allocate + send)
+  u32 reuploads = 0;    // ...of which were re-sending an evicted texture
+  u32 evictions = 0;    // allocations dropped to make room
+  u32 evictionEvents = 0;  // binds that had to drop anything at all
+  u32 resident = 0;     // allocations resident right now
+  u32 peakResident = 0;
+  /**
+   * Frees of an allocation that was NOT the newest one. Ordinary with the
+   * free-list heap (streaming layers do it on every unload) and tracked only
+   * because it used to be fatal: upstream's free() rewound a bump pointer to
+   * the freed address, handing the next allocation memory that still-live
+   * textures above it were rendering from.
+   */
+  u32 unorderedFrees = 0;
+  float minFreeMB = 4.0F;  // low-water mark of the free VRAM report
+};
+
+class RendererCoreTexture {
+ public:
+  typedef void (*MutationBarrier)(void* context);
+  RendererCoreTexture();
+  ~RendererCoreTexture();
+
+  clutbuffer_t clut;
+  TextureRepository repository;
+
+  RendererCoreTextureBuffers useTexture(const Texture* t_tex);
+  /** Modified by TyraX: called only before VRAM content/address mutation. */
+  void setMutationBarrier(MutationBarrier barrier, void* context) {
+    mutationBarrier = barrier;
+    mutationBarrierContext = context;
+  }
+  void clearMutationBarrier(void* context) {
+    if (mutationBarrierContext != context) return;
+    mutationBarrier = nullptr;
+    mutationBarrierContext = nullptr;
+  }
+
+  /**
+   * Called by user after changing texture wrap settings
+   * Updates texture packet without reallocate it
+   */
+  RendererCoreTextureBuffers updateTextureInfo(const Texture* t_tex);
+
+  /** Called by renderer during initialization */
+  void init(RendererCoreGS* gs, Path3* path3);
+
+  /** Called by renderer during rendering */
+  void updateClutBuffer(texbuffer_t* clutBuffer);
+
+  /** Modified by TyraX: releases a freed texture's GS VRAM and its
+   * texbuffer structs (no-op when the texture was never uploaded). Called
+   * by TextureRepository::free()/removeById(); the old removeBufferId()
+   * path only tombstoned the allocation entry and leaked both. */
+  void freeTextureBuffers(const u32& texId);
+
+  /** Modified by TyraX: drop every VRAM texture allocation (the
+   * runtime display-mode switch rebuilds the whole VRAM layout). Textures
+   * re-upload lazily on their next use. */
+  void evictAll();
+
+  /** Modified by TyraX: made public so per-frame dynamic textures (the
+   * VU0-raytraced mirror) can tell "re-upload into the existing
+   * allocation" (updateTextureInfo) apart from "allocate + upload"
+   * (useTexture) after an eviction flush. Returns id == 0 when the
+   * texture has no GS allocation. */
+  RendererCoreTextureBuffers getAllocatedBuffersByTextureId(const u32& id);
+
+  /** Modified by TyraX: is this texture in VRAM right now (a resident
+   * allocation, or a VRAM-resident render target)? Uses the texture's
+   * residentHint, so a per-bag question costs one compare, not a scan. */
+  bool isResident(const Texture* t_tex);
+
+  /** Modified by TyraX: VRAM residency counters (see the struct). */
+  RendererCoreVRamStats stats;
+
+  /** Modified by TyraX: called once per frame by RendererCore::endFrame().
+   * Logs a VRAMSTAT line whenever something interesting happened (an
+   * eviction) and a periodic summary otherwise; no-op in release. */
+  void traceFrame();
+
+ private:
+  std::vector<RendererCoreTextureBuffers> currentAllocations;
+
+  /** Modified by TyraX: texture ids that have already been uploaded once,
+   * so a repeat upload can be counted as a re-upload (the cost eviction
+   * actually creates). Only grows with the number of distinct textures. */
+  std::vector<u32> everUploaded;
+
+  u32 frameCounter = 0;
+
+  /** Modified by TyraX: monotonic bind counter driving the LRU/MRU choice,
+   * and the value it held when the current frame started. */
+  u32 useSeq = 0;
+  u32 frameStartSeq = 0;
+  u32 prevFrameStartSeq = 0;
+
+  u32 lastLoggedEvictions = 0;
+  RendererCoreVRamStats lastLogged;
+
+  void initClut();
+
+  /** Modified by TyraX: index of the allocation to evict next (-1 if none). */
+  int pickVictim() const;
+
+  /** Modified by TyraX: evict until `t_tex` fits. */
+  void makeRoomFor(const Texture* t_tex);
+
+  void registerAllocation(const RendererCoreTextureBuffers& t_buffers);
+  // Modified by TyraX: index of t_tex's resident entry, or -1. Tries
+  // t_tex->residentHint first and refreshes it after a scan.
+  s32 findAllocation(const Texture* t_tex);
+  void unregisterAllocation(const u32& textureId);
+
+  RendererCoreGS* gs;
+  RendererCoreTextureSender sender;
+  Path3* path3;
+  MutationBarrier mutationBarrier = nullptr;
+  void* mutationBarrierContext = nullptr;
+  void beforeMutation();
+};
+
+}  // namespace Tyra

@@ -1,0 +1,213 @@
+{
+  "status": "EXACT_COMPILED_V3_SOURCE_SNAPSHOT_WITH_EXTERNAL_REVIEW_PROVENANCE",
+  "intendedRepositoryDestination": "docs/tyrax2-spr-call-prototype-sources-2026-10-04",
+  "frozenSourceManifestSha256": "2c0f97c4d03d97656e8ddbd9a120622729c061a06183437dc1268c92f7d15e9a",
+  "actualNativeELFSha256": "f61b60aced3920679e47e271b500e7a5575af2d5a482087625981a57cb335187",
+  "actualNativeSymbolSha256": "7b21e2ceeb0c316471525b52dc40645c36f7f4a2d3ba5810ee7c87edb522c334",
+  "actualNativeInputCount": 475,
+  "archivedCurrentNativeInputs": 11,
+  "sourcePins": {
+    "v3/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/tyra/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp",
+      "sha256": "9d91c71e2579ad4b478ec9d6e43bb29888acc1ac19b9dd9f2e767f8b92ddcf3e",
+      "nativeInputKey": "tyra/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp"
+    },
+    "v3/engine/inc/renderer/core/paths/path1/native_call_cache.hpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/tyra/engine/inc/renderer/core/paths/path1/native_call_cache.hpp",
+      "sha256": "17e1f84b243bc9c3e6b390a738a65aca394d5728621953e993846eecd7722456",
+      "nativeInputKey": "tyra/engine/inc/renderer/core/paths/path1/native_call_cache.hpp"
+    },
+    "v3/engine/inc/renderer/core/paths/path1/native_call_check.hpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/tyra/engine/inc/renderer/core/paths/path1/native_call_check.hpp",
+      "sha256": "5e81c0b2511527e8a9108b012f5e2fbaa846b28b20a101c79ecc6bde3d65d3c7",
+      "nativeInputKey": "tyra/engine/inc/renderer/core/paths/path1/native_call_check.hpp"
+    },
+    "v3/engine/inc/renderer/core/paths/path1/spr_prefix_stager.hpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/tyra/engine/inc/renderer/core/paths/path1/spr_prefix_stager.hpp",
+      "sha256": "d80c90f12ba7d95e7fa64b8220be75ca42ad093f12eefcf03381793d54efa48a",
+      "nativeInputKey": "tyra/engine/inc/renderer/core/paths/path1/spr_prefix_stager.hpp"
+    },
+    "v3/engine/inc/renderer/core/paths/path1/spr_transaction_storage.hpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/tyra/engine/inc/renderer/core/paths/path1/spr_transaction_storage.hpp",
+      "sha256": "9562fc30b95a8876b475b024cfcb0aff56598ef9ca769cf61d9c62089ec729dc",
+      "nativeInputKey": "tyra/engine/inc/renderer/core/paths/path1/spr_transaction_storage.hpp"
+    },
+    "v3/engine/inc/renderer/core/paths/path1/vif1_queue.hpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp",
+      "sha256": "c5531f85187e4dcb97aacdb7d457761edb26b1dae6293926a51f8ecf8d586fdc",
+      "nativeInputKey": "tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp"
+    },
+    "v3/engine/src/renderer/core/paths/path1/vif1_queue.cpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+      "sha256": "af4cdc4204c2e689b48c5fd3f46b191b8f65504d6e931dfce89c3ddf2a93dcff",
+      "nativeInputKey": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp"
+    },
+    "harness/engine/inc/debug/quiet_cadence.hpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/tyra/engine/inc/debug/quiet_cadence.hpp",
+      "sha256": "f4c7a6a1e9a5bae6a54fc85814b3998ba1b847b8813fb354f2b17a32db410148",
+      "nativeInputKey": "tyra/engine/inc/debug/quiet_cadence.hpp"
+    },
+    "harness/engine/inc/debug/quiet_runtime.hpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/tyra/engine/inc/debug/quiet_runtime.hpp",
+      "sha256": "5a1177f7e792f6eee1c2fd041e127a502d2cee3fa719838c22da124fda8910e6",
+      "nativeInputKey": "tyra/engine/inc/debug/quiet_runtime.hpp"
+    },
+    "harness/engine/inc/debug/quiet_scope.hpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/tyra/engine/inc/debug/quiet_scope.hpp",
+      "sha256": "b1ec980175686c78042a23801bd5ce9d20e605e86692f8cdaf1fa760de253be5",
+      "nativeInputKey": "tyra/engine/inc/debug/quiet_scope.hpp"
+    },
+    "harness/game/src/proto_benchmark.cpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/game/src/proto_benchmark.cpp",
+      "sha256": "ad6d7989dff3e1b62042a5d6ad93ecb0b90e418051f1b0066c193c7a04405e3e",
+      "nativeInputKey": "game/src/proto_benchmark.cpp"
+    },
+    "comparison/v2/engine/inc/renderer/core/paths/path1/native_call_cache.hpp": {
+      "sourcePath": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v2/tyra/engine/inc/renderer/core/paths/path1/native_call_cache.hpp",
+      "sha256": "f56a92fb059c108fcc74efa02d2d571af680772282ccceece7b6488343917b3d",
+      "nativeInputKey": null
+    }
+  },
+  "externalProofPins": {
+    "frozenSourceManifest": {
+      "path": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/target-source-manifest.json",
+      "sha256": "2c0f97c4d03d97656e8ddbd9a120622729c061a06183437dc1268c92f7d15e9a",
+      "status": "ROOT_FROZEN_MERGED_EQUAL_SAMPLER_BENCHMARK_NATIVE_RUNTIME_PENDING"
+    },
+    "rootSourceFreeze": {
+      "path": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/root-source-freeze.json",
+      "sha256": "1f3e374702f243b92654f11329f87a12185d0ab30c688931a7ac90df1b9d8355",
+      "status": "PASS_ROOT_REVIEWED_MERGED_INPUT_FREEZE"
+    },
+    "mergedSource": {
+      "path": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/merged-source-proof.json",
+      "sha256": "4216653c5980fbd99f6baba0c00d01f94b95bc62749f158d167fa62be02bedcb",
+      "status": "ROOT_EXECUTED_PRIVATE_SPR2_CALL_CACHE_COST_FIXED_NOT_NATIVE_ACCEPTED"
+    },
+    "mergedHost": {
+      "path": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/merged-host/proof.json",
+      "sha256": "a1f3866c713493a92b37959e7a2193b5e0a6cfe72ab0642289788cc634d5cfb9",
+      "status": "PASS_ACTUAL_MERGED_SPR_WRITER_CALL_CACHE_VALIDATOR_HOST_ONLY"
+    },
+    "independentInputReview": {
+      "path": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-root-input-review-v3/proof.json",
+      "sha256": "a6c570a5c7603936fd1d281668005b28de0e113debc28e6d5c29d0305edcf68a",
+      "status": "PASS_ROOT_INTEGRATED_SPR_CALL_BENCHMARK_INPUT"
+    },
+    "independentNativeReview": {
+      "path": "F:/Projects/tyrax2-lab-20261001/spr-call-bench-v3-independent-native-review/proof.json",
+      "sha256": "fc040d4604827a23342f73376ccdf7ac7e49aa4664ead4445785581dae591422",
+      "status": "PASS_INDEPENDENT_SPR_CALL_V3_ACTUAL_NATIVE_MIRRORS_DEPENDENCIES_EE_ABI_AND_ELF"
+    },
+    "nativeProvenance": {
+      "path": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/root-native-provenance.json",
+      "sha256": "6f1f0df72e7063e8f9832bdb737464e7d624f4db4f36ce427146154911cde769",
+      "status": "quiet_native_build_and_assets_verified"
+    },
+    "nativeCommandExit": {
+      "path": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v3/root-native-command-exit.json",
+      "sha256": "18b7695f4ba1fe38b354a6e9a995697f017ffb6bfa4ba08c6efbb8d5a34f8212",
+      "status": "ROOT_observed_native_child_process_completion"
+    },
+    "inheritedTypeFix": {
+      "path": "F:/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/patch-proof.json",
+      "sha256": "3d86e11cad988e00cc960c5ba34210e50e1a909786bdb31cae52c0a89e354b76",
+      "status": "PRIVATE_V2_CANONICAL_SNAPSHOT_WORD_TYPE_PATCH_PREPARED"
+    },
+    "inheritedTypeCompile": {
+      "path": "F:/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/compile-proof.json",
+      "sha256": "80090cfa4b294b88c1f60468e2b33d25f71b56c778d90a59a15de6f0d6458c1d",
+      "status": "PASS_ACTUAL_EE_COMPILE_ONLY_CANONICAL_SNAPSHOT_WORD_TYPE"
+    },
+    "bulkSourceProposal": {
+      "path": "F:/Projects/tyrax2-lab-20261001/call-cache-bulk-payload-v4/combined-source-proof.json",
+      "sha256": "5ca81943c4e22c11d0e39d18a7c20895b37b5e2040c558c9d6c2d9b09cb21ab9",
+      "status": "PRIVATE_SPR2_CALL_CACHE_COST_PATCH_READY_NOT_NATIVE_ACCEPTED"
+    },
+    "bulkHostOracle": {
+      "path": "F:/Projects/tyrax2-lab-20261001/call-cache-bulk-payload-v4/host-proof.json",
+      "sha256": "6d1cf05eda541853bc214f5a9cd246ca5eed90688aefbecbb533c20829eebcb2",
+      "status": "PASS_PRIVATE_CALL_FOLLOWUP_ACTUAL_HEADER_HOST_ONLY"
+    },
+    "bulkHeaderCompile": {
+      "path": "F:/Projects/tyrax2-lab-20261001/call-cache-bulk-payload-v4/compile-proof.json",
+      "sha256": "96193d88518d4c71f075cd55994335bed022362e97909f2e6c8a79a29eb7f381",
+      "status": "PASS_ACTUAL_EE_COMPILE_ONLY_CALL_V4_LOCAL_BULK_PAYLOAD"
+    }
+  },
+  "hostRuns": [
+    {
+      "label": "call",
+      "optimization": "O0",
+      "buildExit": 0,
+      "runExit": 0,
+      "stdout": "PASS_PRIVATE_CALL_HOST checks=1515 cacheHits=19 multiRecordCalls=20 singleRefDiagnostic=1 noNativeDeviceAcceptance=1\r\n",
+      "binarySha256": "b1a16a0621439be8d60a8887ab1505e8c11f0d34fcdb99d09e9afabc3d961598"
+    },
+    {
+      "label": "call",
+      "optimization": "O2",
+      "buildExit": 0,
+      "runExit": 0,
+      "stdout": "PASS_PRIVATE_CALL_HOST checks=1515 cacheHits=19 multiRecordCalls=20 singleRefDiagnostic=1 noNativeDeviceAcceptance=1\r\n",
+      "binarySha256": "81519a0ed21e6ca9a2788aa511c63b0a683a6c6f7fbb416f44e71a8c2c566183"
+    },
+    {
+      "label": "direct",
+      "optimization": "O0",
+      "buildExit": 0,
+      "runExit": 0,
+      "stdout": "PASS direct SPR transaction actual writer: 51149 checks, 100 randomized streams, 1169 backward reloads\r\n",
+      "binarySha256": "7b4ad9cc7b11fe597b91e102f6f43c70df9d880827c5c8f938eecba56db61221"
+    },
+    {
+      "label": "direct",
+      "optimization": "O2",
+      "buildExit": 0,
+      "runExit": 0,
+      "stdout": "PASS direct SPR transaction actual writer: 51149 checks, 100 randomized streams, 1169 backward reloads\r\n",
+      "binarySha256": "a1d5cf99f4b76e8e18fd75f8d16837211678c4a63d6315581cd6c16f75e36355"
+    },
+    {
+      "label": "joint",
+      "optimization": "O0",
+      "buildExit": 0,
+      "runExit": 0,
+      "stdout": "PASS_PRIVATE_CALL_HOST checks=1555 cacheHits=19 multiRecordCalls=20 singleRefDiagnostic=1 noNativeDeviceAcceptance=1\r\n",
+      "binarySha256": "849eb56776e0c31c7a9d6ccdd1fba4e16f47bed030e3b28b8de5948ca5d53224"
+    },
+    {
+      "label": "joint",
+      "optimization": "O2",
+      "buildExit": 0,
+      "runExit": 0,
+      "stdout": "PASS_PRIVATE_CALL_HOST checks=1555 cacheHits=19 multiRecordCalls=20 singleRefDiagnostic=1 noNativeDeviceAcceptance=1\r\n",
+      "binarySha256": "a6b6b1f05ab1a6c6b6f488355199f8af2ba2a17ab5935eec2836a806f03c1c4f"
+    }
+  ],
+  "bulkHostRuns": [
+    {
+      "optimization": "O0",
+      "buildExit": 0,
+      "runExit": 0,
+      "stdout": "PASS_PRIVATE_CALL_HOST checks=44312 cacheHits=19 multiRecordCalls=20 singleRefDiagnostic=1 noNativeDeviceAcceptance=1\r\n",
+      "binarySha256": "aa38631f81675a206b4224f084a63074914fc7cc3e902c8720e3b3fe3dca7ed9"
+    },
+    {
+      "optimization": "O2",
+      "buildExit": 0,
+      "runExit": 0,
+      "stdout": "PASS_PRIVATE_CALL_HOST checks=44312 cacheHits=19 multiRecordCalls=20 singleRefDiagnostic=1 noNativeDeviceAcceptance=1\r\n",
+      "binarySha256": "3f7a1148635f309681d2ebd478e040e91ffc80472a5fdc9d1345e246e777e9ab"
+    }
+  ],
+  "actualCompiledSubset": {
+    "optionalPolicyBridgeInstalled": false,
+    "singletonDiagnosticDefaultPreserved": true,
+    "queueUnchangedFromV2": true
+  },
+  "performanceGainAcceptedByThisArchive": false,
+  "newHardwareVisualAcceptanceByThisArchive": false,
+  "standaloneGame": false,
+  "productionDefaultApi": false
+}

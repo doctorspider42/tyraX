@@ -1,0 +1,15 @@
+{
+  "pid": 21056,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-scene-capture-20261009-v4\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "98cc8ea98d4dbca424a334af3083ce589fc31cfaa6e3585eb09b4b9ce458059e",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "time": "2026-10-09T00:36:12.6121979+02:00"
+}

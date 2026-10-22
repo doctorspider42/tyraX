@@ -1,0 +1,62 @@
+{
+  "valid": true,
+  "commands": [
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O2",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-queue-20261011-v4/queue-test.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-queue-20261011-v4/optimized"
+    ],
+    [
+      "/mnt/f/Projects/tyrax2-hybrid-copy-queue-20261011-v4/optimized"
+    ],
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O1",
+      "-g",
+      "-fsanitize=address,undefined",
+      "-fno-omit-frame-pointer",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-queue-20261011-v4/queue-test.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-queue-20261011-v4/sanitized"
+    ],
+    [
+      "/mnt/f/Projects/tyrax2-hybrid-copy-queue-20261011-v4/sanitized"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/bin/mips64r5900el-ps2-elf-g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O2",
+      "-c",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-queue-20261011-v4/queue-test.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-queue-20261011-v4/queue-ee.o"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/bin/mips64r5900el-ps2-elf-objdump",
+      "-drC",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-queue-20261011-v4/queue-ee.o"
+    ]
+  ],
+  "result": "HYBRIDQUEUE cases=65536 accepted=240 no-flush-no-advance=PASS\n",
+  "actualSourceSha256": "06a07c73afb5652991bd24242a812d7e85b73a49f85d0c3a24d78a4b198d745b",
+  "actualMethodSha256": "86a14f8515f64d583f4baed3620ed5aeeab75100bb5b1f05356478bd54506286",
+  "limits": [
+    "Actual method under mocked volatile queue/MMIO state, not full engine execution.",
+    "Caller must serialize ISR/main transitions.",
+    "Does not prove GS FINISH/window/packet/framebuffer ownership.",
+    "No actual ISR caller or performance change yet."
+  ]
+}

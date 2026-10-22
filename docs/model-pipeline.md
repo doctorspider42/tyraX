@@ -1,5 +1,11 @@
 # Static models: the .tmdl pipeline and mesh LOD
 
+The [October 7 strip audit](tyrax2-strip-batch-2026-10-07/README.md) inventories
+the actual city assets and tests compact batch-run padding on PS2. Most static
+parts already have strips; 12% fewer resident batch vertices produce only a
+0.016 ms observed stationary daylight work contrast. The candidate remains
+private, with no production stripifier or generated-runtime change.
+
 ![Browsing model assets before placing them](img/asset-browser.png)
 
 You author static geometry as `.obj` and nothing about that changes. What

@@ -1,0 +1,15 @@
+{
+  "command": [
+    "git",
+    "-c",
+    "core.autocrlf=false",
+    "-c",
+    "core.eol=lf",
+    "apply",
+    "--whitespace=nowarn",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-source-publication-v1\\patches\\frozen-v3-to-pool-same-elf.patch"
+  ],
+  "exit": 0,
+  "stdout": "",
+  "stderr": ""
+}

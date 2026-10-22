@@ -1,0 +1,16 @@
+{
+  "pid": 44876,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-world-body-20261011-runtime-v2\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "6ccb638122663192ffe3a2e05f2be46d25057ad37aad09be13f8b38270808fab",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-11T05:10:04.0107653+02:00"
+}

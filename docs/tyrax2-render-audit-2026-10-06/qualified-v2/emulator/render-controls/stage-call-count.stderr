@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-render-audit-v2/analyze-render.py", line 46, in <module>
+    for j in (1,2,3,17,18):assert c['s'+str(j)]==len(ps),(p0,j,c['s'+str(j)],len(ps))
+AssertionError: (0, 1, 0, 128)

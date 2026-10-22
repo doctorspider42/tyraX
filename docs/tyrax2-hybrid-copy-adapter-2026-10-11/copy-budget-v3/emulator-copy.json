@@ -1,0 +1,42 @@
+{
+  "valid": true,
+  "platform": "emulator",
+  "elfSha256": "ed9d1ec8db00ea9e72f0fbd690fb98e54a3599033c6dfc3ada3ea4afefbe95fa",
+  "logSha256": "beead02be80bb79ce47a941170039bb328d2d2ba223574bf1edc6d0aa9bbe5cf",
+  "packet": {
+    "qwords": 81,
+    "originalQwords": 79,
+    "columns": 14,
+    "width": 448,
+    "height": 448,
+    "finish": true
+  },
+  "pixels": {
+    "checkedPixels": 200704,
+    "eachQuadrantPixels": 50176,
+    "maxChannelError": 7
+  },
+  "controls": {
+    "missing_copy": true,
+    "wrong_late": true,
+    "not_restored": true,
+    "packet_truncated": true,
+    "source_corrupt": true,
+    "destination_corrupt": true
+  },
+  "completionMs": {
+    "min": 0.0006306966145833334,
+    "median": 0.0006306966145833334,
+    "p95": 0.0006306966145833334,
+    "max": 0.0006306966145833334
+  },
+  "lateCopies": 0,
+  "allObservedInsideBlank": true,
+  "remainingLimits": [
+    "Isolated scene-free consumer cost, not game FPS or EE packet gain.",
+    "Empirical120-copy maximum is not universal WCET or full IRQ dispatch qualification.",
+    "Appended FINISH differs from stock Hybrid2 synchronization.",
+    "Full-game timer/queue/source/raster ownership remains unqualified.",
+    "Emulator completion time is not physical cost."
+  ]
+}

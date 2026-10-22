@@ -1,0 +1,125 @@
+{
+  "scope": "Stationary smoke only; A/A is temporal-noise control, not an equivalence threshold",
+  "hashes": {
+    "park-phase-0.png": "816997c94e212e79ac829dd0897884859d99075161cd5293fec53a34a1c25b99",
+    "park-phase-1.png": "a67c6567c8f5c3ad3bba015244e55bd3827c991e5d96f565b4cd6c14bc948f26",
+    "park-phase-2.png": "0ba383de1e5b2f2ba840ec5eb3bcde8e9b898ed0bf4d6ca6893a44064fd02f2a",
+    "park-phase-3.png": "6fe49bdb5691ed65a82dca95aba97ff4df8c8bbc2a924f75da486a435adbc2e6",
+    "park-phase-4.png": "9da317f6f8adaccb7260db352df3f7a7a66edac0649b7329a775a7c18c457d32",
+    "park-phase-5.png": "7982e5a405565e35b7186d6e4af65ace93de28c4288e7e3e0988155e90d4df93"
+  },
+  "rois": {
+    "worldNoFps": [
+      1,
+      65,
+      640,
+      505
+    ],
+    "skyAndBuildings": [
+      1,
+      65,
+      640,
+      185
+    ],
+    "paint": [
+      215,
+      265,
+      420,
+      355
+    ]
+  },
+  "comparisons": [
+    {
+      "phases": [
+        0,
+        1
+      ],
+      "regions": {
+        "worldNoFps": {
+          "changedPixels": 15180,
+          "meanAbsRGB": 0.11899274434485702,
+          "maxDelta": 131
+        },
+        "skyAndBuildings": {
+          "changedPixels": 159,
+          "meanAbsRGB": 0.006616240653799339,
+          "maxDelta": 54
+        },
+        "paint": {
+          "changedPixels": 514,
+          "meanAbsRGB": 0.03253839205058717,
+          "maxDelta": 8
+        }
+      }
+    },
+    {
+      "phases": [
+        0,
+        2
+      ],
+      "regions": {
+        "worldNoFps": {
+          "changedPixels": 6815,
+          "meanAbsRGB": 0.058095034855598235,
+          "maxDelta": 92
+        },
+        "skyAndBuildings": {
+          "changedPixels": 0,
+          "meanAbsRGB": 0.0,
+          "maxDelta": 0
+        },
+        "paint": {
+          "changedPixels": 293,
+          "meanAbsRGB": 0.01985546522131888,
+          "maxDelta": 11
+        }
+      }
+    },
+    {
+      "phases": [
+        3,
+        4
+      ],
+      "regions": {
+        "worldNoFps": {
+          "changedPixels": 15496,
+          "meanAbsRGB": 0.11709346991037133,
+          "maxDelta": 131
+        },
+        "skyAndBuildings": {
+          "changedPixels": 159,
+          "meanAbsRGB": 0.006616240653799339,
+          "maxDelta": 54
+        },
+        "paint": {
+          "changedPixels": 464,
+          "meanAbsRGB": 0.0367479674796748,
+          "maxDelta": 85
+        }
+      }
+    },
+    {
+      "phases": [
+        3,
+        5
+      ],
+      "regions": {
+        "worldNoFps": {
+          "changedPixels": 6076,
+          "meanAbsRGB": 0.0618437900128041,
+          "maxDelta": 85
+        },
+        "skyAndBuildings": {
+          "changedPixels": 0,
+          "meanAbsRGB": 0.0,
+          "maxDelta": 0
+        },
+        "paint": {
+          "changedPixels": 79,
+          "meanAbsRGB": 0.015085817524841914,
+          "maxDelta": 85
+        }
+      }
+    }
+  ]
+}

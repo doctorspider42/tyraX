@@ -1,0 +1,26 @@
+{
+  "valid": true,
+  "experiment": "A44-sdk-execution",
+  "platform": "emulator",
+  "cells": 12,
+  "passes": 60,
+  "parts": 270,
+  "negativeControls": 54,
+  "elfSha256": "8d5a5b5d2d405d4e8f1a6e3fd37b618f1f1cc879387832ffcf337752c8325f50",
+  "logSha256": "ec38b4f0677651a2abf7aed103a97d388ea24be7d1eb2109548a5b56bbde7c6d",
+  "readerNegativeControls": [
+    "missing",
+    "duplicate",
+    "incomplete",
+    "passes",
+    "controls",
+    "compile-only",
+    "gpu-claim"
+  ],
+  "promotionAllowed": false,
+  "limits": [
+    "EE compiler execution and decoded source delivery only.",
+    "New bodies were NOT submitted to VU1/GS; no raster gate.",
+    "No new world runtime, live head/VRAM/lease or FPS qualification."
+  ]
+}

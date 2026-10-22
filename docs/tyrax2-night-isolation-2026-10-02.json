@@ -1,0 +1,747 @@
+{
+  "fixture": {
+    "phases": [
+      "full night before",
+      "no projected shadows",
+      "no scene light pools/beams",
+      "no live per-bag dynamic lighting (effect levels retained)",
+      "no night dressing",
+      "no vehicle headlight ground pools (lamp emission/glow retained)",
+      "full night restored"
+    ],
+    "frames_per_phase": 2200,
+    "warm_work_start_offset": 1100,
+    "work_sample_count": 512,
+    "period_summary_offsets": [
+      1100,
+      1150,
+      1200,
+      1250,
+      1300,
+      1350,
+      1400,
+      1450,
+      1500,
+      1550
+    ],
+    "engine": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\tyra",
+    "source_game": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game",
+    "artifacts": {
+      "inc\\night_isolation.hpp": "12cf9780595a708340259788a1bff05f65f77aea199d6f295c73c8e488be076e",
+      "src\\terrain_game.cpp": "e2a1136e33ce37d474445747e38904eb9c5ef33f9e7d4cc72c68ad9658dba3bd",
+      "src\\gen\\game_lighting.gen.cpp": "b7e14cb22ba3daa3d6e27e35d490e8137439b6dfcb2188a2d8703e80b906b221",
+      "src\\gen\\game_vehicles.gen.cpp": "d969a13bbaa911dc8dc52f27e5fa4653bf7467a27912a8809c471dd631262657",
+      "src\\scripts\\district_mood.cpp": "ab1496d706f83c1b7bf34580cc22edbc9e9559a0f5d54fb1a94505a6fbbc10e8"
+    }
+  },
+  "log": "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-physical-snapshot.log",
+  "log_sha256": "1943e952e626344256930cec3fbb9ae33ef7beadad390332a040f07c5e82dde1",
+  "elf_sha256": "d962b4ee797713953d79280316f909a3506c768b23fa732507d1e94ff7cec17b",
+  "results": [
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-physical-snapshot.log",
+      "first": 1100,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.377194278770023,
+      "median_ms": 18.322650485568577,
+      "p95_ms": 18.95458306206597,
+      "max_ms": 20.21475558810764,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 0,
+      "name": "full night before",
+      "period_windows": [
+        {
+          "frame": 1100,
+          "period_ms": 33.7,
+          "pre_ms": 1.62,
+          "stall_ms": 13.52,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 1150,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.32,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 1200,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.37,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 1250,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.28,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 1300,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.1,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 1350,
+          "period_ms": 33.37,
+          "pre_ms": 1.6,
+          "stall_ms": 13.12,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 1400,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 13.41,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 1450,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.4,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 1500,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.39,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 1550,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.51,
+          "drain_ms": 0.0
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "delivered_rate_from_period_hz": 29.937430769691346,
+      "mean_pre_ms": 1.569,
+      "mean_stall_ms": 13.342
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-physical-snapshot.log",
+      "first": 3300,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.38875055975384,
+      "median_ms": 18.348951551649307,
+      "p95_ms": 18.990522596571182,
+      "max_ms": 19.931372748480904,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 1,
+      "name": "no projected shadows",
+      "period_windows": [
+        {
+          "frame": 3300,
+          "period_ms": 33.7,
+          "pre_ms": 1.55,
+          "stall_ms": 13.56,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 3350,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.29,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 3400,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 13.46,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 3450,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 13.37,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 3500,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.41,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 3550,
+          "period_ms": 33.37,
+          "pre_ms": 1.58,
+          "stall_ms": 13.39,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 3600,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.3,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 3650,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 13.42,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 3700,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.19,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 3750,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 12.98,
+          "drain_ms": 0.0
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "delivered_rate_from_period_hz": 29.937430769691346,
+      "mean_pre_ms": 1.576,
+      "mean_stall_ms": 13.337,
+      "saving_against_controls_ms": [
+        -0.011556280983818112,
+        0.18559199571609497
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-physical-snapshot.log",
+      "first": 5500,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 16.507425559891594,
+      "median_ms": 16.666917588975693,
+      "p95_ms": 16.940778944227432,
+      "max_ms": 18.132093641493057,
+      "over_budget": 257,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 2,
+      "name": "no scene light pools/beams",
+      "period_windows": [
+        {
+          "frame": 5500,
+          "period_ms": 33.37,
+          "pre_ms": 1.62,
+          "stall_ms": 14.99,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 5550,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 15.28,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 5600,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 15.19,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 5650,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 15.17,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 5700,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 15.23,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 5750,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 15.22,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 5800,
+          "period_ms": 33.37,
+          "pre_ms": 1.56,
+          "stall_ms": 15.1,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 5850,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 15.15,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 5900,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 15.1,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 5950,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 15.31,
+          "drain_ms": 0.0
+        }
+      ],
+      "mean_period_ms": 33.37,
+      "delivered_rate_from_period_hz": 29.967036260113876,
+      "mean_pre_ms": 1.574,
+      "mean_stall_ms": 15.174,
+      "saving_against_controls_ms": [
+        1.8697687188784293,
+        2.0669169955783424
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-physical-snapshot.log",
+      "first": 7700,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 17.31771147913403,
+      "median_ms": 17.317148844401043,
+      "p95_ms": 17.928456624348957,
+      "max_ms": 18.98931206597222,
+      "over_budget": 457,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 3,
+      "name": "No registered live dynamic lights (CPU pickup and per-bag selection; effect levels retained)",
+      "period_windows": [
+        {
+          "frame": 7700,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 14.3,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 7750,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 14.29,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 7800,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 14.61,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 7850,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 14.38,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 7900,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 14.15,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 7950,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 14.16,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 8000,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 14.35,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 8050,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 14.47,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 8100,
+          "period_ms": 33.37,
+          "pre_ms": 1.62,
+          "stall_ms": 14.41,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 8150,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 14.49,
+          "drain_ms": 0.0
+        }
+      ],
+      "mean_period_ms": 33.37,
+      "delivered_rate_from_period_hz": 29.967036260113876,
+      "mean_pre_ms": 1.573,
+      "mean_stall_ms": 14.361,
+      "saving_against_controls_ms": [
+        1.059482799635994,
+        1.256631076335907
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-physical-snapshot.log",
+      "first": 9900,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 17.635158830218845,
+      "median_ms": 17.610999213324654,
+      "p95_ms": 18.244374593098957,
+      "max_ms": 19.34860568576389,
+      "over_budget": 491,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 4,
+      "name": "no night dressing",
+      "period_windows": [
+        {
+          "frame": 9900,
+          "period_ms": 33.37,
+          "pre_ms": 1.59,
+          "stall_ms": 14.0,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 9950,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 14.16,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 10000,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 14.06,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 10050,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 14.22,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 10100,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 14.06,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 10150,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 14.17,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 10200,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 14.0,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 10250,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.91,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 10300,
+          "period_ms": 33.37,
+          "pre_ms": 1.53,
+          "stall_ms": 13.94,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 10350,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 14.06,
+          "drain_ms": 0.0
+        }
+      ],
+      "mean_period_ms": 33.37,
+      "delivered_rate_from_period_hz": 29.967036260113876,
+      "mean_pre_ms": 1.573,
+      "mean_stall_ms": 14.058,
+      "saving_against_controls_ms": [
+        0.742035448551178,
+        0.9391837252510911
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-physical-snapshot.log",
+      "first": 12100,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.356709367699093,
+      "median_ms": 18.286120944552952,
+      "p95_ms": 18.974002414279514,
+      "max_ms": 20.39328342013889,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 5,
+      "name": "no vehicle headlight ground pools (lamp emission/glow retained)",
+      "period_windows": [
+        {
+          "frame": 12100,
+          "period_ms": 33.7,
+          "pre_ms": 1.54,
+          "stall_ms": 13.68,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 12150,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.39,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 12200,
+          "period_ms": 33.37,
+          "pre_ms": 1.53,
+          "stall_ms": 13.51,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 12250,
+          "period_ms": 33.37,
+          "pre_ms": 1.6,
+          "stall_ms": 13.42,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 12300,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.07,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 12350,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 13.1,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 12400,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.18,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 12450,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 13.38,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 12500,
+          "period_ms": 33.37,
+          "pre_ms": 1.6,
+          "stall_ms": 13.37,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 12550,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.58,
+          "drain_ms": 0.0
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "delivered_rate_from_period_hz": 29.937430769691346,
+      "mean_pre_ms": 1.5670000000000002,
+      "mean_stall_ms": 13.368,
+      "saving_against_controls_ms": [
+        0.020484911070930423,
+        0.2176331877708435
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-physical-snapshot.log",
+      "first": 14300,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.574342555469936,
+      "median_ms": 18.583724975585938,
+      "p95_ms": 19.193806966145832,
+      "max_ms": 20.486826578776043,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 6,
+      "name": "full night restored",
+      "period_windows": [
+        {
+          "frame": 14300,
+          "period_ms": 33.7,
+          "pre_ms": 1.61,
+          "stall_ms": 13.06,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 14350,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.03,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 14400,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.17,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 14450,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 13.18,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 14500,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.05,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 14550,
+          "period_ms": 33.37,
+          "pre_ms": 1.55,
+          "stall_ms": 13.1,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 14600,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.11,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 14650,
+          "period_ms": 33.37,
+          "pre_ms": 1.61,
+          "stall_ms": 13.25,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 14700,
+          "period_ms": 33.37,
+          "pre_ms": 1.54,
+          "stall_ms": 13.18,
+          "drain_ms": 0.0
+        },
+        {
+          "frame": 14750,
+          "period_ms": 33.37,
+          "pre_ms": 1.62,
+          "stall_ms": 13.21,
+          "drain_ms": 0.0
+        }
+      ],
+      "mean_period_ms": 33.403,
+      "delivered_rate_from_period_hz": 29.937430769691346,
+      "mean_pre_ms": 1.578,
+      "mean_stall_ms": 13.134
+    }
+  ],
+  "note": "Single physical boot, sequential one-group removals; full-night controls bracket the run. Work and neighboring period windows are different measurements.",
+  "status": "Physical workload isolation complete; no production visual or rendering changes",
+  "engine_revision": "22ad4f89 (corrected 1.169.1 runtime); shared arena-check-night engine",
+  "control_spread_ms": 0.19714827669991308,
+  "limitations": [
+    "One sequential physical boot; control ranges are not confidence intervals.",
+    "Removal effects are non-additive; normal automatic interleave selection remains active.",
+    "Stationary vehicle/camera after each scene reload; startup pose transient excluded by 1100-frame warmup.",
+    "All individual arms remain approximately 30 Hz; no night optimization is shipped.",
+    "Registered-light removal retains baked lighting and the camera spot; vehicle arm retains lamp emission and glow.",
+    "Critical-path work includes unhidden GPU time and excludes presentation pacing; it is not pure EE cost."
+  ],
+  "reproduction_scripts": {
+    "prepare-night-isolation.py": {
+      "sha256": "77035bb55c740cdeac69d537fcdd990973be1da2d8bead1653fa664f342a57e1",
+      "source": "from pathlib import Path\nimport shutil,json,hashlib,re\nlab=Path('F:/Projects/tyrax2-lab-20261001')\nsrc=lab/'arena-check-night/game'\ndst=lab/'night-isolation/game'\nassert not dst.exists()\nshutil.copytree(src,dst,ignore=shutil.ignore_patterns('obj','*.log','*.elf','*.elf.sym','*.p2s','ps2link.run'))\nheader='''#pragma once\nnamespace nightIsolation {\ninline unsigned phase = 0;\ninline bool group(unsigned n) { return phase == n; }\n}\n'''\n(dst/'inc/night_isolation.hpp').write_bytes(header.encode())\ndef edit(rel,old,new):\n p=dst/rel; s=p.read_text(encoding='utf-8'); assert s.count(old)==1,(rel,old,s.count(old)); p.write_bytes(s.replace(old,new).encode('utf-8'))\ndef include(rel):\n p=dst/rel; s=p.read_text(encoding='utf-8'); p.write_bytes(('#include \"night_isolation.hpp\"\\n'+s).encode('utf-8'))\nfor rel in ['src/terrain_game.cpp','src/gen/game_lighting.gen.cpp','src/gen/game_vehicles.gen.cpp','src/scripts/district_mood.cpp']:\n include(rel)\nedit('src/terrain_game.cpp','void TerrainGame::loop() {','''void TerrainGame::loop() {\n  static bool announced = false, done = false;\n  if (!announced) {\n    printf(\"NIGHTISOLATE phase=0 first=%lu\\\\n\",(unsigned long)ftrig::frame); fflush(stdout);\n    announced = true;\n  }\n  const unsigned desired = ftrig::frame / 2200;\n  if (desired <= 6 && desired != nightIsolation::phase) {\n    engine->renderer.core.synchronizeFrame();\n    nightIsolation::phase = desired;\n    printf(\"NIGHTISOLATE phase=%u first=%lu\\\\n\",desired,(unsigned long)ftrig::frame); fflush(stdout);\n    loadScene(currentScene);\n  }\n  if (desired > 6 && !done) {\n    printf(\"NIGHTISOLATE done first=%lu\\\\n\",(unsigned long)ftrig::frame); fflush(stdout);\n    done = true;\n  }\n''')\nedit('src/terrain_game.cpp','  updateDynLights(engine, scriptCtx);','''  updateDynLights(engine, scriptCtx);\n  // Keep light-effect runtime levels, but remove only live per-bag lighting.\n  if (nightIsolation::group(3)) engine->renderer.core.clearDynLights();''')\nfor name in ['updateAndRenderLightPools','renderProjShadows']:\n phase=2 if 'Pools' in name else 1\n edit('src/gen/game_lighting.gen.cpp','void TerrainGame::'+name+'() {','void TerrainGame::'+name+'() {\\n  if (nightIsolation::group('+str(phase)+')) return;')\nedit('src/gen/game_lighting.gen.cpp','const Vec4* viewAt, int portal) {','const Vec4* viewAt, int portal) {\\n  if (nightIsolation::group(2)) return;')\nedit('src/gen/game_vehicles.gen.cpp','if (v.lightsOn > 0 && !(v.lampBroken & 1) && flashGoboTex &&','if (!nightIsolation::group(5) && v.lightsOn > 0 && !(v.lampBroken & 1) && flashGoboTex &&')\nedit('src/scripts/district_mood.cpp','ctx.objects[i].visible = night;','ctx.objects[i].visible = night && !nightIsolation::group(4);')\nout={'phases':['full night before','no projected shadows','no scene light pools/beams','no live per-bag dynamic lighting (effect levels retained)','no night dressing','no vehicle headlight ground pools (lamp emission/glow retained)','full night restored'], 'frames_per_phase':2200,'warm_work_start_offset':1100,'work_sample_count':512,'period_summary_offsets':list(range(1100,1600,50)),'engine':str(lab/'arena-check-night/tyra'),'source_game':str(src),'artifacts':{str(p.relative_to(dst)):hashlib.sha256(p.read_bytes()).hexdigest() for p in [dst/'inc/night_isolation.hpp',dst/'src/terrain_game.cpp',dst/'src/gen/game_lighting.gen.cpp',dst/'src/gen/game_vehicles.gen.cpp',dst/'src/scripts/district_mood.cpp']}}\n(lab/'night-isolation/fixture.json').write_bytes((json.dumps(out,indent=2)+'\\n').encode('utf-8'))\nprint(json.dumps(out['phases'],indent=2))\n"
+    },
+    "analyze-night-isolation.py": {
+      "sha256": "7458b18e031fd6a69a3c53a8dc6127105ee63bff8c1fedb1faf5d2ccb22b02db",
+      "source": "from pathlib import Path\nimport argparse, hashlib, json, re, statistics, subprocess, sys\n\np = argparse.ArgumentParser()\np.add_argument('stem')\na = p.parse_args()\nlab = Path('F:/Projects/tyrax2-lab-20261001')\nsource = lab / (a.stem + '.log')\nsnapshot = lab / (a.stem + '-snapshot.log')\nassert not snapshot.exists(), 'Refusing to replace frozen evidence'\nsnapshot.write_bytes(source.read_bytes())\nflat = snapshot.read_text(encoding='utf-8', errors='replace').replace('\\r', '').replace('\\n', '')\nassert 'NIGHTISOLATE done first=15400' in flat, 'Run is not complete'\nfixture = json.loads((lab / 'night-isolation/fixture.json').read_text())\nresults = []\nfor phase, name in enumerate(fixture['phases']):\n    first = phase * 2200 + 1100\n    work = json.loads(subprocess.check_output([\n        sys.executable, 'F:/Projects/tyra-editor/tools/tyrax2-timing.py',\n        str(snapshot), '--first', str(first), '--frames', '512', '--hz', '60'], text=True))\n    periods = []\n    for part in flat.split('LOG: FRAMETIME ')[1:]:\n        record = part.split('LOG:')[0]\n        f = re.search(r'\\bf=(\\d+)', record)\n        period = re.search(r'\\bperiod=([0-9.]+)', record)\n        if f and period and first <= int(f[1]) < first + 500:\n            row = {'frame': int(f[1]), 'period_ms': float(period[1])}\n            for field in ['pre', 'stall', 'drain']:\n                match = re.search(r'\\b'+field+r'=([0-9.]+)', record)\n                assert match, record\n                row[field+'_ms'] = float(match[1])\n            periods.append(row)\n    assert [r['frame'] for r in periods] == list(range(first, first+500, 50)), periods\n    work.update(phase=phase, name=name, period_windows=periods,\n                mean_period_ms=statistics.mean(r['period_ms'] for r in periods))\n    work['delivered_rate_from_period_hz'] = 1000 / work['mean_period_ms']\n    work['mean_pre_ms'] = statistics.mean(r['pre_ms'] for r in periods)\n    work['mean_stall_ms'] = statistics.mean(r['stall_ms'] for r in periods)\n    results.append(work)\nout = {'fixture': fixture, 'log': str(snapshot),\n       'log_sha256': hashlib.sha256(snapshot.read_bytes()).hexdigest(),\n       'elf_sha256': hashlib.sha256((lab/(a.stem+'.elf')).read_bytes()).hexdigest(),\n       'results': results,\n       'note': 'Single physical boot, sequential one-group removals; full-night controls bracket the run. Work and neighboring period windows are different measurements.'}\n(lab/(a.stem+'-summary.json')).write_bytes((json.dumps(out, indent=2)+'\\n').encode())\nfor r in results:\n    print(f\"{r['phase']} {r['name']}: work {r['mean_ms']:.3f} ms, p95 {r['p95_ms']:.3f}, period {r['mean_period_ms']:.3f} ms, {r['delivered_rate_from_period_hz']:.2f} Hz\")\n"
+    },
+    "verify-timing-record-boundaries.py": {
+      "sha256": "80d841163e4b8b6d9f7cab2587cbf27542254c5f540dad4c273f6497baad64ad",
+      "source": "from pathlib import Path\nimport json, subprocess, sys\n\ntool = 'F:/Projects/tyra-editor/tools/tyrax2-timing.py'\nlab = Path('F:/Projects/tyrax2-lab-20261001')\nfixture = lab/'timing-record-boundary-control.log'\ndef check(raw, ok):\n    fixture.write_bytes(raw.encode())\n    r = subprocess.run([sys.executable, tool, str(fixture), '--first', '0', '--frames', '64', '--hz', '60'], capture_output=True, text=True)\n    assert (r.returncode == 0) == ok, r.stderr\n    if ok:\n        d = json.loads(r.stdout)\n        assert d['mean_ms'] == 1.0 and d['frames'] == 64, d\nrow = 'LOG: FTRAW 0 ' + ' '.join(['48000']*64)\ncheck(row+'\\nLOG: other\\n', True)\nfor marker in ['FRAMEARENA', 'NATIVEVIF', 'ORDEREDFRAME', 'FRAMEPIPELINE', 'NIGHTISOLATE']:\n    check(row+marker+' frames=120\\n', True)\ncheck(row.replace('48000', '48\\n000', 1)+'FRAMEARENA frames=120\\n', True)\ncheck('LOG: FTRAW 0 '+' '.join(['48000']*63)+'FRAMEARENA frames=120\\n', False)\ncheck(row+' 48000FRAMEARENA frames=120\\n', False)\ncheck(row+'UNKNOWN frames=120\\n', False)\ncheck(row+'\\n'+row, False)\nbaseline = lab/'pipeline-gif-send-night-boot2-snapshot-summary.json'\nexpected = json.loads(baseline.read_text())\nr = subprocess.check_output([sys.executable, tool, expected['log'], '--first', '1100', '--frames', '512', '--hz', '60'], text=True)\nactual = json.loads(r)\nfor field in ['mean_ms', 'median_ms', 'p95_ms', 'max_ms', 'over_budget']:\n    assert actual[field] == expected[field], (field, actual[field], expected[field])\nprint('11 boundary/strictness controls passed; archived 512-frame night baseline unchanged')\n"
+    }
+  },
+  "evidence_sha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-build.log": "b9e8498a51b653d583b237cf83100a0c900f661f065e39a145714a03622bdabf",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-full-emulator\\emulog.txt": "51d221f9105f0eafbe2b31006c67d5a49b0662d0a73eaa676f8575c79723a39d",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-full-emulator\\game-log.txt": "e79c527832a38c3301b80b7d217eaf98aa5fd44230654ee4e6e886138b9be9de",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-full-emulator\\report.txt": "8abe008e4fc665d420ac088f63d2ecddf98fb0e4a707cc64d7f4814d7e9dc5d0",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-full-emulator\\state1.p2s": "7720fd52c361a032f29f8ca8d8babc9e8036bebfaf210da26c849c9298a858e5",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-isolation-editor-docs-build.log": "86cad887270b3cd884479f7a57e6d84fa29d626665ca4d5b5eeefc5ed5c96577"
+  },
+  "physical_phase_markers": [
+    "NIGHTISOLATE phase=0 first=0",
+    "NIGHTISOLATE phase=1 first=2200",
+    "NIGHTISOLATE phase=2 first=4400",
+    "NIGHTISOLATE phase=3 first=6600",
+    "NIGHTISOLATE phase=4 first=8800",
+    "NIGHTISOLATE phase=5 first=11000",
+    "NIGHTISOLATE phase=6 first=13200",
+    "NIGHTISOLATE done first=15400"
+  ],
+  "final_arena_record": "FRAMEARENA frames=16080 peak=1040416 resets=14 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10582",
+  "final_ordered_record": "ORDEREDFRAME frames=16080 splitFrames=7",
+  "verification": "Native build; PCSX2 2.9.93 all seven phases and return; physical PS2 all phases and seven complete 512-frame windows; eleven parser boundary/strictness controls and unchanged archived baseline. Windows editor rebuilt with updated embedded documentation.",
+  "timing_parser_sha256": "3295722d5fd99272249f904759b473fe5a37d3d42d185d5d0357b214b539d983"
+}

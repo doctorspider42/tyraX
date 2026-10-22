@@ -1,0 +1,21 @@
+{
+  "status": "PASS_PRIVATE_TWO_MODEL_ROAD_PREPARATION_NATIVE_AND_PARSER",
+  "files": {
+    "source-review.json": "863c6e464eac1a676a2bd85dc0446879439a3cfd5cbb2e1131d501fc4d80b691",
+    "authored-two-cars-proof.json": "f92292a6cbd2734a6ad232b84f77d7c0ac7d8dae2551d5be249a4f1c6c44f90a",
+    "source-content-census.json": "55e0777842a80bfba6b675e5284ca5d667f201fd77d618618ed60b7589bc8aca",
+    "bin-assets-source-pins.json": "30b207265f2e5ed849e7f09e78efbbe9613b22b53ef96a996629575c093aa37f",
+    "native-proof.json": "646c58f9f45599c3ada02dd87ee716bfb4582120f9223772df39b550c74b7a45",
+    "native-build.log": "ecc9e8d56993d6b74f2b043763f3773ba77a8def14fa3f755cdc4026980eb800",
+    "native-proof.py": "daffa91493c5dc4a5ab0fae5589dba05cc0d4f28660c6c0855c7634e03a86444",
+    "analyze-two.py": "cc7a8b5e36bc250d57ae451f2617a8fe11b5b512560364dd76144b47c2efe234",
+    "test-parser.py": "71abdf9b6bc5efc455ab9e9eaefad29fa5caca2c989e68eeaf88e21026309c39",
+    "parser-controls-v1/proof.json": "f341d3850887a9fef8b44e1de37f5f22a3a846212c15197c4e66a82e400c5f05",
+    "README.md": "78733a542a3974d1a9b481cd2b23ffa0e34110face7516a3b4ea46fc923c71f1"
+  },
+  "actualELFSha256": "f0032355d6f78b8547227e171eb71275ee8413df5cd8bca6939d6fb886364037",
+  "runtimeReleased": false,
+  "devicesExecutedByPreparationAgent": false,
+  "hardwarePerformanceQualified": false,
+  "noCausalIncrementalSubtraction": true
+}

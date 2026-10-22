@@ -1,0 +1,16 @@
+{
+  "pid": 31,
+  "xvfbPid": 20,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-geometry-reuse-20261008-defaults/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-geometry-reuse-20261008-defaults/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-geometry-reuse-20261008-defaults/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "c5c7b1395cb590721ffdc450b9b69dd9beee0d9cbf77ca88b08e47c03615fbb6"
+}

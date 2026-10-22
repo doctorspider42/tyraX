@@ -1,0 +1,13 @@
+{
+  "valid": true,
+  "cases": 9,
+  "repeatedReadControls": 4,
+  "modes": [
+    "optimized",
+    "ASan/UBSan"
+  ],
+  "headerSha256": "29861ada19213ba2b3f28a1a7adde7ec429161737d8780345e857cc6f9633c82",
+  "limits": [
+    "Host I/O shims and extracted begin function, not whole target execution."
+  ]
+}

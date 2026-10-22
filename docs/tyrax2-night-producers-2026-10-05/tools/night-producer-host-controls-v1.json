@@ -1,0 +1,19 @@
+{
+  "status": "PASS_SYNTHETIC_PRODUCER_DIALECT_CONTROLS",
+  "rows": [
+    {
+      "order": 0,
+      "positiveAccepted": true,
+      "negativeRejected": 5,
+      "synthetic": true
+    },
+    {
+      "order": 1,
+      "positiveAccepted": true,
+      "negativeRejected": 5,
+      "synthetic": true
+    }
+  ],
+  "runtimeAcceptance": false,
+  "parserSha256": "d24b85b2827e59d5e76cb429f33db4655e16899ca46a1da0c16f679e2b176b6e"
+}

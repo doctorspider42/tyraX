@@ -1,0 +1,19 @@
+{
+  "status": "ROOT_RELEASE_KIND8_AFTER_SOURCE_HOST_NATIVE_AND_ACTUAL_OUTPUT",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-host-v1\\source-review-v11-fog.json",
+  "reviewSha256": "36f9785f5e9cdce09d573f5740e84de670fb24e37923870d35c4a82944ac297f",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-root-v2\\host-authority.json",
+  "hostSha256": "a488622ccfb2781572c6a57795334f87498b1263221e1e634379366c6746e091",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-fog-native-root-review-v1\\proof.json",
+  "nativeSha256": "7bb3b9fa48d958e11a938121df6e7dc92d75faadf84638e97e3e1517d5106150",
+  "independentNative": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-tc-native-v20-v11\\proof.json",
+  "independentNativeSha256": "49642db0ecc793394ea2347dffef509fd06d6da9572d43c6d2949ee62fc2419f",
+  "actualOutput": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-fog-static-matrix-root-closure-v1\\proof.json",
+  "actualOutputSha256": "37f1f5777ce141869bce0d29a79b2f564b1301688f8d46631327fa26cdb768f1",
+  "rootSourceFreeze": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-physical-v7\\root-source-freeze.json",
+  "rootSourceFreezeSha256": "cdfc8d17ba8eb0c06714cfbfd4aaa7625c62715f334169b933a97e74af6adfd0",
+  "sourceManifest": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-physical-v7\\target-source-manifest.json",
+  "sourceManifestSha256": "ca170260791f3875c35e33bdacb0992e3cf6ddd58fbc991cf0432cdb7bad5a54",
+  "selectedElf": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-physical-v7\\game\\bin\\vehicle-playground.elf",
+  "selectedElfSha256": "6759ae52b8528cfce95f4a49d590a5da4cc532463511ac94de23c719c7192743"
+}

@@ -1,0 +1,45 @@
+{
+  "status": "PASS_ACTUAL_PS2_COMPILER_FPP_GENERATED_SKY_SYNTAX_ONLY",
+  "results": [
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-fpp-codegen-v1/sky-retint-fpp/src/gen/game_collision.gen.cpp",
+      "sha256": "2ff5e4063eba1718f0973723c27763a47a9e46cfc94ae0b8da090857123040c3",
+      "command": [
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+        "-D_EE",
+        "-G0",
+        "-std=c++17",
+        "-O2",
+        "-fsyntax-only",
+        "-I/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-fpp-codegen-v1/sky-retint-fpp/inc",
+        "-I/mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc",
+        "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include",
+        "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/common/include",
+        "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include",
+        "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-fpp-codegen-v1/sky-retint-fpp/src/gen/game_collision.gen.cpp"
+      ],
+      "exitCode": 0
+    },
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-fpp-codegen-v1/sky-retint-fpp/src/gen/game_physics.gen.cpp",
+      "sha256": "532849bdabaa4bf01ca52aa90f7477596ab9d030bacf0ed73a3e6f19ca94a376",
+      "command": [
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+        "-D_EE",
+        "-G0",
+        "-std=c++17",
+        "-O2",
+        "-fsyntax-only",
+        "-I/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-fpp-codegen-v1/sky-retint-fpp/inc",
+        "-I/mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc",
+        "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include",
+        "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/common/include",
+        "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include",
+        "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-fpp-codegen-v1/sky-retint-fpp/src/gen/game_physics.gen.cpp"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "compilerSha256": "04212da9b41c83d31f478060b3af9619fcadb8d0381187006ee0df388e118f6d",
+  "runtimeAccepted": false
+}

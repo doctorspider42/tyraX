@@ -1,0 +1,16 @@
+{
+  "valid": true,
+  "removedArchivedCopies": 286741,
+  "removedDerivedDirectories": 525,
+  "retainedArchivePayloadsVerified": 6394,
+  "recordedTargetsStillPresent": 0,
+  "removedLogicalBytes": 5631398820,
+  "removedGiB": 5.245,
+  "manifests": [
+    "F:\\Projects\\tyrax2-lab-20261001\\cleanup-20261012-152945.csv",
+    "F:\\Projects\\tyrax2-lab-20261001\\cleanup-20261012-155135.csv",
+    "F:\\Projects\\tyrax2-lab-20261001\\cleanup-20261012-160756.csv"
+  ],
+  "scope": "F:\\Projects\\tyrax2-lab-20261001",
+  "uniqueDataAndStatesRetained": true
+}

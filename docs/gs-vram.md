@@ -632,6 +632,62 @@ read the warning under the table before treating any palettization as free:
 > changes no texture's format and no texture's address — it changes the heap
 > floor — so on this evidence it is the cheapest 384 KB on the list.
 
+### The cliff is gone at 480p Hybrid (2026-10-20, physical PS2)
+
+Everything above is the Pal576i 32-bit layout. The district ships
+**Progressive480p (448x448) in the Hybrid colour depth** now, whose permanent
+region is much smaller, and the architecture audit's question - should the
+scene plan a resident set at load instead of uploading on first bind behind an
+`align3D` barrier - was answered by measuring rather than building. Lean rig,
+release profile, residency counters printed per window, the pause menu opened
+by the rig at a fixed frame and closed 120 frames later, three cycles:
+
+| moment | uploads | re-uploads | evictions | free | largest block |
+|---|---:|---:|---:|---:|---:|
+| scene start (first 150 frames) | 56 | 0 | 0 | 768 KB | 768 KB |
+| pause menu open (120 frames) | 4 | 0 | 0 | 607 KB | 607 KB |
+| the 80 frames after it closes | 0 | 0 | 0 | 607 KB | 607 KB |
+| every park/drive window, day and night | 0 | 0 | 0 | 607 KB | 607 KB |
+| same, Hybrid **triple** buffering | 0 | 0 | 0 | 649 KB* | 649 KB |
+
+\* after the rig's runtime rebuild, which evicts everything and lets the scene
+re-upload only what it draws (31 allocations instead of 59), so it is not
+comparable with the double-buffered row; the third display buffer costs
+392 KB.
+
+So **no residency plan is needed here**: the whole working set, the pause menu
+included, uploads exactly once and nothing is ever evicted; the menu's four
+uploads land while the game is paused. A resident set would move those
+uploads to the loading screen and buy nothing a player can see. The census and
+the counters above remain the instrument to rerun if a scene grows past
+~600 KB of textures.
+
+## CLUT loads (measured 2026-10-20)
+
+Every TEX0 the renderer emits carries `CLD = 1`, so the GS reloads the palette
+on every textured bag's material state - the same texture included. The
+architecture audit priced the alternative at "< 0.2 ms": `CLD = 4` (load only
+when CBP differs from the GS's CBP0, then CBP0 = CBP), with a CLD = 2 re-sync
+after any upload that rewrites a palette at a reused address. It was built
+(the commit before the one that removed it again) and measured on a physical
+PS2:
+
+- **What a load costs the GS**, timed between frames with the GPU idle: 512
+  TEX0 writes at CLD = 1 took 120 us for 8-bit palettes and 73 us for 4-bit,
+  against 31 us with CLD = 0 - **0.17 us per 8-bit load, 0.08 us per 4-bit
+  one.** A district frame has about two hundred textured bags, so the reloads
+  are at most ~0.04 ms of GS time.
+- **What it changes in a frame:** nothing measurable. Same ELF, CLD = 1 and
+  CLD = 4 arms alternating per cycle, night and day: parked work 10.16 vs
+  10.18 ms (night), 9.56 vs 9.56 (day); driving within the cycle-to-cycle
+  spread; presentation identical. The district's frame is EE-bound and the GS
+  is idle for most of it, so GS time this small has nowhere to show.
+
+So CLD = 1 stays. The re-sync rule is the part worth keeping in mind if a GS
+bound scene ever makes this worth doing: CBP0 is GS state shared by both
+contexts, every CLD = 1 load leaves it stale, and an upload into a freed CLUT
+block can put new colours behind an address CBP0 still names.
+
 ## Measured behaviour
 
 All PCSX2, software renderer, PAL, 512×448.
@@ -686,3 +742,22 @@ is the closest proxy available for what the transfers cost a real console.
   `menulayout.cpp` (`gsWords`) for the Menu Editor's "does it fit" check. It
   and `getSize()` must agree, or the editor reports menus as too big when they
   fit.
+- **An upload must not change draw state.** `Path3::sendTexture` used to write
+  the uploaded texture's own wrap into `CLAMP_1` (upstream Tyra did that so a
+  freshly loaded texture drew with its wrap). The wrap is per-bag draw state
+  now, written in each bag's chain against `RendererCoreGS::currentTextureWrap`,
+  and that cache never saw the upload's write. So an upload in the middle of a
+  frame - a texture's first use, or a re-upload after an eviction, which a heap
+  at 3.3 of 4 MB does often - of a REPEAT x CLAMP texture (the tyre marks)
+  left V clamped for every later 3D bag of the frame: the roads smeared into
+  streaks along their length for one frame, on a console and in PCSX2 alike.
+  Found with an input recording (`recordings/record.tyrarep`) replayed at
+  60 Hz in PCSX2 with its video capture on, a frame-outlier detector, and a
+  multi-frame GS dump whose road draws all read `CLAMP_1 = 4` right after the
+  new texture's first draw. Since 1.177.4 the upload restates the wrap already
+  in force (`beforeMutation()` drained the pipeline, so the cache is the GS
+  state). Anything new that writes `CLAMP_1` must either go through the bag
+  wrap path or update the cache with `noteTextureWrap`.
+- Related, still open: `StaPipCore::render` picks a bag's wrap only when the
+  texture's HORIZONTAL axis is not REPEAT, so a REPEAT x CLAMP texture draws
+  with REPEAT on both axes.

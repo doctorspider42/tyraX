@@ -1,0 +1,38 @@
+{
+  "status": "PASS_PREPARED_SAME_ELF_POOL_CACHE_KIND4_ACTUAL_HEADER_HOST_CONTROLS_ONLY",
+  "hostProofPath": "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\proof.json",
+  "hostProofSha256": "5e7af732b2dc69723e324090bd4d6aaabd420f79dd31a5725778d8ceb8cf51a9",
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\night_plan.hpp": "19f1484f376dd5614ca28985cab2eb60cf9c802521c1b89d01c3cc0c7a30a037",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\night_runtime.hpp": "e67309ec355823c45f400066f396c1f342b8a725dcbd10b02ac2323965533538",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\analyze-night.py": "a5557c0a57a82025c96c86d18ee0b370e3f719c7dc443edbcd30c1c88ee7579f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\analyze-night-cli.py": "eadb1cc98e596b3c6e527bf0b397241d5555278eb12ce3f795898c1bcc9213f1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host-controls.cpp": "516bb4e57391e4472424f302b47797b4b79b729450401a7695bcfd50a4c7f456",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\run-host-controls.py": "3860c13bfa14b5804aeef71c399dae3183e1827afe55c40f24cc1ca207fb79cd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\README.md": "514a9df2073ecbb7e878824258abed86b6c0b75167b33a5966cafcf1830c92b1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\source\\tyra\\engine\\inc\\debug\\night_ablation.hpp": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646"
+  },
+  "positiveCompleteTranscripts": 20,
+  "negativeParserGuards": 47,
+  "actualCliKind4Accepted": true,
+  "byteIdenticalInheritedFiles": {
+    "night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27"
+  },
+  "poolFlagBothOrders": true,
+  "allOldKindsPoolFlagFalse": true,
+  "poolCacheContentsResetAtPhaseBoundary": false,
+  "countersOnlyUntimed7501155": true,
+  "ordinaryExtraMasksKind4Zero": true,
+  "samplerKind4AllOn": true,
+  "malformedConfigurationControlsPerTranscript": 21,
+  "allThreeCounterArraysUnchangedOutsideCollection": true,
+  "fullOlderSuiteRerunClaimed": false,
+  "nativeOrDeviceAuthority": false
+}

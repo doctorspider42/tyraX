@@ -1,0 +1,20 @@
+{
+  "experiment": "A12 intrusive moving paint correctness; not performance",
+  "baseline": "F:\\Projects\\tyrax2-paint-game-night-20261009-v1",
+  "baselineElf": "623dd458b0674c55c8ce9903a0f7b01a459ac4397e4a5d980d5c31ea541ac698",
+  "hours": [
+    12,
+    0,
+    12
+  ],
+  "sampleStart": 1200,
+  "gasStart": 1320,
+  "maxRows": 1200,
+  "endZ": 108,
+  "controls": "full throttle, zero steer, released handbrake; +/-60 degree camera sweeps",
+  "limitations": [
+    "physical PS2 unavailable",
+    "no whole-scene paired raster proof",
+    "forced LOD/legacy/override modes are diagnostic"
+  ]
+}

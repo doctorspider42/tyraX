@@ -1,0 +1,7 @@
+# Tracked example runtime refresh
+
+44 tracked projects refreshed using the pinned durable editor through scratch clones. Both --migrate and --refresh-gen returned zero for every project; migration affected scratch manifests only. Copied 485 changed marker-owned src/inc files back and updated 44 example READMEs. Original authored manifests, object files, assets, build files and user-owned code remain byte-identical against pre-refresh input hashes. No native build, build-cache operation, emulator or device was used. Untracked character-generator was excluded.
+
+All44 receiver tables resolve All, and no copied source embeds the scratch clone path. report.json binds editor hash, per-project preservation hashes and output hashes; inventory.txt lists every copied path. This is source generation/preservation qualification, not compiled or visual runtime qualification.
+
+Formatting follow-up: rebuilt editor SHA256 5fa624c1dbb648573f7eeb794115d898dedda8fcbf2443caf6ef1201f9154409 ran actual refresh on all 44 scratch projects. Its only copied delta was removal of the empty vehicle-receiver placeholder's indentation in 43 vehicle-less game_scene files. Vehicle-bearing output remained identical. The durable initial runtime editor remains unchanged; report-pass1.json preserves first-pass pins, and report.json binds the formatting generator/editor and final output hashes. Final git diff --check for examples returned zero. Target compiled/runtime qualification belongs to the parent evidence, separately from this source regeneration.

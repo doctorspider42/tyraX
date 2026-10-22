@@ -7,6 +7,14 @@ placed cars. [The Blender tutorial](blender-vehicle-modeling.md) covers making
 and exporting a model from scratch. [Motor District](../examples/vehicle-playground/README.md)
 is a playable example with three editable Blender cars.
 
+[Dynamic light receivers](dynamic-light-receivers.md) can keep live light on
+the driven vehicle's body, glass and wheels while excluding parked/traffic cars.
+
+A placed vehicle whose definition has no ID or model path is skipped. If no
+usable definitions remain, generated code keeps a complete inert placeholder
+(including both engine sound layers and the controls card fields), so an
+incomplete vehicle setup still compiles.
+
 ## Importing a model
 
 Import a `.glb` into `res/models/`, then select it on the Vehicle Editor's
@@ -149,7 +157,11 @@ the other side, behind or in front - the first spot clear of every collision
 box (a walker that starts inside a box cannot move until it jumps out). The
 log line `VEH exit spot N` names the spot taken (0 = the door, -1 = none was
 clear, so the door spot stands). Chase and far cameras shorten their boom
-against terrain and obstacles.
+against terrain and obstacles. The bumper camera is bolted to the body: it
+takes the drawn pitch, roll and lean, sits just past the front bumper (the
+baked `bodyOverhang`), is kept above the ground surface under it, and follows
+the body's pitch a beat late so a rough road does not shake the horizon. It
+never rolls.
 
 Use enters the car you are **looking at**, not just the nearest one: it must
 be in reach (1.2x wheelbase + 2 units from the player) and under the camera's
@@ -168,6 +180,60 @@ The Player flow nodes **Enter Vehicle**, **Exit Vehicle** and **Repair Vehicle**
 seat, release or repair the player without a pad press. Enter Vehicle can seat
 the player from anywhere, including at scene start. Repair Vehicle restores
 the body and performance. These nodes are handled in the generated game.
+
+### The static collider grid
+
+Every car's wall, floor and push-body tests read one per-frame list of the
+scene's colliders (`buildVehicleColliders`). It used to be rebuilt from every
+runtime object each frame and then scanned whole by every car, although almost
+nothing in it moves. Now the build flags the objects nothing can move
+(`SCENE_STATIC_COLLIDER_TABLES`, the inverse of `project::objectRuntimeMovable`:
+no physics, no flow-graph or script reference, no layer, no pickup, no save
+state), and the game places those **once** into a cell grid. Each frame only the
+rest - vehicles, physics bodies, scripted props, the spawn pool - are derived
+again, and a car walks just the grid cells its reach can touch plus that short
+dynamic list.
+
+The list every consumer reads keeps the same entries in the same object order,
+and a car's candidates are sorted back into that order, so each cap (12 walls,
+8 floors, 8 bodies, 4 mesh props) fills exactly as before. A static object is
+still guarded every frame by the flags at the tail of its `RuntimeObject` - one
+cache line: a dirty flag or a visibility flip re-places the static half, a spin
+or the matrix path demotes the object to the dynamic half for good, and a
+rebuild that consumes a dirty flag later in the frame
+(`rebuildObjectGeometry` raises `g_colStaticRebuilt`) re-places it on the next
+step. What is not followed is a global script writing a static object's
+position without setting `dirty`; the renderer does not follow that either.
+
+`TYRA_VEH_COLLIDER_GRID` (0 = the old full walk) is the A/B knob, and
+`TYRA_VEH_COLLIDER_GRID_VERIFY` the oracle: every merged list and every gather
+is redone by the full walk and compared to the byte, logged as `VEHCOLGRID`.
+On the Motor District in PCSX2 (78 entries, 68 static, 10 dynamic, 64x64
+cells) it compared 0 mismatches over the whole rig drive, plain and with two
+sub-steps forced every frame (where `VEHSUBSTEP` checked the recorded
+candidates the same way). On the physical PS2 (one ELF, the grid switched per
+cycle, 6 cycles an arm) the vehicle update fell from 0.52 to 0.36 ms parked
+and 0.58 to 0.42 ms driving, frame work -0.10 to -0.16 ms in the driving
+windows ([night EE notes](tyrax2-night-ee-2026-10-12.md), "Static collider
+grid").
+
+### Headlight pools
+
+A car's headlight pool is a 3x3 cell patch laid on the ground ahead of it. It
+is rebuilt whenever the car moves, and each rebuild asked `groundSurfaceAt`
+(a road and junction search) for 16 lattice heights - per moving car, per
+frame. `TYRA_VEH_POOL_PLANE` (off by default until priced on a physical PS2)
+takes the heights from the plane the car's four wheel contacts measured this
+step (`v.wheelY`), a multiply-add each, falling back to the searched surface
+when a wheel is off every surface. The trade: a pool reaching past a crest or
+off the road edge follows the car's plane instead of the ground there.
+
+The searched pool crosses the road's edge step (0.12 over the terrain) with
+cells as wide as half a metre, and a cell with corners on both sides used to
+dip under the asphalt just past the edge - a dark hole in the beam while
+driving along the verge. `liftLatticeOverRoadStep` (1.177.2) raises such
+corners to the road step; blob shadows and lamp pools share it. Details and
+the measurement: [roads.md](roads.md#beams-and-shadows-at-the-road-edge-11772).
 
 ## Sounds
 

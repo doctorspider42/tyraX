@@ -1,0 +1,42 @@
+{
+  "F:\\Projects\\tyrax2-lab-20261001\\paused-clock-physical-v1\\game\\src\\gen\\livedbg.sym": {
+    "sha256": "5bf4bc3a7767a57daf0011cd5d1051cccbc5578e3faad87ad4f43ea7e9b5565a",
+    "bytes": 530
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-paused-clock-order0-20261006-evidence\\vehicle-playground.elf": {
+    "sha256": "422de8a87422272e27f18ee50338361e2c448f7d8b2a3c5a72d6ce1a68d1ea1a",
+    "bytes": 4492028
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-paused-clock-order0-20261006-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "553332a9a9b6974f2aad0f02a1984ef55d84f79725104df558dcde93671edecc",
+    "bytes": 24680172
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-paused-clock-order1-20261006-evidence\\vehicle-playground.elf": {
+    "sha256": "422de8a87422272e27f18ee50338361e2c448f7d8b2a3c5a72d6ce1a68d1ea1a",
+    "bytes": 4492028
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-paused-clock-order1-20261006-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "553332a9a9b6974f2aad0f02a1984ef55d84f79725104df558dcde93671edecc",
+    "bytes": 24680172
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-paused-clock-order0-20261006-evidence\\vehicle-playground.elf": {
+    "sha256": "422de8a87422272e27f18ee50338361e2c448f7d8b2a3c5a72d6ce1a68d1ea1a",
+    "bytes": 4492028
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-paused-clock-order0-20261006-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "553332a9a9b6974f2aad0f02a1984ef55d84f79725104df558dcde93671edecc",
+    "bytes": 24680172
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\paused-clock-production-vehicle-v1\\game\\src\\gen\\livedbg.sym": {
+    "sha256": "e5977d13f4bf4b6f6a5afb5b5d9c0054da7c68f6daaaa8229f79ae6a9754e272",
+    "bytes": 465
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\paused-clock-production-vehicle-v1\\game\\bin\\vehicle-playground.elf": {
+    "sha256": "2073bac24336b81d39f88ae13d1ea85f0e809572f54aed18feacf05b14512167",
+    "bytes": 4625628
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\paused-clock-production-vehicle-v1\\game\\bin\\vehicle-playground.elf.sym": {
+    "sha256": "a439670963bd98c6576f0c42b06b4bd9aeb46f3eb1aa6987919d4eea71cffaf8",
+    "bytes": 25535536
+  }
+}

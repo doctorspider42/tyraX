@@ -1,0 +1,16 @@
+{
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\draft-source-manifest.json": "1f042bf4425d15751ce816cd5aa2fa4768994036f473a58b851c46121410e03d",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\draft-review.json": "ae14c968afbb322a6d5715f3479da33edd67df7f20046543c33b747fc20287d2",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\game\\inc\\terrain_game.hpp": "d3eb8ad91e8408d068c26e0c97dbcd49442a1a021c51a4ba632eccb73afba043",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\game\\src\\gen\\game_collision.gen.cpp": "0c6a876d89228ac87d3e40cbac4add85e4bb06858eba49835fb6e2eeaad91591",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\game\\src\\gen\\game_physics.gen.cpp": "2f18f1a903222ac9822e67b4d21b81223b3a750bab74665cc2e965cc56536d47",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\game\\src\\gen\\game_vehicles.gen.cpp": "9ceb8b604808e4093b0741dbefa3ae53a6b371316590b136719ab96f59bb7026",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\game\\inc\\scripts\\vu_scripts.gen.hpp": "2664d01d56abf3129d5b89a865eeae66f839f57d825fb264a990c227371c39f0",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\game\\inc\\scripts\\vu_programs.gen.hpp": "d61e0a47ea258ff618db9dbe45688ccfa51f9ad7689a48cd152dce2574b73a3a",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\tyra\\engine\\inc\\debug\\night_ablation.hpp": "44d41675b57b212f555985046c34892752427eb672602b17b913d2a4ec2c491a",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\tyra\\engine\\inc\\debug\\night_runtime.hpp": "999aff401c8bd80cbef7b7202849dcd738a260d8476c039932077178cd4c8d1e",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp": "65cc503cfa96679f479b8539e911bfa68f70473d6bc636b43d85d75ac9423496",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-physical-v1\\tyra\\engine\\inc\\renderer\\core\\renderer_core.hpp": "4e295cd961be4d8f8d32a18d831b90c0bab534b200986fc692d1130a3a1f9a65",
+  "F:\\Projects\\tyrax2-lab-20261001\\night-main11-batch-controls-v1\\batch_controls.py": "012652efd1ddc06bf86faf7d5f9bdb48eb6dfd84aea24a1f39e32ba17b88b29d"
+}

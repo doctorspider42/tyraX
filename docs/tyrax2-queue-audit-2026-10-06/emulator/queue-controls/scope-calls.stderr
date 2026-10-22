@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-queue-audit-v2/analyze-queue.py", line 45, in <module>
+    for j,k in [(1,'sends'),(2,'submits'),(3,'close_callbacks'),(4,'snapshot_calls'),(5,'emission_calls'),(6,'sizing_loops'),(7,'flushes'),(8,'enqueues')]:assert c['q'+str(j)]==totals[k],(phase,j,k)
+AssertionError: (0, 4, 'snapshot_calls')

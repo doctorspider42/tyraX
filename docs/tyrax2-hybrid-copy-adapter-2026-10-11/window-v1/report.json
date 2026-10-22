@@ -1,0 +1,68 @@
+{
+  "valid": true,
+  "sources": {
+    "tyrax2-hybrid-copy-window.hpp": "ce680d1b09ed5475bad47f4a3f1f40c16598bf0e312bf24d9c920a724e8489e9",
+    "verify-hybrid-copy-window.cpp": "e423ea75c35b2efcc16e498b0a196c8a7dd15039abda2b8de2cfc77a82e25fd2",
+    "verify-hybrid-copy-window.py": "4acfef4c06cf3a81e26a2c6d82ed67b6aa317f8f5bd40716ecb0f6a4f2a2c8d3"
+  },
+  "commands": [
+    [
+      "g++",
+      "--version"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/bin/mips64r5900el-ps2-elf-g++",
+      "--version"
+    ],
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O2",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-window-20261011-v2/verify-hybrid-copy-window.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-window-20261011-v2/optimized"
+    ],
+    [
+      "/mnt/f/Projects/tyrax2-hybrid-copy-window-20261011-v2/optimized"
+    ],
+    [
+      "g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O1",
+      "-g",
+      "-fsanitize=address,undefined",
+      "-fno-omit-frame-pointer",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-window-20261011-v2/verify-hybrid-copy-window.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-window-20261011-v2/sanitized"
+    ],
+    [
+      "/mnt/f/Projects/tyrax2-hybrid-copy-window-20261011-v2/sanitized"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/3594ba072b1f303047137e63/ee/bin/mips64r5900el-ps2-elf-g++",
+      "-std=c++17",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-O2",
+      "-c",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-window-20261011-v2/verify-hybrid-copy-window.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-hybrid-copy-window-20261011-v2/window-ee.o"
+    ]
+  ],
+  "result": "HYBRIDWINDOW cases=280800 accepted=20000 guards=137 physical=UNQUALIFIED\n",
+  "physicalQualified": false,
+  "limits": [
+    "No MMIO sampling/configuration or timer reservation.",
+    "Bounds and epoch are synthetic; physical copy budget is unbound.",
+    "No actual Core/queue/ISR integration or FPS claim."
+  ]
+}

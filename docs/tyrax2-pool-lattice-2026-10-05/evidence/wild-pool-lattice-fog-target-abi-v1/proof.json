@@ -1,0 +1,50 @@
+{
+  "status": "PASS_ACTUAL_R5900_COMPILE_ONLY_NIGHT_LAYOUT",
+  "sizes": {
+    "Sample": 48,
+    "samples": 6144,
+    "Chunk": 28,
+    "chunks": 420,
+    "Counter": 16,
+    "commonCounter": 112,
+    "extraCounter": 48,
+    "WildCounter": 44,
+    "PoolTableCounter": 44,
+    "LatticeCounter": 28
+  },
+  "commands": [
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+      "-std=c++17",
+      "-O2",
+      "-G0",
+      "-I",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-physical-v7/tyra/engine/inc",
+      "-c",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-fog-target-abi-v1/layout.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-fog-target-abi-v1/layout.o"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy",
+      "-O",
+      "binary",
+      "-j",
+      ".rodata",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-fog-target-abi-v1/layout.o",
+      "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-fog-target-abi-v1/layout.bin"
+    ]
+  ],
+  "inputHashes": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-physical-v7/tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-physical-v7/tyra/engine/inc/debug/night_ablation.hpp": "516aac3c870c69c9f99ee7ed564f09195c130f7c3f637d00ebbe44ccab0fc082",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-physical-v7/tyra/engine/inc/debug/night_plan.hpp": "004c584e2870ca362b96cdb0965ddea2d607e26a60fea885501d11718a7a7f6b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-fog-target-abi-v1/layout.cpp": "6a47386dade7f4127d4225a3992685e8d00760f6ab0ffc69f6c1ca8700acb3af",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-fog-target-abi-v1/layout.o": "8371ed43912133fcd4d6fac34e5fa0033f84fa820f28a0be03d0900864e11b8d",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-fog-target-abi-v1/layout.bin": "930e30dcf287f9c2800d499ecc7b7975e11d90900102c534c697e9555f238622",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++": "04212da9b41c83d31f478060b3af9619fcadb8d0381187006ee0df388e118f6d",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy": "f7851bf0575b53aae768fdb522e4f9a09d37371bdab3aa19533327b91c7e2553"
+  },
+  "runtimeOrFullApplicationFootprintAccepted": false,
+  "helperSha256": "6220772426f428c8932e53cac8aa4ee45d5b5efcc0c6a17abd011c6291fcf0de"
+}

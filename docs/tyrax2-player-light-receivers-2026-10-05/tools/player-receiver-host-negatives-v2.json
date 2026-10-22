@@ -1,0 +1,66 @@
+{
+  "status": "PASS_REAL_KIND10_CAPTURE_AND_12_NEGATIVE_CONTROLS",
+  "positiveEvidence": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-player-receivers-kind10-order0-20261005-evidence",
+  "controls": [
+    {
+      "name": "missing_receiver_gate",
+      "rejected": true,
+      "reason": "six receiver gates"
+    },
+    {
+      "name": "duplicate_receiver_gate",
+      "rejected": true,
+      "reason": "six receiver gates"
+    },
+    {
+      "name": "wrong_receiver_mode",
+      "rejected": true,
+      "reason": "receiver actual mode"
+    },
+    {
+      "name": "no_player_receiver_witness",
+      "rejected": true,
+      "reason": "restricted arm must reach both classes"
+    },
+    {
+      "name": "negative_counter",
+      "rejected": true,
+      "reason": "u32 bagAllowed"
+    },
+    {
+      "name": "overflow_counter",
+      "rejected": true,
+      "reason": "u32 overflow bagAllowed"
+    },
+    {
+      "name": "wrong_order",
+      "rejected": true,
+      "reason": "config order"
+    },
+    {
+      "name": "wrong_kind",
+      "rejected": true,
+      "reason": "plan kind"
+    },
+    {
+      "name": "unexpected_pool_cut",
+      "rejected": true,
+      "reason": "extra phase extraMask"
+    },
+    {
+      "name": "wrong_receiver_schema",
+      "rejected": true,
+      "reason": "receiver schema"
+    },
+    {
+      "name": "missing_receiver_phase",
+      "rejected": true,
+      "reason": "incomplete identities phase"
+    },
+    {
+      "name": "incomplete_final",
+      "rejected": true,
+      "reason": "unique complete config/done"
+    }
+  ]
+}

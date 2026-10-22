@@ -1,0 +1,16 @@
+{
+  "pid": 361,
+  "xvfbPid": 350,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-fixed-header-20261011-v1/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-fixed-header-20261011-v1/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-fixed-header-20261011-v1/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "dfb1f95ef27e2dd267972b45b65e44cdeab6ca102099ed1a0389d33299ec8dbf"
+}

@@ -13,6 +13,7 @@ const SceneObjectData SCENE_0_OBJECTS[4] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {4};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[4] = {0xe1fea78219d3ea0aULL, 0x79dafb66696ab3e0ULL, 0xaef318f9b18ec860ULL, 0xf0b6963b95fc96d6ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[4] = {1,0,0,0};
 
 }  // namespace Object_spawning
 

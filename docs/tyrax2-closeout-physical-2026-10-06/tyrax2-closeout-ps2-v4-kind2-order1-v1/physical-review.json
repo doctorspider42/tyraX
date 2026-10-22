@@ -1,0 +1,210 @@
+{
+  "status": "PASS_PHYSICAL_COMPLETE_PINNED_PROTOCOL_NOT_TV_CERTIFICATION",
+  "rawSha256": "9451dc45426f033f28f1a0465875526edf8cdfff999b7399fac6bf44a955eaf5",
+  "normalizedSha256": "88c1d15b8ccb820463ef06c7c2ba98234394c3ee11e93eae07db12bcb4e70fde",
+  "sampleSha256": "0d2418d7d56cbc49ed41c68820bec5795d84bbaa499dab0aff37933432b2061c",
+  "launchInputsSha256": "703ea861319fe92be01a5a74bb0168f30412917b231b766e53a5d63ce7bccaa5",
+  "rawEncoding": "original bytes retained; bijective latin1 to UTF8; protocol rows ASCII",
+  "protocol": {
+    "status": "PASS_COMPLETED_PRIVATE_CLOSEOUT_PROTOCOL",
+    "order": 1,
+    "kind": 2,
+    "byPhase": {
+      "0": {
+        "players": 1,
+        "geometryHidden": 1,
+        "sampler": 1,
+        "chunkMeanNonPacingMs": 14.408357832166883,
+        "chunkMeanEntryMs": 16.683428658379448,
+        "perChunkMeanEntryMs": [
+          16.68361653221978,
+          16.68309195836385,
+          16.683327039082844,
+          16.683307700686985,
+          16.68380006154378
+        ],
+        "maxObservedChunkMeanEntryMs": 16.68380006154378,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "rawStats": {
+          "entryPeriod": {
+            "count": 128,
+            "meanMs": 16.68334690729777,
+            "p50Ms": 16.68335978190104,
+            "p95Ms": 16.713094075520832,
+            "maxMs": 16.714640299479168,
+            "over16_68": 99,
+            "over16_68Percent": 77.34375,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "wholeLoop": {
+            "count": 128,
+            "meanMs": 16.679220623440212,
+            "p50Ms": 16.679195827907986,
+            "p95Ms": 16.709027438693578,
+            "maxMs": 16.710432264539932,
+            "over16_68": 37,
+            "over16_68Percent": 28.90625,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "nonPacingLoop": {
+            "count": 128,
+            "meanMs": 14.407829284667969,
+            "p50Ms": 14.372738308376736,
+            "p95Ms": 14.815413411458334,
+            "maxMs": 14.954454210069445,
+            "over16_68": 0,
+            "over16_68Percent": 0.0,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "singleRenderedPeriod": {
+            "count": 128,
+            "meanMs": 16.683331701490616,
+            "p50Ms": 16.683349609375,
+            "p95Ms": 16.69325459798177,
+            "maxMs": 16.706722683376736,
+            "over16_68": 119,
+            "over16_68Percent": 92.96875,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          }
+        }
+      },
+      "1": {
+        "players": 1,
+        "geometryHidden": 0,
+        "sampler": 1,
+        "chunkMeanNonPacingMs": 15.096183978186714,
+        "chunkMeanEntryMs": 16.683334075080026,
+        "perChunkMeanEntryMs": [
+          16.6833283106486,
+          16.683722972869873,
+          16.682974815368652,
+          16.68330897225274,
+          16.683335304260254
+        ],
+        "maxObservedChunkMeanEntryMs": 16.683722972869873,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "rawStats": {
+          "entryPeriod": {
+            "count": 128,
+            "meanMs": 16.683103826310898,
+            "p50Ms": 16.68327840169271,
+            "p95Ms": 16.712443033854168,
+            "maxMs": 16.7327880859375,
+            "over16_68": 99,
+            "over16_68Percent": 77.34375,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "wholeLoop": {
+            "count": 128,
+            "meanMs": 16.679483360714382,
+            "p50Ms": 16.67920600043403,
+            "p95Ms": 16.708415730794272,
+            "maxMs": 16.728702121310764,
+            "over16_68": 36,
+            "over16_68Percent": 28.125,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "nonPacingLoop": {
+            "count": 128,
+            "meanMs": 15.095733351177639,
+            "p50Ms": 15.063720703125,
+            "p95Ms": 15.457833523220486,
+            "maxMs": 15.646375868055555,
+            "over16_68": 0,
+            "over16_68Percent": 0.0,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "singleRenderedPeriod": {
+            "count": 128,
+            "meanMs": 16.68333371480306,
+            "p50Ms": 16.68335978190104,
+            "p95Ms": 16.702838982476127,
+            "maxMs": 16.706458197699654,
+            "over16_68": 118,
+            "over16_68Percent": 92.1875,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          }
+        }
+      },
+      "2": {
+        "players": 1,
+        "geometryHidden": 1,
+        "sampler": 1,
+        "chunkMeanNonPacingMs": 14.411570686764188,
+        "chunkMeanEntryMs": 16.68333165910509,
+        "perChunkMeanEntryMs": [
+          16.683324495951336,
+          16.683370113372803,
+          16.683323860168457,
+          16.683644983503555,
+          16.682994842529297
+        ],
+        "maxObservedChunkMeanEntryMs": 16.683644983503555,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "rawStats": {
+          "entryPeriod": {
+            "count": 128,
+            "meanMs": 16.683340496487087,
+            "p50Ms": 16.683390299479168,
+            "p95Ms": 16.715025838216146,
+            "maxMs": 16.737202962239582,
+            "over16_68": 98,
+            "over16_68Percent": 76.5625,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "wholeLoop": {
+            "count": 128,
+            "meanMs": 16.67921797434489,
+            "p50Ms": 16.679263644748264,
+            "p95Ms": 16.710846286349827,
+            "maxMs": 16.732994927300346,
+            "over16_68": 35,
+            "over16_68Percent": 27.34375,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "nonPacingLoop": {
+            "count": 128,
+            "meanMs": 14.405249648623997,
+            "p50Ms": 14.371349758572048,
+            "p95Ms": 14.784545559353298,
+            "maxMs": 14.908216688368055,
+            "over16_68": 0,
+            "over16_68Percent": 0.0,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          },
+          "singleRenderedPeriod": {
+            "count": 128,
+            "meanMs": 16.68333117167155,
+            "p50Ms": 16.683329264322918,
+            "p95Ms": 16.704005601671007,
+            "maxMs": 16.705847846137154,
+            "over16_68": 111,
+            "over16_68Percent": 86.71875,
+            "percentileMethod": "linear interpolation over sorted raw values"
+          }
+        }
+      }
+    },
+    "outerControlSpreadMs": 0.003212854597304471,
+    "middleMinusOuterMeanNonPacingMs": 0.686219718721178,
+    "enabledMinusDisabledMeanNonPacingMs": -0.686219718721178,
+    "hardwarePerformanceQualified": false,
+    "nativeSixtyFpsAccepted": false,
+    "publicCommonCodeCostUnpriced": true,
+    "compiledOutTraceFootprintUnpriced": true,
+    "limitations": [
+      "Raw tails use128loops per enabled phase, not all5400 and not64loop chunk percentiles.",
+      "Loop intervals and flip-return cadence are not photon cadence. Pipelining retains deferred hardware waits.",
+      "Sampler calibration is net bracket effect, not a per-sample uniform correction; common gates/buffers/metadata remain.",
+      "Ordinary dt and world/audio/particle evolution can drift despite exact frozen camera and fixed night.",
+      "Geometry kind2 intentionally removes eleven authored objects; not equivalent-output optimization."
+    ]
+  },
+  "sourceNativeProvenance": "quiet-v4 original proofs; all runtime launch input hashes verified",
+  "publicCommonCodeCostUnpriced": true,
+  "observerCommonFootprintUnpriced": true,
+  "nativeSixtyFpsAccepted": false
+}

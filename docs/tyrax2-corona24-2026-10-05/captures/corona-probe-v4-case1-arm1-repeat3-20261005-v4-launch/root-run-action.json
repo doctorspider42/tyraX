@@ -1,0 +1,17 @@
+{
+  "status": "PASS_SINGLE_OBSERVED_OWNED_RUN_EVENT_DISPATCH_ONLY",
+  "pid": 3605,
+  "window": 2097163,
+  "entryPC": "00100e78",
+  "observationSha256": "de56bfc4ecf64482fc3d895355e683a80dbd8a453eac9b83af1837c6b04c0965",
+  "screenshotSha256": "ba422c387954ffb3808cf8c541f7d8cb604425ebc024fce994824b529c8772b5",
+  "launchSha256": "5afdffafb79f6ab3821e4650b6235630b3ba301b6a02361521e35138610aab47",
+  "helperSha256": "d5e4e6411a8ff7a362def9f92fbc46e1448a4d03e5c030f974ebcf6722c3142b",
+  "execute": true,
+  "pineStatusBefore": 1,
+  "pineStatusAfter": 0,
+  "windowProperties": "_NET_WM_PID(CARDINAL) = 3605\nWM_NAME(STRING) = \"PCSX2 Debugger\"\n_NET_WM_NAME(UTF8_STRING) = \"PCSX2 Debugger\"\n",
+  "windowGeometry": "WINDOW=2097163\nX=277\nY=25\nWIDTH=1322\nHEIGHT=974\nSCREEN=0\n",
+  "stdoutBeforeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "guestResumeOrFinalHaltAccepted": false
+}

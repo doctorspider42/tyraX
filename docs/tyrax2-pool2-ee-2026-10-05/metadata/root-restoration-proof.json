@@ -1,0 +1,20 @@
+{
+  "status": "ROOT_EXERCISED_BOTH_BYTE_EXACT_SOURCE_ONLY_RESTORATIONS",
+  "runs": [
+    {
+      "mode": "pricing",
+      "sourceFiles": 499,
+      "exactSourceFilesAndBytes": true,
+      "targetManifestSha256": "769f1403389da4d3683a17806fce1b75b381a4cf4f8229ee4d3306a44ca806de"
+    },
+    {
+      "mode": "probe",
+      "sourceFiles": 500,
+      "exactSourceFilesAndBytes": true,
+      "targetManifestSha256": "c8e7f094b2f3c35e71d112421a8a7cc29971b5f8c6adea22a768a6d15e012313"
+    }
+  ],
+  "baseDirectory": "F:\\Projects\\tyrax2-lab-20261001\\pool2-published-pricing-restore-v1",
+  "reconstructSha256": "03adca972103b896cd94372e5b5a2a37d982b36bc0d9b536f838a9b23bd0c7c3",
+  "runtimeOrResourcesRestored": false
+}

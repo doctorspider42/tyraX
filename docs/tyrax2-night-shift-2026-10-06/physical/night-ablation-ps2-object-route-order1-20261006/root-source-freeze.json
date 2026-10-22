@@ -1,0 +1,27 @@
+{
+  "sourceManifestSha256": "2abb237cdd009fe5ceb638550e5e61be639e9656cd0390c1988686b25003a81b",
+  "sourceFiles": 501,
+  "changes": [
+    "game/inc/daynight.gen.hpp",
+    "game/inc/terrain_game.hpp",
+    "game/src/gen/game_collision.gen.cpp",
+    "game/src/gen/game_physics.gen.cpp",
+    "game/src/scripts/district_mood.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp"
+  ],
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "scopeNames": [
+    "uniformHead",
+    "spotLocalAndUpload",
+    "uniformTail",
+    "clipperAndInfo",
+    "routeFacts"
+  ],
+  "candidate": "Five disjoint observer scopes, no candidate or added wait. Production fixed-hour script and paused API common. Count only800..1119, cold counters750/1155.",
+  "commonCodeFootprintUnpriced": true,
+  "existingWaitsRetained": true
+}

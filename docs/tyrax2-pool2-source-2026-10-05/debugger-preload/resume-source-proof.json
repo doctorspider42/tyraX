@@ -1,0 +1,20 @@
+{
+  "status": "PASS_EXACT_TAG_READ_ONLY_RUN_ACTION_AND_CONFIGURABLE_SPACE_TOGGLE_ROUTE_SOURCE_ONLY",
+  "commit": "94d86c891b1621c0b252e4fc2e155bf90274dcc0",
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2-qt\\Debugger\\DebuggerWindow.ui": "78e50de555130d068cc2af897402c65a51c381cc40cff58e803a522105cecb52",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2-qt\\Debugger\\DebuggerWindow.cpp": "8baa206abd4c751b429e3791cc708cbdd7254e2573070cb6deee510a9de6a7cf",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2\\SIO\\Pad\\Pad.cpp": "01f07a464956b8846aa8ca584aff116ac1ca3b087fd5b95252d04d3fb9fb8fc4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2\\Hotkeys.cpp": "1e48a2c0d1a0ecc08bc52c1c3d2f233d543d70b8d786babd765789acbbe86e79",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2-qt\\DisplayWidget.cpp": "a02e657cc1fdd50f48b68602df0463bc886f096e7753525a4f7c458dfb547c9d"
+  },
+  "reportSha256": "15a7ebb7b353b6a990fe137b3aa3a9ef531c91b8786a0e1d7463941d6add5b89",
+  "helperSha256": "602cc08fd40746b421334a8389850f7bd6612577c12421b2eac017be7599497b",
+  "historicalProfileSha256": "69d86a6cb059042cf9520ef2c662604a8409cf158b215d667243cfa2c924da41",
+  "debuggerRunHasShortcut": false,
+  "F5ResumeProven": false,
+  "defaultAndHistoricalTogglePauseBinding": "Keyboard/Space",
+  "targetMustBeOwnedRenderSurface": true,
+  "oneToggleFromVerifiedInitialPause": true,
+  "X11DeliveryOrActualResumeOrDeviceAccepted": false
+}

@@ -1,0 +1,14 @@
+{
+    "parameters":  {
+                       "Toolchain":  "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+                       "Cache":  "F:/Projects/tyrax2-lab-20261001/native-cache",
+                       "Engine":  "F:/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-physical-v1/tyra",
+                       "Project":  "F:/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-physical-v1/game"
+                   },
+    "errorLog":  "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v22.err",
+    "buildLog":  "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v22.log",
+    "pid":  2008,
+    "sourceManifestSha256":  "4380f6db755000c819604ab6e13bf7b75ed4043af43a6e5d784a98b90fc878c6",
+    "status":  "ROOT_OBSERVED_NATIVE_CHILD_EXIT",
+    "processExitCode":  0
+}

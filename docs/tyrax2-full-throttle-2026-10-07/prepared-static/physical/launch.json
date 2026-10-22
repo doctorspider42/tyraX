@@ -1,0 +1,13 @@
+{
+  "elfSha256": "0d7c52b71708e2aa6845e0be7b0603d8246eae2bcc48f6127e5ba4973fe08170",
+  "pid": 40024,
+  "cwd": "F:/Projects/tyrax2-prepared-static-20261008-perf/physical/bin",
+  "startedUtc": "2026-10-08T10:31:33.6097280Z",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ]
+}

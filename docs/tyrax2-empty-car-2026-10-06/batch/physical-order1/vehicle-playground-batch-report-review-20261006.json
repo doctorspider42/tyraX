@@ -1,0 +1,23 @@
+{
+  "status": "READONLY_EDITOR_AUTHORED_BATCH_REPORT_NOT_PS2_CENSUS",
+  "projectStaticBatching": true,
+  "scene": 0,
+  "authoredObjects": 135,
+  "eligibleObjects": 77,
+  "batchedObjects": 37,
+  "soloEligibleObjects": 40,
+  "groups": 28,
+  "listedExclusionReasons": {
+    "reflected": 19,
+    "physics body": 10,
+    "alone in its group": 27,
+    "a part is alone": 13
+  },
+  "reportPath": "F:/Projects/tyrax2-lab-20261001/vehicle-playground-batch-report-20261006.txt",
+  "reportSha256": "10685c3b7bc23209646bb9758dc12c203830ad8b6356aca269fe72db80eada8e",
+  "projectFileSha256": "39a45ac41e9d537f5ecf97963fb5dc69dbc5ce8f318b475fbece7121630eef29",
+  "editorExecutableSha256": "5fa624c1dbb648573f7eeb794115d898dedda8fcbf2443caf6ef1201f9154409",
+  "command": "tyrax-editor.exe --batch-report examples/vehicle-playground 0",
+  "scope": "Current authored host analysis. Object/group counts are not accepted carriers in the physical fixture or historical full-night census. Existing static batching is enabled; the fixture prices its benefit, not a newly available production saving.",
+  "earlierMain11Result": "docs/tyrax2-main11-batch.md: zero activation, different lamp pick/effective spotlight guards, not accepted batching speed result."
+}

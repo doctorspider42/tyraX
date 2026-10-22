@@ -1,0 +1,12 @@
+--- a/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
++++ b/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
+@@ -69,6 +69,9 @@
+     iaddiu  countMask,          vi00,            VU1_STAPIP_COUNT_MASK
+     iand    vertexCount,        vertexCount,     countMask
+     iadd    stqData,            vertexData,     vertexCount
++    ; Private V2: initialise branch-guarded integer values on both layouts.
++    iaddiu  colorRunRemaining,  vi00,            0
++    iaddiu  colorStride,        vi00,            0
+     iblez   poolColorEnabled,   poolLegacyLayout
+     iadd    colorDescriptor,    stqData,        vertexCount
+     ilw.x   colorRunRemaining,  0(colorDescriptor)

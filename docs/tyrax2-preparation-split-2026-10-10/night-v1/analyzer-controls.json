@@ -1,0 +1,30 @@
+{
+  "passed": true,
+  "negativeControls": [
+    "missing completion",
+    "capture rejected",
+    "descriptor mismatch",
+    "unexpected frozen file IO",
+    "wrong sample count",
+    "wrong sample order",
+    "changed raster",
+    "wrong raw image stage",
+    "changed resident program",
+    "changed ELF",
+    "changed source",
+    "fatal allocation failure",
+    "undersized closure allocation",
+    "missing heap stage",
+    "split missing completion",
+    "split short export",
+    "split wrong order",
+    "split wrong policy",
+    "split unbalanced",
+    "split off clocks",
+    "split count clocks",
+    "split overlap",
+    "split activation drift",
+    "split no queue"
+  ],
+  "analyzerSha256": "25d606ba6c4505c996705a075adc7c6152719d17347805a5e9114fadfe57c809"
+}

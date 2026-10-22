@@ -1,0 +1,30 @@
+{
+  "command": [
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/bin/openvcl",
+    "--schedule-flag-readers",
+    "--fmac-interlock",
+    "--emit-delay-fillers",
+    "--branch-interlock",
+    "--branch-bubble-on-dependency",
+    "--loop-liveness-always",
+    "--upper-move-with-w",
+    "--pair-best-of-two",
+    "--pair-best-of-many",
+    "--trim-uncarried-ranges",
+    "--coalesce-float-writes",
+    "--split-dead-float-ranges",
+    "--sink-loads",
+    "--sink-loads-across-stores",
+    "--sink-loads-into-loops",
+    "--sink-loads-past-branches",
+    "--sink-loads-best-of",
+    "--drop-dead-writes",
+    "--exempt-full-clip-masks",
+    "--clip-exemption-best-of",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-tc-native-v23-v6/artifacts/stapip_cull_tc_vu1.o.vcl"
+  ],
+  "exit": 0,
+  "inputSha256": "dd36848a5b104789ebd22e2c9745d0eaf0644e13c5897fd6382686e55f64b814",
+  "toolSha256": "f2a5c0f67b56a46d220d482eb72b1a3dc57256a45c998a35647aeaa93a8a6cdf",
+  "wrapperNotModified": true
+}

@@ -1,0 +1,4 @@
+{
+  "status": "REJECTED_TARGET_COLD",
+  "reason": "PS2 reports451 mismatched plane outputs in74 invocations at phase1 offset750 while emulator/host bit oracle is clean. Candidate folds unit coefficient multiplies; V3 forces native mul.s and permits CSE only. No production promotion."
+}

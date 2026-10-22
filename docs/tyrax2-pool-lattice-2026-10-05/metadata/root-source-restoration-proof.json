@@ -1,0 +1,20 @@
+{
+  "status": "ROOT_VERIFIED_BOTH_EXACT_SOURCE_ONLY_RESTORATIONS",
+  "restores": [
+    {
+      "mode": "pricing",
+      "sourceFiles": 501,
+      "sourceManifestSha256": "ca170260791f3875c35e33bdacb0992e3cf6ddd58fbc991cf0432cdb7bad5a54",
+      "reconstructionHelperSha256": "15770c30fc91f54e832c75df7a382385fcf722d5857c5b43eba88b5459889beb",
+      "baseManifestSha256": "769f1403389da4d3683a17806fce1b75b381a4cf4f8229ee4d3306a44ca806de"
+    },
+    {
+      "mode": "probe",
+      "sourceFiles": 502,
+      "sourceManifestSha256": "a62f969f3efb385d48b7b0423125d978f1b2c11b37f8dfbd5f7e2eaaabc06307",
+      "reconstructionHelperSha256": "15770c30fc91f54e832c75df7a382385fcf722d5857c5b43eba88b5459889beb",
+      "baseManifestSha256": "769f1403389da4d3683a17806fce1b75b381a4cf4f8229ee4d3306a44ca806de"
+    }
+  ],
+  "resourcesOrBinariesRestored": false
+}

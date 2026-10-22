@@ -38,6 +38,9 @@
 **TyraX is a 3D editor that makes real PlayStation 2 games, engine included** —
 based on [Tyra](https://github.com/h4570/tyra).
 
+**TyraX 2.0** combines the redesigned editor, the TyraX2 frame pipeline and
+the latest mainline collision improvements. See the [2.0 integration notes](docs/tyrax-2.0.md).
+
 Sculpt terrain, drop in models and lights, wire the gameplay in a visual flow
 graph — then press **one key** and a PS2 runs your world. PCSX2, or a real
 console over ethernet.
@@ -334,6 +337,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   that lands on a textured wall or an imported model, which a lightmap cannot.
   A scene's spot lights can carve per-pixel shadow volumes of their own, so a
   street lamp stops lighting the alley behind the wall it hangs on.
+  Small ground-shadow sets stay resident within a bounded scene-load budget.
 - **[A torch you hold](docs/flashlight.md)** - a per-pixel projected pool that
   lands on walls and props, an offset that takes the light out of the
   player's eye, where it could only ever cast shadows nobody can see, and
@@ -441,6 +445,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - [Interleaved passes](docs/interleaved-passes.md) - batches and roads are
   drawn in between the objects, so the EE works while VU1 draws (-0.5 ms a
   frame in a dense scene); Auto times both orders and keeps the faster.
+- [Dynamic light receivers](docs/dynamic-light-receivers.md) — optionally light
+  only player models and the driven vehicle, with independent scene overrides.
 - [Conservative occlusion culling](docs/occlusion-culling.md) — build-time
   inner proxies and a tiny CPU visibility buffer reject whole draw units behind
   solid walls, with per-object occluder and receiver opt-outs.
@@ -467,7 +473,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - [Renderer work, checked on a second map](docs/engine-performance-on-a-second-map.md): the control that says it is the engine and not the showcase.
 - [Attributing render submission](docs/render-submission-attribution.md): opt-in counters that account for the whole `beginFrame`..`endFrame` block, not just the static pipeline, down to a zero residual.
 - [Not re-baking wheels that did not move](docs/wheel-rebake-skip.md): the vehicle wheel batch skips a rig whose inputs did not change, and keeps its `bboxVersion` when the vertices are byte-identical.
-- A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with EE scopes, DMA waits and pipeline-state snapshots.
+- A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with hierarchical EE scopes, actual render jobs and explicit observer-cost controls.
+- [Frame pipeline flow nodes](docs/frame-pipeline-flow-nodes.md): deferred runtime switching and a requested-state getter, with repeated requests preserving overlap.
+- [TyraX2 frame pipeline](docs/tyrax2.md): ordered frame recording and EE/GPU overlap, enabled for new projects with explicit legacy opt-out, [partial geometry reuse](docs/tyrax2-full-throttle.md), [terrain strip refinement](docs/tyrax2-strip-subranges.md) and reproducible hardware controls; [private SPR/CALL trials](docs/tyrax2-spr-call-runtime-2026-10-04.md) preserve measured results and exact prototype sources.
 - [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, sortable by name, cost or delta, with baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —

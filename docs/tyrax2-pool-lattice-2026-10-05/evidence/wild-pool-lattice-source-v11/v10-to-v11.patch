@@ -1,0 +1,58 @@
+--- v10/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
++++ v11/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
+@@ -446,7 +446,7 @@
+     lq color1, 3(buffer)
+     FixColor{ color1 }
+     iadd vertexCounter, vertexCount, vi00
+-    iaddiu fogConstInt, vi00, 0xFF0
++    ; Fog is computed from each cached actual clip vector before scatter.
+ latticeEmitLoop:
+     ilw.x colorRunRemaining, 0(vertexData)
+     iadd stqData, colorRunRemaining, colorRunRemaining
+@@ -455,6 +455,7 @@
+     lq outputStq1, 0(stqData)
+     lq vertex1, 1(stqData)
+     lq vertex2, 2(stqData)
++    CalculateTyraFog{ fogConstInt, vertex2, fogParams }
+     PerformTyraFogClipCheck{ vertex2, destAddress, 2, fogConstInt, adcMask }
+     sq outputStq1, 0(destAddress)
+     sq color1, 1(destAddress)
+@@ -466,6 +467,7 @@
+     lq outputStq1, 0(stqData)
+     lq vertex1, 1(stqData)
+     lq vertex2, 2(stqData)
++    CalculateTyraFog{ fogConstInt, vertex2, fogParams }
+     PerformTyraFogClipCheck{ vertex2, destAddress, 5, fogConstInt, adcMask }
+     sq outputStq1, 3(destAddress)
+     sq color1, 4(destAddress)
+@@ -477,6 +479,7 @@
+     lq outputStq1, 0(stqData)
+     lq vertex1, 1(stqData)
+     lq vertex2, 2(stqData)
++    CalculateTyraFog{ fogConstInt, vertex2, fogParams }
+     PerformTyraFogClipCheck{ vertex2, destAddress, 8, fogConstInt, adcMask }
+     sq outputStq1, 6(destAddress)
+     sq color1, 7(destAddress)
+--- v10/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
++++ v11/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+@@ -2050,7 +2050,7 @@
+   buffer->poolTableApplied=NightAblation::poolTableEnabled && poolEligible && !poolMismatch;
+   bool latticeEligible=false;
+   // Candidate preparation is On-only: scans and copies are included in its cost.
+-  if(NightAblation::poolLatticeSelected && NightAblation::poolLatticeEnabled && poolEligible && latticeNoFog && !poolMismatch)
++  if(NightAblation::poolLatticeSelected && NightAblation::poolLatticeEnabled && poolEligible && !poolMismatch)
+     latticeEligible=buffer->preparePoolLattice();
+   const uint32_t latticeUnique=latticeEligible?buffer->poolLattice->descriptor.word[0]:buffer->size;
+   const bool latticeApplied=NightAblation::poolLatticeEnabled && latticeEligible && buffer->poolTableApplied;
+--- v10/README.md
++++ v11/README.md
+@@ -21,3 +21,9 @@
+ V8 native OpenVCL exhausted register allocation. V9 removes every added VF/VI name, rather than keeping more initialized live values. Before layout, colorStride is a temporary marker mask and colorRunRemaining its result; legacy immediately redefines both as before. After tags, vertexCounter tests stride-2, then becomes the unique-cache write pointer; colorData retains cache base. During unique traversal ST starts at4+U and advances U times, so it becomes index start4+2U without an extra pointer. Afterward vertexData takes that index start, vertexCounter takes emitted count, and exhausted colorRunRemaining becomes one temporary scatter index. The color1 VF is loaded/FixColor-converted only after unique traversal and before scatter. singleColorEnabled, spotEnabled, adcMask, scale, MVP, kickAddress and destAddress are never used as aliases. Actual compiler allocation/residency remains pending.
+ 
+ V10 restores the source-expansion comparator to its original cold-only guard (poolTableSelected && collectCounters && poolEligible). V9 had accidentally used the candidate replay-bypass guard there, causing warmOn materialization/comparison; V9 remains a compile/budget probe only. Replay bypass keeps its independent candidateOn owner guard. V10 shader is byte-identical to V9.
++
++## Revision 11: ordinary fog admission
++
++Immutable source-only revision of v10. The lattice eligibility predicate no longer requires constant fog. Each original scatter occurrence calculates `CalculateTyraFog` from the cached exact clip-space vector and existing fog uniforms immediately before the unchanged `PerformTyraFogClipCheck`. The three-qword cache layout, original occurrence order, original clip history, and every fallback remain intact. The previous hardcoded 255 coefficient is removed from the lattice path. No new named VU registers are introduced. This adds three seven-instruction fog expansions and removes one constant-load instruction; native allocation and rounded full-resident budget must be checked before execution.
++
++Ordinary night v10 has zero candidate activation and its strict rejection is preserved. V11 requires actual-output fog-enabled pairs, including nonconstant fog, before ordinary pricing. Existing v10 fog-disabled probes do not qualify this change. No build or device action accompanies this preparation.

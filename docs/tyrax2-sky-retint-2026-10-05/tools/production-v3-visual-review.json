@@ -1,0 +1,23 @@
+{
+  "status": "PASS_ROOT_VISUAL_REVIEW_FOUR_OWNED_WARM_GENERATIONS",
+  "images": {
+    "1": {
+      "file": "gen-1-scene-0.png",
+      "sha256": "839c8e2209264b516c06b9290ac0aa390feddfd6e24a347992ab15c195d7f80b"
+    },
+    "2": {
+      "file": "gen-2-scene-1.png",
+      "sha256": "7453d6289131b9a287fe506e811d287cbfa531077c824d3845c178e1bd42c7b7"
+    },
+    "3": {
+      "file": "gen-3-scene-2.png",
+      "sha256": "97930d7ece0c834fcbc34446a8486a1f2ef52b75d8cf1ee9ea83bc40b1b5388b"
+    },
+    "4": {
+      "file": "gen-4-scene-0.png",
+      "sha256": "4fa97c957ae4eb2eb18036ae82244627091cc298fc02bb3eb8c749f73efd3c33"
+    }
+  },
+  "observations": "Forced RGB changes are deliberate; painted/plain sky, vehicle, terrain and HUD show no new stretched/missing triangles. Procedural view is first-person. Runtime proof remains unchanged; no physical warm-image confirmation inferred.",
+  "runtimeProofSha256": "9ae64e4891528a90180080fdc5953f0d023fbb4122f1681c5bc6b3fed8384cb2"
+}

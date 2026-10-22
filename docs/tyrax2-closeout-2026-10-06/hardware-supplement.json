@@ -1,0 +1,15 @@
+{
+  "status": "REJECTED_NO_GAME_START_ORIGINAL_CLIENT_LOGS",
+  "entries": [
+    {
+      "originalName": "ps2client.stdout",
+      "archivePath": "rejected-hardware-start/stdout.log",
+      "sha256": "897ba0b2c0f4b2b509d51a972cd25860f6f23ffd0ec1221f4ed1d66f9adc495e"
+    },
+    {
+      "originalName": "ps2client.stderr",
+      "archivePath": "rejected-hardware-start/stderr.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}

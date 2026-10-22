@@ -1,0 +1,42 @@
+{
+  "status": "ROOT_EXECUTED_PRIVATE_SPR2_CALL_CACHE_COST_FIXED_NOT_NATIVE_ACCEPTED",
+  "files": {
+    "inc/renderer/core/paths/path1/frame_vif_writer.hpp": "9d91c71e2579ad4b478ec9d6e43bb29888acc1ac19b9dd9f2e767f8b92ddcf3e",
+    "inc/renderer/core/paths/path1/native_call_cache.hpp": "17e1f84b243bc9c3e6b390a738a65aca394d5728621953e993846eecd7722456",
+    "inc/renderer/core/paths/path1/native_call_check.hpp": "5e81c0b2511527e8a9108b012f5e2fbaa846b28b20a101c79ecc6bde3d65d3c7",
+    "inc/renderer/core/paths/path1/spr_prefix_stager.hpp": "d80c90f12ba7d95e7fa64b8220be75ca42ad093f12eefcf03381793d54efa48a",
+    "inc/renderer/core/paths/path1/spr_transaction_storage.hpp": "9562fc30b95a8876b475b024cfcb0aff56598ef9ca769cf61d9c62089ec729dc",
+    "inc/renderer/core/paths/path1/vif1_queue.hpp": "c5531f85187e4dcb97aacdb7d457761edb26b1dae6293926a51f8ecf8d586fdc",
+    "src/renderer/core/paths/path1/vif1_queue.cpp": "af4cdc4204c2e689b48c5fd3f46b191b8f65504d6e931dfce89c3ddf2a93dcff"
+  },
+  "before": {
+    "inc/renderer/core/paths/path1/frame_vif_writer.hpp": "9d91c71e2579ad4b478ec9d6e43bb29888acc1ac19b9dd9f2e767f8b92ddcf3e",
+    "inc/renderer/core/paths/path1/native_call_cache.hpp": "f56a92fb059c108fcc74efa02d2d571af680772282ccceece7b6488343917b3d",
+    "inc/renderer/core/paths/path1/native_call_check.hpp": "5e81c0b2511527e8a9108b012f5e2fbaa846b28b20a101c79ecc6bde3d65d3c7",
+    "inc/renderer/core/paths/path1/spr_prefix_stager.hpp": "d80c90f12ba7d95e7fa64b8220be75ca42ad093f12eefcf03381793d54efa48a",
+    "inc/renderer/core/paths/path1/spr_transaction_storage.hpp": "9562fc30b95a8876b475b024cfcb0aff56598ef9ca769cf61d9c62089ec729dc",
+    "inc/renderer/core/paths/path1/vif1_queue.hpp": "c5531f85187e4dcb97aacdb7d457761edb26b1dae6293926a51f8ecf8d586fdc",
+    "src/renderer/core/paths/path1/vif1_queue.cpp": "af4cdc4204c2e689b48c5fd3f46b191b8f65504d6e931dfce89c3ddf2a93dcff"
+  },
+  "priorMergedSourceProofSha256": "2c1899ba46bd392118ba6edf5bad41105f68120f1997920483a908478459a574",
+  "rootV2SourceProofPath": "F:\\Projects\\tyrax2-lab-20261001\\spr-call-benchmark-v2\\merged-source-proof.json",
+  "combinedProposalProofPath": "F:\\Projects\\tyrax2-lab-20261001\\call-cache-bulk-payload-v4\\combined-source-proof.json",
+  "combinedProposalProofSha256": "5ca81943c4e22c11d0e39d18a7c20895b37b5e2040c558c9d6c2d9b09cb21ab9",
+  "actualHeaderProposalHostProofPath": "F:\\Projects\\tyrax2-lab-20261001\\call-cache-bulk-payload-v4\\host-proof.json",
+  "actualHeaderProposalHostProofSha256": "6d1cf05eda541853bc214f5a9cd246ca5eed90688aefbecbb533c20829eebcb2",
+  "targetCompileOnlyProposalProofPath": "F:\\Projects\\tyrax2-lab-20261001\\call-cache-bulk-payload-v4\\compile-proof.json",
+  "targetCompileOnlyProposalProofSha256": "96193d88518d4c71f075cd55994335bed022362e97909f2e6c8a79a29eb7f381",
+  "applicationScriptSha256": "5ed979518b7143f47e47828ba33c794d5411690b1cf190f4873ca6c3e972fa7e",
+  "changedInputs": [
+    "inc/renderer/core/paths/path1/native_call_cache.hpp"
+  ],
+  "queueSourceUnchanged": true,
+  "boolSharedSetter": true,
+  "modeMask": 7,
+  "multiRecordOnlyPolicyDefault": false,
+  "singletonDiagnosticDefaultPreserved": true,
+  "optionalPolicyBridgeInstalled": false,
+  "appliedSubset": "Only cache header; combined proposal queue policy setter is not applied. Unchanged queue uses append default allowSingleRefDiagnostics=true.",
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

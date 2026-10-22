@@ -1,0 +1,81 @@
+{
+  "status": "read-only documentation consistency review and archive plan",
+  "pins": [
+    {
+      "path": "F:\\Projects\\tyra-editor\\docs\\dynamic-light-receivers.md",
+      "bytes": 3196,
+      "sha256": "1da8f9db7dd79156f86a47fe9cf099cb59867c349c5c5288ff426eb1cc9ebb59"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\README.md",
+      "bytes": 49747,
+      "sha256": "d8956016cc16b5aee6109508e761d8f0bf43b826e74b47bf65c42f1a0da848d6"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\docs\\README.md",
+      "bytes": 42429,
+      "sha256": "1a96fb700a285c483371a756a214918c6813104b5329595c9cc249021d3477f5"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\docs\\flashlight.md",
+      "bytes": 66440,
+      "sha256": "453aaa09d79fb5b5f314d8eb232d89dab29a858eca23886df57fe43eba6016e0"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\docs\\global-illumination.md",
+      "bytes": 43080,
+      "sha256": "90c0bd37c48e1d61c392d267979faf0debe925ccec35e3b2530db26e6b2141a9"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\docs\\vehicles.md",
+      "bytes": 14554,
+      "sha256": "df9eff79f4bcb290852d7058103ca5d96bee025a0b8e94812f126906cf402342"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\docs\\ps2-viewport.md",
+      "bytes": 14797,
+      "sha256": "1d911602409cef7976a9756997a02556bbae7e1e9945ca9382f39838c3e1b9f0"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\docs\\format-versioning.md",
+      "bytes": 20281,
+      "sha256": "0f63d4bdc98722f8ccbce26b92f7d1f593556b990abd49d410708c20d2a73a80"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\docs\\backlog.md",
+      "bytes": 193818,
+      "sha256": "495a368b11d0caafb32d5c281e55463f9340612b269883db03494916a25122b1"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\.agents\\skills\\tyra-editor-dev\\SKILL.md",
+      "bytes": 414008,
+      "sha256": "a6c9a0da5dd82a35fd9d3226a8165bf9c906178ee4525930ab401166fafb0e22"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\.agents\\skills\\tyra-engine-dev\\SKILL.md",
+      "bytes": 281514,
+      "sha256": "4a1c3fb91bfc13ff5bd7ae412632695ea90f0fe54e1073a313d52ceb268ba72c"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\.agents\\skills\\tyra-testing\\SKILL.md",
+      "bytes": 312627,
+      "sha256": "36c8e80d0b514c825bd707c318723ff1087879bd96e7628f00c185a6b752c265"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\.claude\\skills\\tyra-editor-dev\\SKILL.md",
+      "bytes": 414008,
+      "sha256": "a6c9a0da5dd82a35fd9d3226a8165bf9c906178ee4525930ab401166fafb0e22"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\.claude\\skills\\tyra-engine-dev\\SKILL.md",
+      "bytes": 281514,
+      "sha256": "4a1c3fb91bfc13ff5bd7ae412632695ea90f0fe54e1073a313d52ceb268ba72c"
+    },
+    {
+      "path": "F:\\Projects\\tyra-editor\\.claude\\skills\\tyra-testing\\SKILL.md",
+      "bytes": 312627,
+      "sha256": "b920826a9a4d1c7457078c3236a32581168fa13ffcd46811b7526524c3ced9c8"
+    }
+  ],
+  "schema": 1
+}

@@ -1,0 +1,11 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\spot-result-controls-v2\\analyze-loop.py": "58e19cee054b237f13f797de6237d283811757c05c84742cfd62483aff7bc2a8",
+    "F:\\Projects\\tyrax2-lab-20261001\\spot-result-controls-v2\\analyze-night.py": "52e531315ea967396f9d4ea24ed7b2254e67dc4d348a3e04374bde82668f770c",
+    "F:\\Projects\\tyrax2-lab-20261001\\spot-result-controls-v2\\analyze-night-cli.py": "5b394abceca7e4eac757f14b39f3a240a833913ea7f63aeeae447b8f4b68e9ba",
+    "F:\\Projects\\tyrax2-lab-20261001\\spot-result-controls-v2\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\spot-result-controls-v2\\source-controls\\night_plan.hpp": "a16b563711e14eb089dce9d1f8fe9f142608ee8ab94b54d3be15f6ddfa4d60d1",
+    "F:\\Projects\\tyrax2-lab-20261001\\spot-result-controls-v2\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "42503986336debd3f91dbc65a297c6d756414d076bc083af859b610b268bbaf5"
+}

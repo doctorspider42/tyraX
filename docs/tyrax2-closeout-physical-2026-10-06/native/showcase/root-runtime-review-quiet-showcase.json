@@ -1,0 +1,36 @@
+{
+  "status": "ROOT_REVIEWED_CLOSEOUT_INPUTS",
+  "rootReviewed": true,
+  "noAddedWaitsReviewed": true,
+  "ordinarySamplerOnlyReviewed": true,
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-motion-v1/quiet-v4/showcase/game",
+  "inputs": [
+    {
+      "role": "native-proof",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-motion-v1/quiet-v4/showcase/native-proof.json",
+      "sha256": "841e4b3425bb63aa07f9ad217fe5924f12b0529883118a25371467dfea2dede1"
+    },
+    {
+      "role": "source-review",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-motion-v1/quiet-v4/showcase/source-review.json",
+      "sha256": "f29803715f93776bbb46f40b44047290890fc7b6160e78118b49101958e38f74"
+    },
+    {
+      "role": "elf",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-motion-v1/quiet-v4/showcase/game/bin/showcase.elf",
+      "sha256": "aac5d2f7e795a3d80716e1906120126d5108d2e711bc31741fcee36a7b36d2b5"
+    },
+    {
+      "role": "symbol",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-motion-v1/quiet-v4/showcase/game/bin/showcase.elf.sym",
+      "sha256": "f7c4cd1d2ae8bab4893848f75be190e47bb89f048c75e932adab449bb8fe860f"
+    },
+    {
+      "role": "sample-config",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-motion-v1/quiet-v4/showcase/game/bin/closeout.cfg",
+      "sha256": "350195e792e3f97da28b8c02fe2f90f2c128d5713ea1414caa32c5c3c98c64cf"
+    }
+  ],
+  "sourceFrozenByRoot": true,
+  "reviewScope": "Quiet one-arm Players showcase portal route. Independently verified all source hashes and native source/ELF binding. Reviewed controller, cold witnesses and rare successful-teleport increments. Emulator correctness only; hardware price and observer footprint pending."
+}

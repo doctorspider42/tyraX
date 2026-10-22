@@ -1,0 +1,799 @@
+# Night EE investigation (2026-10-12/13)
+
+Question: where does the EE spend the night frame of `examples/vehicle-playground`
+on a real PS2? Which of that work is "done the PC way rather than the PS2 way"?
+
+## Rig
+
+The rig is in the repository as [`tools/ps2rig`](../tools/ps2rig/README.md)
+(it was the private `C:\tx\rig` until 2026-10-21; arms still default to
+`C:\tx` as the scratch root).
+
+- **Project and build:** a copy of the example in `C:\tx\vpn<arm>` uses the
+  release profile. The engine copy in `C:\tx\tyra<arm>` is built with
+  `tools/toolchain/native-build.ps1` and its own cache.
+- **Scene:** night is forced in the copy's `district_mood.cpp`. Real pads are
+  neutralised.
+- **Cycle:** 600 frames parked at the spawn, then a full-throttle drive up the
+  boulevard, then a scene reset. The arm switches every cycle (`Cld::arm`), so
+  one ELF yields interleaved A/B windows. Each ps2link reset risks a
+  `freepad: DMA Busy` wedge.
+- **Probe (`cld_probe.hpp`):**
+  - loop period;
+  - work, which is the period minus the renderer's stall total;
+  - p50/p95 and late periods (> 18 ms);
+  - COP0 scopes around `renderScene` phases and `StaPipCore::render` segments;
+  - optional EE performance counters.
+- **Output:** windows are printed over ps2link (`CLD`, `CLDS`, `CLDP` rows).
+  Healthy `TYRA_LOG` lines are compiled out in all arms.
+
+The instrumented builds (scopes plus PMU) add about 2.5 ms per frame. The
+headline numbers come from `--lean` builds (loop statistics only).
+
+## Measurements
+
+### Baseline night, release build, lean
+
+| Window | Work mean | p95 | Late |
+| --- | --- | --- | --- |
+| Parked at spawn | 18.1–18.3 ms | 18.7 ms | 300/300 (30 fps) |
+| Driving, first 150 frames | 18.7–18.8 ms | 22.9 ms | 112/150 |
+
+### Where it goes (instrumented, parked)
+
+- **Scene:** 16.2 ms. Of that, 13.3 ms is inside `StaPipCore::render` for
+  135 bags, about 98 µs per bag.
+- **Bags per producer:**
+
+  | Producer | Bags | Time |
+  | --- | --- | --- |
+  | Roads | 27 | 3.25 ms |
+  | Terrain | 18 | 2.7 ms |
+  | Static batches | 10 | 1.4 ms |
+  | Sky | 5 | 0.8 ms |
+  | Objects | 58 | 6.4 ms |
+  | Effects | about 17 | about 4 ms |
+
+- **Per bag:** about 10 200 instructions (EE PCR0 event 12), about 330 I-cache
+  misses and about 310 D-cache misses.
+- **Miss cost, calibrated on the console:**
+  - an I-cache miss costs about 50 cycles, measured as 32 768 straight-line
+    nops producing 2 189 misses;
+  - a D-cache load miss costs about 42 cycles;
+  - a store miss costs about 52 cycles.
+
+  The COP0 Count register ticks at the EE clock.
+- **A second ("warm") call of the same bag costs the same as the first.** One
+  call's code and data footprint exceeds the 16 KB I-cache and the 8 KB
+  D-cache. The hot functions total about 32 KB, scattered over about 380 KB
+  of `.text`. `sendObjectData` alone is 12 KB, `StaPipCore::render` 7 KB.
+- **Per segment and bag:**
+
+  | Segment | µs | I-misses | D-misses | Instructions |
+  | --- | --- | --- | --- | --- |
+  | Bounds | 19 | 57 | 57 | 1345 |
+  | Prepare | 22 | 64 | 49 | 1750 |
+  | `sendObjectData` | 16 | 58 | 56 | 985 |
+  | Baked-cache key + lookup + replay | 28 | 103 | 67 | 2056 |
+  | Flush | 12 | 21 | 53 | 1540 |
+
+- **Snapshot:** about 100 per frame, 49 KB of chain copy, 56–130 KB of
+  mutable-REF copy and 2.25 MB borrowed.
+
+### Not the lever
+
+| Arm | Change | Effect |
+| --- | --- | --- |
+| D | `-O2`, asserts compiled out | −0.25 ms parked |
+| E | `-Os` | Crashes at boot |
+| L/M | Wider submission batching | −0.65 ms, not repeatable (one cycle 0) |
+| P | `-fprofile-arcs` (PGO) | Crashes at boot |
+
+E and P crash with the identical `BadVAddr C1D7A0E5` at different EPCs. A
+float pattern loaded as a pointer suggests a layout-dependent memory
+corruption during init. This is an open bug, unrelated to the frame cost.
+
+## The PC-ism and the PS2 answer
+
+Every draw rebuilds, through a large generic path, a head that is almost
+identical to the previous frame's:
+
+- it re-derives the baked-cache key and walks a hash bucket;
+- it re-fetches bboxes and re-selects the program;
+- it re-decides light and fog;
+- it writes every uniform.
+
+The bytes are then copied again into the frame arena.
+
+On PS2 the EE should stamp: check that nothing changed, then append the prepared
+chain. See [bag stamps](stapip-stamps.md).
+
+### Stamps, lean A/B, same ELF
+
+Stable over eight interleaved cycles after the stamp table fixes (destroyed-entry
+log instead of a global invalidation, per-entry serial, 512 slots / 8 probes).
+Work means; "late" is a period over 18 ms.
+
+| Window | Baseline | Stamps + idle audio | + amortised probe, stream-first, probe lean |
+| --- | --- | --- | --- |
+| Parked | 18.3–18.6 ms, 300/300 late (30 fps) | 13.5 ms, 0–2/300 late | 13.5 ms, 0/300 late |
+| Driving, first 150 frames | 19.0–19.3 ms, ~120/150 late | 15.1–15.2 ms, ~19/150 late | 15.3 ms (p50 14.8, p95 16.9–17.3), 11–14/150 late |
+| Driving, next 150 frames | 13.9 ms, ~20/150 late | 12–14/150 late | 2/150 late |
+
+The third column is what the generator now emits: stamps on
+(`setStampEnabled(true)` in the frame pipeline setup), the audio idle sleep, and
+the two-frame reflection capture with terrain streaming ahead of it
+([reflective materials, "Amortised capture"](reflective-materials.md)).
+
+### Tried during the run, about zero
+
+| Change | Effect |
+| --- | --- |
+| Wider submission batching for stamps | ~0 |
+| Wheels as local geometry + a matrix per wheel on VU1 | ~0 (the wheel cost is not the re-bake) |
+| Sun/moon/stars as one bag on a matrix | ~0 |
+| Probe cadence alone | a few late frames fewer, mean unchanged |
+| Probe "lean" (fewer probe contents) | −0.3 ms |
+
+## Remaining driving cost (instrumented, stamps on)
+
+- **Partially visible bags:** terrain and roads near the camera, about 15 bags.
+  These stay on the per-package classify + clip route, which costs 160–210 µs
+  per bag, about 2.6 ms in total.
+- **Wheels:** the wheels are world-space re-baked on the EE every moving frame
+  (CPU skinning), about 1.2 ms. The PS2 answer is local immutable wheel
+  geometry with a matrix per wheel; this was prototyped privately earlier.
+- **Particles, glow, lamp glow:** about 1.5 ms.
+- **Light pools, beams, decals:** about 2.3 ms.
+- **Update:** about 1.5 ms.
+
+The audio thread is a further "waiting for no reason" cost. With no song
+playing, it polled every 0.5 ms at priority 5, which preempted the game about
+2000 times a second. It now sleeps 16 ms while idle (`Audio::idleSleepMs`). An
+earlier private prototype of the same change measured about −0.5 ms.
+
+## Status
+
+Night parked holds 60 fps. Night driving is at 15.3 ms mean with 11–14 late
+frames in the heaviest 150-frame window - close, not yet stable. The sky dome's
+partial route (~0.8 ms) cannot simply skip clipping: off-screen dome triangles
+would wrap the GS 4096-pixel window. Headlight pools are inherent to the look.
+The wheels' ~1 ms is explained and fixed (2026-10-13), see
+[wheel-rebake-skip.md](wheel-rebake-skip.md):
+
+- The driven car's wheels were re-baked on the EE (0.28 ms) and packed on the
+  direct route (0.74 ms) every frame.
+- The night's matrix-per-wheel arm measured ~0 only because of a rig bug: a
+  per-wheel `bboxVersion` over a shared array made the four wheels evict each
+  other's baked stream.
+- Fixed, the matrix path costs 0.27–0.34 ms for the wheels.
+- Resting batches now own their bag, so they take a stamp (440 -> 231 µs).
+
+Visual equivalence of the stamps on a TV is still owed.
+
+## The heavy spot (2026-10-13/14)
+
+The user parked the Ravager at (-119.3, 0.3, 0.3), where night driving fell
+toward 30 fps. Lean, same-ELF A/Bs on a physical PS2, measured on the heaviest
+150-frame drive window:
+
+- **The waits were vsync, not the GPU.** An EE-side sampler of `VPU_STAT` and
+  `GIF_STAT` during the frame-completion waits found the GPU already idle. The
+  6–9 ms in `flushRecording` was the frame missing its vblank, so the frame is
+  EE-bound here as well.
+- **Ablations (EE work, heaviest window, base 17.3–17.5 ms):**
+
+  | Removed | Saving |
+  | --- | --- |
+  | ground shadow maps | −1.7 ms |
+  | beams + glows | −1.4 ms |
+  | probe | −1.1 ms |
+  | pools | −0.8 ms |
+  | particles/smoke | ~0 |
+  | lamp cones | ~0 |
+  | terrain splat layers | ~0 |
+
+  Day was −2.7 ms.
+- **The PC habit found:** the baked SUN shadows (ground maps and decals) were
+  drawn at night with the sun below the horizon. They are now gated
+  ([shadows.md](shadows.md)). Result:
+
+  | | Heaviest window | Parked |
+  | --- | --- | --- |
+  | Before | 17.32 ms, 86/150 late | 14.6 ms |
+  | After | 14.43 ms, 14/150 late | 13.3 ms |
+
+- **Slice clipping** ([vu1-clipping.md](vu1-clipping.md)) saves only ~0.2 ms
+  lean, though the instrumented build had priced it at ~1.8 ms. COP0 scopes in
+  hot per-call code inflate badly, so only lean A/Bs decide.
+- **What `submit` copies:** at this spot, 85 snapshots a frame copy 53 KB of
+  chain and 93 KB of mutable REF data. The D-misses from that are ~0.7–1 ms;
+  the rest of `submit` is per-packet tag walking.
+
+### State after the night of 2026-10-13/14
+
+Lean, heaviest 150-frame drive window at the heavy spot:
+
+| | Work | p50 | p95 | Late |
+| --- | --- | --- | --- | --- |
+| Start of the night | 17.3 ms | | | 86 |
+| Now | 14.3 ms | 13.8 ms | 17.0–17.2 ms | 11–12 |
+
+Parked: 13.2 ms, 0 late. Day and night now cost about the same. The mean
+fits 60 fps comfortably; the late frames are spikes.
+
+What the spikes are made of (instrumented, slow vs fast frames): a probe
+phase, about +1.2 ms before the three-phase split; a terrain chunk build, about
++0.8 ms; and simply more geometry on screen (partial routes +1.5 ms, submit
++0.9 ms, objects +0.9 ms).
+
+Measured and kept:
+
+- the sun-shadow night gate;
+- slice clipping;
+- the three-phase probe.
+
+Measured and dropped:
+
+- **The probe ground stand-in** (`reflectionGroundProxy`). It made driving
+  worse (p95 21.4 ms): its grid rebuilds every time the eye crosses a cell.
+- **The sky dome in the main view.** Removing it saves ~0.5 ms parked and
+  takes the heaviest window from 15 to 10 late frames. It was not replaced
+  yet (see below).
+
+Next leads, roughly by expected value:
+
+1. **Terrain stream budget 1 instead of 2.** Built and unmeasured: the rig's
+   `--budgetab` arm, `C:\tx\vpnQ2`. A chunk build is the second spike source.
+2. **A sky card instead of the dome.** An untextured dome is a pure function
+   of elevation, so a small grid just inside the far plane with per-vertex
+   colours from the view ray's elevation draws the same gradient. Every
+   vertex is in view, so there is no clip route and the bag takes a stamp.
+   Needs the projection (fov, aspect, roll; the probe uses 110 degrees and a
+   square target). Worth ~0.5 ms in the main view plus the probe's sky phase.
+3. **Lamp coronas as VU1 billboards.** They are camera-facing quads rebuilt
+   on the EE every moving frame, so the batch never replays. The engine
+   already has VU1 billboard programs (particles, PR #118). The pull toward
+   the camera that keeps the glow off the pole needs a VU-side equivalent, or
+   a fixed small offset.
+4. **The car headlight pool on the car's matrix**, like the wheels: today the
+   patch is rebuilt in world space whenever the car moves.
+5. **Zero-copy submission.** StaPip builds a packet in its own buffer and
+   `submit` copies it, plus every mutable REF target, into the frame arena,
+   then walks the tags three times. A per-frame data bank for the copy pool
+   (REFs borrowed instead of copied) is the contained first step (~0.4 ms).
+   Writing packets straight into the arena needs a second arena, because a
+   packet is reserved for its worst case while the pool allocates.
+6. **A VU1 strip clip program.** Strip partial packages are still expanded
+   into lists on the EE and classified per block. A clip program that reads
+   strips and streams its output with mid-program XGKICKs would turn a
+   partial bag into one baked REF.
+
+### Terrain chunk builds (2026-10-14)
+
+The spike cluster at one road spot was terrain chunk builds. They had two
+causes:
+
+- **LOD band changes.** Turning LOD off removed these, but builds came back
+  from the second cause.
+- **The streaming ring.** It evicted chunks behind the car and rebuilt them on
+  the way back, at 2.6–5.7 ms of EE apiece, on a 25-chunk map whose pool holds
+  all 25.
+
+The fix ([terrain.md](terrain.md), "A map that fits is not streamed"):
+
+- a map that fits is built whole and never evicted;
+- a LOD rebuild reads a per-node shade cache instead of relighting every
+  vertex (build cost 1.9 → 1.2 ms in the frames that have one).
+
+The heaviest window still has 7 late frames at LOD 70; with LOD off it has 4,
+but LOD off costs +0.4 ms parked. The slowest frames (18–21 ms) are now
+`Objects` at 6.7–7.9 ms on that stretch, which is the next target.
+
+### State at the end of 2026-10-14
+
+Lean, heavy spot, heaviest 150-frame drive window:
+
+| | Work | p95 | Late |
+| --- | --- | --- | --- |
+| Night | 13.6 ms | 16.4 ms | 5-6 |
+| Day | 13.9 ms | 16.0 ms | 4 |
+
+Parked is 12.3-12.6 ms at night and 11.8 ms by day. The mean fits 60 fps with
+~3 ms to spare; what is left is a short stretch of road whose frames carry
+more crossing bags.
+
+### Where the heavy frames go (2026-10-14, lean, per frame)
+
+Lean COP0 ticks per route inside `StaPipCore::render`, heaviest window:
+
+| Route | Bags | ms | Each |
+| --- | ---: | ---: | ---: |
+| Stamp | 107 | 3.2-3.6 | 34 us |
+| Partial list (clip slices) | 6 | 1.9-2.0 | ~316 us |
+| Partial strip (EE expansion) | 6.6 | 2.5-2.7 | ~378 us |
+| Direct | 3 | 0.55 | 185 us |
+| Whole replay | 4.3 | 0.45 | 105 us |
+
+A crossing bag's ~330 us splits into three parts:
+
+- **~100 us of head:** the stamp miss, bounds, light and texture prep, the
+  uniform block and the bake bookkeeping.
+- **~180 us of package loop.**
+- **~70 us of packet send.** It never joined the submission batch, so it paid
+  the VIF1 queue's copy and tag walk alone.
+
+The per-package emit itself is only ~6 us. The slow frames do not have one
+culprit: they carry about +0.5 ms each in the partial routes, the road and
+static-batch scopes, the probe and the update.
+
+Found and fixed or measured that day:
+
+- terrain streaming of a map that fits ([terrain.md](terrain.md));
+- crossing bags now batch ([stapip-stamps.md](stapip-stamps.md));
+- static streams copied every frame, now opt-in immutable
+  ([stapip-stamps.md](stapip-stamps.md), "Immutable streams").
+
+### Next steps (what still smells)
+
+1. ~~**Zero-copy for static streams.**~~ Measured and closed. The arena copy is
+   worth ~0.15 ms at most: opting in every world bag cuts it from 34 KB to
+   2 KB a frame and the heaviest window from 13.77 to 13.61 ms. Terrain
+   contributes no copied bytes at all. The 1.05 ms "borrow everything"
+   ceiling was an artefact of garbage geometry
+   ([stapip-stamps.md](stapip-stamps.md), "Immutable streams").
+2. **A stamp for a crossing bag's head.** It differs from a stamp only by the
+   shared clip-constant REF, so the ~100 us head (light pick, texture prep,
+   uniform block) can replay with patched MVP, fog and spot words. About
+   0.8-1 ms in the heavy frames, where crossing bags multiply.
+3. ~~**A VU1 strip clip program.**~~ Done in 1.174.0, together with whole-package
+   streaming: heaviest window 14.0 -> 12.3-12.55 ms, 5 -> 1 late
+   ([vu1-clipping.md](vu1-clipping.md), "A whole package, streamed").
+   Before: partial strip packages were expanded into lists
+   on the EE, into the copy pool. That keeps them out of the batch and costs
+   ~0.2 ms of expansion.
+4. **Light pick per stamp, 0.74 ms.** Static lamps are re-scored for every bag
+   on every frame; only the car's own lights move.
+5. **The sky dome in the main view, ~0.5 ms.** A camera-facing card with the
+   same elevation gradient would take a stamp.
+6. **`submit` walks each packet three times and copies the chain, ~2.2 ms.**
+   Writing packets straight into the frame arena needs a second arena, because
+   a packet is reserved for its worst case.
+
+### Later on 2026-10-14: what the late frames are
+
+Lean, production build, two drive cycles. The late frames repeat at the same
+frames of the same road stretch in both cycles, so they are geometry, not
+noise. Each one is an Objects baseline of 7.2-7.7 ms plus one of these:
+
+- **a terrain LOD rebuild:** `T.build` up to 2.4 ms, plus ~1.2 ms of first
+  draw in `Terrain`;
+- **a frame where the interleave autotuner draws the roads outside the object
+  loop:** `Roads` 3.1-3.8 ms, `Objects` 2.8 ms.
+
+Two terrain changes from this, both in [terrain.md](terrain.md) ("What a LOD
+rebuild still costs"):
+
+- **A cheaper chunk build:** 1 055 -> 879 us average in the slow frames.
+- **At most one LOD rebuild a frame on a resident map:** late frames in the
+  heaviest window went 9/7 -> 4/5, and p95 16.9/16.1 -> 16.3/15.9 ms.
+
+What is left at the end of the day is ~4-5 late frames of 150 in the
+heaviest window, each an Objects-heavy stretch plus one rebuild or an
+interleave switch.
+
+Measured and set aside:
+
+- **The light pick.** In the stamps it costs 0.33-0.36 ms, plus 0.19-0.24 ms
+  of spot build. That is at most nine candidates (eight lights and the
+  torch), and the car's own lights change every frame while driving, so a
+  cache would save ~0.15 ms.
+- **`submit` internals.** The snapshot (chain copy and two tag walks) costs
+  1.6-1.7 ms for ~39 packets and ~85 KB a frame, about 5.7 cycles a byte.
+  Native recording costs 0.42-0.44 ms. The StaPip packets are already in
+  cached memory, so the remaining suspect is the arena writes thrashing the
+  8 KB D-cache. Writing the arena through the uncached-accelerated segment
+  is the experiment, but it reaches into the recorder's address handling.
+
+Not the lever (measured):
+
+- terrain LOD off: +0.4 ms parked;
+- larger submission batches: rejected earlier;
+- the light-pick early-out: unmeasurable.
+
+Rig notes for whoever picks this up:
+
+- `cld_probe.hpp` holds 96 scope names (it was 48, and later names were
+  silently dropped).
+- The `.tyra` copied from the repo carries `"buildProfile": "debug"`. Set it
+  to release before `--refresh-gen` in a rig copy, or the game polls
+  host:livepad.bin every frame.
+- Never reuse an arm name: a stale run log fools the monitor.
+
+### State on 2026-10-15 (1.174.0-1.174.2)
+
+Lean, physical PS2, night, same-ELF A/Bs (rig `C:\tx\rig`, base `vpnR5`):
+
+| Route | Before | Now | Late |
+| --- | --- | --- | --- |
+| Heavy spot, heaviest drive window | 14.0 ms, p95 16.1 | 12.26-12.38 ms, p95 ~13.9 | 1 of 150 |
+| Heavy spot, parked | 12.4 ms | 12.4 ms | 0 |
+| District spawn (0, -74), heaviest drive | - | 11.2-11.7 ms, p95 12.3-13.2 | 1 of 150 |
+
+The one late frame per window appears in every window, both arms, parked
+too: it is the rig printing ~40 lines over ps2link at the window's end.
+
+What did it, in order of size:
+
+1. **Whole-package streamed clipping** ([vu1-clipping.md](vu1-clipping.md),
+   "A whole package, streamed"): -1.6 ms in the heaviest window.
+2. **Stamps in runs** ([stapip-stamps.md](stapip-stamps.md)): -0.3 ms.
+   A stamp hit was ~28 us, ~87% cache misses (58 I + 104 D lines).
+3. **Immutable copies of crossing packages**: recorder copies 70 -> 16 KB,
+   -0.15..-0.2 ms.
+
+Measured and priced, not done:
+
+- **Packets built in the frame arena.** The chain copy in `submit` is only
+  0.19 ms (35 KB); preflight 0.44 ms (886 tags), REF fixup 0.32 ms, native
+  recording 0.31 ms. At most ~0.2 ms.
+- **A stamp for a crossing bag's head.** Head = 1.1 ms for ~13 bags (bounds
+  0.28, prep 0.33, uniforms 0.21, bake lookup 0.16, failed stamp try 0.13);
+  only prep + uniforms replay from a stamp, so ~0.3-0.4 ms net.
+- **Sky card.** The whole Sky scope is 0.57 ms with stars, sun and moon; the
+  dome itself ~0.2 ms after streamed clipping, against a painted-panorama seam
+  and horizon to reproduce.
+- **Light-pick cache** (~0.15 ms, earlier) and **lamp glow** (0.18 ms).
+
+The largest remaining item is the stamp count itself: 107 stamps x ~28 us =
+3.0 ms. `--batch-report` on the example says 143 shapes draw solo: 68 "alone
+in its group", 46 "a part is alone" (a multi-part model batches all or
+nothing), 37 reflected windows, 29 too big for their cell, 16 physics bodies.
+Fewer, bigger draws - per-part batching first - is the PS2 way to cut it.
+
+Later that night (1.175.0), measured the next morning and **reverted in
+1.175.1** (physical PS2, same ELF, rig `--partheadab`, two cycles an arm):
+
+| Window | Both on | Partial batching off | Head stamps off |
+| --- | ---: | ---: | ---: |
+| Parked | 12.68-12.74 ms | **12.53-12.56 ms** | 12.72 ms |
+| Heaviest drive | 12.84-12.85 ms | 12.90 ms | 12.84 ms |
+
+- **Partly batched models made the parked frame ~0.15 ms SLOWER.** They saved
+  two bags at the heavy spot and grew the batches they joined (two more strip
+  bags crossing the frustum). Reverted.
+- **Head stamps for crossing bags replayed 89% of the time** (PCSX2 counters:
+  160 856 hits of 180 000 tries; the misses were producer facts) **and saved
+  nothing measurable.** The ordinary head and the replay touch about the same
+  memory, and memory is what the head costs (next section). Reverted.
+- Not built: the sky card and packets in the frame arena (about 0.2 ms each).
+
+### Where the EE frame actually goes: waiting for memory (2026-10-15)
+
+PMU counters over the heaviest drive window (non-lean build, 150 frames):
+about **22 000 I-cache and 46 000 D-cache misses a frame**, outside the vsync
+wait. At the calibrated ~50 and ~42 cycles a miss that is **~3.8 ms of
+fetching code and ~6.6 ms of fetching data out of ~13 ms of EE work** - the
+EE stalls on memory for three quarters of the frame. The interrupted-PC
+profile ([tyrax2-pc-sampling-2026-10-11.md](tyrax2-pc-sampling-2026-10-11.md))
+agrees from the other side: 375 functions run, no single one above ~6%, the
+top 150 hold 95% of the non-vsync samples.
+
+That is why the last weeks' wins were small and per-function: a path that is
+replaced by a cheaper-looking one still touches the same lines. The levers
+that fit this are about memory, not instructions - code layout and size
+(hot code together, the -Os/PGO boot crash fixed), fewer and more compact
+objects touched per draw, packets built where the DMA reads them (the
+scratchpad, as Burnout 3 does), and prefetching in loops that know what comes
+next.
+
+### The -Os crash and what -Os is worth (2026-10-15)
+
+The "-Os/PGO boot crash" is not a boot crash. Bisected in PCSX2 by engine
+directory (`$(filter obj/<dir>/%,$(OBJECTS)): CFLAGS += -Os`, 240 s a run):
+renderer, loaders, physics, audio/debug/pad/irx/thread at -Os all run clean;
+**`src/math` at -Os alone** reproduces it - an IOP jump to a float-valued PC
+(0x3f800000, 0x3f7a1100...) or a silent hang, ~240 frames into the rig's
+first drive, every run. An earlier "corrupted RPC client" lead was an
+artefact: the scan read addresses from a stale `.elf.sym` of another build.
+With the right table the EE-side SIF RPC clients stay intact to the crash.
+
+The audit of `src/math` asm found real bugs (no `"memory"` clobbers,
+undeclared `$2`/`$8`, `atan2` rewriting its inputs - fixed in 1.175.2), but
+they are not this crash. Per-frame traces show the -Os and -O3 cars on the
+same path to a few cm, no host file I/O and no unusual audio call before the
+IOP dies. Unresolved; a size build keeps `src/math` at -O3.
+
+Measured on the PS2 (rig, base vpnR5, two ELFs deployed back to back, 3-4
+cycles each): **engine -Os (math -O3) is 300 KB smaller and no faster** -
+parked p50 12.35 ms in both, driving p50 12.43-12.53 vs 12.0-12.3 ms and p95
+~14.7 vs ~13.9 ms, i.e. 0.3-0.5 ms SLOWER in motion. A smaller image does not
+cut the misses that matter; the hot loops lose more to -Os code than the
+I-cache gains. -Os is off the table as a layout tool; hot/cold grouping
+without it (function sections + an order file from the PC samples) is next.
+
+### Hot code grouped: worth nothing (2026-10-15)
+
+Same rig, three ELFs back to back on the PS2: the plain build, the build with
+`-ffunction-sections` (control), and the same with
+`-Wl,--section-ordering-file` putting the 146 hottest functions of the PC
+profile (93% of the non-vsync samples, `renderNow`/`flushDeferredRun` added by
+hand) first in `.text`, hottest first. Parked p50 12.35 ms in all three;
+driving p50 12.01/11.93/9.90 (control) vs 12.04/12.01/9.92 ms (ordered).
+**No difference.** The I-cache misses are capacity misses - the hot set is
+~150 functions, orders of magnitude above the 16 KB cache - not conflicts a
+layout can remove. With -Os also slower (above), point 1 of the plan is
+closed: code layout is not a lever here. Fewer instructions executed per
+frame is; that is points 3 and 4 (per-frame producers, draw count).
+
+### Per-frame producers: where G.update goes (2026-10-15)
+
+The audit's suspects, measured instead of guessed (PS2, rig `--updsegs
+--vehsegs`, fast frames, parked / driving, us):
+
+| Segment | Parked | Driving |
+|---|---|---|
+| G.update total | 1137 | 1177 |
+| `stepVehicles` + smoke/skids/debris (U.l5) | 574 | 608 |
+| - `buildVehicleColliders` | 182 | 181 |
+| - per-car gather | 151 | 146 |
+| - per-car physics bodies | 68 | 108 |
+| - per-car sprung rig | 41 | 42 |
+| `collideVehicleCamera` | 302 | 300 |
+| `updateDynLights` | 62 | 60 |
+| `updateDynLitObjects` | 2 | 2 |
+
+`updateDynLitObjects` (an audit suspect) is free. The camera was ONE
+`sweepSphere` a frame costing 0.3 ms: for every one of ~170 objects it built
+the collision box and four rotations (each several sinf/cosf) before its
+broad-phase reject. 1.175.3 keys that geometry per object the way
+`buildVehicleColliders` already did: 302 -> ~205 us, parked and driving.
+What was left was touching every RuntimeObject (D-cache misses), so 1.175.4
+gives the chase camera its own sweep over the vehicle collider list built
+earlier the same frame (`sweepVehicleCamera`): kind-0 entries now carry their
+world-AABB extents, so a far box is rejected from the compact array; physics
+bodies, mesh colliders and the other cars take the general per-object path.
+~205 -> ~66 us; the list build grew ~17 us. G.update 1137 -> 947 us parked,
+1177 -> 990 us driving. A per-frame equivalence check against `sweepSphere`
+(rig `--camcheck`, PCSX2, 9000 frames) found 0 differences.
+The "Particles" render scope on this map is the vehicle passes nested inside
+it: `renderVehicleGlow` ~0.5 ms and lamp glow ~0.2 ms with three cars; the
+map has no emitters.
+
+### Render-side scope costs lie since stamp deferral (2026-10-15)
+
+With 1.174.1's stamp deferral, a stamped bag inside a batch is QUEUED and the
+queue is replayed when the next non-stamp bag (or a batch end) flushes it. A
+`costStart/costEnd` scope around one producer therefore pays for every
+deferred stamp queued before it - the "direct" and "partial" bags looked like
+0.2-0.35 ms each. Measured trap: headlight pools split one bag per car (the
+shared bag's box spanned all three cars and always took the partial route)
+moved Vehicle_lights from ~500 to ~660 us parked - and left the whole frame
+exactly where it was (parked p50 12.345 ms, driving within 0.1 ms). Reverted.
+**Judge render-side changes by the frame (CLD win work/p50), never by a
+producer scope.** Update-side scopes (G.update, U.*, V.*) are unaffected.
+
+### The parked floor was VU1, and the roads were most of it (2026-10-20)
+
+A whole-frame GPU sampler (timer alarm every ~100 us classifying VU1 / GIF /
+VIF1 state) showed the parked frame VU1-bound: VU1 computing ~48% of the
+frame, GS-only ~13%, idle ~30%. Clip programs were ~1 ms of it (EE clipping
+instead costs ~48 ms - not an option); day/night changed nothing. Of the ~51k
+vertices StaPip hands VU1 per frame, ~21k were roads, sampled every 0.5 units
+across on a 4-unit terrain. 1.176.0 tessellates roads into error-bounded
+bands (docs/roads.md, "Bands"): VU1 ~48% -> ~36%, parked p50 12.37 ->
+11.70-11.80 ms, the first EE-era change to move it. The rest of the VU1 load
+is objects (~17k vertices) and static batches (~5k).
+
+### Fewer draws: what the bag census says (2026-10-20)
+
+A per-bag census of one parked and one driving frame (rig `--bagcensus`,
+PCSX2, counts only): 125 / 106 StaPip bags, 108 / 84 of them stamps, 38.9k /
+32.9k vertices. Only 20 distinct model matrices - almost every static bag is
+baked in world space - and the same mesh appears in view at most 2-4 times,
+so **instancing has nothing to amortise here**. What stands out is size: 45
+bags of the parked frame carry 60 vertices or fewer, 16 of them road chunks
+(one road texture = 30 bags), cut at every 16 repeats of V.
+
+Road chunks were therefore A/B'd on the PS2 (rig `--roadchunkab`, one ELF,
+8 cycles an arm): V rebased in place at a strip restart instead of a new bag,
+closing a chunk at 72 or 144 dense stations. 61 -> 51 -> 47 chunks, and the
+frame did not move (parked 10.63 / 10.61 / 10.63 ms, driving 11.16 / 11.21 /
+11.12 ms; equal arms spread 0.05 ms). Not done: a few fewer small bags in view
+are below what a frame can show.
+
+### The submission walked every chain four times (2026-10-20)
+
+`Vif1Queue::submit` with frame recording on: preflight (validate + resolve
+every REF), copy of the producer's chain (tags and payloads), REF fixup (copy
+of mutable REF targets), then native emission walking the copy again to
+record REFs into the frame's chain. Measured per pass on the PS2 (rig
+`--submitsegs`, driving, ~30 submits a frame): 0.38 + 0.11 + 0.21 + 0.22 ms,
+q.submit 1.2 ms in all.
+
+The native chain needs only the payloads, never a copy of the tags.
+1.176.1 records in ONE walk (`recordSinglePass`, `TYRA_VIF1_SINGLE_PASS_RECORD`):
+a CNT/END payload goes into the arena and is recorded as a REF to the copy, a
+REF is recorded as itself when the immutable table lends its span and as a
+REF to an arena copy otherwise. Any failure gives back what it took and the
+snapshot route runs as before (it owns the drain/flush recovery) - 1 fallback
+in 680 000 submits. Same-ELF A/B on the PS2 (rig `--singlepassab`, 6 cycles,
+two single-pass arms against the four-pass one): parked work 10.57 -> 10.34 /
+10.35 ms, driving work 11.07 -> 10.73 / 10.76 ms, driving p50 10.62 ->
+10.25 ms. PCSX2 frame shots differ between the routes no more than between
+two runs of the same route (dither noise).
+
+### VU1 has slack now: the four VU1 audit items, measured (2026-10-20)
+
+The [architecture audit](tyrax2-architecture-audit-2026-10-20.md) listed four
+ways to recover VU1 time in the parked night frame: R2 (one FLUSHE per bag),
+a sliding window for the strip route of the clip programs, V4-8 static vertex
+colours, and larger VU packages. All four assume that frame is VU1-bound. On
+the current ELF (codex/tyrax2-foundation at 1.176.3, after road bands and the
+single-pass submission) it is not.
+
+**Rig:** lean build, `--gputl` (the whole-frame GPU sampler), a scope around
+the GS-tail wait of `completePipelineFrame` beside the existing
+`q.waitFor`, and one arm that removes the FLUSHE. Arm 1 replaced the FLUSHE
+VIFcode of the StaPip object-data header with a NOP, in ordinary bags and in
+stamp replays alike - unsafe on hardware (the uniform race the FLUSHE exists
+for), so it is a timing ceiling for R2 and never a candidate. Physical PS2,
+one ELF, 21 cycles (7 an arm), arms 0 and 2 identical controls.
+
+| arm | parked work / p50 (ms) | driving work / p50 (ms) |
+| --- | ---: | ---: |
+| 0 control | 11.49 / 11.12 | 12.01 / 11.63 |
+| 1 no FLUSHE | 11.50 / 11.14 | 12.02 / 11.59 |
+| 2 control | 11.51 / 11.14 | 11.98 / 11.56 |
+
+Removing every bag-boundary drain moved nothing. The sampler says why: parked,
+VU1 computes ~32-36% of the frame period and kicks ~5%, the GIF alone ~12%,
+and the GPU is idle ~44-51%; driving it is idle ~51%. The EE waits for the
+GPU **8 us a frame** (`q.waitFor` 6 us, GS tail 2 us), parked and driving
+alike - the previous frame's chain is always finished long before the EE
+needs it. The no-FLUSHE arm did shrink the "VU1 idle while VIF1 works" class
+from 12-16 to 6-8 per mille, i.e. the drains cost about 0.1 ms of VU1 idle a
+frame, and that idle is off the critical path.
+
+What follows for each item:
+
+- **R2 (FLUSHE per bag, S2 bank or scratch copies): rejected.** The ceiling
+  of removing all drains is within the 0.03 ms spread of the two controls. The scratch-copy
+  variant would also not be correct as proposed: a single-buffer bag's
+  preamble can race the next bag's uniform unpack once the FLUSHE is gone (VIF1
+  may write from its FIFO right after the MSCAL), and the S2 bank cannot be
+  signalled per bag through the baked stream, whose MSCAL address and buffer
+  headers are immutable REF payloads.
+- **Clip strip sliding window: skipped by the audit's own rule.** Clip-routed
+  work per frame (rig `--a-cliptel`, PCSX2 counts, same scene): parked 17
+  packages / 704 triangles, of which strips 8 packages / 479 triangles / 495
+  vertices; driving 15-27 packages, 432-829 strip triangles. Two of three
+  corner passes per strip triangle is ~960-1650 corners; at ~15 VU1 cycles a
+  pre-clip corner (loads, clamp, MVP, clip flags, from the openvcl schedule of
+  `stapip_clip_tc_fold_vu1`) that is 0.05-0.08 ms of VU1, ~0.1-0.17 ms even if
+  the window also cached the 17-cycle emit of each corner - below the 0.2 ms
+  bar, and VU1 time is not on the critical path anyway.
+- **V4-8 vertex colours: rejected for VU1 time.** 3 upper ops a vertex is
+  ~0.3-0.4 ms of VU1 at most, inside the ~7 ms of VU1 idle a frame. (Its EE
+  side - 12 fewer bytes per vertex where streams are copied - was not priced.)
+- **Larger VU packages: not built.** The VU1 half of per-package cost is in the
+  same idle; the EE half (classification, packet commands) would need strip
+  runs re-baked (`meshstrip::kRun`, the road/terrain emitters) and in-place
+  output in every program. Not priced on the EE.
+
+The frame is EE-bound: renderScene ~9.9 ms of the 11.3 ms parked work, with
+`StaPipCore::renderNow` ~6.9 ms of it. VU1 trims cannot move this frame until
+the EE side falls below ~7 ms; the GPU slack is rather an argument for moving
+EE work onto VU1 (R1, matrix-driven effects).
+
+### Pricing the night's static content (2026-10-20, audit B1/B2/B4/R4)
+
+One lean ELF, six arms switched per cycle (rig `cpatch.py --price6`, 4-5
+cycles an arm, physical PS2, work means in ms; parked = two 300-frame
+windows, driving = four 150-frame windows):
+
+| Arm | Parked | Driving | EE scope it removes |
+| --- | --- | --- | --- |
+| base | 10.35 / 10.35 | 10.64 / 10.93 / 9.27 / 8.21 | - |
+| collider grid (first guard) | 10.17 / 10.32 | 10.60 / 10.84 / 9.14 / 8.08 | vehicle update -0.10 |
+| night dressing hidden | 10.09 / 10.32 | 10.57 / 10.83 / 9.16 / 8.18 | - |
+| no light pools | 9.87 / 10.01 | 10.17 / 10.48 / 8.73 / 7.98 | `Light_pools` 0.37 |
+| static lamps not registered | 9.81 / 9.94 | 10.18 / 10.28 / 8.83 / 7.95 | StaPip core -0.54 |
+| no beams / coronas | 10.08 / 10.19 | 10.34 / 10.53 / 8.88 / 8.02 | `Light_beams` 0.47 / 0.36 |
+
+- The eleven night window boxes are already three static batches (1.175.5
+  batches reflected objects among themselves); hiding all of them is worth
+  ~0.07 ms on average, so merging the three into one could save two submits
+  at most - below what this rig resolves. Audit B2 closed on that number.
+- "Lamps not registered" is the ceiling of a baked night for static
+  receivers, NOT a shippable look (cars and props lose the lamps too).
+
+**Static collider grid** ([vehicles.md](vehicles.md), "The static collider
+grid"). The first guard re-read each static object's transform (2-3 cache
+lines an object) and kept 126 of the 162 us the build still cost; the
+shipped guard reads only the flags at the tail of `RuntimeObject`. Same ELF,
+6 cycles an arm: vehicle update 0.52 -> 0.36 ms parked, 0.58 -> 0.42 ms
+driving (`buildVehicleColliders` 0.24 -> 0.10 ms, of it guard 0.06, dynamic
+half 0.03); frame work -0.05 parked, -0.10 / -0.16 / -0.13 / -0.13 ms in the
+driving windows.
+
+### Larger VU packages: the EE half, counted (2026-10-21, audit item Y)
+
+The audit's last VU1 item, "larger VU packages (in-place output)", was left
+with its EE half unpriced (above, "VU1 has slack now"). In-place output would
+let a package hold ~150 vertices instead of 75 (output written over the input,
+3 quadwords a vertex instead of 6), halving the package count. What that is
+worth on the EE depends on how many packages go down a route whose EE work is
+per package at all.
+
+**Which routes pay per package.** Read off `StaPipCore::renderNow` and
+`StaPipQBufferRenderer` as shipped (partial replay off):
+
+- **Stamps** (~100 bags a frame): the stamp is ~20 quadwords plus one REF to
+  the bag's immutable baked arena, whatever the bag's size. Zero EE work per
+  package; the per-package unpack headers and MSCNTs live inside the arena and
+  cost VIF1/VU1 only.
+- **Whole replay** (~4 bags): one REF for the whole bag. Zero per package.
+- **Direct loop** (bags not yet baked or refused a replay): per package a
+  qbuffer, `fillByPointer`, `cull` and its packet commands. ~3 bags, 3-6
+  packages a frame.
+- **Crossing bags** (`checkYesFrustumPartial*`): the only real per-package
+  route. `packager.create` (pointer setup, an eight-package coarse box, the
+  six-plane AABB test and the eight-plane clip mask for partial groups), then
+  per in-view package a qbuffer, a baked-block or written command group, a
+  `fillCachedPackage` lookup for clip packages, the 16-buffer half flushes,
+  and one more REF/CNT for `Vif1Queue`'s recorder.
+
+**How many** (rig `EY2`, PCSX2, counts only, deterministic across cycles;
+packages per frame on the crossing route, cull / clip / out):
+
+| window | list packages | strip packages | total | crossing bags |
+| --- | --- | --- | ---: | ---: |
+| parked | 2 / 9 / 12 | 0 / 8 / 2 | 33 | 9 |
+| first drive | 2 / 9 / 12 | 1 / 7 / 5 | 37 | 9 |
+| cruise | 6 / 11 / 24 | 5 / 10 / 29 | 86 | 13 |
+| late drive | 2 / 16 / 17 | 2 / 11 / 19 | 66-67 | 12-13 |
+
+So doubling the package size removes **~17 packages a frame parked and
+18-43 driving**, about half of them packages that are already rejected by a
+box test (the "out" column, a few microseconds each).
+
+**What a package costs, from what is already measured on the PS2.** The
+route profile ("R5" baseline in
+[tyrax2-arch-audit-ee-submission-2026-10-20.md](tyrax2-arch-audit-ee-submission-2026-10-20.md))
+puts a crossing bag at 175-184 us against 84 us for a whole-replayed bag that
+does all the same per-bag work (bounds, light pick, `sendObjectData`). At
+most ~95 us of a crossing bag is therefore per package, i.e. at most ~1.2 ms
+over ~65 packages while driving, under 19 us each - a ceiling that also holds
+the crossing-only per-bag work. The per-package SUBMISSION half of it was
+removed outright by R5 "runs" (no qbuffers, no per-package commands, one REF
+per run): -0.14 / -0.27 ms in the cruise / late drive windows, +0.075 ms
+parked. Halving the package count halves that term, ~0.07-0.14 ms driving
+and nothing parked; the classification term (2.45 us a package in the
+September attribution) halves to ~0.04-0.08 ms. **Expected saving 0.1-0.2 ms
+driving, ~0.05 ms parked, below the 0.2 ms bar.** Against it: every cull and
+as-is microprogram rewritten for in-place output, the clip programs unable to
+go in place (their fan-out needs the separate area, so clip packages do not
+grow), `meshstrip::kRun` and every road/terrain strip emitter re-baked to
+150, and coarser rejection handing VU1 more vertices.
+
+**Decision: not built.** Same-ELF PS2 confirmation is owed (the console is
+wedged at the time of writing): rig `C:\tx\vpnEY2`, three arms (0 and 2
+controls). Arm 1 cuts every crossing bag's packages smaller - lists 75 -> 24,
+strips 75 -> 15 (run-aligned; the size must stay a multiple of 3: a first
+attempt at 25 made the VU1 programs emit broken GIF packets in PCSX2 from
+then on, in every arm) - which ADDS 75 packages a frame parked and 90-252
+driving. A halving saves `delta_work x (N0 / 2) / (N1 - N0)`, about 0.22 x
+the arm's cost parked and 0.17 x in the cruise window, so in-place output
+reaches 0.2 ms only if arm 1 costs at least ~0.9 ms parked / ~1.2 ms cruise
+of `CLD win` work on the console. The extra packages are mostly rejected
+ones, so the arm under-prices an in-view package; read its `R.part` /
+`R.strip` route time beside the frame and keep the conclusion only if both
+stay under those thresholds.
+
+**Physical PS2 confirmation (rig EY2, one ELF, 31 cycles, arm 1 cuts crossing
+packages to 24 list / 15 strip vertices, arms 0/2 controls):** parked
++0.18..+0.31 ms, first drive +0.38, cruise +1.08, late drive +0.90 ms -
+about 4 us of whole-frame work per extra package. Doubling the package size
+would therefore save ~0.07 ms parked and ~0.07-0.18 ms driving, under the
+0.9 / 1.2 ms bar set for in-place output. Not built.

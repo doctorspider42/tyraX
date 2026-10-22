@@ -1,0 +1,947 @@
+{
+  "status": "paired_physical_native_reference_memo_control_complete",
+  "date": "2026-10-03",
+  "environment": "ps2",
+  "selected_elf_sha256": "0ce4920618f000ae76fc3e0a5dedde6960c09bf3806ae61330fd630642bdd177",
+  "source_manifest_sha256": "dc614846781c240e74d14cbfe27319ae769e33f2c5605b5e2ee717c6b875ae7f",
+  "build_backend": "native",
+  "boots": [
+    {
+      "order": 0,
+      "sequence": "ABA",
+      "evidence_dir": "F:\\Projects\\tyrax2-lab-20261001\\native-ref-memo-order0-independent-physical-evidence",
+      "machine_sha256": "12e126d2e05edaa5d5b6c6c0c25d20b93f9a15113e0a0f42a0f77551c4ef7e92",
+      "phases": [
+        {
+          "phase": 0,
+          "candidate": 0,
+          "samples": 128,
+          "means_ms": {
+            "engineTicks": 33.36580758624606,
+            "loopTicks": 33.31402712398105,
+            "renderTicks": 31.867893007066513,
+            "workTicks": 18.228202925788032,
+            "periodTicks": 33.366665045420326
+          },
+          "counts_first": {
+            "copyCalls": 106,
+            "countedCalls": 106,
+            "copySuccess": 106,
+            "retries": 0,
+            "nativeCalls": 106,
+            "reusedCalls": 106,
+            "sizingScans": 0,
+            "nativeRecorded": 106,
+            "fallback": 0,
+            "invalid": 0,
+            "sceneCalls": 1,
+            "refs": 543,
+            "cacheable": 322,
+            "spilled": 221,
+            "mutableRefs": 421,
+            "borrowedRefs": 122,
+            "preReadable": 543,
+            "preImmutable": 543,
+            "fixReadable": 421,
+            "fixImmutable": 543,
+            "cacheUsed": 0,
+            "maxRefs": 49,
+            "cachedMutable": 200,
+            "cachedBorrowed": 122
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              106,
+              106
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "retries": [
+              0,
+              0
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              106,
+              106
+            ],
+            "sizingScans": [
+              0,
+              0
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ],
+            "fallback": [
+              0,
+              0
+            ],
+            "invalid": [
+              0,
+              0
+            ],
+            "sceneCalls": [
+              1,
+              1
+            ],
+            "refs": [
+              543,
+              543
+            ],
+            "cacheable": [
+              322,
+              322
+            ],
+            "spilled": [
+              221,
+              221
+            ],
+            "mutableRefs": [
+              421,
+              421
+            ],
+            "borrowedRefs": [
+              122,
+              122
+            ],
+            "preReadable": [
+              543,
+              543
+            ],
+            "preImmutable": [
+              543,
+              543
+            ],
+            "fixReadable": [
+              421,
+              421
+            ],
+            "fixImmutable": [
+              543,
+              543
+            ],
+            "cacheUsed": [
+              0,
+              0
+            ],
+            "maxRefs": [
+              49,
+              49
+            ],
+            "cachedMutable": [
+              200,
+              200
+            ],
+            "cachedBorrowed": [
+              122,
+              122
+            ]
+          }
+        },
+        {
+          "phase": 1,
+          "candidate": 1,
+          "samples": 128,
+          "means_ms": {
+            "engineTicks": 33.36608552932739,
+            "loopTicks": 33.31331014633179,
+            "renderTicks": 31.86623870001899,
+            "workTicks": 17.924087524414062,
+            "periodTicks": 33.36666515138414
+          },
+          "counts_first": {
+            "copyCalls": 106,
+            "countedCalls": 106,
+            "copySuccess": 106,
+            "retries": 0,
+            "nativeCalls": 106,
+            "reusedCalls": 106,
+            "sizingScans": 0,
+            "nativeRecorded": 106,
+            "fallback": 0,
+            "invalid": 0,
+            "sceneCalls": 1,
+            "refs": 543,
+            "cacheable": 322,
+            "spilled": 221,
+            "mutableRefs": 421,
+            "borrowedRefs": 122,
+            "preReadable": 543,
+            "preImmutable": 543,
+            "fixReadable": 221,
+            "fixImmutable": 221,
+            "cacheUsed": 322,
+            "maxRefs": 49,
+            "cachedMutable": 200,
+            "cachedBorrowed": 122
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              106,
+              106
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "retries": [
+              0,
+              0
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              106,
+              106
+            ],
+            "sizingScans": [
+              0,
+              0
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ],
+            "fallback": [
+              0,
+              0
+            ],
+            "invalid": [
+              0,
+              0
+            ],
+            "sceneCalls": [
+              1,
+              1
+            ],
+            "refs": [
+              543,
+              543
+            ],
+            "cacheable": [
+              322,
+              322
+            ],
+            "spilled": [
+              221,
+              221
+            ],
+            "mutableRefs": [
+              421,
+              421
+            ],
+            "borrowedRefs": [
+              122,
+              122
+            ],
+            "preReadable": [
+              543,
+              543
+            ],
+            "preImmutable": [
+              543,
+              543
+            ],
+            "fixReadable": [
+              221,
+              221
+            ],
+            "fixImmutable": [
+              221,
+              221
+            ],
+            "cacheUsed": [
+              322,
+              322
+            ],
+            "maxRefs": [
+              49,
+              49
+            ],
+            "cachedMutable": [
+              200,
+              200
+            ],
+            "cachedBorrowed": [
+              122,
+              122
+            ]
+          }
+        },
+        {
+          "phase": 2,
+          "candidate": 0,
+          "samples": 128,
+          "means_ms": {
+            "engineTicks": 33.36581797069974,
+            "loopTicks": 33.324793073866104,
+            "renderTicks": 31.87533246146308,
+            "workTicks": 18.22153385480245,
+            "periodTicks": 33.36666981379191
+          },
+          "counts_first": {
+            "copyCalls": 106,
+            "countedCalls": 106,
+            "copySuccess": 106,
+            "retries": 0,
+            "nativeCalls": 106,
+            "reusedCalls": 106,
+            "sizingScans": 0,
+            "nativeRecorded": 106,
+            "fallback": 0,
+            "invalid": 0,
+            "sceneCalls": 1,
+            "refs": 543,
+            "cacheable": 322,
+            "spilled": 221,
+            "mutableRefs": 421,
+            "borrowedRefs": 122,
+            "preReadable": 543,
+            "preImmutable": 543,
+            "fixReadable": 421,
+            "fixImmutable": 543,
+            "cacheUsed": 0,
+            "maxRefs": 49,
+            "cachedMutable": 200,
+            "cachedBorrowed": 122
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              106,
+              106
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "retries": [
+              0,
+              0
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              106,
+              106
+            ],
+            "sizingScans": [
+              0,
+              0
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ],
+            "fallback": [
+              0,
+              0
+            ],
+            "invalid": [
+              0,
+              0
+            ],
+            "sceneCalls": [
+              1,
+              1
+            ],
+            "refs": [
+              543,
+              543
+            ],
+            "cacheable": [
+              322,
+              322
+            ],
+            "spilled": [
+              221,
+              221
+            ],
+            "mutableRefs": [
+              421,
+              421
+            ],
+            "borrowedRefs": [
+              122,
+              122
+            ],
+            "preReadable": [
+              543,
+              543
+            ],
+            "preImmutable": [
+              543,
+              543
+            ],
+            "fixReadable": [
+              421,
+              421
+            ],
+            "fixImmutable": [
+              543,
+              543
+            ],
+            "cacheUsed": [
+              0,
+              0
+            ],
+            "maxRefs": [
+              49,
+              49
+            ],
+            "cachedMutable": [
+              200,
+              200
+            ],
+            "cachedBorrowed": [
+              122,
+              122
+            ]
+          }
+        }
+      ],
+      "candidate_net_delta": {
+        "engineTicks": {
+          "candidate_minus_control_ms": [
+            0.0002779430813259549,
+            0.0002675586276584201
+          ],
+          "outer_control_spread_ms": 1.0384453667534723e-05
+        },
+        "loopTicks": {
+          "candidate_minus_control_ms": [
+            -0.0007169776492648654,
+            -0.011482927534315322
+          ],
+          "outer_control_spread_ms": 0.010765949885050455
+        },
+        "renderTicks": {
+          "candidate_minus_control_ms": [
+            -0.0016543070475260417,
+            -0.009093761444091797
+          ],
+          "outer_control_spread_ms": 0.007439454396565755
+        },
+        "workTicks": {
+          "candidate_minus_control_ms": [
+            -0.3041154013739692,
+            -0.297446330388387
+          ],
+          "outer_control_spread_ms": 0.006669070985582139
+        },
+        "periodTicks": {
+          "candidate_minus_control_ms": [
+            1.0596381293402777e-07,
+            -4.662407769097223e-06
+          ],
+          "outer_control_spread_ms": 4.76837158203125e-06
+        }
+      }
+    },
+    {
+      "order": 1,
+      "sequence": "BAB",
+      "evidence_dir": "F:\\Projects\\tyrax2-lab-20261001\\native-ref-memo-order1-independent-physical-evidence",
+      "machine_sha256": "08b23391c9a8822ea2009a611173ebe5a172ba4358911021029bc2a3a2c774e3",
+      "phases": [
+        {
+          "phase": 0,
+          "candidate": 1,
+          "samples": 128,
+          "means_ms": {
+            "engineTicks": 33.36580446031358,
+            "loopTicks": 33.31301188468933,
+            "renderTicks": 31.86948887507121,
+            "workTicks": 17.925073040856255,
+            "periodTicks": 33.366665257347954
+          },
+          "counts_first": {
+            "copyCalls": 106,
+            "countedCalls": 106,
+            "copySuccess": 106,
+            "retries": 0,
+            "nativeCalls": 106,
+            "reusedCalls": 106,
+            "sizingScans": 0,
+            "nativeRecorded": 106,
+            "fallback": 0,
+            "invalid": 0,
+            "sceneCalls": 1,
+            "refs": 543,
+            "cacheable": 322,
+            "spilled": 221,
+            "mutableRefs": 421,
+            "borrowedRefs": 122,
+            "preReadable": 543,
+            "preImmutable": 543,
+            "fixReadable": 221,
+            "fixImmutable": 221,
+            "cacheUsed": 322,
+            "maxRefs": 49,
+            "cachedMutable": 200,
+            "cachedBorrowed": 122
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              106,
+              106
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "retries": [
+              0,
+              0
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              106,
+              106
+            ],
+            "sizingScans": [
+              0,
+              0
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ],
+            "fallback": [
+              0,
+              0
+            ],
+            "invalid": [
+              0,
+              0
+            ],
+            "sceneCalls": [
+              1,
+              1
+            ],
+            "refs": [
+              543,
+              543
+            ],
+            "cacheable": [
+              322,
+              322
+            ],
+            "spilled": [
+              221,
+              221
+            ],
+            "mutableRefs": [
+              421,
+              421
+            ],
+            "borrowedRefs": [
+              122,
+              122
+            ],
+            "preReadable": [
+              543,
+              543
+            ],
+            "preImmutable": [
+              543,
+              543
+            ],
+            "fixReadable": [
+              221,
+              221
+            ],
+            "fixImmutable": [
+              221,
+              221
+            ],
+            "cacheUsed": [
+              322,
+              322
+            ],
+            "maxRefs": [
+              49,
+              49
+            ],
+            "cachedMutable": [
+              200,
+              200
+            ],
+            "cachedBorrowed": [
+              122,
+              122
+            ]
+          }
+        },
+        {
+          "phase": 1,
+          "candidate": 0,
+          "samples": 128,
+          "means_ms": {
+            "engineTicks": 33.365885416666664,
+            "loopTicks": 33.31305903858609,
+            "renderTicks": 31.868243906233047,
+            "workTicks": 18.221515549553764,
+            "periodTicks": 33.366665310329864
+          },
+          "counts_first": {
+            "copyCalls": 106,
+            "countedCalls": 106,
+            "copySuccess": 106,
+            "retries": 0,
+            "nativeCalls": 106,
+            "reusedCalls": 106,
+            "sizingScans": 0,
+            "nativeRecorded": 106,
+            "fallback": 0,
+            "invalid": 0,
+            "sceneCalls": 1,
+            "refs": 543,
+            "cacheable": 322,
+            "spilled": 221,
+            "mutableRefs": 421,
+            "borrowedRefs": 122,
+            "preReadable": 543,
+            "preImmutable": 543,
+            "fixReadable": 421,
+            "fixImmutable": 543,
+            "cacheUsed": 0,
+            "maxRefs": 49,
+            "cachedMutable": 200,
+            "cachedBorrowed": 122
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              106,
+              106
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "retries": [
+              0,
+              0
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              106,
+              106
+            ],
+            "sizingScans": [
+              0,
+              0
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ],
+            "fallback": [
+              0,
+              0
+            ],
+            "invalid": [
+              0,
+              0
+            ],
+            "sceneCalls": [
+              1,
+              1
+            ],
+            "refs": [
+              543,
+              543
+            ],
+            "cacheable": [
+              322,
+              322
+            ],
+            "spilled": [
+              221,
+              221
+            ],
+            "mutableRefs": [
+              421,
+              421
+            ],
+            "borrowedRefs": [
+              122,
+              122
+            ],
+            "preReadable": [
+              543,
+              543
+            ],
+            "preImmutable": [
+              543,
+              543
+            ],
+            "fixReadable": [
+              421,
+              421
+            ],
+            "fixImmutable": [
+              543,
+              543
+            ],
+            "cacheUsed": [
+              0,
+              0
+            ],
+            "maxRefs": [
+              49,
+              49
+            ],
+            "cachedMutable": [
+              200,
+              200
+            ],
+            "cachedBorrowed": [
+              122,
+              122
+            ]
+          }
+        },
+        {
+          "phase": 2,
+          "candidate": 1,
+          "samples": 128,
+          "means_ms": {
+            "engineTicks": 33.36519903606839,
+            "loopTicks": 33.32430055406358,
+            "renderTicks": 31.875468307071262,
+            "workTicks": 17.92015994919671,
+            "periodTicks": 33.366668065389
+          },
+          "counts_first": {
+            "copyCalls": 106,
+            "countedCalls": 106,
+            "copySuccess": 106,
+            "retries": 0,
+            "nativeCalls": 106,
+            "reusedCalls": 106,
+            "sizingScans": 0,
+            "nativeRecorded": 106,
+            "fallback": 0,
+            "invalid": 0,
+            "sceneCalls": 1,
+            "refs": 543,
+            "cacheable": 322,
+            "spilled": 221,
+            "mutableRefs": 421,
+            "borrowedRefs": 122,
+            "preReadable": 543,
+            "preImmutable": 543,
+            "fixReadable": 221,
+            "fixImmutable": 221,
+            "cacheUsed": 322,
+            "maxRefs": 49,
+            "cachedMutable": 200,
+            "cachedBorrowed": 122
+          },
+          "counts_minmax": {
+            "copyCalls": [
+              106,
+              106
+            ],
+            "countedCalls": [
+              106,
+              106
+            ],
+            "copySuccess": [
+              106,
+              106
+            ],
+            "retries": [
+              0,
+              0
+            ],
+            "nativeCalls": [
+              106,
+              106
+            ],
+            "reusedCalls": [
+              106,
+              106
+            ],
+            "sizingScans": [
+              0,
+              0
+            ],
+            "nativeRecorded": [
+              106,
+              106
+            ],
+            "fallback": [
+              0,
+              0
+            ],
+            "invalid": [
+              0,
+              0
+            ],
+            "sceneCalls": [
+              1,
+              1
+            ],
+            "refs": [
+              543,
+              543
+            ],
+            "cacheable": [
+              322,
+              322
+            ],
+            "spilled": [
+              221,
+              221
+            ],
+            "mutableRefs": [
+              421,
+              421
+            ],
+            "borrowedRefs": [
+              122,
+              122
+            ],
+            "preReadable": [
+              543,
+              543
+            ],
+            "preImmutable": [
+              543,
+              543
+            ],
+            "fixReadable": [
+              221,
+              221
+            ],
+            "fixImmutable": [
+              221,
+              221
+            ],
+            "cacheUsed": [
+              322,
+              322
+            ],
+            "maxRefs": [
+              49,
+              49
+            ],
+            "cachedMutable": [
+              200,
+              200
+            ],
+            "cachedBorrowed": [
+              122,
+              122
+            ]
+          }
+        }
+      ],
+      "candidate_net_delta": {
+        "engineTicks": {
+          "candidate_minus_control_ms": [
+            -8.095635308159722e-05,
+            -0.0006863805982801649
+          ],
+          "outer_control_spread_ms": 0.0006054242451985677
+        },
+        "loopTicks": {
+          "candidate_minus_control_ms": [
+            -4.715389675564236e-05,
+            0.011241515477498373
+          ],
+          "outer_control_spread_ms": 0.011288669374254014
+        },
+        "renderTicks": {
+          "candidate_minus_control_ms": [
+            0.0012449688381618923,
+            0.0072244008382161455
+          ],
+          "outer_control_spread_ms": 0.005979432000054253
+        },
+        "workTicks": {
+          "candidate_minus_control_ms": [
+            -0.29644250869750977,
+            -0.30135560035705566
+          ],
+          "outer_control_spread_ms": 0.0049130916595458984
+        },
+        "periodTicks": {
+          "candidate_minus_control_ms": [
+            -5.2981906467013886e-08,
+            2.755059136284722e-06
+          ],
+          "outer_control_spread_ms": 2.8080410427517363e-06
+        }
+      }
+    }
+  ],
+  "cross_boot_controls": {
+    "fixed_state_digests_equal": true,
+    "raw_camera_words_equal": true,
+    "resource_addresses_equal": true,
+    "sample_and_metrics_buffers_equal": true,
+    "phase_relative_native_and_reference_workload_equal": true,
+    "same_elf_source_and_assets": true,
+    "scope": "selected pinned workload and sparse state; no full pixel/vehicle-state equivalence"
+  },
+  "candidate_work_delta_ms_range": [
+    -0.3041154013739692,
+    -0.29644250869750977
+  ],
+  "net_candidate_faster_against_both_brackets_in_both_orders": true,
+  "accepted_samples_total": 768,
+  "candidate_specialization_tax_included": true,
+  "source_host_proof_sha256": "b109088cb1c75a20dc3b2c05b8a4a0d2292ac6ee945859392c23a7c9ce8084ea",
+  "independent_parser_controls_sha256": "4e2b1ecabd73f46800c8cf46bdfa152c6883cddfa043358bd32480d35e3b7b23",
+  "period_owner_unknown": true,
+  "quiet_production_gain_accepted": false,
+  "pure_cpu_or_lookup_bill": false,
+  "sixty_fps_accepted": false,
+  "production_promotion_accepted": false,
+  "limitations": [
+    "One ABA and one reverse BAB, selected fixed game workload/continuous resource ownership; no broad scenes/views/motion coverage.",
+    "Control has no scratch array initialization; candidate includes 16-entry stack/write/read tax plus intentionally reduced callbacks.",
+    "Sizing reuse is on in both arms; common classification/query counters, Scene clocks, FrameProfile2 and held ring remain, so this is net specialization effect under diagnostics.",
+    "Engine-known resolver and lease semantics are stable within a copy; generic API callback trace parity remains a separate actual-header oracle.",
+    "Physical period is approximately33.367ms and its diagnostic owner remains unknown; no physical60FPS or production-quiet cadence conclusion.",
+    "No subtraction against earlier ELFs or uniform removal of observer cost."
+  ]
+}

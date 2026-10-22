@@ -1,0 +1,37 @@
+{
+  "status": "PASS_ROOT_EXECUTED_EXTRACTED_ORIGINAL_ASSERTIONS_HOST_ONLY",
+  "commands": [
+    {
+      "command": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "g++",
+        "-std=c++17",
+        "-O2",
+        "/mnt/f/Projects/tyrax2-lab-20261001/assert-gate-source-controls-v1/assertions.cpp",
+        "-o",
+        "/mnt/f/Projects/tyrax2-lab-20261001/assert-gate-source-controls-v1/checks"
+      ],
+      "exitCode": 0,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "/mnt/f/Projects/tyrax2-lab-20261001/assert-gate-source-controls-v1/checks"
+      ],
+      "exitCode": 0,
+      "logSha256": "6878d4e69ddd276930cdea7b77a98c3b6d4f99511578765ba23e9f96ddbef36e"
+    }
+  ],
+  "sourceSha256": "90840cd6edb0063bfa0e843e4ee8dae4850b505ce645324ee9216ca905c28217",
+  "validCases": 3,
+  "invalidFirstFailureCases": 12,
+  "targetABIPredicted": false,
+  "wholeRenderNegativeInputSafetyEstablished": false
+}

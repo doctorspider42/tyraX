@@ -1,0 +1,15 @@
+{
+  "Version": "0.01",
+  "Breakpoints": [
+    {
+      "X": "1",
+      "TYPE": "8",
+      "OFFSET": "001a3160",
+      "DESCRIPTION": "POOL2_STATIC_PROBE_HALT",
+      "SIZE / LABEL": "",
+      "INSTRUCTION": "",
+      "CONDITION": "",
+      "HITS": "0"
+    }
+  ]
+}

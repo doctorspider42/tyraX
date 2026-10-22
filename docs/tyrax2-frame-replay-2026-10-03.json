@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "date": "2026-10-03",
+  "scope": "Private terminal live-capture replay correctness, not a production optimization or consumer-only timing result",
+  "fixture": "ee-isolation-scene-v6-visual",
+  "sourceFiles": 497,
+  "sourceManifestSha256": "00d92fde93da5d2d5c34f6412742047978f2736e98c3b821da60d01df0d9c2ad",
+  "elfSha256": "bef65090e7ccd28a545d08c98b48da2638c73b34cd7c9fdae380744af3f2b75c",
+  "symbolsSha256": "ff929ce5e65b90569555ecae083a203fc00d9d608f66c46ead2ca50c461ea814",
+  "nativeBuildExit": 0,
+  "validationPolicy": "full-per-submit",
+  "timedScope": [
+    "SDK helper setup and submission",
+    "full repeated EE structural/VIF validation",
+    "VIF/VU DATA restore and native submission",
+    "DMA completion",
+    "real helper and native GS FINISH completion"
+  ],
+  "rasterProtocol": "previous-real-after512-vs-captured126-replay",
+  "readbacksInsideWarmOrSampleLoops": 0,
+  "snapshotBoundary": "terminal VIF/VU snapshots precede final raster readback",
+  "alphaConversion": "GS alpha doubled and saturated to255; exported alpha equality is separate from RGB; no raw alpha equality above127 is implied",
+  "records": [
+    {
+      "environment": "pcsx2",
+      "evidenceDirectory": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v6-emulator-evidence",
+      "rootAnalysisSha256": "9bd327230f638a74ab205dbed02ec05c6423e79653deb511bc2b662eb7db986c",
+      "independentReview": "actual-emulator-independent-review.json",
+      "independentReviewSha256": "c2fb01297949a5a811fbe49a268fbd2c89784e6e459e289cc6ea0c6bfe36e115",
+      "artifactMapSha256": "2ce0010850ee7125d9ec3d43d447f9fe9cfff989b58a93d0902405726d70a5c8",
+      "metadataSha256": "4da3a39577823269780b6471439576e447a6e2624a2beeae6b882a7268b0055b",
+      "stdoutSha256": "76e86d27f3f9ad22c0b7305ed8da9ca6193694d6d99d604128f151f28d5bf519",
+      "baselineTgaSha256": "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216",
+      "finalTgaSha256": "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216",
+      "tgaBytes": 802834,
+      "width": 448,
+      "height": 448,
+      "baselineAddressWords": 0,
+      "finalAddressWords": 200704,
+      "capturedContext": 1,
+      "byteExactPair": true,
+      "RGBDifferingPixels": 0,
+      "exportedAlphaDifferingPixels": 0,
+      "loops": 256,
+      "warm": 128,
+      "samples": 128,
+      "loopHardwareStarts": 512,
+      "helperFinishes": 257,
+      "nativeFinishes": 256,
+      "nativeProofSha256": "f1e4e2bb9d77a4cdfff5bc39865f486724608e6d91388f48d0524b9cfeed4213"
+    },
+    {
+      "environment": "ps2",
+      "evidenceDirectory": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v6-physical-evidence",
+      "rootAnalysisSha256": "06a0ffdecbe81d32edb995fe91c37f4590288a124afe5187207099f43484d999",
+      "independentReview": "actual-physical-independent-review.json",
+      "independentReviewSha256": "e54813d4285949bc3e6ec364d51db175242e43c76d88ddef50b0d59a41d1f6fc",
+      "artifactMapSha256": "9221a282d59dc36284126e4a1d4b94a6ef2174786930695454e6eddac280a4d9",
+      "metadataSha256": "c73d03eb3193f2730486a4c25ff8311a422ff575cf4213ce7583ab2453281e8d",
+      "stdoutSha256": "d85e82dce606644424dadb23833944ef207fcc05f9c4f064726c2a7be0274a91",
+      "baselineTgaSha256": "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd",
+      "finalTgaSha256": "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd",
+      "tgaBytes": 802834,
+      "width": 448,
+      "height": 448,
+      "baselineAddressWords": 0,
+      "finalAddressWords": 200704,
+      "capturedContext": 1,
+      "byteExactPair": true,
+      "RGBDifferingPixels": 0,
+      "exportedAlphaDifferingPixels": 0,
+      "loops": 256,
+      "warm": 128,
+      "samples": 128,
+      "loopHardwareStarts": 512,
+      "helperFinishes": 257,
+      "nativeFinishes": 256,
+      "nativeProofSha256": "f1e4e2bb9d77a4cdfff5bc39865f486724608e6d91388f48d0524b9cfeed4213"
+    }
+  ],
+  "hostControls": {
+    "TGA": {
+      "positive": 3,
+      "negative": 12
+    },
+    "visualMetadata": {
+      "positive": 1,
+      "negative": 17
+    }
+  },
+  "failuresPreserved": [
+    {
+      "fixture": "V5",
+      "reason": "SDK TTE writer cursor alignment assertion; two trailing NOP words needed",
+      "evidenceDirectory": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v5-emulator-failed-evidence"
+    },
+    {
+      "fixture": "V5b parser v1",
+      "reason": "Completion matcher omitted required validationPolicy suffix; fixed new parser preserves rejected report"
+    },
+    {
+      "fixture": "V5b PrintWindow",
+      "reason": "Conflicting terminal images; window capture alone insufficient for raster acceptance",
+      "reviewSha256": "5b3dfb75ff0ba282a61fc56d526871733e06be39d1011ed1593cb4ffc0d9fae4"
+    }
+  ],
+  "limitations": [
+    "Exact equality applies to the two captured frozen framebuffers in each environment.",
+    "No PCSX2/PS2 cross-environment pixel equality is claimed.",
+    "Readback changes off-clock cache/state; warm replay and startup restore are explicit.",
+    "Full per-submit validation scans roughly2.4MB on EE and remains inside every sampled interval.",
+    "No pure GPU/VU/GS cost, observer-free cost, cross-ELF gain, ordinary FPS, TV latency or60FPS acceptance."
+  ],
+  "next": "Same-ELF full-per-submit versus sealed immutable prevalidation controls, with ownership/idle/cache/sequence/FINISH checks retained in every arm",
+  "productionRendererChanged": false,
+  "performanceAccepted": false
+}

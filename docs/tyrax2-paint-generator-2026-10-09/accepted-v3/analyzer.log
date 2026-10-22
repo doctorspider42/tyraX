@@ -1,0 +1,506 @@
+{
+  "scope": "Target-assembled emulator shader output only; no physical/game lifecycle/fallback qualification",
+  "elfSha256": "4a2bddae33e119ff8f06c4adc93c0c428a8e56c8291429970c6683e928f46f76",
+  "nativeSourceFiles": 473,
+  "textureSha256": "8d00bf38cec57aaf08ff04ebf49d1511ca11d3f20ca6601fc227ac4517859592",
+  "textureBound": true,
+  "sourceHashes": {
+    "paint-raster-00.bin": "ba76753ce029f63a77babb7454b06b7d429d22a4e58c245aa5b281c721e1b67b",
+    "paint-raster-01.bin": "8b259fda710228c48621c36fd3353859571c092b38cd28eeab4b0e187b0f3127",
+    "paint-raster-02.bin": "727131dcebbba3de9b10942c1e6b83173cf706ef421a68ec86b88effcce2d53f",
+    "paint-raster-03.bin": "6cc8e3313fc0f042f04cf0a62f400917c0a1009ef3c1ae125245a9b1b83ad86f",
+    "paint-raster-04.bin": "c30078a8b24470ae28b157e866887b984a1b35ae54487e186564b099f51a512a",
+    "paint-raster-05.bin": "27040467dc58854831409174d82e54aec0ad4035e37e8f0fa5c340b661b4ef99",
+    "paint-raster-06.bin": "63820bfa509febb57231fe130641b984cb8057e3c05af98599a2a9d9b3e18c58",
+    "paint-raster-07.bin": "77292b0839399068b560649e8769fa8f614cca67574037e15491a787088189a9",
+    "paint-raster-08.bin": "41fa06f48623322be7813a34009f14397941cabd62c54f2974b77e5961b21af2",
+    "paint-raster-09.bin": "209120e44bea79f32d0d26983b82eec955e176213b91196e665165ec7fc0f504",
+    "paint-raster-10.bin": "d901e77cf3894f1e18d5afc68388cf6dd671717a0e6fc3bb7a444156622e4669",
+    "paint-raster-11.bin": "24ce3f1ed03fd500d63b51a064567d4b2e8a85ac1cb873df7007a6510b596d20",
+    "paint-raster-12.bin": "3a54dc0949e3e10cbc132542d4cd0e203c650f29ee2248a419e291e45f60a7ac",
+    "paint-raster-13.bin": "851e6c0ae04f0b4a319f8ef26a8aee48d0367eb70ee4640961f210d73e830c01",
+    "paint-raster-14.bin": "3a735c9b40f2b87cc62e3acbce2f4127c015ce012974f05452d8fcb1ac727620",
+    "paint-raster-15.bin": "f097dc8fdb833bf2a78499c1b0f126b2c14f99d11fd0717ec38af2b3dea3a83b",
+    "paint-raster-16.bin": "062c4628f4fc465cc5b9944ea2da809322fcd070b6a8d7143cd5fb935694c562",
+    "paint-raster-17.bin": "647cd305a29145f36af116ff5c8c09ba1241a7e0447986ba83f93856fd463374",
+    "paint-raster-18.bin": "a8d110a67209fd5e9dd5cb2c22b77a5b6377b564ac4b3995c31bab70042d76d0",
+    "paint-raster-19.bin": "4caca6754b51dabc6f67524faf60ae8d13840f2f4a8f27c9c0a889d7562b9cac",
+    "paint-raster-20.bin": "642955b2f8847f4c2da7568daabdfd2813199d9032b9724caffe03a9861cf911",
+    "paint-raster-21.bin": "9593767e0cf0b43ddf03d5111b8df98cbcb966144e8360340d0a76b37095c5f7",
+    "paint-raster-22.bin": "7279fbcc9d4f602fd7f3aeb15c1155f937c2bf7c71b58c5748e23fe3e4da3623",
+    "paint-raster-23.bin": "94554aa4ead19a341f1013df7bf75a057b9599fc5a364fe3c5eab8590785cd89",
+    "paint-raster-24.bin": "b45d466bd41a5fcd960dfc1341303d421f79b6643dd6cc4accb0cd97fbfe752f",
+    "paint-raster-25.bin": "8b69e688b6d5e2ba3e16c293e4921749b13059752585258aa5125326adc1011a",
+    "paint-raster-26.bin": "8ad9fda2a8f5bdded18b0d8bfbf63689d95b127fe0848ae97608701c94baeb0d",
+    "paint-raster-27.bin": "6d7d5f87a46aa82cec191fe4e4ba4c38daa5faf02e8eeffa77917986e915f19d",
+    "paint-raster-28.bin": "673f83db5453286df3ee10fde55133de88e58aec19663ea946e633efc13fa2ad",
+    "paint-raster-29.bin": "726e7135703b774b6284496e1a3d358c37693dbd2cab3661f2179c138ed98148",
+    "paint-raster-30.bin": "481b01bda2fa243b757a4b7911edba6d7f321e205433f8366b6c2f1e623bd3e3",
+    "paint-raster-31.bin": "a423f70a83a163856bc7250d5cfb37fb5bed2a421098e651a85b8132e4968dc1",
+    "paint-raster-32.bin": "18414b94d5ed3c074a686e4c94e279bcd32fbc602f3258ec0b76daf08df02700",
+    "paint-raster-33.bin": "5b5efda2f2a7cf687de7bc739b5d22b21f756e4ef33f3b42a4c9446eb4a9acce",
+    "paint-raster-34.bin": "5ab3a6d94181024d7b8cb164701a692bf8cbad95a43be0e98eeeff4b31875c17",
+    "paint-raster-35.bin": "ad5d552c99fb601a4e6666e2665780c842d357aa73a3a8e8f5e32785667722f8",
+    "paint-raster-36.bin": "65604a6454e8c759d824b17f21cc1d4ea8e36e12c60dbfe6a6e39f60acf6b85f",
+    "paint-raster-37.bin": "cfb8a52f5e9e19e9194afed4da3ad982ea7701db6fb40d968c2950b813a74cef",
+    "paint-raster-38.bin": "fadb9863ce272d953855d0140a30bdbb916fb4146642c6d8f75d7c72ba77c7cc",
+    "paint-raster-39.bin": "94c5a4ea26db2d14da773a45294dfec3257c2ca1681356a38bbb006b0ff0e88c",
+    "paint-raster-40.bin": "f0485b5e7af5a30d65414f1d2a71c6afa6a4f490d00f1139bfe2b7ebd34d6099",
+    "paint-raster-41.bin": "ae920d18977f57984cee415d22275e465afedb3f1b7482fe5d97dfec447e8587",
+    "paint-raster-42.bin": "f1e12e3fe37d19258a98bf7badf08e6693dc75d921da70a20dab5521bbff1b4f",
+    "paint-raster-43.bin": "8bf8b9d33649d959b2f6146b414f5d8157ec2147ac70c6ba93bab6d8ac613c04",
+    "paint-raster-44.bin": "e117aca21d6fb64ab795b0884fb2e45cf61cb38b0a66e01f101b52cd5e9bd318",
+    "paint-raster-45.bin": "477b92d6db9d1e30ed8708bc2b5ee10028e0fd9bed7791b4c202da17514a26c0",
+    "paint-raster-46.bin": "1917abf6fa28577b7d37fdda2662b27a502543f4a3dc721a59581fac75139e5e",
+    "paint-raster-47.bin": "83bf80dd590b82e7b8aa0491ac6fb35418e17bda05c26bca40af6e7b5e0789bf",
+    "paint-raster-48.bin": "ec5739658f356f2aee96af19933d05d244f49c1983528efe88391ae24b487c77",
+    "paint-raster-49.bin": "63759fcad67b86a4fcea08e5c69be73ee2e3b5ffa5149645bd4fff6716332897",
+    "paint-raster-50.bin": "4b2389e19008598b5a710fa30eb2618abc3548dadbccb8da95cddd18fefa0403",
+    "paint-raster-51.bin": "401bfff7081e5aca5c07872c55db7b9c29f4442f62b6d1050fce496c3bcc11ad",
+    "paint-raster-52.bin": "dc7c159569c3a17905ba4d16b012152e46ea9006be788fa47d0bcf9b306823d8",
+    "paint-raster-53.bin": "435d4a249a32964fd0e4389ca8936a0c3a45bdce9b711af05274201d6d57d77d"
+  },
+  "logSha256": "36752e78fdb6e2d99705c155da57b3ab1593f415981f02ac6cc4a3194fc4450e",
+  "routes": [
+    {
+      "step": 0,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 1,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 2,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 3,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 4,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 5,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 6,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 7,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 8,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 9,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 10,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 11,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 12,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 13,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 14,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 15,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 16,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 17,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 18,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 19,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 20,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 21,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 22,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 23,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 24,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 25,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 26,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 27,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 28,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 29,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 30,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 31,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 32,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 33,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 34,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 35,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 36,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 37,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 38,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 39,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 40,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 41,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 42,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 43,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 44,
+      "cull": 0,
+      "clip": 4
+    },
+    {
+      "step": 45,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 46,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 47,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 48,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 49,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 50,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 51,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 52,
+      "cull": 1,
+      "clip": 0
+    },
+    {
+      "step": 53,
+      "cull": 1,
+      "clip": 0
+    }
+  ],
+  "comparisons": [
+    {
+      "group": 0,
+      "shape": 0,
+      "basis": 0,
+      "fog": false,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 1,
+      "shape": 0,
+      "basis": 1,
+      "fog": false,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 2,
+      "shape": 0,
+      "basis": 2,
+      "fog": false,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 3,
+      "shape": 1,
+      "basis": 0,
+      "fog": false,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 4,
+      "shape": 1,
+      "basis": 1,
+      "fog": false,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 5,
+      "shape": 1,
+      "basis": 2,
+      "fog": false,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 6,
+      "shape": 2,
+      "basis": 0,
+      "fog": false,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 7,
+      "shape": 2,
+      "basis": 1,
+      "fog": false,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 8,
+      "shape": 2,
+      "basis": 2,
+      "fog": false,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 9,
+      "shape": 0,
+      "basis": 0,
+      "fog": true,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 10,
+      "shape": 0,
+      "basis": 1,
+      "fog": true,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 11,
+      "shape": 0,
+      "basis": 2,
+      "fog": true,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 12,
+      "shape": 1,
+      "basis": 0,
+      "fog": true,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 13,
+      "shape": 1,
+      "basis": 1,
+      "fog": true,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 14,
+      "shape": 1,
+      "basis": 2,
+      "fog": true,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 15,
+      "shape": 2,
+      "basis": 0,
+      "fog": true,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 16,
+      "shape": 2,
+      "basis": 1,
+      "fog": true,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    },
+    {
+      "group": 17,
+      "shape": 2,
+      "basis": 2,
+      "fog": true,
+      "changedPixels": 0,
+      "maxRGBA": 0,
+      "meanRGBA": 0.0
+    }
+  ],
+  "exact": true,
+  "negativeControls": [
+    "off-off pixel corruption rejected",
+    "one candidate pixel mutation measured exactly",
+    "fog no-op rejected"
+  ]
+}

@@ -1,0 +1,82 @@
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopyMax(const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:201:11: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  201 |     memcpy(vertices + offset, pkg->vertices, bytes);
+      |     ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from inc/renderer/3d/pipeline/static/core/./bag/packaging/../stapip_bag.hpp:14,
+                 from inc/renderer/3d/pipeline/static/core/./bag/packaging/stapip_bag_package.hpp:13,
+                 from inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp:16,
+                 from src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:12:
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:202:34: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  202 |     if (pkg1.bag->texture) memcpy(sts + offset, pkg->sts, bytes);
+      |                            ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:203:38: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  203 |     if (pkg1.bag->color->many) memcpy(colors + offset, pkg->colors, bytes);
+      |                                ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:204:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  204 |     if (pkg1.bag->lighting) memcpy(normals + offset, pkg->normals, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopy1By2(const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:234:11: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  234 |     memcpy(vertices + offset, pkg->vertices, bytes);
+      |     ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:235:34: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  235 |     if (pkg1.bag->texture) memcpy(sts + offset, pkg->sts, bytes);
+      |                            ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:236:38: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  236 |     if (pkg1.bag->color->many) memcpy(colors + offset, pkg->colors, bytes);
+      |                                ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:237:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  237 |     if (pkg1.bag->lighting) memcpy(normals + offset, pkg->normals, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopy1By3(const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:261:9: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  261 |   memcpy(vertices, pkg.vertices, bytes);
+      |   ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:262:31: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  262 |   if (pkg.bag->texture) memcpy(sts, pkg.sts, bytes);
+      |                         ~~~~~~^~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:263:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  263 |   if (pkg.bag->color->many) memcpy(colors, pkg.colors, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:264:32: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  264 |   if (pkg.bag->lighting) memcpy(normals, pkg.normals, bytes);
+      |                          ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o.vcl(323) : Read-attempt from uninitialized integer register (iaddi colorRunRemaining, >>> colorRunRemaining <<<, -3)
+make: *** [../Makefile.base:185: obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o] Error 1
+make: *** Waiting for unfinished jobs....

@@ -1,0 +1,21 @@
+{
+  "baseElfSha256": "efcd3cf35a71913fbc7077cb38f58f9f845c17c2b3f8a48a29003d43971fdb63",
+  "generatorSha256": "86c9bd61ea04d89add302f1471012ea7b42af9890dacd81ea03240ddc9e06233",
+  "mode": "OFF",
+  "reuseBuilt": false,
+  "fixedSceneStep": true,
+  "bufferCount": 2,
+  "recoveredHybridControl": false,
+  "movingOrder": 2,
+  "commonReservation": true,
+  "deferredPreparation": false,
+  "controlSha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+  "status": "UNQUALIFIED",
+  "limits": [
+    "Same-ELF fixed-step/order2 correctness observer, not production FPS.",
+    "Local bodies rebuilt during original producer streaming; texture set stays reserved.",
+    "Material-set/epoch changes require pre-record whole-set reservation; unsupported changes fail closed.",
+    "Night ordinary; moving raster/lifetime and physical net gates still required."
+  ],
+  "incremental": true
+}

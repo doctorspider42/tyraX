@@ -1,0 +1,30 @@
+{
+  "status": "ROOT_LEAF_WAIT_AND_ARCHIVE_COVERAGE_REVIEW",
+  "archiveMembersMatchNativeObjects": {
+    "engine/engine": "6b4cc3458974b2fa2c45cbb7218a84a2af0c1b96ca04affc43d8cceeba4dab35",
+    "engine/renderer/core/renderer_core": "a67422179dda5c1ac30d3d303f89586092505f28af4cb34774d60b52e516b3d8",
+    "engine/renderer/core/renderer_core_sync": "9c0f1cf7f613beafb1fec1fc4412a3863d14309848554b961ea1c10ee5861193",
+    "engine/renderer/core/paths/path1/vif1_queue": "ecb80803a5acf5fc6a9b22d6d914fc93e9a13692c0322f93ee159d6e23aee73a",
+    "engine/renderer/core/2d/renderer_core_2d": "b13cd61e32d26276d62663a1769b23d93346d7eb54e649f0e04566d613ed96c3",
+    "engine/renderer/3d/pipeline/static/core/stapip_core": "5194984def688d4021aef9f1e45d82e55819e01eaa232218d42b537f341b1633",
+    "engine/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer": "272f024e7f757731e3075dfabd9e6025147a8aaeae9f55176795ea3cb4740613",
+    "engine/renderer/3d/pipeline/static/core/stapip_qbuffer": "6eb47e14f8c5eef425e282f69d2c82ca2b4b12698967687d9308f305514db51e",
+    "engine/renderer/3d/pipeline/static/core/stapip_clipper": "4d16baa08278e3b52e6411aef64ca7ddef7745a020bbca16fb97a4d57a32705b",
+    "engine/renderer/core/texture/renderer_core_texture": "124c56211571f2c85a4ffc2451f6203e9712480cfe56bed3d6aeaad0a808e98b",
+    "engine/renderer/core/paths/path3/path3": "fdba267286bd084f59beb30fc9a54e9d788f2b8e0781ae8d1a7b62129f8a74b6"
+  },
+  "sourceFiles": {
+    "src/renderer/core/paths/path1/vif1_queue.cpp": "9fd33c33bda23d773ae5cc1796af808c1130143d451d41b9eae405568eaa20b4",
+    "inc/renderer/core/paths/path1/frame_submission.hpp": "a8f50563dfa6cb1869ad1c0d902784a15e6028849b1f6e662a2015cbc59ed407",
+    "src/renderer/core/renderer_core_sync.cpp": "19611bbc55242ae4dce9c9ace5774eec0eb930405152d860be37969cd02980b4",
+    "src/renderer/core/renderer_core.cpp": "059a06ed623dc12bc4de5d4ed76198886155272ccf60e97697e436aebfb152ac",
+    "src/renderer/core/2d/renderer_core_2d.cpp": "8d579a2a52af706abcf47be552dda932ca590d810b06ec028a1d7ae5281fca24"
+  },
+  "extraCountReads": "3 phase markers plus 2 per outer leaf wait in enabled raw loops only; existing entry/end/pacing stamps reused.",
+  "waitClosure": "Queue waitFor spins, drain spin plus SDK VIF wait, ring backpressure, direct VIF waits, all three VIF FIFO polls, central GIF/VIF DMA adapters, central draw_wait_finish and GS check loop. GS clear/queue flush/arena reset excluded from wait spans. flipBuffers/vsync remain existing pacing stamps.",
+  "nesting": "Outer-only intervals; mixed kinds or phase crossing invalidate. Strict runtime parser additionally requires zero nesting.",
+  "jobOwnership": "Pipeline submission records current EE loop, sequence and context. Completion records actual pending owner; never inferred by subtracting one.",
+  "omissions": "Raytracer VU0 wait is outside this fixture (no raytraced renderer). SDK-internal work/preemption inside wait interval retained. HardwareTrace and FrameProfile compiled out. No added wait, poll, FINISH, DMA drain, controller or physics change.",
+  "bufferBytes": 15872,
+  "commonDisabledFootprintUnpriced": true
+}

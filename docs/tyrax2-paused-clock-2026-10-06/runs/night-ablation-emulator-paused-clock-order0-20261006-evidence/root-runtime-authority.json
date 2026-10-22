@@ -1,0 +1,14 @@
+{
+  "status": "ROOT_RELEASE_PRIVATE_SKY_RETINT",
+  "scope": "Instrument existing numerical producers only; no effect removal or new fences. Native source/ABI/assets/linked-microimage qualified. Physical records determine activation, scope elapsed and net observer tax; no visual-equivalence or optimized-renderer promotion claim.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\paused-clock-root-helpers-v1\\source-review.md",
+  "reviewSha256": "41be2887a452298da30ac10d6d068511772e4f7f4032d6b5440dffdb38f2c9a2",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\paused-clock-root-helpers-v1\\host-authority.json",
+  "hostSha256": "b650184c826b45ce1c5231b028b0c028c7d706b41c8f8616641e3893f827f4b0",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\paused-clock-native-root-review-v1\\proof.json",
+  "nativeSha256": "c6ef45c6b27f8ba6a8e0ca366340ef9f2ae2f793e4e060a6cf1cfe878282a4bb",
+  "rootSourceFreezeSha256": "ebb81f13599ddfaed46cf8db6c415e2b92c86b022749bc7a75eccf6624ba23f5",
+  "hostControlSha256": "7fd463bed5996cd2031a4e2f05b9a894b22f23b5aaa37fbf75ec74ad30485fec",
+  "physicalPricingAccepted": false,
+  "commonObserverCodeCostPriced": false
+}

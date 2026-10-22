@@ -62,30 +62,60 @@ object are 34/49 in the garage and 17/28 outside.
 
 ## The auto tuner
 
-Every 100 frames the game runs 8 probe pairs: one frame interleaved, the next
-plain. It keeps the order that won most pairs. Interleaving wins a pair only
-by a clear 1%, because plain is the order everything else was measured in.
+The generated selector compares four pairs of **settled same-order blocks**.
+Each block discards its first two complete helper-to-helper intervals, then
+averages four valid intervals. Alternate pairs reverse their first order
+(interleaved/plain, then plain/interleaved) to reduce monotonic drift.
+Interleaving must win at least three of four pairs by 1%; the choice is then
+held for 100 valid observations before another probe. A complete uninterrupted
+probe takes 48 intervals, rather than the historical 16 alternating frames.
 
-- **What is timed is the whole loop**, from one frame's batch pass to the
-  next, minus the renderer's stall (vsync, display buffer; the new
-  `RendererCore::getStallTotal()`). Timing only the passes that move missed
-  the cost. Outdoors, interleaving costs nothing inside them and +0.19 ms at
-  `endFrame`, where the GS tail that the object loop used to hide is waited
-  for instead.
-- **It counts pair wins instead of summing times.** A scene load or a
-  texture-upload burst then decides one pair, not the verdict. The first
-  version summed times, and a 33 ms load frame made it pick plain in the
-  garage.
-- **The hold is short on purpose.** 250 frames carried the garage's verdict
-  into open ground, and that cost more than the probes do. The probes cost
-  under 0.03 ms a frame.
-- **Each decision is logged**, when it changes or with the debug profiler on:
+The score is inclusive loop wall work minus presentation pacing, using the
+existing COP0 mark and cumulative `getStallTotal()`. It includes EE work,
+unlabelled waits, interrupts, pending completion and the next frame front end;
+it is neither pure CPU execution nor per-job GPU cost. The renderer keeps at
+most one pending pipeline frame and completes it before submitting the next
+one. After two discarded whole intervals, every contributing adjacent frame
+uses the same order. This also applies to compatibility rendering, without
+adding a fence or a timer read. Native overflow prefixes remain pieces of the
+same frame. See [the ownership proof and limits](tyrax2-interleave.md).
 
-      INTERLEAVE auto on=12478us off=13149us -> interleaved wins=8/8 heavy=34 drawn=42 blendAt=20
+A generation counter independent of profiling increments at every renderer
+2D/3D recording start and successful synthetic warp render start (after early
+returns, before draw). Failed warp attempts do not increment; this is an
+observation epoch, not a submission job identity. Loading, synthetic frames, skipped helpers
+and repeated helpers in one recording cannot silently cross a sample.
+Unsigned difference one accepts adjacent generation wrap. Independent adjacency
+state retains the chosen order without selector clocks through recurring gaps
+or repeated helpers; it does not perpetually restart the first probe block. ReleaseCamera and
+director release also clear cameraSource. Custom overrides must provide a stable
+opaque nonzero cameraSource (never dereferenced), or explicitly zero it when
+identity is unknown. Unknown overrides discard partial evidence, retain the
+last choice and return without clocks instead of restarting an interleaved
+first block indefinitely. Because these are public fields, an uninstrumented
+custom script that overwrites a known camera's pose/override in the same frame
+without assigning cameraSource can still inherit that owner's identity; the
+selector cannot detect such a write. Custom camera code must assign its own
+identity or zero explicitly. Scene generation,
+requested/effective pipeline mode, video/field/buffer/BLSS/limiter mode, split
+views, camera source/vehicle rig changes, structural portal eligibility and
+portal view-count changes reset the entire partial probe. The previous chosen
+order survives a reset; stale pairs and means do not. Continuous camera eye,
+aim, shake and portal distance motion do not themselves invalidate samples.
 
-  `heavy` is how many batch and road bags were deferred, `drawn` how many
-  objects they were spread over, and `blendAt` where the blend gate below
-  flushed them.
+Zero or ambiguous long clock intervals and pacing deltas exceeding elapsed
+wall time are rejected. Ordinary unsigned clock/stall-counter wrap is allowed.
+Block averaging and reversed order reduce noise; moving scenes can still
+change the workload. The old physical results above describe the historical
+selector and do not establish performance of this revised selector. Its
+recording counter, guards and longer probes require root-owned hardware checks.
+
+Changed decisions, or debug-profiler decisions, print for example:
+
+    INTERLEAVE settled on=12478us off=13149us -> interleaved wins=4/4 heavy=34 drawn=42 blendAt=20
+
+`heavy`, `drawn` and `blendAt` retain their historical meaning. The log's
+295-tick divisor is approximate; decisions compare raw ticks.
 
 ## What keeps the picture the same
 
@@ -117,10 +147,35 @@ by a clear 1%, because plain is the order everything else was measured in.
 - The codegen emits `INTERLEAVE_PASSES` (0 off, 1 auto, 2 always) into
   `terrain_config.hpp`.
 - The game code is `submitHeavy`, `dripHeavy`, `interleaveBegin` /
-  `ilAccount` / `interleaveEnd` and `objectMayBlend` in `src/templates.cpp`.
+  `ilAccount` / `interleaveEnd` and `objectMayBlend` in `src/game_templates.inc`;
+  paired FPP/ORBIT declarations and camera-source emitters are in `src/templates.cpp`.
 - The format is v64, and the key is written only when it is not `"auto"`.
 
-The game never asks the VIF1 queue for its state. An adaptive prototype that
-did, from inside the object loop, hung a physical PS2 so hard that ps2link
-could not reset it ([ee-submission-rearchitecture.md](ee-submission-rearchitecture.md),
-"Where the EE waits, pass by pass").
+The selector reads only the queue's ordinary-memory `recordingPipelined()`
+boolean accessor. It does not poll hardware or add a queue wait. The historical
+adaptive prototype that queried hardware from inside the object loop hung a
+physical PS2 ([ee-submission-rearchitecture.md](ee-submission-rearchitecture.md),
+"Where the EE waits, pass by pass"); that mechanism is not reintroduced.
+
+## Portable host checks
+
+Run `python tools/verify-tyrax2-host.py` with a host GCC/Clang C++17 compiler
+on PATH, or supply `--compiler /path/to/g++`. Use `--only adaptive` or
+`--only count` to select one group. The runner mechanically extracts the actual
+selector and both declarations, verifies parity, and includes the actual arena
+header for counted/ordinary copy controls. Temporary type shims compile hardware
+tracing out; temporary binaries are removed. It never builds an editor/PS2 game
+or runs an emulator/console, and does not establish target performance.
+
+The output guard compares exact region, DisplayMode, ColorDepth and actual
+buffer count, plus field/BLSS/limiter/widescreen/dither/network state. Geometry
+keys are logical width/height, physical render height, raster width/height,
+BLSS low-resolution dimensions and GS FRAME width/scissor extents. These are
+separate fields, not a hash or packed key. Invalid nonfinite/nonpositive geometry
+retains the last choice without clocks. Rotating framebuffer addresses and
+per-frame jitter XYOFFSET are deliberately excluded so ordinary buffering and
+temporal sampling do not permanently reset adaptation. Host controls use the
+actual renderer enum declarations and verify scan/color/size/scissor changes
+independently while holding region, field mode and buffer count constant.
+
+Additional adaptive epoch exclusions: exact frameYield state is part of the mode guard. The portal topology byte includes each portal's actual live bit, so swapping drawn portal identities invalidates evidence even if view count stays constant. Active HardwareTrace capture and serialized render-cost requests discard partial pairs, retain the previous choice and skip selector clocks; the actual renderScene costSeq is passed explicitly. The selector uses one dedicated COP0 read with a compiler memory clobber; other profiler clocks are unchanged. These guards avoid comparing diagnostic/serialization epochs, but do not turn the inclusive loop score into a pure CPU, GPU or arithmetic cost.

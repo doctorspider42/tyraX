@@ -1,0 +1,58 @@
+
+/mnt/f/Projects/tyra-editor/tools/ps2client/bin/ps2client.exe:     file format pei-x86-64
+
+
+Disassembly of section .text:
+
+0000000140003610 <network_connect>:
+   140003610:	56                   	push   %rsi
+   140003611:	53                   	push   %rbx
+   140003612:	48 83 ec 68          	sub    $0x68,%rsp
+   140003616:	b8 02 00 00 00       	mov    $0x2,%eax
+   14000361b:	44 89 c6             	mov    %r8d,%esi
+   14000361e:	48 89 cb             	mov    %rcx,%rbx
+   140003621:	66 89 44 24 50       	mov    %ax,0x50(%rsp)
+   140003626:	0f b7 ca             	movzwl %dx,%ecx
+   140003629:	ff 15 d9 80 00 00    	call   *0x80d9(%rip)        # 14000b708 <__imp_htons>
+   14000362f:	48 89 d9             	mov    %rbx,%rcx
+   140003632:	66 89 44 24 52       	mov    %ax,0x52(%rsp)
+   140003637:	ff 15 bb 80 00 00    	call   *0x80bb(%rip)        # 14000b6f8 <__imp_gethostbyname>
+   14000363d:	45 31 c0             	xor    %r8d,%r8d
+   140003640:	89 f2                	mov    %esi,%edx
+   140003642:	b9 02 00 00 00       	mov    $0x2,%ecx
+   140003647:	48 8b 40 18          	mov    0x18(%rax),%rax
+   14000364b:	48 8b 00             	mov    (%rax),%rax
+   14000364e:	8b 00                	mov    (%rax),%eax
+   140003650:	89 44 24 54          	mov    %eax,0x54(%rsp)
+   140003654:	ff 15 e6 80 00 00    	call   *0x80e6(%rip)        # 14000b740 <__imp_socket>
+   14000365a:	85 c0                	test   %eax,%eax
+   14000365c:	48 89 c3             	mov    %rax,%rbx
+   14000365f:	78 61                	js     1400036c2 <network_connect+0xb2>
+   140003661:	83 fe 01             	cmp    $0x1,%esi
+   140003664:	89 c1                	mov    %eax,%ecx
+   140003666:	74 28                	je     140003690 <network_connect+0x80>
+   140003668:	48 8d 54 24 50       	lea    0x50(%rsp),%rdx
+   14000366d:	41 b8 10 00 00 00    	mov    $0x10,%r8d
+   140003673:	ff 15 77 80 00 00    	call   *0x8077(%rip)        # 14000b6f0 <__imp_connect>
+   140003679:	85 c0                	test   %eax,%eax
+   14000367b:	b8 fe ff ff ff       	mov    $0xfffffffe,%eax
+   140003680:	0f 49 c3             	cmovns %ebx,%eax
+   140003683:	48 83 c4 68          	add    $0x68,%rsp
+   140003687:	5b                   	pop    %rbx
+   140003688:	5e                   	pop    %rsi
+   140003689:	c3                   	ret    
+   14000368a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+   140003690:	48 89 4c 24 38       	mov    %rcx,0x38(%rsp)
+   140003695:	4c 8d 4c 24 4c       	lea    0x4c(%rsp),%r9
+   14000369a:	41 b8 01 00 00 00    	mov    $0x1,%r8d
+   1400036a0:	ba 06 00 00 00       	mov    $0x6,%edx
+   1400036a5:	c7 44 24 4c 01 00 00 	movl   $0x1,0x4c(%rsp)
+   1400036ac:	00 
+   1400036ad:	c7 44 24 20 04 00 00 	movl   $0x4,0x20(%rsp)
+   1400036b4:	00 
+   1400036b5:	ff 15 7d 80 00 00    	call   *0x807d(%rip)        # 14000b738 <__imp_setsockopt>
+   1400036bb:	48 8b 4c 24 38       	mov    0x38(%rsp),%rcx
+   1400036c0:	eb a6                	jmp    140003668 <network_connect+0x58>
+   1400036c2:	b8 ff ff ff ff       	mov    $0xffffffff,%eax
+   1400036c7:	eb ba                	jmp    140003683 <network_connect+0x73>
+   1400036c9:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)

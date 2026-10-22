@@ -1,0 +1,44 @@
+src/save_system.gen.cpp: In function 'void Vehicle_playground::saveEnsureIcons()':
+src/save_system.gen.cpp:149:14: warning: unused variable 'sys' [-Wunused-variable]
+  149 |   const bool sys = mcCopyToCard("save/icon.sys", "icon.sys");
+      |              ^~~
+src/save_system.gen.cpp:150:14: warning: unused variable 'icn' [-Wunused-variable]
+  150 |   const bool icn = mcCopyToCard("save/list.icn", "list.icn");
+      |              ^~~
+In file included from src/terrain_game.cpp:4:
+inc/pool2_static_probe.hpp: In function 'void Pool2StaticProbe::init(Tyra::Engine*, Tyra::StaticPipeline&)':
+inc/pool2_static_probe.hpp:24:2: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   24 |  if(!f)reject("missing_config");int got=fscanf(f,"%d %d %d %c",&a,&c,&r,&trailing);fclose(f);
+      |  ^~
+inc/pool2_static_probe.hpp:24:33: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   24 |  if(!f)reject("missing_config");int got=fscanf(f,"%d %d %d %c",&a,&c,&r,&trailing);fclose(f);
+      |                                 ^~~
+inc/pool2_static_probe.hpp: In function 'void Pool2StaticProbe::loop(Tyra::Engine*, Tyra::StaticPipeline&)':
+inc/pool2_static_probe.hpp:53:2: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   53 |  if(!initialized||completed>=repeats)reject("invalid_loop");++generation;bag.bboxVersion=generation;
+      |  ^~
+inc/pool2_static_probe.hpp:53:61: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   53 |  if(!initialized||completed>=repeats)reject("invalid_loop");++generation;bag.bboxVersion=generation;
+      |                                                             ^~
+src/gen/game_vehicles.gen.cpp: In member function 'void Vehicle_playground::TerrainGame::buildRoads(int)':
+src/gen/game_vehicles.gen.cpp:543:9: warning: variable 'y0' set but not used [-Wunused-but-set-variable]
+  543 |   float y0 = 0.0F;
+      |         ^~
+src/gen/game_vehicles.gen.cpp: In member function 'void Vehicle_playground::TerrainGame::updateVehicleDamage(float)':
+src/gen/game_vehicles.gen.cpp:2375:19: warning: unused variable 'moved' [-Wunused-variable]
+ 2375 |         const int moved = have ? vehicleDentApply(vi, dent) : 0;
+      |                   ^~~~~
+src/gen/game_vehicles.gen.cpp:2415:19: warning: unused variable 'us' [-Wunused-variable]
+ 2415 |         const u32 us = (profTicks() - t0) / 295u;
+      |                   ^~
+src/gen/game_vehicles.gen.cpp: In lambda function:
+src/gen/game_vehicles.gen.cpp:2952:9: warning: variable 'pick' set but not used [-Wunused-but-set-variable]
+ 2952 |     int pick = 0;
+      |         ^~~~
+src/gen/game_vehicles.gen.cpp: In member function 'void Vehicle_playground::TerrainGame::renderVehicleWheels()':
+src/gen/game_vehicles.gen.cpp:6036:13: warning: variable 'gap' set but not used [-Wunused-but-set-variable]
+ 6036 |         int gap[4], lift[4];
+      |             ^~~
+src/gen/game_vehicles.gen.cpp:6036:21: warning: variable 'lift' set but not used [-Wunused-but-set-variable]
+ 6036 |         int gap[4], lift[4];
+      |                     ^~~~

@@ -1,0 +1,31 @@
+# GS SPRITE corona private V5 experiment draft
+
+V5 implements kind9 same-ELF controls and sparse cold EE admission observations on immutable V4. It remains a private source-only experiment, default-off, with no native build, shared cache/mirror write or device execution. Candidate4 execution remains after candidate5 closure. Production and prior fixtures are untouched.
+
+## Implemented controls
+
+The strict existing C++ NightPlan parser now admits kind9 only with order0/1 and joint=restored=0. Every phase keeps effects mask0, extras0 and sampler1. Kind9 selects/enables the qualified pool2 table in all phases, so its arm does not change with SPRITE. This isolated draft contains no lattice experiment. Existing kinds0/1/2/3/5/6/7 retain their semantics; kind8 is not added.
+
+NightRuntime initializes the typed SPRITE arm off. At each phase boundary, before rendering, it selects kind9 only if sampler validity remains true and assigns the actual ExperimentalCoronaSprite::enabled arm. Order0 is Off/On/Off and order1 On/Off/On. NIGHTCORONAPHASE records phase/first/selected/enabled, while existing context/effect/table records remain. The boot inputs `kind9-order0.txt` and `kind9-order1.txt` contain `9 0 0 0` and `9 1 0 0`. A future isolated run copies one to the existing `host:night-ablation.cfg`; QuietRuntime aliases NightRuntime and engine.cpp calls begin before the game loop. Phase lengths, sparse epochs750/1155, sampler/tax/chunk windows, clocks and workload are unchanged.
+
+The typed corona cold-path predicate is evaluated independently of the arm. The actual request remains `enabled && coronaEligible`. The predicate and VU kernel retain active fog/light and exact final-output checks from V4. An off arm can thus report eligibility without sending the VU marker. All500 source files are pinned; only night_plan.hpp, night_runtime.hpp, night_ablation.hpp and stapip_qbuffer_renderer.cpp change from V4. TC source, packet writer, effects, producer and cache keys remain byte-identical to V4.
+
+## Sparse counters are requests, not accepted sprites
+
+CoronaCounter declares nine uint32 words (expected36 bytes, actual R5900 ABI pending): coldPackets, eligible, requested, fallback, sourceVertices, requestedVertices, fogOn, shaderLit, invalid. The observer runs only on typed-owner cull admission and only when kind9 is selected and collectCounters is true. Counts reset in the existing sparse frames. Invalid arm/count combinations and overflow invalidate the run. No clocks, output DMA reads, producer oracle or materialization are introduced by this observer. NIGHTCORONAGATES explicitly prints acceptedOutputKnown=0.
+
+Cold means an ordinary qbuffer classification actually reached this code; retained/baked replay can bypass it. The counts exclude copied/clipped/replayed submissions. Zero cold requests does not prove that no warm replay emitted SPRITE. Conversely, positive requested count does not prove the VU predicate passed. eligible+fallback=coldPackets; requested=eligible when the arm is on, otherwise0. fallback means rejected EE eligibility, not an off arm or VU rejection. fogOn/shaderLit are observations, not quality cuts. Off now evaluates the same admission predicate as On, so timing prices this compiled/common scaffold; it does not restore the original engine without scaffold.
+
+## Host controls and offline actual-output route
+
+`verify-final-output-controls.py` passed47,293 bounded-word/state/source checks. `verify-kind9-controls.py` passed269 controls for both phase orders, malformed/overflow/invalid plans, old-kind isolation, masks/table state, duplicate/missing/bad phase rows, sparse counter relations, counter invalid/overflow conditions, synthetic sprite/fallback decoding, both FGE arms/Y directions and negative final F/RGBA/state/epoch/pin/marker/count/endpoints. Host validity/arm/table expressions are extracted from the current C++ header; the host decimal lexer is a strict counterpart, not execution of target C++ file I/O.
+
+`corona_controls.py plan --order 0 --out NEW_FILE` creates a strict plan without overwriting an existing file. `log --order 0 --input LOG` requires all phase/effects/table records plus six sparse gate rows. Its result deliberately reports actualAcceptedSpritesKnown=false and either requested-output-unknown or zero-cold-requests/replay-or-inactive-unknown.
+
+`decode --off OFF_JSON --on ON_JSON --elf-sha256 HASH --tc-sha256 HASH` checks paired completed-output snapshots. It validates native pin/epoch/package identity, actual input count/marker, all material prefix qwords, packed ST/RGBAQ/XYZF2 tag, exact PRIM type/count-only change (FGE preserved), six final packed RGBA/Z/F/Q values, rectangle/domain, and compacted original endpoints. A triangle result must match the complete baseline payload. A sprite result yields decodedSprites, not an unconditional target-acceptance claim. See capture-contract.md: the caller must independently prove actual completed execution, qualified native pins and full capture coverage. The host positive snapshots are synthetic controls, not actual capture.
+
+## Remaining gates
+
+No native kernel or controls have been compiled. Root must qualify C++ includes/layout/actual strict parser, OpenVCL initialization/allocation/MAC flag lifetime, scheduled instructions and resident bounds, then actual completed output and raster. The new counter needs a target ABI record. Rebase only after candidate5 closure. Its latest fog-corrected resident occupancy2006 leaves36 words before draw-finish2042; cumulative #5+#4 may fail budget. Do not overwrite lattice TC with this isolated draft or silently claim cumulative optimization.
+
+A future full native fixture must contain qualified authored res AND .res-baked and preserve exact298 assets including4ADPCM. No runtime helper outside this fixture was edited. Require positive actual decoded SPRITE output in the unchanged pricing pose, stable warm caches and both orders, then off-clock pixel comparison before physical pricing. Zero confirmed accepted output is inactive. Neither counters nor host tests accept VU output, pixels or physical benefit. This trial still transforms all six original vertices and targets GIF/GS input only.

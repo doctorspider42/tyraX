@@ -1,0 +1,158 @@
+{
+  "valid": true,
+  "platform": "emulator",
+  "elfSha256": "3a1876ebb8c1d6664284f69cf7010415f552ac22b8455d30b9c7d6ae20404af2",
+  "sourceFiles": 502,
+  "samplePins": {
+    "game/bin/pc-drive-0.csv": "eca95965574ae899efbc49f987f2b7c176deb41df37e11ccc7fefeee997bdebd",
+    "game/bin/pc-held-0.csv": "3ce03bc7b92d7ff503307acec8c2d30e281170ee5444aebee011365f99509c85",
+    "game/bin/pc-drive-1.csv": "e5a6ccd20b3fe8f0a183d4afded5e96646b8d3a3c90bfd3902f6cf86bc646a35",
+    "game/bin/pc-held-1.csv": "8d2085b0f248f816aaa3f9d359775f04279e0d1feab7c286a4fbabaccd072c4d",
+    "game/bin/pc-drive-2.csv": "eca95965574ae899efbc49f987f2b7c176deb41df37e11ccc7fefeee997bdebd",
+    "game/bin/pc-held-2.csv": "bcb1760e12b25312644d3a26762a07dc62fdbc08818b07e6f04e275e210b4272",
+    "game/bin/pc-drive-3.csv": "e165c2c35d584f0e31a8093dc8d30846fb04e94cd7f774b248743e5c12655963",
+    "game/bin/pc-held-3.csv": "5ccfc526200c9fb1b5870bc190777a8cfc77e553f6c5e1e77fbc885910149e3b",
+    "game/bin/pc-drive-4.csv": "eca95965574ae899efbc49f987f2b7c176deb41df37e11ccc7fefeee997bdebd",
+    "game/bin/pc-held-4.csv": "9fd2678488efa7f4cbe5822a94eb512f244ea4de7b5a7ab9ed40acfecbfd283b",
+    "game/bin/pc-drive-5.csv": "3d4c540c2de099c41583e04f900f6665ed9e2cabc6aedb3bf9e3c0117da5a35b",
+    "game/bin/pc-held-5.csv": "ff53b3aebe616e460ad28499fb5932b637a03fd2f3007c27d91e8c887ba9100e"
+  },
+  "sampleRecords": [
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      997,
+      533,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      997,
+      8941,
+      0,
+      0
+    ],
+    [
+      1,
+      1,
+      1733,
+      307,
+      0,
+      0
+    ],
+    [
+      2,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      2,
+      1,
+      997,
+      533,
+      0,
+      0
+    ],
+    [
+      3,
+      0,
+      1733,
+      5150,
+      0,
+      0
+    ],
+    [
+      3,
+      1,
+      1733,
+      307,
+      0,
+      0
+    ],
+    [
+      4,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    [
+      4,
+      1,
+      997,
+      534,
+      0,
+      0
+    ],
+    [
+      5,
+      0,
+      1733,
+      5150,
+      0,
+      0
+    ],
+    [
+      5,
+      1,
+      1733,
+      307,
+      0,
+      0
+    ]
+  ],
+  "negativeControls": [
+    "missing-record",
+    "overflow",
+    "late-callback",
+    "wrong-period",
+    "missing-row",
+    "wrong-phase",
+    "backwards-time",
+    "IO-in-drive",
+    "warmup-in-drive"
+  ],
+  "phases": [
+    {
+      "phase": 0,
+      "periodUs": 0
+    },
+    {
+      "phase": 1,
+      "periodUs": 997
+    },
+    {
+      "phase": 2,
+      "periodUs": 0
+    },
+    {
+      "phase": 3,
+      "periodUs": 1733
+    },
+    {
+      "phase": 4,
+      "periodUs": 0
+    },
+    {
+      "phase": 5,
+      "periodUs": 1733
+    }
+  ],
+  "logSha256": "7d035a94e7b914f86c410611b9f5c8c0dab2925d509e9be40ec99ddaadf81616",
+  "currentWorkloadQualificationSha256": "71270fd23d622aa51d6f9a7927793b06852309b96c78e873e74e8f1295a28d03",
+  "scope": "Qualified current direct+paint raw PC residency; IRQ mask/preemption bias, not exclusive cycles or a60fps ceiling"
+}

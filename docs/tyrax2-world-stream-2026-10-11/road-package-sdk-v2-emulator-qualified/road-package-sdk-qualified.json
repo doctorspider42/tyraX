@@ -1,0 +1,24 @@
+{
+  "valid": true,
+  "execution": "actual compiled EE SDK routines",
+  "gpuExecuted": false,
+  "physicalPrice": false,
+  "elfSha256": "a7d881fc94a9caa343820ee949617c2ba980814c69d757945964cca8c9beb5cd",
+  "engineArchiveSha256": "80a4f67fd59cac51cb3d9dc17630e94297d23740c88e0df03e0e121babb082f1",
+  "logSha256": "0671ed84a3d8639571e31584b35d60c9004eb6c41d909b7a76480341b6f8302d",
+  "manifestSha256": "cb0575b0527ca0f0e1949f85d815cd4b639f051cc5c4a2e6525a0101a28d958e",
+  "readerSha256": "df0a55c1689bc2c2b96e02333a4fb56dbf646028ec007d2d74db12a20cc4aec0",
+  "counts": {
+    "bodies": 48,
+    "sdkComparisons": 4128,
+    "controls": 192,
+    "owned": 48
+  },
+  "readerControls": 8,
+  "limits": [
+    "Actual compiled EE SDK routines run at cold setup; no new geometry is queued to GPU.",
+    "Own geometry bytes, but not queue-bank/texture leases or production admission.",
+    "Mask0 retains original all-six fallback; state/start variants compare with actual writer.",
+    "No physical net timing or complete game raster qualification from this SDK-only test."
+  ]
+}

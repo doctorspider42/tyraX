@@ -1,0 +1,48 @@
+{
+  "status": "PASS_OWNED_EMULATOR_THREE_PHASE_CAPTURE_IDENTITY",
+  "helperSha256": "da2dd8721bc53edcabefcae1e23a3b6868b4d4d404aa0f42f7ef1bace0b01450",
+  "launchRecordSha256": "85b2a0e76d409aec4efb4da2f50007d4eb3f4d96e4f2de0e4e3cfe97b40c1735",
+  "images": {
+    "0": {
+      "filename": "phase-0.png",
+      "sha256": "1a7654a396936d52bac73bb89234631abaf7b783be58e42ed02079681480514b",
+      "phase": 0,
+      "coronaSpriteEnabled": 0,
+      "receiverMode": 0,
+      "extraMask": 0,
+      "window": "0x20000a",
+      "ownedPid": 5118,
+      "beforeLogSha256": "5c563dd16da19f4fd607d41c2f161ca50f38f2a2d4586ea3309c4f38003a68dc",
+      "afterLogSha256": "5c563dd16da19f4fd607d41c2f161ca50f38f2a2d4586ea3309c4f38003a68dc",
+      "utc": "2026-10-05T16:12:38.127606+00:00"
+    },
+    "1": {
+      "filename": "phase-1.png",
+      "sha256": "94a1723c8c1b542193b4de904b4d6ab1ac935f1ecb53cb2f302d1f51ecdb06da",
+      "phase": 1,
+      "coronaSpriteEnabled": 0,
+      "receiverMode": 1,
+      "extraMask": 0,
+      "window": "0x20000a",
+      "ownedPid": 5118,
+      "beforeLogSha256": "b3513d88c08d4a133b375bb1ef8c77526d7db4933e212fd780ca78a0878e1eb2",
+      "afterLogSha256": "b3513d88c08d4a133b375bb1ef8c77526d7db4933e212fd780ca78a0878e1eb2",
+      "utc": "2026-10-05T16:13:14.291114+00:00"
+    },
+    "2": {
+      "filename": "phase-2.png",
+      "sha256": "8e2ae11d332f212d834ff02a691f143a5e154ddd43d1f02fa555d9630f47d324",
+      "phase": 2,
+      "coronaSpriteEnabled": 0,
+      "receiverMode": 0,
+      "extraMask": 0,
+      "window": "0x20000a",
+      "ownedPid": 5118,
+      "beforeLogSha256": "072d31f55031bfa6903c79e08bfe38ac1d365c54b688a62dee4129bed1a878ff",
+      "afterLogSha256": "072d31f55031bfa6903c79e08bfe38ac1d365c54b688a62dee4129bed1a878ff",
+      "utc": "2026-10-05T16:13:50.655927+00:00"
+    }
+  },
+  "qualitativeVisualReviewPending": true,
+  "physicalPerformanceAccepted": false
+}

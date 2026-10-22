@@ -1,0 +1,121 @@
+{
+  "status": "physical_and_emulator_owned_capture_qualified_replay_pending",
+  "date": "2026-10-03",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-scene-v4-capture",
+  "production_changes": false,
+  "replay_qualified": false,
+  "performance_accepted": false,
+  "native_elf_sha256": "66396adfdd230acec1c6d134fbf03dd23718b25384e7246f7a00f1299d2849bf",
+  "source_manifest_sha256": "d60a60ea447a36c861a8f79e951fd5a19341a9d5b5a543ae3e4843ab1bd794c9",
+  "compiler_inputs": 495,
+  "native_proof": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-scene-v4-capture\\root-native-proof-v4.json",
+    "sha256": "75fce71cc17eed70b453317c09162e25c3f041248779e5d521dbb33bf7df2569"
+  },
+  "protocol": {
+    "capture_only": true,
+    "frozen_warm_iteration": 126,
+    "sampled_windows_start_at_offset": 128,
+    "closure_capacity_bytes": 4194304,
+    "closure_actual_bytes": 2374592,
+    "root_qwords": 1556,
+    "CNT_tags": 393,
+    "REF_tags": 1160,
+    "END_tags": 1,
+    "deep_owned_refs": 1160,
+    "queue_hardware_starts_during_captured_frame": 1,
+    "direct_presentation_hardware_starts": 1,
+    "program_memory_changed": false,
+    "MPG_commands": 0,
+    "BASE_OFFSET_commands": 0,
+    "first_MSCAL_address": 1202,
+    "MSCAL_commands": 152,
+    "MSCNT_commands": 631,
+    "DIRECT_commands": 24,
+    "UNPACK_commands": 3530,
+    "direct_FRAME_writes": 0,
+    "direct_IMAGE_transfers": 0
+  },
+  "address_semantics": {
+    "actual_program_address": "0x11008000",
+    "actual_data_address": "0x1100c000",
+    "raw_program_files": [
+      "ee-capture-data-before.bin",
+      "ee-capture-data-after.bin"
+    ],
+    "raw_data_files": [
+      "ee-capture-micro-before.bin",
+      "ee-capture-micro-after.bin"
+    ],
+    "explanation": "Frozen capture uses inverted SDK macro names. Both regions were read; raw files and original metadata remain untouched. V3 host analyzer interprets bytes by actual source addresses.",
+    "primary_memory_map": "https://github.com/PCSX2/pcsx2/blob/master/pcsx2/Memory.cpp#L353"
+  },
+  "boots": [
+    {
+      "environment": "pcsx2",
+      "evidence": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v4-capture-emulator-evidence",
+      "independent_review": "F:\\Projects\\tyrax2-lab-20261001\\capture-closure-independent-tools\\actual-emulator-address-semantic-review.json",
+      "independent_review_sha256": "30537935f839729af24e7f19c3f3043ce3f52204ce64ef0b9e62faa4484378c2",
+      "files": {
+        "capture-analysis-root.json": "fcb22cabec5abea795c1b6fc2b1439b987a070275dc768f1c94f053c4289a593",
+        "ee-capture-closure.bin": "e99c0e77e090bfc8e6e1a14be7ead323a8f45a5c90f943b9f6aba9cea6442461",
+        "ee-capture-data-after.bin": "7275283f29a7093963285e80153af486d47184158837b6d39b4f4fe962f150b3",
+        "ee-capture-data-before.bin": "7275283f29a7093963285e80153af486d47184158837b6d39b4f4fe962f150b3",
+        "ee-capture-micro-after.bin": "f76b852d7bdd6ab7502387cf42936e4bea3d06e80bc876de810065a23924fa54",
+        "ee-capture-micro-before.bin": "6c9ff6b1d61c435d4013dbe1fd13504db12231a103d668e96489895c6fe27092",
+        "ee-capture-root.bin": "b9adf519a10fb075db4a32680de292b32cdf13ea572672e93d6e90b2fcba4b1a",
+        "ee-capture.json": "e316d8cb3a473e1737121ceea88df27ac040bf6541ec54a2e77c1caad2fca81f",
+        "ee-isolation.cfg": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+        "ee-isolation.log": "f1c8a771868be2eedc7de0c547c91e32707dd65c4c7178be02e6b986c0d52dbe",
+        "native-proof.json": "75fce71cc17eed70b453317c09162e25c3f041248779e5d521dbb33bf7df2569",
+        "provenance.json": "c219fc2b5ee191eec2ffe639c9e9852c95511e5b41891cdc1773be01254b03e3",
+        "quiet-night.cfg": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "scene-analysis.json": "8f684352cd4854c9d160e2b5b9cea6311e09615dd96cde2eb73cb8f83e5982b8",
+        "stdout.log": "3a768184d086bc6a86d6d8a3b0aa2dae9bf16598d7e03d0b4d5a51ad9fb53c54",
+        "target-source-manifest.json": "d60a60ea447a36c861a8f79e951fd5a19341a9d5b5a543ae3e4843ab1bd794c9",
+        "vehicle-playground.elf": "66396adfdd230acec1c6d134fbf03dd23718b25384e7246f7a00f1299d2849bf",
+        "vehicle-playground.elf.sym": "7d144a1d627beeb3d343b64e4c3765ee3a2feffba9c45520135ada85bd55cc03"
+      }
+    },
+    {
+      "environment": "ps2",
+      "evidence": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v4-capture-physical-evidence",
+      "independent_review": "F:\\Projects\\tyrax2-lab-20261001\\capture-closure-independent-tools\\independent-physical-address-semantic-review.json",
+      "independent_review_sha256": "4a15e9d0fb5a92c4a7d1dd8f17fa066c70a3d6661186ae15d091e3aa2b01b1e0",
+      "files": {
+        "capture-analysis-root-v3.json": "a5b970ea9576743a1de52075ca94d8392b1bc92f778d575305115328b3b52e95",
+        "ee-capture-closure.bin": "ffcdcc0456d5c54239d51534a4883af113b6e6e8ed4b3873d30e3a318bf2d7bf",
+        "ee-capture-data-after.bin": "7275283f29a7093963285e80153af486d47184158837b6d39b4f4fe962f150b3",
+        "ee-capture-data-before.bin": "7275283f29a7093963285e80153af486d47184158837b6d39b4f4fe962f150b3",
+        "ee-capture-micro-after.bin": "5f9e493a847aea1ff3bd3ea1a9055fb9d02e519bf29efec77baae2e3ba157b49",
+        "ee-capture-micro-before.bin": "04a8bfb763a5bace1716446ab7b4ee53e16f6fe4ab386dc917fb0cff9664278a",
+        "ee-capture-root.bin": "b9adf519a10fb075db4a32680de292b32cdf13ea572672e93d6e90b2fcba4b1a",
+        "ee-capture.json": "eb28654f47c940a8ae7c6fd4f2bee154ca8a174620dd50e25064b0bbcc3331a1",
+        "ee-isolation.cfg": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+        "ee-isolation.log": "71db780988ae56602625d2f2d86c12bb388e8221ea26c5f15cf63a015acf6fc9",
+        "native-proof.json": "75fce71cc17eed70b453317c09162e25c3f041248779e5d521dbb33bf7df2569",
+        "provenance.json": "f223c4e4747d5dbae4b6e178f5c3532ff610c3a140d74437284f2c0d42dbd791",
+        "quiet-night.cfg": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "scene-analysis.json": "5129d21971bd7dea2f517a80714613f394d3899cb10a3d50549ff10879b9e46f",
+        "stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout.log": "3d7537a2d31b8fbdc1b008e8a5d712dcbdcb64bdd19a046424914bdc1247d03f",
+        "target-source-manifest.json": "d60a60ea447a36c861a8f79e951fd5a19341a9d5b5a543ae3e4843ab1bd794c9",
+        "vehicle-playground.elf": "66396adfdd230acec1c6d134fbf03dd23718b25384e7246f7a00f1299d2849bf",
+        "vehicle-playground.elf.sym": "7d144a1d627beeb3d343b64e4c3765ee3a2feffba9c45520135ada85bd55cc03"
+      }
+    }
+  ],
+  "limitations": [
+    "No replay has executed and no consumer service time or ordinary-game gain is accepted.",
+    "Capture reads and deep copy run in warm iteration126; extra4MiB and metadata alter memory/cache layout, so V4 timings are not V3 prices.",
+    "DIRECT inventory excludes XGKICK-generated GS state. NoFRAME/noIMAGE here is not a complete GS/texture ownership proof.",
+    "Replay requires an explicit VIF/VU/GS startup capsule and fixed target. A native chain alone omits BASE/OFFSET and init-only VU data.",
+    "Original wrong-label micro-change interpretation and strict-parser rejection are preserved. Address-based corrected reports do not rewrite raw artifacts.",
+    "FNV is a mutation diagnostic; native capture checks exact payload equality and host proof derives SHA256 and bounds."
+  ],
+  "parser_sha256": "0910f3c4533d5078ac47a104581f21fd2e444a2d703de1978341d93bb268ee2f",
+  "source_review": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-scene-v4-capture\\independent-capture-source-review.json",
+    "sha256": "5c94ec68251b685957ffb0a464ae38442a75471aceb58ea0b81a01a39a51a506"
+  }
+}

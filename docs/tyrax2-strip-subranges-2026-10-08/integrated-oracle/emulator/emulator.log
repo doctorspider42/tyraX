@@ -1,0 +1,2670 @@
+[    0.0175] Program Path: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt
+[    0.0181] AppRoot Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin
+[    0.0185] Resources Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/resources
+[    0.0235] DataRoot Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2
+[    0.0322] Loading config from /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/inis/PCSX2.ini.
+[    0.0401] Loading secrets from /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/inis/secrets.ini.
+[    0.0564] BIOS Directory: /mnt/c/Users/pawel/OneDrive/Documents/PCSX2/bios
+[    0.0569] Snapshots Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/snaps
+[    0.0572] Savestates Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/sstates
+[    0.0575] MemoryCards Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/memcards
+[    0.0577] Logs Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/logs
+[    0.0580] Cheats Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/cheats
+[    0.0584] Patches Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/patches
+[    0.0586] Covers Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/covers
+[    0.0588] Game Settings Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/gamesettings
+[    0.0591] Resources Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/resources
+[    0.0593] User Resources Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/resources
+[    0.0595] Cache Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/cache
+[    0.0598] Textures Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/textures
+[    0.0600] Input Profile Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/inputprofiles
+[    0.0603] Video Dumping Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/videos
+[    0.0605] Debugger Layouts Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/inis/debuggerlayouts
+[    0.0608] Debugger Settings Directory: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/inis/debuggersettings
+[    0.1251] Loaded translation file for language en-US
+[    0.2166] PCSX2 v2.9.93
+[    0.2170] Savestate version: 0x9a590000
+[    0.2172] 
+[    0.2174] 
+[    0.2176] Host Machine Init:
+[    0.2180]   Operating System = Ubuntu 22.04
+[    0.2190]   Available RAM    = 48675 MB (47.53 GB)
+[    0.2193]   Physical RAM     = 50191 MB (49.02 GB)
+[    0.2195] 
+[    0.2198]   Processor        = AMD Ryzen Threadripper 1920X
+[    0.2200]   Core Count       = 24 cores
+[    0.2203]   Thread Count     = 24 threads
+[    0.2205]   Cluster Count    = 1 clusters
+[    0.2207] CPU Extensions Detected:
+[    0.2210]   AVX AVX2
+[    0.2211] 
+[    0.2214] Allocating host memory for virtual systems...
+[    0.2219]   EE Main Memory                   @ 0x00007F186F200000 -> 0x00007F1878100000 [143mb]
+[    0.2221]   IOP Main Memory                  @ 0x00007F1878100000 -> 0x00007F1880200000 [129mb]
+[    0.2223]   VU0/1 On-Chip Memory             @ 0x00007F1880200000 -> 0x00007F1880300000 [1mb]
+[    0.2225]   VTLB Virtual Map                 @ 0x00007F1880300000 -> 0x00007F1880B00000 [8mb]
+[    0.2227]   VTLB Address Map                 @ 0x00007F1880B00000 -> 0x00007F1880F00000 [4mb]
+[    0.2230]   R5900 Recompiler Cache           @ 0x00007F1880F00000 -> 0x00007F1884F00000 [64mb]
+[    0.2232]   R3000A Recompiler Cache          @ 0x00007F1884F00000 -> 0x00007F1886F00000 [32mb]
+[    0.2235]   Micro VU0 Recompiler Cache       @ 0x00007F1887F00000 -> 0x00007F188BF00000 [64mb]
+[    0.2238]   Micro VU1 Recompiler Cache       @ 0x00007F188BF00000 -> 0x00007F188FF00000 [64mb]
+[    0.2240]   VIF0 Unpack Recompiler Cache     @ 0x00007F1886F00000 -> 0x00007F1887700000 [8mb]
+[    0.2242]   VIF1 Unpack Recompiler Cache     @ 0x00007F1887700000 -> 0x00007F1887F00000 [8mb]
+[    0.2244]   VIF Unpack Recompiler Cache      @ 0x00007F188FF00000 -> 0x00007F1890000000 [1mb]
+[    0.2247]   GS Software Renderer             @ 0x00007F1890000000 -> 0x00007F1894000000 [64mb]
+[    0.2267] Fastmem area: 0x7f176f200000 - 0x7f186f1fffff
+[    0.2277] Generating SSE-optimized unpacking functions for VIF interpreters...
+[    0.2285] Unpack function generation complete.  Generated function statistics:
+[    0.2288]   Reserved buffer    : 1048576 bytes @ 0x00007F188FF00000
+[    0.2290]   x86 code generated : 7422 bytes
+[    0.2292] 
+[    0.2344] SDLInputSource: Using Controller DB from resources.
+[    0.2506] SDLInputSource: 765 gamepad mappings are loaded.
+[    0.2510] Invalid binding: 'XInput-0/DPadUp'
+[    0.2512] Invalid binding: 'XInput-0/DPadRight'
+[    0.2514] Invalid binding: 'XInput-0/DPadDown'
+[    0.2516] Invalid binding: 'XInput-0/DPadLeft'
+[    0.2518] Invalid binding: 'XInput-0/Y'
+[    0.2520] Invalid binding: 'XInput-0/B'
+[    0.2523] Invalid binding: 'XInput-0/A'
+[    0.2525] Invalid binding: 'XInput-0/X'
+[    0.2526] Invalid binding: 'XInput-0/Back'
+[    0.2528] Invalid binding: 'XInput-0/Start'
+[    0.2530] Invalid binding: 'XInput-0/LeftShoulder'
+[    0.2533] Invalid binding: 'XInput-0/+LeftTrigger'
+[    0.2535] Invalid binding: 'XInput-0/RightShoulder'
+[    0.2536] Invalid binding: 'XInput-0/+RightTrigger'
+[    0.2538] Invalid binding: 'XInput-0/LeftStick'
+[    0.2539] Invalid binding: 'XInput-0/RightStick'
+[    0.2541] Invalid binding: 'XInput-0/Guide'
+[    0.2544] Invalid binding: 'XInput-0/-LeftY'
+[    0.2546] Invalid binding: 'XInput-0/+LeftX'
+[    0.2550] Invalid binding: 'XInput-0/+LeftY'
+[    0.2552] Invalid binding: 'XInput-0/-LeftX'
+[    0.2553] Invalid binding: 'XInput-0/-RightY'
+[    0.2555] Invalid binding: 'XInput-0/+RightX'
+[    0.2557] Invalid binding: 'XInput-0/+RightY'
+[    0.2559] Invalid binding: 'XInput-0/-RightX'
+[    0.2571] Settings: Advanced Settings are enabled; only proceed if you know what you're doing! No support will be provided if you have the option enabled.
+[    0.3161] Scanning F:\PS2\Games (recursively)
+[    0.3196] Loading BIOS...
+[    0.3311] BIOS Found: Europe  v02.00(14/06/2004)  Console 20040614-100914
+[    0.3901] Mechacon version: 0x00020603
+[    0.3917] Opening CDVD...
+[    0.4239] Initializing Elf: 4542784 bytes
+[    0.4251] Disc changed to .
+[    0.4256]   Name: vehicle-playground [?]
+[    0.4258]   Serial: vehicle-playground
+[    0.4260]   Version: 
+[    0.4263]   CRC: 50DE5AEF
+[    0.4324] No game settings found (tried '/mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/gamesettings/50DE5AEF.ini')
+[    0.4327] Applying settings...
+[    0.4333] Invalid binding: 'XInput-0/DPadUp'
+[    0.4336] Invalid binding: 'XInput-0/DPadRight'
+[    0.4338] Invalid binding: 'XInput-0/DPadDown'
+[    0.4340] Invalid binding: 'XInput-0/DPadLeft'
+[    0.4342] Invalid binding: 'XInput-0/Y'
+[    0.4344] Invalid binding: 'XInput-0/B'
+[    0.4346] Invalid binding: 'XInput-0/A'
+[    0.4348] Invalid binding: 'XInput-0/X'
+[    0.4350] Invalid binding: 'XInput-0/Back'
+[    0.4351] Invalid binding: 'XInput-0/Start'
+[    0.4353] Invalid binding: 'XInput-0/LeftShoulder'
+[    0.4355] Invalid binding: 'XInput-0/+LeftTrigger'
+[    0.4357] Invalid binding: 'XInput-0/RightShoulder'
+[    0.4359] Invalid binding: 'XInput-0/+RightTrigger'
+[    0.4361] Invalid binding: 'XInput-0/LeftStick'
+[    0.4364] Invalid binding: 'XInput-0/RightStick'
+[    0.4367] Invalid binding: 'XInput-0/Guide'
+[    0.4369] Invalid binding: 'XInput-0/-LeftY'
+[    0.4371] Invalid binding: 'XInput-0/+LeftX'
+[    0.4373] Invalid binding: 'XInput-0/+LeftY'
+[    0.4376] Invalid binding: 'XInput-0/-LeftX'
+[    0.4378] Invalid binding: 'XInput-0/-RightY'
+[    0.4381] Invalid binding: 'XInput-0/+RightX'
+[    0.4383] Invalid binding: 'XInput-0/+RightY'
+[    0.4385] Invalid binding: 'XInput-0/-RightX'
+[    0.4390] GameDB: Has not been initialized yet, initializing...
+[    0.4903] GameDB: 12841 games on record (loaded in 51.35ms)
+[    0.5103] Reopening memory cards...
+[    0.5154] (FileMcd) Creating new 8MB memory card: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/emulator/profile/PCSX2/memcards/Mcd001.ps2
+[    0.9849] McdSlot 0 [File]: Mcd001.ps2 [8 MB, UNFORMATTED]
+[    0.9854] McdSlot 1 [File]: [disabled/empty filename]
+[    0.9900] HLE Host: Set 'host:' root path to: /mnt/f/Projects/tyrax2-subranges-20261008-integrated-oracle/game/bin
+[    0.9904] EE/iR5900 Recompiler Reset
+[    1.0324] iR3000A Recompiler reset.
+[    1.0424] mVU Reset
+[    1.0433] mVU Reset
+[    1.0482] Resetting host memory for virtual systems...
+[    1.3877] Time Zone Offset: GMT+01:00
+[    1.3881] Time Zone Location: Berlin
+[    1.3883] DST: Winter Time
+[    1.3886] Time Format: 24-Hour
+[    1.3889] Date Format: DD/MM/YYYY
+[    1.3892] System Time Basis: Operating System Time
+[    1.3896] Resulting System Time: 2026-10-08 14:08:22
+[    1.3898] Close virtual disk tray
+[    1.3900] Media already loaded (fast boot)
+[    1.3903] Opening GS...
+[    1.4523] VK: Enabling extension: VK_KHR_get_surface_capabilities2
+[    1.4684] Using Vulkan GPU 'llvmpipe (LLVM 15.0.7, 256 bits)' for automatic renderer check.
+[    1.4687] Not using Vulkan for software renderer.
+[    1.4691] acquireRenderWindow() recreate=true fullscreen=false render_to_main=false surfaceless=false
+[    1.4756] (GetRefreshRateFromXRandR) Modeline is invalid: 0/0/0
+[    1.4760] Surface refresh rate: 60 Hz
+[    1.4763] Loading EGL from libEGL.so...
+[    1.4780] GLAD EGL Version: 1.0
+[    1.4782] Using EGL platform EGL_EXT_platform_x11.
+[    1.4892] eglInitialize() version: 1.5
+[    1.4898] GLAD EGL Version: 1.5
+[    1.4901] Trying GL version 4.6
+[    1.4904] eglCreateContext() failed: 0x3009
+[    1.4906] Trying GL version 4.5
+[    1.5034] Got GL version 4.5
+[    1.5038] EGL_MIN_SWAP_INTERVAL = 1
+[    1.5040] EGL_MAX_SWAP_INTERVAL = 1
+[    1.5042] Negative swap interval/tear-control is NOT supported
+[    1.5074] GL_VENDOR: Mesa
+[    1.5077] GL_VERSION: 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+[    1.5079] GL_RENDERER: llvmpipe (LLVM 15.0.7, 256 bits)
+[    1.5082] GL_SHADING_LANGUAGE_VERSION: 4.50
+[    1.5086] GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS: 16
+[    1.5088] GL: Viewport Array:            Supported       => Using: GL_ARB_viewport_array
+[    1.5092] GL: Direct State Access:       Supported       => Using: OpenGL 4.5 Core
+[    1.5095] GL: Copy Image:                Supported       => Using: OpenGL 4.3 Core
+[    1.5097] GL: Clip Control:              Supported       => Using: OpenGL 4.5 Core
+[    1.5098] GL: Conservative Depth:        Supported       => Using: OpenGL 4.2 Core
+[    1.5100] GL: CAS Sharpening:            Supported       => Using: OpenGL 4.2 Core
+[    1.5102] GL: Texture Barriers:          Auto            => Using: Framebuffer Fetch
+[    1.5105] GL: RGBA16 HW Blending:        Supported       => Using: RGBA16 UNORM
+[    1.5108] GL: Point Expansion:           Supported       => Using: Hardware
+[    1.5110] GL: Line Expansion:            Fallback        => Using: Vertex Expansion
+[    1.5112] GL: Sprite Expansion:          Supported       => Using: Vertex Expansion
+[    1.5114] GL: DXTn Texture Compression:  Supported       => Using: GL_EXT_texture_compression_s3tc
+[    1.5116] GL: BC6/7 Texture Compression: Supported       => Using: OpenGL 4.2 Core
+[    1.5154] 1 program binary formats supported by driver
+[    1.5624] Program binary retrieved, 4105 bytes, format 34655
+[    1.5651] Program binary retrieved, 4121 bytes, format 34655
+[    1.5673] Program binary retrieved, 4249 bytes, format 34655
+[    1.5696] Program binary retrieved, 4013 bytes, format 34655
+[    1.5716] Program binary retrieved, 4013 bytes, format 34655
+[    1.5736] Program binary retrieved, 4017 bytes, format 34655
+[    1.5756] Program binary retrieved, 4017 bytes, format 34655
+[    1.5778] Program binary retrieved, 4185 bytes, format 34655
+[    1.5806] Program binary retrieved, 4217 bytes, format 34655
+[    1.5829] Program binary retrieved, 4137 bytes, format 34655
+[    1.5849] Program binary retrieved, 4125 bytes, format 34655
+[    1.5870] Program binary retrieved, 4121 bytes, format 34655
+[    1.5901] Program binary retrieved, 4253 bytes, format 34655
+[    1.5937] Program binary retrieved, 4237 bytes, format 34655
+[    1.5971] Program binary retrieved, 4245 bytes, format 34655
+[    1.5996] Program binary retrieved, 4261 bytes, format 34655
+[    1.6020] Program binary retrieved, 4965 bytes, format 34655
+[    1.6043] Program binary retrieved, 4981 bytes, format 34655
+[    1.6065] Program binary retrieved, 4261 bytes, format 34655
+[    1.6086] Program binary retrieved, 4277 bytes, format 34655
+[    1.6109] Program binary retrieved, 5005 bytes, format 34655
+[    1.6131] Program binary retrieved, 5021 bytes, format 34655
+[    1.6152] Program binary retrieved, 4257 bytes, format 34655
+[    1.6172] Program binary retrieved, 4273 bytes, format 34655
+[    1.6196] Program binary retrieved, 5001 bytes, format 34655
+[    1.6219] Program binary retrieved, 5017 bytes, format 34655
+[    1.6240] Program binary retrieved, 4277 bytes, format 34655
+[    1.6263] Program binary retrieved, 4293 bytes, format 34655
+[    1.6285] Program binary retrieved, 5057 bytes, format 34655
+[    1.6308] Program binary retrieved, 5073 bytes, format 34655
+[    1.6330] Program binary retrieved, 4153 bytes, format 34655
+[    1.6349] Program binary retrieved, 4169 bytes, format 34655
+[    1.6371] Program binary retrieved, 4233 bytes, format 34655
+[    1.6393] Program binary retrieved, 5781 bytes, format 34655
+[    1.6415] Program binary retrieved, 5373 bytes, format 34655
+[    1.6440] Program binary retrieved, 6389 bytes, format 34655
+[    1.6459] Program binary retrieved, 4917 bytes, format 34655
+[    1.6478] Program binary retrieved, 4845 bytes, format 34655
+[    1.6497] Program binary retrieved, 4997 bytes, format 34655
+[    1.6516] Program binary retrieved, 4101 bytes, format 34655
+[    1.6701] Program binary retrieved, 4137 bytes, format 34655
+[    1.6881] Program binary retrieved, 4109 bytes, format 34655
+[    1.6902] Program binary retrieved, 5389 bytes, format 34655
+[    1.6924] Program binary retrieved, 5829 bytes, format 34655
+[    1.6944] Program binary retrieved, 5857 bytes, format 34655
+[    1.6963] Program binary retrieved, 4289 bytes, format 34655
+[    1.7006] Program binary retrieved, 21205 bytes, format 34655
+[    1.7030] Program binary retrieved, 4765 bytes, format 34655
+[    1.7052] Program binary retrieved, 5685 bytes, format 34655
+[    1.7072] Program binary retrieved, 4141 bytes, format 34655
+[    1.7092] Program binary retrieved, 4537 bytes, format 34655
+[    1.7112] Program binary retrieved, 4889 bytes, format 34655
+[    1.7129] Program binary retrieved, 4117 bytes, format 34655
+[    1.7148] Program binary retrieved, 4741 bytes, format 34655
+[    1.7170] Program binary retrieved, 4965 bytes, format 34655
+[    1.7201] Program binary retrieved, 6613 bytes, format 34655
+[    1.7223] Program binary retrieved, 4797 bytes, format 34655
+[    1.7257] Program binary retrieved, 13085 bytes, format 34655
+[    1.7352] Program binary retrieved, 7285 bytes, format 34655
+[    1.7442] Program binary retrieved, 5497 bytes, format 34655
+[    1.7462] Program binary retrieved, 4141 bytes, format 34655
+[    1.7481] Program binary retrieved, 4141 bytes, format 34655
+[    1.7500] Program binary retrieved, 4145 bytes, format 34655
+[    1.7519] Program binary retrieved, 4145 bytes, format 34655
+[    1.7789] Program binary retrieved, 5369 bytes, format 34655
+[    1.7851] OpenGL Graphics Driver Info:
+[    1.7853] OpenGL Context:
+[    1.7855] 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+[    1.7856] Mesa llvmpipe (LLVM 15.0.7, 256 bits)
+[    1.7858] GLSL: 4.50
+[    1.7891] Processor count: 24 cores, 24 processors, 1 clusters
+[    1.7894] Ordered processor list: 12, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 0, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+[    1.7896] Not pinning SW threads, we need 4 processors, but only have 0
+[    1.7904] Opening SPU2...
+[    1.7909] Creating Null audio stream, sample rate = 48000, expansion = Disabled, buffer = 50, latency = 32, stretching enabled, driver = wasapi, device = 
+[    1.7911] Allocated buffer of 2432 frames for buffer of 50 ms [expansion Disabled (block size 2048), stretch disabled, target size 2432].
+[    1.7912] Initializing Pad...
+[    1.7914] Initializing SIO2...
+[    1.7915] Initializing SIO0...
+[    1.7917] Opening DEV9...
+[    1.7918] DEV9: DEV9init
+[    1.7923] DEV9: DEV9init2
+[    1.7924] DEV9: DEV9init3
+[    1.7944] DEV9: DEV9init ok
+[    1.7945] DEV9: DEV9open
+[    1.7947] Opening USB...
+[    1.7948] Opening FW...
+[    1.7953] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 16683350
+[    1.8000] MultiPause time: 144ns
+[    1.8003] MultiPause time: 202ns
+[    1.8006] MultiPause time: 177ns
+[    1.8008] MultiPause time: 142ns
+[    1.8011] VM subsystems initialized in 1481.01 ms
+[    1.8112] Failed to inhibit screen saver.
+[    1.8114] Processor order assignment: EE=12, VU=23, GS=22
+[    1.8116]   EE thread is on processor 12 (0x1000)
+[    1.8118]   VU thread is on processor 23 (0x800000)
+[    1.8122]   GS thread is on processor 22 (0x400000)
+[    1.8230] Failed to inhibit screen saver.
+[    1.8480] # Initialize memory (rev:3.70, ctm:197Mhz, cpuclk:147Mhz detected)
+[    1.8570] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    1.8589] RegisterLibraryEntries: excepman version 1.01
+[    1.8600] RegisterLibraryEntries:  intrman version 1.02
+[    1.8604] RegisterLibraryEntries:   ssbusc version 1.01
+[    1.8609] RegisterLibraryEntries:  dmacman version 1.02
+[    1.8614] RegisterLibraryEntries:  timrman version 1.01
+[    1.8618] RegisterLibraryEntries:  sysclib version 1.01
+[    1.8622] RegisterLibraryEntries:    stdio version 1.01
+[    1.8625] RegisterLibraryEntries:  heaplib version 1.01
+[    1.8631] FW: read mem 0x1f80847c: 0x10000001
+[    1.8634] FW: write mem 0x1f808414: 0x417f0000
+[    1.8636] FW: read mem 0x1f808400: 0xffc00001
+[    1.8638] FW: write mem 0x1f80844c: 0xffffffff
+[    1.8640] FW: write mem 0x1f808420: 0xffffffff
+[    1.8641] FW: write mem 0x1f808428: 0xffffffff
+[    1.8643] FW: write mem 0x1f808430: 0xffffffff
+[    1.8655] RegisterLibraryEntries:   thbase version 1.01
+[    1.8658] RegisterLibraryEntries:  thevent version 1.01
+[    1.8660] RegisterLibraryEntries:  thsemap version 1.01
+[    1.8662] RegisterLibraryEntries:  thmsgbx version 1.01
+[    1.8666] RegisterLibraryEntries:  thfpool version 1.01
+[    1.8669] RegisterLibraryEntries:  thvpool version 1.01
+[    1.8679] RegisterLibraryEntries:   vblank version 1.01
+[    1.8687] RegisterLibraryEntries:    ioman version 1.02
+[    1.8696] RegisterLibraryEntries:  modload version 1.01
+[    1.8702] RegisterLibraryEntries:   romdrv version 2.01
+[    1.8707] RegisterLibraryEntries:    stdio version 1.02
+[    1.8714] RegisterLibraryEntries:   sifman version 1.01
+[    1.8720] 
+[    1.8722] PlayStation 2 ======== Hard reset boot
+[    1.8726]  ROMGEN=2004-0614, IOP info (CPUID=1f, CACH_CONFIG=0, 2MB, IOP mode)
+[    1.8730]  <20040614-100914,ROMconf,PS20200EC20040614.bin:11696>
+[    1.8827] # Total accessable memory size: 32 MB (B:2:8:0) (370:2:7c30)
+[    1.8840] # TLB spad=0 kernel=1:12 default=13:30 extended=31:38
+[    1.9490] # Initialize Start.
+[    1.9498] # Initialize GS ...
+[    1.9501] # Initialize INTC ...
+[    1.9504] # Initialize TIMER ...
+[    1.9506] # Initialize DMAC ...
+[    1.9509] # Initialize VU1 ...
+[    1.9514] # Initialize VIF1 ...
+[    1.9518] # Initialize GIF ...
+[    1.9520] # Initialize VU0 ...
+[    1.9523] # Initialize VIF0 ...
+[    1.9525] # Initialize IPU ...
+[    1.9528] # Initialize FPU ...
+[    1.9530] # Initialize User Memory ...
+[    2.0110] # Initialize Scratch Pad ...
+[    2.0114] # Initialize Done.
+[    2.0124] 
+[    2.0126] EE DECI2 Manager version 0.06 Feb  6 2003 08:38:48
+[    2.0128]   CPUID=2e20, BoardID=0, ROMGEN=2004-0614, 32M
+[    2.0130] 
+[    2.0135] RegisterLibraryEntries:   sifcmd version 1.01
+[    2.0452] Initializing Elf: 4542784 bytes
+[    2.0476] ELF Loading: host:vehicle-playground.elf, Game CRC = 50DE5AEF, EntryPoint = 0x00100E78
+[    2.0508] RegisterLibraryEntries:  cdvdman version 1.01
+[    2.0574] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    2.0592] RegisterLibraryEntries:  secrman version 1.03
+[    2.0597] RegisterLibraryEntries:   eesync version 1.01
+[    2.0601] 
+[    2.0602] IOP Realtime Kernel Ver.0.9.1
+[    2.0605]     Copyright 1999 (C) Sony Computer Entertainment Inc. 
+[    2.0612] Reboot service module.(99/11/10)
+[    2.0636] cdvd driver module version 0.1.1 (C)SCEI
+[    2.0643] Load File service.(99/11/05)
+[    2.0647] Multi Threaded Fileio module.(99/11/15) 
+[    2.0649] iop heap service (99/11/03)
+[    2.0838] loadelf: fname host:vehicle-playground.elf secname all
+[    2.0843] loadelf version 3.30
+[    2.0866] Input ELF format filename = host:vehicle-playground.elf
+[    2.1330] 1 00100000 0040903c .................................................................
+[    2.1334] Loaded, host:vehicle-playground.elf
+[    2.1336] start address 0x100e78
+[    2.1338] gp address 00000000
+[    2.1350] # Restart Without Memory Clear.
+[    2.1411] # Initialize GS ...
+[    2.1414] # Initialize INTC ...
+[    2.1416] # Initialize TIMER ...
+[    2.1417] # Initialize DMAC ...
+[    2.1419] # Initialize VU1 ...
+[    2.1428] # Initialize VIF1 ...
+[    2.1431] # Initialize GIF ...
+[    2.1433] # Initialize VU0 ...
+[    2.1434] # Initialize VIF0 ...
+[    2.1436] # Initialize IPU ...
+[    2.1438] # Initialize FPU ...
+[    2.1441] # Initialize Scratch Pad ...
+[    2.1443] # Restart Without Memory Clear Done.
+[    2.1447] ELF host:vehicle-playground.elf with entry point at 0x00100E78 is executing.
+[    2.1449] ELF changed, active CRC 50DE5AEF (host:vehicle-playground.elf)
+[    2.1545] Applying core settings...
+[    2.1553] Updating CPU configuration...
+[    2.1555] iR3000A Recompiler reset.
+[    2.1597] mVU Reset
+[    2.1605] mVU Reset
+[    2.1801] iR3000A Recompiler reset.
+[    2.1843] mVU Reset
+[    2.1847] mVU Reset
+[    2.1888] EE/iR5900 Recompiler Reset
+[    2.2093] BIOS: Successfully found the instruction pattern. Assuming the thread list is here: 8001a640
+[    2.2127] Warning: GetOsdConfigParam2 Reading extended language/version configs, may be incorrect!
+[    2.2263] read/write allocate memory 4000
+[    2.2266] open name host:/ps2link.run flag 1 data 41378
+[    2.2273] open fd = -5
+[    2.2319] Get Reboot Request From EE
+[    2.2340] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    2.2373] RegisterLibraryEntries: excepman version 1.01
+[    2.2391] RegisterLibraryEntries:  intrman version 1.02
+[    2.2394] RegisterLibraryEntries:   ssbusc version 1.01
+[    2.2404] RegisterLibraryEntries:  dmacman version 1.02
+[    2.2414] RegisterLibraryEntries:  timrman version 1.01
+[    2.2422] RegisterLibraryEntries:  sysclib version 1.01
+[    2.2425] RegisterLibraryEntries:    stdio version 1.01
+[    2.2429] RegisterLibraryEntries:  heaplib version 1.01
+[    2.2454] RegisterLibraryEntries:   thbase version 1.01
+[    2.2456] RegisterLibraryEntries:  thevent version 1.01
+[    2.2458] RegisterLibraryEntries:  thsemap version 1.01
+[    2.2460] RegisterLibraryEntries:  thmsgbx version 1.01
+[    2.2463] RegisterLibraryEntries:  thfpool version 1.01
+[    2.2464] RegisterLibraryEntries:  thvpool version 1.01
+[    2.2476] RegisterLibraryEntries:   vblank version 1.01
+[    2.2483] RegisterLibraryEntries:    ioman version 1.02
+[    2.2551] RegisterLibraryEntries:  modload version 1.01
+[    2.2561] RegisterLibraryEntries:   romdrv version 2.01
+[    2.2566] RegisterLibraryEntries:    stdio version 1.02
+[    2.2573] RegisterLibraryEntries:   sifman version 1.01
+[    2.2581] 
+[    2.2585] PlayStation 2 ======== Soft reboot
+[    2.2596] RegisterLibraryEntries:   sifcmd version 1.01
+[    2.2640] RegisterLibraryEntries:  cdvdman version 1.01
+[    2.2660] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    2.2737] RegisterLibraryEntries:  secrman version 1.03
+[    2.2742] RegisterLibraryEntries:   eesync version 1.01
+[    2.2747] 
+[    2.2749] IOP Realtime Kernel Ver.0.9.1
+[    2.2751]     Copyright 1999 (C) Sony Computer Entertainment Inc. 
+[    2.2758] Reboot service module.(99/11/10)
+[    2.2780] [EE] Skipping timeout loop at 0x002E69A0 -> 0x002E69C0
+[    2.2782] cdvd driver module version 0.1.1 (C)SCEI
+[    2.2788] Load File service.(99/11/05)
+[    2.2790] Multi Threaded Fileio module.(99/11/15) 
+[    2.2793] iop heap service (99/11/03)
+[    2.3037] RegisterLibraryEntries:   iomanx version 1.01
+[    2.3053] fileXio: fileXio: fileXio RPC Server v1.00
+[    2.3055] Copyright (c) 2003 adresd
+[    2.3059] RegisterLibraryEntries:  sio2man version 2.07
+[    2.3062] RegisterLibraryEntries:  sio2man version 1.02
+[    2.3071] RegisterLibraryEntries:   padman version 1.02
+[    2.3075] Pad Driver for OSD
+[    2.3081] FREESD v1.01
+[    2.3084] RegisterLibraryEntries:    libsd version 1.04
+[    2.3166] debug_level = 1 (ps2snd 0.1
+[    2.3177] greetings from version 0.93 !
+[    2.3179] RegisterLibraryEntries:   audsrv version 1.04
+[    2.3182] audsrv_adpcm_init()
+[    2.3196] UpdateVSyncRate: Mode Changed to SDTV 480p.
+[    2.3198] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 16683350
+[    2.3200] Set GS CRTC configuration. SDTV   720x480 @ 59.94 Progressive (FRAME)
+[    4.3896] read/write allocate memory 4000
+[    4.3903] 
+[    4.3908] -----------------------------------------
+[    4.3911]         _____        ____   ___
+[    4.3913]           |     /   ____| |___|
+[    4.3915]           |     |   |     |   |
+[    4.3917] -----------------------------------------
+[    4.3920] Copyright 2022
+[    4.3923] Repository: https://github.com/h4570/tyra
+[    4.3925] Licensed under Apache License 2.0
+[    4.3933] Version: 2.2.0
+[    4.3936] -----------------------------------------
+[    4.3938] 
+[    4.5560] audsrv_adpcm_init()
+[    4.5576] [EE] Skipping timeout loop at 0x00102CB0 -> 0x00102CD0
+[    4.5920] Curent pad(0,0) status: EXECCMD
+[    4.7876] Pad: DS2 Config Finished - P1/S1 - AL: Off - AB: Usable - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    4.8218] Curent pad(0,0) status: EXECCMD
+[    4.8872] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.0890] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    5.1219] Curent pad(0,0) status: EXECCMD
+[    5.3878] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    5.5886] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    5.6242] open name host:/producer-probe.csv flag 602 data 41378
+[    5.6271] open fd = 256
+[    5.6275] open name host:/producer-bins.csv flag 602 data 41378
+[    5.6290] open fd = 257
+[    5.6315] PRODUCERINIT rowsBytes=379200 aggregateBytes=213696 profile=0 hardwareTrace=0
+[    5.6381] loadmodule: fname rom0:XMCMAN args 0 arg 
+[    5.6486] RegisterLibraryEntries:    mcman version 2.03
+[    5.6498] loadmodule: id 32, ret 0
+[    5.6503] loadmodule: fname rom0:XMCSERV args 0 arg 
+[    5.6508] RegisterLibraryEntries:   mcserv version 1.01
+[    5.6511] loadmodule: id 33, ret 0
+[    5.6514] [EE] Skipping timeout loop at 0x00104820 -> 0x00104840
+[    6.6258] (FileMcd) Warning: checksum sector overwritten. (0)
+[    6.6260] OSD [MemoryCardSave0]: Memory Card 'Mcd001.ps2' was saved to storage.
+[    7.9222] (FileMcd) Warning: checksum sector overwritten. (0)
+[    8.6271] open name host:/save/icon.sys flag 1 data 41378
+[    8.6292] open fd = 258
+[    9.1137] open name host:/save/list.icn flag 1 data 41378
+[    9.1155] open fd = 258
+[   10.0694] open name host:/menus/save.png flag 1 data 41378
+[   10.0715] open fd = 258
+[   10.1201] open name host:/hud/save-cursor.png flag 1 data 41378
+[   10.1226] open fd = 258
+[   10.1259] open name host:/hud/save-used.png flag 1 data 41378
+[   10.1284] open fd = 258
+[   10.1324] open name host:/hud/save-saved.png flag 1 data 41378
+[   10.1345] open fd = 258
+[   10.1474] open name host:/hud/save-loaded.png flag 1 data 41378
+[   10.1494] open fd = 258
+[   10.1532] open name host:/hud/save-error.png flag 1 data 41378
+[   10.1554] open fd = 258
+[   10.1584] open name host:/hud/save-busy.png flag 1 data 41378
+[   10.1606] open fd = 258
+[   10.1984] open name host:/hud/save-spinner.png flag 1 data 41378
+[   10.2008] open fd = 258
+[   10.2136] open name host:/menus/save.png flag 1 data 41378
+[   10.2158] open fd = 258
+[   10.2459] open name host:/menus/district-pause.png flag 1 data 41378
+[   10.2480] open fd = 258
+[   10.2791] open name host:/menus/district-pause-values.png flag 1 data 41378
+[   10.2813] open fd = 258
+[   10.2858] open name host:/hud/save-cursor.png flag 1 data 41378
+[   10.2881] open fd = 258
+[   10.2988] open name host:/hud/save-cursor.png flag 1 data 41378
+[   10.3010] open fd = 258
+[   10.3034] open name host:/hud/save-cursor.png flag 1 data 41378
+[   10.3052] open fd = 258
+[   10.3075] open name host:/hud/menu-dim.png flag 1 data 41378
+[   10.3092] open fd = 258
+[   10.3122] open name host:/hud/flare-corona.png flag 1 data 41378
+[   10.3141] open fd = 258
+[   10.3296] open name host:/hud/flashlight-gobo.png flag 1 data 41378
+[   10.3319] open fd = 258
+[   10.3470] open name host:/hud/flare-glow.png flag 1 data 41378
+[   10.3490] open fd = 258
+[   10.3603] open name host:/hud/sun-disc.png flag 1 data 41378
+[   10.3624] open fd = 258
+[   10.3665] open name host:/hud/moon-disc.png flag 1 data 41378
+[   10.3684] open fd = 258
+[   10.4016] open name host:/hud/use-text.png flag 1 data 41378
+[   10.4038] open fd = 258
+[   10.4079] open name host:/hud/pick-text.png flag 1 data 41378
+[   10.4099] open fd = 258
+[   10.4134] open name host:/sfx/engine_idle.adpcm flag 1 data 41378
+[   10.4153] open fd = 258
+[   10.4339] open name host:/sfx/engine_high.adpcm flag 1 data 41378
+[   10.4358] open fd = 258
+[   10.4542] open name host:/sfx/tires_screech.adpcm flag 1 data 41378
+[   10.4562] open fd = 258
+[   10.4610] open name host:/sfx/gear-shift.adpcm flag 1 data 41378
+[   10.4631] open fd = 258
+[   10.4669] open name host:/launch.scene flag 1 data 41378
+[   10.4676] open fd = -5
+[   10.4682] open name host:/hud/loading.png flag 1 data 41378
+[   10.4701] open fd = 258
+[   10.4833] FRAMEARENA allocated=1 bytes=1048576
+[   10.5533] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[   10.5555] open fd = 258
+[   10.5567] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[   10.5584] open fd = 258
+[   10.5892] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[   10.5913] open fd = 258
+[   10.5925] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[   10.5943] open fd = 258
+[   10.6000] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[   10.6024] open fd = 258
+[   10.6035] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[   10.6052] open fd = 258
+[   10.6196] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[   10.6217] open fd = 258
+[   10.6226] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[   10.6246] open fd = 258
+[   10.6419] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[   10.6439] open fd = 258
+[   10.6448] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[   10.6466] open fd = 258
+[   10.6627] open name host:/textures/district-ground.png flag 1 data 41378
+[   10.6647] open fd = 258
+[   10.6657] open name host:/textures/district-ground.png flag 1 data 41378
+[   10.6674] open fd = 258
+[   10.6917] open name host:/materials/district-asphalt.mtl flag 1 data 41378
+[   10.6939] open fd = 258
+[   10.7017] open name host:/textures/district-asphalt.png flag 1 data 41378
+[   10.7037] open fd = 258
+[   10.7045] open name host:/textures/district-asphalt.png flag 1 data 41378
+[   10.7062] open fd = 258
+[   10.7237] open name host:/materials/district-sign.mtl flag 1 data 41378
+[   10.7257] open fd = 258
+[   10.7282] open name host:/textures/district-sign.png flag 1 data 41378
+[   10.7302] open fd = 258
+[   10.7314] open name host:/textures/district-sign.png flag 1 data 41378
+[   10.7331] open fd = 258
+[   10.7370] open name host:/materials/night-warm.mtl flag 1 data 41378
+[   10.7391] open fd = 258
+[   10.7422] open name host:/materials/night-cyan.mtl flag 1 data 41378
+[   10.7440] open fd = 258
+[   10.7465] open name host:/materials/night-pink.mtl flag 1 data 41378
+[   10.7486] open fd = 258
+[   10.7518] open name host:/models/urban/district-workshop.tmdl flag 1 data 41378
+[   10.7543] open fd = 258
+[   10.7595] open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+[   10.7634] open fd = 258
+[   10.7650] open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+[   10.7683] open fd = 258
+[   10.8009] open name host:/models/urban/district-tower.tmdl flag 1 data 41378
+[   10.8038] open fd = 258
+[   10.8074] open name host:/models/urban/district-loft.tmdl flag 1 data 41378
+[   10.8104] open fd = 258
+[   10.8138] open name host:/models/urban/detail-light-double.tmdl flag 1 data 41378
+[   10.8163] open fd = 258
+[   10.8281] open name host:/models/urban/Textures/metal.png flag 1 data 41378
+[   10.8311] open fd = 258
+[   10.8324] open name host:/models/urban/Textures/metal.png flag 1 data 41378
+[   10.8352] open fd = 258
+[   10.8479] open name host:/models/urban/detail-light-traffic.tmdl flag 1 data 41378
+[   10.8507] open fd = 258
+[   10.8628] open name host:/models/urban/Textures/roof.png flag 1 data 41378
+[   10.8659] open fd = 258
+[   10.8673] open name host:/models/urban/Textures/roof.png flag 1 data 41378
+[   10.8705] open fd = 258
+[   10.8744] open name host:/models/urban/tree-park-large.tmdl flag 1 data 41378
+[   10.8770] open fd = 258
+[   10.8863] open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+[   10.8893] open fd = 258
+[   10.8907] open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+[   10.8936] open fd = 258
+[   10.9060] open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+[   10.9091] open fd = 258
+[   10.9107] open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+[   10.9140] open fd = 258
+[   10.9179] open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+[   10.9212] open fd = 258
+[   10.9224] open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+[   10.9255] open fd = 258
+[   10.9296] open name host:/models/urban/tree-park-pine-large.tmdl flag 1 data 41378
+[   10.9321] open fd = 258
+[   10.9403] open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+[   10.9434] open fd = 258
+[   10.9448] open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+[   10.9478] open fd = 258
+[   10.9511] open name host:/models/urban/detail-barrier-type-a.tmdl flag 1 data 41378
+[   10.9535] open fd = 258
+[   10.9672] open name host:/models/urban/Textures/signs.png flag 1 data 41378
+[   10.9703] open fd = 258
+[   10.9716] open name host:/models/urban/Textures/signs.png flag 1 data 41378
+[   10.9746] open fd = 258
+[   10.9780] open name host:/models/urban/detail-dumpster-closed.tmdl flag 1 data 41378
+[   10.9805] open fd = 258
+[   10.9845] open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+[   10.9875] open fd = 258
+[   10.9890] open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+[   10.9918] open fd = 258
+[   10.9958] open name host:/models/urban/Textures/wall.png flag 1 data 41378
+[   10.9991] open fd = 258
+[   11.0009] open name host:/models/urban/Textures/wall.png flag 1 data 41378
+[   11.0042] open fd = 258
+[   11.0080] open name host:/models/urban/detail-bench.tmdl flag 1 data 41378
+[   11.0109] open fd = 258
+[   11.0304] open name host:/models/urban/Textures/planks.png flag 1 data 41378
+[   11.0337] open fd = 258
+[   11.0352] open name host:/models/urban/Textures/planks.png flag 1 data 41378
+[   11.0382] open fd = 258
+[   11.0422] open name host:/models/urban/pallet.tmdl flag 1 data 41378
+[   11.0446] open fd = 258
+[   11.0553] open name host:/vehicles/veh-ravager000001-body.tmdl flag 1 data 41378
+[   11.0571] open fd = 258
+[   11.1968] open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+[   11.1989] open fd = 258
+[   11.2076] open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+[   11.2098] open fd = 258
+[   11.2247] open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+[   11.2269] open fd = 258
+[   11.2281] open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+[   11.2302] open fd = 258
+[   11.2551] open name host:/vehicles/veh-pica00000001-body.tmdl flag 1 data 41378
+[   11.2575] open fd = 258
+[   11.3937] open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+[   11.3957] open fd = 258
+[   11.3967] open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+[   11.3984] open fd = 258
+[   11.4009] open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+[   11.4029] open fd = 258
+[   11.4040] open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+[   11.4059] open fd = 258
+[   11.4338] open name host:/vehicles/veh-strix0000001-body.tmdl flag 1 data 41378
+[   11.4361] open fd = 258
+[   11.5817] open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+[   11.5837] open fd = 258
+[   11.5845] open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+[   11.5864] open fd = 258
+[   11.5893] open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+[   11.5912] open fd = 258
+[   11.5921] open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+[   11.5942] open fd = 258
+[   11.6269] open name host:/sky/scene0.png flag 1 data 41378
+[   11.6290] open fd = 258
+[   11.6301] open name host:/sky/scene0.png flag 1 data 41378
+[   11.6319] open fd = 258
+[   11.9152] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[   11.9171] open fd = 258
+[   11.9181] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[   11.9197] open fd = 258
+[   11.9367] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[   11.9389] open fd = 258
+[   11.9401] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[   11.9420] open fd = 258
+[   11.9466] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[   11.9489] open fd = 258
+[   11.9564] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[   11.9581] open fd = 258
+[   11.9654] open name host:/fonts/atlas-default.png flag 1 data 41378
+[   11.9671] open fd = 258
+[   11.9818] open name host:/hud/icons.png flag 1 data 41378
+[   11.9839] open fd = 258
+[   12.0116] open name host:/hud/loading-white.png flag 1 data 41378
+[   12.0137] open fd = 258
+[   12.0160] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[   12.0177] open fd = 258
+[   12.0258] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[   12.0275] open fd = 258
+[   12.0339] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[   12.0355] open fd = 258
+[   12.0430] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[   12.0447] open fd = 258
+[   12.0638] open name host:/textures/district-road.png flag 1 data 41378
+[   12.0656] open fd = 258
+[   12.0666] open name host:/textures/district-road.png flag 1 data 41378
+[   12.0683] open fd = 258
+[   12.1801] open name host:/textures/district-asphalt.png flag 1 data 41378
+[   12.1823] open fd = 258
+[   12.1834] open name host:/textures/district-asphalt.png flag 1 data 41378
+[   12.1855] open fd = 258
+[   12.1921] open name host:/textures/district-plaza.png flag 1 data 41378
+[   12.1942] open fd = 258
+[   12.1953] open name host:/textures/district-plaza.png flag 1 data 41378
+[   12.1969] open fd = 258
+[   12.2467] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[   12.2488] open fd = 258
+[   12.2498] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[   12.2518] open fd = 258
+[   12.2584] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[   12.2608] open fd = 258
+[   12.2620] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[   12.2637] open fd = 258
+[   12.2752] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[   12.2772] open fd = 258
+[   12.2784] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[   12.2802] open fd = 258
+[   12.2847] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[   12.2867] open fd = 258
+[   12.2876] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[   12.2899] open fd = 258
+[   12.3015] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[   12.3039] open fd = 258
+[   12.3049] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[   12.3067] open fd = 258
+[   12.3106] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[   12.3126] open fd = 258
+[   12.3137] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[   12.3154] open fd = 258
+[   12.3307] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[   12.3330] open fd = 258
+[   12.3341] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[   12.3359] open fd = 258
+[   12.3392] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[   12.3412] open fd = 258
+[   12.3422] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[   12.3439] open fd = 258
+[   12.3474] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[   12.3492] open fd = 258
+[   12.3501] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[   12.3519] open fd = 258
+[   12.3648] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[   12.3669] open fd = 258
+[   12.3678] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[   12.3695] open fd = 258
+[   12.3731] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[   12.3748] open fd = 258
+[   12.3757] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[   12.3773] open fd = 258
+[   12.3877] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[   12.3896] open fd = 258
+[   12.3906] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[   12.3923] open fd = 258
+[   12.3956] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[   12.3974] open fd = 258
+[   12.3983] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[   12.4000] open fd = 258
+[   12.4133] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[   12.4152] open fd = 258
+[   12.4161] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[   12.4179] open fd = 258
+[   12.4212] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[   12.4229] open fd = 258
+[   12.4238] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[   12.4254] open fd = 258
+[   12.4285] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[   12.4304] open fd = 258
+[   12.4315] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[   12.4334] open fd = 258
+[   13.0645] EXPANDCHECK checked=1 failed=0
+[   13.0672] PARTIALCHECK checked=1 failed=0 index=4 words=232
+[   13.1805] microVU1: Cached Prog = [000] [PC=2590] [List=01] (Cache=0.000%) [0.0mb]
+[   13.1817] microVU1: 3 cycle stall on branch instruction [2b28]
+[   13.1826] microVU1: Cached Prog = [001] [PC=1a30] [List=01] (Cache=0.130%) [0.1mb]
+[   13.1828] microVU1: 1 cycle stall on branch instruction [1ae8]
+[   13.1831] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1836] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1838] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1842] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1845] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1849] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1851] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1858] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1859] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1865] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1867] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1870] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1872] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1877] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1881] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1883] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1886] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1888] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1892] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1895] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1900] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1903] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1907] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1910] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1917] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1920] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1924] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1926] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1932] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1934] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1942] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1945] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1948] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1952] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1956] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1959] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.1963] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.1967] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1972] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1976] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1980] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1985] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1988] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1993] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.1996] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2000] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2005] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2009] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2013] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2018] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2021] microVU1: Cached Prog = [002] [PC=2578] [List=01] (Cache=0.850%) [0.5mb]
+[   13.2023] microVU1: 1 cycle stall on branch instruction [1ae8]
+[   13.2025] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2031] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2034] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2040] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2043] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2047] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2049] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2057] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2058] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2063] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2066] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2069] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2071] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2076] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2078] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2080] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2084] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2086] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2091] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2093] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2100] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2103] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2106] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2108] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2116] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2119] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2123] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2125] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2132] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2135] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2143] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2145] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2147] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2152] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2155] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2159] microVU1: 3 cycle stall on branch instruction [2520]
+[   13.2162] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2165] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2169] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2174] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2177] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2182] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2185] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2189] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2192] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2196] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2200] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2203] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2206] microVU1: 3 cycle stall on branch instruction [1fc0]
+[   13.2210] microVU1: 3 cycle stall on branch instruction [1ba0]
+[   13.2213] microVU1: Cached Prog = [003] [PC=2f08] [List=01] (Cache=1.570%) [1.0mb]
+[   13.2223] microVU1: 3 cycle stall on branch instruction [2b28]
+[   13.2245] microVU1: Cached Prog = [004] [PC=0000] [List=01] (Cache=1.700%) [1.0mb]
+[   13.2257] microVU1: Cached Prog = [005] [PC=0710] [List=01] (Cache=1.793%) [1.1mb]
+[   13.2259] microVU1: 2 cycle stall on branch instruction [07c8]
+[   13.2265] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2267] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2272] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2274] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2278] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2281] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2287] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2290] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2295] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2297] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2300] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2303] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2308] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2311] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2313] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2316] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2319] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2321] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2327] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2329] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2332] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2334] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2341] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2344] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2351] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2353] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2358] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2360] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2370] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2372] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2377] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2379] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2384] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2387] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2390] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2393] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2398] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2400] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2407] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2410] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2416] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2419] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2424] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2426] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2429] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2431] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2435] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2437] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2440] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2442] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2447] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2449] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2454] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2458] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2462] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2464] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2470] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2472] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2476] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2480] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2484] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2487] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2492] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2495] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2499] microVU1: 3 cycle stall on branch instruction [07f0]
+[   13.2503] microVU1: Cached Prog = [006] [PC=1188] [List=01] (Cache=2.594%) [1.6mb]
+[   13.2506] microVU1: 2 cycle stall on branch instruction [07c8]
+[   13.2511] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2513] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2517] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2519] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2522] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2524] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2530] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2533] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2538] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2540] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2544] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2547] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2551] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2554] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2557] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2559] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2562] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2564] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2570] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2572] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2576] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2579] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2588] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2591] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2597] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2600] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2604] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2607] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2616] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2619] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2623] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2625] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2631] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2634] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2638] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2640] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2645] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2648] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2652] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2655] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2660] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2663] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2667] microVU1: 3 cycle stall on branch instruction [1108]
+[   13.2669] microVU1: 3 cycle stall on branch instruction [1130]
+[   13.2672] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2674] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2678] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2680] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2685] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2689] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2694] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2697] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2702] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2705] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2708] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2710] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2717] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2719] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2724] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2726] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2729] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2731] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2735] microVU1: 3 cycle stall on branch instruction [09e8]
+[   13.2737] microVU1: 3 cycle stall on branch instruction [0a70]
+[   13.2742] microVU1: 3 cycle stall on branch instruction [07f0]
+[   13.3266] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[   13.3286] open fd = 258
+[   13.3298] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[   13.3316] open fd = 258
+[   13.3436] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[   13.3458] open fd = 258
+[   13.3466] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[   13.3483] open fd = 258
+[   14.6592] EXPANDCHECK checked=4096 failed=0
+[   16.0384] EXPANDCHECK checked=8192 failed=0
+[   16.3689] PARTIALCHECK checked=4096 failed=0 index=13 words=186
+[   17.3223] EXPANDCHECK checked=12288 failed=0
+[   18.5943] EXPANDCHECK checked=16384 failed=0
+[   19.2552] PARTIALCHECK checked=8192 failed=0 index=4 words=186
+[   19.9050] EXPANDCHECK checked=20480 failed=0
+[   21.2645] EXPANDCHECK checked=24576 failed=0
+[   22.2474] PARTIALCHECK checked=12288 failed=0 index=23 words=72
+[   22.5696] EXPANDCHECK checked=28672 failed=0
+[   23.9272] EXPANDCHECK checked=32768 failed=0
+[   25.4289] EXPANDCHECK checked=36864 failed=0
+[   25.4306] PARTIALCHECK checked=16384 failed=0 index=13 words=186
+[   26.9927] EXPANDCHECK checked=40960 failed=0
+[   28.4446] EXPANDCHECK checked=45056 failed=0
+[   28.7858] PARTIALCHECK checked=20480 failed=0 index=4 words=186
+[   29.8974] EXPANDCHECK checked=49152 failed=0
+[   31.8728] EXPANDCHECK checked=53248 failed=0
+[   32.6050] PARTIALCHECK checked=24576 failed=0 index=23 words=72
+[   33.9125] EXPANDCHECK checked=57344 failed=0
+[   35.5442] EXPANDCHECK checked=61440 failed=0
+[   36.5267] PARTIALCHECK checked=28672 failed=0 index=13 words=186
+[   36.8455] EXPANDCHECK checked=65536 failed=0
+[   38.1439] EXPANDCHECK checked=69632 failed=0
+[   38.6603] EXPANDCHECK checked=73728 failed=0
+[   39.0466] EXPANDCHECK checked=77824 failed=0
+[   39.4452] EXPANDCHECK checked=81920 failed=0
+[   39.8768] EXPANDCHECK checked=86016 failed=0
+[   40.1996] EXPANDCHECK checked=90112 failed=0
+[   40.6295] EXPANDCHECK checked=94208 failed=0
+[   41.5012] EXPANDCHECK checked=98304 failed=0
+[   41.9136] EXPANDCHECK checked=102400 failed=0
+[   42.2507] EXPANDCHECK checked=106496 failed=0
+[   42.2847] PARTIALCHECK checked=32768 failed=0 index=0 words=232
+[   42.6827] EXPANDCHECK checked=110592 failed=0
+[   43.0863] EXPANDCHECK checked=114688 failed=0
+[   43.4668] EXPANDCHECK checked=118784 failed=0
+[   44.0555] EXPANDCHECK checked=122880 failed=0
+[   45.3076] EXPANDCHECK checked=126976 failed=0
+[   45.8499] PARTIALCHECK checked=36864 failed=0 index=21 words=186
+[   46.8328] PRODUCERPHASE phase=0 workload=0 mode=0 valid=1 rows=600 z=-74.303497 vehicles=0
+[   46.8331] SUBPHASE phase=0 candidate=0 checks=0 failed=0 bytes=202752
+[   46.9326] microVU1: Cached Prog = [007] [PC=3fd0] [List=01] (Cache=3.396%) [2.1mb]
+[   46.9344] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[   46.9364] open fd = 258
+[   46.9374] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[   46.9393] open fd = 258
+[   46.9534] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[   46.9559] open fd = 258
+[   46.9572] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[   46.9595] open fd = 258
+[   46.9653] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[   46.9680] open fd = 258
+[   46.9693] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[   46.9713] open fd = 258
+[   46.9864] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[   46.9888] open fd = 258
+[   46.9900] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[   46.9924] open fd = 258
+[   47.0079] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[   47.0106] open fd = 258
+[   47.0117] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[   47.0145] open fd = 258
+[   47.0415] open name host:/sky/scene0.png flag 1 data 41378
+[   47.0441] open fd = 258
+[   47.0456] open name host:/sky/scene0.png flag 1 data 41378
+[   47.0476] open fd = 258
+[   47.4003] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[   47.4024] open fd = 258
+[   47.4034] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[   47.4052] open fd = 258
+[   47.4209] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[   47.4236] open fd = 258
+[   47.4250] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[   47.4274] open fd = 258
+[   47.4330] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[   47.4365] open fd = 258
+[   47.4460] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[   47.4481] open fd = 258
+[   47.4552] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[   47.4573] open fd = 258
+[   47.4756] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[   47.4779] open fd = 258
+[   47.4853] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[   47.4874] open fd = 258
+[   47.4961] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[   47.4981] open fd = 258
+[   47.6345] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[   47.6370] open fd = 258
+[   47.6380] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[   47.6398] open fd = 258
+[   47.6520] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[   47.6542] open fd = 258
+[   47.6552] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[   47.6570] open fd = 258
+[   47.6605] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[   47.6625] open fd = 258
+[   47.6636] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[   47.6653] open fd = 258
+[   47.6770] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[   47.6791] open fd = 258
+[   47.6800] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[   47.6819] open fd = 258
+[   47.6856] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[   47.6876] open fd = 258
+[   47.6885] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[   47.6903] open fd = 258
+[   47.7151] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[   47.7173] open fd = 258
+[   47.7184] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[   47.7205] open fd = 258
+[   47.7245] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[   47.7265] open fd = 258
+[   47.7275] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[   47.7294] open fd = 258
+[   47.7330] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[   47.7352] open fd = 258
+[   47.7365] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[   47.7382] open fd = 258
+[   47.7517] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[   47.7539] open fd = 258
+[   47.7549] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[   47.7565] open fd = 258
+[   47.7596] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[   47.7616] open fd = 258
+[   47.7625] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[   47.7643] open fd = 258
+[   47.7765] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[   47.7785] open fd = 258
+[   47.7795] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[   47.7812] open fd = 258
+[   47.7965] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[   47.7989] open fd = 258
+[   47.7999] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[   47.8018] open fd = 258
+[   47.8055] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[   47.8075] open fd = 258
+[   47.8083] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[   47.8103] open fd = 258
+[   47.8142] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[   47.8163] open fd = 258
+[   47.8173] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[   47.8191] open fd = 258
+[   47.8316] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[   47.8338] open fd = 258
+[   47.8350] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[   47.8369] open fd = 258
+[   47.8403] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[   47.8425] open fd = 258
+[   47.8435] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[   47.8452] open fd = 258
+[   48.1003] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[   48.1024] open fd = 258
+[   48.1035] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[   48.1051] open fd = 258
+[   48.1085] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[   48.1103] open fd = 258
+[   48.1113] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[   48.1132] open fd = 258
+[   49.2735] EXPANDCHECK checked=131072 failed=0
+[   50.7496] PARTIALCHECK checked=40960 failed=0 index=11 words=186
+[   52.4342] EXPANDCHECK checked=135168 failed=0
+[   53.6312] PARTIALCHECK checked=45056 failed=0 index=2 words=186
+[   55.5937] EXPANDCHECK checked=139264 failed=0
+[   56.9121] PARTIALCHECK checked=49152 failed=0 index=2 words=25
+[   58.7834] EXPANDCHECK checked=143360 failed=0
+[   61.4291] EXPANDCHECK checked=147456 failed=0
+[   64.7981] EXPANDCHECK checked=151552 failed=0
+[   67.1574] EXPANDCHECK checked=155648 failed=0
+[   70.2466] EXPANDCHECK checked=159744 failed=0
+[   70.8407] PARTIALCHECK checked=53248 failed=0 index=3 words=186
+[   72.8768] PRODUCERPHASE phase=1 workload=0 mode=1 valid=1 rows=600 z=-74.303497 vehicles=0
+[   72.8772] SUBPHASE phase=1 candidate=1 checks=67498 failed=0 bytes=202752
+[   72.9761] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[   72.9781] open fd = 258
+[   72.9790] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[   72.9807] open fd = 258
+[   72.9859] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[   72.9878] open fd = 258
+[   72.9968] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[   72.9987] open fd = 258
+[   73.0042] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[   73.0060] open fd = 258
+[   73.0069] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[   73.0088] open fd = 258
+[   73.0207] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[   73.0226] open fd = 258
+[   73.0235] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[   73.0257] open fd = 258
+[   73.0391] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[   73.0410] open fd = 258
+[   73.0420] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[   73.0438] open fd = 258
+[   73.0644] open name host:/sky/scene0.png flag 1 data 41378
+[   73.0665] open fd = 258
+[   73.0675] open name host:/sky/scene0.png flag 1 data 41378
+[   73.0692] open fd = 258
+[   73.4089] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[   73.4110] open fd = 258
+[   73.4120] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[   73.4138] open fd = 258
+[   73.4297] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[   73.4318] open fd = 258
+[   73.4329] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[   73.4346] open fd = 258
+[   73.4382] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[   73.4400] open fd = 258
+[   73.4480] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[   73.4497] open fd = 258
+[   73.4567] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[   73.4586] open fd = 258
+[   73.4669] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[   73.4689] open fd = 258
+[   73.4895] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[   73.4916] open fd = 258
+[   73.4989] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[   73.5007] open fd = 258
+[   73.6262] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[   73.6283] open fd = 258
+[   73.6292] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[   73.6308] open fd = 258
+[   73.6419] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[   73.6440] open fd = 258
+[   73.6450] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[   73.6468] open fd = 258
+[   73.6501] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[   73.6519] open fd = 258
+[   73.6527] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[   73.6544] open fd = 258
+[   73.6655] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[   73.6676] open fd = 258
+[   73.6686] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[   73.6702] open fd = 258
+[   73.6739] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[   73.6760] open fd = 258
+[   73.6770] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[   73.6785] open fd = 258
+[   73.7014] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[   73.7033] open fd = 258
+[   73.7044] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[   73.7061] open fd = 258
+[   73.7092] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[   73.7111] open fd = 258
+[   73.7118] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[   73.7134] open fd = 258
+[   73.7169] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[   73.7187] open fd = 258
+[   73.7195] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[   73.7213] open fd = 258
+[   73.7328] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[   73.7349] open fd = 258
+[   73.7358] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[   73.7375] open fd = 258
+[   73.7407] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[   73.7425] open fd = 258
+[   73.7433] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[   73.7449] open fd = 258
+[   73.7552] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[   73.7574] open fd = 258
+[   73.7583] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[   73.7600] open fd = 258
+[   73.7741] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[   73.7761] open fd = 258
+[   73.7771] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[   73.7786] open fd = 258
+[   73.7821] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[   73.7838] open fd = 258
+[   73.7848] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[   73.7869] open fd = 258
+[   73.7902] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[   73.7920] open fd = 258
+[   73.7928] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[   73.7944] open fd = 258
+[   73.8064] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[   73.8083] open fd = 258
+[   73.8094] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[   73.8112] open fd = 258
+[   73.8144] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[   73.8161] open fd = 258
+[   73.8169] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[   73.8187] open fd = 258
+[   74.0766] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[   74.0787] open fd = 258
+[   74.0797] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[   74.0814] open fd = 258
+[   74.0853] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[   74.0875] open fd = 258
+[   74.0888] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[   74.0907] open fd = 258
+[   74.5719] EXPANDCHECK checked=163840 failed=0
+[   75.6311] PARTIALCHECK checked=57344 failed=0 index=7 words=196
+[   75.9038] EXPANDCHECK checked=167936 failed=0
+[   77.2994] EXPANDCHECK checked=172032 failed=0
+[   78.8038] EXPANDCHECK checked=176128 failed=0
+[   78.8876] PARTIALCHECK checked=61440 failed=0 index=19 words=186
+[   80.4527] EXPANDCHECK checked=180224 failed=0
+[   81.8208] EXPANDCHECK checked=184320 failed=0
+[   82.2099] PARTIALCHECK checked=65536 failed=0 index=3 words=186
+[   83.0222] EXPANDCHECK checked=188416 failed=0
+[   83.5236] EXPANDCHECK checked=192512 failed=0
+[   83.9090] EXPANDCHECK checked=196608 failed=0
+[   84.3226] EXPANDCHECK checked=200704 failed=0
+[   84.7398] EXPANDCHECK checked=204800 failed=0
+[   85.0574] EXPANDCHECK checked=208896 failed=0
+[   85.5248] EXPANDCHECK checked=212992 failed=0
+[   86.3502] EXPANDCHECK checked=217088 failed=0
+[   86.7756] EXPANDCHECK checked=221184 failed=0
+[   87.1089] EXPANDCHECK checked=225280 failed=0
+[   87.5432] EXPANDCHECK checked=229376 failed=0
+[   87.9424] EXPANDCHECK checked=233472 failed=0
+[   88.3577] EXPANDCHECK checked=237568 failed=0
+[   88.5708] PARTIALCHECK checked=69632 failed=0 index=9 words=186
+[   88.9309] EXPANDCHECK checked=241664 failed=0
+[   90.1954] EXPANDCHECK checked=245760 failed=0
+[   91.6023] PRODUCERPHASE phase=2 workload=0 mode=2 valid=1 rows=600 z=-74.303497 vehicles=0
+[   91.6027] SUBPHASE phase=2 candidate=0 checks=67498 failed=0 bytes=202752
+[   91.6936] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[   91.6960] open fd = 258
+[   91.6969] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[   91.6987] open fd = 258
+[   91.7035] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[   91.7054] open fd = 258
+[   91.7143] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[   91.7163] open fd = 258
+[   91.7216] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[   91.7236] open fd = 258
+[   91.7249] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[   91.7266] open fd = 258
+[   91.7384] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[   91.7408] open fd = 258
+[   91.7418] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[   91.7436] open fd = 258
+[   91.7561] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[   91.7581] open fd = 258
+[   91.7591] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[   91.7607] open fd = 258
+[   91.7808] open name host:/sky/scene0.png flag 1 data 41378
+[   91.7830] open fd = 258
+[   91.7839] open name host:/sky/scene0.png flag 1 data 41378
+[   91.7856] open fd = 258
+[   92.1273] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[   92.1295] open fd = 258
+[   92.1304] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[   92.1321] open fd = 258
+[   92.1472] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[   92.1492] open fd = 258
+[   92.1501] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[   92.1517] open fd = 258
+[   92.1554] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[   92.1576] open fd = 258
+[   92.1649] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[   92.1668] open fd = 258
+[   92.1737] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[   92.1755] open fd = 258
+[   92.1826] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[   92.1843] open fd = 258
+[   92.1993] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[   92.2012] open fd = 258
+[   92.2086] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[   92.2102] open fd = 258
+[   92.3445] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[   92.3466] open fd = 258
+[   92.3476] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[   92.3494] open fd = 258
+[   92.3603] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[   92.3626] open fd = 258
+[   92.3635] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[   92.3653] open fd = 258
+[   92.3688] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[   92.3711] open fd = 258
+[   92.3720] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[   92.3735] open fd = 258
+[   92.3844] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[   92.3866] open fd = 258
+[   92.3876] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[   92.3892] open fd = 258
+[   92.3929] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[   92.3946] open fd = 258
+[   92.3958] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[   92.3975] open fd = 258
+[   92.4201] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[   92.4221] open fd = 258
+[   92.4230] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[   92.4247] open fd = 258
+[   92.4283] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[   92.4302] open fd = 258
+[   92.4310] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[   92.4328] open fd = 258
+[   92.4360] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[   92.4380] open fd = 258
+[   92.4388] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[   92.4405] open fd = 258
+[   92.4521] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[   92.4542] open fd = 258
+[   92.4551] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[   92.4568] open fd = 258
+[   92.4603] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[   92.4621] open fd = 258
+[   92.4631] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[   92.4646] open fd = 258
+[   92.4755] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[   92.4775] open fd = 258
+[   92.4786] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[   92.4802] open fd = 258
+[   92.4944] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[   92.4966] open fd = 258
+[   92.4975] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[   92.4993] open fd = 258
+[   92.5026] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[   92.5045] open fd = 258
+[   92.5053] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[   92.5070] open fd = 258
+[   92.5104] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[   92.5122] open fd = 258
+[   92.5133] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[   92.5149] open fd = 258
+[   92.5276] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[   92.5296] open fd = 258
+[   92.5306] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[   92.5322] open fd = 258
+[   92.5355] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[   92.5377] open fd = 258
+[   92.5386] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[   92.5404] open fd = 258
+[   92.7954] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[   92.7976] open fd = 258
+[   92.7985] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[   92.8004] open fd = 258
+[   92.8035] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[   92.8053] open fd = 258
+[   92.8062] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[   92.8078] open fd = 258
+[   93.3173] PARTIALCHECK checked=73728 failed=0 index=2 words=186
+[   94.1577] EXPANDCHECK checked=249856 failed=0
+[   96.1870] PARTIALCHECK checked=77824 failed=0 index=21 words=186
+[   97.2871] EXPANDCHECK checked=253952 failed=0
+[   99.0566] PARTIALCHECK checked=81920 failed=0 index=11 words=186
+[  100.4223] EXPANDCHECK checked=258048 failed=0
+[  103.6247] EXPANDCHECK checked=262144 failed=0
+[  106.1910] EXPANDCHECK checked=266240 failed=0
+[  108.4295] PARTIALCHECK checked=86016 failed=0 index=0 words=232
+[  109.5488] EXPANDCHECK checked=270336 failed=0
+[  111.9976] EXPANDCHECK checked=274432 failed=0
+[  115.0044] EXPANDCHECK checked=278528 failed=0
+[  116.1394] PARTIALCHECK checked=90112 failed=0 index=19 words=186
+[  117.3374] PRODUCERPHASE phase=3 workload=0 mode=3 valid=1 rows=600 z=-74.303497 vehicles=0
+[  117.3380] SUBPHASE phase=3 candidate=1 checks=134996 failed=0 bytes=202752
+[  117.4358] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  117.4382] open fd = 258
+[  117.4392] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  117.4409] open fd = 258
+[  117.4458] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  117.4477] open fd = 258
+[  117.4566] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  117.4588] open fd = 258
+[  117.4640] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  117.4659] open fd = 258
+[  117.4670] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  117.4692] open fd = 258
+[  117.4816] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  117.4835] open fd = 258
+[  117.4844] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  117.4860] open fd = 258
+[  117.4995] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  117.5015] open fd = 258
+[  117.5024] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  117.5041] open fd = 258
+[  117.5241] open name host:/sky/scene0.png flag 1 data 41378
+[  117.5263] open fd = 258
+[  117.5274] open name host:/sky/scene0.png flag 1 data 41378
+[  117.5291] open fd = 258
+[  117.8696] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  117.8717] open fd = 258
+[  117.8726] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  117.8745] open fd = 258
+[  117.8899] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  117.8919] open fd = 258
+[  117.8929] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  117.8949] open fd = 258
+[  117.8986] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[  117.9005] open fd = 258
+[  117.9077] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[  117.9094] open fd = 258
+[  117.9154] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[  117.9172] open fd = 258
+[  117.9242] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[  117.9262] open fd = 258
+[  117.9411] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[  117.9430] open fd = 258
+[  117.9503] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[  117.9520] open fd = 258
+[  118.0701] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  118.0721] open fd = 258
+[  118.0731] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  118.0747] open fd = 258
+[  118.0858] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  118.0881] open fd = 258
+[  118.0890] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  118.0906] open fd = 258
+[  118.0939] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  118.0957] open fd = 258
+[  118.0969] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  118.0987] open fd = 258
+[  118.1092] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  118.1113] open fd = 258
+[  118.1122] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  118.1140] open fd = 258
+[  118.1177] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  118.1195] open fd = 258
+[  118.1204] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  118.1221] open fd = 258
+[  118.1446] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  118.1466] open fd = 258
+[  118.1477] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  118.1495] open fd = 258
+[  118.1527] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  118.1544] open fd = 258
+[  118.1553] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  118.1570] open fd = 258
+[  118.1604] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  118.1623] open fd = 258
+[  118.1633] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  118.1650] open fd = 258
+[  118.1768] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  118.1789] open fd = 258
+[  118.1799] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  118.1815] open fd = 258
+[  118.1846] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  118.1864] open fd = 258
+[  118.1871] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  118.1893] open fd = 258
+[  118.2006] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  118.2027] open fd = 258
+[  118.2038] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  118.2061] open fd = 258
+[  118.2218] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  118.2237] open fd = 258
+[  118.2247] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  118.2268] open fd = 258
+[  118.2305] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  118.2323] open fd = 258
+[  118.2333] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  118.2352] open fd = 258
+[  118.2389] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  118.2409] open fd = 258
+[  118.2417] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  118.2434] open fd = 258
+[  118.2553] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  118.2573] open fd = 258
+[  118.2583] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  118.2601] open fd = 258
+[  118.2635] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  118.2654] open fd = 258
+[  118.2665] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  118.2682] open fd = 258
+[  118.5211] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  118.5236] open fd = 258
+[  118.5247] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  118.5271] open fd = 258
+[  118.5310] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  118.5334] open fd = 258
+[  118.5345] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  118.5373] open fd = 258
+[  119.1152] EXPANDCHECK checked=282624 failed=0
+[  120.4089] EXPANDCHECK checked=286720 failed=0
+[  120.8446] PARTIALCHECK checked=94208 failed=0 index=3 words=186
+[  121.6920] EXPANDCHECK checked=290816 failed=0
+[  122.9602] EXPANDCHECK checked=294912 failed=0
+[  123.7108] PARTIALCHECK checked=98304 failed=0 index=7 words=196
+[  124.2179] EXPANDCHECK checked=299008 failed=0
+[  125.5487] EXPANDCHECK checked=303104 failed=0
+[  126.6823] PARTIALCHECK checked=102400 failed=0 index=2 words=186
+[  126.7650] EXPANDCHECK checked=307200 failed=0
+[  127.2549] EXPANDCHECK checked=311296 failed=0
+[  127.6174] EXPANDCHECK checked=315392 failed=0
+[  128.0336] EXPANDCHECK checked=319488 failed=0
+[  128.4337] EXPANDCHECK checked=323584 failed=0
+[  128.7663] EXPANDCHECK checked=327680 failed=0
+[  129.2492] EXPANDCHECK checked=331776 failed=0
+[  130.0349] EXPANDCHECK checked=335872 failed=0
+[  130.4537] EXPANDCHECK checked=339968 failed=0
+[  130.7855] EXPANDCHECK checked=344064 failed=0
+[  131.2185] EXPANDCHECK checked=348160 failed=0
+[  131.6030] EXPANDCHECK checked=352256 failed=0
+[  132.0029] EXPANDCHECK checked=356352 failed=0
+[  132.6541] EXPANDCHECK checked=360448 failed=0
+[  132.9784] PARTIALCHECK checked=106496 failed=0 index=6 words=186
+[  134.0636] EXPANDCHECK checked=364544 failed=0
+[  135.7471] PRODUCERPHASE phase=4 workload=0 mode=4 valid=1 rows=600 z=-74.303497 vehicles=0
+[  135.7474] SUBPHASE phase=4 candidate=0 checks=134996 failed=0 bytes=202752
+[  135.8407] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  135.8436] open fd = 258
+[  135.8450] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  135.8473] open fd = 258
+[  135.8539] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  135.8572] open fd = 258
+[  135.8584] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  135.8606] open fd = 258
+[  135.8777] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  135.8799] open fd = 258
+[  135.8811] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  135.8839] open fd = 258
+[  135.8998] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  135.9027] open fd = 258
+[  135.9039] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  135.9065] open fd = 258
+[  135.9234] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  135.9256] open fd = 258
+[  135.9266] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  135.9287] open fd = 258
+[  135.9459] open name host:/sky/scene0.png flag 1 data 41378
+[  135.9484] open fd = 258
+[  135.9588] open name host:/sky/scene0.png flag 1 data 41378
+[  135.9615] open fd = 258
+[  136.3432] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  136.3456] open fd = 258
+[  136.3467] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  136.3487] open fd = 258
+[  136.3664] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  136.3690] open fd = 258
+[  136.3701] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  136.3723] open fd = 258
+[  136.3775] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[  136.3811] open fd = 258
+[  136.3964] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[  136.4001] open fd = 258
+[  136.4173] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[  136.4253] open fd = 258
+[  136.4387] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[  136.4418] open fd = 258
+[  136.4648] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[  136.4684] open fd = 258
+[  136.4831] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[  136.4861] open fd = 258
+[  136.6248] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  136.6273] open fd = 258
+[  136.6285] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  136.6309] open fd = 258
+[  136.6444] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  136.6468] open fd = 258
+[  136.6480] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  136.6507] open fd = 258
+[  136.6553] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  136.6596] open fd = 258
+[  136.6614] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  136.6641] open fd = 258
+[  136.6775] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  136.6808] open fd = 258
+[  136.6819] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  136.6843] open fd = 258
+[  136.6889] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  136.6919] open fd = 258
+[  136.6933] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  136.6958] open fd = 258
+[  136.7226] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  136.7251] open fd = 258
+[  136.7263] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  136.7290] open fd = 258
+[  136.7347] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  136.7396] open fd = 258
+[  136.7407] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  136.7428] open fd = 258
+[  136.7467] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  136.7496] open fd = 258
+[  136.7507] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  136.7529] open fd = 258
+[  136.7669] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  136.7692] open fd = 258
+[  136.7706] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  136.7728] open fd = 258
+[  136.7772] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  136.7806] open fd = 258
+[  136.7817] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  136.7842] open fd = 258
+[  136.7963] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  136.7985] open fd = 258
+[  136.7998] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  136.8017] open fd = 258
+[  136.8170] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  136.8193] open fd = 258
+[  136.8203] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  136.8222] open fd = 258
+[  136.8258] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  136.8279] open fd = 258
+[  136.8291] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  136.8311] open fd = 258
+[  136.8348] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  136.8367] open fd = 258
+[  136.8377] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  136.8399] open fd = 258
+[  136.8529] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  136.8550] open fd = 258
+[  136.8560] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  136.8578] open fd = 258
+[  136.8618] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  136.8638] open fd = 258
+[  136.8648] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  136.8671] open fd = 258
+[  137.1357] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  137.1386] open fd = 258
+[  137.1402] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  137.1428] open fd = 258
+[  137.1471] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  137.1503] open fd = 258
+[  137.1514] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  137.1537] open fd = 258
+[  138.6080] PARTIALCHECK checked=110592 failed=0 index=5 words=232
+[  138.8543] EXPANDCHECK checked=368640 failed=0
+[  141.5401] PARTIALCHECK checked=114688 failed=0 index=17 words=186
+[  142.1159] EXPANDCHECK checked=372736 failed=0
+[  144.5525] PARTIALCHECK checked=118784 failed=0 index=6 words=186
+[  145.3213] EXPANDCHECK checked=376832 failed=0
+[  148.5692] EXPANDCHECK checked=380928 failed=0
+[  151.0934] EXPANDCHECK checked=385024 failed=0
+[  154.3916] EXPANDCHECK checked=389120 failed=0
+[  156.9469] EXPANDCHECK checked=393216 failed=0
+[  158.1756] PARTIALCHECK checked=122880 failed=0 index=5 words=186
+[  160.4689] EXPANDCHECK checked=397312 failed=0
+[  162.8508] PRODUCERPHASE phase=5 workload=0 mode=5 valid=1 rows=600 z=-74.303497 vehicles=0
+[  162.8511] SUBPHASE phase=5 candidate=1 checks=202494 failed=0 bytes=202752
+[  162.9482] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  162.9505] open fd = 258
+[  162.9516] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  162.9536] open fd = 258
+[  162.9586] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  162.9612] open fd = 258
+[  162.9713] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  162.9735] open fd = 258
+[  162.9790] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  162.9809] open fd = 258
+[  162.9819] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  162.9836] open fd = 258
+[  162.9959] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  162.9979] open fd = 258
+[  162.9988] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  163.0004] open fd = 258
+[  163.0132] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  163.0151] open fd = 258
+[  163.0160] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  163.0175] open fd = 258
+[  163.0393] open name host:/sky/scene0.png flag 1 data 41378
+[  163.0416] open fd = 258
+[  163.0427] open name host:/sky/scene0.png flag 1 data 41378
+[  163.0445] open fd = 258
+[  163.3994] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  163.4019] open fd = 258
+[  163.4030] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  163.4051] open fd = 258
+[  163.4215] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  163.4237] open fd = 258
+[  163.4248] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  163.4269] open fd = 258
+[  163.4315] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[  163.4344] open fd = 258
+[  163.4439] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[  163.4462] open fd = 258
+[  163.4547] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[  163.4571] open fd = 258
+[  163.4664] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[  163.4686] open fd = 258
+[  163.4857] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[  163.4881] open fd = 258
+[  163.4971] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[  163.4993] open fd = 258
+[  163.6325] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  163.6345] open fd = 258
+[  163.6355] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  163.6374] open fd = 258
+[  163.6484] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  163.6505] open fd = 258
+[  163.6514] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  163.6531] open fd = 258
+[  163.6565] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  163.6583] open fd = 258
+[  163.6592] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  163.6610] open fd = 258
+[  163.6714] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  163.6737] open fd = 258
+[  163.6747] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  163.6763] open fd = 258
+[  163.6800] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  163.6820] open fd = 258
+[  163.6828] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  163.6845] open fd = 258
+[  163.7075] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  163.7094] open fd = 258
+[  163.7106] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  163.7127] open fd = 258
+[  163.7160] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  163.7182] open fd = 258
+[  163.7191] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  163.7210] open fd = 258
+[  163.7248] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  163.7269] open fd = 258
+[  163.7281] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  163.7303] open fd = 258
+[  163.7436] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  163.7457] open fd = 258
+[  163.7469] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  163.7493] open fd = 258
+[  163.7529] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  163.7549] open fd = 258
+[  163.7560] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  163.7581] open fd = 258
+[  163.7686] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  163.7711] open fd = 258
+[  163.7720] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  163.7741] open fd = 258
+[  163.7879] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  163.7903] open fd = 258
+[  163.7915] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  163.7935] open fd = 258
+[  163.7980] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  163.8007] open fd = 258
+[  163.8019] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  163.8045] open fd = 258
+[  163.8086] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  163.8119] open fd = 258
+[  163.8129] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  163.8151] open fd = 258
+[  163.8287] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  163.8313] open fd = 258
+[  163.8324] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  163.8348] open fd = 258
+[  163.8387] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  163.8408] open fd = 258
+[  163.8418] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  163.8438] open fd = 258
+[  164.1844] microVU1: Cached Prog = [008] [PC=0700] [List=01] (Cache=3.397%) [2.1mb]
+[  164.1857] microVU1: Cached Prog = [009] [PC=2f20] [List=01] (Cache=3.490%) [2.1mb]
+[  164.1868] microVU1: Cached Prog = [010] [PC=3300] [List=01] (Cache=3.542%) [2.2mb]
+[  164.4192] PARTIALCHECK checked=126976 failed=0 index=7 words=186
+[  164.4393] microVU1: Cached Prog = [011] [PC=3610] [List=01] (Cache=3.594%) [2.2mb]
+[  164.4398] microVU1: Cached Prog = [012] [PC=3970] [List=01] (Cache=3.610%) [2.2mb]
+[  164.9667] EXPANDCHECK checked=401408 failed=0
+[  166.4471] EXPANDCHECK checked=405504 failed=0
+[  167.5937] PARTIALCHECK checked=131072 failed=0 index=5 words=186
+[  167.8777] EXPANDCHECK checked=409600 failed=0
+[  169.2758] EXPANDCHECK checked=413696 failed=0
+[  170.6883] PARTIALCHECK checked=135168 failed=0 index=2 words=25
+[  170.7453] EXPANDCHECK checked=417792 failed=0
+[  172.2161] EXPANDCHECK checked=421888 failed=0
+[  173.6882] EXPANDCHECK checked=425984 failed=0
+[  173.8921] PARTIALCHECK checked=139264 failed=0 index=4 words=232
+[  175.1331] EXPANDCHECK checked=430080 failed=0
+[  176.6143] EXPANDCHECK checked=434176 failed=0
+[  177.0393] PARTIALCHECK checked=143360 failed=0 index=21 words=186
+[  178.1496] EXPANDCHECK checked=438272 failed=0
+[  179.7814] EXPANDCHECK checked=442368 failed=0
+[  180.5176] PARTIALCHECK checked=147456 failed=0 index=17 words=186
+[  181.3056] EXPANDCHECK checked=446464 failed=0
+[  182.6954] EXPANDCHECK checked=450560 failed=0
+[  183.5153] PARTIALCHECK checked=151552 failed=0 index=11 words=186
+[  184.0692] EXPANDCHECK checked=454656 failed=0
+[  185.5869] EXPANDCHECK checked=458752 failed=0
+[  186.6368] PARTIALCHECK checked=155648 failed=0 index=6 words=186
+[  186.9758] EXPANDCHECK checked=462848 failed=0
+[  188.5429] EXPANDCHECK checked=466944 failed=0
+[  189.9831] PARTIALCHECK checked=159744 failed=0 index=2 words=186
+[  190.1302] EXPANDCHECK checked=471040 failed=0
+[  191.4992] EXPANDCHECK checked=475136 failed=0
+[  192.3653] EXPANDCHECK checked=479232 failed=0
+[  192.3843] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  192.3867] open fd = 258
+[  192.3879] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  192.3902] open fd = 258
+[  192.3947] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  192.3969] open fd = 258
+[  192.3979] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  192.3996] open fd = 258
+[  193.4387] EXPANDCHECK checked=483328 failed=0
+[  193.4777] PARTIALCHECK checked=163840 failed=0 index=20 words=186
+[  194.7521] EXPANDCHECK checked=487424 failed=0
+[  195.5187] EXPANDCHECK checked=491520 failed=0
+[  196.2864] PARTIALCHECK checked=167936 failed=0 index=2 words=232
+[  196.5357] EXPANDCHECK checked=495616 failed=0
+[  197.5194] EXPANDCHECK checked=499712 failed=0
+[  198.5785] EXPANDCHECK checked=503808 failed=0
+[  200.1846] PRODUCERPHASE phase=6 workload=1 mode=0 valid=1 rows=654 z=108.723595 vehicles=3
+[  200.1848] SUBPHASE phase=6 candidate=0 checks=202494 failed=0 bytes=202752
+[  200.2861] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  200.2883] open fd = 258
+[  200.2895] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  200.2916] open fd = 258
+[  200.2971] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  200.2992] open fd = 258
+[  200.3002] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  200.3022] open fd = 258
+[  200.3171] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  200.3191] open fd = 258
+[  200.3204] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  200.3223] open fd = 258
+[  200.3360] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  200.3381] open fd = 258
+[  200.3390] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  200.3408] open fd = 258
+[  200.3547] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  200.3567] open fd = 258
+[  200.3578] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  200.3600] open fd = 258
+[  200.3741] open name host:/sky/scene0.png flag 1 data 41378
+[  200.3764] open fd = 258
+[  200.3851] open name host:/sky/scene0.png flag 1 data 41378
+[  200.3873] open fd = 258
+[  200.7363] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  200.7384] open fd = 258
+[  200.7394] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  200.7416] open fd = 258
+[  200.7572] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  200.7595] open fd = 258
+[  200.7605] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  200.7622] open fd = 258
+[  200.7660] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[  200.7687] open fd = 258
+[  200.7780] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[  200.7801] open fd = 258
+[  200.7873] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[  200.7894] open fd = 258
+[  200.7976] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[  200.7997] open fd = 258
+[  200.8166] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[  200.8187] open fd = 258
+[  200.8271] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[  200.8290] open fd = 258
+[  200.9689] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  200.9711] open fd = 258
+[  200.9720] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  200.9745] open fd = 258
+[  200.9855] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  200.9877] open fd = 258
+[  200.9887] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  200.9904] open fd = 258
+[  200.9938] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  200.9955] open fd = 258
+[  200.9966] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  200.9982] open fd = 258
+[  201.0090] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  201.0109] open fd = 258
+[  201.0118] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  201.0137] open fd = 258
+[  201.0173] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  201.0192] open fd = 258
+[  201.0201] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  201.0220] open fd = 258
+[  201.0349] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  201.0370] open fd = 258
+[  201.0379] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  201.0395] open fd = 258
+[  201.0428] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  201.0447] open fd = 258
+[  201.0457] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  201.0473] open fd = 258
+[  201.0508] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  201.0531] open fd = 258
+[  201.0542] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  201.0560] open fd = 258
+[  201.0684] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  201.0707] open fd = 258
+[  201.0720] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  201.0741] open fd = 258
+[  201.0777] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  201.0800] open fd = 258
+[  201.0810] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  201.0833] open fd = 258
+[  201.0942] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  201.0966] open fd = 258
+[  201.0976] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  201.0998] open fd = 258
+[  201.1140] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  201.1161] open fd = 258
+[  201.1172] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  201.1190] open fd = 258
+[  201.1224] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  201.1244] open fd = 258
+[  201.1254] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  201.1273] open fd = 258
+[  201.1306] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  201.1326] open fd = 258
+[  201.1336] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  201.1353] open fd = 258
+[  201.1463] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  201.1485] open fd = 258
+[  201.1494] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  201.1512] open fd = 258
+[  201.1545] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  201.1563] open fd = 258
+[  201.1570] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  201.1588] open fd = 258
+[  202.5827] EXPANDCHECK checked=507904 failed=0
+[  202.8067] PARTIALCHECK checked=172032 failed=0 index=22 words=186
+[  206.0894] PARTIALCHECK checked=176128 failed=0 index=18 words=186
+[  206.1362] EXPANDCHECK checked=512000 failed=0
+[  209.3556] PARTIALCHECK checked=180224 failed=0 index=12 words=186
+[  209.6785] EXPANDCHECK checked=516096 failed=0
+[  212.4794] PARTIALCHECK checked=184320 failed=0 index=7 words=132
+[  213.0238] EXPANDCHECK checked=520192 failed=0
+[  215.5773] PARTIALCHECK checked=188416 failed=0 index=3 words=186
+[  216.4594] EXPANDCHECK checked=524288 failed=0
+[  218.7122] PARTIALCHECK checked=192512 failed=0 index=6 words=232
+[  219.8107] EXPANDCHECK checked=528384 failed=0
+[  221.7730] PARTIALCHECK checked=196608 failed=0 index=23 words=72
+[  223.1577] EXPANDCHECK checked=532480 failed=0
+[  224.8914] PARTIALCHECK checked=200704 failed=0 index=19 words=186
+[  226.5548] EXPANDCHECK checked=536576 failed=0
+[  227.9629] PARTIALCHECK checked=204800 failed=0 index=13 words=186
+[  228.8554] EXPANDCHECK checked=540672 failed=0
+[  229.2205] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  229.2229] open fd = 258
+[  229.2240] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  229.2262] open fd = 258
+[  229.2297] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  229.2317] open fd = 258
+[  229.2325] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  229.2350] open fd = 258
+[  231.1192] EXPANDCHECK checked=544768 failed=0
+[  231.9066] PARTIALCHECK checked=208896 failed=0 index=16 words=186
+[  233.8389] EXPANDCHECK checked=548864 failed=0
+[  236.6699] PRODUCERPHASE phase=7 workload=1 mode=1 valid=1 rows=527 z=109.304832 vehicles=3
+[  236.6703] SUBPHASE phase=7 candidate=1 checks=268559 failed=0 bytes=202752
+[  236.7720] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  236.7741] open fd = 258
+[  236.7752] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  236.7771] open fd = 258
+[  236.7828] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  236.7852] open fd = 258
+[  236.7944] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  236.7970] open fd = 258
+[  236.8025] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  236.8048] open fd = 258
+[  236.8057] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  236.8074] open fd = 258
+[  236.8200] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  236.8221] open fd = 258
+[  236.8230] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  236.8249] open fd = 258
+[  236.8385] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  236.8408] open fd = 258
+[  236.8422] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  236.8444] open fd = 258
+[  236.8700] open name host:/sky/scene0.png flag 1 data 41378
+[  236.8722] open fd = 258
+[  236.8731] open name host:/sky/scene0.png flag 1 data 41378
+[  236.8754] open fd = 258
+[  237.2223] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  237.2243] open fd = 258
+[  237.2254] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  237.2276] open fd = 258
+[  237.2435] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  237.2457] open fd = 258
+[  237.2467] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  237.2485] open fd = 258
+[  237.2522] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[  237.2541] open fd = 258
+[  237.2622] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[  237.2643] open fd = 258
+[  237.2714] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[  237.2734] open fd = 258
+[  237.2812] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[  237.2829] open fd = 258
+[  237.2985] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[  237.3004] open fd = 258
+[  237.3083] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[  237.3101] open fd = 258
+[  237.4546] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  237.4566] open fd = 258
+[  237.4575] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  237.4594] open fd = 258
+[  237.4709] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  237.4730] open fd = 258
+[  237.4740] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  237.4761] open fd = 258
+[  237.4794] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  237.4811] open fd = 258
+[  237.4819] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  237.4836] open fd = 258
+[  237.4875] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  237.4897] open fd = 258
+[  237.4977] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  237.4996] open fd = 258
+[  237.5036] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  237.5061] open fd = 258
+[  237.5070] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  237.5089] open fd = 258
+[  237.5220] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  237.5238] open fd = 258
+[  237.5248] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  237.5264] open fd = 258
+[  237.5296] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  237.5312] open fd = 258
+[  237.5323] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  237.5342] open fd = 258
+[  237.5375] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  237.5393] open fd = 258
+[  237.5402] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  237.5420] open fd = 258
+[  237.5542] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  237.5564] open fd = 258
+[  237.5574] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  237.5593] open fd = 258
+[  237.5625] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  237.5646] open fd = 258
+[  237.5657] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  237.5676] open fd = 258
+[  237.5784] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  237.5805] open fd = 258
+[  237.5814] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  237.5830] open fd = 258
+[  237.5970] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  237.5990] open fd = 258
+[  237.5999] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  237.6017] open fd = 258
+[  237.6048] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  237.6069] open fd = 258
+[  237.6077] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  237.6094] open fd = 258
+[  237.6129] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  237.6149] open fd = 258
+[  237.6159] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  237.6176] open fd = 258
+[  237.6291] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  237.6312] open fd = 258
+[  237.6322] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  237.6340] open fd = 258
+[  237.6374] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  237.6391] open fd = 258
+[  237.6400] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  237.6415] open fd = 258
+[  238.2995] EXPANDCHECK checked=552960 failed=0
+[  238.9040] PARTIALCHECK checked=212992 failed=0 index=22 words=186
+[  239.8190] EXPANDCHECK checked=557056 failed=0
+[  241.4398] EXPANDCHECK checked=561152 failed=0
+[  242.3407] PARTIALCHECK checked=217088 failed=0 index=18 words=186
+[  242.9644] EXPANDCHECK checked=565248 failed=0
+[  244.4568] EXPANDCHECK checked=569344 failed=0
+[  245.6540] PARTIALCHECK checked=221184 failed=0 index=12 words=186
+[  246.0439] EXPANDCHECK checked=573440 failed=0
+[  247.4839] EXPANDCHECK checked=577536 failed=0
+[  248.7479] PARTIALCHECK checked=225280 failed=0 index=7 words=132
+[  248.8722] EXPANDCHECK checked=581632 failed=0
+[  250.2880] EXPANDCHECK checked=585728 failed=0
+[  251.7109] EXPANDCHECK checked=589824 failed=0
+[  251.8285] PARTIALCHECK checked=229376 failed=0 index=3 words=186
+[  253.1211] EXPANDCHECK checked=593920 failed=0
+[  254.5812] EXPANDCHECK checked=598016 failed=0
+[  254.9472] PARTIALCHECK checked=233472 failed=0 index=6 words=232
+[  256.1365] EXPANDCHECK checked=602112 failed=0
+[  257.6741] EXPANDCHECK checked=606208 failed=0
+[  258.2317] PARTIALCHECK checked=237568 failed=0 index=23 words=72
+[  259.2336] EXPANDCHECK checked=610304 failed=0
+[  260.8111] EXPANDCHECK checked=614400 failed=0
+[  261.6935] PARTIALCHECK checked=241664 failed=0 index=19 words=186
+[  262.3849] EXPANDCHECK checked=618496 failed=0
+[  263.9021] EXPANDCHECK checked=622592 failed=0
+[  265.0410] PARTIALCHECK checked=245760 failed=0 index=7 words=132
+[  265.5110] EXPANDCHECK checked=626688 failed=0
+[  266.5123] EXPANDCHECK checked=630784 failed=0
+[  266.7920] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  266.7941] open fd = 258
+[  266.7952] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  266.7970] open fd = 258
+[  266.8003] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  266.8023] open fd = 258
+[  266.8032] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  266.8056] open fd = 258
+[  267.4305] EXPANDCHECK checked=634880 failed=0
+[  269.3388] PARTIALCHECK checked=249856 failed=0 index=5 words=186
+[  269.5937] EXPANDCHECK checked=638976 failed=0
+[  270.5186] EXPANDCHECK checked=643072 failed=0
+[  271.4914] EXPANDCHECK checked=647168 failed=0
+[  272.1595] PARTIALCHECK checked=253952 failed=0 index=14 words=232
+[  272.6487] EXPANDCHECK checked=651264 failed=0
+[  273.4829] EXPANDCHECK checked=655360 failed=0
+[  275.5437] PRODUCERPHASE phase=8 workload=1 mode=2 valid=1 rows=654 z=108.724556 vehicles=3
+[  275.5440] SUBPHASE phase=8 candidate=0 checks=268559 failed=0 bytes=202752
+[  275.6483] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  275.6510] open fd = 258
+[  275.6521] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  275.6546] open fd = 258
+[  275.6618] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  275.6642] open fd = 258
+[  275.6750] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  275.6776] open fd = 258
+[  275.6839] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  275.6866] open fd = 258
+[  275.6877] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  275.6902] open fd = 258
+[  275.7041] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  275.7065] open fd = 258
+[  275.7081] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  275.7104] open fd = 258
+[  275.7255] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  275.7283] open fd = 258
+[  275.7295] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  275.7321] open fd = 258
+[  275.7607] open name host:/sky/scene0.png flag 1 data 41378
+[  275.7632] open fd = 258
+[  275.7645] open name host:/sky/scene0.png flag 1 data 41378
+[  275.7670] open fd = 258
+[  276.1482] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  276.1510] open fd = 258
+[  276.1523] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  276.1548] open fd = 258
+[  276.1750] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  276.1786] open fd = 258
+[  276.1799] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  276.1826] open fd = 258
+[  276.1929] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[  276.1994] open fd = 258
+[  276.2152] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[  276.2189] open fd = 258
+[  276.2302] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[  276.2330] open fd = 258
+[  276.2579] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[  276.2610] open fd = 258
+[  276.2704] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[  276.2729] open fd = 258
+[  276.2831] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[  276.2854] open fd = 258
+[  276.4298] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  276.4323] open fd = 258
+[  276.4337] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  276.4365] open fd = 258
+[  276.4509] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  276.4535] open fd = 258
+[  276.4546] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  276.4565] open fd = 258
+[  276.4614] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  276.4639] open fd = 258
+[  276.4656] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  276.4681] open fd = 258
+[  276.4813] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  276.4836] open fd = 258
+[  276.4848] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  276.4869] open fd = 258
+[  276.4910] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  276.4928] open fd = 258
+[  276.4937] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  276.4954] open fd = 258
+[  276.5102] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  276.5125] open fd = 258
+[  276.5136] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  276.5158] open fd = 258
+[  276.5197] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  276.5220] open fd = 258
+[  276.5230] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  276.5256] open fd = 258
+[  276.5298] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  276.5322] open fd = 258
+[  276.5334] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  276.5359] open fd = 258
+[  276.5497] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  276.5521] open fd = 258
+[  276.5533] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  276.5552] open fd = 258
+[  276.5594] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  276.5621] open fd = 258
+[  276.5633] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  276.5667] open fd = 258
+[  276.5782] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  276.5809] open fd = 258
+[  276.5820] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  276.5845] open fd = 258
+[  276.6014] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  276.6037] open fd = 258
+[  276.6050] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  276.6075] open fd = 258
+[  276.6117] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  276.6139] open fd = 258
+[  276.6152] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  276.6179] open fd = 258
+[  276.6219] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  276.6241] open fd = 258
+[  276.6253] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  276.6272] open fd = 258
+[  276.6407] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  276.6435] open fd = 258
+[  276.6446] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  276.6471] open fd = 258
+[  276.6508] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  276.6532] open fd = 258
+[  276.6543] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  276.6564] open fd = 258
+[  277.0500] EXPANDCHECK checked=659456 failed=0
+[  278.9804] PARTIALCHECK checked=258048 failed=0 index=2 words=186
+[  280.7499] EXPANDCHECK checked=663552 failed=0
+[  282.0433] PARTIALCHECK checked=262144 failed=0 index=5 words=232
+[  284.2227] EXPANDCHECK checked=667648 failed=0
+[  285.2882] PARTIALCHECK checked=266240 failed=0 index=22 words=186
+[  287.5932] EXPANDCHECK checked=671744 failed=0
+[  288.3175] PARTIALCHECK checked=270336 failed=0 index=18 words=186
+[  290.9113] EXPANDCHECK checked=675840 failed=0
+[  291.4021] PARTIALCHECK checked=274432 failed=0 index=12 words=186
+[  294.2922] EXPANDCHECK checked=679936 failed=0
+[  294.4956] PARTIALCHECK checked=278528 failed=0 index=7 words=132
+[  297.5492] PARTIALCHECK checked=282624 failed=0 index=3 words=186
+[  297.6049] EXPANDCHECK checked=684032 failed=0
+[  301.0031] PARTIALCHECK checked=286720 failed=0 index=6 words=232
+[  301.3345] EXPANDCHECK checked=688128 failed=0
+[  304.2269] PARTIALCHECK checked=290816 failed=0 index=6 words=232
+[  304.2621] EXPANDCHECK checked=692224 failed=0
+[  304.9733] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  304.9757] open fd = 258
+[  304.9766] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  304.9782] open fd = 258
+[  304.9815] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  304.9832] open fd = 258
+[  304.9839] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  304.9854] open fd = 258
+[  305.9289] EXPANDCHECK checked=696320 failed=0
+[  308.1613] PARTIALCHECK checked=294912 failed=0 index=14 words=232
+[  308.7453] EXPANDCHECK checked=700416 failed=0
+[  311.8707] EXPANDCHECK checked=704512 failed=0
+[  312.4131] PRODUCERPHASE phase=9 workload=1 mode=3 valid=1 rows=525 z=109.297127 vehicles=3
+[  312.4133] SUBPHASE phase=9 candidate=1 checks=334558 failed=0 bytes=202752
+[  312.5146] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  312.5167] open fd = 258
+[  312.5177] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  312.5194] open fd = 258
+[  312.5249] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  312.5269] open fd = 258
+[  312.5281] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  312.5385] open fd = 258
+[  312.5443] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  312.5464] open fd = 258
+[  312.5474] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  312.5492] open fd = 258
+[  312.5607] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  312.5632] open fd = 258
+[  312.5642] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  312.5661] open fd = 258
+[  312.5789] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  312.5810] open fd = 258
+[  312.5819] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  312.5846] open fd = 258
+[  312.6061] open name host:/sky/scene0.png flag 1 data 41378
+[  312.6084] open fd = 258
+[  312.6096] open name host:/sky/scene0.png flag 1 data 41378
+[  312.6114] open fd = 258
+[  312.9477] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  312.9500] open fd = 258
+[  312.9514] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  312.9533] open fd = 258
+[  312.9691] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  312.9715] open fd = 258
+[  312.9728] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  312.9748] open fd = 258
+[  312.9794] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[  312.9813] open fd = 258
+[  312.9898] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[  312.9920] open fd = 258
+[  312.9996] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[  313.0019] open fd = 258
+[  313.0193] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[  313.0216] open fd = 258
+[  313.0294] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[  313.0316] open fd = 258
+[  313.0397] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[  313.0421] open fd = 258
+[  313.1806] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  313.1827] open fd = 258
+[  313.1837] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  313.1857] open fd = 258
+[  313.1970] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  313.1989] open fd = 258
+[  313.2001] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  313.2020] open fd = 258
+[  313.2054] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  313.2073] open fd = 258
+[  313.2082] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  313.2103] open fd = 258
+[  313.2144] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  313.2163] open fd = 258
+[  313.2240] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  313.2260] open fd = 258
+[  313.2302] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  313.2322] open fd = 258
+[  313.2332] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  313.2353] open fd = 258
+[  313.2477] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  313.2496] open fd = 258
+[  313.2505] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  313.2521] open fd = 258
+[  313.2553] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  313.2573] open fd = 258
+[  313.2583] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  313.2602] open fd = 258
+[  313.2632] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  313.2650] open fd = 258
+[  313.2657] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  313.2674] open fd = 258
+[  313.2795] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  313.2815] open fd = 258
+[  313.2823] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  313.2840] open fd = 258
+[  313.2873] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  313.2896] open fd = 258
+[  313.2908] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  313.2928] open fd = 258
+[  313.3032] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  313.3052] open fd = 258
+[  313.3063] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  313.3080] open fd = 258
+[  313.3210] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  313.3232] open fd = 258
+[  313.3240] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  313.3256] open fd = 258
+[  313.3289] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  313.3306] open fd = 258
+[  313.3315] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  313.3329] open fd = 258
+[  313.3364] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  313.3383] open fd = 258
+[  313.3392] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  313.3408] open fd = 258
+[  313.3525] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  313.3546] open fd = 258
+[  313.3556] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  313.3571] open fd = 258
+[  313.3604] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  313.3623] open fd = 258
+[  313.3632] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  313.3650] open fd = 258
+[  315.0524] EXPANDCHECK checked=708608 failed=0
+[  315.1634] PARTIALCHECK checked=299008 failed=0 index=3 words=186
+[  316.4870] EXPANDCHECK checked=712704 failed=0
+[  317.8137] EXPANDCHECK checked=716800 failed=0
+[  318.1213] PARTIALCHECK checked=303104 failed=0 index=6 words=232
+[  319.1075] EXPANDCHECK checked=720896 failed=0
+[  320.4146] EXPANDCHECK checked=724992 failed=0
+[  320.9389] PARTIALCHECK checked=307200 failed=0 index=23 words=72
+[  321.7334] EXPANDCHECK checked=729088 failed=0
+[  323.0509] EXPANDCHECK checked=733184 failed=0
+[  323.7964] PARTIALCHECK checked=311296 failed=0 index=19 words=186
+[  324.4382] EXPANDCHECK checked=737280 failed=0
+[  325.8011] EXPANDCHECK checked=741376 failed=0
+[  326.7266] PARTIALCHECK checked=315392 failed=0 index=13 words=186
+[  327.0786] EXPANDCHECK checked=745472 failed=0
+[  328.3624] EXPANDCHECK checked=749568 failed=0
+[  329.5062] PARTIALCHECK checked=319488 failed=0 index=3 words=186
+[  329.6586] EXPANDCHECK checked=753664 failed=0
+[  330.9398] EXPANDCHECK checked=757760 failed=0
+[  332.2462] EXPANDCHECK checked=761856 failed=0
+[  332.2994] PARTIALCHECK checked=323584 failed=0 index=4 words=186
+[  333.5448] EXPANDCHECK checked=765952 failed=0
+[  334.8396] EXPANDCHECK checked=770048 failed=0
+[  335.0936] PARTIALCHECK checked=327680 failed=0 index=7 words=196
+[  336.1119] EXPANDCHECK checked=774144 failed=0
+[  337.4695] EXPANDCHECK checked=778240 failed=0
+[  337.8857] PARTIALCHECK checked=331776 failed=0 index=3 words=186
+[  338.3431] EXPANDCHECK checked=782336 failed=0
+[  338.8253] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  338.8276] open fd = 258
+[  338.8287] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  338.8306] open fd = 258
+[  338.8341] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  338.8362] open fd = 258
+[  338.8373] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  338.8392] open fd = 258
+[  339.1971] EXPANDCHECK checked=786432 failed=0
+[  340.5789] EXPANDCHECK checked=790528 failed=0
+[  341.1054] PARTIALCHECK checked=335872 failed=0 index=7 words=16
+[  341.4845] EXPANDCHECK checked=794624 failed=0
+[  342.2817] EXPANDCHECK checked=798720 failed=0
+[  343.4641] EXPANDCHECK checked=802816 failed=0
+[  343.8479] PARTIALCHECK checked=339968 failed=0 index=7 words=196
+[  344.1813] EXPANDCHECK checked=806912 failed=0
+[  345.4839] EXPANDCHECK checked=811008 failed=0
+[  346.4310] PRODUCERPHASE phase=10 workload=1 mode=4 valid=1 rows=654 z=108.724556 vehicles=3
+[  346.4313] SUBPHASE phase=10 candidate=0 checks=334558 failed=0 bytes=202752
+[  346.5312] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  346.5334] open fd = 258
+[  346.5346] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[  346.5364] open fd = 258
+[  346.5409] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  346.5428] open fd = 258
+[  346.5438] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[  346.5454] open fd = 258
+[  346.5580] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  346.5599] open fd = 258
+[  346.5607] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[  346.5623] open fd = 258
+[  346.5735] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  346.5756] open fd = 258
+[  346.5764] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[  346.5781] open fd = 258
+[  346.5905] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  346.5928] open fd = 258
+[  346.5937] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[  346.5957] open fd = 258
+[  346.6157] open name host:/sky/scene0.png flag 1 data 41378
+[  346.6176] open fd = 258
+[  346.6185] open name host:/sky/scene0.png flag 1 data 41378
+[  346.6200] open fd = 258
+[  346.9650] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  346.9671] open fd = 258
+[  346.9681] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[  346.9701] open fd = 258
+[  346.9854] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  346.9875] open fd = 258
+[  346.9883] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[  346.9899] open fd = 258
+[  346.9933] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[  346.9949] open fd = 258
+[  347.0028] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[  347.0047] open fd = 258
+[  347.0112] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[  347.0133] open fd = 258
+[  347.0206] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[  347.0223] open fd = 258
+[  347.0384] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[  347.0405] open fd = 258
+[  347.0481] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[  347.0497] open fd = 258
+[  347.1973] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  347.1994] open fd = 258
+[  347.2002] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[  347.2020] open fd = 258
+[  347.2133] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  347.2153] open fd = 258
+[  347.2162] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[  347.2177] open fd = 258
+[  347.2212] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  347.2234] open fd = 258
+[  347.2241] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[  347.2258] open fd = 258
+[  347.2295] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  347.2316] open fd = 258
+[  347.2323] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[  347.2338] open fd = 258
+[  347.2444] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  347.2462] open fd = 258
+[  347.2469] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[  347.2488] open fd = 258
+[  347.2605] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  347.2625] open fd = 258
+[  347.2634] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[  347.2653] open fd = 258
+[  347.2684] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  347.2701] open fd = 258
+[  347.2709] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[  347.2728] open fd = 258
+[  347.2762] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  347.2784] open fd = 258
+[  347.2793] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[  347.2810] open fd = 258
+[  347.2929] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  347.2949] open fd = 258
+[  347.2959] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[  347.2975] open fd = 258
+[  347.3006] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  347.3026] open fd = 258
+[  347.3038] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[  347.3055] open fd = 258
+[  347.3163] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  347.3182] open fd = 258
+[  347.3193] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[  347.3208] open fd = 258
+[  347.3354] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  347.3375] open fd = 258
+[  347.3383] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[  347.3401] open fd = 258
+[  347.3434] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  347.3451] open fd = 258
+[  347.3459] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[  347.3474] open fd = 258
+[  347.3507] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  347.3527] open fd = 258
+[  347.3536] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[  347.3552] open fd = 258
+[  347.3677] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  347.3699] open fd = 258
+[  347.3707] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[  347.3722] open fd = 258
+[  347.3753] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  347.3772] open fd = 258
+[  347.3781] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[  347.3798] open fd = 258
+[  350.0077] PARTIALCHECK checked=344064 failed=0 index=12 words=186
+[  350.1909] EXPANDCHECK checked=815104 failed=0
+[  352.8308] PARTIALCHECK checked=348160 failed=0 index=7 words=132
+[  353.2519] EXPANDCHECK checked=819200 failed=0
+[  355.5923] PARTIALCHECK checked=352256 failed=0 index=3 words=186
+[  356.3221] EXPANDCHECK checked=823296 failed=0
+[  358.6181] PARTIALCHECK checked=356352 failed=0 index=6 words=232
+[  359.5860] EXPANDCHECK checked=827392 failed=0
+[  361.6977] PARTIALCHECK checked=360448 failed=0 index=23 words=72
+[  362.8622] EXPANDCHECK checked=831488 failed=0
+[  364.4679] PARTIALCHECK checked=364544 failed=0 index=19 words=186
+[  365.8304] EXPANDCHECK checked=835584 failed=0
+[  367.2026] PARTIALCHECK checked=368640 failed=0 index=13 words=186
+[  368.8097] EXPANDCHECK checked=839680 failed=0
+[  369.9760] PARTIALCHECK checked=372736 failed=0 index=3 words=186
+[  371.8466] EXPANDCHECK checked=843776 failed=0
+[  372.8778] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  372.8802] open fd = 258
+[  372.8810] open name host:/gshadow/s0_3_4.png flag 1 data 41378
+[  372.8830] open fd = 258
+[  372.8878] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  372.8899] open fd = 258
+[  372.8913] open name host:/gshadow/s0_0_4.png flag 1 data 41378
+[  372.8932] open fd = 258
+[  373.0092] PARTIALCHECK checked=376832 failed=0 index=6 words=232
+[  373.1728] EXPANDCHECK checked=847872 failed=0
+[  375.7620] EXPANDCHECK checked=851968 failed=0
+[  377.0320] PARTIALCHECK checked=380928 failed=0 index=2 words=232
+[  378.5829] EXPANDCHECK checked=856064 failed=0
+[  380.1828] PRODUCERPHASE phase=11 workload=1 mode=5 valid=1 rows=531 z=109.283806 vehicles=3
+[  380.1831] SUBPHASE phase=11 candidate=1 checks=400614 failed=0 bytes=202752
+[  380.1846] PRODUCERDONE valid=1
+[  380.7012] EXPANDCHECK checked=860160 failed=0
+[  382.6020] EXPANDCHECK checked=864256 failed=0
+[  384.3872] EXPANDCHECK checked=868352 failed=0
+[  386.1889] EXPANDCHECK checked=872448 failed=0
+[  387.9909] EXPANDCHECK checked=876544 failed=0
+[  389.7938] EXPANDCHECK checked=880640 failed=0
+[  391.5943] EXPANDCHECK checked=884736 failed=0
+[  393.3800] EXPANDCHECK checked=888832 failed=0
+[  395.1822] EXPANDCHECK checked=892928 failed=0
+[  396.9829] EXPANDCHECK checked=897024 failed=0
+[  398.7856] EXPANDCHECK checked=901120 failed=0
+[  400.5539] PARTIALCHECK checked=385024 failed=0 index=6 words=232
+[  400.5867] EXPANDCHECK checked=905216 failed=0
+[  402.3722] EXPANDCHECK checked=909312 failed=0
+[  404.1770] EXPANDCHECK checked=913408 failed=0
+[  405.9769] EXPANDCHECK checked=917504 failed=0
+[  407.7802] EXPANDCHECK checked=921600 failed=0
+[  409.5791] EXPANDCHECK checked=925696 failed=0
+[  411.3635] EXPANDCHECK checked=929792 failed=0
+[  413.1661] EXPANDCHECK checked=933888 failed=0
+[  414.9980] EXPANDCHECK checked=937984 failed=0

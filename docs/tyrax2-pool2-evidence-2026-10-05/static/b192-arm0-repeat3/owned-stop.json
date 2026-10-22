@@ -1,0 +1,15 @@
+{
+  "pid": 15752,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/pool2-static-b192-arm0-repeat3-20261005/profile",
+    "-logfile",
+    "/home/spider/pool2-static-b192-arm0-repeat3-20261005/emulator.log",
+    "-debugger",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-static-probe-physical-v1/game/bin/vehicle-playground.elf"
+  ],
+  "reason": "completed-fixed-case-capture",
+  "completedProofSha256": "7bbb4ad9d4d1bb2f0267c9d6d462032eb58f5937e98a8de7dd304183ec8751ae"
+}

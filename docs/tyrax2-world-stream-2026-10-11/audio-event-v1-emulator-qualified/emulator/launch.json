@@ -1,0 +1,16 @@
+{
+  "pid": 26,
+  "xvfbPid": 15,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-audio-event-game-20261012-v1/emulator/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-audio-event-game-20261012-v1/emulator/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-audio-event-game-20261012-v1/game/bin/vehicle-playground.elf"
+  ],
+  "elfSha256": "97a2af0076bdacf5c2100384b65d3c1d79853f4f92ec22b8a4c9c37ed01eb05b"
+}

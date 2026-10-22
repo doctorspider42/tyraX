@@ -1,0 +1,42 @@
+{
+  "status": "PASS_FRESH_EMPTY_AUTHORED_ONE_VEHICLE_PLUS_NONRENDERING_CAMERA",
+  "head": "ac2c52f2cd65654766f9ea3a27882b1bb1eccfe9",
+  "editorSha256": "5fa624c1dbb648573f7eeb794115d898dedda8fcbf2443caf6ef1201f9154409",
+  "manifestSha256": "203da4387532b174f910b8c1bffdc829b2c8e922d953173c29cc93c599dbff36",
+  "objects": {
+    "emptycamera00001": {
+      "type": "player",
+      "sha256": "2e22d42d39c11205267fb6da998c3a51529d24b1acec407a215823382626320c"
+    },
+    "emptyravager0001": {
+      "type": "vehicle",
+      "sha256": "dd72617b7679d770c95fed4c339bf0d394af21969d0b27613c334c51d2da17d8"
+    }
+  },
+  "vehicleDefinitions": 1,
+  "renderableVehicles": 1,
+  "nonVehicleRenderableAuthoredObjects": 0,
+  "cameraControlEntities": 1,
+  "terrainEnabled": false,
+  "sceneLights": 0,
+  "portals": 0,
+  "music": 0,
+  "sfx": 0,
+  "skyDome": false,
+  "reflections": false,
+  "vehicleHud": false,
+  "particleEffects": false,
+  "ambientConstant": 1,
+  "directionalIntensity": 0,
+  "physicsFloorPending": "Private analytic y0 height query now installed, with terrain still authored disabled and no floor draw geometry.",
+  "assetSha256": "2f9dccf1f922440a0b2d5804d8f084cecc6fe072a6c809dcb89243587da2d753",
+  "devicesExecuted": false,
+  "effectOverridesAfterEditorNormalization": {
+    "exhaustSmoke": 0,
+    "feelFlame": 0,
+    "feelBlur": 0,
+    "damageSmoke": 0,
+    "lampGlow": 0
+  },
+  "inheritanceNormalization": "Setting inheritDefaults=false is normalized by the current editor to inherited mode with explicit tuning overrides; final no-FX values verified after actual resave/refresh. Initial v1 failed this admission and remains preserved."
+}

@@ -1,0 +1,811 @@
+{
+  "files": [
+    {
+      "name": ".gitignore",
+      "sha256": "240a3e0d37d2e86b614063f5347eb02d4f99ca6c254de6b82871ff8d95532a7d"
+    },
+    {
+      "name": "closeout.cfg",
+      "sha256": "350195e792e3f97da28b8c02fe2f90f2c128d5713ea1414caa32c5c3c98c64cf"
+    },
+    {
+      "name": "livedbg.bin",
+      "sha256": "12b542c9b0887c9e3f7dba76fcd9f208ae6db0bd5386e6a657e87d43d388fd63"
+    },
+    {
+      "name": "livelink.sig",
+      "sha256": "352bc88989d8e7b4a5490d79e123cf4d74e6f6dc1b2599e0d47c639d7951b360"
+    },
+    {
+      "name": "livepad.bin",
+      "sha256": "3d0ce897ac9c2f3fe08f09507af5319e2131fadd10ff8d2968f85705805b4096"
+    },
+    {
+      "name": "ps2link.run",
+      "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a"
+    },
+    {
+      "name": "showcase.elf",
+      "sha256": "aac5d2f7e795a3d80716e1906120126d5108d2e711bc31741fcee36a7b36d2b5"
+    },
+    {
+      "name": "showcase.elf.sym",
+      "sha256": "f7c4cd1d2ae8bab4893848f75be190e47bb89f048c75e932adab449bb8fe860f"
+    },
+    {
+      "name": "aoatlas\\scene0.png",
+      "sha256": "8c82dadd94c94bbaf5fbf9a03bb0cbf057b690bfc798db85e2c2d9129b854c53"
+    },
+    {
+      "name": "aster\\-1-coping.obj",
+      "sha256": "ba5d11219d142fc5344db968f35aae87c89db2d7d84f4315652b79f03a77485c"
+    },
+    {
+      "name": "aster\\-1-inlay--9.obj",
+      "sha256": "4a514810d29a903868299433354dbe6a651d43222913f78fbcadf6546e666393"
+    },
+    {
+      "name": "aster\\-1-inlay-9.obj",
+      "sha256": "4a514810d29a903868299433354dbe6a651d43222913f78fbcadf6546e666393"
+    },
+    {
+      "name": "aster\\-1-outer-balustrade.obj",
+      "sha256": "4e8500021bf8a22531ede76bfa4f404df988a554c26da67c88422f566923f2e5"
+    },
+    {
+      "name": "aster\\1-coping.obj",
+      "sha256": "ba5d11219d142fc5344db968f35aae87c89db2d7d84f4315652b79f03a77485c"
+    },
+    {
+      "name": "aster\\1-inlay--9.obj",
+      "sha256": "4a514810d29a903868299433354dbe6a651d43222913f78fbcadf6546e666393"
+    },
+    {
+      "name": "aster\\1-inlay-9.obj",
+      "sha256": "4a514810d29a903868299433354dbe6a651d43222913f78fbcadf6546e666393"
+    },
+    {
+      "name": "aster\\1-outer-balustrade.obj",
+      "sha256": "4e8500021bf8a22531ede76bfa4f404df988a554c26da67c88422f566923f2e5"
+    },
+    {
+      "name": "aster\\amber.mtl",
+      "sha256": "fd2ac99e00c3762bd4ef14be0ef0064a10eccbae926bc9442fa2566d3d264612"
+    },
+    {
+      "name": "aster\\arcade.obj",
+      "sha256": "3fa612bd7774c44c67a80215d7a96a5ba4945ea9c5254db59fd4f4abe5a653a6"
+    },
+    {
+      "name": "aster\\arrival-terrace__ovr500a.tmdl",
+      "sha256": "7cb37ebb20501c45fb682c943739b95e5bd5232351d72cc8cd9e93b63c73f9db"
+    },
+    {
+      "name": "aster\\arrival-terrace.tmdl",
+      "sha256": "e40e1b11cbb933546186030166069bc385407a7e542811cf44838da89e47b607"
+    },
+    {
+      "name": "aster\\aster.mtl",
+      "sha256": "05bf9eb2d5e7dca2bda24bc2ada9aab64028e7ac29948e88a36eb0a5e4afca70"
+    },
+    {
+      "name": "aster\\bark.mtl",
+      "sha256": "d616d43d61a46ae79a04e379bab5513e4468a3d685f3a9fb99596bfcf015250a"
+    },
+    {
+      "name": "aster\\brass.mtl",
+      "sha256": "e185acaff3494f4a86e2581a77c83eee95692a83a1d3842809e353b23b92a102"
+    },
+    {
+      "name": "aster\\canal-curb--4.18--9.obj",
+      "sha256": "9d67d64ec2265eedeae562d53f9ccd941d616be881354aa5e7707231ecaad98a"
+    },
+    {
+      "name": "aster\\canal-curb--4.18-9.obj",
+      "sha256": "9d67d64ec2265eedeae562d53f9ccd941d616be881354aa5e7707231ecaad98a"
+    },
+    {
+      "name": "aster\\canal-curb-4.18--9.obj",
+      "sha256": "9d67d64ec2265eedeae562d53f9ccd941d616be881354aa5e7707231ecaad98a"
+    },
+    {
+      "name": "aster\\canal-curb-4.18-9.obj",
+      "sha256": "9d67d64ec2265eedeae562d53f9ccd941d616be881354aa5e7707231ecaad98a"
+    },
+    {
+      "name": "aster\\canal-end--17.obj",
+      "sha256": "878c0c586fbc0fd4ce737da13293c1a06e98863291be3d098f8d673ecfa2883e"
+    },
+    {
+      "name": "aster\\canal-end-17.obj",
+      "sha256": "878c0c586fbc0fd4ce737da13293c1a06e98863291be3d098f8d673ecfa2883e"
+    },
+    {
+      "name": "aster\\canal-water.tmdl",
+      "sha256": "e5fb10e216321a2ca3cc8580b77bf0d4cbe7c2ff413b55426abd39495395f080"
+    },
+    {
+      "name": "aster\\CC0-Keeper.txt",
+      "sha256": "f32975c6deb73a1ae15c1e9d4357bba32a939de8c500a86701315696865ab99a"
+    },
+    {
+      "name": "aster\\CC0-Quaternius.txt",
+      "sha256": "6b003dbf51630f412ba5da0cd70790d6ac11986c4ffb2df47bb19237e4ad1383"
+    },
+    {
+      "name": "aster\\cellar-barrel.obj",
+      "sha256": "8e5852a504dec7e05bcd07a126a92d415f30bd83cf025d99d0de46191df4094a"
+    },
+    {
+      "name": "aster\\cellar-bottle.obj",
+      "sha256": "abff6512d3daf0a123a55bb3a8057c2ec26e8d450f7ef8310ab588d8ef5aab8e"
+    },
+    {
+      "name": "aster\\cellar-desk-leg--1.95--22.95.obj",
+      "sha256": "6b23d754212f0c8249f3ba6548b510133b8207a7d661df749588cc4de4d9a2a0"
+    },
+    {
+      "name": "aster\\cellar-desk-leg--1.95--24.85.obj",
+      "sha256": "6b23d754212f0c8249f3ba6548b510133b8207a7d661df749588cc4de4d9a2a0"
+    },
+    {
+      "name": "aster\\cellar-desk-leg--3.25--22.95.obj",
+      "sha256": "6b23d754212f0c8249f3ba6548b510133b8207a7d661df749588cc4de4d9a2a0"
+    },
+    {
+      "name": "aster\\cellar-desk-leg--3.25--24.85.obj",
+      "sha256": "6b23d754212f0c8249f3ba6548b510133b8207a7d661df749588cc4de4d9a2a0"
+    },
+    {
+      "name": "aster\\cellar-display-leg--1.2.obj",
+      "sha256": "33b3c3d21f8342a6f4a886b24290e8cd75b43c3086699c7cf60c975488940dbb"
+    },
+    {
+      "name": "aster\\cellar-display-leg-1.2.obj",
+      "sha256": "33b3c3d21f8342a6f4a886b24290e8cd75b43c3086699c7cf60c975488940dbb"
+    },
+    {
+      "name": "aster\\cellar-display-table.obj",
+      "sha256": "291d63fcbe369fd695296e945216ffa192b3f50bbd57819c0f0763b311a60052"
+    },
+    {
+      "name": "aster\\cellar-east-wall.obj",
+      "sha256": "ae1a3c2c4be5f0565dda6e52dbb0de775d0a37d0396064531c8edc8d19cc63b9"
+    },
+    {
+      "name": "aster\\cellar-floor.obj",
+      "sha256": "5122a7403b250e2a7919d883a309014f5ffb7e4e46c74fafaa4cc5a095649b33"
+    },
+    {
+      "name": "aster\\cellar-north-header.obj",
+      "sha256": "5ad2641c9abf84679ba9f929ee72cab135007c8e33b2bccb8d92f031aa73dd44"
+    },
+    {
+      "name": "aster\\cellar-north-jamb--4.325.obj",
+      "sha256": "c46348f831d8d0ace29ac9d3617f082abba6ca169325e0b42cd90d5848cf2db0"
+    },
+    {
+      "name": "aster\\cellar-north-jamb-4.325.obj",
+      "sha256": "c46348f831d8d0ace29ac9d3617f082abba6ca169325e0b42cd90d5848cf2db0"
+    },
+    {
+      "name": "aster\\cellar-pier--6.7--13.obj",
+      "sha256": "fa17adf9b5ec58ef4e944fb8e945a55d1a3464775ccf874ef8db56fd0de72968"
+    },
+    {
+      "name": "aster\\cellar-pier--6.7--18.obj",
+      "sha256": "fa17adf9b5ec58ef4e944fb8e945a55d1a3464775ccf874ef8db56fd0de72968"
+    },
+    {
+      "name": "aster\\cellar-pier--6.7--23.obj",
+      "sha256": "fa17adf9b5ec58ef4e944fb8e945a55d1a3464775ccf874ef8db56fd0de72968"
+    },
+    {
+      "name": "aster\\cellar-pier-6.7--13.obj",
+      "sha256": "fa17adf9b5ec58ef4e944fb8e945a55d1a3464775ccf874ef8db56fd0de72968"
+    },
+    {
+      "name": "aster\\cellar-pier-6.7--18.obj",
+      "sha256": "fa17adf9b5ec58ef4e944fb8e945a55d1a3464775ccf874ef8db56fd0de72968"
+    },
+    {
+      "name": "aster\\cellar-pier-6.7--23.obj",
+      "sha256": "fa17adf9b5ec58ef4e944fb8e945a55d1a3464775ccf874ef8db56fd0de72968"
+    },
+    {
+      "name": "aster\\cellar-portal-lintel.obj",
+      "sha256": "3a6731a47059f10d8599952e34109f29742ebdc3744104bf82a9a2fc2811c0e1"
+    },
+    {
+      "name": "aster\\cellar-portal-post--1.3.obj",
+      "sha256": "a6329300d44972f9cf5ae3173debe30898d67e4ff230f2da314d8d52d882aac8"
+    },
+    {
+      "name": "aster\\cellar-portal-post-1.3.obj",
+      "sha256": "a6329300d44972f9cf5ae3173debe30898d67e4ff230f2da314d8d52d882aac8"
+    },
+    {
+      "name": "aster\\cellar-rib.obj",
+      "sha256": "69447005c8456483a8c2652e7fd89ba06bd6d4b75b5830d7fd2f8ade01dd0a70"
+    },
+    {
+      "name": "aster\\cellar-shelf--10.65.obj",
+      "sha256": "4c4dd34340e164604b46fec380a6ed49a69bed108535b8b21bc8c30100aa61b6"
+    },
+    {
+      "name": "aster\\cellar-shelf--11.65.obj",
+      "sha256": "4c4dd34340e164604b46fec380a6ed49a69bed108535b8b21bc8c30100aa61b6"
+    },
+    {
+      "name": "aster\\cellar-shelf--9.65.obj",
+      "sha256": "4c4dd34340e164604b46fec380a6ed49a69bed108535b8b21bc8c30100aa61b6"
+    },
+    {
+      "name": "aster\\cellar-shelf-post--17.obj",
+      "sha256": "954c34f9a7a9362b9613468386bffa609a2f13dfbdeb2e6cde0e0feba09d0e30"
+    },
+    {
+      "name": "aster\\cellar-shelf-post--21.obj",
+      "sha256": "954c34f9a7a9362b9613468386bffa609a2f13dfbdeb2e6cde0e0feba09d0e30"
+    },
+    {
+      "name": "aster\\cellar-shelf-post--25.obj",
+      "sha256": "954c34f9a7a9362b9613468386bffa609a2f13dfbdeb2e6cde0e0feba09d0e30"
+    },
+    {
+      "name": "aster\\cellar-south-wall.obj",
+      "sha256": "9e4cb4c3b336a6e9a321a4f0dc6df1b46639f26ab68e04bb0d28c5500ec1e1b8"
+    },
+    {
+      "name": "aster\\cellar-vault.obj",
+      "sha256": "ef8ed4b8177001d847df0b93b42b01e2ba68b14d2f6981f82a778cba1efedda5"
+    },
+    {
+      "name": "aster\\cellar-west-wall.obj",
+      "sha256": "ae1a3c2c4be5f0565dda6e52dbb0de775d0a37d0396064531c8edc8d19cc63b9"
+    },
+    {
+      "name": "aster\\cellar-workbench.obj",
+      "sha256": "a19f9fbf094aa5b594490f07ccb81893e7df1f08a6bb503341d9deaac9af32b4"
+    },
+    {
+      "name": "aster\\column.obj",
+      "sha256": "304babcd5dc584832322115e1516e1d639e6082c621e467d41320ade9f4d2e24"
+    },
+    {
+      "name": "aster\\compass-rose.obj",
+      "sha256": "5424de0c081ceef2e37b16cecc9ec066c2d41b16a2af0b041b19da888af2b8eb"
+    },
+    {
+      "name": "aster\\copper.mtl",
+      "sha256": "cf1f32895e23929a3b29df4ed6274e131ee4615353015bbcc63e07be6c3e559e"
+    },
+    {
+      "name": "aster\\crossing.tmdl",
+      "sha256": "96214c0fc793288ceef98ef089544a7dd9a0071e85740836b77cbdf64bf2c0c2"
+    },
+    {
+      "name": "aster\\cypress.obj",
+      "sha256": "06f2f0c65ed43133883977d07632e38bb80d4208d52bf74bd9ea98269035bfc2"
+    },
+    {
+      "name": "aster\\dark.mtl",
+      "sha256": "c25dc33762df10f5a49e08e3efcdd31b0e02ddd2aaa7198675e7286db03650d9"
+    },
+    {
+      "name": "aster\\district-arrival.tmdl",
+      "sha256": "f7622015114c677946c9247cf62a40a67eff7a897a9560e6b696019ac24d6cea"
+    },
+    {
+      "name": "aster\\district-cellar.tmdl",
+      "sha256": "4785c3f4557b9b4d8e358f41b730c05ce82f695acdbb1d75a94ac5de3ba1f202"
+    },
+    {
+      "name": "aster\\district-east.tmdl",
+      "sha256": "c49b417becdf115c459d1f4bd26612c9451f06416c8d8e5728063b93235479f6"
+    },
+    {
+      "name": "aster\\district-pavilion.tmdl",
+      "sha256": "b5769dd6dc0ff22b7909540ac48f98355ea351eafb87031119aa3bf578b0d6a4"
+    },
+    {
+      "name": "aster\\district-rotunda.tmdl",
+      "sha256": "a1620afde9386e3cfcac25a60b0452b952c1938e9fc96c34b6ec336b12d19293"
+    },
+    {
+      "name": "aster\\district-seaward.tmdl",
+      "sha256": "2f7aaf12d542c3cd458490d81a1b5ff370b84ba4fb85e0ef138764d6d0695490"
+    },
+    {
+      "name": "aster\\district-vestibule.tmdl",
+      "sha256": "fcf49f8f2cced37cfc01cd424adc1353e3045c1f9d462de96da952a95f7cdf45"
+    },
+    {
+      "name": "aster\\district-west.tmdl",
+      "sha256": "a45d9e99f840144f8073af0a4176217fc17d72f5b2fd0707f884f8e0b03402bb"
+    },
+    {
+      "name": "aster\\dome.obj",
+      "sha256": "e5cb6dbc5f62eb0108de6d51446d87f754b44ea5ae31b604410a64a669ac4662"
+    },
+    {
+      "name": "aster\\east-promenade.tmdl",
+      "sha256": "cdf0d069fd8fc4d14317000afc7cce7f97792dc9f483354800c7cc68f4b23c4c"
+    },
+    {
+      "name": "aster\\entry-crown--1.tmdl",
+      "sha256": "1663abe2c874e2983afed398ac7b70aff042ff4fa34c34f77e96fe5f8fd25fd1"
+    },
+    {
+      "name": "aster\\entry-crown-1.tmdl",
+      "sha256": "1663abe2c874e2983afed398ac7b70aff042ff4fa34c34f77e96fe5f8fd25fd1"
+    },
+    {
+      "name": "aster\\entry-pier--1.tmdl",
+      "sha256": "04986a19323134dbc6b8c4bd31ffcf55534e65a5f4721da425b7a02e9f343be3"
+    },
+    {
+      "name": "aster\\entry-pier-1.tmdl",
+      "sha256": "04986a19323134dbc6b8c4bd31ffcf55534e65a5f4721da425b7a02e9f343be3"
+    },
+    {
+      "name": "aster\\flower.mtl",
+      "sha256": "ac77265dcaf73cd6af50935cc619847dcc27652efcc252a04fca06972b627b08"
+    },
+    {
+      "name": "aster\\flowers.obj",
+      "sha256": "16f66eafa19423ed39fc023744578a3177098ebbe0a0a069eee8ff608c2b3736"
+    },
+    {
+      "name": "aster\\glow.mtl",
+      "sha256": "e3497cc7e2f74909d3f0f5371ae049a16a879620ed57ade621c73a7114fb0d5a"
+    },
+    {
+      "name": "aster\\gold.mtl",
+      "sha256": "2fd8725b4dca297545b14db22e1a7ec15c296b5c31687e34f78778171d6092c6"
+    },
+    {
+      "name": "aster\\island.tmdl",
+      "sha256": "92d654c97543c2704863b9c4778a9c3ba41825118d700dd1db675171be8a3562"
+    },
+    {
+      "name": "aster\\ivory.mtl",
+      "sha256": "a580ccc95314dd5b28162f4852b5bb3f6e76b5ef3847b03c13592b1a68103138"
+    },
+    {
+      "name": "aster\\ivy-small.obj",
+      "sha256": "af1b91d95539c324924de4a609aee30f7684e9700d5e48122868cc977f59231e"
+    },
+    {
+      "name": "aster\\ivy.mtl",
+      "sha256": "e16de2de4c3861c08a87cb802f22d7625b04bf4d6e9311e1a55ad66f9866b766"
+    },
+    {
+      "name": "aster\\ivy.obj",
+      "sha256": "12372708d8091866aa7916244346ebd0c923081e64920c865417eb6e769bfeb2"
+    },
+    {
+      "name": "aster\\ivy.png",
+      "sha256": "74ccf9c951ee4a14842a2f1874e41e0c69b5eb294e240c2ff742175d76386783"
+    },
+    {
+      "name": "aster\\keeper_t_enemies_basecolor_png.png",
+      "sha256": "f145e040ddffacef4afb70dcdb0d0ccdeba09b1c35b5f2f9e28f96ec9889e5fb"
+    },
+    {
+      "name": "aster\\keeper.glb",
+      "sha256": "9a6cc7bc986c9fc5b0d1f51f27df53c5ea98179df2aa572c4be4b8b2cee5569c"
+    },
+    {
+      "name": "aster\\keeper.tskl",
+      "sha256": "d5026417d753594fe81dc2fde4b782905c1704e92f7aec43a0588ddc291ae280"
+    },
+    {
+      "name": "aster\\lantern.obj",
+      "sha256": "c062e11822070c9c08b432940a2a8ffa2873b9b4c128087f2533834396348229"
+    },
+    {
+      "name": "aster\\leaves.mtl",
+      "sha256": "9f822443f480a831a898cf050c32a14a46374d6603949dc17bc527c261ae5722"
+    },
+    {
+      "name": "aster\\leavesLight.mtl",
+      "sha256": "a7c30307d7013368a4a0ef384883f75c560a32ef8ce68e0b2e3a2afcca320bdc"
+    },
+    {
+      "name": "aster\\lighthouse.obj",
+      "sha256": "a4c1b400482934ef68905ae37e177b9fd57409c2de0869ec8b1ec9235ac00264"
+    },
+    {
+      "name": "aster\\limestone.mtl",
+      "sha256": "39dab4545033d6e1db101bff58efbcc7d10fefdf5f4eed54ed17d114e5c3cbc5"
+    },
+    {
+      "name": "aster\\limestone.png",
+      "sha256": "d9b536a33679b72206afc47bf4b632a1387efbe2cd5e30cd024f7821365ae95f"
+    },
+    {
+      "name": "aster\\monitor-frame.obj",
+      "sha256": "8edfc55d2c30a03fc70671c2b65a295966fd0d5bd533ca1cc5a6e2d379048ddf"
+    },
+    {
+      "name": "aster\\observatory-terrace.tmdl",
+      "sha256": "e40e1b11cbb933546186030166069bc385407a7e542811cf44838da89e47b607"
+    },
+    {
+      "name": "aster\\optics-backwall.obj",
+      "sha256": "945437288fd59c181e9a66bea97bf9ebc43ff48fc8d4bcde20c0de7d63506dc8"
+    },
+    {
+      "name": "aster\\optics-cornice.obj",
+      "sha256": "ffb96345cf88c339864a1de36513f2005669c9fdf26cf152fd1397b757e96d65"
+    },
+    {
+      "name": "aster\\orbit-equator.tmdl",
+      "sha256": "4a9f1e4ba5b9c84be05f29fe9482a71c8268cd6e0270cd50c07689e6f8dfeda0"
+    },
+    {
+      "name": "aster\\orbit-inner.tmdl",
+      "sha256": "3e37e6264411cbb4daa89d181973c4aa025eed910b429ba4344d41beabfbd7fb"
+    },
+    {
+      "name": "aster\\orbit-outer.tmdl",
+      "sha256": "e87bb77aebb404c7df97e2b6b7918329577550da9bab6dadfc07b0a594a24a88"
+    },
+    {
+      "name": "aster\\orrery-base.obj",
+      "sha256": "1e1ad36a2c54ab96492be6c8ff7f59604a44ac2918dc575f5f1ef761390460db"
+    },
+    {
+      "name": "aster\\pavilion-back-wall.obj",
+      "sha256": "85232969d9c5d5073edc0fd2650563d002994efcd14991aae28017a0d9211ffa"
+    },
+    {
+      "name": "aster\\pavilion-door-header.obj",
+      "sha256": "49ef19d1468f57b23a6d1ec59cbcdbb01933a0801f9bb63ed06f289442cbf0cd"
+    },
+    {
+      "name": "aster\\pavilion-door-jamb-18.4.obj",
+      "sha256": "8716a312a6d30b72aa820d04f099976e7224d946991d8fb761b09bbb289c544e"
+    },
+    {
+      "name": "aster\\pavilion-door-jamb-21.6.obj",
+      "sha256": "8716a312a6d30b72aa820d04f099976e7224d946991d8fb761b09bbb289c544e"
+    },
+    {
+      "name": "aster\\pavilion-portal-lintel.obj",
+      "sha256": "c6d6b0de9bf7ee5b62407c95208fed6937e79b9717cc1ea00c4555a42804c88f"
+    },
+    {
+      "name": "aster\\pavilion-portal-post--1.3.obj",
+      "sha256": "5664fbc798785eb7001bf35b7645d3b28785c5600405971060c6160ac4268493"
+    },
+    {
+      "name": "aster\\pavilion-portal-post-1.3.obj",
+      "sha256": "5664fbc798785eb7001bf35b7645d3b28785c5600405971060c6160ac4268493"
+    },
+    {
+      "name": "aster\\pavilion-roof.obj",
+      "sha256": "920542cc04f913b1f54df57080685d09d43dcd58538ecfd30c43fdab1451ec49"
+    },
+    {
+      "name": "aster\\pavilion-side-18.35.obj",
+      "sha256": "0f9ebd169aed2829cdda4d1223cc437614678de1d1454014d55c50305ad2dfcf"
+    },
+    {
+      "name": "aster\\pavilion-side-21.65.obj",
+      "sha256": "0f9ebd169aed2829cdda4d1223cc437614678de1d1454014d55c50305ad2dfcf"
+    },
+    {
+      "name": "aster\\paving.mtl",
+      "sha256": "5876b0ef0e1cae48d6bdf9dafc151766d645cf1d879ffc9e7ef992212dc494c5"
+    },
+    {
+      "name": "aster\\paving.png",
+      "sha256": "b9f5c5405ab3d7b59be530c71ee8f4e02c85e2b2fdab07be76a7de91f6ab2deb"
+    },
+    {
+      "name": "aster\\pedestal.tmdl",
+      "sha256": "84324bd5252a3ae0e48149986c087199503de9274c7d0fdf167f19cbeee62eff"
+    },
+    {
+      "name": "aster\\pennant.obj",
+      "sha256": "7229f2f3e4b30e748e8c90a6ad0c4e3f20809108d04d7f625064976cda63b1f7"
+    },
+    {
+      "name": "aster\\planter.obj",
+      "sha256": "64d761204f405bff19a99b45ce554f6865e3ca66223f1d1553e8a9e82e9db8d6"
+    },
+    {
+      "name": "aster\\sea-surface.tmdl",
+      "sha256": "f2087d8e017825152c9ea8de7fc4407eb53913254bf02c5863fbd0f10dbddd79"
+    },
+    {
+      "name": "aster\\seaward-paving.obj",
+      "sha256": "6e613052ed030cd102f0a8f60ed54d811e905d2381c8c1a7507126527b359c58"
+    },
+    {
+      "name": "aster\\shadowstone.mtl",
+      "sha256": "c48c93405f63e1efd1d8cd7f64eeff9ea56d2870702cd4a88c13a56271ad639b"
+    },
+    {
+      "name": "aster\\shadowstone.png",
+      "sha256": "3f0d937ec0cba86335444d6af60fe72a0c0427ab4786fb2d777b2f11df7c3727"
+    },
+    {
+      "name": "aster\\supply-crate.tmdl",
+      "sha256": "bc37fd2e3db309ca87a532dddaadab5d7beff88b7a1f1788d900e3b77917832b"
+    },
+    {
+      "name": "aster\\survey-cart.tmdl",
+      "sha256": "a0399ddb24365bc29114f22abc6a814e68247e67121bbdde8e380d36593ce780"
+    },
+    {
+      "name": "aster\\terracotta.mtl",
+      "sha256": "0fbf72c3bcf50c6f35889bdf96f2dc816f481ca0ec63e47f7adfc82159005df7"
+    },
+    {
+      "name": "aster\\terracotta.png",
+      "sha256": "475c1b6f25bf4f43b7670a8c26e769ea004994a94be1edbca32442753f09b5ce"
+    },
+    {
+      "name": "aster\\vestibule-floor.obj",
+      "sha256": "08d6d4ab3b805ebd0562b7e9a5c3885d439e621e5bcef17ebbfda9efcee6a4b3"
+    },
+    {
+      "name": "aster\\vestibule-sea-rail.obj",
+      "sha256": "03352f162737d6b47bbead1310ede4d805e9e80c743d2efdfaf0f195bf3da120"
+    },
+    {
+      "name": "aster\\water.mtl",
+      "sha256": "30020e34813e4c0b4a84929489790e1c94ca3045fbd574a34e32decdf71dd2e5"
+    },
+    {
+      "name": "aster\\water.png",
+      "sha256": "122a6bab1ef1cc4beace3ba4240849735996f9995179fa13aecfa008df2893dc"
+    },
+    {
+      "name": "aster\\weights-backstop.tmdl",
+      "sha256": "22ba22cfd35ba621ee83181ab01781e2113a6820f8a9f8f42b44134e4fc269af"
+    },
+    {
+      "name": "aster\\west-promenade.tmdl",
+      "sha256": "cdf0d069fd8fc4d14317000afc7cce7f97792dc9f483354800c7cc68f4b23c4c"
+    },
+    {
+      "name": "audio\\ambient.wav",
+      "sha256": "899a0002392b221aaa783be0e0bd8cc731eca10d253cde9d87cc7f485114bc1e"
+    },
+    {
+      "name": "fonts\\atlas-default.png",
+      "sha256": "e32275e5887e0fe975b4c10c4488918071e7f981307a5060079214b2d1c69dd8"
+    },
+    {
+      "name": "hud\\debugfont.png",
+      "sha256": "a02cd1c73e8997e3a0370204405156b68ed8583a88680b0125b4a0e9ae5416c8"
+    },
+    {
+      "name": "hud\\flare-corona.png",
+      "sha256": "a3ee5cb781e93cf306be117e21954494687846b8a6464dd213abb8d237ef7e10"
+    },
+    {
+      "name": "hud\\flare-glow.png",
+      "sha256": "2b6563ad8e6721fce94f4489681aeef8156230e6b8ca0e20b944ea2d1f71b522"
+    },
+    {
+      "name": "hud\\flare-ring.png",
+      "sha256": "283ba6e6ba5678c5de191404730c235d178b10dc76dd572711d81393ca07f548"
+    },
+    {
+      "name": "hud\\flashlight-gobo.png",
+      "sha256": "76d196f718faaf149bb0093d0c5c39d46c0b17b062b6c400e9923d723e924b23"
+    },
+    {
+      "name": "hud\\icon-circle.png",
+      "sha256": "8029e6a08c06e9a7426aba04efe74aa03dc46935d11f9ee4fbfade992907fb68"
+    },
+    {
+      "name": "hud\\icon-cross.png",
+      "sha256": "63adb1520656bb8bbb7e787c6ac66ca445e86a668790886493e7a11bcd77a7c8"
+    },
+    {
+      "name": "hud\\icon-dpaddown.png",
+      "sha256": "82051f011f1ca1d20e5b47415a883b04958e1576e6e84388c211e043836272ae"
+    },
+    {
+      "name": "hud\\icon-dpadleft.png",
+      "sha256": "0f0f0c797484a583df206c56249930ba1dfe9807665c079c25b820bc0c009b7f"
+    },
+    {
+      "name": "hud\\icon-dpadright.png",
+      "sha256": "36c1318aacde72b88892d1841fb3b1df99fe18efaba7ff1e83989eb2c44c1f42"
+    },
+    {
+      "name": "hud\\icon-dpadup.png",
+      "sha256": "8d32ded1121e5f833ac40b6c273a2448c5b5bb936c63ceeae37c24379fa78352"
+    },
+    {
+      "name": "hud\\icon-l1.png",
+      "sha256": "b7d8cb6d69c5ef156e567bcf0d197d72fe47655dd1199670a1a6890e7b053513"
+    },
+    {
+      "name": "hud\\icon-l2.png",
+      "sha256": "2500433dc71cc3a160c1164502f54ebd1517f931592f5414f5b253662ea96791"
+    },
+    {
+      "name": "hud\\icon-l3.png",
+      "sha256": "b119f10ee0dc9aa4383ce2d09860e28a165dc11bb7958559f4ec23b704826cae"
+    },
+    {
+      "name": "hud\\icon-r1.png",
+      "sha256": "c65ae40f492d665584a9700f4f326d77ab4bb112930e7fa28678e403ae37be25"
+    },
+    {
+      "name": "hud\\icon-r2.png",
+      "sha256": "81ffb0486ea07a0eb13ecf587ef3be2c70510e09ee98ea9f017b16c0b38863e7"
+    },
+    {
+      "name": "hud\\icon-r3.png",
+      "sha256": "29f6378f91d787249cee87b677440df3381d340c635ec9b9a00b3e99f8f5dc24"
+    },
+    {
+      "name": "hud\\icon-select.png",
+      "sha256": "8ec7fe59f7d11324c3064ca368aed8fa9257459d64ae80b69addf4cb8135fdeb"
+    },
+    {
+      "name": "hud\\icon-square.png",
+      "sha256": "18f574e19af44db9c8bd89ef5fabe9a0ee86125019bbb827a4d30ec72b98823e"
+    },
+    {
+      "name": "hud\\icon-start.png",
+      "sha256": "5ef0a5fcfb609b5d0a26fb5c889da11d26631c468fd50b88a1c13f7f33cc12da"
+    },
+    {
+      "name": "hud\\icon-triangle.png",
+      "sha256": "7523322cee76826027beafc0ede643a29cc11ae4e719f0f1835548fa8f7cf543"
+    },
+    {
+      "name": "hud\\icons.png",
+      "sha256": "6ae052bd71124e7bcbe201d5c5be51e152e9f3075e5e6800115cab3dadad40af"
+    },
+    {
+      "name": "hud\\loading-white.png",
+      "sha256": "695da32f539757ed88bbe9724d21ef5522658cc008ae30ad6fb9bfe7cf2b35c7"
+    },
+    {
+      "name": "hud\\loading.png",
+      "sha256": "e4e37f5395e7b930d610d49149294e886b91a8163b3062555c854275522f92b4"
+    },
+    {
+      "name": "hud\\menu-dim.png",
+      "sha256": "09a2f918ad4a4beffdfa5b0bfe7da63ffbb1eb6f8e1be85339d8a6a28497b9ac"
+    },
+    {
+      "name": "hud\\moon-disc.png",
+      "sha256": "60b7bc38cb66d9e77259142b14f2763ea2e508b0755d953a65ffde2bf17e1eab"
+    },
+    {
+      "name": "hud\\pick-text.png",
+      "sha256": "9a9adeb7d541ddcba2eda2f5873d34efbebf7c1f76d1b4ae8ca27d7b49008da1"
+    },
+    {
+      "name": "hud\\pickup.png",
+      "sha256": "fe867af8fcef4163e0934261c8ada74ca88c77289decebcd35b28cc3507c3712"
+    },
+    {
+      "name": "hud\\save-busy.png",
+      "sha256": "554131e8bbd87fe2d9ca8a86ce4b9fabc64dc8863bfb9b9f6fcc3b063affeb84"
+    },
+    {
+      "name": "hud\\save-cursor.png",
+      "sha256": "ab2105fef732e5c4da8e8e88582c028a69dd3d3e0b8a3eb536dbac1e572f8359"
+    },
+    {
+      "name": "hud\\save-error.png",
+      "sha256": "d1fffbf26052414eea1f7d52a1bf78d905c19faa6e8bb22b892d8227a0aabf2a"
+    },
+    {
+      "name": "hud\\save-loaded.png",
+      "sha256": "29ff58c1fd3e282492a31a2b3503288c260511293a2a402337aa59481c0376e7"
+    },
+    {
+      "name": "hud\\save-menu.png",
+      "sha256": "0e5c14aa477c67fc2715161398a686627522dcf21695e0681b82d64a665a7cff"
+    },
+    {
+      "name": "hud\\save-saved.png",
+      "sha256": "5aee947be802a7bfea9a399af3a2f67ffc8579ef686b859edc2ea55e9a37f857"
+    },
+    {
+      "name": "hud\\save-spinner.png",
+      "sha256": "e9c49f1004d404c813e5153ed43786b6ddbd0219089533cab970e5604110e8a4"
+    },
+    {
+      "name": "hud\\save-used.png",
+      "sha256": "92dbe9fecb7761c10ee7239558a648c5f88749fceaadb53d1dec65015bbc4649"
+    },
+    {
+      "name": "hud\\seq-black.png",
+      "sha256": "1b90017cbe62be2e7f6e6776826267705e928fb0b7cc3661484274a791b0753e"
+    },
+    {
+      "name": "hud\\sun-disc.png",
+      "sha256": "13a6edfb466326dc3fb1fb39f1d9fc778a718149dcb9b8334c2c45f593a343cc"
+    },
+    {
+      "name": "hud\\text-options-hint.png",
+      "sha256": "34d6ba0058110b7a06a274c15fec095553fd24ba033168586e8c98d3800c0a12"
+    },
+    {
+      "name": "hud\\text-showcase-help.png",
+      "sha256": "553a4b71d0b3069dd20a80782596c1287777b28795ee1dbd530158c9c905a81c"
+    },
+    {
+      "name": "hud\\text-subtitle.png",
+      "sha256": "858a61f86c76cd8724abdb84129f46fe2ebd7bdb07ee9d1d9c094170c7d3dfbd"
+    },
+    {
+      "name": "hud\\text-title.png",
+      "sha256": "d31fc4df8ff031d94b70120e2aba3b9afd5f749d7a47c81a085a0a6543fc919d"
+    },
+    {
+      "name": "hud\\use-text.png",
+      "sha256": "a4a381bdd8a781f65e667af7f9c44c46be9db043fa6f7dc43aeeac7d6d182dad"
+    },
+    {
+      "name": "hud\\use.png",
+      "sha256": "ea6670f8379bf26577b65be4c41bb1bec437a249e42c04056e7421418ae7108f"
+    },
+    {
+      "name": "materials\\arrival-terrace-lit.mtl",
+      "sha256": "c2186c201a5b488232cae7fcab305c36f58c8cafdef96f1a848b85940f6f29f6"
+    },
+    {
+      "name": "materials\\arrival-terrace-lit.png",
+      "sha256": "c2c6ec5c485252985ff86778d87afe2bc1d3c2e3247fe67b6529e9ea71954eb0"
+    },
+    {
+      "name": "menus\\options-values.png",
+      "sha256": "0fa1ec1ae88fd5f10af0158fa71880d905acd0755bfa4ef06cde1ed8b41aaa5d"
+    },
+    {
+      "name": "menus\\options.png",
+      "sha256": "520344f8382a62a897bbbbde952c180dc889bdb3de9d830784653fb5a4ff67bf"
+    },
+    {
+      "name": "menus\\pause.png",
+      "sha256": "ce8d273502bdc6a4c234de5b4ab5a06b40afc915d830dff6a7070c5c26a281c4"
+    },
+    {
+      "name": "menus\\save.png",
+      "sha256": "0a85cd4bad45497d20583ce5ac09e9e3a3530fb60deae6d9deaab7b90cf54121"
+    },
+    {
+      "name": "menus\\title.png",
+      "sha256": "388b688dd3307d945496987f1f99519c7b26ccef367e22c7314d64e429c1cf5d"
+    },
+    {
+      "name": "models\\wobbler.tskl",
+      "sha256": "441d2cf3922f1d2b16635de60cbb9a565a0a04ecdbde1418dfd7f73407092af9"
+    },
+    {
+      "name": "save\\icon.sys",
+      "sha256": "15d17503e4397d90cf2620cfc49e2f934ae01aead60416739ed0703693b7b80f"
+    },
+    {
+      "name": "save\\list.icn",
+      "sha256": "1e82fd6d9580142738568172b9be5f9355a17ad93bc090f1f217431dbb4e3c15"
+    },
+    {
+      "name": "sfx\\lens.adpcm",
+      "sha256": "d8477b3aa7da684e778895d27eb34e6e250580992ea751bdf4d4a79cf821611a"
+    }
+  ],
+  "sourceBin": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-motion-v1\\quiet-v4\\showcase\\game\\bin",
+  "productionCommentOnlyFollowup": "ac2c52f2c",
+  "sourceHead": "5b6cd898b05fbbdcc11466bfc8a1911a9c285d4b",
+  "kind": 3,
+  "hardwarePerformanceQualified": false,
+  "order": 0,
+  "bin": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-ps2-quiet-showcase-v4-v1\\bin"
+}

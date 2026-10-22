@@ -1,0 +1,14 @@
+{
+  "actualCommandParameters": {
+    "Project": "F:/Projects/tyrax2-lab-20261001/paused-clock-physical-v1/game",
+    "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+    "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+    "Engine": "F:/Projects/tyrax2-lab-20261001/paused-clock-physical-v1/tyra"
+  },
+  "status": "ROOT_observed_native_child_process_completion",
+  "childProcessId": 61692,
+  "errorLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v47.err",
+  "buildLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v47.log",
+  "processExitCode": 0,
+  "sourceManifestSha256": "0c72544e0e2767015edec2684d36d04c4dfd2d1feb34af1d30320a85a27aae1e"
+}

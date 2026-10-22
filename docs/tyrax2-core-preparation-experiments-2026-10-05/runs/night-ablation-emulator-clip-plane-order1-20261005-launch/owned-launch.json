@@ -1,0 +1,37 @@
+{
+  "pid": 1058,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-clip-plane-order1-20261005/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-clip-plane-order1-20261005/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/clip-plane-specialize-physical-v2/game/bin/vehicle-playground.elf"
+  ],
+  "exe": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt",
+  "exeSha256": "c4629baf9c5daca45a9df6ad1ee84a188aeb025627b822a3ea62bdc48b23da18",
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/clip-plane-specialize-physical-v2",
+  "stem": "night-ablation-emulator-clip-plane-order1-20261005",
+  "kind": 17,
+  "order": 1,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "94d413cd9ba92357e06f09a666deac7915b0d692ffd7a479509bb6e6a2227fc0",
+  "profile": "/home/spider/night-ablation-emulator-clip-plane-order1-20261005/profile",
+  "launchArchive": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-clip-plane-order1-20261005-launch",
+  "helperSha256": "be5d5a63037bc200cc2ee08269197fc27b6fc72d795f48ead38b8ea03e3b9b55",
+  "launchFiles": {
+    "night-ablation.cfg": "9ea89200bd3e036e8f3e8ac6f089aebe8932f544a14a40ae432ee62167f119e0",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "8c0dc730fdb455d31c42492e7a575f818eb39f9a09ebb8a7abaaaf9753b0a822",
+    "root-runtime-authority.json": "7c0b7b52cc03172f7a05a5842f7c9aa8b31705804b4f34b1a5034193746a8a28",
+    "root-source-freeze.json": "008197e258a4547dab682314de1b62ed540e5be26be4c0423a0a0475db05f468",
+    "runtime-assets-manifest.json": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "target-source-manifest.json": "c2b26d620523a66ccf313d4b420c371d9de1dea61c78a0b790eca7206872d0b7",
+    "vehicle-playground.elf": "94d413cd9ba92357e06f09a666deac7915b0d692ffd7a479509bb6e6a2227fc0",
+    "vehicle-playground.elf.sym": "b4acc8fb2c7c9beb4a2b430ad3f9279d410f0b4802a2e1ab349fb847972ea841"
+  }
+}

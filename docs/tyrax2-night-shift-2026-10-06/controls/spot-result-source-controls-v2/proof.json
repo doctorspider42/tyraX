@@ -1,0 +1,8 @@
+{
+  "status": "PASS_ACTUAL_SOURCE_HOST_ONLY_KEY_MUTATION_PARITY",
+  "sourceSha256": "87a88ba71d564a6719b1a0f0f7296abda0093e18e171d2acbbe59f67760bf917",
+  "generatedHarnessSha256": "cdf6c5e5e53a65d5dd3552566cc4c46db7003813a2684eb126fcb1fd6ae888a8",
+  "logSha256": "b5915403e2600dcf9101cbe408d55d11175a3e972bcee33ed7feaae9205ebd37",
+  "hostOnly": true,
+  "physicalParityNotEstablished": true
+}

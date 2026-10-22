@@ -174,8 +174,10 @@ struct Member {
 };
 
 struct Batch {
-    // The group key, in full. Two objects share a batch exactly when all six
-    // agree - texture, cell, draw distance, reaching lamp and strip run.
+    // The group key, in full. Two objects share a batch exactly when all of
+    // it agrees - texture, cell, draw distance, reaching lamp, strip run and
+    // "Show in reflections" (a reflected batch is submitted whole into the
+    // environment map, so it may hold only reflected objects).
     std::string texture;  // kNoTexture for the untextured/missing class
     int cellX = 0;
     int cellZ = 0;
@@ -183,6 +185,7 @@ struct Batch {
     float drawDistance = 0.0f;  // 0 = unlimited
     int lamp = -1;            // object index of the reaching dynamic light
     unsigned int stripRun = 0;
+    bool reflected = false;
 
     std::vector<Member> members;
 

@@ -1,0 +1,6 @@
+{
+  "accepted": false,
+  "reason": "No stdout/start evidence, PS2 ping failed after network reset",
+  "stoppedOwnedClientPid": 58668,
+  "rawBytes": 0
+}

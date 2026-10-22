@@ -1,0 +1,2606 @@
+[
+  {
+    "file": "models/urban/detail-barrier-type-a.tmdl",
+    "part": "metal",
+    "base": 204,
+    "strip": 141,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/detail-barrier-type-a.tmdl",
+    "part": "signs",
+    "base": 60,
+    "strip": 42,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/detail-bench.tmdl",
+    "part": "metal",
+    "base": 360,
+    "strip": 240,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/detail-bench.tmdl",
+    "part": "planks",
+    "base": 144,
+    "strip": 120,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/detail-dumpster-closed.tmdl",
+    "part": "wall_metal",
+    "base": 48,
+    "strip": 30,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/detail-dumpster-closed.tmdl",
+    "part": "wall",
+    "base": 12,
+    "strip": 6,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/detail-dumpster-closed.tmdl",
+    "part": "roof",
+    "base": 72,
+    "strip": 51,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/detail-light-double.tmdl",
+    "part": "metal",
+    "base": 576,
+    "strip": 411,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/detail-light-traffic.tmdl",
+    "part": "metal",
+    "base": 456,
+    "strip": 321,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/detail-light-traffic.tmdl",
+    "part": "roof",
+    "base": 228,
+    "strip": 159,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/district-loft.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/district-tower.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/district-workshop.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/pallet.tmdl",
+    "part": "planks",
+    "base": 504,
+    "strip": 399,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-x0z0.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-x0z1.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-x0zm1.tmdl",
+    "part": "district_facade",
+    "base": 198,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-x0zm2.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-x1z0.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-x1z1.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-x1zm1.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-x1zm2.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-xm1z0.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-xm1zm1.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-xm1zm2.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-xm2z0.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-xm2z1.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-xm2zm1.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-loft-xm2zm2.tmdl",
+    "part": "district_facade",
+    "base": 198,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-x0z0.tmdl",
+    "part": "district_facade",
+    "base": 198,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-x0z1.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-x0zm1.tmdl",
+    "part": "district_facade",
+    "base": 264,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-x0zm2.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-x1z0.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-x1z1.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-x1zm1.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-x1zm2.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-xm1z0.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-xm1z1.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-xm1zm1.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-xm1zm2.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-xm2z0.tmdl",
+    "part": "district_facade",
+    "base": 198,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-xm2z1.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-xm2zm1.tmdl",
+    "part": "district_facade",
+    "base": 198,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-tower-xm2zm2.tmdl",
+    "part": "district_facade",
+    "base": 198,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-x0z0.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-x0zm1.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-x0zm2.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-x1z0.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-x1z1.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-x1zm2.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-xm1z0.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-xm1z1.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-xm1zm1.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-xm1zm2.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-xm2z0.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-xm2z1.tmdl",
+    "part": "district_facade",
+    "base": 66,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-xm2zm1.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-district-workshop-xm2zm2.tmdl",
+    "part": "district_facade",
+    "base": 132,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0z0.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 237,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0z0.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0z1.tmdl",
+    "part": "treeA",
+    "base": 288,
+    "strip": 237,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 720,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0z1.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 66,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0z2.tmdl",
+    "part": "treeA",
+    "base": 576,
+    "strip": 498,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 1944,
+    "strip": 1443,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0z2.tmdl",
+    "part": "dirt",
+    "base": 216,
+    "strip": 141,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0zm1.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 66,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0zm1.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 234,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0zm1.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0zm2.tmdl",
+    "part": "treeA",
+    "base": 384,
+    "strip": 318,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 1296,
+    "strip": 1038,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0zm2.tmdl",
+    "part": "dirt",
+    "base": 144,
+    "strip": 117,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0zm3.tmdl",
+    "part": "treeA",
+    "base": 480,
+    "strip": 417,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0zm3.tmdl",
+    "part": "concreteSmooth",
+    "base": 1620,
+    "strip": 1242,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x0zm3.tmdl",
+    "part": "dirt",
+    "base": 180,
+    "strip": 138,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1z0.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 213,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1z0.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 30,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1z1.tmdl",
+    "part": "treeA",
+    "base": 384,
+    "strip": 318,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 1296,
+    "strip": 891,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1z1.tmdl",
+    "part": "dirt",
+    "base": 144,
+    "strip": 75,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1z2.tmdl",
+    "part": "treeA",
+    "base": 192,
+    "strip": 162,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 492,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1z2.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 39,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1zm1.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 81,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1zm1.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 225,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1zm1.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1zm2.tmdl",
+    "part": "treeA",
+    "base": 384,
+    "strip": 324,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 1296,
+    "strip": 966,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1zm2.tmdl",
+    "part": "dirt",
+    "base": 144,
+    "strip": 84,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1zm3.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 81,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1zm3.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 231,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x1zm3.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2z0.tmdl",
+    "part": "treeA",
+    "base": 192,
+    "strip": 174,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 441,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2z0.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 48,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2z1.tmdl",
+    "part": "treeA",
+    "base": 192,
+    "strip": 174,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 459,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2z1.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 36,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2zm1.tmdl",
+    "part": "treeA",
+    "base": 384,
+    "strip": 330,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2zm1.tmdl",
+    "part": "concreteSmooth",
+    "base": 1296,
+    "strip": 957,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2zm1.tmdl",
+    "part": "dirt",
+    "base": 144,
+    "strip": 81,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2zm2.tmdl",
+    "part": "treeA",
+    "base": 480,
+    "strip": 429,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 1620,
+    "strip": 1134,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-x2zm2.tmdl",
+    "part": "dirt",
+    "base": 180,
+    "strip": 105,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1z0.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 66,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 228,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1z0.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1z1.tmdl",
+    "part": "treeA",
+    "base": 384,
+    "strip": 318,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 1296,
+    "strip": 885,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1z1.tmdl",
+    "part": "dirt",
+    "base": 144,
+    "strip": 102,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1z2.tmdl",
+    "part": "treeA",
+    "base": 288,
+    "strip": 249,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 762,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1z2.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 84,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1zm1.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1zm1.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 228,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1zm1.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1zm2.tmdl",
+    "part": "treeA",
+    "base": 576,
+    "strip": 504,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 1944,
+    "strip": 1386,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1zm2.tmdl",
+    "part": "dirt",
+    "base": 216,
+    "strip": 147,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1zm3.tmdl",
+    "part": "treeA",
+    "base": 288,
+    "strip": 243,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1zm3.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 696,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm1zm3.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 66,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2z0.tmdl",
+    "part": "treeA",
+    "base": 288,
+    "strip": 252,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 663,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2z0.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 72,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2z1.tmdl",
+    "part": "treeA",
+    "base": 384,
+    "strip": 336,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 1296,
+    "strip": 906,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2z1.tmdl",
+    "part": "dirt",
+    "base": 144,
+    "strip": 84,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2z2.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 216,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2z2.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 18,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2zm1.tmdl",
+    "part": "treeA",
+    "base": 288,
+    "strip": 249,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2zm1.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 666,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2zm1.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 75,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2zm2.tmdl",
+    "part": "treeA",
+    "base": 192,
+    "strip": 147,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 501,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2zm2.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 60,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2zm3.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2zm3.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 228,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm2zm3.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3z0.tmdl",
+    "part": "treeA",
+    "base": 288,
+    "strip": 255,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 690,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3z0.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 105,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3z1.tmdl",
+    "part": "treeA",
+    "base": 288,
+    "strip": 249,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 762,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3z1.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 63,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3z2.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 237,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3z2.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3zm1.tmdl",
+    "part": "treeA",
+    "base": 288,
+    "strip": 249,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3zm1.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 681,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3zm1.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 105,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3zm2.tmdl",
+    "part": "treeA",
+    "base": 288,
+    "strip": 255,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 711,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-large-xm3zm2.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 72,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0z0.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 216,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0z0.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0z1.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 168,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 435,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0z1.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 42,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0z2.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 216,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0z2.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 30,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0zm1.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0zm1.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 246,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0zm1.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0zm2.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 168,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 519,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0zm2.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 48,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0zm3.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 81,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0zm3.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 249,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x0zm3.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 24,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1z1.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 168,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 453,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1z1.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 66,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1z2.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 138,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 468,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1z2.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 30,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1zm2.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 168,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 471,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1zm2.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 42,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1zm3.tmdl",
+    "part": "treeB",
+    "base": 480,
+    "strip": 429,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1zm3.tmdl",
+    "part": "concreteSmooth",
+    "base": 1620,
+    "strip": 1122,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x1zm3.tmdl",
+    "part": "dirt",
+    "base": 180,
+    "strip": 129,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2z0.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 174,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 483,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2z0.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 51,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2z1.tmdl",
+    "part": "treeB",
+    "base": 288,
+    "strip": 249,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 738,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2z1.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 84,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2z2.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 228,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2z2.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 24,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2zm1.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2zm1.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 234,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2zm1.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2zm2.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 246,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2zm2.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2zm3.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2zm3.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 228,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-x2zm3.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1z0.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 168,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 450,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1z0.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 30,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1z1.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 81,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 240,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1z1.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1z2.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 81,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 222,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1z2.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1zm1.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1zm1.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 246,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1zm1.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1zm2.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 168,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 477,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1zm2.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 51,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1zm3.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 66,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1zm3.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 216,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm1zm3.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 30,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2z0.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 81,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 273,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2z0.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 30,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2z1.tmdl",
+    "part": "treeB",
+    "base": 480,
+    "strip": 411,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 1620,
+    "strip": 1164,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2z1.tmdl",
+    "part": "dirt",
+    "base": 180,
+    "strip": 114,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2z2.tmdl",
+    "part": "treeB",
+    "base": 288,
+    "strip": 231,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 765,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2z2.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 93,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2zm2.tmdl",
+    "part": "treeB",
+    "base": 288,
+    "strip": 243,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 735,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2zm2.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 84,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2zm3.tmdl",
+    "part": "treeB",
+    "base": 288,
+    "strip": 255,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2zm3.tmdl",
+    "part": "concreteSmooth",
+    "base": 972,
+    "strip": 705,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm2zm3.tmdl",
+    "part": "dirt",
+    "base": 108,
+    "strip": 81,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3z0.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 168,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3z0.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 462,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3z0.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 51,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3z1.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 87,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3z1.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 228,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3z1.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3z2.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 174,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3z2.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 477,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3z2.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 30,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3zm1.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 162,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3zm1.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 486,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3zm1.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 54,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3zm2.tmdl",
+    "part": "treeB",
+    "base": 192,
+    "strip": 162,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3zm2.tmdl",
+    "part": "concreteSmooth",
+    "base": 648,
+    "strip": 441,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/procgen-procpain-tree-park-pine-large-xm3zm2.tmdl",
+    "part": "dirt",
+    "base": 72,
+    "strip": 54,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/tree-park-large.tmdl",
+    "part": "treeA",
+    "base": 96,
+    "strip": 63,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/tree-park-large.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 222,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/tree-park-large.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/tree-park-pine-large.tmdl",
+    "part": "treeB",
+    "base": 96,
+    "strip": 66,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/tree-park-pine-large.tmdl",
+    "part": "concreteSmooth",
+    "base": 324,
+    "strip": 219,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "models/urban/tree-park-pine-large.tmdl",
+    "part": "dirt",
+    "base": 36,
+    "strip": 15,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-cc96playground01-body.tmdl",
+    "part": "lamps",
+    "base": 288,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-cc96playground01-body.tmdl",
+    "part": "body",
+    "base": 11058,
+    "strip": 5010,
+    "run": 75,
+    "lod": [
+      4722,
+      4068
+    ],
+    "lodStrip": [
+      0,
+      0
+    ]
+  },
+  {
+    "file": "vehicles/veh-cc96playground01-wheel.tmdl",
+    "part": "wheel rubber and alloy",
+    "base": 228,
+    "strip": 129,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-cc96playground01-wheelfast.tmdl",
+    "part": "wheel rubber and alloy",
+    "base": 228,
+    "strip": 129,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-ggbotrally0001-body.tmdl",
+    "part": "GGBot Rally body",
+    "base": 1092,
+    "strip": 0,
+    "run": 0,
+    "lod": [
+      1428,
+      1428
+    ],
+    "lodStrip": [
+      0,
+      0
+    ]
+  },
+  {
+    "file": "vehicles/veh-ggbotrally0001-wheel.tmdl",
+    "part": "Wheel 3",
+    "base": 84,
+    "strip": 54,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-ggbotrally0001-wheelfast.tmdl",
+    "part": "Wheel 3",
+    "base": 84,
+    "strip": 54,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-pica00000001-body.tmdl",
+    "part": "lamps",
+    "base": 36,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-pica00000001-body.tmdl",
+    "part": "glass",
+    "base": 228,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-pica00000001-body.tmdl",
+    "part": "body paint",
+    "base": 5412,
+    "strip": 3204,
+    "run": 75,
+    "lod": [
+      1956
+    ],
+    "lodStrip": [
+      1476
+    ]
+  },
+  {
+    "file": "vehicles/veh-pica00000001-wheel.tmdl",
+    "part": "merged",
+    "base": 450,
+    "strip": 291,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-pica00000001-wheelfast.tmdl",
+    "part": "merged",
+    "base": 432,
+    "strip": 198,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-ravager000001-body.tmdl",
+    "part": "lamps",
+    "base": 120,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-ravager000001-body.tmdl",
+    "part": "glass",
+    "base": 204,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-ravager000001-body.tmdl",
+    "part": "body paint",
+    "base": 5892,
+    "strip": 3390,
+    "run": 75,
+    "lod": [
+      2124
+    ],
+    "lodStrip": [
+      1632
+    ]
+  },
+  {
+    "file": "vehicles/veh-ravager000001-wheel.tmdl",
+    "part": "merged",
+    "base": 480,
+    "strip": 270,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-ravager000001-wheelfast.tmdl",
+    "part": "merged",
+    "base": 432,
+    "strip": 195,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-strix0000001-body.tmdl",
+    "part": "lamps",
+    "base": 120,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-strix0000001-body.tmdl",
+    "part": "glass",
+    "base": 168,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-strix0000001-body.tmdl",
+    "part": "body paint",
+    "base": 6114,
+    "strip": 3636,
+    "run": 75,
+    "lod": [
+      2004
+    ],
+    "lodStrip": [
+      1521
+    ]
+  },
+  {
+    "file": "vehicles/veh-strix0000001-wheel.tmdl",
+    "part": "merged",
+    "base": 480,
+    "strip": 270,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-strix0000001-wheelfast.tmdl",
+    "part": "merged",
+    "base": 432,
+    "strip": 198,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-tristarplay01-body.tmdl",
+    "part": "merged",
+    "base": 54,
+    "strip": 0,
+    "run": 0,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-tristarplay01-body.tmdl",
+    "part": "body paint and glass",
+    "base": 2313,
+    "strip": 0,
+    "run": 0,
+    "lod": [
+      3225,
+      3225
+    ],
+    "lodStrip": [
+      0,
+      0
+    ]
+  },
+  {
+    "file": "vehicles/veh-tristarplay01-wheel.tmdl",
+    "part": "front wheel 1",
+    "base": 228,
+    "strip": 129,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  },
+  {
+    "file": "vehicles/veh-tristarplay01-wheelfast.tmdl",
+    "part": "front wheel 1",
+    "base": 228,
+    "strip": 129,
+    "run": 75,
+    "lod": [],
+    "lodStrip": []
+  }
+]

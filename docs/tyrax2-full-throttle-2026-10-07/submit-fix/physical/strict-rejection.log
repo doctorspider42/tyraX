@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "F:\Projects\tyra-editor\tools\tyrax2-drive-analyze.py", line 114, in <module>
+    assert set(r['phase'] for r in rows)==set(range(phase_count))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

@@ -1,0 +1,37 @@
+{
+  "pid": 3975,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-sky-retint-order0-20261005/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-sky-retint-order0-20261005/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-physical-v1/game/bin/vehicle-playground.elf"
+  ],
+  "exe": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt",
+  "exeSha256": "c4629baf9c5daca45a9df6ad1ee84a188aeb025627b822a3ea62bdc48b23da18",
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-physical-v1",
+  "stem": "night-ablation-emulator-sky-retint-order0-20261005",
+  "kind": 19,
+  "order": 0,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "a5dd71bc8f1720b39f2769e7b520bd10cc18882e46a7a0bef25a4c83c17a1ab6",
+  "profile": "/home/spider/night-ablation-emulator-sky-retint-order0-20261005/profile",
+  "launchArchive": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-sky-retint-order0-20261005-launch",
+  "helperSha256": "04a154ac2d59b11532fb5cdf933f3df99fb86d29321f3cce6eecc9a1f4e37e22",
+  "launchFiles": {
+    "night-ablation.cfg": "47d69fd003829babda1ccde09091ea128026eb83f8c977f0e6b1fb38947100a1",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "3c11f7d2a0ea070e6e9ecd97ca5c584189c3e6ffa806e0f0720fba13bfdbf8a2",
+    "root-runtime-authority.json": "37f0bc742be0c0780e60a82091ac64de3fc5670b72011c5f9607499b3a1eece7",
+    "root-source-freeze.json": "bc9444a41fd9a0e3724c9b9776945ccc4b9053e7099a21563c65fbab83d40fe0",
+    "runtime-assets-manifest.json": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "target-source-manifest.json": "54e19b3d7b1d8b459c4872886314b12356bd116c7ca5a68c96a563f79aa0accb",
+    "vehicle-playground.elf": "a5dd71bc8f1720b39f2769e7b520bd10cc18882e46a7a0bef25a4c83c17a1ab6",
+    "vehicle-playground.elf.sym": "691fb9c3accc27193636c9206c8e312bb4f3551b21cca35e269c5aad9f8c9b93"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "status": "IMMUTABLE_SOURCE_V6_BOUNDED_SHRINK_HOST_PASS_NATIVE_PENDING",
+  "sourceManifestSha256": "8da4627407ce6a239cc79cb445d047eb90ecbd6dd031514612b311404deb08f3",
+  "baseV5ManifestSha256": "407469286181e470644e584b196c6be2162805e66d1aa78eccba152767f16810",
+  "sourceFiles": 500,
+  "sourceOperationsRemoved": 7,
+  "newVIorVFNames": 0,
+  "allGatesEffectsAndResidentClassesPreservedSourceOnly": true,
+  "hostShrinkChecks": 720915,
+  "hostOutputChecks": 47293,
+  "hostKind9Checks": 269,
+  "supportPins": {
+    "source-handoff-proof.json": "d6fb028fb56f4e90d41894295a94c8ba0fee8267199131d0496ef9597e971495",
+    "README.md": "1c096b9850e1485610c6a93ecce121e349e312498646a3ceb19828f774bd54ac",
+    "capture-contract.md": "d99fc4d54f039617730663f9761ec9734c17c457f85e509eff89b011bc2c8e43",
+    "kind9-order0.txt": "e06619d00623eea6e159d704bb41ef9fbe5a7efcfb134e7fd5897d43d172ccff",
+    "kind9-order1.txt": "4478361a50c6857b9936521120437397ae9820329be540b9df329da16d733676",
+    "corona_controls.py": "be22dbdc90230d1759dff9174e05fa37a3a99990afe2dd7988abdf010dc444de",
+    "verify-kind9-controls.py": "1dfe9cab47da25a40179d57d88e5f54b6fe21384b1b7d87fb93780d70fe5ed4e",
+    "kind9-host-controls-proof.json": "c5cb2389d10b50392977c8b96d7c0fee68ebd27e02d3e24a91d1f2425f7038ce",
+    "verify-final-output-controls.py": "15ccbc6670c0bef275b92b2b113a9ece96485d5626073a3d6c87c0ef4e3cf1df",
+    "host-controls-proof.json": "8c2214837414403ddcfcba98f61ae578edd10ad3b58cb6487b5221bf3c43bb30",
+    "bounded-domain-proof.json": "c979ac8b8f547e994b9a367446155bacbc26d7aecf320765898122c4462482f6",
+    "verify-shrink-equivalence.py": "e296e9e379fa099ab46f50cb197c4fbb5e875fe6298f315dfb81048ba42cc8b2",
+    "shrink-host-proof.json": "5cf2847ef081f6c797df93252178a27c370f47e176852fc70a6e50cdda1f8eb5"
+  },
+  "preparationSha256": "b448d62f8805631ea6bf76e04a79386dfa395eb479908e39bc25f0caab21fcd8",
+  "defaultOff": true,
+  "nativeScheduledSizeOrResidentFitAccepted": false,
+  "actualVUOutputPixelsOrGainAccepted": false,
+  "noBuildDeviceCacheMirrorProductionOrV5Mutation": true
+}

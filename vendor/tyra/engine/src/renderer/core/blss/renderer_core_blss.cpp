@@ -15,6 +15,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
@@ -1521,11 +1522,11 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   // scene inside this bracket must occlude itself.
   q = draw_enable_tests(q, 0, &gs->zBuffer);
   packet2_update(beginPacket, q);
-  packet2_update(beginPacket, draw_finish(beginPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(beginPacket, frameDrawFinish(beginPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(beginPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 #if TYRA_FRAME_PROFILE
   FrameProfile::tBlssBegin = FrameProfile::ticks() - fpT0;
 #endif
@@ -1565,11 +1566,11 @@ void RendererCoreBlss::endScene() {
   // sample it as a texture.
   qword_t* q = gs->emitRasterRestore(endPacket->base, true);
   packet2_update(endPacket, q);
-  packet2_update(endPacket, draw_finish(endPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(endPacket, frameDrawFinish(endPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(endPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 #if TYRA_FRAME_PROFILE
   FrameProfile::tBlssEnd = FrameProfile::ticks() - fpT0;
 #endif
@@ -1945,15 +1946,15 @@ void RendererCoreBlss::composite() {
     q = emitBaseQuad(q);
     q = emitCompositeRestore(q);
     packet2_update(packet, q);
-    packet2_update(packet, draw_finish(packet->next));
-    dma_channel_wait(DMA_CHANNEL_GIF, 0);
+    packet2_update(packet, frameDrawFinish(packet->next));
+    frameWaitGif(DMA_CHANNEL_GIF, 0);
 #if TYRA_FRAME_PROFILE
     FrameProfile::tBlssPacket = FrameProfile::ticks() - fpP0;
     FrameProfile::tBlssCompositeEe = FrameProfile::ticks() - fpT0;
 #endif
     path3Fence();  // Modified by TyraX: path3_fence.hpp
-    dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
-    draw_wait_finish();
+    frameSendPacket(packet, DMA_CHANNEL_GIF, true);
+    frameWaitFinish();
 #if TYRA_FRAME_PROFILE
     FrameProfile::tBlssComposite = FrameProfile::ticks() - fpT0;
 #endif
@@ -2089,8 +2090,8 @@ void RendererCoreBlss::composite() {
   q = emitCompositeRestore(q);
 
   packet2_update(packet, q);
-  packet2_update(packet, draw_finish(packet->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(packet, frameDrawFinish(packet->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
 #if TYRA_FRAME_PROFILE
   FrameProfile::tBlssPacket = FrameProfile::ticks() - fpS3;
 #endif
@@ -2103,8 +2104,8 @@ void RendererCoreBlss::composite() {
   FrameProfile::tBlssCompositeEe = FrameProfile::ticks() - fpT0;
 #endif
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(packet, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 #if TYRA_FRAME_PROFILE
   FrameProfile::tBlssComposite = FrameProfile::ticks() - fpT0;
 #endif

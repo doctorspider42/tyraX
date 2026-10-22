@@ -1,0 +1,96 @@
+{
+  "status": "READY_PRIVATE_SAME_ELF_POOL_CACHE_KIND4_SOURCE_HOST_ONLY_NOT_NATIVE_ACCEPTED",
+  "baselineManifestPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\target-source-manifest.json",
+  "baselineManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+  "sourceFiles": 497,
+  "changedFiles": [
+    "game/src/gen/game_lighting.gen.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp"
+  ],
+  "outputPins": {
+    "game/src/gen/game_lighting.gen.cpp": "cdcacb7fe39db886a0421745d3875950fe3524683923aeb595de3b58febfede8",
+    "tyra/engine/inc/debug/night_ablation.hpp": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646",
+    "tyra/engine/inc/debug/night_plan.hpp": "19f1484f376dd5614ca28985cab2eb60cf9c802521c1b89d01c3cc0c7a30a037",
+    "tyra/engine/inc/debug/night_runtime.hpp": "e67309ec355823c45f400066f396c1f342b8a725dcbd10b02ac2323965533538",
+    "tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "tyra/engine/inc/debug/quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "tyra/engine/inc/debug/quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b"
+  },
+  "targetManifestSha256": "d279c45d1a9f6b22fd71051e9f3a9b9570512242a863e18a096c1d17846c636e",
+  "sourcePatchSha256": "fe7471c3d5fc1410bc044681b4d1267abb3a4ff03b82f8d92e701ed0690bc40d",
+  "requiredProofs": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\final-proof.json",
+      "sha256": "01b0a05454ca4a13f65758cb32a6b4028de0b47390b9691fa68b62a36f2d874f",
+      "status": "PASS_PREPARED_SAME_ELF_POOL_CACHE_KIND4_ACTUAL_HEADER_HOST_CONTROLS_ONLY"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host-proof.json",
+      "sha256": "a6c14aa0a5ac320d06da2b3f20dd0a6c850f6ad9315874859a6941f14dcffc26",
+      "status": "PASS_HOST_SAME_ELF_POOL_CACHE_EXTRACTED_DUAL_ARM_BYTE_VERSION_REASON_CONTROLS_ONLY"
+    }
+  ],
+  "actualBaselineFunctionSha256": "5b5c00148aa3ee3bf0dfe608775f13745539e22d0dd28222b9f27258cc998306",
+  "actualDualArmFunctionSha256": "76d6c205f18a85a263bf4570abb17c7bfbbf1cea1a6f6aeb9ec57c60defe4275",
+  "hostOracle": {
+    "optimizations": [
+      "O0",
+      "O2"
+    ],
+    "casesEach": 1329,
+    "checksEach": 11722,
+    "actualColdFlushWitnesses": true,
+    "exactBagArrayAndColorHeaders": true,
+    "explicitRendererVec4MatrixBagAbiShims": true
+  },
+  "planProtocolHost": {
+    "complete5400Transcripts": 20,
+    "strictNegativeGuards": 47,
+    "malformedCfgChecksPerRun": 21,
+    "actualCliKind4Accepted": true,
+    "oldKindsPoolFlagFalse": true,
+    "kind4OrdinaryAndExtraMasksZero": true,
+    "kind4Sampler111": true,
+    "allThreeCounterStructsUnchangedOutsideColdFrames": true
+  },
+  "phaseConfig": {
+    "schemaKind": 4,
+    "order0": [
+      0,
+      1,
+      0
+    ],
+    "order1": [
+      1,
+      0,
+      1
+    ],
+    "configuration": [
+      "kind4",
+      "order0or1",
+      "joint0",
+      "restored0"
+    ],
+    "poolReasonWorkCommonUnpriced": true,
+    "coldWitnessOffsets": [
+      750,
+      1155
+    ],
+    "phaseFrames": 1800,
+    "loops": 5400,
+    "sampleRowsKind4": 384,
+    "counterWritesInsideTimingWindow": false,
+    "cacheResetAtArmBoundary": false
+  },
+  "historicalOnlyEvidencePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-independent-review-v1\\proof.json": "8805724585408b8ec48aad05f773ad44d65c26053935f30324b0f780a15ea661",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-target-compile-v1\\proof.json": "ac40e6e6b60c7c468581d6e57f6cb7abd98c5f4f4c552105a6740e221c9e8acd",
+    "F:\\Projects\\tyrax2-lab-20261001\\ee-resumed-pool-reason-census\\report.md": "334d6dc8e70272afef072e6767aeea550be5956e6617df059edcb200c8917403"
+  },
+  "nativeAccepted": false,
+  "runtimeAccepted": false,
+  "gainClaimed": false,
+  "activationWindowCountClaimed": false
+}

@@ -1,0 +1,14 @@
+{
+  "pid": 13811,
+  "window": "0x20000b",
+  "display": ":93",
+  "width": 1322,
+  "height": 974,
+  "x": 110,
+  "y": 47,
+  "observedAction": "Run",
+  "observedPhase": "ELF-entry-pause",
+  "observedPC": "0x00100e78",
+  "screenshot": "/mnt/f/Projects/tyrax2-lab-20261001/pool2-static-a96-arm1-repeat1-20261005-launch/entry-debugger.png",
+  "screenshotSha256": "522929800de7f00331e2034319e423fa2f8fcb49e3ac3a286cb9373f76f1e5e4"
+}

@@ -1,0 +1,16 @@
+{
+  "pid": 11296,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-road-prepared-game-20261012-v9\\physical-v1\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "bbb1273d4d9de9c243edfccda7960f323c5932534aa3609993d5ffd176ebb4bd",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "resetMode": "editor-network-reset",
+  "time": "2026-10-12T11:53:49.5362914+02:00"
+}

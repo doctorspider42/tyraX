@@ -1,0 +1,153 @@
+// A VU microprogram, executed on the host (docs/vu-framework.md).
+//
+// Debugging a VU is blind: no printf, output straight to the GS, and the only
+// ground truth is a capture off a running console (src/vucap.cpp). This runs the
+// program HERE instead - same instructions, same data memory, same bit patterns
+// landing in the GIF packet - so a microprogram can be exercised in milliseconds
+// without Docker, PCSX2 or a PS2.
+//
+// BOTH vector units are modelled, and the difference is declared rather than
+// assumed (`Target`): VU1 is a GS pipeline stage with 1024 quadwords of data
+// memory, 2048 micro slots, a VIF1 double buffer and PATH1 to the GIF; VU0 is an
+// EE coprocessor with 256 quadwords, 512 micro slots, none of the above, and an
+// entry contract of "restart at the vcallms address, keep data memory"
+// (`runKernel`). A VU0 program run against the VU1 model wraps its addresses in
+// the wrong place and the out-of-range warning never fires.
+//
+// The output is deliberately `std::vector<uint32_t>` VU1 data memory, the exact
+// shape `vucap::Capture::vuMem` carries, and it is decoded by the SAME
+// `vucap::scanGifPackets`. A simulated run and a captured run are therefore
+// directly comparable - that is the whole point, and the reason the decoder was
+// lifted out of vucap.cpp rather than reimplemented here.
+//
+// What this models: the logical semantics a VCL programmer writes against -
+// masked fields, the ACC, Q/I, the clip flag register, integer registers and
+// memory, plus the fact that the VU FPU is NOT IEEE-754 (no inf, no NaN,
+// overflow saturates to 0x7F7FFFFF, denormals read as zero - `vuFloat` in the
+// .cpp, and the reason the move family deliberately bypasses it).
+// What it does NOT model: cycle timing, the dual-issue pairing, branch
+// delay slots or the DIV latency. Those belong to VCL, which schedules the
+// program after this level; simulating them would make the model disagree with
+// the source the programmer reads. The one hazard that IS a programmer-level
+// mistake rather than a scheduling detail - overwriting Q before it is consumed
+// - is reported (`qClobbers`), because the assembler will not tell you.
+//
+// No GL, no ImGui, no project.hpp - the aobake/livedbg shape.
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "vuir.hpp"
+
+namespace vusim {
+
+/** Which vector unit this program is for. The two differ in ways that are
+ * INVISIBLE until they are not: VU0 has a quarter of the data memory and a
+ * quarter of the micro memory, no GIF path, and no VIF1 double buffer. A VU0
+ * program run against the VU1 model wraps at 1024 quadwords where the hardware
+ * wraps at 256, and the out-of-range warning never fires - it looks plausible
+ * and is quietly wrong, which is the failure mode this framework treats as
+ * worse than an admitted gap. */
+enum class Target { VU1, VU0 };
+
+/** Data memory, in quadwords. VU1 has 16 KB, VU0 has 4 KB. */
+constexpr int kVu1MemQuads = 1024;
+constexpr int kVu0MemQuads = 256;
+/** Micro (instruction) memory, in 64-bit slots. VU1 has 16 KB, VU0 has 4 KB. */
+constexpr int kVu1MicroSlots = 2048;
+constexpr int kVu0MicroSlots = 512;
+
+constexpr int memQuads(Target t) {
+    return t == Target::VU0 ? kVu0MemQuads : kVu1MemQuads;
+}
+constexpr int memWords(Target t) { return memQuads(t) * 4; }
+constexpr int microSlots(Target t) {
+    return t == Target::VU0 ? kVu0MicroSlots : kVu1MicroSlots;
+}
+constexpr const char* targetName(Target t) {
+    return t == Target::VU0 ? "VU0" : "VU1";
+}
+
+/** VU1 data memory, in quadwords/words. Kept as the unqualified spelling
+ * because the StaPip world is VU1 and says so everywhere; anything that can see
+ * both targets should use `memQuads(target)`. */
+constexpr int kMemQuads = kVu1MemQuads;
+constexpr int kMemWords = kMemQuads * 4;
+
+struct Config {
+    /** VU1 (a GS pipeline stage, fed by VIF1) or VU0 (an EE coprocessor called
+     * with `vcallms`). Sets the memory sizes and which instructions are legal. */
+    Target target = Target::VU1;
+    /** Where execution starts, as an index into `Program::code`. VU1 pipeline
+     * programs start at 0 and loop on `xtop`; a VU0 kernel is RE-ENTERED at its
+     * `vcallms` address on every call, which for a generated kernel is 0 - so
+     * this is the entry contract, not a debugging convenience. */
+    int entry = 0;
+    /** What `xtop` yields - the base of the current double-buffer half, in
+     * quadwords. The EE picks this via `packet2_utils_vu_add_double_buffer`;
+     * a harness sets it to wherever it staged its input block. */
+    int top = 0;
+    /** Runaway guard. A per-vertex loop over a few hundred vertices is tens of
+     * thousands of steps; anything past this is a bug in the program. */
+    long long maxSteps = 4000000;
+    /** Record every executed instruction into `Result::trace` (slow, and the
+     * listing is what the Debugger's step view shows). */
+    bool trace = false;
+    /** Stop after this many instructions have been traced (0 = no limit). */
+    int traceLimit = 4000;
+};
+
+/** One thing the run noticed that the hardware would have swallowed silently. */
+struct Warning {
+    int pc = 0;
+    int line = 0;
+    std::string text;
+};
+
+struct Result {
+    bool ok = false;
+    std::string error;      // set when the run aborted (bad op, step budget)
+    long long steps = 0;
+    std::vector<int> kicks;         // XGKICK addresses, in execution order
+    std::vector<uint32_t> mem;      // VU1 data memory after the run
+    std::vector<std::string> trace;
+    std::vector<Warning> warnings;
+    int divByZero = 0;      // the hardware clamps; a real program should not
+    int qClobbers = 0;      // Q overwritten before anything read it
+    bool hitStepLimit = false;
+};
+
+/** Runs one pass of `p` - from `cfg.entry` until it branches back to its buffer
+ * loop, hits the E bit, runs off the end, or exhausts the step budget.
+ * `initialMem` is data memory as the EE left it (padded or truncated to
+ * `memWords(cfg.target)`; short input is zero-filled).
+ *
+ * A VU0 KERNEL is called repeatedly and its data memory PERSISTS between calls
+ * (`vcallms` restarts the microprogram, it does not clear anything). Model that
+ * by feeding `Result::mem` back in as the next call's `initialMem` - which is
+ * exactly what `runKernel` below does. */
+Result run(const vuir::Program& p, const std::vector<uint32_t>& initialMem,
+           const Config& cfg);
+
+/** One `vcallms` per element of `perCall`: each entry is a list of (word index,
+ * value) writes applied to the PERSISTENT data memory before that call, so a
+ * harness stages only what changes between kicks - the frame-static parameters
+ * stay where the first call left them, exactly as the EE-side driver arranges
+ * it. Returns the result of every call, in order; the last one carries the
+ * final memory image. Stops early if a call fails. */
+struct KernelWrite {
+    int word = 0;
+    uint32_t value = 0;
+};
+std::vector<Result> runKernel(const vuir::Program& p,
+                              const std::vector<uint32_t>& initialMem,
+                              const std::vector<std::vector<KernelWrite>>& perCall,
+                              const Config& cfg);
+
+/** A human-readable listing of the program, one line per instruction, with the
+ * labels resolved. Used by `--vu-list` and the Debugger. */
+std::string listing(const vuir::Program& p);
+
+}  // namespace vusim

@@ -11,6 +11,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <gif_tags.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include <gs_gp.h>
@@ -24,7 +25,7 @@ Path3::Path3() {
   texturePacket = packet2_create(128, P2_TYPE_NORMAL, P2_MODE_CHAIN, false);
 
   packet2_chain_open_end(drawFinishPacket, 0, 0);
-  packet2_update(drawFinishPacket, draw_finish(drawFinishPacket->next));
+  packet2_update(drawFinishPacket, frameDrawFinish(drawFinishPacket->next));
   packet2_chain_close_tag(drawFinishPacket);
 }
 
@@ -43,9 +44,9 @@ void Path3::init(RendererSettings* t_settings) {
 }
 
 void Path3::sendDrawFinishTag() {
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(drawFinishPacket, DMA_CHANNEL_GIF, true);
+  frameSendPacket(drawFinishPacket, DMA_CHANNEL_GIF, true);
 }
 
 void Path3::clearScreen(zbuffer_t* z, const Color& color) {
@@ -91,7 +92,7 @@ void Path3::clearScreen(zbuffer_t* z, const Color& color) {
     packet2_update(clearScreenPacket, q);
   }
   // Terminate the PATH3 stream with a data-less EOP giftag instead of
-  // upstream's draw_finish(): the EOP bit is load-bearing (without it the
+  // upstream's frameDrawFinish(): the EOP bit is load-bearing (without it the
   // GIF never releases PATH3 and PATH1/XGKICK deadlocks on the first 3D
   // frame), but the FINISH register write is a stray nobody consumes and it
   // can release RendererCoreSync::align3D()'s barrier early (the GS FINISH
@@ -103,13 +104,14 @@ void Path3::clearScreen(zbuffer_t* z, const Color& color) {
     packet2_update(clearScreenPacket, q);
   }
   packet2_chain_close_tag(clearScreenPacket);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(clearScreenPacket, DMA_CHANNEL_GIF, true);
+  frameSendPacket(clearScreenPacket, DMA_CHANNEL_GIF, true);
 }
 
 void Path3::sendTexture(const Texture* texture,
-                        const RendererCoreTextureBuffers& texBuffers) {
+                        const RendererCoreTextureBuffers& texBuffers,
+                        const texwrap_t& wrapInForce) {
   packet2_reset(texturePacket, false);
 
   packet2_update(
@@ -128,17 +130,27 @@ void Path3::sendTexture(const Texture* texture,
                               texBuffers.clut->width));
   }
 
+  // Modified by TyraX: upstream wrote the TEXTURE's wrap here, i.e. it set
+  // GS_REG_CLAMP_1 as a side effect of every upload. The wrap is draw state
+  // now: each StaPip bag writes the one it wants in its own chain, against
+  // RendererCoreGS::currentTextureWrap, and that cache never saw this write.
+  // A texture uploaded mid-frame with a non-REPEAT wrap (tyre marks are
+  // REPEAT x CLAMP) therefore left CLAMP in force while the cache said
+  // REPEAT, and every later 3D bag of the frame sampled clamped - the roads
+  // smeared into streaks along their V for one frame (found in a GS dump:
+  // CLAMP_1 = 4 before the terrain and every road draw). The write stays, so
+  // the packet keeps its shape, but it restates the wrap already in force:
+  // beforeMutation() has drained the pipeline, so the cache IS the GS state.
   packet2_chain_open_cnt(texturePacket, 0, 0, 0);
   packet2_update(texturePacket,
-                 draw_texture_wrapping(
-                     texturePacket->next, 0,
-                     const_cast<texwrap_t*>(texture->getWrapSettings())));
+                 draw_texture_wrapping(texturePacket->next, 0,
+                                       const_cast<texwrap_t*>(&wrapInForce)));
   packet2_chain_close_tag(texturePacket);
 
   packet2_update(texturePacket, draw_texture_flush(texturePacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(texturePacket, DMA_CHANNEL_GIF, true);
+  frameSendPacket(texturePacket, DMA_CHANNEL_GIF, true);
 }
 
 }  // namespace Tyra

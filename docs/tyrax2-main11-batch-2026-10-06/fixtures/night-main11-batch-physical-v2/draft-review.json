@@ -1,0 +1,20 @@
+{
+  "status": "DRAFT_NOT_FROZEN",
+  "sourceFiles": 501,
+  "kind": 29,
+  "baseManifestSha256": "cb9ae8eb8b5865a61b9f8e697952497474bdce1a0d8cad915e52d0487988d716",
+  "warmup": "Entire private carrier/group preparation and replacement disabled before global NightSampler.expectedIndex600; original rendering used. Delay applies once at startup, not each phase. No guard relaxed.",
+  "whyProtocol": [
+    "phase",
+    "offset",
+    "enabled",
+    "group",
+    "reason",
+    "firstDiff",
+    "keyReady",
+    "keyAdmitted"
+  ],
+  "whyMeaning": "Persistent history of refusal/demotion bits; historical keyAdmitted may remain1 after later invalidation. Not exclusive current-refusal classification. firstDiff UINT32_MAX absent key change.",
+  "inheritedScope": "Same restricted source-identical carrier copying/light/filter/order/lifetime guards and common unpriced footprint as v1. No game native build, output equivalence or positive activation from preparation.",
+  "sourceControlsPending": true
+}

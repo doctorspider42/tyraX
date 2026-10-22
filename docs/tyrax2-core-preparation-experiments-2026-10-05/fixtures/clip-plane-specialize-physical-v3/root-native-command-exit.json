@@ -1,0 +1,14 @@
+{
+  "sourceManifestSha256": "829beb3b4e042a1dc167d0ac11336a633fcab47ebcf1add3238e8bcb1126d2c1",
+  "errorLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v38.err",
+  "status": "ROOT_observed_native_child_process_completion",
+  "actualCommandParameters": {
+    "Engine": "F:/Projects/tyrax2-lab-20261001/clip-plane-specialize-physical-v3/tyra",
+    "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+    "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+    "Project": "F:/Projects/tyrax2-lab-20261001/clip-plane-specialize-physical-v3/game"
+  },
+  "processExitCode": 0,
+  "childProcessId": 47516,
+  "buildLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v38.log"
+}

@@ -1,0 +1,23 @@
+{
+  "status": "ROOT_CREATED_PRIVATE_V3_EXTRA_SUBGROUP_INPUT_NOT_NATIVE_ACCEPTED",
+  "sourceFiles": 497,
+  "proposalSourceProofSha256": "47bae8a0dec65e646f173b4a805a4a8f657288dad9fdce63165e3b5ff96735d4",
+  "baselineManifestSha256": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083",
+  "hostProofPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-cli-v2\\proof.json",
+  "hostProofSha256": "1096f4f666a29e57fb53facee3dc7db5d73f46521609b3540c397d96f42f68fb",
+  "integrationScriptSha256": "c7f8d9f97faec6d190b6242b63052be3a794a4410317361330d2a945c810fc18",
+  "outputPins": {
+    "game/src/terrain_game.cpp": "62396e22f9a54af27d1c4ac0acfd1444747a8a033f11564cd9d85fa85aa738ab",
+    "game/src/gen/game_collision.gen.cpp": "5179302e82a94c74f751a4cfad59863974de72beb2e7e5a57ef606dbc9549619",
+    "game/src/gen/game_lighting.gen.cpp": "3eb0c90c1b2efe879b247baab4b1acda1868abd7064ab16b30021db5355c6cf4",
+    "game/src/gen/game_vehicles.gen.cpp": "9ceb8b604808e4093b0741dbefa3ae53a6b371316590b136719ab96f59bb7026",
+    "tyra/engine/inc/debug/night_ablation.hpp": "afac4fddf3c41977f22e64a00c15cdbf0e17342de49149fb529bc533a3fb54c3",
+    "tyra/engine/inc/debug/night_plan.hpp": "01b144f310cea1dc01df440001b127ff5f69b2f0d83db635dd9d44af105a48ca",
+    "tyra/engine/inc/debug/night_runtime.hpp": "9d0c22a1e27a2c37ce37c235e8a757db9251566bcdb959e6bde89921d30070fc",
+    "tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "tyra/engine/inc/debug/quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "tyra/engine/inc/debug/quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b"
+  },
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

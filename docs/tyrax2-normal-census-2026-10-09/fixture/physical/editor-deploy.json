@@ -1,0 +1,15 @@
+{
+  "pid": 19008,
+  "status": "console-output-received",
+  "bin": "F:\\Projects\\tyrax2-normal-census-20261009-v2\\physical\\bin",
+  "args": [
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf",
+    "-ps2link"
+  ],
+  "elfSha256": "3be433d5d8abe79336d4d5207a69c2bcc6127622079734e1498f867bf3e439d9",
+  "runner": "src/runner.cpp::resetPs2Link/deployToPs2",
+  "time": "2026-10-09T13:33:29.8604135+02:00"
+}

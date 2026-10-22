@@ -1,0 +1,826 @@
+{
+  "status": "ROOT_CLOSED_TWELVE_EE_LAZY_EPOCH_CAPTURES_SIX_PACKED_OUTPUT_PAIRS",
+  "captures": [
+    {
+      "vertices": 96,
+      "arm": 0,
+      "repeats": 1,
+      "completedProofSha256": "0ee7f3f466e9a73b15ff7c74e1846e5d68c5a369598f4cdebbefba657afc3bb4",
+      "stateSha256": "aed6551778fcbe8b1662020686c92366b8361a644de349c783a32093d2ad9d11",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 0,
+        "vertices": 96,
+        "repeats": 1,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "96",
+            "1",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 96,
+      "arm": 1,
+      "repeats": 1,
+      "completedProofSha256": "e636c4a2a666bc46d2da79a59638a293d1fc6ecbd81511122fce003f1104e2b4",
+      "stateSha256": "783f3fd0fa0d6be475b5eb333c7d69747214b6511d638efd3e245da7bf4bc2e7",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 1,
+        "vertices": 96,
+        "repeats": 1,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "96",
+            "1",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 96,
+      "arm": 0,
+      "repeats": 2,
+      "completedProofSha256": "fa92216ca5817cf968b704cdba9ff3e2b5d7e3a032fcf8adfc0b6b322b9bfe92",
+      "stateSha256": "f3815789892998662abccee043c23b1ff9210770e0cedcf661f31fe063024ef9",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 0,
+        "vertices": 96,
+        "repeats": 2,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "96",
+            "1",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "96",
+            "2",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 96,
+      "arm": 1,
+      "repeats": 2,
+      "completedProofSha256": "e0d90977e9713a079a0f7226edbced9ae788437e8bfaf237f9ce389d982697d7",
+      "stateSha256": "7ceefb3cdf6d634578507632556ca54b039c6f8e3ea1ba8323b481bbfd789930",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 1,
+        "vertices": 96,
+        "repeats": 2,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "96",
+            "1",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "96",
+            "2",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 96,
+      "arm": 0,
+      "repeats": 3,
+      "completedProofSha256": "3fea1ffd23ac80b8da95102aec971adc725ebe6508855674f49a0c8937d04399",
+      "stateSha256": "dded5e41132da9322418922c4be50d013e50e45a3973427c01b4575fe5b75557",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 0,
+        "vertices": 96,
+        "repeats": 3,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "96",
+            "1",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "96",
+            "2",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "96",
+            "3",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 96,
+      "arm": 1,
+      "repeats": 3,
+      "completedProofSha256": "2fb166b52a036e050818e439844024298a001f6e796911449dfab6d02191304e",
+      "stateSha256": "290238ca7341ff00de2051e2a1bb936f98935cedef64e3538526c577b19e9f3d",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 1,
+        "vertices": 96,
+        "repeats": 3,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "96",
+            "1",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "96",
+            "2",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "96",
+            "3",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 192,
+      "arm": 0,
+      "repeats": 1,
+      "completedProofSha256": "d65656ef60acadd4cc5d763ad410c0b672d8a26eeca2dcb14eb5c41571bee90c",
+      "stateSha256": "c729935e92b48317e756a1a0e6da5e7c617764b48cc4c9eaad448a4b0a9acc77",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 0,
+        "vertices": 192,
+        "repeats": 1,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "192",
+            "1",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 192,
+      "arm": 1,
+      "repeats": 1,
+      "completedProofSha256": "9d9b0faddb60a94cb7f8612dc6526c2c9634a7a0e73bf00a38246f912c26a83a",
+      "stateSha256": "4947e62235cd527b5580545afbc8b9fbcfaeec5c62c74488f36a73d3c07242cf",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 1,
+        "vertices": 192,
+        "repeats": 1,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "192",
+            "1",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 192,
+      "arm": 0,
+      "repeats": 2,
+      "completedProofSha256": "395be9894691dd0c72281b4e39ad38393be9178595d76bd3be45b0f13e3818d7",
+      "stateSha256": "b3ee7a2910ce32181cee9ef6f173eb30b28df006350e7e67645bc118c73420eb",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 0,
+        "vertices": 192,
+        "repeats": 2,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "192",
+            "1",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "192",
+            "2",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 192,
+      "arm": 1,
+      "repeats": 2,
+      "completedProofSha256": "c7ffdfbc3c4be2bce2a4a10cb4a808001b3c0ee9983d040e54b956369f82179e",
+      "stateSha256": "6a1c2ec26f04000362a97859f7a779281bdb63e663b9558b0f61a3d8e64e7964",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 1,
+        "vertices": 192,
+        "repeats": 2,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "192",
+            "1",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "192",
+            "2",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 192,
+      "arm": 0,
+      "repeats": 3,
+      "completedProofSha256": "167abd2779f834dd3a6dc6e8d72aa840a4d184f40e6c476ecd2e11fe161627fa",
+      "stateSha256": "2ead05fbbb77398c4720f90dac418723651017109adcba0c7c2486c7a0ce452a",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 0,
+        "vertices": 192,
+        "repeats": 3,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "192",
+            "1",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "192",
+            "2",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "192",
+            "3",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    },
+    {
+      "vertices": 192,
+      "arm": 1,
+      "repeats": 3,
+      "completedProofSha256": "109e46807dae9187550f7ec9f67d9bd385a50a04a54d414556e7743263be474f",
+      "stateSha256": "32ecfd6e516a59edd5ce623bb7485c61860442a838340bdabb7c623ecda8aa6a",
+      "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+      "protocol": {
+        "status": "PASS_EXACT_LAZY_EPOCH_PROTOCOL",
+        "arm": 1,
+        "vertices": 192,
+        "repeats": 3,
+        "clip": 0,
+        "sourceRows": [
+          [
+            "0",
+            "0",
+            "192",
+            "1",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "192",
+            "2",
+            "0"
+          ],
+          [
+            "0",
+            "0",
+            "192",
+            "3",
+            "0"
+          ]
+        ],
+        "countersDisabled": true,
+        "coldOracleDisabled": true,
+        "outputFreshnessRequiresSavedVUValidation": true
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "status": "PASS_TESTED_ACTUAL_PACKED_VU_PAYLOAD_BYTE_EQUAL_ONLY",
+      "case": "A96",
+      "packages": [
+        {
+          "count": 21,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 548,
+          "tableKick": 530,
+          "stateQwords": 1,
+          "headerSha256": "7842adf20f58f2fcb4f5ca80b41bd76d078f4a5bf561a480de209eef921b47be",
+          "outputSha256": "af438fe792bfa8dae1e47d17e54704d02f35cd1d7a4dd26517e56d3facdfb875",
+          "outputQwords": 63
+        },
+        {
+          "count": 75,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 249,
+          "tableKick": 177,
+          "stateQwords": 9,
+          "headerSha256": "57eb2fcef6ade6ccc2db12b0e95030efa559644cec7a6df0aabee575d9b9ee43",
+          "outputSha256": "642c47620f108c879d6ccee491cb6f269868dc290d11b4cfa37aab8c89b680d2",
+          "outputQwords": 225
+        }
+      ],
+      "baselineVu1Sha256": "7689fcf6de8129a68a09f58109f4f6672e2dfed109475c3df370b69b7f17b2c8",
+      "tableVu1Sha256": "93b9358cb785ab51fd354f2b659f67f096fb7bfb8774eb16eee900a0538f1741",
+      "wholeBankCompared": false,
+      "first75Overwritten": false,
+      "GSConsumptionRasterUniversalEqualityOrPerformanceAccepted": false,
+      "finalEpochRGBAValidated": true,
+      "repeats": 1,
+      "microcodeSha256": [
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6"
+      ],
+      "inputFiles": {
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch/state.p2s": "aed6551778fcbe8b1662020686c92366b8361a644de349c783a32093d2ad9d11",
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch/state.p2s": "783f3fd0fa0d6be475b5eb333c7d69747214b6511d638efd3e245da7bf4bc2e7",
+        "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-runtime-v1/decode-vu1-output.py": "af13b0c7ededb4937598db953a4e079a9135c21e5b3d8a9bb682edf56ced708f"
+      },
+      "rootPausedCompletionTextConfigAuthorityRequired": true
+    },
+    {
+      "status": "PASS_TESTED_ACTUAL_PACKED_VU_PAYLOAD_BYTE_EQUAL_ONLY",
+      "case": "A96",
+      "packages": [
+        {
+          "count": 21,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 548,
+          "tableKick": 530,
+          "stateQwords": 1,
+          "headerSha256": "7842adf20f58f2fcb4f5ca80b41bd76d078f4a5bf561a480de209eef921b47be",
+          "outputSha256": "2bb24c26dbad57524f494fdc6c0ee2bc40b9a774cc9612a653b43540724a3701",
+          "outputQwords": 63
+        },
+        {
+          "count": 75,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 249,
+          "tableKick": 177,
+          "stateQwords": 9,
+          "headerSha256": "57eb2fcef6ade6ccc2db12b0e95030efa559644cec7a6df0aabee575d9b9ee43",
+          "outputSha256": "e75bc7dd6799523c7ba95ec5d410168c64ccf9a471ad13bca7889e08705e4152",
+          "outputQwords": 225
+        }
+      ],
+      "baselineVu1Sha256": "20348ff952f4fcd4b4e8eceacab344a563b64751c6778961ac5d375c6a3b48eb",
+      "tableVu1Sha256": "858856e741a343256cb825d96f67060f05edd767f103711f931aa92e3e7b0c45",
+      "wholeBankCompared": false,
+      "first75Overwritten": false,
+      "GSConsumptionRasterUniversalEqualityOrPerformanceAccepted": false,
+      "finalEpochRGBAValidated": true,
+      "repeats": 2,
+      "microcodeSha256": [
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6"
+      ],
+      "inputFiles": {
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch/state.p2s": "f3815789892998662abccee043c23b1ff9210770e0cedcf661f31fe063024ef9",
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch/state.p2s": "7ceefb3cdf6d634578507632556ca54b039c6f8e3ea1ba8323b481bbfd789930",
+        "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-runtime-v1/decode-vu1-output.py": "af13b0c7ededb4937598db953a4e079a9135c21e5b3d8a9bb682edf56ced708f"
+      },
+      "rootPausedCompletionTextConfigAuthorityRequired": true
+    },
+    {
+      "status": "PASS_TESTED_ACTUAL_PACKED_VU_PAYLOAD_BYTE_EQUAL_ONLY",
+      "case": "A96",
+      "packages": [
+        {
+          "count": 21,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 548,
+          "tableKick": 530,
+          "stateQwords": 1,
+          "headerSha256": "7842adf20f58f2fcb4f5ca80b41bd76d078f4a5bf561a480de209eef921b47be",
+          "outputSha256": "040e40374d0beb28a8230a099053ea130905e68a3bedb4a4cc898e459ca61d93",
+          "outputQwords": 63
+        },
+        {
+          "count": 75,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 249,
+          "tableKick": 177,
+          "stateQwords": 9,
+          "headerSha256": "57eb2fcef6ade6ccc2db12b0e95030efa559644cec7a6df0aabee575d9b9ee43",
+          "outputSha256": "b8e5a69941725e965e6fdf07dc3e3e98b2fbaee12fa0bafedef8af2302934baa",
+          "outputQwords": 225
+        }
+      ],
+      "baselineVu1Sha256": "85e54d1a7ca87af814fe39578652b10a881e4ce46d72b242a1ee0a551c68b177",
+      "tableVu1Sha256": "77ec4981308765a9d3bc413085542216a53fb71e748725034311a90259f40f4b",
+      "wholeBankCompared": false,
+      "first75Overwritten": false,
+      "GSConsumptionRasterUniversalEqualityOrPerformanceAccepted": false,
+      "finalEpochRGBAValidated": true,
+      "repeats": 3,
+      "microcodeSha256": [
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6"
+      ],
+      "inputFiles": {
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch/state.p2s": "dded5e41132da9322418922c4be50d013e50e45a3973427c01b4575fe5b75557",
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch/state.p2s": "290238ca7341ff00de2051e2a1bb936f98935cedef64e3538526c577b19e9f3d",
+        "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-runtime-v1/decode-vu1-output.py": "af13b0c7ededb4937598db953a4e079a9135c21e5b3d8a9bb682edf56ced708f"
+      },
+      "rootPausedCompletionTextConfigAuthorityRequired": true
+    },
+    {
+      "status": "PASS_TESTED_ACTUAL_PACKED_VU_PAYLOAD_BYTE_EQUAL_ONLY",
+      "case": "B192",
+      "packages": [
+        {
+          "count": 42,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 150,
+          "tableKick": 111,
+          "stateQwords": 1,
+          "headerSha256": "0b06dd8bbdf5c9588e7d2c40d5bc2992e9e18aa12bba14bdc164810337c6ed84",
+          "outputSha256": "7c93586e42cd077865a6c5dee5b57e59e63dcccff74135b9defcd01647a2afba",
+          "outputQwords": 126
+        },
+        {
+          "count": 75,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 710,
+          "tableKick": 638,
+          "stateQwords": 1,
+          "headerSha256": "8abb67a5c436a09d88a713490cec87603530424c2e91c49255a2cb36a9df073e",
+          "outputSha256": "2fc809910971484d5ba1f1f04714aaf8330108efef533409149f685e5aef16c1",
+          "outputQwords": 225
+        }
+      ],
+      "baselineVu1Sha256": "5c94146f50d81aec61f56438a5c0b8b27a4caf5653036b14593876495c99fd88",
+      "tableVu1Sha256": "b2f01549833685f3e455b38a9932204de7769bd58caf82d364935f1a2867a98c",
+      "wholeBankCompared": false,
+      "first75Overwritten": true,
+      "GSConsumptionRasterUniversalEqualityOrPerformanceAccepted": false,
+      "finalEpochRGBAValidated": true,
+      "repeats": 1,
+      "microcodeSha256": [
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6"
+      ],
+      "inputFiles": {
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch/state.p2s": "c729935e92b48317e756a1a0e6da5e7c617764b48cc4c9eaad448a4b0a9acc77",
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch/state.p2s": "4947e62235cd527b5580545afbc8b9fbcfaeec5c62c74488f36a73d3c07242cf",
+        "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-runtime-v1/decode-vu1-output.py": "af13b0c7ededb4937598db953a4e079a9135c21e5b3d8a9bb682edf56ced708f"
+      },
+      "rootPausedCompletionTextConfigAuthorityRequired": true
+    },
+    {
+      "status": "PASS_TESTED_ACTUAL_PACKED_VU_PAYLOAD_BYTE_EQUAL_ONLY",
+      "case": "B192",
+      "packages": [
+        {
+          "count": 42,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 611,
+          "tableKick": 572,
+          "stateQwords": 1,
+          "headerSha256": "0b06dd8bbdf5c9588e7d2c40d5bc2992e9e18aa12bba14bdc164810337c6ed84",
+          "outputSha256": "173981c245a82c893fbb8bbc73fcd60b56625873ae59ab8992f6ecec8138f61b",
+          "outputQwords": 126
+        },
+        {
+          "count": 75,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 249,
+          "tableKick": 177,
+          "stateQwords": 1,
+          "headerSha256": "8abb67a5c436a09d88a713490cec87603530424c2e91c49255a2cb36a9df073e",
+          "outputSha256": "b7e870038bc397fc38845e943861d0666ed4a9b49e790a09f27b39ad675b3a0f",
+          "outputQwords": 225
+        }
+      ],
+      "baselineVu1Sha256": "19fd3c7f6d00d1cd09f05abbf1801cf9c9f4707ae8e914f01a918e609aaffaf5",
+      "tableVu1Sha256": "f40ec50605b82e9fa4f0b3c97cd4ec062db62ea9e1477246d0367564a5449906",
+      "wholeBankCompared": false,
+      "first75Overwritten": true,
+      "GSConsumptionRasterUniversalEqualityOrPerformanceAccepted": false,
+      "finalEpochRGBAValidated": true,
+      "repeats": 2,
+      "microcodeSha256": [
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6"
+      ],
+      "inputFiles": {
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch/state.p2s": "b3ee7a2910ce32181cee9ef6f173eb30b28df006350e7e67645bc118c73420eb",
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch/state.p2s": "6a1c2ec26f04000362a97859f7a779281bdb63e663b9558b0f61a3d8e64e7964",
+        "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-runtime-v1/decode-vu1-output.py": "af13b0c7ededb4937598db953a4e079a9135c21e5b3d8a9bb682edf56ced708f"
+      },
+      "rootPausedCompletionTextConfigAuthorityRequired": true
+    },
+    {
+      "status": "PASS_TESTED_ACTUAL_PACKED_VU_PAYLOAD_BYTE_EQUAL_ONLY",
+      "case": "B192",
+      "packages": [
+        {
+          "count": 42,
+          "legacyBase": 22,
+          "tableBase": 22,
+          "legacyKick": 150,
+          "tableKick": 111,
+          "stateQwords": 1,
+          "headerSha256": "0b06dd8bbdf5c9588e7d2c40d5bc2992e9e18aa12bba14bdc164810337c6ed84",
+          "outputSha256": "a6d435918171d2334b2dece7d14ef07374c3a5096cbdfcc6e4f95ce8a93af333",
+          "outputQwords": 126
+        },
+        {
+          "count": 75,
+          "legacyBase": 483,
+          "tableBase": 483,
+          "legacyKick": 710,
+          "tableKick": 638,
+          "stateQwords": 1,
+          "headerSha256": "8abb67a5c436a09d88a713490cec87603530424c2e91c49255a2cb36a9df073e",
+          "outputSha256": "a4692d3b5262c509b3bc7813b00444650319853a5187e065ab72d749e29d0fea",
+          "outputQwords": 225
+        }
+      ],
+      "baselineVu1Sha256": "7365c66b4c3c2d4293b9fdcf1605a166f776497c381b7660ab9ab447d416e1b2",
+      "tableVu1Sha256": "6ef95e3a2aa44156fc58749801766654eee3191f3e827286d0d941e88978551c",
+      "wholeBankCompared": false,
+      "first75Overwritten": true,
+      "GSConsumptionRasterUniversalEqualityOrPerformanceAccepted": false,
+      "finalEpochRGBAValidated": true,
+      "repeats": 3,
+      "microcodeSha256": [
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+        "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6"
+      ],
+      "inputFiles": {
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch/state.p2s": "2ead05fbbb77398c4720f90dac418723651017109adcba0c7c2486c7a0ce452a",
+        "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch/state.p2s": "32ecfd6e516a59edd5ce623bb7485c61860442a838340bdabb7c623ecda8aa6a",
+        "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-runtime-v1/decode-vu1-output.py": "af13b0c7ededb4937598db953a4e079a9135c21e5b3d8a9bb682edf56ced708f"
+      },
+      "rootPausedCompletionTextConfigAuthorityRequired": true
+    }
+  ],
+  "inputPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-probe-native-root-review-v1\\proof.json": "f500c3572ae8549d5cb24ba31b5014f439ef65a52b904d98d7c84aff4dce1381",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch\\owned-launch.json": "b05f3b09064dd20a5e9e7ee1fe3e35b8ed7240008bbe59b470a604a4fe9b1701",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch\\completed-probe-proof.json": "0ee7f3f466e9a73b15ff7c74e1846e5d68c5a369598f4cdebbefba657afc3bb4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch\\verified-capture.json": "5f86bbe5a1791b05e9119ca452c1654128bc934b3edfb0c7a70471d71246df3a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch\\capture-report.json": "ac576b435f82faabc2a8b7a2c93b7d964f3f2c788eb64a95679da21bb3c086bc",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch\\owned-stop.json": "4c443b75ed32f08a8f25ef643523134c5e2a05564018e88cd1785722284291d4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch\\state.p2s": "aed6551778fcbe8b1662020686c92366b8361a644de349c783a32093d2ad9d11",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch\\emulator.log": "f0329584c41b1c78f0f8ebd5266922939c3b10b38ab0a163bde0ec63d3e890d4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch\\pool2-probe.cfg": "a95e68cba94dc54ff3ccb3a1e3db7dd3c37932a913d4d1827b44cb2e80589677",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch\\owned-launch.json": "ebae74cce34280de5cffbaef0005dad4ec80331922a627b34fd5ae2ca721a54f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch\\completed-probe-proof.json": "e636c4a2a666bc46d2da79a59638a293d1fc6ecbd81511122fce003f1104e2b4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch\\verified-capture.json": "a1d97ba0bb0c7b6149bdd7ca85b846c56c5f3aa0aa5823d7d47e69481a179108",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch\\capture-report.json": "fcd4f0ea8306ba0c15f53264ce5a1ad76f234661594d59447644c27c53156cee",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch\\owned-stop.json": "a91aab5394c4c54d14eb3f73fd6b9ec980e0b788386c538273619c6dd4cfdb77",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch\\state.p2s": "783f3fd0fa0d6be475b5eb333c7d69747214b6511d638efd3e245da7bf4bc2e7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch\\emulator.log": "e1258270997b0eee00c5700ce609d77e0ec80ca233fe90ed8900475f0c66b622",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch\\pool2-probe.cfg": "36e0e6d278de508015c9d1de8928f24f58c993126a240a60152fd48af8d17ebe",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-static-matrix-root-closure-v1\\a96-repeat1-pair.json": "d952526c341a1255371ac5c87899b224fd609d8c9852f123afb63c3574a6c3c6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch\\owned-launch.json": "61c04b388beb0d21586a591baf655c37aa7d88026c54a4a50dd48bb8551ad40d",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch\\completed-probe-proof.json": "fa92216ca5817cf968b704cdba9ff3e2b5d7e3a032fcf8adfc0b6b322b9bfe92",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch\\verified-capture.json": "bbedb56f64597c5f3abb995c1a58b88ca4b88bfdd860efc225794f59693513bd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch\\capture-report.json": "3f952e40e1e63dbab736893b07bad860b5c28b565194cd318682c80ba0c6af23",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch\\owned-stop.json": "d855afb5c52e06f4931731927e37567b3b595e0df58defd3525c5a326b07729c",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch\\state.p2s": "f3815789892998662abccee043c23b1ff9210770e0cedcf661f31fe063024ef9",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch\\emulator.log": "ec1ad593b4944881162e6a2fdae46a0bbd08aa97d8798af937a29de33200a0e8",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat2-20261005-v1-launch\\pool2-probe.cfg": "9baddd2e6b491ed6cca2c234bfe76df6c8ae7dce160c30042f69b7fcf2ae7242",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch\\owned-launch.json": "8bbb20fc33bce022584441e3f7ddc19c506f41af555ca18b5b45dbda1b899e81",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch\\completed-probe-proof.json": "e0d90977e9713a079a0f7226edbced9ae788437e8bfaf237f9ce389d982697d7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch\\verified-capture.json": "5acd56156a03c35f975853977f996ada1197d2450d51238839515f2cddf20b06",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch\\capture-report.json": "3791e594664319b1acc49cd0d6d16faf68405bf80a99d38e73c97e461906f387",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch\\owned-stop.json": "a1bdfee222635ded8651ad9718e40a55c1a8fed7903bca7547905e5f2dbda93c",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch\\state.p2s": "7ceefb3cdf6d634578507632556ca54b039c6f8e3ea1ba8323b481bbfd789930",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch\\emulator.log": "30b12703262e3b3458b3bce791b1e54ec9670768a3e03aa62e0a5e34ddc8c386",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat2-20261005-v1-launch\\pool2-probe.cfg": "ec0df286ebb1374ae32314e58d6b412f02e4519dec11852507966ef4087f7183",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-static-matrix-root-closure-v1\\a96-repeat2-pair.json": "bc2ebbcbf8fea0498e080c882234a8642d4ab24ed4d4dd9a70818e0c8eb4f640",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch\\owned-launch.json": "d6dbdbe7e25cf0dab1ad5bff8386de2a4615a9cb4a9496da368f9515602d6538",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch\\completed-probe-proof.json": "3fea1ffd23ac80b8da95102aec971adc725ebe6508855674f49a0c8937d04399",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch\\verified-capture.json": "b0520fbc9a660fc82a30a3d989359ba601f94b5601e1241388c390c5ef8c8873",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch\\capture-report.json": "3bd4ca18dbfa2a0e435d8d4500860c0e2af04f1eb0e71d3a6c09652fc8ac20d1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch\\owned-stop.json": "bc84a74fa9949b5c87294e228642f2bd88e92ba2a276366845fd17160d06a841",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch\\state.p2s": "dded5e41132da9322418922c4be50d013e50e45a3973427c01b4575fe5b75557",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch\\emulator.log": "e2bea03451c6f293fb37bfe066156089aa1d7a4eb8114c908c6c6791673d5e48",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm0-repeat3-20261005-v1-launch\\pool2-probe.cfg": "bcfc9cf1e462f3b99cd9929d6dc18e2210c83758d8d2c2a3b1410405a3a29f69",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch\\owned-launch.json": "458fd3c8aeb80580b2e2eb09f23c4035ee25935c7259ead77ee27b203e542cf1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch\\completed-probe-proof.json": "2fb166b52a036e050818e439844024298a001f6e796911449dfab6d02191304e",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch\\verified-capture.json": "8890b5137e18c0e61660c5ebd53b92b383c8cd170566a51a3d3de8731e4f0143",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch\\capture-report.json": "4e975b2c93c9f3a0035c69f90a697d148757e0cbec12a127b3d0a947877ab489",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch\\owned-stop.json": "7ad423879ada81be079a62ffb24b112f94dafa7384651d453a7566f5ad969c50",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch\\state.p2s": "290238ca7341ff00de2051e2a1bb936f98935cedef64e3538526c577b19e9f3d",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch\\emulator.log": "0e143fced2c15e4c31f2aeca9341f95862c4690aa34bd29c53eb55144e926360",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-a96-arm1-repeat3-20261005-v1-launch\\pool2-probe.cfg": "42e68e73941e0563ece557324eba79fce999bfd80f44d331522a33e8483ea588",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-static-matrix-root-closure-v1\\a96-repeat3-pair.json": "546bf7d1ab296124c2673f81e1f2f86976c60d60c7ae028330c750c180fa9b14",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch\\owned-launch.json": "d628f88636a936eddcae16d423a9aff955ccfad894b94d7e162abacfc11c69f9",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch\\completed-probe-proof.json": "d65656ef60acadd4cc5d763ad410c0b672d8a26eeca2dcb14eb5c41571bee90c",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch\\verified-capture.json": "38079927b1b97aa6218edd5b87d6d7bfae4481bedbc0ca7eb93d2a0308157160",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch\\capture-report.json": "a094ec77fff8f7099fb5e0204b7ab34330126cf57e7775b22fa244cbfe6b7cef",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch\\owned-stop.json": "1a9b2b9da37b2f4532f6755a71cff23f5b7a2215a3dd339e954e49678f633080",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch\\state.p2s": "c729935e92b48317e756a1a0e6da5e7c617764b48cc4c9eaad448a4b0a9acc77",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch\\emulator.log": "5f4de9c815e41c41d087418f53781501426eddcb5cabe4730c267f8016f01c6c",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat1-20261005-v1-launch\\pool2-probe.cfg": "4a3ea3a69754a27f80d18f43ac6f99c5f60edad06f132da08a8ccbea84249667",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch\\owned-launch.json": "f47ebfbf86e7f22f8761752977f83d6f1309c6e349cec54dc75a1500e2742590",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch\\completed-probe-proof.json": "9d9b0faddb60a94cb7f8612dc6526c2c9634a7a0e73bf00a38246f912c26a83a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch\\verified-capture.json": "96a18ae0d3265d0617b8ffbe36988bc98b2b2b4a18deed5d993329d84c80e333",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch\\capture-report.json": "fa4a8407ae5cfbe5ec0356edb50da008558dc8c30f64e88126beb41c39d7f8fe",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch\\owned-stop.json": "e4780d684423d4636bd1fc83f562bcc5dd65399c064e43bfc7a318e444552fe4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch\\state.p2s": "4947e62235cd527b5580545afbc8b9fbcfaeec5c62c74488f36a73d3c07242cf",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch\\emulator.log": "6ae0dda92f5891053929372493bf4676e85c0f608f710e2b9a90b2c7d5f395c3",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat1-20261005-v1-launch\\pool2-probe.cfg": "15e8e35c92c58cb6273c5b26897e0d8c4a70e2bdeba662f834e339045e573b6b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-static-matrix-root-closure-v1\\b192-repeat1-pair.json": "083acce53f6cba5cbc7fcd6164c544209b091b7ebeaabd119f0f0f5d0f1acc4d",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch\\owned-launch.json": "2c4238db9666717aa9d53a4736550d44a2ade24cb9e865345cc8633f0acd1f1f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch\\completed-probe-proof.json": "395be9894691dd0c72281b4e39ad38393be9178595d76bd3be45b0f13e3818d7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch\\verified-capture.json": "e7fdebdd38771705b257cd802622d4e8589d4039545de6751d01f390093676c4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch\\capture-report.json": "871f301390c4881f1f968dbe972be4a4087050c2db4da5b8c54e6a9f5fb29bb9",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch\\owned-stop.json": "bb0ffa5351e59c545de9e383ea8c8d2094dc6fc72aa3b6beb07f757904ee9664",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch\\state.p2s": "b3ee7a2910ce32181cee9ef6f173eb30b28df006350e7e67645bc118c73420eb",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch\\emulator.log": "4f4664de471339742977fa8de7789d2a1399d01f2789b27c73e601c2336700a7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch\\pool2-probe.cfg": "ba3e8428a0218265e0325610c9600cbef1b361e400ec37eec2e9a66e207af27f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch\\owned-launch.json": "5386d871123a82503ca28822c9af7dce49431078902c976fdb4b09de6b1beb44",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch\\completed-probe-proof.json": "c7ffdfbc3c4be2bce2a4a10cb4a808001b3c0ee9983d040e54b956369f82179e",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch\\verified-capture.json": "da4d4e2c2a50b6613c392a03fcf53a3d68bb0eba9a489f8456ea09a5789ad38b",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch\\capture-report.json": "a96b417c9fd9ab0e9f6a3f2cc3843d75ecb6bf45f4848ed8095ee11f96025230",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch\\owned-stop.json": "4e8fcc662b61871032ca981003e3b3a9d5bf21058bdec23a3bf004f7907ef854",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch\\state.p2s": "6a1c2ec26f04000362a97859f7a779281bdb63e663b9558b0f61a3d8e64e7964",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch\\emulator.log": "ddd4411d202034dd1921620507d867af1cd3bdbe6a458c22cc5f26eb9e6a3dfe",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat2-20261005-v1-launch\\pool2-probe.cfg": "861a624a60598dd7df9cbe99c7599b76366aa02529bd9150546db88731be46a4",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-static-matrix-root-closure-v1\\b192-repeat2-pair.json": "6b5f7eb0e4b533437f5cd63024265eefc4cca46471361afae618e8638e7c48e9",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch\\owned-launch.json": "0ee6e346ae254f9ee66bd78ccae8e3d537fad41212e607a0d83bd4a2b3eceb98",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch\\completed-probe-proof.json": "167abd2779f834dd3a6dc6e8d72aa840a4d184f40e6c476ecd2e11fe161627fa",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch\\verified-capture.json": "e967e5df5edb8af451eeed1befad03118642cddb665100df649eff97bbdc5de0",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch\\capture-report.json": "2d9ae3eeec8939fd86e37d726d7260c523157fb04d35a93124a90bf2dbbca5de",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch\\owned-stop.json": "955b0bc31a2d323d261c863769efb3cd66383beab4baf55f83243e3d1bc0cb0e",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch\\state.p2s": "2ead05fbbb77398c4720f90dac418723651017109adcba0c7c2486c7a0ce452a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch\\emulator.log": "3f0d3020886516b5a860d271cf0e8aa476f7ee27cc7e6bd84ce72e661416cd0a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm0-repeat3-20261005-v1-launch\\pool2-probe.cfg": "9a2457e4e3df579aec9ab353de74a2641c0b4b224dbfabf31dbce095d7afdd50",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch\\owned-launch.json": "28791faee8298df6d6e8916b14d7205acd57d57264206245e49040f0ccabee18",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch\\completed-probe-proof.json": "109e46807dae9187550f7ec9f67d9bd385a50a04a54d414556e7743263be474f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch\\verified-capture.json": "a2fee9339d3110e63ebae9d8a26697ee2d07780a302a97dda4d1f482677fe514",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch\\capture-report.json": "71a51f2087f700093a9c21a4c8e4085d92ca6b006638b4910fc50952f24f0ccd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch\\owned-stop.json": "2d3508d3738c5458e667c3a27d2f67e684131d045e6f33789fdc4678e58fd279",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch\\state.p2s": "32ecfd6e516a59edd5ce623bb7485c61860442a838340bdabb7c623ecda8aa6a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch\\emulator.log": "a535109ebbde01a814967549f65b337182ff9ea92e9e9bfa2914ce4c3dbe84e9",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch\\raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch\\PCSX2-after.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch\\pool2-probe.cfg": "a17d61c9baec08bcc6fa4d2a6f6ff92c6214be67a0622a9c95e9e70f6207a540",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-static-matrix-root-closure-v1\\b192-repeat3-pair.json": "8d3b2566697caf6851c6a179865f3148b9bce809028a5b1b9f9dff9b569ca20b",
+    "F:\\Projects\\tyrax2-lab-20261001\\close-pool2-ee-static-matrix-root-v1.py": "5096abdbc1754e90a550aaca4604e01dd8f3c58ecfb44aa497e5af7fcd029e9b"
+  },
+  "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+  "finalEpochRGBAValidated": true,
+  "insideLazyBackingNotMaterializedTargetSelfChecks": true,
+  "nativeSixtyFPSAccepted": false,
+  "productionPromotionAccepted": false,
+  "limits": [
+    "Fixed inside96/192 cases only; clipped output not accepted.",
+    "B192 first75 overwritten; finalcrossing75/tail42 only.",
+    "Final requestedepoch1/2/3 actuallydecoded; earlieriterations protocolbound only; changingepochforcesreplaymiss, stablewarmhitnotproven.",
+    "SaveState/MTVUoff correctness observer distinctfromphysicalpricing; no hardware rounding orGSraster universal equality."
+  ]
+}

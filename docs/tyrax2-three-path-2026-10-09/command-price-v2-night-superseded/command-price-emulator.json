@@ -1,0 +1,219 @@
+{
+  "valid": true,
+  "rasterEqual": true,
+  "presentationFence": false,
+  "phase": 3,
+  "offset": 1380,
+  "pose": {
+    "z": -67.918221,
+    "speed": 9.762277,
+    "yaw": 0.0
+  },
+  "target": "emulator",
+  "elfSha256": "5d5216f5457029e6dd58c50a331684a4ce9ada8de7d774ce9217669ff36909d2",
+  "logSha256": "d3033b750b037dc509731167a49b8bb54da86181e4346f20dba221ef83da7c94",
+  "timesSha256": "6da6814f87ee93c28c59ab6068e7620b95729a747d0765b9711ebe7822e8180b",
+  "checks": [
+    [
+      0,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      1,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      2,
+      1,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      3,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      4,
+      2,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      5,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      6,
+      2,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      7,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      8,
+      1,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ],
+    [
+      9,
+      0,
+      0,
+      0,
+      119,
+      123,
+      1923360,
+      8,
+      0,
+      2,
+      0
+    ]
+  ],
+  "images": {
+    "main": {
+      "dimensions": [
+        448,
+        448,
+        0
+      ],
+      "rawSha256": [
+        "2068724f0f24733110a2428994693774858db1c551d51cb71ed8f757114dd788",
+        "15018a0f6c350f07da345d62c8cb7d1753605933f49bab11bb4e9414d9ba2e72",
+        "4f1682525acaaad4ba44bf1a33e4ecca43c8b04eada5c105e75183ee081b4aaa",
+        "3b9da10694dbc02c61c910ef36e67d6d2cde495649c39a6fa7fda7322d643039",
+        "acdf6f279927ab676993b45474f20d7203af1825622bdfef55448f020450d772",
+        "e7ee39b9cd45291cad26fcab71c0cf8471b0d4b5a2a2800850b35302c2d5f2df",
+        "ef17e26c83684e9e13ea434637671901ff6984717714b750a6fe9cbaf17ce3ab",
+        "748293c26a5b97cb302bc1de839984e5b93353631b0a9c1d190af6fb2b1f75a6",
+        "b675030544157042c2e7ea83fe1b9b611f7da650e15b62a9484ae1899e9aaa25",
+        "4566975653afc1706269762a1cba053268271e675885eb1feacca68ecd8c93cc"
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "env": {
+      "dimensions": [
+        128,
+        128,
+        0
+      ],
+      "rawSha256": [
+        "b4667ca38f90ee323fc1cc9722227cde05f707eb0767d68f92dc19eb68659726",
+        "88331d3b0445aa34a9657b56ac986ffad81ef9824207b88f1db4ff439816f5dd",
+        "dbb32e762b23ea8786169322c3bbc04e26c135ac07d1b970cabf416320ceeee5",
+        "20f8ce0e38d0ecc2f167f858df0b2fb6615da8379677bc47d83a0ee54b4aea3a",
+        "00c84e5d68e1689589abf65684ed4ce30bd42f5a5c6b13a6cffeab1422d19d2e",
+        "ce74005bea9b0608ad09fd5b057c48e51b382314fefbb079ca672b8c516b8d81",
+        "c1371c815cdf14e1791ba8528f7b1d47106af18b9e8c69add2fbacf00f10a1f6",
+        "48d09ccfc57294790248fafde059afb9b54cb38d1aebfd0eb92fed324ebca3d4",
+        "6d7b55b6aaf5a770ef36aeae7e6eb97312b60c9a7937f183c8826f1b8207e8af",
+        "18b9ffb464e07a2c23e635abbaec23ce3edcdacecc5983f8502b7eaafe22436c"
+      ],
+      "differingBytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "closure": {
+    "qwords": 2385,
+    "bytes": 1938736,
+    "vuCalls": 795,
+    "sha256": "0fc7818f48e18c2ea093975f9a1e3cedcc66cce1439ea06c0ee63522972dd916"
+  },
+  "scope": "Frozen Scene incl roads and live capture; pinned target/order; no update/HUD/postFX; not moving FPS or pure EE/VU/GS cost"
+}

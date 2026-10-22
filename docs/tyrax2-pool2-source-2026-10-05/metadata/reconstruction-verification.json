@@ -1,0 +1,21 @@
+{
+  "status": "PASS_BOTH_SOURCE_ONLY_RESTORATIONS",
+  "restorations": [
+    {
+      "mode": "pricing",
+      "files": 499,
+      "manifestSha256": "c0da3cd8dadd3072fce0381808a8a312d926726820b6e14f1e7ae96f84048581",
+      "everyRestoredFileHashMatched": true,
+      "exactFileSet": true
+    },
+    {
+      "mode": "probe",
+      "files": 500,
+      "manifestSha256": "c15e21ad8e37f3a623dce586854156da2644fdf46811260a7384ff6621abe2bb",
+      "everyRestoredFileHashMatched": true,
+      "exactFileSet": true
+    }
+  ],
+  "helperSha256": "c92a1761995362170b9283207e430a9b2a53bedc661d71d6e260997b216eaf46",
+  "buildOrDeviceClaim": false
+}

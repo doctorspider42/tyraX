@@ -1,0 +1,37 @@
+{
+  "status": "PASS_READ_ONLY_ALLOCATED_SCATTER_REGISTER_AND_OPCODE_COUNTS",
+  "artifactSha256": "318dc9140b694b2b4529ee72f46f8723cbdde6a95a68891b89de5008e1eb80fb",
+  "counts": {
+    "fogMul": 3,
+    "fogAdd": 3,
+    "clampMax": 3,
+    "clampMin": 3,
+    "floatToInt4": 3,
+    "fogTransfer": 3,
+    "actualClip": 3,
+    "clipHistoryRead": 3,
+    "fogADCOr": 3
+  },
+  "allocatedRegisters": {
+    "clipVertex": "VF31, loadedcacheqw2 peroccurrence; arithmeticneverdestVF31",
+    "fogUniform": "VF01",
+    "fogAccumulator": "VF28.x",
+    "fogCoefficient": "VI05",
+    "adcBit": "VI09",
+    "adcMask": "VI02",
+    "indexPointer": "VI06",
+    "remainingCorners": "VI07",
+    "destination": "VI08",
+    "cacheAddress": "VI11",
+    "cacheBase": "VI14",
+    "kick": "VI15",
+    "color": "VF16"
+  },
+  "fogStores": [
+    2,
+    5,
+    8
+  ],
+  "scheduledClipHistory": "Three clipw and fcand remain originaloccurrenceorder; OpenVCL overlaps independentfog andmemoryoperations. Actual GS output mustconfirm scheduler behavior.",
+  "limits": "Register allocation and scheduledopcode occurrence review, not execution semantics."
+}

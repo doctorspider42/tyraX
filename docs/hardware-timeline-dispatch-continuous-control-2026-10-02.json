@@ -1,0 +1,193 @@
+{
+  "status": "selected_dispatch_continuous_workload_paired_controls",
+  "environment": "ps2",
+  "same_exact_elf": true,
+  "single_ABA_plus_single_reverse_BAB": true,
+  "fixed_game_dt": "2/videoHz",
+  "production_fps_proxy": false,
+  "accepted_total_inactive_observer_bill": false,
+  "compiler_pruning_equivalence": false,
+  "ring_held_all_arms": true,
+  "boots": {
+    "0": {
+      "evidence_directory": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-timeline-dispatch-continuous-order0-physical-evidence",
+      "machine_sha256": "eed9c1777d500c14eb204abe04f4de94dc4beff1ed178365cf09a917765ce84a",
+      "elf_sha256": "74148ab0660928bf9860ccc0c6b1e193f4c2f98ef7534d763a3f0e13c25ce114",
+      "pattern": [
+        "normal",
+        "bypass",
+        "normal"
+      ],
+      "samples": 384,
+      "fixed_wrapper_pass": true,
+      "mean_ms_by_phase": {
+        "0": {
+          "engineTicks": 33.36598226759169,
+          "loopTicks": 33.31508366266886,
+          "renderTicks": 31.868265681796604,
+          "workTicks": 17.580233361985947
+        },
+        "1": {
+          "engineTicks": 33.366097079383,
+          "loopTicks": 33.312573750813804,
+          "renderTicks": 31.86082230673896,
+          "workTicks": 17.449849976433647
+        },
+        "2": {
+          "engineTicks": 33.36583291159736,
+          "loopTicks": 33.32496399349637,
+          "renderTicks": 31.876594437493218,
+          "workTicks": 17.584088855319553
+        }
+      },
+      "bypass_minus_normal_ms": {
+        "engineTicks": {
+          "bypass_minus_normal_vs_first_ms": 0.0001148117913140191,
+          "bypass_minus_normal_vs_last_ms": 0.00026416778564453125,
+          "outer_control_spread_ms": 0.00014935599433051216
+        },
+        "loopTicks": {
+          "bypass_minus_normal_vs_first_ms": -0.002509911855061849,
+          "bypass_minus_normal_vs_last_ms": -0.012390242682562934,
+          "outer_control_spread_ms": 0.009880330827501085
+        },
+        "renderTicks": {
+          "bypass_minus_normal_vs_first_ms": -0.007443375057644314,
+          "bypass_minus_normal_vs_last_ms": -0.015772130754258897,
+          "outer_control_spread_ms": 0.008328755696614584
+        },
+        "workTicks": {
+          "bypass_minus_normal_vs_first_ms": -0.13038338555230033,
+          "bypass_minus_normal_vs_last_ms": -0.13423887888590494,
+          "outer_control_spread_ms": 0.0038554933336046007
+        }
+      },
+      "preservation_review_sha256": "5a7392015b71dbb563c8f8dbda3bb224d388ff4f398d70d100d8971e08edbafe"
+    },
+    "1": {
+      "evidence_directory": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-timeline-dispatch-continuous-order1-physical-evidence",
+      "machine_sha256": "0af9843d48e111374c84322c55e7ae8467c0ff261041abcb6732ee389d4f997c",
+      "elf_sha256": "74148ab0660928bf9860ccc0c6b1e193f4c2f98ef7534d763a3f0e13c25ce114",
+      "pattern": [
+        "bypass",
+        "normal",
+        "bypass"
+      ],
+      "samples": 384,
+      "fixed_wrapper_pass": true,
+      "mean_ms_by_phase": {
+        "0": {
+          "engineTicks": 33.36604309082031,
+          "loopTicks": 33.31524387995402,
+          "renderTicks": 31.86522716946072,
+          "workTicks": 17.454209592607285
+        },
+        "1": {
+          "engineTicks": 33.36572437816196,
+          "loopTicks": 33.31495303577847,
+          "renderTicks": 31.862176100413006,
+          "workTicks": 17.586743301815456
+        },
+        "2": {
+          "engineTicks": 33.36598507563273,
+          "loopTicks": 33.32609987258911,
+          "renderTicks": 31.87699858347575,
+          "workTicks": 17.45576106177436
+        }
+      },
+      "bypass_minus_normal_ms": {
+        "engineTicks": {
+          "bypass_minus_normal_vs_first_ms": 0.00031871265835232206,
+          "bypass_minus_normal_vs_last_ms": 0.0002606974707709418,
+          "outer_control_spread_ms": 5.801518758138021e-05
+        },
+        "loopTicks": {
+          "bypass_minus_normal_vs_first_ms": 0.00029084417555067275,
+          "bypass_minus_normal_vs_last_ms": 0.011146836810641818,
+          "outer_control_spread_ms": 0.010855992635091146
+        },
+        "renderTicks": {
+          "bypass_minus_normal_vs_first_ms": 0.003051069047715929,
+          "bypass_minus_normal_vs_last_ms": 0.01482248306274414,
+          "outer_control_spread_ms": 0.011771414015028212
+        },
+        "workTicks": {
+          "bypass_minus_normal_vs_first_ms": -0.13253370920817056,
+          "bypass_minus_normal_vs_last_ms": -0.13098224004109701,
+          "outer_control_spread_ms": 0.0015514691670735676
+        }
+      },
+      "preservation_review_sha256": "513201262617d35954051fd3f63c18169d51623a20fd44a51e68fdb058b9df55"
+    }
+  },
+  "cross_boot_sampled_comparisons": {
+    "PINSTATE": {
+      "0:850": {},
+      "0:1100": {},
+      "1:850": {},
+      "1:1100": {},
+      "2:850": {},
+      "2:1100": {}
+    },
+    "DISPATCHADDR": {
+      "0": {},
+      "1": {},
+      "2": {}
+    },
+    "DISPATCHPART": {
+      "0:0": {},
+      "0:1": {},
+      "0:2": {},
+      "0:3": {},
+      "1:0": {},
+      "1:1": {},
+      "1:2": {},
+      "1:3": {},
+      "2:0": {},
+      "2:1": {},
+      "2:2": {},
+      "2:3": {}
+    }
+  },
+  "cross_boot_raw_camera_words_equal": true,
+  "limits": [
+    "This is a new fixed-workload ELF; original live-dt rejected boots remain rejected and cannot be repaired by these results.",
+    "Single ABA and reverse BAB constrain window order but do not establish exhaustive stable repeats.",
+    "Same ELF retains selector branches, lexical scopes, common trace lifecycle, sampler and FrameProfile. This measures selected dispatch only.",
+    "Recorded digests and selected addresses are partial sampled state, not full physics, cache state or framebuffer identity.",
+    "Held allocation/layout and boot/warm state can affect work; no subtraction from older different ELF controls.",
+    "Game/render/work/whole-loop spans overlap, and pacing can absorb work deltas.",
+    "No phase reload and common sample buffer are changed together. This does not establish either cause of the prior fixed-workload middle-phase penalty or individual contributions."
+  ],
+  "interpretation": "Net performance difference from selected inactive diagnostic routing in a common fixed workload; not isolated function-call bill or accepted gain.",
+  "accepted_gain": false,
+  "sample_buffer_by_order": {
+    "0": "00546588",
+    "1": "00546588"
+  },
+  "sample_buffer_address_equal_across_orders": true,
+  "continuous_scene": true,
+  "common_sample_buffer": true,
+  "work_delta_direction_consistent_across_orders": true,
+  "stable_selected_routing_cost_accepted": false,
+  "replicated_exhaustive_gain": false,
+  "observed_work_delta_range_ms": [
+    -0.13423887888590494,
+    -0.13038338555230033
+  ],
+  "conclusion": "Strict paired sampled controls pass. Direction consistency is reported only for these two boots; net routing effect remains bounded to this workload and one ABA plus reverse BAB, not exhaustive repeats or a pure call bill.",
+  "prior_stages_preserved_separately": {
+    "original_live_dt": {
+      "summary_path": "F:\\Projects\\tyrax2-lab-20261001\\timeline-dispatch-freeze-support\\hardware-timeline-dispatch-control-2026-10-02.json",
+      "summary_sha256": "79497994cff521a88f32997ce1dec9f54c7da26d95a206d8b4f6b81f97fa0ac5",
+      "status": "selected_dispatch_control_rejected",
+      "interpretation": "Separate ELF/controls; no delta subtraction or retroactive acceptance from this new experiment."
+    },
+    "fixed_dt_with_phase_reload": {
+      "summary_path": "F:\\Projects\\tyrax2-lab-20261001\\timeline-dispatch-fixed-independent-review\\hardware-timeline-dispatch-fixed-control-2026-10-02.json",
+      "summary_sha256": "8dd88ebdb3b21679f7c9bbe183ba654d7c07d087cba2d6de471003e7702ad229",
+      "status": "selected_dispatch_fixed_workload_paired_controls",
+      "interpretation": "Separate ELF/controls; no delta subtraction or retroactive acceptance from this new experiment."
+    }
+  }
+}

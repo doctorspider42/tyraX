@@ -12,6 +12,7 @@
 # (renderer/core/paths/path1/vif1_queue.hpp).
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include "renderer/core/paths/path1/path1.hpp"
 #include "renderer/core/paths/path1/vif1_queue.hpp"
 #include "debug/debug.hpp"
@@ -52,8 +53,8 @@ void Path1::uploadDrawFinishProgram() {
   packet2_vif_add_micro_program(packet2, drawFinishAddr,
                                 &VU1DrawFinish_CodeStart,
                                 &VU1DrawFinish_CodeEnd);
-  Vif1Queue::drain();
-  dma_channel_send_packet2(packet2, DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
+  frameSendPacket(packet2, DMA_CHANNEL_VIF1, true);
   packet2_free(packet2);
 }
 
@@ -81,8 +82,8 @@ void Path1::addDrawFinishTag(packet2_t* packet) {
 }
 
 void Path1::sendDrawFinishTag() {
-  Vif1Queue::drain();
-  dma_channel_send_packet2(drawFinishPacket, DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
+  frameSendPacket(drawFinishPacket, DMA_CHANNEL_VIF1, true);
 }
 
 Path1::~Path1() {
@@ -109,9 +110,9 @@ u32 Path1::uploadProgram(VU1Program* program, const u32& address) {
 
   packet2_utils_vu_add_end_tag(packet2);
 
-  Vif1Queue::drain();
-  dma_channel_send_packet2(packet2, DMA_CHANNEL_VIF1, true);
-  Vif1Queue::drain();
+  frameWaitVif();
+  frameSendPacket(packet2, DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
 
   program->setDestinationAddress(address);
 
@@ -185,8 +186,8 @@ void Path1::setDoubleBuffer(const u16& startingAddress, const u16& bufferSize) {
   //          bufferSize);
 
   packet2_utils_vu_add_end_tag(doubleBufferPacket);
-  Vif1Queue::drain();  // Modified by TyraX: see vif1_queue.hpp
-  dma_channel_send_packet2(doubleBufferPacket, DMA_CHANNEL_VIF1, true);
+  frameWaitVif();  // Modified by TyraX: see vif1_queue.hpp
+  frameSendPacket(doubleBufferPacket, DMA_CHANNEL_VIF1, true);
   // Modified by TyraX: pipelines call this when they bring VU1 up
   // (after their own dma_channel_initialize(VIF1)) - from here on the PATH1
   // draw-finish handshake is functional and endFrame() may arm its barrier.

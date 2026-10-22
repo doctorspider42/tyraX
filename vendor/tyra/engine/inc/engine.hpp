@@ -82,6 +82,10 @@ struct EngineOptions {
    * than idle.
    */
   bool envMapTarget = true;
+  /** Modified by TyraX: a second 64 KB env colour target, so a game can
+   * render its reflection capture over two frames into the back target and
+   * swap (RendererCoreEnvMap::begin(.., intoBack) / swap()). */
+  bool envMapDoubleBuffered = false;
 
   /** Reserve the camera-feed render target - another 128 KB (TyraX fork).
    * Only projects with a texture feed read it. */

@@ -1,0 +1,12 @@
+{
+  "status": "ROOT_SOURCE_FREEZE_ONLY",
+  "sourceManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+  "sourceFiles": 497,
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-extra-v3-independent-review\\proof.json",
+  "reviewSha256": "a7104ea8bfefa65b7065d45c87f8f71ce3b1246c81d023caa5c233fea329497f",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\final-proof-v3.json",
+  "hostSha256": "17d928aacd6a6b67fceda7b1026f35e947138191704b5bff035a03c0c74df081",
+  "helperSha256": "77782bdac4362671e6a14a8078665eb541e7e19ffb73d1592388020d7fb97550",
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

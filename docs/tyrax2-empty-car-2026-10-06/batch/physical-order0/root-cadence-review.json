@@ -1,0 +1,217 @@
+{
+  "status": "ROOT_STATIC_BATCH_BOUND_COMPLETED_CADENCE_REVIEW",
+  "protocolPassed": true,
+  "loops": 5400,
+  "order": 0,
+  "orderMeaning": "ON/OFF/ON",
+  "protocolSha256": "4c470e217504d955dfc6b46d1bc31c48794f16ada8b4a92849db5290961847ee",
+  "physicalReviewSha256": "f8f205d79ba1d8d130be3030a56fe4a0cb7b6aad095beb6248d90335ba2f73e8",
+  "byPhase": {
+    "0": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 15.475144502851698,
+      "chunkMeanEntryMs": 16.683369403415256,
+      "perChunkMeanEntryMs": [
+        16.68332862854004,
+        16.683356285095215,
+        16.683908886379665,
+        16.68273639678955,
+        16.68351682027181
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683908886379665,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.68334452311198,
+          "p50Ms": 16.683369954427082,
+          "p95Ms": 16.712822469075522,
+          "maxMs": 16.719716389973957,
+          "over16_68": 99,
+          "over16_68Percent": 77.34375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.67858510547214,
+          "p50Ms": 16.67908393012153,
+          "p95Ms": 16.708434719509548,
+          "maxMs": 16.715013292100693,
+          "over16_68": 28,
+          "over16_68Percent": 21.875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 15.471045547061497,
+          "p50Ms": 15.472371419270834,
+          "p95Ms": 15.501963636610242,
+          "maxMs": 15.503682454427084,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.6833332379659,
+          "p50Ms": 16.683319091796875,
+          "p95Ms": 16.69930453830295,
+          "maxMs": 16.704359266493057,
+          "over16_68": 117,
+          "over16_68Percent": 91.40625,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "1": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 20.072768041822645,
+      "chunkMeanEntryMs": 33.36676962110731,
+      "perChunkMeanEntryMs": [
+        33.366659800211586,
+        33.366692860921226,
+        33.36666202545166,
+        33.36688147650825,
+        33.36695194244385
+      ],
+      "maxObservedChunkMeanEntryMs": 33.36695194244385,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 33.36668221155802,
+          "p50Ms": 33.366668701171875,
+          "p95Ms": 33.4017079671224,
+          "maxMs": 33.431925455729164,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 33.36199818717109,
+          "p50Ms": 33.36235215928819,
+          "p95Ms": 33.39734564887153,
+          "maxMs": 33.425503200954864,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 20.07848638958401,
+          "p50Ms": 20.04763454861111,
+          "p95Ms": 20.280837673611114,
+          "maxMs": 20.32928466796875,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 33.366665840148926,
+          "p50Ms": 33.36666191948785,
+          "p95Ms": 33.38517116970486,
+          "maxMs": 33.394619411892364,
+          "over16_68": 128,
+          "over16_68Percent": 100.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "2": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 15.47479666603936,
+      "chunkMeanEntryMs": 16.683335134718153,
+      "perChunkMeanEntryMs": [
+        16.683337847391766,
+        16.68381468454997,
+        16.682868639628094,
+        16.68331633673774,
+        16.683338165283203
+      ],
+      "maxObservedChunkMeanEntryMs": 16.68381468454997,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.683347596062553,
+          "p50Ms": 16.68333943684896,
+          "p95Ms": 16.712596638997397,
+          "maxMs": 16.714396158854168,
+          "over16_68": 97,
+          "over16_68Percent": 75.78125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.6785798602634,
+          "p50Ms": 16.679053412543404,
+          "p95Ms": 16.707896592881944,
+          "maxMs": 16.709947374131943,
+          "over16_68": 30,
+          "over16_68Percent": 23.4375,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 15.469655725691053,
+          "p50Ms": 15.471934000651041,
+          "p95Ms": 15.500492011176215,
+          "maxMs": 15.501566569010416,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68333387374878,
+          "p50Ms": 16.683353000217014,
+          "p95Ms": 16.694371541341145,
+          "maxMs": 16.7049560546875,
+          "over16_68": 116,
+          "over16_68Percent": 90.625,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    }
+  },
+  "allSixColdTotalInputVertices": 80187,
+  "allFiftyOwnerRefsRetained": true,
+  "normalBlob54Retained": true,
+  "parkedCameraCarAndPointWordsMatchedAtColdOffsets": true,
+  "onMeanNonPacingMs": 15.47497058444553,
+  "offMeanNonPacingMs": 20.072768041822645,
+  "offMinusOnNonPacingMs": 4.597797457377116,
+  "outerControlSpreadMs": 0.000347836812338187,
+  "measuredRenderedCompletions": 960,
+  "measuredSyntheticCompletions": 0,
+  "rawEntryPeriodsOver25ms": 128,
+  "representationImagesReviewed": true,
+  "hardwareTimingProtocolValid": true,
+  "hardwareTimingQualified": true,
+  "physicalTVConfirmationPending": true,
+  "lowerCadenceAndSyntheticFlipsAreOutcomesNotRejections": true,
+  "commonObserverFootprintUnpriced": true,
+  "nonPacingInclusiveLoopNotPureEE": true,
+  "everyFrameScanoutNotProved": true,
+  "interpretation": "Net static batch representation difference including transforms/state/packets; not pure fixed-bag price. Single order needs reverse-order corroboration. Equal accepted inputs do not alone prove material/light pixel equivalence.",
+  "representationImageAuthority": {
+    "kind": "Root-owned same-ELF order0 software-emulator ON/OFF image spot review",
+    "path": "F:/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-v5/root-raster-review.json",
+    "sha256": "10f2b9d182f64124bc5def8a907f46f25abba0f48762fca8518f54535f54ff59",
+    "physicalTVConfirmed": false,
+    "humanReply": "Cannot currently inspect television"
+  },
+  "singleOrderOnly": true,
+  "reverseOrderStillPending": true
+}

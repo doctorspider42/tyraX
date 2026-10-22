@@ -5,7 +5,15 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
-## 1.173.0 - 2026-10-16
+## 2.0.0 - Unreleased
+
+### TyraX2 and mainline integration
+
+- The redesigned editor and the TyraX2 frame pipeline now ship together, including ordered frame submission, reflection and shadow improvements, and the accompanying qualification tools. New projects request the pipeline; existing manifests without an explicit request retain ordinary submission.
+- Collision queries share mainline's grid or octree broad phase, including per-scene overrides and refreshed bounds for streamed models, scripts and spinners. Camera sweeps retain TyraX2's cached narrow phase while using the shared candidate query.
+- Project format 114 combines the additive fields from all integration branches; explicit pipeline settings, Outliner visibility and collision choices survive saving and reopening.
+- This is the 2.0 integration candidate. Cross-platform and release qualification still listed in the backlog remains outstanding.
+
 
 ### A redesigned main window
 

@@ -1,0 +1,19 @@
+{
+  "experiment": "A44-terrain-four-view-display",
+  "baseElfSha256": "5649249696f254331cafd7bea88e0a64e88836516cdeb454dc9d938d4cba71c7",
+  "status": "UNQUALIFIED",
+  "views": 4,
+  "targets": [
+    "main",
+    "env",
+    "display"
+  ],
+  "movingCandidate": false,
+  "generatorSha256": "51829981ddf542195fde7e32ba9fbb4758b548c718f81eb369abe3527507b78f",
+  "ordinaryOnly": true,
+  "ordinarySettlingFrames": 32,
+  "limits": [
+    "Same end-of-drive position; four camera directions.",
+    "No moving candidate/physical price or full lifetime qualification."
+  ]
+}

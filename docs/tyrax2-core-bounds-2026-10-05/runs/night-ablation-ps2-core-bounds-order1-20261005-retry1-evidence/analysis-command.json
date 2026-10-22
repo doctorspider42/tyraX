@@ -1,0 +1,25 @@
+{
+  "command": [
+    "F:\\Python\\Conda\\python.exe",
+    "F:\\Projects\\tyrax2-lab-20261001\\core-bounds-controls-v1\\analyze-night-cli.py",
+    "--stdout",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-core-bounds-order1-20261005-retry1-utf8.log",
+    "--artifact",
+    "F:\\Projects\\tyrax2-lab-20261001\\core-bounds-partition-physical-v1\\game\\bin\\night-ablation.log",
+    "--environment",
+    "ps2",
+    "--kind",
+    "15",
+    "--order",
+    "1",
+    "--joint",
+    "0",
+    "--restored",
+    "0",
+    "--report",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence\\strict-analysis.json"
+  ],
+  "exitCode": 0,
+  "stdout": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE\n",
+  "stderr": ""
+}

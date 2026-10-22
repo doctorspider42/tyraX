@@ -1,0 +1,32 @@
+{
+  "experiment": "A28",
+  "source": "/mnt/f/Projects/tyrax2-list-join-drive-20261010-v1",
+  "sourceElf": "9b7e06f69a56b265ac966b368d2ffedd1dd513b54428f21c16b874dbf6cd29a7",
+  "modes": [
+    0,
+    7,
+    0,
+    0,
+    7,
+    0
+  ],
+  "hours": [
+    12,
+    12,
+    12,
+    0,
+    0,
+    0
+  ],
+  "unrefined": false,
+  "groupOnly": true,
+  "scope": "7 uses pre-shake terrain residency/LOD focus; ordinary logs quiet in BOTH gas arms; visual shake/normal LOD/edges/roads/live reflections retained",
+  "sparse": "all modes offset%128==64; exclude this and next frame",
+  "raster": "all cold arms share held pre-shake terrain focus, 32 settle frames and exact main/env images; moving LOD raster changes expected",
+  "consumerOnly": true,
+  "preparationSha256": "4b7745838bfc097172d9b88f79e36158a7096ab60cd4eebffbce38e15f3f99cd",
+  "fixedHeader": false,
+  "rendererReferenceSha256": "32d3241e065154ba5af55f8c4b7cabb66ec359a9368317d340154ac034429085",
+  "ordinaryLogGate": false,
+  "terrainFocus": true
+}

@@ -1,0 +1,14 @@
+{
+  "status": "ROOT_RELEASE_PRIVATE_SKY_RETINT",
+  "scope": "Instrument existing numerical producers only; no effect removal or new fences. Native source/ABI/assets/linked-microimage qualified. Physical records determine activation, scope elapsed and net observer tax; no visual-equivalence or optimized-renderer promotion claim.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-root-helpers-v1\\source-review.md",
+  "reviewSha256": "913cccaff559039d67da621c0e37d633b5c64b3f907220882abe84c0dded371d",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-root-helpers-v1\\host-authority.json",
+  "hostSha256": "d01ec68be2ebf8da459fc83c20585420f3db4627ecf1486591e5813eef8dfdba",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-native-root-review-v1\\proof.json",
+  "nativeSha256": "5196c52711097bb207ea51909e0a0231c885c22ab431fb8187716e7d569a134e",
+  "rootSourceFreezeSha256": "bc9444a41fd9a0e3724c9b9776945ccc4b9053e7099a21563c65fbab83d40fe0",
+  "hostControlSha256": "ed3bc11aed51a7edf96cfbedd8ed6c1ad495b2c5b21178b6a1a0a9ed367a8012",
+  "physicalPricingAccepted": false,
+  "commonObserverCodeCostPriced": false
+}

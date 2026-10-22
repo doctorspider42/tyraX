@@ -1,0 +1,2751 @@
+{
+  "schema": 1,
+  "scope": "public source/build/model/UI/emulator evidence; no hardware pricing",
+  "payloads": {
+    "postimages/60bf68db0a2a7c2d07191da238ca381e0a8ba285f39e3fbadbfde7807ac03e8e.txt": {
+      "sha256": "60bf68db0a2a7c2d07191da238ca381e0a8ba285f39e3fbadbfde7807ac03e8e",
+      "bytes": 298313,
+      "origin": "F:\\Projects\\tyra-editor\\src\\project.hpp"
+    },
+    "postimages/1bed5b11f5587043f719c4ed94ae08d803803c3b806d5e6ebff1745d9f1dd015.txt": {
+      "sha256": "1bed5b11f5587043f719c4ed94ae08d803803c3b806d5e6ebff1745d9f1dd015",
+      "bytes": 511341,
+      "origin": "F:\\Projects\\tyra-editor\\src\\project.cpp"
+    },
+    "postimages/b53caea8f497056d2e2637885e18825974e3d31476063a53bcaf253cae523ac4.txt": {
+      "sha256": "b53caea8f497056d2e2637885e18825974e3d31476063a53bcaf253cae523ac4",
+      "bytes": 420143,
+      "origin": "F:\\Projects\\tyra-editor\\src\\version.hpp"
+    },
+    "postimages/8e1941203ab155de5c6691951d0b7ea16b3c5ae1ccf19c85305a670794fd0587.txt": {
+      "sha256": "8e1941203ab155de5c6691951d0b7ea16b3c5ae1ccf19c85305a670794fd0587",
+      "bytes": 8180,
+      "origin": "F:\\Projects\\tyra-editor\\src\\migrations.cpp"
+    },
+    "postimages/045d3c3577dd54c85028b35da7fc09c5cbf1e8a0257a41fee8a029ef644d87d4.txt": {
+      "sha256": "045d3c3577dd54c85028b35da7fc09c5cbf1e8a0257a41fee8a029ef644d87d4",
+      "bytes": 898026,
+      "origin": "F:\\Projects\\tyra-editor\\src\\app.cpp"
+    },
+    "postimages/076d0a314a071085cf1b5e2d36d3e48b2f324da07d73bc729560ef555d05cada.txt": {
+      "sha256": "076d0a314a071085cf1b5e2d36d3e48b2f324da07d73bc729560ef555d05cada",
+      "bytes": 85772,
+      "origin": "F:\\Projects\\tyra-editor\\src\\viewport.hpp"
+    },
+    "postimages/3ab2959075b383789649634ccc810484ac7ef9d0a46eaa88c07b1efc63970920.txt": {
+      "sha256": "3ab2959075b383789649634ccc810484ac7ef9d0a46eaa88c07b1efc63970920",
+      "bytes": 423811,
+      "origin": "F:\\Projects\\tyra-editor\\src\\viewport.cpp"
+    },
+    "postimages/25ce5dc9e65cf68ef205e2f704a1dedda308a88b458fb8286aa2b9d2c2d8cfe5.txt": {
+      "sha256": "25ce5dc9e65cf68ef205e2f704a1dedda308a88b458fb8286aa2b9d2c2d8cfe5",
+      "bytes": 1797160,
+      "origin": "F:\\Projects\\tyra-editor\\src\\templates.cpp"
+    },
+    "postimages/8afe4a04ba0000293a019f84d842480f2c095f684cb215e3fd22a10a604c711d.txt": {
+      "sha256": "8afe4a04ba0000293a019f84d842480f2c095f684cb215e3fd22a10a604c711d",
+      "bytes": 1332402,
+      "origin": "F:\\Projects\\tyra-editor\\src\\game_templates.inc"
+    },
+    "postimages/d12fc4049721ba0f48150a35f470f62fb228636135ad1b9d0ad513cdc7aae4c1.txt": {
+      "sha256": "d12fc4049721ba0f48150a35f470f62fb228636135ad1b9d0ad513cdc7aae4c1",
+      "bytes": 7640,
+      "origin": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\shared\\bag\\pipeline_info_bag.hpp"
+    },
+    "postimages/a2be0e4879687b1b736aafd1f3123cb88a1719e2cd51cb7fc1d93c9ead3cf1b2.txt": {
+      "sha256": "a2be0e4879687b1b736aafd1f3123cb88a1719e2cd51cb7fc1d93c9ead3cf1b2",
+      "bytes": 9226,
+      "origin": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_core.hpp"
+    },
+    "postimages/3e14085285e962741d6324e6e19d6fd31fce7f6a08a52dd5c0d4d2ed3ed879be.txt": {
+      "sha256": "3e14085285e962741d6324e6e19d6fd31fce7f6a08a52dd5c0d4d2ed3ed879be",
+      "bytes": 70489,
+      "origin": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp"
+    },
+    "evidence/player-light-public-cli-root-v1/absent-dump.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\absent-dump.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/absent-dump.stdout": {
+      "sha256": "195044f6a2f1e7d233e5cb5fbdaaa413a72f4dde1d7dc853d2f32d0c436e4028",
+      "bytes": 61562,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\absent-dump.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/absent-resave.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\absent-resave.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/absent-resave.stdout": {
+      "sha256": "c9672cc57e9860038df0032370dd1517d67c88191577108faf35d5596940d947",
+      "bytes": 82,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\absent-resave.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/all_override_players-dump.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\all_override_players-dump.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/all_override_players-dump.stdout": {
+      "sha256": "195044f6a2f1e7d233e5cb5fbdaaa413a72f4dde1d7dc853d2f32d0c436e4028",
+      "bytes": 61562,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\all_override_players-dump.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/all_override_players-refresh-gen.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\all_override_players-refresh-gen.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/all_override_players-refresh-gen.stdout": {
+      "sha256": "815d44036db0cb3939402d9717d424619bb12ef610993705f30e88cc222189ed",
+      "bytes": 2484,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\all_override_players-refresh-gen.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/all_override_players-resave.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\all_override_players-resave.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/all_override_players-resave.stdout": {
+      "sha256": "c9672cc57e9860038df0032370dd1517d67c88191577108faf35d5596940d947",
+      "bytes": 82,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\all_override_players-resave.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/invalid_local-dump.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_local-dump.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/invalid_local-dump.stdout": {
+      "sha256": "195044f6a2f1e7d233e5cb5fbdaaa413a72f4dde1d7dc853d2f32d0c436e4028",
+      "bytes": 61562,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_local-dump.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/invalid_local-refresh-gen.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_local-refresh-gen.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/invalid_local-refresh-gen.stdout": {
+      "sha256": "815d44036db0cb3939402d9717d424619bb12ef610993705f30e88cc222189ed",
+      "bytes": 2484,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_local-refresh-gen.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/invalid_local-resave.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_local-resave.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/invalid_local-resave.stdout": {
+      "sha256": "c9672cc57e9860038df0032370dd1517d67c88191577108faf35d5596940d947",
+      "bytes": 82,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_local-resave.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/invalid_project-dump.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_project-dump.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/invalid_project-dump.stdout": {
+      "sha256": "195044f6a2f1e7d233e5cb5fbdaaa413a72f4dde1d7dc853d2f32d0c436e4028",
+      "bytes": 61562,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_project-dump.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/invalid_project-resave.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_project-resave.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/invalid_project-resave.stdout": {
+      "sha256": "c9672cc57e9860038df0032370dd1517d67c88191577108faf35d5596940d947",
+      "bytes": 82,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_project-resave.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/old_lighting_override-dump.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\old_lighting_override-dump.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/old_lighting_override-dump.stdout": {
+      "sha256": "195044f6a2f1e7d233e5cb5fbdaaa413a72f4dde1d7dc853d2f32d0c436e4028",
+      "bytes": 61562,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\old_lighting_override-dump.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/old_lighting_override-refresh-gen.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\old_lighting_override-refresh-gen.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/old_lighting_override-refresh-gen.stdout": {
+      "sha256": "815d44036db0cb3939402d9717d424619bb12ef610993705f30e88cc222189ed",
+      "bytes": 2484,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\old_lighting_override-refresh-gen.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/old_lighting_override-resave.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\old_lighting_override-resave.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/old_lighting_override-resave.stdout": {
+      "sha256": "c9672cc57e9860038df0032370dd1517d67c88191577108faf35d5596940d947",
+      "bytes": 82,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\old_lighting_override-resave.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/players_inherit-dump.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_inherit-dump.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/players_inherit-dump.stdout": {
+      "sha256": "195044f6a2f1e7d233e5cb5fbdaaa413a72f4dde1d7dc853d2f32d0c436e4028",
+      "bytes": 61562,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_inherit-dump.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/players_inherit-refresh-gen.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_inherit-refresh-gen.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/players_inherit-refresh-gen.stdout": {
+      "sha256": "815d44036db0cb3939402d9717d424619bb12ef610993705f30e88cc222189ed",
+      "bytes": 2484,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_inherit-refresh-gen.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/players_inherit-resave.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_inherit-resave.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/players_inherit-resave.stdout": {
+      "sha256": "c9672cc57e9860038df0032370dd1517d67c88191577108faf35d5596940d947",
+      "bytes": 82,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_inherit-resave.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/players_override_all-dump.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_override_all-dump.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/players_override_all-dump.stdout": {
+      "sha256": "195044f6a2f1e7d233e5cb5fbdaaa413a72f4dde1d7dc853d2f32d0c436e4028",
+      "bytes": 61562,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_override_all-dump.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/players_override_all-refresh-gen.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_override_all-refresh-gen.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/players_override_all-refresh-gen.stdout": {
+      "sha256": "815d44036db0cb3939402d9717d424619bb12ef610993705f30e88cc222189ed",
+      "bytes": 2484,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_override_all-refresh-gen.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/players_override_all-resave.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_override_all-resave.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/players_override_all-resave.stdout": {
+      "sha256": "c9672cc57e9860038df0032370dd1517d67c88191577108faf35d5596940d947",
+      "bytes": 82,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_override_all-resave.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/proof.json": {
+      "sha256": "d17ce413ea9b3d0483ab587879888770543e1257c4cfe1aa127333a57c5d95ab",
+      "bytes": 87213,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\proof.json"
+    },
+    "evidence/player-light-public-cli-root-v1/stored_inactive-dump.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\stored_inactive-dump.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/stored_inactive-dump.stdout": {
+      "sha256": "195044f6a2f1e7d233e5cb5fbdaaa413a72f4dde1d7dc853d2f32d0c436e4028",
+      "bytes": 61562,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\stored_inactive-dump.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/stored_inactive-refresh-gen.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\stored_inactive-refresh-gen.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/stored_inactive-refresh-gen.stdout": {
+      "sha256": "815d44036db0cb3939402d9717d424619bb12ef610993705f30e88cc222189ed",
+      "bytes": 2484,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\stored_inactive-refresh-gen.stdout"
+    },
+    "evidence/player-light-public-cli-root-v1/stored_inactive-resave.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\stored_inactive-resave.stderr"
+    },
+    "evidence/player-light-public-cli-root-v1/stored_inactive-resave.stdout": {
+      "sha256": "c9672cc57e9860038df0032370dd1517d67c88191577108faf35d5596940d947",
+      "bytes": 82,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\stored_inactive-resave.stdout"
+    },
+    "evidence/player-light-public-command-encoder-v1/build-proof.json": {
+      "sha256": "ef2cee20bf4d16c660468c1ae775ef6b739f854588ea4bb7b5eab00b748a1fd3",
+      "bytes": 901,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-command-encoder-v1\\build-proof.json"
+    },
+    "evidence/player-light-public-command-encoder-v1/build.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-command-encoder-v1\\build.log"
+    },
+    "evidence/player-light-public-command-encoder-v1/command-encoder": {
+      "sha256": "77800d062d90d73d8b7aa76a01eb79d0fc5ab2db4b0c9d6872bf008a70224c3b",
+      "bytes": 72912,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-command-encoder-v1\\command-encoder"
+    },
+    "evidence/player-light-public-command-encoder-v1/command-encoder.cpp": {
+      "sha256": "298ec34991d233b118800a210201b6f77e806d30fddd0bd0a8a3c17bf7deb271",
+      "bytes": 2182,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-command-encoder-v1\\command-encoder.cpp"
+    },
+    "evidence/player-light-public-command-encoder-v1/editor-format-build-proof.json": {
+      "sha256": "ca9f07bda7778a77d6fe79e1722229b7ca9f818ca60ec8777cdbb9338b7c5b9d",
+      "bytes": 403,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-command-encoder-v1\\editor-format-build-proof.json"
+    },
+    "evidence/player-light-public-command-encoder-v1/editor-format-build.log": {
+      "sha256": "33a7cd87c8b0fb7bc9fb0999805a6bda435344daa36573b4bb16c46a855e5138",
+      "bytes": 313,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-command-encoder-v1\\editor-format-build.log"
+    },
+    "evidence/player-light-public-command-encoder-v1/README.md": {
+      "sha256": "7c223b856563516aea8f43f97f629e15a5b29fc4ebe642b61c6d6ed83c2ccfd7",
+      "bytes": 2226,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-command-encoder-v1\\README.md"
+    },
+    "evidence/player-light-public-emulator-players-capture-root-v4/after-pad.png": {
+      "sha256": "e1ff4a733435358f8346f30a1cd59afc11968459614ed4851a93b7a5d2b55121",
+      "bytes": 292440,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-capture-root-v4\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-players-capture-root-v4/boot.png": {
+      "sha256": "104a4a6479a2f773b43400b22834ac679b76428329a6d1da4aebefa33d2982c2",
+      "bytes": 328379,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-capture-root-v4\\boot.png"
+    },
+    "evidence/player-light-public-emulator-players-capture-root-v4/capture-proof.json": {
+      "sha256": "fdf96c7fcc91cd7a2eda99fecc6279028839c8ee91f4bc61a51b59290c47e06d",
+      "bytes": 1134,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-capture-root-v4\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-players-capture-root-v4/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-capture-root-v4\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-players-capture-root-v4/pad.stdout": {
+      "sha256": "41742c4931081f172a2ffe998a92de8aedc06e6b824dcac63c831ade1892279f",
+      "bytes": 336,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-capture-root-v4\\pad.stdout"
+    },
+    "evidence/player-light-public-emulator-players-exit-root-v1/after-pad.png": {
+      "sha256": "9f4fe03e8a3795cf11b6135d5cb7242c9a9888123ee36adbea7fb27951023c62",
+      "bytes": 302520,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-exit-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-players-exit-root-v1/boot.png": {
+      "sha256": "a71bed2a2269f3b86c65543d5b5e83c1c47f0ba8f176d956a66a1a69ce894948",
+      "bytes": 292183,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-exit-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-players-exit-root-v1/capture-proof.json": {
+      "sha256": "f9d42c8bbd273d6bb268fc9035d93e16f8c33edce45dd68c81c8c039ce284712",
+      "bytes": 1128,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-exit-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-players-exit-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-exit-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-players-exit-root-v1/pad.stdout": {
+      "sha256": "2a935e77e31f63a422d79affde8192fc6f25d7629d5d3f093f4c3c6e826938e0",
+      "bytes": 230,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-exit-root-v1\\pad.stdout"
+    },
+    "evidence/player-light-public-emulator-players-root-v1/launch-preparation.json.projection.json": {
+      "sha256": "0d2d8219559d80ae22e376d75a27e14ae4412e400274286a7410c5aa004397db",
+      "bytes": 2103,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-root-v1\\launch-preparation.json"
+    },
+    "evidence/player-light-public-emulator-players-root-v1/owned-launch.json.projection.json": {
+      "sha256": "56484822114ba65db1474c28957ffe2f1537e540c438b3c5229d9868c45a4d8f",
+      "bytes": 2119,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-root-v1\\owned-launch.json"
+    },
+    "evidence/player-light-public-emulator-players-root-v1/owned-stop.json": {
+      "sha256": "a54832f042990f81d1bb7bb2e92a32ce16ae5deaf5f69296d291fee7f5daf0bf",
+      "bytes": 602,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-root-v1\\owned-stop.json"
+    },
+    "evidence/player-light-public-emulator-players-root-v1/runtime/stdout.log": {
+      "sha256": "719b427524aa99258b7c7446f2e739b73f92500c54bbed4297f49cfb8fa9f85a",
+      "bytes": 76,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-root-v1\\runtime\\stdout.log"
+    },
+    "evidence/player-light-public-model-root-v1/compile.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v1\\compile.log"
+    },
+    "evidence/player-light-public-model-root-v2/compile.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v2\\compile.log"
+    },
+    "evidence/player-light-public-model-root-v2/controls.rsp": {
+      "sha256": "b3ebe6830139bc86b24c896b9dbb8c07fce8eb9e1bb29efe9c31bc3755ddb201",
+      "bytes": 11896,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v2\\controls.rsp"
+    },
+    "evidence/player-light-public-model-root-v2/link-command.txt": {
+      "sha256": "1ceb165bc86caafb380e5b3067b4e138f52a5ff1f96fc920e5b2c14b3df302be",
+      "bytes": 227,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v2\\link-command.txt"
+    },
+    "evidence/player-light-public-model-root-v2/link.log": {
+      "sha256": "bcbbabde6a65dffe1f66e1195cd1194820ca06e327e68e920effb4ced76d3f22",
+      "bytes": 805,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v2\\link.log"
+    },
+    "evidence/player-light-public-model-root-v3/compile.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\compile.log"
+    },
+    "evidence/player-light-public-model-root-v3/controls.rsp": {
+      "sha256": "d4877b45ff8d59efbbd12f0561122d557defb19d93641f39f8bb355f34e626ec",
+      "bytes": 11238,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\controls.rsp"
+    },
+    "evidence/player-light-public-model-root-v3/link-command.txt": {
+      "sha256": "8a8d3ce61e16379b92722af76f97447015cde5ab83d4b1d4e5d34f7403ca7133",
+      "bytes": 227,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\link-command.txt"
+    },
+    "evidence/player-light-public-model-root-v3/link.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\link.log"
+    },
+    "evidence/player-light-public-model-root-v3/proof.json": {
+      "sha256": "b3217d2b8e38b761a0c5b117a1aed2e7c77ca2c475e3fb82657014330d5f7faa",
+      "bytes": 1617,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\proof.json"
+    },
+    "evidence/player-light-public-model-root-v3/run.log": {
+      "sha256": "28c7dd387d30a9f5286ba15e49f78986cbc5be489c351b3199fb549cb0afe7c9",
+      "bytes": 69,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\run.log"
+    },
+    "evidence/player-light-public-native-all-audit-root-v2/durable-build-record.json.projection.json": {
+      "sha256": "39cbcc2482feab0577f8c2cb36057e69448904b32e02ea57b2968a3fbc885bf1",
+      "bytes": 2018,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-all-audit-root-v2\\durable-build-record.json"
+    },
+    "evidence/player-light-public-native-all-audit-root-v2/native-proof.json.projection.json": {
+      "sha256": "aac62e496080a3fa7b54edd0f5615f57664aa19e538821502e99ae0cf1dc6786",
+      "bytes": 1061,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-all-audit-root-v2\\native-proof.json"
+    },
+    "evidence/player-light-public-native-all-audit-root-v2/root-runtime-review.json": {
+      "sha256": "74544960bf379387188ee1a0e5c37f8de1d29d555687e5dec9f08008559df74d",
+      "bytes": 677,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-all-audit-root-v2\\root-runtime-review.json"
+    },
+    "evidence/player-light-public-native-all-root-v1/build-record.json.projection.json": {
+      "sha256": "93ae176c42edb1cd4274dff546c8f55746f36fa36c7213861795f545ef89c773",
+      "bytes": 1634,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-all-root-v1\\build-record.json"
+    },
+    "evidence/player-light-public-native-all-root-v1/native-build.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-all-root-v1\\native-build.stderr"
+    },
+    "evidence/player-light-public-native-all-root-v1/native-build.stdout": {
+      "sha256": "24be3c184402b6534e3b389320487877772843567ca0f9111d2f373da58367a4",
+      "bytes": 57079,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-all-root-v1\\native-build.stdout"
+    },
+    "evidence/player-light-public-native-animated-all-audit-root-v2/durable-build-record.json": {
+      "sha256": "2b769ab7a15ca204a2b999724273db546bb5c3fa2984540aaf12be27c5d065f5",
+      "bytes": 347848,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-all-audit-root-v2\\durable-build-record.json"
+    },
+    "evidence/player-light-public-native-animated-all-audit-root-v2/native-proof.json.projection.json": {
+      "sha256": "312273f28a1ee5c9752a23dc96d93d73544d5873e2240443b791bc7d21e1f891",
+      "bytes": 1070,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-all-audit-root-v2\\native-proof.json"
+    },
+    "evidence/player-light-public-native-animated-all-audit-root-v2/root-runtime-review.json": {
+      "sha256": "f18e85fef4529868b6998c3a5bdf6600adf93cb0b5ff4a70c03071b4c628eb4d",
+      "bytes": 686,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-all-audit-root-v2\\root-runtime-review.json"
+    },
+    "evidence/player-light-public-native-animated-all-root-v1/build-record.json": {
+      "sha256": "6a2fae5f5b298dd13a4d91a88c7fe40ace1a90cd8297079d8d55cc307f8f1a63",
+      "bytes": 349538,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-all-root-v1\\build-record.json"
+    },
+    "evidence/player-light-public-native-animated-all-root-v1/native-build.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-all-root-v1\\native-build.stderr"
+    },
+    "evidence/player-light-public-native-animated-all-root-v1/native-build.stdout": {
+      "sha256": "75646406d37138b96cb006ea6db6a4643b270dcdd2b56ba9cf9790028c9a7061",
+      "bytes": 29579,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-all-root-v1\\native-build.stdout"
+    },
+    "evidence/player-light-public-native-animated-players-audit-root-v2/durable-build-record.json": {
+      "sha256": "60d0f85e4c243cc01708741044cb63109ec374f626ad888d8b7c233919537fec",
+      "bytes": 347872,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-players-audit-root-v2\\durable-build-record.json"
+    },
+    "evidence/player-light-public-native-animated-players-audit-root-v2/native-proof.json.projection.json": {
+      "sha256": "8582dd95ffce8a78bf5b43d22be1366d6b268688b22286225ceec70f85943ab9",
+      "bytes": 1074,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-players-audit-root-v2\\native-proof.json"
+    },
+    "evidence/player-light-public-native-animated-players-audit-root-v2/root-runtime-review.json": {
+      "sha256": "c4aa72f7702fb0c6784c9b73ed30e10a20d52b3a8e9ba3352374d5c124441837",
+      "bytes": 690,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-players-audit-root-v2\\root-runtime-review.json"
+    },
+    "evidence/player-light-public-native-animated-players-root-v1/build-record.json": {
+      "sha256": "f5faea263a39f9ce7aa1d674385abc7733dc443cdc23f742f20cd974d47fc5f3",
+      "bytes": 349558,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-players-root-v1\\build-record.json"
+    },
+    "evidence/player-light-public-native-animated-players-root-v1/native-build.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-players-root-v1\\native-build.stderr"
+    },
+    "evidence/player-light-public-native-animated-players-root-v1/native-build.stdout": {
+      "sha256": "462929f338d48907657098dd41a41bde82fbb3c2b420725f263f8b0454c46f8d",
+      "bytes": 29695,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-players-root-v1\\native-build.stdout"
+    },
+    "evidence/player-light-public-native-players-audit-root-v2/durable-build-record.json.projection.json": {
+      "sha256": "4f0ef33e99581c5e77919391cf76ed1352c5d2b87397775d0467d4b8ff8bd78e",
+      "bytes": 1996,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-audit-root-v2\\durable-build-record.json"
+    },
+    "evidence/player-light-public-native-players-audit-root-v2/native-proof.json.projection.json": {
+      "sha256": "fccedad5b3c9a6a2d041caae416ee3043d295a2ad2355efaa16b6605875a2684",
+      "bytes": 1065,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-audit-root-v2\\native-proof.json"
+    },
+    "evidence/player-light-public-native-players-audit-root-v2/root-runtime-review.json": {
+      "sha256": "3394594aa08e0f62f9b5c35812418777b1deb6a91acf6398b8d41bf04da6f0b1",
+      "bytes": 681,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-audit-root-v2\\root-runtime-review.json"
+    },
+    "evidence/player-light-public-native-players-root-v1/build-record.json.projection.json": {
+      "sha256": "e68ae8d4bc6c40f3806e9abdc34bb2d652c8dc636c008e73d482a41b3db108a5",
+      "bytes": 1608,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-root-v1\\build-record.json"
+    },
+    "evidence/player-light-public-native-players-root-v1/native-build.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-root-v1\\native-build.stderr"
+    },
+    "evidence/player-light-public-native-players-root-v1/native-build.stdout": {
+      "sha256": "81aea5336990d3ac01105cb537ea39797daa246f495047122fb2d48a70d7460b",
+      "bytes": 149652,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-root-v1\\native-build.stdout"
+    },
+    "evidence/player-light-public-native-showcase-audit-root-v2/durable-build-record.json.projection.json": {
+      "sha256": "c9b43cd99d82579d355338f1b03859c970423e92992c23f2bb552aeb1c4c98ba",
+      "bytes": 18068,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-audit-root-v2\\durable-build-record.json"
+    },
+    "evidence/player-light-public-native-showcase-audit-root-v2/native-proof.json.projection.json": {
+      "sha256": "6d8561232e81f86c2095ab62deb4423f85048c2e45087a59380ca8e0a72872a8",
+      "bytes": 1066,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-audit-root-v2\\native-proof.json"
+    },
+    "evidence/player-light-public-native-showcase-audit-root-v2/root-runtime-review.json": {
+      "sha256": "57ebb7071080f8cf6a503fab69a2eccc13bad3085529cdc4b6ffd9f12620f708",
+      "bytes": 682,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-audit-root-v2\\root-runtime-review.json"
+    },
+    "evidence/player-light-public-native-showcase-root-v1/build-record.json.projection.json": {
+      "sha256": "2aef7ed3ef381a9e80f72048d804e4f8257e85ff0790b7c83716edda9cf2580e",
+      "bytes": 17679,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-root-v1\\build-record.json"
+    },
+    "evidence/player-light-public-native-showcase-root-v1/native-build.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-root-v1\\native-build.stderr"
+    },
+    "evidence/player-light-public-native-showcase-root-v1/native-build.stdout": {
+      "sha256": "8b77c452346cc91c53f8c7f024168ccbcdc47fda412689320808f82360e6b3bd",
+      "bytes": 29941,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-root-v1\\native-build.stdout"
+    },
+    "evidence/player-light-public-review-v1/docs-and-archive-plan.md": {
+      "sha256": "e3c40d5359a745064dec8c9f1ae66b2656fe40414ba3111ea01f4425c57411f1",
+      "bytes": 4364,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-review-v1\\docs-and-archive-plan.md"
+    },
+    "evidence/player-light-public-review-v1/docs-source-pins.json": {
+      "sha256": "bc3271a11a1e701478b1b33c364d40d36fbedcb3ca16f86ea55d72bd0c01681b",
+      "bytes": 3070,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-review-v1\\docs-source-pins.json"
+    },
+    "evidence/player-light-public-review-v1/editor-and-engine-seam-pins.json": {
+      "sha256": "75bac9752b4aeb6058630f310eeaad6eede88d6bf4b97ceb770930c58c40e2ee",
+      "bytes": 2864,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-review-v1\\editor-and-engine-seam-pins.json"
+    },
+    "evidence/player-light-public-review-v1/editor-and-engine-seam-review.md": {
+      "sha256": "dff3ebedf186ccf8fd5624b1aadaac95fbbea6c7dca1d5985bf0dd98890ee530",
+      "bytes": 4803,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-review-v1\\editor-and-engine-seam-review.md"
+    },
+    "evidence/player-light-public-review-v1/final-layout-source-pins.json": {
+      "sha256": "17936ecb73e41b9fd71580fb6ad5932e2cfeac7125482622d39e615aed001632",
+      "bytes": 678,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-review-v1\\final-layout-source-pins.json"
+    },
+    "evidence/player-light-public-review-v1/final-layout-source-review.md": {
+      "sha256": "ddcfab4ea9a5ae1e8cd8c162a94ef2d213a6da91aacde1d085109568f148f7dd",
+      "bytes": 855,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-review-v1\\final-layout-source-review.md"
+    },
+    "evidence/player-light-public-review-v1/final-repair-verdict.md": {
+      "sha256": "d34f6884b250f4495a943ec633bd86357ee46e3a28ddfedf33fa3fe5daa70c63",
+      "bytes": 1511,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-review-v1\\final-repair-verdict.md"
+    },
+    "evidence/player-light-public-review-v1/final-source-pins.json": {
+      "sha256": "9c910a20ffe99c68e603b6ddd22ae3ca32af7d1cf2686b2dc84ed42c8cc4859a",
+      "bytes": 2881,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-review-v1\\final-source-pins.json"
+    },
+    "evidence/player-light-public-review-v1/runtime-review.md": {
+      "sha256": "1e6459239d256e5b1dab939799efdf25962b80141d37db571fc6767d413b9c3b",
+      "bytes": 5100,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-review-v1\\runtime-review.md"
+    },
+    "evidence/player-light-public-review-v1/runtime-source-pins.json": {
+      "sha256": "e60a4f7e5ea1cfb7a0f482c7c55f7147008a36caaf454a4f061554a75c06e018",
+      "bytes": 1762,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-review-v1\\runtime-source-pins.json"
+    },
+    "evidence/player-light-public-runtime-review-v1/report.md": {
+      "sha256": "1341ef7ae2ce1e8c7aae42f59710c0607d0f821ac4b0962f9b713438c40bb5cc",
+      "bytes": 4378,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-review-v1\\report.md"
+    },
+    "evidence/player-light-public-runtime-review-v1/source-pins.json": {
+      "sha256": "098bed7a2d7d08e3719f7ecfe47268e1bbf70def492b94bbc435df32cc3cffc9",
+      "bytes": 726,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-review-v1\\source-pins.json"
+    },
+    "evidence/player-light-public-runtime-v1/additional-fixture-index.json": {
+      "sha256": "b3bf5c7d9dc783b7f673c1163b07568ab78d36de53f0215d245b26654be57f22",
+      "bytes": 2432,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\additional-fixture-index.json"
+    },
+    "evidence/player-light-public-runtime-v1/animated-all-draft.json": {
+      "sha256": "7f4d9712f3fa62119e24dff1e5ebb5fab2b926cf225ab4b11af8842ef26cda39",
+      "bytes": 18729,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\animated-all-draft.json"
+    },
+    "evidence/player-light-public-runtime-v1/animated-movement.pad": {
+      "sha256": "9c7a66418fc92dfd388e160b6690c2ba8ca814c1ac24bfe25a5066d335763e1d",
+      "bytes": 85,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\animated-movement.pad"
+    },
+    "evidence/player-light-public-runtime-v1/animated-players-draft.json": {
+      "sha256": "5e1005300fa65cb9854d1174ae33ed7fc79d17657d3d8e3c1fbe12dd315bfe6d",
+      "bytes": 18741,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\animated-players-draft.json"
+    },
+    "evidence/player-light-public-runtime-v1/animated-start.pad": {
+      "sha256": "aec6f6817dbb6060a3aa246fe398183e0695b1ad2b15ebe0fac526f7f8014f4a",
+      "bytes": 110,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\animated-start.pad"
+    },
+    "evidence/player-light-public-runtime-v1/build-root.py": {
+      "sha256": "a8de576aa1acfb35fab414df374dba66331671b8194b946b061481843bd842da",
+      "bytes": 2073,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\build-root.py"
+    },
+    "evidence/player-light-public-runtime-v1/fixture-index.json": {
+      "sha256": "c73b4681d780d14b2a5c95ed9154cd92b2c40daf438136268055ab9fd9ff1e53",
+      "bytes": 976,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixture-index.json"
+    },
+    "evidence/player-light-public-runtime-v1/fpp-movement-v2.pad": {
+      "sha256": "d12658cf5a0c71d7836c6a2c767a6c6a3f802f1ddeba3eed2aa82e276c1f60e6",
+      "bytes": 96,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fpp-movement-v2.pad"
+    },
+    "evidence/player-light-public-runtime-v1/fpp-movement.pad": {
+      "sha256": "e741819fd5a2c59b0cc769c917897c28919d4eec2ae644d59cdb1289a731b026",
+      "bytes": 96,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fpp-movement.pad"
+    },
+    "evidence/player-light-public-runtime-v1/launch-ps2-root.py": {
+      "sha256": "6e8045c5546b494ce6e3931bd635a0e005f218e9d64f4fc111d9c17a377a4fcb",
+      "bytes": 1769,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\launch-ps2-root.py"
+    },
+    "evidence/player-light-public-runtime-v1/launch-root.py": {
+      "sha256": "9fb48ca570afc7c4655ca0afbf75d2b5fc378ec4012c9f3294270719617b0bba",
+      "bytes": 3189,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\launch-root.py"
+    },
+    "evidence/player-light-public-runtime-v1/observe-root-v2.py": {
+      "sha256": "415a700a2017bc203bf8d92ff86ac58504c07beebb0a87cb2542c8b3d3390b4d",
+      "bytes": 3187,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\observe-root-v2.py"
+    },
+    "evidence/player-light-public-runtime-v1/observe-root.py": {
+      "sha256": "6ae23afdda14c5001949eeb8e3ed618bc5ac55c8409463a8dbf8e679220e00f7",
+      "bytes": 3116,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\observe-root.py"
+    },
+    "evidence/player-light-public-runtime-v1/portals-players-draft.json": {
+      "sha256": "ae1260e26f9679b268133aa750b8b99af68180d078b7c17bd3c742d9e78f0a17",
+      "bytes": 14386,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\portals-players-draft.json"
+    },
+    "evidence/player-light-public-runtime-v1/prepare-additional-fixtures.py": {
+      "sha256": "22e1f749d7e898f883ff2e447c728a6b6104a32d84086f6457684fe7fbaf1adf",
+      "bytes": 4404,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\prepare-additional-fixtures.py"
+    },
+    "evidence/player-light-public-runtime-v1/prepare-fixtures.py": {
+      "sha256": "963a340ea816bf5612dee6f980030abdf6daba3b9237913823a28c5e02545373",
+      "bytes": 3413,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\prepare-fixtures.py"
+    },
+    "evidence/player-light-public-runtime-v1/README.md": {
+      "sha256": "d84425a9137031de86e16ea4ccf67161a77ef1be79309c8f5c10564e52012903",
+      "bytes": 7204,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\README.md"
+    },
+    "evidence/player-light-public-runtime-v1/runtime_common.py": {
+      "sha256": "737e00c205c1026825542292e27e7e986bacba449a5c5b2f40fb0842c8abeedf",
+      "bytes": 1881,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\runtime_common.py"
+    },
+    "evidence/player-light-public-runtime-v1/showcase-players-draft.json": {
+      "sha256": "d8395771ad5bd6e7878b61b3104dbef2921e16d38be5e50c016a5b4d9902cfd0",
+      "bytes": 61618,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\showcase-players-draft.json"
+    },
+    "evidence/player-light-public-runtime-v1/stop-root.py": {
+      "sha256": "7d010e3cc00bb7fcad42eb1a3a32c99fd0f83c072494c541a0c35c0d96e68f38",
+      "bytes": 873,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\stop-root.py"
+    },
+    "evidence/player-light-public-runtime-v1/vehicle-all-draft.json": {
+      "sha256": "bb9f6478accfba7b243d80d93a2be58b8d2e649c6765c0b94a1684696a5b85f1",
+      "bytes": 143027,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\vehicle-all-draft.json"
+    },
+    "evidence/player-light-public-runtime-v1/vehicle-movement.pad": {
+      "sha256": "8c388423a6b614db2c83a8698681ea5186a06600833de1153f12d9ab9bf51992",
+      "bytes": 141,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\vehicle-movement.pad"
+    },
+    "evidence/player-light-public-runtime-v1/vehicle-players-draft.json": {
+      "sha256": "ab9c58c521f3c71315f511f3aaed3c68159ce82a85a05445f1deb059cb7155d0",
+      "bytes": 143039,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\vehicle-players-draft.json"
+    },
+    "evidence/player-light-public-ui-root-v1/proof.json": {
+      "sha256": "d879147fa5f7bbd0e6126c89a029cb8b5dbf64aad1c50d8e80206ae7c7f0e9d2",
+      "bytes": 490,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v1\\proof.json"
+    },
+    "evidence/player-light-public-ui-root-v1/script.txt": {
+      "sha256": "8b9cfd93d30c3cdbc8f3c36f8f8588901d7ddd9fc9f8f70e7e6fc874685d86c8",
+      "bytes": 195,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v1\\script.txt"
+    },
+    "evidence/player-light-public-ui-root-v1/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v1\\stderr.log"
+    },
+    "evidence/player-light-public-ui-root-v1/stdout.log": {
+      "sha256": "247abf4d52f3ca4f66a67c748d10222d8e6d51dc66767e588cbed76b700b9ac6",
+      "bytes": 20259,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v1\\stdout.log"
+    },
+    "evidence/player-light-public-ui-root-v2/editor-build.log": {
+      "sha256": "d1552019e33b27b57ab5494826ac00dc2309313b25d21a95fb178f7e5659aff8",
+      "bytes": 204,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v2\\editor-build.log"
+    },
+    "evidence/player-light-public-ui-root-v2/proof.json": {
+      "sha256": "917bf07d9e55af0bb109d8f545a7ecbc81b3f7541ea5156a456dbc6a1a54adfb",
+      "bytes": 1636,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v2\\proof.json"
+    },
+    "evidence/player-light-public-ui-root-v2/script.txt": {
+      "sha256": "37c747a9324714fe7ae9c50b22c1205aa3b141b26de9b4370e54a7711ef2fd4a",
+      "bytes": 555,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v2\\script.txt"
+    },
+    "evidence/player-light-public-ui-root-v2/stderr.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v2\\stderr.log"
+    },
+    "evidence/player-light-public-ui-root-v2/stdout.log": {
+      "sha256": "9de4777a2e3bd9984f17a744c31eefa52782a57e010b79ebc7a874282e6e95f0",
+      "bytes": 20647,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v2\\stdout.log"
+    },
+    "evidence/player-light-public-ui-root-v2/visual-review.json": {
+      "sha256": "dad643aa3887bd4c53ca4fea669b26926ff59264a25468a6eb5dda1df63200f3",
+      "bytes": 800,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v2\\visual-review.json"
+    },
+    "evidence/public-receiver-example-refresh-v1/ambient-occlusion-formatting-v2.log": {
+      "sha256": "4916efbbf94c4f713e096b2ef26a4034e76e1d4d47a9c8ba90db829de0d86019",
+      "bytes": 120,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\ambient-occlusion-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/ambient-occlusion.log": {
+      "sha256": "312a9a91181bf6d8116ae8863ffdb9e626fe4014f860302bc02844e4a15ba2aa",
+      "bytes": 278,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\ambient-occlusion.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/baked-shadows-formatting-v2.log": {
+      "sha256": "4c6d55c20d5d54e6e336d1aea473acf7137ecbc96da92c2aaa02cb0331f52bae",
+      "bytes": 116,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\baked-shadows-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/baked-shadows.log": {
+      "sha256": "ef17be5f1555d0176f7851aa6dd606bc39a6afbf9538df866791c4adcdd7fc5f",
+      "bytes": 270,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\baked-shadows.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/blocks-terrain-formatting-v2.log": {
+      "sha256": "cc700846ee2588c6a808909f2db9125f6023dbab839190976a2155ba4dc960aa",
+      "bytes": 117,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\blocks-terrain-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/blocks-terrain.log": {
+      "sha256": "81f21802ddb989372972ef07d9a0dda41603f66bd7c68e6784421b8847d4151b",
+      "bytes": 272,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\blocks-terrain.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/credits-formatting-v2.log": {
+      "sha256": "286b4be9485075440d2088a6e0c08a67ffccccd62343f41324b7b5dd9ed92b7d",
+      "bytes": 110,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\credits-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/credits.log": {
+      "sha256": "233658f34a91117d4e3144b85e87abad73cd4bcaf04a333f6b3823920304ddb3",
+      "bytes": 258,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\credits.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/cube-formatting-v2.log": {
+      "sha256": "6cb8469b0fbbcc38ec49d9f3d2a167c26bc8e4a0f012bb0b91465b8f8cfb7865",
+      "bytes": 107,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\cube-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/cube.log": {
+      "sha256": "8cd39e6973ec9573fd3af7de34c8acba55830b07377302d779b8e5761399fcb4",
+      "bytes": 252,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\cube.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/custom-nodes-formatting-v2.log": {
+      "sha256": "86b97382a062e2371420c11f7c3c1947db7734dec21e519296efcb38319f70c7",
+      "bytes": 115,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\custom-nodes-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/custom-nodes.log": {
+      "sha256": "dad70bcdf7594c273efc3169054cf7b3606734392760f97e31bfb9e29107a040",
+      "bytes": 268,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\custom-nodes.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/cutscene-demo-formatting-v2.log": {
+      "sha256": "d5710227768428a1e0f5de4d41cac62b53748c8b49daac3289e670034837bc92",
+      "bytes": 116,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\cutscene-demo-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/cutscene-demo.log": {
+      "sha256": "65ff320aec60c195e19fd0c0ccc29f25289821e94640114bb36a0b20315edd4a",
+      "bytes": 270,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\cutscene-demo.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/day-night-formatting-v2.log": {
+      "sha256": "3a971784d92eebe684043a6dbaf74201312f922683e5da3912e2ed7a7b859559",
+      "bytes": 112,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\day-night-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/day-night.log": {
+      "sha256": "f993823fc9f398df95ee75e86ad36bc64bc96fcc902b40c71f810c1ade69b7d7",
+      "bytes": 262,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\day-night.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/deep-forest-formatting-v2.log": {
+      "sha256": "13065a0f0cc962857d4d8d8ed02d5f2b7ae1fdf0246520f01c52cb83fde3a194",
+      "bytes": 114,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\deep-forest-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/deep-forest.log": {
+      "sha256": "9e2271f95ac13c2bf644f973dc60938dbc87fb8f58d9d708037d289f6b27050e",
+      "bytes": 266,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\deep-forest.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/endless-runner-formatting-v2.log": {
+      "sha256": "ebe83d3e02b96f3b32a2fd56dbeb4f88cb24565ec2566c0b699597428bfc5cdd",
+      "bytes": 117,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\endless-runner-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/endless-runner.log": {
+      "sha256": "b7d99a60973b29f6d0fcdc2fe13bd335fd014fa44bb984298516001c0ac9abbf",
+      "bytes": 272,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\endless-runner.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/endless-scroller-formatting-v2.log": {
+      "sha256": "a81b13a521da1fa04cd95f5880dcaf9f24557b16a88268c8989158ab2cba2268",
+      "bytes": 119,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\endless-scroller-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/endless-scroller.log": {
+      "sha256": "d5739df77c736aca542e92fb40792c89198810d42e396dc9f884df08fbe9d171",
+      "bytes": 276,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\endless-scroller.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/gi-showcase-formatting-v2.log": {
+      "sha256": "cea37820458187a14f2a934e62cdfba916cc7da79f84b8f3299f26fda43458a4",
+      "bytes": 114,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\gi-showcase-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/gi-showcase.log": {
+      "sha256": "fed9870fbb0422ae302fd72cdeae1a492d4a8e639f9d7e3f39ee7659b2057982",
+      "bytes": 266,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\gi-showcase.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/global-illumination-formatting-v2.log": {
+      "sha256": "70297c9e5e24775b20864003ab9122fe07950fb5fa12db4ff600b845e31ae2ee",
+      "bytes": 122,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\global-illumination-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/global-illumination.log": {
+      "sha256": "16aad28ee172568bdc4f03082aaee9099fc56f1115a854b58a6c57b2b6eb2459",
+      "bytes": 282,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\global-illumination.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/glow-formatting-v2.log": {
+      "sha256": "c36d7064f68c2fb37a080af857cb2c85f22c5bd47e8c78532abc1b8bba88f944",
+      "bytes": 107,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\glow-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/glow.log": {
+      "sha256": "9453c249c8616ca94c330f6039c3c26d250d9f467841e1718af1708cebec0b34",
+      "bytes": 252,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\glow.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/hud-animation-formatting-v2.log": {
+      "sha256": "776801f3f4988a9949d4189b31b543b71776fe17221424f8107d750bc07996cc",
+      "bytes": 116,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\hud-animation-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/hud-animation.log": {
+      "sha256": "d0d8ce47a402a2011e2a746f2bc07394f4b6a3d0c69f69e630f69203c5a6e500",
+      "bytes": 270,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\hud-animation.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/impostor-grove-formatting-v2.log": {
+      "sha256": "fae7ab06570972896d0d3ee9355e38c44e3591f660204d5ec69788d06a294adc",
+      "bytes": 117,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\impostor-grove-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/impostor-grove.log": {
+      "sha256": "68699db4b5a3e6c0923840f4209be337a5dbb525303cb26621671df573875762",
+      "bytes": 272,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\impostor-grove.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/inventory.txt": {
+      "sha256": "03548fc91562641adbf1067e1f095c06e1050d24ae713b989dc9c512810f1ec0",
+      "bytes": 23225,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\inventory.txt"
+    },
+    "evidence/public-receiver-example-refresh-v1/large-terrain-formatting-v2.log": {
+      "sha256": "aca45d17adf9a7590888febbb3486315646abe5cb5f4040a9b4c64c6256bebd6",
+      "bytes": 116,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\large-terrain-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/large-terrain.log": {
+      "sha256": "a62a6fcf30bf75d691c19b52691fdc8593aff4fd4b735bc183c6811221843076",
+      "bytes": 270,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\large-terrain.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/layer-streaming-formatting-v2.log": {
+      "sha256": "916c9c19dd52ead5ae4f9ecf3fc9677cb14221e0a10765dd1e1bd6bb32d1aa61",
+      "bytes": 118,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\layer-streaming-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/layer-streaming.log": {
+      "sha256": "a4b79a7ad1d4f9aa4c3fd4b0ee823d4ab9b54165c46faf3d5722c2f17f50e8de",
+      "bytes": 274,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\layer-streaming.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/lighting-formatting-v2.log": {
+      "sha256": "714d0657277b9413ab70955fdfe76d96dabb3da52ea0eefb6b2c466d4e4a9087",
+      "bytes": 111,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\lighting-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/lighting.log": {
+      "sha256": "a226f28b5e485b9a1f1ad61bca6415c2dd3f3a7a74d23074246d410536470579",
+      "bytes": 260,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\lighting.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/material-lab-formatting-v2.log": {
+      "sha256": "7f263976295876ada2c5046180856aa3617884b98844204e8a98175dc5906eb4",
+      "bytes": 115,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\material-lab-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/material-lab.log": {
+      "sha256": "a57de68ae85ba1984b7ff3ad31cb950fd2bcbe50bb0d4a95f8365177d814988c",
+      "bytes": 268,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\material-lab.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/mirror-room-formatting-v2.log": {
+      "sha256": "a6a1744e1b06de86a26671913fc837c89f47030d2302a341e9080a0286249d89",
+      "bytes": 114,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\mirror-room-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/mirror-room.log": {
+      "sha256": "6b5ac994db3e8178e75f075b58f98a9db60cf38c3f0221415e1b47b560046185",
+      "bytes": 266,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\mirror-room.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/nav-ai-formatting-v2.log": {
+      "sha256": "6b725f04ba9aa6d3c83c8451f7ddde375415894ade117afa19e7369010df4c90",
+      "bytes": 109,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\nav-ai-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/nav-ai.log": {
+      "sha256": "837839fa7450167cbd9a1035d59bab1b4bac8d9c75c049985099087850006fc4",
+      "bytes": 256,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\nav-ai.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/night-walk-formatting-v2.log": {
+      "sha256": "b8a329bbf811aaadd3b11ecf2a96a2223c2a664edeac5cebea89978f21d8e6fd",
+      "bytes": 113,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\night-walk-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/night-walk.log": {
+      "sha256": "92bfc686ef6370444e7ffca0077a1628bcb5ee017a9fc7bcc6edf3c4c59e161b",
+      "bytes": 264,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\night-walk.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/object-spawning-formatting-v2.log": {
+      "sha256": "55b0a580e1c88ae8dcd3a6d516b35cc54fac68fe601caf28727cb2264f229b17",
+      "bytes": 118,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\object-spawning-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/object-spawning.log": {
+      "sha256": "e105bd392891d965d6c4314854faed3e551714dd7690302053e4b6e3bce3e744",
+      "bytes": 274,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\object-spawning.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/particle-lab-formatting-v2.log": {
+      "sha256": "01cd7215abee8edd0c1f1b02d06ae577c9598b03f1f22f5374a511f705e87dc3",
+      "bytes": 115,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\particle-lab-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/particle-lab.log": {
+      "sha256": "3e0afa77d887518676176a236af52e583f2467e84d14b629b86265281478cd65",
+      "bytes": 268,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\particle-lab.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/physics-playground-formatting-v2.log": {
+      "sha256": "9b195fc48a75a9a770e8eb0cdc058c25f9147700a0552e92408562e5ee9911f7",
+      "bytes": 121,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\physics-playground-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/physics-playground.log": {
+      "sha256": "6a4983ee851a24dc2cee4e36805377c44c72dd46156a342d6e0ff5ff42748711",
+      "bytes": 280,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\physics-playground.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/portals-formatting-v2.log": {
+      "sha256": "b0986458db37e474d294661484c6693571c5153793477614a9701300fa4be55f",
+      "bytes": 110,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\portals-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/portals.log": {
+      "sha256": "cb3de1ecff9f70fd7c571c63f617babdf6f8ab5549f2e3e21e3b63e56efff532",
+      "bytes": 258,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\portals.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/probe-aim-formatting-v2.log": {
+      "sha256": "63c4d161f1906870b3516910aa51035efa982bfc0d05cffb4f4d4f6fd60d67e7",
+      "bytes": 112,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\probe-aim-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/probe-aim.log": {
+      "sha256": "bd62273d7d2e42893fd1148538675092032ac045671b56bd678f6ebd9d6748ef",
+      "bytes": 262,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\probe-aim.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/probe-lighting-formatting-v2.log": {
+      "sha256": "457576a74e726532ca2de6418e7ad1dacd4511a3249b56a6e0df11d881dbc8f8",
+      "bytes": 117,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\probe-lighting-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/probe-lighting.log": {
+      "sha256": "144a2124a0a05e9500e4f0fcdce7600d797787ad84bd9245939fc86897052dca",
+      "bytes": 272,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\probe-lighting.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/procedural-formatting-v2.log": {
+      "sha256": "8e654541a1a3bc0d7a502ddc42e3dc4f211392ef2551462067cfc2973b4caa07",
+      "bytes": 113,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\procedural-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/procedural.log": {
+      "sha256": "e7f34278e85f83124859064b724b6a8bc4dddae70e9c68c7f08488d36c2bfff6",
+      "bytes": 264,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\procedural.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/raytraced-mirror-formatting-v2.log": {
+      "sha256": "61bc0921282217192818809fd2fd6dd356aafd2ee4be36fb9e092a2f6ece84fc",
+      "bytes": 119,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\raytraced-mirror-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/raytraced-mirror.log": {
+      "sha256": "9abadc884da0590ab50a22221d09a2b787ff3b7446c47a8783133af2bb8040ed",
+      "bytes": 276,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\raytraced-mirror.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/README.md": {
+      "sha256": "f38dad6aeca810284572dfedb0ce097af18c72256afeeb9a21d02438a88d5b1b",
+      "bytes": 1548,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\README.md"
+    },
+    "evidence/public-receiver-example-refresh-v1/reflections-formatting-v2.log": {
+      "sha256": "a003df8ec2bec2b5a81a1ffe31abdca0b4e2151d7e87c614dd28d6978d1fe829",
+      "bytes": 114,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\reflections-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/reflections.log": {
+      "sha256": "264d6a322deb1e1273e5f10e901c3f3ec0a7ea732cdafee8b5b227a5522437d0",
+      "bytes": 266,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\reflections.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/report-pass1.json.projection.json": {
+      "sha256": "3b13d3aaa5b47acd4858d0f79b24d7c8681bbe248cf53d1851b7484a80c69b7f",
+      "bytes": 7995,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\report-pass1.json"
+    },
+    "evidence/public-receiver-example-refresh-v1/report.json.projection.json": {
+      "sha256": "1fbca2806067e0e632b472be7ce1a6e00a5312220e5e37c0725a189b5fca6f90",
+      "bytes": 11051,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\report.json"
+    },
+    "evidence/public-receiver-example-refresh-v1/reverb-rooms-formatting-v2.log": {
+      "sha256": "67d283381f35c5057a600269718d3a4fe6bac3d645dee712ee2438d6f859b0e1",
+      "bytes": 115,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\reverb-rooms-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/reverb-rooms.log": {
+      "sha256": "a686178fa6d6a5e74e24ce7bdd8a71c661f595287ff3aa597523846104c7ad87",
+      "bytes": 268,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\reverb-rooms.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/save-points-formatting-v2.log": {
+      "sha256": "28fe228591d4002bd33e5ef082cb3ab8474e4a088699cf6c45230c3655635a35",
+      "bytes": 114,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\save-points-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/save-points.log": {
+      "sha256": "0dfde588d122342c2761748b08681618e8624f602063cf244021f39b2fa83d49",
+      "bytes": 266,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\save-points.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/script-demo-formatting-v2.log": {
+      "sha256": "2675a07b76d59343e0fb637b55d18a4fc09aaf73d3b3e76db4c9645116d42a4c",
+      "bytes": 114,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\script-demo-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/script-demo.log": {
+      "sha256": "96a099f95c4739261bee208af5611723d3d2029062064bb89b9873b69b19325a",
+      "bytes": 266,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\script-demo.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/showcase-formatting-v2.log": {
+      "sha256": "6069587eac70481ce8839967b553704e4699c46f5b892741a75ab6a6845eb97f",
+      "bytes": 111,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\showcase-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/showcase.log": {
+      "sha256": "045f12eb5d92f0b77f9c267cd48c8a1abce47f6cfaf4fad305d9cee647052c2d",
+      "bytes": 260,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\showcase.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/texture-atlas-formatting-v2.log": {
+      "sha256": "2ed652309a0cef1e9b379a1a9c94e1ffd3cbeeb26fa4c5e5dc021f5fe2136ce6",
+      "bytes": 116,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\texture-atlas-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/texture-atlas.log": {
+      "sha256": "82018c8fd20bdebdc7eb9ba2ca2c7aefd507176f5623c17ff6bd2fb55e9fb818",
+      "bytes": 270,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\texture-atlas.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/texture-feeds-formatting-v2.log": {
+      "sha256": "f38756b79bc127df0bbe8f330c50c35f0e97ce77a98b80cf6a67c4109ea13ad1",
+      "bytes": 116,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\texture-feeds-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/texture-feeds.log": {
+      "sha256": "489cc9c08933a9c950d5aaa59e250bf908298f38aec7e224d4ca8bcb2e74a5b2",
+      "bytes": 270,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\texture-feeds.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/two-players-formatting-v2.log": {
+      "sha256": "19aabb809479b97a467a7291c27d8536d55af7a8eb32ea2b2d9899d8c2c9d373",
+      "bytes": 114,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\two-players-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/two-players.log": {
+      "sha256": "639fd32cfb92758db07e8f7fe85af5198b42ec438b17a27157dc35fb705a9a93",
+      "bytes": 266,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\two-players.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/upscaler-lab-formatting-v2.log": {
+      "sha256": "c485c7c62a853f671676abc20b52535e1f7384aaaa2580cf9b90208ef9a73358",
+      "bytes": 115,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\upscaler-lab-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/upscaler-lab.log": {
+      "sha256": "c585c560ace50b225ea30dcfd905af848aaee2746abdd8e359fb4d3aac940190",
+      "bytes": 268,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\upscaler-lab.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/vehicle-playground-formatting-v2.log": {
+      "sha256": "36ddcdbc6aa8be7f5c3ab2051bbbb7bb0100b8c203ed3c4c07fd10657a1f4363",
+      "bytes": 2505,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\vehicle-playground-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/vehicle-playground.log": {
+      "sha256": "13f3329da23b0d5b371cb08f11f887aadc8b1e1d696086b42c451871fe476d30",
+      "bytes": 2664,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\vehicle-playground.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/video-modes-formatting-v2.log": {
+      "sha256": "fdfd13c567f5aebd9fc5f0ff69a4189f16ca41a2e1fd8ade7163c6834653d1a2",
+      "bytes": 114,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\video-modes-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/video-modes.log": {
+      "sha256": "7495a42020ae6c582d40c98998f6f49e35c6339b3879dc79049f0deeacfab2e7",
+      "bytes": 266,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\video-modes.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/vu-lab-formatting-v2.log": {
+      "sha256": "04c2ed9ebc984d8107ae0a3187f6cb54df304b2f25cf6ae32fb2fdaf867689e1",
+      "bytes": 109,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\vu-lab-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/vu-lab.log": {
+      "sha256": "03684d993590d12249a17a9c309a21718002f63de0b0933823124025ddce522d",
+      "bytes": 256,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\vu-lab.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/world-facts-formatting-v2.log": {
+      "sha256": "675a74869cdfe57727a06863ee1825f402ecfafa5991669311752454de1a083f",
+      "bytes": 114,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\world-facts-formatting-v2.log"
+    },
+    "evidence/public-receiver-example-refresh-v1/world-facts.log": {
+      "sha256": "bf8aed499b9c4bebb7ddb54014acd9eda59feb0f2bd03f42cf25e84ac0058d81",
+      "bytes": 266,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\world-facts.log"
+    },
+    "postimages/3cc3248491267ee0a1af823cc24152faa7a76c452c2ce2371003f333446f97d6.txt": {
+      "sha256": "3cc3248491267ee0a1af823cc24152faa7a76c452c2ce2371003f333446f97d6",
+      "bytes": 132491,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\inc\\terrain_game.hpp"
+    },
+    "postimages/d5d318ab3171aeb9ce98a53b5eb8cb75c2492fe8d3a7a3a65dcdfb454b3784eb.txt": {
+      "sha256": "d5d318ab3171aeb9ce98a53b5eb8cb75c2492fe8d3a7a3a65dcdfb454b3784eb",
+      "bytes": 276862,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\src\\gen\\game_physics.gen.cpp"
+    },
+    "postimages/a68a2879fcbfab4657e981308271ec7ee8a841722534b1ade2ceeed3a69d411d.txt": {
+      "sha256": "a68a2879fcbfab4657e981308271ec7ee8a841722534b1ade2ceeed3a69d411d",
+      "bytes": 217204,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\src\\gen\\game_lighting.gen.cpp"
+    },
+    "postimages/7de907efaf882373b4abb63759d39956e2c9a605415725a375755e0dc9ca1228.txt": {
+      "sha256": "7de907efaf882373b4abb63759d39956e2c9a605415725a375755e0dc9ca1228",
+      "bytes": 209918,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\src\\gen\\game_scene.gen.cpp"
+    },
+    "postimages/419c138549b4c1c58fc11cdf2693d7194dbd6cdff3ec9243fdab2116a03cbad2.txt": {
+      "sha256": "419c138549b4c1c58fc11cdf2693d7194dbd6cdff3ec9243fdab2116a03cbad2",
+      "bytes": 339251,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\src\\gen\\game_vehicles.gen.cpp"
+    },
+    "policy/vehicle-players.txt": {
+      "sha256": "c9a664d924d1d97ba1000ab6c3e44cc07c0fb240edcbb5b343eb608d48e58b03",
+      "bytes": 251,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\inc\\scene_data.hpp"
+    },
+    "policy/vehicle-all.txt": {
+      "sha256": "80a1e1299e5af6a7a575d30dff781208b31048344ee74916e0d168a4ac214319",
+      "bytes": 255,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-all\\inc\\scene_data.hpp"
+    },
+    "postimages/06ff767df5465df97403172f737eaaef0d98bd4187832e31a7d3ab3c94ed7109.txt": {
+      "sha256": "06ff767df5465df97403172f737eaaef0d98bd4187832e31a7d3ab3c94ed7109",
+      "bytes": 105183,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\inc\\terrain_game.hpp"
+    },
+    "postimages/19ac867131c34b08ef06b41485a63d7c8fd87a1b0d40e3e7c4e97745933a2667.txt": {
+      "sha256": "19ac867131c34b08ef06b41485a63d7c8fd87a1b0d40e3e7c4e97745933a2667",
+      "bytes": 276317,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\src\\gen\\game_physics.gen.cpp"
+    },
+    "postimages/963c70a00a7bddd6b4dbe13053b57458d31b4a588c6b8ac3a0ae228f99d5a5ab.txt": {
+      "sha256": "963c70a00a7bddd6b4dbe13053b57458d31b4a588c6b8ac3a0ae228f99d5a5ab",
+      "bytes": 217136,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\src\\gen\\game_lighting.gen.cpp"
+    },
+    "postimages/c244b2197e0837a9848235a509f26163aa444d314e3433b2724a72ffacf49c10.txt": {
+      "sha256": "c244b2197e0837a9848235a509f26163aa444d314e3433b2724a72ffacf49c10",
+      "bytes": 209708,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\src\\gen\\game_scene.gen.cpp"
+    },
+    "postimages/26e1c43ce088942b64b077f6fd06629b8a920a795bfcd9d551cfa0512899972c.txt": {
+      "sha256": "26e1c43ce088942b64b077f6fd06629b8a920a795bfcd9d551cfa0512899972c",
+      "bytes": 38324,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\src\\gen\\game_vehicles.gen.cpp"
+    },
+    "policy/animated-players.txt": {
+      "sha256": "90fd7842f439ff84186c0cf12cff543b3a7164ffce3a102fb7c7b8d8bc57ecab",
+      "bytes": 236,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\inc\\scene_data.hpp"
+    },
+    "policy/animated-all.txt": {
+      "sha256": "e1382850fe73658501c2f153c594f4a820002a15a5a756cb7741586841e33bbc",
+      "bytes": 238,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-all\\inc\\scene_data.hpp"
+    },
+    "postimages/0d7b0b2aa23b37802e192dc7ce9e4e6e5e2a4fa96c001f02c4e75386f73d04ff.txt": {
+      "sha256": "0d7b0b2aa23b37802e192dc7ce9e4e6e5e2a4fa96c001f02c4e75386f73d04ff",
+      "bytes": 105265,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\inc\\terrain_game.hpp"
+    },
+    "postimages/052d6af961852fd97a9c4e0920987561d9d5b91270555cdca526e405b1da26c5.txt": {
+      "sha256": "052d6af961852fd97a9c4e0920987561d9d5b91270555cdca526e405b1da26c5",
+      "bytes": 276314,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\src\\gen\\game_physics.gen.cpp"
+    },
+    "postimages/67cb82cacbeb9836bc40df103007e72a21663ad67e2fcfa27c73148a779eda30.txt": {
+      "sha256": "67cb82cacbeb9836bc40df103007e72a21663ad67e2fcfa27c73148a779eda30",
+      "bytes": 217133,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\src\\gen\\game_lighting.gen.cpp"
+    },
+    "postimages/b739689e6d0d4c9fa38d5221203da4f5d48db673e95dcbc3a75915f75868f551.txt": {
+      "sha256": "b739689e6d0d4c9fa38d5221203da4f5d48db673e95dcbc3a75915f75868f551",
+      "bytes": 209705,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players\\src\\gen\\game_scene.gen.cpp"
+    },
+    "postimages/f189a0dbff805422eef1dc0d744cb01d6cf7e97ff0aa7212e1a7ffb07156941b.txt": {
+      "sha256": "f189a0dbff805422eef1dc0d744cb01d6cf7e97ff0aa7212e1a7ffb07156941b",
+      "bytes": 38321,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\src\\gen\\game_vehicles.gen.cpp"
+    },
+    "policy/showcase-players.txt": {
+      "sha256": "9bc24c977c7da3614747572c3b796557e6b6ad4ad3e8f363dacbd9576e23cf3d",
+      "bytes": 236,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players\\inc\\scene_data.hpp"
+    },
+    ".gitattributes": {
+      "sha256": "a736d091663272b2e696369855958e8804cafce1d597bc70b5298ba41b521cdd",
+      "bytes": 63,
+      "origin": "archive byte-preservation rule"
+    },
+    "README.md": {
+      "sha256": "bf30b5246c90d3ddf99e50ca3d31bd55c0664f44302010a8986c882e6caf6cbf",
+      "bytes": 2223,
+      "origin": "archivist final archive entry links and qualification boundaries"
+    },
+    "tools/archive-public-receivers-v1.py": {
+      "sha256": "a56d64e343695094de212b6c21229f5f11fbff20f092a555654c3ca4241980db",
+      "bytes": 7097,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\archive-public-receivers-v1.py"
+    },
+    "tools/verify-public-receiver-archive-v1.py": {
+      "sha256": "61a9e0d3381a242a177455cb42a32de69bc0e33e90d7237d35489951eed3a022",
+      "bytes": 1544,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\verify-public-receiver-archive-v1.py"
+    },
+    "evidence/player-light-public-ui-root-v1/rendering.png": {
+      "sha256": "7ba7085ef56484b8cd2f954fcad9fbacdc2720bdb2e89c45e8fbd65c6b341fd6",
+      "bytes": 975108,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v1\\rendering.png"
+    },
+    "evidence/player-light-public-ui-root-v2/choices.png": {
+      "sha256": "2d341ecc0ef8fcbc6a53fe8c188f030d7d4b341f63c014d56499599c328b75c7",
+      "bytes": 972315,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v2\\choices.png"
+    },
+    "evidence/player-light-public-ui-root-v2/rendering.png": {
+      "sha256": "50da070f6706468daaf8f7a0b0b68e6d2b90e1250ed032a27065ef04f4a75a1c",
+      "bytes": 964206,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ui-root-v2\\rendering.png"
+    },
+    "evidence/player-light-public-emulator-animated-players-root-v1/launch-preparation.json": {
+      "sha256": "07483a68c3bbe52b45ac4791ddb1ddd71a09f2ead7837e606128593a47f0cc69",
+      "bytes": 353818,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-root-v1\\launch-preparation.json"
+    },
+    "evidence/player-light-public-emulator-animated-players-root-v1/owned-launch.json": {
+      "sha256": "139fa948c707f17c05bd2fc9056a105a2268267a82087432fe1999e1946c18f2",
+      "bytes": 353838,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-root-v1\\owned-launch.json"
+    },
+    "evidence/player-light-public-emulator-animated-players-root-v1/owned-stop.json": {
+      "sha256": "9fa22de09ce7225f1d14c99629e2cd92820a55d9d0402ecc7a3178edd84a133c",
+      "bytes": 614,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-root-v1\\owned-stop.json"
+    },
+    "evidence/player-light-public-emulator-animated-players-root-v1/runtime/emulator.log": {
+      "sha256": "12fdb701cd456217986d6b0352e2e42d83dde3f8c1971190086db5e7154d63c1",
+      "bytes": 1606860,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-root-v1\\runtime\\emulator.log"
+    },
+    "evidence/player-light-public-emulator-animated-players-root-v1/runtime/stdout.log": {
+      "sha256": "719b427524aa99258b7c7446f2e739b73f92500c54bbed4297f49cfb8fa9f85a",
+      "bytes": 76,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-root-v1\\runtime\\stdout.log"
+    },
+    "evidence/player-light-public-emulator-animated-players-capture-root-v1/boot.png": {
+      "sha256": "c881a33758a432655b9335224d8e66e7956f0425c6a07bb8010e5f881d6f6d77",
+      "bytes": 63524,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-capture-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-animated-players-capture-root-v1/capture-proof.json": {
+      "sha256": "07cb1ba91f22e0d80b3a6a2817c0e4a5ecbdf3094df419f6a681800aacc8c236",
+      "bytes": 779,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-capture-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-animated-players-start-root-v1/after-pad.png": {
+      "sha256": "0d062d54d3bb5614dbd72748d85ffae82a75d8b8de4f1fc590af884c3ada1afc",
+      "bytes": 51044,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-start-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-animated-players-start-root-v1/boot.png": {
+      "sha256": "c8ebb41c015025db07a89dab9b0e24bb6c1f57014be465740a0a905b53fabf70",
+      "bytes": 63534,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-start-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-animated-players-start-root-v1/capture-proof.json": {
+      "sha256": "554476642b801d54b0d8bcd8ad8d9deebe7dfb532d3c6cbd3c89d26923b102e5",
+      "bytes": 1148,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-start-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-animated-players-start-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-start-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-animated-players-start-root-v1/pad.stdout": {
+      "sha256": "ff05e214d272c58c11c81e7af4851313468a18626e44866b4412e24b8561cc71",
+      "bytes": 315,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-start-root-v1\\pad.stdout"
+    },
+    "evidence/player-light-public-emulator-animated-players-movement-root-v1/after-pad.png": {
+      "sha256": "81fbde5a6a50cdbdb72f56b2614616a85fe7ba24b7c584d8c8b157fcf5a98af7",
+      "bytes": 53632,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-movement-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-animated-players-movement-root-v1/boot.png": {
+      "sha256": "78394895d6428f8e2db9213b335b3f0326caf927cc4e531293690ee99c1a31ab",
+      "bytes": 50759,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-movement-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-animated-players-movement-root-v1/capture-proof.json": {
+      "sha256": "04e59895b524028c1e586005d46b0b009d258a87a0a4aa025e05f0a77fbb8e23",
+      "bytes": 1154,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-movement-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-animated-players-movement-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-movement-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-animated-players-movement-root-v1/pad.stdout": {
+      "sha256": "111647f0fd847cf8578d01a3d6235df785d7859762fa9d07c5f9906eed62ecd5",
+      "bytes": 168,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-players-movement-root-v1\\pad.stdout"
+    },
+    "evidence/player-light-public-emulator-animated-all-root-v1/launch-preparation.json": {
+      "sha256": "d8a395543e3d6afbea67424692456642249108d4da0949eb246951eb40c6a6ed",
+      "bytes": 353762,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-all-root-v1\\launch-preparation.json"
+    },
+    "evidence/player-light-public-emulator-animated-all-root-v1/owned-launch.json": {
+      "sha256": "d4a7de70669d57bce1de4d3931403e5b2a5d5e8e358e170e2c32cbc502760b3a",
+      "bytes": 353782,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-all-root-v1\\owned-launch.json"
+    },
+    "evidence/player-light-public-emulator-animated-all-root-v1/owned-stop.json": {
+      "sha256": "09d9f9443997292d44c7a366ae91283ac78242aaa4033fae23168caeb56b5899",
+      "bytes": 602,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-all-root-v1\\owned-stop.json"
+    },
+    "evidence/player-light-public-emulator-animated-all-root-v1/runtime/emulator.log": {
+      "sha256": "63a5c2eed9a5c6eb9c34cd706f9ce86c1f88ce3439b1fc6d45f031b8d1784d7f",
+      "bytes": 638765,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-all-root-v1\\runtime\\emulator.log"
+    },
+    "evidence/player-light-public-emulator-animated-all-root-v1/runtime/stdout.log": {
+      "sha256": "719b427524aa99258b7c7446f2e739b73f92500c54bbed4297f49cfb8fa9f85a",
+      "bytes": 76,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-all-root-v1\\runtime\\stdout.log"
+    },
+    "evidence/player-light-public-emulator-animated-all-start-root-v1/after-pad.png": {
+      "sha256": "e117d0d58b7b45f1ccc5fbeeeee323a77e2936982b69e47e964fb28750c9611a",
+      "bytes": 51151,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-all-start-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-animated-all-start-root-v1/boot.png": {
+      "sha256": "35a1fb8b6207d755fcc4fba36b153e9255e1e930f0ed907c054abb5201f71863",
+      "bytes": 63231,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-all-start-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-animated-all-start-root-v1/capture-proof.json": {
+      "sha256": "c6f97fec4c28d8be422bd01bc3723cb8f6e1c03e83036a06b3eb94ded87cbe45",
+      "bytes": 1140,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-all-start-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-animated-all-start-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-all-start-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-animated-all-start-root-v1/pad.stdout": {
+      "sha256": "ff05e214d272c58c11c81e7af4851313468a18626e44866b4412e24b8561cc71",
+      "bytes": 315,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-animated-all-start-root-v1\\pad.stdout"
+    },
+    "tools/append-public-receiver-archive-v1.py": {
+      "sha256": "2cce1a717b7c5189d8fe44dc591bab2a8e8a59577fad1d33d4dd3b254f85c948",
+      "bytes": 1972,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\append-public-receiver-archive-v1.py"
+    },
+    "validation-boundaries.md": {
+      "sha256": "b76ad532d39e7e1f1c9e3228cc52a6be37741cf10aa6907185ba92d6305b44b3",
+      "bytes": 1836,
+      "origin": "archivist boundary note from root completed-run reports"
+    },
+    "evidence/player-light-public-layout-v1/current-compile.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\current-compile.stderr"
+    },
+    "evidence/player-light-public-layout-v1/current-compile.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\current-compile.stdout"
+    },
+    "evidence/player-light-public-layout-v1/current-disassembly.txt": {
+      "sha256": "2c90a94b3513459d29feb51f1dee13f561bc0db2562cd4032fc2c3c7c2a70456",
+      "bytes": 220,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\current-disassembly.txt"
+    },
+    "evidence/player-light-public-layout-v1/current.cpp": {
+      "sha256": "c3447ec87f98e535ebf0df8db71686fd0b2b812b9e1ba287cab2fe2f030d89a6",
+      "bytes": 1103,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\current.cpp"
+    },
+    "evidence/player-light-public-layout-v1/current.d": {
+      "sha256": "c458e6517956a871f3b476305251dfabf498fdc3f4bf22c9a1e5c8bf4e7cbe1b",
+      "bytes": 2613,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\current.d"
+    },
+    "evidence/player-light-public-layout-v1/head-vu-closure-proof.json": {
+      "sha256": "9d4016d1ffc68f9318c78d24111a4a34c8d54a5ebc3be794f2f706443df0d076",
+      "bytes": 14770,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\head-vu-closure-proof.json"
+    },
+    "evidence/player-light-public-layout-v1/old/renderer/3d/pipeline/shared/bag/pipeline_info_bag.hpp": {
+      "sha256": "37e5454dc7ed6f8999b10c206b7d50485a69a247148e7fe1193899e14acee328",
+      "bytes": 7356,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\old\\renderer\\3d\\pipeline\\shared\\bag\\pipeline_info_bag.hpp"
+    },
+    "evidence/player-light-public-layout-v1/old-compile.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\old-compile.stderr"
+    },
+    "evidence/player-light-public-layout-v1/old-compile.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\old-compile.stdout"
+    },
+    "evidence/player-light-public-layout-v1/old-disassembly.txt": {
+      "sha256": "c9f6858b5faf2b660b4e7588aa2599d07d6d2d78f09c6438762014556f7dce2e",
+      "bytes": 109,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\old-disassembly.txt"
+    },
+    "evidence/player-light-public-layout-v1/old.cpp": {
+      "sha256": "5c62323aefd62f35cbc7b02a321c93f53ba7d008ad75a3703c7c217743e346e2",
+      "bytes": 955,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\old.cpp"
+    },
+    "evidence/player-light-public-layout-v1/old.d": {
+      "sha256": "2ae55609fce63de10618071b65c3f996a33f2ca575e0ed9faba3f1810c0cbaa2",
+      "bytes": 2624,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\old.d"
+    },
+    "evidence/player-light-public-layout-v1/parser-v1-failure.txt": {
+      "sha256": "915235fe7d7e08750d5b3e67b2a4c0da9f7511dc480be8452a177ab38bc356db",
+      "bytes": 366,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\parser-v1-failure.txt"
+    },
+    "evidence/player-light-public-layout-v1/proof.json": {
+      "sha256": "246a7eb7bb256d9ed6aac9ee6084ab0d801846bcd1ca78b896c209c41df22bc2",
+      "bytes": 13237,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\proof.json"
+    },
+    "evidence/player-light-public-layout-v1/qualify.py": {
+      "sha256": "c204b35a5740c3de9235c9f1b68e9257e1da3b3381b49c6159d3905e609a0687",
+      "bytes": 5573,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\qualify.py"
+    },
+    "evidence/player-light-public-layout-v1/README.md": {
+      "sha256": "7639c0f4c46fd1133467decb68867a0faf0536372da95dafce72d870e02e3903",
+      "bytes": 2021,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\README.md"
+    },
+    "evidence/player-light-public-layout-v1/review-head-vu.py": {
+      "sha256": "afa6de6e8ce82a90b38f6d83b052f001872d5403854f905b12ef5e93dfa45f8a",
+      "bytes": 2401,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-layout-v1\\review-head-vu.py"
+    },
+    "evidence/player-light-public-ps2-players-prefix-v1/after-exit.png": {
+      "sha256": "407ecfd8af2d23b1a4c0947fd1b298a86f52faa1e7e5578f91468a9543c455e5",
+      "bytes": 252877,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ps2-players-prefix-v1\\after-exit.png"
+    },
+    "evidence/player-light-public-ps2-players-prefix-v1/boot.png": {
+      "sha256": "589cef11f20eb6190f0f2fc9ce6901b66c590504458772247d6bfc21751e1025",
+      "bytes": 273170,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ps2-players-prefix-v1\\boot.png"
+    },
+    "evidence/player-light-public-ps2-players-prefix-v1/capture-after-exit.stdout": {
+      "sha256": "f252b8f0f5e3adf61b176bd5dea90430c71b0146808eb0c5c412e4f99a78c9a8",
+      "bytes": 114,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ps2-players-prefix-v1\\capture-after-exit.stdout"
+    },
+    "evidence/player-light-public-ps2-players-prefix-v1/owned-launch.json": {
+      "sha256": "6e4bf4540d4f50fe746e7b7844d3eb4081cbe4b85b1e0c33f8173eafbeb601f8",
+      "bytes": 1039,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ps2-players-prefix-v1\\owned-launch.json"
+    },
+    "evidence/player-light-public-ps2-players-prefix-v1/prefix-proof.json": {
+      "sha256": "8ba56fe43a41df6a4c2a757d60d3bc841a9b72f81f2208d61b1afd88e4a87ea9",
+      "bytes": 1904,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ps2-players-prefix-v1\\prefix-proof.json"
+    },
+    "evidence/player-light-public-ps2-players-prefix-v1/ps2client.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ps2-players-prefix-v1\\ps2client.stderr"
+    },
+    "evidence/player-light-public-ps2-players-prefix-v1/stdout-active-prefix.log": {
+      "sha256": "7073bdf0b4236152ff5188401bdff9dfa144f2246dacad84ec5f6a729efbb4b5",
+      "bytes": 351293,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-ps2-players-prefix-v1\\stdout-active-prefix.log"
+    },
+    "hardware-prefix-and-layout-boundaries.md": {
+      "sha256": "d85c57055f0746a8ebc9ddece26c6f58727c1b5faee39d8a4d85d901bae5c77a",
+      "bytes": 2260,
+      "origin": "root active-prefix and target ABI qualification boundary note"
+    },
+    "tools/capture-public-ps2-prefix-v1.py": {
+      "sha256": "bb286b01f1c60fd9fe9254a55c36cb361e42aa427dee2c103481cb170139e36a",
+      "bytes": 1838,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\capture-public-ps2-prefix-v1.py"
+    },
+    "evidence/player-light-public-emulator-showcase-root-v1/launch-preparation.json": {
+      "sha256": "aadaeb8e521062f7e16f0768e66ae234b74be2afdf25d4bee0f4298b932f3401",
+      "bytes": 376395,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-root-v1\\launch-preparation.json"
+    },
+    "evidence/player-light-public-emulator-showcase-root-v1/owned-launch.json": {
+      "sha256": "c88498891e32c8412b645ce8de8c144c8e41ff312538a17c364a79c257978b06",
+      "bytes": 376415,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-root-v1\\owned-launch.json"
+    },
+    "evidence/player-light-public-emulator-showcase-root-v1/owned-stop.json": {
+      "sha256": "a1ce3dd84ebce49fe2a113f704093acd7b04d8d0580986e896099e8ac9cc841e",
+      "bytes": 595,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-root-v1\\owned-stop.json"
+    },
+    "evidence/player-light-public-emulator-showcase-root-v1/runtime/emulator.log": {
+      "sha256": "8ed0910dda5c94d05ebdafd3cc547dcd0718c8a945afd4fc9d1b07a2a0459e88",
+      "bytes": 4311174,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-root-v1\\runtime\\emulator.log"
+    },
+    "evidence/player-light-public-emulator-showcase-root-v1/runtime/stdout.log": {
+      "sha256": "719b427524aa99258b7c7446f2e739b73f92500c54bbed4297f49cfb8fa9f85a",
+      "bytes": 76,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-root-v1\\runtime\\stdout.log"
+    },
+    "evidence/player-light-public-emulator-showcase-capture-root-v1/boot.png": {
+      "sha256": "a0d76df4a512b832b6e3fc281aaf4ba06120f3482ebc518f8bbd77619211ff77",
+      "bytes": 284844,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-capture-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-showcase-capture-root-v1/capture-proof.json": {
+      "sha256": "74e2a74808de064722696ed7d8401065490ddf992dfa69278a7d920d014047ff",
+      "bytes": 771,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-capture-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-showcase-portal-root-v1/after-pad.png": {
+      "sha256": "1e766533bc20807ad4a2b2bd14ddb158ea00e73d064d58ff493a3cd765c60626",
+      "bytes": 284019,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-portal-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-showcase-portal-root-v1/boot.png": {
+      "sha256": "455770355ce0639d19d0d9d45fb82e1dbd0c056552f5330651693bf8a5cfca09",
+      "bytes": 284710,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-portal-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-showcase-portal-root-v1/capture-proof.json": {
+      "sha256": "21f6406eade0efcd250de0426892824102ee8892d6bcc6f1e953a6a34b5d1e84",
+      "bytes": 1134,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-portal-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-showcase-portal-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-portal-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-showcase-portal-root-v1/pad.stdout": {
+      "sha256": "6dacfe3ea770cb9084d53dcfde84928f3032d698eefa285203db216ea63ad900",
+      "bytes": 115,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-portal-root-v1\\pad.stdout"
+    },
+    "evidence/player-light-public-emulator-showcase-pavilion-root-v1/after-pad.png": {
+      "sha256": "a2b28f60b7e1200b92d4f65cfb0919a3e30de99020f00b1cf5124b2102a7ef92",
+      "bytes": 310483,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-pavilion-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-showcase-pavilion-root-v1/boot.png": {
+      "sha256": "ea612f13d8fb878d8943fd546b4f1c264a842dad56752ca1defd606338553edb",
+      "bytes": 283946,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-pavilion-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-showcase-pavilion-root-v1/capture-proof.json": {
+      "sha256": "3a10de75fef5c31f618e0e4dd7d57da5f65dce2ed0590508d8aa022cf535f3d3",
+      "bytes": 1138,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-pavilion-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-showcase-pavilion-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-pavilion-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-showcase-pavilion-root-v1/pad.stdout": {
+      "sha256": "0b8037bc0a8dccbd99fcbeee57acc34400863dea042d0c7b221576cb49be5452",
+      "bytes": 146,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-pavilion-root-v1\\pad.stdout"
+    },
+    "evidence/player-light-public-emulator-showcase-crossing-root-v1/after-pad.png": {
+      "sha256": "f279d1c88f7ee1729130559a65f9a7c4bf00809ac25e0de85c6f72648c2c0de1",
+      "bytes": 292585,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-crossing-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-showcase-crossing-root-v1/boot.png": {
+      "sha256": "d4ff2b91a87ea319b8065e47596e07d77a6e2fbb77602245e469ca2c11b82235",
+      "bytes": 310744,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-crossing-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-showcase-crossing-root-v1/capture-proof.json": {
+      "sha256": "2740e2c8204e8240368dc8006c3d2e59e727f9a148c0fe04cdf3e382e8f00128",
+      "bytes": 1138,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-crossing-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-showcase-crossing-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-crossing-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-showcase-crossing-root-v1/pad.stdout": {
+      "sha256": "ad8483732d4ada6f5743a07bcc1438527b1dc75368ab80e66034e4c1f279ffab",
+      "bytes": 147,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-crossing-root-v1\\pad.stdout"
+    },
+    "evidence/player-light-public-emulator-showcase-gate-root-v1/after-pad.png": {
+      "sha256": "dfbcd97e48fd29fed27d65ffb66e11df0fa7b24f881d66219b8e464fd6b7577b",
+      "bytes": 304252,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-gate-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-showcase-gate-root-v1/boot.png": {
+      "sha256": "dad29b21feddbd5ea771f59a39b87bd0c935bb5a663d910644faf31926a466c3",
+      "bytes": 291929,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-gate-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-showcase-gate-root-v1/capture-proof.json": {
+      "sha256": "173ce36fb8b84384da48c76c3f3b279d899121a032f4287b544b0e6f1186b7ab",
+      "bytes": 1130,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-gate-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-showcase-gate-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-gate-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-showcase-gate-root-v1/pad.stdout": {
+      "sha256": "6b630194fb3de95ef82627fa4e20c249af9e41d23d9a954f4c1b0e045d9c6673",
+      "bytes": 148,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-gate-root-v1\\pad.stdout"
+    },
+    "showcase-original-spawn-boundaries.md": {
+      "sha256": "88fe01aaa975727d47f83bd0447ff2045b6591ccfa70ea3e203feebaf054907d",
+      "bytes": 945,
+      "origin": "root stopped showcase route/visual qualification boundary"
+    },
+    "evidence/player-light-public-emulator-mixed-root-v1/launch-preparation.json": {
+      "sha256": "dc6093b64b7ffe1d2eb429b83183c6d00aebcda4b75e6a7608ca0b03d492e545",
+      "bytes": 436391,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-root-v1\\launch-preparation.json"
+    },
+    "evidence/player-light-public-emulator-mixed-root-v1/owned-launch.json": {
+      "sha256": "6cc649f4151d50c7042854a11ba4d4ea01f70dccf16c21e6e8059f0848b807a0",
+      "bytes": 436411,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-root-v1\\owned-launch.json"
+    },
+    "evidence/player-light-public-emulator-mixed-root-v1/owned-stop.json": {
+      "sha256": "be7bb0e381f1602fa945b109440f8afedf852422f4818fa38f22c959cccedb0b",
+      "bytes": 604,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-root-v1\\owned-stop.json"
+    },
+    "evidence/player-light-public-emulator-mixed-root-v1/runtime/emulator.log": {
+      "sha256": "0618d71393c5b33cb9c9b3d30cbbacda505164e164ac2f5368dddc7b3a63bf4c",
+      "bytes": 1888383,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-root-v1\\runtime\\emulator.log"
+    },
+    "evidence/player-light-public-emulator-mixed-root-v1/runtime/stdout.log": {
+      "sha256": "719b427524aa99258b7c7446f2e739b73f92500c54bbed4297f49cfb8fa9f85a",
+      "bytes": 76,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-root-v1\\runtime\\stdout.log"
+    },
+    "evidence/player-light-public-emulator-mixed-exit-root-v1/after-pad.png": {
+      "sha256": "cb3bcc0f73114ccf135adbeafe5e7e5c5acd60353dd9dca50cb7e10617570835",
+      "bytes": 298055,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-exit-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-mixed-exit-root-v1/boot.png": {
+      "sha256": "852ca99c127da98dbc8d54632a26bddde5e75963cea2584262c9e1703d717569",
+      "bytes": 328540,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-exit-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-mixed-exit-root-v1/capture-proof.json": {
+      "sha256": "c1567b56ab4e76568cec9ca167ef6181209956d336dfca515d3e1f75ab40258e",
+      "bytes": 1124,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-exit-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-mixed-exit-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-exit-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-mixed-exit-root-v1/pad.stdout": {
+      "sha256": "2a935e77e31f63a422d79affde8192fc6f25d7629d5d3f093f4c3c6e826938e0",
+      "bytes": 230,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-exit-root-v1\\pad.stdout"
+    },
+    "evidence/player-light-public-emulator-mixed-change-root-v1/after-pad.png": {
+      "sha256": "87d11baec018a257a909add65ebb9b761eaf742d8ccbb6bdbf1489a058652cd7",
+      "bytes": 331130,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-change-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-mixed-change-root-v1/boot.png": {
+      "sha256": "3dbc2f14205d403d9f448c25d6f4853e41d1085ead64e4827f21a3281b4a6027",
+      "bytes": 297606,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-change-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-mixed-change-root-v1/capture-proof.json": {
+      "sha256": "f417defa79734e50e4b52b3d47ab5047715657eaceb4078435d58e8ce78f1bb0",
+      "bytes": 1128,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-change-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-mixed-change-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-change-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-mixed-change-root-v1/pad.stdout": {
+      "sha256": "ac0a15522a7631fe54722d7b26ad7e428c0fd5d3b4b8e8aee7bd38abc26d5b5b",
+      "bytes": 192,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-mixed-change-root-v1\\pad.stdout"
+    },
+    "evidence/player-light-public-runtime-v1/vehicle-mixed-players-prep-v1/README.md": {
+      "sha256": "3139f6217fb6dfa9c9b82f7e324395f477ffd80308767f3d81b6acf1441c9907",
+      "bytes": 1310,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\vehicle-mixed-players-prep-v1\\README.md"
+    },
+    "evidence/player-light-public-runtime-v1/vehicle-mixed-players-prep-v1/recovered-source-pins.json": {
+      "sha256": "339c3dc47b4652f6a88a8413a24ebf7792f64b077793821ddab01f2aea41efaa",
+      "bytes": 140783,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\vehicle-mixed-players-prep-v1\\recovered-source-pins.json"
+    },
+    "evidence/player-light-public-runtime-v1/vehicle-mixed-players-prep-v1/refresh-gen.log": {
+      "sha256": "e15bfb1c7ff8e6d415b83e2828e8b399997d79a54bb57dc80f5b200fc34e7d4a",
+      "bytes": 2506,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\vehicle-mixed-players-prep-v1\\refresh-gen.log"
+    },
+    "evidence/player-light-public-runtime-v1/vehicle-mixed-players-prep-v1/resave.log": {
+      "sha256": "51267ae196d2260ba9e6d1cf987592c53d064c6124aa5cb694c2d7d6eee6ee61",
+      "bytes": 104,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\vehicle-mixed-players-prep-v1\\resave.log"
+    },
+    "evidence/player-light-public-runtime-v1/vehicle-mixed-players-prep-v1/source-proof.json": {
+      "sha256": "f75cd292310d6d1dbc16b8b29006afa387557463de06c16a44834afc6da9c7c8",
+      "bytes": 291242,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\vehicle-mixed-players-prep-v1\\source-proof.json"
+    },
+    "evidence/player-light-public-native-mixed-root-v1/build-record.json.projection.json": {
+      "sha256": "f5c068f55e1ce92e4562550d1d6973be16cda0e85e039d6715b2acfdea924d52",
+      "bytes": 1628,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-root-v1\\build-record.json"
+    },
+    "evidence/player-light-public-native-mixed-root-v1/native-build.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-root-v1\\native-build.stderr"
+    },
+    "evidence/player-light-public-native-mixed-root-v1/native-build.stdout": {
+      "sha256": "a50f281fa00450bc302183d3c6253ed61093c661a91b125f6751cf1deacf5da9",
+      "bytes": 57273,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-root-v1\\native-build.stdout"
+    },
+    "evidence/player-light-public-native-mixed-audit-root-v3/durable-build-record.json.projection.json": {
+      "sha256": "09a0850d98238b54b0a6d5962a927c393c481e347a0c0474e6dab3bffe2cd905",
+      "bytes": 1994,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-audit-root-v3\\durable-build-record.json"
+    },
+    "evidence/player-light-public-native-mixed-audit-root-v3/native-proof.json.projection.json": {
+      "sha256": "c1e113b4848706f42e6d76d50caf4bc0befe98cea711b1eb226d5035957ea27d",
+      "bytes": 1063,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-audit-root-v3\\native-proof.json"
+    },
+    "evidence/player-light-public-native-mixed-audit-root-v3/root-runtime-review.json": {
+      "sha256": "6aa5b59e0da51cb505c454a8ef456ec246d9d25283ce3261692991b59d6771de",
+      "bytes": 679,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-audit-root-v3\\root-runtime-review.json"
+    },
+    "tools/append-public-native-sources-v1.py": {
+      "sha256": "9e19d29f320621176312591e18fc5fc0ae69e3ea748b9e085e47184fc98a00a8",
+      "bytes": 2277,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\append-public-native-sources-v1.py"
+    },
+    "mixed-rebinding-boundaries.md": {
+      "sha256": "c0738f9f725d0d5c36bf808c0f167db8883f723238dbaa51d097f9d5e5e2615c",
+      "bytes": 1533,
+      "origin": "root completed mixed-fixture runtime qualification"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-gate-root-v1/launch-preparation.json": {
+      "sha256": "d48ca465aa412f44a700f312349c20e3a40d5943b79763df96acd40c238972e2",
+      "bytes": 376431,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-gate-root-v1\\launch-preparation.json"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-gate-root-v1/owned-launch.json": {
+      "sha256": "dab5c579177cc3536068af284cd7d4f4d22002c33f10c8c04b0f744fc9e85ae8",
+      "bytes": 376451,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-gate-root-v1\\owned-launch.json"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-gate-root-v1/owned-stop.json": {
+      "sha256": "087bd28801500665fe62942a2df9e58e0fbafcb765c71e0556b3f4ec171ac0cf",
+      "bytes": 628,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-gate-root-v1\\owned-stop.json"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-gate-root-v1/runtime/emulator.log": {
+      "sha256": "5bec2c757e02afc8a3f54969e9cb9aaef2f3b448933fd032f709be6948e3224a",
+      "bytes": 1758023,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-gate-root-v1\\runtime\\emulator.log"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-gate-root-v1/runtime/stdout.log": {
+      "sha256": "719b427524aa99258b7c7446f2e739b73f92500c54bbed4297f49cfb8fa9f85a",
+      "bytes": 76,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-gate-root-v1\\runtime\\stdout.log"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-cross-root-v1/after-pad.png": {
+      "sha256": "85fc7afb53079bfef6f6fe35d0da7c55a73c5353805e1da0f4784a79c1573bc6",
+      "bytes": 277145,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-cross-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-cross-root-v1/boot.png": {
+      "sha256": "e002412272fbe20768bb089f816fd9a1c549f3a3b214ea42ca85e9eb89f02c08",
+      "bytes": 237373,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-cross-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-cross-root-v1/capture-proof.json": {
+      "sha256": "e884a2e5960a9584dc9badebcef8caf74339a34e4e6b2e7ff5327963d1f01378",
+      "bytes": 1150,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-cross-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-cross-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-cross-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-cross-root-v1/pad.stdout": {
+      "sha256": "890ceb2fede633358bc248ae8772d87c504480d534489215987c99d4aff5f35c",
+      "bytes": 111,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-cross-root-v1\\pad.stdout"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-return-root-v1/after-pad.png": {
+      "sha256": "fc03f6c2984b6f30aaef7134d486e38fc9f98744af5b37dbd7886c08f9ef3a3a",
+      "bytes": 265132,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-return-root-v1\\after-pad.png"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-return-root-v1/boot.png": {
+      "sha256": "39bb08269ecb31156a44322db8e9dc9dafc2a8ad0eb06e528a67c102a6b3e532",
+      "bytes": 277688,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-return-root-v1\\boot.png"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-return-root-v1/capture-proof.json": {
+      "sha256": "ca4f37cd3462af0b635cc8365170bfb87263969ecd545fb9894b9f72811a81b8",
+      "bytes": 1152,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-return-root-v1\\capture-proof.json"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-return-root-v1/pad.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-return-root-v1\\pad.stderr"
+    },
+    "evidence/player-light-public-emulator-showcase-targeted-return-root-v1/pad.stdout": {
+      "sha256": "80be02a0b9b09af3b6fea771806f4050b4ed7029fc873773ae7c12704a7f4ef5",
+      "bytes": 110,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-showcase-targeted-return-root-v1\\pad.stdout"
+    },
+    "evidence/player-light-public-runtime-v1/showcase-gate-players-prep-v1/baseline-resave.log": {
+      "sha256": "abef7521f612be4fb16cd689fc7cf703ba6f66a583da3a293737cf3a95e550eb",
+      "bytes": 122,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\showcase-gate-players-prep-v1\\baseline-resave.log"
+    },
+    "evidence/player-light-public-runtime-v1/showcase-gate-players-prep-v1/canonical-manifest-delta.json": {
+      "sha256": "2f54e94ef5235eb0a37620a31a0c3a18480a705ca7258b3ee57015e0e9e31021",
+      "bytes": 27367,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\showcase-gate-players-prep-v1\\canonical-manifest-delta.json"
+    },
+    "evidence/player-light-public-runtime-v1/showcase-gate-players-prep-v1/initial-source-pins.json": {
+      "sha256": "b6796eca22eea1d73a66509e47e74ff6a18ee924a7bbc6c3c95a63ed2b0a5601",
+      "bytes": 60415,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\showcase-gate-players-prep-v1\\initial-source-pins.json"
+    },
+    "evidence/player-light-public-runtime-v1/showcase-gate-players-prep-v1/README.md": {
+      "sha256": "c35eddf04436e0b66e8293390afbd8c48f1614064c20fdf352101adad277ada0",
+      "bytes": 1307,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\showcase-gate-players-prep-v1\\README.md"
+    },
+    "evidence/player-light-public-runtime-v1/showcase-gate-players-prep-v1/refresh-gen.log": {
+      "sha256": "935454a5a995d10648b269b987a8613e1298a66d8f6d500c6493684394e1d491",
+      "bytes": 122,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\showcase-gate-players-prep-v1\\refresh-gen.log"
+    },
+    "evidence/player-light-public-runtime-v1/showcase-gate-players-prep-v1/resave.log": {
+      "sha256": "34eb480434bdbc1493f968582c5c7ac51b6bed285fdd1bf6379dbb44a39977f1",
+      "bytes": 104,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\showcase-gate-players-prep-v1\\resave.log"
+    },
+    "evidence/player-light-public-runtime-v1/showcase-gate-players-prep-v1/source-proof.json": {
+      "sha256": "51b61836f9c52c1eb865d99a99a3716664f3edb9ca76cfe72f5dd86a3a729958",
+      "bytes": 154753,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\showcase-gate-players-prep-v1\\source-proof.json"
+    },
+    "evidence/player-light-public-native-showcase-gate-root-v1/build-record.json.projection.json": {
+      "sha256": "20cbc96551a912696e6af0828386c6525a9e13952f061287b96412396c983936",
+      "bytes": 17659,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-gate-root-v1\\build-record.json"
+    },
+    "evidence/player-light-public-native-showcase-gate-root-v1/native-build.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-gate-root-v1\\native-build.stderr"
+    },
+    "evidence/player-light-public-native-showcase-gate-root-v1/native-build.stdout": {
+      "sha256": "56c9179ab1758113b9c36bd7a7b80d9bdaa4e26423f687a8c8e7e4c0a2b8b791",
+      "bytes": 30085,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-gate-root-v1\\native-build.stdout"
+    },
+    "evidence/player-light-public-native-showcase-gate-audit-root-v3/durable-build-record.json.projection.json": {
+      "sha256": "9d1ce0a6f49b7483e3c18822e76cdaf6648fb530bfa83fe8e4d5fbbe8c5b4f32",
+      "bytes": 18033,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-gate-audit-root-v3\\durable-build-record.json"
+    },
+    "evidence/player-light-public-native-showcase-gate-audit-root-v3/native-proof.json.projection.json": {
+      "sha256": "4936a8f929485fa9bbcd468063c0e5d504eed3a8f97eac58c28706be742d61ab",
+      "bytes": 1071,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-gate-audit-root-v3\\native-proof.json"
+    },
+    "evidence/player-light-public-native-showcase-gate-audit-root-v3/root-runtime-review.json": {
+      "sha256": "f663072a8b51ed9b7ba3529051396486bd6d66a71840c08dd44ab02254ff6ce8",
+      "bytes": 687,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-gate-audit-root-v3\\root-runtime-review.json"
+    },
+    "postimages/80b63c88fbd066a11c8f5e5a49c032f2eb5b613122e208d08463b088c13a1461.txt": {
+      "sha256": "80b63c88fbd066a11c8f5e5a49c032f2eb5b613122e208d08463b088c13a1461",
+      "bytes": 209703,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\src\\gen\\game_scene.gen.cpp"
+    },
+    "postimages/4d7433b0c43f0b54f25044203ade0912ff9f7bff2f8da772845fa5358a372528.txt": {
+      "sha256": "4d7433b0c43f0b54f25044203ade0912ff9f7bff2f8da772845fa5358a372528",
+      "bytes": 4617,
+      "origin": "F:\\Projects\\tyra-editor\\docs\\dynamic-light-receivers.md"
+    },
+    "postimages/8c3ada0cb951cfcadb8f1112bd13b9e6fea7eb4409d9fc873994f4b4c4bf4a13.txt": {
+      "sha256": "8c3ada0cb951cfcadb8f1112bd13b9e6fea7eb4409d9fc873994f4b4c4bf4a13",
+      "bytes": 194056,
+      "origin": "F:\\Projects\\tyra-editor\\docs\\backlog.md"
+    },
+    "postimages/31217c358086a117096062a6ef0db86b0641e3339a468bfeff8ab9e0138e561e.txt": {
+      "sha256": "31217c358086a117096062a6ef0db86b0641e3339a468bfeff8ab9e0138e561e",
+      "bytes": 281897,
+      "origin": "F:\\Projects\\tyra-editor\\.claude\\skills\\tyra-engine-dev\\SKILL.md"
+    },
+    "final-validation-summary.md": {
+      "sha256": "271f1018373eba2eb35e9e41b2df7ecefcc176812eeb0cd38c2f068d06da7f83",
+      "bytes": 2195,
+      "origin": "root completed public qualification boundaries"
+    },
+    "tools/finalize-public-receiver-archive-v1.py": {
+      "sha256": "26f4e56feb3844f154ecb1c5488b59111ad978a565b9bbc02107b3997e9751a1",
+      "bytes": 1745,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\finalize-public-receiver-archive-v1.py"
+    }
+  },
+  "postimages": {
+    "production/src/project.hpp": {
+      "payload": "postimages/60bf68db0a2a7c2d07191da238ca381e0a8ba285f39e3fbadbfde7807ac03e8e.txt",
+      "sha256": "60bf68db0a2a7c2d07191da238ca381e0a8ba285f39e3fbadbfde7807ac03e8e",
+      "bytes": 298313,
+      "origin": "F:\\Projects\\tyra-editor\\src\\project.hpp"
+    },
+    "production/src/project.cpp": {
+      "payload": "postimages/1bed5b11f5587043f719c4ed94ae08d803803c3b806d5e6ebff1745d9f1dd015.txt",
+      "sha256": "1bed5b11f5587043f719c4ed94ae08d803803c3b806d5e6ebff1745d9f1dd015",
+      "bytes": 511341,
+      "origin": "F:\\Projects\\tyra-editor\\src\\project.cpp"
+    },
+    "production/src/version.hpp": {
+      "payload": "postimages/b53caea8f497056d2e2637885e18825974e3d31476063a53bcaf253cae523ac4.txt",
+      "sha256": "b53caea8f497056d2e2637885e18825974e3d31476063a53bcaf253cae523ac4",
+      "bytes": 420143,
+      "origin": "F:\\Projects\\tyra-editor\\src\\version.hpp"
+    },
+    "production/src/migrations.cpp": {
+      "payload": "postimages/8e1941203ab155de5c6691951d0b7ea16b3c5ae1ccf19c85305a670794fd0587.txt",
+      "sha256": "8e1941203ab155de5c6691951d0b7ea16b3c5ae1ccf19c85305a670794fd0587",
+      "bytes": 8180,
+      "origin": "F:\\Projects\\tyra-editor\\src\\migrations.cpp"
+    },
+    "production/src/app.cpp": {
+      "payload": "postimages/045d3c3577dd54c85028b35da7fc09c5cbf1e8a0257a41fee8a029ef644d87d4.txt",
+      "sha256": "045d3c3577dd54c85028b35da7fc09c5cbf1e8a0257a41fee8a029ef644d87d4",
+      "bytes": 898026,
+      "origin": "F:\\Projects\\tyra-editor\\src\\app.cpp"
+    },
+    "production/src/viewport.hpp": {
+      "payload": "postimages/076d0a314a071085cf1b5e2d36d3e48b2f324da07d73bc729560ef555d05cada.txt",
+      "sha256": "076d0a314a071085cf1b5e2d36d3e48b2f324da07d73bc729560ef555d05cada",
+      "bytes": 85772,
+      "origin": "F:\\Projects\\tyra-editor\\src\\viewport.hpp"
+    },
+    "production/src/viewport.cpp": {
+      "payload": "postimages/3ab2959075b383789649634ccc810484ac7ef9d0a46eaa88c07b1efc63970920.txt",
+      "sha256": "3ab2959075b383789649634ccc810484ac7ef9d0a46eaa88c07b1efc63970920",
+      "bytes": 423811,
+      "origin": "F:\\Projects\\tyra-editor\\src\\viewport.cpp"
+    },
+    "production/src/templates.cpp": {
+      "payload": "postimages/25ce5dc9e65cf68ef205e2f704a1dedda308a88b458fb8286aa2b9d2c2d8cfe5.txt",
+      "sha256": "25ce5dc9e65cf68ef205e2f704a1dedda308a88b458fb8286aa2b9d2c2d8cfe5",
+      "bytes": 1797160,
+      "origin": "F:\\Projects\\tyra-editor\\src\\templates.cpp"
+    },
+    "production/src/game_templates.inc": {
+      "payload": "postimages/8afe4a04ba0000293a019f84d842480f2c095f684cb215e3fd22a10a604c711d.txt",
+      "sha256": "8afe4a04ba0000293a019f84d842480f2c095f684cb215e3fd22a10a604c711d",
+      "bytes": 1332402,
+      "origin": "F:\\Projects\\tyra-editor\\src\\game_templates.inc"
+    },
+    "production/vendor/tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_info_bag.hpp": {
+      "payload": "postimages/d12fc4049721ba0f48150a35f470f62fb228636135ad1b9d0ad513cdc7aae4c1.txt",
+      "sha256": "d12fc4049721ba0f48150a35f470f62fb228636135ad1b9d0ad513cdc7aae4c1",
+      "bytes": 7640,
+      "origin": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\shared\\bag\\pipeline_info_bag.hpp"
+    },
+    "production/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_core.hpp": {
+      "payload": "postimages/a2be0e4879687b1b736aafd1f3123cb88a1719e2cd51cb7fc1d93c9ead3cf1b2.txt",
+      "sha256": "a2be0e4879687b1b736aafd1f3123cb88a1719e2cd51cb7fc1d93c9ead3cf1b2",
+      "bytes": 9226,
+      "origin": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_core.hpp"
+    },
+    "production/vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": {
+      "payload": "postimages/3e14085285e962741d6324e6e19d6fd31fce7f6a08a52dd5c0d4d2ed3ed879be.txt",
+      "sha256": "3e14085285e962741d6324e6e19d6fd31fce7f6a08a52dd5c0d4d2ed3ed879be",
+      "bytes": 70489,
+      "origin": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp"
+    },
+    "generated/vehicle-players/inc/terrain_game.hpp": {
+      "payload": "postimages/3cc3248491267ee0a1af823cc24152faa7a76c452c2ce2371003f333446f97d6.txt",
+      "sha256": "3cc3248491267ee0a1af823cc24152faa7a76c452c2ce2371003f333446f97d6",
+      "bytes": 132491,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\inc\\terrain_game.hpp"
+    },
+    "generated/vehicle-players/src/gen/game_physics.gen.cpp": {
+      "payload": "postimages/d5d318ab3171aeb9ce98a53b5eb8cb75c2492fe8d3a7a3a65dcdfb454b3784eb.txt",
+      "sha256": "d5d318ab3171aeb9ce98a53b5eb8cb75c2492fe8d3a7a3a65dcdfb454b3784eb",
+      "bytes": 276862,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\src\\gen\\game_physics.gen.cpp"
+    },
+    "generated/vehicle-players/src/gen/game_lighting.gen.cpp": {
+      "payload": "postimages/a68a2879fcbfab4657e981308271ec7ee8a841722534b1ade2ceeed3a69d411d.txt",
+      "sha256": "a68a2879fcbfab4657e981308271ec7ee8a841722534b1ade2ceeed3a69d411d",
+      "bytes": 217204,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\src\\gen\\game_lighting.gen.cpp"
+    },
+    "generated/vehicle-players/src/gen/game_scene.gen.cpp": {
+      "payload": "postimages/7de907efaf882373b4abb63759d39956e2c9a605415725a375755e0dc9ca1228.txt",
+      "sha256": "7de907efaf882373b4abb63759d39956e2c9a605415725a375755e0dc9ca1228",
+      "bytes": 209918,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\src\\gen\\game_scene.gen.cpp"
+    },
+    "generated/vehicle-players/src/gen/game_vehicles.gen.cpp": {
+      "payload": "postimages/419c138549b4c1c58fc11cdf2693d7194dbd6cdff3ec9243fdab2116a03cbad2.txt",
+      "sha256": "419c138549b4c1c58fc11cdf2693d7194dbd6cdff3ec9243fdab2116a03cbad2",
+      "bytes": 339251,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\src\\gen\\game_vehicles.gen.cpp"
+    },
+    "generated/vehicle-all/inc/terrain_game.hpp": {
+      "payload": "postimages/3cc3248491267ee0a1af823cc24152faa7a76c452c2ce2371003f333446f97d6.txt",
+      "sha256": "3cc3248491267ee0a1af823cc24152faa7a76c452c2ce2371003f333446f97d6",
+      "bytes": 132491,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-all\\inc\\terrain_game.hpp"
+    },
+    "generated/vehicle-all/src/gen/game_physics.gen.cpp": {
+      "payload": "postimages/d5d318ab3171aeb9ce98a53b5eb8cb75c2492fe8d3a7a3a65dcdfb454b3784eb.txt",
+      "sha256": "d5d318ab3171aeb9ce98a53b5eb8cb75c2492fe8d3a7a3a65dcdfb454b3784eb",
+      "bytes": 276862,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-all\\src\\gen\\game_physics.gen.cpp"
+    },
+    "generated/vehicle-all/src/gen/game_lighting.gen.cpp": {
+      "payload": "postimages/a68a2879fcbfab4657e981308271ec7ee8a841722534b1ade2ceeed3a69d411d.txt",
+      "sha256": "a68a2879fcbfab4657e981308271ec7ee8a841722534b1ade2ceeed3a69d411d",
+      "bytes": 217204,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-all\\src\\gen\\game_lighting.gen.cpp"
+    },
+    "generated/vehicle-all/src/gen/game_scene.gen.cpp": {
+      "payload": "postimages/7de907efaf882373b4abb63759d39956e2c9a605415725a375755e0dc9ca1228.txt",
+      "sha256": "7de907efaf882373b4abb63759d39956e2c9a605415725a375755e0dc9ca1228",
+      "bytes": 209918,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-all\\src\\gen\\game_scene.gen.cpp"
+    },
+    "generated/vehicle-all/src/gen/game_vehicles.gen.cpp": {
+      "payload": "postimages/419c138549b4c1c58fc11cdf2693d7194dbd6cdff3ec9243fdab2116a03cbad2.txt",
+      "sha256": "419c138549b4c1c58fc11cdf2693d7194dbd6cdff3ec9243fdab2116a03cbad2",
+      "bytes": 339251,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-all\\src\\gen\\game_vehicles.gen.cpp"
+    },
+    "generated/animated-players/inc/terrain_game.hpp": {
+      "payload": "postimages/06ff767df5465df97403172f737eaaef0d98bd4187832e31a7d3ab3c94ed7109.txt",
+      "sha256": "06ff767df5465df97403172f737eaaef0d98bd4187832e31a7d3ab3c94ed7109",
+      "bytes": 105183,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\inc\\terrain_game.hpp"
+    },
+    "generated/animated-players/src/gen/game_physics.gen.cpp": {
+      "payload": "postimages/19ac867131c34b08ef06b41485a63d7c8fd87a1b0d40e3e7c4e97745933a2667.txt",
+      "sha256": "19ac867131c34b08ef06b41485a63d7c8fd87a1b0d40e3e7c4e97745933a2667",
+      "bytes": 276317,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\src\\gen\\game_physics.gen.cpp"
+    },
+    "generated/animated-players/src/gen/game_lighting.gen.cpp": {
+      "payload": "postimages/963c70a00a7bddd6b4dbe13053b57458d31b4a588c6b8ac3a0ae228f99d5a5ab.txt",
+      "sha256": "963c70a00a7bddd6b4dbe13053b57458d31b4a588c6b8ac3a0ae228f99d5a5ab",
+      "bytes": 217136,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\src\\gen\\game_lighting.gen.cpp"
+    },
+    "generated/animated-players/src/gen/game_scene.gen.cpp": {
+      "payload": "postimages/c244b2197e0837a9848235a509f26163aa444d314e3433b2724a72ffacf49c10.txt",
+      "sha256": "c244b2197e0837a9848235a509f26163aa444d314e3433b2724a72ffacf49c10",
+      "bytes": 209708,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\src\\gen\\game_scene.gen.cpp"
+    },
+    "generated/animated-players/src/gen/game_vehicles.gen.cpp": {
+      "payload": "postimages/26e1c43ce088942b64b077f6fd06629b8a920a795bfcd9d551cfa0512899972c.txt",
+      "sha256": "26e1c43ce088942b64b077f6fd06629b8a920a795bfcd9d551cfa0512899972c",
+      "bytes": 38324,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\src\\gen\\game_vehicles.gen.cpp"
+    },
+    "generated/animated-all/inc/terrain_game.hpp": {
+      "payload": "postimages/06ff767df5465df97403172f737eaaef0d98bd4187832e31a7d3ab3c94ed7109.txt",
+      "sha256": "06ff767df5465df97403172f737eaaef0d98bd4187832e31a7d3ab3c94ed7109",
+      "bytes": 105183,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-all\\inc\\terrain_game.hpp"
+    },
+    "generated/animated-all/src/gen/game_physics.gen.cpp": {
+      "payload": "postimages/19ac867131c34b08ef06b41485a63d7c8fd87a1b0d40e3e7c4e97745933a2667.txt",
+      "sha256": "19ac867131c34b08ef06b41485a63d7c8fd87a1b0d40e3e7c4e97745933a2667",
+      "bytes": 276317,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-all\\src\\gen\\game_physics.gen.cpp"
+    },
+    "generated/animated-all/src/gen/game_lighting.gen.cpp": {
+      "payload": "postimages/963c70a00a7bddd6b4dbe13053b57458d31b4a588c6b8ac3a0ae228f99d5a5ab.txt",
+      "sha256": "963c70a00a7bddd6b4dbe13053b57458d31b4a588c6b8ac3a0ae228f99d5a5ab",
+      "bytes": 217136,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-all\\src\\gen\\game_lighting.gen.cpp"
+    },
+    "generated/animated-all/src/gen/game_scene.gen.cpp": {
+      "payload": "postimages/c244b2197e0837a9848235a509f26163aa444d314e3433b2724a72ffacf49c10.txt",
+      "sha256": "c244b2197e0837a9848235a509f26163aa444d314e3433b2724a72ffacf49c10",
+      "bytes": 209708,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-all\\src\\gen\\game_scene.gen.cpp"
+    },
+    "generated/animated-all/src/gen/game_vehicles.gen.cpp": {
+      "payload": "postimages/26e1c43ce088942b64b077f6fd06629b8a920a795bfcd9d551cfa0512899972c.txt",
+      "sha256": "26e1c43ce088942b64b077f6fd06629b8a920a795bfcd9d551cfa0512899972c",
+      "bytes": 38324,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-all\\src\\gen\\game_vehicles.gen.cpp"
+    },
+    "generated/showcase-players/inc/terrain_game.hpp": {
+      "payload": "postimages/0d7b0b2aa23b37802e192dc7ce9e4e6e5e2a4fa96c001f02c4e75386f73d04ff.txt",
+      "sha256": "0d7b0b2aa23b37802e192dc7ce9e4e6e5e2a4fa96c001f02c4e75386f73d04ff",
+      "bytes": 105265,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players\\inc\\terrain_game.hpp"
+    },
+    "generated/showcase-players/src/gen/game_physics.gen.cpp": {
+      "payload": "postimages/052d6af961852fd97a9c4e0920987561d9d5b91270555cdca526e405b1da26c5.txt",
+      "sha256": "052d6af961852fd97a9c4e0920987561d9d5b91270555cdca526e405b1da26c5",
+      "bytes": 276314,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players\\src\\gen\\game_physics.gen.cpp"
+    },
+    "generated/showcase-players/src/gen/game_lighting.gen.cpp": {
+      "payload": "postimages/67cb82cacbeb9836bc40df103007e72a21663ad67e2fcfa27c73148a779eda30.txt",
+      "sha256": "67cb82cacbeb9836bc40df103007e72a21663ad67e2fcfa27c73148a779eda30",
+      "bytes": 217133,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players\\src\\gen\\game_lighting.gen.cpp"
+    },
+    "generated/showcase-players/src/gen/game_scene.gen.cpp": {
+      "payload": "postimages/b739689e6d0d4c9fa38d5221203da4f5d48db673e95dcbc3a75915f75868f551.txt",
+      "sha256": "b739689e6d0d4c9fa38d5221203da4f5d48db673e95dcbc3a75915f75868f551",
+      "bytes": 209705,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players\\src\\gen\\game_scene.gen.cpp"
+    },
+    "generated/showcase-players/src/gen/game_vehicles.gen.cpp": {
+      "payload": "postimages/f189a0dbff805422eef1dc0d744cb01d6cf7e97ff0aa7212e1a7ffb07156941b.txt",
+      "sha256": "f189a0dbff805422eef1dc0d744cb01d6cf7e97ff0aa7212e1a7ffb07156941b",
+      "bytes": 38321,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players\\src\\gen\\game_vehicles.gen.cpp"
+    },
+    "generated/vehicle-mixed-players/inc/terrain_game.hpp": {
+      "payload": "postimages/3cc3248491267ee0a1af823cc24152faa7a76c452c2ce2371003f333446f97d6.txt",
+      "sha256": "3cc3248491267ee0a1af823cc24152faa7a76c452c2ce2371003f333446f97d6",
+      "bytes": 132491,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\inc\\terrain_game.hpp"
+    },
+    "generated/vehicle-mixed-players/src/gen/game_physics.gen.cpp": {
+      "payload": "postimages/d5d318ab3171aeb9ce98a53b5eb8cb75c2492fe8d3a7a3a65dcdfb454b3784eb.txt",
+      "sha256": "d5d318ab3171aeb9ce98a53b5eb8cb75c2492fe8d3a7a3a65dcdfb454b3784eb",
+      "bytes": 276862,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\src\\gen\\game_physics.gen.cpp"
+    },
+    "generated/vehicle-mixed-players/src/gen/game_lighting.gen.cpp": {
+      "payload": "postimages/a68a2879fcbfab4657e981308271ec7ee8a841722534b1ade2ceeed3a69d411d.txt",
+      "sha256": "a68a2879fcbfab4657e981308271ec7ee8a841722534b1ade2ceeed3a69d411d",
+      "bytes": 217204,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\src\\gen\\game_lighting.gen.cpp"
+    },
+    "generated/vehicle-mixed-players/src/gen/game_scene.gen.cpp": {
+      "payload": "postimages/7de907efaf882373b4abb63759d39956e2c9a605415725a375755e0dc9ca1228.txt",
+      "sha256": "7de907efaf882373b4abb63759d39956e2c9a605415725a375755e0dc9ca1228",
+      "bytes": 209918,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\src\\gen\\game_scene.gen.cpp"
+    },
+    "generated/vehicle-mixed-players/src/gen/game_vehicles.gen.cpp": {
+      "payload": "postimages/419c138549b4c1c58fc11cdf2693d7194dbd6cdff3ec9243fdab2116a03cbad2.txt",
+      "sha256": "419c138549b4c1c58fc11cdf2693d7194dbd6cdff3ec9243fdab2116a03cbad2",
+      "bytes": 339251,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\src\\gen\\game_vehicles.gen.cpp"
+    },
+    "generated/showcase-gate-players/inc/terrain_game.hpp": {
+      "payload": "postimages/0d7b0b2aa23b37802e192dc7ce9e4e6e5e2a4fa96c001f02c4e75386f73d04ff.txt",
+      "sha256": "0d7b0b2aa23b37802e192dc7ce9e4e6e5e2a4fa96c001f02c4e75386f73d04ff",
+      "bytes": 105265,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\inc\\terrain_game.hpp"
+    },
+    "generated/showcase-gate-players/src/gen/game_physics.gen.cpp": {
+      "payload": "postimages/052d6af961852fd97a9c4e0920987561d9d5b91270555cdca526e405b1da26c5.txt",
+      "sha256": "052d6af961852fd97a9c4e0920987561d9d5b91270555cdca526e405b1da26c5",
+      "bytes": 276314,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\src\\gen\\game_physics.gen.cpp"
+    },
+    "generated/showcase-gate-players/src/gen/game_lighting.gen.cpp": {
+      "payload": "postimages/67cb82cacbeb9836bc40df103007e72a21663ad67e2fcfa27c73148a779eda30.txt",
+      "sha256": "67cb82cacbeb9836bc40df103007e72a21663ad67e2fcfa27c73148a779eda30",
+      "bytes": 217133,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\src\\gen\\game_lighting.gen.cpp"
+    },
+    "generated/showcase-gate-players/src/gen/game_scene.gen.cpp": {
+      "payload": "postimages/80b63c88fbd066a11c8f5e5a49c032f2eb5b613122e208d08463b088c13a1461.txt",
+      "sha256": "80b63c88fbd066a11c8f5e5a49c032f2eb5b613122e208d08463b088c13a1461",
+      "bytes": 209703,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\src\\gen\\game_scene.gen.cpp"
+    },
+    "generated/showcase-gate-players/src/gen/game_vehicles.gen.cpp": {
+      "payload": "postimages/f189a0dbff805422eef1dc0d744cb01d6cf7e97ff0aa7212e1a7ffb07156941b.txt",
+      "sha256": "f189a0dbff805422eef1dc0d744cb01d6cf7e97ff0aa7212e1a7ffb07156941b",
+      "bytes": 38321,
+      "origin": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\src\\gen\\game_vehicles.gen.cpp"
+    },
+    "final-docs/docs/dynamic-light-receivers.md": {
+      "payload": "postimages/4d7433b0c43f0b54f25044203ade0912ff9f7bff2f8da772845fa5358a372528.txt",
+      "sha256": "4d7433b0c43f0b54f25044203ade0912ff9f7bff2f8da772845fa5358a372528",
+      "bytes": 4617,
+      "origin": "F:\\Projects\\tyra-editor\\docs\\dynamic-light-receivers.md"
+    },
+    "final-docs/docs/backlog.md": {
+      "payload": "postimages/8c3ada0cb951cfcadb8f1112bd13b9e6fea7eb4409d9fc873994f4b4c4bf4a13.txt",
+      "sha256": "8c3ada0cb951cfcadb8f1112bd13b9e6fea7eb4409d9fc873994f4b4c4bf4a13",
+      "bytes": 194056,
+      "origin": "F:\\Projects\\tyra-editor\\docs\\backlog.md"
+    },
+    "final-docs/.agents/skills/tyra-engine-dev/SKILL.md": {
+      "payload": "postimages/31217c358086a117096062a6ef0db86b0641e3339a468bfeff8ab9e0138e561e.txt",
+      "sha256": "31217c358086a117096062a6ef0db86b0641e3339a468bfeff8ab9e0138e561e",
+      "bytes": 281897,
+      "origin": "F:\\Projects\\tyra-editor\\.agents\\skills\\tyra-engine-dev\\SKILL.md"
+    },
+    "final-docs/.claude/skills/tyra-engine-dev/SKILL.md": {
+      "payload": "postimages/31217c358086a117096062a6ef0db86b0641e3339a468bfeff8ab9e0138e561e.txt",
+      "sha256": "31217c358086a117096062a6ef0db86b0641e3339a468bfeff8ab9e0138e561e",
+      "bytes": 281897,
+      "origin": "F:\\Projects\\tyra-editor\\.claude\\skills\\tyra-engine-dev\\SKILL.md"
+    }
+  },
+  "externalArtifacts": {
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\all_override_players-scene_data.hpp": {
+      "sha256": "128d66c4784cf7704470f5493652d6b0228023e169fb808ba2f27557321fd829",
+      "bytes": 720117,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\invalid_local-scene_data.hpp": {
+      "sha256": "9556410c198e3376730e64b416c861064d83a30531ee299bf5cd5864f0e668b0",
+      "bytes": 720116,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\old_lighting_override-scene_data.hpp": {
+      "sha256": "c3977fe085ca5e0d82e3649dd637d38bdca53138b894cf9f23147ea5ad252468",
+      "bytes": 720115,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_inherit-scene_data.hpp": {
+      "sha256": "c3977fe085ca5e0d82e3649dd637d38bdca53138b894cf9f23147ea5ad252468",
+      "bytes": 720115,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\players_override_all-scene_data.hpp": {
+      "sha256": "9556410c198e3376730e64b416c861064d83a30531ee299bf5cd5864f0e668b0",
+      "bytes": 720116,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-cli-root-v1\\stored_inactive-scene_data.hpp": {
+      "sha256": "5866b06739b627d9b22068d5b27f73e26fd4eb60fff362b1b4d6732e541133fa",
+      "bytes": 720119,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-root-v1\\launch-preparation.json": {
+      "sha256": "8b890bd51779ff138bc6e4cf0d77861913b96f9d6b279723c3632c5465e01dab",
+      "bytes": 436276,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-root-v1\\owned-launch.json": {
+      "sha256": "3c369e4677b12468cf2d83c9d34d0c1e960213ed9d1087608fd00dab54e70528",
+      "bytes": 436296,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-emulator-players-root-v1\\runtime\\emulator.log": {
+      "sha256": "67a3541a0cc977b1a5f7255a53b96b993c262ae62780f449599312066d3d11fe",
+      "bytes": 3281705,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v1\\controls.obj": {
+      "sha256": "5d8f051f622ed81eee96641d8b2b4f1768ed0fc9798a56fb713b54c3ed140447",
+      "bytes": 211298,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v2\\controls.obj": {
+      "sha256": "5d8f051f622ed81eee96641d8b2b4f1768ed0fc9798a56fb713b54c3ed140447",
+      "bytes": 211298,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\controls.exe": {
+      "sha256": "e1ceec214bba49c429b8c7d03f25c896136a4c600f208eb507b4b8c02dec913e",
+      "bytes": 27577022,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-model-root-v3\\controls.obj": {
+      "sha256": "5d8f051f622ed81eee96641d8b2b4f1768ed0fc9798a56fb713b54c3ed140447",
+      "bytes": 211298,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-all-audit-root-v2\\defined-symbols.txt": {
+      "sha256": "2aa12cd93b79b1f4a9b298acc0a3bdb84a544ced97bef383c06171163cfd83c0",
+      "bytes": 921990,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-all-audit-root-v2\\durable-build-record.json": {
+      "sha256": "2723d96bdec19d47df562cf481aef564c32f70236b0bb85894540a29d8730f7d",
+      "bytes": 428910,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-all-audit-root-v2\\native-proof.json": {
+      "sha256": "27cd4c8ac27c36c38a173080eacaa435cdbe20a77abaf0f818418604e7f3f9ff",
+      "bytes": 2298969,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-all-root-v1\\build-record.json": {
+      "sha256": "491734549b7bc7f65e44f1a13c3be25735c18552a608c07d9b916c9b53574963",
+      "bytes": 431349,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-all-audit-root-v2\\defined-symbols.txt": {
+      "sha256": "211c4d0536f77228814e342f9465db983aea26c3486c485668c34cd1384ba7ab",
+      "bytes": 875918,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-all-audit-root-v2\\native-proof.json": {
+      "sha256": "8ab6ac91b0a895d5ed92d2946663cfea9d6f80f04a091fff107ed7831ef36398",
+      "bytes": 2388397,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-players-audit-root-v2\\defined-symbols.txt": {
+      "sha256": "37c4625d10a5d6a8e7f884fc15ec10558800ec3f1a28da910b220d99d842d8c4",
+      "bytes": 875918,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-animated-players-audit-root-v2\\native-proof.json": {
+      "sha256": "5a6bd9398116b73c70fcef7ebdd737ca32aa149366fe332ce852ed75fd157c50",
+      "bytes": 2388397,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-audit-root-v1\\defined-symbols.txt": {
+      "sha256": "db5a6a1186354596c9b931d6183f63c7a19ac4b9649fcdd1737638cbef973520",
+      "bytes": 922054,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-audit-root-v2\\defined-symbols.txt": {
+      "sha256": "db5a6a1186354596c9b931d6183f63c7a19ac4b9649fcdd1737638cbef973520",
+      "bytes": 922054,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-audit-root-v2\\durable-build-record.json": {
+      "sha256": "e292a3f14e1369f113c5598e64a68ac9de8410f5f3f616a6f5402a0d4676ec8c",
+      "bytes": 428884,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-audit-root-v2\\native-proof.json": {
+      "sha256": "379d83bbaa7b86497070fbb32a8b89eb0edbf246137a2acc01c09e15606594f1",
+      "bytes": 2298969,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-players-root-v1\\build-record.json": {
+      "sha256": "d88ce179a967bd0cb59d199e2112447b7584eca282a4cacdd4c91b0da7ecb56e",
+      "bytes": 431319,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-audit-root-v2\\defined-symbols.txt": {
+      "sha256": "b3fb9f41f9d757eb1fb160169c0a06cdb912e374caf7332ba5657927ea3f56e4",
+      "bytes": 899828,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-audit-root-v2\\durable-build-record.json": {
+      "sha256": "e64da02af4aa47f24b6c21246b5219474419cae6ca5d8e368c9308a8e72b67ea",
+      "bytes": 370057,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-audit-root-v2\\native-proof.json": {
+      "sha256": "82f34d910fc9a72f5367877f80ad1cc32b33cc595335a3f26ca5c7afcb727e12",
+      "bytes": 2435438,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-root-v1\\build-record.json": {
+      "sha256": "704f59c02b7d49bd94b85473652e3d4e1d1dd8fa15ba7e2363632eb29ac5d8fc",
+      "bytes": 371970,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\report-pass1.json": {
+      "sha256": "e99459069ec810632acfe271fa7edbf8476e327b22ee443c5947599588f7eccd",
+      "bytes": 1170173,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\public-receiver-example-refresh-v1\\report.json": {
+      "sha256": "df78271ea9f6c61b8bde9ea703170d06bc99bfff48d6509b30f908a8138d3255",
+      "bytes": 1173182,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\bin\\vehicle-playground.elf": {
+      "sha256": "0516e0c4ec66f14b101e4c21f87dbf51eead36bb1dfc7aed37c38ec907327b16",
+      "bytes": 4667324,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\bin\\vehicle-playground.elf.sym": {
+      "sha256": "469ca9cbb50bd4dcf3cf4169553735786321ed7d5aeff78bc02d466c3dbb989a",
+      "bytes": 25489304,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-players\\inc\\scene_data.hpp": {
+      "sha256": "e1744f7cf1823f7311719de59b2dd816b255dc0f28ec01a088f22d61aec2201d",
+      "bytes": 717077,
+      "reason": "full scene assets/constants omitted; policy excerpt stored"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-all\\bin\\vehicle-playground.elf": {
+      "sha256": "8c7a191d3550981eeb39010206c788984710e0b787e3d13da749e9602bb32fb7",
+      "bytes": 4665020,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-all\\bin\\vehicle-playground.elf.sym": {
+      "sha256": "650c3f8a1bc0faf1520712706b577495cdc20e9466c15f2ae1672fed2027f26b",
+      "bytes": 25473084,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-all\\inc\\scene_data.hpp": {
+      "sha256": "20e3e317279ce0e3d66d0a96c06d1c50c0044e7bc970a7ffdb5b6ac5f5cb4491",
+      "bytes": 717081,
+      "reason": "full scene assets/constants omitted; policy excerpt stored"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\bin\\two-players.elf": {
+      "sha256": "eec63941d455749337fb859ef1ebfa3ae6c27fd8e5190d8adcfa69cfa9b2d81a",
+      "bytes": 3658228,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\bin\\two-players.elf.sym": {
+      "sha256": "b7d837982b6958f26c037683d2ee469522d0d4fdcd30fdc2e40fc3e3cdae330c",
+      "bytes": 20575388,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-players\\inc\\scene_data.hpp": {
+      "sha256": "172ce11cc0e0ee9b92cc6870c2fbff6db4ca21e8b2769d64161fcb1bc406683a",
+      "bytes": 44265,
+      "reason": "full scene assets/constants omitted; policy excerpt stored"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-all\\bin\\two-players.elf": {
+      "sha256": "3090cd8d18af749954b88a2cbd3ad03c9b559556d77134fb0e4fde541973a76a",
+      "bytes": 3658100,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-all\\bin\\two-players.elf.sym": {
+      "sha256": "e0a06cbc6e0fb107bb19465d872fceb8576bbccff0f3d04fa750e5c5f42f2bff",
+      "bytes": 20566532,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\animated-all\\inc\\scene_data.hpp": {
+      "sha256": "cc952163b421e58b2a277c1f03de1d38aa373ec1ab93513028c2c4336f6297bc",
+      "bytes": 44267,
+      "reason": "full scene assets/constants omitted; policy excerpt stored"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players\\bin\\showcase.elf": {
+      "sha256": "c491efd5d1e6691a350cfc20690efb02be8cd6a0178c0432d1a729bba349515c",
+      "bytes": 3924392,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players\\bin\\showcase.elf.sym": {
+      "sha256": "b1f0f885b2fba9ec33c0604d9af96bb27a0e5ace991c931119a7130032357bcb",
+      "bytes": 22288064,
+      "reason": "binary or oversized inventory/source; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-players\\inc\\scene_data.hpp": {
+      "sha256": "f0fec50f3696b5d16b86136a77ae36c8079b2a968a0bc0ac3240e9448d8656ab",
+      "bytes": 45667,
+      "reason": "full scene assets/constants omitted; policy excerpt stored"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-root-v1\\build-record.json": {
+      "sha256": "5ba06c7c00b2af8f6c518b5cc9dcf4c765e94a83a00051054aba99fd69c57310",
+      "bytes": 431447,
+      "reason": "oversized native inventory or full symbol text; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-audit-root-v3\\defined-symbols.txt": {
+      "sha256": "51c4007bf8a75b1bd6bbe7f04a83c0f9c7bb2d3853556a3161436fe99354710a",
+      "bytes": 922054,
+      "reason": "oversized native inventory or full symbol text; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-audit-root-v3\\durable-build-record.json": {
+      "sha256": "2b30d412d1c5484a720d1ff7764e128969100689c779eee3eeffde544b81f01e",
+      "bytes": 428989,
+      "reason": "oversized native inventory or full symbol text; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-mixed-audit-root-v3\\native-proof.json": {
+      "sha256": "599b889a8b882560d285cbcc13543aaa845c77c33f442b1118ed0b37c117b482",
+      "bytes": 2298969,
+      "reason": "oversized native inventory or full symbol text; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\bin\\vehicle-playground.elf": {
+      "sha256": "595b8ff095f578532ca40a2e54398c29e435667041332e26919f638217f27b19",
+      "bytes": 4665532,
+      "reason": "binary only provenance"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\vehicle-mixed-players\\bin\\vehicle-playground.elf.sym": {
+      "sha256": "7465b868502015a7c54ae2941c448e32cf7cbfdd85dd277b1f5850ce7f5c6940",
+      "bytes": 25483392,
+      "reason": "binary only provenance"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-gate-root-v1\\build-record.json": {
+      "sha256": "c3d58e92b69a167e6d7c79167932328ce1f665b48eb8c6be10047edee577b0e6",
+      "bytes": 371945,
+      "reason": "oversized native inventory or full symbol text; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-gate-audit-root-v3\\defined-symbols.txt": {
+      "sha256": "aef7529417dc578f80146b99e65e61f2bd2fde5cd2dd8fd6f8be17b11375373f",
+      "bytes": 899828,
+      "reason": "oversized native inventory or full symbol text; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-gate-audit-root-v3\\durable-build-record.json": {
+      "sha256": "ed90d2ec64567f130744abc62d0c35afbcba7253cafe72f1b5977a4e4c1ea05e",
+      "bytes": 370017,
+      "reason": "oversized native inventory or full symbol text; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-native-showcase-gate-audit-root-v3\\native-proof.json": {
+      "sha256": "b0c575839f49e65386e60f3912939f788b9bd813453dae8b2f1d4c3f1a1a5f85",
+      "bytes": 2435438,
+      "reason": "oversized native inventory or full symbol text; metadata only"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\bin\\showcase.elf": {
+      "sha256": "32459f8d58329926a9a12ca2de543728c8375116e64f798e89bcfcbb949c25f2",
+      "bytes": 3924392,
+      "reason": "binary only provenance"
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\bin\\showcase.elf.sym": {
+      "sha256": "d31e3cd76d4ccdd47211cea0662783a7b5bf37927c95a391a82b41a05d8ca727",
+      "bytes": 22287952,
+      "reason": "binary only provenance"
+    }
+  }
+}

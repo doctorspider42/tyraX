@@ -112,6 +112,20 @@ both sides of itself. The silhouette render lifts every vertex below the
 floor up to it, for that render only: a box loses exactly its underground
 part, a model's underground part flattens to a sliver at floor level.
 
+**The clamp buffer is per caster (1.177.8).** The lifted copy used to be one
+buffer shared by every part of every caster, so rewriting it waited for every
+reader with `Vif1Queue::drain()` - with the VIF1 queue and the frame pipeline,
+the whole frame so far. Showcase's patrolling keeper (one ~1 000-triangle part,
+below its floor every frame) paid that drain every frame: on a physical PS2 the
+silhouette took 21.3 ms of a 35 ms frame while the GPU sat idle 42% of the time.
+Each caster bag now keeps its own copy (`projClampCache`), rewritten in place
+with no wait - a bag draws it once per frame, and the previous frame no longer
+reads it (the pipelined frame snapshots mutable REF payloads at submit; without
+the pipeline the frame ends on a GS finish). Only a size change, which
+reallocates, still drains; a still caster keeps its bytes and bbox stamp too.
+Same ELF, Showcase entrance, lean rig: silhouette 21.3 -> 2.7 ms, frame period
+35.1 -> 21.0 ms (28.5 -> 47.7 fps); the frame is now GPU-bound (idle 42% -> 3%).
+
 ## What it costs
 
 The projected system claims its VRAM at boot **only if some object asks for a
@@ -494,7 +508,12 @@ something.
 - **Follow the clock.** The bake is at one hour, the same
   `ambience::bakedHour` the GI bake uses ([day-night-cycle.md](day-night-cycle.md)).
   With the day/night cycle running, the sun sweeps and a baked shadow does not.
-  Use the projected silhouette there.
+  Use the projected silhouette there. While the cycle runs and the sun is
+  below the horizon (the moon owns the light), the game draws neither the
+  baked decals nor the ground maps below: a night ground darkened by a sun
+  that is not up is wrong, and on a PS2 night drive the ground maps alone
+  were ~1.7 ms of EE time a frame (2026-10-13). Without the cycle they always
+  draw, as before.
 - **Double up with a lightmap.** Where a scene has a fresh GI bake, the sun's
   shadow is already in the terrain map and in every untextured primitive's
   atlas region. The projection **skips those receivers** — automatically, in
@@ -621,6 +640,21 @@ On Motor District's main scene that is 932 decal triangles instead of 713,
 
 ### Ground shadow maps
 
+Since 1.173.3, generated games preload and retain a scene's complete ground-mask
+set during scene loading when it fits a 512 KiB accounted EE-memory budget.
+The estimate includes Indexed4 pixels, the palette and 1 KiB per mask for
+ownership/alignment overhead; this is not a VRAM reservation or a bound on
+temporary PNG-loader allocations. Each chunk still owns its ordinary texture
+reference, and the scene's extra references are released on terrain reset,
+including transitions to terrain-disabled scenes. This prevents small scenes
+from synchronously opening/decoding PNGs when driving reveals another chunk.
+Over-budget scenes retain the existing streaming behavior, with no missing
+shadows or changed rendering. Unexpected replacement texture formats abort
+the preload and release its pins. No project-format or setting change is needed;
+rebuild the game from the updated editor. See the
+[physical hitch investigation](tyrax2-road-free-hitch.md).
+
+
 *Ambience Editor > Baked lighting > Ground shadows* (1.163.0). Off by default.
 At 64 or 128 px, the **terrain** stops being a decal receiver. It gets one
 4-bit shadow map per terrain chunk instead (16×16 heightmap cells, the chunk
@@ -722,6 +756,52 @@ older cache still reads. texbake writes them to `.res-baked/gshadow/` as
 `s<scene>_<cx>_<cz>.png`. Codegen emits `GROUND_SHADOWS_ON` and a per-scene
 chunk flag table in `shadow_data.gen.hpp`, but only when some scene has a map,
 so other projects regenerate byte for byte.
+
+#### Folded into the vertex colour (1.177.0, opt-in)
+
+Measured on the physical PS2 by day (Motor District, one ELF cycling pass /
+fold / no pass, rig DG13): the fold saves 0.24 ms parked and 1.03-1.13 ms
+driving, the same as removing the pass. The parked shot differs in 1542
+pixels ([pass | fold | diff](img/ground-shadow-fold-ps2.png)). Shadows right
+beside buildings soften - check those views on a TV before relying on the fold.
+
+The Motor District shipped it on for a day and it was turned OFF again in
+1.177.6: on a TV the folded building shadows read as "extremely poor" (soft
+blobs on a 4-unit grid, thin ones gone). Re-measured on the PS2 with the
+example's own input recording replayed (`recordings/record.tyrarep`, one ELF
+per arm, fold / pass / fold / pass): mean frame work 6.51 / 6.90 / 6.50 /
+6.91 ms driving, 8.85 / 9.60 / 8.85 / 9.60 ms parked, missed vsyncs 16-18 in
+every arm - the pass costs 0.4-0.75 ms and the district still holds 60 fps.
+
+*Ambience Editor > Baked lighting > Ground shadows > Fold into the terrain
+colour* (`bakedShadowGroundFold`, format v97, written only when on) keeps the
+maps as the source and drops the pass: while the terrain chunk is built, each
+heightmap node takes the masks' mean over the cell-sized box around it, and that
+share of its shade falls to the ambient-only level (`brightness x ambient`).
+Base and splat layers both shade through it. The shade cache stays
+sun-independent, so a sunset (the same `daynight` gate the pass has) only
+re-colours the chunks, inside the streaming budget; at night the chunks build
+without the fold and the pass stays gated off as before. Codegen emits
+`GROUND_SHADOW_FOLD`; `g_groundShadowFold` is the runtime switch the test rig
+flips before a scene rebuild.
+
+What the pass costs, measured on a physical PS2 (2026-10-20, Motor District,
+day, lean rig, same ELF, pass / no pass alternating per cycle): parked work
+9.57 -> 9.33 ms, **driving work 10.59 -> 9.46 ms**. A folded chunk draws exactly
+what the no-pass arm drew, so that is also the fold's price. At night every
+terrain pass is already free (the sun's pass is gated, the AO and emissive
+terrain passes cost nothing measurable there: 10.36 / 10.50 / 10.32 ms driving).
+
+What it costs in the picture is resolution: the district's heightmap is 81x81
+over 320 units, **4 units a node**, against the masks' 0.5-unit texels, and
+LOD chunks take every 2nd or 4th node. Building shadows become soft blobs
+with ~4-unit edges; a lamp post's shadow disappears. Over the most shaded
+chunk the folded alpha is off by more than a quarter on 2.6% of the texels
+(mean error 0.04). At the rig's parked spawn view the frame differs in 0.8% of
+the pixels, much like leaving the shadows out entirely (0.7%) - that view
+holds almost no ground shadow, so it cannot judge the trade. The district
+keeps the pass; the fold is the option for a scene whose terrain grid is fine
+enough for its shadows, or one that needs the millisecond more than the edges.
 
 ### A caster that is too big
 
@@ -957,6 +1037,30 @@ is **resolved**, not read off the project switch, because the two disagree in
 both directions: a light overridden to On in a project with the setting off
 still needs the band, and a project with the setting on but no spot light
 anywhere must not allocate one.
+
+### A still lamp keeps its volumes
+
+A scene spot's shadow volumes are a function of the light, its reach and its
+casters' placement - none of which moves for a street lamp over parked props -
+plus one camera test per triangle that sorts it into the front or the back
+count list (the GS has no face culling). So the carving lamp's world-space
+volume triangles, each with its outward normal and centroid (`VolTri`), are
+captured once (`g_volCapture`) and replayed against every frame's camera
+(`classifyVolTris`), in emission order and with the same 3997-vertex backstop.
+The key is the light position, its range, the picks and each pick's box,
+object index, type, position, scale and model; any change captures afresh. The
+count bracket, its scissor rect and the receiver pass are unchanged - they are
+the GS's work and the camera's. The torch moves with the eye every frame and
+keeps the old path.
+
+`TYRA_SPOT_VOLUME_KEEP` (0 = re-extrude every frame) is the A/B knob and
+`TYRA_SPOT_VOLUME_KEEP_VERIFY` the oracle: the emitters run again and both
+lists are compared to the byte (`SPOTVOLKEEP`). On the night-walk fixture (the
+yard's street light switched to *Shadow volumes: On*, cone 60 degrees, the
+torch off, 250 volume triangles) it compared 0 mismatches in PCSX2.
+On the physical PS2 (same fixture, one ELF alternating the keep per cycle,
+17 cycles, PAL) keeping the volumes saves 0.20-0.22 ms of frame work in every
+window (parked 7.557 -> 7.341 ms, walking 7.727 -> 7.515 ms).
 
 ## On disk
 
