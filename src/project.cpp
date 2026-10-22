@@ -1305,6 +1305,9 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
     if (sc.overrides.upscaler)
         j << ", \"blss\": { \"enabled\": " << (s.blssEnabled ? "true" : "false")
           << ", \"network\": " << (s.blssNetwork ? "true" : "false") << " }";
+    // The broad phase, the same way: only a scene that overrides it writes it.
+    if (sc.overrides.broadPhase)
+        j << ", \"broadPhase\": \"" << s.broadPhase << "\"";
     j << " }";
     const SceneOverrides& o = sc.overrides;
     j << ", \"overrides\": { \"lighting\": " << (o.lighting ? "true" : "false")
@@ -1314,6 +1317,7 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"fog\": " << (o.fog ? "true" : "false")
       << ", \"highlight\": " << (o.highlight ? "true" : "false");
     if (o.upscaler) j << ", \"upscaler\": true";
+    if (o.broadPhase) j << ", \"broadPhase\": true";
     j << " }";
     if (!sc.ambiencePreset.empty())
         j << ", \"ambiencePreset\": \"" << jsonEscape(sc.ambiencePreset) << "\"";
@@ -1404,6 +1408,8 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                 if (const auto* v = bl->find("enabled")) s.blssEnabled = v->boolOr(false);
                 if (const auto* v = bl->find("network")) s.blssNetwork = v->boolOr(true);
             }
+            if (const auto* v = st->find("broadPhase"))
+                s.broadPhase = v->stringOr("grid") == "octree" ? "octree" : "grid";
         }
         sc.overrides.lighting = ov->find("lighting") ? ov->find("lighting")->boolOr(false) : false;
         sc.overrides.sky = ov->find("sky") ? ov->find("sky")->boolOr(false) : false;
@@ -1416,6 +1422,8 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             ov->find("highlight") ? ov->find("highlight")->boolOr(false) : false;
         sc.overrides.upscaler =
             ov->find("upscaler") ? ov->find("upscaler")->boolOr(false) : false;
+        sc.overrides.broadPhase =
+            ov->find("broadPhase") ? ov->find("broadPhase")->boolOr(false) : false;
     }
     if (const auto* v = js.find("ambiencePreset")) sc.ambiencePreset = v->stringOr("");
     if (const auto* v = js.find("loadingScreen")) sc.loadingScreen = v->stringOr("");
@@ -1558,6 +1566,7 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.blssEnabled = o.blssEnabled;
         r.blssNetwork = o.blssNetwork;
     }
+    if (s.overrides.broadPhase) r.broadPhase = o.broadPhase;
     // Ambience preset overlay: a resolved preset owns sky + lighting + fog and
     // wins over the raw project/scene values above (those remain the fallback
     // when no presets exist). Keeps all downstream codegen/viewport reading the
@@ -1901,6 +1910,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"orbitSpeed\": " << fmtFloat(p.settings.orbitSpeed) << ",\n"
          << "    \"gravity\": " << fmtFloat(p.settings.gravity) << ",\n"
          << "    \"jumpSpeed\": " << fmtFloat(p.settings.jumpSpeed) << ",\n"
+         << (p.settings.broadPhase != "grid"
+                 ? "    \"broadPhase\": \"" + p.settings.broadPhase + "\",\n"
+                 : std::string())
          << "    \"lightDir\": " << fmtVec3(p.settings.lightDir) << ",\n"
          << "    \"ambient\": " << fmtFloat(p.settings.ambient) << ",\n"
          << "    \"diffuse\": " << fmtFloat(p.settings.diffuse) << ",\n"
@@ -6558,6 +6570,9 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("orbitSpeed")) st.orbitSpeed = (float)v->numberOr(1.0);
         if (const auto* v = s->find("gravity")) st.gravity = (float)v->numberOr(9.8);
         if (const auto* v = s->find("jumpSpeed")) st.jumpSpeed = (float)v->numberOr(4.5);
+        // Unknown values read as the default backend rather than failing.
+        if (const auto* v = s->find("broadPhase"))
+            st.broadPhase = v->stringOr("grid") == "octree" ? "octree" : "grid";
         readVec3(s->find("lightDir"), st.lightDir);
         if (const auto* v = s->find("ambient")) st.ambient = (float)v->numberOr(0.55);
         if (const auto* v = s->find("diffuse")) st.diffuse = (float)v->numberOr(0.45);

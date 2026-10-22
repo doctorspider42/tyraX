@@ -41,6 +41,8 @@ Layout: `vendor/tyra/engine/{inc,src}/` mirror each other: `audio`, `debug`, `fi
 ## Physics
 `physics/CollisionMesh` (XZ-grid triangle collider): `raycast(..., outNormal)` returns the hit triangle's mesh-local normal (rigid-body per-corner contacts, docs/physics.md). Both queries test the mesh's own box FIRST (the grid clamps outside queries onto edge cells, else every border triangle is paid) — keep the early-out exact: sphere reach = radius + the 0.6 crossing band. Plus `Ray::intersectTriangle`.
 
+`physics/BroadPhase` (`broad_phase.{hpp,cpp}`, docs/collision-boxes.md "The broad phase"): which objects may touch an area or a segment, two backends behind one interface - a height-aware XZ grid (rebuilt per commit) and a loose octree (split past 8 objects, per-node content bounds, kept across commits). Caller hands boxes `begin`/`set(i, box, moving)`/`commit`; `queryBox`/`querySegment` return a SUPERSET, ascending. Host-compilable (only `<vector>`): fuzz it against brute force from a scratch harness before changing it - keep it never-fewer and ascending (the walker's pushes depend on order).
+
 ## Boot-time state
 **`Color`'s default constructor initialises nothing** (hot-path vector type). `RendererCore::bgColor` is the clear colour and `Engine::init` runs `banner.show()` right after `renderer.init()` — the ~2 s logo hold cleared with garbage, long before game code can call `setClearScreenColor` (black one build, BLUE the next). Initialised in the constructor now. Rule: anything read before the first game frame (clear colour, mode, flag) is initialised at declaration or in its owner's constructor.
 

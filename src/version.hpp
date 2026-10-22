@@ -5572,6 +5572,15 @@
 // (motion blur now uiFxSel_ 10); hudanim::transition (twin of hudTransEval);
 // .tree sidecars for the Tree Generator; staged project loading; the start
 // page (Welcome window over a KeepAliveOnly dockspace); no format change.
+// 1.173.0: THE CONTACT BROAD PHASE.
+// The walker (and game-side actors), the camera/carry sweep, the physics
+// statics and traceLine stopped walking every scene object: one broad phase
+// (vendor/tyra engine physics/broad_phase) names the objects near a query,
+// and Preferences > Game > Physics > Broad phase picks its backend - a
+// height-aware grid (default) or a loose octree (format v95); Scene
+// Preferences > Collision overrides it per level. Results are
+// unchanged (kBroadPhaseVerify cross-checks them against brute force); in a
+// 24-bot game scene collision went from ~11 ms a frame to ~0.25. MINOR.
 // 1.172.0: the macOS app. installer/build-macos.sh makes a signed, notarized
 // TyraX.app in a drag-to-Applications .dmg (release.yml build-macos, arm64 +
 // x86_64); platform::resourceBinDir maps shipped-file lookups onto
@@ -5698,7 +5707,17 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+// 1.173.1: a spawned clone whose model streamed in after the spawn kept a
+// broad-phase box sized from the placeholder bounds - the walker, sweep and
+// physics missed the rest of it. The asset landing now drops that box.
+// 1.173.2: two broad-phase omissions. A pitched/rolled box was boxed by its
+// full rotation, but the walker collides it upright (yaw only): a long box
+// rolled 90 degrees was dropped before the walker's floor/wall test. The box
+// is now the union of both. And a collider a script, a streamed layer or a
+// spinner moved after the frame's first query stayed at its old box for the
+// rest of the frame: the loop now refreshes after the script stage and after
+// the spinners (a refresh that changes nothing placed skips the rebuild).
+#define TYRAX_VERSION_PATCH 2
 // 1.170.2: the AI guides installed into game projects (ai-support/) brought up
 // to date - editor-owned file list, the game-source split, script kinds, flow-
 // graph schema, model import, CLI verbs incl. --search-docs; --help lists codex.
@@ -6197,7 +6216,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v95 (docs/streaming-layers.md, the Outliner eye): an object's
 // "editorHidden", written only when true. Missing = shown, as before. Editor
 // only - codegen never reads it. Additive; no migration step.
-inline constexpr int kFormatVersion = 95;
+// v95 (docs/collision-boxes.md, "The broad phase"): settings "broadPhase"
+// ("octree"), written only when not "grid", and per scene a settings
+// "broadPhase" plus overrides "broadPhase": true, written only when the scene
+// overrides it. Missing = the grid / inherit. Additive; no migration step.
+// v96: unifies the additive Outliner visibility and collision broad-phase
+// fields from the two v95 branches. No transformation is needed.
+inline constexpr int kFormatVersion = 96;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

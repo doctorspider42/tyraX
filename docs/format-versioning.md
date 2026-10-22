@@ -328,3 +328,7 @@ Format 83 makes vehicle inheritance automatic and tracks each field separately.
 local semantics while reading; resolution marks non-default values as overrides
 and expands old group overrides. This preserves resolved tuning, so no
 value-changing migration step is required. Section resets clear only their keys.
+
+Format 96 integrates the additive v95 fields from main (collision broad phase)
+and the interface branch (Outliner visibility). Both branch formats remain
+readable without a migration; saving writes the combined format.

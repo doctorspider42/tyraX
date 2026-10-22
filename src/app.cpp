@@ -18778,6 +18778,7 @@ static const PrefIndexEntry kPrefIndex[] = {
     {"Look speed", "Game", "Player", "lookSpeed", false, "camera"},
     {"Orbit speed", "Game", "Player", "orbitSpeed", false, "camera turntable"},
     {"Two players", "Game", "Player", "multiplayer,p2JoinOnStart", false, "multiplayer split screen shared pad 2"},
+    {"Broad phase", "Game", "Player", "broadPhase", false, "physics collision grid octree"},
     {"Gravity", "Game", "Player", "gravity", false, "physics"},
     {"Jump speed", "Game", "Player", "jumpSpeed", false, "physics"},
     {"Sprint speed", "Game", "Controls", "sprintMultiplier", true, "input"},
@@ -19517,6 +19518,15 @@ void App::drawPreferencesWindow() {
         ui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
                          "%.1f");
         prefRow("Jump speed");
+    }
+    {
+        static const char* names[] = {"Grid", "Octree"};
+        int bp = prefSettings_.broadPhase == "octree" ? 1 : 0;
+        if (segRow("Broad phase", names, 2, &bp))
+            prefSettings_.broadPhase = bp == 1 ? "octree" : "grid";
+        prefHelp("Finds nearby objects for collision, camera, physics and traces.\n"
+                 "Grid suits flat scenes; Octree also splits by height.");
+        prefRow("Broad phase");
     }
     if (advanced("sprint, stick deadzones and response curves")) {
     prefGroup("Controls");
@@ -21763,6 +21773,18 @@ void App::drawScenePreferencesModal() {
             s.clipping =
                 clipMode == 2 ? "fast" : clipMode == 1 ? "precise" : "vu1";
     });
+
+    // The contact broad phase (docs/collision-boxes.md, "The broad phase"). Its
+    // own toggle wording, so a scripted run can find this category's checkbox.
+    category("Collision", ov.broadPhase, [&] {
+        static const char* kBroadPhases[] = {"Grid", "Octree"};
+        int bp = s.broadPhase == "octree" ? 1 : 0;
+        if (ImGui::Combo("Broad phase##scene", &bp, kBroadPhases, 2))
+            s.broadPhase = bp == 1 ? "octree" : "grid";
+        prefHelp("This level's collision broad phase. Octree suits a level that\n"
+                 "stacks in height (floors, bridges, things in the air) or mixes\n"
+                 "dense blocks with open ground; Grid suits flat levels.");
+    }, "Use its own broad phase");
 
     category("Terrain material", ov.terrainMat, [&] {
         drawTerrainMaterialCombo("Material", s.terrainMaterial);
