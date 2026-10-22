@@ -146,6 +146,21 @@ and not thirteen.
 `build.sh` / `build.ps1` and the committed `bin/` are unaffected: they target the
 old SDK, so they set nothing and get the old names, exactly as before.
 
+## TyraX change 4: the EE callback server outranks the game
+
+`ee/src/audsrv_rpc.c` creates the EE thread that answers the IOP's
+fill-buffer and CDDA callbacks at priority **0x8**. Upstream uses 0x60. The
+IOP's playback thread waits in `call_client_callback` until the previous
+callback RPC has completed, and only this thread can complete it. Tyra's game
+thread runs at 0x40 and busy-polls for vsync, so at 0x60 the server never got
+any CPU time once loading was over. Playback then stopped for good, and the
+SPU2 looped its last 1024-sample block as a buzz (docs/sound.md, "Music turns
+into a buzz a few seconds in"). 0x8 sits below the engine's audio and streamer
+threads (0x5/0x6), so it never pre-empts them. It sleeps in `SifRpcLoop`
+between callbacks.
+
+Only `bin/libaudsrv.a` changes; `audsrv.irx` is byte-identical.
+
 ## Licence: this module is LGPL v2, not AFL
 
 Worth reading before you touch this, because it is **not** the licence the rest

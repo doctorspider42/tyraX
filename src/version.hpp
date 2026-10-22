@@ -5752,7 +5752,10 @@
 // 1.177.10: env (matcap) passes take the stamp route - the stamp re-writes
 // the camera basis on replay (docs/stapip-stamps.md, "Env bags"): Showcase
 // -2.1 ms of EE a frame on a PS2.
-#define TYRAX_VERSION_PATCH 10
+// 1.177.11: streamed music no longer turns into a buzz a few seconds in -
+// audsrv's EE callback server ran below the busy-polling game thread and
+// starved, stalling the IOP's playback thread (docs/sound.md).
+#define TYRAX_VERSION_PATCH 11
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

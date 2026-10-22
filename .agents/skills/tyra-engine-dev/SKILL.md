@@ -3279,6 +3279,16 @@ rounding a total pixel count to 2048 words is not the allocator's layout.
   more audsrv RPCs on a starved IOP played in slow motion - and
   `audsrv_play_audio` TRUNCATES what does not fit. A debug build warns
   "Music ring ran low" when a refill finds the ring over 70% empty.
+- **An EE thread that must answer the IOP has to outrank the game thread
+  (0x40)**, because the game thread never blocks: `graph_wait_vsync` is a busy
+  poll and the frame yield is off unless the Live Debugger is attached. audsrv's
+  EE callback server ran at 0x60. The IOP playback thread waits for each
+  fill-buffer callback to complete, so it stalled for good once loading ended,
+  and the SPU2 looped its last 1024-sample block (21 ms) as a buzz a few seconds
+  into every song, in PCSX2 and on hardware alike. Fixed in the fork (0x8, its
+  README change 4; docs/sound.md, "Music turns into a buzz"). The tell is a
+  capture whose autocorrelation at lag 1024 (48 kHz) is 1.000. An EE that is
+  only late with data loops the ~107 ms ring instead.
 - **An EE buffer handed to a SIF DMA must be written back to main memory
   first** (`SifWriteBackDCache(ptr, size)`), and `audsrv_load_adpcm` did not do
   it. The EE's data cache is write-back, the DMA reads RAM, so a sample just
