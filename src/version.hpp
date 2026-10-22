@@ -5746,7 +5746,10 @@
 // copy (projClampCache) instead of one shared buffer behind a full
 // Vif1Queue::drain() per part: Showcase on a PS2 28.5 -> 47.7 fps
 // (docs/shadows.md, "The clamp buffer is per caster").
-#define TYRAX_VERSION_PATCH 8
+// 1.177.9: a portal view culls against the opening's screen rectangle
+// (RendererCore3D::narrowFrustumToRect), not the whole screen: Showcase on a
+// PS2 47.5 -> 50.0 fps (docs/portals.md).
+#define TYRAX_VERSION_PATCH 9
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

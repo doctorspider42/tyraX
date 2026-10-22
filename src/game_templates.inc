@@ -26217,6 +26217,13 @@ bool TerrainGame::renderOnePortalView(int pi) {
   // Same projection as the screen, only the view swaps to the virtual
   // camera - the destination lands exactly where the opening is.
   core.renderer3D.pushPortalView(eye, at);
+  // Cull this view against the OPENING, not the whole screen: the same
+  // projection puts the destination exactly behind the carved rectangle, so
+  // anything the virtual camera sees outside it is scissored away by the GS
+  // after VU1 has already transformed it. A margin covers the rounding of the
+  // carved bounds; popEnvView restores the full planes.
+  core.renderer3D.narrowFrustumToRect(bx0 - 16, by0 - 16, bx1 + 16, by1 + 16,
+                                      fbW, fbH);
   if (p.showTerrain) {
     if (skyDome.bag) {
       // dome parked on the VIRTUAL eye; the main pass re-centers it after
