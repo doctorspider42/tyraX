@@ -5758,7 +5758,10 @@
 // 1.177.12: static mesh LOD picks its level by the distance to the object's
 // world box, not its origin - a big floor no longer swaps to its far level
 // (and changes brightness) under the player's feet (docs/model-pipeline.md).
-#define TYRAX_VERSION_PATCH 12
+// 1.177.13: a blob shadow lies on the top of a solid object (a model floor),
+// not only on terrain and roads - with the terrain off it used to vanish
+// (docs/shadows.md, "A blob on a model floor").
+#define TYRAX_VERSION_PATCH 13
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

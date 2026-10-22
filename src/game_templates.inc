@@ -16505,7 +16505,18 @@ void TerrainGame::updateAndRenderBlobShadows() {
     // Object base: the player entity sits at its feet, everything else is
     // centered (base = center - halfY).
     if (b.objIndex == PLAYER_INDEX) halfY = 0.0F;
-    const float ground = groundSurfaceAt(cx, cz);
+    // What the blob lies on: the terrain and the roads, or the top of a solid
+    // object below the caster - the same receivers the projected patch takes
+    // (projCollectReceivers). Terrain alone was all this used to ask, so in a
+    // scene built from model floors (Showcase has no terrain) the ground came
+    // back as the void, every caster stood miles above it and the fade hid
+    // the blob on its first frame (docs/shadows.md, "A blob on a model floor").
+    float blobReach = shapeHx > shapeHz ? shapeHx : shapeHz;
+    if (r > blobReach) blobReach = r;
+    blobReach += 0.5F;
+    projCollectReceivers(cx, cz, blobReach, d.position[1] - halfY + 0.35F);
+    const bool onObjects = !g_projRecv.empty();
+    const float ground = projSurfaceAt(cx, cz);
     const float h = (d.position[1] - halfY) - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
     // NOT the day/night handover fade (daynight::g_shadowFade), which the
@@ -16539,7 +16550,8 @@ void TerrainGame::updateAndRenderBlobShadows() {
     auto receiver = [&](float lx, float lz) {
       const float x = cx + lx * cy + lz * sy;
       const float z = cz - lx * sy + lz * cy;
-      return Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
+      return Vec4(x, (onObjects ? projSurfaceAt(x, z) : groundSurfaceAt(x, z)) + lift,
+                  z, 1.0F);
     };
     // A 3x3 cell patch has only 4x4 unique corners. groundSurfaceAt also
     // searches road/junction chunks and their triangles, so rebuilding the
@@ -16555,7 +16567,10 @@ void TerrainGame::updateAndRenderBlobShadows() {
         grid[iz][ix] = receiver(lx, lz);
       }
     }
-    liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
+    // The road-step lift measures each corner against the TERRAIN under it;
+    // over an object's top that "step" is the object's height, and the lift
+    // would drag the neighbouring ground corners up to it.
+    if (!onObjects) liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
     int bv = 0;
     for (int iz = 0; iz < kCells; ++iz) {
       for (int ix = 0; ix < kCells; ++ix) {
