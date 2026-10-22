@@ -16602,7 +16602,18 @@ void TerrainGame::updateAndRenderBlobShadows() {
     // Object base: the player entity sits at its feet, everything else is
     // centered (base = center - halfY).
     if (b.objIndex == PLAYER_INDEX) halfY = 0.0F;
-    const float ground = groundSurfaceAt(cx, cz);
+    // What the blob lies on: the terrain and the roads, or the top of a solid
+    // object below the caster - the same receivers the projected patch takes
+    // (projCollectReceivers). Terrain alone was all this used to ask, so in a
+    // scene built from model floors (Showcase has no terrain) the ground came
+    // back as the void, every caster stood miles above it and the fade hid
+    // the blob on its first frame (docs/shadows.md, "A blob on a model floor").
+    float blobReach = shapeHx > shapeHz ? shapeHx : shapeHz;
+    if (r > blobReach) blobReach = r;
+    blobReach += 0.5F;
+    projCollectReceivers(cx, cz, blobReach, d.position[1] - halfY + 0.35F);
+    const bool onObjects = !g_projRecv.empty();
+    const float ground = projSurfaceAt(cx, cz);
     const float h = (d.position[1] - halfY) - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
     // NOT the day/night handover fade (daynight::g_shadowFade), which the
@@ -16636,7 +16647,8 @@ void TerrainGame::updateAndRenderBlobShadows() {
     auto receiver = [&](float lx, float lz) {
       const float x = cx + lx * cy + lz * sy;
       const float z = cz - lx * sy + lz * cy;
-      return Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
+      return Vec4(x, (onObjects ? projSurfaceAt(x, z) : groundSurfaceAt(x, z)) + lift,
+                  z, 1.0F);
     };
     // A 3x3 cell patch has only 4x4 unique corners. groundSurfaceAt also
     // searches road/junction chunks and their triangles, so rebuilding the
@@ -16652,7 +16664,10 @@ void TerrainGame::updateAndRenderBlobShadows() {
         grid[iz][ix] = receiver(lx, lz);
       }
     }
-    liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
+    // The road-step lift measures each corner against the TERRAIN under it;
+    // over an object's top that "step" is the object's height, and the lift
+    // would drag the neighbouring ground corners up to it.
+    if (!onObjects) liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
     int bv = 0;
     for (int iz = 0; iz < kCells; ++iz) {
       for (int ix = 0; ix < kCells; ++ix) {
@@ -25176,9 +25191,29 @@ void TerrainGame::renderScene() {
                                 : runtimeObjects[i].data.meshLod;
       int tier = 0;
       if (lodDist > 0.0F) {
-        const float dx = runtimeObjects[i].data.position[0] - cameraPosition.x;
-        const float dy = runtimeObjects[i].data.position[1] - cameraPosition.y;
-        const float dz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+        // Measured to the nearest point of the object's world box, not to its
+        // origin. A 34-unit promenade is 15 units from its own centre while
+        // the camera stands ON it, so the centre distance put the far tier
+        // under the player's feet - and a decimated flat slab keeps almost
+        // none of the vertices its baked light lives on, so the whole floor
+        // changed brightness two steps later (docs/model-pipeline.md, "LOD
+        // distance is measured to the box"). A matrix-path body's box is in
+        // its own space; it keeps the origin distance.
+        const ObjectGeometry& lg = objectGeometry[i];
+        float dx, dy, dz;
+        if (lg.coarseBoxValid && !lg.matrixMode) {
+          const Vec4& lo = lg.coarseBox.vertices[0];
+          const Vec4& hi = lg.coarseBox.vertices[7];
+          const float cx = cameraPosition.x, cy = cameraPosition.y,
+                      cz = cameraPosition.z;
+          dx = cx < lo.x ? lo.x - cx : (cx > hi.x ? cx - hi.x : 0.0F);
+          dy = cy < lo.y ? lo.y - cy : (cy > hi.y ? cy - hi.y : 0.0F);
+          dz = cz < lo.z ? lo.z - cz : (cz > hi.z ? cz - hi.z : 0.0F);
+        } else {
+          dx = runtimeObjects[i].data.position[0] - cameraPosition.x;
+          dy = runtimeObjects[i].data.position[1] - cameraPosition.y;
+          dz = runtimeObjects[i].data.position[2] - cameraPosition.z;
+        }
         const float d2 = dx * dx + dy * dy + dz * dz;
         const float m2 = lodDist * lodDist;
         tier = d2 > m2 * 4.0F ? 2 : (d2 > m2 ? 1 : 0);

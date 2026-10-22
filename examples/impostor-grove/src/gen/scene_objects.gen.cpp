@@ -222,7 +222,7 @@ namespace Impostor_grove {
 const OcclusionProxyBox OCCLUSION_BOXES[] = {
   {{-0.8056F,0.2025F,-0.608F},{0.7856F,0.36F,0.608F}},
   {{-0.2656F,0.39F,-0.252444F},{0.2456F,0.5475F,0.252444F}},
-  {{-0.0856F,0.5775F,-0.0746667F},{0.0656001F,2.7975F,0.0746667F}},
+  {{-0.0856F,0.5775F,-0.0746667F},{0.0656F,2.7975F,0.0746667F}},
 };
 const OcclusionProxyObject OCCLUSION_OBJECTS[] = {
   {0,202,0,3},

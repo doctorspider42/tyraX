@@ -14,6 +14,18 @@ history.
 - Project format 114 combines the additive fields from all integration branches; explicit pipeline settings, Outliner visibility and collision choices survive saving and reopening.
 - This is the 2.0 integration candidate. Cross-platform and release qualification still listed in the backlog remains outstanding.
 
+### Fixes and speed-ups in games
+
+- **Streamed music no longer turns into a buzz** a few seconds into a song: audsrv's EE callback thread ran below the game thread and starved. [Sound](https://github.com/doctorspider42/tyraX/blob/main/docs/sound.md)
+- **Split screen runs at 50 fps instead of 25** on a PS2 (two-players): the per-half packets record into the frame instead of draining the queue. [Multiplayer](https://github.com/doctorspider42/tyraX/blob/main/docs/multiplayer.md)
+- **Showcase on a PS2: 28.5 -> 50 fps** - each projected-shadow caster below its floor keeps its own clamped copy, a portal view culls against the opening's rectangle, and matcap passes are replayed from stamps.
+- A static model picks its LOD level by the distance to its box, not its origin, so a big floor no longer swaps to its far level (and changes brightness) under the player's feet.
+- A blob shadow lies on the top of a solid object (a model floor), not only on terrain and roads.
+- Roads no longer swim on a console, and a headlight beam, blob shadow or lamp pool no longer shows holes at a road's edge.
+- Roads and other 3D no longer smear into streaks for one frame when a texture uploads mid-frame.
+- The bumper camera rides the car's body instead of swinging the bonnet through the lens.
+- Projects without roads build again.
+
 
 ### A redesigned main window
 

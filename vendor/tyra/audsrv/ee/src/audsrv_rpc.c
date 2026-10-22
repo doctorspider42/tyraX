@@ -380,7 +380,13 @@ int audsrv_init()
 	rpcThread.stack = rpc_server_stack;
 	rpcThread.stack_size = sizeof(rpc_server_stack);
 	rpcThread.gp_reg = &_gp;
-	rpcThread.initial_priority = 0x60;
+	/* Modified by TyraX: was 0x60, below Tyra's game thread (0x40). The
+	 * IOP's playback thread blocks until THIS thread has answered its
+	 * previous fill-buffer callback, and a game thread that never sleeps
+	 * (graph_wait_vsync is a busy poll) starved it for good: the SPU2 then
+	 * looped its last 1024-sample block as a buzz. 0x8 stays below the
+	 * engine's audio threads (0x5/0x6) and wakes only per callback. */
+	rpcThread.initial_priority = 0x8;
 	rpc_server_thread_id = CreateThread(&rpcThread);
 	StartThread(rpc_server_thread_id, NULL);
 

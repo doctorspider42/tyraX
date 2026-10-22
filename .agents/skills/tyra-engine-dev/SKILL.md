@@ -125,6 +125,7 @@ EE clipper with Cohen–Sutherland outcodes and static pools; StaPip `clip` VU1 
 - Reverb noise on first preset → effect attr set before enabling effects → audio.md
 - Frame drops blamed on sound emitters → blocking `audsrv_wait_audio` → audio.md
 - Music stutters over ps2link → host: TCP starving the IOP; don't shrink chunks → audio.md
+- Music turns into a buzz a few seconds in → audsrv EE callback thread below the busy-polling game thread → audio.md
 - Sound plays in the wrong room → channel not offset by `reverbBusBase` → audio.md
 - Play "succeeds" silently → `AUDSRV_ERR_ARGS` (5) looks like a channel → audio.md
 

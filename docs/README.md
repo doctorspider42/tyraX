@@ -21,6 +21,18 @@ a Mac) finds any command, object or window by name.
   where the frame flow was PC-style rather than PS2-style and what to bake
   instead; every item implemented or priced on the PS2 (see its Goal table).
 
+- [Critical path and VU offload](tyrax2-critical-path.md): observer-controlled
+  PS2 diagnosis finds four consumer and three preparation deadline sites;
+  selected VU1 set has eight words free, with vertex-once strips a new candidate.
+
+- [Offline final VIF geometry](tyrax2-offline-vif.md): private native packet
+  bootstrap and exact edge factoring; full emulator/PS2 image gates pass, but
+  0.043–0.078 ms net saving and 2.82 MB tables do not justify default promotion.
+
+- [Offline world compilation experiments](tyrax2-offline-world.md): private
+  terrain LOD/edge factoring and static material composition, with separate
+  native, image, memory and physical timing gates.
+
 - [Historical performance lab cleanup](tyrax2-lab-cleanup-2026-10-12.md):
   Scoped removal of regenerable build intermediates and SHA-256-confirmed
   archived duplicates, with retained evidence paths and a deletion manifest.

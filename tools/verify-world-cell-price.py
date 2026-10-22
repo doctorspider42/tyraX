@@ -12,11 +12,15 @@ p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('fixture',type=Path)
 p.add_argument('--platform',choices=('emulator','ps2'),required=True)
 p.add_argument('--attempt',type=Path)
+p.add_argument('--quality-trial',action='store_true',help='Explicit non-equivalent material-composition protocol; never qualifies transparent optimisation')
 a=p.parse_args();root=a.fixture.resolve();sha=lambda f:hashlib.sha256(f.read_bytes()).hexdigest()
 binding=json.loads((root/'native-binding.json').read_text())
 for rel,digest in binding['files'].items():assert sha(root/rel)==digest,rel
 assert sha(root/'game/bin/vehicle-playground.elf')==binding['elfSha256']
 manifest=json.loads((root/'world-cell-price-manifest.json').read_text())
+materialCompose=manifest.get('variant')=='material-compose'
+assert not a.quality_trial or (materialCompose and manifest.get('qualityEquivalent') is False), 'Quality protocol requires explicit non-equivalent material fixture'
+assert not materialCompose or a.quality_trial, 'Material composition requires explicit --quality-trial'
 assert manifest['modes']==[0,1,0,1,0,1] and manifest['bufferCount']==2
 assert manifest['movingAutoOrder'] and manifest['fixedSceneStep'] and not manifest['inPriceReadbacks']
 if a.platform=='emulator':
@@ -70,7 +74,9 @@ terrainNormals=manifest.get('variant')=='terrain-normals'
 nativeSegments=manifest.get('variant')=='native-segments'
 inputCompact=manifest.get('variant')=='input-compact'
 terrainLod=manifest.get('variant')=='terrain-lod'
-audioEvent=manifest.get('variant')=='audio-event' or terrainNormals or nativeSegments or inputCompact or terrainLod
+offlineTerrain=manifest.get('variant')=='offline-terrain'
+criticalPath=manifest.get('variant')=='critical-path'
+audioEvent=manifest.get('variant')=='audio-event' or terrainNormals or nativeSegments or inputCompact or terrainLod or offlineTerrain or materialCompose or criticalPath
 audioIdle=manifest.get('variant')=='audio-idle' or audioEvent
 wheelVu=manifest.get('variant')=='wheels-vu' or audioIdle
 commonDirect=directCold or paintCells or pcRefresh or roadPackages or wheelVu
@@ -87,7 +93,7 @@ if clean:
     if paintCells:configPattern+=' variant=paint-cells'
     if pcRefresh:configPattern+=' variant=pc-refresh'
     if roadPackages:configPattern+=' variant=road-packages'
-    if wheelVu:configPattern+=' variant=terrain-lod' if terrainLod else ' variant=input-compact' if inputCompact else ' variant=native-segments' if nativeSegments else ' variant=terrain-normals' if terrainNormals else ' variant=audio-event' if audioEvent else ' variant=audio-idle' if audioIdle else ' variant=wheels-vu'
+    if wheelVu:configPattern+=' variant=critical-path' if criticalPath else ' variant=material-compose' if materialCompose else ' variant=offline-terrain' if offlineTerrain else ' variant=terrain-lod' if terrainLod else ' variant=input-compact' if inputCompact else ' variant=native-segments' if nativeSegments else ' variant=terrain-normals' if terrainNormals else ' variant=audio-event' if audioEvent else ' variant=audio-idle' if audioIdle else ' variant=wheels-vu'
     configs=re.findall(configPattern+r'(?=\r?\n|$)',log)
     assert configs==[(str(i),str(i%2)) for i in range(6)]
     captures=[tuple(map(int,r)) for r in re.findall(r'A44PRICEIMAGE phase=(\d+) arm=(\d+) candidate=(\d+) requested=(\d+) submitted=(\d+) fallback=(\d+) order=2 complete=1',log)]
@@ -197,7 +203,7 @@ if clean:
             audio=[tuple(map(int,r)) for r in re.findall(pattern,log)]
             assert [(r[0],r[1]) for r in audio]==[(r[0],r[1]) for r in wheels]
             for r in audio:
-                mode=1 if terrainNormals or nativeSegments or inputCompact or terrainLod else (r[0]%2 if r[1]==-1 or r[1]!=1 else 1-r[0]%2)
+                mode=1 if terrainNormals or nativeSegments or inputCompact or terrainLod or offlineTerrain or materialCompose or criticalPath else (r[0]%2 if r[1]==-1 or r[1]!=1 else 1-r[0]%2)
                 assert r[2]==mode
                 if audioEvent:
                     assert r[6]==r[7]==0,'PCM invalidates empty event worker experiment'
@@ -207,6 +213,39 @@ if clean:
                     assert r[5]==r[6]==0,'PCM playback invalidates empty-worker experiment'
                     if mode:assert r[3]>0 and r[4]==0,'Actual16ms empty-worker path missing'
                     else:assert r[3]==0 and r[4]>0,'Ordinary empty-worker path missing'
+    if materialCompose:
+        expectedOffline=manifest.get('offlineBinaryByPlatform',{}).get(a.platform,manifest['offlineBinarySha256'])
+        assert sha(binpath/'offline-terrain.bin')==expectedOffline, 'Wrong arithmetic-platform offline asset'
+        for page in manifest['materialManifest']['pages']:
+            assert sha(binpath/'composed'/page['file'])==page['sha256'], 'Composed texture bytes changed'
+        materialWitness=[tuple(map(int,r)) for r in re.findall(r'MATERIALPHASE phase=(\d+) enabled=(\d+) terrain=(\d+) applied=(\d+) removedVertices=(\d+)',log)]
+        assert [r[0] for r in materialWitness]==list(range(6))
+        for r in materialWitness:
+            terrainMode=r[1] if manifest.get('offlineTerrainWithMaterial') else int(manifest['offlineTerrainCommon'])
+            assert r[1]==r[0]%2 and r[2]==terrainMode
+            assert r[3]>0 and r[4]>0 if r[1] else r[3]==r[4]==0, 'Actual material pass reduction missing'
+        assert all(image['differences'][2]==0 for image in images), 'Material control did not return to identical pixels'
+        assert all(image['differences'][0]>0 for image in images if image['kind']=='main'), 'Material mode did not alter any main raster'
+        sequences=[[tuple(int(row[f]) for f in ('probeCapture','envEligible','envDrawn','paintVu')) for row in group if row['gas']=='1'] for group in phases]
+        assert all(s==sequences[0] for s in sequences), 'Material mode changed reflection/paint workload'
+    if offlineTerrain:
+        expectedOffline=manifest.get('offlineBinaryByPlatform',{}).get(a.platform,manifest['offlineBinarySha256'])
+        assert sha(binpath/'offline-terrain.bin')==expectedOffline, 'Wrong arithmetic-platform offline asset'
+        assert sha(root/'game/inc/offline_terrain.hpp')==manifest['offlineRuntimeSha256']
+        offlineOracles=[tuple(map(int,r)) for r in re.findall(r'OFFLINEORACLE phase=(\d+) checks=(\d+) bytes=(\d+) exact=1 outsidePrice=1',log)]
+        assert [r[0] for r in offlineOracles]==list(range(6))
+        assert all(r[1]>0 and r[2]>0 for r in offlineOracles)
+        for phase in range(6):
+            assert log.index('OFFLINEORACLE phase='+str(phase))<log.index('LOGWINDOWBEGIN phase='+str(phase))
+        offlineWitness=[tuple(map(int,r)) for r in re.findall(r'OFFLINEPHASE phase=(\d+) enabled=(\d+) restores=(\d+) fallbacks=(\d+)',log)]
+        assert [r[0] for r in offlineWitness]==list(range(6))
+        assert all(r[1]==r[0]%2 and r[3]==0 and (r[2]>0 if r[1] else r[2]==0) for r in offlineWitness)
+        offlineCaptureFields=('probeCapture','envEligible','envDrawn','paintVu')
+        offlineSequences=[[tuple(int(row[f]) for f in offlineCaptureFields) for row in group if row['gas']=='1'] for group in phases]
+        assert all(sequence==offlineSequences[0] for sequence in offlineSequences),'Offline terrain changed reflection/paint workload'
+        for kind in ('main','env','display'):
+            pixels=[raster(phase*3,kind)[1] for phase in range(6)]
+            assert all(data==pixels[0] for data in pixels[1:]),'Offline terrain changed reconstructed moving endpoint'
     if terrainLod:
         for name,digest in manifest['lodHelpers'].items():
             if name.endswith('.hpp'):
@@ -326,7 +365,8 @@ else:
             left,data=raster(phase,kind);right,base=raster((phase//3)*3,kind)
             images.append(dict(phase=phase,kind=kind,files=[left.name,right.name],hashes=[sha(left),sha(right)],
                                differences=[sum(x!=y for x,y in zip(data,base))]))
-valid=clean and poseEqual and delivery and all(not any(r['differences']) for r in images)
+imageEquivalent=all(not any(r['differences']) for r in images)
+valid=clean and poseEqual and delivery and (imageEquivalent or a.quality_trial)
 report=dict(valid=valid,platform=a.platform,elfSha256=binding['elfSha256'],logSha256=sha(logpath),
             clean=clean,poseEqual=poseEqual,deliveryValid=delivery,rowsByPhase=list(map(len,phases)),
             images=images,physicalPrice=False,promotionAllowed=False,
@@ -348,12 +388,50 @@ if inputCompact:report.update(inputFormatWitnesses=inputFormats,inputCaptureWork
                               inputCaptureFields=inputCaptureFields)
 if terrainLod:report.update(terrainLodOracles=lodOracles,terrainLodWitnesses=lodWitness,
                            terrainLodCaptureWorkEqual=True,terrainLodEndpointPixelsExact=True)
+if offlineTerrain:report.update(offlineTerrainOracles=offlineOracles,offlineTerrainWitnesses=offlineWitness,
+                               offlineTerrainCaptureWorkEqual=True,offlineTerrainEndpointPixelsExact=True,
+                               offlineTerrainBinarySha256=expectedOffline)
+if criticalPath:
+    assert manifest['offlineTerrainDisabled'] and not a.quality_trial
+    assert sha(root/'tyra/engine/inc/debug/critical_path.hpp')==manifest['criticalHeaderSha256']
+    criticalWitness=[tuple(map(int,r)) for r in re.findall(r'CRITICALPHASE phase=(\d+) observed=(\d+) rows=(\d+) bytes=(\d+) nestedInclusive=1',log)]
+    assert [r[0] for r in criticalWitness]==list(range(6))
+    assert all(r[1]==r[0]%2 and r[2]==(537 if r[1] else 0) and r[3]>0 for r in criticalWitness)
+    fields=('probeCapture','envEligible','envDrawn','paintVu')
+    sequences=[[tuple(int(row[f]) for f in fields) for row in group if row['gas']=='1'] for group in phases]
+    assert all(sequence==sequences[0] for sequence in sequences),'Observer changed capture workload'
+    for kind in ('main','env','display'):
+        pixels=[raster(phase*3,kind)[1] for phase in range(6)]
+        assert all(data==pixels[0] for data in pixels[1:]),'Observer changed moving endpoint'
+    report.update(criticalPathWitnesses=criticalWitness,criticalPathCaptureWorkEqual=True,criticalPathEndpointsExact=True)
+    report['limits'].append('Observer pricing only. Inclusive scopes/snapshots do not prove exclusive EE time or VU/GS utilization.')
+if manifest.get('finalVifOffline'):
+    assert offlineTerrain and not a.quality_trial
+    vifExpected=manifest['vifBinaryByPlatform'][a.platform]
+    assert sha(binpath/'offline-vif.bin')==vifExpected,'Wrong final-VIF arithmetic-platform asset'
+    assert sha(root/'game/inc/offline_vif.hpp')==manifest['vifRuntimeSha256']
+    assert sha(root/'tyra/engine/inc/debug/offline_vif.hpp')==manifest['vifEngineSha256']
+    vifWitness=[tuple(map(int,r)) for r in re.findall(r'VIFPHASE phase=(\d+) enabled=(\d+) restores=(\d+) audits=(\d+)',log)]
+    assert [r[0] for r in vifWitness]==list(range(6))
+    for phase,enabled,restores,audits in vifWitness:
+        assert enabled==phase%2
+        assert restores>0 and audits>0 if enabled else restores==audits==0
+    report.update(finalVifOffline=True,finalVifWitnesses=vifWitness,finalVifSdkExact=True,finalVifBinarySha256=vifExpected)
+if materialCompose:
+    report.update(materialWitnesses=materialWitness,equivalentOutput=imageEquivalent,qualityTrial=True,qualityAccepted=False,
+                  offlineTerrainCommon=manifest['offlineTerrainCommon'],offlineTerrainWithMaterial=manifest.get('offlineTerrainWithMaterial',False),offlineTerrainBinarySha256=expectedOffline)
+    report['limits'].append('Intentional static-shadow material quality reduction: protocol validity and timing are not equivalent-output optimisation or visual acceptance.')
+if offlineTerrain or materialCompose or criticalPath:
+    report['currentProducerCommon']=manifest.get('currentProducerCommon',False)
+    report['crossPlatformAssetIdentical']=not bool(manifest.get('offlineBinaryByPlatform'))
+    if manifest.get('currentProducerCommon'):
+        report['limits'].append('Common current terrain builder in an inherited controlled drive/residency/engine fixture; not full current-production qualification.')
 if roadPackages:report.update(variant='road-packages',roadPrepared=moving,roadPreparedImages=held,
     paintHeads=paint,coldCompilation=cold,coldEndpointCompilation=coldImages,legacyPreparation=legacy)
 if roadPackages and manifest.get('roadWholeReplay'):report['roadWholeReplay']=whole
 if roadPackages and manifest.get('roadLifetime'):report['roadLifetime']=list(map(int,life))
 if a.platform=='ps2' and valid:
-    if nativeSegments or inputCompact or terrainLod:
+    if nativeSegments or inputCompact or terrainLod or offlineTerrain or materialCompose or criticalPath:
         actualPresents=[]
         for phase,group in enumerate(phases):
             gas=[r for r in group if r['gas']=='1']
@@ -367,6 +445,9 @@ if a.platform=='ps2' and valid:
         stable=all(r['latePresentIntervals']==0 for r in actualPresents if r['phase']%2)
         if nativeSegments:report.update(nativeSegmentActualPresents=actualPresents,actualPresentStable60=stable)
         elif terrainLod:report.update(terrainLodActualPresents=actualPresents,actualPresentStable60=stable)
+        elif criticalPath:report.update(criticalPathActualPresents=actualPresents,actualPresentStable60=stable)
+        elif offlineTerrain:report.update(offlineTerrainActualPresents=actualPresents,actualPresentStable60=stable)
+        elif materialCompose:report.update(materialActualPresents=actualPresents,actualPresentStable60=stable)
         else:report.update(inputFormatActualPresents=actualPresents,actualPresentStable60=stable)
     priced=[]
     for phase,group in enumerate(phases):

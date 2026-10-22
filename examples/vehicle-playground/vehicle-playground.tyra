@@ -1,7 +1,7 @@
 {
   "name": "vehicle-playground",
   "formatVersion": 113,
-  "editorVersion": "1.177.0",
+  "editorVersion": "1.177.3",
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {
@@ -295,7 +295,7 @@
   "particleEffects": [
     { "id": "fx00rallydust001", "name": "Rally dust", "kind": 5, "count": 24, "size": 0.366667, "color": [0.86, 0.76, 0.6], "speed": 1, "spread": 30, "gravity": -1, "weight": 0.5, "life": 1.5, "grow": 7.59091, "opacity": 0.597188, "dieOnGround": false, "additive": false, "material": "res/materials/particles/rally-dust.mtl", "texGen": { "kind": 1, "size": 64, "seed": 9, "softness": 0.85, "detail": 0.4, "scale": 0.9, "turbulence": 0.5, "heat": 0.5, "color": [1, 1, 1], "frames": 2, "fps": 6 } }
   ],
-  "editor": { "selectedObject": 131, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": false, "cam": [-3.14001, 0.320001, 24.1821, -109.962, 0.316, 0.294742], "breakpoints": [] },
+  "editor": { "selectedObject": 13, "gizmo": 1, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": false, "cam": [0.178405, 0.490001, 24.1821, 0.0302215, 0.315884, -73.8802], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "" },

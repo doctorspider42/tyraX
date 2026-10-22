@@ -5855,6 +5855,18 @@
 // 1.177.10: env (matcap) passes take the stamp route - the stamp re-writes
 // the camera basis on replay (docs/stapip-stamps.md, "Env bags"): Showcase
 // -2.1 ms of EE a frame on a PS2.
+// 1.177.11: streamed music no longer turns into a buzz a few seconds in -
+// audsrv's EE callback server ran below the busy-polling game thread and
+// starved, stalling the IOP's playback thread (docs/sound.md).
+// 1.177.12: static mesh LOD picks its level by the distance to the object's
+// world box, not its origin - a big floor no longer swaps to its far level
+// (and changes brightness) under the player's feet (docs/model-pipeline.md).
+// 1.177.13: a blob shadow lies on the top of a solid object (a model floor),
+// not only on terrain and roads - with the terrain off it used to vanish
+// (docs/shadows.md, "A blob on a model floor").
+// 1.177.14: split screen's per-half scissor/offset packets are DMA chains,
+// so they record into the frame instead of draining the VIF1 queue: two-
+// players on a PS2 25 -> 50 fps in split (docs/multiplayer.md).
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

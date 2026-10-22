@@ -4,7 +4,8 @@ TyraX 2.0 combines the redesigned editor and the TyraX2 frame pipeline with the 
 
 The integration branch is `codex/tyrax-2.0`. Its source heads are `origin/main`
 (`45336c896`), `origin/claude/ui-redesign-foundation` (`08b691342`) and
-`origin/codex/tyrax2-foundation` (`2c9a4d334`). The six changes on the local
+`origin/codex/tyrax2-foundation` (`2c9a4d334`, then `def0086d3` for its
+1.177.11-1.177.14 fixes and the critical-path/offline-world experiments). The six changes on the local
 `runtime-b-tool-redesign` branch already have equivalent commits in the UI branch.
 
 - [The redesigned interface](editor-theme.md) supplies the main window, workspaces, command palette and tool windows.

@@ -48,6 +48,25 @@ Picking anything else overrides both, in both directions:
 
 Lights and markers never cast either kind, whatever the mode says.
 
+### A blob on a model floor
+
+Since 1.177.13, a blob lies on whatever is under its caster. That can be
+the terrain or a road, as before, or the top of a solid scene object such as a
+model floor, a terrace or a crate. It uses the same receivers as the
+projected patch (`projCollectReceivers`, objects with collision whose top is
+at or below the caster's base). Before that, the blob asked only the terrain
+and the roads. In a scene built from model floors with the terrain off, such
+as Showcase, the ground came back as the void. Every caster then stood
+miles above it, and the height fade hid the blob on its first frame. Showcase's
+keeper set to Blob drew nothing at all.
+
+The blob still fades with height. It is at full strength on the ground, gone
+3 units up, and linear in between. A hovering caster gets a faint one: the
+keeper floats ~1.45 units over the promenade and gets about half. Over an
+object's top the road-step lift is skipped, because it measures each corner
+against the terrain and would pull the neighbouring ground corners up to the
+object's height.
+
 ## Baked blob shapes
 
 Choose **Blob**, then use **Blob shape** in the same Rendering section. Every
@@ -338,6 +357,9 @@ docs/backlog.md. What is known: it is not EE work. What the EE still does for a
 parked blob is one frustum test and one submit. The 0.35 ms is `vif_wait`
 (VU1/GS), and drawing it with the shared generic 64x64 texture changed nothing
 (docs/vehicles.md, "Per-car EE cuts").
+Since 1.177.13 a rebuild of the patch also makes one pass over the scene objects,
+to find the solid tops under it ("A blob on a model floor"). A still caster
+skips that pass along with the ground queries.
 
 ## Baked (decal)
 
