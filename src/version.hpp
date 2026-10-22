@@ -5761,7 +5761,10 @@
 // 1.177.13: a blob shadow lies on the top of a solid object (a model floor),
 // not only on terrain and roads - with the terrain off it used to vanish
 // (docs/shadows.md, "A blob on a model floor").
-#define TYRAX_VERSION_PATCH 13
+// 1.177.14: split screen's per-half scissor/offset packets are DMA chains,
+// so they record into the frame instead of draining the VIF1 queue: two-
+// players on a PS2 25 -> 50 fps in split (docs/multiplayer.md).
+#define TYRAX_VERSION_PATCH 14
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

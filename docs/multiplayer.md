@@ -96,6 +96,14 @@ Split screen renders the 3D scene **twice per frame**, so budget for roughly
 2x the scene's EE cost (HUD/menus/post-fx stay single). What the runtime
 already does for you:
 
+- **The halves no longer stall the frame pipeline (1.177.14).** Each half's
+  scissor/offset switch was a NORMAL packet, which the frame recorder treats
+  as an unsupported direct transfer: barrier, full VIF1 queue drain and a
+  waited DMA - so the EE sat out the previous frame and its vsync. It is a
+  one-tag DMA chain now and records like any other VIF1 work. two-players on
+  a physical PS2 (PAL): `splitView.begin` 21 + 7 ms -> 0.01 ms, frame work
+  25.5 -> 14.3 ms, **25 -> 50 fps** with both players on screen.
+
 - Animation playback and skinning run **once per frame**, not once per half —
   the second half re-submits the frame's skinned buffers under its own
   camera/frustum (`splitSecondPass` in the generated game). Without this,
