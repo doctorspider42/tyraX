@@ -1,5 +1,7 @@
 # reflections — a chrome showroom you walk through
 
+![reflections — a chrome showroom you walk through in PCSX2](preview.png)
+
 First-person scene demonstrating the PS2-era reflective-material trick
 (NFS car paint, GT chrome) in both modes — and proving the dynamic mode
 really reflects the *live* scene: a **sky cycler** flips the sky to a sunset

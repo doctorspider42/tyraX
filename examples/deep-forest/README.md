@@ -1,5 +1,7 @@
 # deep-forest example
 
+![deep-forest example in PCSX2](preview.png)
+
 A 2048×2048 map in daylight with **2800 scattered spruces**, walkable at **50
 FPS** — this is the example for the two level-of-detail systems working
 together: [terrain distance detail](../../docs/terrain-lod.md) for the ground

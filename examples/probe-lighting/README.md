@@ -1,5 +1,7 @@
 # Probe lighting — animated receivers under directional baked GI
 
+![Probe lighting — animated receivers under directional baked GI in PCSX2](preview.png)
+
 Walk from a blue-sky courtyard into a roofed room with warm and cool side
 sources. The humanoid avatar and three neutral twisting meshes read the
 existing RGB L1 probe grid. Each RGB channel keeps the full signed directional field. The cylinder at the back is an explicitly dynamic-lit rigid

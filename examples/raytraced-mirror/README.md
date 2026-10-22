@@ -1,5 +1,7 @@
 # raytraced-mirror example
 
+![raytraced-mirror example in PCSX2](preview.png)
+
 Yes, actual ray tracing on the PS2. The big glass wall in this scene is a
 **raytraced Mirror**: its reflection is traced per pixel, every frame, on a
 **VU0 microprogram** — sphere proxies of the listed objects against the

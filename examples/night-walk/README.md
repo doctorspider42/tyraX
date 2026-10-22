@@ -1,5 +1,7 @@
 # night-walk example
 
+![night-walk example in PCSX2](preview.png)
+
 A dark backlot, a torch, and everything the
 [flashlight](../../docs/flashlight.md) can do — this is the example for the
 light itself. Two building facades, a fence, a dumpster, a truck and a couple

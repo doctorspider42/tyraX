@@ -1,5 +1,7 @@
 # cube example
 
+![cube example in PCSX2](preview.png)
+
 A 3 × 3 × 3 lattice of identical-shaped rooms with hatches through every wall,
 floor and ceiling, in four flavours, **assembled on the PlayStation 2 at boot**.
 You spawn in the middle room. Beyond the doorways: black.

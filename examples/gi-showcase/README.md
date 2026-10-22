@@ -1,5 +1,7 @@
 # gi-showcase — the guided walk through baked global illumination
 
+![gi-showcase — the guided walk through baked global illumination in PCSX2](preview.png)
+
 Five stations along one straight walk, one per thing
 [baked GI](../../docs/global-illumination.md) actually changes. Third person on
 purpose: the probe grid lights your avatar too, so the cat you are looking at

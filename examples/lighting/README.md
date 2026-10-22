@@ -1,5 +1,7 @@
 # lighting — the whole lighting batch in one dusk plaza
 
+![lighting — the whole lighting batch in one dusk plaza in PCSX2](preview.png)
+
 First-person scene showing every effect from the lighting batch at once:
 dynamic point lights with flicker and visible beams, the camera flashlight,
 sun lens flare + god rays, blob shadows, and per-object **projected

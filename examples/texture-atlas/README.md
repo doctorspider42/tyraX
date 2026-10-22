@@ -1,5 +1,7 @@
 # texture-atlas
 
+![texture-atlas in PCSX2](preview.png)
+
 A yard of thirty small crates, each with its own 32×32 texture, and the build
 packs all thirty into **one shared GS page**. It exists because
 [texture atlasing](../../docs/texture-atlasing.md) is easy to switch on and

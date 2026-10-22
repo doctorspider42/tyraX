@@ -1,5 +1,7 @@
 # script-demo example
 
+![script-demo example in PCSX2](preview.png)
+
 The general playground — the smallest complete FPP project, and the one the
 main README points you at first. It exists so you can try scripting, gizmos,
 terraforming and Build & Run without wrecking a shared sample: open it, poke at

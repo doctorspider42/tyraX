@@ -1,5 +1,7 @@
 # particle-lab
 
+![particle-lab in PCSX2](preview.png)
+
 The particle library's reference scene ([docs/particles.md](../../docs/particles.md)):
 every particle in it comes from four effects made once in *Tools > Particle
 Editor*, each with a texture the editor generated.

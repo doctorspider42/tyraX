@@ -1,5 +1,7 @@
 # world-facts — the game's central memory, end to end
 
+![world-facts — the game's central memory, end to end in PCSX2](preview.png)
+
 A small level whose entire logic is **World Facts**
 ([docs/world-facts.md](../../docs/world-facts.md)): three generator parts to
 collect, an NPC to rescue, a locked basement, and a power state other things

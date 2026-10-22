@@ -1,5 +1,7 @@
 # credits example
 
+![credits example in PCSX2](preview.png)
+
 Two [credits rolls](../../docs/credits.md) in one small project: a **scrolling
 end roll** started from the title screen, and a **card-mode dedication** started
 by a flow node mid-gameplay. Between them: both start paths, both motion modes,

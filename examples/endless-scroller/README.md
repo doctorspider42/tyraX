@@ -1,5 +1,7 @@
 # endless-scroller example
 
+![endless-scroller example in PCSX2](preview.png)
+
 An infinite tunnel built from **one** authored chunk. A **Scroller object**
 tiles a segment — a floor slab, two walls and a bright arch beam — along its
 axis forever and slides the copies toward you, so the corridor streams past to

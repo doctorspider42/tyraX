@@ -1,5 +1,7 @@
 # upscaler-lab — a watchable scene that is GS fill-bound, so the neural upscaler has something to win
 
+![upscaler-lab — a watchable scene that is GS fill-bound, so the neural upscaler has something to win in PCSX2](preview.png)
+
 Every other example in this repo is built to look right. This one is built to be
 **measured**: a deliberately overdraw-heavy PAL scene for the
 [neural upscaler](../../docs/neural-upscaler.md), because BLSS trades GS fill for

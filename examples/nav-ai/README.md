@@ -1,5 +1,7 @@
 # nav-ai example
 
+![nav-ai example in PCSX2](preview.png)
+
 NPCs with a mind of their own, wired entirely in the flow graph — the
 [NavMesh + NPC AI](../../docs/navigation-ai.md) feature: a **guard** that
 patrols waypoints around a wall and chases you on sight, and a **rabbit**

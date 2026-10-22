@@ -1,5 +1,7 @@
 # material-lab — the material pipeline on one pedestal
 
+![material-lab — the material pipeline on one pedestal in PCSX2](preview.png)
+
 A small diorama showing the whole Material Editor toolchain in one place: a
 stone **altar** whose texture is a live **layer stack** (base stone →
 **Baked AO** → **smart masks**), brick **pillars** and tiled **orbs** whose

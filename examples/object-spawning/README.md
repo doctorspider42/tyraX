@@ -1,5 +1,7 @@
 # object-spawning example
 
+![object-spawning example in PCSX2](preview.png)
+
 Runtime object spawning driven entirely from a flow graph — clone an
 authored object into the world on a timer and remove it again, the missing
 piece for GTA-style traffic (spawn a few templates around the player,

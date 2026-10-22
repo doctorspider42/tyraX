@@ -1,5 +1,7 @@
 # layer-streaming example
 
+![layer-streaming example in PCSX2](preview.png)
+
 Two buildings joined by a corridor, streamed GTA3-style with
 [streaming layers](../../docs/streaming-layers.md): only the building you
 are in (plus the corridor) stays in the PS2's memory.

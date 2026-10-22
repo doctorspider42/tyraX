@@ -1,5 +1,7 @@
 # day-night — the same place five times, and the light does all the work
 
+![day-night — the same place five times, and the light does all the work in PCSX2](preview.png)
+
 Five scenes with **identical geometry in every one** — the same arch, the same
 five pillars, the same ball and drum, the same wall, the same terrain, down to
 the object positions. The only difference between them is the hour on the

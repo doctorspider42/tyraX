@@ -1,5 +1,7 @@
 # reverb-rooms example
 
+![reverb-rooms example in PCSX2](preview.png)
+
 Five reverb zones — cave mouth, hall, pipe corridor, chamber, and a closet that
 switches reverb off again — against the bare outdoors, and one sound. This is
 the demo for [reverb](../../docs/reverb.md): the PlayStation 2's **hardware

@@ -1,5 +1,7 @@
 # texture-feeds example
 
+![texture-feeds example in PCSX2](preview.png)
+
 Two ways to stream a live render onto an ordinary surface — the 2002
 security-monitor set piece. Both monitors on the far wall are plain boxes with
 a **Texture feed** (*Properties > Texture feed*); see

@@ -1,5 +1,7 @@
 # custom-nodes example
 
+![custom-nodes example in PCSX2](preview.png)
+
 A tiny FPP scene showing **project-defined custom flow-graph nodes** — Flow
 Graph nodes you add in a text file, no editor rebuild. Full guide:
 [docs/custom-flow-nodes.md](../../docs/custom-flow-nodes.md).

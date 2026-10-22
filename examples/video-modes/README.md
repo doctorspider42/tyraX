@@ -1,5 +1,7 @@
 # video-modes — display mode / widescreen test bed
 
+![video-modes — display mode / widescreen test bed in PCSX2](preview.png)
+
 A minimal project for testing the **video output features**: the four scan
 modes (interlaced 480i/576i, interlaced with **true field rendering**,
 progressive 480p, 1080i), the **16:9 widescreen** switch, and **runtime mode

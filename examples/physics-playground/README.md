@@ -1,5 +1,7 @@
 # physics-playground
 
+![physics-playground in PCSX2](preview.png)
+
 The rigid-body physics stress scene: **28 high-bounce bodies** (boxes +
 spheres, restitution 0.88, friction 0.08) and eight pieces of imported
 furniture rain onto a terraced slope, bounce, roll downhill and fall asleep. This is the exact scene the VU1

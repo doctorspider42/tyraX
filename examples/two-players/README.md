@@ -1,5 +1,7 @@
 # two-players example
 
+![two-players example in PCSX2](preview.png)
+
 Local co-op on one PS2: **two third-person avatars, runtime 1P/2P switching
 and split-screen rendering** (docs/multiplayer.md). Both players are cats —
 player 1 the ginger one, player 2 the gray one.

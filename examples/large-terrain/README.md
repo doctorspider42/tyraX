@@ -1,5 +1,7 @@
 # large-terrain example
 
+![large-terrain example in PCSX2](preview.png)
+
 A 2048×2048 world that never fits in the PS2's 32 MB all at once, kept
 playable by [terrain chunking](../../src/templates.cpp) and view-distance
 streaming — plus a crowd of animated models to stress the EE.

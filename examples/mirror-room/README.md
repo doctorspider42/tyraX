@@ -1,5 +1,7 @@
 # mirror-room example
 
+![mirror-room example in PCSX2](preview.png)
+
 A working mirror on the PS2, done the era-correct way: a **Mirror object**
 re-draws a hard list of scene objects a second time, reflected across the
 glass plane — no render-to-texture, no stencil. The "room behind the glass"

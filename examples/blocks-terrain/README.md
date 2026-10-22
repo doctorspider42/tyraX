@@ -1,5 +1,7 @@
 # blocks-terrain example
 
+![blocks-terrain example in PCSX2](preview.png)
+
 A world made of cubes, **generated on the PlayStation 2 itself** — nothing on
 the disc except the graph that describes it and five one-cube models.
 

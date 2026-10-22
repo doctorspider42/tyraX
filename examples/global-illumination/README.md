@@ -1,5 +1,7 @@
 # global-illumination — a red wall, a green wall, and what the light does next
 
+![global-illumination — a red wall, a green wall, and what the light does next in PCSX2](preview.png)
+
 A first-person bay with a white floor between one red wall and one green wall,
 open to a daylight sky. Everything except those two walls is white or grey, so
 every tint you see anywhere else came off a wall — which is the whole point of

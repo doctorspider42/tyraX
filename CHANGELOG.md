@@ -42,6 +42,7 @@ history.
 - On Windows the Run button no longer sits under the window's caption buttons.
 - Opening a bundled example shows the loading card at once and copies the example behind it (the vehicle playground used to freeze the window for seconds first).
 - Opening the Asset Browser no longer stalls: thumbnails and model parses are spread over frames by time, and the 1.5-second rescan no longer re-reads every model.
+- Every bundled example has a fresh `preview.png` - its first frame in PCSX2 on the 2.0 renderer, captured from the GS - at the top of its README and on its start-page card.
 - The rail's tooltips no longer show "##rail"; the Menu Editor's *Install a copy...* no longer runs off the panel.
 
 ### Repository and installer

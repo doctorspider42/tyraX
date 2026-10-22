@@ -1,5 +1,7 @@
 # procedural example
 
+![procedural example in PCSX2](preview.png)
+
 Six **Procedural volumes** in one 140x140 map, between them using every node in
 the [procedural generation](../../docs/procedural-generation.md) library — from
 "scatter a forest with clearings" to "put this pillar twelve times around a

@@ -1,5 +1,7 @@
 # glow — a midnight tour of emissive materials
 
+![glow — a midnight tour of emissive materials in PCSX2](preview.png)
+
 First-person walk through a pitch-black scene built entirely out of
 [emissive materials](../../docs/emissive-materials.md): four stations, one per
 axis of the effect, along the +Z walk from the spawn — plus a bloom pulser so

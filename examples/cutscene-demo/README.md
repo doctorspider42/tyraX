@@ -1,5 +1,7 @@
 # cutscene-demo example
 
+![cutscene-demo example in PCSX2](preview.png)
+
 A 14-second in-engine cutscene ("The Reveal") that exercises the full range of
 the **Cutscene Director** (*Tools > Cutscene Director*): five camera entities,
 hard cuts *and* a smooth blend, a dolly and a crane (two cameras moving on

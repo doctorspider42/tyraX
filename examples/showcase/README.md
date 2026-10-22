@@ -1,5 +1,7 @@
 # Aster — The Tide Observatory
 
+![Aster — The Tide Observatory in PCSX2](preview.png)
+
 Aster is a playable coastal observatory: limestone arcades, copper roofs,
 formal gardens, a tidal channel and a brass planetarium. A short lens hunt
 and working instruments are woven into one coherent place.

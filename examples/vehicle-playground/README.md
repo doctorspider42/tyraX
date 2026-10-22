@@ -1,5 +1,7 @@
 # Motor District
 
+![Motor District in PCSX2](preview.png)
+
 Version 1.177.0 turns on *Reflect a baked background*: the car's reflection
 probe draws the ground and the box-proxy buildings from an editor-baked
 panorama per road cell instead of re-rendering them

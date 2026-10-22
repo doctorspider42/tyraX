@@ -1,5 +1,7 @@
 # ambient-occlusion example
 
+![ambient-occlusion example in PCSX2](preview.png)
+
 A village terrace on sculpted ground, built to show what
 [baked ambient occlusion](../../docs/ambient-occlusion.md) does — and, just as
 usefully, where it currently stops.

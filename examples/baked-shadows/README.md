@@ -1,5 +1,7 @@
 # baked-shadows — a late afternoon, and ten shadows for one draw call
 
+![baked-shadows — a late afternoon, and ten shadows for one draw call in PCSX2](preview.png)
+
 Every shadow in this scene is **baked into a projected decal**
 ([shadows.md](../../docs/shadows.md)): traced once on the desktop, packed into
 one shared atlas page, and drawn by the console as ordinary static triangles.

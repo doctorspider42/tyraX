@@ -1,5 +1,7 @@
 # portals — linked Portal surfaces with a live through-view and seamless teleport
 
+![portals — linked Portal surfaces with a live through-view and seamless teleport in PCSX2](preview.png)
+
 A minimal demo of the **Portal object** ([docs/portals.md](../../docs/portals.md)):
 two linked portals across the map, a live view through the surface, and a
 walk-through teleport that carries position, view angle and vertical velocity.

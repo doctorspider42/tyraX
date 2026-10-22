@@ -1,5 +1,7 @@
 # probe-aim example
 
+![probe-aim example in PCSX2](preview.png)
+
 A crystal ball that shows what's behind you. This scene demonstrates the
 **Reflection probe: aim along the reflected ray** preference
 (*Preferences > Graphics*; see "Probe aim" in

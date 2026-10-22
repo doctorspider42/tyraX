@@ -1,5 +1,7 @@
 # vu-lab example
 
+![vu-lab example in PCSX2](preview.png)
+
 A small scene whose job is to be **inspected**, not played. It is the fixture
 for the VU framework ([docs/vu-framework.md](../../docs/vu-framework.md)) and
 for authoring ([docs/vu-authoring.md](../../docs/vu-authoring.md)).

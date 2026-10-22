@@ -1,5 +1,7 @@
 # endless-runner example
 
+![endless-runner example in PCSX2](preview.png)
+
 An endless track that **never repeats** — and a roadside that was **generated
 procedurally, once, then tiled forever**. Two [Scroller](../../docs/endless-scroller.md)
 belts stream a deck and its scenery past a first-person camera; what changes

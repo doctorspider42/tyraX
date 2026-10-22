@@ -1,5 +1,7 @@
 # save-points example
 
+![save-points example in PCSX2](preview.png)
+
 A crystal run across a hazard slab, wired to show the two halves of
 [the save system](../../docs/save-editor.md): **checkpoints**, which live in RAM
 and cost nothing, and the **memory card**, which is slow and has to be

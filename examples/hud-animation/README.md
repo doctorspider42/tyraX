@@ -1,5 +1,7 @@
 # Animated HUD
 
+![Animated HUD in PCSX2](preview.png)
+
 This example is a compact, controller-driven tour of TyraX's animated HUD:
 smoothed and segmented bars, looped motion, show/hide transitions and one-shot
 effects. Open **Tools > UI Editor** to inspect the three bars and two text
