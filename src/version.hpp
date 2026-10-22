@@ -5749,7 +5749,10 @@
 // 1.177.9: a portal view culls against the opening's screen rectangle
 // (RendererCore3D::narrowFrustumToRect), not the whole screen: Showcase on a
 // PS2 47.5 -> 50.0 fps (docs/portals.md).
-#define TYRAX_VERSION_PATCH 9
+// 1.177.10: env (matcap) passes take the stamp route - the stamp re-writes
+// the camera basis on replay (docs/stapip-stamps.md, "Env bags"): Showcase
+// -2.1 ms of EE a frame on a PS2.
+#define TYRAX_VERSION_PATCH 10
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

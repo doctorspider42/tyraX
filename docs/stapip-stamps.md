@@ -319,10 +319,26 @@ section was worth 0.74 ms at the heavy night spot earlier; on this fixture it
 is 0.44 ms and most of what is left is the pick over lights in reach, the spot
 constants (divisions, a square root) and the no-influence test.
 
+## Env bags (1.177.10)
+
+An env (matcap) pass - the reflective materials' second, additive pass - used
+to be kept off the stamp route because its uniforms carry the camera basis
+(`envRight`/`envUp`). That basis is three qwords in the head, so a stamp now
+records where its unpack sits (`StampEntry::envAt`) and re-writes it from the
+live basis on every replay, exactly as `sendObjectData` builds it (transposed,
+ST scale folded in). A bag whose env class differs from the stamp's is
+rejected; the VU1 paint arm (`paintVu`) uploads live paint vectors too and
+stays excluded, and EE-painted colours change the content stamp anyway.
+
+Showcase entrance, physical PS2 (59 env passes a frame, copper, gold, water):
+the env bracket 4.45 -> 0.43 ms, renderScene 15.56 -> 13.45 ms of EE. The frame
+period stays 19.97 ms there because that view is GPU-bound; the saving is EE
+headroom, and it is frame time wherever the EE is the critical path.
+
 ## Not covered
 
 - **Partial bags:** they need per-package classification and clip programs.
-- **Lit bags, env/paint bags, billboards:** these classes are excluded at
+- **Lit bags, paint bags, billboards:** these classes are excluded at
   capture.
 - **Moving bags** replay too: the MVP is patched from the live model matrix,
   and visibility uses the recomputed world box.

@@ -1250,6 +1250,7 @@ void StaPipQBufferRenderer::sendObjectData(
   stampFogEligible = 0;
   stampWrapBlock = 0;
   stampSingleAt = 0;
+  stampEnvAt = 0;
 #endif
 
   // Modified by TyraX: the bag's texture wrap, in the chain (setBagWrap).
@@ -1677,7 +1678,14 @@ void StaPipQBufferRenderer::sendObjectData(
   // the lights-matrix area; env bags never carry lighting.
   if (bag->texture != nullptr && bag->texture->coordinatesAreNormals) {
 #if TYRA_STAPIP_STAMP
-    stampOk = false;  // camera-dependent basis
+    // Camera-dependent, so a stamp re-writes it on replay (envAt) - it used
+    // to keep every env pass off the stamp route, ~2.9 ms of EE a frame on
+    // Showcase (docs/stapip-stamps.md, "Env bags"). The VU1 paint arm uploads
+    // live paint vectors too and stays excluded.
+#if TYRA_VU1_EXP_PAINT
+    if (paintVu) stampOk = false;
+#endif
+    stampEnvAt = static_cast<u16>(objectDataPacket->next - stampHead);
 #endif
     const Vec4& r = bag->texture->envRight;
     const Vec4& u = bag->texture->envUp;
@@ -3318,6 +3326,7 @@ void StaPipQBufferRenderer::captureStamp() {
   s->wrapBlock = stampWrapBlock;
   s->wrap = stampWrap;
   s->singleAt = stampSingleAt;
+  s->envAt = stampEnvAt;
   s->batchSized = stampBatchSized ? 1 : 0;
   s->spotAt = stampSpotAt;
   s->program = static_cast<const StaPipVU1Program*>(entry->program)->getName();
@@ -3357,6 +3366,8 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
       s->modelPtr != bag->info->model || bag->billboard != nullptr ||
       bag->lighting != nullptr ||
       (bag->color->single != nullptr) != (s->singleAt != 0) ||
+      (bag->texture != nullptr && bag->texture->coordinatesAreNormals) !=
+          (s->envAt != 0) ||
       s->texture != (bag->texture != nullptr ? bag->texture->texture : nullptr) ||
       s->contentStamp != stampContent(bag) ||
       s->sts != (bag->texture != nullptr ? bag->texture->coordinates : nullptr) ||
@@ -3545,6 +3556,14 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
   }
   if (s->singleAt != 0)
     memcpy(&dst[s->singleAt + 1], bag->color->single->rgba, 16);
+  if (s->envAt != 0) {  // as sendObjectData: transposed, ST scale folded in
+    const Vec4& r = bag->texture->envRight;
+    const Vec4& u = bag->texture->envUp;
+    alignas(16) const float e[12] = {r.x * 0.5F, u.x * -0.5F, 0.0F, 0.0F,
+                                     r.y * 0.5F, u.y * -0.5F, 0.0F, 0.0F,
+                                     r.z * 0.5F, u.z * -0.5F, 1.0F, 0.5F};
+    memcpy(&dst[s->envAt + 1], e, sizeof(e));
+  }
   packet->next = dst + s->qw;
   if (s->wrapBlock) {  // the re-emitted CLAMP write is now the packet's state
     packetWrap = wanted;

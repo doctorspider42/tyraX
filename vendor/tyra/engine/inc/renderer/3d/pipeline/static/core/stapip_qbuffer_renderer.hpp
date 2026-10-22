@@ -1181,6 +1181,9 @@ class StaPipQBufferRenderer {
     u8 fogEligible = 0, hasTex0 = 0, spotActive = 0, batchSized = 0, fogOff = 0;
     u8 wrapBlock = 0;
     u16 singleAt = 0;
+    // Modified by TyraX: the env (matcap) camera basis unpack, re-written
+    // from the live envRight/envUp on every replay (0 = not an env bag).
+    u16 envAt = 0;
     texwrap_t wrap = {};
     StaPipProgramName program = StaPipUndefinedProgram;
     alignas(16) Vec4 lo, hi;     // object-space main box
@@ -1215,6 +1218,7 @@ class StaPipQBufferRenderer {
   u8 stampFogEligible = 0, stampHasTex0 = 0, stampSpotActive = 0, stampFogOff = 0;
   u8 stampWrapBlock = 0;
   u16 stampSingleAt = 0;
+  u16 stampEnvAt = 0;
   texwrap_t stampWrap = {};
   u32 stampHits = 0, stampCaptures = 0;
   bool stampSlotHint = false;
