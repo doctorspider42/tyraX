@@ -5,7 +5,7 @@ Read when you touch `procgraph`/`procgen`/`procbake`/`procrt`/`procui`, add a pr
 ## Data model (`procgraph.hpp/.cpp` ~330+990, docs/procedural-generation.md)
 
 - `ProcNode` (keyed float/string params + a generic `rows` table for asset pools and curve points), `ProcLink` (typed pins), `ProcGraph` (nodes/links/seed/overrides/bakedHash/frozen/runtime), `ProcOverride` (manual per-instance edit bound to a point's stable key), `procNodeTypes()` (26 entries; `.desc` is the node's documentation: add-menu tooltip + hover), `validate`/`linkError` (type mismatch, cycles, missing inputs). Data only.
-- `procObjectProps()`: properties the **Object Settings** node can put on every generated object (mesh LOD distance, baked lighting, reflections). Rows store their property by KEY -> append-only; twin = `applySettings` in procbake.cpp (offer in one, not the other, and the switch does nothing). NOT in it: the four fields Output owns (draw distance, cast shadow, collision, layer).
+- `procObjectProps()`: properties **Output > Object settings** can put on every generated object (mesh LOD distance, baked lighting, reflections). Rows store their property by KEY -> append-only; twin = `applySettings` in procbake.cpp (offer in one, not the other, and the switch does nothing). NOT in it: the four fields Output owns (draw distance, cast shadow, collision, layer).
 - The graph lives on a `Scatter` scene object (`SceneObject::procGraph`); **the UI calls it a "Procedural volume"** while the enum/serialized key stay `scatter` (file format). Per object -> undoable and collaboration-ready for free.
 - Graph wire format = `project::procGraphJson`/`parseProcGraph` (the AI Assistant uses it too).
 
@@ -65,3 +65,16 @@ The third geometry path beside solo objects and static batches: world-space vert
 4. No objects behind merged geometry: collision from `procColliders` (one conservative world AABB per merged member with collision, tested in `collidePlayer` with a cheap distance reject - without it the cube example ran 47 instead of 50 FPS).
 5. No lightmap region, no static-batch membership, no scene-table entry: lit from the probe grid. A new per-object visual feature is staged explicitly in `procAddMergedObject` (it states the `g_*` globals rather than inheriting the last rebuild's).
 6. **Blocks** (Blocks Fill publishes a solid-cell field): `procBlockVertexAo` answers self-occlusion from 26 bit tests per block at generation and hands it to `pushVert` as `selfAo` (hence `g_aoOff = d.type == 5 && !blockAo`). **A per-vertex value is invisible under flat shading**: chunks were `TyraShadingFlat` (one corner paints the triangle) - two plateaus 42 levels apart with a diagonal seam (6964 hard steps vs 2783 AO-off control, 2868 after). Fix = `ProcChunk::smooth` + `procSmoothInfoBag`, a SECOND info bag (not a flag on `batchInfoBag`, which the static batcher shares and is flat by design). Anything else varying colour across a generated face owes the same pair.
+
+- Object settings UI: `ObjectSettings` remains the compatibility storage node
+  consumed by `settingsNode`/`applySettings`; do not migrate it on panel opening
+  or change bake hashes. Hide it from canvas, framing, position persistence,
+  auto-arrange and Add node. Output edits a copy of its rows and creates storage
+  only on an actual edit (no vector invalidation while using the Output pointer).
+  Instance detail is disabled for Instanced mode; its saved value is retained
+  for switching back to merged chunks. Node titles expose `Node: <title>` to UI scripts.
+
+- Instanced budget: `Report::sharedTriangles` deduplicates used near/far paths;
+  `triangles` remains the all-placement near sum. `overBudget` uses shared geometry
+  for Instanced, merged totals otherwise. `vertexBytes` includes shared far meshes
+  and the placement table, not textures or total game RAM.

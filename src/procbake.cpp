@@ -8,6 +8,7 @@
 #include <map>
 #include <mutex>
 #include <sstream>
+#include <set>
 
 #include "detmath.hpp"  // the merged chunk meshes are committed - same bits on every OS
 #include "meshlod.hpp"
@@ -274,10 +275,21 @@ Report estimate(const Project& p, const SceneObject& volume,
         // sets, then a baked VIF body per bucket; ~60 bytes per instance.
         constexpr size_t kSharedBytesPerVertex = 16 * 2 + 16 * 4 + 49 * 4;
         constexpr size_t kBytesPerInstance = 60;
-        for (const auto& mt : modelTris)
-            rep.vertexBytes += (size_t)mt.second * 3 * kSharedBytesPerVertex;
+        std::set<std::string> sharedPaths;
+        auto countShared = [&](const std::string& path) {
+            if (!sharedPaths.insert(path).second) return;
+            if (auto mesh = sourceMesh(p, path, 0))
+                rep.sharedTriangles += mesh->triangles();
+        };
+        for (const auto& mt : modelTris) {
+            const std::string& path = r.assets[mt.first];
+            countShared(path);
+            const ProcRow* row = procgraph::poolRow(volume.procGraph, "PickAsset", path);
+            if (row && procRowHasLod(*row)) countShared(row->lod);
+        }
+        rep.vertexBytes = (size_t)rep.sharedTriangles * 3 * kSharedBytesPerVertex;
         rep.vertexBytes += (size_t)rep.instances * kBytesPerInstance;
-        rep.overBudget = rep.triangles > budget;
+        rep.overBudget = rep.sharedTriangles > budget;
         if (noContent > 0)
             rep.warnings.push_back(
                 std::to_string(noContent) +
@@ -572,6 +584,7 @@ Report bakeAll(Project& p, bool force) {
             total.chunks += r.chunks;
             total.instances += r.instances;
             total.triangles += r.triangles;
+            total.sharedTriangles += r.sharedTriangles;
             total.vertexBytes += r.vertexBytes;
             total.overBudget |= r.overBudget;
             for (const std::string& w : r.warnings) total.warnings.push_back(w);

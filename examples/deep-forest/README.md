@@ -133,3 +133,7 @@ physical PS2 in the previous spruce layout. If Python is not on PATH,
 the validator also runs with Blender's '-b --factory-startup --python' flags.
 Blender 5.1.2 saved the blend and rendered the preview successfully; its optional
 OS thumbnail-cache write emitted a warning but did not affect either artifact.
+
+Shared object properties are edited under **Output > Object settings**. This
+forest uses **Instanced** drawing, so the saved Instance detail value is ignored;
+its near meshes retain full detail and its authored far meshes supply LOD.

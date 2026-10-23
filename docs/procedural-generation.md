@@ -110,7 +110,7 @@ one input or output labels the extra ones beside their pins.
 | Filters | Attribute, Mask, Minimum Distance, Keep Away, Validate Placement, Limit Count | Remove unwanted points |
 | Repeat | Array, Radial Array | Exact rows, stacks, rings and arcs |
 | Assign | Pick Asset, Pick Prefab, Vary Transform, Set Attribute | Choose and vary the result |
-| Output | Output, Object Settings | Set chunks, budget and shared properties |
+| Output | Output | Set chunks, budget and shared properties |
 
 Select a node to edit it in the inspector; hover a node or a control for the
 full parameter description.
@@ -244,7 +244,7 @@ Keep source assets deliberately low-poly. Instance count can be misleading:
 500 trees at 600 triangles each are still 300,000 triangles after merging.
 
 Generated chunks inherit the volume's layer. Put them on a streamed layer when
-the region should load and unload together. Use **Object Settings** for shared
+the region should load and unload together. Use **Output > Object settings** for shared
 mesh LOD, baked lighting and reflection flags; edit the graph, not individual
 generated chunks, when the setting should survive the next bake.
 
@@ -345,3 +345,36 @@ are world bounding spheres against planes normalised once per call
 If the result is empty, check the selected volume, source surface, filters and
 Output connection in that order. If it is too dense, lower source density or
 add **Limit Count** before tuning chunk size.
+
+### Shared object settings and bypass
+
+![Shared object properties in the Output inspector, with Instance detail explicitly unused for Instanced drawing.](img/procedural-output-settings.png)
+
+Select **Output** to edit **Object settings** in its inspector. Existing graphs
+keep their saved properties automatically; the old disconnected Object Settings
+card no longer appears in the canvas or Add node menu.
+
+**Instance detail** simplifies source geometry only when baking merged chunks:
+Full preserves it, while Half and Quarter target roughly 50% and 25% of its
+triangles. Simplification can damage leaf cards and silhouettes. Prefer authored
+distant models when their shape matters. In **Instanced** mode this control is
+disabled and reads **Not used (Instanced)**: shared models retain full detail.
+
+**Bypass** passes a node's first input through without applying that node's
+operation. For example, bypassing Vary Transform removes its random transforms;
+bypassing a filter keeps the points it would discard. It does not delete the
+node or disconnect its wires. Source nodes with no input have nothing to pass
+through, so bypass does not disable those generators.
+
+### Budget in Instanced mode
+
+![Deep Forest uses 1,589 shared mesh triangles; the 3,035,558-triangle all-placement sum is informational.](img/procedural-instanced-budget.png)
+
+**Shared mesh budget** counts each used near and authored far mesh once, against
+Output's geometry budget. **All placements (near)** is the informational sum
+across every placement at full near detail, not a per-frame submission count.
+It does not turn the shared budget bar red. **KB geo** estimates geometry and
+instance-table memory, excluding textures, engine allocations and other scene
+assets. Neither readout measures free RAM or predicts FPS: LOD, visibility,
+materials and overdraw matter, and actual performance needs a running game.
+Merged mode continues to compare the baked triangle total against its budget.

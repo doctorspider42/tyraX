@@ -655,16 +655,9 @@ const std::vector<ProcNodeType>& procNodeTypes() {
          .title = "Object Settings",
          .category = "Output",
          .rows = ProcRowKind::Settings,
-         .desc = "Applies a list of properties to EVERY scene object this "
-                 "volume bakes - the 'and all of them are like this' of the "
-                 "graph. It carries no pins because it is not a step in the "
-                 "chain: it states a fact about the whole output. Without it "
-                 "the generated chunks take the editor's defaults, and setting "
-                 "one by hand in the Properties panel does not survive - the "
-                 "next bake makes new chunks. Draw distance, cast shadow, "
-                 "collision and the streaming layer are NOT here: those live "
-                 "on Output (and the layer on the volume itself), so there is "
-                 "one place per field."},
+         .desc = "Properties edited in Output's Object settings section. "
+                 "Applied to every generated chunk; retained as a storage "
+                 "node for compatibility with existing graphs."},
 
         {.key = "Output",
          .title = "Output",
@@ -694,14 +687,16 @@ const std::vector<ProcNodeType>& procNodeTypes() {
               {.key = "detail", .label = "Instance detail", .kind = PK::Enum,
                .def = 0.0f, .lo = 0.0f, .hi = 2.0f,
                .choices = "Full|Half|Quarter",
-               .tip = "Decimates the SOURCE mesh once before merging, so a "
-                      "600-triangle tree does not become 60 000 in the chunk. "
-                      "Scattered vegetation is read at a distance - Half is "
-                      "usually free to the eye and halves the whole cost."},
+               .tip = "Merged chunks only: simplifies the source mesh before "
+                      "merging (Half/Quarter target that fraction of triangles). "
+                      "Can damage silhouettes and leaf cards. Full preserves "
+                      "the authored mesh; use authored distant models for LOD. "
+                      "Ignored in Instanced mode."},
               {.key = "budget", .label = "Triangle budget", .kind = PK::Int,
                .def = 20000.0f, .lo = 100.0f, .hi = 2000000.0f,
-               .tip = "The bake warns above this. A PS2 scene has room for "
-                      "some tens of thousands of triangles TOTAL."},
+               .tip = "Geometry budget: merged triangles in Merged mode, unique "
+                      "near + far mesh triangles in Instanced mode. "
+                      "Not a visible-triangle count or an FPS prediction."},
               {.key = "maxinst", .label = "Runtime instance cap",
                .kind = PK::Int, .def = 4096.0f, .lo = 64.0f, .hi = 60000.0f,
                .tip = "RUNTIME volumes only: how many points the console's "

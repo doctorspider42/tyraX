@@ -5,6 +5,12 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
+## 2.1.2 - Unreleased
+
+- Instanced scatter budgets count shared near/far geometry instead of flagging the sum of every placement as an over-budget mesh. The full placement sum remains informational, and the memory label identifies geometry-only estimates.
+
+- Shared procedural object settings now live in the Output inspector instead of a disconnected graph card. Existing settings are preserved. Instance detail clearly shows that it is unused in Instanced mode, and its help explains the visual cost of simplification.
+
 ## 2.1.1 - Unreleased
 
 - Dense procedural previews keep their models above 4,000 instances instead of replacing the entire layout with green crosses. Pick Asset previews use the pool's distant models, Output draw distance and camera-frustum culling. Unassigned graph points retain their markers.

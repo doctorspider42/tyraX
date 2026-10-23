@@ -782,7 +782,9 @@ bool App::drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vect
                     }
                     int v = std::clamp(procgraph::inum(n, p.key), 0, (int)opts.size() - 1);
                     const ImGuiID id = ImGui::GetID(p.label);
-                    const bool open = ui::BeginCombo(p.label, opts[v].c_str());
+                    const bool unusedDetail = n.type == "Output" && std::strcmp(p.key, "detail") == 0 && procgraph::inum(n, "mode") == 1;
+                    ImGui::BeginDisabled(unusedDetail);
+                    const bool open = ui::BeginCombo(p.label, unusedDetail ? "Not used (Instanced)" : opts[v].c_str());
                     uiscript::nameItem(id, p.label);
                     if (open) {
                         for (int i = 0; i < (int)opts.size(); ++i)
@@ -792,6 +794,7 @@ bool App::drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vect
                             }
                         ImGui::EndCombo();
                     }
+                    ImGui::EndDisabled();
                     break;
                 }
                 case ProcParamKind::ObjectName: {
@@ -1138,10 +1141,12 @@ void App::procAutoArrange(ProcGraph& g, float canvasW) {
     const int perBand = std::max(3, (int)(canvasW / colW));
     std::map<int, int> rowsIn;
     int tallest = 1;
-    for (const ProcNode& n : g.nodes) tallest = std::max(tallest, ++rowsIn[depth[n.id]]);
+    for (const ProcNode& n : g.nodes)
+        if (n.type != "ObjectSettings") tallest = std::max(tallest, ++rowsIn[depth[n.id]]);
     rowsIn.clear();
     const float bandH = (float)tallest * rowH + fs * 2.0f;
     for (ProcNode& n : g.nodes) {
+        if (n.type == "ObjectSettings") continue;
         const int d = depth[n.id];
         const int r = rowsIn[d]++;
         n.pos[0] = (float)(d % perBand) * colW;
@@ -1364,7 +1369,7 @@ void App::drawProceduralWindow() {
     if (!procPositionsApplied_) {
         procPositionsApplied_ = true;
         for (const ProcNode& n : g.nodes)
-            ImNodes::SetNodeGridSpacePos(n.id, ImVec2(n.pos[0] * zoom, n.pos[1] * zoom));
+            if (n.type != "ObjectSettings") ImNodes::SetNodeGridSpacePos(n.id, ImVec2(n.pos[0] * zoom, n.pos[1] * zoom));
     }
 
     const procgen::Cache* cache = procCaches_.count(vol.id) ? &procCaches_[vol.id] : nullptr;
@@ -1386,6 +1391,7 @@ void App::drawProceduralWindow() {
         }
     }
     for (ProcNode& n : g.nodes) {
+        if (n.type == "ObjectSettings") continue;
         const ProcNodeType* t = procNodeType(n.type);
         if (!t) continue;
         // Compact cards: the title (with the output type's colour as a mark),
@@ -1408,6 +1414,14 @@ void App::drawProceduralWindow() {
             ImGui::SetCursorScreenPos(ImVec2(p.x + 7.0f * zoom, p.y));
             ImGui::PushStyleColor(ImGuiCol_Text, n.bypass ? sem.textDim : sem.text);
             ImGui::TextUnformatted(t->title);
+            const std::string nodeLabel = std::string("Node: ") + t->title;
+#ifdef IMGUI_ENABLE_TEST_ENGINE
+            if (GImGui->TestEngineHookItems) {
+                const ImGuiID id = ImGui::GetID(nodeLabel.c_str());
+                ImGuiTestEngineHook_ItemAdd(GImGui, id, GImGui->LastItemData.Rect, nullptr);
+                ImGuiTestEngineHook_ItemInfo(GImGui, id, nodeLabel.c_str(), 0);
+            }
+#endif
             ImGui::PopStyleColor();
             if (n.bypass) {
                 ImGui::SameLine();
@@ -1535,9 +1549,11 @@ void App::drawProceduralWindow() {
     }
 
     // Frame all: fit the zoom (never above 1) then centre the nodes' box.
-    if (procFramePending_ > 0 && !g.nodes.empty()) {
+    if (procFramePending_ > 0 && std::any_of(g.nodes.begin(), g.nodes.end(),
+        [](const ProcNode& n) { return n.type != "ObjectSettings"; })) {
         float x0 = 1e9f, y0 = 1e9f, x1 = -1e9f, y1 = -1e9f;
         for (const ProcNode& n : g.nodes) {
+            if (n.type == "ObjectSettings") continue;
             const ImVec2 gp = ImNodes::GetNodeGridSpacePos(n.id);
             const ImVec2 d = ImNodes::GetNodeDimensions(n.id);
             x0 = std::min(x0, gp.x), y0 = std::min(y0, gp.y);
@@ -1586,6 +1602,7 @@ void App::drawProceduralWindow() {
     }
 
     for (ProcNode& n : g.nodes) {
+        if (n.type == "ObjectSettings") continue;
         const ImVec2 pos = ImNodes::GetNodeGridSpacePos(n.id);
         n.pos[0] = pos.x / zoom;
         n.pos[1] = pos.y / zoom;
@@ -1863,7 +1880,7 @@ void App::drawProceduralWindow() {
         for (const char* cat : {"Sources", "Masks", "Filters", "Repeat", "Attributes", "Output"}) {
             if (!ImGui::BeginMenu(cat)) continue;
             for (const ProcNodeType& t : procNodeTypes()) {
-                if (std::strcmp(t.category, cat) != 0) continue;
+                if (std::strcmp(t.category, cat) != 0 || std::strcmp(t.key, "ObjectSettings") == 0) continue;
                 if (ImGui::MenuItem(t.title)) {
                     const int id = procgraph::addNode(g, t.key, 0.0f, 0.0f);
                     if (id) {
@@ -2131,11 +2148,12 @@ int App::drawProcInspector(SceneObject& vol, ProcGraph& g, bool stale, bool& cha
                                               [&](const SceneObject& o) { return o.procSource == vol.id; });
         ImGui::TextDisabled("Frozen bake \xc2\xb7 %d generated objects", chunks);
     } else {
-        ImGui::TextDisabled("Triangle budget");
-        const std::string a = thousands(procBudget_.triangles), b = " / " + thousands(budget);
+        const int budgetTriangles = procBudget_.instanced ? procBudget_.sharedTriangles : procBudget_.triangles;
+        ImGui::TextDisabled(procBudget_.instanced ? "Shared mesh budget" : "Triangle budget");
+        const std::string a = thousands(budgetTriangles), b = " / " + thousands(budget);
         const float bw = ImGui::CalcTextSize((a + b).c_str()).x;
         ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - bw);
-        const bool over = procBudget_.triangles > budget;
+        const bool over = budgetTriangles > budget;
         ImGui::PushStyleColor(ImGuiCol_Text, over ? sem.danger : sem.text);
         {
             ui::FontScope bold(ui::boldFont());
@@ -2147,11 +2165,15 @@ int App::drawProcInspector(SceneObject& vol, ProcGraph& g, bool stale, bool& cha
         {
             const ImVec2 p = ImGui::GetCursorScreenPos();
             const float w = ImGui::GetContentRegionAvail().x, h = std::max(3.0f, fs * 0.25f);
-            const float f = std::clamp((float)procBudget_.triangles / (float)budget, 0.0f, 1.0f);
+            const float f = std::clamp((float)budgetTriangles / (float)budget, 0.0f, 1.0f);
             ImDrawList* dl = ImGui::GetWindowDrawList();
             dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), pcol(sem.field), h);
             dl->AddRectFilled(p, ImVec2(p.x + w * f, p.y + h), pcol(over ? sem.danger : sem.ok), h);
             ImGui::Dummy(ImVec2(w, h + 2.0f));
+        }
+        if (procBudget_.instanced) {
+            ImGui::TextDisabled("All placements (near): %s tris", thousands(procBudget_.triangles).c_str());
+            ImGui::TextWrapped("Shared budget includes near + far meshes. Visible cost depends on LOD and culling; this is not an FPS estimate.");
         }
         {
             ui::FontScope mono(ui::monoFont());
@@ -2162,7 +2184,7 @@ int App::drawProcInspector(SceneObject& vol, ProcGraph& g, bool stale, bool& cha
                 std::snprintf(cells[1], 48, "%d models", procBudget_.models);
             else
                 std::snprintf(cells[1], 48, "%d chunks", procBudget_.chunks);
-            std::snprintf(cells[2], 48, "~%.0f KB", procBudget_.vertexBytes / 1024.0);
+            std::snprintf(cells[2], 48, "~%.0f KB geo", procBudget_.vertexBytes / 1024.0);
             std::snprintf(cells[3], 48, "%.1f ms", procLastMs_);
             const float cw = ImGui::GetContentRegionAvail().x / 4.0f;
             const float x0 = ImGui::GetCursorPosX();
@@ -2265,6 +2287,26 @@ int App::drawProcInspector(SceneObject& vol, ProcGraph& g, bool stale, bool& cha
         if (ui::Switch("Bypass (hand the first input through untouched)", &bypass)) {
             sn->bypass = bypass;
             changed = true;
+        }
+        if (sn->type == "Output") {
+            ImGui::Spacing();
+            ImGui::SeparatorText("Object settings");
+            // Keep the old storage node so existing bakes and project files
+            // retain exactly the same settings and hashes. It is now edited
+            // only here, never as an unconnected canvas card.
+            const ProcNode* stored = procgraph::settingsNode(g);
+            ProcNode settings = stored ? *stored : ProcNode{};
+            settings.type = "ObjectSettings";
+            if (!stored) settings.id = -1;
+            if (drawProcNodeParams(settings, *procNodeType("ObjectSettings"), models)) {
+                if (stored) {
+                    procgraph::node(g, settings.id)->rows = std::move(settings.rows);
+                } else {
+                    const int id = procgraph::addNode(g, "ObjectSettings", 0.0f, 0.0f);
+                    procgraph::node(g, id)->rows = std::move(settings.rows);
+                }
+                changed = true;
+            }
         }
     }
 
