@@ -41,7 +41,7 @@ Instances -> ordinary static geometry: one asset's instances inside one world ch
 
 ## Adding a procedural node
 
-`procNodeTypes()` entry (pins, params with UI ranges, `.rows` kind, mandatory `.desc`, **a `.tip` on every parameter**) -> a branch in `evalNode` (procgen.cpp) -> decide RUNTIME support: add to `kRuntimeNodes` AND write its `emit*` in procrt.cpp (listed without an emitter = a broken promise), or leave it out (reported honestly). Nothing else: the window renders params from the registry; the bake sees only Output; the AI Assistant's `procNodeCatalog` derives from the registry. Derive randomness from the point key; make a generator's count a PREFIX; a runtime emitter reproduces the numbers EXACTLY.
+`procNodeTypes()` entry (pins, params with UI ranges, `.rows` kind, mandatory `.desc`, **a `.tip` on every parameter**) -> a branch in `evalNode` (procgen.cpp) -> decide RUNTIME support: add to `kRuntimeNodes` AND write its `emit*` in procrt.cpp (listed without an emitter = a broken promise), or leave it out (reported honestly). The inspector draws a param it has no layout for generically (after the form), so nothing goes missing - but give the type a branch in `App::drawProcNodeParams` (procui.cpp: pairs via `drags`, min..max via `range`, enums via `seg`, bools via `chips`, guard rails under `advanced`; docs/editor-theme.md "Node inspector"), and keep `--ui-script` names = param labels. Otherwise: the bake sees only Output; the AI Assistant's `procNodeCatalog` derives from the registry. Derive randomness from the point key; make a generator's count a PREFIX; a runtime emitter reproduces the numbers EXACTLY.
 
 ## The window (`procui.cpp` ~1.9k)
 
@@ -49,6 +49,7 @@ Tools > Procedural: the scatter-graph canvas (its OWN imnodes context `procEdito
 - A node's context menu remembers its target in `procCtxNode_`, NOT the hover tracker `procDescNode_` (reset to -1 every frame the cursor is off a node - an open popup is - so the menu closed the frame after opening).
 - **A point carries an asset OR a prefab**; the prefab half has no mesh: `updateProcPreview` expands each through `prefab::instantiate` (same function as Place in scene and the runtime spawner) into `ScatterPreview::prefabObjects`. A consumer looking only at `Instance::asset` shows/counts NOTHING for a prefab graph (the cube example previewed as empty ground at 0 triangles).
 - The Pick Prefab combo lists prefabs then scene objects: every entry needs `##<prefix><index>` (capture makes duplicate names).
+- The inspector form (`drawProcNodeParams`) reads the edited volume's `procCaches_` entry for the mask thumbnail (`procgen::cachedMask`), Filter by Attribute's histogram (`procgen::cachedAttribute` of the node feeding pin 0) and Limit Count's meter; all are empty until that node has been evaluated (selecting a node previews it, which evaluates it). Object settings are `ui::OverrideRow`s over the fixed `procObjectProps()` list - ticking pushes a row, unticking erases it, the stored table is unchanged.
 - `App::addScatterVolume(false)` is what `add_object` type `scatter` routes through (a plain `addObject` makes a 1x1x1 box with no graph that generates nothing).
 
 ## Prefabs (`prefab.cpp/.hpp` ~570+140, `prefab_ui.cpp` ~550, docs/prefabs.md)
@@ -71,7 +72,7 @@ The third geometry path beside solo objects and static batches: world-space vert
   or change bake hashes. Hide it from canvas, framing, position persistence,
   auto-arrange and Add node. Output edits a copy of its rows and creates storage
   only on an actual edit (no vector invalidation while using the Output pointer).
-  Instance detail is disabled for Instanced mode; its saved value is retained
+  Instance detail is hidden in Instanced mode; its saved value is retained
   for switching back to merged chunks. Node titles expose `Node: <title>` to UI scripts.
 
 - Instanced budget: `Report::sharedTriangles` deduplicates used near/far paths;

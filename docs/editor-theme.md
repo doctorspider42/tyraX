@@ -326,6 +326,44 @@ Every tool window follows the same few rules, and is built from the same kit
   `ui::OverlayMenuButton`).
 - **One way to move a preview camera** (see *Preview navigation* below).
 
+### Node inspector
+
+A node's parameters are a form, not a list of label/value rows. The kit for
+it lives in `src/widgets.hpp` ("node inspector kit"), and the procedural
+graph's inspector is built from it (`App::drawProcNodeParams`, one laid-out
+form per node type):
+
+- **A header, not a paragraph.** `ui::NodeHeader`: the category icon on its
+  tint, the title, a dim "Category · inputs → outputs" line and square glyph
+  buttons (preview this node, bypass, help). Under it ONE sentence of the
+  description; the help button opens the whole paragraph and a line per
+  control. Bypass is a button in the header, not a long switch.
+- **The effect before the knobs.** The in → out count sits under the header.
+- **Values read together share a row.** `ui::DragRow` puts two or three drags
+  on one line; each field names itself in its format ("Spacing 4.0 u",
+  "Jitter 35%"), so the row needs no caption. Units live in the field, and a
+  zero with a meaning says it ("Draw: always").
+- **A min..max pair is one control.** `ui::RangeDrag`: a track with the kept
+  band and two draggable knobs, the falloff drawn as ramps, then the exact
+  values. Mask values use the black-to-white track.
+- **Short enums are segments, switches are chips.** `ui::Segmented` for two
+  to six short choices; `ui::ToggleChip` (a `FilterChip` that flips a bool)
+  in a flowing row instead of one switch per line. An Invert that decides what
+  a filter keeps reads as "Keep inside | Keep outside".
+- **Sections and hiding.** `ui::KitSection` captions group a form;
+  `ui::KitSectionSwitch` puts an on/off switch in the caption for a section
+  that is wholly optional. A field that means nothing in the current mode is
+  not drawn (the runtime instance cap of a baked volume, a picker for a
+  source that is not selected). Guard rails go behind `ui::Disclosure`
+  ("Advanced"), whose closed row still shows their values.
+- **Optional settings are a fixed list.** `ui::OverrideRow`: a checkbox in the
+  caption, the value when ticked, "not set" when not - instead of a list the
+  user builds with "+ property".
+
+Composite controls keep `--ui-script` names: a caption-less `DragRow` reports
+each field under its `KitDrag::name`, a `RangeDrag` reports "<name> min",
+"<name> max" and "<name> falloff".
+
 ### Preview navigation
 
 Every 3D preview moves the same way: the Vehicle Editor, the Asset Browser

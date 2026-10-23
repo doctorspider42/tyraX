@@ -6,6 +6,7 @@
 // Output/Debug text selects with the mouse over the coloured lines (no Select text switch);
 // Copy image publishes PNG + CF_DIB on Windows so Electron apps accept the paste.
 // The Debugger's Build & Run follows the PCSX2 | PS2 switch (it always launched PCSX2).
+// The procedural node inspector is a laid-out form per node (widgets.hpp "node inspector kit").
 // Cutscene Director: full-height timeline with an expandable track tree (track > channel >
 // axis) and per-channel keys (format 120); the shot and the inspector share a side column.
 // 2.1.2: object settings live in Output; clarify instanced detail.

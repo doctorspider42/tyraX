@@ -148,6 +148,15 @@ public:
  * counts: the evaluator already keeps every node's output in the cache. */
 int cachedPointCount(const Cache& cache, int nodeId);
 
+/** The mask a node produced in the last evaluation that used `cache`, or null
+ * (not evaluated, or not a mask node). The inspector's mask thumbnail. */
+std::shared_ptr<const Mask> cachedMask(const Cache& cache, int nodeId);
+
+/** Copies per-point attribute `attr` of the points a node produced in the last
+ * evaluation into `out`. False = no such points or no such attribute. The
+ * inspector's histogram under Filter by Attribute. */
+bool cachedAttribute(const Cache& cache, int nodeId, const std::string& attr, std::vector<float>& out);
+
 // Evaluates `volume`'s graph. `volume` is the Scatter object: its transform is
 // the region (position = center, scale = box size, rotation Y = yaw of the
 // footprint). Never throws; problems land in Result::warnings.

@@ -4,7 +4,7 @@ Procedural volumes fill a region with rule-driven objects: forests, rocks,
 fences, orchards or exact arrays. Open **Tools > Procedural** or switch to the
 **Procedural** layout.
 
-![The Procedural window: the volumes with their bake state, the forest graph as compact nodes with per-node point counts, and the selected Filter by Attribute node in the inspector.](img/procedural-editor.png)
+![The Procedural window: the volumes with their bake state, the forest graph as compact nodes with per-node point counts, and the selected Filter by Attribute node in the inspector - its slope histogram, the kept range and Keep inside / outside.](img/procedural-editor.png)
 
 The window is three panes. **Volumes** on the left lists every procedural
 volume in the scene with its state (`baked`, `stale`, `frozen`, `runtime`),
@@ -18,8 +18,17 @@ opened; its toolbar has *Add node* (Tab, or right-click), *Frame all* (F) and
 canvas, plus *Procedural layout* while another layout is active - one click to
 the docked desk with the graph under the viewport. The **inspector** on the right holds the volume - *Baked at build* /
 *Runtime on PS2*, the bake state card, the labelled triangle budget - then the
-parameters of the selected node with its description and *In → out* count
-(`245 → 235, -4%`), then the seed and the preview switches.
+selected node, then the seed and the preview switches. The node starts with a
+header: its category icon, its name, what it takes and gives
+(*Filters · points → points*), and three buttons - preview this node, **Bypass**
+and help (hover for every control's meaning, click to keep the full
+description open). Under it are one sentence of description, the *In → out*
+count (`245 → 235, -4%`) and the node's form: values that belong together on
+one row, min..max pairs as one range with draggable ends, short choices as
+segments, on/off settings as chips, and safety caps in a collapsed *Advanced*
+row that still shows their values. A setting only appears while it does
+something - Output's runtime instance cap only on a runtime volume, Terrain
+Mask's material only when it reads a material.
 
 Selecting a node also shows its output in the viewport (*Viewport shows
 Filter by Attribute* on the canvas, with *Show final output*); counts on the
@@ -250,8 +259,10 @@ generated chunks, when the setting should survive the next bake.
 
 ## Distant version per row
 
-Every row of a **Pick Asset** or **Pick Prefab** pool has a second line: an
-optional **distant version** (a `.obj` from `res/models`) and the distance it
+Every row of a **Pick Asset** or **Pick Prefab** pool is a card: the model or
+prefab with its share of the points (its weight over the pool's total, also
+drawn as the bar above the cards), the weight and size range, and a last line
+for an optional **distant version** (a `.obj` from `res/models`) and the distance it
 takes over at, in world units. Past that distance every instance of the row
 draws the distant version instead of its own geometry; collision stays the
 near geometry's at any distance. *0* keeps the model chosen but never switches.
@@ -348,19 +359,22 @@ add **Limit Count** before tuning chunk size.
 
 ### Shared object settings and bypass
 
-![Shared object properties in the Output inspector, with Instance detail explicitly unused for Instanced drawing.](img/procedural-output-settings.png)
+![The Output inspector of an Instanced volume: Draw as, the budget, chunk size and draw distance on one row, and the tick list of properties set on every generated object.](img/procedural-output-settings.png)
 
-Select **Output** to edit **Object settings** in its inspector. Existing graphs
-keep their saved properties automatically; the old disconnected Object Settings
-card no longer appears in the canvas or Add node menu.
+Select **Output** to edit **Every generated object** in its inspector: every
+property the bake can set is listed, and ticking one sets it on all the
+generated objects (unticked = not set, the object keeps its own default).
+Existing graphs keep their saved properties automatically; the old
+disconnected Object Settings card no longer appears in the canvas or Add node
+menu.
 
-**Instance detail** simplifies source geometry only when baking merged chunks:
+**Detail** simplifies source geometry only when baking merged chunks:
 Full preserves it, while Half and Quarter target roughly 50% and 25% of its
 triangles. Simplification can damage leaf cards and silhouettes. Prefer authored
-distant models when their shape matters. In **Instanced** mode this control is
-disabled and reads **Not used (Instanced)**: shared models retain full detail.
+distant models when their shape matters. In **Instanced** mode the control is
+not shown: shared models retain full detail.
 
-**Bypass** passes a node's first input through without applying that node's
+**Bypass** (the power button in the node's header) passes a node's first input through without applying that node's
 operation. For example, bypassing Vary Transform removes its random transforms;
 bypassing a filter keeps the points it would discard. It does not delete the
 node or disconnect its wires. Source nodes with no input have nothing to pass

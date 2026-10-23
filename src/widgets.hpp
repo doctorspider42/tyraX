@@ -91,7 +91,10 @@ enum class Glyph {
     Plus, Eye, EyeOff, Folder,
     // the status bar's side-panel switches: a window with its left/right
     // column filled (shown) or outlined (collapsed)
-    PanelLeft, PanelLeftOff, PanelRight, PanelRightOff
+    PanelLeft, PanelLeftOff, PanelRight, PanelRightOff,
+    // the node inspector's header: bypass, help, and the category icons the
+    // existing set has no fit for
+    Power, Help, Funnel, Copies, Mask
 };
 
 /** Draws `g` centred on `c` in a box `size` px square, one stroke weight. */
@@ -308,5 +311,94 @@ struct PreviewNav {
     bool orbiting() const { return orbit.x != 0.0f || orbit.y != 0.0f; }
 };
 PreviewNav PreviewNavigation();
+
+// --- node inspector kit ---
+// The building blocks of a node's parameters in the inspector
+// (docs/editor-theme.md, "Node inspector"). The composite rows below are
+// caption-left inspector rows like the wrappers above: `label` is the caption,
+// the ID and the --ui-script name of the row's first control.
+
+/** A small-caps section caption over a hairline, `right` dim at its far end. */
+void KitSection(const char* text, const char* right = nullptr);
+/** The same caption with a switch at its far end that turns the whole section
+ * on or off (the caller skips the section's rows while it is off). The switch
+ * is named `text`. Returns toggled. */
+bool KitSectionSwitch(const char* text, bool* on);
+
+/** One drag of a DragRow. `fmt` carries the field's own caption and unit
+ * ("Spacing %.1f u"); `isInt` rounds the value. */
+struct KitDrag {
+    float* v = nullptr;
+    float speed = 0.1f;
+    float vmin = 0.0f, vmax = 0.0f;
+    const char* fmt = "%.2f";
+    bool isInt = false;
+    const char* name = nullptr;  // --ui-script name (default: the row label, label#2...)
+};
+/** A caption-left row of 2 or 3 drags side by side: pairs that are always
+ * read together. The first field is named `label`, the others `label#2`...
+ * A "##" label drops the caption: the fields span the whole width and are
+ * named by their KitDrag::name. */
+bool DragRow(const char* label, const KitDrag* fields, int n);
+
+/** A min..max pair as ONE control: a track over [viewMin, viewMax] with the
+ * kept band and two knobs (drag either), then the two values (and a falloff
+ * when `falloff` is set, drawn as ramps on the band). `gradient` paints the
+ * track black to white (mask values). The track is named `label`. */
+struct RangeSpec {
+    float vmin = 0.0f, vmax = 1.0f;        // clamp bounds of the values
+    float viewMin = 0.0f, viewMax = 1.0f;  // what the track spans
+    float speed = 0.01f;
+    const char* fmt = "%.2f";
+    float* falloff = nullptr;
+    float falloffMax = 0.0f;
+    const char* falloffFmt = "\xc2\xb1%.1f";
+    bool gradient = false;
+    const char* name = nullptr;  // --ui-script name when `label` is "##" (no caption)
+};
+bool RangeDrag(const char* label, float* lo, float* hi, const RangeSpec& s);
+
+/** A 0..1 value as a 0-100 slider (`fmt` formats the percentage). */
+bool PercentSlider(const char* label, float* v01, const char* fmt = "%.0f %%");
+
+/** A FilterChip that flips `*v`. Chips flow with ChipFlow(ToggleChipWidth()). */
+bool ToggleChip(const char* label, bool* v);
+float ToggleChipWidth(const char* label);
+
+/** An optional setting: a checkbox in front of the caption (named `label`).
+ * Ticked = `field()` draws the value in the field column (its widget fills
+ * the width set for it); unticked = `unsetText` dim in that column. Returns
+ * true when the checkbox flipped or the field reported a change. */
+template <class F>
+bool OverrideRow(const char* label, bool* on, const char* unsetText, F&& field);
+bool BeginOverrideRow(const char* label, bool* on, const char* unsetText, bool* flipped);
+void EndOverrideRow();
+
+/** A collapsed-by-default disclosure row: chevron, `label`, and `summary` dim
+ * at the far end so the hidden values stay readable. Returns open. */
+bool Disclosure(const char* label, const char* summary);
+
+/** A node inspector header: `icon` on a `tint` square, `title` bold over a dim
+ * `subtitle`, and `n` square glyph buttons at the far right. Returns the index
+ * of the button clicked (-1 none); `hovered` gets the hovered one's index. */
+struct HeaderButton {
+    const char* label;  // ID, --ui-script name and tooltip
+    Glyph glyph;
+    bool active = false;
+};
+int NodeHeader(const char* title, const char* subtitle, Glyph icon, ImVec4 tint, const HeaderButton* buttons,
+               int n, int* hovered = nullptr);
+
+template <class F>
+bool OverrideRow(const char* label, bool* on, const char* unsetText, F&& field) {
+    bool flipped = false;
+    bool changed = false;
+    if (BeginOverrideRow(label, on, unsetText, &flipped)) {
+        changed = field();
+        EndOverrideRow();
+    }
+    return changed || flipped;
+}
+// --- end node inspector kit ---
 
 }  // namespace ui

@@ -492,6 +492,34 @@ void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col) {
             dl->AddPolyline(f, 6, col, ImDrawFlags_Closed, th);
             break;
         }
+        case Glyph::Power:  // a broken ring with a stem: on/off (bypass)
+            dl->PathArcTo(c, s * 0.68f, 3.14159f * -0.30f, 3.14159f * 1.30f, 24);
+            dl->PathStroke(col, 0, th);
+            dl->AddLine(P(0, -0.95f), P(0, -0.15f), col, th);
+            break;
+        case Glyph::Help: {  // a ring with a question mark
+            dl->AddCircle(c, s * 0.82f, col, 24, th);
+            dl->PathArcTo(P(0, -0.22f), s * 0.26f, 3.14159f * 1.0f, 3.14159f * 2.35f, 12);
+            dl->PathLineTo(P(0, 0.2f));
+            dl->PathStroke(col, 0, th);
+            dl->AddCircleFilled(P(0, 0.48f), th * 0.75f, col);
+            break;
+        }
+        case Glyph::Funnel: {  // filters
+            const ImVec2 f[6] = {P(-0.85f, -0.7f), P(0.85f, -0.7f), P(0.2f, 0.05f),
+                                 P(0.2f, 0.8f),    P(-0.2f, 0.6f),  P(-0.2f, 0.05f)};
+            dl->AddPolyline(f, 6, col, ImDrawFlags_Closed, th);
+            break;
+        }
+        case Glyph::Copies:  // a square behind a square: repeat
+            dl->AddRect(P(-0.85f, -0.35f), P(0.35f, 0.85f), col, s * 0.12f, 0, th);
+            dl->AddLine(P(-0.45f, -0.75f), P(0.85f, -0.75f), col, th);
+            dl->AddLine(P(0.85f, -0.75f), P(0.85f, 0.45f), col, th);
+            break;
+        case Glyph::Mask:  // a frame split by a soft edge: a 2D field
+            dl->AddRect(P(-0.85f, -0.85f), P(0.85f, 0.85f), col, s * 0.18f, 0, th);
+            dl->AddBezierCubic(P(-0.85f, 0.45f), P(-0.2f, 0.35f), P(0.1f, -0.6f), P(0.85f, -0.45f), col, th, 12);
+            break;
         case Glyph::Nodes:  // two nodes and a wire: a graph
             dl->AddRect(P(-0.95f, -0.75f), P(-0.25f, -0.15f), col, s * 0.12f, 0, th);
             dl->AddRect(P(0.25f, 0.15f), P(0.95f, 0.75f), col, s * 0.12f, 0, th);
@@ -1416,5 +1444,391 @@ void NoteRow(ImVec2 captionMin, ImVec2 captionMax, float captionTextW) {
     s.lastHasDesc = false;
 }
 // --- end verify-world (polish-3) ---
+
+// --- node inspector kit ---
+namespace {
+
+// The caption every kit section starts with: a hairline, then the text in a
+// smaller bold cut, upper-cased (stops at "##"). Returns the caption line's
+// rectangle; `reserveRight` px at its end stay free for a control.
+ImRect kitCaption(const char* text, const char* right, float reserveRight) {
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const theme::Semantics& sem = theme::semantics();
+    const float W = ImGui::GetContentRegionAvail().x;
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    const float lineY = IM_TRUNC(p.y + st.ItemSpacing.y * 0.5f);
+    w->DrawList->AddLine(ImVec2(p.x, lineY), ImVec2(p.x + W, lineY), ImGui::GetColorU32(ImGuiCol_Separator), 1.0f);
+    ImGui::Dummy(ImVec2(0.0f, st.ItemSpacing.y * 0.6f));
+    p = ImGui::GetCursorScreenPos();
+    const float h = ImGui::GetFrameHeight();
+    const float small = IM_TRUNC(ImGui::GetFontSize() * 0.80f);
+    std::string up;
+    for (const char* c = text; *c && !(c[0] == '#' && c[1] == '#'); ++c)
+        up += (char)std::toupper((unsigned char)*c);
+    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+    {
+        FontScope bold(gBold);
+        ImGui::PushFont(nullptr, small);
+        const ImVec2 ts = ImGui::CalcTextSize(up.c_str());
+        w->DrawList->AddText(ImVec2(p.x, p.y + (h - ts.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), up.c_str());
+        ImGui::PopFont();
+    }
+    if (right && *right) {
+        const ImVec2 rs = ImGui::CalcTextSize(right);
+        w->DrawList->AddText(ImVec2(p.x + W - reserveRight - rs.x, p.y + (h - rs.y) * 0.5f),
+                             ImGui::GetColorU32(ImGuiCol_Text), right);
+    }
+    ImGui::PopStyleColor();
+    return ImRect(p, ImVec2(p.x + W, p.y + h));
+}
+
+// Re-reports the item just submitted under `name`, so a field whose ImGui
+// label is "##x" is still reachable by --ui-script.
+void reportAs(const char* name, ImGuiItemStatusFlags extra = 0) {
+    ImGuiContext& g = *GImGui;
+    (void)g;
+    (void)name;
+    (void)extra;
+    IMGUI_TEST_ENGINE_ITEM_INFO(g.LastItemData.ID, name, g.LastItemData.StatusFlags | extra);
+}
+
+}  // namespace
+
+void KitSection(const char* text, const char* right) {
+    if (ImGui::GetCurrentWindow()->SkipItems) return;
+    const ImRect r = kitCaption(text, right, 0.0f);
+    ImGui::SetCursorScreenPos(r.Min);
+    ImGui::Dummy(r.GetSize());
+}
+
+bool KitSectionSwitch(const char* text, bool* on) {
+    if (ImGui::GetCurrentWindow()->SkipItems) return false;
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float trackH = IM_TRUNC(fs * 0.95f), trackW = IM_TRUNC(trackH * 1.8f);
+    const ImRect r = kitCaption(text, nullptr, trackW);
+    ImGui::SetCursorScreenPos(ImVec2(r.Max.x - trackW, r.Min.y + (r.GetHeight() - trackH) * 0.5f));
+    const bool pressed = ImGui::InvisibleButton(text, ImVec2(trackW, trackH));
+    if (pressed) {
+        *on = !*on;
+        ImGui::MarkItemEdited(ImGui::GetItemID());
+    }
+    reportAs(text, ImGuiItemStatusFlags_Checkable | (*on ? ImGuiItemStatusFlags_Checked : 0));
+    const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec4 off = sem.border;
+    off = ImVec4(off.x * 1.25f, off.y * 1.25f, off.z * 1.25f, 1.0f);
+    dl->AddRectFilled(a, b, ImGui::GetColorU32(*on ? sem.accent : off), trackH * 0.5f);
+    const float kr = trackH * 0.5f - IM_TRUNC(trackH * 0.12f) - 0.5f;
+    const float kx = *on ? b.x - trackH * 0.5f : a.x + trackH * 0.5f;
+    dl->AddCircleFilled(ImVec2(kx, a.y + trackH * 0.5f), kr, IM_COL32(255, 255, 255, 255), 20);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s: %s", text, *on ? "on" : "off");
+    ImGui::SetCursorScreenPos(ImVec2(r.Min.x, r.Max.y));
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+    return pressed;
+}
+
+bool DragRow(const char* label, const KitDrag* fields, int n) {
+    if (ImGui::GetCurrentWindow()->SkipItems || n <= 0) return false;
+    Row r;
+    const bool row = beginRow(label, r, false);
+    const float total = row ? r.fieldW : ImGui::GetContentRegionAvail().x;
+    const float gap = ImGui::GetStyle().ItemInnerSpacing.x;
+    const float each = IM_TRUNC((total - gap * (float)(n - 1)) / (float)n);
+    bool changed = false;
+    ImGui::BeginGroup();
+    ImGui::PushID(label);
+    for (int i = 0; i < n; ++i) {
+        const KitDrag& f = fields[i];
+        if (i) ImGui::SameLine(0.0f, gap);
+        ImGui::SetNextItemWidth(i == n - 1 ? ImMax(1.0f, total - (each + gap) * (float)(n - 1)) : each);
+        char id[8];
+        std::snprintf(id, sizeof id, "##f%d", i);
+        float v = *f.v;
+        if (ImGui::DragFloat(id, &v, f.speed, f.vmin, f.vmax, f.fmt,
+                             f.vmin < f.vmax ? ImGuiSliderFlags_AlwaysClamp : 0)) {
+            *f.v = f.isInt ? std::round(v) : v;
+            changed = true;
+        }
+        char name[160];
+        if (f.name) std::snprintf(name, sizeof name, "%s", f.name);
+        else if (i == 0) std::snprintf(name, sizeof name, "%s", label);
+        else std::snprintf(name, sizeof name, "%s#%d", label, i + 1);
+        reportAs(name);
+    }
+    ImGui::PopID();
+    ImGui::EndGroup();
+    if (row) endRow(r);
+    return changed;
+}
+
+bool RangeDrag(const char* label, float* lo, float* hi, const RangeSpec& s) {
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    if (w->SkipItems) return false;
+    ImGuiContext& g = *GImGui;
+    const ImGuiStyle& st = g.Style;
+    const theme::Semantics& sem = theme::semantics();
+    Row r;
+    const bool row = beginRow(label, r, false);
+    const float fieldW = row ? r.fieldW : ImGui::GetContentRegionAvail().x;
+    const float fs = g.FontSize;
+    const char* nm = s.name ? s.name : label;
+    bool changed = false;
+    ImGui::BeginGroup();
+
+    // The track: one control, either knob draggable (the nearer one wins).
+    const float th = ImGui::GetFrameHeight();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton(label, ImVec2(fieldW, th));
+    reportAs(nm);
+    const ImGuiID id = ImGui::GetItemID();
+    const float span = s.viewMax > s.viewMin ? s.viewMax - s.viewMin : 1.0f;
+    const float pad = IM_TRUNC(fs * 0.45f);  // knobs stay inside the field
+    const float tw = ImMax(1.0f, fieldW - pad * 2.0f);
+    auto xOf = [&](float v) { return p.x + pad + ImClamp((v - s.viewMin) / span, 0.0f, 1.0f) * tw; };
+    auto vOf = [&](float x) { return s.viewMin + ImClamp((x - p.x - pad) / tw, 0.0f, 1.0f) * span; };
+    ImGuiStorage* store = ImGui::GetStateStorage();
+    const ImGuiID knobKey = id + 0x6bu;
+    if (ImGui::IsItemActivated()) {
+        const float mx = g.IO.MousePos.x;
+        int k = std::fabs(mx - xOf(*lo)) <= std::fabs(mx - xOf(*hi)) ? 0 : 1;
+        if (*lo == *hi) k = mx > xOf(*lo) ? 1 : 0;
+        store->SetInt(knobKey, k);
+    }
+    const bool active = ImGui::IsItemActive();
+    const int knob = store->GetInt(knobKey, 0);
+    if (active) {
+        float v = ImClamp(vOf(g.IO.MousePos.x), s.vmin, s.vmax);
+        if (s.speed > 0.0f) v = std::round(v / s.speed) * s.speed;
+        if (knob == 0) {
+            v = ImMin(v, *hi);
+            if (v != *lo) *lo = v, changed = true;
+        } else {
+            v = ImMax(v, *lo);
+            if (v != *hi) *hi = v, changed = true;
+        }
+        if (changed) ImGui::MarkItemEdited(id);
+    }
+    ImDrawList* dl = w->DrawList;
+    const float cy = p.y + th * 0.5f;
+    const float rh = IM_TRUNC(fs * (s.gradient ? 0.30f : 0.16f));
+    const ImVec2 a(p.x + pad, cy - rh), b(p.x + pad + tw, cy + rh);
+    if (s.gradient) {
+        const ImU32 k0 = IM_COL32(12, 14, 18, 255), k1 = IM_COL32(232, 234, 240, 255);
+        dl->AddRectFilledMultiColor(a, b, k0, k1, k1, k0);
+    } else {
+        dl->AddRectFilled(a, b, ImGui::GetColorU32(sem.field), rh);
+    }
+    dl->AddRect(a, b, ImGui::GetColorU32(sem.border), s.gradient ? 2.0f : rh);
+    const float x0 = xOf(*lo), x1 = xOf(*hi);
+    const ImU32 acc = ImGui::GetColorU32(sem.accent);
+    if (s.falloff && *s.falloff > 0.0f) {
+        const ImU32 clear = fadeCol(sem.accent, 0.0f), half = fadeCol(sem.accent, 0.55f);
+        const float f0 = xOf(*lo - *s.falloff), f1 = xOf(*hi + *s.falloff);
+        const float ry = IM_TRUNC(rh * 0.5f);
+        if (f0 < x0) dl->AddRectFilledMultiColor(ImVec2(f0, cy - ry), ImVec2(x0, cy + ry), clear, half, half, clear);
+        if (f1 > x1) dl->AddRectFilledMultiColor(ImVec2(x1, cy - ry), ImVec2(f1, cy + ry), half, clear, clear, half);
+    }
+    if (s.gradient)
+        dl->AddRect(ImVec2(x0, a.y - 1.0f), ImVec2(ImMax(x1, x0 + 1.0f), b.y + 1.0f), acc, 2.0f, 0, 2.0f);
+    else
+        dl->AddRectFilled(ImVec2(x0, a.y), ImVec2(ImMax(x1, x0 + 1.0f), b.y), acc, rh);
+    const bool hov = ImGui::IsItemHovered();
+    const float kr = IM_TRUNC(fs * 0.36f);
+    for (int k = 0; k < 2; ++k) {
+        const ImVec2 c(k == 0 ? x0 : x1, cy);
+        const bool hot = (active && knob == k) || (hov && std::fabs(g.IO.MousePos.x - c.x) < kr * 2.0f);
+        dl->AddCircleFilled(c, kr + 2.0f, ImGui::GetColorU32(ImGuiCol_WindowBg), 16);
+        dl->AddCircleFilled(c, kr, hot ? acc : ImGui::GetColorU32(sem.text), 16);
+    }
+    if (hov && !active) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+
+    // The values: exact entry, and the only way to type one.
+    const float gap = st.ItemInnerSpacing.x;
+    const float fallW = s.falloff ? IM_TRUNC(fs * 4.2f) : 0.0f;
+    const float vw = IM_TRUNC((fieldW - (s.falloff ? fallW + gap : 0.0f) - gap) * 0.5f);
+    char name[160];
+    ImGui::PushID(label);
+    ImGui::SetNextItemWidth(vw);
+    if (ImGui::DragFloat("##lo", lo, s.speed, s.vmin, *hi, s.fmt, ImGuiSliderFlags_AlwaysClamp)) changed = true;
+    std::snprintf(name, sizeof name, "%s min", nm);
+    reportAs(name);
+    ImGui::SameLine(0.0f, gap);
+    ImGui::SetNextItemWidth(vw);
+    if (ImGui::DragFloat("##hi", hi, s.speed, *lo, s.vmax, s.fmt, ImGuiSliderFlags_AlwaysClamp)) changed = true;
+    std::snprintf(name, sizeof name, "%s max", nm);
+    reportAs(name);
+    if (s.falloff) {
+        ImGui::SameLine(0.0f, gap);
+        ImGui::SetNextItemWidth(ImMax(1.0f, fieldW - vw * 2.0f - gap * 2.0f));
+        if (ImGui::DragFloat("##fo", s.falloff, s.speed, 0.0f, s.falloffMax, s.falloffFmt,
+                             ImGuiSliderFlags_AlwaysClamp))
+            changed = true;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Falloff: the soft edge on both ends");
+        std::snprintf(name, sizeof name, "%s falloff", nm);
+        reportAs(name);
+    }
+    ImGui::PopID();
+    ImGui::EndGroup();
+    if (row) endRow(r);
+    return changed;
+}
+
+bool PercentSlider(const char* label, float* v01, const char* fmt) {
+    float pct = *v01 * 100.0f;
+    if (!SliderFloat(label, &pct, 0.0f, 100.0f, fmt, ImGuiSliderFlags_AlwaysClamp)) return false;
+    *v01 = ImClamp(pct / 100.0f, 0.0f, 1.0f);
+    return true;
+}
+
+float ToggleChipWidth(const char* label) { return FilterChipWidth(label); }
+
+bool ToggleChip(const char* label, bool* v) {
+    if (!FilterChip(label, *v)) return false;
+    *v = !*v;
+    ImGui::MarkItemEdited(ImGui::GetItemID());
+    return true;
+}
+
+bool BeginOverrideRow(const char* label, bool* on, const char* unsetText, bool* flipped) {
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    *flipped = false;
+    if (w->SkipItems) return false;
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float fs = ImGui::GetFontSize();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const RowScope* rs = rowScope();
+    const float cw = rs ? captionWidth(*rs, avail) : IM_TRUNC(avail * 0.45f);
+    const float h = ImGui::GetFrameHeight();
+    // The whole caption cell is the checkbox: box + name.
+    if (ImGui::InvisibleButton(label, ImVec2(cw, h))) {
+        *on = !*on;
+        *flipped = true;
+        ImGui::MarkItemEdited(ImGui::GetItemID());
+    }
+    reportAs(label, ImGuiItemStatusFlags_Checkable | (*on ? ImGuiItemStatusFlags_Checked : 0));
+    const bool hov = ImGui::IsItemHovered();
+    const float box = IM_TRUNC(fs * 0.85f);
+    const ImVec2 b0(p.x, p.y + IM_TRUNC((h - box) * 0.5f)), b1(b0.x + box, b0.y + box);
+    if (*on) {
+        w->DrawList->AddRectFilled(b0, b1, ImGui::GetColorU32(sem.accent), 3.0f);
+        CheckMark(w->DrawList, ImVec2((b0.x + b1.x) * 0.5f, (b0.y + b1.y) * 0.5f), box * 0.7f,
+                  ImGui::GetColorU32(sem.field));
+    } else {
+        w->DrawList->AddRect(b0, b1, hov ? ImGui::GetColorU32(sem.text) : ImGui::GetColorU32(sem.textDim), 3.0f,
+                             0, 1.4f);
+    }
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    drawCaption(w->DrawList, ImVec2(b1.x + st.ItemInnerSpacing.x, p.y + st.FramePadding.y),
+                p.x + cw - st.ItemInnerSpacing.x, label, end, *on ? sem.text : sem.textDim);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + cw, p.y));
+    const float fieldW = ImMax(1.0f, avail - cw);
+    if (*on) {
+        ImGui::SetNextItemWidth(fieldW);
+        ImGui::PushID(label);
+        return true;
+    }
+    const char* t = unsetText ? unsetText : "";
+    const ImVec2 ts = ImGui::CalcTextSize(t);
+    w->DrawList->AddText(ImVec2(p.x + cw + fieldW - ts.x - st.FramePadding.x, p.y + st.FramePadding.y),
+                         fadeCol(sem.textDim, 0.8f), t);
+    ImGui::Dummy(ImVec2(fieldW, h));
+    return false;
+}
+
+void EndOverrideRow() { ImGui::PopID(); }
+
+bool Disclosure(const char* label, const char* summary) {
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    if (w->SkipItems) return false;
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float W = ImGui::GetContentRegionAvail().x;
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    const float lineY = IM_TRUNC(p.y + st.ItemSpacing.y * 0.5f);
+    w->DrawList->AddLine(ImVec2(p.x, lineY), ImVec2(p.x + W, lineY), ImGui::GetColorU32(ImGuiCol_Separator), 1.0f);
+    ImGui::Dummy(ImVec2(0.0f, st.ItemSpacing.y * 0.6f));
+    p = ImGui::GetCursorScreenPos();
+    const float h = ImGui::GetFrameHeight();
+    ImGuiStorage* store = ImGui::GetStateStorage();
+    const ImGuiID key = ImGui::GetID(label);
+    bool open = store->GetBool(key, false);
+    if (ImGui::InvisibleButton(label, ImVec2(W, h))) {
+        open = !open;
+        store->SetBool(key, open);
+    }
+    reportAs(label, ImGuiItemStatusFlags_Openable | (open ? ImGuiItemStatusFlags_Opened : 0));
+    const bool hov = ImGui::IsItemHovered();
+    const ImU32 ink = hov ? ImGui::GetColorU32(sem.text) : ImGui::GetColorU32(sem.textDim);
+    const float fs = ImGui::GetFontSize();
+    ImGui::RenderArrow(w->DrawList, ImVec2(p.x, p.y + (h - fs * 0.7f) * 0.5f), ink,
+                       open ? ImGuiDir_Down : ImGuiDir_Right, 0.7f);
+    const char* end = ImGui::FindRenderedTextEnd(label);
+    const float tx = p.x + fs * 0.9f;
+    w->DrawList->AddText(ImVec2(tx, p.y + st.FramePadding.y), ink, label, end);
+    if (summary && *summary && !open) {
+        FontScope mono(gMono);
+        const float lw = ImGui::CalcTextSize(label, end).x;
+        const float maxX = p.x + W;
+        const float minX = tx + lw + fs;
+        const ImVec2 ss = ImGui::CalcTextSize(summary);
+        const float sx = ImMax(minX, maxX - ss.x);
+        ImGui::PushStyleColor(ImGuiCol_Text, fadeCol(sem.textDim, 0.85f));
+        ImGui::RenderTextEllipsis(w->DrawList, ImVec2(sx, p.y + st.FramePadding.y),
+                                  ImVec2(maxX, p.y + h), maxX, summary, nullptr, &ss);
+        ImGui::PopStyleColor();
+    }
+    return open;
+}
+
+int NodeHeader(const char* title, const char* subtitle, Glyph icon, ImVec4 tint, const HeaderButton* buttons, int n,
+               int* hovered) {
+    if (hovered) *hovered = -1;
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    if (w->SkipItems) return -1;
+    const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float fs = ImGui::GetFontSize();
+    const float W = ImGui::GetContentRegionAvail().x;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float sq = IM_TRUNC(fs * 2.2f);
+    ImDrawList* dl = w->DrawList;
+    dl->AddRectFilled(p, ImVec2(p.x + sq, p.y + sq), fadeCol(tint, 0.16f), IM_TRUNC(sq * 0.24f));
+    DrawGlyph(dl, icon, ImVec2(p.x + sq * 0.5f, p.y + sq * 0.5f), sq * 0.5f, ImGui::GetColorU32(tint));
+    const float bsz = ImGui::GetFrameHeight();
+    const float gap = IM_TRUNC(st.ItemInnerSpacing.x * 0.6f);
+    const float bx = p.x + W - (float)n * bsz - (float)ImMax(0, n - 1) * gap;
+    const float tx = p.x + sq + fs * 0.6f, tmax = bx - fs * 0.4f;
+    const float subFs = IM_TRUNC(fs * 0.86f);
+    const float textH = fs + (subtitle && *subtitle ? subFs + 1.0f : 0.0f);
+    const float ty = p.y + (sq - textH) * 0.5f;
+    {
+        FontScope bold(gBold);
+        const ImVec2 ts = ImGui::CalcTextSize(title);
+        ImGui::RenderTextEllipsis(dl, ImVec2(tx, ty), ImVec2(tmax, ty + ts.y + 1.0f), tmax, title, nullptr, &ts);
+    }
+    if (subtitle && *subtitle) {
+        ImGui::PushFont(nullptr, subFs);
+        const ImVec2 ss = ImGui::CalcTextSize(subtitle);
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        const float sy = ty + fs + 1.0f;
+        ImGui::RenderTextEllipsis(dl, ImVec2(tx, sy), ImVec2(tmax, sy + ss.y + 1.0f), tmax, subtitle, nullptr, &ss);
+        ImGui::PopStyleColor();
+        ImGui::PopFont();
+    }
+    int clicked = -1;
+    for (int i = 0; i < n; ++i) {
+        ImGui::SetCursorScreenPos(ImVec2(bx + (float)i * (bsz + gap), p.y + (sq - bsz) * 0.5f));
+        if (GlyphButton(buttons[i].label, buttons[i].glyph, bsz, buttons[i].label, buttons[i].active)) clicked = i;
+        if (hovered && ImGui::IsItemHovered()) *hovered = i;
+    }
+    ImGui::SetCursorScreenPos(p);
+    ImGui::Dummy(ImVec2(W, sq));
+    return clicked;
+}
+// --- end node inspector kit ---
 
 }  // namespace ui

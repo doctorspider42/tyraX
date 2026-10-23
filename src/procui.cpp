@@ -663,44 +663,144 @@ std::string procNodeSummary(const Project& proj, const ProcNode& n, const ProcNo
 
 }  // namespace
 
-// The selected node's parameters and tables, label-left in the inspector -
-// the same widgets that used to live inside the node, so a 13-node graph no
-// longer has to be 3000 px wide to be edited.
+// A "nice" drag/snap step for a span: 1, 2 or 5 times a power of ten, about
+// 1/200 of it - so a range knob lands on 0.5 or 5, never on 0.45.
+static float procNiceStep(float span) {
+    const float raw = std::max(1e-4f, span / 200.0f);
+    const float mag = std::pow(10.0f, std::floor(std::log10(raw)));
+    const float f = raw / mag;
+    return (f < 1.5f ? 1.0f : f < 3.5f ? 2.0f : f < 7.5f ? 5.0f : 10.0f) * mag;
+}
+
+// What the track of a min..max control spans for an attribute or a terrain
+// source: the natural range where there is one, else one that contains the
+// values with room for the falloff.
+static void procRangeView(const char* unit, float lo, float hi, float fall, float* v0, float* v1) {
+    if (std::strcmp(unit, "deg") == 0) {
+        *v0 = 0.0f;
+        *v1 = 90.0f;
+    } else if (std::strcmp(unit, "unit") == 0) {
+        *v0 = 0.0f;
+        *v1 = 1.0f;
+    } else if (std::strcmp(unit, "signed") == 0) {
+        *v0 = -1.0f;
+        *v1 = 1.0f;
+    } else {
+        const float span = std::max(1.0f, hi - lo);
+        *v0 = std::min(0.0f, lo - std::max(fall, span * 0.25f));
+        *v1 = hi + std::max(fall, span * 0.25f);
+    }
+    if (lo < *v0) *v0 = lo;
+    if (hi > *v1) *v1 = hi;
+}
+
+// The unit a per-point attribute is measured in, for the range view and the
+// field format.
+static const char* procAttrUnit(const std::string& a) {
+    if (a == procattr::kSlope) return "deg";
+    if (a == procattr::kMask || a == procattr::kRandom || a == procattr::kCurveT) return "unit";
+    if (a == procattr::kNormalY) return "signed";
+    return "world";
+}
+
+// One sentence of a node's description: the inspector's summary line (the
+// whole paragraph is behind the header's help button).
+static std::string procFirstSentence(const char* s) {
+    if (!s) return {};
+    const char* e = std::strstr(s, ". ");
+    return e ? std::string(s, e + 1) : std::string(s);
+}
+
+// A mask as a grid of grey cells - no texture upload for a thumbnail that
+// changes on every drag.
+static void procMaskThumb(const procgen::Mask& m, float w) {
+    const float fs = ImGui::GetFontSize();
+    const float aspect = m.sizeX > 0.0f ? m.sizeZ / m.sizeX : 1.0f;
+    const float h = std::clamp(w * aspect, fs * 3.5f, fs * 8.0f);
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(ImVec2(w, h));
+    if (m.w <= 0 || m.h <= 0 || m.v.empty()) return;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const int cols = std::min(m.w, std::max(8, (int)(w / std::max(3.0f, fs * 0.28f))));
+    const int rows = std::min(m.h, std::max(4, (int)(h / std::max(3.0f, fs * 0.28f))));
+    const float cw = w / (float)cols, ch = h / (float)rows;
+    for (int y = 0; y < rows; ++y) {
+        // Row 0 of the mask is the volume's -Z edge; draw it at the bottom so
+        // the thumbnail reads like the top-down viewport.
+        const int my = std::min(m.h - 1, (int)(((float)(rows - 1 - y) + 0.5f) / (float)rows * (float)m.h));
+        for (int x = 0; x < cols; ++x) {
+            const int mx = std::min(m.w - 1, (int)(((float)x + 0.5f) / (float)cols * (float)m.w));
+            const float v = std::clamp(m.v[(size_t)my * (size_t)m.w + (size_t)mx], 0.0f, 1.0f);
+            const int g = (int)(12.0f + v * 220.0f);
+            dl->AddRectFilled(ImVec2(p.x + cw * (float)x, p.y + ch * (float)y),
+                              ImVec2(p.x + cw * (float)(x + 1) + 0.5f, p.y + ch * (float)(y + 1) + 0.5f),
+                              IM_COL32(g, g, g + 4, 255));
+        }
+    }
+    dl->AddRect(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(theme::semantics().border), 3.0f);
+}
+
+// The selected node's parameters and tables in the inspector. Every node type
+// has a laid-out form below (docs/editor-theme.md, "Node inspector"): values
+// read together share a row, min..max pairs are one range control, short
+// enums are segments, switches are chips, guard rails sit in a collapsed
+// Advanced row, and a field only shows while it means something. A parameter
+// a layout does not place is still drawn after it, generically - a new
+// registry entry can never go missing from the panel.
 bool App::drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vector<std::string>& models) {
     bool changed = false;
     const float fs = ImGui::GetFontSize();
-    const float poolW = ImGui::GetContentRegionAvail().x;
-    // The numeric half of a pool row - weight and the scale range - shared by
-    // the asset and prefab pools, which are deliberately the same shape.
-    auto poolNumbers = [&](ProcRow& row, bool& remove) {
-        bool hit = false;
-        const float bw = ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-        const float gap = ImGui::GetStyle().ItemSpacing.x;
-        const float cell = std::max(40.0f, (poolW - bw - gap * 3.0f) / 3.0f);
-        ImGui::SetNextItemWidth(cell);
-        hit |= ImGui::DragFloat("##w", &row.v[0], 0.5f, 0.0f, 1000.0f, "w %.0f");
-        procPoolColTip(0);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(cell);
-        hit |= ImGui::DragFloat("##smin", &row.v[1], 0.01f, 0.05f, 20.0f, "x%.2f");
-        procPoolColTip(1);
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(cell);
-        hit |= ImGui::DragFloat("##smax", &row.v[2], 0.01f, 0.05f, 20.0f, "x%.2f");
-        procPoolColTip(2);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("x")) remove = true;
-        return hit;
+    const theme::Semantics& sem = theme::semantics();
+    const SceneObject* volObj = procVolume_ >= 0 && procVolume_ < (int)project_.objects().size()
+                                    ? &project_.objects()[(size_t)procVolume_]
+                                    : nullptr;
+    const procgen::Cache* cache = volObj && procCaches_.count(volObj->id) ? &procCaches_[volObj->id] : nullptr;
+
+    std::vector<const char*> drawn;
+    auto isDrawn = [&](const char* key) {
+        for (const char* k : drawn)
+            if (std::strcmp(k, key) == 0) return true;
+        return false;
     };
-    // The row's distant version: a model that replaces every instance of the
-    // row past a distance (docs/procedural-generation.md, "Distant version per
-    // row"). Second line of the row, so the numbers above keep their width.
-    auto poolLod = [&](ProcRow& row) {
+    auto mark = [&](const char* key) {
+        if (!isDrawn(key)) drawn.push_back(key);
+    };
+    auto def = [&](const char* key) -> const ProcParamDef* {
+        for (const ProcParamDef& p : t.params)
+            if (std::strcmp(p.key, key) == 0) return &p;
+        return nullptr;
+    };
+    auto tipBox = [&](const char* tip) {
+        ImGui::BeginTooltip();
+        ImGui::PushTextWrapPos(scaled(320.0f));
+        ImGui::TextUnformatted(tip);
+        ImGui::PopTextWrapPos();
+        ImGui::EndTooltip();
+    };
+    auto paramTip = [&](const ProcParamDef* p) {
+        if (!p || !p->tip || !*p->tip) return;
+        ui::RowHelp(p->tip);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) tipBox(p->tip);
+    };
+    auto setNum = [&](const ProcParamDef& p, float v) {
+        n.nums[p.key] = std::clamp(v, p.lo, p.hi);
+        changed = true;
+    };
+    auto hint = [&](const char* text) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("%s", text);
+        ImGui::PopTextWrapPos();
+    };
+
+    // The row's distant version (docs/procedural-generation.md, "Distant
+    // version per row"): the model that replaces every instance of the row
+    // past a distance, and that distance - one line of the pool card.
+    auto poolLod = [&](ProcRow& row, float w) {
         bool hit = false;
         const float gap = ImGui::GetStyle().ItemSpacing.x;
         const float distW = std::max(40.0f, fs * 5.0f);
-        ImGui::SetNextItemWidth(row.lod.empty() ? poolW : std::max(40.0f, poolW - distW - gap));
-        const std::string label = row.lod.empty() ? "no distant version" : "far: " + baseNameOf(row.lod);
+        ImGui::SetNextItemWidth(row.lod.empty() ? w : std::max(40.0f, w - distW - gap));
+        const std::string label = row.lod.empty() ? "+ distant version" : "far: " + baseNameOf(row.lod);
         if (ImGui::BeginCombo("##lod", label.c_str())) {
             if (ImGui::Selectable("(none)##lodnone", row.lod.empty()) && !row.lod.empty()) {
                 row.lod.clear();
@@ -727,7 +827,7 @@ bool App::drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vect
             ImGui::SameLine();
             ImGui::SetNextItemWidth(distW);
             if (ImGui::DragFloat("##lodd", &row.v[3], 0.5f, 0.0f, 2000.0f,
-                                 row.v[3] > 0.0f ? "%.0f u" : "off")) {
+                                 row.v[3] > 0.0f ? "past %.0f u" : "off")) {
                 row.v[3] = std::max(0.0f, row.v[3]);
                 hit = true;
             }
@@ -738,288 +838,771 @@ bool App::drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vect
         return hit;
     };
 
+    // --- the generic drawing of one parameter (pickers, and the fallback)
+    auto generic = [&](const ProcParamDef& p) {
+        mark(p.key);
+        switch (p.kind) {
+            case ProcParamKind::Float: {
+                float v = procgraph::num(n, p.key);
+                if (ui::DragFloat(p.label, &v, (p.hi - p.lo) / 400.0f, p.lo, p.hi)) setNum(p, v);
+                break;
+            }
+            case ProcParamKind::Int: {
+                int v = procgraph::inum(n, p.key);
+                if (ui::DragInt(p.label, &v, 1.0f, (int)p.lo, (int)p.hi)) setNum(p, (float)v);
+                break;
+            }
+            case ProcParamKind::Bool: {
+                bool v = procgraph::flag(n, p.key);
+                if (ui::Switch(p.label, &v)) setNum(p, v ? 1.0f : 0.0f);
+                break;
+            }
+            case ProcParamKind::Enum: {
+                // "a|b|c" -> a combo; the stored value is the index.
+                std::vector<std::string> opts;
+                std::string cur;
+                for (const char* c = p.choices;; ++c) {
+                    if (*c == '|' || *c == 0) {
+                        opts.push_back(cur);
+                        cur.clear();
+                        if (*c == 0) break;
+                    } else {
+                        cur += *c;
+                    }
+                }
+                int v = std::clamp(procgraph::inum(n, p.key), 0, (int)opts.size() - 1);
+                const ImGuiID id = ImGui::GetID(p.label);
+                const bool open = ui::BeginCombo(p.label, opts[(size_t)v].c_str());
+                uiscript::nameItem(id, p.label);
+                if (open) {
+                    for (int i = 0; i < (int)opts.size(); ++i)
+                        if (ImGui::Selectable(opts[(size_t)i].c_str(), i == v) && i != v) setNum(p, (float)i);
+                    ImGui::EndCombo();
+                }
+                break;
+            }
+            case ProcParamKind::ObjectName: {
+                std::string cur = procgraph::str(n, p.key);
+                const char* none = p.emptyLabel && *p.emptyLabel ? p.emptyLabel : "(terrain)";
+                const ImGuiID id = ImGui::GetID(p.label);
+                const bool open = ui::BeginCombo(p.label, cur.empty() ? none : cur.c_str());
+                uiscript::nameItem(id, p.label);
+                if (open) {
+                    if (ImGui::Selectable(none, cur.empty())) {
+                        n.strs[p.key] = "";
+                        changed = true;
+                    }
+                    // ##id per entry: nothing stops two scene objects from
+                    // carrying the same name, and a Selectable's label is its id.
+                    const std::vector<SceneObject>& objs = project_.objects();
+                    for (size_t oi = 0; oi < objs.size(); ++oi) {
+                        const SceneObject& o = objs[oi];
+                        if (n.type == "FilterPlacement" && std::strcmp(p.key, "roadtarget") == 0 &&
+                            o.type != PrimitiveType::Road)
+                            continue;
+                        if (o.type == PrimitiveType::Scatter) continue;
+                        if (!o.procSource.empty()) continue;
+                        const std::string oid = o.name + "##o" + std::to_string(oi);
+                        if (ImGui::Selectable(oid.c_str(), cur == o.name) && cur != o.name) {
+                            n.strs[p.key] = o.name;
+                            changed = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                break;
+            }
+            case ProcParamKind::Attr: {
+                std::string cur = procgraph::str(n, p.key);
+                if (cur.empty()) cur = procattr::kSlope;
+                const ImGuiID id = ImGui::GetID(p.label);
+                const bool open = ui::BeginCombo(p.label, ("@" + cur).c_str());
+                uiscript::nameItem(id, p.label);
+                if (open) {
+                    for (const char* a : {procattr::kSlope, procattr::kHeight, procattr::kMask, procattr::kSize,
+                                          procattr::kRandom, procattr::kCurveT, procattr::kDist, procattr::kNormalY})
+                        if (ImGui::Selectable(a, cur == a) && cur != a) {
+                            n.strs[p.key] = a;
+                            changed = true;
+                        }
+                    ImGui::EndCombo();
+                }
+                break;
+            }
+            case ProcParamKind::TerrainLayer: {
+                // Painted terrain materials by name (-1 = the base material).
+                // NOT clamped for display: a stored index past the end
+                // evaluates as zero coverage.
+                const std::vector<TerrainLayer>& layers = project_.active().terrainLayers;
+                const int v = procgraph::inum(n, p.key);
+                auto nameOf = [&](int i) {
+                    if (i < 0) return std::string("Base material");
+                    if (i >= (int)layers.size()) return "Layer " + std::to_string(i) + " (missing)";
+                    return layers[(size_t)i].name;
+                };
+                const ImGuiID id = ImGui::GetID(p.label);
+                const bool open = ui::BeginCombo(p.label, nameOf(v).c_str());
+                uiscript::nameItem(id, p.label);
+                if (open) {
+                    if (ImGui::Selectable("Base material##pl-1", v < 0) && v != -1) setNum(p, -1.0f);
+                    for (int i = 0; i < (int)layers.size(); ++i) {
+                        const std::string lid = layers[(size_t)i].name + "##pl" + std::to_string(i);
+                        if (ImGui::Selectable(lid.c_str(), i == v) && i != v) setNum(p, (float)i);
+                    }
+                    if (layers.empty()) ImGui::TextDisabled("no painted layers - add them in Terrain");
+                    ImGui::EndCombo();
+                }
+                break;
+            }
+            case ProcParamKind::Text: {
+                char buf[96] = {};
+                std::snprintf(buf, sizeof(buf), "%s", procgraph::str(n, p.key).c_str());
+                if (ui::InputText(p.label, buf, sizeof(buf))) {
+                    n.strs[p.key] = buf;
+                    changed = true;
+                }
+                break;
+            }
+        }
+        paramTip(&p);
+    };
+
+    // --- the kit, bound to this node's parameters
+    auto picker = [&](const char* key) {
+        if (const ProcParamDef* p = def(key)) generic(*p);
+    };
+    auto field = [&](const char* key, const char* fmt) {
+        const ProcParamDef* p = def(key);
+        if (!p) return;
+        mark(key);
+        if (p->kind == ProcParamKind::Int) {
+            int v = procgraph::inum(n, key);
+            const float speed = std::max(1.0f, std::fabs((float)v) * 0.02f);
+            if (ui::DragInt(p->label, &v, speed, (int)p->lo, (int)p->hi, fmt ? fmt : "%d",
+                            ImGuiSliderFlags_AlwaysClamp))
+                setNum(*p, (float)v);
+        } else {
+            float v = procgraph::num(n, key);
+            if (ui::DragFloat(p->label, &v, (p->hi - p->lo) / 400.0f, p->lo, p->hi, fmt ? fmt : "%.3g",
+                              ImGuiSliderFlags_AlwaysClamp))
+                setNum(*p, v);
+        }
+        paramTip(p);
+    };
+    auto pct = [&](const char* key) {
+        const ProcParamDef* p = def(key);
+        if (!p) return;
+        mark(key);
+        float v = procgraph::num(n, key);
+        if (ui::PercentSlider(p->label, &v)) setNum(*p, v);
+        paramTip(p);
+    };
+    // Two or three values on one line, each field naming itself in its format.
+    // pct = a 0..1 value shown as a percentage.
+    struct PF {
+        const char* key;
+        const char* fmt;
+        bool pct = false;
+    };
+    auto drags = [&](std::initializer_list<PF> fieldsIn) {
+        std::vector<PF> fl(fieldsIn);
+        std::vector<const ProcParamDef*> ps;
+        std::vector<float> vals;
+        std::vector<ui::KitDrag> kd;
+        for (const PF& f : fl) {
+            const ProcParamDef* p = def(f.key);
+            if (!p) return;
+            ps.push_back(p);
+            mark(f.key);
+            vals.push_back(procgraph::num(n, f.key) * (f.pct ? 100.0f : 1.0f));
+        }
+        for (size_t i = 0; i < fl.size(); ++i) {
+            ui::KitDrag d;
+            d.v = &vals[i];
+            d.isInt = ps[i]->kind == ProcParamKind::Int;
+            d.vmin = ps[i]->lo * (fl[i].pct ? 100.0f : 1.0f);
+            d.vmax = ps[i]->hi * (fl[i].pct ? 100.0f : 1.0f);
+            d.speed = fl[i].pct ? 0.5f
+                      : d.isInt ? std::max(0.1f, std::fabs(vals[i]) * 0.02f)
+                                : (ps[i]->hi - ps[i]->lo) / 400.0f;
+            d.fmt = fl[i].fmt;
+            d.name = ps[i]->label;
+            kd.push_back(d);
+        }
+        const std::string id = std::string("##row_") + fl[0].key;
+        if (ui::DragRow(id.c_str(), kd.data(), (int)kd.size()))
+            for (size_t i = 0; i < fl.size(); ++i) {
+                const float v = vals[i] / (fl[i].pct ? 100.0f : 1.0f);
+                if (v != procgraph::num(n, fl[i].key)) setNum(*ps[i], v);
+            }
+        // The group is the last item: the tip of the field under the mouse.
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+            const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            const int i = std::clamp((int)((ImGui::GetMousePos().x - a.x) / std::max(1.0f, b.x - a.x) *
+                                           (float)ps.size()),
+                                     0, (int)ps.size() - 1);
+            if (ps[(size_t)i]->tip && *ps[(size_t)i]->tip) tipBox(ps[(size_t)i]->tip);
+        }
+    };
+    auto vec3 = [&](const char* label, const char* kx, const char* ky, const char* kz, const char* fmt) {
+        const ProcParamDef* p[3] = {def(kx), def(ky), def(kz)};
+        if (!p[0] || !p[1] || !p[2]) return;
+        float v[3];
+        float lo = p[0]->lo, hi = p[0]->hi;
+        for (int i = 0; i < 3; ++i) {
+            mark(p[i]->key);
+            v[i] = procgraph::num(n, p[i]->key);
+            lo = std::min(lo, p[i]->lo);
+            hi = std::max(hi, p[i]->hi);
+        }
+        if (ui::AxisDrag3(label, v, 0.1f, lo, hi, fmt))
+            for (int i = 0; i < 3; ++i)
+                if (v[i] != procgraph::num(n, p[i]->key)) setNum(*p[i], v[i]);
+        paramTip(p[0]);
+    };
+    auto range = [&](const char* name, const char* loKey, const char* hiKey, const char* fallKey, float view0,
+                     float view1, const char* fmt, bool gradient) {
+        const ProcParamDef* pl = def(loKey);
+        const ProcParamDef* ph = def(hiKey);
+        const ProcParamDef* pf = fallKey ? def(fallKey) : nullptr;
+        if (!pl || !ph) return;
+        mark(loKey);
+        mark(hiKey);
+        if (pf) mark(fallKey);
+        float lo = procgraph::num(n, loKey), hi = procgraph::num(n, hiKey);
+        float fall = pf ? procgraph::num(n, fallKey) : 0.0f;
+        ui::RangeSpec s;
+        s.vmin = std::min(pl->lo, ph->lo);
+        s.vmax = std::max(pl->hi, ph->hi);
+        s.viewMin = view0;
+        s.viewMax = view1;
+        s.speed = procNiceStep(view1 - view0);
+        s.fmt = fmt;
+        s.gradient = gradient;
+        s.name = name;
+        if (pf) {
+            s.falloff = &fall;
+            s.falloffMax = pf->hi;
+        }
+        const std::string id = std::string("##range_") + loKey;
+        if (ui::RangeDrag(id.c_str(), &lo, &hi, s)) {
+            if (lo != procgraph::num(n, loKey)) setNum(*pl, lo);
+            if (hi != procgraph::num(n, hiKey)) setNum(*ph, hi);
+            if (pf && fall != procgraph::num(n, fallKey)) setNum(*pf, fall);
+        }
+        if (pl->tip && *pl->tip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) tipBox(pl->tip);
+    };
+    auto seg = [&](const char* key, std::initializer_list<const char*> labels, bool caption) {
+        const ProcParamDef* p = def(key);
+        if (!p) return;
+        mark(key);
+        std::vector<const char*> L(labels);
+        // An Enum stores the choice index; an Int shown as segments (Octaves
+        // 1..6) stores the value, so segment 0 is its lower bound.
+        const int base = p->kind == ProcParamKind::Int ? (int)p->lo : 0;
+        int v = std::clamp(procgraph::inum(n, key) - base, 0, (int)L.size() - 1);
+        const bool hit = caption ? ui::SegmentedRow(p->label, L.data(), (int)L.size(), &v)
+                                 : ui::Segmented(p->label, L.data(), (int)L.size(), &v, -1.0f);
+        if (hit) setNum(*p, (float)(v + base));
+        paramTip(p);
+    };
+    // An Invert switch read as what it keeps.
+    auto keep = [&](const char* key, const char* off, const char* on) {
+        const ProcParamDef* p = def(key);
+        if (!p) return;
+        mark(key);
+        int v = procgraph::flag(n, key) ? 1 : 0;
+        const char* L[2] = {off, on};
+        if (ui::Segmented(p->label, L, 2, &v, -1.0f)) setNum(*p, (float)v);
+        paramTip(p);
+    };
+    auto chips = [&](std::initializer_list<const char*> keys) {
+        bool first = true;
+        for (const char* key : keys) {
+            const ProcParamDef* p = def(key);
+            if (!p) continue;
+            mark(key);
+            bool v = procgraph::flag(n, key);
+            ui::ChipFlow(ui::ToggleChipWidth(p->label), first);
+            first = false;
+            if (ui::ToggleChip(p->label, &v)) setNum(*p, v ? 1.0f : 0.0f);
+            if (p->tip && *p->tip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) tipBox(p->tip);
+        }
+    };
+    auto advanced = [&](const std::string& summary) { return ui::Disclosure("Advanced", summary.c_str()); };
+    auto num = [&](const char* key) { return procgraph::num(n, key); };
+    auto inum = [&](const char* key) { return procgraph::inum(n, key); };
+    auto flag = [&](const char* key) { return procgraph::flag(n, key); };
+    char sb[96];
+
     ImGui::PushID(n.id);
     {
         ui::InspectorRows rows(fs * 6.0f, fs * 8.0f);
-        for (const ProcParamDef& p : t.params) {
-            switch (p.kind) {
-                case ProcParamKind::Float: {
-                    float v = procgraph::num(n, p.key);
-                    if (ui::DragFloat(p.label, &v, (p.hi - p.lo) / 400.0f, p.lo, p.hi)) {
-                        n.nums[p.key] = std::clamp(v, p.lo, p.hi);
-                        changed = true;
-                    }
-                    break;
+        const std::string& ty = n.type;
+        if (ty == "ScatterSurface") {
+            picker("target");
+            field("density", "%.2f / 100 u\xc2\xb2");
+            field("lift", "%.1f u");
+            std::snprintf(sb, sizeof sb, "cap %s pts", thousands(inum("max")).c_str());
+            if (advanced(sb)) field("max", "%d points");
+            else mark("max");
+        } else if (ty == "ScatterGrid") {
+            ui::KitSection("Cells");
+            drags({{"spacing", "Spacing %.1f u"}, {"jitter", "Jitter %.0f%%", true}});
+            field("lift", "%.1f u");
+            ui::KitSection("Stack", inum("levels") <= 1 ? "1 level = flat" : nullptr);
+            drags({{"levels", "Levels %.0f"}, {"levelstep", "%.1f u apart"}});
+            chips({"snap"});
+        } else if (ty == "BlocksFill") {
+            ui::KitSection("Blocks");
+            field("block", "%.2f u");
+            drags({{"floor", "Floor %.0f"}, {"levels", "Max %.0f blocks"}});
+            ui::KitSection("Terrain noise");
+            field("scale", "%.0f u");
+            drags({{"octaves", "Octaves %.0f"}, {"relief", "Relief %.2f"}});
+            std::snprintf(sb, sizeof sb, "depth %d \xc2\xb7 base Y %.3g", inum("depth"), num("base"));
+            if (advanced(sb)) {
+                field("depth", "%d blocks");
+                field("base", "%.2f");
+            } else {
+                mark("depth");
+                mark("base");
+            }
+        } else if (ty == "ScatterVolume") {
+            field("count", "%d points");
+        } else if (ty == "ScatterCurve") {
+            // Count 0 means "use Spacing": one stored field, two modes.
+            const ProcParamDef* pc = def("count");
+            int byCount = inum("count") > 0 ? 1 : 0;
+            const char* modes[2] = {"Spacing", "Count"};
+            ui::KitSection("Distribute by");
+            if (ui::Segmented("Distribute by", modes, 2, &byCount, -1.0f) && pc)
+                setNum(*pc, byCount ? std::max(1.0f, std::max(pc->lo, 10.0f)) : 0.0f);
+            if (byCount) {
+                drags({{"count", "%.0f points"}, {"jitter", "Jitter %.0f%%", true}});
+                mark("spacing");
+            } else {
+                drags({{"spacing", "Every %.2f u"}, {"jitter", "Jitter %.0f%%", true}});
+                mark("count");
+            }
+            ui::KitSection("Placement");
+            field("offset", "%.1f u");
+            chips({"align", "snap"});
+        } else if (ty == "Point") {
+            picker("target");
+            vec3("Offset", "x", "y", "z", "%.2f");
+            chips({"snap"});
+        } else if (ty == "Curve") {
+            chips({"closed"});
+        } else if (ty == "NoiseMask") {
+            if (cache)
+                if (std::shared_ptr<const procgen::Mask> m = procgen::cachedMask(*cache, n.id))
+                    procMaskThumb(*m, ImGui::GetContentRegionAvail().x);
+            seg("kind", {"Perlin", "Ridged", "Cells", "Warped"}, false);
+            field("scale", "%.0f u");
+            seg("octaves", {"1", "2", "3", "4", "5", "6"}, true);
+            ui::KitSection("Output range");
+            range("Range", "low", "high", nullptr, 0.0f, 1.0f, "%.2f", true);
+            chips({"invert"});
+        } else if (ty == "TerrainMask") {
+            if (cache)
+                if (std::shared_ptr<const procgen::Mask> m = procgen::cachedMask(*cache, n.id))
+                    procMaskThumb(*m, ImGui::GetContentRegionAvail().x);
+            const int src = std::clamp(inum("source"), 0, 3);
+            seg("source", {"Height", "Slope", "Curvature", "Material"}, false);
+            if (src == 3) picker("layer");
+            else mark("layer");
+            static const char* const kUnit[4] = {"world", "deg", "signed", "unit"};
+            static const char* const kFmt[4] = {"%.1f u", "%.0f\xc2\xb0", "%.2f", "%.2f"};
+            static const char* const kBand[4] = {"Keep heights", "Keep slopes", "Keep curvature", "Keep coverage"};
+            float v0, v1;
+            procRangeView(kUnit[src], num("min"), num("max"), num("falloff"), &v0, &v1);
+            std::snprintf(sb, sizeof sb, "falloff \xc2\xb1%.3g", num("falloff"));
+            ui::KitSection(kBand[src], sb);
+            range("Band", "min", "max", "falloff", v0, v1, kFmt[src], false);
+            chips({"invert"});
+        } else if (ty == "MaskCombine") {
+            if (cache)
+                if (std::shared_ptr<const procgen::Mask> m = procgen::cachedMask(*cache, n.id))
+                    procMaskThumb(*m, ImGui::GetContentRegionAvail().x);
+            seg("op", {"Mul", "Add", "Sub", "Min", "Max", "Blend"}, false);
+            if (inum("op") == 5) pct("blend");
+            else mark("blend");
+        } else if (ty == "MaskRemap") {
+            // The transfer curve, from the same formula remapMask applies.
+            {
+                const float w = ImGui::GetContentRegionAvail().x, h = fs * 5.0f;
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                ImGui::Dummy(ImVec2(w, h));
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.field), 4.0f);
+                const float lo = num("low"), hi = num("high"), gam = std::max(0.05f, num("gamma"));
+                const bool inv = flag("invert");
+                std::vector<ImVec2> pts;
+                for (int i = 0; i <= 64; ++i) {
+                    const float x = (float)i / 64.0f;
+                    float r = hi > lo ? std::clamp((x - lo) / (hi - lo), 0.0f, 1.0f) : (x >= lo ? 1.0f : 0.0f);
+                    r = std::pow(r, gam);
+                    if (inv) r = 1.0f - r;
+                    pts.push_back(ImVec2(p.x + 4.0f + x * (w - 8.0f), p.y + h - 4.0f - r * (h - 8.0f)));
                 }
-                case ProcParamKind::Int: {
-                    int v = procgraph::inum(n, p.key);
-                    if (ui::DragInt(p.label, &v, 1.0f, (int)p.lo, (int)p.hi)) {
-                        n.nums[p.key] = (float)std::clamp(v, (int)p.lo, (int)p.hi);
-                        changed = true;
-                    }
-                    break;
+                dl->AddPolyline(pts.data(), (int)pts.size(), ImGui::GetColorU32(sem.special), 0, 2.0f);
+                dl->AddRect(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.border), 4.0f);
+            }
+            ui::KitSection("Input range");
+            range("Input", "low", "high", nullptr, 0.0f, 1.0f, "%.2f", true);
+            field("gamma", "%.2f");
+            chips({"invert"});
+        } else if (ty == "FilterRange") {
+            picker("attr");
+            std::string attr = procgraph::str(n, "attr");
+            if (attr.empty()) attr = procattr::kSlope;
+            const char* unit = procAttrUnit(attr);
+            float v0, v1;
+            procRangeView(unit, num("min"), num("max"), num("falloff"), &v0, &v1);
+            // The incoming values as a histogram: the range is set on data.
+            std::vector<float> vals;
+            const ProcGraph* g = volObj ? &volObj->procGraph : nullptr;
+            const ProcLink* in = g ? procgraph::linkTo(*g, n.id, 0) : nullptr;
+            if (cache && in && procgen::cachedAttribute(*cache, in->fromNode, attr, vals) && !vals.empty()) {
+                if (std::strcmp(unit, "world") == 0) {
+                    const auto mm = std::minmax_element(vals.begin(), vals.end());
+                    v0 = std::min(v0, *mm.first);
+                    v1 = std::max(v1, *mm.second);
+                    v0 = std::max(v0, *mm.first - (*mm.second - *mm.first) * 0.1f);
+                    v1 = std::min(v1, *mm.second + (*mm.second - *mm.first) * 0.1f);
+                    v0 = std::min(v0, num("min"));
+                    v1 = std::max(v1, num("max"));
                 }
-                case ProcParamKind::Bool: {
-                    bool v = procgraph::flag(n, p.key);
-                    if (ui::Switch(p.label, &v)) {
-                        n.nums[p.key] = v ? 1.0f : 0.0f;
-                        changed = true;
-                    }
-                    break;
+                constexpr int kBins = 32;
+                int bins[kBins] = {};
+                int peak = 1;
+                for (float v : vals) {
+                    const int b = std::clamp((int)((v - v0) / std::max(1e-6f, v1 - v0) * kBins), 0, kBins - 1);
+                    peak = std::max(peak, ++bins[b]);
                 }
-                case ProcParamKind::Enum: {
-                    // "a|b|c" -> a combo; the stored value is the index.
-                    std::vector<std::string> opts;
-                    std::string cur;
-                    for (const char* c = p.choices;; ++c) {
-                        if (*c == '|' || *c == 0) {
-                            opts.push_back(cur);
-                            cur.clear();
-                            if (*c == 0) break;
-                        } else {
-                            cur += *c;
-                        }
-                    }
-                    int v = std::clamp(procgraph::inum(n, p.key), 0, (int)opts.size() - 1);
-                    const ImGuiID id = ImGui::GetID(p.label);
-                    const bool unusedDetail = n.type == "Output" && std::strcmp(p.key, "detail") == 0 && procgraph::inum(n, "mode") == 1;
-                    ImGui::BeginDisabled(unusedDetail);
-                    const bool open = ui::BeginCombo(p.label, unusedDetail ? "Not used (Instanced)" : opts[v].c_str());
-                    uiscript::nameItem(id, p.label);
-                    if (open) {
-                        for (int i = 0; i < (int)opts.size(); ++i)
-                            if (ImGui::Selectable(opts[i].c_str(), i == v) && i != v) {
-                                n.nums[p.key] = (float)i;
-                                changed = true;
-                            }
-                        ImGui::EndCombo();
-                    }
-                    ImGui::EndDisabled();
-                    break;
-                }
-                case ProcParamKind::ObjectName: {
-                    std::string cur = procgraph::str(n, p.key);
-                    const char* none = p.emptyLabel && *p.emptyLabel ? p.emptyLabel : "(terrain)";
-                    const ImGuiID id = ImGui::GetID(p.label);
-                    const bool open = ui::BeginCombo(p.label, cur.empty() ? none : cur.c_str());
-                    uiscript::nameItem(id, p.label);
-                    if (open) {
-                        if (ImGui::Selectable(none, cur.empty())) {
-                            n.strs[p.key] = "";
-                            changed = true;
-                        }
-                        // ##id per entry: nothing stops two scene objects from
-                        // carrying the same name, and a Selectable's label is its id.
-                        const std::vector<SceneObject>& objs = project_.objects();
-                        for (size_t oi = 0; oi < objs.size(); ++oi) {
-                            const SceneObject& o = objs[oi];
-                            if (n.type == "FilterPlacement" && std::strcmp(p.key, "roadtarget") == 0 &&
-                                o.type != PrimitiveType::Road)
-                                continue;
-                            if (o.type == PrimitiveType::Scatter) continue;
-                            if (!o.procSource.empty()) continue;
-                            const std::string oid = o.name + "##o" + std::to_string(oi);
-                            if (ImGui::Selectable(oid.c_str(), cur == o.name) && cur != o.name) {
-                                n.strs[p.key] = o.name;
-                                changed = true;
-                            }
-                        }
-                        ImGui::EndCombo();
-                    }
-                    break;
-                }
-                case ProcParamKind::Attr: {
-                    std::string cur = procgraph::str(n, p.key);
-                    if (cur.empty()) cur = procattr::kSlope;
-                    if (ui::BeginCombo(p.label, cur.c_str())) {
-                        for (const char* a : {procattr::kSlope, procattr::kHeight, procattr::kMask,
-                                              procattr::kSize, procattr::kRandom, procattr::kCurveT,
-                                              procattr::kDist, procattr::kNormalY})
-                            if (ImGui::Selectable(a, cur == a) && cur != a) {
-                                n.strs[p.key] = a;
-                                changed = true;
-                            }
-                        ImGui::EndCombo();
-                    }
-                    break;
-                }
-                case ProcParamKind::TerrainLayer: {
-                    // Painted terrain materials by name (-1 = the base material).
-                    // NOT clamped for display: a stored index past the end
-                    // evaluates as zero coverage.
-                    const std::vector<TerrainLayer>& layers = project_.active().terrainLayers;
-                    const int v = procgraph::inum(n, p.key);
-                    auto nameOf = [&](int i) {
-                        if (i < 0) return std::string("Base material");
-                        if (i >= (int)layers.size()) return "Layer " + std::to_string(i) + " (missing)";
-                        return layers[(size_t)i].name;
-                    };
-                    const ImGuiID id = ImGui::GetID(p.label);
-                    const bool open = ui::BeginCombo(p.label, nameOf(v).c_str());
-                    uiscript::nameItem(id, p.label);
-                    if (open) {
-                        if (ImGui::Selectable("Base material##pl-1", v < 0) && v != -1) {
-                            n.nums[p.key] = -1.0f;
-                            changed = true;
-                        }
-                        for (int i = 0; i < (int)layers.size(); ++i) {
-                            const std::string lid = layers[(size_t)i].name + "##pl" + std::to_string(i);
-                            if (ImGui::Selectable(lid.c_str(), i == v) && i != v) {
-                                n.nums[p.key] = (float)i;
-                                changed = true;
-                            }
-                        }
-                        if (layers.empty()) ImGui::TextDisabled("no painted layers - add them in Terrain");
-                        ImGui::EndCombo();
-                    }
-                    break;
-                }
-                case ProcParamKind::Text: {
-                    char buf[96] = {};
-                    std::snprintf(buf, sizeof(buf), "%s", procgraph::str(n, p.key).c_str());
-                    if (ui::InputText(p.label, buf, sizeof(buf))) {
-                        n.strs[p.key] = buf;
-                        changed = true;
-                    }
-                    break;
+                const float w = ImGui::GetContentRegionAvail().x, h = fs * 3.0f;
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                ImGui::Dummy(ImVec2(w, h));
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const float bw = w / (float)kBins;
+                const float lo = num("min"), hi = num("max");
+                const bool inv = flag("invert");
+                for (int b = 0; b < kBins; ++b) {
+                    const float mid = v0 + ((float)b + 0.5f) / (float)kBins * (v1 - v0);
+                    const bool kept = (mid >= lo && mid <= hi) != inv;
+                    const float bh = std::max(1.0f, (float)bins[b] / (float)peak * (h - 2.0f));
+                    dl->AddRectFilled(ImVec2(p.x + bw * (float)b + 1.0f, p.y + h - bh),
+                                      ImVec2(p.x + bw * (float)(b + 1) - 1.0f, p.y + h),
+                                      kept ? ImGui::GetColorU32(sem.accent) : ImGui::GetColorU32(sem.border), 1.5f);
                 }
             }
-            if (p.tip && *p.tip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
-                ImGui::BeginTooltip();
-                ImGui::PushTextWrapPos(scaled(320.0f));
-                ImGui::TextUnformatted(p.tip);
-                ImGui::PopTextWrapPos();
-                ImGui::EndTooltip();
+            const char* fmt = std::strcmp(unit, "deg") == 0 ? "%.0f\xc2\xb0" : "%.3g";
+            range("Keep", "min", "max", "falloff", v0, v1, fmt, false);
+            keep("invert", "Keep inside", "Keep outside");
+        } else if (ty == "FilterMask") {
+            ui::KitSection("Mask fade", "black \xe2\x86\x92 white");
+            range("Fade", "low", "high", nullptr, 0.0f, 1.0f, "%.2f", true);
+            pct("strength");
+            keep("invert", "Keep bright", "Keep dark");
+        } else if (ty == "FilterDistance") {
+            field("radius", "%.2f u");
+            chips({"bysize"});
+        } else if (ty == "FilterAvoid") {
+            picker("target");
+            seg("mode", {"Keep outside", "Keep inside"}, false);
+            drags({{"radius", "Radius %.1f u"}, {"falloff", "Falloff %.1f u"}});
+        } else if (ty == "FilterPlacement") {
+            ui::KitSection("Roads");
+            seg("roads", {"Ignore", "Avoid", "Only on"}, false);
+            if (inum("roads") != 0) picker("roadtarget");
+            else mark("roadtarget");
+            std::snprintf(sb, sizeof sb, "clearance %.3g u", num("clearance"));
+            ui::KitSection("Overlap", sb);
+            chips({"collisions", "scene"});
+            field("clearance", "%.1f u");
+            bool mat = flag("material");
+            if (ui::KitSectionSwitch("Restrict terrain material", &mat))
+                if (const ProcParamDef* p = def("material")) setNum(*p, mat ? 1.0f : 0.0f);
+            mark("material");
+            if (mat) {
+                picker("layer");
+                pct("coverage");
+            } else {
+                mark("layer");
+                mark("coverage");
+            }
+        } else if (ty == "Merge") {
+            ImGui::TextDisabled("Nothing to set.");
+        } else if (ty == "Limit") {
+            field("max", "%d instances");
+            const ProcGraph* g = volObj ? &volObj->procGraph : nullptr;
+            const ProcLink* in = g ? procgraph::linkTo(*g, n.id, 0) : nullptr;
+            const int incoming = cache && in ? procgen::cachedPointCount(*cache, in->fromNode) : -1;
+            if (incoming >= 0) {
+                const int cap = std::max(1, inum("max"));
+                ui::Meter(std::min(1.0f, (float)incoming / (float)cap));
+                std::snprintf(sb, sizeof sb, incoming > cap ? "%s of %s - the cap cuts %s" : "%s of %s - not cutting",
+                              thousands(incoming).c_str(), thousands(cap).c_str(),
+                              thousands(incoming - cap).c_str());
+                ImGui::TextDisabled("%s", sb);
+            }
+        } else if (ty == "Vary") {
+            ui::KitSection("Rotate");
+            drags({{"yaw", "Yaw 0-%.0f\xc2\xb0"}, {"tilt", "Tilt \xc2\xb1%.1f\xc2\xb0"}});
+            pct("align");
+            ui::KitSection("Scale", "\xc3\x97 pool size");
+            range("Scale", "scalemin", "scalemax", nullptr, 0.0f, std::max(2.0f, num("scalemax") * 1.25f),
+                  "%.2f\xc3\x97", false);
+            ui::KitSection("Position");
+            field("jitter", "%.2f u");
+        } else if (ty == "SetAttribute") {
+            picker("attr");
+            ui::KitSection("Value range", "mapped from 0..1");
+            drags({{"min", "at 0: %.3g"}, {"max", "at 1: %.3g"}});
+        } else if (ty == "Array") {
+            field("count", "%d copies");
+            vec3("Step", "dx", "dy", "dz", "%.2f");
+            ui::KitSection("Each copy");
+            drags({{"yaw", "Turn %+.0f\xc2\xb0"}, {"scale", "Scale \xc3\x97%.2f"}});
+            chips({"local", "snap"});
+        } else if (ty == "RadialArray") {
+            drags({{"count", "%.0f copies"}, {"radius", "Radius %.1f u"}});
+            drags({{"start", "Start %.0f\xc2\xb0"}, {"sweep", "Sweep %.0f\xc2\xb0"}});
+            seg("axis", {"Y (flat)", "X", "Z"}, true);
+            chips({"face", "snap"});
+        } else if (ty == "Output") {
+            const bool instanced = inum("mode") == 1;
+            ui::KitSection("Draw as");
+            seg("mode", {"Merged", "Instanced"}, false);
+            hint(instanced ? "~60 B per instance; sun + ambient only, no probe GI, AO or lamps; Pick Asset "
+                             "points only (prefabs and blocks still merge)."
+                           : "Every copy baked into chunk meshes; full baked lighting; EE RAM grows with "
+                             "every copy.");
+            ui::KitSection("Budget");
+            field("budget", "%d tris");
+            ui::KitSection("Chunks");
+            drags({{"cell", "Size %.0f u"}, {"draw", num("draw") > 0.0f ? "Draw %.0f u" : "Draw: always"}});
+            if (!instanced) seg("detail", {"Full", "Half", "Quarter"}, true);
+            else mark("detail");
+            {
+                bool first = true;
+                if (const ProcParamDef* p = def("shadow")) {
+                    mark("shadow");
+                    bool v = flag("shadow");
+                    ui::ChipFlow(ui::ToggleChipWidth(p->label), first);
+                    first = false;
+                    if (ui::ToggleChip(p->label, &v)) setNum(*p, v ? 1.0f : 0.0f);
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) tipBox(p->tip);
+                }
+                if (const ProcParamDef* p = def("collide")) {
+                    mark("collide");
+                    bool v = inum("collide") == 1;
+                    ui::ChipFlow(ui::ToggleChipWidth("Box collision"), first);
+                    if (ui::ToggleChip("Box collision", &v)) setNum(*p, v ? 1.0f : 0.0f);
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) tipBox(p->tip);
+                }
+            }
+            // The console's working buffer exists only for a runtime volume.
+            if (volObj && volObj->procGraph.runtime) {
+                std::snprintf(sb, sizeof sb, "\xe2\x89\x88 %d KB RAM", (inum("maxinst") * 80 + 1023) / 1024);
+                ui::KitSection("Console buffer", sb);
+                field("maxinst", "%d points");
+            } else {
+                mark("maxinst");
             }
         }
+        // Whatever the layout did not place, generically and last.
+        for (const ProcParamDef& p : t.params)
+            if (!isDrawn(p.key)) generic(p);
     }
 
-    // Variable-length tables: the asset pool, the prefab pool, the curve's
+    // --- variable-length tables: the asset pool, the prefab pool, the curve's
     // control points, the generated objects' settings.
-    if (t.rows == ProcRowKind::Assets) {
-        ImGui::TextDisabled("Pool (model, weight, scale min/max)");
+    const bool assets = t.rows == ProcRowKind::Assets;
+    if (assets || t.rows == ProcRowKind::Prefabs) {
+        // A pool row is a card: what it places, its share of the points, the
+        // weight and size range on one line, the distant version on the next.
+        const ImVec4* const kPoolCols[6] = {&sem.accent, &sem.ok, &sem.special, &sem.warn,
+                                                   &sem.danger, &sem.textDim};
+        float total = 0.0f;
+        for (const ProcRow& r : n.rows) total += std::max(0.0f, r.v[0]);
+        std::snprintf(sb, sizeof sb, "%d %s", (int)n.rows.size(), assets ? "models" : "prefabs");
+        ui::KitSection("Pool", sb);
         procRowsHelpTip(t.rows, scaled(320.0f));
+        if (total > 0.0f) {
+            // The shares as one bar, coloured like the cards' swatches.
+            const float w = ImGui::GetContentRegionAvail().x, h = std::max(4.0f, fs * 0.4f);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImGui::Dummy(ImVec2(w, h));
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            float x = p.x;
+            for (size_t r = 0; r < n.rows.size(); ++r) {
+                const float sw = std::max(0.0f, n.rows[r].v[0]) / total * w;
+                if (sw <= 0.0f) continue;
+                dl->AddRectFilled(ImVec2(x, p.y), ImVec2(x + sw - 1.0f, p.y + h),
+                                  ImGui::GetColorU32(*kPoolCols[r % 6]), h * 0.5f);
+                x += sw;
+            }
+        }
         int removeRow = -1;
         for (size_t r = 0; r < n.rows.size(); ++r) {
-            ImGui::PushID((int)r);
             ProcRow& row = n.rows[r];
-            ImGui::SetNextItemWidth(poolW);
-            // The BASENAME, not the stored path: "res/models/" is the same on
-            // every row and eats the width the actual name needs.
-            const std::string label = row.s.empty() ? "(pick a model)" : baseNameOf(row.s);
-            if (ImGui::BeginCombo("##asset", label.c_str())) {
-                for (size_t mi = 0; mi < models.size(); ++mi) {
-                    const std::string& m = models[mi];
-                    const std::string rel = "res/models/" + m;
-                    const std::string id = m + "##m" + std::to_string(mi);
-                    if (ImGui::Selectable(id.c_str(), rel == row.s) && rel != row.s) {
-                        row.s = rel;
-                        changed = true;
+            ImGui::PushID((int)(assets ? r : 3000 + r));
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(sem.field.x, sem.field.y, sem.field.z, 0.55f));
+            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 6.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(fs * 0.5f, fs * 0.45f));
+            ImGui::BeginChild("##card", ImVec2(0, 0),
+                              ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY |
+                                  ImGuiChildFlags_AlwaysUseWindowPadding);
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor();
+            const float cardW = ImGui::GetContentRegionAvail().x;
+            // Line 1: swatch, what it places, share, the row menu.
+            {
+                const float sw = std::max(4.0f, fs * 0.35f), menuW = ImGui::GetFrameHeight();
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    ImVec2(p.x, p.y + fs * 0.2f), ImVec2(p.x + sw, p.y + ImGui::GetFrameHeight() - fs * 0.2f),
+                    ImGui::GetColorU32(*kPoolCols[r % 6]), sw * 0.5f);
+                ImGui::SetCursorScreenPos(ImVec2(p.x + sw + fs * 0.4f, p.y));
+                char share[16];
+                std::snprintf(share, sizeof share, "%.0f%%", total > 0.0f ? std::max(0.0f, row.v[0]) / total * 100.0f : 0.0f);
+                const float shareW = ImGui::CalcTextSize("100%").x + fs * 0.5f;
+                ImGui::SetNextItemWidth(std::max(fs * 4.0f, cardW - sw - fs * 0.4f - shareW - menuW - fs * 0.4f));
+                if (assets) {
+                    // The BASENAME, not the stored path: "res/models/" is the
+                    // same on every row and eats the width the name needs.
+                    const std::string label = row.s.empty() ? "(pick a model)" : baseNameOf(row.s);
+                    if (ImGui::BeginCombo("##asset", label.c_str())) {
+                        for (size_t mi = 0; mi < models.size(); ++mi) {
+                            const std::string& m = models[mi];
+                            const std::string rel = "res/models/" + m;
+                            const std::string id = m + "##m" + std::to_string(mi);
+                            if (ImGui::Selectable(id.c_str(), rel == row.s) && rel != row.s) {
+                                row.s = rel;
+                                changed = true;
+                            }
+                        }
+                        if (models.empty()) ImGui::TextDisabled("no .obj files in res/models");
+                        ImGui::Separator();
+                        ImGui::TextDisabled("a primitive or anything else in the scene?\nuse a Pick Prefab node");
+                        ImGui::EndCombo();
+                    }
+                    if (!row.s.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("%s", row.s.c_str());
+                } else {
+                    const std::string label = row.s.empty() ? "(pick a prefab)" : row.s;
+                    if (ImGui::BeginCombo("##prefab", label.c_str())) {
+                        // Two lists that overlap by construction (capturing
+                        // "box-1" makes a prefab "box-1" while the object
+                        // stays): every entry carries an explicit ##id.
+                        for (size_t pi = 0; pi < project_.prefabs.size(); ++pi) {
+                            const Prefab& pf = project_.prefabs[pi];
+                            const std::string id = pf.name + "##pf" + std::to_string(pi);
+                            if (ImGui::Selectable(id.c_str(), pf.name == row.s) && pf.name != row.s) {
+                                row.s = pf.name;
+                                changed = true;
+                            }
+                        }
+                        if (project_.prefabs.empty())
+                            ImGui::TextDisabled("no prefabs yet - pick from the scene below, or Tools > Prefabs");
+                        // Capturing ONE scene object makes an ordinary
+                        // one-member prefab, so a scattered box travels the
+                        // path a scattered room does.
+                        ImGui::Separator();
+                        ImGui::TextDisabled("Capture from the scene");
+                        const std::vector<SceneObject>& objs = project_.objects();
+                        bool anyCapturable = false;
+                        for (size_t oi = 0; oi < objs.size(); ++oi) {
+                            const SceneObject& o = objs[oi];
+                            if (o.type == PrimitiveType::Scatter) continue;
+                            if (!o.procSource.empty()) continue;
+                            anyCapturable = true;
+                            const std::string id =
+                                o.name + "  (" + primitiveTypeName(o.type) + ")##cap" + std::to_string(oi);
+                            if (!ImGui::Selectable(id.c_str())) continue;
+                            Prefab np = prefab::capture(project_.active(), {(int)oi},
+                                                        prefab::uniqueName(project_, o.name));
+                            if (np.objects.empty()) continue;
+                            project_.prefabs.push_back(std::move(np));
+                            row.s = project_.prefabs.back().name;
+                            changed = true;
+                            statusMessage_ = "Captured \"" + o.name + "\" as the prefab \"" + row.s +
+                                             "\" - the original object stays in the scene, delete it if "
+                                             "it was only a template";
+                        }
+                        if (!anyCapturable) ImGui::TextDisabled("(nothing in the scene to capture)");
+                        ImGui::EndCombo();
                     }
                 }
-                if (models.empty()) ImGui::TextDisabled("no .obj files in res/models");
-                ImGui::Separator();
-                ImGui::TextDisabled("a primitive or anything else in the scene?\nuse a Pick Prefab node");
-                ImGui::EndCombo();
+                ImGui::SameLine(0.0f, fs * 0.4f);
+                {
+                    ui::FontScope mono(ui::monoFont());
+                    const float tw = ImGui::CalcTextSize(share).x;
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + shareW - tw - fs * 0.2f);
+                    ImGui::AlignTextToFramePadding();
+                    ImGui::TextUnformatted(share);
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Share of the points this row receives (its weight / the pool's total)");
+                ImGui::SameLine(cardW - menuW + ImGui::GetStyle().WindowPadding.x);
+                if (ui::MoreButton("Row menu", menuW)) ImGui::OpenPopup("##rowmenu");
+                if (ImGui::BeginPopup("##rowmenu")) {
+                    if (ImGui::MenuItem("Remove from pool")) removeRow = (int)r;
+                    ImGui::EndPopup();
+                }
             }
-            if (!row.s.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                ImGui::SetTooltip("%s", row.s.c_str());
-            bool rm = false;
-            if (poolNumbers(row, rm)) changed = true;
-            if (rm) removeRow = (int)r;
-            if (poolLod(row)) changed = true;
+            // Line 2: weight and size range.
+            {
+                ui::KitDrag d[3];
+                d[0].v = &row.v[0];
+                d[0].speed = 0.5f;
+                d[0].vmin = 0.0f;
+                d[0].vmax = 1000.0f;
+                d[0].fmt = "Weight %.0f";
+                d[0].name = "Weight";
+                d[1].v = &row.v[1];
+                d[1].speed = 0.01f;
+                d[1].vmin = 0.05f;
+                d[1].vmax = 20.0f;
+                d[1].fmt = "%.2f\xc3\x97 min";
+                d[1].name = "Scale min";
+                d[2].v = &row.v[2];
+                d[2].speed = 0.01f;
+                d[2].vmin = 0.05f;
+                d[2].vmax = 20.0f;
+                d[2].fmt = "%.2f\xc3\x97 max";
+                d[2].name = "Scale max";
+                if (ui::DragRow("##poolnums", d, 3)) changed = true;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                    const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+                    procPoolColTip(std::clamp((int)((ImGui::GetMousePos().x - a.x) / std::max(1.0f, b.x - a.x) * 3.0f), 0, 2));
+                }
+            }
+            // Line 3: the distant version.
+            if (poolLod(row, cardW)) changed = true;
+            ImGui::EndChild();
             ImGui::PopID();
         }
         if (removeRow >= 0) {
             n.rows.erase(n.rows.begin() + removeRow);
             changed = true;
         }
-        if (ui::GhostButton("+ asset")) {
+        if (ui::GhostButton(assets ? "+ Add model" : "+ Add prefab", -1.0f)) {
             ProcRow row;
             row.v[0] = 50.0f;
-            row.v[1] = 0.9f;
-            row.v[2] = 1.1f;
-            if (!models.empty()) row.s = "res/models/" + models.front();
-            n.rows.push_back(row);
-            changed = true;
-        }
-    } else if (t.rows == ProcRowKind::Prefabs) {
-        // Same shape as the asset pool - a prefab is a different KIND of thing
-        // to place, not a second mental model.
-        ImGui::TextDisabled("Pool (prefab, weight, scale min/max)");
-        procRowsHelpTip(t.rows, scaled(320.0f));
-        int removeRow = -1;
-        for (size_t r = 0; r < n.rows.size(); ++r) {
-            ImGui::PushID((int)(3000 + r));
-            ProcRow& row = n.rows[r];
-            ImGui::SetNextItemWidth(poolW);
-            const std::string label = row.s.empty() ? "(pick a prefab)" : row.s;
-            if (ImGui::BeginCombo("##prefab", label.c_str())) {
-                // Two lists that overlap by construction (capturing "box-1"
-                // makes a prefab "box-1" while the object stays): every entry
-                // carries an explicit ##id.
-                for (size_t pi = 0; pi < project_.prefabs.size(); ++pi) {
-                    const Prefab& pf = project_.prefabs[pi];
-                    const std::string id = pf.name + "##pf" + std::to_string(pi);
-                    if (ImGui::Selectable(id.c_str(), pf.name == row.s) && pf.name != row.s) {
-                        row.s = pf.name;
-                        changed = true;
-                    }
-                }
-                if (project_.prefabs.empty())
-                    ImGui::TextDisabled("no prefabs yet - pick from the scene below, or Tools > Prefabs");
-                // Capturing ONE scene object makes an ordinary one-member
-                // prefab, so a scattered box travels the path a scattered room
-                // does.
-                ImGui::Separator();
-                ImGui::TextDisabled("Capture from the scene");
-                const std::vector<SceneObject>& objs = project_.objects();
-                bool anyCapturable = false;
-                for (size_t oi = 0; oi < objs.size(); ++oi) {
-                    const SceneObject& o = objs[oi];
-                    if (o.type == PrimitiveType::Scatter) continue;
-                    if (!o.procSource.empty()) continue;
-                    anyCapturable = true;
-                    const std::string id =
-                        o.name + "  (" + primitiveTypeName(o.type) + ")##cap" + std::to_string(oi);
-                    if (!ImGui::Selectable(id.c_str())) continue;
-                    Prefab np = prefab::capture(project_.active(), {(int)oi},
-                                                prefab::uniqueName(project_, o.name));
-                    if (np.objects.empty()) continue;
-                    project_.prefabs.push_back(std::move(np));
-                    row.s = project_.prefabs.back().name;
-                    changed = true;
-                    statusMessage_ = "Captured \"" + o.name + "\" as the prefab \"" + row.s +
-                                     "\" - the original object stays in the scene, delete it if "
-                                     "it was only a template";
-                }
-                if (!anyCapturable) ImGui::TextDisabled("(nothing in the scene to capture)");
-                ImGui::EndCombo();
-            }
-            bool rm = false;
-            if (poolNumbers(row, rm)) changed = true;
-            if (rm) removeRow = (int)r;
-            if (poolLod(row)) changed = true;
-            ImGui::PopID();
-        }
-        if (removeRow >= 0) {
-            n.rows.erase(n.rows.begin() + removeRow);
-            changed = true;
-        }
-        if (ui::GhostButton("+ prefab")) {
-            ProcRow row;
-            row.v[0] = 50.0f;
-            row.v[1] = 1.0f;
-            row.v[2] = 1.0f;
-            if (!project_.prefabs.empty()) row.s = project_.prefabs.front().name;
+            row.v[1] = assets ? 0.9f : 1.0f;
+            row.v[2] = assets ? 1.1f : 1.0f;
+            if (assets && !models.empty()) row.s = "res/models/" + models.front();
+            if (!assets && !project_.prefabs.empty()) row.s = project_.prefabs.front().name;
             n.rows.push_back(row);
             changed = true;
         }
     } else if (t.rows == ProcRowKind::Points) {
-        ImGui::TextDisabled("%d control points", (int)n.rows.size());
         const bool editing = procCurveNode_ == n.id;
-        ImGui::SameLine();
-        if (ImGui::SmallButton(editing ? "Editing in viewport" : "Edit in viewport")) {
+        if (editing ? ui::GhostButton("Stop drawing in viewport", -1.0f)
+                    : ui::PrimaryButton("Draw in viewport", -1.0f)) {
             procCurveNode_ = editing ? 0 : n.id;
             procCurvePoint_ = -1;
             procOverrideMode_ = false;
@@ -1027,16 +1610,23 @@ bool App::drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vect
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("While this is on, clicking the terrain appends a control point;\n"
                               "pick a point below and click again to move it.");
+        std::snprintf(sb, sizeof sb, "%d", (int)n.rows.size());
+        ui::KitSection("Control points", sb);
         int removeRow = -1;
         for (size_t r = 0; r < n.rows.size(); ++r) {
             ImGui::PushID((int)(1000 + r));
             const bool sel = editing && procCurvePoint_ == (int)r;
             if (ImGui::RadioButton("##sel", sel)) procCurvePoint_ = sel ? -1 : (int)r;
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(std::max(fs * 8.0f, poolW - fs * 4.0f));
-            if (ImGui::DragFloat3("##p", n.rows[r].v, 0.1f)) changed = true;
+            ImGui::SetNextItemWidth(std::max(fs * 8.0f, ImGui::GetContentRegionAvail().x - ImGui::GetFrameHeight() -
+                                                            ImGui::GetStyle().ItemSpacing.x));
+            if (ImGui::DragFloat3("##p", n.rows[r].v, 0.1f, 0.0f, 0.0f, "%.1f")) changed = true;
             ImGui::SameLine();
-            if (ImGui::SmallButton("x")) removeRow = (int)r;
+            if (ui::MoreButton("Point menu", ImGui::GetFrameHeight())) ImGui::OpenPopup("##ptmenu");
+            if (ImGui::BeginPopup("##ptmenu")) {
+                if (ImGui::MenuItem("Remove point")) removeRow = (int)r;
+                ImGui::EndPopup();
+            }
             ImGui::PopID();
         }
         if (removeRow >= 0) {
@@ -1045,76 +1635,50 @@ bool App::drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vect
             changed = true;
         }
     } else if (t.rows == ProcRowKind::Settings) {
-        // One row per property the bake sets on every generated object; the
-        // list of what CAN be set is procObjectProps().
-        ImGui::TextDisabled("Applied to every generated object");
+        // Every property the bake can set on the generated objects, each one
+        // ticked to override it - the list is short and fixed
+        // (procObjectProps), so it is shown whole rather than built up row by
+        // row. A ticked property is a row of the stored table; unticking
+        // removes it, exactly as the old "x" did.
+        // A wide caption column: the names are long, the values short.
+        ui::InspectorRows rows(fs * 10.0f, fs * 14.0f);
         int removeRow = -1;
-        for (size_t r = 0; r < n.rows.size(); ++r) {
-            ImGui::PushID((int)(2000 + r));
-            ProcRow& row = n.rows[r];
-            const ProcObjProp* prop = procObjectProp(row.s);
-            ImGui::SetNextItemWidth(std::max(fs * 6.0f, poolW - fs * 7.0f));
-            if (ImGui::BeginCombo("##prop", prop ? prop->label : "(unknown)")) {
-                for (const ProcObjProp& p : procObjectProps()) {
-                    const bool sel = row.s == p.key;
-                    if (ImGui::Selectable(p.label, sel) && !sel) {
-                        row.s = p.key;
-                        row.v[0] = p.def;
-                        changed = true;
+        for (const ProcObjProp& prop : procObjectProps()) {
+            int at = -1;
+            for (size_t r = 0; r < n.rows.size(); ++r)
+                if (n.rows[r].s == prop.key) at = (int)r;
+            bool on = at >= 0;
+            const bool wasOn = on;
+            const bool hit = ui::OverrideRow(prop.label, &on, "not set", [&] {
+                if (at < 0) return false;  // ticked this frame: the row is added below
+                ProcRow& row = n.rows[(size_t)at];
+                if (prop.kind == ProcObjPropKind::Bool) {
+                    bool v = row.v[0] >= 0.5f;
+                    if (ui::Switch("##v", &v)) {
+                        row.v[0] = v ? 1.0f : 0.0f;
+                        return true;
                     }
+                    return false;
                 }
-                ImGui::EndCombo();
-            }
-            if (prop && prop->tip && *prop->tip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
-                ImGui::BeginTooltip();
-                ImGui::PushTextWrapPos(scaled(320.0f));
-                ImGui::TextUnformatted(prop->tip);
-                ImGui::PopTextWrapPos();
-                ImGui::EndTooltip();
-            }
-            ImGui::SameLine();
-            if (prop && prop->kind == ProcObjPropKind::Bool) {
-                bool on = row.v[0] >= 0.5f;
-                if (ui::Switch("##v", &on)) {
-                    row.v[0] = on ? 1.0f : 0.0f;
-                    changed = true;
-                }
-            } else {
-                ImGui::SetNextItemWidth(fs * 4.0f);
-                const float lo = prop ? prop->lo : 0.0f;
-                const float hi = prop ? prop->hi : 1.0f;
-                if (ImGui::DragFloat("##v", &row.v[0], (hi - lo) / 400.0f, lo, hi, "%.1f")) {
-                    row.v[0] = std::clamp(row.v[0], lo, hi);
-                    changed = true;
-                }
-            }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("x")) removeRow = (int)r;
-            ImGui::PopID();
-        }
-        if (removeRow >= 0) {
-            n.rows.erase(n.rows.begin() + removeRow);
+                if (ImGui::DragFloat("##v", &row.v[0], (prop.hi - prop.lo) / 400.0f, prop.lo, prop.hi,
+                                     row.v[0] < 0.0f ? "project default" : row.v[0] == 0.0f ? "never" : "%.0f u",
+                                     ImGuiSliderFlags_AlwaysClamp))
+                    return true;
+                return false;
+            });
+            if (prop.tip && *prop.tip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) tipBox(prop.tip);
+            if (!hit) continue;
             changed = true;
-        }
-        if (ui::GhostButton("+ property")) {
-            // The first property this node does not already carry.
-            const ProcObjProp* next = nullptr;
-            for (const ProcObjProp& p : procObjectProps()) {
-                bool taken = false;
-                for (const ProcRow& r : n.rows) taken |= (r.s == p.key);
-                if (!taken) {
-                    next = &p;
-                    break;
-                }
-            }
-            if (next) {
+            if (on && !wasOn) {
                 ProcRow row;
-                row.s = next->key;
-                row.v[0] = next->def;
+                row.s = prop.key;
+                row.v[0] = prop.def;
                 n.rows.push_back(row);
-                changed = true;
+            } else if (!on && wasOn) {
+                removeRow = at;
             }
         }
+        if (removeRow >= 0) n.rows.erase(n.rows.begin() + removeRow);
     }
     ImGui::PopID();
     return changed;
@@ -2223,25 +2787,76 @@ int App::drawProcInspector(SceneObject& vol, ProcGraph& g, bool stale, bool& cha
     if (!sn || !st) {
         ImGui::TextDisabled("Select a node in the graph to edit it here.");
     } else {
-        char cap[96];
-        std::snprintf(cap, sizeof cap, "%s", st->title);
-        ui::Caption(cap);
-        {
-            const float bw = ImGui::CalcTextSize(st->category).x * 0.82f + fs;
-            const ImVec2 back = ImGui::GetCursorScreenPos();
-            ImGui::SetCursorScreenPos(
-                ImVec2(ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - bw, back.y - fs * 1.45f));
-            ui::Badge(st->category, 3);
-            ImGui::SetCursorScreenPos(back);
+        // The header: what the node is and the three verbs on it. The
+        // description is one sentence here; the whole paragraph and a line
+        // per control are behind the help button.
+        const bool isOutput = sn->type == "Output";
+        const bool canBypass = !st->ins.empty() && !isOutput;
+        ImGuiStorage* store = ImGui::GetStateStorage();
+        const ImGuiID helpKey = ImGui::GetID("##prochelpopen");
+        bool helpOpen = store->GetBool(helpKey, false);
+        auto pinName = [](ProcType ty) {
+            return ty == ProcType::Mask ? "mask" : ty == ProcType::Curve ? "curve" : "points";
+        };
+        std::string sub = st->category;
+        sub += " \xc2\xb7 ";
+        for (size_t i = 0; i < st->ins.size(); ++i) sub += (i ? ", " : "") + std::string(pinName(st->ins[i].type));
+        sub += st->ins.empty() ? "\xe2\x86\x92 " : " \xe2\x86\x92 ";
+        for (size_t i = 0; i < st->outs.size(); ++i) sub += (i ? ", " : "") + std::string(pinName(st->outs[i].type));
+        if (st->outs.empty()) sub += "result";
+        const std::string cat = st->category;
+        const ImVec4 tint = cat == "Sources"      ? sem.ok
+                            : cat == "Masks"      ? sem.special
+                            : cat == "Filters"    ? sem.warn
+                            : cat == "Attributes" ? sem.accent
+                            : cat == "Repeat"     ? ImVec4(0.31f, 0.82f, 0.77f, 1.0f)
+                                                  : sem.text;
+        const ui::Glyph icon = cat == "Sources"      ? ui::Glyph::Sparkle
+                               : cat == "Masks"      ? ui::Glyph::Mask
+                               : cat == "Filters"    ? ui::Glyph::Funnel
+                               : cat == "Attributes" ? ui::Glyph::Sliders
+                               : cat == "Repeat"     ? ui::Glyph::Copies
+                                                     : ui::Glyph::Box;
+        ui::HeaderButton hb[3];
+        int nb = 0, iPreview = -1, iBypass = -1, iHelp = -1;
+        if (!isOutput) {
+            iPreview = nb;
+            hb[nb++] = {"Preview this node", ui::Glyph::Eye, procPreviewNode_ == sn->id};
+        }
+        if (canBypass) {
+            iBypass = nb;
+            hb[nb++] = {"Bypass", ui::Glyph::Power, sn->bypass};
+        }
+        iHelp = nb;
+        hb[nb++] = {"Node help", ui::Glyph::Help, helpOpen};
+        int hov = -1;
+        const int hit = ui::NodeHeader(st->title, sub.c_str(), icon, tint, hb, nb, &hov);
+        if (hit == iPreview && iPreview >= 0 && !g.frozen) procPreviewNode_ = procPreviewNode_ == sn->id ? 0 : sn->id;
+        if (hit == iBypass && iBypass >= 0) {
+            sn->bypass = !sn->bypass;
+            changed = true;
+        }
+        if (hit == iHelp) store->SetBool(helpKey, helpOpen = !helpOpen);
+        if (hov == iHelp && !helpOpen) {
+            ImGui::BeginTooltip();
+            procNodeDoc(*st, scaled(360.0f));
+            ImGui::EndTooltip();
         }
         if (st->desc && *st->desc) {
             ImGui::PushTextWrapPos(0.0f);
-            ImGui::TextDisabled("%s", st->desc);
+            if (helpOpen) procNodeDoc(*st, 0.0f);
+            else ImGui::TextDisabled("%s", procFirstSentence(st->desc).c_str());
             ImGui::PopTextWrapPos();
         }
-        ImGui::Spacing();
-        if (drawProcNodeParams(*sn, *st, models)) changed = true;
-        // In -> out: what this node keeps of what reaches it.
+        if (sn->bypass && canBypass) {
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.warn);
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted("Bypassed - its first input passes through untouched.");
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+        }
+        // In -> out: what this node keeps of what reaches it - read before
+        // the knobs that decide it.
         const procgen::Cache* cache = procCaches_.count(vol.id) ? &procCaches_[vol.id] : nullptr;
         const int out = cache ? procgen::cachedPointCount(*cache, sn->id) : -1;
         int in = -1;
@@ -2282,15 +2897,14 @@ int App::drawProcInspector(SceneObject& vol, ProcGraph& g, bool stale, bool& cha
             ImGui::PopStyleVar();
             ImGui::PopStyleColor();
         }
-        bool bypass = sn->bypass;
-        ui::InspectorRows rows(fs * 4.0f, fs * 30.0f);
-        if (ui::Switch("Bypass (hand the first input through untouched)", &bypass)) {
-            sn->bypass = bypass;
-            changed = true;
-        }
-        if (sn->type == "Output") {
-            ImGui::Spacing();
-            ImGui::SeparatorText("Object settings");
+        ImGui::Spacing();
+        if (drawProcNodeParams(*sn, *st, models)) changed = true;
+        if (isOutput) {
+            int set = 0;
+            if (const ProcNode* s = procgraph::settingsNode(g)) set = (int)s->rows.size();
+            char right[48];
+            std::snprintf(right, sizeof right, "%d of %d set", set, (int)procObjectProps().size());
+            ui::KitSection("Every generated object", right);
             // Keep the old storage node so existing bakes and project files
             // retain exactly the same settings and hashes. It is now edited
             // only here, never as an unconnected canvas card.
