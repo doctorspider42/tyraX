@@ -433,10 +433,9 @@ struct PortalData {
   int firstCand;        // first entry in CATCH_CANDIDATES
   int candCount;
 };
-inline constexpr int PORTAL_COUNT = 2;
-inline constexpr PortalData PORTALS[2] = {
-    {0, 45, 46, 1, 0, 1, 0, 0, -1, 0, 0},  // portal-a,
-    {0, 46, 45, 1, 0, 1, 0, 0, -1, 0, 0},  // portal-b
+inline constexpr int PORTAL_COUNT = 0;
+inline constexpr PortalData PORTALS[1] = {
+    {0, -1, -1, 0, 0, 0, 0, 0, -1, 0, 0}
 };
 inline constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 

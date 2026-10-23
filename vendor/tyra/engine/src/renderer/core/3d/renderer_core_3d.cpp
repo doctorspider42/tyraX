@@ -59,11 +59,6 @@ void RendererCore3D::setFov(const float& t_fov) {
   setProjection();
 }
 
-void RendererCore3D::refreshRasterProjection() {
-  setProjection();
-  if (is3DSupportEnabled) viewProj = projection * view;
-}
-
 void RendererCore3D::setProjection() {
   // Modified by TyraX: the width/height passed here only set the RASTER scale
   // of the projection (the world-space frustum comes from fov + aspectRatio),

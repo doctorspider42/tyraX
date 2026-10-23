@@ -11,10 +11,11 @@ pay.
 
 It ships with *Use the upscaler* on and **Draw reduced: Particles only**: the
 yard, the buildings, the HUD and every texture render at full resolution, and
-only the emitters draw at a quarter of the pixels. That is also why the scene
-can carry what the whole-scene shape refuses - a **linked portal** (the
-orange/blue pair at the south end) and a **spot lamp with shadow volumes** over
-the west crates.
+only the emitters draw at a quarter of the pixels. A **spot lamp with shadow
+volumes** hangs over the west crates. (A linked portal pair was here while the
+particles shape was being proven to work beside one - it does - and was taken
+out again: a portal submits the scene a second time, which is EE work the
+upscaler cannot remove, so it only diluted the measurement.)
 
 Open `upscaler-lab.tyra` and Build & Run (`F5`), or headless:
 `tyrax-editor --build <this folder> --run`.
@@ -30,12 +31,18 @@ each switch dropped:
 
 | arm | 50-frame windows | `work` mean | per-arm means |
 |---|---|---|---|
-| native | 26 | **38.62 ms** | 39.36 / 37.94 / 38.63 |
-| particles only, 2x2 | 49 | **19.30 ms** | 19.26 / 19.53 / 19.50 / 19.21 |
+| native, lamp on | 27 | **34.79 ms** | 35.18 / 34.63 |
+| native, lamp off | 18 | 35.38 ms | 35.91 / 34.84 |
+| particles only 2x2, lamp on | 56 | **13.83 ms** | 13.88 / 13.75 / 13.88 |
+| particles only 2x2, lamp off | 18 | 13.64 ms | 13.92 / 13.37 |
 
-**2.0x less frame work** (-19.3 ms), the same result in every one of the seven
-alternating arms (window sd under 1 ms). The particle bracket itself - the two
-quarter-area copies, the mask and the composite - reads 0.99 ms of it. Measured
+**2.5x less frame work** (-21.0 ms) with the particles reduced, the same in
+every alternating arm (window sd under 1.3 ms); the bracket itself - two
+quarter-area copies, the mask and the composite - reads about 1 ms of it. The
+spot lamp's shadow volumes cost nothing measurable from this vantage (the
+casters are ~25 units away and small on screen). An earlier run with a linked
+portal pair in the scene measured 38.62 -> 19.30 ms (2.0x): the portal submits
+the scene a second time, EE work the upscaler cannot touch. Measured
 2026-10-23, frozen camera at the player's start in `examples/upscaler-lab`.
 
 PCSX2's software renderer cannot price this (it under-reports GS fill ~76x,
@@ -58,7 +65,6 @@ thick enough to matter and thin enough to watch.
 | **Custom haze emitters** | **6 x 32** | **The fill.** `kind: "custom"`, `size 9.0`, `opacity 0.8`, one shared 128² soft-puff material, every centre above eye height. A `size 9` puff 10 m away is about 1.6 screen heights: one full-screen blended layer for one EE vertex. |
 | Campfire (`fire` 48 + `smoke` 40) | 2 | Two more emitter kinds. |
 | Rain (`kind rain`, 200, `followPlayer`) | 1 | Many small quads beside the few huge ones. |
-| Portal pair (`portal-a` / `portal-b`) | 2 | A linked portal - refused by the whole-scene shape, fine with particles only. Portals are mostly EE work (the scene is submitted a second time), not GS fill. |
 | Spot lamp with shadow volumes (`lamp`) | 1 | `spotShadowVolumes` on: the volumes count into a full-screen band, which is GS fill. |
 | Cutscene Director sequence, 20 s | 1 | `On Start` plays a camera tour through the yard. |
 | Flow graph on an Empty (`ab-switch`) | 1 | **Square** / **Circle** turn every emitter off / on; **Triangle** / **R1** switch the upscaler off / on (Set Upscaler) - both A/Bs from the same camera in the same run. |
@@ -74,8 +80,8 @@ is the whole point of the fixture.
 - **Square / Circle** - the particle A/B. It is the honest measure of how much
   of this frame is fill.
 - Switch *Draw reduced* to **Whole 3D scene** in *Project > Preferences >
-  Graphics > Advanced* and the build refuses it, naming the portal - delete the
-  portal pair and it builds: everything goes soft, and the z buffer shrinks.
+  Graphics > Advanced*: everything 3D goes soft, the z buffer shrinks, and a
+  portal, depth of field or split screen would now be refused by the build.
 - Turn on **Adapt resolution to frame budget**: the particles stay native until
   frames start missing fields. On the physical console the whole-scene adaptive
   2x2 state measured 16.1 -> 44.0 FPS from the parked vantage.

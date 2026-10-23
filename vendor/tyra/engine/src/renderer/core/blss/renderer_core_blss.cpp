@@ -18,6 +18,7 @@
 #include <gs_gp.h>
 #include <gs_psm.h>
 #include "renderer/core/blss/renderer_core_blss.hpp"
+#include "renderer/core/gs/renderer_core_depth.hpp"
 #include "debug/debug.hpp"
 #include "debug/frame_profile.hpp"
 
@@ -179,11 +180,6 @@ void RendererCoreBlss::setScene(bool t_upscale, bool t_particles) {
     TYRA_LOG("BLSS scene: ",
              enabled ? "whole scene reduced"
                      : (particleOn ? "particles reduced" : "native"));
-}
-
-void RendererCoreBlss::applyRasterScale(bool reduced) {
-  settings->setRasterScale(reduced ? scaleX : 1, reduced ? scaleY : 1);
-  if (core3D != nullptr) core3D->refreshRasterProjection();
 }
 
 void RendererCoreBlss::sendPacket(packet2_t* p) {
@@ -500,8 +496,19 @@ void RendererCoreBlss::beginParticles() {
 
   // 3) The raster goes to the low-res target, z tests against the low-res
   // copy and writes nothing, and FBA marks every pixel a particle touches.
-  const int offX16 = static_cast<int>((2048.0F - lowW / 2.0F) * 16.0F);
-  const int offY16 = static_cast<int>((2048.0F - lowH / 2.0F) * 16.0F);
+  //
+  // The PROJECTION STAYS NATIVE and the VU1 screen scale shrinks instead
+  // (RendererCoreDepth::screenScaleX): vert = ndc * s + s, so with s =
+  // 2048 / scale the image lands centred on s, which the offset below moves
+  // to the target's centre. Shrinking the projection would put the same
+  // picture there too, but it would also halve clip-space x / y, and the
+  // billboard program's raster-window cull would then keep puffs up to twice
+  // as close to the camera as the native frame does - a camera inside a haze
+  // bank turned uniformly grey with the particles reduced.
+  const float sx = 2048.0F / static_cast<float>(scaleX);
+  const float sy = 2048.0F / static_cast<float>(scaleY);
+  const int offX16 = static_cast<int>((sx - lowW / 2.0F) * 16.0F);
+  const int offY16 = static_cast<int>((sy - lowH / 2.0F) * 16.0F);
   RendererCoreGS::RasterTarget target;
   target.frameAddress = lowVram;
   target.frameWidth = lowBufW;
@@ -550,7 +557,8 @@ void RendererCoreBlss::beginParticles() {
   packet2_update(packet, q);
   sendPacket(packet);
 
-  applyRasterScale(true);
+  RendererCoreDepth::screenScaleX = sx;
+  RendererCoreDepth::screenScaleY = sy;
 #if TYRA_FRAME_PROFILE
   FrameProfile::tBlssBegin = FrameProfile::ticks() - fpT0;
 #endif
@@ -563,7 +571,8 @@ void RendererCoreBlss::endParticles() {
 #endif
   inParticles = false;
   if (path1->isVU1Configured()) sync->align3D();
-  applyRasterScale(false);
+  RendererCoreDepth::screenScaleX = 2048.0F;
+  RendererCoreDepth::screenScaleY = 2048.0F;
   gs->endRasterRedirect();
 
   const auto* fb = gs->getCurrentFrameBuffer();

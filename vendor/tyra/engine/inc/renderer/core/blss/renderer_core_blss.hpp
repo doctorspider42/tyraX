@@ -130,19 +130,19 @@ class RendererCoreBlss {
 
   /**
    * Particles only: downsample depth and colour, redirect the raster to the
-   * low-res target and switch the projection to the reduced raster. Must run
-   * after every opaque draw of the frame's MAIN view and before the first
-   * emitter bag. No-op unless isParticleMode().
+   * low-res target and shrink the VU1 screen scale to match it
+   * (RendererCoreDepth::screenScaleX) - the projection stays native, so the
+   * billboard cull keeps its native threshold. Must run after every opaque
+   * draw of the frame's MAIN view and before the first emitter bag. No-op
+   * unless isParticleMode().
    */
   void beginParticles();
-  /** Particles only: drain, mask, composite, restore raster and projection. */
+  /** Particles only: drain, mask, composite, restore raster and screen scale. */
   void endParticles();
 
  private:
   void allocate();
   void updateGeometry();
-  /** Publish the projection for `reduced` (mid-frame safe). */
-  void applyRasterScale(bool reduced);
   void sendPacket(packet2_t* p);
 
   qword_t* emitBlitState(qword_t* q, int dstVram, int dstBufW, int dstPsm,

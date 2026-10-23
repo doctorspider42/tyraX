@@ -2584,23 +2584,6 @@ light beams, coronas, glow shells - could draw inside the same
 blend. Each needs the FBA mark to survive its own blend mode and to sit after
 the opaque scene in the main view. See [the upscaler](upscaler.md).
 
-### Particles only: keep the near-puff cull at the native threshold
-
-The billboard VU1 program drops a quad whose corner leaves the ±2048 raster
-window. At the reduced raster that happens half as far from the camera, so
-puffs between ~1 and ~2 m that the native frame drops are drawn when the
-particles are reduced - a camera inside a haze bank turns grey
-(`examples/upscaler-lab`'s tour hold, PCSX2 2026-10-23; inferred from the
-window arithmetic, not yet proven by a probe). Either cull such quads on the EE
-by their native screen size, or pass the raster scale to the program's window
-test. Then compare the tour hold native vs reduced again.
-
-### Set Frame Extrapolation does not continue its exec chain
-
-`SetUpscaler` had the same bug and got `branch(0, pad)` in its codegen
-(templates.cpp): a `Delay` wired after `Set Frame Extrapolation` never arms.
-Check and fix the same way.
-
 ### Attribute hardware pipeline stalls before further micro-optimizations
 
 The [hardware timeline](hardware-profiler.md) and seven

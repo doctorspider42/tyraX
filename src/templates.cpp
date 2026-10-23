@@ -24878,7 +24878,6 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (m < 0) m = 0;
                 if (m > 3) m = 3;
                 c << pad << "ctx.upscaler = " << m << ";\n";
-                c << branch(0, pad);
             } else if (n.type == "SetFrameExtrapolation") {
                 int m = (int)(n.num[0] + 0.5f);
                 if (m < 0) m = 0;

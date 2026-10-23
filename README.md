@@ -61,7 +61,7 @@ audit.
 
 And the ceiling is nowhere near 2002: baked global illumination with light
 probes, portals you walk through, reflections **ray-traced per pixel on VU0**,
-an upscaler that draws only the smoke and haze at a quarter of the pixels (**2.0× on a real console**), driveable cars on
+an upscaler that draws only the smoke and haze at a quarter of the pixels (**2.5× on a real console**), driveable cars on
 terrain-following roads, split-screen co-op, NPCs that find their way around
 walls.
 
@@ -577,7 +577,7 @@ wait for their polish pass.
 | [custom-nodes](examples/custom-nodes) | Roll your own flow nodes: one backed by C++, one written inline |
 | [endless-scroller](examples/endless-scroller) | An infinite tunnel, tiled from a single authored chunk |
 | [endless-runner](examples/endless-runner) | An endless track that never repeats — variant groups, per-chunk odds, ever-rising speed |
-| [upscaler-lab](examples/upscaler-lab) | A fill-bound haze yard with a portal and shadow volumes: particles drawn at a quarter of the pixels, 2.0× on real hardware |
+| [upscaler-lab](examples/upscaler-lab) | A fill-bound haze yard with a shadow-volume lamp: particles drawn at a quarter of the pixels, 2.5× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
 | [vehicle-playground](examples/vehicle-playground) | Motor District: seven roads, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |

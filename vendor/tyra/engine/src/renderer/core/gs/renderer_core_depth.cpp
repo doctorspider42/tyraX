@@ -17,6 +17,8 @@ namespace Tyra {
 u32 RendererCoreDepth::maxZ = 0xFFFFFF;
 float RendererCoreDepth::scale = static_cast<float>(0xFFFFFF) / 2.0F;
 int RendererCoreDepth::bits = 24;
+float RendererCoreDepth::screenScaleX = 2048.0F;
+float RendererCoreDepth::screenScaleY = 2048.0F;
 
 void RendererCoreDepth::setBits(int t_bits) {
   bits = t_bits;

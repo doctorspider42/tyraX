@@ -1,1 +1,0 @@
-{ "id": "ulab-portal-a", "name": "portal-a", "type": "portal", "position": [-3.5, 1.3, 17], "rotation": [0, 0, 0], "scale": [2.2, 2.6, 1], "color": [0.95, 0.55, 0.2], "physics": false, "collision": "none", "portal": { "target": "portal-b", "showTerrain": true, "teleportObjects": false, "viewAll": true, "objects": [] } }

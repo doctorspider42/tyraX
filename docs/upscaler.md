@@ -16,8 +16,8 @@ It has two shapes, and the second is the one to reach for first:
 
 HUD, menus, text and post effects always draw at full resolution.
 
-`examples/upscaler-lab` is the reference project: a haze-filled yard, with a
-portal and a shadow-casting lamp that only the particles shape can keep.
+`examples/upscaler-lab` is the reference project: a haze-filled yard with a
+shadow-casting lamp.
 
 ## Settings
 
@@ -51,13 +51,12 @@ of the main view:
    keep their full-resolution value, and the edge of the particle layer fades
    over one reduced texel instead of stepping.
 
-One visible difference is not about resolution. The billboard program drops a
-quad whose corner leaves the GS's ±2048 raster window, which at full
-resolution removes huge puffs within about 2 m of the camera; at a half-size
-raster the same puffs fit until about 1 m, so **a camera standing inside a haze
-bank sees more of it** with the particles reduced (on `examples/upscaler-lab`'s
-tour hold the frame turns uniformly grey where the native one shows the yard).
-Keep big puffs away from where the camera goes, as you would anyway.
+The emitters draw with the **native projection**: only the VU1 screen scale
+shrinks (`RendererCoreDepth::screenScaleX`, 2048 / scale). The billboard
+program drops a quad whose corner leaves the GS's ±2048 raster window - that
+is what removes a huge puff right in front of the camera - and that test reads
+clip space, so it keeps exactly the native threshold. A half-size projection
+would have kept puffs up to twice as close.
 
 The trade: whatever sits **under** a particle is seen at the reduced
 resolution, so geometry behind dense smoke softens. Geometry, textures and the
@@ -95,12 +94,18 @@ Real-PS2 numbers, PAL 512x448, 2x2:
 
 | arm | 50-frame windows | `work` mean | per-arm means |
 |---|---|---|---|
-| native | 26 | **38.62 ms** | 39.36 / 37.94 / 38.63 |
-| particles only, 2x2 | 49 | **19.30 ms** | 19.26 / 19.53 / 19.50 / 19.21 |
+| native, lamp on | 27 | **34.79 ms** | 35.18 / 34.63 |
+| native, lamp off | 18 | 35.38 ms | 35.91 / 34.84 |
+| particles only 2x2, lamp on | 56 | **13.83 ms** | 13.88 / 13.75 / 13.88 |
+| particles only 2x2, lamp off | 18 | 13.64 ms | 13.92 / 13.37 |
 
-**2.0x less frame work** (-19.3 ms), the same result in every one of the seven
-alternating arms (window sd under 1 ms). The particle bracket itself - the two
-quarter-area copies, the mask and the composite - reads 0.99 ms of it. Measured
+**2.5x less frame work** (-21.0 ms) with the particles reduced, the same in
+every alternating arm (window sd under 1.3 ms); the bracket itself - two
+quarter-area copies, the mask and the composite - reads about 1 ms of it. The
+spot lamp's shadow volumes cost nothing measurable from this vantage (the
+casters are ~25 units away and small on screen). An earlier run with a linked
+portal pair in the scene measured 38.62 -> 19.30 ms (2.0x): the portal submits
+the scene a second time, EE work the upscaler cannot touch. Measured
 2026-10-23, frozen camera at the player's start in `examples/upscaler-lab`.
 
 PCSX2's software renderer under-reports GS fill about 76x
