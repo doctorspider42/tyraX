@@ -1743,6 +1743,8 @@ private:
     // projectLoadDir_ before reading it, so the card is up the moment the
     // example is clicked instead of after a multi-second copy.
     std::string projectLoadCopyFrom_;
+    // Overwrite an existing copy: the worker deletes projectLoadDir_ first.
+    bool projectLoadReplace_ = false;
     std::atomic<bool> projectLoadCopying_{false};
     int projectLoadStage_ = 0;      // 0 = read the files, 1 = migrate + attach
     int projectLoadDrawn_ = 0;      // card frames presented since the stage began
@@ -1785,7 +1787,14 @@ private:
     std::string welcomePcsx2_;           // auto-detected or configured, "" = none
     bool welcomeToolchainReady_ = false;
     void scanWelcomeExamples();
-    void openExampleCopy(const WelcomeExample& ex);
+    // mode 0 = ask when the projects folder already has this example (the
+    // "You already have it" dialog), 1 = a copy under a free name, 2 =
+    // replace the existing copy.
+    void openExampleCopy(const WelcomeExample& ex, int mode = 0);
+    void drawExampleExistsModal();
+    bool exampleExistsAsk_ = false;      // open the dialog next frame
+    WelcomeExample exampleExists_;       // the example it is about
+    std::string exampleExistsDir_;       // the copy already there
 
     // --- Collaboration session (docs/collaboration.md) ----------------------
     // Live LAN sessions: this editor hosts its open project or joins another

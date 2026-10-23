@@ -2733,9 +2733,12 @@ void App::scanWelcomeExamples() {
 }
 
 // "Open a copy": the example folder is copied under the default projects
-// folder (a free name beside any earlier copy) and the copy is opened. The
-// shipped example is never edited - a package may not even be writable.
-void App::openExampleCopy(const WelcomeExample& ex) {
+// folder and the copy is opened. The shipped example is never edited - a
+// package may not even be writable. When the projects folder already holds
+// a copy (examples/<folder> -> <projects>/<folder> with a .tyra in it), mode
+// 0 asks first (drawExampleExistsModal): open that copy, make another under
+// a free name (mode 1), or replace it with a fresh one (mode 2).
+void App::openExampleCopy(const WelcomeExample& ex, int mode) {
     namespace fs = std::filesystem;
     const std::string parent = defaultNewProjectLocation(globalDefaultProjectsDir_);
     if (parent.empty()) {
@@ -2744,15 +2747,74 @@ void App::openExampleCopy(const WelcomeExample& ex) {
     }
     std::error_code ec;
     fs::create_directories(parent, ec);
-    const fs::path dest = freeFolder(parent, ex.folder);
+    const fs::path existing = fs::path(parent) / ex.folder;
+    bool haveCopy = false;
+    if (fs::is_directory(existing, ec))
+        for (const auto& e : fs::directory_iterator(existing, ec))
+            if (e.path().extension() == ".tyra") haveCopy = true;
+    if (mode == 0 && haveCopy) {
+        exampleExists_ = ex;
+        exampleExistsDir_ = existing.string();
+        exampleExistsAsk_ = true;
+        return;
+    }
+    const bool replace = mode == 2 && haveCopy;
+    const fs::path dest = replace ? existing : freeFolder(parent, ex.folder);
     // The copy runs on the loading card's worker (projectLoadTick, stage 0):
     // a large example (the vehicle playground) took seconds to copy here, on
     // the UI thread, before any card appeared.
     openProjectAt(dest.string());
     if (!projectLoading_) return;
     projectLoadCopyFrom_ = ex.dir;
+    projectLoadReplace_ = replace;
     projectLoadName_ = ex.title;
-    statusMessage_ = "Copying the " + ex.title + " example to " + dest.string();
+    statusMessage_ = (replace ? "Replacing your copy of the " : "Copying the ") + ex.title + " example " +
+                     (replace ? "in " : "to ") + dest.string();
+}
+
+// "You already have it": the start page's example card when the projects
+// folder already holds a copy. Open is the default - most clicks are someone
+// coming back to the example they were playing with.
+void App::drawExampleExistsModal() {
+    namespace fs = std::filesystem;
+    const char* kTitle = "Example already in your projects";
+    if (exampleExistsAsk_) {
+        ImGui::OpenPopup(kTitle);
+        exampleExistsAsk_ = false;
+    }
+    ImGui::SetNextWindowSize(ImVec2(scaled(460), 0.0f), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal(kTitle, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+        return;
+    const WelcomeExample ex = exampleExists_;
+    ImGui::PushTextWrapPos(scaled(440));
+    ImGui::Text("You already have %s:", ex.title.c_str());
+    ImGui::TextDisabled("%s", exampleExistsDir_.c_str());
+    ImGui::Spacing();
+    const std::string fresh =
+        freeFolder(fs::path(exampleExistsDir_).parent_path(), ex.folder).filename().string();
+    const float w = scaled(440);
+    if (ui::PrimaryButton("Open it", w) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+        ImGui::CloseCurrentPopup();
+        openProjectAt(exampleExistsDir_);
+    }
+    ImGui::TextDisabled("Carry on where you left off.");
+    ImGui::Spacing();
+    if (ImGui::Button("Copy with a new name", ImVec2(w, 0.0f))) {
+        ImGui::CloseCurrentPopup();
+        openExampleCopy(ex, 1);
+    }
+    ImGui::TextDisabled("A fresh copy as %s; yours stays as it is.", fresh.c_str());
+    ImGui::Spacing();
+    if (ui::DangerButton("Overwrite", w)) {
+        ImGui::CloseCurrentPopup();
+        openExampleCopy(ex, 2);
+    }
+    ImGui::TextDisabled("Deletes that folder and copies the example fresh - your changes there are lost.");
+    ImGui::Spacing();
+    ImGui::Separator();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    ImGui::PopTextWrapPos();
+    ImGui::EndPopup();
 }
 
 void App::drawWelcomeScreen() {
@@ -3147,6 +3209,7 @@ void App::drawWelcomeScreen() {
                 const WelcomeExample ex = *pick;  // openExampleCopy may rescan nothing, but copy anyway
                 openExampleCopy(ex);
             }
+            drawExampleExistsModal();
         }
     }
     ImGui::EndChild();
@@ -6799,6 +6862,7 @@ void App::openProjectAt(const std::string& dir, bool fromRecent) {
 
     projectLoadDir_ = dir;
     projectLoadCopyFrom_.clear();  // openExampleCopy sets it after this call
+    projectLoadReplace_ = false;
     // The manifest's name (what the project is called), else the folder's.
     projectLoadName_ = projectManifestName(dir);
     if (projectLoadName_.empty()) projectLoadName_ = std::filesystem::path(dir).filename().string();
@@ -6888,11 +6952,15 @@ void App::projectLoadTick() {
             projectLoadProgress_.objectsDone = 0;
             projectLoadProgress_.objectsTotal = 0;
             projectLoadThread_ = std::thread([this, dir = projectLoadDir_,
-                                              copyFrom = projectLoadCopyFrom_] {
+                                              copyFrom = projectLoadCopyFrom_, replace = projectLoadReplace_] {
                 if (!copyFrom.empty()) {
                     projectLoadCopying_ = true;
                     std::error_code ec;
-                    std::filesystem::copy(copyFrom, dir, std::filesystem::copy_options::recursive, ec);
+                    // Overwrite (the "already in your projects" dialog): the
+                    // old copy goes first, so nothing of it survives the copy.
+                    if (replace) std::filesystem::remove_all(dir, ec);
+                    if (!ec)
+                        std::filesystem::copy(copyFrom, dir, std::filesystem::copy_options::recursive, ec);
                     projectLoadCopying_ = false;
                     if (ec || projectLoadAbort_) {
                         // Half a copy is not a project: take it away again.

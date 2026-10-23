@@ -40,10 +40,20 @@ tag. **Featured** shows six of them; **All** and the category chips
 (Rendering, Gameplay, Vehicles, Cinema & UI, Performance) show the rest.
 
 Clicking a card **opens a copy**: the example folder is copied into your
-projects folder (*Edit > Preferences > Projects*, `~/TyraProjects` by default),
-as `<example>`, or `<example>-2` beside an earlier copy, and the copy opens. The
-shipped example is never edited - an installed package may not even be
-writable, and the next update would overwrite your changes.
+projects folder (*Edit > Preferences > Projects*, `~/TyraProjects` by default)
+as `<example>`, and the copy opens. The shipped example is never edited - an
+installed package may not even be writable, and the next update would
+overwrite your changes.
+
+When the projects folder already has that example (a `<example>` folder with a
+`.tyra` in it), a dialog asks first:
+
+- **Open it** (the default, Enter) - carry on with the copy you have.
+- **Copy with a new name** - a fresh copy beside it as `<example>-2` (`-3`...);
+  yours stays as it is.
+- **Overwrite** - deletes that folder and copies the example fresh; your
+  changes there are lost.
+- **Cancel** (Esc).
 
 ## New project
 
