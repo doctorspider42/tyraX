@@ -62,7 +62,7 @@ one for *Duplicate* and *Delete*.
 The top of the settings says **which values you are editing**: *Editing:
 Defaults | <vehicle>* switches between the project-wide Defaults and the
 selected car, and a line under it says how many of the car's values are its
-own. In Defaults the line says which vehicles a change reaches.
+own. In Defaults there is no switch - the list on the left goes back to a car.
 
 Every tuned value is a row of three columns - caption, control, and a fixed
 **state slot** on the right, so nothing is drawn over a caption:

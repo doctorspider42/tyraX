@@ -1383,20 +1383,17 @@ void App::drawVehicleWindow() {
                 }
             });
     }
-    {
+    // On a vehicle only: in Defaults the title already says what is being
+    // edited, and the list on the left is the way back to a car.
+    if (!global) {
         ImGui::AlignTextToFramePadding();
         ImGui::TextDisabled("Editing");
         ImGui::SameLine();
-        if (vehicleScopeVehicle_ >= 0) {
-            const std::string carLabel = defs[vehicleScopeVehicle_].name + "##scope";
-            const char* scopes[] = {"Defaults##scope", carLabel.c_str()};
-            int scope = global ? 0 : 1;
-            if (ui::Segmented("##vehscope", scopes, 2, &scope))
-                vehicleSel_ = scope == 0 ? -2 : vehicleScopeVehicle_;
-        } else {
-            ImGui::TextUnformatted("Defaults");
-        }
-        if (!global && v.inheritDefaults) {
+        const std::string carLabel = defs[vehicleScopeVehicle_].name + "##scope";
+        const char* scopes[] = {"Defaults##scope", carLabel.c_str()};
+        int scope = 1;
+        if (ui::Segmented("##vehscope", scopes, 2, &scope)) vehicleSel_ = scope == 0 ? -2 : vehicleScopeVehicle_;
+        if (v.inheritDefaults) {
             ImGui::SameLine();
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + scaled(12));
             ImGui::AlignTextToFramePadding();
@@ -1409,22 +1406,8 @@ void App::drawVehicleWindow() {
         }
     }
     ImGui::PushTextWrapPos(0.0f);
+    // Defaults needs no reach line: who follows is in each row's slot.
     if (global) {
-        // The reach banner: a change here fans out, and to whom.
-        std::string follow, legacy;
-        int follows = 0;
-        for (const VehicleDef& d : defs) {
-            std::string& list = d.inheritDefaults ? follow : legacy;
-            if (!list.empty()) list += ", ";
-            list += d.name;
-            follows += d.inheritDefaults ? 1 : 0;
-        }
-        if (follows == 0)
-            ImGui::TextDisabled("No vehicle follows Defaults yet. New vehicles start from these values.");
-        else
-            ImGui::TextWrapped("A change here reaches every vehicle that follows it: %s.", follow.c_str());
-        if (!legacy.empty()) ImGui::TextDisabled("%s keep%s values of their own (legacy).", legacy.c_str(),
-                                                 legacy.find(',') == std::string::npos ? "s its" : "");
     } else if (!v.inheritDefaults) {
         // Made before Defaults existed: one banner, one action (decision 10).
         int differ = 0;
