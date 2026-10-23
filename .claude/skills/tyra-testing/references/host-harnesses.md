@@ -56,7 +56,7 @@ git worktree add /tmp/base HEAD && (cd /tmp/base && ./build.sh --dev)
 
 ## Log panels' severity split (docs/log-panels.md)
 
-`logview.cpp` is a pure function of text. Feed a realistic build log; assert counts are per ENTRY (a gcc error + snippet = one error) and that line-at-a-time parsing via `parse(log, from, state, out)` + `appendPartial` is byte-identical to one-shot (panels classify incrementally while streaming). Panel itself: `--ui-script` (`click 'Output/3 errors'`, `expect-unchecked 'Output/Select text'`). The **Debug** window is a pill tab next to Output (and the Debugger) in the Default layout: `click Debug` selects it.
+`logview.cpp` is a pure function of text. Feed a realistic build log; assert counts are per ENTRY (a gcc error + snippet = one error) and that line-at-a-time parsing via `parse(log, from, state, out)` + `appendPartial` is byte-identical to one-shot (panels classify incrementally while streaming). Panel itself: `--ui-script` (`click 'Output/3 errors'`; the mouse selection is a drag and has no named widget, so check it by hand). The **Debug** window is a pill tab next to Output (and the Debugger) in the Default layout: `click Debug` selects it.
 
 ## Live Logic patches
 

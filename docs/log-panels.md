@@ -41,7 +41,7 @@ this one. The other built-in layouts are unchanged.
 
 Both log panels share one **header row**: the panel's own actions on the left
 (Output: *Clear*, *Copy*; Debug: the source combo, *Reload*, *Auto*, *Copy*,
-*Clear log*), then *Select text*, then the level chips pushed to the right edge.
+*Clear log*), then the level chips pushed to the right edge.
 When the drawer is too narrow, the pieces move to a second row instead of being
 clipped (the chips stay right-aligned). The Debug window adds one quiet second
 row: the file it is reading, dimmed and cut with an ellipsis (the full path is
@@ -54,8 +54,9 @@ sees it — which for a file that existed before the editor opened is the moment
 it was first read, and a reset (*Clear log*, switching the source, a new run
 recreating `bin/log.txt`, the 1 MB tail moving) restamps everything. Continuation
 lines and blank lines show no time, so the column marks where each entry starts.
-*Select text* and *Copy* give the raw lines: Output's keep their stamp, Debug's
-have none.
+*Copy* gives the raw lines: Output's keep their stamp, Debug's have none. A
+mouse selection copies what it covers on screen — the messages, without the
+time column.
 
 The drawer **tabs carry a count**: a small pill on the *Output* / *Debug* tab
 with the number of error entries (danger colour) or, when there are none, of
@@ -99,12 +100,23 @@ spinning **BUILDING** chip at its left end while the Runner works, a red
 **BUILD FAILED** afterwards if it did not make it, and nothing at all otherwise.
 Clicking either brings this panel to the front.
 
-## Select text
+## Selecting text
 
-ImGui's editable text is one colour, so the coloured view cannot be selected
-with the mouse. The **Select text** switch swaps in a read-only text box over
-the *same filtered lines* — colouring for selection, with the filter still
-working. It is remembered too (`logSelectOutput` / `logSelectDebug`).
+The coloured lines select directly with the mouse, like a terminal: **drag**
+to select (dragging past the top or bottom edge scrolls), **Shift+click** to
+extend, **double-click** for a whole line, **Ctrl+A** for everything shown,
+**Ctrl+C** to copy, **Esc** to drop the selection; right-click offers *Copy* and
+*Select all*. Hidden levels are skipped in the copy, and the view holds its
+position while a drag is in progress even when new lines arrive.
+
+ImGui's own selectable text is an `InputText`, which is one colour, so the
+panel does the selection itself (`drawLogPanel`): the lines stay plain
+`TextUnformatted` calls and the selection is a (line, byte) pair hit-tested
+against them — every row is one font and one height, so a mouse position maps
+to a line by division and to a byte by measuring glyphs. While a log panel has
+focus, the editor's global Ctrl+C (copy scene objects) stands down. (Older
+versions had a *Select text* switch that swapped in a one-colour text box; its
+`logSelectOutput` / `logSelectDebug` keys in `editor.ini` are now ignored.)
 
 ## Where the code is
 

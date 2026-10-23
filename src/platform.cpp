@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
 
@@ -1057,44 +1059,69 @@ bool copyImageToClipboard(const unsigned char* rgba, int width, int height,
                           const std::string& pngPath) {
     if (!rgba || width <= 0 || height <= 0) return false;
 #ifdef _WIN32
-    const size_t pixels = (size_t)width * (size_t)height * 4;
-    const size_t bytes = sizeof(BITMAPV5HEADER) + pixels;
-    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory) return false;
-    unsigned char* dst = static_cast<unsigned char*>(GlobalLock(memory));
+    // Two formats, the pair Paint and the browsers publish: "PNG" (the saved
+    // file's bytes - what Chromium/Electron apps read first) and a classic
+    // bottom-up BI_RGB CF_DIB for everything older. A lone top-down
+    // BI_BITFIELDS CF_DIBV5 (what this used to publish) pastes into Paint but
+    // Electron apps - Claude among them - read the synthesized DIB as a broken
+    // image and fail the paste, while the same PNG copied from Explorer works.
+    const size_t row = (size_t)width * 4;
+    const size_t pixels = row * (size_t)height;
+    HGLOBAL dib = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + pixels);
+    if (!dib) return false;
+    unsigned char* dst = static_cast<unsigned char*>(GlobalLock(dib));
     if (!dst) {
-        GlobalFree(memory);
+        GlobalFree(dib);
         return false;
     }
-    BITMAPV5HEADER* head = reinterpret_cast<BITMAPV5HEADER*>(dst);
+    BITMAPINFOHEADER* head = reinterpret_cast<BITMAPINFOHEADER*>(dst);
     std::memset(head, 0, sizeof(*head));
-    head->bV5Size = sizeof(*head);
-    head->bV5Width = width;
-    head->bV5Height = -height;  // top-down, like the decoded debugger pixels
-    head->bV5Planes = 1;
-    head->bV5BitCount = 32;
-    head->bV5Compression = BI_BITFIELDS;
-    head->bV5SizeImage = (DWORD)pixels;
-    head->bV5RedMask = 0x00FF0000;
-    head->bV5GreenMask = 0x0000FF00;
-    head->bV5BlueMask = 0x000000FF;
-    head->bV5AlphaMask = 0xFF000000;
-    unsigned char* bgra = dst + sizeof(*head);
-    for (size_t i = 0; i < pixels; i += 4) {
-        bgra[i + 0] = rgba[i + 2];
-        bgra[i + 1] = rgba[i + 1];
-        bgra[i + 2] = rgba[i + 0];
-        bgra[i + 3] = rgba[i + 3];
+    head->biSize = sizeof(*head);
+    head->biWidth = width;
+    head->biHeight = height;  // bottom-up: the layout every reader handles
+    head->biPlanes = 1;
+    head->biBitCount = 32;
+    head->biCompression = BI_RGB;
+    head->biSizeImage = (DWORD)pixels;
+    for (int y = 0; y < height; ++y) {
+        const unsigned char* s = rgba + (size_t)(height - 1 - y) * row;
+        unsigned char* d = dst + sizeof(*head) + (size_t)y * row;
+        for (int x = 0; x < width; ++x, s += 4, d += 4) {
+            d[0] = s[2];
+            d[1] = s[1];
+            d[2] = s[0];
+            d[3] = s[3];
+        }
     }
-    GlobalUnlock(memory);
+    GlobalUnlock(dib);
+
+    HGLOBAL png = nullptr;
+    std::error_code ec;
+    if (!pngPath.empty() && fs::is_regular_file(pngPath, ec)) {
+        std::ifstream f(fs::path(pngPath), std::ios::binary);
+        std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        if (!data.empty() && (png = GlobalAlloc(GMEM_MOVEABLE, data.size()))) {
+            if (void* p = GlobalLock(png)) {
+                std::memcpy(p, data.data(), data.size());
+                GlobalUnlock(png);
+            } else {
+                GlobalFree(png);
+                png = nullptr;
+            }
+        }
+    }
+
     if (!OpenClipboard(g_dialogOwner)) {
-        GlobalFree(memory);
+        GlobalFree(dib);
+        if (png) GlobalFree(png);
         return false;
     }
     EmptyClipboard();
-    const bool ok = SetClipboardData(CF_DIBV5, memory) != nullptr;
+    // Ownership transfers only on success.
+    if (png && !SetClipboardData(RegisterClipboardFormatW(L"PNG"), png)) GlobalFree(png);
+    const bool ok = SetClipboardData(CF_DIB, dib) != nullptr;
     CloseClipboard();
-    if (!ok) GlobalFree(memory);  // ownership transfers only on success
+    if (!ok) GlobalFree(dib);
     return ok;
 #elif defined(__APPLE__)
     if (pngPath.empty()) return false;

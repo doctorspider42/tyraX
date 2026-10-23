@@ -277,8 +277,12 @@ finished frame straight out of GS VRAM, writes `bin/frame.tga` over the same
 Every capture is then **kept as a PNG in the project's `screenshots/` folder**,
 named by the clock (`frame-20260817-164501.png`). **Show file** reveals that
 copy, while **Copy image** puts the decoded bitmap itself on the desktop
-clipboard, ready to paste into chat or an image editor. On Linux this uses
-`wl-copy` or `xclip`; the button reports failure when neither is installed.
+clipboard, ready to paste into chat or an image editor. On Windows it is
+published the way Paint and the browsers do it — the PNG's bytes as `PNG` plus
+a classic bottom-up `CF_DIB` — because Electron apps (Claude, Slack, Discord)
+read `PNG` first and failed the paste on the top-down `CF_DIBV5` alone. On
+Linux this uses `wl-copy` or `xclip`; the button reports failure when neither
+is installed.
 `bin/frame.tga` is a *channel*, not an album — one file, overwritten by
 the next capture and deleted at every launch — so the PNG is the one that lasts:
 it sits outside `bin/`, survives a *Clean*, opens in anything, and is

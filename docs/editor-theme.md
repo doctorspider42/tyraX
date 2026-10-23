@@ -272,7 +272,8 @@ A few things worth knowing because they are decisions rather than defaults:
 - **The console drawer.** In the Default layout Output, Debug and the Debugger
   share the bottom node. Log rows carry a dim mono time column (`textDim` at
   75%), a gutter mark on error and warning lines, and one header row of
-  actions, *Select text* and right-aligned level pills. The Output and Debug
+  actions and right-aligned level pills; a mouse selection is drawn behind
+  the coloured text in `TextSelectedBg`. The Output and Debug
   tabs show a count pill - `danger` for errors, `warn` for warnings only, its
   ink chosen by the pill's luminance - drawn over the tab's stock
   unsaved-document slot (`ImGuiWindowFlags_UnsavedDocument`), so a tab never

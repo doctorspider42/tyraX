@@ -3,6 +3,8 @@
 // 2.2.0: the Project and Properties panels slide away (rail icon, status bar, Ctrl+B / Ctrl+Alt+B);
 // each window layout remembers which are collapsed (format 119); the workspace switcher's "..."
 // lists the other layouts; built-in layouts cannot be deleted and are restored on load.
+// Output/Debug text selects with the mouse over the coloured lines (no Select text switch);
+// Copy image publishes PNG + CF_DIB on Windows so Electron apps accept the paste.
 // 2.1.2: object settings live in Output; clarify instanced detail.
 // 2.1.1: dense procedural previews use authored LOD and visibility culling.
 

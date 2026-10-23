@@ -187,8 +187,6 @@ struct EditorConfig {
     // property of how they work, not of the project.
     unsigned logMaskOutput = logview::kAll;
     unsigned logMaskDebug = logview::kAll;
-    bool logSelectOutput = false;
-    bool logSelectDebug = false;
     // AI Assistant: may it run the tools that CHANGE things (docs/ai-chat.md)?
     // A workflow preference like placementSnap - how a person wants to work,
     // not a property of any project.
@@ -340,8 +338,6 @@ static EditorConfig loadEditorConfig() {
             cfg.logMaskOutput = (unsigned)toI(v, (int)logview::kAll) & logview::kAll;
         else if (match("logMaskDebug", v))
             cfg.logMaskDebug = (unsigned)toI(v, (int)logview::kAll) & logview::kAll;
-        else if (match("logSelectOutput", v)) cfg.logSelectOutput = toI(v, 0) != 0;
-        else if (match("logSelectDebug", v)) cfg.logSelectDebug = toI(v, 0) != 0;
         else if (match("chatAllowEdits", v)) cfg.chatAllowEdits = toI(v, 1) != 0;
         else if (match("chatAllowBuild", v)) cfg.chatAllowBuild = toI(v, 0) != 0;
         else if (match("updateCheck", v)) cfg.updateCheck = toI(v, 1) != 0;
@@ -428,8 +424,6 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n"
       << "logMaskOutput=" << cfg.logMaskOutput << "\n"
       << "logMaskDebug=" << cfg.logMaskDebug << "\n"
-      << "logSelectOutput=" << (cfg.logSelectOutput ? 1 : 0) << "\n"
-      << "logSelectDebug=" << (cfg.logSelectDebug ? 1 : 0) << "\n"
       << "chatAllowEdits=" << (cfg.chatAllowEdits ? 1 : 0) << "\n"
       << "chatAllowBuild=" << (cfg.chatAllowBuild ? 1 : 0) << "\n"
       << "updateCheck=" << (cfg.updateCheck ? 1 : 0) << "\n"
@@ -703,8 +697,6 @@ int App::run(const std::string& initialProjectDir) {
         timeBudgetMb_ = cfg.timeMachineBudgetMb;
         logOut_.mask = cfg.logMaskOutput;
         logDbg_.mask = cfg.logMaskDebug;
-        logOut_.selectText = cfg.logSelectOutput;
-        logDbg_.selectText = cfg.logSelectDebug;
         chatAllowEdits_ = cfg.chatAllowEdits;
         chatAllowBuild_ = cfg.chatAllowBuild;
         globalUpdateCheck_ = cfg.updateCheck;
@@ -1255,7 +1247,10 @@ void App::drawUI() {
             if (!flowGraphFocused_) {
                 if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_G)) ungroupSelection();
                 else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_G)) groupSelection();
-                if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
+                // ...unless a log panel had focus: there Ctrl+C copies its text.
+                const int frame = ImGui::GetFrameCount();
+                const bool logFocused = frame - logOut_.focusFrame <= 1 || frame - logDbg_.focusFrame <= 1;
+                if (!logFocused && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
                 if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) pasteObject();
             }
         }
@@ -1308,8 +1303,7 @@ void App::saveGlobalConfig() {
                       safeArea_.opacity, timeBudgetMb_,
                       theme::info(theme_).key, viewportPs2_,
                       viewportPs2Shade_, viewportGsColor_, runOnPs2_,
-                      logOut_.mask, logDbg_.mask, logOut_.selectText,
-                      logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
+                      logOut_.mask, logDbg_.mask, chatAllowEdits_, chatAllowBuild_,
                       gpuBakes_, globalUpdateCheck_, globalUpdateSkip_,
                       globalConsoleLogLines_, globalConsoleLogFiles_,
                       nativeTitleBar_, ambienceDetailed_, droneDetailed_,
@@ -16333,8 +16327,8 @@ static bool logLevelChip(logview::Level l, int count, bool on) {
 // --- console drawer ---
 // Output, Debug and the Debugger share the bottom dock node of the Default
 // layout and read as one console drawer: the same header row (actions left,
-// "Select text", level chips right), a dim time column on every entry, and
-// the error/warning count on the log tabs.
+// level chips right), a dim time column on every entry, mouse selection over
+// the coloured lines, and the error/warning count on the log tabs.
 
 // Seconds since local midnight from an "HH:MM:SS" stamp (the runner's own,
 // platform::logTimeStamp). -1 when `s` is not one.
@@ -16388,6 +16382,8 @@ void App::logSetText(LogView& v, std::string&& text) {
         v.parsed = 0;
         v.complete = 0;
         v.state = logview::State{};
+        v.selA = v.selB = LogView::SelPos{};  // its lines are gone
+        v.selDrag = false;
     } else if (v.times.size() > v.complete) {
         tailTime = v.times[v.complete];
     }
@@ -16450,19 +16446,12 @@ void App::logRefresh(LogView& v) {
                                       v.text.c_str() + ln.end).x;
     }
     v.widthFont = font;
-    // Only the selectable-text mode needs the lines as one string; Copy builds
-    // its own on demand, so an ordinary streaming build pays no joins.
-    if (v.selectText)
-        v.joined = logview::join(v.text, v.lines, v.mask);
-    else
-        v.joined.clear();
     v.dirty = false;
 }
 
-// The end of a log panel's header row, after the caller's own actions:
-// "Select text", then the level chips pushed to the right edge. Each piece
-// moves to a new row when it no longer fits, so a narrow panel stacks instead
-// of clipping.
+// The end of a log panel's header row, after the caller's own actions: the
+// level chips pushed to the right edge. They move to a new row when they no
+// longer fit, so a narrow panel stacks instead of clipping.
 void App::drawLogHeader(LogView& v) {
     // The counts must be current before the chips read them, and a Clear in
     // the caller's actions may just have replaced the text. Measured in the
@@ -16474,20 +16463,6 @@ void App::drawLogHeader(LogView& v) {
     }
 
     const ImGuiStyle& st = ImGui::GetStyle();
-    const float switchW = IM_TRUNC(IM_TRUNC(ImGui::GetFontSize() * 1.05f) * 1.8f) +
-                          st.ItemInnerSpacing.x + ImGui::CalcTextSize("Select text").x;
-    logRowNext(switchW);
-    if (ui::Switch("Select text", &v.selectText)) {
-        v.dirty = true;
-        v.scrollBottom = true;  // the two modes measure their content differently
-        saveGlobalConfig();
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Draw the filtered log in a read-only text box so it can be\n"
-            "selected with the mouse. ImGui's editable text is one colour,\n"
-            "so this trades the per-level colouring for selection - the\n"
-            "filter keeps working either way.");
 
     // Chips: most severe first - the order a reader scans a log console in.
     // Their labels carry the counts, so the group's width is measured per frame
@@ -16521,6 +16496,63 @@ void App::drawLogHeader(LogView& v) {
     }
 }
 
+// --- selection over the coloured lines ---
+// ImGui's selectable text is an InputText, and that is one colour; the log is
+// coloured per level. So the panel does its own selection: the lines stay
+// plain TextUnformatted calls and the selection is a (line, byte) pair hit-
+// tested against them. Every line is one font and one row high, so a mouse
+// position maps to a line by division and to a byte by measuring glyphs.
+
+static bool logSelLess(const LogView::SelPos& a, const LogView::SelPos& b) {
+    return a.line != b.line ? a.line < b.line : a.off < b.off;
+}
+
+static bool logSelEmpty(const LogView& v) {
+    return v.selA.line == v.selB.line && v.selA.off == v.selB.off;
+}
+
+// A line's message (what the panel draws - without the Runner's stamp).
+static const char* logMsg(const LogView& v, size_t li, size_t* len) {
+    const logview::Line& ln = v.lines[li];
+    *len = ln.end - ln.begin - ln.stamp;
+    return v.text.c_str() + ln.begin + ln.stamp;
+}
+
+// The byte boundary in `s` nearest to `x` px from its start.
+static size_t logHitByte(const char* s, size_t len, float x) {
+    const char* p = s;
+    const char* e = s + len;
+    float w = 0.0f;
+    while (p < e) {
+        unsigned int c;
+        const int n = ImTextCharFromUtf8(&c, p, e);
+        const float cw = ImGui::CalcTextSize(p, p + n).x;
+        if (x < w + cw * 0.5f) break;
+        w += cw;
+        p += n;
+    }
+    return (size_t)(p - s);
+}
+
+// The selected text: the shown lines between anchor and caret, one per row.
+static std::string logSelText(const LogView& v) {
+    LogView::SelPos lo = v.selA, hi = v.selB;
+    if (logSelLess(hi, lo)) std::swap(lo, hi);
+    std::string out;
+    bool first = true;
+    for (size_t li = lo.line; li <= hi.line && li < v.lines.size(); ++li) {
+        if (!(v.mask & logview::bit(v.lines[li].level))) continue;
+        size_t len;
+        const char* m = logMsg(v, li, &len);
+        const size_t s = li == lo.line ? ImMin(lo.off, len) : 0;
+        const size_t e = li == hi.line ? ImMin(hi.off, len) : len;
+        if (!first) out += '\n';
+        out.append(m + s, e > s ? e - s : 0);
+        first = false;
+    }
+    return out;
+}
+
 void App::drawLogPanel(const char* id, LogView& v) {
     // Here as well as in drawLogHeader: a Clear / source switch between the two
     // has just replaced v.text and cleared v.lines, and `visible` would still
@@ -16540,28 +16572,91 @@ void App::drawLogPanel(const char* id, LogView& v) {
 
     // Own scrolling child so the scroll can be driven directly (see the
     // autoscroll note below).
-    if (!v.selectText)
-        ImGui::SetNextWindowContentSize(ImVec2(
-            gutter + timeW + v.width + ImGui::GetStyle().FramePadding.x * 2.0f + scaled(10.0f), 0.0f));
+    ImGui::SetNextWindowContentSize(ImVec2(
+        gutter + timeW + v.width + ImGui::GetStyle().FramePadding.x * 2.0f + scaled(10.0f), 0.0f));
     ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
                       ImGuiWindowFlags_HorizontalScrollbar);
     // A log is read in columns (timestamps, paths, counts): fixed-width.
     ImGui::PushFont(ui::monoFont(), 0.0f);
 
-    if (v.selectText) {
-        // Sizing the input to its own content means this child (not the input)
-        // owns the scrollbars, so GetScrollY/SetScrollHereY refer to what we see.
-        // (The joined text is the raw lines: an Output line keeps its runner
-        // stamp, a Debug line has no time - the column is a view, not text.)
-        const ImVec2 pad = ImGui::GetStyle().FramePadding;
-        const ImVec2 textSize = ImGui::CalcTextSize(v.joined.c_str(), nullptr, false);
-        const ImVec2 avail = ImGui::GetContentRegionAvail();
-        const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
-                               ImMax(textSize.y + pad.y * 2.0f, avail.y));
-        ImGui::InputTextMultiline("##logtext", const_cast<char*>(v.joined.c_str()),
-                                  v.joined.size() + 1, inputSize,
-                                  ImGuiInputTextFlags_ReadOnly);
-    } else if (v.visible.empty()) {
+    // Mouse selection. One item spans the visible area (not the scrollbars), so
+    // a drag selects instead of reaching the window behind it; it is submitted
+    // before the lines so this frame's highlight already follows the mouse.
+    ImGuiWindow* win = ImGui::GetCurrentWindow();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();  // line 0, scrolled
+    const float rowH = ImGui::GetTextLineHeightWithSpacing();
+    const float textX = origin.x + gutter + timeW;      // where messages start
+    const ImGuiID selId = win->GetID("##logsel");
+    const ImRect area = win->InnerClipRect;
+    ImGui::ItemAdd(area, selId, nullptr, ImGuiItemFlags_NoNav);
+    bool hovered = false, held = false;
+    const bool pressed =
+        ImGui::ButtonBehavior(area, selId, &hovered, &held, ImGuiButtonFlags_PressedOnClick);
+    if ((hovered || held) && !v.visible.empty()) ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
+    if ((pressed || (held && v.selDrag)) && !v.visible.empty()) {
+        const ImVec2 m = ImGui::GetMousePos();
+        const int row = (int)ImFloor((m.y - origin.y) / rowH);
+        LogView::SelPos at;
+        size_t len;
+        if (row < 0) {
+            at.line = (size_t)v.visible.front();
+        } else if (row >= (int)v.visible.size()) {
+            at.line = (size_t)v.visible.back();
+            logMsg(v, at.line, &len);
+            at.off = len;
+        } else {
+            at.line = (size_t)v.visible[row];
+            const char* msg = logMsg(v, at.line, &len);
+            at.off = logHitByte(msg, len, m.x - textX);
+        }
+        if (pressed && ImGui::GetIO().MouseClickedCount[ImGuiMouseButton_Left] >= 2) {
+            // Double-click: the whole line - the usual unit a log is copied in.
+            logMsg(v, at.line, &len);
+            v.selA = {at.line, 0};
+            v.selB = {at.line, len};
+            v.selDrag = false;
+        } else {
+            if (pressed && !ImGui::GetIO().KeyShift) v.selA = at;
+            v.selB = at;
+            v.selDrag = true;
+        }
+    }
+    if (!held) v.selDrag = false;
+    // Dragging past the top or bottom edge scrolls, faster the further out.
+    if (held && v.selDrag) {
+        const float my = ImGui::GetMousePos().y;
+        const float dt = ImGui::GetIO().DeltaTime * 10.0f;
+        if (my < area.Min.y) ImGui::SetScrollY(ImGui::GetScrollY() - (area.Min.y - my) * dt);
+        else if (my > area.Max.y) ImGui::SetScrollY(ImGui::GetScrollY() + (my - area.Max.y) * dt);
+    }
+    auto selectAll = [&] {
+        if (v.visible.empty()) return;
+        size_t len;
+        logMsg(v, (size_t)v.visible.back(), &len);
+        v.selA = {(size_t)v.visible.front(), 0};
+        v.selB = {(size_t)v.visible.back(), len};
+    };
+    if (ImGui::BeginPopupContextItem("##logctx")) {
+        if (ImGui::MenuItem("Copy", "Ctrl+C", false, !logSelEmpty(v)))
+            ImGui::SetClipboardText(logSelText(v).c_str());
+        if (ImGui::MenuItem("Select all", "Ctrl+A", false, !v.visible.empty())) selectAll();
+        ImGui::EndPopup();
+    }
+    // Keys while the panel has focus (a click focuses it). The global Ctrl+C
+    // (copy scene objects) stands down for a frame-old focus: see focusFrame.
+    if (ImGui::IsWindowFocused()) {
+        v.focusFrame = ImGui::GetFrameCount();
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C) && !logSelEmpty(v))
+            ImGui::SetClipboardText(logSelText(v).c_str());
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_A)) selectAll();
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) v.selB = v.selA;
+    }
+    LogView::SelPos selLo = v.selA, selHi = v.selB;
+    if (logSelLess(selHi, selLo)) std::swap(selLo, selHi);
+    const bool hasSel = !logSelEmpty(v);
+    const ImU32 selCol = ImGui::GetColorU32(ImGuiCol_TextSelectedBg);
+
+    if (v.visible.empty()) {
         // Say WHY it is empty: an all-levels-off filter otherwise reads exactly
         // like a log that has nothing in it.
         if (v.lines.empty())
@@ -16599,6 +16694,18 @@ void App::drawLogPanel(const char* id, LogView& v) {
                     snprintf(hms, sizeof(hms), "%02d:%02d:%02d", t / 3600, (t / 60) % 60, t % 60);
                     dl->AddText(ImVec2(p.x + gutter, p.y), timeCol, hms);
                 }
+                // The selection, behind the text. A line selected through its
+                // end gets one blank glyph more, the way editors show a newline.
+                if (hasSel && (size_t)li >= selLo.line && (size_t)li <= selHi.line) {
+                    size_t len;
+                    const char* msg = logMsg(v, (size_t)li, &len);
+                    const size_t s = (size_t)li == selLo.line ? ImMin(selLo.off, len) : 0;
+                    const size_t e = (size_t)li == selHi.line ? ImMin(selHi.off, len) : len;
+                    const float x0 = textX + ImGui::CalcTextSize(msg, msg + s).x;
+                    float x1 = textX + ImGui::CalcTextSize(msg, msg + e).x;
+                    if ((size_t)li != selHi.line) x1 += ImGui::CalcTextSize(" ").x;
+                    if (x1 > x0) dl->AddRectFilled(ImVec2(x0, p.y), ImVec2(x1, p.y + rowH), selCol);
+                }
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gutter + timeW);
                 ImGui::PushStyleColor(ImGuiCol_Text, logLevelColor(ln.level));
                 ImGui::TextUnformatted(v.text.c_str() + ln.begin + ln.stamp, v.text.c_str() + ln.end);
@@ -16612,10 +16719,9 @@ void App::drawLogPanel(const char* id, LogView& v) {
     // GetScrollMaxY() lags one frame behind the content just appended, so when
     // we were pinned last frame Scroll.y still equals it here and the test
     // passes; once the user scrolls up it no longer does and we let go.
-    if (v.scrollBottom ||
-        (v.visible.size() != v.shown && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f))
+    // A drag in progress holds position too.
+    if (!held && v.visible.size() != v.shown && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
         ImGui::SetScrollHereY(1.0f);
-    v.scrollBottom = false;
     v.shown = v.visible.size();
 
     ImGui::PopFont();

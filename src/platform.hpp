@@ -252,8 +252,9 @@ void openUrl(const std::string& url);
 void revealInFileManager(const std::string& path);
 
 // Put an RGBA image on the native clipboard so it pastes as pixels, not as a
-// file path. `pngPath` is the already-saved equivalent used by Linux clipboard
-// helpers; Windows publishes a CF_DIBV5 directly from `rgba`. Returns false
+// file path. `pngPath` is the already-saved equivalent: Linux/macOS hand it to
+// the clipboard as is; Windows publishes its bytes as "PNG" next to a CF_DIB
+// built from `rgba` (what Electron apps and Paint both read). Returns false
 // when the platform clipboard is busy or no image-capable helper is installed.
 bool copyImageToClipboard(const unsigned char* rgba, int width, int height,
                           const std::string& pngPath);

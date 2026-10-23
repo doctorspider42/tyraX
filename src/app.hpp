@@ -125,7 +125,18 @@ struct LogView {
     std::vector<int> times;
 
     unsigned mask = logview::kAll;  // levels shown; persisted in editor.ini
-    bool selectText = false;        // swap the colours for a selectable text box
+
+    // The mouse selection over the coloured lines: an anchor and a caret, each a
+    // line index into `lines` plus a byte offset into that line's MESSAGE (after
+    // its stamp - the time column is not text). Line indices survive appends;
+    // logSetText resets the pair when the text is rewritten.
+    struct SelPos {
+        size_t line = 0;
+        size_t off = 0;
+    };
+    SelPos selA, selB;          // anchor, caret; empty when equal
+    bool selDrag = false;       // a press is extending the caret (not a double-click)
+    int focusFrame = -1;        // last frame the panel had focus (gates global Ctrl+C)
 
     // Derived from (lines, mask) - rebuilt when either changes, or when the font
     // size does (the width is measured in pixels).
@@ -135,9 +146,6 @@ struct LogView {
     float widthFont = 0.0f;    // font size `width` was measured at
     bool dirty = true;
     size_t shown = 0;          // visible.size() last frame (autoscroll edge)
-    bool scrollBottom = false; // jump to the tail once (the two modes scroll
-                               // differently, so a switch would land at the top)
-    std::string joined;        // the kept lines as text (Copy / selectable mode)
 };
 
 class App {
@@ -384,10 +392,10 @@ private:
     // level. logSetText() classifies new text (incrementally while a build
     // streams into it), logRefresh() rebuilds the filtered view once per frame,
     // and drawLogPanel() draws v.text through v's filter. drawLogHeader() ends
-    // the panel's header row: "Select text" then the level chips right-aligned,
-    // after whatever actions the caller put at the row's left (wrapping when
-    // the panel is narrow). drawLogTabBadge() puts the error/warning count on
-    // the panel's dock tab (see its definition for why not in the title).
+    // the panel's header row: the level chips right-aligned, after whatever
+    // actions the caller put at the row's left (wrapping when the panel is
+    // narrow). drawLogTabBadge() puts the error/warning count on the panel's
+    // dock tab (see its definition for why not in the title).
     void logSetText(LogView& v, std::string&& text);
     void logRefresh(LogView& v);
     void drawLogHeader(LogView& v);
