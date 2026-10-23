@@ -161,7 +161,11 @@ volume = {
              "nums": {"spacing": ROOM, "jitter": 0.0, "snap": 0,
                       "levels": LEVELS, "levelstep": ROOM}},
             {"id": 2, "type": "PickPrefab", "pos": [400, 200],
-             "rows": [{"s": p["name"], "v": [w, 1, 1, 0]}
+             # Past 30 units a room draws as one 240-triangle model instead
+             # of its 20 slabs and 1,048-triangle detail mesh; the slabs stay
+             # the collision either way.
+             "rows": [{"s": p["name"], "v": [w, 1, 1, 30],
+                       "lod": "res/models/cube-room-lod.obj"}
                       for p, w in zip(PREFABS, (34, 26, 26, 14))]},
             {"id": 3, "type": "Output", "pos": [760, 200],
              # Shell and detail occupy separate material chunks with different

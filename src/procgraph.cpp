@@ -917,6 +917,21 @@ const ProcNode* settingsNode(const ProcGraph& g) {
     return nullptr;
 }
 
+const ProcRow* poolRow(const ProcGraph& g, const char* type, const std::string& name) {
+    const ProcNode* best = nullptr;
+    const ProcRow* row = nullptr;
+    for (const ProcNode& n : g.nodes) {
+        if (n.type != type || (best && best->id < n.id)) continue;
+        for (const ProcRow& r : n.rows)
+            if (r.s == name) {
+                best = &n;
+                row = &r;
+                break;
+            }
+    }
+    return row;
+}
+
 int addNode(ProcGraph& g, const std::string& type, float x, float y) {
     if (!procNodeType(type)) return 0;
     ProcNode n;

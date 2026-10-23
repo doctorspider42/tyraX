@@ -62,10 +62,8 @@ Do not use a short draw distance to simulate room LOD. The structural slabs
 and the textured detail mesh merge into different chunks with different
 centres; the runtime tests each centre independently. A 35-unit cutoff can
 therefore remove a wall behind panels that are still visible, leaving holes
-between them. This runtime prefab path currently submits the base model
-vertices, not its distance-selected mesh LOD tiers. A future authored room LOD
-must retain the sealed shell and door/hatch openings, and switch related
-geometry coherently rather than remove individual material chunks.
+between them. Room LOD is instead the Pick Prefab rows' **distant version**
+(below): it switches a whole room - shell, detail and hatches - at once.
 The former slab-only demo's four-draw-call/50-FPS figures do not describe this
 more detailed version; measure the target hardware before increasing density.
 
@@ -108,7 +106,7 @@ complete rooms; it does not introduce a new runtime LOD system.
 
 ![Blender room preview (preview lighting)](authoring/room-preview.png)
 
-## Standalone far-room LOD (not connected to the procedural graph)
+## Far-room LOD
 
 `authoring/cube-room-lod.blend` and `res/models/cube-room-lod.obj` contain a
 complete far-room model: **240 triangles**, compared with 1,288 for the current
@@ -118,17 +116,57 @@ vents, handles and safety marks are projected into one 1024 × 512 atlas,
 `cube-room-lod.png`, referenced by `cube-room-lod.mtl`. The material bake uses
 colour and local ambient occlusion; preview lamps are not baked into the atlas.
 
-This asset includes the structural shell, unlike `cube-room.obj`, which is
-detail only. A future LOD switch must replace the whole room's visual geometry,
-not add this model over the existing slabs. Keep the original slab colliders;
-using the whole room's AABB for collision would block the interior. The red
-room's animated core remains a separate object. The model is neutral for room
-tinting, Y-up on export, 14 × 14 × 14 units, with its origin at floor level.
+Every row of the volume's *Pick Prefab* node names it as the row's **distant
+version** at **30 units** (the row's second line in *Tools > Procedural*). Past
+that distance from a room's cell, the room's 20 slabs and its detail mesh stop
+drawing and this one model draws in their place; nearer, the reverse. The
+switch is per room and per floor, so no wall leaves early
+([how it draws](../../docs/procedural-runtime.md#distant-versions)). The slab
+colliders stay at every distance - the far model has none. It takes the
+room's detail tint, which is why it is authored neutral. The red room's
+turning core is a separate object and does not switch. Y-up on export,
+14 × 14 × 14 units, origin at floor level - the same frame as the prefabs.
+
+Checked in PCSX2 (software renderer, frozen camera in an edge room looking
+down a row of three, fixed seed, `framePipeline` off - see below), changing only
+the rows' distance: 1000 (groups built, nothing far) matched the no-LOD frame
+pixel for pixel; 20 switched only the room 28 units away (2,688 changed pixels,
+all inside its doorway); 10 also switched the next room (34,011 pixels, all
+inside the doorway), seated exactly where the full room was, with no gaps.
+GS primitives per vsync: 15,947 without LOD, 7,123 at 20, 3,979 at 10. The
+merged geometry grows from 104,328 to 123,768 vertices, because both sides stay
+in RAM. From the middle room every room is within 30 units, so the shipped 30
+switches only when you stand in an outer room. No console frame-time claim is
+made.
+
+On a physical PS2 (same pose and seed, `framePipeline` off, debug build with
+the frame profiler; settled 1-second windows, stable to 0.02 ms):
+
+| merge / rows' distance | chunks | SCENE (EE) | FRAME |
+|---|---:|---:|---:|
+| before: members by own position, no distant version | 25 | 25.4 ms | 40 ms (25 fps) |
+| per room, no distant version | 54 | 8.8 ms | 20.8 ms (50 fps) |
+| per room, 30 (shipped) | 81 | 7.1 ms | 20.8 ms |
+| per room, 20 | 81 | 6.7 ms | 20.8 ms |
+| per room, 10 | 81 | 5.1 ms | 20.4 ms |
+
+Most of the gain is the per-room merge, which every volume-placed prefab now
+gets: merged by their own position, the members built chunks that spanned all
+three floors and crossed the edges of the view, which the EE has to clip.
+The far model adds 1.7 ms at 30 units from this pose. The new merge was checked
+in PCSX2 against the old one with no distant version: 0 changed pixels.
+Runtime occluders built from the room walls were tried and dropped: they hid
+nothing (`OCC proxies=16 hidden=0/17`) and cost 0.9 ms, because every
+neighbouring room's box touches the walls in front of it
+([why](../../docs/occlusion-culling.md#where-a-box-test-cannot-win-rooms-that-touch)).
+
+With `framePipeline: true` this example currently draws nothing in PCSX2: the
+EE stops before the first frame. The same thing happens on a build from before
+the distant-version change, and `framePipeline: false` renders normally.
 
 Rebuild from the existing near-room Blender source with
 `blender -b --factory-startup --python authoring/build-room-lod.py`.
 This writes only the LOD assets, its `.blend` and `authoring/room-lod-preview.png`.
-No manifest, prefab, near-room asset or runtime LOD setting is changed.
 Validated in Blender 5.1.2 and with TyraX `--import-model ... --dry-run`:
 240 triangles, one material, one texture and no missing dependencies.
 
@@ -140,6 +178,8 @@ Validated in Blender 5.1.2 and with TyraX `--import-model ... --dry-run`:
   21 mergeable members and 1 spawned object. In the member list
   hovering the `-core` row says *own object*; the rest say *merged*.
 - Change the weights in the volume's *Pick Prefab* pool and press TRIANGLE.
+- Drag a row's distant-version distance down to 10: every room but your own
+  draws as the 240-triangle far model, which shows exactly what it replaces.
 - Changing *Levels* adds rooms, geometry and memory use. Increase the triangle
   budget accordingly and re-measure on the target before keeping that change.
 - Drop a room prefab into a scene by hand: *Prefabs > Place in scene*, then

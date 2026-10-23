@@ -144,6 +144,14 @@ std::vector<Volume> volumes(const Project& p) {
                     v.blockColumns = nx * nz;
                 }
             }
+            auto addLod = [&](const char* type, const std::string& name) {
+                const ProcRow* r = procgraph::poolRow(o.procGraph, type, name);
+                const bool on = r && procRowHasLod(*r);
+                v.lods.push_back(on ? r->lod : std::string());
+                v.lodDist.push_back(on ? r->v[3] : 0.0f);
+            };
+            for (const std::string& a : v.assets) addLod("PickAsset", a);
+            for (const std::string& pf : v.prefabs) addLod("PickPrefab", pf);
             out.push_back(std::move(v));
         }
     }
@@ -1199,6 +1207,12 @@ Emitted emit(const Project& p) {
              "const char* const* volumePrefabNames(int v, int* count);\n"
              "short* volumeAssetSlots(int v);\n"
              "short* volumePrefabSlots(int v);\n\n"
+             "// Each slot's distant version (asset slots, then prefab slots):\n"
+             "// a model name or 0, its switch distance, and the model index\n"
+             "// the game resolves into the slot table at generation time.\n"
+             "const char* const* volumeLodNames(int v);\n"
+             "const float* volumeLodDist(int v);\n"
+             "short* volumeLodSlots(int v);\n\n"
              "}  // namespace procrt\n";
         out.header = h.str();
     }
@@ -1221,6 +1235,9 @@ Emitted emit(const Project& p) {
              "const char* const* volumePrefabNames(int, int* n) { *n = 0; return 0; }\n"
              "short* volumeAssetSlots(int) { return 0; }\n"
              "short* volumePrefabSlots(int) { return 0; }\n"
+             "const char* const* volumeLodNames(int) { return 0; }\n"
+             "const float* volumeLodDist(int) { return 0; }\n"
+             "short* volumeLodSlots(int) { return 0; }\n"
              "}  // namespace procrt\n";
         out.source = s.str();
         return out;
@@ -1268,6 +1285,18 @@ Emitted emit(const Project& p) {
           << "] = {0};\n";
         s << "short pPrefabs_" << vi << "["
           << std::max<size_t>(1, v.prefabs.size()) << "] = {0};\n";
+        s << "const char* const pLodNames_" << vi << "[] = {";
+        for (size_t i = 0; i < v.lods.size(); ++i)
+            s << (i ? ", " : "") << (v.lods[i].empty() ? "0" : cstr(v.lods[i]));
+        if (v.lods.empty()) s << "0";
+        s << "};\n";
+        s << "const float pLodDist_" << vi << "[] = {";
+        for (size_t i = 0; i < v.lodDist.size(); ++i)
+            s << (i ? ", " : "") << fmt(v.lodDist[i]);
+        if (v.lodDist.empty()) s << "0.0F";
+        s << "};\n";
+        s << "short pLodSlots_" << vi << "[" << std::max<size_t>(1, v.lods.size())
+          << "] = {0};\n";
     }
     s << "}  // namespace\n\n";
 
@@ -1289,6 +1318,18 @@ Emitted emit(const Project& p) {
     s << "short* volumePrefabSlots(int v) {\n";
     for (size_t vi = 0; vi < good.size(); ++vi)
         s << "  if (v == " << vi << ") return pPrefabs_" << vi << ";\n";
+    s << "  return 0;\n}\n\n";
+    s << "const char* const* volumeLodNames(int v) {\n";
+    for (size_t vi = 0; vi < good.size(); ++vi)
+        s << "  if (v == " << vi << ") return pLodNames_" << vi << ";\n";
+    s << "  return 0;\n}\n\n";
+    s << "const float* volumeLodDist(int v) {\n";
+    for (size_t vi = 0; vi < good.size(); ++vi)
+        s << "  if (v == " << vi << ") return pLodDist_" << vi << ";\n";
+    s << "  return 0;\n}\n\n";
+    s << "short* volumeLodSlots(int v) {\n";
+    for (size_t vi = 0; vi < good.size(); ++vi)
+        s << "  if (v == " << vi << ") return pLodSlots_" << vi << ";\n";
     s << "  return 0;\n}\n\n";
 
     s << "const VolumeDef VOLUMES[] = {\n";

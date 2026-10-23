@@ -1976,6 +1976,7 @@ uint64_t nodeParamHash(const ProcNode& n) {
     for (const ProcRow& r : n.rows) {
         h = hashStr(h, r.s);
         for (float v : r.v) h = hashFloat(h, v);
+        if (!r.lod.empty()) h = hashStr(h, r.lod);
     }
     return hashCombine(h, n.bypass ? 1u : 0u);
 }

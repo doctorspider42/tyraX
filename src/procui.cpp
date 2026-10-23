@@ -476,13 +476,18 @@ static const char* procRowsHelp(ProcRowKind k) {
         case ProcRowKind::Assets:
             return "Pool rows: a model from res/models, its weight, and the "
                    "scale range one point may draw from. Weights are relative - "
-                   "70/25/5 and 14/5/1 pick the same way.";
+                   "70/25/5 and 14/5/1 pick the same way. The second line is an "
+                   "optional distant version: another model that replaces the "
+                   "row's instances past its distance.";
         case ProcRowKind::Prefabs:
             return "Pool rows: a prefab (Tools > Prefabs), its weight, and the "
                    "scale range one point may draw from. Weights are relative - "
                    "34/26/26/14 is simply 'the first one a bit more often'. The "
                    "picker can also capture a scene object as a one-member "
-                   "prefab, which is how a primitive gets scattered.";
+                   "prefab, which is how a primitive gets scattered. The second "
+                   "line is an optional distant version: one model that replaces "
+                   "the whole prefab's merged geometry past its distance "
+                   "(runtime volumes).";
         case ProcRowKind::Points:
             return "Control points of the curve, in world XYZ. Edit in viewport "
                    "turns terrain clicks into new points.";
@@ -674,6 +679,51 @@ bool App::drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vect
         if (ImGui::SmallButton("x")) remove = true;
         return hit;
     };
+    // The row's distant version: a model that replaces every instance of the
+    // row past a distance (docs/procedural-generation.md, "Distant version per
+    // row"). Second line of the row, so the numbers above keep their width.
+    auto poolLod = [&](ProcRow& row) {
+        bool hit = false;
+        const float gap = ImGui::GetStyle().ItemSpacing.x;
+        const float distW = std::max(40.0f, fs * 5.0f);
+        ImGui::SetNextItemWidth(row.lod.empty() ? poolW : std::max(40.0f, poolW - distW - gap));
+        const std::string label = row.lod.empty() ? "no distant version" : "far: " + baseNameOf(row.lod);
+        if (ImGui::BeginCombo("##lod", label.c_str())) {
+            if (ImGui::Selectable("(none)##lodnone", row.lod.empty()) && !row.lod.empty()) {
+                row.lod.clear();
+                hit = true;
+            }
+            for (size_t mi = 0; mi < models.size(); ++mi) {
+                const std::string rel = "res/models/" + models[mi];
+                if (rel == row.s) continue;  // itself is not a distant version
+                const std::string id = models[mi] + "##lod" + std::to_string(mi);
+                if (ImGui::Selectable(id.c_str(), rel == row.lod) && rel != row.lod) {
+                    row.lod = rel;
+                    if (row.v[3] <= 0.0f) row.v[3] = 40.0f;
+                    hit = true;
+                }
+            }
+            if (models.empty()) ImGui::TextDisabled("no .obj files in res/models");
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Distant version: past the distance this model replaces every\n"
+                              "instance of the row - a prefab's merged members as a whole.\n"
+                              "Collision stays the near one's. Prefab rows: runtime volumes.");
+        if (!row.lod.empty()) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(distW);
+            if (ImGui::DragFloat("##lodd", &row.v[3], 0.5f, 0.0f, 2000.0f,
+                                 row.v[3] > 0.0f ? "%.0f u" : "off")) {
+                row.v[3] = std::max(0.0f, row.v[3]);
+                hit = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Switch distance in world units, measured to the instance's\n"
+                                  "origin (baked: to its chunk). 0 = never switch.");
+        }
+        return hit;
+    };
 
     ImGui::PushID(n.id);
     {
@@ -861,6 +911,7 @@ bool App::drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vect
             bool rm = false;
             if (poolNumbers(row, rm)) changed = true;
             if (rm) removeRow = (int)r;
+            if (poolLod(row)) changed = true;
             ImGui::PopID();
         }
         if (removeRow >= 0) {
@@ -932,6 +983,7 @@ bool App::drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vect
             bool rm = false;
             if (poolNumbers(row, rm)) changed = true;
             if (rm) removeRow = (int)r;
+            if (poolLod(row)) changed = true;
             ImGui::PopID();
         }
         if (removeRow >= 0) {

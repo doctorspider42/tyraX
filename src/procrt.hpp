@@ -46,6 +46,10 @@ struct Volume {
     std::string name;     // the volume object's name (flow nodes address it)
     std::vector<std::string> assets;   // .obj asset paths, in graph order
     std::vector<std::string> prefabs;  // prefab names, in graph order
+    // Each slot's distant version (asset slots, then prefab slots): a .obj
+    // path, empty = none, and its switch distance (procgraph::poolRow).
+    std::vector<std::string> lods;
+    std::vector<float> lodDist;
     bool hasBlocks = false;            // owns a Blocks Fill node
     int blockColumns = 0;              // nx*nz of that node's lattice
     int blockLevels = 0;

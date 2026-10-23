@@ -647,14 +647,16 @@ void App::drawPrefabsWindow() {
             for (const SceneObject& o : s.objects) {
                 if (o.type == PrimitiveType::Model && o.modelPath == prefabBakeDiskPath_) ++objUsers;
                 for (const ProcNode& n : o.procGraph.nodes) {
-                    if (n.type != "PickAsset") continue;
+                    if (n.type != "PickAsset" && n.type != "PickPrefab") continue;
                     for (const ProcRow& r : n.rows)
-                        if (r.s == prefabBakeDiskPath_) ++rowUsers;
+                        if ((n.type == "PickAsset" && r.s == prefabBakeDiskPath_) ||
+                            r.lod == prefabBakeDiskPath_)
+                            ++rowUsers;
                 }
             }
         if (objUsers > 0 || rowUsers > 0)
             ImGui::TextColored(sem.warn,
-                               "Used by %d object(s) and %d Pick Asset row(s) - they\n"
+                               "Used by %d object(s) and %d pool row(s) - they\n"
                                "will show as missing until repointed.",
                                objUsers, rowUsers);
         ImGui::TextDisabled("The prefab itself stays; re-bake to recreate the model.");

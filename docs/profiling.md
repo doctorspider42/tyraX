@@ -76,6 +76,12 @@ none of the timer reads — zero cost. The timing uses the EE **COP0 Count**
 register (`mfc0 $9`), which ticks at 294.912 MHz (half the 590 MHz EE clock);
 divide tick deltas by 294912 for milliseconds.
 
+Every window is also logged as `PROFILE FRAME 20.84 SCENE 8.82 HL 0.00 PART
+0.00`, so a run on the console (the `[ps2]` lines of *Run on PS2* or
+`--build <dir> --run-ps2 <ip>`) or in a headless emulator is read from the log
+instead of a photo of the HUD. Quote a settled window: the first few after a
+scene load still contain the load.
+
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
 

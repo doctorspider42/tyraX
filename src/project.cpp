@@ -553,7 +553,10 @@ std::string procGraphJson(const ProcGraph& g) {
                 json += std::string(r ? ", " : "") + "{ \"s\": \"" +
                         jsonEscape(row.s) + "\", \"v\": [" + fmtFloat(row.v[0]) +
                         ", " + fmtFloat(row.v[1]) + ", " + fmtFloat(row.v[2]) +
-                        ", " + fmtFloat(row.v[3]) + "] }";
+                        ", " + fmtFloat(row.v[3]) + "]" +
+                        (row.lod.empty() ? std::string()
+                                         : ", \"lod\": \"" + jsonEscape(row.lod) + "\"") +
+                        " }";
             }
             json += "]";
         }
@@ -622,6 +625,7 @@ static void readProcGraph(const json::Value& jg, ProcGraph& g) {
                 for (const auto& jr : v->arr) {
                     ProcRow row;
                     if (const auto* s = jr.find("s")) row.s = s->stringOr("");
+                    if (const auto* s = jr.find("lod")) row.lod = s->stringOr("");
                     if (const auto* a = jr.find("v");
                         a && a->type == json::Value::Type::Array)
                         for (size_t i = 0; i < 4 && i < a->arr.size(); ++i)

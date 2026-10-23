@@ -234,6 +234,32 @@ the region should load and unload together. Use **Object Settings** for shared
 mesh LOD, baked lighting and reflection flags; edit the graph, not individual
 generated chunks, when the setting should survive the next bake.
 
+## Distant version per row
+
+Every row of a **Pick Asset** or **Pick Prefab** pool has a second line: an
+optional **distant version** (a `.obj` from `res/models`) and the distance it
+takes over at, in world units. Past that distance every instance of the row
+draws the distant version instead of its own geometry; collision stays the
+near geometry's at any distance. *0* keeps the model chosen but never switches.
+
+- **Pick Asset, baked volume**: each chunk of the row also bakes a
+  `procgen-...-far.obj` from the distant version (same instances, never
+  decimated, written next to that model so its materials resolve) and the chunk
+  object switches to it through the ordinary
+  [distant version](impostors.md) of a model. The distance is measured to the
+  chunk object, like any other.
+- **Pick Asset and Pick Prefab, runtime volume**: see
+  [runtime procedural generation](procedural-runtime.md#distant-versions).
+  This is the one way to switch a whole prefab: the one model replaces every
+  merged member together (a room's slabs and its detail mesh), which a
+  per-member draw distance cannot do without opening holes.
+
+The distant version does not have to share anything with the row's model -
+other materials and one texture atlas instead of several are the usual reason
+to author one. Its origin, orientation and scale must match the row's model or
+prefab, because it is placed with the same transform. A baked Pick Prefab row
+ignores it: baked volumes do not merge prefab points at all.
+
 ## Limits
 
 - Baked instances cannot move, hide or run scripts independently.

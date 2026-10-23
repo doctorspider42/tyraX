@@ -2647,6 +2647,9 @@ inline void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) 
       snprintf(l1, sizeof(l1), "FRAME %.2f SCENE %.2f", frameAcc * k,
                sScene * k);
       snprintf(l2, sizeof(l2), "HL %.2f PART %.2f", sHl * k, sPart * k);
+      // The same window in the log, so a console run over ps2link (or a
+      // headless emulator) can be read without a picture of the HUD.
+      TYRA_LOG("PROFILE ", l1, " ", l2);
       frames = frameAcc = sScene = sHl = sPart = 0;
     }
     drawHudText(engine, l1, 16.0F, y);
@@ -6785,6 +6788,13 @@ void TerrainGame::applyLayerResidency() {
       for (int i = 0; i < n; ++i)
         for (int m = 0; m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
           if (!strcmp(MODEL_SOURCES[m], names[i])) modelNeed[m] = 1;
+      // ...and every slot's distant version (asset slots, then prefab slots).
+      int np = 0;
+      procrt::volumePrefabNames(v, &np);
+      const char* const* lods = procrt::volumeLodNames(v);
+      for (int i = 0; lods && i < n + np; ++i)
+        for (int m = 0; lods[i] && m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
+          if (!strcmp(MODEL_SOURCES[m], lods[i])) modelNeed[m] = 1;
     }
   for (int k = 0; k < SCENE_PREFAB_COUNT; ++k) {
     const int pf = SCENE_PREFAB_LIST[SCENE_PREFAB_FIRST + k];
@@ -9184,6 +9194,13 @@ void TerrainGame::applyLayerResidency() {
       for (int i = 0; i < n; ++i)
         for (int m = 0; m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
           if (!strcmp(MODEL_SOURCES[m], names[i])) modelNeed[m] = 1;
+      // ...and every slot's distant version (asset slots, then prefab slots).
+      int np = 0;
+      procrt::volumePrefabNames(v, &np);
+      const char* const* lods = procrt::volumeLodNames(v);
+      for (int i = 0; lods && i < n + np; ++i)
+        for (int m = 0; lods[i] && m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
+          if (!strcmp(MODEL_SOURCES[m], lods[i])) modelNeed[m] = 1;
     }
   for (int k = 0; k < SCENE_PREFAB_COUNT; ++k) {
     const int pf = SCENE_PREFAB_LIST[SCENE_PREFAB_FIRST + k];
@@ -10866,6 +10883,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   // this scene's models and its block field is this scene's ground).
   procChunks.clear();
   procColliders.clear();
+  procLodRefs.clear();
   prefabInstances.clear();
   procBlocks.active = false;
   procBlocks.col.clear();
@@ -21818,11 +21836,39 @@ void TerrainGame::procBlockVertexAo(float x, float y, float z,
 void TerrainGame::procAddMergedObject(int owner, int instance,
                                       const SceneObjectData& d,
                                       unsigned char faces,
-                                      const unsigned char* blockAo) {
+                                      const unsigned char* blockAo,
+                                      int lodTier, float lodDist,
+                                      const float* lodAnchor) {
   const float cell =
       owner >= 0 ? procrt::VOLUMES[owner].cell : 100000.0F;  // one bag per prefab
-  const int cx = (int)floorf(d.position[0] / cell);
-  const int cz = (int)floorf(d.position[2] / cell);
+  // A prefab instance's members land in the cell of the INSTANCE's origin
+  // (lodAnchor), never each member's own position, and Y joins the key. Two
+  // reasons, one measured: a distant-version switch is decided per chunk, so
+  // a whole room must switch together; and on a physical PS2 the cube example
+  // ran 25.4 -> 8.8 ms of SCENE (25 -> 50 fps) from this alone - chunks keyed
+  // by member position spanned all three floors and crossed the edge of the
+  // view, which the EE then clips triangle by triangle, while a room-sized
+  // chunk is mostly wholly in or wholly out (docs/procedural-runtime.md).
+  if (lodTier >= 0 && !lodAnchor) lodTier = -1;
+  const float* at = lodAnchor ? lodAnchor : d.position;
+  const int cx = (int)floorf(at[0] / cell);
+  const int cy = lodAnchor ? (int)floorf(at[1] / cell) : 0;
+  const int cz = (int)floorf(at[2] / cell);
+  // The group's one reference point (see ProcLodRef): the origin of the
+  // first instance in the cell, so every chunk of the group measures the
+  // same distance whichever instance created it.
+  float lodRef[3] = {at[0], at[1], at[2]};
+  if (lodTier >= 0 && owner >= 0) {
+    bool found = false;
+    for (const ProcLodRef& r : procLodRefs)
+      if (r.owner == owner && r.cx == cx && r.cy == cy && r.cz == cz) {
+        for (int a = 0; a < 3; ++a) lodRef[a] = r.p[a];
+        found = true;
+        break;
+      }
+    if (!found)
+      procLodRefs.push_back({owner, cx, cy, cz, {at[0], at[1], at[2]}});
+  }
 
   // Analytic lights are pruned PER OBJECT (pushVert reads the g_*Local lists),
   // exactly as rebuildStaticBatch does for its members - collecting once for a
@@ -21884,7 +21930,9 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
   auto chunkFor = [&](int model, int part, int material) -> ProcChunk& {
     for (ProcChunk& c : procChunks)
       if (c.owner == owner && c.instance == instance && c.model == model &&
-          c.part == part && c.material == material && c.cx == cx && c.cz == cz) {
+          c.part == part && c.material == material && c.cx == cx && c.cz == cz &&
+          c.lodTier == lodTier && c.cy == cy &&
+          (lodTier < 0 || c.lodDist == lodDist)) {
         c.smooth = c.smooth || wantSmooth;
         // About to grow its arrays: release them first (immutableStreams).
         if (c.bag) c.bag->releaseImmutableStreams();
@@ -21900,7 +21948,11 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
     c.material = material;
     c.cx = cx;
     c.cz = cz;
+    c.cy = cy;
     c.drawDist = owner >= 0 ? procrt::VOLUMES[owner].drawDist : 0.0F;
+    c.lodTier = lodTier;
+    c.lodDist = lodDist;
+    for (int a = 0; a < 3; ++a) c.lodRef[a] = lodRef[a];
     return c;
   };
 
@@ -22234,6 +22286,16 @@ void TerrainGame::renderProcChunks() {
     // them now that the main view calls renderRoadChunks explicitly.
     if (c.owner == -3) continue;
     if (!c.bag || c.bag->count == 0) continue;
+    // Distant version per pool row: the near chunks and the far model of one
+    // group read the same reference point and distance, so exactly one side
+    // of the group draws.
+    if (c.lodTier >= 0) {
+      const float dx = c.lodRef[0] - cameraPosition.x;
+      const float dy = c.lodRef[1] - cameraPosition.y;
+      const float dz = c.lodRef[2] - cameraPosition.z;
+      const bool isFar = dx * dx + dy * dy + dz * dz > c.lodDist * c.lodDist;
+      if (isFar != (c.lodTier == 1)) continue;
+    }
     // StaPip has its own precise clipper, but entering it for every generated
     // road/prefab chunk still pays the bag setup and classification cost. The
     // chunks already own world-space bounds, so reject wholly invisible ones
@@ -22924,6 +22986,9 @@ void TerrainGame::procClearVolume(int volume) {
   for (int i = (int)procColliders.size() - 1; i >= 0; --i)
     if (procColliders[i].owner == volume)
       procColliders.erase(procColliders.begin() + i);
+  for (int i = (int)procLodRefs.size() - 1; i >= 0; --i)
+    if (procLodRefs[i].owner == volume)
+      procLodRefs.erase(procLodRefs.begin() + i);
   // Prefab instances this volume spawned go with it - their merged geometry
   // lives in the volume's own chunks, and their spawned members would
   // otherwise leak a pool slot per regeneration.
@@ -22963,6 +23028,7 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
       if (slots[i] < 0)
         TYRA_LOG("Procedural: no model for asset ", names[i]);
     }
+    const int assetCount = n;
     names = procrt::volumePrefabNames(volume, &n);
     slots = procrt::volumePrefabSlots(volume);
     for (int i = 0; i < n && slots; ++i) {
@@ -22972,6 +23038,20 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
           slots[i] = (short)k;
           break;
         }
+    }
+    // Each slot's distant version (asset slots, then prefab slots).
+    names = procrt::volumeLodNames(volume);
+    slots = procrt::volumeLodSlots(volume);
+    for (int i = 0; names && slots && i < assetCount + n; ++i) {
+      slots[i] = -1;
+      if (!names[i]) continue;
+      for (int m = 0; m < MODEL_COUNT; ++m)
+        if (modelSourceMatches(m, names[i])) {
+          slots[i] = (short)m;
+          break;
+        }
+      if (slots[i] < 0)
+        TYRA_LOG("Procedural: no model for distant version ", names[i]);
     }
   }
 
@@ -23056,6 +23136,18 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
 
   const short* assetSlots = procrt::volumeAssetSlots(volume);
   const short* prefabSlots = procrt::volumePrefabSlots(volume);
+  const short* lodSlots = procrt::volumeLodSlots(volume);
+  const float* lodDists = procrt::volumeLodDist(volume);
+  int lodPrefabBase = 0;
+  procrt::volumeAssetNames(volume, &lodPrefabBase);
+  // The slot's far model and distance, or -1 when it has none.
+  auto lodOf = [&](int slot, float* dist) -> int {
+    *dist = 0.0F;
+    if (!lodSlots || !lodDists || slot < 0) return -1;
+    if (lodSlots[slot] < 0 || lodDists[slot] <= 0.0F) return -1;
+    *dist = lodDists[slot];
+    return lodSlots[slot];
+  };
   SceneObjectData d = SCENE_OBJECTS[V.objectIndex];
   d.type = 5;
   d.layer = -1;
@@ -23073,12 +23165,17 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     const procrt::Pt& P = c.buf[i];
     if (P.prefab >= 0) {
       const int pf = prefabSlots ? prefabSlots[P.prefab] : -1;
-      if (pf >= 0) spawnPrefabAt(pf, P.x, P.y, P.z, P.ry, P.sc, volume);
+      float lodDist = 0.0F;
+      const int lodModel = lodOf(lodPrefabBase + P.prefab, &lodDist);
+      if (pf >= 0)
+        spawnPrefabAt(pf, P.x, P.y, P.z, P.ry, P.sc, volume, lodModel, lodDist);
       continue;
     }
     if (P.asset < 0 || !assetSlots) continue;
     const int model = assetSlots[P.asset];
     if (model < 0) continue;
+    float lodDist = 0.0F;
+    const int lodModel = lodOf(P.asset, &lodDist);
     d.model = model;
     d.position[0] = P.x;
     d.position[1] = P.y;
@@ -23089,16 +23186,42 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     d.scale[0] = d.scale[1] = d.scale[2] = P.sc;
     const bool isBlock = aoBlocks && P.block != 0;
     if (isBlock) procBlockVertexAo(P.x, P.y, P.z, P.faces, blockAo);
-    procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr);
+    if (lodModel < 0) {
+      procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr);
+      continue;
+    }
+    // A switching row: its own geometry is the near side of the group, the
+    // distant version the far side - with no collider of its own, so the
+    // near object's box is what the player walks into at any distance.
+    procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr, 0,
+                        lodDist, d.position);
+    SceneObjectData farObj = d;
+    farObj.model = lodModel;
+    farObj.collision = 2;
+    procAddMergedObject(volume, -1, farObj, 63, nullptr, 1, lodDist, d.position);
   }
   procFinishChunks();
+  {
+    // How the merge came out: every chunk with geometry is one bag (one
+    // submit when on screen), and switch groups multiply them.
+    int chunks = 0, lodChunks = 0, verts = 0;
+    for (const ProcChunk& pc : procChunks) {
+      if (pc.owner != volume || pc.vertices.empty()) continue;
+      ++chunks;
+      if (pc.lodTier >= 0) ++lodChunks;
+      verts += (int)pc.vertices.size();
+    }
+    TYRA_LOG("Procedural ", V.name, ": ", chunks, " chunks (", lodChunks,
+             " switching), ", verts, " vertices");
+  }
 }
 
 
 
 // --- prefab instances -------------------------------------------------------
 int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
-                               float yaw, float scale, int mergeOwner) {
+                               float yaw, float scale, int mergeOwner,
+                               int lodModel, float lodDist) {
   if (PREFAB_COUNT <= 0) return -1;
   if (prefabIndex < 0 || prefabIndex >= PREFAB_COUNT) return -1;
   const float s = scale > 0.0001F ? scale : 1.0F;
@@ -23126,6 +23249,13 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
   const int first = PREFAB_FIRST[prefabIndex];
   const int n = PREFAB_COUNTS[prefabIndex];
   bool merged = false;
+  // Distant version of a volume's pool row: the merged members are the near
+  // side of one switch group, the far model (at the instance's origin, yaw
+  // and scale) the far side. Only a volume merges into a shared grid, so only
+  // a volume spawn switches.
+  const bool lod = mergeOwner >= 0 && lodModel >= 0 && lodDist > 0.0F;
+  const float anchor[3] = {x, y, z};
+  int tintFrom = -1;  // the far model takes the first merged model's tint
   for (int k = 0; k < n; ++k) {
     SceneObjectData d = PREFAB_MEMBERS[first + k];
     const float lx = d.position[0] * s, ly = d.position[1] * s,
@@ -23136,7 +23266,14 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
     d.rotation[1] += yaw;
     for (int a = 0; a < 3; ++a) d.scale[a] *= s;
     if (PREFAB_MERGE[first + k]) {
-      procAddMergedObject(mergeOwner, mergeOwner >= 0 ? -1 : handle, d, 63);
+      if (lod) {
+        procAddMergedObject(mergeOwner, -1, d, 63, nullptr, 0, lodDist, anchor);
+        if (tintFrom < 0 && d.type == 5) tintFrom = first + k;
+      } else if (mergeOwner >= 0) {
+        procAddMergedObject(mergeOwner, -1, d, 63, nullptr, -1, 0.0F, anchor);
+      } else {
+        procAddMergedObject(mergeOwner, handle, d, 63);  // one bag per instance
+      }
       merged = true;
       continue;
     }
@@ -23163,6 +23300,22 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
     setupAnimObject(slot);
     if (d.type == 7) buildParticles();
     inst.spawned[inst.spawnCount++] = slot;
+  }
+  if (lod && merged) {
+    SceneObjectData farObj = tintFrom >= 0 ? PREFAB_MEMBERS[tintFrom]
+                                           : PREFAB_MEMBERS[first];
+    if (tintFrom < 0) farObj.color[0] = farObj.color[1] = farObj.color[2] = 1.0F;
+    farObj.type = 5;
+    farObj.model = lodModel;
+    farObj.material = -1;
+    farObj.collision = 2;  // the members' boxes stay the collision
+    farObj.position[0] = x;
+    farObj.position[1] = y;
+    farObj.position[2] = z;
+    farObj.rotation[0] = farObj.rotation[2] = 0.0F;
+    farObj.rotation[1] = yaw;
+    farObj.scale[0] = farObj.scale[1] = farObj.scale[2] = s;
+    procAddMergedObject(mergeOwner, -1, farObj, 63, nullptr, 1, lodDist, anchor);
   }
   if (merged) procFinishChunks();
   applyLayerResidency();

@@ -143,13 +143,18 @@ static std::vector<std::pair<std::string, std::string>> collectModelKeys(
     // the scene references them (the objects that would have don't exist until
     // the console generates them), so without this the game boots and reports
     // "no model for asset" for every one of them.
-    for (const procrt::Volume& v : procrt::volumes(p))
-        for (const std::string& a : v.assets) {
+    // A pool row's distant version ships the same way, after them.
+    for (const procrt::Volume& v : procrt::volumes(p)) {
+        std::vector<std::string> paths = v.assets;
+        for (const std::string& l : v.lods)
+            if (!l.empty()) paths.push_back(l);
+        for (const std::string& a : paths) {
             const std::pair<std::string, std::string> key{a, std::string()};
             bool seen = false;
             for (const auto& e : keys) seen |= (e == key);
             if (!seen) keys.push_back(key);
         }
+    }
     return keys;
 }
 
@@ -1653,8 +1658,11 @@ class TerrainGame : public Tyra::Game {
   // costing four: a volume owns a region, so its prefabs can share the
   // region's chunks. A flow-node spawn passes -1, because Despawn Prefab has
   // to be able to take that one instance's geometry away again.
+  // lodModel/lodDist: the pool row's distant version (a volume spawn only) -
+  // that model replaces the merged members as a whole past lodDist.
   int spawnPrefabAt(int prefabIndex, float x, float y, float z, float yaw,
-                    float scale, int mergeOwner = -1);
+                    float scale, int mergeOwner = -1, int lodModel = -1,
+                    float lodDist = 0.0F);
   void despawnPrefabsNamed(int prefabIndex);  // -1 = every instance
   // Generates one runtime volume and builds its geometry. seed: 0 = the
   // authored one, -1 = a fresh one, anything else = use it.
@@ -1845,6 +1853,14 @@ class TerrainGame : public Tyra::Game {
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};
     float centre[3] = {0, 0, 0};
     float drawDist = 0.0F;  // 0 = always drawn
+    // Distant version per pool row (docs/procedural-generation.md): -1 = no
+    // switch, 0 = the near geometry, 1 = the far model. A switch group is
+    // keyed by the INSTANCE's cell (cx, cy, cz), not each member's, and its
+    // chunks share lodRef and lodDist, so near and far flip together.
+    int lodTier = -1;
+    int cy = 0;
+    float lodDist = 0.0F;
+    float lodRef[3] = {0, 0, 0};
     // Something in this chunk carries per-VERTEX colour that varies across a
     // face, so it must be Gouraud-shaded. Sticky, and safe to be: Gouraud over
     // equal corner colours is the flat result, so a chunk that mixes blocks
@@ -1872,6 +1888,17 @@ class TerrainGame : public Tyra::Game {
     short instance;  // prefab instance handle, -1 = a volume's own geometry
   };
   std::vector<StaticBox> procColliders;
+  // Distant-version switch groups of runtime volumes: the reference point of
+  // each (volume, cell), fixed by the first instance that claimed the cell.
+  // The cell grid starts at multiples of the cell size, a scattered lattice
+  // usually CENTRES its instances there - a cell-centre reference would sit
+  // on an instance's edge and skew every distance by half a cell.
+  struct ProcLodRef {
+    int owner;
+    int cx, cy, cz;
+    float p[3];
+  };
+  std::vector<ProcLodRef> procLodRefs;
   // Live prefab instances, so Despawn Prefab can find what it made.
   struct PrefabInstance {
     int prefab = -1;              // PREFAB_NAMES index, -1 = free slot
@@ -1907,9 +1934,14 @@ class TerrainGame : public Tyra::Game {
   // volume, a prefab instance) differ only in where the transforms come from.
   // blockAo is the table procBlockVertexAo filled, and passing it is what
   // makes an instance a self-occluding block rather than a scattered model.
+  // lodAnchor (world origin of the scattered point) picks the chunk cell -
+  // the instance's, with height - instead of the object's own position;
+  // lodTier >= 0 also puts the object in that cell's distant-version group.
   void procAddMergedObject(int owner, int instance, const SceneObjectData& d,
                            unsigned char faces,
-                           const unsigned char* blockAo = nullptr);
+                           const unsigned char* blockAo = nullptr,
+                           int lodTier = -1, float lodDist = 0.0F,
+                           const float* lodAnchor = nullptr);
   void procFinishChunks();
   // Baked static lamps (docs/dynamic-light-receivers.md, "Baked lamp light").
   void applyBakedLampsToChunk(ProcChunk& c, bool force);
@@ -3647,8 +3679,11 @@ class TerrainGame : public Tyra::Game {
   // costing four: a volume owns a region, so its prefabs can share the
   // region's chunks. A flow-node spawn passes -1, because Despawn Prefab has
   // to be able to take that one instance's geometry away again.
+  // lodModel/lodDist: the pool row's distant version (a volume spawn only) -
+  // that model replaces the merged members as a whole past lodDist.
   int spawnPrefabAt(int prefabIndex, float x, float y, float z, float yaw,
-                    float scale, int mergeOwner = -1);
+                    float scale, int mergeOwner = -1, int lodModel = -1,
+                    float lodDist = 0.0F);
   void despawnPrefabsNamed(int prefabIndex);  // -1 = every instance
   // Generates one runtime volume and builds its geometry. seed: 0 = the
   // authored one, -1 = a fresh one, anything else = use it.
@@ -3839,6 +3874,14 @@ class TerrainGame : public Tyra::Game {
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};
     float centre[3] = {0, 0, 0};
     float drawDist = 0.0F;  // 0 = always drawn
+    // Distant version per pool row (docs/procedural-generation.md): -1 = no
+    // switch, 0 = the near geometry, 1 = the far model. A switch group is
+    // keyed by the INSTANCE's cell (cx, cy, cz), not each member's, and its
+    // chunks share lodRef and lodDist, so near and far flip together.
+    int lodTier = -1;
+    int cy = 0;
+    float lodDist = 0.0F;
+    float lodRef[3] = {0, 0, 0};
     // Something in this chunk carries per-VERTEX colour that varies across a
     // face, so it must be Gouraud-shaded. Sticky, and safe to be: Gouraud over
     // equal corner colours is the flat result, so a chunk that mixes blocks
@@ -3866,6 +3909,17 @@ class TerrainGame : public Tyra::Game {
     short instance;  // prefab instance handle, -1 = a volume's own geometry
   };
   std::vector<StaticBox> procColliders;
+  // Distant-version switch groups of runtime volumes: the reference point of
+  // each (volume, cell), fixed by the first instance that claimed the cell.
+  // The cell grid starts at multiples of the cell size, a scattered lattice
+  // usually CENTRES its instances there - a cell-centre reference would sit
+  // on an instance's edge and skew every distance by half a cell.
+  struct ProcLodRef {
+    int owner;
+    int cx, cy, cz;
+    float p[3];
+  };
+  std::vector<ProcLodRef> procLodRefs;
   // Live prefab instances, so Despawn Prefab can find what it made.
   struct PrefabInstance {
     int prefab = -1;              // PREFAB_NAMES index, -1 = free slot
@@ -3901,9 +3955,14 @@ class TerrainGame : public Tyra::Game {
   // volume, a prefab instance) differ only in where the transforms come from.
   // blockAo is the table procBlockVertexAo filled, and passing it is what
   // makes an instance a self-occluding block rather than a scattered model.
+  // lodAnchor (world origin of the scattered point) picks the chunk cell -
+  // the instance's, with height - instead of the object's own position;
+  // lodTier >= 0 also puts the object in that cell's distant-version group.
   void procAddMergedObject(int owner, int instance, const SceneObjectData& d,
                            unsigned char faces,
-                           const unsigned char* blockAo = nullptr);
+                           const unsigned char* blockAo = nullptr,
+                           int lodTier = -1, float lodDist = 0.0F,
+                           const float* lodAnchor = nullptr);
   void procFinishChunks();
   // Baked static lamps (docs/dynamic-light-receivers.md, "Baked lamp light").
   void applyBakedLampsToChunk(ProcChunk& c, bool force);

@@ -6397,7 +6397,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // the start scene's screen). It replaced 115's "wait": { "bootOnly" }: such a
 // screen becomes the Game start screen and its scenes get a copy that does
 // not wait (project.cpp, migrateBootOnlyWait) - what the player saw stays.
-inline constexpr int kFormatVersion = 116;
+// v117 (docs/procedural-generation.md, "Distant version per row"): a Pick
+// Asset / Pick Prefab pool row's "lod" (a distant-version .obj), written only
+// when set; its switch distance is the row's previously unused v[3]. Missing =
+// no switch, as before. Additive; no migration.
+inline constexpr int kFormatVersion = 117;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

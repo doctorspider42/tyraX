@@ -64,12 +64,20 @@ inline constexpr const char* kDepth = "depth";  // blocks below the column top
 struct ProcRow {
     std::string s;
     float v[4] = {0, 0, 0, 0};
+    // Pool rows only (Pick Asset / Pick Prefab): the row's distant version, a
+    // .obj that replaces every instance of the row past v[3] world units
+    // (docs/procedural-generation.md, "Distant version per row"). Empty or a
+    // distance <= 0 = no switch.
+    std::string lod;
 };
 
 inline bool operator==(const ProcRow& a, const ProcRow& b) {
     return a.s == b.s && a.v[0] == b.v[0] && a.v[1] == b.v[1] &&
-           a.v[2] == b.v[2] && a.v[3] == b.v[3];
+           a.v[2] == b.v[2] && a.v[3] == b.v[3] && a.lod == b.lod;
 }
+
+// Does this pool row switch to a distant version at all?
+inline bool procRowHasLod(const ProcRow& r) { return !r.lod.empty() && r.v[3] > 0.0f; }
 
 struct ProcNode {
     int id = 0;             // unique within the graph, never reused
@@ -214,10 +222,12 @@ struct ProcPinDef {
 // What a node's `rows` table means (the UI draws the matching editor).
 enum class ProcRowKind {
     None = 0,
-    Assets,    // s = asset key, v[0] = weight, v[1..2] = scale min/max
+    Assets,    // s = asset key, v[0] = weight, v[1..2] = scale min/max,
+               // lod + v[3] = distant version and its switch distance
     Points,    // v[0..2] = world XYZ control point
     Settings,  // s = procObjectProps() key, v[0] = the value
-    Prefabs,   // s = prefab name, v[0] = weight, v[1..2] = scale min/max
+    Prefabs,   // s = prefab name, v[0] = weight, v[1..2] = scale min/max,
+               // lod + v[3] = distant version and its switch distance
 };
 
 // ---------------------------------------------------------------------------
@@ -310,6 +320,12 @@ const ProcNode* outputNode(const ProcGraph& g);
 // rather than by following links on purpose: the node states a fact about the
 // whole bake, so it carries no pins and sits beside the chain, not in it.
 const ProcNode* settingsNode(const ProcGraph& g);
+
+// The pool row that defines slot `name` of a `type` ("PickAsset" or
+// "PickPrefab") table: the FIRST row naming it in the order every slot table
+// uses (node id, then row) - so the distant version read here is the one the
+// bake and the runtime give that slot. nullptr = no row names it.
+const ProcRow* poolRow(const ProcGraph& g, const char* type, const std::string& name);
 
 // Adds a node of `type` at the given editor position and returns its id
 // (0 for an unknown type). Parameters are seeded from the registry.
