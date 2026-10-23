@@ -31,7 +31,10 @@ python .claude/skills/tyra-testing/scripts/pcsx2-capture.py state <state.p2s>  [
 `%TEMP%\tyra-editor-test\pcsx2-capture-<slot>\out-<time>\`, or into `--out`.
 It stops only the process it started, by PID. Unless `--show-window` is given
 it hides the emulator's GS display window (Windows only), so an unattended run
-does not throw a game window over the screen.
+does not throw a game window over the screen. `--gsdump` keeps the window
+visible: the dump is PCSX2's F12 hotkey, posted to the process's visible
+windows, and a hidden one would receive nothing (no dump, "0 windows
+messaged").
 
 **Useful flags:**
 

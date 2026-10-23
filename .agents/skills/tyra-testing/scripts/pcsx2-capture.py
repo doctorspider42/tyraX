@@ -388,8 +388,13 @@ def cmd_run(a):
     # top-level window, so an unattended run would still throw a game window on
     # the screen. Hide it (see hide_windows_hook) unless --show-window asks to
     # watch. Called repeatedly - the display window appears a moment after the
-    # process starts.
-    hide = None if a.show_window else hide_windows_hook(proc.pid)
+    # process starts. --gsdump keeps it visible too: the dump is the F12 hotkey,
+    # posted to the process's VISIBLE windows (post_key_to_process), and a hidden
+    # GS window would leave nothing to receive it - no dump, "0 windows messaged".
+    keep_visible = a.show_window or a.gsdump
+    if a.gsdump and not a.show_window:
+        print('--gsdump: leaving the GS window visible (the dump hotkey needs it)')
+    hide = None if keep_visible else hide_windows_hook(proc.pid)
     if hide is not None:
         hide()
     try:
@@ -902,7 +907,8 @@ def main():
     r.add_argument('elf')
     r.add_argument('--states', type=int, default=3, help='savestates to take (default 3)')
     r.add_argument('--interval', type=float, default=1.0, help='seconds between savestates')
-    r.add_argument('--gsdump', action='store_true', help='also take one single-frame GS dump (Windows)')
+    r.add_argument('--gsdump', action='store_true',
+                   help='also take one single-frame GS dump (Windows; keeps the GS window visible)')
     r.add_argument('--boot-wait', type=float, default=40, help='seconds to wait after PINE answers (default 40)')
     r.add_argument('--wait-log', help='regex to wait for in emulog.txt instead of a fixed boot wait')
     r.add_argument('--slot', type=int, default=28190, help='PINE slot/port; one per parallel run')
@@ -914,7 +920,8 @@ def main():
                    help="leave the emulator's GS display window VISIBLE. Default: hide it. "
                         "-nogui only hides PCSX2's main window; the display surface is its own "
                         "top-level window, so a run would throw a game window over the "
-                        "developer's screen. Hiding does not stop rendering or --capture-frame.")
+                        "developer's screen. Hiding does not stop rendering or --capture-frame. "
+                        "--gsdump implies it (the dump is a hotkey to the visible window).")
     g = sub.add_parser('gs', help='summarise a GS dump')
     g.add_argument('dump')
     g.add_argument('--passes', action='store_true', help='print the pass timeline of one vsync')
