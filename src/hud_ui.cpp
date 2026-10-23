@@ -6002,12 +6002,272 @@ bool App::loadingBarControls(LoadingBar& b) {
     return changed;
 }
 
+// The frame an animation shows - the same choice loadingscreen::renderFrame
+// makes on the PS2 (docs/loading-screens.md, "Animations"). -1 = hidden.
+static int loadingAnimFrame(const LoadingAnim& a, float fraction, bool waiting, float clock) {
+    const int n = (int)a.frames.size();
+    if (n <= 0) return -1;
+    const int tick = (int)(clock * a.fps);
+    if (a.mode == 0) {
+        if (waiting && a.afterLoad == 0) return -1;
+        if (a.playback == 1 && n > 1) {
+            const int k = tick % (2 * n - 2);
+            return k < n ? k : 2 * n - 2 - k;
+        }
+        return tick % n;
+    }
+    if (waiting && a.afterLoad == 1 && n >= 2) return n - 2 + (tick & 1);
+    if (a.lastAtFull && n >= 2) {
+        if (fraction >= 1.0f) return n - 1;
+        return ImMin(n - 2, (int)(fraction * (float)(n - 1)));
+    }
+    return ImMin(n - 1, (int)(fraction * (float)n));
+}
+
+// Bytes a frame takes in GS VRAM once baked (pow2 + its quantization).
+static int loadingFrameBytes(int w, int h, const std::string& quant) {
+    auto pow2 = [](int v) {
+        int p = 8;
+        while (p < v && p < 512) p <<= 1;
+        return p;
+    };
+    const int pw = pow2(w), ph = pow2(h);
+    if (quant == "4bit") return pw * ph / 2 + 64;
+    if (quant == "8bit") return pw * ph + 1024;
+    return pw * ph * 4;
+}
+
+// Eight frames of a dotted ring, one dot lit: the Spinner template's art, so
+// a new screen spins before anyone has drawn anything.
+static std::vector<std::string> writeSpinnerFrames(const std::string& projectDir, const std::string& base) {
+    std::vector<std::string> out;
+    const int S = 64, dots = 8;
+    for (int f = 0; f < dots; ++f) {
+        std::vector<unsigned char> px((size_t)S * S * 4, 0);
+        for (int d = 0; d < dots; ++d) {
+            const float ang = (float)d / dots * 6.2831853f;
+            const float cx = S * 0.5f + std::cos(ang) * S * 0.34f, cy = S * 0.5f + std::sin(ang) * S * 0.34f;
+            const int age = (f - d + dots) % dots;  // 0 = the lit dot, then its fading tail
+            const float a = age == 0 ? 1.0f : ImMax(0.15f, 0.75f - age * 0.15f);
+            const float r = S * 0.075f;
+            for (int y = (int)(cy - r - 1); y <= (int)(cy + r + 1); ++y)
+                for (int x = (int)(cx - r - 1); x <= (int)(cx + r + 1); ++x) {
+                    if (x < 0 || y < 0 || x >= S || y >= S) continue;
+                    const float dd = std::sqrt((x + 0.5f - cx) * (x + 0.5f - cx) + (y + 0.5f - cy) * (y + 0.5f - cy));
+                    const float cover = ImClamp(r + 0.5f - dd, 0.0f, 1.0f) * a;
+                    unsigned char* p = &px[((size_t)y * S + x) * 4];
+                    p[0] = p[1] = p[2] = 255;
+                    p[3] = (unsigned char)ImMax((int)p[3], (int)(cover * 255.0f + 0.5f));
+                }
+        }
+        const std::string rel = "res/hud/" + base + "-" + std::to_string(f + 1) + ".png";
+        const std::filesystem::path abs = std::filesystem::path(projectDir) / rel;
+        std::error_code ec;
+        std::filesystem::create_directories(abs.parent_path(), ec);
+        if (stbi_write_png(abs.string().c_str(), S, S, 4, px.data(), S * 4)) out.push_back(rel);
+    }
+    return out;
+}
+
+bool App::importLoadingSheet(LoadingAnim& a, const std::string& src, int cols, int rows, int count) {
+    int w = 0, h = 0, comp = 0;
+    unsigned char* img = stbi_load(src.c_str(), &w, &h, &comp, 4);
+    if (!img) {
+        statusMessage_ = "Sprite sheet import failed: not a readable image";
+        return false;
+    }
+    cols = ImClamp(cols, 1, 32);
+    rows = ImClamp(rows, 1, 32);
+    count = ImClamp(count, 1, cols * rows);
+    const int cw = w / cols, ch = h / rows;
+    if (cw < 1 || ch < 1) {
+        stbi_image_free(img);
+        statusMessage_ = "Sprite sheet import failed: more cells than pixels";
+        return false;
+    }
+    const std::string base = sanitizeAssetName(std::filesystem::path(src).stem().string());
+    std::vector<unsigned char> cell((size_t)cw * ch * 4);
+    int written = 0;
+    for (int k = 0; k < count; ++k) {
+        const int cx = (k % cols) * cw, cy = (k / cols) * ch;
+        for (int y = 0; y < ch; ++y)
+            std::memcpy(&cell[(size_t)y * cw * 4], &img[((size_t)(cy + y) * w + cx) * 4], (size_t)cw * 4);
+        const std::string rel = "res/hud/" + base + "-" + std::to_string(k + 1) + ".png";
+        const std::filesystem::path abs = std::filesystem::path(project_.dir) / rel;
+        std::error_code ec;
+        std::filesystem::create_directories(abs.parent_path(), ec);
+        if (!stbi_write_png(abs.string().c_str(), cw, ch, 4, cell.data(), cw * 4)) continue;
+        hudTexCache_.erase(rel);
+        HudImage f;
+        f.name = a.name;
+        f.imagePath = rel;
+        if (!a.frames.empty()) f.texQuant = a.frames.front().texQuant;
+        a.frames.push_back(std::move(f));
+        ++written;
+    }
+    stbi_image_free(img);
+    if (written > 0 && a.frames.size() == (size_t)written) {
+        a.size[0] = (float)ImMin(cw, 512);
+        a.size[1] = (float)ImMin(ch, 448);
+    }
+    statusMessage_ = "Sliced " + std::to_string(written) + " frames from " +
+                     std::filesystem::path(src).filename().string();
+    return written > 0;
+}
+
+bool App::loadingAnimControls(LoadingAnim& a) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    bool changed = false;
+    {
+        static const char* kModes[] = {"Spinner", "Progress"};
+        if (ui::SegmentedRow("Plays as", kModes, 2, &a.mode)) changed = true;
+        ui::RowHelp("SPINNER loops on its own fps while the scene loads.\n"
+                    "PROGRESS picks the frame from how far the load is - two cars\n"
+                    "closing in, crashing at 100%.");
+    }
+
+    // The frames, as a strip: click x to drop one, + to add PNGs, or slice a sheet.
+    ui::Caption("Frames", std::to_string(a.frames.size()).c_str());
+    {
+        const float th = fs * 3.0f;
+        int drop = -1;
+        ImGui::BeginChild("##lsframes", ImVec2(0, th + fs * 1.6f), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_HorizontalScrollbar);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        for (int k = 0; k < (int)a.frames.size(); ++k) {
+            ImGui::PushID(k);
+            if (k) ImGui::SameLine();
+            ImGui::BeginGroup();
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton("frame", ImVec2(th, th));
+            dl->AddRectFilled(p, ImVec2(p.x + th, p.y + th), ImGui::GetColorU32(sem.field), 4.0f);
+            if (const HudTexture* t = hudTexture(a.frames[k].imagePath))
+                dl->AddImage((ImTextureID)(intptr_t)t->tex, p, ImVec2(p.x + th, p.y + th));
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s - right-click to remove", a.frames[k].imagePath.c_str());
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) drop = k;
+            }
+            ImGui::TextDisabled("%d", k + 1);
+            ImGui::EndGroup();
+            ImGui::PopID();
+        }
+        if (!a.frames.empty()) ImGui::SameLine();
+        if (ImGui::Button("+ PNG...", ImVec2(0, th))) {
+            const int i = importHudImageInto(a.frames);
+            if (i >= 0) {
+                a.frames[i].name = a.name;
+                if (a.frames.size() == 1) {
+                    a.size[0] = a.frames[i].size[0];
+                    a.size[1] = a.frames[i].size[1];
+                } else {
+                    a.frames[i].texQuant = a.frames.front().texQuant;
+                }
+                changed = true;
+            }
+        }
+        ImGui::EndChild();
+        if (drop >= 0) {
+            a.frames.erase(a.frames.begin() + drop);
+            changed = true;
+        }
+    }
+    if (ImGui::Button("Slice a sprite sheet...")) {
+        lsSheetPath_ = pickPngFile();
+        lsSheetOpen_ = !lsSheetPath_.empty();
+    }
+    if (lsSheetOpen_) ImGui::OpenPopup("Slice sprite sheet");
+    if (ImGui::BeginPopupModal("Slice sprite sheet", &lsSheetOpen_, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(std::filesystem::path(lsSheetPath_).filename().string().c_str());
+        ImGui::TextDisabled("Cut into cells, row by row; each becomes a frame PNG in res/hud.");
+        ImGui::SetNextItemWidth(fs * 6.0f);
+        ImGui::InputInt("Columns", &lsSheetCols_);
+        ImGui::SetNextItemWidth(fs * 6.0f);
+        ImGui::InputInt("Rows", &lsSheetRows_);
+        lsSheetCols_ = ImClamp(lsSheetCols_, 1, 32);
+        lsSheetRows_ = ImClamp(lsSheetRows_, 1, 32);
+        ImGui::SetNextItemWidth(fs * 6.0f);
+        ImGui::InputInt("Frames used", &lsSheetCount_);
+        lsSheetCount_ = ImClamp(lsSheetCount_, 1, lsSheetCols_ * lsSheetRows_);
+        if (ui::PrimaryButton("Slice")) {
+            if (importLoadingSheet(a, lsSheetPath_, lsSheetCols_, lsSheetRows_, lsSheetCount_)) changed = true;
+            lsSheetOpen_ = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ui::GhostButton("Cancel")) {
+            lsSheetOpen_ = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (a.mode == 0) {
+        if (ui::DragFloat("Speed", &a.fps, 0.1f, 1.0f, 60.0f, "%.0f fps")) a.fps = ImClamp(a.fps, 1.0f, 60.0f);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        static const char* kPlay[] = {"Loop", "Ping-pong"};
+        if (ui::SegmentedRow("Playback", kPlay, 2, &a.playback)) changed = true;
+        static const char* kAfter[] = {"Hide", "Keep spinning"};
+        if (ui::SegmentedRow("After loading", kAfter, 2, &a.afterLoad)) changed = true;
+        ui::RowHelp("While the screen waits for a button (Press to continue).");
+    } else {
+        if (ui::Switch("Last frame only when loaded", &a.lastAtFull)) changed = true;
+        ui::RowHelp("The final frame (the crash) waits for 100%: the load climbs\n"
+                    "through the others, and the last one is the finish.");
+        static const char* kAfter[] = {"Hold last", "Loop last two"};
+        if (ui::SegmentedRow("After loading", kAfter, 2, &a.afterLoad)) changed = true;
+        ui::RowHelp("While the screen waits for a button (Press to continue).");
+        if (ui::DragFloat("Loop speed", &a.fps, 0.1f, 1.0f, 60.0f, "%.0f fps")) a.fps = ImClamp(a.fps, 1.0f, 60.0f);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    ui::Caption("Placement");
+    ui::DragFloat2("Position##lsanim", a.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ui::DragFloat2("Size (px)##lsanim", a.size, 1.0f, 1.0f, 512.0f, "%.0f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+    // What the frames cost: each is its own texture in VRAM while loading.
+    if (!a.frames.empty()) {
+        ui::Caption("Bake (every frame)");
+        if (hudBakeControls(a.frames.front())) {
+            for (HudImage& f : a.frames) f.texQuant = a.frames.front().texQuant;
+            changed = true;
+        }
+        int bytes = 0;
+        for (const HudImage& f : a.frames)
+            if (const HudTexture* t = hudTexture(f.imagePath)) bytes += loadingFrameBytes(t->w, t->h, f.texQuant);
+        ImGui::TextDisabled("%d frames - %.0f KB of GS VRAM (~1.3 MB free while loading)", (int)a.frames.size(),
+                            bytes / 1024.0f);
+    }
+    return changed;
+}
+
+bool App::loadingWaitControls(LoadingScreenDef& ls) {
+    bool changed = false;
+    int wait = ls.waitForButton ? 1 : 0;
+    static const char* kWait[] = {"Straight away", "Wait for a button"};
+    if (ui::SegmentedRow("When loaded", kWait, 2, &wait)) {
+        ls.waitForButton = wait == 1;
+        changed = true;
+    }
+    ui::RowHelp("Wait for a button: when the load is done the screen holds on its\n"
+                "continue prompt until the player presses the button.");
+    if (!ls.waitForButton) return changed;
+    static const char* kButtons[] = {"Any", "START", "Cross"};
+    if (ui::SegmentedRow("Button", kButtons, 3, &ls.waitButton)) changed = true;
+    ui::RowHelp("ANY = Cross, Circle, Square, Triangle or START.");
+    if (ui::Switch("Only after the boot load", &ls.waitBootOnly)) changed = true;
+    ui::RowHelp("On: the title-screen moment only; scene switches go straight on.");
+    return changed;
+}
+
 // Draws a loading screen into the frame at p0/size (512x448 space), honoring
-// `fraction` for the progress bars - matches loadingscreen::renderFrame on
-// the PS2. `hits` (may be null) receives each element's box (sel 0 image,
-// 1 text, 2 bar; index into that vector), in draw order.
+// `fraction` for the progress bars and animations - matches
+// loadingscreen::renderFrame on the PS2. `hits` (may be null) receives each
+// element's box (sel 0 image, 1 text, 2 bar, 5 animation, 6 prompt), in draw
+// order.
 void App::drawLoadingFrame(ImDrawList* dl, const LoadingScreenDef& ls, float fraction, ImVec2 p0,
-                           ImVec2 size, std::vector<HudHit>* hits) {
+                           ImVec2 size, std::vector<HudHit>* hits, bool waiting, float clock) {
     const float w = size.x, h = size.y;
     const ImVec2 p1(p0.x + w, p0.y + h);
     auto col = [](const float* c, float a = 1.0f) {
@@ -6028,6 +6288,8 @@ void App::drawLoadingFrame(ImDrawList* dl, const LoadingScreenDef& ls, float fra
         hh.max = b;
         hits->push_back(hh);
     };
+    const bool showPrompt = waiting && ls.waitForButton;
+    const bool hideOthers = showPrompt && ls.promptHideOthers;
     for (int i = 0; i < (int)ls.images.size(); ++i) {
         const HudImage& im = ls.images[i];
         const float dw = sw(im.size[0]), dh = sh(im.size[1]);
@@ -6050,7 +6312,20 @@ void App::drawLoadingFrame(ImDrawList* dl, const LoadingScreenDef& ls, float fra
             push(1, i, a, ImVec2(a.x + dw, a.y + dh));
         }
     }
-    for (int i = 0; i < (int)ls.bars.size(); ++i) {
+    for (int i = 0; i < (int)ls.anims.size(); ++i) {
+        const LoadingAnim& an = ls.anims[i];
+        const float dw = sw(an.size[0]), dh = sh(an.size[1]);
+        const ImVec2 a(cx(an.pos[0]) - dw * 0.5f, cy(an.pos[1]) - dh * 0.5f);
+        const ImVec2 b(a.x + dw, a.y + dh);
+        const int f = hideOthers ? -1 : loadingAnimFrame(an, fraction, waiting, clock);
+        if (an.frames.empty())
+            dashedRect(dl, a, b, IM_COL32(242, 143, 224, 200), 6.0f);
+        else if (f >= 0)
+            if (const HudTexture* t = hudTexture(an.frames[f].imagePath))
+                dl->AddImage((ImTextureID)(intptr_t)t->tex, a, b);
+        push(5, i, a, b);
+    }
+    for (int i = 0; i < (int)ls.bars.size() && !hideOthers; ++i) {
         const LoadingBar& b = ls.bars[i];
         const float bw = sw(b.size[0]), bh = sh(b.size[1]);
         const float bx = cx(b.pos[0]) - bw * 0.5f;
@@ -6076,6 +6351,29 @@ void App::drawLoadingFrame(ImDrawList* dl, const LoadingScreenDef& ls, float fra
             }
         }
         push(2, i, ImVec2(bx, by), ImVec2(bx + bw, by + bh));
+    }
+    // The continue prompt, last - on screen while waiting, and as a selectable
+    // ghost the rest of the time so it can still be placed.
+    if (ls.waitForButton) {
+        HudText tc = ls.prompt;
+        tc.name = "lsprev\x1f" + ls.name + "\x1f\x1f" "continue";
+        if (const HudTexture* tex = hudTextTexture(tc)) {
+            const float dw = sw((float)tex->w), dh = sh((float)tex->h);
+            const ImVec2 a(cx(ls.prompt.pos[0]) - dw * 0.5f, cy(ls.prompt.pos[1]) - dh * 0.5f);
+            float alpha = 0.25f;
+            if (showPrompt) {
+                const float period = ls.promptPeriod > 0.05f ? ls.promptPeriod : 1.0f;
+                float phase = clock / period;
+                phase -= std::floor(phase);
+                alpha = ls.promptBlink == 1   ? (phase < 0.5f ? 1.0f : 0.0f)
+                        : ls.promptBlink == 2 ? 0.3f + 0.7f * (phase < 0.5f ? phase * 2.0f : 2.0f - phase * 2.0f)
+                                              : 1.0f;
+            }
+            if (alpha > 0.0f)
+                dl->AddImage((ImTextureID)(intptr_t)tex->tex, a, ImVec2(a.x + dw, a.y + dh), ImVec2(0, 0),
+                             ImVec2(1, 1), IM_COL32(255, 255, 255, (int)(alpha * 255.0f)));
+            push(6, 0, a, ImVec2(a.x + dw, a.y + dh));
+        }
     }
 }
 
@@ -8318,7 +8616,11 @@ void App::drawLoadingScreenWindow() {
                    ? project_.defaultLoadingScreen
                    : -1;
     };
-    auto newScreen = [&]() {
+    // A new screen from a template (docs/loading-screens.md, "Templates"):
+    // 0 blank, 1 minimal bar, 2 dots, 3 spinner, 4 animated progress, 5 press
+    // START. Templates only pre-fill ordinary elements - nothing about the
+    // screen remembers which one it came from.
+    auto newScreen = [&](int kind = 0) {
         int counter = 0;
         std::string name;
         for (;;) {
@@ -8329,6 +8631,54 @@ void App::drawLoadingScreenWindow() {
         }
         LoadingScreenDef s;
         s.name = name;
+        auto caption = [&](const char* text, float y) {
+            HudText t;
+            t.name = "caption";
+            t.text = text;
+            t.pos[1] = y;
+            s.texts.push_back(t);
+        };
+        if (kind == 1 || kind == 5) {
+            caption("LOADING", 0.62f);
+            s.bars.push_back(LoadingBar{});
+            s.bars.back().name = "bar";
+        }
+        if (kind == 2) {
+            LoadingBar b;
+            b.name = "dots";
+            b.kind = 1;
+            b.segments = 5;
+            b.size[0] = 120.0f;
+            b.size[1] = 12.0f;
+            b.spacing = 12.0f;
+            b.pos[1] = 0.8f;
+            s.bars.push_back(b);
+        }
+        if (kind == 3) {
+            LoadingAnim a;
+            a.name = "spinner";
+            a.pos[0] = 0.88f;
+            a.pos[1] = 0.86f;
+            a.size[0] = a.size[1] = 48.0f;
+            for (const std::string& rel : writeSpinnerFrames(project_.dir, name + "-spinner")) {
+                HudImage f;
+                f.name = a.name;
+                f.imagePath = rel;
+                f.texQuant = "4bit";
+                a.frames.push_back(f);
+            }
+            s.anims.push_back(a);
+        }
+        if (kind == 4) {
+            LoadingAnim a;
+            a.name = "progress";
+            a.mode = 1;
+            a.size[0] = 256.0f;
+            a.size[1] = 96.0f;
+            a.pos[1] = 0.7f;
+            s.anims.push_back(a);  // frames: Slice a sprite sheet... in its inspector
+        }
+        if (kind == 5) s.waitForButton = true;
         screens.push_back(std::move(s));
         selectedLoadingScreen_ = (int)screens.size() - 1;
         // A first screen that nothing shows would be a trap (the game keeps
@@ -8414,17 +8764,32 @@ void App::drawLoadingScreenWindow() {
             dl->PopClipRect();
             return clicked;
         };
-        // Tyra logo: the engine's banner, before anything the project owns.
-        card("Tyra logo", fs * 9.5f, "Tyra logo", "2.0 s \xC2\xB7 engine", sem.textDim, false, false,
-             [&](ImVec2 a, ImVec2 b) {
-                 dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 255), 4.0f);
-                 const float tfs = IM_TRUNC(fs * 0.6f);
-                 const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(tfs, FLT_MAX, 0.0f, "TYRA");
-                 dl->AddText(ImGui::GetFont(), tfs, ImVec2((a.x + b.x - ts.x) * 0.5f, (a.y + b.y - ts.y) * 0.5f),
-                             tint(sem.textDim), "TYRA");
-             });
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            ImGui::SetTooltip("The engine's banner, held ~2 s in every generated game.");
+        // The TyraX logo: the engine's banner, before anything the project
+        // owns. A click switches it off (ProjectSettings::showEngineLogo) -
+        // the card stays, dashed, so the strip still says what was skipped.
+        {
+            bool& logo = project_.settings.showEngineLogo;
+            const ImVec2 cp = ImGui::GetCursorScreenPos();
+            if (card("TyraX logo", fs * 9.5f, "TyraX logo", logo ? "2.0 s \xC2\xB7 engine" : "skipped \xC2\xB7 0 s",
+                     logo ? sem.textDim : sem.warn, false, false, [&](ImVec2 a, ImVec2 b) {
+                         dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 255), 4.0f);
+                         const float tfs = IM_TRUNC(fs * 0.6f);
+                         const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(tfs, FLT_MAX, 0.0f, "TYRAX");
+                         dl->AddText(ImGui::GetFont(), tfs,
+                                     ImVec2((a.x + b.x - ts.x) * 0.5f, (a.y + b.y - ts.y) * 0.5f),
+                                     tint(sem.textDim, logo ? 1.0f : 0.4f), "TYRAX");
+                         if (!logo) dl->AddLine(a, b, tint(sem.warn, 0.8f), 1.5f);
+                     })) {
+                logo = !logo;
+                changed = true;
+            }
+            uiscript::markLastItemChecked(logo);
+            if (!logo)
+                dashedRect(dl, cp, ImVec2(cp.x + fs * 9.5f, cp.y + cardH), tint(sem.warn, 0.6f), fs * 0.3f);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip(logo ? "The engine's logo, held ~2 s at power-on. Click to skip it."
+                                       : "Skipped: the game opens on your splashes. Click to show the logo again.");
+        }
         // Splashes, in play order; drag a card sideways to reorder.
         for (int i = 0; i < (int)splashes.size(); ++i) {
             arrow();
@@ -8484,7 +8849,13 @@ void App::drawLoadingScreenWindow() {
                 subCol = sem.warn;
             } else if (bootScreen >= 0) {
                 title = screens[bootScreen].name;
-                sub = "while " + (start ? start->name : std::string("the scene")) + " loads \xC2\xB7 real progress";
+                sub = "while " + (start ? start->name : std::string("the scene")) + " loads";
+                if (screens[bootScreen].waitForButton) {
+                    static const char* kBtn[] = {"a button", "START", "Cross"};
+                    sub += std::string(" \xC2\xB7 waits for ") + kBtn[ImClamp(screens[bootScreen].waitButton, 0, 2)];
+                } else {
+                    sub += " \xC2\xB7 real progress";
+                }
             } else {
                 title = "Built-in";
                 sub = "res/hud/loading.png on black";
@@ -8526,8 +8897,37 @@ void App::drawLoadingScreenWindow() {
         listHead("Screens");
         ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ImGui::GetFrameHeight());
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - fs * 0.2f);
-        if (ImGui::Button("+##newscreen", ImVec2(ImGui::GetFrameHeight(), 0))) newScreen();
+        if (ImGui::Button("+##newscreen", ImVec2(ImGui::GetFrameHeight(), 0))) ImGui::OpenPopup("##ls_templates");
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("New screen");
+        if (ImGui::BeginPopup("##ls_templates")) {
+            ImGui::TextDisabled("New screen from");
+            static const char* kTemplates[] = {"Blank", "Minimal bar", "Dots", "Corner spinner",
+                                               "Animated progress", "Press START"};
+            static const char* kTips[] = {"Just a background.", "LOADING over a filling bar.",
+                                          "Five dots that light up as it loads.",
+                                          "A small spinner in the corner (frames included).",
+                                          "A frame strip driven by the load - slice your sprite sheet into it.",
+                                          "A bar, then PRESS START until the player presses it."};
+            for (int k = 0; k < 6; ++k) {
+                if (ImGui::MenuItem(kTemplates[k])) newScreen(k);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", kTips[k]);
+            }
+            if (lsp && ImGui::MenuItem("Duplicate the selected screen")) {
+                LoadingScreenDef copy = *lsp;
+                const std::string base = copy.name;
+                for (int k = 2;; ++k) {
+                    copy.name = base + "-" + std::to_string(k);
+                    bool taken = false;
+                    for (const auto& o : screens) taken |= (o.name == copy.name);
+                    if (!taken) break;
+                }
+                screens.push_back(std::move(copy));
+                selectedLoadingScreen_ = (int)screens.size() - 1;
+                lsSelKind_ = 3;
+                changed = true;
+            }
+            ImGui::EndPopup();
+        }
         for (int i = 0; i < (int)screens.size(); ++i) {
             ImGui::PushID(i);
             const bool isDef = project_.defaultLoadingScreen == i;
@@ -8606,6 +9006,29 @@ void App::drawLoadingScreenWindow() {
                     lsSelIdx_ = (int)lsp->texts.size() - 1;
                     changed = true;
                 }
+                if (ImGui::MenuItem("Animation (frames)")) {
+                    LoadingAnim an;
+                    int counter = 0;
+                    for (;;) {
+                        an.name = "anim-" + std::to_string(++counter);
+                        bool taken = false;
+                        for (const auto& o : lsp->anims) taken |= (o.name == an.name);
+                        if (!taken) break;
+                    }
+                    lsp->anims.push_back(std::move(an));
+                    lsSelKind_ = 5;
+                    lsSelIdx_ = (int)lsp->anims.size() - 1;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("A spinner or a progress strip from sprite frames\n(PNGs, or a sliced sprite sheet).");
+                if (ImGui::MenuItem("Continue prompt", nullptr, lsp->waitForButton)) {
+                    lsp->waitForButton = true;
+                    lsSelKind_ = 6;
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("PRESS START: the screen waits for a button after loading.");
                 if (ImGui::MenuItem("Progress bar")) {
                     LoadingBar b;
                     int counter = 0;
@@ -8662,8 +9085,28 @@ void App::drawLoadingScreenWindow() {
                         lsSelKind_ = 2, lsSelIdx_ = i;
                     ImGui::PopID();
                 }
-                if (lsp->images.empty() && lsp->texts.empty() && lsp->bars.empty())
-                    ImGui::TextDisabled("Only a background. + Add a text or a bar.");
+                for (int i = 0; i < (int)lsp->anims.size(); ++i) {
+                    ImGui::PushID(4000 + i);
+                    const LoadingAnim& an = lsp->anims[i];
+                    char meta[48];
+                    std::snprintf(meta, sizeof(meta), "%s \xC2\xB7 %d fr", an.mode == 1 ? "progress" : "spinner",
+                                  (int)an.frames.size());
+                    if (screenRow(an.name.c_str(), meta, "A", ImVec4(0.95f, 0.56f, 0.88f, 1.0f),
+                                  lsSelKind_ == 5 && lsSelIdx_ == i, false, false, nullptr)
+                            .clicked)
+                        lsSelKind_ = 5, lsSelIdx_ = i;
+                    ImGui::PopID();
+                }
+                // The continue prompt is drawn last, so it is listed last.
+                if (lsp->waitForButton) {
+                    static const char* kBtn[] = {"any", "START", "Cross"};
+                    if (screenRow("Continue prompt", kBtn[ImClamp(lsp->waitButton, 0, 2)], "P", sem.ok,
+                                  lsSelKind_ == 6, false, false, nullptr)
+                            .clicked)
+                        lsSelKind_ = 6;
+                }
+                if (lsp->images.empty() && lsp->texts.empty() && lsp->bars.empty() && lsp->anims.empty())
+                    ImGui::TextDisabled("Only a background. + Add a text, a bar or an animation.");
             }
             ImGui::EndChild();
         }
@@ -8702,6 +9145,9 @@ void App::drawLoadingScreenWindow() {
             const float t = (float)(ImGui::GetTime() - lsPlayT0_), dur = 2.4f;
             if (t >= dur + 0.6f) {
                 lsPlayT0_ = -1.0;
+                lsPreviewProgress_ = 1.0f;
+                // Ends where the game would: on the continue prompt.
+                lsWaitPreview_ = lsp && lsp->waitForButton;
             } else {
                 const float p = ImMin(1.0f, t / dur);
                 const float e = p < 0.5f ? 2.0f * p * p * 1.2f : 1.0f - std::pow(-2.0f * p + 2.0f, 2.0f) * 0.4f;
@@ -8729,7 +9175,8 @@ void App::drawLoadingScreenWindow() {
             hits.push_back(h);
         } else if (lsp) {
             dl->PushClipRect(f0, f1, true);
-            drawLoadingFrame(dl, *lsp, lsPreviewProgress_, f0, ImVec2(fw, fh), &hits);
+            drawLoadingFrame(dl, *lsp, lsPreviewProgress_, f0, ImVec2(fw, fh), &hits,
+                             lsWaitPreview_ && lsp->waitForButton, (float)ImGui::GetTime());
             dl->PopClipRect();
         } else {
             dl->AddRectFilled(f0, f1, IM_COL32(0, 0, 0, 255));
@@ -8753,11 +9200,14 @@ void App::drawLoadingScreenWindow() {
         auto posOf = [&](int k, int i) -> float* {
             if (k == 4) return splashes[i].image.pos;
             if (!lsp) return nullptr;
+            if (k == 5) return lsp->anims[i].pos;
+            if (k == 6) return lsp->prompt.pos;
             return k == 0 ? lsp->images[i].pos : k == 1 ? lsp->texts[i].pos : k == 2 ? lsp->bars[i].pos : nullptr;
         };
         auto sizeOf = [&](int k, int i) -> float* {
             if (k == 4) return splashes[i].image.size;
             if (!lsp) return nullptr;
+            if (k == 5) return lsp->anims[i].size;
             return k == 0 ? lsp->images[i].size : k == 2 ? lsp->bars[i].size : nullptr;
         };
         const int selKind = lsSelKind_;
@@ -8834,14 +9284,26 @@ void App::drawLoadingScreenWindow() {
         // Load progress: play a simulated load, or scrub it.
         const float rowW = fw;
         ImGui::SetCursorScreenPos(ImVec2(f0.x, f1.y + fs * 0.7f));
-        const bool playing = lsPlayT0_ >= 0.0;
-        if (ImGui::Button(playing ? "Stop##lsplay" : "Play load##lsplay")) {
+        const bool playing = lsPlayT0_ >= 0.0 || lsWaitPreview_;
+        if (ImGui::Button(playing ? "Stop##lsplay" : "Preview##lsplay")) {
             lsPlayT0_ = playing ? -1.0 : ImGui::GetTime();
+            lsWaitPreview_ = false;
             if (!playing) lsPreviewProgress_ = 0.0f;
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            ImGui::SetTooltip("Simulate a load: the bar steps the way the game presents it\n"
-                              "(a frame every ~1/24 of the work, unevenly paced).");
+            ImGui::SetTooltip("Play the screen the way the game shows it: the bar steps with\n"
+                              "the load (a frame every ~1/24 of the work, unevenly paced),\n"
+                              "spinners spin, and a screen that waits ends on its prompt.");
+        if (lsWaitPreview_ && lsp && lsp->waitForButton) {
+            static const char* kBtn[] = {"a button", "START", "Cross"};
+            ImGui::SameLine();
+            const std::string press = std::string("Press ") + (lsp->waitButton == 0 ? "a button" : kBtn[lsp->waitButton]);
+            if (ui::PrimaryButton(press.c_str())) lsWaitPreview_ = false;
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(sem.ok, "Loaded \xC2\xB7 waiting for %s", kBtn[ImClamp(lsp->waitButton, 0, 2)]);
+            ImGui::SetCursorScreenPos(ImVec2(f0.x, ImGui::GetCursorScreenPos().y));
+        }
         ImGui::SameLine();
         ImGui::AlignTextToFramePadding();
         ImGui::TextDisabled("Load progress");
@@ -8851,6 +9313,7 @@ void App::drawLoadingScreenWindow() {
         if (ImGui::SliderFloat("##lsprogress", &pct, 0.0f, 100.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp)) {
             lsPreviewProgress_ = pct * 0.01f;
             lsPlayT0_ = -1.0;
+            lsWaitPreview_ = false;
         }
         ImGui::SetCursorScreenPos(ImVec2(f0.x, ImGui::GetCursorScreenPos().y));
         ImGui::TextDisabled("512\xC3\x97" "448 \xC2\xB7 the bar follows real load work in the game");
@@ -8909,7 +9372,7 @@ void App::drawLoadingScreenWindow() {
             if (ui::EmptyState(ui::Glyph::Screen, "No loading screens",
                                "Scenes show the built-in loading.png on black until a screen exists.",
                                "Create a screen"))
-                newScreen();
+                newScreen(1);
         } else if (lsSelKind_ == 0 && lsSelIdx_ >= 0 && lsSelIdx_ < (int)lsp->images.size()) {
             HudImage& h = lsp->images[lsSelIdx_];
             title(h.name.empty() ? "Image" : h.name.c_str(), "Image \xC2\xB7 " + h.imagePath);
@@ -8971,6 +9434,56 @@ void App::drawLoadingScreenWindow() {
                 lsSelKind_ = 3;
                 changed = true;
             }
+        } else if (lsSelKind_ == 5 && lsSelIdx_ >= 0 && lsSelIdx_ < (int)lsp->anims.size()) {
+            LoadingAnim& an = lsp->anims[lsSelIdx_];
+            title(an.name.c_str(), std::string("Animation \xC2\xB7 ") +
+                                       (an.mode == 1 ? "progress - the load picks the frame" : "spinner"));
+            char nameBuf[64];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", an.name.c_str());
+            if (ui::InputText("Name##lsanim", nameBuf, sizeof(nameBuf))) an.name = nameBuf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            changed |= loadingAnimControls(an);
+            ImGui::Spacing();
+            if (ui::DangerButton("Delete animation")) {
+                lsp->anims.erase(lsp->anims.begin() + lsSelIdx_);
+                lsSelIdx_ = -1;
+                lsSelKind_ = 3;
+                changed = true;
+            }
+        } else if (lsSelKind_ == 6 && lsp->waitForButton) {
+            HudText& t = lsp->prompt;
+            title("Continue prompt", "Shown when the load is done, until the button");
+            changed |= loadingWaitControls(*lsp);
+            if (lsp->waitForButton) {
+                ui::Caption("Prompt");
+                char textBuf[128];
+                std::snprintf(textBuf, sizeof(textBuf), "%s", t.text.c_str());
+                if (ui::InputText("Text##lsprompt", textBuf, sizeof(textBuf))) t.text = textBuf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                changed |= fontCombo(t.font);
+                if (ui::DragInt("Font size##lsprompt", &t.size, 0.2f, 8, 48, "%d px")) t.size = ImClamp(t.size, 8, 48);
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ui::ColorHex("Color##lsprompt", t.color)) changed = true;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ui::DragFloat2("Position##lsprompt", t.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                static const char* kBlink[] = {"Steady", "Blink", "Pulse"};
+                if (ui::SegmentedRow("Effect", kBlink, 3, &lsp->promptBlink)) changed = true;
+                if (lsp->promptBlink != 0) {
+                    if (ui::DragFloat("Period", &lsp->promptPeriod, 0.02f, 0.2f, 4.0f, "%.1f s"))
+                        lsp->promptPeriod = ImClamp(lsp->promptPeriod, 0.2f, 4.0f);
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+                if (ui::Switch("Hide bars and animations##lsprompt", &lsp->promptHideOthers)) changed = true;
+                ui::RowHelp("While the prompt shows, the bars and animations step aside\n"
+                            "(an animation's After loading still applies when off).");
+                ImGui::Spacing();
+                if (ui::DangerButton("Remove the prompt")) {
+                    lsp->waitForButton = false;
+                    lsSelKind_ = 3;
+                    changed = true;
+                }
+            }
         } else {
             // The screen itself: name, background, default, and which scenes
             // pick it - assignable from here (the same field as Scene >
@@ -8995,6 +9508,7 @@ void App::drawLoadingScreenWindow() {
                 project_.defaultLoadingScreen = isDefault ? selectedLoadingScreen_ : -1;
                 changed = true;
             }
+            changed |= loadingWaitControls(ls);
             ui::Caption("Scenes");
             for (int si = 0; si < (int)project_.scenes.size(); ++si) {
                 SceneData& sc = project_.scenes[si];

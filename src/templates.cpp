@@ -673,6 +673,8 @@ int main(int argc, char** argv) {
   // (tools/ps2link), which bakes usbd+ps2kbd+ps2mouse into its own boot - it
   // loads none of its own. See docs/ps2link-setup.md and docs/keyboard-mouse.md.
   options.loadUsbKbdMouseUnderPs2Link = {{KBD_MOUSE_PS2LINK}};
+  // Tools > Loading Screens > Boot sequence: the engine's logo on or off.
+  options.showBanner = {{SHOW_ENGINE_LOGO}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
@@ -2580,6 +2582,9 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // A loading screen that waits for a button holds here once its load is
+  // done (docs/loading-screens.md, "Press a button to continue").
+  bool loadingWaiting = false;
   // Snapshot of the armed hold length: everyFrames() tracks the measured
   // frame time now, so re-evaluating it in a == comparison against the
   // counter could miss its frame at uncapped FPS.
@@ -4571,6 +4576,9 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // A loading screen that waits for a button holds here once its load is
+  // done (docs/loading-screens.md, "Press a button to continue").
+  bool loadingWaiting = false;
   // Snapshot of the armed hold length: everyFrames() tracks the measured
   // frame time now, so re-evaluating it in a == comparison against the
   // counter could miss its frame at uncapped FPS.
@@ -20459,6 +20467,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
                    st.keyboardMousePs2Link ? "true" : "false");
+    s = replaceAll(s, "{{SHOW_ENGINE_LOGO}}", st.showEngineLogo ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");
@@ -32823,27 +32832,74 @@ static std::string loadingDataHeader(const Project& p) {
            "  float spacing;         // quantized: gap between segments, px\n"
            "  const char* segPath;   // segment sprite; \"\" = colored rects\n"
            "};\n\n"
+           "struct LoadingAnimData {\n"
+           "  int frameFirst, frameCount;  // slice into LS_ANIM_FRAMES\n"
+           "  float x, y;    // normalized screen position, center anchor\n"
+           "  float w, h;    // on-screen size in pixels\n"
+           "  int mode;      // 0 = spinner (fps), 1 = progress (load fraction)\n"
+           "  float fps;     // spinner\n"
+           "  int playback;  // spinner: 0 = loop, 1 = ping-pong\n"
+           "  int lastAtFull;  // progress: the last frame only at 100%\n"
+           "  int afterLoad;   // waiting: spinner 0 hide / 1 spin; progress 0 hold / 1 loop last two\n"
+           "};\n\n"
            "struct LoadingScreenData {\n"
            "  float bg[3];  // clear color, 0..255\n"
-           "  int imgFirst, imgCount;  // slices into LS_IMAGES/LS_TEXTS/LS_BARS\n"
+           "  int imgFirst, imgCount;  // slices into LS_IMAGES/LS_TEXTS/LS_BARS/LS_ANIMS\n"
            "  int txtFirst, txtCount;\n"
            "  int barFirst, barCount;\n"
+           "  int animFirst, animCount;\n"
+           "  int wait;          // 0 = straight on, 1 = wait for a button, 2 = only after boot\n"
+           "  int waitButton;    // 0 = any face button or START, 1 = START, 2 = Cross\n"
+           "  const char* promptPath;  // baked continue prompt; \"\" = none\n"
+           "  float promptX, promptY;  // normalized, center anchor\n"
+           "  int promptW, promptH;    // texture size\n"
+           "  int promptBlink;   // 0 = steady, 1 = blink, 2 = pulse\n"
+           "  float promptPeriod;  // seconds\n"
+           "  int promptHideOthers;  // hide bars and animations while waiting\n"
            "};\n\n";
 
     auto binPath = [](std::string s) {
         if (s.rfind("res/", 0) == 0) s = s.substr(4);
         return s;
     };
-    std::ostringstream imgs, txts, bars, screens;
-    int nImg = 0, nTxt = 0, nBar = 0;
+    std::ostringstream imgs, txts, bars, screens, anims, frames;
+    int nImg = 0, nTxt = 0, nBar = 0, nAnim = 0, nFrame = 0;
     for (size_t si = 0; si < p.loadingScreens.size(); ++si) {
         const LoadingScreenDef& ls = p.loadingScreens[si];
         screens << "    {{" << floatLit(ls.bgColor[0] * 255.0f) << ", "
                 << floatLit(ls.bgColor[1] * 255.0f) << ", "
                 << floatLit(ls.bgColor[2] * 255.0f) << "}, " << nImg << ", "
                 << ls.images.size() << ", " << nTxt << ", " << ls.texts.size()
-                << ", " << nBar << ", " << ls.bars.size() << "},  // "
-                << ls.name << "\n";
+                << ", " << nBar << ", " << ls.bars.size() << ", " << nAnim << ", "
+                << ls.anims.size() << ", ";
+        // Press to continue: the prompt is baked like a loading text under the
+        // same screen-index mangle ("ls-<i>-continue", writeGeneratedAssets).
+        if (ls.waitForButton) {
+            HudText copy = ls.prompt;
+            copy.name = "ls-" + std::to_string(si) + "-continue";
+            int tw = 8, th = 8;
+            menubake::textLayout(copy, p, tw, th);
+            screens << (ls.waitBootOnly ? 2 : 1) << ", " << ls.waitButton << ", \"hud/"
+                    << menubake::textFileName(copy.name) << "\", " << floatLit(ls.prompt.pos[0])
+                    << ", " << floatLit(ls.prompt.pos[1]) << ", " << tw << ", " << th << ", "
+                    << ls.promptBlink << ", " << floatLit(ls.promptPeriod) << ", "
+                    << (ls.promptHideOthers ? 1 : 0);
+        } else {
+            screens << "0, 0, \"\", 0, 0, 0, 0, 0, 1, 0";
+        }
+        screens << "},  // " << ls.name << "\n";
+        for (const LoadingAnim& a : ls.anims) {
+            anims << "    {" << nFrame << ", " << a.frames.size() << ", " << floatLit(a.pos[0])
+                  << ", " << floatLit(a.pos[1]) << ", " << floatLit(a.size[0]) << ", "
+                  << floatLit(a.size[1]) << ", " << a.mode << ", " << floatLit(a.fps) << ", "
+                  << a.playback << ", " << (a.lastAtFull ? 1 : 0) << ", " << a.afterLoad
+                  << "},  // " << ls.name << ": " << a.name << "\n";
+            for (const HudImage& f : a.frames) {
+                frames << "    \"" << binPath(f.imagePath) << "\",\n";
+                ++nFrame;
+            }
+            ++nAnim;
+        }
         for (const HudImage& h : ls.images) {
             imgs << "    {\"" << binPath(h.imagePath) << "\", "
                  << floatLit(h.pos[0]) << ", " << floatLit(h.pos[1]) << ", "
@@ -32885,8 +32941,11 @@ static std::string loadingDataHeader(const Project& p) {
         << "constexpr int LS_IMAGE_TOTAL = " << nImg << ";\n"
         << "constexpr int LS_TEXT_TOTAL = " << nTxt << ";\n"
         << "constexpr int LS_BAR_TOTAL = " << nBar << ";\n"
+        << "constexpr int LS_ANIM_TOTAL = " << nAnim << ";\n"
+        << "constexpr int LS_ANIM_FRAME_TOTAL = " << nFrame << ";\n"
         << "inline const LoadingScreenData LS_SCREENS[LS_COUNT > 0 ? LS_COUNT : 1] = {\n"
-        << (n ? screens.str() : std::string("    {{0, 0, 0}, 0, 0, 0, 0, 0, 0},\n"))
+        << (n ? screens.str()
+              : std::string("    {{0, 0, 0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \"\", 0, 0, 0, 0, 0, 1, 0},\n"))
         << "};\n\n"
         << "inline const LoadingImageData LS_IMAGES[" << (nImg > 0 ? nImg : 1)
         << "] = {\n"
@@ -32898,7 +32957,12 @@ static std::string loadingDataHeader(const Project& p) {
         << "] = {\n"
         << (nBar ? bars.str()
                  : std::string("    {0, 0, 0, 0, 0, {0, 0, 0}, {0, 0, 0}, 0, 0, \"\"},\n"))
-        << "};\n\n";
+        << "};\n\n"
+        << "inline const LoadingAnimData LS_ANIMS[" << (nAnim > 0 ? nAnim : 1) << "] = {\n"
+        << (nAnim ? anims.str() : std::string("    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},\n"))
+        << "};\n\n"
+        << "inline const char* const LS_ANIM_FRAMES[" << (nFrame > 0 ? nFrame : 1) << "] = {\n"
+        << (nFrame ? frames.str() : std::string("    \"\",\n")) << "};\n\n";
 
     // Scene -> screen assignment, resolved at codegen exactly like the editor
     // resolves it (name, else project default, else -1 = the built-in

@@ -51,3 +51,6 @@ Layout: `vendor/tyra/engine/{inc,src}/` mirror each other: `audio`, `debug`, `fi
 
 ## Signed RGB SH (1.74.0)
 `PipelineDirLightsBag::signedSH` (default false). Both packet writers set ambient.w = 0 (classic) or -1 (SH); output alpha unchanged. The macro loads ambient.xyzw, uses w as the dot-product floor, clamps the RGB sum before clipping. SH = identity directions + signed RGB axis coefficients. Keep `vugen.cpp`, expanded shared clip C and generated as-is D/TD in sync; run `--vu-check` (incl. its RGB numeric oracle), then rebuild. No extra packet qwords. DMA-lifetime bug it caused: submission-dma.md.
+
+## Optional boot logo (2.0)
+`EngineOptions::showBanner` (default true): `Engine::init` calls `banner.show()` only when set. Generated `main.cpp` writes it from `ProjectSettings::showEngineLogo` (Loading Screens > Boot sequence, format 115). Off = the game's first picture is its own splash or loading screen; nothing else about init moves.

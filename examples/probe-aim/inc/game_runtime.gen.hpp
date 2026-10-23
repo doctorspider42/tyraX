@@ -2750,6 +2750,13 @@ struct LoadingScreenState {
   std::vector<Tyra::Sprite> texts;     // LS_TEXT_TOTAL, one per LS_TEXTS
   std::vector<Tyra::Sprite> segs;      // LS_BAR_TOTAL, linked only for seg bars
   std::vector<Tyra::Sprite> splashes;  // SPLASH_COUNT, one per SPLASHES
+  std::vector<Tyra::Sprite> animFrames;  // LS_ANIM_FRAME_TOTAL, one per frame
+  std::vector<Tyra::Sprite> prompts;     // LS_COUNT, linked for waiting screens
+  // Seconds of loading screen shown, advanced per presented frame: what the
+  // spinners and the prompt's blink are timed by. The in-load frames are
+  // pumped by work done rather than by vsync, so a spinner may skip a frame
+  // there - it is a clock for the eye, not for logic.
+  float clock = 0.0F;
 };
 inline LoadingScreenState g_loading;
 
@@ -2774,6 +2781,17 @@ inline void loadingEnsureReady(Engine* engine) {
     if (LS_BARS[i].segPath[0] == '\0') continue;
     g_loading.segs[i].mode = SpriteMode::MODE_STRETCH;
     repo.add(FileUtils::fromCwd(LS_BARS[i].segPath))->addLink(g_loading.segs[i].id);
+  }
+  g_loading.animFrames.resize(LS_ANIM_FRAME_TOTAL > 0 ? LS_ANIM_FRAME_TOTAL : 0);
+  for (int i = 0; i < LS_ANIM_FRAME_TOTAL; ++i) {
+    g_loading.animFrames[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(LS_ANIM_FRAMES[i]))->addLink(g_loading.animFrames[i].id);
+  }
+  g_loading.prompts.resize(LS_COUNT > 0 ? LS_COUNT : 0);
+  for (int i = 0; i < LS_COUNT; ++i) {
+    if (LS_SCREENS[i].promptPath[0] == '\0') continue;
+    g_loading.prompts[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(LS_SCREENS[i].promptPath))->addLink(g_loading.prompts[i].id);
   }
   g_loading.splashes.resize(SPLASH_COUNT > 0 ? SPLASH_COUNT : 0);
   for (int i = 0; i < SPLASH_COUNT; ++i) {
@@ -2800,10 +2818,8 @@ inline void renderSplash(Engine* engine, int i) {
   engine->renderer.endFrame();
 }
 
-inline void renderFrame(Engine* engine, int sceneIdx, float fraction) {
-  if (fraction < 0.0F) fraction = 0.0F;
-  if (fraction > 1.0F) fraction = 1.0F;
-
+// The authored screen a scene's load shows, or -1 for the built-in one.
+inline int screenFor(int sceneIdx) {
   int screen = -1;
   if (LS_COUNT > 0) {
     if (sceneIdx >= 0 && sceneIdx < SCENE_COUNT)
@@ -2812,6 +2828,34 @@ inline void renderFrame(Engine* engine, int sceneIdx, float fraction) {
       screen = LS_DEFAULT;
     if (screen < 0 || screen >= LS_COUNT) screen = LS_DEFAULT;
   }
+  return screen < 0 || screen >= LS_COUNT ? -1 : screen;
+}
+
+// Press a button to continue (docs/loading-screens.md): does this load end on
+// the screen's prompt? `boot` = the first scene's load at power-on.
+inline bool waitWanted(int sceneIdx, bool boot) {
+  const int screen = screenFor(sceneIdx);
+  if (screen < 0) return false;
+  const int w = LS_SCREENS[screen].wait;
+  return w == 1 || (w == 2 && boot);
+}
+
+// The waiting screen's button, edge-triggered (one press, not a held one).
+inline bool continuePressed(Engine* engine, int sceneIdx) {
+  const int screen = screenFor(sceneIdx);
+  const auto& c = engine->pad.getClicked();
+  const int b = screen < 0 ? 0 : LS_SCREENS[screen].waitButton;
+  if (b == 1) return c.Start;
+  if (b == 2) return c.Cross;
+  return c.Cross || c.Circle || c.Square || c.Triangle || c.Start;
+}
+
+inline void renderFrame(Engine* engine, int sceneIdx, float fraction, bool waiting = false) {
+  if (fraction < 0.0F) fraction = 0.0F;
+  if (fraction > 1.0F) fraction = 1.0F;
+  g_loading.clock += g_frameDt > 0.0001F ? g_frameDt : 0.02F;
+
+  const int screen = screenFor(sceneIdx);
 
   const auto& scr = engine->renderer.core.getSettings();
   const float W = scr.getWidth();
@@ -2864,7 +2908,42 @@ inline void renderFrame(Engine* engine, int sceneIdx, float fraction) {
     sp.position = Vec2(t.x * W - t.w * 0.5F, t.y * H - t.h * 0.5F);
     engine->renderer.renderer2D.render(sp);
   }
-  for (int i = 0; i < s.barCount; ++i) {
+  const bool showPrompt = waiting && s.promptPath[0] != '\0';
+  const bool hideOthers = showPrompt && s.promptHideOthers != 0;
+
+  // Animated elements: a spinner on its own fps, a progress strip on the load
+  // fraction (docs/loading-screens.md, "Animations").
+  for (int i = 0; i < s.animCount && !hideOthers; ++i) {
+    const LoadingAnimData& a = LS_ANIMS[s.animFirst + i];
+    const int n = a.frameCount;
+    if (n <= 0) continue;
+    const int tick = (int)(g_loading.clock * a.fps);
+    int idx = 0;
+    if (a.mode == 0) {
+      if (waiting && a.afterLoad == 0) continue;
+      if (a.playback == 1 && n > 1) {
+        const int k = tick % (2 * n - 2);
+        idx = k < n ? k : 2 * n - 2 - k;
+      } else {
+        idx = tick % n;
+      }
+    } else if (waiting && a.afterLoad == 1 && n >= 2) {
+      idx = n - 2 + (tick & 1);
+    } else if (a.lastAtFull && n >= 2) {
+      // The last frame (the crash) only once fully loaded.
+      idx = fraction >= 1.0F ? n - 1 : (int)(fraction * (float)(n - 1));
+      if (fraction < 1.0F && idx > n - 2) idx = n - 2;
+    } else {
+      idx = (int)(fraction * (float)n);
+      if (idx > n - 1) idx = n - 1;
+    }
+    Sprite& sp = g_loading.animFrames[a.frameFirst + idx];
+    sp.size = Vec2(a.w, a.h);
+    sp.position = Vec2(a.x * W - a.w * 0.5F, a.y * H - a.h * 0.5F);
+    engine->renderer.renderer2D.render(sp);
+  }
+
+  for (int i = 0; i < s.barCount && !hideOthers; ++i) {
     const LoadingBarData& b = LS_BARS[s.barFirst + i];
     const float bx = b.x * W - b.w * 0.5F;  // top-left of the bar
     const float by = b.y * H - b.h * 0.5F;
@@ -2889,6 +2968,22 @@ inline void renderFrame(Engine* engine, int sceneIdx, float fraction) {
           quad(sx, by, segW, b.h, c);
         }
       }
+    }
+  }
+  // The continue prompt, last: steady, blinking or pulsing on its period.
+  if (showPrompt) {
+    const float period = s.promptPeriod > 0.05F ? s.promptPeriod : 1.0F;
+    float phase = g_loading.clock / period;
+    phase -= (float)(int)phase;
+    float alpha = 128.0F;
+    if (s.promptBlink == 1) alpha = phase < 0.5F ? 128.0F : 0.0F;
+    if (s.promptBlink == 2) alpha = 128.0F * (0.3F + 0.7F * (phase < 0.5F ? phase * 2.0F : 2.0F - phase * 2.0F));
+    if (alpha > 0.5F) {
+      Sprite& sp = g_loading.prompts[screen];
+      sp.size = Vec2((float)s.promptW, (float)s.promptH);
+      sp.position = Vec2(s.promptX * W - s.promptW * 0.5F, s.promptY * H - s.promptH * 0.5F);
+      sp.color = Color(128.0F, 128.0F, 128.0F, alpha);
+      engine->renderer.renderer2D.render(sp);
     }
   }
   engine->renderer.endFrame();

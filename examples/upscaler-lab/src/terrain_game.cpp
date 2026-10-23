@@ -312,7 +312,15 @@ void TerrainGame::loop() {
             bootFirstScene();
             fppSpawnPending = true;
           }
+          if (loadingFrames == 0 && loadingscreen::waitWanted(editorBootScene(), true))
+            loadingWaiting = true;
           return;
+        }
+        if (loadingWaiting) {  // loaded; the screen holds for its button
+          livedbg::tickFromLoop(scriptCtx);  // the debugger, capture and pad stay live
+          loadingscreen::renderFrame(engine, editorBootScene(), 1.0F, true);
+          if (!loadingscreen::continuePressed(engine, editorBootScene())) return;
+          loadingWaiting = false;
         }
         bootPhase = 2;
       }
@@ -442,7 +450,15 @@ void TerrainGame::loop() {
       loadScene(loadingTarget);
       fppSpawnPending = true;
     }
+    if (loadingFrames == 0 && loadingscreen::waitWanted(loadingTarget, false))
+      loadingWaiting = true;
     return;
+  }
+  if (loadingWaiting) {  // loaded; the screen holds for its button
+    livedbg::tickFromLoop(scriptCtx);  // the debugger, capture and pad stay live
+    loadingscreen::renderFrame(engine, loadingTarget, 1.0F, true);
+    if (!loadingscreen::continuePressed(engine, loadingTarget)) return;
+    loadingWaiting = false;
   }
   if (fppSpawnPending) {
     // The built-in FPP player respawns at the new scene's spawn point - after a

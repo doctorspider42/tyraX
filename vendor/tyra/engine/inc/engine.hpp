@@ -45,6 +45,11 @@ struct EngineOptions {
    * nothing to reuse and the drivers just report "not ready". */
   bool loadUsbKbdMouseUnderPs2Link = false;
 
+  /** Modified by TyraX: show the engine's logo (Banner, ~2 s) at boot.
+   * Off for a game that wants its own splashes first (the editor's
+   * Loading Screens > Boot sequence switch). */
+  bool showBanner = true;
+
   /** Forced output video signal; Auto follows the console region. */
   VideoMode videoMode = VideoMode::Auto;
 

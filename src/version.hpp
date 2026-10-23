@@ -6388,7 +6388,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v114: TyraX 2.0 integrates TyraX2 settings through v113, editorHidden,
 // and project/scene collision broadPhase. All keys are read independently of
 // the branch format stamp; no destructive migration is required.
-inline constexpr int kFormatVersion = 114;
+// v115 (docs/loading-screens.md): a loading screen's "anims" (animated sprite
+// elements) and "wait" (press a button to continue + its prompt), and
+// ProjectSettings::showEngineLogo - all written only when used/off. Missing =
+// none, no wait, the logo shows, exactly as before. Additive; no migration.
+inline constexpr int kFormatVersion = 115;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

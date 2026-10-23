@@ -2502,6 +2502,9 @@ struct ProjectSettings {
     // Scene switches show res/hud/loading.png centered on black for a
     // moment (a generated placeholder is written when the file is missing).
     bool loadingScreen = true;
+    // The engine's TyraX logo, held ~2 s at power-on before the splashes
+    // (Tools > Loading Screens > Boot sequence). Off skips Banner::show.
+    bool showEngineLogo = true;
 
     // Soft dark blob shadows under moving things (the third-person avatar,
     // animated models, physics objects): a terrain-conforming alpha-blended
@@ -2685,6 +2688,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
            a.loadingScreen == b.loadingScreen &&
+           a.showEngineLogo == b.showEngineLogo &&
            a.highlightUsable == b.highlightUsable &&
            a.highlightDistance == b.highlightDistance &&
            eq3(a.highlightColor, b.highlightColor) &&
@@ -3160,6 +3164,43 @@ inline bool operator==(const LoadingBar& a, const LoadingBar& b) {
            a.spacing == b.spacing && a.segImage == b.segImage;
 }
 
+// An animated loading element (docs/loading-screens.md, "Animations"): a short
+// run of sprite frames - two cars closing in and crashing, a spinning wheel.
+// It plays as a SPINNER (its own fps, looping while the scene loads) or as a
+// PROGRESS bar (the load fraction picks the frame). A sprite sheet is sliced
+// into these frames when it is imported, so the game only ever sees plain
+// frame PNGs, each baked like any HUD image (pow2 + quantization).
+struct LoadingAnim {
+    std::string name = "anim";
+    std::vector<HudImage> frames;  // in play order; their pos/size are unused
+    float pos[2] = {0.5f, 0.75f};  // normalized screen position, center anchor
+    float size[2] = {128.0f, 64.0f};  // on-screen size in px (512x448 screen)
+    int mode = 0;            // 0 = spinner, 1 = progress
+    float fps = 12.0f;       // spinner: frames per second (1..60)
+    int playback = 0;        // spinner: 0 = loop, 1 = ping-pong
+    bool lastAtFull = true;  // progress: the last frame only once fully loaded
+    // While the screen waits for a button: spinner 0 = hide, 1 = keep
+    // spinning; progress 0 = hold the last frame, 1 = loop the last two.
+    int afterLoad = 0;
+};
+
+inline bool operator==(const LoadingAnim& a, const LoadingAnim& b) {
+    return a.name == b.name && a.frames == b.frames && a.pos[0] == b.pos[0] &&
+           a.pos[1] == b.pos[1] && a.size[0] == b.size[0] && a.size[1] == b.size[1] &&
+           a.mode == b.mode && a.fps == b.fps && a.playback == b.playback &&
+           a.lastAtFull == b.lastAtFull && a.afterLoad == b.afterLoad;
+}
+
+inline HudText defaultContinuePrompt() {
+    HudText t;
+    t.name = "continue";
+    t.text = "PRESS START";
+    t.pos[0] = 0.5f;
+    t.pos[1] = 0.85f;
+    t.size = 16;
+    return t;
+}
+
 // A named loading screen (Tools > Loading Screens): what the game shows while
 // a scene loads. Scenes pick one by name (SceneData::loadingScreen); unnamed
 // scenes use Project::defaultLoadingScreen; with neither, the game falls back
@@ -3169,13 +3210,27 @@ struct LoadingScreenDef {
     float bgColor[3] = {0.0f, 0.0f, 0.0f};  // clear color behind everything
     std::vector<HudImage> images;  // PNG sprites, drawn in order
     std::vector<HudText> texts;    // baked text sprites (visibleAtStart unused)
+    std::vector<LoadingAnim> anims;  // animated elements, over the texts
     std::vector<LoadingBar> bars;  // progress bars, drawn on top
+    // "Press a button to continue": when the load finishes the screen holds,
+    // shows `prompt` (baked like a text, drawn last) and waits for the button.
+    bool waitForButton = false;
+    int waitButton = 0;         // 0 = any face button or START, 1 = START, 2 = Cross
+    bool waitBootOnly = false;  // only after the boot load, not every switch
+    HudText prompt = defaultContinuePrompt();  // baked as ls-<i>-continue
+    int promptBlink = 1;        // 0 = steady, 1 = blink, 2 = pulse
+    float promptPeriod = 1.0f;  // seconds per blink / pulse
+    bool promptHideOthers = true;  // hide bars and animations while it shows
 };
 
 inline bool operator==(const LoadingScreenDef& a, const LoadingScreenDef& b) {
     return a.name == b.name && a.bgColor[0] == b.bgColor[0] &&
            a.bgColor[1] == b.bgColor[1] && a.bgColor[2] == b.bgColor[2] &&
-           a.images == b.images && a.texts == b.texts && a.bars == b.bars;
+           a.images == b.images && a.texts == b.texts && a.anims == b.anims &&
+           a.bars == b.bars && a.waitForButton == b.waitForButton &&
+           a.waitButton == b.waitButton && a.waitBootOnly == b.waitBootOnly &&
+           a.prompt == b.prompt && a.promptBlink == b.promptBlink &&
+           a.promptPeriod == b.promptPeriod && a.promptHideOthers == b.promptHideOthers;
 }
 
 // A boot splash screen (Tools > Loading Screens > Boot splash): a single image

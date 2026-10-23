@@ -253,7 +253,15 @@ void TerrainGame::loop() {
           loadingscreen::renderFrame(engine, editorBootScene(), preLoad ? 0.0F : 1.0F);
           --loadingFrames;
           if (loadingFrames == loadingTotal - 5) bootFirstScene();
+          if (loadingFrames == 0 && loadingscreen::waitWanted(editorBootScene(), true))
+            loadingWaiting = true;
           return;
+        }
+        if (loadingWaiting) {  // loaded; the screen holds for its button
+          livedbg::tickFromLoop(scriptCtx);  // the debugger, capture and pad stay live
+          loadingscreen::renderFrame(engine, editorBootScene(), 1.0F, true);
+          if (!loadingscreen::continuePressed(engine, editorBootScene())) return;
+          loadingWaiting = false;
         }
         bootPhase = 2;
       }
@@ -376,7 +384,15 @@ void TerrainGame::loop() {
     --loadingFrames;
     if (loadingFrames == loadingTotal - 5)
       loadScene(loadingTarget);  // 5 frames shown first
+    if (loadingFrames == 0 && loadingscreen::waitWanted(loadingTarget, false))
+      loadingWaiting = true;
     return;
+  }
+  if (loadingWaiting) {  // loaded; the screen holds for its button
+    livedbg::tickFromLoop(scriptCtx);  // the debugger, capture and pad stay live
+    loadingscreen::renderFrame(engine, loadingTarget, 1.0F, true);
+    if (!loadingscreen::continuePressed(engine, loadingTarget)) return;
+    loadingWaiting = false;
   }
 
   // Streaming layers: Load/Unload Layer requests, one asset load per frame,

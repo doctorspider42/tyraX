@@ -249,6 +249,8 @@ std::string bake(const Project& p,
         for (const LoadingBar& b : ls.bars)
             if (!b.segImage.imagePath.empty())
                 hudBake[b.segImage.imagePath] = &b.segImage;
+        for (const LoadingAnim& a : ls.anims)
+            for (const HudImage& f : a.frames) hudBake[f.imagePath] = &f;
     }
     for (const SplashScreen& s : p.splashScreens)
         if (!s.image.imagePath.empty()) hudBake[s.image.imagePath] = &s.image;

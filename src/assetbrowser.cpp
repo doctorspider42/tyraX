@@ -232,9 +232,14 @@ void App::scanAssetTree() {
     }
     for (const HudText& t : project_.hudTexts)
         generated.insert("res/hud/" + menubake::textFileName(t.name));
-    for (const LoadingScreenDef& ls : project_.loadingScreens)
+    for (size_t si = 0; si < project_.loadingScreens.size(); ++si) {
+        const LoadingScreenDef& ls = project_.loadingScreens[si];
+        const std::string mangle = "ls-" + std::to_string(si) + "-";
         for (const HudText& t : ls.texts)
-            generated.insert("res/hud/" + menubake::textFileName(t.name));
+            generated.insert("res/hud/" + menubake::textFileName(mangle + t.name));
+        if (ls.waitForButton)
+            generated.insert("res/hud/" + menubake::textFileName(mangle + "continue"));
+    }
     for (const GameFont& f : project_.fonts)
         generated.insert("res/fonts/" + menubake::atlasFileName(f.name));
     // Credits pages: the whole res/credits/pages folder is the bake's own (the
@@ -472,6 +477,9 @@ void App::rebuildAssetUsage() {
             noteHud(h, "loading screen \"" + ls.name + "\"");
         for (const LoadingBar& b : ls.bars)
             noteHud(b.segImage, "loading bar in \"" + ls.name + "\"");
+        for (const LoadingAnim& a : ls.anims)
+            for (const HudImage& f : a.frames)
+                noteHud(f, "loading animation \"" + a.name + "\" in \"" + ls.name + "\"");
     }
     for (const SplashScreen& s : project_.splashScreens)
         noteHud(s.image, "boot splash \"" + s.name + "\"");
@@ -773,6 +781,8 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (LoadingScreenDef& ls : project_.loadingScreens) {
         for (HudImage& h : ls.images) swap(h.imagePath);
         for (LoadingBar& b : ls.bars) swap(b.segImage.imagePath);
+        for (LoadingAnim& a : ls.anims)
+            for (HudImage& f : a.frames) swap(f.imagePath);
     }
     for (SplashScreen& s : project_.splashScreens) swap(s.image.imagePath);
     for (CreditsRoll& r : project_.credits) {

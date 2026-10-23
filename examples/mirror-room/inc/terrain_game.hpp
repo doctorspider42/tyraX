@@ -1461,6 +1461,9 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // A loading screen that waits for a button holds here once its load is
+  // done (docs/loading-screens.md, "Press a button to continue").
+  bool loadingWaiting = false;
   // Snapshot of the armed hold length: everyFrames() tracks the measured
   // frame time now, so re-evaluating it in a == comparison against the
   // counter could miss its frame at uncapped FPS.

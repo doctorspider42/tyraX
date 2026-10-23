@@ -2066,6 +2066,7 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"highlightOverlay\": "
          << (p.settings.highlightOverlay ? "true" : "false") << ",\n"
          << "    \"loadingScreen\": " << (p.settings.loadingScreen ? "true" : "false")
+         << (p.settings.showEngineLogo ? "" : ",\n    \"showEngineLogo\": false")
          << "\n"
          << "  }";
 }
@@ -2593,7 +2594,43 @@ static void writeLoadingScreensSection(std::ostream& json, const Project& p) {
                  << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
                  << ", \"shadow\": " << (t.shadow ? "true" : "false") << " }";
         }
-        json << (ls.texts.empty() ? "]" : "\n      ]") << ",\n      \"bars\": [";
+        json << (ls.texts.empty() ? "]" : "\n      ]");
+        // Animations and the press-to-continue block: written only when used
+        // (v115), so a screen without them keeps its old bytes.
+        if (!ls.anims.empty()) {
+            json << ",\n      \"anims\": [";
+            for (size_t k = 0; k < ls.anims.size(); ++k) {
+                const LoadingAnim& a = ls.anims[k];
+                json << (k ? ",\n        " : "\n        ") << "{ \"name\": \""
+                     << jsonEscape(a.name) << "\", \"pos\": [" << fmtFloat(a.pos[0]) << ", "
+                     << fmtFloat(a.pos[1]) << "], \"size\": [" << fmtFloat(a.size[0]) << ", "
+                     << fmtFloat(a.size[1]) << "], \"mode\": " << a.mode
+                     << ", \"fps\": " << fmtFloat(a.fps) << ", \"playback\": " << a.playback
+                     << ", \"lastAtFull\": " << (a.lastAtFull ? "true" : "false")
+                     << ", \"afterLoad\": " << a.afterLoad << ", \"frames\": [";
+                for (size_t f = 0; f < a.frames.size(); ++f) {
+                    const HudImage& h = a.frames[f];
+                    json << (f ? ", " : "") << "{ \"image\": \"" << h.imagePath
+                         << "\", \"texW\": " << h.texW << ", \"texH\": " << h.texH
+                         << ", \"texQuant\": \"" << h.texQuant << "\" }";
+                }
+                json << "] }";
+            }
+            json << "\n      ]";
+        }
+        if (ls.waitForButton) {
+            const HudText& t = ls.prompt;
+            json << ",\n      \"wait\": { \"button\": " << ls.waitButton
+                 << ", \"bootOnly\": " << (ls.waitBootOnly ? "true" : "false")
+                 << ", \"blink\": " << ls.promptBlink << ", \"period\": " << fmtFloat(ls.promptPeriod)
+                 << ", \"hideOthers\": " << (ls.promptHideOthers ? "true" : "false")
+                 << ", \"text\": \"" << jsonEscape(t.text) << "\", \"pos\": ["
+                 << fmtFloat(t.pos[0]) << ", " << fmtFloat(t.pos[1]) << "], \"size\": " << t.size
+                 << ", \"color\": " << fmtVec3(t.color)
+                 << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
+                 << ", \"shadow\": " << (t.shadow ? "true" : "false") << " }";
+        }
+        json << ",\n      \"bars\": [";
         for (size_t k = 0; k < ls.bars.size(); ++k) {
             const LoadingBar& b = ls.bars[k];
             json << (k ? ",\n        " : "\n        ") << "{ \"name\": \""
@@ -6808,6 +6845,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.highlightOverlay = v->boolOr(false);
         if (const auto* v = s->find("loadingScreen"))
             st.loadingScreen = !(v->type == json::Value::Type::Bool && !v->boolean);
+        if (const auto* v = s->find("showEngineLogo"))
+            st.showEngineLogo = !(v->type == json::Value::Type::Bool && !v->boolean);
     }
 }
 
@@ -7460,6 +7499,70 @@ static void readLoadingScreensSection(const json::Value& root, Project& out) {
                         t.shadow = !(v->type == json::Value::Type::Bool && !v->boolean);
                     if (!t.name.empty()) ls.texts.push_back(std::move(t));
                 }
+            }
+            if (const auto* anims = jl.find("anims");
+                anims && anims->type == json::Value::Type::Array) {
+                for (const auto& ja : anims->arr) {
+                    LoadingAnim a;
+                    if (const auto* v = ja.find("name")) a.name = v->stringOr("anim");
+                    if (const auto* v = ja.find("pos");
+                        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                        a.pos[0] = (float)v->arr[0].numberOr(0.5);
+                        a.pos[1] = (float)v->arr[1].numberOr(0.75);
+                    }
+                    if (const auto* v = ja.find("size");
+                        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                        a.size[0] = (float)v->arr[0].numberOr(128.0);
+                        a.size[1] = (float)v->arr[1].numberOr(64.0);
+                    }
+                    if (const auto* v = ja.find("mode")) a.mode = (int)v->numberOr(0) == 1 ? 1 : 0;
+                    if (const auto* v = ja.find("fps")) a.fps = (float)v->numberOr(12.0);
+                    if (a.fps < 1.0f) a.fps = 1.0f;
+                    if (a.fps > 60.0f) a.fps = 60.0f;
+                    if (const auto* v = ja.find("playback")) a.playback = (int)v->numberOr(0) == 1 ? 1 : 0;
+                    if (const auto* v = ja.find("lastAtFull")) a.lastAtFull = v->boolOr(true);
+                    if (const auto* v = ja.find("afterLoad")) a.afterLoad = (int)v->numberOr(0) == 1 ? 1 : 0;
+                    if (const auto* fr = ja.find("frames");
+                        fr && fr->type == json::Value::Type::Array) {
+                        for (const auto& jf : fr->arr) {
+                            HudImage h;
+                            h.name = a.name;
+                            if (const auto* v = jf.find("image")) h.imagePath = v->stringOr("");
+                            if (const auto* v = jf.find("texW")) h.texW = (int)v->numberOr(0);
+                            if (const auto* v = jf.find("texH")) h.texH = (int)v->numberOr(0);
+                            if (const auto* v = jf.find("texQuant")) {
+                                const std::string q = v->stringOr("");
+                                h.texQuant = (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+                            }
+                            if (!h.imagePath.empty()) a.frames.push_back(std::move(h));
+                        }
+                    }
+                    ls.anims.push_back(std::move(a));
+                }
+            }
+            if (const auto* w = jl.find("wait")) {
+                ls.waitForButton = true;
+                HudText& t = ls.prompt;
+                if (const auto* v = w->find("button")) ls.waitButton = (int)v->numberOr(0);
+                if (ls.waitButton < 0 || ls.waitButton > 2) ls.waitButton = 0;
+                if (const auto* v = w->find("bootOnly")) ls.waitBootOnly = v->boolOr(false);
+                if (const auto* v = w->find("blink")) ls.promptBlink = (int)v->numberOr(1);
+                if (ls.promptBlink < 0 || ls.promptBlink > 2) ls.promptBlink = 1;
+                if (const auto* v = w->find("period")) ls.promptPeriod = (float)v->numberOr(1.0);
+                if (ls.promptPeriod < 0.2f) ls.promptPeriod = 0.2f;
+                if (const auto* v = w->find("hideOthers")) ls.promptHideOthers = v->boolOr(true);
+                if (const auto* v = w->find("text")) t.text = v->stringOr("PRESS START");
+                if (const auto* v = w->find("pos");
+                    v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                    t.pos[0] = (float)v->arr[0].numberOr(0.5);
+                    t.pos[1] = (float)v->arr[1].numberOr(0.85);
+                }
+                if (const auto* v = w->find("size")) t.size = (int)v->numberOr(16);
+                if (t.size < 8) t.size = 8;
+                if (t.size > 48) t.size = 48;
+                readVec3(w->find("color"), t.color);
+                if (const auto* v = w->find("font")) t.font = v->stringOr("");
+                if (const auto* v = w->find("shadow")) t.shadow = v->boolOr(true);
             }
             if (const auto* bars = jl.find("bars");
                 bars && bars->type == json::Value::Type::Array) {
@@ -9921,6 +10024,23 @@ std::string refreshGenerated(const Project& p) {
             if (!f) return "Cannot write loading text sprite: " + path.string();
             f.write(reinterpret_cast<const char*>(png.data()),
                     (std::streamsize)png.size());
+        }
+        // The press-to-continue prompt, under the same mangle as its codegen
+        // ("ls-<i>-continue", loadingDataHeader).
+        const LoadingScreenDef& lsd = p.loadingScreens[si];
+        if (lsd.waitForButton) {
+            HudText copy = lsd.prompt;
+            copy.name = "ls-" + std::to_string(si) + "-continue";
+            std::vector<unsigned char> png;
+            if (!menubake::bakeTextPNG(copy, p, png))
+                return "Loading prompt bake failed (no usable TTF font found)";
+            const fs::path path =
+                fs::path(p.dir) / "res" / "hud" / menubake::textFileName(copy.name);
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write loading prompt sprite: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()), (std::streamsize)png.size());
         }
     }
     return "";

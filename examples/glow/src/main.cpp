@@ -94,6 +94,8 @@ int main(int argc, char** argv) {
   // (tools/ps2link), which bakes usbd+ps2kbd+ps2mouse into its own boot - it
   // loads none of its own. See docs/ps2link-setup.md and docs/keyboard-mouse.md.
   options.loadUsbKbdMouseUnderPs2Link = false;
+  // Tools > Loading Screens > Boot sequence: the engine's logo on or off.
+  options.showBanner = true;
   Tyra::Engine engine(options);
   Glow::TerrainGame game(&engine);
   engine.run(&game);

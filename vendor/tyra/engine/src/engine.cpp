@@ -96,7 +96,8 @@ void Engine::initAll(const EngineOptions& options) {
   rendererOptions.camFeed = options.camFeedTarget;
   rendererOptions.tripleBuffering = options.tripleBuffering;
   renderer.init(rendererOptions);
-  banner.show(&renderer);
+  // Modified by TyraX: the logo can be switched off (EngineOptions).
+  if (options.showBanner) banner.show(&renderer);
   audio.init();
   pad.init();
   if (withKbdMouse) kbdMouse.init(underPs2Link);

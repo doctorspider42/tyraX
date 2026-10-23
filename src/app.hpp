@@ -1593,13 +1593,22 @@ private:
     // screens (bg color + images + baked texts + progress bars) assignable
     // per scene, edited in place on a 2D preview driven by a load fraction.
     void drawLoadingScreenWindow();
-    // Draws a loading screen into the 512x448-space frame at p0/size (bars at
-    // `fraction`); `hits` (may be null) receives each element's box (HudHit
-    // sel 0 image / 1 text / 2 bar).
+    // Draws a loading screen into the 512x448-space frame at p0/size (bars and
+    // progress animations at `fraction`, spinners on `clock` seconds);
+    // `hits` (may be null) receives each element's box (HudHit sel 0 image /
+    // 1 text / 2 bar / 5 animation / 6 the continue prompt). `waiting` draws
+    // the press-to-continue state the game holds on after the load.
     void drawLoadingFrame(ImDrawList* dl, const LoadingScreenDef& ls, float fraction, ImVec2 p0,
-                          ImVec2 size, std::vector<HudHit>* hits);
+                          ImVec2 size, std::vector<HudHit>* hits, bool waiting = false,
+                          float clock = 0.0f);
     // Property editor for a single progress bar (returns true on change).
     bool loadingBarControls(LoadingBar& b);
+    // Property editors for an animated element and for the continue prompt.
+    bool loadingAnimControls(LoadingAnim& a);
+    bool loadingWaitControls(LoadingScreenDef& ls);
+    // Cuts a sprite sheet into `count` frame PNGs (cols x rows, row-major) in
+    // res/hud and appends them to `a` (docs/loading-screens.md, "Animations").
+    bool importLoadingSheet(LoadingAnim& a, const std::string& src, int cols, int rows, int count);
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
@@ -3246,8 +3255,9 @@ private:
 
     // Loading Screens (Tools > Loading Screens): selected screen + selected
     // element within it (lsSelKind_: 0 image / 1 text / 2 bar / 3 the screen
-    // itself / 4 the boot splash selectedSplash_; lsSelIdx_ into
-    // that element vector) + the preview's simulated load fraction.
+    // itself / 4 the boot splash selectedSplash_ / 5 an animation / 6 the
+    // continue prompt; lsSelIdx_ into that element vector) + the preview's
+    // simulated load fraction, and whether it sits on "waiting for START".
     bool showLoadingEditor_ = false;
     int selectedLoadingScreen_ = -1;
     int lsSelKind_ = 3;
@@ -3255,6 +3265,11 @@ private:
     float lsPreviewProgress_ = 0.65f;
     double lsPlayT0_ = -1.0;  // simulated load running since (< 0 = not)
     int lsDragMode_ = 0;      // preview drag: 0 none, 1 move, 2..5 a corner
+    bool lsWaitPreview_ = false;  // Preview ended on the continue prompt
+    // Sprite-sheet import dialog state (Add > Animation from a sprite sheet).
+    std::string lsSheetPath_;
+    int lsSheetCols_ = 4, lsSheetRows_ = 2, lsSheetCount_ = 8;
+    bool lsSheetOpen_ = false;
     int selectedSplash_ = -1;  // boot splash screen being edited (-1 = none)
 
     // Credits Editor (Tools > Credits Editor, docs/credits.md): the selected
