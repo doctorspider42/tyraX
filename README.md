@@ -541,7 +541,7 @@ wait for their polish pass.
 | [showcase](examples/showcase) | **Aster — The Tide Observatory**: a playable coastal garden with precision-built arcades, a moving planetarium, CC0 props, cinematics, skeletal animation, a portal-linked vaulted cellar, optical experiments and collectible lenses |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style |
 | [large-terrain](examples/large-terrain) | A 2048×2048 world that could never fit in 32 MB of RAM. It doesn't have to |
-| [deep-forest](examples/deep-forest) | The same 2048×2048 in daylight with 2800 spruces — terrain detail distance, mesh LOD and draw distance carrying it at 50 FPS |
+| [deep-forest](examples/deep-forest) | The same 2048×2048 in daylight with 8,692 instanced spruces — one copy of each tree in memory, a distant version per tree and terrain detail distance carrying it at 50 FPS |
 | [night-walk](examples/night-walk) | A dark backlot and a torch that projects, lands on real walls, and carves shadows — every flashlight feature in one yard |
 | [cutscene-demo](examples/cutscene-demo) | 14 seconds of dolly, hard cut, shake, FOV ramp and cinema bars. Skippable, of course |
 | [nav-ai](examples/nav-ai) | A guard that patrols, spots you, and chases you around the wall instead of into it. The rabbit just runs |

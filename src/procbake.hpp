@@ -30,6 +30,10 @@ struct Report {
     int instances = 0;
     int triangles = 0;
     size_t vertexBytes = 0;  // rough PS2 RAM for the merged geometry
+    // Output "Draw as: Instanced": no chunks; `models` distinct source models,
+    // vertexBytes = one shared copy of each + the per-instance table.
+    bool instanced = false;
+    int models = 0;
     bool overBudget = false;
     std::vector<std::string> warnings;
     std::string error;  // non-empty = nothing was written

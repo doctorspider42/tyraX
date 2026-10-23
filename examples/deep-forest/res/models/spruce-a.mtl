@@ -1,0 +1,15 @@
+# Opaque colours copied from props.mtl; no textures
+newmtl bark
+Ka 1 1 1
+Kd 0.340 0.240 0.150
+Ks 0 0 0
+d 1
+illum 1
+
+newmtl needles
+Ka 1 1 1
+Kd 0.160 0.380 0.190
+Ks 0 0 0
+d 1
+illum 1
+

@@ -121,6 +121,31 @@ class StaPipCore {
   void render(StaPipBag* bag,
               StaPipLightReception reception = StaPipLightReception::FromInfo);
 
+  /**
+   * Modified by TyraX: instancing (docs/procedural-generation.md,
+   * "Instanced"). Draws `count` copies of `bag`, copy i under models[i]
+   * (TyraMVP; bag->info->model is ignored and left unchanged). The first
+   * visible copy takes the ordinary path, which uploads the uniforms and
+   * replays (or bakes) the bag's whole VIF body; every further copy wholly
+   * inside the guard band is then an MVP upload plus ONE REF to that same
+   * body (StaPipQBufferRenderer::appendBakedInstance). Copies crossing the
+   * guard band or the near plane take the ordinary path. No dynamic light, no
+   * stamps, fog always computed. The bag's streams are REF'd by every copy and
+   * must stay immutable until the frame ran. Returns the copies not culled.
+   */
+  u32 renderInstances(StaPipBag* bag, const M4x4* models, u32 count);
+  /** Copies tested / appended as one REF / sent the ordinary way since the
+   * last call (counters reset on read). */
+  void takeInstanceStats(u32* tested, u32* appended, u32* ordinary,
+                         u32* crossing = nullptr) {
+    *tested = instancesTested;
+    *appended = instancesAppended;
+    *ordinary = instancesOrdinary;
+    if (crossing) *crossing = instancesCrossing;
+    instancesTested = instancesAppended = instancesOrdinary = 0;
+    instancesCrossing = 0;
+  }
+
   /** Get max vert count of VU1 qbuffer (for optimizations) */
   u32 getMaxVertCountByParams(const bool& isSingleColor,
                               const bool& isLightingEnabled,
@@ -241,6 +266,11 @@ class StaPipCore {
   M4x4 deferredViewProj;
   void flushDeferredRun();
   void renderNow(StaPipBag* bag, StaPipLightReception reception);
+  // Modified by TyraX: renderInstances is driving renderNow - no stamps (a
+  // stamp would hide the arena the copies REF) and no per-copy fog box.
+  bool instancing = false;
+  u32 instancesTested = 0, instancesAppended = 0, instancesOrdinary = 0;
+  u32 instancesCrossing = 0;  // ordinary because the copy needs clipping
   std::unique_ptr<StaPipStripSubranges::Cache> stripSubranges;
   void setPrim();
   void setLod();

@@ -80,7 +80,17 @@ Every window is also logged as `PROFILE FRAME 20.84 SCENE 8.82 HL 0.00 PART
 0.00`, so a run on the console (the `[ps2]` lines of *Run on PS2* or
 `--build <dir> --run-ps2 <ip>`) or in a headless emulator is read from the log
 instead of a photo of the HUD. Quote a settled window: the first few after a
-scene load still contain the load.
+scene load still contain the load. `MEM` is the EE memory in use at that
+moment (the allocator's books, no probe).
+
+A scene with an instanced procedural volume also logs, every 50 frames,
+`INSTANCES copies N tested T appended A ordinary O (crossing C) per frame`:
+copies in the scene, copies in visible cells that reached the frustum test,
+copies drawn as one REF to the shared body, copies that took an ordinary
+submit, and how many of those had to be clipped
+(docs/procedural-generation.md, "Instanced"). `ordinary` should be about the
+number of (model, yaw bucket) groups in view; far more means the shared bodies
+are being re-baked.
 
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.

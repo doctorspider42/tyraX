@@ -1194,6 +1194,7 @@ Emitted emit(const Project& p) {
              "  int assetCount;\n"
              "  const short* prefabs; // prefab index per prefab slot\n"
              "  int prefabCount;\n"
+             "  int drawMode;         // Output \"Draw as\": 0 merged, 1 instanced\n"
              "};\n\n";
         h << "extern const VolumeDef VOLUMES[];\n\n"
              "// Fills c.buf with the volume's instances and returns the count.\n"
@@ -1347,7 +1348,7 @@ Emitted emit(const Project& p) {
           << ", " << (unsigned)o.procGraph.seed << "u, " << maxinst << ", "
           << (v.hasBlocks ? 1 : 0) << ", pAssets_" << vi << ", "
           << v.assets.size() << ", pPrefabs_" << vi << ", " << v.prefabs.size()
-          << " },\n";
+          << ", " << (on ? procgraph::inum(*on, "mode") : 0) << " },\n";
     }
     s << "};\n\n";
 

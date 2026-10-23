@@ -708,11 +708,22 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                       "working buffer holds. It is real RAM (about 80 bytes per "
                       "point) reserved for the whole generation, and the "
                       "generator stops rather than overruns it - so set it just "
-                      "above what the preview reports, not at the maximum."}},
-         .desc = "The graph's result. Everything reaching this node is baked "
-                 "into per-chunk static meshes when you build: the console "
-                 "loads finished geometry and knows nothing about the graph. "
-                 "One Output per graph."},
+                      "above what the preview reports, not at the maximum."},
+              {.key = "mode", .label = "Draw as", .kind = PK::Enum,
+               .def = 0.0f, .lo = 0.0f, .hi = 1.0f,
+               .choices = "Merged|Instanced",
+               .tip = "Merged: every copy is baked into the chunk meshes - "
+                      "full baked lighting, but EE RAM grows with every copy "
+                      "(~7 KB per 32-tri tree). Instanced: one copy of each "
+                      "model plus ~60 bytes per instance, drawn as many matrices "
+                      "of one mesh - tens of thousands of copies fit, lit by "
+                      "the sun and ambient only (no probe GI, AO or lamps). "
+                      "Pick Asset points only; prefabs and blocks always "
+                      "merge."}},
+         .desc = "The graph's result. Merged: everything reaching this node "
+                 "is baked into per-chunk static meshes when you build. "
+                 "Instanced: the console keeps one copy of each model and a "
+                 "table of where the copies stand. One Output per graph."},
     };
     return types;
 }

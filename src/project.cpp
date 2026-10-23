@@ -9227,6 +9227,10 @@ std::string refreshGenerated(const Project& p) {
             // deletes it when it stops, which is the half that matters - a
             // stale refusal would block a build that is fine.
             f.relativePath == "src\\gen\\blss_interlock.gen.cpp" ||
+            // Baked instanced scatter: only in `generated` while a volume draws
+            // as Instanced; the sweep below deletes a leftover, which the game
+            // would otherwise still include through __has_include.
+            f.relativePath == "inc\\proc_instances.gen.hpp" ||
             f.relativePath == "inc\\vehicle_sound_loops.gen.txt" ||
             f.relativePath == "inc\\daynight.gen.hpp" ||
             f.relativePath == "inc\\probe_data.gen.hpp" ||
@@ -9495,6 +9499,15 @@ std::string refreshGenerated(const Project& p) {
             std::error_code ec;
             fs::remove(fs::path(p.dir) / "src" / "gen" / "blss_interlock.gen.cpp",
                        ec);
+        }
+    }
+    {
+        bool wanted = false;
+        for (const auto& f : generated)
+            wanted |= f.relativePath == "inc\\proc_instances.gen.hpp";
+        if (!wanted) {
+            std::error_code ec;
+            fs::remove(fs::path(p.dir) / "inc" / "proc_instances.gen.hpp", ec);
         }
     }
 

@@ -2978,6 +2978,8 @@ bool StaPipQBufferRenderer::replayWholeBakedBag() {
   packet2_chain_ref(currentPacket, entry->arena, entry->arenaQw, 0, 0, 0);
   packet2_vif_nop(currentPacket, 0);
   packet2_vif_nop(currentPacket, 0);
+  wholeArena = entry->arena;  // Modified by TyraX: instancing
+  wholeArenaQw = entry->arenaQw;
 #if TYRA_STAPIP_STAMP
   // Modified by TyraX: the head + this REF are now contiguous in the packet,
   // before any flush can send them - the one moment a stamp can be copied.
@@ -3908,6 +3910,33 @@ void StaPipQBufferRenderer::flushPendingPacket() {
   sendPacket();
   submissionBatchBags = 0;
 }
+
+// Modified by TyraX: instancing - see the header. Bounded by the packet, not by
+// kSubmissionBatchSize: each copy is seven quadwords whatever the mesh holds,
+// so ~110 copies share one chain and one VIF1 kick.
+void StaPipQBufferRenderer::appendBakedInstance(const M4x4& mvp,
+                                                bool textured) {
+  constexpr u32 kInstanceQw = 7;  // FLUSHE + MVP header + 4 MVP + REF
+  TYRA_ASSERT(wholeArena != nullptr, "appendBakedInstance with no arena");
+  if (objectDataPending &&
+      packet2_get_qw_count(packets[context]) + kInstanceQw + 1 > packetSize)
+    flushPendingPacket();
+  auto* packet = packets[context];
+  if (!objectDataPending) {
+    startPacket(packet);
+    packetWrapSet = false;
+    objectDataPending = true;
+  }
+  alignas(16) M4x4 m = mvp;  // emitUnpack copies whole qwords
+  emitQword(packet, flusheHeader());
+  emitUnpack(packet, VU1_MVP_MATRIX_ADDR, m.data, 4);
+  emitRef(packet, wholeArena, wholeArenaQw);
+  if (textured) submissionPacketHasTexture = true;
+  // flushPendingPacket throws an unsent packet away when this is 0.
+  if (submissionBatchBags < 255) ++submissionBatchBags;
+}
+
+void StaPipQBufferRenderer::finishInstances() { flushPendingPacket(); }
 
 void StaPipQBufferRenderer::textureMutationBarrier(void* context) {
   static_cast<StaPipQBufferRenderer*>(context)->beforeTextureMutation();

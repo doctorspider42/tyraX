@@ -2145,7 +2145,10 @@ int App::drawProcInspector(SceneObject& vol, ProcGraph& g, bool stale, bool& cha
             ImGui::PushFont(nullptr, fs * 0.86f);
             char cells[4][48];
             std::snprintf(cells[0], 48, "%s inst", thousands(procInstances_).c_str());
-            std::snprintf(cells[1], 48, "%d chunks", procBudget_.chunks);
+            if (procBudget_.instanced)
+                std::snprintf(cells[1], 48, "%d models", procBudget_.models);
+            else
+                std::snprintf(cells[1], 48, "%d chunks", procBudget_.chunks);
             std::snprintf(cells[2], 48, "~%.0f KB", procBudget_.vertexBytes / 1024.0);
             std::snprintf(cells[3], 48, "%.1f ms", procLastMs_);
             const float cw = ImGui::GetContentRegionAvail().x / 4.0f;

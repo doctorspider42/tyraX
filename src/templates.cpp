@@ -44,6 +44,7 @@
 #include "particletex.hpp"
 #include "platform.hpp"
 #include "prefab.hpp"
+#include "procgen.hpp"  // baked instanced volumes are evaluated for their table
 #include "procrt.hpp"
 #include "project.hpp"
 #include "reflscenery.hpp"  // which static objects the reflection probe boxes
@@ -102,6 +103,23 @@ static bool anyNavAiNode(const Project& p);
 static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
                                         const std::string& prefix);
 
+// Baked (not runtime) procedural volumes whose Output draws as Instanced
+// (docs/procedural-generation.md, "Instanced"): (scene index, volume). Their
+// copies reach the game as a table in inc/proc_instances.gen.hpp.
+static std::vector<std::pair<int, const SceneObject*>> bakedInstancedVolumes(
+    const Project& p) {
+    std::vector<std::pair<int, const SceneObject*>> out;
+    for (int si = 0; si < (int)p.scenes.size(); ++si)
+        for (const SceneObject& o : p.scenes[(size_t)si].objects) {
+            if (o.type != PrimitiveType::Scatter || o.procGraph.runtime ||
+                o.procGraph.nodes.empty())
+                continue;
+            const ProcNode* on = procgraph::outputNode(o.procGraph);
+            if (on && procgraph::inum(*on, "mode") == 1) out.push_back({si, &o});
+        }
+    return out;
+}
+
 // Unique (modelPath, material override) pairs referenced by static .obj
 // model objects, in first-use order. A material override changes what gets
 // loaded, so the PAIR is the model identity: the index in this list ==
@@ -155,6 +173,19 @@ static std::vector<std::pair<std::string, std::string>> collectModelKeys(
             if (!seen) keys.push_back(key);
         }
     }
+    // ...and a baked INSTANCED volume's pool and distant versions: no chunk
+    // object references them, the instance table does.
+    for (const auto& sv : bakedInstancedVolumes(p))
+        for (const ProcNode& n : sv.second->procGraph.nodes) {
+            if (n.type != "PickAsset") continue;
+            for (const ProcRow& r : n.rows)
+                for (const std::string* a : {&r.s, &r.lod}) {
+                    if (a->empty()) continue;
+                    const std::pair<std::string, std::string> key{*a, std::string()};
+                    if (std::find(keys.begin(), keys.end(), key) == keys.end())
+                        keys.push_back(key);
+                }
+        }
     return keys;
 }
 
@@ -1899,6 +1930,57 @@ class TerrainGame : public Tyra::Game {
     float p[3];
   };
   std::vector<ProcLodRef> procLodRefs;
+  // --- Instanced scatter (docs/procedural-generation.md, "Instanced") -------
+  // A volume whose Output says "Draw as: Instanced" keeps ONE copy of each
+  // model and ~40 bytes per instance instead of merging world-space copies.
+  // The geometry is model-local and unscaled; its colours are baked once per
+  // yaw bucket (the directional light depends on how the copy is turned), and
+  // the copies are drawn by StaPipCore::renderInstances - one ordinary submit
+  // per (model, bucket) and an MVP + one REF for every further copy.
+  static constexpr int kInstYawBuckets = 4;
+  struct ProcInstGeo {
+    int model = -1;
+    // One position/ST array PER BUCKET, not one shared: the baked-stream cache
+    // keeps one entry per vertex array, so four buckets over one array evicted
+    // each other every frame and every copy group re-baked (measured: 88
+    // ordinary submits a frame for 28 groups, 0 of them clip crossings).
+    BagArray<Tyra::Vec4> vertices[kInstYawBuckets];
+    BagArray<Tyra::Vec4> sts[kInstYawBuckets];
+    BagArray<Tyra::Color> colors[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipBag> bag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    Tyra::M4x4 identity;
+    float radius = 0.0F;  // bounding sphere of the model, unscaled
+  };
+  std::vector<std::unique_ptr<ProcInstGeo>> procInstGeo;
+  struct ProcInst {
+    float axes[9];  // rotated(X/Y/Z axis) x scale - the matrix columns
+    float x, y, z;
+    short model, lodModel;  // gameModels indices; lodModel -1 = none
+    float lodDist2;         // switch distance squared (0 = never)
+    unsigned char bucket;   // shading bucket of the yaw
+  };
+  struct ProcInstCell {
+    int owner;  // procrt volume, -4 = a baked instanced volume
+    float mn[3], mx[3];
+    float drawDist;
+    int first, count;  // range in procInsts
+  };
+  std::vector<ProcInst> procInsts;
+  std::vector<ProcInstCell> procInstCells;
+  // Per frame: the matrices of the visible copies, grouped by (geo, bucket).
+  std::vector<std::vector<Tyra::M4x4>> procInstMats;
+  // One geo per texture a model's parts use (untextured parts share one: Kd
+  // is folded into the colours), built on first use per scene.
+  std::vector<int> procInstGeoFirst, procInstGeoCount;  // by gameModels index
+  int procInstGeoRange(int model, int* count);
+  void procAddInstance(int owner, const SceneObjectData& d, int lodModel,
+                       float lodDist, bool collide);
+  void procFinishInstances(int owner, float cell, float drawDist, int from);
+  void procClearInstances(int owner);
+  void renderProcInstances();
   // Live prefab instances, so Despawn Prefab can find what it made.
   struct PrefabInstance {
     int prefab = -1;              // PREFAB_NAMES index, -1 = free slot
@@ -3920,6 +4002,57 @@ class TerrainGame : public Tyra::Game {
     float p[3];
   };
   std::vector<ProcLodRef> procLodRefs;
+  // --- Instanced scatter (docs/procedural-generation.md, "Instanced") -------
+  // A volume whose Output says "Draw as: Instanced" keeps ONE copy of each
+  // model and ~40 bytes per instance instead of merging world-space copies.
+  // The geometry is model-local and unscaled; its colours are baked once per
+  // yaw bucket (the directional light depends on how the copy is turned), and
+  // the copies are drawn by StaPipCore::renderInstances - one ordinary submit
+  // per (model, bucket) and an MVP + one REF for every further copy.
+  static constexpr int kInstYawBuckets = 4;
+  struct ProcInstGeo {
+    int model = -1;
+    // One position/ST array PER BUCKET, not one shared: the baked-stream cache
+    // keeps one entry per vertex array, so four buckets over one array evicted
+    // each other every frame and every copy group re-baked (measured: 88
+    // ordinary submits a frame for 28 groups, 0 of them clip crossings).
+    BagArray<Tyra::Vec4> vertices[kInstYawBuckets];
+    BagArray<Tyra::Vec4> sts[kInstYawBuckets];
+    BagArray<Tyra::Color> colors[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipBag> bag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    Tyra::M4x4 identity;
+    float radius = 0.0F;  // bounding sphere of the model, unscaled
+  };
+  std::vector<std::unique_ptr<ProcInstGeo>> procInstGeo;
+  struct ProcInst {
+    float axes[9];  // rotated(X/Y/Z axis) x scale - the matrix columns
+    float x, y, z;
+    short model, lodModel;  // gameModels indices; lodModel -1 = none
+    float lodDist2;         // switch distance squared (0 = never)
+    unsigned char bucket;   // shading bucket of the yaw
+  };
+  struct ProcInstCell {
+    int owner;  // procrt volume, -4 = a baked instanced volume
+    float mn[3], mx[3];
+    float drawDist;
+    int first, count;  // range in procInsts
+  };
+  std::vector<ProcInst> procInsts;
+  std::vector<ProcInstCell> procInstCells;
+  // Per frame: the matrices of the visible copies, grouped by (geo, bucket).
+  std::vector<std::vector<Tyra::M4x4>> procInstMats;
+  // One geo per texture a model's parts use (untextured parts share one: Kd
+  // is folded into the colours), built on first use per scene.
+  std::vector<int> procInstGeoFirst, procInstGeoCount;  // by gameModels index
+  int procInstGeoRange(int model, int* count);
+  void procAddInstance(int owner, const SceneObjectData& d, int lodModel,
+                       float lodDist, bool collide);
+  void procFinishInstances(int owner, float cell, float drawDist, int from);
+  void procClearInstances(int owner);
+  void renderProcInstances();
   // Live prefab instances, so Despawn Prefab can find what it made.
   struct PrefabInstance {
     int prefab = -1;              // PREFAB_NAMES index, -1 = free slot
@@ -7500,6 +7633,80 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
 // computed by prefab::memberMerges on the host so the editor's cost readout and
 // the console cannot disagree about it.
 static std::string sanitizeNamespace(const std::string& name);
+
+// inc/proc_instances.gen.hpp - every copy of the baked INSTANCED volumes
+// (docs/procedural-generation.md, "Instanced"), or "" when there is none, so a
+// project without one generates exactly the file set it always did. The graph
+// is evaluated here rather than stored by the bake: the evaluator is
+// deterministic, the bake has no chunk files to write for these volumes, and
+// a table that could disagree with its graph is one more thing to go stale.
+static std::string procInstancesHeader(const Project& p) {
+    const auto volumes = bakedInstancedVolumes(p);
+    if (volumes.empty()) return "";
+    const auto keys = collectModelKeys(p);
+    auto modelIndex = [&](const std::string& path) {
+        for (size_t i = 0; i < keys.size(); ++i)
+            if (keys[i].first == path && keys[i].second.empty()) return (int)i;
+        return -1;
+    };
+    std::ostringstream rows, vols;
+    int total = 0;
+    for (const auto& sv : volumes) {
+        const SceneData& sc = p.scenes[(size_t)sv.first];
+        const SceneObject& vol = *sv.second;
+        procgen::Options opt;
+        opt.fraction = 1.0f;
+        opt.contextSerial = procgen::bakeHash(p, sc, vol);
+        const procgen::Result r = procgen::evaluate(p, sc, vol, opt, nullptr);
+        const ProcNode* on = procgraph::outputNode(vol.procGraph);
+        const int first = total;
+        for (const procgen::Instance& inst : r.instances) {
+            if (inst.asset < 0 || inst.asset >= (int)r.assets.size()) continue;
+            const std::string& asset = r.assets[(size_t)inst.asset];
+            const int model = modelIndex(asset);
+            if (model < 0) continue;
+            const ProcRow* row = procgraph::poolRow(vol.procGraph, "PickAsset", asset);
+            const bool lod = row && procRowHasLod(*row);
+            rows << "  {" << floatLit(inst.pos[0]) << ", " << floatLit(inst.pos[1])
+                 << ", " << floatLit(inst.pos[2]) << ", " << floatLit(inst.rot[0])
+                 << ", " << floatLit(inst.rot[1]) << ", " << floatLit(inst.rot[2])
+                 << ", " << floatLit(inst.scale) << ", " << model << ", "
+                 << (lod ? modelIndex(row->lod) : -1) << ", "
+                 << floatLit(lod ? row->v[3] : 0.0f) << "},\n";
+            ++total;
+        }
+        vols << "  {" << sv.first << ", "
+             << floatLit(on ? std::max(8.0f, procgraph::num(*on, "cell")) : 48.0f)
+             << ", " << floatLit(on ? procgraph::num(*on, "draw") : 0.0f) << ", "
+             << (on ? procgraph::inum(*on, "collide") : 0) << ", " << first << ", "
+             << (total - first) << "},  // " << vol.name << "\n";
+    }
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "// The copies of every baked procedural volume that draws as\n"
+           "// Instanced (docs/procedural-generation.md, \"Instanced\").\n"
+           "#pragma once\n\n"
+           "#include \"scene_data.hpp\"\n\nnamespace "
+        << sanitizeNamespace(p.name) << " {\n\n"
+        << "struct ProcInstRow {\n"
+           "  float x, y, z, rx, ry, rz, scale;\n"
+           "  short model, lodModel;  // MODEL table indices, -1 = none\n"
+           "  float lodDist;          // distant version past this, 0 = never\n"
+           "};\n"
+           "struct ProcInstVolumeRow {\n"
+           "  int scene;\n"
+           "  float cell, drawDist;\n"
+           "  int collide;\n"
+           "  int first, count;  // range in PROC_INST_ROWS\n"
+           "};\n"
+        << "inline constexpr int PROC_INST_VOLUME_COUNT = " << volumes.size() << ";\n"
+        << "inline const ProcInstVolumeRow PROC_INST_VOLUMES[] = {\n" << vols.str()
+        << "};\n"
+        << "inline const ProcInstRow PROC_INST_ROWS[" << std::max(1, total) << "] = {\n"
+        << (total ? rows.str() : std::string("  {0, 0, 0, 0, 0, 0, 1, -1, -1, 0},\n"))
+        << "};\n\n}  // namespace\n";
+    return out.str();
+}
 
 static std::string prefabDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
@@ -36458,6 +36665,11 @@ std::vector<File> generate(const Project& source) {
     // is what it always was. project::refreshGenerated deletes a leftover.
     if (!blssRefusal.empty())
         files.push_back({"src\\gen\\blss_interlock.gen.cpp", blssRefusal});
+    // Baked instanced scatter: only while some volume draws as Instanced (the
+    // game includes it through __has_include); refreshGenerated deletes a
+    // leftover.
+    if (std::string inst = procInstancesHeader(p); !inst.empty())
+        files.push_back({"inc\\proc_instances.gen.hpp", std::move(inst)});
     // Source names need no magic suffix. The encoder is outside the model,
     // so supply just the additional paths that continuous vehicle roles use.
     // Legacy *-loop.wav still works without this optional manifest.

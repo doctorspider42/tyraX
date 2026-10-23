@@ -2054,7 +2054,24 @@ void TerrainGame::applyLayerResidency() {
       for (int i = 0; i < n; ++i)
         for (int m = 0; m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
           if (!strcmp(MODEL_SOURCES[m], names[i])) modelNeed[m] = 1;
+      // ...and every slot's distant version (asset slots, then prefab slots).
+      int np = 0;
+      procrt::volumePrefabNames(v, &np);
+      const char* const* lods = procrt::volumeLodNames(v);
+      for (int i = 0; lods && i < n + np; ++i)
+        for (int m = 0; lods[i] && m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
+          if (!strcmp(MODEL_SOURCES[m], lods[i])) modelNeed[m] = 1;
     }
+#if TYRAX_PROC_INSTANCES
+  // Baked instanced volumes reference their models from a table only.
+  for (int v = 0; v < PROC_INST_VOLUME_COUNT; ++v) {
+    if (PROC_INST_VOLUMES[v].scene != currentScene) continue;
+    for (int i = PROC_INST_VOLUMES[v].first;
+         i < PROC_INST_VOLUMES[v].first + PROC_INST_VOLUMES[v].count; ++i)
+      for (int m : {(int)PROC_INST_ROWS[i].model, (int)PROC_INST_ROWS[i].lodModel})
+        if (m >= 0 && m < (int)modelNeed.size()) modelNeed[m] = 1;
+  }
+#endif
   for (int k = 0; k < SCENE_PREFAB_COUNT; ++k) {
     const int pf = SCENE_PREFAB_LIST[SCENE_PREFAB_FIRST + k];
     if (pf < 0 || pf >= PREFAB_COUNT) continue;

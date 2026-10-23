@@ -1671,6 +1671,7 @@ void TerrainGame::renderScene() {
   // the same deal one step further: the game built these bags itself, so they
   // need no per-object bookkeeping at all, only a distance test and a submit.
   { const u32 ct=costStart(); renderProcChunks(); costEnd("Procedural",-1,ct); }
+  { const u32 ct=costStart(); renderProcInstances(); costEnd("Instances",-1,ct); }
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
   renderCollisionBoxes();

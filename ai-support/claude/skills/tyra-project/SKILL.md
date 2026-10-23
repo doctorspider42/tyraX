@@ -189,7 +189,11 @@ to see exactly what the game will compile.
   A Pick Asset / Pick Prefab pool row (`{"s", "v": [weight, min, max, dist]}`)
   may add `"lod": "res/models/....obj"`: past `dist` units that model replaces
   every instance of the row (a prefab as a whole; collision stays the near
-  geometry's). Prefab rows switch only in runtime volumes.
+  geometry's). Prefab rows switch only in runtime volumes. The Output node's
+  `"mode": 1` ("Draw as: Instanced") draws Pick Asset copies as instances of
+  one shared mesh instead of baking chunk objects (no `procgen-*.obj`; the
+  build emits `inc/proc_instances.gen.hpp`) - for thousands of small repeated
+  models; lit by sun + ambient only.
 - **Prefabs** (`"prefabs"` in the `.tyra`): named groups of objects, graphs
   included, in a local frame. Referenced BY NAME from **Spawn Prefab** or a
   **Pick Prefab** procedural row; *Tools > Prefabs* inserts copies, which are

@@ -1231,6 +1231,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   // this scene's models and its block field is this scene's ground).
   procChunks.clear();
   procColliders.clear();
+  procLodRefs.clear();
+  procInsts.clear();
+  procInstCells.clear();
+  procInstGeo.clear();
+  procInstGeoFirst.clear();
+  procInstGeoCount.clear();
   prefabInstances.clear();
   procBlocks.active = false;
   procBlocks.col.clear();
@@ -1245,6 +1251,26 @@ void TerrainGame::loadScene(int sceneIndex) {
       lsPump(8);
     }
   }
+#if TYRAX_PROC_INSTANCES
+  // Baked instanced volumes: the copies come from a table, not a graph.
+  for (int v = 0; v < PROC_INST_VOLUME_COUNT; ++v) {
+    const ProcInstVolumeRow& V = PROC_INST_VOLUMES[v];
+    if (V.scene != currentScene) continue;
+    const int from = (int)procInsts.size();
+    SceneObjectData d{};
+    d.type = 5;
+    for (int i = V.first; i < V.first + V.count; ++i) {
+      const ProcInstRow& r = PROC_INST_ROWS[i];
+      d.model = r.model;
+      d.position[0] = r.x, d.position[1] = r.y, d.position[2] = r.z;
+      d.rotation[0] = r.rx, d.rotation[1] = r.ry, d.rotation[2] = r.rz;
+      d.scale[0] = d.scale[1] = d.scale[2] = r.scale;
+      procAddInstance(-4, d, r.lodModel, r.lodDist, V.collide != 0);
+    }
+    procFinishInstances(-4, V.cell, V.drawDist, from);
+    lsPump(8);
+  }
+#endif
 
   // Roads AFTER the procedural build: that block clears procChunks (nothing
   // generated survives a scene switch), and the first placement of this call

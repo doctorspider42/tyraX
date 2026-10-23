@@ -604,7 +604,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
 #if TYRA_STAPIP_STAMP
   // Modified by TyraX: a valid stamp IS this bag's submission - see
   // StaPipQBufferRenderer::tryStamp (docs/stapip-stamps.md).
-  if (qbufferRenderer.isStampEnabled() &&
+  if (qbufferRenderer.isStampEnabled() && !instancing &&
       bag->info->transformationType == TyraMVP && !telemetryEnabled &&
       !rendererCore->blss.wantsProxies()) {
     const M4x4& vp = rendererCore->renderer3D.getViewProj();
@@ -1161,8 +1161,12 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   // it. Most of a scene's near geometry - every car, the street it is on -
   // is inside the fog start, and the VU1 fog arithmetic is 6 of cull_tc's
   // ~20 upper-pipe operations a vertex.
+  // Instanced copies inherit this bag's options block, so its "nearer than
+  // the fog start" shortcut must not be judged from one copy's box.
   qbufferRenderer.setFogFacts(prim.fogging != DRAW_ENABLE,
-                              bbox != nullptr ? bbox->getMainBBox() : nullptr);
+                              bbox != nullptr && !instancing
+                                  ? bbox->getMainBBox()
+                                  : nullptr);
 
   TYRA_ATTRIB_MARK(attribObjectDataStart);
   // Modified by TyraX: only this partial-frustum route can run a VU1 clip
@@ -1176,7 +1180,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
 #if TYRA_STAPIP_STAMP
   // Modified by TyraX: arm a stamp capture for a bag the whole-baked route is
   // about to replay, when every input the stamp cannot re-derive is fixed.
-  if (qbufferRenderer.isStampEnabled() && frustumCull &&
+  if (qbufferRenderer.isStampEnabled() && !instancing && frustumCull &&
       frustumCheck == IN_FRUSTUM && bbox != nullptr && !blssOn &&
       !telemetryEnabled &&
       bag->billboard == nullptr && bag->lighting == nullptr &&
@@ -1462,6 +1466,133 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     telemetry.attrib.renderTicks += attribEnd - attribRenderStart;
   }
 #endif
+}
+
+// Modified by TyraX: instancing - see the header. The point is the per-copy
+// EE price: an ordinary submit is ~28-100 us on a physical PS2 (bounds,
+// prepare, the baked key, the flush), which is why scattered models used to
+// be merged into world-space chunks instead. Here a copy that is wholly
+// inside the guard band costs a frustum test, one matrix product and seven
+// quadwords, while sharing ONE vertex array and ONE baked VIF body with every
+// other copy.
+u32 StaPipCore::renderInstances(StaPipBag* bag, const M4x4* models,
+                                u32 count) {
+  if (count == 0 || bag->count == 0) return 0;
+  flushDeferred();  // keep StaPip's draw order: queued stamps go first
+  M4x4* const savedModel = bag->info->model;
+  const M4x4& vp = rendererCore->renderer3D.getViewProj();
+  const u32 maxVertCount = getMaxVertCountByBag(bag);
+  StaPipBagPackagesBBox* bbox =
+      cacher.getBBoxes(bag->vertices, bag->count,
+                       reinterpret_cast<u32>(bag->vertices), bag->bboxVersion,
+                       maxVertCount);
+  const Vec4 lo = (*bbox->getMainBBox())[0];
+  const Vec4 hi = (*bbox->getMainBBox())[7];
+  const float band = bag->info->tightClipBand ? VU1_CLIP_XY_BAND_TIGHT
+                                              : VU1_CLIP_XY_BAND;
+  const bool textured = bag->texture && bag->texture->texture;
+  // A copy may only REF the body when nothing in its uniforms differs from
+  // the copy that uploaded them: no lighting, billboard or program override,
+  // and the REPEAT wrap every other bag also assumes.
+  const bool canAppend =
+      qbufferRenderer.isVU1ClippingEnabled() && bag->info->fullClipChecks &&
+      bag->info->transformationType == TyraMVP && bag->billboard == nullptr &&
+      bag->lighting == nullptr && !qbufferRenderer.hasProgramOverrides() &&
+      (!textured ||
+       (bag->texture->texture->getWrapSettings()->horizontal == WRAP_REPEAT &&
+        bag->texture->texture->getWrapSettings()->vertical == WRAP_REPEAT));
+  bool armed = false;  // the last copy's body + uniforms may be re-used
+  bool appended = false;
+  u32 drawn = 0;
+  // Per-copy tests on a WORLD bounding sphere against planes normalised once
+  // per call: transforming six frustum and eight clip planes into each copy's
+  // object space was most of a copy's EE price (~20 us a drawn copy on a
+  // PS2, two thirds of the tested copies being off-screen anyway). A sphere is
+  // looser than the box, so the error only ever routes a copy to the ordinary
+  // (clipping) path or keeps one that is barely off-screen - never the reverse.
+  Plane view[6], clip[8];
+  {
+    const Plane* fp = rendererCore->renderer3D.frustumPlanes.getAll();
+    for (u8 k = 0; k < 6; ++k) view[k] = fp[k];
+    computeClipPlanesInto(vp, clip, band);
+    for (Plane* pl : {view + 0, view + 1, view + 2, view + 3, view + 4,
+                      view + 5, clip + 0, clip + 1, clip + 2, clip + 3,
+                      clip + 4, clip + 5, clip + 6, clip + 7}) {
+      const float len = Math::sqrtNonNegative(pl->normal.x * pl->normal.x +
+                                              pl->normal.y * pl->normal.y +
+                                              pl->normal.z * pl->normal.z);
+      const float inv = len > 1e-12F ? 1.0F / len : 0.0F;
+      pl->normal.x *= inv, pl->normal.y *= inv, pl->normal.z *= inv;
+      pl->distance *= inv;
+    }
+  }
+  const float bcx = (lo.x + hi.x) * 0.5F, bcy = (lo.y + hi.y) * 0.5F,
+              bcz = (lo.z + hi.z) * 0.5F;
+  const float bex = hi.x - lo.x, bey = hi.y - lo.y, bez = hi.z - lo.z;
+  const float boxRadius =
+      0.5F * Math::sqrtNonNegative(bex * bex + bey * bey + bez * bez);
+  instancing = true;
+  for (u32 i = 0; i < count; ++i) {
+    const M4x4& m = models[i];
+    const float* d = m.data;
+    ++instancesTested;
+    const float wx = d[0] * bcx + d[4] * bcy + d[8] * bcz + d[12];
+    const float wy = d[1] * bcx + d[5] * bcy + d[9] * bcz + d[13];
+    const float wz = d[2] * bcx + d[6] * bcy + d[10] * bcz + d[14];
+    float s2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    const float s2y = d[4] * d[4] + d[5] * d[5] + d[6] * d[6];
+    const float s2z = d[8] * d[8] + d[9] * d[9] + d[10] * d[10];
+    if (s2y > s2) s2 = s2y;
+    if (s2z > s2) s2 = s2z;
+    const float r = boxRadius * Math::sqrtNonNegative(s2);
+    bool outside = false;
+    for (u8 k = 0; k < 6 && !outside; ++k)
+      outside = view[k].distance + view[k].normal.x * wx +
+                    view[k].normal.y * wy + view[k].normal.z * wz <
+                -r;
+    if (outside) continue;
+    ++drawn;
+    alignas(16) M4x4 mvp = vp * m;
+    bool inside = false;
+    if (canAppend) {
+      // The guard-band rule renderNow uses for a whole bag: inside all six VU1
+      // planes and the exact near/far pair, so the cull program needs no cut.
+      inside = true;
+      for (u8 k = 0; k < 8 && inside; ++k)
+        inside = clip[k].distance + clip[k].normal.x * wx +
+                     clip[k].normal.y * wy + clip[k].normal.z * wz >
+                 r;
+    }
+    if (armed && inside) {
+      qbufferRenderer.appendBakedInstance(mvp, textured);
+      ++instancesAppended;
+      appended = true;
+      continue;
+    }
+    // The ordinary path: uploads this copy's uniforms and replays (or bakes)
+    // the body. Only a whole replay leaves an arena the next copies can REF.
+    // A copy that crossed the guard band does not disarm the run: it uploaded
+    // the same options (same bag, no light, fog box off) plus the clip block,
+    // which the cull program the body kicks never reads - and every append
+    // re-uploads the one thing that differs, the MVP.
+    u32 keptQw = 0;
+    const void* kept = armed ? qbufferRenderer.wholeReplayArena(&keptQw) : nullptr;
+    bag->info->model = const_cast<M4x4*>(&m);
+    qbufferRenderer.forgetWholeReplay();
+    renderNow(bag, StaPipLightReception::Suppress);
+    ++instancesOrdinary;
+    if (!inside) ++instancesCrossing;
+    if (qbufferRenderer.hasWholeReplay()) {
+      armed = inside;
+    } else if (kept != nullptr) {
+      qbufferRenderer.restoreWholeReplay(kept, keptQw);
+    }
+  }
+  if (appended) qbufferRenderer.finishInstances();
+  qbufferRenderer.forgetWholeReplay();
+  instancing = false;
+  bag->info->model = savedModel;
+  return drawn;
 }
 
 void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,

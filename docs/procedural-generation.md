@@ -260,6 +260,66 @@ to author one. Its origin, orientation and scale must match the row's model or
 prefab, because it is placed with the same transform. A baked Pick Prefab row
 ignores it: baked volumes do not merge prefab points at all.
 
+## Instanced
+
+The Output node's **Draw as** chooses how the copies reach the console:
+
+- **Merged** (default): every copy is baked into the chunk meshes. Full baked
+  lighting (probe GI, ambient occlusion, lamps) and a handful of draws - but
+  each copy is its own geometry in EE RAM. A 32-triangle tree costs ~7 KB, so
+  a whole scene tops out at roughly 2,900 trees: 4,307 crashed a PS2 with
+  `std::bad_alloc`, 2,800 used 31.1 of 32 MB.
+- **Instanced**: the console keeps ONE copy of each model and a table of
+  where the copies stand (~60 bytes each), and draws the visible ones as many
+  matrices of one mesh. 2,800 spruces used 11.4 MB in total; see below for
+  what 10 ha can hold.
+
+What Instanced costs and drops:
+
+- Light: copies are shaded with the scene's sun and ambient only, baked once
+  per model in four 90° yaw buckets (a copy takes the nearest one). No probe
+  GI, no ambient occlusion, no point or baked lamps, no tint per copy.
+- Only **Pick Asset** points; prefab and Blocks points are not placed in this
+  mode (the budget card warns). *Instance detail* does not apply - the shared
+  copy is the model as authored, so author it low-poly.
+- A row's [distant version](#distant-version-per-row) switches per COPY at the
+  row's distance.
+- Collision Box = one box per copy, from the model's bounds.
+- EE time per frame grows with the copies in view: every copy in a visible
+  cell is frustum-tested, the first copy of each (model, yaw bucket) is an
+  ordinary submit and every further one costs a matrix product and seven DMA
+  quadwords (`StaPipCore::renderInstances`). The game logs
+  `INSTANCES copies N tested T appended A ordinary O (crossing C)` every 50
+  frames with the frame profiler on; `crossing` counts copies that had to be
+  clipped (near plane, guard band) and took the ordinary path.
+
+Baked volumes write no chunk files in this mode: the build evaluates the graph
+and emits `inc/proc_instances.gen.hpp`, which exists only while some volume is
+Instanced. Runtime volumes honour the same switch on the console.
+
+Measured on a physical PS2 (10 ha of the deep-forest fixture, frozen camera,
+three Blender spruces with 12-triangle distant versions at 45 units, draw
+distance 120, frame profiler on):
+
+| copies | draw as | drawn / frame | SCENE (EE) | MEM | FPS |
+|---|---|---:|---:|---:|---:|
+| 2,800 | Merged (Half detail) | - | 5.4 ms | 24.2 / 32 MB | 50 |
+| 4,307 | Merged (old pine) | - | `std::bad_alloc` | - | - |
+| 2,800 | Instanced | 238 | 6.3 ms | 11.4 / 32 MB | 50 |
+| 5,000 | Instanced | 443 | 8.9 ms | 11.8 / 32 MB | 50 |
+| 10,000 | Instanced | 875 | 13.5 ms | 12.5 / 32 MB | 50 |
+| 17,081 | Instanced | 1,531 | 20.3 ms | 13.8 / 32 MB | 25 |
+
+Memory stays flat; the price moves to EE time, about 11 µs per DRAWN copy
+(each drawn one comes with ~2.7 tested). So density is now a draw-distance
+decision: keep the copies in view around a thousand for 50 fps, and let fog
+hide where the draw distance cuts. Two things made those numbers and are the
+traps if this path is ever reworked: the baked-stream cache holds one entry per
+vertex ARRAY, so every colour variant needs its own position array (sharing one
+made every group re-bake each frame: 14.5 ms at 2,800), and the per-copy tests
+are world bounding spheres against planes normalised once per call
+(transforming the planes into each copy's object space was ~40% of the cost).
+
 ## Limits
 
 - Baked instances cannot move, hide or run scripts independently.

@@ -925,6 +925,31 @@ class StaPipQBufferRenderer {
   bool replayWholeBakedBag();
   void endBakedBag();
   /**
+   * Modified by TyraX: instancing (StaPipCore::renderInstances,
+   * docs/procedural-generation.md "Instanced"). replayWholeBakedBag records
+   * the arena it REF'd; appendBakedInstance draws that SAME arena again under
+   * another MVP - FLUSHE (the previous copy's program may still run), the
+   * matrix inline, one REF: seven quadwords and no per-package work. Every
+   * other uniform is still in VU1 memory from the copy that went through the
+   * ordinary path, which is why the caller may only append right after it,
+   * with no other bag in between. finishInstances sends what is pending.
+   */
+  void forgetWholeReplay() {
+    wholeArena = nullptr;
+    wholeArenaQw = 0;
+  }
+  bool hasWholeReplay() const { return wholeArena != nullptr; }
+  const void* wholeReplayArena(u32* qw) const {
+    *qw = wholeArenaQw;
+    return wholeArena;
+  }
+  void restoreWholeReplay(const void* arena, u32 qw) {
+    wholeArena = arena;
+    wholeArenaQw = qw;
+  }
+  void appendBakedInstance(const M4x4& mvp, bool textured);
+  void finishInstances();
+  /**
    * Modified by TyraX (R5, StaPipCore::setPartialReplay): a frustum-crossing
    * bag replayed from immutable blocks instead of the qbuffer loop. Besides
    * its cull blocks (beginBakedBag(.., partial)) the bag gets a second baked
@@ -1058,6 +1083,9 @@ class StaPipQBufferRenderer {
   const CoreBBox* fogBox = nullptr;
   bool submissionBatchCandidate = false;
   u8 submissionBatchBags = 0;
+  // Modified by TyraX: the arena the last whole-bag replay REF'd (instancing).
+  const void* wholeArena = nullptr;
+  u32 wholeArenaQw = 0;
   bool submissionPacketHasTexture = false;
   bool submissionTextureReadersOutstanding = false;
 

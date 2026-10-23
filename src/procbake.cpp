@@ -224,6 +224,16 @@ std::string writeChunkObj(const Project& p, const SceneObject& vol,
     return rel;
 }
 
+// A generated chunk .obj and the .tmdl the build baked next to it: leaving the
+// .tmdl behind shipped a dead model to the disc for every removed chunk.
+void removeChunkFiles(const Project& p, const std::string& objRel) {
+    std::error_code ec;
+    const fs::path obj = fs::path(p.dir) / fs::path(objRel).make_preferred();
+    fs::remove(obj, ec);
+    fs::path tmdl = obj;
+    fs::remove(tmdl.replace_extension(".tmdl"), ec);
+}
+
 }  // namespace
 
 Report estimate(const Project& p, const SceneObject& volume,
@@ -237,6 +247,44 @@ Report estimate(const Project& p, const SceneObject& volume,
 
     std::map<uint64_t, int> chunkIds;  // (asset, cell) -> triangles, for the count
     int noContent = 0;
+    // Instanced (docs/procedural-generation.md): one shared copy per model,
+    // drawn full detail (Instance detail does not apply), plus the table.
+    if (out && procgraph::inum(*out, "mode") == 1) {
+        rep.instanced = true;
+        std::map<int, int> modelTris;  // asset -> triangles of one copy
+        for (const procgen::Instance& inst : r.instances) {
+            if (inst.asset < 0 || inst.asset >= (int)r.assets.size()) {
+                ++noContent;
+                continue;
+            }
+            auto it = modelTris.find(inst.asset);
+            if (it == modelTris.end()) {
+                auto mesh = sourceMesh(p, r.assets[(size_t)inst.asset], 0);
+                it = modelTris.emplace(inst.asset, mesh ? mesh->triangles() : 0).first;
+            }
+            if (it->second == 0) {
+                ++noContent;
+                continue;
+            }
+            rep.triangles += it->second;
+            ++rep.instances;
+        }
+        rep.models = (int)modelTris.size();
+        // The game's shared copy: positions + STs + four yaw-bucket colour
+        // sets, then a baked VIF body per bucket; ~60 bytes per instance.
+        constexpr size_t kSharedBytesPerVertex = 16 * 2 + 16 * 4 + 49 * 4;
+        constexpr size_t kBytesPerInstance = 60;
+        for (const auto& mt : modelTris)
+            rep.vertexBytes += (size_t)mt.second * 3 * kSharedBytesPerVertex;
+        rep.vertexBytes += (size_t)rep.instances * kBytesPerInstance;
+        rep.overBudget = rep.triangles > budget;
+        if (noContent > 0)
+            rep.warnings.push_back(
+                std::to_string(noContent) +
+                " point(s) carry no model - Instanced draws Pick Asset points "
+                "only; prefab points are not placed in this mode");
+        return rep;
+    }
     for (const procgen::Instance& inst : r.instances) {
         const int cx = (int)std::floor(inst.pos[0] / cell);
         const int cz = (int)std::floor(inst.pos[2] / cell);
@@ -332,7 +380,17 @@ Report bakeVolume(Project& p, SceneData& s, const std::string& volumeId,
     // own directory and reuses its mtllib line, so textures, texture quality
     // overrides and atlasing all resolve exactly as they do for the source.
     std::map<uint64_t, Chunk> groups;
+    // Instanced: nothing to write - codegen emits the instance table from the
+    // same evaluation. Leaving `groups` empty makes the reconcile below remove
+    // any chunk objects of an earlier Merged bake and the sweep their files.
+    const bool instanced = outNode && procgraph::inum(*outNode, "mode") == 1;
+    if (instanced) {
+        rep.instanced = true;
+        for (const procgen::Instance& inst : r.instances)
+            if (inst.asset >= 0 && inst.asset < (int)r.assets.size()) ++rep.instances;
+    }
     for (const procgen::Instance& inst : r.instances) {
+        if (instanced) break;
         if (inst.asset < 0 || inst.asset >= (int)r.assets.size()) continue;
         const int cx = (int)std::floor(inst.pos[0] / cell);
         const int cz = (int)std::floor(inst.pos[2] / cell);
@@ -348,7 +406,6 @@ Report bakeVolume(Project& p, SceneData& s, const std::string& volumeId,
 
     std::vector<ChunkFile> written;
     std::vector<std::string> writtenFiles;  // relative paths, for the sweep
-    std::error_code ec;
 
     for (const auto& kv : groups) {
         const Chunk& c = kv.second;
@@ -460,7 +517,7 @@ Report bakeVolume(Project& p, SceneData& s, const std::string& volumeId,
             continue;
         const std::string base = old.substr(old.find_last_of("/\\") + 1);
         if (base.rfind(prefix, 0) != 0) continue;
-        fs::remove(fs::path(p.dir) / fs::path(old).make_preferred(), ec);
+        removeChunkFiles(p, old);
     }
 
     // Stamp the hash on the live object (the copy above is stale by now).
@@ -536,7 +593,6 @@ bool anyStale(const Project& p) {
 }
 
 void clearVolume(Project& p, SceneData& s, const std::string& volumeId) {
-    std::error_code ec;
     for (const SceneObject& o : s.objects) {
         if (o.procSource != volumeId) continue;
         // The chunk and its distant version: both carry the ownership prefix.
@@ -544,7 +600,7 @@ void clearVolume(Project& p, SceneData& s, const std::string& volumeId) {
             if (path->empty()) continue;
             const std::string base = path->substr(path->find_last_of("/\\") + 1);
             if (base.rfind("procgen-" + shortId(volumeId) + "-", 0) != 0) continue;
-            fs::remove(fs::path(p.dir) / fs::path(*path).make_preferred(), ec);
+            removeChunkFiles(p, *path);
         }
     }
     s.objects.erase(std::remove_if(s.objects.begin(), s.objects.end(),

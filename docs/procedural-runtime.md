@@ -185,6 +185,15 @@ contribute conservative world AABBs the walker tests (see
 [prefabs](prefabs.md)), and a **Blocks Fill** node publishes its solid field as
 the world's ground.
 
+### Instanced
+
+The Output node's *Draw as: Instanced* ([procedural generation](procedural-generation.md#instanced))
+works here too: an asset point of such a volume becomes a row in the game's
+instance table instead of merged vertices (`procAddInstance`), with its
+collider when the Output asks for one, and the copies are drawn by
+`renderProcInstances`. Prefab and Blocks points keep merging. A regenerated
+volume (Generate Volume) drops and rebuilds its own copies.
+
 ### Distant versions
 
 A pool row's **distant version** ([procedural generation](procedural-generation.md#distant-version-per-row))
