@@ -474,6 +474,18 @@ void DrawGlyph(ImDrawList* dl, Glyph g, ImVec2 c, float size, ImU32 col) {
             if (g == Glyph::EyeOff) dl->AddLine(P(-0.8f, 0.8f), P(0.8f, -0.8f), col, th);
             break;
         }
+        case Glyph::PanelLeft:
+        case Glyph::PanelLeftOff:
+        case Glyph::PanelRight:
+        case Glyph::PanelRightOff: {
+            const bool left = g == Glyph::PanelLeft || g == Glyph::PanelLeftOff;
+            const bool on = g == Glyph::PanelLeft || g == Glyph::PanelRight;
+            const float x0 = left ? -0.9f : 0.3f, x1 = left ? -0.3f : 0.9f;
+            if (on) dl->AddRectFilled(P(x0, -0.7f), P(x1, 0.7f), col, s * 0.08f);
+            dl->AddLine(P(left ? x1 : x0, -0.7f), P(left ? x1 : x0, 0.7f), col, th);
+            dl->AddRect(P(-0.9f, -0.7f), P(0.9f, 0.7f), col, s * 0.1f, 0, th);
+            break;
+        }
         case Glyph::Folder: {
             const ImVec2 f[6] = {P(-0.9f, -0.6f), P(-0.25f, -0.6f), P(-0.05f, -0.38f),
                                  P(0.9f, -0.38f), P(0.9f, 0.7f),    P(-0.9f, 0.7f)};

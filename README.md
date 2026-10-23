@@ -521,6 +521,7 @@ polling/report intervals, and a release build that provably carries none of it
 | `Ctrl+N` / `Ctrl+O` / `Ctrl+S` | New / open / save project |
 | `F5` / `F6` | Build & run in PCSX2 / on a real PS2 |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `Ctrl+B` / `Ctrl+Alt+B` | Hide / show the Project panel / the Properties panel |
 | `Ctrl+C` / `Ctrl+V` | Copy / paste the selected object (the paste follows the cursor; `Esc` cancels) |
 | `1` / `2` / `3` | Move / rotate / scale tool (viewport) |
 | `Delete` / `End` | Delete the selection / drop it to the floor (viewport) |

@@ -383,9 +383,17 @@ void App::drawToolbar() {
         const int activeRecipe = project_.windowLayouts.empty()
                                      ? -1
                                      : project_.windowLayouts[project_.activeLayout].recipe;
+        auto isWorkspace = [&](int recipe) {
+            for (const Ws& w : ws)
+                if ((int)w.recipe == recipe) return true;
+            return false;
+        };
         const float gr = h * 0.19f;
         const float segPadW = scaled(3.0f);
-        float fullW = segPadW * 2.0f, iconW = segPadW * 2.0f;
+        // The last segment, "...", lists every other layout (Material
+        // Designer, Procedural, the project's own).
+        const float moreW = h * 0.9f;
+        float fullW = segPadW * 2.0f + moreW, iconW = segPadW * 2.0f + moreW;
         for (const Ws& w : ws) {
             fullW += padX * 1.6f + gr * 2.0f + gapS + ImGui::CalcTextSize(w.label).x;
             iconW += h;
@@ -438,6 +446,53 @@ void App::drawToolbar() {
                                       layout >= 0 ? project_.windowLayouts[layout].name.c_str() : "?",
                                       layout >= 0 ? "" : " was deleted (Layout menu)");
                 x += sw;
+            }
+            {
+                // Lit like a workspace while the active layout is one of the others.
+                const bool on = !project_.windowLayouts.empty() && !isWorkspace(activeRecipe);
+                const ImVec2 mp(x, base.y + segPadW);
+                ImGui::SetCursorScreenPos(mp);
+                if (ImGui::InvisibleButton("More layouts##ws", ImVec2(moreW, ih)))
+                    ImGui::OpenPopup("##ws_more");
+                const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered() && !on, 12.0f);
+                if (on || t > 0.0f)
+                    dl->AddRectFilled(mp, ImVec2(mp.x + moreW, mp.y + ih), col(sem.surface, on ? 1.0f : 0.5f * t),
+                                      round - segPadW * 0.5f);
+                const ImU32 dotCol = on ? col(sem.accent) : col(sem.textDim, 0.85f);
+                for (int d = -1; d <= 1; ++d)
+                    dl->AddCircleFilled(ImVec2(mp.x + moreW * 0.5f + d * h * 0.17f, base.y + h * 0.5f),
+                                        h * 0.055f, dotCol);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(on ? "Other layouts - \"%s\" is active"
+                                         : "Other layouts (Material Designer, Procedural, your own)",
+                                      project_.windowLayouts.empty()
+                                          ? ""
+                                          : project_.windowLayouts[project_.activeLayout].name.c_str());
+                ImGui::SetNextWindowPos(ImVec2(mp.x, base.y + h + scaled(4.0f)));
+                if (ImGui::BeginPopup("##ws_more")) {
+                    // The workspaces above are not repeated; every other
+                    // layout is, radio-checked on the active one.
+                    int listed = 0;
+                    for (int i = 0; i < (int)project_.windowLayouts.size(); ++i) {
+                        const WindowLayout& L = project_.windowLayouts[i];
+                        if (isWorkspace(L.recipe)) continue;
+                        ++listed;
+                        if (ImGui::MenuItem(L.name.c_str(), nullptr, i == project_.activeLayout))
+                            switchLayout(i);
+                    }
+                    if (listed == 0) ImGui::TextDisabled("No other layouts");
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("New layout...")) {
+                        std::snprintf(layoutNameBuf_, sizeof(layoutNameBuf_), "Layout %d",
+                                      (int)project_.windowLayouts.size() + 1);
+                        layoutNameError_.clear();
+                        openNewLayoutPopup_ = true;
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Save the current window arrangement as a layout of its own.\n"
+                                          "Rename, reset and delete live in the Layout menu.");
+                    ImGui::EndPopup();
+                }
             }
             ImGui::SetCursorScreenPos(base);
             ImGui::Dummy(ImVec2(totalW, h));
@@ -1080,9 +1135,37 @@ void App::drawStatusBar() {
     } else {
         std::snprintf(right, sizeof(right), "UI %d%%", (int)(uiScaleApplied_ * 100.0f + 0.5f));
     }
+    // The side-panel switches at the very end: the rail only reaches the left
+    // panel, and a collapsed right panel has nothing left on screen to click.
+    float panelsW = 0.0f;
+    if (hasProject_) {
+        const float s = h;
+        const ImVec2 wp = ImGui::GetWindowPos();
+        float x = wp.x + ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - s * 2.0f;
+        auto panelSwitch = [&](const char* label, ui::Glyph g, bool& collapsed, const char* tip) {
+            const ImVec2 p(x, wp.y);
+            ImGui::SetCursorScreenPos(p);
+            if (ImGui::InvisibleButton(label, ImVec2(s, s))) collapsed = !collapsed;
+            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            if (t > 0.0f)
+                dl->AddRectFilled(ImVec2(p.x, p.y + s * 0.12f), ImVec2(p.x + s, p.y + s * 0.88f),
+                                  ImGui::GetColorU32(ImGuiCol_ButtonHovered, t), round);
+            ui::DrawGlyph(dl, g, ImVec2(p.x + s * 0.5f, p.y + s * 0.5f), s * 0.5f,
+                          col(collapsed ? sem.textDim : sem.text));
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+            x += s;
+        };
+        panelSwitch("Toggle Project panel##sb", leftCollapsed_ ? ui::Glyph::PanelLeftOff : ui::Glyph::PanelLeft,
+                    leftCollapsed_, leftCollapsed_ ? "Show the Project panel (Ctrl+B)" : "Hide the Project panel (Ctrl+B)");
+        panelSwitch("Toggle Properties panel##sb",
+                    rightCollapsed_ ? ui::Glyph::PanelRightOff : ui::Glyph::PanelRight, rightCollapsed_,
+                    rightCollapsed_ ? "Show the Properties panel (Ctrl+Alt+B)"
+                                    : "Hide the Properties panel (Ctrl+Alt+B)");
+        panelsW = s * 2.0f + gap;
+    }
     {
         const float w = ImGui::CalcTextSize(right).x;
-        const float x = ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - w;
+        const float x = ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - panelsW - w;
         const ImVec2 wp = ImGui::GetWindowPos();
         dl->AddText(ImVec2(wp.x + x, wp.y + (h - ImGui::GetTextLineHeight()) * 0.5f), colDim, right);
     }
@@ -1150,11 +1233,19 @@ void App::drawRail() {
                                   {"Assets", ui::Glyph::Box},
                                   {"Audio", ui::Glyph::Music},
                                   {"Scripts", ui::Glyph::Code}};
+    // The open page's icon again slides the panel away (and any icon brings it
+    // back) - the VS Code activity bar; the status bar and Ctrl+B do the same.
     float y = ImGui::GetWindowPos().y + scaled(6.0f);
     for (int i = 0; i < (int)IM_ARRAYSIZE(kPages); ++i) {
-        if (railButton(kPages[i].label, kPages[i].glyph, leftPage_ == i, y)) {
-            leftPage_ = i;
-            pendingFocusWindow_ = "Project";  // a docked-behind panel comes forward
+        const bool open = !leftCollapsed_ && leftPage_ == i;
+        if (railButton(kPages[i].label, kPages[i].glyph, open, y)) {
+            if (open) {
+                leftCollapsed_ = true;
+            } else {
+                leftCollapsed_ = false;
+                leftPage_ = i;
+                pendingFocusWindow_ = "Project";  // a docked-behind panel comes forward
+            }
         }
         y += btn + scaled(4.0f);
     }

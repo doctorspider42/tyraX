@@ -162,8 +162,13 @@ A few things worth knowing because they are decisions rather than defaults:
   screen). Each is one of the project's window
   layouts - Default, Debugger, Director and Menu Designer, found by their
   built-in recipe - so it is the Layout menu one click closer, and your own
-  arrangement of each is kept. With little room the labels go and the icons
-  stay. **Ctrl+K** (Cmd+K on a Mac), or the magnifier before the build
+  arrangement of each is kept. The switcher's last segment, **...** (`More
+  layouts`), lists every other layout (Material Designer, Procedural and the
+  project's own, radio-checked on the active one) plus *New layout...*. It is lit
+  while one of those is active. With little room the labels go and the icons
+  stay. The six built-in layouts cannot be deleted (*Delete layout* is greyed
+  out on them). They can be renamed or reset, and a project file that lacks
+  one gets it back when it is loaded. **Ctrl+K** (Cmd+K on a Mac), or the magnifier before the build
   profile, opens the **command palette**: type to find any menu command (shown with
   its menu path and shortcut - the palette reads the menus themselves, so it
   never misses one), the top bar's Run / Stop / build profile, New scene, an
@@ -187,7 +192,20 @@ A few things worth knowing because they are decisions rather than defaults:
   sharing it as a stack of collapsing headers; the Outliner's list takes the
   full height. At the bottom of the rail: the AI Assistant and Project
   Preferences. Clicking a page also brings the Project panel forward if it is
-  docked behind another tab. The Outliner rows draw a type icon, the name and
+  docked behind another tab. Clicking the OPEN page's icon again slides the
+  panel away (VS Code's activity bar), and any icon brings it back. The
+  Properties panel has no rail, so both panels also have a switch at the
+  status bar's right end (`Toggle Project panel` / `Toggle Properties panel`),
+  View > Project panel / Properties panel, and `Ctrl+B` / `Ctrl+Alt+B`. A
+  slid-away panel is simply not drawn: ImGui gives its dock column to the
+  neighbours and restores the same place and width when it comes back. Each
+  window layout remembers which panels it has slid away (saved with the layout
+  in the `.tyra` as `projectCollapsed` / `propertiesCollapsed`). Switching
+  layouts applies that state, and Layout > Reset to built-in arrangement
+  restores the built-in one. The built-in Procedural layout starts with the
+  Project panel hidden, because the graph, the viewport and the volume's
+  Properties are what it works with. A tool docked in the same column (the
+  Terrain Editor beside Properties) stays visible. The Outliner rows draw a type icon, the name and
   the type (dim, right-aligned) themselves; the row's label is still
   `name  (type)` - the ID and what scripts name it by.
 - **Assets, Audio and Scripts share one shape** (`src/rail_ui.cpp`): header

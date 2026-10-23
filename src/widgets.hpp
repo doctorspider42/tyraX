@@ -88,7 +88,10 @@ enum class Glyph {
     // workspaces
     Nodes, Film, Screen,
     // panel headers and the outliner
-    Plus, Eye, EyeOff, Folder
+    Plus, Eye, EyeOff, Folder,
+    // the status bar's side-panel switches: a window with its left/right
+    // column filled (shown) or outlined (collapsed)
+    PanelLeft, PanelLeftOff, PanelRight, PanelRightOff
 };
 
 /** Draws `g` centred on `c` in a box `size` px square, one stroke weight. */

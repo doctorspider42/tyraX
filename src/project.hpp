@@ -3336,6 +3336,10 @@ struct WindowLayout {
     std::string ini;                       // ImGui docking dump; empty = use recipe
     int recipe = -1;                       // -1 none, 0 default, 1 director, 2 material
     std::vector<std::string> openWindows;  // optional-window keys (see App::layoutWindowKeys)
+    // The side panels slid away in this layout (App::leftCollapsed_ /
+    // rightCollapsed_): captured and applied with openWindows.
+    bool projectCollapsed = false;
+    bool propertiesCollapsed = false;
 };
 
 // Built-in DockBuilder recipe ids (WindowLayout::recipe). The arrangement lives
@@ -3349,6 +3353,12 @@ enum class LayoutRecipe {
     Procedural = 4,
     MenuDesigner = 5
 };
+
+// Whether a built-in recipe starts with the Project panel slid away (seeding,
+// the load-time top-up and "Reset to built-in arrangement"). The Procedural
+// desk works from the graph, the viewport and the volume's Properties; the
+// object list is a click away on the rail.
+inline bool recipeCollapsesProject(int recipe) { return recipe == (int)LayoutRecipe::Procedural; }
 
 // One custom screen effect placed in the screen stack. The effect body lives
 // in a <project>/screen-effects/<stem>.screenfx file (loaded into

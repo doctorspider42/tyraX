@@ -5,6 +5,13 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
+## 2.2.0 - Unreleased
+
+- The side panels slide away to give the viewport the room. Click the open page's icon on the left rail again (or press `Ctrl+B`) to hide the Project panel, and click any rail icon to bring it back. `Ctrl+Alt+B` hides the Properties panel. The two panel switches at the right end of the status bar and the View menu do the same. A hidden panel returns to the same place and size.
+- Each window layout remembers which side panels it has hidden, so the Procedural layout can keep the Project panel out of the way while Default keeps both. New projects get Procedural with the Project panel hidden. In existing projects, *Layout > Reset to built-in arrangement* applies the new default. Projects are saved as format 119.
+- The workspace switcher on the top bar ends in a **...** button that lists the other layouts (Material Designer, Procedural and your own) and *New layout...*.
+- The built-in layouts can no longer be deleted. They can still be renamed or reset. A project that lost one in an earlier version gets it back on open.
+
 ## 2.1.2 - Unreleased
 
 - Instanced scatter budgets count shared near/far geometry instead of flagging the sum of every placement as an over-budget mesh. The full placement sum remains informational, and the memory label identifies geometry-only estimates.

@@ -1233,6 +1233,11 @@ void App::drawUI() {
             saveAll("Saved");
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma))
             openProjectPreferences();
+        // Side panels (the VS Code chords). Exact-match chords, so Ctrl+B and
+        // Ctrl+Shift+B (Build) stay distinct.
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_B)) leftCollapsed_ = !leftCollapsed_;
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_B))
+            rightCollapsed_ = !rightCollapsed_;
         if (!io.WantTextInput) {
             // While the Material Editor has focus, Ctrl+Z drives ITS undo
             // stack (paint strokes + material edits, saved straight to disk) -
@@ -1507,6 +1512,11 @@ void App::drawMainMenus() {
         menuact::EndMenu();
     }
     if (menuact::BeginMenu("View")) {
+        if (menuact::MenuItem("Project panel", "Ctrl+B", !leftCollapsed_, hasProject_))
+            leftCollapsed_ = !leftCollapsed_;
+        if (menuact::MenuItem("Properties panel", "Ctrl+Alt+B", !rightCollapsed_, hasProject_))
+            rightCollapsed_ = !rightCollapsed_;
+        ImGui::Separator();
         ImGui::TextDisabled("Interface scale");
         if (menuact::MenuItem("Zoom in", "Ctrl+="))
             setUiScale(ImClamp(uiScaleApplied_ + 0.1f, 0.5f, 4.0f));
@@ -5981,6 +5991,7 @@ void App::setViewProjection(Viewport::Projection p) {
 }
 
 void App::drawProjectWindow() {
+    if (leftCollapsed_ && hasProject_) return;
     ImGui::Begin("Project");
 
     if (!hasProject_) {
@@ -6460,6 +6471,8 @@ void App::applyActiveLayout() {
     if (project_.windowLayouts.empty()) return;
     const WindowLayout& L = project_.windowLayouts[project_.activeLayout];
     applyOpenWindows(L.openWindows);
+    leftCollapsed_ = L.projectCollapsed;
+    rightCollapsed_ = L.propertiesCollapsed;
     if (!L.ini.empty()) {
         // Load the saved dump at the run() frame boundary.
         layoutLoadPending_ = true;
@@ -6484,6 +6497,8 @@ void App::captureActiveLayout() {
     WindowLayout& L = project_.windowLayouts[project_.activeLayout];
     L.ini = ImGui::SaveIniSettingsToMemory();  // clears io.WantSaveIniSettings
     L.openWindows = captureOpenWindows();
+    L.projectCollapsed = leftCollapsed_;
+    L.propertiesCollapsed = rightCollapsed_;
 }
 
 void App::switchLayout(int index) {
@@ -6502,6 +6517,8 @@ void App::resetActiveLayoutToRecipe() {
     WindowLayout& L = project_.windowLayouts[project_.activeLayout];
     if (L.recipe < 0) return;  // user layout with no built-in arrangement
     L.ini.clear();             // empty ini -> applyActiveLayout rebuilds the recipe
+    L.projectCollapsed = recipeCollapsesProject(L.recipe);
+    L.propertiesCollapsed = false;
     applyActiveLayout();
     setDirty(true);
     statusMessage_ = "Reset layout: " + L.name;
@@ -6554,7 +6571,9 @@ void App::drawLayoutMenu() {
         layoutNameError_.clear();
         openRenameLayoutPopup_ = true;
     }
-    const bool canDelete = project_.windowLayouts.size() > 1;
+    // Built-in layouts (a recipe) stay: the workspaces and the "..." list find
+    // them by recipe, and the loader would only put them back.
+    const bool canDelete = project_.windowLayouts.size() > 1 && !hasRecipe;
     if (menuact::MenuItem("Delete layout", nullptr, false, canDelete)) {
         project_.windowLayouts.erase(project_.windowLayouts.begin() +
                                      project_.activeLayout);
@@ -6565,7 +6584,9 @@ void App::drawLayoutMenu() {
         statusMessage_ = "Layout deleted";
     }
     if (!canDelete && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("A project must keep at least one layout.");
+        ImGui::SetTooltip(hasRecipe ? "'%s' is a built-in layout - it can be reset or renamed, not deleted."
+                                    : "A project must keep at least one layout.",
+                          L.name.c_str());
 }
 
 void App::drawLayoutModals() {
@@ -6608,6 +6629,8 @@ void App::drawLayoutModals() {
                 nl.ini = ImGui::SaveIniSettingsToMemory();
                 nl.recipe = -1;  // user layout: no built-in recipe to reset to
                 nl.openWindows = captureOpenWindows();
+                nl.projectCollapsed = leftCollapsed_;
+                nl.propertiesCollapsed = rightCollapsed_;
                 project_.windowLayouts.push_back(std::move(nl));
                 project_.activeLayout = (int)project_.windowLayouts.size() - 1;
                 setDirty(true);

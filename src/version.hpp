@@ -1,5 +1,8 @@
 #pragma once
 
+// 2.2.0: the Project and Properties panels slide away (rail icon, status bar, Ctrl+B / Ctrl+Alt+B);
+// each window layout remembers which are collapsed (format 119); the workspace switcher's "..."
+// lists the other layouts; built-in layouts cannot be deleted and are restored on load.
 // 2.1.2: object settings live in Output; clarify instanced detail.
 // 2.1.1: dense procedural previews use authored LOD and visibility culling.
 
@@ -5595,8 +5598,8 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 1
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 2
+#define TYRAX_VERSION_PATCH 0
 // 1.173.0: the first step of the main-window redesign (docs/editor-theme.md).
 // Face buttons gets a new palette; Palette/Semantics gain ground, field,
 // special and the axis triple; the dockspace host and its splitters draw in the
@@ -6411,7 +6414,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // reader ignores them), and adds "blssParticles" (written only when true;
 // missing = the whole scene is reduced, as before). Bumped so an older editor
 // cannot read the missing blssNetwork as true. No migration.
-inline constexpr int kFormatVersion = 118;
+// v119 (docs/editor-theme.md, "left rail"): a window layout's
+// "projectCollapsed" / "propertiesCollapsed" (the side panels slid away),
+// written only when true; missing = both panels out, as before. The built-in
+// Procedural layout is seeded with the Project panel collapsed. Additive; no
+// migration.
+inline constexpr int kFormatVersion = 119;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

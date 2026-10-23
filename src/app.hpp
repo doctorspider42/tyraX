@@ -207,6 +207,14 @@ private:
     // The Project panel's page: 0 Outliner, 1 Layers, 2 Assets, 3 Audio,
     // 4 Scripts (kLeftPageCount). View state, not saved.
     int leftPage_ = 0;
+    // The side panels slid away: the Project panel (clicking the open page's
+    // rail icon, Ctrl+B) and the Properties panel (Ctrl+Alt+B). A collapsed
+    // panel is simply not submitted, so ImGui gives its dock node's width to
+    // the neighbours and puts it back in the same place on reopen. Each window
+    // layout carries its own pair (WindowLayout::projectCollapsed /
+    // propertiesCollapsed), applied and captured with its open windows.
+    bool leftCollapsed_ = false;
+    bool rightCollapsed_ = false;
     // The command palette (palette_ui.cpp): Ctrl/Cmd+K or the top bar's
     // search button. Draws nothing while closed.
     void drawCommandPalette();

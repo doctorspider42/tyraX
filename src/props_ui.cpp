@@ -404,6 +404,7 @@ bool App::catchAreaControls(SceneObject& o, const char* verb) {
 // player, emitters, lights) have no geometry in the game, so texture,
 // rotation, physics and "usable" would be dead settings on them.
 void App::drawPropertiesWindow() {
+    if (rightCollapsed_ && hasProject_) return;
     ImGui::Begin("Properties");
     // Every labelled field below is a row: caption left, widget filling the
     // rest (ui::InspectorRows; the ui:: wrappers keep each label as its ID).

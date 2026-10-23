@@ -4163,7 +4163,12 @@ static std::string manifestJson(const Project& p) {
              << "\", \"recipe\": " << L.recipe << ", \"open\": [";
         for (size_t j = 0; j < L.openWindows.size(); ++j)
             json << (j ? ", " : "") << "\"" << jsonEscape(L.openWindows[j]) << "\"";
-        json << "], \"ini\": \"" << jsonEscape(L.ini) << "\" }";
+        json << "]";
+        // Written only when set (v119): a layout with both panels out
+        // serializes byte-for-byte as before.
+        if (L.projectCollapsed) json << ", \"projectCollapsed\": true";
+        if (L.propertiesCollapsed) json << ", \"propertiesCollapsed\": true";
+        json << ", \"ini\": \"" << jsonEscape(L.ini) << "\" }";
     }
     json << (p.windowLayouts.empty() ? "]" : "\n  ]");
     json << "\n}\n";
@@ -4734,29 +4739,30 @@ void ensureObjectIds(Project& p) {
         }
 }
 
+// The built-in layouts, in menu order. recipe-backed, empty ini:
+// App::buildLayoutRecipe arranges them the first time each is shown (see
+// WindowLayout / LayoutRecipe). seedBuiltinLayouts starts a project with them
+// and load() restores any a project is missing - they cannot be deleted.
+// "debugger" in the DEFAULT layout: the panel is open from the first run of
+// a new project, docked as a tab of the bottom console drawer beside Output
+// and Debug (buildLayoutRecipe), so the first Build & Run has somewhere to
+// report instead of the debugger being a thing you have to know to go and
+// open. Output is the selected tab, so an open Debugger costs one tab
+// header until a debug launch brings it forward.
+static std::vector<WindowLayout> builtinLayouts() {
+    std::vector<WindowLayout> v = {
+        {"Default", "", (int)LayoutRecipe::Default, {"debugger"}},
+        {"Director", "", (int)LayoutRecipe::Director, {"cutscene"}},
+        {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}},
+        {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}},
+        {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}},
+        {"Menu Designer", "", (int)LayoutRecipe::MenuDesigner, {"menus", "menupreview", "fonts"}}};
+    for (WindowLayout& L : v) L.projectCollapsed = recipeCollapsesProject(L.recipe);
+    return v;
+}
+
 void seedBuiltinLayouts(Project& p) {
-    p.windowLayouts.clear();
-    // recipe-backed, empty ini: App::buildLayoutRecipe arranges them the first
-    // time each is shown (see WindowLayout / LayoutRecipe).
-    // "debugger" in the DEFAULT layout: the panel is open from the first run of
-    // a new project, docked as a tab of the bottom console drawer beside Output
-    // and Debug (buildLayoutRecipe), so the first Build & Run has somewhere to
-    // report instead of the debugger being a thing you have to know to go and
-    // open. Output is the selected tab, so an open Debugger costs one tab
-    // header until a debug launch brings it forward. Existing projects keep the
-    // layouts saved in their .tyra.
-    p.windowLayouts.push_back(
-        {"Default", "", (int)LayoutRecipe::Default, {"debugger"}});
-    p.windowLayouts.push_back(
-        {"Director", "", (int)LayoutRecipe::Director, {"cutscene"}});
-    p.windowLayouts.push_back(
-        {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
-    p.windowLayouts.push_back(
-        {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
-    p.windowLayouts.push_back(
-        {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
-    p.windowLayouts.push_back({"Menu Designer", "", (int)LayoutRecipe::MenuDesigner,
-                               {"menus", "menupreview", "fonts"}});
+    p.windowLayouts = builtinLayouts();
     p.activeLayout = 0;
 }
 
@@ -8146,6 +8152,8 @@ std::string load(Project& out, const std::string& projectDir) {
                 v && v->type == json::Value::Type::Array)
                 for (const auto& jo : v->arr)
                     if (jo.type == json::Value::Type::String) L.openWindows.push_back(jo.str);
+            if (const auto* v = jl.find("projectCollapsed")) L.projectCollapsed = v->boolOr(false);
+            if (const auto* v = jl.find("propertiesCollapsed")) L.propertiesCollapsed = v->boolOr(false);
             if (!L.name.empty()) out.windowLayouts.push_back(std::move(L));
         }
         if (const auto* v = root.find("activeLayout"))
@@ -8154,25 +8162,20 @@ std::string load(Project& out, const std::string& projectDir) {
         seedBuiltinLayouts(out);
     }
     // Top up the built-in set: a project saved before a built-in layout existed
-    // keeps its own layouts, and would otherwise never see the new one. Only
-    // recipe-backed built-ins are added (a user layout with the same name is
-    // left alone), so this stays a one-time migration per project.
-    {
-        auto hasRecipe = [&](LayoutRecipe r) {
+    // (or by an editor that still let one be deleted) keeps its own layouts and
+    // gets the missing built-ins appended, so activeLayout keeps its index. A
+    // user layout already holding the name keeps it; the built-in is suffixed.
+    if (!out.windowLayouts.empty()) {
+        auto has = [&](auto pred) {
             for (const WindowLayout& L : out.windowLayouts)
-                if (L.recipe == (int)r) return true;
+                if (pred(L)) return true;
             return false;
         };
-        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Debugger))
-            out.windowLayouts.push_back(
-                {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
-        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Procedural))
-            out.windowLayouts.push_back(
-                {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
-        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::MenuDesigner))
-            out.windowLayouts.push_back(
-                {"Menu Designer", "", (int)LayoutRecipe::MenuDesigner,
-                 {"menus", "menupreview", "fonts"}});
+        for (WindowLayout& B : builtinLayouts()) {
+            if (has([&](const WindowLayout& L) { return L.recipe == B.recipe; })) continue;
+            if (has([&](const WindowLayout& L) { return L.name == B.name; })) B.name += " (built-in)";
+            out.windowLayouts.push_back(std::move(B));
+        }
     }
     // A project must always have at least one layout, and activeLayout must be
     // in range (a hand-edited or corrupt file could break either).
