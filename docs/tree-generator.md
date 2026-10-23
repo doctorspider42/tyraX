@@ -73,7 +73,7 @@ Three columns and a footer:
   this project** lists the trees the generator already saved; clicking one
   loads its parameters back (see *Re-opening a tree*).
 - **The tree** (centre), framed to its own height so the crown fills the view:
-  drag to orbit, wheel to zoom, double-click to reset. The pill top-left holds
+  right-drag to orbit, middle-drag to pan, wheel to zoom, double-click to reset. The pill top-left holds
   **Spin** (the turntable), **Wireframe** (the tessellation) and **Near** /
   **Impostor**: Impostor shows the distant card the bake would make (captured
   on the CPU, the view the turntable faces, 128 px) - what players see past

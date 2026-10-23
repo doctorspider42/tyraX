@@ -2072,8 +2072,8 @@ void App::drawAssetInspector(const std::string& rel) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const float r = ImGui::GetStyle().FrameRounding + 3.0f;
         dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(sem.field), r);
-        // Models and materials: drag to orbit, wheel to zoom, double-click to
-        // reset - a live render at the preview's size (Viewport::
+        // Models and materials: right-drag to orbit, middle-drag to pan, wheel
+        // to zoom, double-click to reset - a live render at the preview's size (Viewport::
         // assetOrbitView, redrawn only when the orbit moves). Images show
         // themselves.
         const bool orbitable = item->kind != AssetKind::Texture;
@@ -2082,35 +2082,42 @@ void App::drawAssetInspector(const std::string& rel) {
             assetOrbitYaw_ = 35.0f;
             assetOrbitPitch_ = 22.0f;
             assetOrbitZoom_ = 1.0f;
+            assetOrbitPanX_ = assetOrbitPanY_ = 0.0f;
         }
         const float s = h - fs;
         const ImVec2 a(p.x + (w - s) * 0.5f, p.y + fs * 0.5f);
         uint32_t tex = 0;
         if (orbitable) {
             ImGui::SetCursorScreenPos(p);
-            ImGui::InvisibleButton("Asset preview", ImVec2(w, h));
+            ImGui::InvisibleButton("Asset preview", ImVec2(w, h), ui::kPreviewButtons);
             ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);  // zoom, not scroll
-            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
-                const ImVec2 d = ImGui::GetIO().MouseDelta;
-                assetOrbitYaw_ += d.x * 0.5f;
-                assetOrbitPitch_ = ImClamp(assetOrbitPitch_ + d.y * 0.4f, -80.0f, 85.0f);
+            const ui::PreviewNav nav = ui::PreviewNavigation();
+            if (nav.orbiting()) {
+                assetOrbitYaw_ += nav.orbit.x * 0.5f;
+                assetOrbitPitch_ = ImClamp(assetOrbitPitch_ + nav.orbit.y * 0.4f, -80.0f, 85.0f);
             }
+            {
+                // one preview height of drag = the framed span (~2 radii)
+                const float k = 2.0f / (s * assetOrbitZoom_);
+                assetOrbitPanX_ = ImClamp(assetOrbitPanX_ - nav.pan.x * k, -5.0f, 5.0f);
+                assetOrbitPanY_ = ImClamp(assetOrbitPanY_ + nav.pan.y * k, -5.0f, 5.0f);
+            }
+            if (nav.recentre) assetOrbitPanX_ = assetOrbitPanY_ = 0.0f;
+            if (nav.wheel != 0.0f)
+                assetOrbitZoom_ = ImClamp(assetOrbitZoom_ * std::pow(1.15f, nav.wheel), 0.4f, 6.0f);
             if (ImGui::IsItemHovered()) {
-                const float wheel = ImGui::GetIO().MouseWheel;
-                if (wheel != 0.0f)
-                    assetOrbitZoom_ = ImClamp(assetOrbitZoom_ * std::pow(1.15f, wheel), 0.4f, 6.0f);
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     assetOrbitYaw_ = 35.0f;
                     assetOrbitPitch_ = 22.0f;
                     assetOrbitZoom_ = 1.0f;
+                    assetOrbitPanX_ = assetOrbitPanY_ = 0.0f;
                 }
-                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-                ImGui::SetItemTooltip("Drag to orbit, wheel to zoom, double-click to reset.");
+                ImGui::SetItemTooltip("%s Double-click to reset.", ui::kPreviewNavHint);
             }
             ImGui::SetCursorScreenPos(p);
             const float sc = ImGui::GetIO().DisplayFramebufferScale.x;
             tex = viewport_.assetOrbitView(rel, (int)(s * sc), assetOrbitYaw_, assetOrbitPitch_,
-                                           assetOrbitZoom_);
+                                           assetOrbitZoom_, assetOrbitPanX_, assetOrbitPanY_);
             // the model zoomed in past the frame stays inside the card
             dl->PushClipRect(p, ImVec2(p.x + w, p.y + h), true);
         } else {

@@ -865,6 +865,22 @@ bool BeginCombo(const char* label, const char* preview, ImGuiComboFlags flags) {
 bool Combo(const char* label, int* cur, const char* const items[], int count, int maxHeight) {
     return rowWidget(label, [&] { return ImGui::Combo(label, cur, items, count, maxHeight); });
 }
+PreviewNav PreviewNavigation() {
+    PreviewNav n;
+    const ImGuiIO& io = ImGui::GetIO();
+    if (ImGui::IsItemActive()) {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) n.orbit = io.MouseDelta;
+        else if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) n.pan = io.MouseDelta;
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Middle))
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
+    }
+    if (ImGui::IsItemHovered()) {
+        n.wheel = io.MouseWheel;
+        n.recentre = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Middle);
+    }
+    return n;
+}
+
 bool SegmentedRow(const char* label, const char* const items[], int count, int* cur) {
     return rowWidget(label, [&] { return Segmented(label, items, count, cur, ImGui::CalcItemWidth()); });
 }

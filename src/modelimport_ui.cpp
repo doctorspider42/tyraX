@@ -532,10 +532,8 @@ void App::drawModelImportModal() {
         // right drag = orbit, middle drag = pan, wheel = zoom (the left button
         // is left alone: it is what closes popups and clicks the panel)
         ImGui::SetNextItemAllowOverlap();
-        ImGui::InvisibleButton("Import preview", ImVec2((float)pw, (float)ph),
-                               ImGuiButtonFlags_MouseButtonLeft |
-                                   ImGuiButtonFlags_MouseButtonRight |
-                                   ImGuiButtonFlags_MouseButtonMiddle);
+        ImGui::InvisibleButton("Import preview", ImVec2((float)pw, (float)ph), ui::kPreviewButtons);
+        const ui::PreviewNav nav = ui::PreviewNavigation();
         // Left click picks the planned model under the cursor (split imports):
         // the nearest triangle hit selects its row in the list, empty space
         // clears the selection.
@@ -548,23 +546,20 @@ void App::drawModelImportModal() {
                 modelImportScrollToSel_ = modelImportSel_ >= 0;
             }
         }
-        if (ImGui::IsItemActive()) {
-            const ImVec2 md = ImGui::GetIO().MouseDelta;
-            if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-                modelImportAngle_ += md.x * 0.4f;
-                modelImportPitch_ =
-                    std::clamp(modelImportPitch_ + md.y * 0.3f, -80.0f, 85.0f);
-            } else if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-                // one preview height of drag moves the target ~2.4 radii /
-                // zoom - the visible span - so the model follows the cursor
-                const float k = 2.0f / ((float)ph * zoomEff);
-                modelImportPanX_ -= md.x * k;
-                modelImportPanY_ += md.y * k;
-            }
+        if (nav.orbiting()) {
+            modelImportAngle_ += nav.orbit.x * 0.4f;
+            modelImportPitch_ = std::clamp(modelImportPitch_ + nav.orbit.y * 0.3f, -80.0f, 85.0f);
         }
-        if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0.0f)
-            modelImportZoom_ = std::clamp(
-                modelImportZoom_ * std::pow(1.15f, ImGui::GetIO().MouseWheel), 0.05f, 40.0f);
+        {
+            // one preview height of drag moves the target ~2.4 radii /
+            // zoom - the visible span - so the model follows the cursor
+            const float k = 2.0f / ((float)ph * zoomEff);
+            modelImportPanX_ -= nav.pan.x * k;
+            modelImportPanY_ += nav.pan.y * k;
+        }
+        if (nav.recentre) modelImportPanX_ = modelImportPanY_ = 0.0f;
+        if (nav.wheel != 0.0f)
+            modelImportZoom_ = std::clamp(modelImportZoom_ * std::pow(1.15f, nav.wheel), 0.05f, 40.0f);
 
         // Height ruler ON the model: the number the Real height field edits,
         // drawn at the model's left edge from its lowest to its highest point.

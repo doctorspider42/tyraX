@@ -7694,6 +7694,19 @@ void Viewport::ensurePreviewBackdrop() {
     }
 }
 
+// The previews' pan (docs/editor-theme.md, "Preview navigation"): the orbit
+// target moved in the camera's screen plane by radius-relative panX/panY - the
+// Animation Editor's and import preview's convention, so a drag means the same
+// on a prop and on a level. `orbit` = eye minus target; the eye keeps it.
+static Vec3 pannedTarget(Vec3 center, Vec3 orbit, float radius, float panX, float panY) {
+    if (panX == 0.0f && panY == 0.0f) return center;
+    const Vec3 fwd = normalize(Vec3{-orbit.x, -orbit.y, -orbit.z});
+    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
+    const Vec3 up = cross(right, fwd);
+    return {center.x + radius * (right.x * panX + up.x * panY), center.y + radius * (right.y * panX + up.y * panY),
+            center.z + radius * (right.z * panX + up.z * panY)};
+}
+
 uint32_t Viewport::renderMaterialPreview(int width, int height,
                                          const MatPreviewDesc& d) {
     if (!program_) return 0;
@@ -7815,15 +7828,15 @@ uint32_t Viewport::renderMaterialPreview(int width, int height,
     if (pitch > 85.0f) pitch = 85.0f;
     const float a = d.angleDeg * kPi / 180.0f;
     const float p = pitch * kPi / 180.0f;
-    const Vec3 eye{center.x + dist * std::cos(p) * std::cos(a),
-                   center.y + dist * std::sin(p),
-                   center.z + dist * std::cos(p) * std::sin(a)};
-    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    const Vec3 orbit{dist * std::cos(p) * std::cos(a), dist * std::sin(p), dist * std::cos(p) * std::sin(a)};
+    const Vec3 target = pannedTarget(center, orbit, floorScale, d.panX, d.panY);
+    const Vec3 eye{target.x + orbit.x, target.y + orbit.y, target.z + orbit.z};
+    const Mat4 view = lookAt(eye, target, {0, 1, 0});
     {
         // The refl (matcap) shader path derives the camera basis from
         // uFogEye/uFogFwd - point them at the preview camera (fog itself is
         // off above).
-        const Vec3 f = normalize(sub(center, eye));
+        const Vec3 f = normalize(sub(target, eye));
         glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
         glUniform3f(uFogFwd_, f.x, f.y, f.z);
     }
@@ -8020,10 +8033,10 @@ uint32_t Viewport::renderTreePreview(int width, int height,
     if (pitch > 85.0f) pitch = 85.0f;
     const float a = d.angleDeg * kPi / 180.0f;
     const float p = pitch * kPi / 180.0f;
-    const Vec3 eye{center.x + dist * std::cos(p) * std::cos(a),
-                   center.y + dist * std::sin(p),
-                   center.z + dist * std::cos(p) * std::sin(a)};
-    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    const Vec3 orbit{dist * std::cos(p) * std::cos(a), dist * std::sin(p), dist * std::cos(p) * std::sin(a)};
+    const Vec3 target = pannedTarget(center, orbit, radius, d.panX, d.panY);
+    const Vec3 eye{target.x + orbit.x, target.y + orbit.y, target.z + orbit.z};
+    const Mat4 view = lookAt(eye, target, {0, 1, 0});
     const float zFar = dist + radius * 4.0f + 50.0f;
     const Mat4 proj = perspective(45.0f * kPi / 180.0f,
                                   (float)width / (float)height,
@@ -8528,7 +8541,7 @@ void Viewport::clearThumbCache() {
 // it closer.
 void Viewport::drawAssetView(const ModelDraw* model, AnimModelDraw* anim,
                              const MaterialDraw* material, int s, float yawDeg,
-                             float pitchDeg, float zoom) {
+                             float pitchDeg, float zoom, float panX, float panY) {
     if (anim) uploadAnimPose(*anim, 0, anim->baked.frameCount, 0.0f);
 
     glViewport(0, 0, s, s);
@@ -8600,13 +8613,14 @@ void Viewport::drawAssetView(const ModelDraw* model, AnimModelDraw* anim,
 
     const float dist = radius * 2.35f / (zoom > 0.05f ? zoom : 0.05f);
     const float pitch = pitchDeg * kPi / 180.0f, yaw = yawDeg * kPi / 180.0f;
-    const Vec3 eye{center.x + dist * std::cos(pitch) * std::cos(yaw),
-                   center.y + dist * std::sin(pitch),
-                   center.z + dist * std::cos(pitch) * std::sin(yaw)};
-    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    const Vec3 orbit{dist * std::cos(pitch) * std::cos(yaw), dist * std::sin(pitch),
+                     dist * std::cos(pitch) * std::sin(yaw)};
+    const Vec3 target = pannedTarget(center, orbit, radius, panX, panY);
+    const Vec3 eye{target.x + orbit.x, target.y + orbit.y, target.z + orbit.z};
+    const Mat4 view = lookAt(eye, target, {0, 1, 0});
     {
         // The matcap path derives its camera basis from the fog uniforms.
-        const Vec3 f = normalize(sub(center, eye));
+        const Vec3 f = normalize(sub(target, eye));
         glUniform3f(uFogEye_, eye.x, eye.y, eye.z);
         glUniform3f(uFogFwd_, f.x, f.y, f.z);
     }
@@ -8698,7 +8712,7 @@ uint32_t Viewport::assetThumb(const std::string& relPath, bool render) {
 }
 
 uint32_t Viewport::assetOrbitView(const std::string& relPath, int size, float yawDeg,
-                                  float pitchDeg, float zoom) {
+                                  float pitchDeg, float zoom, float panX, float panY) {
     if (!program_ || relPath.empty()) return 0;
     if (size < 16) size = 16;
     if (size > 1024) size = 1024;
@@ -8722,7 +8736,8 @@ uint32_t Viewport::assetOrbitView(const std::string& relPath, int size, float ya
     const void* src = model ? (const void*)model
                             : (anim ? (const void*)anim : (const void*)material);
     if (orbitTex_ && relPath == orbitRel_ && size == orbitSize_ && yawDeg == orbitYaw_ &&
-        pitchDeg == orbitPitch_ && zoom == orbitZoom_ && src == orbitSrc_)
+        pitchDeg == orbitPitch_ && zoom == orbitZoom_ && panX == orbitPanX_ && panY == orbitPanY_ &&
+        src == orbitSrc_)
         return orbitTex_;
 
     // Its own target (the one-framebuffer-per-preview rule), resized with the
@@ -8750,13 +8765,15 @@ uint32_t Viewport::assetOrbitView(const std::string& relPath, int size, float ya
             std::fprintf(stderr, "asset orbit framebuffer incomplete\n");
     }
     glBindFramebuffer(GL_FRAMEBUFFER, orbitFbo_);
-    drawAssetView(model, anim, material, size, yawDeg, pitchDeg, zoom);
+    drawAssetView(model, anim, material, size, yawDeg, pitchDeg, zoom, panX, panY);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     orbitRel_ = relPath;
     orbitSize_ = size;
     orbitYaw_ = yawDeg;
     orbitPitch_ = pitchDeg;
     orbitZoom_ = zoom;
+    orbitPanX_ = panX;
+    orbitPanY_ = panY;
     orbitSrc_ = src;
     return orbitTex_;
 }

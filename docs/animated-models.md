@@ -60,7 +60,7 @@ players`, or an amber `not used`) - then **Borrowed from other files**. The
 preview is the centre: Shaded / Wireframe, **Bones** (the skeleton drawn over
 the model - joints as dots, each bone a line to its parent, at the pose on
 screen; a model without a skin has nothing to draw), the preview light and
-*Reset view* on top (drag to orbit, middle-drag to pan, wheel to zoom), and under it the
+*Reset view* on top (right-drag to orbit, middle-drag to pan, wheel to zoom), and under it the
 transport: back to start, play/pause, loop, the time as the game plays it,
 a preview speed (0.5x / 1x / 2x) and the **timeline** in source seconds. Its
 green handles are the trim: drag them, and the cut parts are hatched; drag

@@ -305,6 +305,29 @@ Every tool window follows the same few rules, and is built from the same kit
 - **Labels stay IDs.** Where the visible text names the object ("Import cat")
   the stable script name stays the ID (`ui::PrimaryButtonText`,
   `ui::OverlayMenuButton`).
+- **One way to move a preview camera** (see *Preview navigation* below).
+
+### Preview navigation
+
+Every 3D preview moves the same way: the Vehicle Editor, the Asset Browser
+inspector, the Material, Tree and Animation Editors, the model import preview
+and the Debugger's VU mesh view.
+
+| Mouse | Does |
+|---|---|
+| Right-drag | orbit around the subject |
+| Middle-drag | pan (the subject follows the cursor) |
+| Wheel | zoom |
+| Middle double-click | re-centre (pan back to zero) |
+
+The **left button never moves the camera** - it picks, paints and drags
+handles (the Material Editor's brush and part picker, the import preview's
+click-to-select). Where a preview had a left double-click reset (Asset
+Browser, Tree Generator) it still resets everything. The main viewport keeps
+its own schemes (*Preferences > Navigation*). In code: make the preview's
+`InvisibleButton` with `ui::kPreviewButtons` and read `ui::PreviewNavigation()`
+right after it (widgets.hpp); the renderers take the pan as `panX`/`panY` in
+framing radii (`pannedTarget` in viewport.cpp).
 
 The kit's sections are per area (`// --- runtime-a ---` ...): transport bars
 and stroke icons that never depend on the font (`ui::TransportBar`,

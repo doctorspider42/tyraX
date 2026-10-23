@@ -288,4 +288,22 @@ private:
 void NoteRow(ImVec2 captionMin, ImVec2 captionMax, float captionTextW);
 // --- end verify-world (polish-3) ---
 
+// --- preview navigation ---
+// The one mouse standard for every orbit preview (docs/editor-theme.md,
+// "Preview navigation"): RIGHT drag orbits, MIDDLE drag pans, the wheel
+// zooms, a middle double-click re-centres. The left button stays free for
+// picking, painting and handles. Make the preview's InvisibleButton with
+// kPreviewButtons and read PreviewNavigation() right after it.
+inline constexpr int kPreviewButtons = ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                                       ImGuiButtonFlags_MouseButtonMiddle;
+inline constexpr const char* kPreviewNavHint = "Right-drag to orbit, middle-drag to pan, wheel to zoom.";
+struct PreviewNav {
+    ImVec2 orbit{0.0f, 0.0f};  // pixels dragged with the right button
+    ImVec2 pan{0.0f, 0.0f};    // pixels dragged with the middle button
+    float wheel = 0.0f;        // wheel notches over the preview
+    bool recentre = false;     // middle double-click: pan back to zero
+    bool orbiting() const { return orbit.x != 0.0f || orbit.y != 0.0f; }
+};
+PreviewNav PreviewNavigation();
+
 }  // namespace ui

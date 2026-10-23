@@ -99,8 +99,8 @@ definition.
 
 Each tab shows how many of its values are the car's own.
 
-The **live preview** uses the baked body and wheels. Drag to orbit, scroll to
-zoom. Its overlay has **Near | Far** - *Far* shows the far tier the console
+The **live preview** uses the baked body and wheels. Right-drag to orbit,
+middle-drag to pan, scroll to zoom. Its overlay has **Near | Far** - *Far* shows the far tier the console
 swaps to past the far distance: every tiered part at its first tier, the
 wheels baked in (no wheel meshes), the parts an authored far model hides left
 out; disabled when the car has no far tier or a damage test is showing -

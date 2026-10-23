@@ -3527,6 +3527,8 @@ void App::drawTreeGeneratorWindow() {
             desc.angleDeg = treeGenAngle_;
             desc.pitchDeg = treeGenPitch_;
             desc.zoom = treeGenZoom_;
+            desc.panX = treeGenPanX_;
+            desc.panY = treeGenPanY_;
             desc.displayMode = treeGenDisplayMode_;
             if (const uint32_t tex = viewport_.renderTreePreview(pw, ph, desc))
                 dl->AddImageRounded((ImTextureID)(intptr_t)tex, imgPos, imgMax, ImVec2(0, 1),
@@ -3573,21 +3575,27 @@ void App::drawTreeGeneratorWindow() {
         // The whole view is the orbit handle; the overlays sit on top of it.
         ImGui::SetCursorScreenPos(imgPos);
         ImGui::SetNextItemAllowOverlap();
-        ImGui::InvisibleButton("Tree preview##tree_prev_in", ImVec2((float)pw, (float)ph),
-                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        ImGui::InvisibleButton("Tree preview##tree_prev_in", ImVec2((float)pw, (float)ph), ui::kPreviewButtons);
         const bool hovered = ImGui::IsItemHovered();
-        const bool active = ImGui::IsItemActive();
-        if (hovered && io.MouseWheel != 0.0f)
-            treeGenZoom_ = std::clamp(treeGenZoom_ * std::pow(1.15f, io.MouseWheel), 0.2f, 12.0f);
-        if (active && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
-            treeGenAngle_ += io.MouseDelta.x * 0.5f;
-            treeGenPitch_ = std::clamp(treeGenPitch_ + io.MouseDelta.y * 0.4f, -30.0f, 85.0f);
+        const ui::PreviewNav nav = ui::PreviewNavigation();
+        if (nav.wheel != 0.0f)
+            treeGenZoom_ = std::clamp(treeGenZoom_ * std::pow(1.15f, nav.wheel), 0.2f, 12.0f);
+        if (nav.orbiting()) {
+            treeGenAngle_ += nav.orbit.x * 0.5f;
+            treeGenPitch_ = std::clamp(treeGenPitch_ + nav.orbit.y * 0.4f, -30.0f, 85.0f);
             treeGenSpin_ = false;  // grabbing the camera stops the turntable
         }
+        {
+            const float k = 2.0f / ((float)ph * treeGenZoom_);  // a view height = ~2 radii
+            treeGenPanX_ = std::clamp(treeGenPanX_ - nav.pan.x * k, -5.0f, 5.0f);
+            treeGenPanY_ = std::clamp(treeGenPanY_ + nav.pan.y * k, -5.0f, 5.0f);
+        }
+        if (nav.recentre) treeGenPanX_ = treeGenPanY_ = 0.0f;
         if (hovered && ImGui::IsMouseDoubleClicked(0)) {
             treeGenAngle_ = 40.0f;
             treeGenPitch_ = 18.0f;
             treeGenZoom_ = 1.0f;
+            treeGenPanX_ = treeGenPanY_ = 0.0f;
         }
 
         // Top-left: the view pill.
@@ -3659,10 +3667,10 @@ void App::drawTreeGeneratorWindow() {
         {
             char cap[96];
             if (std::fabs(upm - 1.0f) < 1e-4f)
-                std::snprintf(cap, sizeof cap, "%.1f m tall \xC2\xB7 drag to orbit \xC2\xB7 wheel to zoom",
+                std::snprintf(cap, sizeof cap, "%.1f m tall \xC2\xB7 right-drag to orbit \xC2\xB7 middle-drag to pan",
                               treeMesh_.max[1] - treeMesh_.min[1]);
             else
-                std::snprintf(cap, sizeof cap, "%.1f m tall (%.1f u) \xC2\xB7 drag to orbit \xC2\xB7 wheel to zoom",
+                std::snprintf(cap, sizeof cap, "%.1f m tall (%.1f u) \xC2\xB7 right-drag to orbit \xC2\xB7 middle-drag to pan",
                               (treeMesh_.max[1] - treeMesh_.min[1]) / upm, treeMesh_.max[1] - treeMesh_.min[1]);
             ui::FontScope mono(ui::monoFont());
             const ImVec2 ts = ImGui::CalcTextSize(cap);
@@ -8201,26 +8209,23 @@ void App::drawAnimEditorWindow() {
         // drag: a real input item over it gives every mouse button an owner.
         ImGui::SetCursorScreenPos(origin);
         ImGui::SetNextItemAllowOverlap();
-        ImGui::InvisibleButton("Animation preview##ae_view", ImVec2((float)pw, (float)ph),
-                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
-                                   ImGuiButtonFlags_MouseButtonMiddle);
+        ImGui::InvisibleButton("Animation preview##ae_view", ImVec2((float)pw, (float)ph), ui::kPreviewButtons);
         const bool hovered = ImGui::IsItemHovered();
-        const bool active = ImGui::IsItemActive();
-        if (hovered && io.MouseWheel != 0.0f)
-            animEdZoom_ = std::clamp(animEdZoom_ * std::pow(1.15f, io.MouseWheel), 0.1f, 8.0f);
-        if (active) {
-            if (ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-                animEdYaw_ += io.MouseDelta.x * 0.4f;
-                animEdPitch_ = std::clamp(animEdPitch_ - io.MouseDelta.y * 0.3f, -30.0f, 85.0f);
-            } else if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-                // Keep the visual travel per pixel stable as zoom changes.
-                const float s = 0.0065f / std::max(animEdZoom_, 0.1f);
-                animEdPanX_ = std::clamp(animEdPanX_ - io.MouseDelta.x * s, -5.0f, 5.0f);
-                animEdPanY_ = std::clamp(animEdPanY_ + io.MouseDelta.y * s, -5.0f, 5.0f);
-            }
+        const ui::PreviewNav nav = ui::PreviewNavigation();
+        if (nav.wheel != 0.0f)
+            animEdZoom_ = std::clamp(animEdZoom_ * std::pow(1.15f, nav.wheel), 0.1f, 8.0f);
+        if (nav.orbiting()) {
+            animEdYaw_ += nav.orbit.x * 0.4f;
+            animEdPitch_ = std::clamp(animEdPitch_ - nav.orbit.y * 0.3f, -30.0f, 85.0f);
         }
-        if (hovered)
-            ImGui::SetItemTooltip("Drag to orbit \xC2\xB7 middle-drag to pan \xC2\xB7 wheel to zoom");
+        {
+            // Keep the visual travel per pixel stable as zoom changes.
+            const float s = 0.0065f / std::max(animEdZoom_, 0.1f);
+            animEdPanX_ = std::clamp(animEdPanX_ - nav.pan.x * s, -5.0f, 5.0f);
+            animEdPanY_ = std::clamp(animEdPanY_ + nav.pan.y * s, -5.0f, 5.0f);
+        }
+        if (nav.recentre) animEdPanX_ = animEdPanY_ = 0.0f;
+        if (hovered) ImGui::SetItemTooltip("%s", ui::kPreviewNavHint);
 
         // Overlays: view pill top-left, reset top-right, identity bottom-left.
         const float m = scaled(12.0f);

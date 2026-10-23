@@ -800,18 +800,16 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
     const auto tex = vehiclePreview_->render((int)width, (int)height, {car}, {}, -1);
     const ImVec2 imagePos = ImGui::GetCursorScreenPos();
     ImGui::SetNextItemAllowOverlap();  // the overlay controls sit on top
-    ImGui::InvisibleButton("Vehicle preview canvas", ImVec2(width, height));
+    ImGui::InvisibleButton("Vehicle preview canvas", ImVec2(width, height), ui::kPreviewButtons);
+    const ui::PreviewNav nav = ui::PreviewNavigation();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const float r = ImGui::GetStyle().FrameRounding + 3.0f;
     dl->AddImageRounded((ImTextureID)(intptr_t)tex, imagePos,
         ImVec2(imagePos.x + width, imagePos.y + height), ImVec2(0, 1), ImVec2(1, 0), IM_COL32_WHITE, r);
-    ImGui::SetItemTooltip("Drag to orbit. Scroll to zoom.");
-    if (ImGui::IsItemHovered()) {
-        const auto& io = ImGui::GetIO();
-        if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
-            vehiclePreview_->orbit(io.MouseDelta.x, io.MouseDelta.y);
-        if (io.MouseWheel != 0) vehiclePreview_->zoom(io.MouseWheel);
-    }
+    ImGui::SetItemTooltip("%s", ui::kPreviewNavHint);
+    if (nav.orbiting()) vehiclePreview_->orbit(nav.orbit.x, nav.orbit.y);
+    if (nav.pan.x != 0.0f || nav.pan.y != 0.0f) vehiclePreview_->pan(nav.pan.x, nav.pan.y);
+    if (nav.wheel != 0.0f) vehiclePreview_->zoom(nav.wheel);
 
     // World -> canvas, from the preview's own orbit camera (Viewport's
     // cameraRay: FOV 50 degrees, eye from yaw/pitch/distance around target).

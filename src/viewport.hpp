@@ -568,6 +568,7 @@ public:
         float angleDeg = 40.0f;   // turntable yaw
         float pitchDeg = 30.0f;   // camera elevation
         float zoom = 1.0f;        // dolly multiplier (1 = default framing)
+        float panX = 0.0f, panY = 0.0f;  // target offset, framing radii (pannedTarget)
         int displayMode = 0;      // 0 solid, 1 solid + wireframe overlay,
                                   // 2 UV checker (replaces every texture)
         PreviewLight light;       // off = the scene's ambience
@@ -594,6 +595,7 @@ public:
         float angleDeg = 40.0f;       // turntable yaw
         float pitchDeg = 18.0f;       // camera elevation
         float zoom = 1.0f;
+        float panX = 0.0f, panY = 0.0f;  // target offset, radii (pannedTarget)
         int displayMode = 0;  // 0 solid, 1 solid + wireframe overlay
     };
     uint32_t renderTreePreview(int width, int height, const TreePreviewDesc& d);
@@ -708,10 +710,11 @@ public:
     uint32_t assetThumb(const std::string& relPath, bool render);
     // Asset Browser inspector: the same studio shot as assetThumb, at `size`
     // square and from a caller-held orbit (yaw/pitch in degrees, zoom > 1 =
-    // closer), into its own target. Re-renders only when an argument changes;
-    // 0 while a .glb/.fbx is still baking or for an unreadable file.
+    // closer, pan in framing radii), into its own target. Re-renders only when
+    // an argument changes; 0 while a .glb/.fbx is still baking or for an
+    // unreadable file.
     uint32_t assetOrbitView(const std::string& relPath, int size, float yawDeg,
-                            float pitchDeg, float zoom);
+                            float pitchDeg, float zoom, float panX = 0.0f, float panY = 0.0f);
     static constexpr int kAssetThumbSize = 128;  // baked size; ImGui scales it
     // --- assets-c: prefab thumbnails ---
     // The Prefabs panel's tiles: a prefab's geometry members (primitives and
@@ -1630,10 +1633,11 @@ private:
     std::string orbitRel_;
     int orbitSize_ = 0;
     float orbitYaw_ = 0.0f, orbitPitch_ = 0.0f, orbitZoom_ = 0.0f;
+    float orbitPanX_ = 0.0f, orbitPanY_ = 0.0f;
     const void* orbitSrc_ = nullptr;
     void drawAssetView(const ModelDraw* model, AnimModelDraw* anim,
                        const MaterialDraw* material, int s, float yawDeg, float pitchDeg,
-                       float zoom);
+                       float zoom, float panX = 0.0f, float panY = 0.0f);
     std::map<std::string, uint32_t> thumbCache_;
     void clearThumbCache();
 

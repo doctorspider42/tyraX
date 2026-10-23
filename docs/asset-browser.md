@@ -27,8 +27,8 @@ Three columns: **folders** on the left, the **grid** in the middle, and an
   blocking the editor (a .glb/.fbx tile appears once its background bake
   lands). The status line under the grid counts what is listed
   and how many of those **no scene uses**; the slider sets the tile size.
-- **Inspector** — a large preview (a model or material: drag to orbit it,
-  wheel to zoom, double-click to reset), the name and path, badges (type, size,
+- **Inspector** — a large preview (a model or material: right-drag to orbit
+  it, middle-drag to pan, wheel to zoom, double-click to reset), the name and path, badges (type, size,
   triangles, materials), the one main action for the type (**Add to scene**,
   **Edit in Material Editor**, **Open in Drone Generator**...) with the rest
   behind `...` (Rename, Duplicate, Animation Editor), then **Build settings**:

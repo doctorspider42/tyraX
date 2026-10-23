@@ -2507,9 +2507,7 @@ void App::drawMatEdUvPanel(const std::string& entryName,
         ImGui::EndChild();
         return;
     }
-    ImGui::InvisibleButton("##uv_in", avail,
-                           ImGuiButtonFlags_MouseButtonLeft |
-                               ImGuiButtonFlags_MouseButtonRight);
+    ImGui::InvisibleButton("##uv_in", avail, ui::kPreviewButtons);
     const bool hovered = ImGui::IsItemHovered();
 
     // uv (0..1) -> screen: a centered square scaled by zoom, plus the pan
@@ -2532,8 +2530,8 @@ void App::drawMatEdUvPanel(const std::string& entryName,
         matEdUvPan_[0] = io.MousePos.x - p0.x - (avail.x - s) * 0.5f - cu * s;
         matEdUvPan_[1] = io.MousePos.y - p0.y - (avail.y - s) * 0.5f - cv * s;
     }
-    if (ImGui::IsItemActive() &&
-        (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+    // a flat view: any button drags it (middle = the previews' pan)
+    if (ImGui::IsItemActive() && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1) || ImGui::IsMouseDown(2))) {
         matEdUvPan_[0] += io.MouseDelta.x;
         matEdUvPan_[1] += io.MouseDelta.y;
     }
@@ -2918,6 +2916,8 @@ void App::drawMaterialEditorWindow() {
         desc.angleDeg = matEdAngle_;
         desc.pitchDeg = matEdPitch_;
         desc.zoom = matEdZoom_;
+        desc.panX = matEdPanX_;
+        desc.panY = matEdPanY_;
         desc.displayMode = matEdDisplayMode_;
         desc.light = previewLight(matEdLight_);
         if (matBakePreviewMode_ == 2 && !matBakeMaps_.empty()) {
@@ -2950,24 +2950,32 @@ void App::drawMaterialEditorWindow() {
                                  IM_COL32_WHITE, ImGui::GetStyle().ChildRounding,
                                  uvH > 8.0f ? ImDrawFlags_RoundCornersTop : ImDrawFlags_RoundCornersAll);
         ImGui::SetNextItemAllowOverlap();
-        ImGui::InvisibleButton("##mat_prev_in", ImVec2((float)pw, (float)ph),
-                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        ImGui::InvisibleButton("##mat_prev_in", ImVec2((float)pw, (float)ph), ui::kPreviewButtons);
         const bool hovered = ImGui::IsItemHovered();
         const bool active = ImGui::IsItemActive();
         const bool activated = ImGui::IsItemActivated();
+        const ui::PreviewNav nav = ui::PreviewNavigation();
 
-        if (hovered && io.MouseWheel != 0.0f) {
-            matEdZoom_ *= std::pow(1.15f, io.MouseWheel);
+        if (nav.wheel != 0.0f) {
+            matEdZoom_ *= std::pow(1.15f, nav.wheel);
             matEdZoom_ = matEdZoom_ < 0.2f ? 0.2f : matEdZoom_ > 12.0f ? 12.0f : matEdZoom_;
         }
-        // orbit: LMB when not painting (the brush owns LMB then), RMB always
-        const bool orbiting = active && (ImGui::IsMouseDown(1) || (!matEdPaint_ && ImGui::IsMouseDown(0)));
-        if (orbiting) {
-            matEdAngle_ += io.MouseDelta.x * 0.5f;
-            matEdPitch_ += io.MouseDelta.y * 0.4f;
+        // Preview navigation (right orbits, middle pans); the left button is
+        // the brush and the part picker.
+        const bool orbiting = active && (ImGui::IsMouseDown(ImGuiMouseButton_Right) ||
+                                         ImGui::IsMouseDown(ImGuiMouseButton_Middle));
+        if (nav.orbiting()) {
+            matEdAngle_ += nav.orbit.x * 0.5f;
+            matEdPitch_ += nav.orbit.y * 0.4f;
             matEdPitch_ = matEdPitch_ < -30.0f ? -30.0f : matEdPitch_ > 85.0f ? 85.0f : matEdPitch_;
             matEdSpin_ = false;  // taking the camera stops the turntable
         }
+        {
+            const float k = 2.0f / ((float)ph * matEdZoom_);  // a view height = ~2 radii
+            matEdPanX_ = std::clamp(matEdPanX_ - nav.pan.x * k, -5.0f, 5.0f);
+            matEdPanY_ = std::clamp(matEdPanY_ + nav.pan.y * k, -5.0f, 5.0f);
+        }
+        if (nav.recentre) matEdPanX_ = matEdPanY_ = 0.0f;
 
         // Hover pick: feeds the UV-panel sync AND the click-a-part entry
         // selection. The outlines project the bake mesh's triangles through

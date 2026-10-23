@@ -787,6 +787,7 @@ private:
     // Asset Browser inspector preview orbit (view state; reset per asset).
     std::string assetOrbitRel_;
     float assetOrbitYaw_ = 35.0f, assetOrbitPitch_ = 22.0f, assetOrbitZoom_ = 1.0f;
+    float assetOrbitPanX_ = 0.0f, assetOrbitPanY_ = 0.0f;  // framing radii
     uint64_t assetUsageSerial_ = ~0ull;  // edit serial the census was built at
     std::map<std::string, AssetUsage> assetUsage_;
     // Reverse Wavefront map (a texture / .mtl -> the .obj/.mtl files naming it),
@@ -2894,6 +2895,7 @@ private:
     int treeImpViewsBuilt_ = 0;
     int treeImpSize_ = 128;
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
+    float treeGenPanX_ = 0.0f, treeGenPanY_ = 0.0f;  // framing radii
     bool treeGenSpin_ = true;
     bool treeGenImpostor_ = true;
     int treeImpostorViews_ = 8;
@@ -3533,6 +3535,7 @@ private:
     float matEdAngle_ = 40.0f;
     float matEdPitch_ = 30.0f;  // camera elevation (drag up/down on preview)
     float matEdZoom_ = 1.0f;    // mouse-wheel dolly on the preview
+    float matEdPanX_ = 0.0f, matEdPanY_ = 0.0f;  // middle-drag pan, framing radii
     // Preview panel's share of the window width (the draggable splitter
     // between the property column and the preview; editor.ini, machine
     // setting like uiScale).
@@ -4518,6 +4521,7 @@ private:
     int dbgVuCapTorn_ = 0;         // consecutive incomplete reads of that file
     bool dbgVuCapWaiting_ = false;  // a capture was asked for, none arrived yet
     float dbgVuYaw_ = 0.6f, dbgVuPitch_ = 0.35f, dbgVuZoom_ = 1.0f;
+    ImVec2 dbgVuPan_{0.0f, 0.0f};  // middle-drag pan, pixels
     int dbgVuMesh_ = 0;  // which position stream of the flush the preview draws
     bool dbgVuPinFlush_ = false;  // re-grab one draw instead of walking them
     int dbgVuFlushWanted_ = 0;    // ...which one

@@ -3251,15 +3251,15 @@ const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halte
             const float h = scaled(220.0f);
             const ImVec2 size(ImGui::GetContentRegionAvail().x, h);
             const ImVec2 org = ImGui::GetCursorScreenPos();
-            ImGui::InvisibleButton("##vuview", size);
-            if (ImGui::IsItemActive()) {
-                dbgVuYaw_ += ImGui::GetIO().MouseDelta.x * 0.01f;
-                dbgVuPitch_ += ImGui::GetIO().MouseDelta.y * 0.01f;
-            }
-            if (ImGui::IsItemHovered() && ImGui::GetIO().MouseWheel != 0.0f)
-                dbgVuZoom_ = ImClamp(
-                    dbgVuZoom_ * (1.0f + ImGui::GetIO().MouseWheel * 0.1f),
-                    0.1f, 20.0f);
+            ImGui::InvisibleButton("##vuview", size, ui::kPreviewButtons);
+            const ui::PreviewNav nav = ui::PreviewNavigation();
+            dbgVuYaw_ += nav.orbit.x * 0.01f;
+            dbgVuPitch_ += nav.orbit.y * 0.01f;
+            dbgVuPan_.x += nav.pan.x;
+            dbgVuPan_.y += nav.pan.y;
+            if (nav.recentre) dbgVuPan_ = ImVec2(0.0f, 0.0f);
+            if (nav.wheel != 0.0f)
+                dbgVuZoom_ = ImClamp(dbgVuZoom_ * (1.0f + nav.wheel * 0.1f), 0.1f, 20.0f);
             ImDrawList* dl = ImGui::GetWindowDrawList();
             dl->AddRectFilled(org, ImVec2(org.x + size.x, org.y + size.y),
                               IM_COL32(18, 20, 24, 255), scaled(3.0f));
@@ -3288,8 +3288,8 @@ const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halte
                 const float rx = x * cyaw + z * syaw;
                 const float rz = -x * syaw + z * cyaw;
                 const float ry = y * cp - rz * sp;
-                return ImVec2(org.x + size.x * 0.5f + rx * scale,
-                              org.y + size.y * 0.5f - ry * scale);
+                return ImVec2(org.x + size.x * 0.5f + dbgVuPan_.x + rx * scale,
+                              org.y + size.y * 0.5f + dbgVuPan_.y - ry * scale);
             };
             dl->PushClipRect(org, ImVec2(org.x + size.x, org.y + size.y), true);
             const size_t tris = n / 3;
@@ -3304,7 +3304,7 @@ const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halte
             }
             dl->PopClipRect();
             ImGui::TextDisabled(
-                "%zu vertices, %zu triangles - drag to orbit, wheel to zoom. "
+                "%zu vertices, %zu triangles - right-drag to orbit, middle-drag to pan, wheel to zoom. "
                 "Model space, as packed.",
                 n, tris);
         }
