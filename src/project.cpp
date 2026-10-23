@@ -2788,7 +2788,8 @@ static void writeSequencesSection(std::ostream& json, const Project& p) {
                      << ", \"scale\": " << fmtVec3(k.scale)
                      << ", \"color\": " << fmtVec3(k.color)
                      << ", \"vis\": " << (k.visible ? "true" : "false")
-                     << ", \"ease\": " << k.easing << " }";
+                     << ", \"ease\": " << k.easing
+                     << (k.mask != kSeqChAll ? ", \"ch\": " + std::to_string(k.mask) : "") << " }";
             }
             json << "] }";
         }
@@ -4757,7 +4758,10 @@ static std::vector<WindowLayout> builtinLayouts() {
         {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}},
         {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}},
         {"Menu Designer", "", (int)LayoutRecipe::MenuDesigner, {"menus", "menupreview", "fonts"}}};
-    for (WindowLayout& L : v) L.projectCollapsed = recipeCollapsesProject(L.recipe);
+    for (WindowLayout& L : v) {
+        L.projectCollapsed = recipeCollapsesProject(L.recipe);
+        L.propertiesCollapsed = recipeCollapsesProperties(L.recipe);
+    }
     return v;
 }
 
@@ -7602,6 +7606,10 @@ static void readSequencesSection(const json::Value& root, Project& out) {
                             readVec3(jkk.find("color"), k.color);
                             if (const auto* v = jkk.find("vis")) k.visible = v->boolOr(true);
                             if (const auto* v = jkk.find("ease")) k.easing = (int)v->numberOr(1.0);
+                            // per-channel keys (format 120); older keys carry every component
+                            if (const auto* v = jkk.find("ch"))
+                                k.mask = (unsigned)v->numberOr((double)kSeqChAll) & kSeqChAll;
+                            if (!k.mask) continue;
                             t.keys.push_back(k);
                         }
                     }

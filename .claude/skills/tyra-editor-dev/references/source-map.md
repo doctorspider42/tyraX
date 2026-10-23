@@ -13,7 +13,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `flowgraph_ui.cpp` | 2.3k | Flow Graph editor window | flow-graph-input-player |
 | `hud_ui.cpp` | 5.8k | UI Editor, Loading Screen, Splash, Font Manager, icons, Input Map, Animation Editor, GI/prelit/model-AO sections, Tree generator window | game-screens-menus-text |
 | `procui.cpp` | 1.9k | Procedural window, preview, bake verbs, seed simulator | procedural-and-prefabs |
-| `cutscene_ui.cpp` | 2.3k | Cutscene Director, phone link UI, take import | scene-objects-and-gameplay |
+| `cutscene_ui.cpp` | 3.4k | Cutscene Director (track tree, per-channel keys), phone link UI, take import | scene-objects-and-gameplay |
 | `credits_ui.cpp` | 980 | Credits Editor | game-screens-menus-text |
 | `menustyle_ui.cpp` | 1.5k | Menu Editor Style/Stylesheet tabs + preview | game-screens-menus-text |
 | `mateditor_ui.cpp` | 3.9k | Material Editor (.mtl, paint layers + own undo, map bake, UV validator, texture hot reload) | runtime-rendering-and-meshes |
@@ -45,7 +45,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `flownode.cpp` | 260 | Custom `.flownode` loader | codegen-and-generated-files |
 | `screenfx.cpp/.hpp` | 270 | Custom `.screenfx` loader | codegen-and-generated-files |
 | `facts.cpp/.hpp` | 1.3k | World Facts model/evaluator/validator | flow-graph-input-player |
-| `sequence.hpp` | 430 | Cutscene model + shared camera math | scene-objects-and-gameplay |
+| `sequence.hpp` | 610 | Cutscene model, per-channel key ops + shared camera math | scene-objects-and-gameplay |
 | `ambience.cpp/.hpp` | 660 | Ambience presets, day/night `evaluate` | lighting-and-bakes |
 | `ambience_simple_ui.cpp` | 900 | Ambience Editor > Sky & time, Simple view: looks, time strip, plain-word rows (reads/writes the preset's own fields) | lighting-and-bakes |
 | `grading.hpp` | 80 | Colour grading presets -> GS integers | lighting-and-bakes |

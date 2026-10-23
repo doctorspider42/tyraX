@@ -6,14 +6,14 @@ setup checks at the bottom. It replaces the docked layout until a project
 opens - the panels would only say "No project open" - and *File > Close
 Project* brings it back.
 
-![The start page: New project and Open folder, the recent projects with when
+![The start page: New project and Open, the recent projects with when
 each was last saved, the bundled examples as cards, and the setup chips at the
 bottom.](img/start-page.png)
 
 ## Recent projects
 
 **New project** opens the [New Project](#new-project) dialog (Ctrl+N, Cmd+N on
-a Mac); **Open folder...** picks a folder holding a `.tyra` file (Ctrl+O).
+a Mac); **Open** picks a folder holding a `.tyra` file (Ctrl+O).
 Each button shows its shortcut inside it.
 
 Below them, the projects you opened, most recent first, each with its folder

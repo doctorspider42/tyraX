@@ -2895,7 +2895,7 @@ void App::drawWelcomeScreen() {
         if (ui::KeyButton("New project", newCap.c_str(), true)) requestNewProject();
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", newKey.c_str());
         ImGui::SameLine();
-        if (ui::KeyButton("Open folder...", openCap.c_str(), false)) requestOpenProject();
+        if (ui::KeyButton("Open", openCap.c_str(), false)) requestOpenProject();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("A folder holding a .tyra project (%s)", openKey.c_str());
 
@@ -6313,15 +6313,22 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
     ImGuiID center = dockspace;
     switch ((LayoutRecipe)recipe) {
     case LayoutRecipe::Director: {
-        // Viewport in the centre, the Cutscene Director dopesheet along the
-        // bottom, scene tree + properties stacked on a thin left column. Flow
-        // Graph tabs behind the Viewport; Output/Debug behind the dopesheet.
+        // Viewport in the centre, the Cutscene Director along the bottom HALF
+        // (its timeline opens tracks down to their axes and it carries its own
+        // shot preview, so it needs the height more than the viewport does).
+        // Project on the left and Properties on the right, as in Default, but
+        // both start slid away (recipeCollapsesProject/Properties): the
+        // viewport and the Director get the full width, and Ctrl+B /
+        // Ctrl+Alt+B bring the panels back for a gizmo edit. Flow Graph tabs
+        // behind the Viewport; Output/Debug behind the Director.
         ImGuiID left =
             ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.20f, nullptr, &center);
+        ImGuiID right =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
         ImGuiID bottom =
-            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.34f, nullptr, &center);
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.50f, nullptr, &center);
         ImGui::DockBuilderDockWindow("Project", left);
-        ImGui::DockBuilderDockWindow("Properties", left);
+        ImGui::DockBuilderDockWindow("Properties", right);
         ImGui::DockBuilderDockWindow("Cutscene Director", bottom);
         ImGui::DockBuilderDockWindow("Output", bottom);
         ImGui::DockBuilderDockWindow("Debug", bottom);
@@ -6512,7 +6519,7 @@ void App::resetActiveLayoutToRecipe() {
     if (L.recipe < 0) return;  // user layout with no built-in arrangement
     L.ini.clear();             // empty ini -> applyActiveLayout rebuilds the recipe
     L.projectCollapsed = recipeCollapsesProject(L.recipe);
-    L.propertiesCollapsed = false;
+    L.propertiesCollapsed = recipeCollapsesProperties(L.recipe);
     applyActiveLayout();
     setDirty(true);
     statusMessage_ = "Reset layout: " + L.name;

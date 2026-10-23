@@ -3357,8 +3357,13 @@ enum class LayoutRecipe {
 // Whether a built-in recipe starts with the Project panel slid away (seeding,
 // the load-time top-up and "Reset to built-in arrangement"). The Procedural
 // desk works from the graph, the viewport and the volume's Properties; the
-// object list is a click away on the rail.
-inline bool recipeCollapsesProject(int recipe) { return recipe == (int)LayoutRecipe::Procedural; }
+// object list is a click away on the rail. The Director (Cinema) desk starts
+// with BOTH side panels away: the viewport and the Cutscene Director take the
+// full width.
+inline bool recipeCollapsesProject(int recipe) {
+    return recipe == (int)LayoutRecipe::Procedural || recipe == (int)LayoutRecipe::Director;
+}
+inline bool recipeCollapsesProperties(int recipe) { return recipe == (int)LayoutRecipe::Director; }
 
 // One custom screen effect placed in the screen stack. The effect body lives
 // in a <project>/screen-effects/<stem>.screenfx file (loaded into

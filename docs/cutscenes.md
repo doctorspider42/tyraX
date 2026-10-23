@@ -14,39 +14,85 @@ keyframes, or using the phone as a live viewfinder — see
 
 ## The Director window
 
-![The Cutscene Director on cutscene-demo's "The Reveal", played by the pedestal's Play Sequence: the shot at the playhead (cam-low, FOV 90, shake 0.08, Cinema bars) as the hero, the Key tab editing the selected camera cut (Shot from cam-low, Into next Cut / Smooth / Linear, FOV, Shake, Time), the transport with the 0:03.53 / 0:14.00 timecode, and the timeline: the camera lane as named clips per camera, the Fades & bars lane, and a lane per animated object with its keys as diamonds over a span.](img/cutscene-director.png)
+![The Cutscene Director on cutscene-demo's "The Reveal", played by the pedestal's Play Sequence: on the left the transport and the timeline - the camera lane as named clips per camera, the Fades & bars lane, and the hero track opened into Position, its X, Y and Z rows (each with its value at the playhead and a key-here diamond), the closed Rotation row and the + Scale / + Color / + Visibility chips, then the closed obelisk, sparks, cam-dolly and cam-crane tracks; the key at 5 s is selected on the Position X row, so it is highlighted on the X, Position and hero rows. On the right the shot at the playhead (cam-wide, FOV 65, Cinema bars) over the Key tab: hero · Position X, key 2 of 4 on Position X, also keyed here Position Y Z and Rotation, Time 5.00 s and the easing.](img/cutscene-director.png)
 
 The header picks the sequence (and adds one), says which graphs start it —
 *played by pedestal (Play Sequence)*, or *not started by any graph yet* —
 shows the phone camera link's state (click it for *Tools > Phone Camera*,
 where a phone move is recorded into the sequence) and imports a take.
 
-- **The shot** at the playhead is the big picture: rendered through the
-  sequence camera in the window itself, as the game draws it (no grid,
-  markers, gizmos or selection outline), with the bars and fades the console
-  will composite and a label naming the camera, its FOV and shake. *Shot*
-  leaves the main viewport to you; *Also drive the viewport* makes it film
-  through the sequence camera too (what the Director always did before).
-  Opening the Director, or picking another sequence, parks the playhead at
-  the end of the fade-in - the first frame with something to see - instead of
-  the black 0:00 (the saved sequence is not touched; rewind still goes to 0).
+The window is two columns. On the left, under the transport, the **timeline**
+takes the whole height; on the right the **shot** sits over the
+**inspector**. Drag the line between them to trade room. The **Cinema**
+workspace docks the Director along the bottom half of the editor, with the
+Project and Properties panels slid away (Ctrl+B / Ctrl+Alt+B bring them
+back). *Layout > Reset to built-in arrangement* brings that to a project whose
+Director layout predates it.
+
+- **The shot** at the playhead is rendered through the sequence camera, as the
+  game draws it (no grid, markers, gizmos or selection outline), with the bars
+  and fades the console will composite and a label naming the camera, its FOV
+  and shake. The arrow on its header folds it away when the inspector needs
+  the room. *Shot* leaves the main viewport to you; *Also drive the viewport*
+  makes it film through the sequence camera too. Opening the Director, or
+  picking another sequence, parks the playhead at the end of the fade-in - the
+  first frame with something to see - instead of the black 0:00 (the saved
+  sequence is not touched; rewind still goes to 0).
 - **The timeline** shows the camera lane as **clips** — one per shot, named
   and coloured by camera, as long as it holds; a Smooth or Linear blend fades
   into the next shot's colour, a Cut is a hard edge. Click a clip to select
   the shot, drag its left edge to retime the cut, double-click to park the
   playhead on it. **Fades & bars** draws the fade and bar ramps at both ends.
-  Object lanes show each key as a diamond on a span bar, visibility as
-  on-spans, and the animated channels as a dim `P R S C V` summary.
-  Double-click any lane to drop a key; `+` on a label keys the playhead.
+  The time ruler stays at the top however far the rows are scrolled, so the
+  playhead can always be scrubbed, as the names stay at the left.
+- **Object tracks are a tree.** A track row shows every key of the object and,
+  closed, its animated channels as a dim `P R S C V` summary. Its arrow opens
+  one row per animated channel (Position, Rotation, Scale, Color, Visibility),
+  and the arrow of Position, Rotation or Scale opens one row per axis. Each
+  row shows its value at the playhead, and an open track ends in a row of
+  **+ Channel** chips for the channels it does not animate yet.
 - **The inspector** has two tabs. *Key*: the selected camera shot (*Shot
   from*, *Into next* — Cut / Smooth / Linear, the three easings named for what
   they do to a camera —, FOV, Shake, Roll, Time, *Look through*) or object key
-  (Time, easing, the pose fields, Re-snapshot), plus the selected lane's
-  channels. *Sequence*: everything below.
+  (Time, easing, the values it sets, Re-snapshot, Delete), plus the selected
+  track's channels. *Sequence*: everything below.
+
+### Per-channel keys
+
+A key on a row stands for **what that row shows**. The same key at 4.98 s can
+be one diamond on the track row, one on the Position row and one on the
+Position X row - and what you do to it depends on which one you touch:
+
+| On the... | Drag retimes / Delete removes |
+|---|---|
+| track row | the whole key, every channel it sets |
+| channel row (Position) | position X, Y and Z of that key |
+| axis row (Position X) | position X only - Y and Z stay where they were |
+
+Retiming part of a key splits it: the dragged components move to their own
+key, the rest stay. Dropped within a frame of another key, they join it.
+Double-click a row's lane to key that row's components there; the diamond at
+the right of a row keys them at the playhead from the object's pose, or, when
+they are already keyed there, removes that key. Right-click a key for its
+easing and the three deletes (this row's components, the channel at this
+time, the whole key); right-click a channel row to key it, delete all its
+keys or stop animating it.
+
+Each component interpolates between the keys that set it, and nothing else.
+Position Y keyed at 0 s and 9 s glides over those 9 s, whatever X and Z do in
+between. A component no key sets keeps the object's own value. The easing
+belongs to the key - to everything it sets at that time.
+
+Projects saved before per-channel keys (format 119 and older) open
+unchanged: each of their keys sets every component, which is what a key meant
+then. A key that sets only some components is saved with a `"ch"` mask
+(format 120). The generated player carries the mask, and the masked sampler,
+only when the project has such a key; projects that have none generate the
+same player byte for byte.
 
 ## The sequence options
 
-![The Director's Sequence tab: Name, Duration, Loop, Skippable with On skip set to Ask first through the skip-cutscene screen, Camera track, Hide player and Hide HUD as switches, then Bars & fades.](img/cutscene-sequence-tab.png)
+![The Director with the shot folded away: the Sequence tab fills the side column - Name, Duration, Loop, Skippable with On skip set to Ask first through the skip-cutscene screen, Camera track, Hide player and Hide HUD as switches, then Bars & fades - beside the timeline with every track closed.](img/cutscene-sequence-tab.png)
 
 Every cutscene carries a handful of settings on the inspector's **Sequence** tab:
 
@@ -170,11 +216,12 @@ cleans up after a cutscene does not need to know how it ended.
 | Piece | File |
 |---|---|
 | The data model + the shared interpolation math | `src/sequence.hpp` |
-| The Director window, dopesheet and camera lane | `src/cutscene_ui.cpp` |
+| The Director window, the track tree and camera lane | `src/cutscene_ui.cpp` |
 | The generated PS2 player | `sequencesSource` in `src/templates.cpp` → `src/gen/sequences.gen.cpp` |
 | The skip interception and the confirm row | `updateGameMenu` in `src/templates.cpp` |
 | The HUD / USE suppression | `ScriptContext::hudSuppressed`, read by the frame loop and `updateUseTarget` |
 
-The easing, sampling, bars, fade, shake and camera-basis functions in
-`src/sequence.hpp` are **mirrored** in the generated player so the editor's
-scrub preview and the console agree. Change one, change both.
+The easing, sampling (`seqSampleComponent` / the player's `sampleObj`), bars,
+fade, shake and camera-basis functions in `src/sequence.hpp` are **mirrored**
+in the generated player so the editor's scrub preview and the console agree.
+Change one, change both.

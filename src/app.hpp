@@ -3047,9 +3047,11 @@ private:
     std::string creditsImportFile(CreditsRoll& r, const std::string& file);
 
     // Snapshots the track target's current static pose into a key at `time`
-    // (replacing a key within 1/60 s). Used by the dopesheet buttons,
-    // double-click drops and auto-key. Returns false if the target is gone.
-    bool cutsceneSnapshotObjectKey(SeqTrack& tr, float time);
+    // for the components in `bits` (0 = every channel the track animates; a
+    // key within 1/60 s takes them). Used by the dopesheet buttons,
+    // double-click drops and auto-key. Returns the key index, -1 if the
+    // target is gone.
+    int cutsceneSnapshotObjectKey(SeqTrack& tr, float time, unsigned bits = 0);
     // Auto-key: a finished gizmo drag drops keys at the playhead for every
     // selected object tracked by the selected sequence (seqAutoKey_).
     void cutsceneAutoKey();
@@ -3060,6 +3062,18 @@ private:
     int selectedSeqTrack_ = -1;   // dopesheet lane of the selected key
                                   // (-1 = camera lane, >= 0 = object track)
     int selectedSeqKey_ = -1;     // selected key within that lane (-1 = none)
+    // The components the selected object key was picked by: the row it was
+    // clicked on (kSeqChAll = the track row, kSeqChPosX = the Position X row).
+    // Delete, retime and the inspector act on these only.
+    unsigned selectedSeqBits_ = 0x7FFu;
+    // A key being dragged on an object row. The drag is the Director's, not an
+    // ImGui item's: retiming part of a key splits it, which re-indexes it.
+    int seqDragTrack_ = -1, seqDragKey_ = -1;
+    unsigned seqDragBits_ = 0;
+    bool seqDragMoved_ = false;
+    // Expanded dopesheet rows: "<target>" opens a track's channels,
+    // "<target>/<channel>" a channel's axes. View state.
+    std::set<std::string> seqOpenRows_;
     float seqPlayhead_ = 0.0f;    // scrub time in seconds
     // Opening the Director (or picking a sequence) parks the playhead on the
     // first frame with something to see - t = 0 is black inside the fade-in.
@@ -3087,12 +3101,12 @@ private:
     float seqShotAt_[3] = {0.0f, 0.0f, -1.0f};
     float seqShotFov_ = 60.0f, seqShotRoll_ = 0.0f, seqShotShake_ = 0.0f;
     std::string seqShotCam_;      // Camera entity filming at the playhead ("" free)
-    // Director layout: inspector tab (0 Key, 1 Sequence), the preview band's
-    // height and the inspector's width. View state.
+    // Director layout: inspector tab (0 Key, 1 Sequence), the side column's
+    // width (shot over inspector) and whether the shot is folded. View state.
     int seqInspTab_ = 0;
     bool seqInspTabForce_ = false;
-    float seqTopH_ = 0.0f;
     float seqInspW_ = 0.0f;
+    bool seqShotFolded_ = false;
     // "Import take..." modal (camera lane): a phone-recorded 6DoF camera take
     // (src/camtake.hpp) staged for baking into free camera shots. The bake
     // preview is cached and recomputed only when a mapping control changes.

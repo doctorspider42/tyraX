@@ -198,8 +198,9 @@ a Mac) finds any command, object or window by name.
   ordinary `.obj` + textures.
 - [Drone Generator (ambient music)](drone-generator.md) — the built-in ambient
   generator: signal chain, gliding chords, timeline automation, seamless loops.
-- [Cutscenes](cutscenes.md) — the Cutscene Director (the shot as the hero, shots
-  as clips on the timeline, the key / sequence inspector) and its options: hiding
+- [Cutscenes](cutscenes.md) — the Cutscene Director (a full-height timeline with
+  shots as clips and object tracks that open into channels and axes, per-channel
+  keys, the shot over the key / sequence inspector) and its options: hiding
   the HUD (and the USE prompt with it), widescreen bars and fades, and skipping
   — instantly or through an authored confirmation screen.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) — importing a

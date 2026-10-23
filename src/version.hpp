@@ -6,6 +6,8 @@
 // Output/Debug text selects with the mouse over the coloured lines (no Select text switch);
 // Copy image publishes PNG + CF_DIB on Windows so Electron apps accept the paste.
 // The Debugger's Build & Run follows the PCSX2 | PS2 switch (it always launched PCSX2).
+// Cutscene Director: full-height timeline with an expandable track tree (track > channel >
+// axis) and per-channel keys (format 120); the shot and the inspector share a side column.
 // 2.1.2: object settings live in Output; clarify instanced detail.
 // 2.1.1: dense procedural previews use authored LOD and visibility culling.
 
@@ -6422,7 +6424,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // written only when true; missing = both panels out, as before. The built-in
 // Procedural layout is seeded with the Project panel collapsed. Additive; no
 // migration.
-inline constexpr int kFormatVersion = 119;
+// v120 (docs/cutscenes.md, "Per-channel keys"): a cutscene object key's "ch"
+// - the components it sets (sequence.hpp kSeqCh*), written only when it is not
+// all of them. Missing = every component, which is what an older key meant, so
+// old projects open unchanged; bumped so an older editor cannot load a partial
+// key as a full pose. No migration.
+inline constexpr int kFormatVersion = 120;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

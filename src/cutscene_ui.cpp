@@ -59,17 +59,24 @@
 
 // --- Cutscene Director -------------------------------------------------------
 
-// Snapshots the track target's current static pose into a key at `time`.
-// A key within 1/60 s of that time is replaced instead (keeping its easing
-// and visibility flag); the key list stays sorted.
-bool App::cutsceneSnapshotObjectKey(SeqTrack& tr, float time) {
+// Snapshots the track target's current static pose into a key at `time`, for
+// the components in `bits` (0 = every channel the track animates). A key
+// within kSeqKeySnap of that time takes them instead (its easing, its
+// visibility flag and its other components stay); the key list stays sorted.
+// Returns the key's index, or -1 when the object is not in this scene.
+int App::cutsceneSnapshotObjectKey(SeqTrack& tr, float time, unsigned bits) {
     const SceneObject* src = nullptr;
     for (const SceneObject& o : project_.objects())
         if (o.name == tr.target) {
             src = &o;
             break;
         }
-    if (!src) return false;
+    if (!src) return -1;
+    if (!bits) bits = seqTrackChannels(tr);
+    if (!bits) {
+        tr.animPos = true;  // a track that animates nothing starts with position
+        bits = kSeqChPos;
+    }
     SeqObjectKey k;
     k.time = time;
     for (int c = 0; c < 3; ++c) {
@@ -78,21 +85,10 @@ bool App::cutsceneSnapshotObjectKey(SeqTrack& tr, float time) {
         k.scale[c] = src->scale[c];
         k.color[c] = src->color[c];
     }
-    int repl = -1;
-    for (int i = 0; i < (int)tr.keys.size(); ++i)
-        if (std::fabs(tr.keys[i].time - k.time) < 0.017f) repl = i;
-    if (repl >= 0) {
-        k.easing = tr.keys[repl].easing;
-        k.visible = tr.keys[repl].visible;
-        tr.keys[repl] = k;
-    } else {
-        tr.keys.push_back(k);
-    }
-    std::sort(tr.keys.begin(), tr.keys.end(),
-              [](const SeqObjectKey& a, const SeqObjectKey& b) {
-                  return a.time < b.time;
-              });
-    return true;
+    // visibility is not part of the pose: a re-keyed key keeps its flag
+    for (const SeqObjectKey& e : tr.keys)
+        if (std::fabs(e.time - time) < kSeqKeySnap) k.visible = e.visible;
+    return seqSetKey(tr, time, bits, k);
 }
 
 // Auto-key: called when a gizmo drag ends, just before its commitChange(), so
@@ -1211,32 +1207,23 @@ const std::vector<SceneObject>& App::cutscenePosedObjects() {
                       return a.time < b.time;
                   });
         const int n = (int)keys.size();
-        std::vector<float> times(n);
-        std::vector<int> eas(n);
-        for (int i = 0; i < n; ++i) times[i] = keys[i].time, eas[i] = keys[i].easing;
-        auto samp = [&](std::function<float(const SeqObjectKey&)> g) {
-            std::vector<float> v(n);
-            for (int i = 0; i < n; ++i) v[i] = g(keys[i]);
-            return seqSample(times.data(), v.data(), eas.data(), n, t);
-        };
-
+        // Each component interpolates between the keys that set it (per-channel
+        // keys); a component no key sets keeps the object's own value.
         SceneObject& o = seqPosed_[idx];
-        if (tr.animPos)
+        const unsigned on = seqTrackChannels(tr);
+        for (int c = 0; c < 9; ++c) {
+            if (!(on & (1u << c))) continue;
+            float* dst = c < 3 ? &o.position[c] : c < 6 ? &o.rotation[c - 3] : &o.scale[c - 6];
+            seqSampleComponent(keys.data(), n, c, t, [c](const SeqObjectKey& k) { return seqKeyFloat(k, c); },
+                               *dst);
+        }
+        if (on & kSeqChColor)
             for (int c = 0; c < 3; ++c)
-                o.position[c] = samp([c](const SeqObjectKey& k) { return k.position[c]; });
-        if (tr.animRot)
-            for (int c = 0; c < 3; ++c)
-                o.rotation[c] = samp([c](const SeqObjectKey& k) { return k.rotation[c]; });
-        if (tr.animScale)
-            for (int c = 0; c < 3; ++c)
-                o.scale[c] = samp([c](const SeqObjectKey& k) { return k.scale[c]; });
-        if (tr.animColor)
-            for (int c = 0; c < 3; ++c)
-                o.color[c] = samp([c](const SeqObjectKey& k) { return k.color[c]; });
-        if (tr.animVis) {
-            int j = 0;
-            while (j < n - 1 && t >= keys[j + 1].time) ++j;
-            if (!keys[j].visible) hidden[idx] = 1;  // steps between keys
+                seqSampleComponent(keys.data(), n, 9, t, [c](const SeqObjectKey& k) { return k.color[c]; },
+                                   o.color[c]);
+        if (on & kSeqChVis) {
+            const int j = seqVisibilityKey(keys.data(), n, t);
+            if (j >= 0 && !keys[j].visible) hidden[idx] = 1;  // steps between keys
         }
     }
     viewport_.setHiddenMask(std::move(hidden));
@@ -1595,7 +1582,7 @@ void App::drawCutsceneWindow() {
                   });
     };
     auto snapshotObjectKey = [&](SeqTrack& tr, float time) {
-        return cutsceneSnapshotObjectKey(tr, time);
+        return cutsceneSnapshotObjectKey(tr, time) >= 0;
     };
     // The camera to film a new shot from: the one you're looking through, else
     // a selected Camera, else the only Camera in the scene, else "" (none).
@@ -1682,21 +1669,1054 @@ void App::drawCutsceneWindow() {
                       a.w + (b.w - a.w) * t);
     };
 
-    // --- body: [shot | inspector] over the timeline --------------------------------
+    // --- body: [transport + timeline] | [shot over inspector] -------------------
+    // The timeline takes the whole height - a track opened down to its axes
+    // needs rows - and the shot and the inspector share a side column.
     const float thick = ImMax(6.0f, fs * 0.45f);  // the toolkit splitter's
     const float bodyW = ImGui::GetContentRegionAvail().x;
     const float bodyH = ImGui::GetContentRegionAvail().y;
-    const float transportH = ImGui::GetFrameHeightWithSpacing() + fs * 0.4f;
-    if (seqTopH_ <= 0.0f) seqTopH_ = bodyH * 0.52f;
-    seqTopH_ = ImClamp(seqTopH_, scaled(160.0f), ImMax(scaled(160.0f), bodyH - transportH - scaled(140.0f)));
-    if (seqInspW_ <= 0.0f) seqInspW_ = scaled(300.0f);
-    seqInspW_ = ImClamp(seqInspW_, scaled(240.0f), ImMax(scaled(240.0f), bodyW * 0.5f));
+    if (seqInspW_ <= 0.0f) seqInspW_ = scaled(340.0f);
+    seqInspW_ = ImClamp(seqInspW_, scaled(260.0f), ImMax(scaled(260.0f), bodyW * 0.5f));
+    const float mainW = ImMax(scaled(240.0f), bodyW - seqInspW_ - thick);
 
-    ImGui::BeginChild("##seq_top", ImVec2(0, seqTopH_));
+    // The animatable channels of an object track, in row order. Position,
+    // rotation and scale open into one row per axis.
+    struct SeqChannelDef {
+        const char* name;
+        unsigned bits;
+        int axes;
+    };
+    static const SeqChannelDef kChannels[] = {{"Position", kSeqChPos, 3},
+                                              {"Rotation", kSeqChRot, 3},
+                                              {"Scale", kSeqChScale, 3},
+                                              {"Color", kSeqChColor, 1},
+                                              {"Visibility", kSeqChVis, 1}};
+    static const char* kAxisNames[] = {"X", "Y", "Z"};
+    auto channelFlag = [](SeqTrack& tr, int ch) -> bool& {
+        return ch == 0 ? tr.animPos : ch == 1 ? tr.animRot : ch == 2 ? tr.animScale : ch == 3 ? tr.animColor : tr.animVis;
+    };
+    // "Position X", "Position", "Position, Rotation Y" - what a key or a row
+    // stands for, in the words the rows use.
+    auto scopeName = [&](unsigned bits) -> std::string {
+        if ((bits & kSeqChAll) == kSeqChAll) return "every channel";
+        std::string out;
+        int n = 0;
+        for (int ch = 0; ch < 5; ++ch) {
+            const unsigned b = bits & kChannels[ch].bits;
+            if (!b) continue;
+            if (++n > 2) continue;  // counted below
+            std::string part = kChannels[ch].name;
+            if (kChannels[ch].axes == 3 && b != kChannels[ch].bits)
+                for (int a = 0; a < 3; ++a)
+                    if (b & (1u << (ch * 3 + a))) part += std::string(" ") + kAxisNames[a];
+            out += (out.empty() ? "" : ", ") + part;
+        }
+        if (n > 2) out += " +" + std::to_string(n - 2);
+        return out;
+    };
+
+    int deleteTrack = -1;
+    ImGui::BeginChild("##seq_main", ImVec2(mainW, 0));
+    // --- transport -----------------------------------------------------------------
     {
-        const float heroW = ImMax(scaled(160.0f), ImGui::GetContentRegionAvail().x - seqInspW_ - thick);
-        ImGui::BeginChild("##seq_hero", ImVec2(heroW, 0));
+        const float h = ImGui::GetFrameHeight();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        // rewind: a bar and a left triangle
         {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton("Rewind", ImVec2(h, h))) {
+                seqPlayhead_ = 0.0f;
+                seqPlaying_ = false;
+            }
+            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            if (t > 0.0f)
+                dl->AddRectFilled(p, ImVec2(p.x + h, p.y + h), ImGui::GetColorU32(withA(sem.surface, t)),
+                                  ImGui::GetStyle().FrameRounding);
+            const ImU32 ink = ImGui::GetColorU32(mixc(sem.textDim, sem.text, t));
+            const float c = h * 0.5f, s2 = h * 0.2f;
+            dl->AddRectFilled(ImVec2(p.x + c - s2 - 2.0f, p.y + c - s2), ImVec2(p.x + c - s2, p.y + c + s2), ink);
+            dl->AddTriangleFilled(ImVec2(p.x + c + s2, p.y + c - s2), ImVec2(p.x + c + s2, p.y + c + s2),
+                                  ImVec2(p.x + c - s2 + 1.0f, p.y + c), ink);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Back to 0");
+        }
+        ImGui::SameLine();
+        // play / pause: a filled round button
+        {
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton(seqPlaying_ ? "Pause###Play" : "Play###Play", ImVec2(h, h)))
+                seqPlaying_ = !seqPlaying_;
+            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            const ImVec2 c(p.x + h * 0.5f, p.y + h * 0.5f);
+            dl->AddCircleFilled(c, h * 0.5f, ImGui::GetColorU32(mixc(sem.surface, sem.text, 0.08f + 0.1f * t)), 24);
+            const ImU32 ink = ImGui::GetColorU32(sem.text);
+            const float s2 = h * 0.18f;
+            if (seqPlaying_) {
+                dl->AddRectFilled(ImVec2(c.x - s2, c.y - s2), ImVec2(c.x - s2 * 0.3f, c.y + s2), ink);
+                dl->AddRectFilled(ImVec2(c.x + s2 * 0.3f, c.y - s2), ImVec2(c.x + s2, c.y + s2), ink);
+            } else {
+                dl->AddTriangleFilled(ImVec2(c.x - s2 * 0.7f, c.y - s2), ImVec2(c.x - s2 * 0.7f, c.y + s2),
+                                      ImVec2(c.x + s2 * 1.1f, c.y), ink);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Play / pause (Space)");
+        }
+        ImGui::SameLine(0.0f, fs * 0.8f);
+        {
+            auto tc = [](float sec, char* out, size_t n) {
+                const int m = (int)(sec / 60.0f);
+                std::snprintf(out, n, "%d:%05.2f", m, sec - (float)m * 60.0f);
+            };
+            char a[24], b[24];
+            tc(seqPlayhead_, a, sizeof(a));
+            tc(s.duration, b, sizeof(b));
+            ui::FontScope mono(ui::monoFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(a);
+            ImGui::SameLine(0.0f, fs * 0.3f);
+            ImGui::TextDisabled("/ %s", b);
+        }
+        ImGui::SameLine(0.0f, fs * 0.8f);
+        if (ui::FilterChip("Auto-key", seqAutoKey_)) seqAutoKey_ = !seqAutoKey_;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Finishing a gizmo drag drops a keyframe at the\n"
+                              "playhead for every selected object that has a\n"
+                              "track in this sequence.");
+        ImGui::SameLine();
+        if (ui::FilterChip("Loop##transport", s.loop)) {
+            s.loop = !s.loop;
+            changed = true;
+        }
+        if (phoneRec_) {
+            ImGui::SameLine();
+            char rec[64];
+            std::snprintf(rec, sizeof(rec), "REC %.1f s \xc2\xb7 %d keys", (float)phoneTake_.duration(),
+                          phoneRecStats_.keyCount);
+            ui::Badge(rec, 2);
+        }
+        // right end: the hint and the zoom
+        const char* hint = "Double-click a lane to key \xc2\xb7 drag keys to retime";
+        const float zw = ImGui::CalcTextSize("-").x + ImGui::CalcTextSize("+").x +
+                         ImGui::GetStyle().FramePadding.x * 5.2f + ImGui::GetStyle().ItemSpacing.x;
+        const float hw = ImGui::CalcTextSize(hint).x + fs;
+        const float right = ImGui::GetWindowContentRegionMax().x;
+        ImGui::SameLine();
+        if (ImGui::GetCursorPosX() + hw + zw < right) {
+            ImGui::SetCursorPosX(right - hw - zw);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", hint);
+            ImGui::SameLine();
+        } else if (ImGui::GetCursorPosX() < right - zw) {
+            ImGui::SetCursorPosX(right - zw);
+        }
+        if (ui::GhostButton("-##seqzoom")) seqZoom_ = ImMax(1.0f, seqZoom_ / 1.25f);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Zoom out (Ctrl + wheel)");
+        ImGui::SameLine();
+        if (ui::GhostButton("+##seqzoom")) seqZoom_ = ImMin(8.0f, seqZoom_ * 1.25f);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Zoom in (Ctrl + wheel)");
+    }
+
+    // --- the timeline --------------------------------------------------------------
+    // Rows: the camera's shots as clips (when the camera track is on), the
+    // fades & bars as ramps, then a tree per object track - the track row
+    // (every key), a row per animated channel and, opened, a row per axis. A
+    // diamond stands for the components of the row it sits on: dragged or
+    // deleted on the Position X row it moves or removes position X only. A
+    // click/drag-scrubbed ruler and the playhead run across all of them; the
+    // label column stays pinned while the lanes scroll horizontally.
+    enum RowKind { RowCamera, RowFades, RowTrack, RowChannel, RowAxis, RowAdd };
+    struct Row {
+        RowKind kind;
+        int ti;         // object track (-1 camera, -2 fades)
+        int ch;         // kChannels index (channel / axis rows)
+        int axis;       // 0-2 (axis rows)
+        unsigned bits;  // the components the row shows
+        int depth;
+    };
+    auto openKey = [&](const SeqTrack& tr, int ch) {
+        return ch < 0 ? tr.target : tr.target + "/" + kChannels[ch].name;
+    };
+    std::vector<Row> rowList;
+    if (s.cameraEnabled) rowList.push_back({RowCamera, -1, -1, -1, 0u, 0});
+    rowList.push_back({RowFades, -2, -1, -1, 0u, 0});
+    for (int ti = 0; ti < (int)s.tracks.size(); ++ti) {
+        const SeqTrack& tr = s.tracks[ti];
+        rowList.push_back({RowTrack, ti, -1, -1, (unsigned)kSeqChAll, 0});
+        if (!seqOpenRows_.count(openKey(tr, -1))) continue;
+        const unsigned on = seqTrackChannels(tr);
+        bool anyOff = false;
+        for (int ch = 0; ch < 5; ++ch) {
+            if (!(on & kChannels[ch].bits)) {
+                anyOff = true;
+                continue;
+            }
+            rowList.push_back({RowChannel, ti, ch, -1, kChannels[ch].bits, 1});
+            if (kChannels[ch].axes == 3 && seqOpenRows_.count(openKey(tr, ch)))
+                for (int a = 0; a < 3; ++a) rowList.push_back({RowAxis, ti, ch, a, 1u << (ch * 3 + a), 2});
+        }
+        if (anyOff) rowList.push_back({RowAdd, ti, -1, -1, 0u, 1});
+    }
+    const float laneH = scaled(26.0f), rulerH = scaled(24.0f), labelW = scaled(250.0f);
+    const int camLanes = s.cameraEnabled ? 1 : 0;
+    const int fadeLane = camLanes;  // row index of "Fades & bars"
+    const int laneCount = (int)rowList.size();
+    // sanity: a deleted/toggled lane (or an undo) can strand the selection
+    if (selectedSeqTrack_ >= (int)s.tracks.size() || (selectedSeqTrack_ < 0 && !s.cameraEnabled))
+        selectedSeqKey_ = -1;
+    if (selectedSeqTrack_ >= 0 && selectedSeqTrack_ < (int)s.tracks.size() &&
+        selectedSeqKey_ >= (int)s.tracks[selectedSeqTrack_].keys.size())
+        selectedSeqKey_ = -1;
+    if (seqDragTrack_ >= (int)s.tracks.size() ||
+        (seqDragTrack_ >= 0 && seqDragKey_ >= (int)s.tracks[seqDragTrack_].keys.size()))
+        seqDragTrack_ = -1;
+    // the value an object shows at the playhead (the posed copy)
+    auto posedOf = [&](const std::string& name) -> const SceneObject* {
+        for (const SceneObject& o : seqPosed_)
+            if (o.name == name) return &o;
+        return nullptr;
+    };
+
+    ImGui::BeginChild("##dopesheet", ImVec2(0, 0), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+    {
+        // Ctrl + mouse wheel zooms the timeline (like the flow graph); a plain
+        // wheel keeps scrolling the dopesheet.
+        if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl && ImGui::GetIO().MouseWheel != 0.0f) {
+            seqZoom_ = ImClamp(seqZoom_ * ImPow(1.1f, ImGui::GetIO().MouseWheel), 1.0f, 8.0f);
+            ImGui::GetIO().MouseWheel = 0.0f;  // consume: don't also scroll
+        }
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImVec2 origin = ImGui::GetCursorScreenPos();  // content space
+        const float visibleW = ImGui::GetWindowSize().x;
+        float timeW = (visibleW - labelW - scaled(12.0f)) * seqZoom_;
+        if (timeW < scaled(160.0f)) timeW = scaled(160.0f);
+        const float pps = timeW / s.duration;  // pixels per second
+        const float x0 = origin.x + labelW + scaled(4.0f);
+        const float contentH = rulerH + laneCount * laneH;
+        const float addRowH = ImGui::GetFrameHeight() + ImGui::GetStyle().ScrollbarSize + scaled(10.0f);
+        ImGui::Dummy(ImVec2(labelW + timeW + scaled(12.0f), contentH + addRowH));
+        const float laneY0 = origin.y + rulerH;
+        const float labelX = ImGui::GetWindowPos().x;  // pinned label column x
+        // The ruler is pinned to the top like the label column to the left:
+        // however far the rows scroll, the time stays there to scrub. Rows
+        // draw (and take the mouse) only below it - items outside the clip
+        // rect are not hoverable, so a key scrolled under it stays out of reach.
+        // (the cursor start already has the scroll taken off - add it back)
+        const float rulerY = ImGui::GetWindowPos().y + ImGui::GetCursorStartPos().y + ImGui::GetScrollY();
+        const ImVec2 winMax(ImGui::GetWindowPos().x + ImGui::GetWindowSize().x,
+                            ImGui::GetWindowPos().y + ImGui::GetWindowSize().y);
+        ImGui::PushClipRect(ImVec2(labelX, rulerY + rulerH), winMax, true);
+
+        const ImU32 colGrid = ImGui::GetColorU32(ImGuiCol_Border);
+        const ImU32 colText = ImGui::GetColorU32(sem.text);
+        const ImU32 colDim = ImGui::GetColorU32(sem.textDim);
+        const ImU32 colPlayhead = ImGui::GetColorU32(sem.danger);
+        auto timeAtMouse = [&]() {
+            float t = (ImGui::GetIO().MousePos.x - x0) / pps;
+            t = t < 0.0f ? 0.0f : (t > s.duration ? s.duration : t);
+            return std::round(t * 100.0f) / 100.0f;  // snap to 10 ms
+        };
+        auto xAt = [&](float t) { return x0 + t * pps; };
+
+        auto selectRowKey = [&](int ti, int ki, unsigned bits) {
+            selectedSeqTrack_ = ti;
+            selectedSeqKey_ = ki;
+            selectedSeqBits_ = bits;
+            seqInspTab_ = 0;
+            seqInspTabForce_ = true;
+        };
+
+        // lane backgrounds: hairlines; the camera lane and the track rows a
+        // touch raised, so a track's channel rows read as its children
+        for (int li = 0; li < laneCount; ++li) {
+            const float y = laneY0 + li * laneH;
+            const Row& row = rowList[li];
+            if (row.kind == RowCamera || row.kind == RowTrack)
+                dl->AddRectFilled(ImVec2(x0, y), ImVec2(x0 + timeW, y + laneH),
+                                  ImGui::GetColorU32(withA(sem.surface, row.kind == RowCamera ? 0.35f : 0.22f)));
+            dl->AddLine(ImVec2(labelX, y + laneH), ImVec2(x0 + timeW, y + laneH),
+                        ImGui::GetColorU32(withA(sem.border, row.depth == 0 ? 0.6f : 0.3f)));
+        }
+
+        // lane hit areas: double-click an empty spot = key that row's
+        // components there. AllowOverlap so the clips and keys submitted on
+        // top still catch the mouse - without it the lane eats every click.
+        for (int li = 0; li < laneCount; ++li) {
+            const Row& row = rowList[li];
+            if (row.kind == RowFades || row.kind == RowAdd) continue;
+            ImGui::PushID(100 + li);
+            ImGui::SetCursorScreenPos(ImVec2(x0, laneY0 + li * laneH));
+            ImGui::SetNextItemAllowOverlap();
+            ImGui::InvisibleButton("##lane", ImVec2(timeW, laneH));
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                const float t = timeAtMouse();
+                if (row.kind == RowCamera) {
+                    if (snapshotCameraKey(t)) {
+                        selectedSeqTrack_ = -1;
+                        selectedSeqKey_ = -1;  // select the dropped shot
+                        for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
+                            if (s.cameraKeys[i].time == t) selectedSeqKey_ = i;
+                        seqPlayhead_ = t;
+                        seqInspTab_ = 0;
+                        seqInspTabForce_ = true;
+                        changed = true;
+                    } else {
+                        statusMessage_ = "Add a Camera entity first (+ Add object > Gameplay > Camera)";
+                    }
+                } else {
+                    const bool whole = row.kind == RowTrack;
+                    const int ki = cutsceneSnapshotObjectKey(s.tracks[row.ti], t, whole ? 0u : row.bits);
+                    if (ki >= 0) {
+                        selectRowKey(row.ti, ki, whole ? (unsigned)kSeqChAll : row.bits);
+                        seqPlayhead_ = t;
+                        changed = true;
+                    }
+                }
+            }
+            ImGui::PopID();
+        }
+        // the ruler's step (its ticks are drawn pinned, at the end); the major
+        // ticks run down the lanes as grid lines
+        static const float kSteps[] = {0.1f, 0.2f, 0.5f, 1.0f, 2.0f, 5.0f, 10.0f, 15.0f, 30.0f, 60.0f};
+        float step = 60.0f;
+        for (float c : kSteps)
+            if (c * pps >= scaled(56.0f)) {
+                step = c;
+                break;
+            }
+        const float minor = step / 5.0f;
+        for (float t = 0.0f; t <= s.duration + 1e-4f; t += step)
+            dl->AddLine(ImVec2(xAt(t), laneY0), ImVec2(xAt(t), laneY0 + laneCount * laneH),
+                        ImGui::GetColorU32(ImGuiCol_Border, 0.35f));
+
+        // One key's hit box: click selects, drag retimes, right-click opens
+        // easing/delete. Returns 0 untouched, 1 edited, 2 commit, 3 delete.
+        static const char* kEaseNames[] = {"Linear", "Smooth", "Step (hold)"};
+        auto keyHit = [&](int lane, int ki, float& time, int& easing, ImVec2 c, float r,
+                          bool& hovered) -> int {
+            int result = 0;
+            const float pad = scaled(4.0f);
+            ImGui::PushID((lane + 2) * 1000 + ki);
+            ImGui::SetCursorScreenPos(ImVec2(c.x - r - pad, c.y - r - pad));
+            ImGui::InvisibleButton("##key", ImVec2(2.0f * (r + pad), 2.0f * (r + pad)));
+            hovered = ImGui::IsItemHovered();
+            const bool dragging = ImGui::IsItemActive();
+            if (hovered || dragging) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            if (hovered && !dragging)
+                ImGui::SetTooltip("%.2f s - drag to retime,\nright-click for easing/delete", time);
+            if (ImGui::IsItemActivated()) {
+                selectedSeqTrack_ = lane;
+                selectedSeqKey_ = ki;
+                seqInspTab_ = 0;
+                seqInspTabForce_ = true;
+            }
+            if (dragging && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1.0f)) {
+                time = timeAtMouse();
+                seqPlayhead_ = time;
+                result = 1;
+            }
+            // sort + commit outside - only when it was dragged: a click that
+            // merely selects the key is not an edit
+            if (ImGui::IsItemDeactivated() && ImGui::GetIO().MouseDragMaxDistanceSqr[0] > 1.0f) result = 2;
+            if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) seqPlayhead_ = time;
+            ImGui::OpenPopupOnItemClick("##keyctx", ImGuiPopupFlags_MouseButtonRight);
+            if (ImGui::BeginPopup("##keyctx")) {
+                selectedSeqTrack_ = lane;
+                selectedSeqKey_ = ki;
+                ImGui::TextDisabled("Key @ %.2f s", time);
+                ImGui::Separator();
+                for (int e = 0; e < 3; ++e)
+                    if (ImGui::MenuItem(kEaseNames[e], nullptr, easing == e)) {
+                        easing = e;
+                        result = 2;
+                    }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Playhead here")) seqPlayhead_ = time;
+                if (ImGui::MenuItem("Delete key")) result = 3;
+                ImGui::EndPopup();
+            }
+            ImGui::PopID();
+            return result;
+        };
+
+        // --- camera lane: shots as clips ----------------------------------------
+        if (s.cameraEnabled) {
+            const float y0 = laneY0 + scaled(3.0f), y1 = laneY0 + laneH - scaled(3.0f);
+            const int n = (int)s.cameraKeys.size();
+            int del = -1, resort = -1;
+            for (int ki = 0; ki < n; ++ki) {
+                SeqCameraKey& k = s.cameraKeys[ki];
+                const float tEnd = ki + 1 < n ? s.cameraKeys[ki + 1].time : s.duration;
+                const float cx0 = xAt(k.time), cx1 = ImMax(cx0 + scaled(4.0f), xAt(tEnd) - scaled(2.0f));
+                const std::string name = k.camera.empty() ? std::string("free shot") : k.camera;
+                const ImVec4 tint = tintOf(name);
+                const bool sel = selectedSeqTrack_ == -1 && selectedSeqKey_ == ki;
+                // the clip body: click selects the shot, double-click parks the
+                // playhead on it
+                ImGui::PushID(5000 + ki);
+                ImGui::SetCursorScreenPos(ImVec2(cx0, y0));
+                ImGui::SetNextItemAllowOverlap();
+                ImGui::InvisibleButton("##clip", ImVec2(ImMax(1.0f, cx1 - cx0), y1 - y0));
+                if (ImGui::IsItemClicked()) {
+                    selectedSeqTrack_ = -1;
+                    selectedSeqKey_ = ki;
+                    seqInspTab_ = 0;
+                    seqInspTabForce_ = true;
+                }
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    seqPlayhead_ = k.time;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("%s \xc2\xb7 %.2f - %.2f s \xc2\xb7 %s into the next", name.c_str(), k.time,
+                                      tEnd, k.easing == 2 ? "cut" : k.easing == 1 ? "smooth" : "linear");
+                ImGui::PopID();
+                // fill, and a blend into the next shot's colour for Smooth/Linear
+                const float rr = scaled(4.0f);
+                const ImVec4 body = mixc(sem.surface, tint, 0.28f);
+                dl->AddRectFilled(ImVec2(cx0, y0), ImVec2(cx1, y1), ImGui::GetColorU32(body), rr);
+                if (ki + 1 < n && k.easing != 2) {
+                    const std::string nextName =
+                        s.cameraKeys[ki + 1].camera.empty() ? std::string("free shot") : s.cameraKeys[ki + 1].camera;
+                    const ImVec4 nb = mixc(sem.surface, tintOf(nextName), 0.28f);
+                    const float gx = cx0 + (cx1 - cx0) * (k.easing == 1 ? 0.55f : 0.0f);
+                    dl->AddRectFilledMultiColor(ImVec2(gx, y0 + 1.0f), ImVec2(cx1, y1 - 1.0f),
+                                                ImGui::GetColorU32(body), ImGui::GetColorU32(nb),
+                                                ImGui::GetColorU32(nb), ImGui::GetColorU32(body));
+                }
+                dl->AddRect(ImVec2(cx0, y0), ImVec2(cx1, y1),
+                            ImGui::GetColorU32(sel ? sem.text : withA(tint, 0.7f)), rr, 0, sel ? 2.0f : 1.0f);
+                dl->PushClipRect(ImVec2(cx0, y0), ImVec2(cx1 - scaled(2.0f), y1), true);
+                const float ty = (y0 + y1 - ImGui::GetTextLineHeight()) * 0.5f;
+                dl->AddCircleFilled(ImVec2(cx0 + scaled(9.0f), (y0 + y1) * 0.5f), scaled(3.5f),
+                                    ImGui::GetColorU32(tint));
+                dl->AddText(ImVec2(cx0 + scaled(17.0f), ty), colText, name.c_str());
+                dl->PopClipRect();
+                // the cut handle at the clip's left edge: drag to retime
+                bool hov = false;
+                const int res = keyHit(-1, ki, k.time, k.easing, ImVec2(cx0, (y0 + y1) * 0.5f), scaled(4.0f), hov);
+                if (hov) dl->AddRectFilled(ImVec2(cx0 - 1.5f, y0), ImVec2(cx0 + 1.5f, y1), colText);
+                if (res == 2) resort = ki;
+                if (res == 3) del = ki;
+            }
+            if (del >= 0) {
+                s.cameraKeys.erase(s.cameraKeys.begin() + del);
+                selectedSeqKey_ = -1;
+                changed = true;
+            } else if (resort >= 0) {
+                const float t = s.cameraKeys[resort].time;
+                sortCamKeys();
+                if (selectedSeqTrack_ == -1)
+                    for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
+                        if (s.cameraKeys[i].time == t) {
+                            selectedSeqKey_ = i;
+                            break;
+                        }
+                changed = true;
+            }
+        }
+
+        // --- fades & bars: ramps at both ends -------------------------------------
+        {
+            const float y = laneY0 + fadeLane * laneH;
+            const float y0 = y + scaled(7.0f), y1 = y + laneH - scaled(7.0f);
+            ImGui::PushID("fades");
+            ImGui::SetCursorScreenPos(ImVec2(x0, y));
+            ImGui::InvisibleButton("##fadelane", ImVec2(timeW, laneH));
+            if (ImGui::IsItemClicked()) {
+                seqInspTab_ = 1;
+                seqInspTabForce_ = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Fades and bars are set on the Sequence tab - click to open it.");
+            ImGui::PopID();
+            const ImU32 black = IM_COL32(0, 0, 0, 255), clear = IM_COL32(0, 0, 0, 0);
+            const ImU32 barCol = ImGui::GetColorU32(withA(sem.textDim, 0.55f));
+            const ImU32 barClear = ImGui::GetColorU32(withA(sem.textDim, 0.0f));
+            const float ym = (y0 + y1) * 0.5f;
+            if (s.fadeIn > 0.0f)
+                dl->AddRectFilledMultiColor(ImVec2(xAt(0), y0), ImVec2(xAt(s.fadeIn), ym), black, clear, clear, black);
+            if (s.fadeOut > 0.0f)
+                dl->AddRectFilledMultiColor(ImVec2(xAt(s.duration - s.fadeOut), y0), ImVec2(xAt(s.duration), ym),
+                                            clear, black, black, clear);
+            if (s.bars != kSeqBarsNone) {
+                const float bi = ImMax(s.barsSlideIn, 0.01f), bo = ImMax(s.barsSlideOut, 0.01f);
+                dl->AddRectFilledMultiColor(ImVec2(xAt(0), ym + 1.0f), ImVec2(xAt(bi), y1), barClear, barCol, barCol,
+                                            barClear);
+                dl->AddRectFilled(ImVec2(xAt(bi), ym + 1.0f), ImVec2(xAt(s.duration - bo), y1),
+                                  ImGui::GetColorU32(withA(sem.textDim, 0.18f)));
+                dl->AddRectFilledMultiColor(ImVec2(xAt(s.duration - bo), ym + 1.0f), ImVec2(xAt(s.duration), y1),
+                                            barCol, barClear, barClear, barCol);
+            }
+            const bool bars = s.bars != kSeqBarsNone;
+            const float ty = y + (laneH - ImGui::GetTextLineHeight()) * 0.5f;
+            if (!bars && s.fadeIn <= 0.0f && s.fadeOut <= 0.0f) {
+                dl->AddText(ImVec2(x0 + scaled(8.0f), ty), colDim, "no fades or bars");
+            } else {
+                char a[64], b[64];
+                if (bars) {
+                    std::snprintf(a, sizeof(a), "fade %.1f s \xc2\xb7 bars %.1f s", s.fadeIn, s.barsSlideIn);
+                    std::snprintf(b, sizeof(b), "fade %.1f s \xc2\xb7 bars %.1f s", s.fadeOut, s.barsSlideOut);
+                } else {
+                    std::snprintf(a, sizeof(a), "fade %.1f s", s.fadeIn);
+                    std::snprintf(b, sizeof(b), "fade %.1f s", s.fadeOut);
+                }
+                const float aw = ImGui::CalcTextSize(a).x, bw = ImGui::CalcTextSize(b).x;
+                const float ax = xAt(ImMax(s.fadeIn, s.bars != kSeqBarsNone ? s.barsSlideIn : 0.0f)) + scaled(8.0f);
+                const float bx = xAt(s.duration - ImMax(s.fadeOut, s.bars != kSeqBarsNone ? s.barsSlideOut : 0.0f)) -
+                                 scaled(8.0f) - bw;
+                if (ax + aw < bx - scaled(12.0f)) {
+                    dl->AddText(ImVec2(ax, ty), colDim, a);
+                    dl->AddText(ImVec2(bx, ty), colDim, b);
+                }
+            }
+        }
+
+        // --- object rows: span bar, visibility on-spans, key diamonds -------------
+        // A row shows the keys that set any of its components, and a diamond
+        // stands for those components only (on the track row: the whole key).
+        static const char* kObjEaseNames[] = {"Linear", "Smooth", "Hold"};
+        for (int li = 0; li < laneCount; ++li) {
+            const Row& row = rowList[li];
+            if (row.kind != RowTrack && row.kind != RowChannel && row.kind != RowAxis) continue;
+            const int ti = row.ti;
+            SeqTrack& tr = s.tracks[ti];
+            const float y = laneY0 + li * laneH, cy = y + laneH * 0.5f;
+            const ImVec4 tint = tintOf(tr.target);
+            float tFirst = -1.0f, tLast = -1.0f;
+            for (const SeqObjectKey& k : tr.keys)
+                if (k.mask & row.bits) {
+                    if (tFirst < 0.0f || k.time < tFirst) tFirst = k.time;
+                    tLast = ImMax(tLast, k.time);
+                }
+            if (tFirst >= 0.0f)
+                dl->AddLine(ImVec2(xAt(tFirst), cy), ImVec2(xAt(tLast), cy),
+                            ImGui::GetColorU32(withA(tint, row.depth == 2 ? 0.35f : 0.45f)), scaled(2.0f));
+            // visibility on-spans: on the track row (when animated) and the Visibility row
+            if ((row.kind == RowTrack && tr.animVis) || (row.kind == RowChannel && row.bits == kSeqChVis)) {
+                std::vector<int> vis;
+                for (int i = 0; i < (int)tr.keys.size(); ++i)
+                    if (tr.keys[i].mask & kSeqChVis) vis.push_back(i);
+                std::sort(vis.begin(), vis.end(), [&](int a, int b) { return tr.keys[a].time < tr.keys[b].time; });
+                for (size_t j = 0; j < vis.size(); ++j) {
+                    if (!tr.keys[vis[j]].visible) continue;
+                    const float tEnd = j + 1 < vis.size() ? tr.keys[vis[j + 1]].time : s.duration;
+                    dl->AddRectFilled(ImVec2(xAt(tr.keys[vis[j]].time), cy - scaled(5.0f)), ImVec2(xAt(tEnd), cy + scaled(5.0f)),
+                                      ImGui::GetColorU32(withA(tint, 0.30f)), scaled(2.0f));
+                }
+            }
+            const float r = scaled(row.depth == 0 ? 6.0f : row.depth == 1 ? 5.0f : 4.5f);
+            const int nKeys = (int)tr.keys.size();
+            int del = -1;
+            unsigned delBits = 0;
+            for (int ki = 0; ki < nKeys; ++ki) {
+                const unsigned kb = tr.keys[ki].mask & row.bits;
+                if (!kb) continue;
+                const float kx = xAt(tr.keys[ki].time);
+                const float pad = scaled(4.0f);
+                ImGui::PushID((li + 2) * 1000 + ki);
+                ImGui::SetCursorScreenPos(ImVec2(kx - r - pad, cy - r - pad));
+                // named "<row> @ <time>" ("Position X @ 9.00") so a script can grab it
+                char keyName[96];
+                std::snprintf(keyName, sizeof(keyName), "%s @ %.2f",
+                              row.kind == RowTrack ? tr.target.c_str() : scopeName(row.bits).c_str(),
+                              tr.keys[ki].time);
+                ImGui::InvisibleButton(keyName, ImVec2(2.0f * (r + pad), 2.0f * (r + pad)));
+                const bool hov = ImGui::IsItemHovered();
+                const bool dragging = seqDragTrack_ == ti && seqDragKey_ == ki && seqDragMoved_;
+                if (hov || dragging) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                if (hov && seqDragTrack_ < 0)
+                    ImGui::SetTooltip("%s \xc2\xb7 %.2f s - drag to retime,\nright-click for easing/delete",
+                                      scopeName(kb).c_str(), tr.keys[ki].time);
+                if (ImGui::IsItemActivated()) {
+                    selectRowKey(ti, ki, kb);
+                    seqDragTrack_ = ti;
+                    seqDragKey_ = ki;
+                    seqDragBits_ = kb;
+                    seqDragMoved_ = false;
+                }
+                if (hov && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) seqPlayhead_ = tr.keys[ki].time;
+                ImGui::OpenPopupOnItemClick("##okeyctx", ImGuiPopupFlags_MouseButtonRight);
+                if (ImGui::BeginPopup("##okeyctx")) {
+                    SeqObjectKey& k = tr.keys[ki];
+                    selectedSeqTrack_ = ti;
+                    selectedSeqKey_ = ki;
+                    selectedSeqBits_ = kb;
+                    ImGui::TextDisabled("%s \xc2\xb7 key @ %.2f s", scopeName(kb).c_str(), k.time);
+                    ImGui::Separator();
+                    for (int e = 0; e < 3; ++e)
+                        if (ImGui::MenuItem(kObjEaseNames[e], nullptr, k.easing == e)) {
+                            k.easing = e;
+                            changed = true;
+                        }
+                    if (kb != k.mask && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("The easing belongs to the whole key at this time.");
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Playhead here")) seqPlayhead_ = k.time;
+                    const std::string delThis = "Delete key (" + scopeName(kb) + ")";
+                    if (ImGui::MenuItem(delThis.c_str())) del = ki, delBits = kb;
+                    if (row.kind == RowAxis) {
+                        const unsigned chb = k.mask & kChannels[row.ch].bits;
+                        if (chb != kb) {
+                            const std::string delCh = std::string("Delete ") + kChannels[row.ch].name + " at this time";
+                            if (ImGui::MenuItem(delCh.c_str())) del = ki, delBits = chb;
+                        }
+                    }
+                    if (kb != k.mask && ImGui::MenuItem("Delete the whole key")) del = ki, delBits = k.mask;
+                    ImGui::EndPopup();
+                }
+                ImGui::PopID();
+                const bool sel = selectedSeqTrack_ == ti && selectedSeqKey_ == ki && (selectedSeqBits_ & kb) != 0;
+                const ImVec2 pts[4] = {{kx, cy - r}, {kx + r, cy}, {kx, cy + r}, {kx - r, cy}};
+                dl->AddConvexPolyFilled(pts, 4, ImGui::GetColorU32(row.depth == 2 ? mixc(tint, sem.text, 0.15f) : tint));
+                dl->AddPolyline(pts, 4, ImGui::GetColorU32(sel ? sem.text : withA(sem.ground, 0.9f)), ImDrawFlags_Closed,
+                                sel ? 2.0f : 1.0f);
+                if (hov && !sel) dl->AddCircle(ImVec2(kx, cy), r + scaled(2.5f), colText, 0, 1.0f);
+            }
+            if (del >= 0) {
+                seqClearKey(tr, del, delBits);
+                selectedSeqKey_ = -1;
+                seqDragTrack_ = -1;
+                changed = true;
+            }
+        }
+
+        // The key drag. Retiming part of a key first splits those components
+        // into a key of their own (the rest stay where they were); on release
+        // the keys are sorted and a key it landed on absorbs it.
+        if (seqDragTrack_ >= 0) {
+            SeqTrack& tr = s.tracks[seqDragTrack_];
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                if (ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1.0f)) {
+                    if (!seqDragMoved_) {
+                        seqDragKey_ = seqSplitKey(tr, seqDragKey_, seqDragBits_);
+                        seqDragMoved_ = true;
+                        if (selectedSeqTrack_ == seqDragTrack_) selectedSeqKey_ = seqDragKey_;
+                    }
+                    tr.keys[seqDragKey_].time = timeAtMouse();
+                    seqPlayhead_ = tr.keys[seqDragKey_].time;
+                }
+            } else {
+                if (seqDragMoved_) {
+                    const int k = seqSettleKeys(tr, seqDragKey_);
+                    if (selectedSeqTrack_ == seqDragTrack_) selectedSeqKey_ = k;
+                    changed = true;
+                }
+                seqDragTrack_ = -1;
+            }
+        }
+        // playhead across the lanes (its pill rides the pinned ruler)
+        dl->AddLine(ImVec2(xAt(seqPlayhead_), laneY0), ImVec2(xAt(seqPlayhead_), laneY0 + laneCount * laneH),
+                    colPlayhead, 1.5f);
+
+        // pinned label column, drawn last so it occludes scrolled-under keys.
+        // The chevron opens a track's channels and a channel's axes; a click
+        // on the name selects the track; the diamond on the right keys (or
+        // un-keys) that row's components at the playhead; right-click = the
+        // row's settings.
+        dl->AddRectFilled(ImVec2(labelX, origin.y), ImVec2(labelX + labelW, origin.y + contentH + addRowH),
+                          ImGui::GetColorU32(ImGuiCol_WindowBg));
+        dl->AddLine(ImVec2(labelX + labelW, origin.y), ImVec2(labelX + labelW, origin.y + contentH), colGrid);
+        for (int li = 0; li < laneCount; ++li) {
+            const Row& row = rowList[li];
+            const int ti = row.kind == RowCamera ? -1 : row.kind == RowFades ? -2 : row.ti;
+            const float y = laneY0 + li * laneH;
+            const float ty = y + (laneH - ImGui::GetTextLineHeight()) * 0.5f;
+            const float indent = labelX + scaled(4.0f) + row.depth * scaled(14.0f);
+            const float chevW = scaled(16.0f);
+            ImGui::PushID(500 + li);
+            if (row.kind == RowFades) {
+                dl->AddCircleFilled(ImVec2(indent + chevW + scaled(4.0f), y + laneH * 0.5f), scaled(3.5f), colDim);
+                dl->AddText(ImVec2(indent + chevW + scaled(12.0f), ty), colDim, "Fades & bars");
+                ImGui::PopID();
+                continue;
+            }
+            if (row.kind == RowAdd) {
+                // the channels this track does not animate yet: one chip each
+                SeqTrack& tr = s.tracks[row.ti];
+                const float bh = ImGui::GetFrameHeight();
+                ImGui::SetCursorScreenPos(ImVec2(indent + chevW, y + (laneH - bh) * 0.5f));
+                bool first = true;
+                for (int ch = 0; ch < 5; ++ch) {
+                    if (seqTrackChannels(tr) & kChannels[ch].bits) continue;
+                    if (!first) ImGui::SameLine(0.0f, scaled(4.0f));
+                    first = false;
+                    char lbl[40];
+                    std::snprintf(lbl, sizeof(lbl), "+ %s", kChannels[ch].name);
+                    if (ui::GhostButton(lbl)) {
+                        channelFlag(tr, ch) = true;
+                        cutsceneSnapshotObjectKey(tr, seqPlayhead_, kChannels[ch].bits);
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Animate %s: keys it at the playhead\nfrom the object's pose.",
+                                          kChannels[ch].name);
+                }
+                ImGui::PopID();
+                continue;
+            }
+
+            // right edge: "+" on the camera row, the key-here diamond on object rows
+            const float btn = scaled(22.0f);
+            const float bx = labelX + labelW - btn - scaled(4.0f);
+            if (row.kind == RowCamera) {
+                ImGui::SetCursorScreenPos(ImVec2(bx, y + (laneH - ImGui::GetFrameHeight()) * 0.5f));
+                if (ui::GhostButton("+", btn)) {
+                    if (snapshotCameraKey(seqPlayhead_)) changed = true;
+                    else statusMessage_ = "Add a Camera entity first (+ Add object > Gameplay > Camera)";
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Add a shot at the playhead, filming from the\n"
+                                      "active camera (looked-through / selected /\n"
+                                      "first). Needs a Camera entity in the scene.");
+            } else {
+                SeqTrack& tr = s.tracks[row.ti];
+                const bool whole = row.kind == RowTrack;
+                const unsigned want = whole ? seqTrackChannels(tr) : row.bits;
+                int at = -1;
+                for (int i = 0; i < (int)tr.keys.size(); ++i)
+                    if (std::fabs(tr.keys[i].time - seqPlayhead_) < kSeqKeySnap) at = i;
+                const unsigned have = at >= 0 ? tr.keys[at].mask & want : 0u;
+                const bool full = want && have == want;
+                const ImVec2 bp(bx, y + (laneH - btn) * 0.5f);
+                ImGui::SetCursorScreenPos(bp);
+                const std::string scope = whole ? std::string("the pose") : scopeName(want);
+                if (ImGui::InvisibleButton("Key at playhead", ImVec2(btn, btn))) {
+                    if (full) {
+                        if (seqClearKey(tr, at, want) && selectedSeqTrack_ == row.ti) selectedSeqKey_ = -1;
+                    } else {
+                        const int ki = cutsceneSnapshotObjectKey(tr, seqPlayhead_, whole ? 0u : want);
+                        if (ki >= 0) selectRowKey(row.ti, ki, whole ? (unsigned)kSeqChAll : want);
+                    }
+                    changed = true;
+                }
+                const float ht = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip(full ? "Remove the %s key at the playhead"
+                                           : "Key %s at the playhead\nfrom the object's pose",
+                                      scope.c_str());
+                const ImVec2 c(bp.x + btn * 0.5f, bp.y + btn * 0.5f);
+                const float dr = scaled(5.0f);
+                const ImVec2 pts[4] = {{c.x, c.y - dr}, {c.x + dr, c.y}, {c.x, c.y + dr}, {c.x - dr, c.y}};
+                const ImVec4 tint = tintOf(tr.target);
+                if (ht > 0.0f)
+                    dl->AddRectFilled(bp, ImVec2(bp.x + btn, bp.y + btn), ImGui::GetColorU32(withA(sem.surface, ht)),
+                                      ImGui::GetStyle().FrameRounding);
+                if (full) dl->AddConvexPolyFilled(pts, 4, ImGui::GetColorU32(tint));
+                else if (have) dl->AddConvexPolyFilled(pts, 4, ImGui::GetColorU32(withA(tint, 0.45f)));
+                dl->AddPolyline(pts, 4, ImGui::GetColorU32(have ? tint : mixc(sem.textDim, sem.text, ht)), ImDrawFlags_Closed,
+                                1.2f);
+            }
+
+            // the chevron: a track opens into channels, a 3-axis channel into axes
+            const bool canOpen = row.kind == RowTrack || (row.kind == RowChannel && kChannels[row.ch].axes == 3);
+            if (canOpen) {
+                const std::string key = openKey(s.tracks[row.ti], row.kind == RowTrack ? -1 : row.ch);
+                const bool open = seqOpenRows_.count(key) != 0;
+                const ImVec2 cp(indent, y);
+                ImGui::SetCursorScreenPos(cp);
+                if (ImGui::InvisibleButton(open ? "Collapse row" : "Expand row", ImVec2(chevW, laneH))) {
+                    if (open) seqOpenRows_.erase(key);
+                    else seqOpenRows_.insert(key);
+                }
+                const bool ch = ImGui::IsItemHovered();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip(row.kind == RowTrack ? (open ? "Hide the channels" : "Show the channels")
+                                                           : (open ? "Hide the axes" : "Show X, Y and Z"));
+                const ImU32 ink = ImGui::GetColorU32(ch ? sem.text : sem.textDim);
+                const ImVec2 cc(cp.x + chevW * 0.5f, y + laneH * 0.5f);
+                const float a = scaled(3.5f);
+                if (open)
+                    dl->AddTriangleFilled(ImVec2(cc.x - a, cc.y - a * 0.5f), ImVec2(cc.x + a, cc.y - a * 0.5f),
+                                          ImVec2(cc.x, cc.y + a * 0.7f), ink);
+                else
+                    dl->AddTriangleFilled(ImVec2(cc.x - a * 0.5f, cc.y - a), ImVec2(cc.x - a * 0.5f, cc.y + a),
+                                          ImVec2(cc.x + a * 0.7f, cc.y), ink);
+            }
+
+            // the label: click selects the track, right-click its settings
+            const float lx = indent + chevW;
+            ImGui::SetCursorScreenPos(ImVec2(lx, y));
+            ImGui::InvisibleButton("##label", ImVec2(ImMax(1.0f, bx - lx - scaled(2.0f)), laneH));
+            if (ImGui::IsItemClicked()) {
+                selectedSeqTrack_ = ti;
+                selectedSeqKey_ = -1;
+                seqInspTab_ = 0;
+                seqInspTabForce_ = true;
+            }
+            const bool chanRow = row.kind == RowChannel || row.kind == RowAxis;
+            ImGui::OpenPopupOnItemClick(chanRow ? "##chanctx" : "##trackctx", ImGuiPopupFlags_MouseButtonRight);
+            if (row.kind == RowTrack && selectedSeqTrack_ == ti)
+                dl->AddRectFilled(ImVec2(labelX, y), ImVec2(labelX + labelW, y + laneH),
+                                  ImGui::GetColorU32(withA(sem.accent, 0.12f)));
+            const float valueRight = bx - scaled(6.0f);
+            if (row.kind == RowCamera) {
+                dl->AddCircleFilled(ImVec2(lx + scaled(4.0f), y + laneH * 0.5f), scaled(3.5f), colText);
+                char lbl[48];
+                std::snprintf(lbl, sizeof(lbl), "Camera \xc2\xb7 %d shot%s", (int)s.cameraKeys.size(),
+                              s.cameraKeys.size() == 1 ? "" : "s");
+                ui::FontScope bold(ui::boldFont());
+                dl->AddText(ImVec2(lx + scaled(12.0f), ty), colText, lbl);
+            } else if (row.kind == RowTrack) {
+                const SeqTrack& tr = s.tracks[ti];
+                dl->AddCircleFilled(ImVec2(lx + scaled(4.0f), y + laneH * 0.5f), scaled(3.5f),
+                                    ImGui::GetColorU32(tintOf(tr.target)));
+                // closed: the animated channels as a dim summary
+                std::string chs;
+                if (!seqOpenRows_.count(openKey(tr, -1)))
+                    for (int c = 0; c < 5; ++c)
+                        if (seqTrackChannels(tr) & kChannels[c].bits)
+                            chs += std::string(chs.empty() ? "" : " ") + kChannels[c].name[0];
+                const float chW = ImGui::CalcTextSize(chs.c_str()).x;
+                dl->PushClipRect(ImVec2(lx, y), ImVec2(valueRight - chW - scaled(4.0f), y + laneH), true);
+                {
+                    ui::FontScope bold(ui::boldFont());
+                    dl->AddText(ImVec2(lx + scaled(12.0f), ty), colText, tr.target.empty() ? "<no object>" : tr.target.c_str());
+                }
+                dl->PopClipRect();
+                dl->AddText(ImVec2(valueRight - chW, ty), colDim, chs.c_str());
+            } else {
+                const SeqTrack& tr = s.tracks[ti];
+                const SceneObject* po = posedOf(tr.target);
+                bool keyed = false;
+                for (const SeqObjectKey& k : tr.keys) keyed |= (k.mask & row.bits) != 0;
+                char val[32] = "";
+                std::string name;
+                ImU32 nameCol = colText;
+                if (row.kind == RowAxis) {
+                    name = kAxisNames[row.axis];
+                    const ImVec4 axc[] = {sem.axisX, sem.axisY, sem.axisZ};
+                    nameCol = ImGui::GetColorU32(keyed ? axc[row.axis] : sem.textDim);
+                    if (po) {
+                        const float* v = row.ch == 0 ? po->position : row.ch == 1 ? po->rotation : po->scale;
+                        std::snprintf(val, sizeof(val), row.ch == 1 ? "%.1f\xc2\xb0" : "%.2f", v[row.axis]);
+                    }
+                } else {
+                    name = kChannels[row.ch].name;
+                    if (row.ch == 3 && po)
+                        std::snprintf(val, sizeof(val), "#%02X%02X%02X", (int)(ImSaturate(po->color[0]) * 255.0f + 0.5f),
+                                      (int)(ImSaturate(po->color[1]) * 255.0f + 0.5f),
+                                      (int)(ImSaturate(po->color[2]) * 255.0f + 0.5f));
+                    else if (kChannels[row.ch].axes == 3 && !seqOpenRows_.count(openKey(tr, row.ch))) {
+                        // closed: which axes have keys at all
+                        std::string ax;
+                        for (int a = 0; a < 3; ++a) {
+                            bool any = false;
+                            for (const SeqObjectKey& k : tr.keys) any |= (k.mask & (1u << (row.ch * 3 + a))) != 0;
+                            if (any) ax += kAxisNames[a];
+                        }
+                        std::snprintf(val, sizeof(val), "%s", ax.c_str());
+                    }
+                }
+                if (!keyed) name += "  not keyed";
+                dl->AddText(ImVec2(lx + scaled(2.0f), ty), nameCol, name.c_str());
+                if (val[0]) {
+                    ui::FontScope mono(ui::monoFont());
+                    const float vw = ImGui::CalcTextSize(val).x;
+                    dl->AddText(ImVec2(valueRight - vw, ty), colDim, val);
+                }
+            }
+            if (chanRow && ImGui::BeginPopup("##chanctx")) {
+                SeqTrack& tr = s.tracks[ti];
+                const std::string scope = scopeName(row.bits);
+                ImGui::TextDisabled("%s \xc2\xb7 %s", tr.target.c_str(), scope.c_str());
+                ImGui::Separator();
+                if (ImGui::MenuItem("Key at playhead")) {
+                    const int ki = cutsceneSnapshotObjectKey(tr, seqPlayhead_, row.bits);
+                    if (ki >= 0) selectRowKey(ti, ki, row.bits);
+                    changed = true;
+                }
+                bool any = false;
+                for (const SeqObjectKey& k : tr.keys) any |= (k.mask & row.bits) != 0;
+                const std::string clearAll = "Delete every " + scope + " key";
+                if (ImGui::MenuItem(clearAll.c_str(), nullptr, false, any)) {
+                    for (int i = (int)tr.keys.size() - 1; i >= 0; --i) seqClearKey(tr, i, row.bits);
+                    selectedSeqKey_ = -1;
+                    changed = true;
+                }
+                if (row.kind == RowChannel) {
+                    const std::string stop = std::string("Stop animating ") + kChannels[row.ch].name;
+                    if (ImGui::MenuItem(stop.c_str())) {
+                        channelFlag(tr, row.ch) = false;
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("The keys stay; the object keeps its own %s.", kChannels[row.ch].name);
+                }
+                ImGui::EndPopup();
+            }
+            if (ImGui::BeginPopup("##trackctx")) {
+                if (ti < 0) {
+                    ImGui::TextDisabled("Camera track");
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Add shot @ playhead (active camera)")) {
+                        if (snapshotCameraKey(seqPlayhead_)) changed = true;
+                    }
+                    if (ImGui::MenuItem("Clear all shots", nullptr, false, !s.cameraKeys.empty())) {
+                        s.cameraKeys.clear();
+                        selectedSeqKey_ = -1;
+                        changed = true;
+                    }
+                    if (ImGui::MenuItem("Import take...")) beginTakeImport();
+                } else {
+                    SeqTrack& tr = s.tracks[ti];
+                    ImGui::SetNextItemWidth(scaled(160.0f));
+                    if (ImGui::BeginCombo("Object", tr.target.empty() ? "<pick>" : tr.target.c_str())) {
+                        for (const SceneObject& o : project_.objects())
+                            if (ImGui::Selectable(o.name.c_str(), o.name == tr.target)) {
+                                tr.target = o.name;
+                                changed = true;
+                            }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::TextDisabled("Animated channels:");
+                    if (ImGui::Checkbox("Position", &tr.animPos)) changed = true;
+                    if (ImGui::Checkbox("Rotation", &tr.animRot)) changed = true;
+                    if (ImGui::Checkbox("Scale", &tr.animScale)) changed = true;
+                    if (ImGui::Checkbox("Color", &tr.animColor)) changed = true;
+                    if (ImGui::Checkbox("Visibility", &tr.animVis)) changed = true;
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Snapshot key @ playhead")) {
+                        if (snapshotObjectKey(tr, seqPlayhead_)) changed = true;
+                    }
+                    if (ImGui::MenuItem("Remove track")) deleteTrack = ti;
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopID();
+        }
+        // + Object track, under the last lane in the label column
+        ImGui::SetCursorScreenPos(ImVec2(labelX + scaled(6.0f), laneY0 + laneCount * laneH + scaled(4.0f)));
+        if (ui::GhostButton("+ Object track")) ImGui::OpenPopup("##addtrack");
+        if (ImGui::BeginPopup("##addtrack")) {
+            auto hasTrack = [&](const std::string& name) {
+                for (const SeqTrack& tr : s.tracks)
+                    if (tr.target == name) return true;
+                return false;
+            };
+            // one track per object; a fresh track gets a starting key at the
+            // playhead from the object's current pose, so it animates at once
+            auto addTrackFor = [&](const std::string& name) {
+                SeqTrack tr;
+                tr.target = name;
+                cutsceneSnapshotObjectKey(tr, seqPlayhead_);
+                s.tracks.push_back(std::move(tr));
+                selectedSeqTrack_ = (int)s.tracks.size() - 1;
+                selectedSeqKey_ = -1;
+                changed = true;
+            };
+            int freshSelected = 0;
+            for (int sel : selection_)
+                if (sel >= 0 && sel < (int)project_.objects().size() && !hasTrack(project_.objects()[sel].name))
+                    ++freshSelected;
+            char selLabel[48];
+            std::snprintf(selLabel, sizeof(selLabel), "Add selected (%d)", freshSelected);
+            if (ImGui::MenuItem(selLabel, nullptr, false, freshSelected > 0)) {
+                for (int sel : selection_)
+                    if (sel >= 0 && sel < (int)project_.objects().size() &&
+                        !hasTrack(project_.objects()[sel].name))
+                        addTrackFor(project_.objects()[sel].name);
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("One track per selected object (objects that\n"
+                                  "already have a track are skipped).");
+            ImGui::Separator();
+            for (const SceneObject& o : project_.objects()) {
+                const bool tracked = hasTrack(o.name);
+                if (ImGui::MenuItem(o.name.c_str(), tracked ? "tracked" : nullptr, false, !tracked))
+                    addTrackFor(o.name);
+            }
+            if (project_.objects().empty()) ImGui::TextDisabled("No objects in this scene.");
+            ImGui::EndPopup();
+        }
+        ImGui::PopClipRect();
+
+        // the pinned ruler: ticks + labels over a band of its own, the
+        // playhead's pill on it; click/drag scrubs the playhead
+        {
+            const float rx0 = labelX + labelW;
+            dl->AddRectFilled(ImVec2(labelX, rulerY), ImVec2(winMax.x, rulerY + rulerH),
+                              ImGui::GetColorU32(ImGuiCol_WindowBg));
+            dl->AddLine(ImVec2(labelX, rulerY + rulerH), ImVec2(winMax.x, rulerY + rulerH), colGrid);
+            dl->AddLine(ImVec2(rx0, rulerY), ImVec2(rx0, rulerY + rulerH), colGrid);
+            ImGui::PushClipRect(ImVec2(rx0, rulerY), ImVec2(winMax.x, rulerY + rulerH), true);
+            ImGui::SetCursorScreenPos(ImVec2(x0, rulerY));
+            ImGui::InvisibleButton("Timeline ruler", ImVec2(timeW, rulerH));
+            if (ImGui::IsItemActive()) {
+                seqPlayhead_ = timeAtMouse();
+                seqPlaying_ = false;
+            }
+            for (float t = 0.0f; t <= s.duration + 1e-4f; t += minor) {
+                const float x = xAt(t);
+                const bool major = std::fabs(std::fmod(t + 1e-4f, step)) < 2e-3f;
+                dl->AddLine(ImVec2(x, rulerY + (major ? scaled(14.0f) : scaled(18.0f))), ImVec2(x, rulerY + rulerH),
+                            colGrid);
+                if (major) {
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "%g s", t);
+                    dl->AddText(ImVec2(x + scaled(3.0f), rulerY + scaled(2.0f)), colDim, buf);
+                }
+            }
+            const float x = xAt(seqPlayhead_);
+            dl->AddLine(ImVec2(x, rulerY + scaled(4.0f)), ImVec2(x, rulerY + rulerH), colPlayhead, 1.5f);
+            char buf[16];
+            std::snprintf(buf, sizeof(buf), "%.2f", seqPlayhead_);
+            ui::FontScope mono(ui::monoFont());
+            const ImVec2 ts = ImGui::CalcTextSize(buf);
+            const ImVec2 a(x - ts.x * 0.5f - scaled(4.0f), rulerY + scaled(1.0f));
+            dl->AddRectFilled(a, ImVec2(a.x + ts.x + scaled(8.0f), a.y + ts.y + scaled(2.0f)), colPlayhead,
+                              scaled(3.0f));
+            dl->AddText(ImVec2(a.x + scaled(4.0f), a.y + scaled(1.0f)), ImGui::GetColorU32(sem.ground), buf);
+            ImGui::PopClipRect();
+        }
+    }
+    ImGui::EndChild();
+
+    if (deleteTrack >= 0) {
+        s.tracks.erase(s.tracks.begin() + deleteTrack);
+        if (selectedSeqTrack_ == deleteTrack) selectedSeqTrack_ = -1, selectedSeqKey_ = -1;
+        seqDragTrack_ = -1;
+        changed = true;
+    }
+    ImGui::EndChild();  // ##seq_main
+    ImGui::SameLine(0.0f, 0.0f);
+    {
+        float mw = mainW;
+        ui::VSplitter("##seq_split_side", &mw, scaled(240.0f), scaled(260.0f), bodyH);
+        seqInspW_ += mainW - mw;
+    }
+
+    // --- side column: the shot (foldable) over the inspector --------------------
+    ImGui::BeginChild("##seq_side", ImVec2(0, 0));
+    {
+        {
+            ImGui::AlignTextToFramePadding();
+            {
+                ui::FontScope bold(ui::boldFont());
+                ImGui::TextUnformatted("Shot");
+            }
+            ImGui::SameLine(0.0f, fs * 0.4f);
+            ImGui::TextDisabled("at %.2f s", seqPlayhead_);
+            const float fw = ImGui::GetFrameHeight();
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - fw);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            if (ImGui::InvisibleButton(seqShotFolded_ ? "Show shot" : "Fold shot", ImVec2(fw, fw)))
+                seqShotFolded_ = !seqShotFolded_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip(seqShotFolded_ ? "Show the shot preview" : "Fold the shot preview away\n(more room for the inspector)");
+            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImU32 ink = ImGui::GetColorU32(mixc(sem.textDim, sem.text, t));
+            const ImVec2 c(p.x + fw * 0.5f, p.y + fw * 0.5f);
+            const float a = fw * 0.18f;
+            if (seqShotFolded_)
+                dl->AddTriangleFilled(ImVec2(c.x - a, c.y - a * 0.5f), ImVec2(c.x + a, c.y - a * 0.5f),
+                                      ImVec2(c.x, c.y + a * 0.7f), ink);
+            else
+                dl->AddTriangleFilled(ImVec2(c.x - a, c.y + a * 0.5f), ImVec2(c.x + a, c.y + a * 0.5f),
+                                      ImVec2(c.x, c.y - a * 0.7f), ink);
+        }
+        if (!seqShotFolded_) {
+            const float aspect = ps2ViewportOutput().tvAspect > 0.1f ? ps2ViewportOutput().tvAspect : 4.0f / 3.0f;
+            const float heroH = ImMin(ImGui::GetContentRegionAvail().x / aspect + ImGui::GetFrameHeightWithSpacing() + fs * 1.4f,
+                                      ImGui::GetContentRegionAvail().y * 0.55f);
+            ImGui::BeginChild("##seq_hero", ImVec2(0, heroH));
+            {
             // --- the shot at the playhead ---------------------------------------
             const ImVec2 avail = ImGui::GetContentRegionAvail();
             const float rowH = ImGui::GetFrameHeightWithSpacing();
@@ -1799,13 +2819,10 @@ void App::drawCutsceneWindow() {
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextDisabled("%s", summary.c_str());
             }
-        }
-        ImGui::EndChild();
-        ImGui::SameLine(0.0f, 0.0f);
-        {
-            float hw = heroW;
-            ui::VSplitter("##seq_split_insp", &hw, scaled(160.0f), scaled(240.0f), seqTopH_);
-            seqInspW_ += heroW - hw;
+            }
+            ImGui::EndChild();
+        } else {
+            cutscenePosedObjects();  // keeps seqPosed_ and the shot current while folded
         }
         ImGui::BeginChild("##seq_insp", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding);
         {
@@ -2087,57 +3104,90 @@ void App::drawCutsceneWindow() {
                     }
                 } else if (objSel) {
                     SeqTrack& tr = s.tracks[selectedSeqTrack_];
-                    SeqObjectKey& k = tr.keys[selectedSeqKey_];
+                    // what the key was picked by: the whole key, or the
+                    // components of the row it was clicked on
+                    unsigned bits = selectedSeqBits_ & tr.keys[selectedSeqKey_].mask;
+                    if (!bits) bits = tr.keys[selectedSeqKey_].mask;
+                    const bool part = bits != tr.keys[selectedSeqKey_].mask;
+                    const std::string scope = scopeName(bits);
+                    const bool pose = bits == kSeqChAll;  // a whole-pose key (every older key)
                     {
                         ui::FontScope bold(ui::boldFont());
-                        ImGui::Text("%s \xc2\xb7 key at %.2f s", tr.target.empty() ? "?" : tr.target.c_str(), k.time);
+                        ImGui::Text("%s \xc2\xb7 %s", tr.target.empty() ? "?" : tr.target.c_str(),
+                                    pose ? "key" : scope.c_str());
                     }
-                    ImGui::TextDisabled("key %d of %d", selectedSeqKey_ + 1, (int)tr.keys.size());
+                    int nth = 0, count = 0;
+                    for (int i = 0; i < (int)tr.keys.size(); ++i)
+                        if (tr.keys[i].mask & bits) {
+                            ++count;
+                            if (i <= selectedSeqKey_) nth = count;
+                        }
+                    ImGui::TextDisabled("key %d of %d%s", nth, count, pose ? "" : (" on " + scope).c_str());
+                    // the rest of the key, in the channels the track animates
+                    const unsigned rest = tr.keys[selectedSeqKey_].mask & ~bits & seqTrackChannels(tr);
+                    if (part && rest) ImGui::TextDisabled("Also keyed here: %s", scopeName(rest).c_str());
                     ImGui::Spacing();
                     ui::InspectorRows rows(scaled(80.0f), scaled(120.0f));
-                    if (ui::DragFloat("Time", &k.time, 0.02f, 0.0f, s.duration, "%.2f s")) seqPlayhead_ = k.time;
+                    // retiming part of a key moves those components only
+                    float tm = tr.keys[selectedSeqKey_].time;
+                    if (ui::DragFloat("Time", &tm, 0.02f, 0.0f, s.duration, "%.2f s")) {
+                        selectedSeqKey_ = seqSplitKey(tr, selectedSeqKey_, bits);
+                        tr.keys[selectedSeqKey_].time = tm;
+                        seqPlayhead_ = tm;
+                    }
                     if (ImGui::IsItemDeactivatedAfterEdit()) {
-                        const float t = k.time;
-                        sortObjKeys(tr);
-                        for (int i = 0; i < (int)tr.keys.size(); ++i)
-                            if (tr.keys[i].time == t) selectedSeqKey_ = i;
+                        selectedSeqKey_ = seqSettleKeys(tr, selectedSeqKey_);
                         changed = true;
                     }
+                    SeqObjectKey& k = tr.keys[selectedSeqKey_];
                     easingRow("Into next", k.easing, false);
-                    // pose fields for the channels this track animates
-                    if (tr.animPos) {
-                        ui::AxisDrag3("Position", k.position, 0.1f);
-                        changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    if (part && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("The easing belongs to the whole key at this time.");
+                    // the values this key sets, for the components it was picked by
+                    for (int ch = 0; ch < 3; ++ch) {
+                        const unsigned cb = bits & kChannels[ch].bits;
+                        if (!cb) continue;
+                        float* v = ch == 0 ? k.position : ch == 1 ? k.rotation : k.scale;
+                        if (cb == kChannels[ch].bits) {
+                            if (ch == 0) ui::AxisDrag3("Position", v, 0.1f);
+                            else if (ch == 1) ui::AxisDrag3("Rotation", v, 1.0f, -360.0f, 360.0f, "%.0f deg");
+                            else ui::AxisDrag3("Scale", v, 0.05f, 0.01f, 1000.0f);
+                            changed |= ImGui::IsItemDeactivatedAfterEdit();
+                            continue;
+                        }
+                        for (int a = 0; a < 3; ++a) {
+                            if (!(cb & (1u << (ch * 3 + a)))) continue;
+                            const std::string lbl = std::string(kChannels[ch].name) + " " + kAxisNames[a];
+                            if (ch == 0) ui::DragFloat(lbl.c_str(), &v[a], 0.1f, 0.0f, 0.0f, "%.3f");
+                            else if (ch == 1) ui::DragFloat(lbl.c_str(), &v[a], 1.0f, -360.0f, 360.0f, "%.1f deg");
+                            else ui::DragFloat(lbl.c_str(), &v[a], 0.05f, 0.01f, 1000.0f, "%.3f");
+                            changed |= ImGui::IsItemDeactivatedAfterEdit();
+                        }
                     }
-                    if (tr.animRot) {
-                        ui::AxisDrag3("Rotation", k.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
-                        changed |= ImGui::IsItemDeactivatedAfterEdit();
-                    }
-                    if (tr.animScale) {
-                        ui::AxisDrag3("Scale", k.scale, 0.05f, 0.01f, 1000.0f);
-                        changed |= ImGui::IsItemDeactivatedAfterEdit();
-                    }
-                    if (tr.animColor) {
+                    if (bits & kSeqChColor) {
                         ui::ColorHex("Color", k.color);
                         changed |= ImGui::IsItemDeactivatedAfterEdit();
                     }
-                    if (tr.animVis) {
+                    if (bits & kSeqChVis) {
                         if (ui::Switch("Visible (holds to the next key)", &k.visible)) changed = true;
                     }
-                    if (!tr.animPos && !tr.animRot && !tr.animScale && !tr.animColor && !tr.animVis)
-                        ImGui::TextDisabled("No channels on - turn one on below.");
                     ImGui::Spacing();
                     if (ui::GhostButton("Re-snapshot")) {
-                        if (snapshotObjectKey(tr, k.time)) changed = true;
+                        if (cutsceneSnapshotObjectKey(tr, k.time, bits) >= 0) changed = true;
                     }
                     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                        ImGui::SetTooltip("Replace this key with the object's current pose.");
+                        ImGui::SetTooltip("Set %s from the object's current pose.", part ? scope.c_str() : "this key");
                     ImGui::SameLine();
-                    if (ui::DangerButton("Delete key")) {
-                        tr.keys.erase(tr.keys.begin() + selectedSeqKey_);
+                    const std::string del = (part ? "Delete " + scope : std::string("Delete key")) + "###delkey";
+                    if (ui::DangerButton(del.c_str())) {
+                        seqClearKey(tr, selectedSeqKey_, bits);
                         selectedSeqKey_ = -1;
                         changed = true;
                     }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip(part ? "Removes %s from this key; the rest of it stays."
+                                               : "Removes the whole key (%s).",
+                                          scope.c_str());
                 }
                 if (trackSel) {
                     // The selected lane: what it animates.
@@ -2174,639 +3224,7 @@ void App::drawCutsceneWindow() {
         }
         ImGui::EndChild();
     }
-    ImGui::EndChild();
-    ui::HSplitter("##seq_split_tl", &seqTopH_, scaled(160.0f), scaled(140.0f) + transportH, bodyW);
-
-    // --- transport -----------------------------------------------------------------
-    {
-        const float h = ImGui::GetFrameHeight();
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        // rewind: a bar and a left triangle
-        {
-            const ImVec2 p = ImGui::GetCursorScreenPos();
-            if (ImGui::InvisibleButton("Rewind", ImVec2(h, h))) {
-                seqPlayhead_ = 0.0f;
-                seqPlaying_ = false;
-            }
-            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
-            if (t > 0.0f)
-                dl->AddRectFilled(p, ImVec2(p.x + h, p.y + h), ImGui::GetColorU32(withA(sem.surface, t)),
-                                  ImGui::GetStyle().FrameRounding);
-            const ImU32 ink = ImGui::GetColorU32(mixc(sem.textDim, sem.text, t));
-            const float c = h * 0.5f, s2 = h * 0.2f;
-            dl->AddRectFilled(ImVec2(p.x + c - s2 - 2.0f, p.y + c - s2), ImVec2(p.x + c - s2, p.y + c + s2), ink);
-            dl->AddTriangleFilled(ImVec2(p.x + c + s2, p.y + c - s2), ImVec2(p.x + c + s2, p.y + c + s2),
-                                  ImVec2(p.x + c - s2 + 1.0f, p.y + c), ink);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Back to 0");
-        }
-        ImGui::SameLine();
-        // play / pause: a filled round button
-        {
-            const ImVec2 p = ImGui::GetCursorScreenPos();
-            if (ImGui::InvisibleButton(seqPlaying_ ? "Pause###Play" : "Play###Play", ImVec2(h, h)))
-                seqPlaying_ = !seqPlaying_;
-            const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
-            const ImVec2 c(p.x + h * 0.5f, p.y + h * 0.5f);
-            dl->AddCircleFilled(c, h * 0.5f, ImGui::GetColorU32(mixc(sem.surface, sem.text, 0.08f + 0.1f * t)), 24);
-            const ImU32 ink = ImGui::GetColorU32(sem.text);
-            const float s2 = h * 0.18f;
-            if (seqPlaying_) {
-                dl->AddRectFilled(ImVec2(c.x - s2, c.y - s2), ImVec2(c.x - s2 * 0.3f, c.y + s2), ink);
-                dl->AddRectFilled(ImVec2(c.x + s2 * 0.3f, c.y - s2), ImVec2(c.x + s2, c.y + s2), ink);
-            } else {
-                dl->AddTriangleFilled(ImVec2(c.x - s2 * 0.7f, c.y - s2), ImVec2(c.x - s2 * 0.7f, c.y + s2),
-                                      ImVec2(c.x + s2 * 1.1f, c.y), ink);
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Play / pause (Space)");
-        }
-        ImGui::SameLine(0.0f, fs * 0.8f);
-        {
-            auto tc = [](float sec, char* out, size_t n) {
-                const int m = (int)(sec / 60.0f);
-                std::snprintf(out, n, "%d:%05.2f", m, sec - (float)m * 60.0f);
-            };
-            char a[24], b[24];
-            tc(seqPlayhead_, a, sizeof(a));
-            tc(s.duration, b, sizeof(b));
-            ui::FontScope mono(ui::monoFont());
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(a);
-            ImGui::SameLine(0.0f, fs * 0.3f);
-            ImGui::TextDisabled("/ %s", b);
-        }
-        ImGui::SameLine(0.0f, fs * 0.8f);
-        if (ui::FilterChip("Auto-key", seqAutoKey_)) seqAutoKey_ = !seqAutoKey_;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            ImGui::SetTooltip("Finishing a gizmo drag drops a keyframe at the\n"
-                              "playhead for every selected object that has a\n"
-                              "track in this sequence.");
-        ImGui::SameLine();
-        if (ui::FilterChip("Loop##transport", s.loop)) {
-            s.loop = !s.loop;
-            changed = true;
-        }
-        if (phoneRec_) {
-            ImGui::SameLine();
-            char rec[64];
-            std::snprintf(rec, sizeof(rec), "REC %.1f s \xc2\xb7 %d keys", (float)phoneTake_.duration(),
-                          phoneRecStats_.keyCount);
-            ui::Badge(rec, 2);
-        }
-        // right end: the hint and the zoom
-        const char* hint = "Double-click a lane to key \xc2\xb7 drag keys to retime";
-        const float zw = ImGui::CalcTextSize("-").x + ImGui::CalcTextSize("+").x +
-                         ImGui::GetStyle().FramePadding.x * 5.2f + ImGui::GetStyle().ItemSpacing.x;
-        const float hw = ImGui::CalcTextSize(hint).x + fs;
-        const float right = ImGui::GetWindowContentRegionMax().x;
-        ImGui::SameLine();
-        if (ImGui::GetCursorPosX() + hw + zw < right) {
-            ImGui::SetCursorPosX(right - hw - zw);
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextDisabled("%s", hint);
-            ImGui::SameLine();
-        } else if (ImGui::GetCursorPosX() < right - zw) {
-            ImGui::SetCursorPosX(right - zw);
-        }
-        if (ui::GhostButton("-##seqzoom")) seqZoom_ = ImMax(1.0f, seqZoom_ / 1.25f);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Zoom out (Ctrl + wheel)");
-        ImGui::SameLine();
-        if (ui::GhostButton("+##seqzoom")) seqZoom_ = ImMin(8.0f, seqZoom_ * 1.25f);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Zoom in (Ctrl + wheel)");
-    }
-
-    // --- the timeline --------------------------------------------------------------
-    // Lanes: the camera's shots as clips (when the camera track is on), the
-    // fades & bars as ramps, then one lane per object track with its keys as
-    // diamonds over a span bar. A click/drag-scrubbed ruler and the playhead
-    // run across all of them; the label column stays pinned while the lanes
-    // scroll horizontally.
-    const float laneH = scaled(28.0f), rulerH = scaled(24.0f), labelW = scaled(180.0f);
-    const int camLanes = s.cameraEnabled ? 1 : 0;
-    const int fadeLane = camLanes;      // lane index of "Fades & bars"
-    const int trackLane0 = camLanes + 1;
-    const int laneCount = trackLane0 + (int)s.tracks.size();
-    auto laneOf = [&](int ti) { return ti < 0 ? 0 : trackLane0 + ti; };  // -1 = camera lane
-    // sanity: a deleted/toggled lane can strand the key selection
-    if (selectedSeqTrack_ >= (int)s.tracks.size() || (selectedSeqTrack_ < 0 && !s.cameraEnabled))
-        selectedSeqKey_ = -1;
-
-    int deleteTrack = -1;
-    ImGui::BeginChild("##dopesheet", ImVec2(0, 0), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
-    {
-        // Ctrl + mouse wheel zooms the timeline (like the flow graph); a plain
-        // wheel keeps scrolling the dopesheet.
-        if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl && ImGui::GetIO().MouseWheel != 0.0f) {
-            seqZoom_ = ImClamp(seqZoom_ * ImPow(1.1f, ImGui::GetIO().MouseWheel), 1.0f, 8.0f);
-            ImGui::GetIO().MouseWheel = 0.0f;  // consume: don't also scroll
-        }
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 origin = ImGui::GetCursorScreenPos();  // content space
-        const float visibleW = ImGui::GetWindowSize().x;
-        float timeW = (visibleW - labelW - scaled(12.0f)) * seqZoom_;
-        if (timeW < scaled(160.0f)) timeW = scaled(160.0f);
-        const float pps = timeW / s.duration;  // pixels per second
-        const float x0 = origin.x + labelW + scaled(4.0f);
-        const float contentH = rulerH + laneCount * laneH;
-        const float addRowH = ImGui::GetFrameHeight() + ImGui::GetStyle().ScrollbarSize + scaled(10.0f);
-        ImGui::Dummy(ImVec2(labelW + timeW + scaled(12.0f), contentH + addRowH));
-        const float laneY0 = origin.y + rulerH;
-        const float labelX = ImGui::GetWindowPos().x;  // pinned label column x
-
-        const ImU32 colGrid = ImGui::GetColorU32(ImGuiCol_Border);
-        const ImU32 colText = ImGui::GetColorU32(sem.text);
-        const ImU32 colDim = ImGui::GetColorU32(sem.textDim);
-        const ImU32 colPlayhead = ImGui::GetColorU32(sem.danger);
-        auto timeAtMouse = [&]() {
-            float t = (ImGui::GetIO().MousePos.x - x0) / pps;
-            t = t < 0.0f ? 0.0f : (t > s.duration ? s.duration : t);
-            return std::round(t * 100.0f) / 100.0f;  // snap to 10 ms
-        };
-        auto xAt = [&](float t) { return x0 + t * pps; };
-
-        // lane backgrounds: hairlines, the camera lane a touch raised
-        for (int li = 0; li < laneCount; ++li) {
-            const float y = laneY0 + li * laneH;
-            if (li == 0 && camLanes)
-                dl->AddRectFilled(ImVec2(x0, y), ImVec2(x0 + timeW, y + laneH),
-                                  ImGui::GetColorU32(withA(sem.surface, 0.35f)));
-            dl->AddLine(ImVec2(labelX, y + laneH), ImVec2(x0 + timeW, y + laneH),
-                        ImGui::GetColorU32(withA(sem.border, 0.6f)));
-        }
-
-        // lane hit areas: double-click an empty spot = drop a key there.
-        // AllowOverlap so the clips and keys submitted on top still catch the
-        // mouse - without it the lane eats every click over it.
-        for (int li = 0; li < laneCount; ++li) {
-            if (li == fadeLane) continue;
-            const int ti = (camLanes && li == 0) ? -1 : li - trackLane0;
-            ImGui::PushID(100 + li);
-            ImGui::SetCursorScreenPos(ImVec2(x0, laneY0 + li * laneH));
-            ImGui::SetNextItemAllowOverlap();
-            ImGui::InvisibleButton("##lane", ImVec2(timeW, laneH));
-            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                const float t = timeAtMouse();
-                bool did = ti < 0 ? snapshotCameraKey(t) : snapshotObjectKey(s.tracks[ti], t);
-                if (did) {
-                    selectedSeqTrack_ = ti;
-                    selectedSeqKey_ = -1;  // select the dropped key below
-                    if (ti < 0) {
-                        for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
-                            if (s.cameraKeys[i].time == t) selectedSeqKey_ = i;
-                    } else {
-                        for (int i = 0; i < (int)s.tracks[ti].keys.size(); ++i)
-                            if (s.tracks[ti].keys[i].time == t) selectedSeqKey_ = i;
-                    }
-                    seqPlayhead_ = t;
-                    seqInspTab_ = 0;
-                    seqInspTabForce_ = true;
-                    changed = true;
-                } else if (ti < 0) {
-                    statusMessage_ = "Add a Camera entity first (+ Add object > Gameplay > Camera)";
-                }
-            }
-            ImGui::PopID();
-        }
-
-        // ruler: ticks + labels, click/drag scrubs the playhead
-        ImGui::SetCursorScreenPos(ImVec2(x0, origin.y));
-        ImGui::InvisibleButton("##ruler", ImVec2(timeW, rulerH));
-        if (ImGui::IsItemActive()) {
-            seqPlayhead_ = timeAtMouse();
-            seqPlaying_ = false;
-        }
-        {
-            static const float kSteps[] = {0.1f, 0.2f, 0.5f, 1.0f, 2.0f, 5.0f, 10.0f, 15.0f, 30.0f, 60.0f};
-            float step = 60.0f;
-            for (float c : kSteps)
-                if (c * pps >= scaled(56.0f)) {
-                    step = c;
-                    break;
-                }
-            const float minor = step / 5.0f;
-            for (float t = 0.0f; t <= s.duration + 1e-4f; t += minor) {
-                const float x = xAt(t);
-                const bool major = std::fabs(std::fmod(t + 1e-4f, step)) < 2e-3f;
-                dl->AddLine(ImVec2(x, origin.y + (major ? scaled(14.0f) : scaled(18.0f))),
-                            ImVec2(x, origin.y + rulerH), colGrid);
-                if (major) {
-                    char buf[16];
-                    std::snprintf(buf, sizeof(buf), "%g s", t);
-                    dl->AddText(ImVec2(x + scaled(3.0f), origin.y + scaled(2.0f)), colDim, buf);
-                    dl->AddLine(ImVec2(x, laneY0), ImVec2(x, laneY0 + laneCount * laneH),
-                                ImGui::GetColorU32(ImGuiCol_Border, 0.35f));
-                }
-            }
-        }
-
-        // One key's hit box: click selects, drag retimes, right-click opens
-        // easing/delete. Returns 0 untouched, 1 edited, 2 commit, 3 delete.
-        static const char* kEaseNames[] = {"Linear", "Smooth", "Step (hold)"};
-        auto keyHit = [&](int lane, int ki, float& time, int& easing, ImVec2 c, float r,
-                          bool& hovered) -> int {
-            int result = 0;
-            const float pad = scaled(4.0f);
-            ImGui::PushID((lane + 2) * 1000 + ki);
-            ImGui::SetCursorScreenPos(ImVec2(c.x - r - pad, c.y - r - pad));
-            ImGui::InvisibleButton("##key", ImVec2(2.0f * (r + pad), 2.0f * (r + pad)));
-            hovered = ImGui::IsItemHovered();
-            const bool dragging = ImGui::IsItemActive();
-            if (hovered || dragging) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
-            if (hovered && !dragging)
-                ImGui::SetTooltip("%.2f s - drag to retime,\nright-click for easing/delete", time);
-            if (ImGui::IsItemActivated()) {
-                selectedSeqTrack_ = lane;
-                selectedSeqKey_ = ki;
-                seqInspTab_ = 0;
-                seqInspTabForce_ = true;
-            }
-            if (dragging && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1.0f)) {
-                time = timeAtMouse();
-                seqPlayhead_ = time;
-                result = 1;
-            }
-            // sort + commit outside - only when it was dragged: a click that
-            // merely selects the key is not an edit
-            if (ImGui::IsItemDeactivated() && ImGui::GetIO().MouseDragMaxDistanceSqr[0] > 1.0f) result = 2;
-            if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) seqPlayhead_ = time;
-            ImGui::OpenPopupOnItemClick("##keyctx", ImGuiPopupFlags_MouseButtonRight);
-            if (ImGui::BeginPopup("##keyctx")) {
-                selectedSeqTrack_ = lane;
-                selectedSeqKey_ = ki;
-                ImGui::TextDisabled("Key @ %.2f s", time);
-                ImGui::Separator();
-                for (int e = 0; e < 3; ++e)
-                    if (ImGui::MenuItem(kEaseNames[e], nullptr, easing == e)) {
-                        easing = e;
-                        result = 2;
-                    }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Playhead here")) seqPlayhead_ = time;
-                if (ImGui::MenuItem("Delete key")) result = 3;
-                ImGui::EndPopup();
-            }
-            ImGui::PopID();
-            return result;
-        };
-
-        // --- camera lane: shots as clips ----------------------------------------
-        if (s.cameraEnabled) {
-            const float y0 = laneY0 + scaled(3.0f), y1 = laneY0 + laneH - scaled(3.0f);
-            const int n = (int)s.cameraKeys.size();
-            int del = -1, resort = -1;
-            for (int ki = 0; ki < n; ++ki) {
-                SeqCameraKey& k = s.cameraKeys[ki];
-                const float tEnd = ki + 1 < n ? s.cameraKeys[ki + 1].time : s.duration;
-                const float cx0 = xAt(k.time), cx1 = ImMax(cx0 + scaled(4.0f), xAt(tEnd) - scaled(2.0f));
-                const std::string name = k.camera.empty() ? std::string("free shot") : k.camera;
-                const ImVec4 tint = tintOf(name);
-                const bool sel = selectedSeqTrack_ == -1 && selectedSeqKey_ == ki;
-                // the clip body: click selects the shot, double-click parks the
-                // playhead on it
-                ImGui::PushID(5000 + ki);
-                ImGui::SetCursorScreenPos(ImVec2(cx0, y0));
-                ImGui::SetNextItemAllowOverlap();
-                ImGui::InvisibleButton("##clip", ImVec2(ImMax(1.0f, cx1 - cx0), y1 - y0));
-                if (ImGui::IsItemClicked()) {
-                    selectedSeqTrack_ = -1;
-                    selectedSeqKey_ = ki;
-                    seqInspTab_ = 0;
-                    seqInspTabForce_ = true;
-                }
-                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                    seqPlayhead_ = k.time;
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                    ImGui::SetTooltip("%s \xc2\xb7 %.2f - %.2f s \xc2\xb7 %s into the next", name.c_str(), k.time,
-                                      tEnd, k.easing == 2 ? "cut" : k.easing == 1 ? "smooth" : "linear");
-                ImGui::PopID();
-                // fill, and a blend into the next shot's colour for Smooth/Linear
-                const float rr = scaled(4.0f);
-                const ImVec4 body = mixc(sem.surface, tint, 0.28f);
-                dl->AddRectFilled(ImVec2(cx0, y0), ImVec2(cx1, y1), ImGui::GetColorU32(body), rr);
-                if (ki + 1 < n && k.easing != 2) {
-                    const std::string nextName =
-                        s.cameraKeys[ki + 1].camera.empty() ? std::string("free shot") : s.cameraKeys[ki + 1].camera;
-                    const ImVec4 nb = mixc(sem.surface, tintOf(nextName), 0.28f);
-                    const float gx = cx0 + (cx1 - cx0) * (k.easing == 1 ? 0.55f : 0.0f);
-                    dl->AddRectFilledMultiColor(ImVec2(gx, y0 + 1.0f), ImVec2(cx1, y1 - 1.0f),
-                                                ImGui::GetColorU32(body), ImGui::GetColorU32(nb),
-                                                ImGui::GetColorU32(nb), ImGui::GetColorU32(body));
-                }
-                dl->AddRect(ImVec2(cx0, y0), ImVec2(cx1, y1),
-                            ImGui::GetColorU32(sel ? sem.text : withA(tint, 0.7f)), rr, 0, sel ? 2.0f : 1.0f);
-                dl->PushClipRect(ImVec2(cx0, y0), ImVec2(cx1 - scaled(2.0f), y1), true);
-                const float ty = (y0 + y1 - ImGui::GetTextLineHeight()) * 0.5f;
-                dl->AddCircleFilled(ImVec2(cx0 + scaled(9.0f), (y0 + y1) * 0.5f), scaled(3.5f),
-                                    ImGui::GetColorU32(tint));
-                dl->AddText(ImVec2(cx0 + scaled(17.0f), ty), colText, name.c_str());
-                dl->PopClipRect();
-                // the cut handle at the clip's left edge: drag to retime
-                bool hov = false;
-                const int res = keyHit(-1, ki, k.time, k.easing, ImVec2(cx0, (y0 + y1) * 0.5f), scaled(4.0f), hov);
-                if (hov) dl->AddRectFilled(ImVec2(cx0 - 1.5f, y0), ImVec2(cx0 + 1.5f, y1), colText);
-                if (res == 2) resort = ki;
-                if (res == 3) del = ki;
-            }
-            if (del >= 0) {
-                s.cameraKeys.erase(s.cameraKeys.begin() + del);
-                selectedSeqKey_ = -1;
-                changed = true;
-            } else if (resort >= 0) {
-                const float t = s.cameraKeys[resort].time;
-                sortCamKeys();
-                if (selectedSeqTrack_ == -1)
-                    for (int i = 0; i < (int)s.cameraKeys.size(); ++i)
-                        if (s.cameraKeys[i].time == t) {
-                            selectedSeqKey_ = i;
-                            break;
-                        }
-                changed = true;
-            }
-        }
-
-        // --- fades & bars: ramps at both ends -------------------------------------
-        {
-            const float y = laneY0 + fadeLane * laneH;
-            const float y0 = y + scaled(7.0f), y1 = y + laneH - scaled(7.0f);
-            ImGui::PushID("fades");
-            ImGui::SetCursorScreenPos(ImVec2(x0, y));
-            ImGui::InvisibleButton("##fadelane", ImVec2(timeW, laneH));
-            if (ImGui::IsItemClicked()) {
-                seqInspTab_ = 1;
-                seqInspTabForce_ = true;
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                ImGui::SetTooltip("Fades and bars are set on the Sequence tab - click to open it.");
-            ImGui::PopID();
-            const ImU32 black = IM_COL32(0, 0, 0, 255), clear = IM_COL32(0, 0, 0, 0);
-            const ImU32 barCol = ImGui::GetColorU32(withA(sem.textDim, 0.55f));
-            const ImU32 barClear = ImGui::GetColorU32(withA(sem.textDim, 0.0f));
-            const float ym = (y0 + y1) * 0.5f;
-            if (s.fadeIn > 0.0f)
-                dl->AddRectFilledMultiColor(ImVec2(xAt(0), y0), ImVec2(xAt(s.fadeIn), ym), black, clear, clear, black);
-            if (s.fadeOut > 0.0f)
-                dl->AddRectFilledMultiColor(ImVec2(xAt(s.duration - s.fadeOut), y0), ImVec2(xAt(s.duration), ym),
-                                            clear, black, black, clear);
-            if (s.bars != kSeqBarsNone) {
-                const float bi = ImMax(s.barsSlideIn, 0.01f), bo = ImMax(s.barsSlideOut, 0.01f);
-                dl->AddRectFilledMultiColor(ImVec2(xAt(0), ym + 1.0f), ImVec2(xAt(bi), y1), barClear, barCol, barCol,
-                                            barClear);
-                dl->AddRectFilled(ImVec2(xAt(bi), ym + 1.0f), ImVec2(xAt(s.duration - bo), y1),
-                                  ImGui::GetColorU32(withA(sem.textDim, 0.18f)));
-                dl->AddRectFilledMultiColor(ImVec2(xAt(s.duration - bo), ym + 1.0f), ImVec2(xAt(s.duration), y1),
-                                            barCol, barClear, barClear, barCol);
-            }
-            const bool bars = s.bars != kSeqBarsNone;
-            const float ty = y + (laneH - ImGui::GetTextLineHeight()) * 0.5f;
-            if (!bars && s.fadeIn <= 0.0f && s.fadeOut <= 0.0f) {
-                dl->AddText(ImVec2(x0 + scaled(8.0f), ty), colDim, "no fades or bars");
-            } else {
-                char a[64], b[64];
-                if (bars) {
-                    std::snprintf(a, sizeof(a), "fade %.1f s \xc2\xb7 bars %.1f s", s.fadeIn, s.barsSlideIn);
-                    std::snprintf(b, sizeof(b), "fade %.1f s \xc2\xb7 bars %.1f s", s.fadeOut, s.barsSlideOut);
-                } else {
-                    std::snprintf(a, sizeof(a), "fade %.1f s", s.fadeIn);
-                    std::snprintf(b, sizeof(b), "fade %.1f s", s.fadeOut);
-                }
-                const float aw = ImGui::CalcTextSize(a).x, bw = ImGui::CalcTextSize(b).x;
-                const float ax = xAt(ImMax(s.fadeIn, s.bars != kSeqBarsNone ? s.barsSlideIn : 0.0f)) + scaled(8.0f);
-                const float bx = xAt(s.duration - ImMax(s.fadeOut, s.bars != kSeqBarsNone ? s.barsSlideOut : 0.0f)) -
-                                 scaled(8.0f) - bw;
-                if (ax + aw < bx - scaled(12.0f)) {
-                    dl->AddText(ImVec2(ax, ty), colDim, a);
-                    dl->AddText(ImVec2(bx, ty), colDim, b);
-                }
-            }
-        }
-
-        // --- object lanes: span bar, visibility on-spans, key diamonds ------------
-        for (int ti = 0; ti < (int)s.tracks.size(); ++ti) {
-            SeqTrack& tr = s.tracks[ti];
-            const float y = laneY0 + laneOf(ti) * laneH;
-            const float cy = y + laneH * 0.5f;
-            const ImVec4 tint = tintOf(tr.target);
-            if (!tr.keys.empty()) {
-                dl->AddLine(ImVec2(xAt(tr.keys.front().time), cy), ImVec2(xAt(tr.keys.back().time), cy),
-                            ImGui::GetColorU32(withA(tint, 0.45f)), scaled(2.0f));
-                if (tr.animVis)
-                    for (size_t j = 0; j < tr.keys.size(); ++j) {
-                        if (!tr.keys[j].visible) continue;
-                        const float tEnd = j + 1 < tr.keys.size() ? tr.keys[j + 1].time : s.duration;
-                        dl->AddRectFilled(ImVec2(xAt(tr.keys[j].time), cy - scaled(5.0f)),
-                                          ImVec2(xAt(tEnd), cy + scaled(5.0f)),
-                                          ImGui::GetColorU32(withA(tint, 0.30f)), scaled(2.0f));
-                    }
-            }
-            int del = -1, resort = -1;
-            for (int ki = 0; ki < (int)tr.keys.size(); ++ki) {
-                const float kx = xAt(tr.keys[ki].time);
-                const float r = scaled(6.0f);
-                bool hov = false;
-                const int res = keyHit(ti, ki, tr.keys[ki].time, tr.keys[ki].easing, ImVec2(kx, cy), r, hov);
-                const bool sel = selectedSeqTrack_ == ti && selectedSeqKey_ == ki;
-                const ImVec2 pts[4] = {{kx, cy - r}, {kx + r, cy}, {kx, cy + r}, {kx - r, cy}};
-                dl->AddConvexPolyFilled(pts, 4, ImGui::GetColorU32(tint));
-                dl->AddPolyline(pts, 4, ImGui::GetColorU32(sel ? sem.text : withA(sem.ground, 0.9f)),
-                                ImDrawFlags_Closed, sel ? 2.0f : 1.0f);
-                if (hov && !sel) dl->AddCircle(ImVec2(kx, cy), r + scaled(2.5f), colText, 0, 1.0f);
-                if (res == 2) resort = ki;
-                if (res == 3) del = ki;
-            }
-            if (del >= 0) {
-                tr.keys.erase(tr.keys.begin() + del);
-                selectedSeqKey_ = -1;
-                changed = true;
-            } else if (resort >= 0) {
-                const float t = tr.keys[resort].time;
-                sortObjKeys(tr);
-                if (selectedSeqTrack_ == ti)
-                    for (int i = 0; i < (int)tr.keys.size(); ++i)
-                        if (tr.keys[i].time == t) {
-                            selectedSeqKey_ = i;
-                            break;
-                        }
-                changed = true;
-            }
-        }
-
-        // playhead: a line across ruler + lanes with its time on a pill
-        {
-            const float x = xAt(seqPlayhead_);
-            dl->AddLine(ImVec2(x, origin.y + scaled(4.0f)), ImVec2(x, laneY0 + laneCount * laneH), colPlayhead, 1.5f);
-            char buf[16];
-            std::snprintf(buf, sizeof(buf), "%.2f", seqPlayhead_);
-            ui::FontScope mono(ui::monoFont());
-            const ImVec2 ts = ImGui::CalcTextSize(buf);
-            const ImVec2 a(x - ts.x * 0.5f - scaled(4.0f), origin.y + scaled(1.0f));
-            dl->AddRectFilled(a, ImVec2(a.x + ts.x + scaled(8.0f), a.y + ts.y + scaled(2.0f)), colPlayhead,
-                              scaled(3.0f));
-            dl->AddText(ImVec2(a.x + scaled(4.0f), a.y + scaled(1.0f)), ImGui::GetColorU32(sem.ground), buf);
-        }
-
-        // pinned label column, drawn last so it occludes scrolled-under keys.
-        // Click a label = select the lane; right-click = track settings; + =
-        // key the playhead.
-        dl->AddRectFilled(ImVec2(labelX, origin.y), ImVec2(labelX + labelW, origin.y + contentH + addRowH),
-                          ImGui::GetColorU32(ImGuiCol_WindowBg));
-        dl->AddLine(ImVec2(labelX + labelW, origin.y), ImVec2(labelX + labelW, origin.y + contentH), colGrid);
-        for (int li = 0; li < laneCount; ++li) {
-            const int ti = (camLanes && li == 0) ? -1 : li == fadeLane ? -2 : li - trackLane0;
-            const float y = laneY0 + li * laneH;
-            const float ty = y + (laneH - ImGui::GetTextLineHeight()) * 0.5f;
-            ImGui::PushID(500 + li);
-            if (ti == -2) {
-                dl->AddCircleFilled(ImVec2(labelX + scaled(12.0f), y + laneH * 0.5f), scaled(3.5f), colDim);
-                dl->AddText(ImVec2(labelX + scaled(22.0f), ty), colDim, "Fades & bars");
-                ImGui::PopID();
-                continue;
-            }
-            // key-the-playhead button on the right edge of the label cell
-            ImGui::SetCursorScreenPos(ImVec2(labelX + labelW - scaled(26.0f), y + (laneH - ImGui::GetFrameHeight()) * 0.5f));
-            if (ui::GhostButton("+", scaled(22.0f))) {
-                if (ti < 0) {
-                    if (snapshotCameraKey(seqPlayhead_)) changed = true;
-                    else statusMessage_ = "Add a Camera entity first (+ Add object > Gameplay > Camera)";
-                } else if (snapshotObjectKey(s.tracks[ti], seqPlayhead_)) {
-                    changed = true;
-                }
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                ImGui::SetTooltip(ti < 0 ? "Add a shot at the playhead, filming from the\n"
-                                           "active camera (looked-through / selected /\n"
-                                           "first). Needs a Camera entity in the scene."
-                                         : "Snapshot the object's pose as a key\n"
-                                           "at the playhead.");
-            ImGui::SetCursorScreenPos(ImVec2(labelX, y));
-            ImGui::InvisibleButton("##label", ImVec2(labelW - scaled(28.0f), laneH));
-            if (ImGui::IsItemClicked()) {
-                selectedSeqTrack_ = ti;
-                selectedSeqKey_ = -1;
-                seqInspTab_ = 0;
-                seqInspTabForce_ = true;
-            }
-            ImGui::OpenPopupOnItemClick("##trackctx", ImGuiPopupFlags_MouseButtonRight);
-            const bool laneSel = selectedSeqTrack_ == ti && (ti >= 0 || selectedSeqKey_ < 0) && ti >= 0;
-            if (laneSel)
-                dl->AddRectFilled(ImVec2(labelX, y), ImVec2(labelX + labelW, y + laneH),
-                                  ImGui::GetColorU32(withA(sem.accent, 0.12f)));
-            if (ti < 0) {
-                dl->AddCircleFilled(ImVec2(labelX + scaled(12.0f), y + laneH * 0.5f), scaled(3.5f), colText);
-                char lbl[48];
-                std::snprintf(lbl, sizeof(lbl), "Camera \xc2\xb7 %d shot%s", (int)s.cameraKeys.size(),
-                              s.cameraKeys.size() == 1 ? "" : "s");
-                ui::FontScope bold(ui::boldFont());
-                dl->AddText(ImVec2(labelX + scaled(22.0f), ty), colText, lbl);
-            } else {
-                const SeqTrack& tr = s.tracks[ti];
-                dl->AddCircleFilled(ImVec2(labelX + scaled(12.0f), y + laneH * 0.5f), scaled(3.5f),
-                                    ImGui::GetColorU32(tintOf(tr.target)));
-                // the animated channels as a dim summary: only the ones on
-                std::string ch;
-                const char* chs[] = {"P", "R", "S", "C", "V"};
-                const bool on[] = {tr.animPos, tr.animRot, tr.animScale, tr.animColor, tr.animVis};
-                for (int c = 0; c < 5; ++c)
-                    if (on[c]) ch += std::string(ch.empty() ? "" : " ") + chs[c];
-                const float chW = ImGui::CalcTextSize(ch.c_str()).x;
-                const float chX = labelX + labelW - scaled(32.0f) - chW;
-                dl->PushClipRect(ImVec2(labelX, y), ImVec2(chX - scaled(4.0f), y + laneH), true);
-                dl->AddText(ImVec2(labelX + scaled(22.0f), ty), colText,
-                            tr.target.empty() ? "<no object>" : tr.target.c_str());
-                dl->PopClipRect();
-                dl->AddText(ImVec2(chX, ty), colDim, ch.c_str());
-            }
-            if (ImGui::BeginPopup("##trackctx")) {
-                if (ti < 0) {
-                    ImGui::TextDisabled("Camera track");
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Add shot @ playhead (active camera)")) {
-                        if (snapshotCameraKey(seqPlayhead_)) changed = true;
-                    }
-                    if (ImGui::MenuItem("Clear all shots", nullptr, false, !s.cameraKeys.empty())) {
-                        s.cameraKeys.clear();
-                        selectedSeqKey_ = -1;
-                        changed = true;
-                    }
-                    if (ImGui::MenuItem("Import take...")) beginTakeImport();
-                } else {
-                    SeqTrack& tr = s.tracks[ti];
-                    ImGui::SetNextItemWidth(scaled(160.0f));
-                    if (ImGui::BeginCombo("Object", tr.target.empty() ? "<pick>" : tr.target.c_str())) {
-                        for (const SceneObject& o : project_.objects())
-                            if (ImGui::Selectable(o.name.c_str(), o.name == tr.target)) {
-                                tr.target = o.name;
-                                changed = true;
-                            }
-                        ImGui::EndCombo();
-                    }
-                    ImGui::TextDisabled("Animated channels:");
-                    if (ImGui::Checkbox("Position", &tr.animPos)) changed = true;
-                    if (ImGui::Checkbox("Rotation", &tr.animRot)) changed = true;
-                    if (ImGui::Checkbox("Scale", &tr.animScale)) changed = true;
-                    if (ImGui::Checkbox("Color", &tr.animColor)) changed = true;
-                    if (ImGui::Checkbox("Visibility", &tr.animVis)) changed = true;
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Snapshot key @ playhead")) {
-                        if (snapshotObjectKey(tr, seqPlayhead_)) changed = true;
-                    }
-                    if (ImGui::MenuItem("Remove track")) deleteTrack = ti;
-                }
-                ImGui::EndPopup();
-            }
-            ImGui::PopID();
-        }
-
-        // + Object track, under the last lane in the label column
-        ImGui::SetCursorScreenPos(ImVec2(labelX + scaled(6.0f), laneY0 + laneCount * laneH + scaled(4.0f)));
-        if (ui::GhostButton("+ Object track")) ImGui::OpenPopup("##addtrack");
-        if (ImGui::BeginPopup("##addtrack")) {
-            auto hasTrack = [&](const std::string& name) {
-                for (const SeqTrack& tr : s.tracks)
-                    if (tr.target == name) return true;
-                return false;
-            };
-            // one track per object; a fresh track gets a starting key at the
-            // playhead from the object's current pose, so it animates at once
-            auto addTrackFor = [&](const std::string& name) {
-                SeqTrack tr;
-                tr.target = name;
-                cutsceneSnapshotObjectKey(tr, seqPlayhead_);
-                s.tracks.push_back(std::move(tr));
-                selectedSeqTrack_ = (int)s.tracks.size() - 1;
-                selectedSeqKey_ = -1;
-                changed = true;
-            };
-            int freshSelected = 0;
-            for (int sel : selection_)
-                if (sel >= 0 && sel < (int)project_.objects().size() && !hasTrack(project_.objects()[sel].name))
-                    ++freshSelected;
-            char selLabel[48];
-            std::snprintf(selLabel, sizeof(selLabel), "Add selected (%d)", freshSelected);
-            if (ImGui::MenuItem(selLabel, nullptr, false, freshSelected > 0)) {
-                for (int sel : selection_)
-                    if (sel >= 0 && sel < (int)project_.objects().size() &&
-                        !hasTrack(project_.objects()[sel].name))
-                        addTrackFor(project_.objects()[sel].name);
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("One track per selected object (objects that\n"
-                                  "already have a track are skipped).");
-            ImGui::Separator();
-            for (const SceneObject& o : project_.objects()) {
-                const bool tracked = hasTrack(o.name);
-                if (ImGui::MenuItem(o.name.c_str(), tracked ? "tracked" : nullptr, false, !tracked))
-                    addTrackFor(o.name);
-            }
-            if (project_.objects().empty()) ImGui::TextDisabled("No objects in this scene.");
-            ImGui::EndPopup();
-        }
-    }
-    ImGui::EndChild();
-
-    if (deleteTrack >= 0) {
-        s.tracks.erase(s.tracks.begin() + deleteTrack);
-        if (selectedSeqTrack_ == deleteTrack) selectedSeqTrack_ = -1, selectedSeqKey_ = -1;
-        changed = true;
-    }
+    ImGui::EndChild();  // ##seq_side
 
     // --- Import take modal ----------------------------------------------------
     // Maps a loaded phone take (beginTakeImport) into the scene and bakes it
