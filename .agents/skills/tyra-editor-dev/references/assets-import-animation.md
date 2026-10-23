@@ -50,4 +50,10 @@ Smart-project: normal-clustered charts (angle threshold, BFS over shared edges),
 
 ## Tree generator (`treegen.cpp/.hpp` ~830+130, docs/tree-generator.md)
 
+`leafStyle == 3` uses the embedded `tree_foliage.inc` tone/cutout stamp, authored
+by `tools/bake-tree-foliage.py` in Blender. Regenerate the stamp and source PNG
+together. Forest/hero presets append to the original six (indices remain stable).
+Only the new style samples anchors across the whole crown and along branches
+independently of ring count, preserving old recipes.
+
 EZ-Tree-inspired, host-only pure functions over `Params` (harness: link treegen.cpp + define `STB_IMAGE_WRITE_IMPLEMENTATION`; PROGRESS 104). `Params::height` is the tree's SIZE (`thickness`, `leafSize` are fractions of it - new world-space params follow that rule). `Params::crown`: 0 spread (branching recursion) or 1 conical (the trunk keeps its leader; `conicalWhorls()` hangs rings of boughs with a length PROFILE - a conifer is a different rule, not a tuning). `generate()` builds a recursive skeleton into tapered tubes + leaf quads; `bakeBarkTexture`/`bakeLeafTexture` bake tileable 128^2 textures (leaf card: **hard 0/255 alpha** with opaque colours dilated into the margin - the tRNS->CLUT path loses soft gradients and bilinear would fringe); `writeAssets()` emits `.obj` + `.mtl` + PNGs into `res/models/trees/`; `writeImpostor` bakes impostors. **Deterministic in `Params`** (each branch's RNG derives from (parent seed, child index), so a slider adjusts rather than reshuffles). The tree enters the scene through `addModelObject()` - nothing downstream knows trees exist; never add a scene-object type for it. UI: `App::drawTreeGeneratorWindow`/`rebuildTreePreview`/`addTreeToScene` (hud_ui.cpp) + `Viewport::renderTreePreview` on its OWN `treeFbo_`.

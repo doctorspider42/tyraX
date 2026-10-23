@@ -5,6 +5,11 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
+## 2.1.0 - Unreleased
+
+- Tree Generator adds Forest oak and Hero oak presets with Blender-baked broadleaf sprays for fuller, muted foliage. Existing tree recipes keep their original appearance.
+- deep-forest uses three fuller broadleaf oak variants and a textured Blender fieldstone (56 triangles near / 12 far). Includes editable assets and a reproducible physical-PS2 density/LOD benchmark; 7,000 trees and rocks hold 50 FPS on the sampled hardware route with oak LOD at 25 units and finer spatial culling.
+
 ## 2.0.0 - Unreleased
 
 ### Examples

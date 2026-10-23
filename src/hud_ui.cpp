@@ -3774,8 +3774,8 @@ void App::drawTreeGeneratorWindow() {
                                           p.leafSize * p.height);
                     dirty |= ui::SliderFloat("Aspect", &p.leafAspect, 0.5f, 2.5f, "%.2f");
                     dirty |= ui::SliderInt("On outer levels", &p.leafLevels, 1, 4);
-                    const char* kLeaf[] = {"Broadleaf", "Needles", "Single leaf"};
-                    dirty |= ui::Combo("Foliage", &p.leafStyle, kLeaf, 3);
+                    const char* kLeaf[] = {"Broadleaf", "Needles", "Single leaf", "Baked broadleaf"};
+                    dirty |= ui::Combo("Foliage", &p.leafStyle, kLeaf, 4);
                     break;
                 }
                 case 3: {
