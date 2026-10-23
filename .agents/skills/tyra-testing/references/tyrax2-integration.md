@@ -311,105 +311,10 @@ TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
-The neural upscaler trains and measures headlessly too
-(`docs/neural-upscaler.md`), which is the whole test layer that feature has:
-
-```
-TYRAX --blss-train [<projectDir>] [--all-shots] [--threads N] [-o out.net]
-TYRAX --blss-eval  [<projectDir>] [-i net] [--cv] [--features] [--dump <dir>]
-TYRAX --blss-emit  [-o inc/blss_net.gen.hpp]
-TYRAX --blss-coverage <projectDir> [--frames N] [--raster N] [--threads N]
-                                   [--out WxH] [--verbose]
-```
-
-**`--blss-coverage` is the SPEED half of "should this project have BLSS on"**,
-and the headless twin of the window's *Will the frame get faster?* button — same
-`blss::measureCoverage`, same verdict arithmetic, in-process, about a second. It
-prints per-shot and overall mean/p95 coverages with the **geometry/emitter
-split**, the derived verdict, and machine-readable `[blss] coverage …` lines.
-Use the project's own raster (the default) or the verb and the button answer
-slightly different questions. It also reads the project's **reconstruction mode**
-(`blssNetwork`) and prices the verdict for it — plain mode's EE bill is a
-seventh of the neural one, so the same coverage count lands against a **2.6**
-break-even instead of a 13.1 one — and prints the OTHER mode's line beside it,
-because the two verdicts routinely disagree and the switch is one setting away. It exists because the round that *measured* the
-speed model could not re-derive the estimator's own figure — it was a button in
-a GUI — and **a number nobody can re-run is a number nobody can check.** Its
-first run disagreed with the hardware anchor (72.63 against 58.7 blended-pass
-equivalents on `examples/upscaler-lab`), and that gap has since been **located**
-rather than closed: it is a constant scale error in the emitter term, not the
-unit and not the camera. Walked under the fixture's own parked gameplay camera -
-authored as a training vantage, which is what makes the check possible - it reads
-**78.99**, i.e. HIGHER than the six-move mean, and the counted-to-measured ratio
-holds at 1.35 / 1.26 / 1.27 / 1.36 with the haze stepped 6 / 4 / 2 / 0 banks. So
-read its output as an overdraw **index** that over-states its scale by about a
-third, not as milliseconds: docs/neural-upscaler.md, "The overdraw count is an
-INDEX", and docs/profiling.md, "Calibrating the speed model against hardware".
-
-**Eight flags measure a configuration no project can currently ask for, and each
-prints a line saying so** — `--tile N`, `--scale WxH` (the raster scale; the
-ENGINE is generic, it is `blssScale` that can only name 2x2 and 1x2),
-`--act-table N`, `--no-anim`, `--still` (freeze each shot at one camera and one
-pose so only the jitter phase advances — the period-2 metric's fixture, refused
-by `--blss-train` and by `--cv`), `--proxy-budget` (the fifth twin-contract
-rule, off on both sides), **`--emitter-proxy`** (the SIXTH twin-contract rule —
-give each enabled particle emitter a bag proxy; also off on both sides, the
-engine's half being `TYRA_BLSS_EMITTER_PROXY`. Mind what it does and does not
-change: it makes the six channels DESCRIBE the particles, and the corpus
-renderer still DRAWS none, so a PSNR from an `--emitter-proxy` run prices the
-description against a particle-free truth. Read `--features` and a console
-`BLSSFEAT` line through `--probe`, not the dB) and `--ignore-shot-plan` (do not
-read the project's
-training-shot plan — six automatic moves, takes on, an equal frame share, which
-is how a table taken before the plan existed stays runnable). A table of decibels
-whose configuration is not written down is a table nobody can reproduce, which is
-how this feature published five wrong numbers — and a **sixth**: the row that set
-the "fit the project you ship" rule had its ceiling measured at jitter ON and its
-margins at jitter OFF. The sampler is announced in both directions now.
-
-**Several positionals is a UNION corpus, and `bestiary` is a member.**
-`--blss-eval <a> <b> bestiary --cv --cv-groups` is **leave-one-PROJECT-out**: the
-held-out shot's whole project is removed from the training set, which is the only
-form of "can I ship one net" that means anything. Plain `--cv` holds out one shot
-and trains on eleven other moves of the same scene. See docs/neural-upscaler.md,
-"Can one net ship for every project?".
-
-**Verify a change to any parallel phase with `--threads`, not by reading the
-code.** `--threads N` (0 = every core, clamped to 32) bounds the corpus render,
-the oracle and `--blss-eval`'s per-method loop, and it is a wall-clock knob and
-nothing else: the same `--seed` must write a byte-identical `blss.net` **and a
-character-identical eval table** at any thread count. So the check is two
-runs and `md5sum` —
-
-```bash
-build/tyrax-editor --blss-train examples/procedural --frames 156 --epochs 400 \
-    --all-shots --threads 1 -o /tmp/t1.net
-build/tyrax-editor --blss-train examples/procedural --frames 156 --epochs 400 \
-    --all-shots            -o /tmp/auto.net
-md5sum /tmp/t1.net /tmp/auto.net    # must be identical
-```
-
-— and the stronger form, which is what actually protects the published numbers,
-is to build the commit *before* the change into its own worktree and check that
-its `blss.net` matches too. Every measured table in `docs/neural-upscaler.md`
-came off a seeded run, so a thread-dependent result would silently unmake all of
-them. On 6 cores that run is ~68 s at `--threads 1` and ~18 s at auto; use
-`--frames 78 --epochs 200` for a faster smoke check (still deterministic, just a
-different net). **All three verbs end with a `blss: timing` phase line** —
-`corpus X, oracle Y, fit Z` for `--blss-train`, `corpus X, eval Y` for
-`--blss-eval`, `corpus X, oracle Y, folds Z` for `--cv` — and the per-shot corpus
-lines report **cpu ms, not wall ms**: summing them will not give you the wall
-clock of a threaded run.
-
-`--blss-eval <projectDir>` is also the "should this project have the feature on
-at all" check: the **oracle** row is the scene's ceiling, and on some scenes it
-is +0.00 dB. **It needs no trained net for that** — with no `-i` and no
-`blss.net` to find it runs net-free, drops the `BLSS (trained)` row and still
-prints the verdict, exit 0. (So `-i` IS required when you are checking twin
-parity, which is a claim about that row.) Two lines are printed for a caller
-rather than a reader: `[blss] verdict headroom=… passes=… bilinear=… oracle=…
-native=…` from every `--blss-eval`, and `[blss] fold k of n` from `--cv` as each
-fold lands. Never quote a plain `--blss-eval`'s held-out column — use `--cv`.
+The upscaler (BLSS) has no headless layer of its own any more: the neural
+half and its `--blss-train` / `--blss-eval` / `--blss-emit` / `--blss-coverage`
+verbs were removed in 2.1.0 (docs/upscaler.md). Verify it by codegen greps,
+PCSX2 pictures and console frame times (vu-and-blss.md).
 
 VU1 microprogram work has its own layer, faster than everything below
 (`docs/vu-framework.md`):
@@ -1380,7 +1285,7 @@ Notes:
     DIRECTLY in a tab is seeded by the tab and not by the window the fallback
     hashes against. Wrapping the tab body in a `BeginChild` restores it (a child
     is a window and reseeds the stack) - which is what Project Preferences does,
-    verified: `click 'Project Preferences/Mode'` opens the BLSS mode combo four
+    verified: `click 'Project Preferences/Draw reduced'` opens the BLSS shape combo four
     levels in. A tab body with no child needs real labels on anything scripted.
   - **A tabbed dialog stops needing `wheel` and starts needing tab clicks.** The
     trickle trap below still applies to every other long window, but Project
@@ -1396,11 +1301,11 @@ Notes:
   button is `Close`; there is no `OK` and no `Cancel`, because every edit
   applies as it is made - so a scripted run asserts by reading the model back
   (`key ctrl+s` then grep the `.tyra`, or `--dump`) instead of pressing a
-  confirm button. Nothing is blocked behind it any more: `click 'Project
-  Preferences/Advanced...'` leaves it AND *Neural Upscaler (BLSS)* open and both
-  take clicks, which is the end-to-end check for that change. Two consequences.
-  A bare label is ambiguous with two windows up (`Use the upscaler` is in both -
-  qualify it), and the upscaler window opens ON TOP, so a `click` on a covered
+  confirm button. Nothing is blocked behind it any more: a Preferences button that raises another
+  window leaves both open and both take clicks (first checked with the
+  since-removed Neural Upscaler window). Two consequences.
+  A bare label is ambiguous with two windows up - qualify it with the window -
+  and the raised window opens ON TOP, so a `click` on a covered
   Preferences item lands on the window in front; assert covered items with
   `expect-checked`, which does not click. The terrain grid (*Width (units)*,
   *Depth (units)*, *Detail (max grid cells)*) is the one thing that does not
@@ -1460,9 +1365,9 @@ Notes:
   for a plain word - the hazard is invisible in the C++ that writes the string.
   And **the same label in two
   different windows is legal in ImGui and ambiguous to `find`**, which takes the
-  first match - a bare `click Mode` with both *Project Preferences* and the BLSS
-  window open pressed the wrong one and then failed on the option that never
-  appeared. Qualify as `'Project Preferences/Mode'`. The same rule catches
+  first match - a bare `click Mode` with both *Project Preferences* and the old
+  Neural Upscaler window open pressed the wrong one and then failed on the option that never
+  appeared. Qualify with the window (`'Project Preferences/<label>'`). The same rule catches
   `click Project`, which matches the Project PANEL'S DOCK TAB long before the menu
   bar; the menu is `'##MainMenuBar/Project'`.
 
@@ -1635,7 +1540,7 @@ Notes:
   **Adaptive BLSS needs a hardware decision gate.** PCSX2 can verify codegen,
   forced threshold transitions and the moving-picture gate, but its software
   rasterizer may never cross the real fill-bound threshold. On PS2, capture the
-  same parked pose once native and once with Plain + adaptive. Require the log
+  same parked pose once native and once with adaptive resolution on. Require the log
   to report `Adaptive resolution: REDUCED`, capture through `--capture-frame
   <projectDir>`, and compare HUD frame/scene milliseconds. Flat scene time with
   a shorter whole frame locates the gain in GS fill. Stop the host session
@@ -2376,6 +2281,8 @@ same leg is dropped rather than reported.
   bounding box back over the black bars.
 
 #### What it caught, and what it could not (2026-08-11)
+
+(Taken on the neural-era upscaler: jitter and the temporal pass have since been removed, docs/upscaler.md. The rig and its rules are current; the BLSS arm verdicts below are history.)
 
 **The acceptance test is retrospective**: a gate that cannot flag a defect we
 already understand is not a gate, and saying so is a better outcome than tuning

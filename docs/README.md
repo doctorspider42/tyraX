@@ -134,9 +134,12 @@ a Mac) finds any command, object or window by name.
   the HUD, and the Set Motion Blur node.
 - [Custom screen effects](custom-screen-effects.md) — your own full-screen post
   effects in `.screenfx` text files, no editor rebuild.
-- [The neural upscaler (BLSS)](neural-upscaler.md) — reduce the 3D raster and
-  reconstruct it in plain or neural mode; includes the measured break-even and
-  training workflow.
+- [The upscaler (BLSS)](upscaler.md) — draw part of the frame into a reduced GS
+  target and blow it back up with one bilinear pass, for fill-bound scenes
+  (smoke, haze, fire): *Particles only* (emitters at the reduced raster over a
+  full-resolution scene, combines with everything) or *Whole 3D scene*; the
+  adaptive switch, the Set Upscaler (BLSS) node / `ctx.upscaler`, VRAM cost and
+  why the old neural mode was removed.
 
 **Gameplay & logic**
 
@@ -388,8 +391,6 @@ Developer design docs (internals, not user guides):
   present that removes it.
 - [A binary format for static models (.tmdl) + static mesh LODs](static-model-format-plan.md) —
   the design behind the format; the user guide is [model-pipeline.md](model-pipeline.md).
-- [BLSS reconstruction math](blss-reconstruction.md) — the twin contract
-  between the upscaler's host trainer and its PS2 runtime, byte for byte.
 
 ## Object groups
 

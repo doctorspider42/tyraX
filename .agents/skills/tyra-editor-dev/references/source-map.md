@@ -6,7 +6,7 @@ Read when you need to find which file owns something, or before adding a file. L
 
 | File | ~Lines | What it is | Ref |
 |---|---|---|---|
-| `main.cpp` | 5.1k | Entry point: GUI by default, plus every headless CLI verb (`--new`, `--build [--run\|--run-ps2] [--rebuild]`, `--resave`, `--refresh-gen`, `--migrate`, `--dump`, `--list-nodes`, `--dump-graph`, `--apply-graph`, `--ai-graph`, `--add-ai-support`, `--chat-prompt`, `--search-docs`, `--import-model`, `--bake-*`, `--bake-status`, `--gi-gpu-check`, `--blss-*`, `--batch-report`, `--atlas-report`, `--audit-release`, `--pad`, `--replay`, `--ui-script`, `--profile-frame`, `--capture-frame`, `--debug-state`, `--vehicle-check`, `--vu-*`, `--dump-vucap`...). docs/ai-tools.md | tyra-testing |
+| `main.cpp` | 5.1k | Entry point: GUI by default, plus every headless CLI verb (`--new`, `--build [--run\|--run-ps2] [--rebuild]`, `--resave`, `--refresh-gen`, `--migrate`, `--dump`, `--list-nodes`, `--dump-graph`, `--apply-graph`, `--ai-graph`, `--add-ai-support`, `--chat-prompt`, `--search-docs`, `--import-model`, `--bake-*`, `--bake-status`, `--gi-gpu-check`, `--batch-report`, `--atlas-report`, `--audit-release`, `--pad`, `--replay`, `--ui-script`, `--profile-frame`, `--capture-frame`, `--debug-state`, `--vehicle-check`, `--vu-*`, `--dump-vucap`...). docs/ai-tools.md | tyra-testing |
 | `app.cpp` / `app.hpp` | 17.2k / 3.9k | ImGui shell; `app.hpp` declares the WHOLE `App` class | editor-ui-and-conventions |
 | `app_internal.hpp` | 300 | Helpers shared by >1 App TU | editor-ui-and-conventions |
 | `props_ui.cpp` | 3.7k | Properties inspector (sections for solid objects) | editor-ui-and-conventions |
@@ -29,7 +29,6 @@ Read when you need to find which file owns something, or before adding a file. L
 | `vu_ui.cpp` | 1.3k | Tools > VU Programs | vu-framework |
 | `modelimport_ui.cpp` | 940 | Import model window | assets-import-animation |
 | `update_ui.cpp` | 260 | Update check UI (`updateTick`) | build-platform-release |
-| `blss_window.cpp` | 4.5k | Neural Upscaler window + shared BLSS settings block | blss |
 | `droneui.cpp` | 1.9k | Drone Generator window | audio |
 | `drone_simple_ui.cpp` | 1.3k | Drone Generator, Simple view: moods, six sliders, Feeling, Over the track, In the game (writes through `dronegen::simple`) | audio |
 | `assetbrowser.cpp` | 2.2k | Asset Browser, `retargetAssetPath`, `rebuildAssetUsage` | assets-import-animation |
@@ -136,8 +135,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `aigen.cpp/.hpp` | 1.3k | AI flow-graph generation, backends | ai-features |
 | `aichat.cpp/.hpp` | 2.5k | AI Assistant brain | ai-features |
 | `aisupport.cpp/.hpp` | 160 | AI support file installer | ai-features |
-| `blss.cpp/.hpp`, `blsscorpus.cpp/.hpp`, `blssscene.cpp/.hpp` | 5.4k + 3.3k + 1.3k | Neural upscaler host half | blss |
-| `blss_ui.cpp/.hpp` | 2.3k | BLSS window parsers/arithmetic (no ImGui) | blss |
+| `blss_ui.cpp` | 0.6k | Upscaler (BLSS) settings block in Preferences, VRAM line, live mirror of the build interlock | blss |
 | `dronegen.cpp/.hpp` | 3.1k | Drone music synthesizer | audio |
 | `audiopreview.cpp/.hpp` | 230 | Editor audio output (miniaudio) | audio |
 | `vuir`, `vuasm`, `vusim`, `vugen` (.cpp/.hpp) | 7.8k | VU framework | vu-framework |

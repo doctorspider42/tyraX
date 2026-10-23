@@ -200,7 +200,7 @@ void RendererCoreEnvMap::end() {
   // not the display buffer unconditionally. This pass runs inside the
   // generated renderScene(), which BLSS brackets - the old restore cancelled
   // that redirect and silently drew the rest of the frame at full resolution
-  // (docs/neural-upscaler.md). RendererCoreGS::getRasterTarget() is the one
+  // (docs/upscaler.md). RendererCoreGS::getRasterTarget() is the one
   // place that knows which it is.
   qword_t* q = gs->emitRasterRestore(endPacket->base, true);
   packet2_update(endPacket, q);

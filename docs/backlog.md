@@ -129,8 +129,7 @@ driven on macOS only. Open:
     floating.
 - **Design check (1.173) - what is still not in the board's state**: Flow
   Graph live mode, Debugger with a real game, Session peers (needs a second
-  editor), Phone Camera live, Disc Layout populated (needs a PS2 build), the
-  Neural Upscaler answered state; the palette's design shows a "did" line on the
+  editor), Phone Camera live, Disc Layout populated (needs a PS2 build); the palette's design shows a "did" line on the
   Stopped-at card that needs fact events from a real game.
 - **Tool windows - what the redesign round left** (each tool's commit says why):
   - Flow Graph live mode, Debugger + Remote Pad on a real console, the update
@@ -170,9 +169,6 @@ numbers, one-ELF toggles for the frame):
   the function in PCSX2, not bit-exact at plane boundaries, and a `Plane*` ->
   structure-of-arrays API change through the packager (guide, "Measured, not
   built"). Reopen only with a console run that shows a larger gap.
-- **BLSS `runNet`**: 108 MACs a tile, 1.29 ms. Transposed `w1` gives four hidden
-  units per `vmadd` - but the host twin expects bit-identical results, and VU0
-  rounds toward zero; decide that contract first.
 - **Bbox merge constructors** (`core_bbox.cpp`) onto the existing `vmini`/`vmax`
   loop; **static-pipeline packet emission** (one float at a time through
   `packet2_add_float`) onto prebuilt qwords and `sq`.
@@ -958,9 +954,6 @@ flag, so this cannot be decided where the bag is built. It has to come from the
 bake, which DOES read the pixels: the natural shape is a per-part `opaque` bit
 written by `bakeStaticModels`/`vehbake` and read here, at which point the knob
 can default to 1 and the check becomes per-material rather than per-project.
-Note `blsscorpus.cpp` already has a `cutout` notion for the BLSS bestiary — it is
-the same question asked in a different place, and worth reading before inventing
-a second answer.
 
 Nothing in the Motor District needs it: its only two `shadowMode 3` objects are
 vehicles with opaque palette bakes, which is why the measurement was possible at
@@ -2556,9 +2549,9 @@ byte-identically before measuring the rebuild win.
 ### Preview BLSS in the editor viewport
 
 The viewport already renders at PS2 resolution and presents through a fragment
-shader. Add an honest preview of the selected BLSS mode and debug view; do not
-ship a visual approximation that disagrees with the console. See
-[neural upscaling](neural-upscaler.md).
+shader. Add an honest preview of the selected BLSS shape (*Whole 3D scene* /
+*Particles only*); do not ship a visual approximation that disagrees with the
+console. See [the upscaler](upscaler.md).
 
 ### Drag HUD images in the viewport
 
@@ -2573,13 +2566,40 @@ widescreen. Decide which non-menu elements preserve aspect and which pin to
 screen edges, then apply one coordinate model to the HUD, loading screens and
 credits. See [menu styles](menu-styles.md).
 
-### Finish the BLSS proxy budget twin
+### Shadow-volume count band at the reduced raster
 
-The engine-side proxy cap exists behind `TYRA_BLSS_PROXY_BUDGET` but stays off
-because the host corpus does not apply the identical rule. Implement the same
-whole-box projection, tile count and part stride on the host; enable both twins
-in one change and re-run parity plus performance measurements. See
-[BLSS reconstruction](blss-reconstruction.md).
+The torch's shadow-volume count band is fill: every volume face rasterises at
+full resolution. Draw it at the upscaler's reduced raster with the same
+depth-copy trick *Particles only* uses (scene z read as a PSMZ texture,
+point-sampled into the quarter-area z target), then blow the mask back up.
+**Measure the volume fill on hardware first** - PCSX2 under-reports GS fill
+~76x - and only build it if the band is a real share of a frame. See
+[the upscaler](upscaler.md).
+
+### Particles only: more blended layers in the reduced bracket
+
+*Particles only* reduces the emitters alone. Other blended, fill-heavy layers -
+light beams, coronas, glow shells - could draw inside the same
+`beginParticles`/`endParticles` bracket and share its two copies and one
+blend. Each needs the FBA mark to survive its own blend mode and to sit after
+the opaque scene in the main view. See [the upscaler](upscaler.md).
+
+### Particles only: keep the near-puff cull at the native threshold
+
+The billboard VU1 program drops a quad whose corner leaves the ±2048 raster
+window. At the reduced raster that happens half as far from the camera, so
+puffs between ~1 and ~2 m that the native frame drops are drawn when the
+particles are reduced - a camera inside a haze bank turns grey
+(`examples/upscaler-lab`'s tour hold, PCSX2 2026-10-23; inferred from the
+window arithmetic, not yet proven by a probe). Either cull such quads on the EE
+by their native screen size, or pass the raster scale to the program's window
+test. Then compare the tour hold native vs reduced again.
+
+### Set Frame Extrapolation does not continue its exec chain
+
+`SetUpscaler` had the same bug and got `branch(0, pad)` in its codegen
+(templates.cpp): a `Delay` wired after `Set Frame Extrapolation` never arms.
+Check and fix the same way.
 
 ### Attribute hardware pipeline stalls before further micro-optimizations
 
@@ -2737,25 +2757,17 @@ EE clipper (`templates.cpp`), in `vugen`/`vusim` and in `vucap`. Also unsettled:
 whether `PSMZ16` may pair with a `PSMCT32` frame buffer, which decides whether
 the two depths can be chosen independently at all. See [GS VRAM](gs-vram.md).
 
-### Render particle emitters in the BLSS corpus
-
-The corpus counts emitter coverage and can describe emitter proxies, but its
-training images still omit the particles themselves. Render the same billboard
-population, motion and blending as the runtime, then retrain and re-evaluate the
-affected example projects. See [neural upscaling](neural-upscaler.md).
-
 ### Refresh dynamic content on extrapolated frames
 
 Frame extrapolation carries camera motion between rendered world frames, while
 animations, moving objects and HUD updates remain at the world rate. Redraw the
-dynamic layers on the synthetic presentation without feeding that frame into
-BLSS history. See [frame extrapolation](frame-extrapolation.md).
+dynamic layers on the synthetic presentation. See [frame extrapolation](frame-extrapolation.md).
 
 ### Add a frame-extrapolation guard band
 
 Render beyond the visible picture so a camera warp reveals real pixels instead
-of stretching the edge. This changes raster size, frustum math and BLSS
-host/console assumptions, so treat it as a shared rendering design rather than
+of stretching the edge. This changes raster size, frustum math and the
+upscaler's reduced-raster assumptions, so treat it as a shared rendering design rather than
 a larger texture allocation.
 
 ### Grade palettized textures through their CLUT

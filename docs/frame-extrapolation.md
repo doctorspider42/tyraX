@@ -31,8 +31,8 @@ back into camera `from`, and presents it. It clears nothing (the grid covers
 every pixel) and runs no post fx (bloom, grain and grading are already in the
 source image; running them again would compound them frame after frame).
 
-The reprojection, per grid corner, is the neural upscaler's `buildReproj()` run
-forwards, with the per-tile `1/w` replaced by a single plane distance:
+The reprojection, per grid corner, with one plane distance standing in for
+depth:
 
 ```
 sX  = (2*px/outW - 1) * to.tanHalfFovX
@@ -49,25 +49,15 @@ v = (0.5 - dot(rel, from.up) / (wPrev * from.tanHalfFovY) * 0.5) * outH
 and that factor divides out of both ratios — the mapping is a homography, right
 at every scene depth, with no depth buffer anywhere.
 
-**Translation uses real per-tile depth when the neural upscaler is on.** BLSS
-already describes every 32-pixel tile with a mean `1/w` in order to fetch its own
-temporal history (`docs/blss-reconstruction.md` §3), and both grids are the same
-`kTile = 32` grid over the same raster, so the warp reads those numbers directly
-— measured on `examples/showcase`: grids matching at 16x14, 176 of 224 tiles
-covered, `1/w` spanning 0.015 to 10.0, i.e. depths from about 0.1 to 66 world
-units in one frame. Near ground then moves a lot, distant hills little, and the
-48 uncovered tiles — the sky — carry `1/w = 0` and do not move at all. That is
-parallax, and it needs no depth buffer read: the numbers were already being
-computed for something else.
-
 The arithmetic that makes it fall out cleanly is dividing rather than
 multiplying. `rel = dir + (to.pos − from.pos) * invW` is the same projection as
-before (the result is a ratio, so scaling `rel` changes nothing), but now
-`invW = 0` means "infinitely far" with no special case — which is exactly what
-an uncovered tile already yields.
+above (the result is a ratio, so scaling `rel` changes nothing), and
+`invW = 0` means "infinitely far" with no special case - which is what rotation
+only is.
 
-**Without that depth it falls back to a single plane**, `planeDistance`, which
-is 0 by default and therefore rotation only. A single plane makes every pixel move as if it were the same
+**Translation needs a depth, and the warp has no depth buffer to read.** It takes
+one from the ground plane (below) or, failing that, a single plane,
+`planeDistance`, which is 0 by default and therefore rotation only. A single plane makes every pixel move as if it were the same
 distance away, which scales the whole picture uniformly and reads as a **lens
 zoom** — worse than a frame that simply did not move. Walking forward is where
 it shows worst, not least: at the 12-unit distance this originally shipped with,
@@ -235,8 +225,9 @@ terrain `terrainHeightAtScene` answers a deep but finite void, so the eye height
 is enormous, `1/w` collapses to ~0 and the warp degrades to rotation only —
 which is the right answer when there is no floor.
 
-Precedence: the neural upscaler's real per-tile depth, then the ground plane,
-then the fixed distance, then rotation only.
+Precedence: the ground plane, then the fixed distance, then rotation only.
+(Until 2.1.0 the neural upscaler's per-tile `1/w` came first; it went with the
+network.)
 
 ## The fixed plane is no longer a control
 
@@ -330,149 +321,52 @@ included).
 
 **The rule: a full-screen pass may only write global GS state it genuinely
 needs, and "restoring" a register that nothing else writes is a guess wearing a
-restore's clothes.** `RendererCoreBlss::composite` does the same thing with the
-same two registers — it has to set them, since it really does blend — so
-whether ITS restore values are right is an open question, and untested.
+restore's clothes.** `RendererCoreBlss` really does blend, so it has to set the
+same two registers - and it puts them back to the drawing-environment values
+the engine writes at init, not to a guessed reset value.
 
-## The neural upscaler, and the two ways this feeds it its own output
+## The display buffers it shares
 
-BLSS samples the previous **presented** frame as its temporal history and
-reprojects it as if the scene had drawn it (`docs/blss-reconstruction.md` §6):
-it allocates no history buffer of its own, the other display buffer *is* the
-history. Extrapolation puts a frame in that buffer which the scene did not
-draw, and an accumulator handed its own displaced output compounds. There are
-two distinct failures here and both are guarded, in two different places,
-because they have different shapes.
+The warp samples `getPreviousRealFrameBuffer()`: `flipBuffers` records
+`lastRealBuffer` and skips it for a `synthetic` flip, so a second warp in a row
+can never warp its own output. Motion blur asks the same question for the same
+reason (docs/motion-blur.md). The upscaler reads no previous frame at all - it
+lost its temporal history with the neural reconstruction - so nothing in it can
+be fed a synthesised frame.
 
-**1. The history must never be a synthesised frame.** `flipBuffers` records
-`lastRealBuffer` and skips it for a `synthetic` flip, so both the warp and BLSS
-ask for `getPreviousRealFrameBuffer()`. The warp asks so that a second warp in
-a row cannot warp its own output; BLSS asks so that the reprojection it does
-describes a frame the scene really rendered. **Answer: with this in place,
-BLSS's history is never a warped frame** — not after one synthesised frame, not
-after a run of them.
+**No VRAM is at stake between the warp and the upscaler.** The warp allocates
+nothing (it samples a display buffer that already exists) and writes no depth:
+its state block sets `ZMSK = 1` and its restore goes through the one shared
+`emitRasterRestore`, which puts `zBuffer.mask` back - so the reduced z
+allocation BLSS makes is never written outside, in either direction.
 
-**2. With TWO display buffers, that answer degenerates into a different
-problem.** Extrapolation flips twice per loop, so `context` returns to where it
-started: every rendered frame is composited into the *same* buffer, and that
-buffer is the one that received the previous rendered frame. The correct
-question — "which buffer holds the last real frame" — then has the render
-target as its correct answer, and sampling a render target while writing it is
-feedback rather than history. With three buffers the three indices are distinct
-by construction and this cannot arise.
-
-`RendererCoreBlss::composite` therefore compares the two addresses and **drops
-the temporal pass** when they are equal, warning once in the game's log. It is
-the honest degradation: passes 1, 2, 4 and 5 read the low-res target and are
-unaffected, so the picture stays correct and only the temporal accumulation is
-lost. *Project > Preferences > Picture* says the same thing in the dialog when a
-project has both features on without room for a third buffer.
-
-Note this is usually latent rather than visible: the pass only runs at all when
-the network asks for a non-zero temporal weight somewhere, and the shipped
-default net asks for none on every project measured so far. A project that
-trained its own net is the one that would have seen it.
-
-**The two features share the expensive half of the reprojection and duplicate
-the cheap half, deliberately.** BLSS already computes a mean `1/w` per 32-pixel
-tile in order to fetch its own history, and the warp reads exactly those
-numbers (`getTileInvW`) — that is the depth estimation, the part that would
-otherwise need a buffer read. What is duplicated is the per-corner projection
-itself, ~289 corners of dot products, and it is duplicated because the two are
-answering different questions at different points in the frame: BLSS maps this
-frame's pixel back to the previous camera, the warp maps the last frame's pixel
-forward to an extrapolated one. Folding them into one helper would save no work
-— neither camera pair is available when the other runs — so the sharing stops
-where the sharing is worth something.
-
-**No VRAM is at stake between them.** The warp allocates nothing (it samples a
-display buffer that already exists) and writes no depth: its state block sets
-`ZMSK = 1` and its restore goes through the one shared `emitRasterRestore`,
-which puts `zBuffer.mask` back — so the reduced z allocation BLSS makes is never
-written outside, in either direction.
-
-## Why not with the upscaler
+## Why not with the upscaler's Whole 3D scene
 
 **The editor will not let you switch both on, and the build refuses the pair if
-one arrives anyway.** The dialog half came second and is the one a user meets:
-extrapolation and the upscaler sit in the same *Display ▸ Frame delivery* block,
-and whichever is already on greys the other out with the reason in line — the
-only one of the five upscaler clashes that can be prevented rather than warned
-about, because it is the only one that is setting against **setting** rather than
-setting against scene content. Only the *tick* is ever blocked, so a project that
-already has both (a hand-edited `.tyra`, an older editor, a *Set Frame
-Extrapolation* node) can always turn one off. See
-[The two settings exclude each other](neural-upscaler.md#incompatible-features).
+one arrives anyway** - for the *Whole 3D scene* shape only; *Particles only*
+combines with extrapolation like with everything else (docs/upscaler.md).
+Extrapolation and the upscaler sit in the same *Display ▸ Frame delivery*
+block, and whichever is already on greys the other out with the reason in line.
+Only the *tick* is ever blocked, so a project that already has both (a
+hand-edited `.tyra`, an older editor, a *Set Frame Extrapolation* node) can
+always turn one off.
 
-Underneath it the build still refuses (`blssClashes()`, `src/templates.cpp` — the
-fifth condition, beside depth of field, portals and split view, and per scene
-like the rest), because a `.tyra` can be hand-edited, an older editor never knew
-about the pair, and a flow node can turn extrapolation on at runtime. The refusal
-is one short `#error` in `src/gen/blss_interlock.gen.cpp` — a TU of its own, so
-it is printed once instead of once per includer of `scene_data.hpp`; the
-reasoning is [here](neural-upscaler.md#incompatible-features). This paragraph used to say the opposite: that the combination "is correct
-with three buffers and degrades in a named, logged way with two", so no `#error`
-was warranted. **That was wrong, and a user found it by walking around.**
+Underneath it the build still refuses (`blssClashes()`, `src/templates.cpp`,
+beside depth of field, portals and split view, and per scene like the rest),
+because a `.tyra` can be hand-edited and a flow node can turn extrapolation on
+at runtime. The refusal is one short `#error` in
+`src/gen/blss_interlock.gen.cpp` - a TU of its own, so it is printed once
+instead of once per includer of `scene_data.hpp`.
 
-Reported as *"turn on extrapolation and BLSS together and the screen completely
-falls apart"*, and then, decisively: *"it only breaks when the character
-moves."* Reproduced on that project (progressive, **three** display buffers,
-neural mode at 2×2, PCSX2 software renderer, player driven by `--pad`). Parked,
-all four arms are indistinguishable. Walking:
-
-| arm | parked | in motion |
-|---|---|---|
-| upscaler alone | clean | clean |
-| extrapolation alone | clean | clean |
-| **both** | clean | **frame tears into cells that disagree** |
-
-— a second displaced copy of near geometry, hard rectangular seams across the
-sky, object silhouettes pasted at 32-pixel granularity. Flat regions stay clean,
-which is why a still frame and a flat-shaded fixture both pass.
-
-**The mechanism is not a defect in either feature's bookkeeping.** Both rebuild
-a frame by reprojecting the previous one through the camera delta, and both are
-approximations whose error grows with that delta. Extrapolation presents twice
-per loop, so the world runs at **half** the field rate and the camera moves
-**twice as far between two RENDERED frames** — which is exactly the interval
-BLSS's temporal pass reprojects across. Turning extrapolation on therefore does
-not merely add a second approximation beside the first; it doubles the input to
-the first one as well. Measured on that project, BLSS's own per-corner
-reprojection offset (`buildReproj`, instrumented) peaks at **158 px of a 448 px
-raster with extrapolation off and 201 px with it on**, while the warp's grid is
-displaced by the same doubled delta at the same time.
-
-**Two tempting explanations were disproved by measurement — do not re-open
-them.**
-
-- *"The temporal pass is sampling a warped frame."* No. With three buffers the
-  rotation was **logged frame by frame** (`hist`/`target` VRAM addresses against
-  the three buffer bases): rendered frames cycle through all three, warped
-  frames take the one that is neither, and the history is always the previous
-  **rendered** frame with its content intact. The guard in §2 above is correct
-  and simply never fires here.
-- *"Raster state leaks across the warp."* No. A leaked `SCISSOR`/`XYOFFSET`/
-  `FRAME` is **static register state** and would wreck a parked frame too —
-  parked frames are clean, in every arm.
-
-**Refused rather than degraded, because no partial measure fixed it.** Dropping
-the temporal pass — the strongest single contributor — visibly reduced the
-tearing but left the warp's own grid coming apart under the same doubled delta.
-Either feature **alone** is clean, so the honest answer is that a project picks
-one. A build that refuses with a sentence is better than one that disintegrates
-after the player takes a step.
-
-The editor says the same thing live, at both points of choice: *Project >
-Preferences > Frame delivery* (the two controls now sit in one block) and
-*Scene > Scene Preferences > Neural upscaler*, which is the one place a
-per-scene override can create the refused pair without opening Preferences at
-all.
-
-**If you want both anyway**, the shape of a future fix is a temporal pass that
-is gated on its own reprojection magnitude rather than on the network's weight
-alone — but that is a change to the twin contract in
-`docs/blss-reconstruction.md` (the host oracle in `src/blss.cpp` models the same
-blend), so it is a retraining question and not a one-line clamp.
+It was found by a user walking around: *"it only breaks when the character
+moves."* Parked, every arm was clean; walking with both on, the frame tore into
+32-pixel cells that disagreed. The mechanism measured then was the old
+reconstruction's temporal pass reprojecting across twice the camera delta
+(extrapolation halves the world rate) while the warp's grid was displaced by the
+same doubled delta; dropping the temporal pass reduced the tearing but did not
+remove it. That pass no longer exists, but nobody has re-measured the pair on
+the current reduced raster, so the refusal stays until someone does - on a
+walking camera, not a parked one.
 
 ## Limits
 
@@ -499,7 +393,7 @@ blend), so it is a retraining question and not a one-line clamp.
   splitting the physical raster from the displayed one and widening the frustum
   to match — and `M4x4::perspective` takes the raster size as its scale, so the
   widened fov/aspect would break the "frustum planes are independent of the
-  raster scale" invariant the neural upscaler's host/console parity rests on.
+  raster scale" invariant the upscaler's reduced raster rests on.
   That is why it is not done here.
 - **A degenerate basis silently becomes a copy.** Corners whose `wPrev` falls
   behind the old eye fall back to the identity sample, so a caller passing a
@@ -520,10 +414,8 @@ blend), so it is a retraining question and not a one-line clamp.
 - `renderer/core/warp/renderer_core_warp.{hpp,cpp}` — the module: `WarpCamera`,
   the per-corner reprojection, the GS state block and the grid.
 - `RendererCore::presentWarpFrame` — draw + flip, no clear, no post fx.
-- `RendererCoreGS::getPreviousRealFrameBuffer` — the source, and the same call
-  the neural upscaler's temporal tap makes. `getPreviousFrameBuffer` (newest
-  finished, synthesised or not) is deliberately NOT what either of them uses;
-  see the section above.
-- `RendererCoreBlss::composite` — the second half of that interlock: it drops
-  the temporal pass outright when the history buffer turns out to BE this
-  frame's render target.
+- `RendererCoreGS::getPreviousRealFrameBuffer` — the source.
+  `getPreviousFrameBuffer` (newest finished, synthesised or not) is deliberately
+  NOT what the warp uses; see "The display buffers it shares".
+- `blssClashes()` in `src/templates.cpp` — the build-time refusal of the pair
+  with the upscaler's *Whole 3D scene* shape.

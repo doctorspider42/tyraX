@@ -37,7 +37,7 @@ Detail lives in `references/` — see the index at the bottom. `PROGRESS 123` / 
 | layer | what | cost |
 |---|---|---|
 | 0 | build the editor (`build.ps1` / `build.sh`) — also the warning-clean compile check of `src/` | seconds–1.5 min |
-| 1 | headless CLI: `--new`, `--refresh-gen`, bakes, `--dump`, `--vu-check`, `--vehicle-check`, `--blss-*` | seconds |
+| 1 | headless CLI: `--new`, `--refresh-gen`, bakes, `--dump`, `--vu-check`, `--vehicle-check` | seconds |
 | 2 | codegen inspection without a game build (`--new`/`--refresh-gen` + grep, host harnesses) | seconds |
 | 3 | native (or `--docker`) game build + PCSX2 boot, `--pad`, `--capture-frame`, logs | 5 s–5 min + boot |
 
@@ -67,7 +67,6 @@ Never benchmark a Dev build or verify a bake with it (bakes take minutes at -O1)
 | `--import-model <dir> <model> [--split none\|top\|mesh] [--pivot ..] [--keep f] [--max-texture px] [--animated] [--no-static] [--textures dir] [--name stem] [--dry-run]` | the importer, headless |
 | `--vu-check [engineDir]`, `--vu-list`, `--vu-emit`, `--vu-replay <dir>`, `--dump-vucap <dir> [--full] [--peek qw[,n]]` | VU1 host simulator / capture decode |
 | `--vehicle-check` | drive-model property tests, exit 0 = pass |
-| `--blss-train`, `--blss-eval`, `--blss-emit`, `--blss-coverage` | neural upscaler, headless |
 | `--chat-prompt [dir]`, `--search-docs "<q>" [page]` | AI Assistant prompt / doc search (exit 1 = no match) |
 | `--pad <dir> "<script>"` (or `--file`/`--stdin`) | drive the RUNNING game's pad, no focus |
 | `--ui-script [dir] "<script>"` (or `--file`/`--stdin`) | drive the EDITOR's UI by widget name, no focus |
@@ -136,7 +135,7 @@ idle shot → wait 3 s → idle shot (**control**, ~600 px status-bar noise) →
 | `editor-build.md` | editor build failures, deps/pinned SHAs, platform parity, build timing, native incremental-build regressions, scene-object iteration |
 | `cli-and-codegen.md` | `--new` fixtures, `--refresh-gen` vs `--build` (texbake!), GI / bake-status / model AO / pre-lit bakes, vehicle + procedural bakes in refresh, far vehicle tier, codegen inspection, format versioning & migrations |
 | `host-harnesses.md` | link lines for scratch `main()` harnesses: pure modules, `App` privates, offscreen GL viewport, menu styles + Classic pixel identity, collaboration sessions, log panels, Live Logic, editor audio |
-| `vu-and-blss.md` | `--vu-check` (falsify it), 2x2 skew rule, `--vu-replay`, VU1 packet capture (`arm-vucap.py`, `--dump-vucap --full/--peek`), BLSS train/eval/coverage, `--threads` determinism, interlock |
+| `vu-and-blss.md` | `--vu-check` (falsify it), 2x2 skew rule, `--vu-replay`, VU1 packet capture (`arm-vucap.py`, `--dump-vucap --full/--peek`), verifying the upscaler (codegen greps, frozen-camera `upscaler-lab` A/B), interlock |
 | `e2e-pcsx2.md` | Layer 3 pipeline, host prep, ADPCM loop byte, toolchain image, incremental-build evidence, PCSX2.ini/path traps, emulog vs log.txt, `--capture-frame` details, rendering-correctness rules, settle tests, savestates/GS dumps (`pcsx2-capture.py`), crashes |
 | `screenshots-and-pad.md` | `--pad` (and its Windows traps), synthetic input, `screenshot-window.ps1` (GDI vs PrintWindow, `-Watch`), `wayland-control.py` (shot/script/watch), `TYRAX_SHOT`, unattended input test, record/replay, two-player |
 | `ui-script.md` | `--ui-script` steps, targets, tabs/combos, Project Preferences, clipped items, trickle/wheel timing, quoting, node canvases |

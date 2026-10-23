@@ -6402,7 +6402,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Asset / Pick Prefab pool row's "lod" (a distant-version .obj), written only
 // when set; its switch distance is the row's previously unused v[3]. Missing =
 // no switch, as before. Additive; no migration.
-inline constexpr int kFormatVersion = 117;
+// v118 (docs/upscaler.md): the neural BLSS reconstruction is gone, so the
+// writer drops blssNetwork / blssSharpen / blssTemporal / blssJitter /
+// blssDebugView, a scene's upscaler "network" and the blssShots section (the
+// reader ignores them), and adds "blssParticles" (written only when true;
+// missing = the whole scene is reduced, as before). Bumped so an older editor
+// cannot read the missing blssNetwork as true. No migration.
+inline constexpr int kFormatVersion = 118;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

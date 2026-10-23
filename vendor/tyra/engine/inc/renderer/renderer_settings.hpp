@@ -218,7 +218,7 @@ class RendererSettings {
   }
 
   /**
-   * Modified by TyraX (BLSS neural upscaler, docs/neural-upscaler.md):
+   * Modified by TyraX (BLSS neural upscaler, docs/upscaler.md):
    * the 3D pass' RASTER scale divisor. 1,1 (the default) means the 3D scene
    * rasterises straight into the display buffer; 2,2 or 1,2 means it
    * rasterises into RendererCoreBlss' low-res target and the reconstruction

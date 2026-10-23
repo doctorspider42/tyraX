@@ -115,18 +115,15 @@ void TerrainGame::init() {
   // HOST at build time - this header is a stub until the build container has
   // done that, so a project builds the same with or without one.
   vuscript::install(stapip.core);
-  // The neural upscaler (docs/neural-upscaler.md): project-wide and
-  // baked - nothing at runtime turns it on or off. configure() sizes
-  // the low-res render target and the reconstruction knobs; in PLAIN
-  // mode (BLSS_NETWORK 0) it also switches off the proxy feed, the
-  // reprojection, the feature grid and the MLP, leaving the reduced
-  // raster and one bilinear composite pass.
-  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, BLSS_SHARPEN,
-                                       BLSS_TEMPORAL, BLSS_DEBUG_VIEW,
-                                       BLSS_JITTER, BLSS_NETWORK, BLSS_ADAPTIVE);
-  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, BLSS_NET_W2,
-                                    BLSS_NET_B2);
-  TYRA_LOG("BLSS: network = this project's own blss.net (fitted on examples/upscaler-lab)");
+  // The upscaler (BLSS): baked - nothing at runtime turns it on or
+  // off, but this project's scenes do not all resolve it alike, so
+  // the third argument tells configure() to size the z buffer for
+  // the FULL display raster. The layout is then decided once and
+  // loadScene()'s setScene() switches the upscaler per scene,
+  // touching no VRAM. configure() sizes the low-res render target;
+  // composite() blows it up with one bilinear pass.
+  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, true, true);
+  TYRA_LOG("BLSS: particle emitters drawn at the reduced raster");
   engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
@@ -837,7 +834,7 @@ void TerrainGame::loop() {
       splitPassActive = false;
     } else {
       updateAdaptiveResolution();
-      // The neural upscaler (docs/neural-upscaler.md): the 3D scene
+      // The upscaler (BLSS): the 3D scene
       // renders into the low-res target, then the composite blows it
       // back up into the display buffer - before the depth of field,
       // the post effects and every 2D pass below.
@@ -993,26 +990,42 @@ void TerrainGame::loop() {
 
 
 
-// Adaptive plain BLSS (docs/neural-upscaler.md). The timer is the previous
+// Adaptive BLSS (docs/upscaler.md). The timer is the previous
 // whole loop, including presentation: on a double-buffered PS2 it therefore
 // sees the thing the player sees - one missed field becomes a 2x step. Four
 // misses engage reduced rendering; 150 full-rate reduced frames buy a brief
 // native probe. No VRAM moves: configure() reserved both rasters at boot.
 void TerrainGame::updateAdaptiveResolution() {
-  if (!BLSS_ADAPTIVE) return;
+  // A scene load puts the upscaler back to the scene's own answer FIRST, so an
+  // On Start in the new scene that asks for something else wins over it.
   if (adaptiveScene != g_activeScene) {
     adaptiveScene = g_activeScene;
+    upscalerMode = 0;
     adaptiveWarmup = 30;
     adaptiveSlowRun = adaptiveFastRun = 0;
     adaptiveReduced = false;
-    engine->renderer.core.blss.setScene(false, false);
-    return;
+    if (BLSS_ADAPTIVE) engine->renderer.core.blss.setScene(false);
   }
-  if (!BLSS_SCENE_ON) {
-    if (adaptiveReduced) engine->renderer.core.blss.setScene(false, false);
+  // Set Upscaler (flow node, or ctx.upscaler from a script - docs/upscaler.md,
+  // "At runtime"), latched: 0 = the scene's own answer, 1 = native, 2 =
+  // reduced, 3 = automatic. Free: configure() reserved both rasters at boot.
+  if (scriptCtx.upscaler >= 0) {
+    upscalerMode = scriptCtx.upscaler > 3 ? 0 : scriptCtx.upscaler;
+    scriptCtx.upscaler = -1;
+    adaptiveWarmup = 30;
+    adaptiveSlowRun = adaptiveFastRun = 0;
     adaptiveReduced = false;
-    return;
+    if (upscalerMode == 2)
+      engine->renderer.core.blss.setScene(true, BLSS_PARTICLES);
+    else if (upscalerMode == 0)
+      engine->renderer.core.blss.setScene(BLSS_SCENE_ON && !BLSS_ADAPTIVE,
+                                          BLSS_PARTICLES);
+    else
+      engine->renderer.core.blss.setScene(false);  // native; automatic starts here
   }
+  const bool automatic =
+      upscalerMode == 3 || (upscalerMode == 0 && BLSS_ADAPTIVE && BLSS_SCENE_ON);
+  if (!automatic) return;
   if (adaptiveWarmup > 0) {
     --adaptiveWarmup;
     return;
@@ -1026,7 +1039,7 @@ void TerrainGame::updateAdaptiveResolution() {
       if (++adaptiveSlowRun < 4) return;
       adaptiveReduced = true;
       adaptiveSlowRun = 0;
-      engine->renderer.core.blss.setScene(true, false);
+      engine->renderer.core.blss.setScene(true, BLSS_PARTICLES);
       TYRA_LOG("Adaptive resolution: REDUCED after sustained missed fields");
     } else {
       adaptiveSlowRun = 0;
@@ -1039,7 +1052,7 @@ void TerrainGame::updateAdaptiveResolution() {
     adaptiveReduced = false;
     adaptiveFastRun = 0;
     adaptiveWarmup = 8;
-    engine->renderer.core.blss.setScene(false, false);
+    engine->renderer.core.blss.setScene(false);
     TYRA_LOG("Adaptive resolution: NATIVE probe after sustained headroom");
   } else {
     adaptiveFastRun = 0;
@@ -2074,7 +2087,24 @@ void TerrainGame::applyLayerResidency() {
       for (int i = 0; i < n; ++i)
         for (int m = 0; m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
           if (!strcmp(MODEL_SOURCES[m], names[i])) modelNeed[m] = 1;
+      // ...and every slot's distant version (asset slots, then prefab slots).
+      int np = 0;
+      procrt::volumePrefabNames(v, &np);
+      const char* const* lods = procrt::volumeLodNames(v);
+      for (int i = 0; lods && i < n + np; ++i)
+        for (int m = 0; lods[i] && m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
+          if (!strcmp(MODEL_SOURCES[m], lods[i])) modelNeed[m] = 1;
     }
+#if TYRAX_PROC_INSTANCES
+  // Baked instanced volumes reference their models from a table only.
+  for (int v = 0; v < PROC_INST_VOLUME_COUNT; ++v) {
+    if (PROC_INST_VOLUMES[v].scene != currentScene) continue;
+    for (int i = PROC_INST_VOLUMES[v].first;
+         i < PROC_INST_VOLUMES[v].first + PROC_INST_VOLUMES[v].count; ++i)
+      for (int m : {(int)PROC_INST_ROWS[i].model, (int)PROC_INST_ROWS[i].lodModel})
+        if (m >= 0 && m < (int)modelNeed.size()) modelNeed[m] = 1;
+  }
+#endif
   for (int k = 0; k < SCENE_PREFAB_COUNT; ++k) {
     const int pf = SCENE_PREFAB_LIST[SCENE_PREFAB_FIRST + k];
     if (pf < 0 || pf >= PREFAB_COUNT) continue;

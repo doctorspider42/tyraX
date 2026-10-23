@@ -281,7 +281,7 @@ Every tool window follows the same few rules, and is built from the same kit
   overlay pills. A tool that edits a collection is **list | preview |
   inspector**, with thumbnails where a picture says more than a name.
 - **The answer before the machinery.** A verdict banner or summary tiles come
-  first (Texture Atlas, Static Batches, Neural Upscaler, VU Programs), then
+  first (Texture Atlas, Static Batches, VU Programs), then
   list | detail.
 - **One primary action**, filled, visible, with its progress where the work
   happens (`ui::PrimaryButton`, `ui::ProgressInline`). An action that STARTS

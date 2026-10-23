@@ -118,10 +118,10 @@ class RendererCore : public RendererCore2dBounds {
   RendererCoreWarp warp;
 
   /**
-   * BLSS, the neural upscaler (TyraX fork, docs/neural-upscaler.md): renders
-   * the 3D scene at reduced resolution and reconstructs it with a baked MLP
-   * driving Gouraud-shaded blend fields. Off until the generated game's init()
-   * calls configure(); VRAM is allocated lazily there, so a project without
+   * BLSS, the reduced-raster upscaler (TyraX fork, docs/upscaler.md): renders
+   * the 3D scene - or only its particle emitters - at reduced resolution and
+   * blows it back up with one bilinear pass. Off until the generated game's
+   * init() calls configure(); VRAM is allocated there, so a project without
    * BLSS pays nothing.
    */
   RendererCoreBlss blss;

@@ -130,8 +130,7 @@ than a resave would drop whatever it skipped.
    `src/version.hpp` is the record, and the reverb, sound-priority, World
    Facts and BLSS entries all carry that note. **Grep the docs for the old
    numbers in the same commit**: the meaning is quoted in prose
-   (`docs/neural-upscaler.md`, `docs/blss-reconstruction.md`,
-   `docs/backlog.md`, the skills) as often as it is in the header, and a
+   (`docs/upscaler.md`, `docs/backlog.md`, the skills) as often as it is in the header, and a
    renumber that stops at `version.hpp` leaves every one of them lying.
    No migration step is needed for a renumber itself when both sides were
    additive: nothing on disk changes shape, only the label the file claims.

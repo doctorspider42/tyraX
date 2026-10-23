@@ -92,7 +92,7 @@ void RendererCore::init(const RendererOptions& options) {
   if (camFeed.getTexture())
     camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
                                           TextureWrap::Clamp);
-  // BLSS, the neural upscaler (TyraX fork): its low-res render target belongs
+  // BLSS, the reduced-raster upscaler (TyraX fork): its low-res targets belong
   // in the same permanent region, in the same relative order - but it is only
   // taken when the generated game's init() calls blss.configure(), so a
   // project with BLSS off costs zero VRAM words. This call is dependency
@@ -107,7 +107,7 @@ void RendererCore::init(const RendererOptions& options) {
   splitView.init(&settings, &gs, &sync, &path1);
   // Frame extrapolation (TyraX fork) - also no VRAM: it samples the display
   // buffer double/triple buffering already keeps.
-  warp.init(&settings, &gs, &sync, &path1, &blss, this);
+  warp.init(&settings, &gs, &sync, &path1, this);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
@@ -450,7 +450,7 @@ void RendererCore::beginFrameRecording() {
   ++recordingGeneration;  // Modified by TyraX: ordinary/loading render starts
   // Field bias and temporal readbacks retain synchronous compatibility.
   pipelineFrameActive = framePipelineRequested && !settings.isFieldRendering() &&
-                        !blss.isEnabled() &&
+                        !blss.isActive() &&
                         (isFrameLimitOn || gs.getFrameBufferCount() < 3) &&
                         Vif1Queue::pipelineAvailable();
   if (!pipelineFrameActive) completePipelineFrame();

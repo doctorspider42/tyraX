@@ -1,6 +1,6 @@
-# VU1 microprograms and the neural upscaler (BLSS) — host-side layers
+# VU1 microprograms and the upscaler (BLSS) — host-side layers
 
-Read when: you change `*.vclpp`, `src/vugen.cpp`, capture/decode a VU1 packet, or work on BLSS training/eval/coverage.
+Read when: you change `*.vclpp`, `src/vugen.cpp`, capture/decode a VU1 packet, or verify the upscaler (BLSS) - its interlock, its pictures or its frame times.
 
 ## VU1 (docs/vu-framework.md)
 
@@ -33,30 +33,15 @@ Only layer checking the simulator against real hardware: rebuilds input from `bi
 - Plain decode shows the first four staged packets x four vertices — right for reading, useless for diffing. `--full` prints all; `--peek <qw>[,n]` prints raw data-memory quadwords as floats + words. **Quadwords 1016..1023 are free** in the static pipeline's map; code ABOVE `begin:` runs once per activation, `begin:` loops per batch → a slot pointer set up above `begin:` turns them into a per-batch ring (otherwise every peek reports the LAST batch, where builds usually agree). Differences deep in the list show in header counts.
 - Consecutive captures of the same draw have identical LENGTH (same bag, fixed 16 KiB tail) — distinguish by mtime / header frame.
 
-## Neural upscaler (docs/neural-upscaler.md)
+## The upscaler (docs/upscaler.md)
 
-```
-TYRAX --blss-train [<projectDir>] [--all-shots] [--threads N] [--frames N] [--epochs N] [-o out.net]
-TYRAX --blss-eval  [<projectDir>...] [-i net] [--cv [--cv-groups]] [--features [--probe "<line>"]] [--dump <dir>]
-TYRAX --blss-emit  [-i blss.net] [-o inc/blss_net.gen.hpp]
-TYRAX --blss-coverage <projectDir> [--frames N] [--raster N] [--threads N] [--out WxH] [--verbose]
-```
-Shared: `--assets <dir> --seed N --sharpen K --scale-1x2 --weight-decay W --standardise --flicker-weight W --fill-weight W --drop-feature <name>[,...] --no-package-split --cv-seeds N --cv-folds N` (see `--help`). BLSS verbs are unbuffered (progress through pipes).
+There is no host-side BLSS layer any more: the neural half and its `--blss-train/--blss-eval/--blss-emit/--blss-coverage` verbs were removed in 2.1.0. What is left to verify is codegen (layer 1), the picture (PCSX2) and the frame time (console only - PCSX2 under-reports GS fill ~76x).
 
-- **`--blss-coverage`** = speed half of "turn BLSS on?", headless twin of *Will the frame get faster?* (same `blss::measureCoverage`, ~1 s). Prints per-shot/overall mean/p95 coverage with **geometry/emitter split**, verdict, `[blss] coverage …` lines. Use the project's own raster (default) or the verb and button answer different questions. Reads `blssNetwork` and prices for that mode — plain mode's EE bill is 1/7 of neural, break-even **2.6** vs **13.1** — and prints the other mode's line too (they often disagree).
-  - It is an overdraw **index** that over-states scale by about a third, not ms: first run 72.63 vs 58.7 blended-pass equivalents (hardware anchor, `examples/upscaler-lab`); located as a constant emitter-term scale error. Under the fixture's parked gameplay camera it reads **78.99**; counted/measured ratio 1.35 / 1.26 / 1.27 / 1.36 at haze 6/4/2/0 banks (docs/neural-upscaler.md "The overdraw count is an INDEX"; docs/profiling.md "Calibrating the speed model against hardware").
-- **Eight flags measure a configuration no project can ask for, and each prints a line saying so:** `--tile N`, `--scale WxH` (engine generic; `blssScale` only names 2x2 and 1x2), `--act-table N`, `--no-anim`, `--still` (freeze each shot at one camera/pose, only jitter phase advances — period-2 fixture; refused by `--blss-train` and `--cv`), `--proxy-budget` (5th twin-contract rule, off both sides), `--emitter-proxy` (6th rule; engine half `TYRA_BLSS_EMITTER_PROXY`; makes the channels DESCRIBE particles but the corpus renderer DRAWS none → PSNR prices description vs particle-free truth; read `--features` and a console `BLSSFEAT` line via `--probe`, not dB), `--ignore-shot-plan` (six automatic moves, takes on, equal frame share). An unrecorded configuration produced five wrong published numbers, plus a sixth (ceiling at jitter ON, margins at jitter OFF).
-- **Several positionals = UNION corpus; `bestiary` is a member.** `--blss-eval <a> <b> bestiary --cv --cv-groups` = leave-one-PROJECT-out (the only honest "one net for all"). Plain `--cv` holds out one shot and trains on eleven moves of the same scene ("Can one net ship for every project?").
-- **Verify parallel-phase changes with `--threads`** (0 = every core, clamped to 32; bounds corpus render, oracle, eval loop; wall-clock only). Same `--seed` must give byte-identical `blss.net` and character-identical eval table at any thread count:
-```bash
-build/tyrax-editor --blss-train examples/procedural --frames 156 --epochs 400 --all-shots --threads 1 -o /tmp/t1.net
-build/tyrax-editor --blss-train examples/procedural --frames 156 --epochs 400 --all-shots -o /tmp/auto.net
-md5sum /tmp/t1.net /tmp/auto.net    # must be identical
-```
-  Stronger: build the pre-change commit in its own worktree, its `blss.net` must match too (every published table is a seeded run). 6 cores: ~68 s at `--threads 1`, ~18 s auto; smoke: `--frames 78 --epochs 200`.
-- Every verb ends with a `blss: timing` line (`corpus X, oracle Y, fit Z` / `corpus X, eval Y` / `corpus X, oracle Y, folds Z` for `--cv`). Per-shot corpus lines are **cpu ms, not wall ms**.
-- `--blss-eval <dir>` is also the "feature on at all?" check: **oracle** row = scene ceiling (sometimes +0.00 dB). Needs no net: without `-i` and no `blss.net` it runs net-free, drops `BLSS (trained)`, still prints verdict, exit 0 (so `-i` IS required for twin-parity claims). Caller lines: `[blss] verdict headroom=… passes=… bilinear=… oracle=… native=…`, and `[blss] fold k of n` from `--cv`. Never quote a plain eval's held-out column — use `--cv`.
-- BLSS x frame extrapolation is a build-time `#error` living in one generated TU: `--refresh-gen` writes `src/gen/blss_interlock.gen.cpp` (prints `[blss] BUILD WILL BE REFUSED`), deletes it once the clash is gone. To force the refused combo in a scratch fixture, delete the file and build in the container by hand (`--build` would regenerate it):
+- **Codegen**: `--refresh-gen` a scratch copy and grep `inc/scene_data.hpp` for `BLSS_PARTICLES` / `BLSS_ENABLED` / the per-scene table, and the game sources for `beginParticles` (Particles only) or the `beginScene/endScene/composite` bracket (Whole 3D scene). A Set Upscaler (BLSS) node anywhere must make the project mixed (both rasters reserved).
+- **Pictures, frozen camera, on `examples/upscaler-lab`**: copy it out, drop the director object (its On Start plays the "haze tour" sequence) and set the Player's walk/look speed 0, then capture each arm (Off / Whole 3D scene / Particles only) in PCSX2 at progressive 480p with the debug HUD off (docs/profiling.md, "The stability gate"). The emitters still move, so compare pictures by eye or by structure, not byte-for-byte.
+- **Frame times**: console only, `TYRA_FRAME_PROFILE` + paired `FTRAW` windows (performance-and-profiling.md; docs/profiling.md "The measurement protocol").
+
+- *Whole 3D scene* x depth of field / linked portals / split view / frame extrapolation is a build-time `#error` living in one generated TU (Particles only clashes with nothing): `--refresh-gen` writes `src/gen/blss_interlock.gen.cpp` (prints `[blss] BUILD WILL BE REFUSED`), deletes it once the clash is gone. To force the refused combo in a scratch fixture, delete the file and build in the container by hand (`--build` would regenerate it):
 ```powershell
 Remove-Item "$P\src\gen\blss_interlock.gen.cpp"
 docker compose --project-directory $P -f "$P\docker-compose.yml" up -d

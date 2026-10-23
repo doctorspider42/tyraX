@@ -80,7 +80,7 @@ Read when you touch build/setup/deps scripts, `CMakeLists.txt`, `platform.cpp`, 
 - **One function decides whether an install can update itself**: the Windows installer installs PER USER (no UAC), `.deb`/`.rpm` are root's, a checkout is the developer's. stage-tree.sh stages a one-word `.tyrax-package` marker (`tarball`/`deb`/`rpm`/`macapp`; absent = checkout; on macOS it sits in `Contents/Resources`); `update::installKind` reads it; `update::selfInstallBlocked` returns "" or the ONE sentence of what to do instead (shown in place of the button). A new channel = a marker word + a case there.
 - **The Linux runner image is a compatibility floor**: `runs-on: ubuntu-22.04` in `build-linux` means "Ubuntu 22.04+, Debian 12+, Fedora 36+" (glibc is not forward compatible); bumping it drops distributions silently.
 - Asset NAMES are not a contract, SUFFIXES are: `update::platformAssetSuffix` matches `.exe` and `-linux-x86_64.tar.gz` by tail.
-- Other workflows: `toolchain-image.yml` (Docker toolchain image to GHCR from `docker/Dockerfile`), `blss-default-net.yml`.
+- Other workflows: `toolchain-image.yml` (Docker toolchain image to GHCR from `docker/Dockerfile`).
 
 ## Update check (`update.cpp/.hpp` ~410+115, `update_ui.cpp` ~260)
 

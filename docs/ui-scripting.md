@@ -287,11 +287,11 @@ editor under `caffeinate -d -u`.
   window's, which is what the fallback hashes against. Wrapping each tab body in
   a `BeginChild` puts it back — a child is a window and reseeds the stack with
   its own id — which is what *Project Preferences* does, so `click "Project
-  Preferences/Mode"` still opens a combo four levels in. A tab body submitted
+  Preferences/Draw reduced"` still opens a combo four levels in. A tab body submitted
   without one needs real labels on anything a script has to name.
 
-  The dialogs with tabs today are the Neural Upscaler window, the Menu Editor,
-  the Material Editor and the World Facts window. *Project Preferences* has the
+  The dialogs with tabs today are the Menu Editor, the Material Editor and the
+  World Facts window. *Project Preferences* has the
   same rule without tabs: its pages (Game / Picture / World / Graphics /
   Build & debug) are sidebar rows with those names, only the selected one is
   drawn, and its content is one child window - so the step is the same
@@ -324,13 +324,12 @@ editor under `caffeinate -d -u`.
   or `Cancel` — the window applies every edit as it is made, so a run asserts by
   reading the model back (`--dump`, or `key ctrl+s` then grep the `.tyra`)
   rather than by pressing a confirm button. Nothing is blocked behind it, so a
-  script may drive another window in the same run — `click 'Project
-  Preferences/Advanced...'` now leaves both it and *Neural Upscaler (BLSS)*
-  open, and both take clicks. And because two windows are open, **a bare label
-  is ambiguous**: `Use the upscaler` exists in both, so qualify it
-  (`'Project Preferences/Use the upscaler'`). Mind the ordinary window hazard
-  that replaces the modal one: the upscaler window opens ON TOP of Preferences
-  and a `click` on a covered item lands on the window in front — assert covered
+  script may drive another window in the same run (a Preferences button that
+  raises another editor window leaves both open, and both take clicks). And
+  because two windows can be open, **a bare label can be ambiguous**: qualify
+  it with its window (`'Project Preferences/Use the upscaler'`). Mind the
+  ordinary window hazard that replaces the modal one: a raised window opens ON
+  TOP of Preferences and a `click` on a covered item lands on the window in front — assert covered
   items with `expect-checked` (which does not click) and click only what is
   clear, or raise the window you want first.
 
@@ -353,7 +352,7 @@ editor under `caffeinate -d -u`.
   label only for the widgets that call its item-info hook, and `BeginCombo` is
   not one of them, so `dump` shows the combo's rect with a `-` where its name
   should be. `find` covers that by **re-hashing** the target the way ImGui would
-  (`ImHashStr(label, 0, window->ID)`), so `click "Project Preferences/Mode"`
+  (`ImHashStr(label, 0, window->ID)`), so `click "Project Preferences/Draw reduced"`
   opens the dropdown and the option is then clickable by its own text. Two
   limits: the hash has no prefixes, so the label must be **exact**, and it only
   reaches widgets submitted at a **window's own scope** — anything under a

@@ -189,7 +189,7 @@ void RendererCoreGS::allocateVramBuffers() {
   const bool halfDepthColor = frameBuffers[0].psm == GS_PSM_16;
   zBuffer.zsm = halfDepthColor ? GS_ZBUF_16 : GS_ZBUF_32;
   RendererCoreDepth::setBits(halfDepthColor ? 16 : 24);
-  // Modified by TyraX (BLSS, docs/neural-upscaler.md): the z buffer covers the
+  // Modified by TyraX (BLSS, docs/upscaler.md): the z buffer covers the
   // RASTER, not the display buffer. With the raster scale on, nothing ever
   // renders 3D at display resolution - the whole scene is bracketed into the
   // low-res target and the composite that blows it back up masks z writes - so
@@ -257,6 +257,7 @@ void RendererCoreGS::allocateVramBuffers() {
   bufferCount = 2;
   layoutLowResScaleX = lowResTargetScaleX;
   layoutLowResScaleY = lowResTargetScaleY;
+  layoutLowResDepth = lowResTargetDepth;
   if (settings->getFrameBufferCount() >= 3) {
     // Modified by TyraX: Hybrid adds a DISPLAY target (PSMCT16), not a
     // second 32-bit draw target. Charge the format we actually allocate.
@@ -267,7 +268,7 @@ void RendererCoreGS::allocateVramBuffers() {
                          third.psm, GRAPH_ALIGN_PAGE) *
             kWordsPerMB +
         0.5F);
-    // Modified by TyraX: the neural upscaler's low-res colour target is NOT in
+    // Modified by TyraX: the upscaler's low-res colour target is NOT in
     // getHeapWords() yet and is not in the reserve either. It is allocated
     // after this function (blss.configure -> this rebuild -> blss.allocate),
     // and the reserve names post fx, the env map, the camera feed and the
@@ -287,6 +288,9 @@ void RendererCoreGS::allocateVramBuffers() {
                           GRAPH_ALIGN_PAGE) *
               kWordsPerMB +
           0.5F);
+      // The particles-only shape adds a low-res z of the same page geometry
+      // (PSMZ32 beside PSMCT32, PSMZ16 beside PSMCT16) - the same words.
+      if (lowResTargetDepth) blssWords *= 2;
     }
     const int left = vram.getHeapWords() - bufferWords - blssWords;
     if (left < kThirdBufferReserveWords + kThirdBufferMinTextureWords) {
@@ -381,7 +385,8 @@ bool RendererCoreGS::needsBufferRealloc() const {
   const int wantY = zPinScaleY > 0 ? zPinScaleY : settings->getRasterScaleY();
   return zRasterScaleX != wantX || zRasterScaleY != wantY ||
          layoutLowResScaleX != lowResTargetScaleX ||
-         layoutLowResScaleY != lowResTargetScaleY;
+         layoutLowResScaleY != lowResTargetScaleY ||
+         layoutLowResDepth != lowResTargetDepth;
 }
 
 // Modified by TyraX (BLSS): the same VRAM reset reinit() does, minus the video

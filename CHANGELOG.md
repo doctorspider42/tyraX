@@ -7,6 +7,10 @@ history.
 
 ## 2.1.0 - Unreleased
 
+- The upscaler (BLSS) can draw **only the particle emitters** at the reduced resolution (*Draw reduced: Particles only*): smoke, haze, fire and rain lose three quarters of their fill while the rest of the scene, the HUD and every texture stay sharp, and depth of field, portals, split screen and frame extrapolation keep working beside it. On a physical PS2, upscaler-lab's haze yard went from 38.6 ms to 19.3 ms of frame work. See docs/upscaler.md.
+- New **Set Upscaler (BLSS)** flow node (and `ctx.upscaler` for scripts) switches the upscaler while the game runs - Scene default, Off, On or Automatic - so a level can run native and drop to the reduced raster only in the zone where the smoke and sparks are. The switch moves no VRAM.
+- BLSS's neural reconstruction is removed - the network, its trainer, the Neural Upscaler window and the `--blss-*` commands. It measured +0.3 dB over plain bilinear for ~5 ms of EE a frame. Projects keep the plain upscaler; the old settings are dropped on the next save (format 118).
+
 - Tree Generator adds Forest oak and Hero oak presets with Blender-baked broadleaf sprays for fuller, muted foliage. Existing tree recipes keep their original appearance.
 - deep-forest uses three fuller broadleaf oak variants and a textured Blender fieldstone (56 triangles near / 12 far). Includes editable assets and a reproducible physical-PS2 density/LOD benchmark; 7,000 trees and rocks hold 50 FPS on the sampled hardware route with oak LOD at 25 units and finer spatial culling.
 

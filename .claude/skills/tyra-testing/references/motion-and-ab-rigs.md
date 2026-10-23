@@ -51,7 +51,7 @@ mc/raw  unexplained FRACTION, scale-free
 
 **`--capture-frame` sampling of a frame-indexed route needs a length COPRIME with the advance**: the capture freezes the game a fixed spell, so a 1920-frame route sampled eight poses and three builds gave digit-identical scores. Prime length (1913) walks the whole route, same order every arm. Confirm alignment: min mean |diff| over a small offset window lands on 0.
 
-**Results (2026-08-11)**, `examples/upscaler-lab` → `%TEMP%\tyra-editor-test\mgate`, software renderer, progressive 480p, emitters running, 110 captures/leg. Arm C = reference (BLSS on, `blssJitter` off, no extrapolation — shipped default):
+**Results (2026-08-11)** - taken on the neural-era upscaler (jitter and the temporal pass have since been removed, docs/upscaler.md); the rig and its rules are current, the arm verdicts are history. `examples/upscaler-lab` → `%TEMP%\tyra-editor-test\mgate`, software renderer, progressive 480p, emitters running, 110 captures/leg. Arm C = reference (BLSS on, `blssJitter` off, no extrapolation — shipped default):
 
 | arm | leg | measurement | verdict |
 |---|---|---|---|

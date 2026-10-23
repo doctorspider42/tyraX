@@ -36,6 +36,14 @@
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
+// Baked instanced scatter (docs/procedural-generation.md, "Instanced"): only
+// generated while some baked volume draws as Instanced.
+#if __has_include("proc_instances.gen.hpp")
+#include "proc_instances.gen.hpp"
+#define TYRAX_PROC_INSTANCES 1
+#else
+#define TYRAX_PROC_INSTANCES 0
+#endif
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
@@ -48,7 +56,6 @@
 // TYRA_FRAME_PROFILE is 0 in the shipped engine header, so this include costs
 // a preprocessor pass and nothing else.
 #include "debug/frame_profile.hpp"
-#include "blss_net.gen.hpp"  // the trained BLSS network (--blss-train)
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -2644,6 +2651,13 @@ inline void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) 
       snprintf(l1, sizeof(l1), "FRAME %.2f SCENE %.2f", frameAcc * k,
                sScene * k);
       snprintf(l2, sizeof(l2), "HL %.2f PART %.2f", sHl * k, sPart * k);
+      // The same window in the log, so a console run over ps2link (or a
+      // headless emulator) can be read without a picture of the HUD - with
+      // the EE memory in use, which a dense scene runs out of first.
+      char mem[24];
+      snprintf(mem, sizeof(mem), "MEM %.1f/32",
+               32.0F - engine->info.getAvailableRAM());
+      TYRA_LOG("PROFILE ", l1, " ", l2, " ", mem);
       frames = frameAcc = sScene = sHl = sPart = 0;
     }
     drawHudText(engine, l1, 16.0F, y);

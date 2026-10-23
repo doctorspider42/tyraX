@@ -886,10 +886,6 @@ int App::run(const std::string& initialProjectDir) {
     projectLoadJoin();
     droneRenderCancel_.store(true);
     if (droneRenderThread_.joinable()) droneRenderThread_.join();
-    // ...and the BLSS coverage estimate, for the plainer reason that a joinable
-    // std::thread destroyed at exit calls std::terminate.
-    blssCovCancel_.store(true);
-    if (blssCovThread_.joinable()) blssCovThread_.join();
     // The importer publishes a result into App members, which must outlive it.
     if (modelImportThread_.joinable()) modelImportThread_.join();
     // The update check writes into App members too, and its curl may be sitting
@@ -1124,8 +1120,6 @@ void App::drawUI() {
     shadowBakerPoll();
     modelAoPoll();
     litBakerPoll();
-    blssPoll();
-    drawBlssWindow();
     drawLoadingScreenWindow();
     drawCreditsWindow();
     drawAnimEditorWindow();
@@ -2041,13 +2035,6 @@ void App::drawMainMenus() {
             showAmbienceEditor_ = true;
             showGiBake_ = true;
         }
-        if (menuact::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Train, cross-validate and inspect the reduced-resolution\n"
-                "reconstruction network, and look at the pictures it makes.\n"
-                "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
-                "without a terminal. Proof of concept - read the notes.");
         if (menuact::MenuItem("Static Batches...")) {
             showStaticBatches_ = true;
             batchDirty_ = true;
@@ -3549,17 +3536,7 @@ void App::drawViewportWindow() {
         // track wins while it previews; reading the POSED objects means a
         // dollied camera entity is followed live. A stale name (deleted
         // entity) falls back to the free orbit camera.
-        // "Look through this shot" (Tools > Neural Upscaler (BLSS) > Training
-        // shots): park the editor camera at an authored training vantage so the
-        // author can SEE the frame the corpus will render. It has to be pushed
-        // every frame like the others - the branch below CLEARS the override
-        // when nothing claims it, so a one-shot call would last exactly one
-        // frame. Below the cutscene and the phone, above the look-through
-        // camera: it is a deliberate, explicit act and it should win over a
-        // camera somebody left selected.
-        if (!seqCameraPushed_ && !phoneCamPushed_ && blssLookThrough_)
-            viewport_.setCameraOverride(blssLookEye_, blssLookAt_, blssLookFov_, 0.0f);
-        if (!seqCameraPushed_ && !phoneCamPushed_ && !blssLookThrough_) {
+        if (!seqCameraPushed_ && !phoneCamPushed_) {
             const SceneObject* cam = nullptr;
             if (!lookThroughCam_.empty())
                 for (const SceneObject& o : renderObjects)
@@ -6162,7 +6139,6 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
     if (key == "chat") return &showAiChat_;
-    if (key == "blss") return &showBlss_;
     if (key == "atlas") return &showTextureAtlas_;
     if (key == "batches") return &showStaticBatches_;
     if (key == "projectprefs") return &showProjectPrefs_;
@@ -6188,7 +6164,7 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat",     "blss",     "atlas",   "batches",
+    "credits",  "vu",       "chat",     "atlas",    "batches",
     // Project Preferences stopped being a modal in 1.20.0 and became an
     // ordinary window, so it needs the same deterministic open/close every
     // other optional window has.
@@ -7361,18 +7337,6 @@ void App::closeProject() {
         peerPresence_.clear();
         viewport_.setPeerSelections({});
     }
-    // The BLSS coverage estimate is a worker thread reading project_.dir off
-    // the disk; it must not outlive the project, and its result must not land
-    // in whichever project is opened next. The subprocess half (blssJob_)
-    // already stands down on its own - it holds no reference to the model - so
-    // only this one needs cancelling here.
-    blssCovCancel_.store(true);
-    if (blssCovThread_.joinable()) blssCovThread_.join();
-    blssCovRunning_.store(false);
-    blssCovSeen_ = blssCovVersion_.load();
-    blssCov_ = blss::CoverageReport{};
-    blssSpeed_ = blssui::SpeedEstimate{};
-
     project_ = Project();  // one empty scene - objects() stays safe to call
     hasProject_ = false;
     dirty_ = false;
@@ -9363,14 +9327,6 @@ void App::renameObjectRefs(SceneData& sc, const SceneObject& renamed,
             if (tr.target == from) tr.target = to;
         for (SeqCameraKey& k : q.cameraKeys)
             if (k.camera == from) k.camera = to;
-    }
-    // Neural-upscaler training shots that borrow a placed Camera object. Same
-    // rule as a cutscene shot's camera binding: a shot whose camera name went
-    // stale is silently dropped by blssResolveShot, so the corpus would quietly
-    // stop covering the vantage the author asked for.
-    for (BlssShot& b : project_.blssShots.shots) {
-        if (b.camera == from) b.camera = to;
-        if (b.cameraTo == from) b.cameraTo = to;
     }
     if (lookThroughCam_ == from) lookThroughCam_ = to;
     for (SceneObject& m : sc.objects) {
@@ -18570,11 +18526,9 @@ static const PrefIndexEntry kPrefIndex[] = {
     {"Reflect scenery as boxes", "Graphics", "Reflections", "reflectionScenery", true, "static probe"},
     {"Reflect the ground as flat colour", "Graphics", "Reflections", "reflectionGroundProxy", true, "probe"},
     {"Upscaler and frame extrapolation", "Graphics", "Upscaler & frame extrapolation",
-     "blssEnabled,blssScale,blssNetwork,blssAdaptive,frameExtrapolation,frameExtrapolationPlane,"
+     "blssEnabled,blssScale,blssAdaptive,frameExtrapolation,frameExtrapolationPlane,"
      "frameExtrapolationForce,frameExtrapolationGround",
-     true, "BLSS neural upscaler render scale frame delivery synthesised frames"},
-    {"Upscaler network tuning", "Graphics", "Upscaler & frame extrapolation",
-     "blssSharpen,blssTemporal,blssJitter,blssDebugView", true, "BLSS sharpen temporal jitter neural"},
+     true, "BLSS upscaler render scale adaptive resolution frame delivery synthesised frames"},
 
     {"Build for", "Build & debug", "Build", "buildProfile", false, "profile debug release"},
     {"Show on screen", "Build & debug", "Build", "showFps,showMemory,showProfiler,showAreas,showCollision", false,
@@ -19571,7 +19525,7 @@ void App::drawPreferencesWindow() {
                 if (!project::tripleBufferingModes(project_, probe)
                          .fitting.empty())
                     escape +=
-                        " Turning the neural upscaler on also frees enough - "
+                        " Turning the upscaler on also frees enough - "
                         "the z buffer follows its smaller raster.";
             }
             ImGui::TextColored(amber, "Does not fit in any supported mode");
@@ -20225,59 +20179,18 @@ void App::drawPreferencesWindow() {
              "Cars and sky stay live; nearby scenery has approximate parallax.");
     prefRow("Reflect a baked background");
 
-    // The neural upscaler (docs/neural-upscaler.md), ESSENTIALS ONLY - the
-    // decisions a person switching the feature on has to make, and nothing
-    // else. What a user meets here is a checkbox, a mode, a raster and one line
-    // saying which side of the measured break-even this project falls on; the
-    // training, evaluation, cross-validation and instrumentation are behind the
-    // Advanced button and stay exactly as they were.
+    // The reduced-raster upscaler and frame extrapolation. The widgets, the
+    // tooltips AND the build-interlock warning live in blss_ui.cpp
+    // (drawBlssSettings), the one mirror of templates.cpp's blssClashes(). The
+    // staged settings go in, so the warning answers for what the modal will
+    // apply and not for what is on disk.
     //
-    // The reduction is a consequence of plain mode rather than a tidy-up. Until
-    // that landed BLSS MEANT "fit a network to your scene", so the window had to
-    // be the whole feature - but plain mode's break-even is 2.6 coverages
-    // against the neural path's 13.1, a trained net ships embedded in the
-    // editor, and on every project measured that net chooses nothing anyway. So
-    // training is genuinely advanced, and the ordinary interaction is three
-    // controls and a sentence.
-    //
-    // The widgets, the tooltips AND the build-interlock warning still live in
-    // blss_window.cpp, because Tools > Neural Upscaler (BLSS) draws the same
-    // block one level deeper. They were inlined here once, which made this
-    // dialog the one mirror of templates.cpp's blssClashes(); a second copy
-    // would have made it two mirrors, and two mirrors of an interlock drift the
-    // day either is touched. The staged settings go in, so both the warning and
-    // the verdict answer for what the modal will apply and not for what is on
-    // disk.
-    //
-    // "Frame delivery" rather than "Neural upscaler": the block holds BOTH ways
-    // this engine reconstructs rather than renders - the upscaler (per scene)
-    // and frame extrapolation (per project) - and they refuse each other, so
-    // they have to be read together. It is on the DISPLAY tab for the same
-    // reason: somebody asking "how does a frame reach the screen" arrives at the
-    // signal, the presentation and the reconstruction in one place.
+    // One block for BOTH ways this engine reconstructs rather than renders -
+    // the upscaler (per scene) and frame extrapolation (per project) - because
+    // they refuse each other and have to be read together.
     prefGroup("Upscaler & frame extrapolation");
-    drawBlssSettings(prefSettings_, BlssDetail::Essentials);
+    drawBlssSettings(prefSettings_);
     prefRow("Upscaler and frame extrapolation");
-    // The network's own knobs - the Neural Upscaler window's old "Project
-    // settings" tab drew them; this is their only home now.
-    drawBlssNetworkTuning(prefSettings_);
-    if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0)))
-        showBlss_ = true;
-    prefHelp(
-        "Tools > Neural Upscaler (BLSS): train a network on your own scenes,\n"
-        "cross-validate it, look at the pictures it makes and at what its input\n"
-        "channels look like, and place a console-measured feature vector inside\n"
-        "the corpus' own distribution - everything --blss-train, --blss-eval and\n"
-        "--blss-emit do, without a terminal, on a worker that leaves the editor\n"
-        "usable.\n"
-        "\n"
-        "None of it is needed to USE the feature. A trained network ships with\n"
-        "the editor, and in the plain mode above there is no network at all.\n"
-        "\n"
-        "Opens alongside this window - it draws these same controls one level\n"
-        "deeper, over the same live project settings, so the two cannot\n"
-        "disagree.");
-    prefRow("Upscaler network tuning");
     }
     closeCard();
     }
@@ -21638,21 +21551,14 @@ void App::drawScenePreferencesModal() {
         ImGui::Checkbox("Draw over object (experimental)", &s.highlightOverlay);
     });
 
-    // The neural upscaler, per scene (docs/neural-upscaler.md, "Per scene").
-    // Deliberately the two questions that HAVE a per-scene answer and nothing
-    // else - the scale, the jitter and the reconstruction tuning stay in
-    // Project > Preferences because one project ships one net and its
-    // provenance records the scale and the sampler that net was fitted for.
-    category("Neural upscaler (BLSS)", ov.upscaler, [&] {
-        // THE SAME TWO CONTROLS, WORDED THE SAME WAY, as the Essentials layer of
-        // Project > Preferences (drawBlssSettings). A per-scene override is a
-        // mechanism users already know from the five categories above it, and
-        // the one thing that would make it feel like a new one is asking the
-        // same question in different words - this said "Reconstruct from a
-        // reduced-resolution render" while Preferences said "Use the upscaler".
-        // Identical labels in two different windows are not an ImGui ID clash
-        // (a window is the scope), and `--ui-script` reaches either by naming
-        // its window.
+    // The upscaler, per scene. Only the on/off question has a per-scene
+    // answer - the render scale stays in Project > Preferences because it sizes
+    // the permanent GS allocations.
+    category("Upscaler (BLSS)", ov.upscaler, [&] {
+        // THE SAME CONTROL, WORDED THE SAME WAY, as Project > Preferences
+        // (drawBlssSettings). Identical labels in two different windows are
+        // not an ImGui ID clash (a window is the scope), and `--ui-script`
+        // reaches either by naming its window.
         // THE INTERLOCK, AT THE OTHER POINT OF CHOICE, and here it PREVENTS
         // rather than warns. Frame extrapolation is a project setting and the
         // upscaler is per scene, so this is the one place a person can create
@@ -21671,20 +21577,9 @@ void App::drawScenePreferencesModal() {
                 "cannot be combined - both rebuild a frame by reprojecting the\n"
                 "previous one, and in motion the pair tears the picture. Untick\n"
                 "it in Project > Preferences > Graphics > Advanced.");
-        ImGui::BeginDisabled(!s.blssEnabled);
-        {
-            int mode = s.blssNetwork ? 1 : 0;
-            const char* modeNames[] = {
-                "Plain - one bilinear pass, no network (far cheaper)",
-                "Neural - a network picks a reconstruction per 32x32 tile"};
-            ImGui::SetNextItemWidth(scaled(360));
-            if (ImGui::Combo("Mode", &mode, modeNames, 2)) s.blssNetwork = mode == 1;
-        }
-        ImGui::EndDisabled();
         ImGui::TextDisabled(
-            "Everything else about the upscaler - the render scale, the jitter,\n"
-            "the sharpen and temporal knobs - stays in Project > Preferences:\n"
-            "one project ships one blss.net and it was fitted for one of each.");
+            "The render scale and adaptive resolution stay in Project >\n"
+            "Preferences: they size the GS allocations for the whole run.");
         // The whole point of the per-scene setting, said where the decision is
         // made: a scene that clashes can drop the upscaler on its own. What
         // mixing COSTS is stated in Project > Preferences, which is the one

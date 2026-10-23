@@ -142,8 +142,8 @@ Two details are load-bearing:
   [frame extrapolation](frame-extrapolation.md) on, the newest finished frame is
   a synthesised warp half the time, and feeding a displaced image back into an
   accumulator compounds the displacement into a visible shake. The "real" one is
-  the last frame the SCENE rendered — the same accessor the neural upscaler asks
-  for, and for the same reason.
+  the last frame the SCENE rendered — the same accessor frame extrapolation's
+  warp asks for, and for the same reason.
 - **`RendererCoreGS::hasRealFrame()` gates the first frame.** Display buffers
   are never cleared at allocation, so the "previous" buffer after boot — or after
   a layout rebuild, such as a display-mode switch or the adaptive upscaler
@@ -292,11 +292,9 @@ every frame. Triple buffering therefore adds no special dither phase or shimmer.
 
 ## Interactions
 
-- **[The neural upscaler (BLSS)](neural-upscaler.md)** samples the previous frame
-  as its temporal history, so with both on, the history it reprojects is already
-  blurred and the trail persists longer than the Amount suggests. It is not
-  refused (nothing breaks), but tune the amount with the upscaler in the state it
-  ships in, not without it.
+- **[The upscaler (BLSS)](upscaler.md)** reads no previous frame, so the two
+  combine without interacting: the blur samples the finished, full-size
+  presented frame either way.
 - **[Frame extrapolation](frame-extrapolation.md)** composites nothing: a
   synthesised frame is a warp of an image that already carries the blur, and the
   pass is not re-run on it. The blur therefore updates at the render rate, not

@@ -2406,89 +2406,38 @@ struct ProjectSettings {
     float dofFocus = 20.0f;  // sharp up to this camera distance
     float dofRange = 15.0f;  // full blur reached at dofFocus + dofRange
 
-    // The neural upscaler (docs/neural-upscaler.md). The 3D scene renders into
-    // a reduced-resolution GS target and a small MLP - trained on the host,
-    // baked into the game - decides per 32x32 screen tile how to blow it back
-    // up to the display buffer. Baked at build time, like custom screen
-    // effects: no flow-graph control.
+    // The reduced-raster upscaler (BLSS). The 3D scene renders into a
+    // reduced-resolution GS target and one bilinear composite pass blows it
+    // back up to the display buffer. Baked at build time: no flow-graph
+    // control.
     //
-    // THE PROJECT DEFAULT, which a scene may override for `blssEnabled` and
-    // `blssNetwork` (SceneOverrides::upscaler - see the note there for why
-    // those two and not the other four). Read the resolved answer with
+    // THE PROJECT DEFAULT, which a scene may override for `blssEnabled`
+    // (SceneOverrides::upscaler). Read the resolved answer with
     // project::resolvedSettings(p, scene); reading p.settings.blssEnabled
     // directly asks "what does a scene that inherits do", which is a different
     // question and is almost never the one being asked.
     //
-    // Off by default, and deliberately so: it is a proof of concept, and it is
-    // incompatible with depth of field, portals and split-screen (all three
-    // need real GS depth at display resolution, which a low-res z cannot give).
+    // Off by default: it is incompatible with depth of field, portals and
+    // split-screen (all three need real GS depth at display resolution, which
+    // a low-res z cannot give).
+    //
+    // Older projects may still carry blssNetwork / blssSharpen / blssTemporal /
+    // blssJitter / blssDebugView from the retired neural reconstruction; the
+    // reader ignores them.
     bool blssEnabled = false;
     int blssScale = 0;         // 0 = 2x2 (quarter the pixels), 1 = 1x2 (half height)
-    // WHETHER THE NETWORK RUNS AT ALL. true (the default, and what every
-    // project written before this key existed reads as) is the neural
-    // reconstruction; false is PLAIN MODE - the reduced raster blown back up
-    // by one bilinear pass, with no bag proxies, no reprojection, no feature
-    // grid and no MLP.
-    //
-    // ITS OWN SWITCH RATHER THAN A THIRD VALUE OF blssEnabled OR blssScale,
-    // and the reason is that it is a third question. `blssEnabled` asks
-    // whether the 3D scene is rasterised at a reduced size - which is where
-    // the VRAM saving comes from, and plain mode keeps ALL of it. `blssScale`
-    // asks how much smaller, and plain mode is as meaningful at 1x2 as at 2x2,
-    // so folding it into that combo would forbid half the real combinations.
-    // This asks what reconstructs the result, which is orthogonal to both. It
-    // is also the shape that costs nothing on disk: an additive bool defaulting
-    // to true regenerates every existing project byte for byte, where a
-    // tri-state replacing blssEnabled would change the serialized shape of
-    // every BLSS project and need a migration step to say what `true` meant.
-    //
-    // Why anyone would want it: on every project measured so far the trained
-    // net asks for NOTHING - all three outputs quantise under the deadzone and
-    // BLSSFILL reports 1.00 passes, i.e. the composite is already a single
-    // bilinear pass - while the frame still pays 4.60 ms of EE to reach that
-    // conclusion. Plain mode is that same picture without the bill, which
-    // moves the break-even from ~13 full-screen coverages to low single digits
-    // (blssui::fill::breakEven, docs/profiling.md).
-    bool blssNetwork = true;
-    // Adaptive plain BLSS starts at the native raster and falls back to the
+    // Adaptive BLSS starts at the native raster and falls back to the
     // configured reduced raster only after sustained missed fields. The
     // low-res target and a full-size z buffer are reserved at boot, so a
     // runtime switch never reallocates GS VRAM or evicts textures.
     bool blssAdaptive = false;
-    float blssSharpen = 0.5f;  // 0..1, the unsharp-mask strength k of passes 4/5
-    bool blssTemporal = true;  // allow the history pass (off = no AA, no ghosting)
-    // The +-1/4-pixel raster jitter that alternates every frame (the temporal
-    // supersampling half of the feature).
-    //
-    // OFF BY DEFAULT since 2026-08-08, and the reason is the only kind that
-    // settles this question: a human looked at three builds of
-    // examples/upscaler-lab that differed in nothing else (docs/
-    // neural-upscaler.md, "The oscillation"). BLSS off - steady. BLSS on with
-    // jitter on - "like an earthquake". BLSS on with jitter off - steady. The
-    // jitter is the cause and turning it off is the cure.
-    //
-    // Why it happens: jittered sampling is SUPPOSED to produce a different
-    // image every frame, and the only thing entitled to fuse the two phases
-    // back together is the temporal accumulator. It does not - measured, on a
-    // net that puts 72-78% of its weight on the temporal pass. So the
-    // alternation reaches the screen as a period-2 flicker on every textured
-    // surface, at the field rate.
-    //
-    // The price of the default is measured and real: on examples/upscaler-lab
-    // it takes the trained margin from +0.69 to +0.26 dB and the scene's own
-    // oracle ceiling from +0.84 to +0.27 - roughly two thirds of the available
-    // reconstruction, given up for a picture a user can look at. That is the
-    // right trade for a default and the wrong one to force, which is why the
-    // setting stays: a project that has judged the shake acceptable (or whose
-    // content does not show it) turns it back on and gets the samples back.
-    // Note that the host trainer reads this field, so a net is fitted for the
-    // sampler its project will ship with - flipping it on an existing project
-    // means retraining that project's blss.net.
-    bool blssJitter = false;
-    // 0 = off, 1 = tint by winning kernel, 2 = log the per-frame feature and
-    // output SPREAD into the game's bin/log.txt (the panel offers 0 and 1;
-    // 2 is a developer instrument, set by hand in the .tyra - see project.cpp).
-    int blssDebugView = 0;
+    // WHAT gets the reduced raster: false = the whole 3D scene, true = only
+    // the particle emitters (docs/upscaler.md, "Particles only"). The opaque
+    // scene then keeps the full raster and the full z buffer, so depth of
+    // field, portals, split view and frame extrapolation all keep working;
+    // the price is a low-res z target beside the colour one. Project-wide,
+    // because it decides what VRAM is reserved at boot.
+    bool blssParticles = false;
 
     // GS hardware distance fog (atmospheric fade-out). Geometry blends
     // toward fogColor between fogStart and fogEnd view distances; free on the
@@ -2541,9 +2490,9 @@ struct ProjectSettings {
 // std::string against libstdc++'s 32, so both are listed - update BOTH when a
 // field lands (a Mac build prints the libc++ one in the same message).
 #if defined(_LIBCPP_VERSION)
-static_assert(sizeof(ProjectSettings) == 808,
+static_assert(sizeof(ProjectSettings) == 792,
 #else
-static_assert(sizeof(ProjectSettings) == 896,
+static_assert(sizeof(ProjectSettings) == 880,
 #endif
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
@@ -2674,16 +2623,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.blobShadows == b.blobShadows &&
            a.projShadowDistance == b.projShadowDistance &&
            a.blssEnabled == b.blssEnabled && a.blssScale == b.blssScale &&
-           a.blssNetwork == b.blssNetwork &&
            a.blssAdaptive == b.blssAdaptive &&
-           a.blssSharpen == b.blssSharpen &&
-           a.blssTemporal == b.blssTemporal &&
-           // blssJitter was missing from this list until plain mode added the
-           // field above it. Harmless so far - the BLSS group is project-wide
-           // and edited outside undo - but a field absent from an operator==
-           // is the exact shape of bug this list exists to prevent.
-           a.blssJitter == b.blssJitter &&
-           a.blssDebugView == b.blssDebugView &&
+           a.blssParticles == b.blssParticles &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
@@ -2753,26 +2694,11 @@ struct SceneOverrides {
                               // flare, god rays
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
-    // The neural upscaler: blssEnabled + blssNetwork ONLY (docs/
-    // neural-upscaler.md, "Per scene"). The other four BLSS settings stay
-    // project-wide and the reasons are different for each pair:
-    //
-    //   blssScale sizes the two PERMANENT GS allocations - the low-res colour
-    //   target and, through it, the z buffer - and the permanent region cannot
-    //   be re-laid after init without evicting every resident texture. It is
-    //   also recorded in a net's provenance sidecar and REFUSED on mismatch
-    //   (blss::checkProvenance), so a per-scene scale would need a net per
-    //   scale, not a setting.
-    //
-    //   blssJitter is the sampler the net was FITTED for, recorded in the same
-    //   sidecar. Sharpen and temporal are that net's tuning, and the debug view
-    //   is a developer instrument. A per-scene value for any of them would be a
-    //   knob on a network that does not vary with it.
-    //
-    // What DOES vary per scene is the pair of questions that have a per-scene
-    // answer: does this scene rasterise reduced at all, and does the MLP
-    // reconstruct it or does one bilinear pass. Both are free at a fixed scale.
-    bool upscaler = false;    // blssEnabled, blssNetwork
+    // The upscaler: blssEnabled ONLY. blssScale stays project-wide because it
+    // sizes the two PERMANENT GS allocations - the low-res colour target and,
+    // through it, the z buffer - and the permanent region cannot be re-laid
+    // after init without evicting every resident texture.
+    bool upscaler = false;    // blssEnabled
     // The contact broad phase (docs/collision-boxes.md, "The broad phase"):
     // a level that stacks in height can take the octree while the rest of the
     // project stays on the grid. Written only when set (format v95).
@@ -3902,96 +3828,6 @@ inline bool operator==(const AnimImport& a, const AnimImport& b) {
            a.skeletonTracksOnly == b.skeletonTracksOnly;
 }
 
-// ---------------------------------------------------------------------------
-// WHAT THE NEURAL UPSCALER'S TRAINING CORPUS IS ALLOWED TO SEE
-// (Tools > Neural Upscaler (BLSS) > Training shots, docs/neural-upscaler.md).
-//
-// WHY THIS EXISTS. The corpus shoots a project from six camera moves derived
-// from the scene's bounds and the player start, plus any authored Cutscene
-// Director track, and until now the user had no say in any of it. That matters
-// because the failure this feature keeps producing is a DISTRIBUTION MISMATCH:
-// a net fitted to frames the game does not draw scored -0.40 dB on a real
-// project - worse than leaving the feature off - and the diagnosis was that
-// its most predictive channels were out of range on the content the console
-// runs. A corpus is only as good as its coverage of the content the PLAYER
-// will look at, and the person who knows where the player stands is the author.
-//
-// So: this is the author's statement of which frames get fitted. It is
-// PROJECT-WIDE (like sequences and prefabs) rather than per scene, because a
-// shot names the scene it belongs to and a plan spanning scenes is one thing to
-// read; it is persisted through save() but is NOT part of undo/redo, for the
-// same reason a prefab is not - it is a build input, not a scene edit.
-//
-// COMPATIBILITY: a default plan writes NOTHING to the .tyra, so an untouched
-// project is byte-identical and the trainer keeps doing exactly what it did.
-
-// The six automatic camera moves blssscene::autoShots derives, in the order it
-// derives them. The order is the serialized order - APPEND ONLY.
-enum class BlssAutoMove { Walk = 0, Pan, Orbit, Whip, Pitch, Strafe, Count };
-enum : int { kBlssAutoMoveCount = (int)BlssAutoMove::Count };
-// The three tables that name a move (label/.tyra key, the corpus' own `move`
-// string, and what the move is for) live in `namespace project` further down,
-// next to blssResolveShot - one home for everything that reads the plan.
-
-// One authored training vantage. Deliberately a two-key polyline and nothing
-// more: `SceneShot` is a polyline of (eye, look-at) keys and every move the
-// corpus already produces reduces to one, so an author who can place two
-// vantages can express a still standpoint, a walk, a strafe or a push-in
-// without a second parameterisation for anybody to keep in step.
-struct BlssShot {
-    std::string name;   // "" = named from its scene and its index
-    std::string scene;  // scene NAME; "" = the project's first scene
-    // A placed Camera object, by name, instead of raw numbers - "aim it where
-    // the player actually stands" is the whole point, and the editor already
-    // has a way to put a camera there. Non-empty WINS over eye/look, and a
-    // camera that is not in the shot's scene drops the shot rather than
-    // silently shooting the origin.
-    std::string camera, cameraTo;
-    float eye[3] = {0.0f, 2.0f, 0.0f};
-    float look[3] = {0.0f, 2.0f, 1.0f};
-    // A second key. Off = a still standpoint, which is a legitimate shot (the
-    // history is perfect and the net has to learn not to spend passes on it).
-    bool move = false;
-    float eye2[3] = {0.0f, 2.0f, 0.0f};
-    float look2[3] = {0.0f, 2.0f, 1.0f};
-    float fovDeg = 60.0f;
-    // How many corpus frames this shot gets. 0 = its equal share of --frames,
-    // which is what every shot has always had. A number here is how an author
-    // says "the corridor matters more than the skybox pan".
-    int frames = 0;
-    bool enabled = true;
-};
-
-inline bool operator==(const BlssShot& a, const BlssShot& b) {
-    for (int k = 0; k < 3; ++k)
-        if (a.eye[k] != b.eye[k] || a.look[k] != b.look[k] || a.eye2[k] != b.eye2[k] ||
-            a.look2[k] != b.look2[k])
-            return false;
-    return a.name == b.name && a.scene == b.scene && a.camera == b.camera &&
-           a.cameraTo == b.cameraTo && a.move == b.move && a.fovDeg == b.fovDeg &&
-           a.frames == b.frames && a.enabled == b.enabled;
-}
-
-struct BlssShotPlan {
-    // Which of the six automatic moves survive, per move, for every scene.
-    bool autoMove[kBlssAutoMoveCount] = {true, true, true, true, true, true};
-    // Per-move frame count; 0 = the equal share.
-    int autoFrames[kBlssAutoMoveCount] = {0, 0, 0, 0, 0, 0};
-    // Cutscene Director camera tracks. On by default and worth keeping on: a
-    // take is the author having already said which frame matters.
-    bool authoredTakes = true;
-    std::vector<BlssShot> shots;
-
-    // Nothing has been authored - the plan the trainer has always followed.
-    // writeBlssShotsSection emits nothing for this, so an untouched project's
-    // .tyra does not change shape.
-    bool isDefault() const {
-        for (int i = 0; i < kBlssAutoMoveCount; ++i)
-            if (!autoMove[i] || autoFrames[i] != 0) return false;
-        return authoredTakes && shots.empty();
-    }
-};
-
 // One model's own collision box (Project::modelCollision): local min / max
 // corners in the mesh's units, the same frame as the mesh AABB it replaces.
 struct ModelCollisionBox {
@@ -4405,12 +4241,6 @@ struct Project {
     // the running game and the editor disagree about what is installed.
     VuSettings vu;
 
-    // What the neural upscaler's training corpus is allowed to see
-    // (Tools > Neural Upscaler (BLSS) > Training shots). Project-wide like the
-    // collections above, persisted through save(), not part of undo/redo - it
-    // is a build input, not a scene edit. A default plan writes nothing.
-    BlssShotPlan blssShots;
-
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
     // file). Restores the editing session on reopen.
@@ -4743,45 +4573,6 @@ int skipMenuIndex(const Project& p);
 // RoleNone / out-of-range values.
 const char* inputRoleName(int role);
 
-// --- The neural upscaler's training-shot plan --------------------------------
-//
-// ONE RESOLUTION, READ BY BOTH SIDES. The editor previews an authored shot and
-// `blssscene::loadProject` shoots it, and if those two derived a camera
-// differently the window would be drawing a frame the corpus never renders -
-// which is precisely the class of bug (host describes one frame, console runs
-// another) that cost this feature eleven commits. So the arithmetic lives here,
-// in the module that owns the data, and both callers ask it.
-
-// The label the UI shows and the key the .tyra stores ("walk", "pan", ...).
-const char* blssAutoMoveName(int move);
-// The `SceneShot::move` string the corpus tags that move with
-// ("dolly-forward", "pan", "orbit", "whip", "pitch-up", "dolly-lateral") - the
-// twin of the literals in blssscene.cpp, so a rename cannot drift between the
-// window's per-shot table and the trainer's own output.
-const char* blssAutoMoveKind(int move);
-// One line saying what that move is FOR, in the terms the corpus was built in.
-const char* blssAutoMoveWhy(int move);
-
-// Which scene a shot belongs to, as an index into Project::scenes. Matches by
-// NAME (an index would rot the moment a scene is deleted); an empty
-// BlssShot::scene means the first scene, and a name matching nothing is -1,
-// which the corpus must read as "drop this shot" rather than as scene 0.
-int blssShotScene(const Project& p, const BlssShot& s);
-
-// Resolve one authored shot into the two (eye, look-at) keys a `SceneShot`
-// carries. `eyeB`/`lookB` are filled with a copy of the first key for a still
-// shot, so a caller can always emit two keys and let the corpus collapse them.
-// Returns false when the shot is disabled, names no scene this project has, or
-// names a Camera object that scene does not contain - all three of which are
-// "do not shoot this", never "shoot the origin".
-bool blssResolveShot(const Project& p, const BlssShot& s, float eyeA[3], float lookA[3],
-                     float eyeB[3], float lookB[3], float* fovDeg = nullptr);
-
-// The name a shot is shown and reported under - its own `name`, or one derived
-// from its scene and index the way the automatic moves are named. Never empty,
-// because a fold table row with no label is a measurement nobody can act on.
-std::string blssShotLabel(const Project& p, const BlssShot& s, int index);
-
 // Fills in the pad-button text icons (Tools > UI Editor > Button icons) so
 // {{cross}} and {{action:jump}} resolve in a fresh or older project. Only ADDS
 // missing entries - a renamed/repointed/deleted icon stays as the user left it.
@@ -4845,7 +4636,6 @@ enum class Section {
     Vehicles,        // "vehicles" (driveable-car definitions)
     VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
     Facts,           // "facts", "factQueries", "factRules", "factScenarios"
-    BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
     Atlas,           // "atlasControl" (per-texture atlas keep-out / group)
     Particles,       // "particleEffects" (the particle library)
     ModelCollision,  // "modelCollision" (per-model collision boxes)
@@ -4860,7 +4650,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 26,
+static_assert(kSectionCount == 25,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");
@@ -4935,13 +4725,8 @@ float playerSprintSpeed(const SceneObject& o, const ProjectSettings& st);
 float settingsRunSpeed(const ProjectSettings& st);
 float settingsSprintSpeed(const ProjectSettings& st);
 
-// What the neural upscaler resolves to across the WHOLE project (docs/
-// neural-upscaler.md, "Per scene"). One answer, read by codegen, by the build
-// interlock, by the editor's clash warning and by the BLSS window - so none of
-// them can decide "does this project mix" differently, which is exactly how the
-// old dialog-vs-build split drifted.
-//
-// `mixed` is decided on the RESOLVED values, never on the override flags: a
+// What the upscaler resolves to across the WHOLE project. One answer, read by
+// codegen, by the build interlock and by the editor's clash warning// `mixed` is decided on the RESOLVED values, never on the override flags: a
 // project whose every scene overrides to the same answer is not mixed, and it
 // keeps generating the sources a project-wide setting generated. That is what
 // makes byte-identical regeneration a property of the OUTCOME rather than of
@@ -4949,17 +4734,17 @@ float settingsSprintSpeed(const ProjectSettings& st);
 struct BlssUse {
     bool any = false;         // some scene rasterises reduced
     bool anyNative = false;   // some scene renders at the full raster
-    bool anyNetwork = false;  // some scene reconstructs with the MLP
     bool mixed = false;       // the scenes do not all resolve alike
+    // The reduced scenes draw only their particles reduced (blssParticles):
+    // nothing shrinks the z buffer and no feature clashes.
+    bool particles = false;
+    // A Set Upscaler flow node switches it at runtime somewhere (any, anyNative
+    // and mixed are then all true).
+    bool runtime = false;
 };
 BlssUse blssUse(const Project& p);
 // The same answer for a project DEFAULT that is not (yet) `p.settings` - what
-// Project > Preferences is staging while the modal is open. It exists because
-// that dialog now states what mixing costs (docs/neural-upscaler.md, "What it
-// costs"), and it has to state it about the settings the reader is editing
-// rather than about the ones on disk; computing "does this project mix"
-// separately there would have been a second answer to the question this
-// function exists to be the only one of.
+// Project > Preferences is staging while the modal is open.
 BlssUse blssUse(const Project& p, const ProjectSettings& defaults);
 
 // Fold the editable ranges onto a cycle / one of its keys. Called by the

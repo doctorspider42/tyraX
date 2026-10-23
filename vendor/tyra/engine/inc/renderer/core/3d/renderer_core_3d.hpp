@@ -37,6 +37,15 @@ class RendererCore3D {
   void setFov(const float& t_fov);
 
   /**
+   * Modified by TyraX (BLSS particles): rebuild the projection for the
+   * settings' CURRENT raster scale and refresh viewProj with it, mid-frame.
+   * setFov() only rebuilds the projection, which is enough at init but leaves
+   * this frame's viewProj describing the old raster. The world-space frustum
+   * planes do not depend on the raster scale and are left alone.
+   */
+  void refreshRasterProjection();
+
+  /**
    * Called by beginFrame();
    * Sets 3D support to off
    */

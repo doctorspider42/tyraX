@@ -103,7 +103,7 @@ static const char* windowTitle(const std::string& key) {
         {"proc", "Procedural"},            {"prefabs", "Prefabs"},
         {"save", "Save Editor"},           {"facts", "World Facts"},
         {"credits", "Credits"},            {"vu", "VU Programs"},
-        {"chat", "AI Assistant"},          {"blss", "Neural Upscaler (BLSS)"},
+        {"chat", "AI Assistant"},
         {"atlas", "Texture Atlas"},        {"batches", "Static Batches"},
         {"projectprefs", "Project Preferences"},
         {"vehicles", "Vehicle Editor"},    {"particles", "Particle Editor"}};

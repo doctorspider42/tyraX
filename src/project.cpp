@@ -185,7 +185,7 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     const int bufferWords = bufferSizeWords(w, h, halfDepth);
 
     // THE UPSCALER IS A PER-SCENE SETTING, so `s.blssEnabled` is the project
-    // DEFAULT and almost never the question (docs/neural-upscaler.md, "Per
+    // DEFAULT and almost never the question (docs/upscaler.md, "Per
     // scene") - blssUse is. `s` is the staged settings the Preferences modal
     // has not committed yet, which is exactly what the two-argument overload
     // exists for.
@@ -199,7 +199,7 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // via configure()'s eighth argument), so it gets none of that back; this
     // used to read the project default alone and promised a third buffer such
     // a project cannot have.
-    const bool zShrinks = u.any && !u.mixed;
+    const bool zShrinks = u.any && !u.mixed && !s.blssAdaptive && !u.particles;
     const int zWords = bufferSizeWords(zShrinks ? w / sx : w,
                                      zShrinks ? h / sy : h, halfDepth);
 
@@ -212,6 +212,8 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     if (u.any) {
         const int lowBufW = -64 & ((w / sx) + 63);  // 64-aligned, as BLSS sizes it
         lowWords = bufferSizeWords(lowBufW, h / sy, halfDepth);
+        // Particles only: a low-res z of the same page geometry beside it.
+        if (u.particles) lowWords *= 2;
     }
 
     // The flashlight shadow volumes' COUNT target (docs/flashlight.md "The
@@ -1301,16 +1303,15 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << " }, \"dynamicLightReceivers\": \""
       << (s.dynamicLightReceivers == DynamicLightReceivers::Players ? "players" : "all")
       << "\"";
-    // The neural upscaler's two per-scene values, and the override flag below,
-    // are written ONLY when the scene actually overrides - unlike every
+    // The upscaler's per-scene value, and the override flag below, are
+    // written ONLY when the scene actually overrides - unlike every
     // category above, which is emitted whether it is active or not. That is
     // deliberate and it is the property the feature is built on: a project
     // whose scenes all inherit produces the bytes it produced before per-scene
     // BLSS existed, so `--resave` on any existing project is a no-op and there
     // is nothing for a migration step to do (the shot plan set the precedent).
     if (sc.overrides.upscaler)
-        j << ", \"blss\": { \"enabled\": " << (s.blssEnabled ? "true" : "false")
-          << ", \"network\": " << (s.blssNetwork ? "true" : "false") << " }";
+        j << ", \"blss\": { \"enabled\": " << (s.blssEnabled ? "true" : "false") << " }";
     // The broad phase, the same way: only a scene that overrides it writes it.
     if (sc.overrides.broadPhase)
         j << ", \"broadPhase\": \"" << s.broadPhase << "\"";
@@ -1419,7 +1420,7 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             // - they are only read at all when "upscaler" is set below.
             if (const auto* bl = st->find("blss")) {
                 if (const auto* v = bl->find("enabled")) s.blssEnabled = v->boolOr(false);
-                if (const auto* v = bl->find("network")) s.blssNetwork = v->boolOr(true);
+                // "network" (the retired neural reconstruction) is ignored.
             }
             if (const auto* v = st->find("broadPhase"))
                 s.broadPhase = v->stringOr("grid") == "octree" ? "octree" : "grid";
@@ -1576,14 +1577,10 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.highlightOpacity = o.highlightOpacity;
         r.highlightOverlay = o.highlightOverlay;
     }
-    // The neural upscaler, per scene: a scene with a portal can refuse it while
-    // the scene next door keeps it (docs/neural-upscaler.md, "Per scene"). Only
-    // these two - the scale, the jitter, the sharpen/temporal tuning and the
-    // debug view stay project-wide; SceneOverrides::upscaler says why.
-    if (s.overrides.upscaler) {
-        r.blssEnabled = o.blssEnabled;
-        r.blssNetwork = o.blssNetwork;
-    }
+    // The upscaler, per scene: a scene with a portal can refuse it while the
+    // scene next door keeps it. Only blssEnabled - the scale stays
+    // project-wide; SceneOverrides::upscaler says why.
+    if (s.overrides.upscaler) r.blssEnabled = o.blssEnabled;
     if (s.overrides.broadPhase) r.broadPhase = o.broadPhase;
     // Ambience preset overlay: a resolved preset owns sky + lighting + fog and
     // wins over the raw project/scene values above (those remain the fallback
@@ -1642,29 +1639,42 @@ BlssUse blssUse(const Project& p) { return blssUse(p, p.settings); }
 BlssUse blssUse(const Project& p, const ProjectSettings& defaults) {
     BlssUse u;
     bool first = true;
-    bool e0 = false, n0 = false;
+    bool e0 = false;
     for (const SceneData& sc : p.scenes) {
-        // resolvedSettings() reaches these two fields through exactly this
-        // branch and nothing else touches them on the way out (the ambience
-        // overlay owns sky/light/fog and no more), so resolving them here
-        // against the supplied defaults IS what that function would do - and it
-        // is the only way to answer for settings a modal has not committed yet.
+        // resolvedSettings() reaches this field through exactly this branch
+        // and nothing else touches it on the way out, so resolving it here
+        // against the supplied defaults IS what that function would do - and
+        // it is the only way to answer for settings a modal has not committed.
         const bool en =
             sc.overrides.upscaler ? sc.settings.blssEnabled : defaults.blssEnabled;
-        const bool nw =
-            sc.overrides.upscaler ? sc.settings.blssNetwork : defaults.blssNetwork;
         u.any |= en;
         u.anyNative |= !en;
-        u.anyNetwork |= (en && nw);
         if (first) {
-            e0 = en, n0 = nw, first = false;
-        } else if (en != e0 || (en && nw != n0)) {
+            e0 = en, first = false;
+        } else if (en != e0) {
             u.mixed = true;
         }
     }
     // A project with no scenes at all (never on disk, but the model allows it)
     // resolves to "nothing uses it", which is what every consumer wants.
     if (!u.any) u.mixed = false;
+    // A Set Upscaler node anywhere: any scene may go reduced or native while
+    // it runs, so the build reserves both rasters exactly as for a project
+    // whose scenes disagree (z at the full raster, the low-res target, the
+    // per-scene table and setScene() at every load).
+    bool runtime = false;
+    auto scan = [&](const std::vector<SceneObject>& objs) {
+        for (const SceneObject& o : objs)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "SetUpscaler") runtime = true;
+    };
+    for (const SceneData& sc : p.scenes) scan(sc.objects);
+    for (const Prefab& pf : p.prefabs) scan(pf.objects);
+    if (runtime && !p.scenes.empty()) {
+        u.runtime = true;
+        u.any = u.anyNative = u.mixed = true;
+    }
+    u.particles = u.any && defaults.blssParticles;
     return u;
 }
 
@@ -2039,22 +2049,15 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  ? "    \"projShadowDistance\": " +
                        fmtFloat(p.settings.projShadowDistance) + ",\n"
                  : "")
-         // The neural upscaler (docs/neural-upscaler.md). Existing fields stay
+         // The reduced-raster upscaler (BLSS). Existing fields stay
          // project-wide and always emitted like the fog/highlight groups next
          // to them; the later adaptive opt-in writes nothing at its false
          // default so an untouched manifest keeps its established shape.
          << "    \"blssEnabled\": " << (p.settings.blssEnabled ? "true" : "false")
          << ",\n"
          << "    \"blssScale\": " << p.settings.blssScale << ",\n"
-         << "    \"blssNetwork\": "
-         << (p.settings.blssNetwork ? "true" : "false") << ",\n"
          << (p.settings.blssAdaptive ? "    \"blssAdaptive\": true,\n" : "")
-         << "    \"blssSharpen\": " << fmtFloat(p.settings.blssSharpen) << ",\n"
-         << "    \"blssTemporal\": "
-         << (p.settings.blssTemporal ? "true" : "false") << ",\n"
-         << "    \"blssJitter\": "
-         << (p.settings.blssJitter ? "true" : "false") << ",\n"
-         << "    \"blssDebugView\": " << p.settings.blssDebugView << ",\n"
+         << (p.settings.blssParticles ? "    \"blssParticles\": true,\n" : "")
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
          << "    \"fogColor\": " << fmtVec3(p.settings.fogColor) << ",\n"
@@ -3743,67 +3746,6 @@ static void writeVuSection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
-// The neural upscaler's training-shot plan (docs/neural-upscaler.md). Written
-// ONLY when something has been authored: a default plan is what the trainer has
-// always done, so an untouched project's .tyra keeps its exact previous shape
-// and every fold table published against it stays reproducible.
-//
-// The automatic moves are written as a NAME list rather than a bool array, so
-// the order in the enum is free to grow without a file written today meaning
-// something else tomorrow - the same reason `inputCodes()` is append-only and
-// the menu display modes are stored explicitly.
-static void writeBlssShotsSection(std::ostream& json, const Project& p) {
-    const BlssShotPlan& pl = p.blssShots;
-    if (pl.isDefault()) return;
-    json << "\"blssShots\": { \"takes\": " << (pl.authoredTakes ? "true" : "false")
-         << ", \"auto\": [";
-    bool first = true;
-    for (int i = 0; i < kBlssAutoMoveCount; ++i) {
-        if (!pl.autoMove[i]) continue;
-        json << (first ? "" : ", ") << "\"" << blssAutoMoveName(i) << "\"";
-        first = false;
-    }
-    json << "]";
-    // Per-move frame counts, only for the moves that ask for one.
-    bool anyFrames = false;
-    for (int i = 0; i < kBlssAutoMoveCount; ++i) anyFrames = anyFrames || pl.autoFrames[i] > 0;
-    if (anyFrames) {
-        json << ", \"autoFrames\": {";
-        first = true;
-        for (int i = 0; i < kBlssAutoMoveCount; ++i) {
-            if (pl.autoFrames[i] <= 0) continue;
-            json << (first ? "" : ", ") << "\"" << blssAutoMoveName(i) << "\": " << pl.autoFrames[i];
-            first = false;
-        }
-        json << "}";
-    }
-    if (!pl.shots.empty()) {
-        json << ", \"shots\": [";
-        for (size_t i = 0; i < pl.shots.size(); ++i) {
-            const BlssShot& s = pl.shots[i];
-            json << (i ? ",\n      " : "\n      ") << "{ \"name\": \"" << jsonEscape(s.name)
-                 << "\", \"scene\": \"" << jsonEscape(s.scene) << "\"";
-            if (!s.camera.empty()) json << ", \"camera\": \"" << jsonEscape(s.camera) << "\"";
-            if (!s.cameraTo.empty())
-                json << ", \"cameraTo\": \"" << jsonEscape(s.cameraTo) << "\"";
-            json << ", \"eye\": [" << fmtFloat(s.eye[0]) << ", " << fmtFloat(s.eye[1]) << ", "
-                 << fmtFloat(s.eye[2]) << "], \"look\": [" << fmtFloat(s.look[0]) << ", "
-                 << fmtFloat(s.look[1]) << ", " << fmtFloat(s.look[2]) << "]";
-            if (s.move)
-                json << ", \"move\": true, \"eye2\": [" << fmtFloat(s.eye2[0]) << ", "
-                     << fmtFloat(s.eye2[1]) << ", " << fmtFloat(s.eye2[2]) << "], \"look2\": ["
-                     << fmtFloat(s.look2[0]) << ", " << fmtFloat(s.look2[1]) << ", "
-                     << fmtFloat(s.look2[2]) << "]";
-            if (s.fovDeg != 60.0f) json << ", \"fov\": " << fmtFloat(s.fovDeg);
-            if (s.frames > 0) json << ", \"frames\": " << s.frames;
-            if (!s.enabled) json << ", \"off\": true";
-            json << " }";
-        }
-        json << "\n    ]";
-    }
-    json << " }";
-}
-
 // --- World Facts (docs/world-facts.md) ---------------------------------------
 // One section carrying all four collections, because they only mean anything
 // together: a query over facts that are not there, or a rule over a query that
@@ -3829,53 +3771,6 @@ static void writeFactCondition(std::ostream& json, const facts::Condition& c) {
         json << "]";
     }
     json << " }";
-}
-
-static void readBlssShotsSection(const json::Value& root, Project& out) {
-    out.blssShots = BlssShotPlan();
-    const json::Value* v = root.find("blssShots");
-    if (!v || v->type != json::Value::Type::Object) return;
-    if (const json::Value* t = v->find("takes")) out.blssShots.authoredTakes = t->boolOr(true);
-    // An absent "auto" key would mean "every move", but the key is always
-    // written when the section is - and an EMPTY list is a legitimate choice
-    // (shoot only what I authored), so the two must not be confused.
-    if (const json::Value* a = v->find("auto"); a && a->type == json::Value::Type::Array) {
-        for (int i = 0; i < kBlssAutoMoveCount; ++i) out.blssShots.autoMove[i] = false;
-        for (const json::Value& e : a->arr) {
-            const std::string name = e.stringOr("");
-            for (int i = 0; i < kBlssAutoMoveCount; ++i)
-                if (name == blssAutoMoveName(i)) out.blssShots.autoMove[i] = true;
-        }
-    }
-    if (const json::Value* f = v->find("autoFrames"); f && f->type == json::Value::Type::Object)
-        for (int i = 0; i < kBlssAutoMoveCount; ++i)
-            if (const json::Value* n = f->find(blssAutoMoveName(i)))
-                out.blssShots.autoFrames[i] = std::max(0, (int)n->numberOr(0.0));
-    const json::Value* arr = v->find("shots");
-    if (!arr || arr->type != json::Value::Type::Array) return;
-    for (const json::Value& e : arr->arr) {
-        BlssShot s;
-        if (const json::Value* x = e.find("name")) s.name = x->stringOr("");
-        if (const json::Value* x = e.find("scene")) s.scene = x->stringOr("");
-        if (const json::Value* x = e.find("camera")) s.camera = x->stringOr("");
-        if (const json::Value* x = e.find("cameraTo")) s.cameraTo = x->stringOr("");
-        const auto vec3 = [&](const char* key, float dst[3]) {
-            const json::Value* x = e.find(key);
-            if (!x || x->type != json::Value::Type::Array) return;
-            for (size_t k = 0; k < x->arr.size() && k < 3; ++k)
-                dst[k] = (float)x->arr[k].numberOr(0.0);
-        };
-        vec3("eye", s.eye);
-        vec3("look", s.look);
-        if (const json::Value* x = e.find("move")) s.move = x->boolOr(false);
-        vec3("eye2", s.eye2);
-        vec3("look2", s.look2);
-        if (const json::Value* x = e.find("fov")) s.fovDeg = (float)x->numberOr(60.0);
-        if (s.fovDeg < 5.0f || s.fovDeg > 175.0f) s.fovDeg = 60.0f;
-        if (const json::Value* x = e.find("frames")) s.frames = std::max(0, (int)x->numberOr(0.0));
-        if (const json::Value* x = e.find("off")) s.enabled = !x->boolOr(false);
-        out.blssShots.shots.push_back(std::move(s));
-    }
 }
 
 static void readFactCondition(const json::Value& v, facts::Condition& out) {
@@ -4174,7 +4069,6 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Vehicles: writeVehiclesSection(ss, p); break;
         case Section::VuPrograms: writeVuSection(ss, p); break;
         case Section::Facts: writeFactsSection(ss, p); break;
-        case Section::BlssShots: writeBlssShotsSection(ss, p); break;
         case Section::Count: break;  // not a section
     }
     return ss.str();
@@ -4204,7 +4098,6 @@ const char* sectionName(Section s) {
         case Section::Vehicles: return "vehicles";
         case Section::VuPrograms: return "vu";
         case Section::Facts: return "facts";
-        case Section::BlssShots: return "blssShots";
         case Section::Atlas: return "atlas";
         case Section::Particles: return "particles";
         case Section::ModelCollision: return "modelCollision";
@@ -4673,128 +4566,6 @@ const char* inputRoleName(int role) {
         case InputAction::RoleVehRearView: return "veh-rearview";
         default: return "";
     }
-}
-
-// --- the neural upscaler's training-shot plan --------------------------------
-
-const char* blssAutoMoveName(int move) {
-    switch ((BlssAutoMove)move) {
-        case BlssAutoMove::Walk: return "walk";
-        case BlssAutoMove::Pan: return "pan";
-        case BlssAutoMove::Orbit: return "orbit";
-        case BlssAutoMove::Whip: return "whip";
-        case BlssAutoMove::Pitch: return "pitch";
-        case BlssAutoMove::Strafe: return "strafe";
-        default: return "";
-    }
-}
-
-// The twin of the `s.move = "..."` literals in blssscene.cpp's autoShots(). It
-// is here rather than there because the window has to LABEL a move the same way
-// the tool's own per-shot table does, and a second spelling would make the two
-// tables un-joinable by eye.
-const char* blssAutoMoveKind(int move) {
-    switch ((BlssAutoMove)move) {
-        case BlssAutoMove::Walk: return "dolly-forward";
-        case BlssAutoMove::Pan: return "pan";
-        case BlssAutoMove::Orbit: return "orbit";
-        case BlssAutoMove::Whip: return "whip";
-        case BlssAutoMove::Pitch: return "pitch-up";
-        case BlssAutoMove::Strafe: return "dolly-lateral";
-        default: return "";
-    }
-}
-
-const char* blssAutoMoveWhy(int move) {
-    switch ((BlssAutoMove)move) {
-        case BlssAutoMove::Walk:
-            return "What the player sees for most of the running time - forward from the "
-                   "player start.";
-        case BlssAutoMove::Pan:
-            return "A yaw sweep from one standpoint: the same content at every reprojection "
-                   "offset a stick can produce.";
-        case BlssAutoMove::Orbit:
-            return "The only move that sweeps silhouettes across the whole tile grid.";
-        case BlssAutoMove::Whip:
-            return "Eased, so the angular velocity peaks mid-shot: history that is fine, "
-                   "history that is useless, and both transitions.";
-        case BlssAutoMove::Pitch:
-            return "Sweeps coverage from 1 to nearly 0, which is what makes the empty-tile "
-                   "case a moving target rather than a corner.";
-        case BlssAutoMove::Strafe:
-            return "Real parallax - near geometry sliding across far, which a tile's single "
-                   "representative depth cannot reproject.";
-        default: return "";
-    }
-}
-
-int blssShotScene(const Project& p, const BlssShot& s) {
-    if (p.scenes.empty()) return -1;
-    if (s.scene.empty()) return 0;
-    for (size_t i = 0; i < p.scenes.size(); ++i)
-        if (p.scenes[i].name == s.scene) return (int)i;
-    return -1;
-}
-
-std::string blssShotLabel(const Project& p, const BlssShot& s, int index) {
-    if (!s.name.empty()) return s.name;
-    const int si = blssShotScene(p, s);
-    const std::string scene = si >= 0 ? p.scenes[(size_t)si].name : std::string("?");
-    return scene + " shot " + std::to_string(index + 1);
-}
-
-bool blssResolveShot(const Project& p, const BlssShot& s, float eyeA[3], float lookA[3],
-                     float eyeB[3], float lookB[3], float* fovDeg) {
-    if (!s.enabled) return false;
-    const int si = blssShotScene(p, s);
-    if (si < 0) return false;
-    const SceneData& sc = p.scenes[(size_t)si];
-    float fov = s.fovDeg;
-    // A Camera object gives both the standpoint and the aim, which is the whole
-    // reason the field exists: the author has already placed the camera where
-    // the player stands, and re-typing its numbers into this shot would be a
-    // second copy that goes stale the moment the camera is nudged.
-    const auto fromCamera = [&](const std::string& name, float eye[3], float look[3]) {
-        for (const SceneObject& o : sc.objects) {
-            if (o.type != PrimitiveType::Camera || o.name != name) continue;
-            float fwd[3];
-            seqCameraForward(o.rotation, fwd);
-            for (int k = 0; k < 3; ++k) {
-                eye[k] = o.position[k];
-                look[k] = eye[k] + fwd[k];
-            }
-            fov = o.cameraFov;
-            return true;
-        }
-        return false;
-    };
-    if (!s.camera.empty()) {
-        if (!fromCamera(s.camera, eyeA, lookA)) return false;
-    } else {
-        for (int k = 0; k < 3; ++k) eyeA[k] = s.eye[k], lookA[k] = s.look[k];
-    }
-    // The second key. A `cameraTo` that names nothing is the same class of
-    // mistake as a `camera` that does - drop the shot rather than shoot half
-    // of it, because a move that silently became a still is a corpus that
-    // silently stopped covering the motion the author asked for.
-    if (s.move) {
-        if (!s.cameraTo.empty()) {
-            if (!fromCamera(s.cameraTo, eyeB, lookB)) return false;
-        } else {
-            for (int k = 0; k < 3; ++k) eyeB[k] = s.eye2[k], lookB[k] = s.look2[k];
-        }
-    } else {
-        for (int k = 0; k < 3; ++k) eyeB[k] = eyeA[k], lookB[k] = lookA[k];
-    }
-    // A key whose eye and look-at coincide has no direction at all, and the
-    // corpus would normalise a zero vector.
-    const auto degenerate = [](const float e[3], const float l[3]) {
-        const float d[3] = {l[0] - e[0], l[1] - e[1], l[2] - e[2]};
-        return d[0] * d[0] + d[1] * d[1] + d[2] * d[2] < 1e-8f;
-    };
-    if (degenerate(eyeA, lookA) || degenerate(eyeB, lookB)) return false;
-    if (fovDeg) *fovDeg = fov;
-    return true;
 }
 
 void ensureTextIcons(Project& p) {
@@ -6775,52 +6546,20 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             if (st.projShadowDistance < 10.0f) st.projShadowDistance = 10.0f;
             if (st.projShadowDistance > 500.0f) st.projShadowDistance = 500.0f;
         }
-        // The neural upscaler (docs/neural-upscaler.md). Absent = off, which is
-        // every project saved before it existed; blssTemporal defaults ON, so
-        // it reads like loadingScreen (absent means the default, not false).
+        // The reduced-raster upscaler (BLSS). Absent = off, which is every
+        // project saved before it existed. The retired neural reconstruction's
+        // keys (blssNetwork, blssSharpen, blssTemporal, blssJitter,
+        // blssDebugView) may still be in older files and are ignored.
         if (const auto* v = s->find("blssEnabled"))
             st.blssEnabled = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("blssScale"))
             st.blssScale = (int)v->numberOr(0.0);
         if (st.blssScale < 0) st.blssScale = 0;
         if (st.blssScale > 1) st.blssScale = 1;
-        // PLAIN MODE, and it reads like blssTemporal rather than like
-        // blssJitter: absent means the NETWORK, which is the only thing a
-        // project saved before this key existed can have meant. There is no
-        // "the old behaviour was harmful" argument here - the reconstruction a
-        // legacy BLSS project shipped with is the one it was trained for.
-        if (const auto* v = s->find("blssNetwork"))
-            st.blssNetwork = !(v->type == json::Value::Type::Bool && !v->boolean);
         if (const auto* v = s->find("blssAdaptive"))
             st.blssAdaptive = v->type == json::Value::Type::Bool && v->boolean;
-        if (const auto* v = s->find("blssSharpen"))
-            st.blssSharpen = clamp01((float)v->numberOr(0.5));
-        if (const auto* v = s->find("blssTemporal"))
-            st.blssTemporal = !(v->type == json::Value::Type::Bool && !v->boolean);
-        // NOT the "absent means what it always did" rule the keys around it
-        // use, and the difference is deliberate. The jitter is the confirmed
-        // cause of the screen shake (project.hpp), so a project saved before
-        // this key existed - which is every project that ever shook - opens
-        // with it OFF rather than keeping the behaviour it was saved with.
-        // The one direction this can move a legacy project is "stops
-        // flickering"; there is no configuration it makes worse, and a project
-        // that wants the samples back says so explicitly and gets a rewritten
-        // key on the next save. A malformed value lands on the default too,
-        // for the same reason.
-        if (const auto* v = s->find("blssJitter"))
-            st.blssJitter = (v->type == json::Value::Type::Bool && v->boolean);
-        if (const auto* v = s->find("blssDebugView"))
-            st.blssDebugView = (int)v->numberOr(0.0);
-        if (st.blssDebugView < 0) st.blssDebugView = 0;
-        // 2 is the FEATURE-SPREAD INSTRUMENT (RendererCoreBlss::
-        // logFeatureSpread): one BLSSGRID/BLSSFEAT/BLSSOUT/BLSSFILL group per
-        // second into the game's bin/log.txt, picture untouched. It is what
-        // `tyrax-editor --blss-eval --probe "<BLSSFEAT line>"` reads, i.e. the
-        // only way to find out whether the network is being run on the
-        // distribution it was trained on. The panel's combo offers 0 and 1;
-        // this value is reachable by editing the .tyra, which is deliberate -
-        // it is a developer instrument, not a project setting.
-        if (st.blssDebugView > 2) st.blssDebugView = 2;
+        if (const auto* v = s->find("blssParticles"))
+            st.blssParticles = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("fogEnabled"))
             st.fogEnabled = v->type == json::Value::Type::Bool && v->boolean;
         readVec3(s->find("fogColor"), st.fogColor);
@@ -8132,7 +7871,6 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             readFactsSection(root, p);
             ensureFactIds(p);
             break;
-        case Section::BlssShots: readBlssShotsSection(root, p); break;
         case Section::Count: return false;  // not a section
     }
     return true;
@@ -8334,7 +8072,6 @@ std::string load(Project& out, const std::string& projectDir) {
     // catalog authored before ids existed gets them before anything
     // can be written - the ensureObjectIds contract.
     ensureFactIds(out);
-    readBlssShotsSection(root, out);
 
     // NOTE there is deliberately no "fold sky/lighting/fog into presets"
     // migration here any more. It was the pre-Ambience-Editor lift, gated on
@@ -9215,12 +8952,6 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\shadow_data.gen.hpp" ||
             f.relativePath == "inc\\occlusion_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
-            // The trained BLSS network (docs/neural-upscaler.md). Only ever IN
-            // `generated` while the upscaler is enabled - but when it is there
-            // it MUST be rewritten, or a project that predates the feature (or
-            // that was just retrained with --blss-train) keeps compiling the
-            // untrained weights it was first scaffolded with.
-            f.relativePath == "inc\\blss_net.gen.hpp" ||
             // The BLSS build refusal, in a TU of its own so the compiler prints
             // it once rather than once per includer of scene_data.hpp. Only in
             // `generated` while the project actually clashes; the sweep below
@@ -9490,7 +9221,7 @@ std::string refreshGenerated(const Project& p) {
     // reasoning as the VU sweep below - Makefile.base globs src/**/*.cpp, so a
     // leftover would keep refusing a build that is now perfectly fine, and
     // there is no worse failure than a guard that fires after the thing it
-    // guards against is gone (docs/neural-upscaler.md, Limitations).
+    // guards against is gone (docs/upscaler.md, Limitations).
     {
         bool wanted = false;
         for (const auto& f : generated)
@@ -9500,6 +9231,12 @@ std::string refreshGenerated(const Project& p) {
             fs::remove(fs::path(p.dir) / "src" / "gen" / "blss_interlock.gen.cpp",
                        ec);
         }
+    }
+    // The retired neural upscaler's baked network. Nothing includes it any
+    // more, so a leftover is only clutter - sweep it.
+    {
+        std::error_code ec;
+        fs::remove(fs::path(p.dir) / "inc" / "blss_net.gen.hpp", ec);
     }
     {
         bool wanted = false;

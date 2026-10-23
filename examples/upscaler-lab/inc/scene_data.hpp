@@ -433,9 +433,10 @@ struct PortalData {
   int firstCand;        // first entry in CATCH_CANDIDATES
   int candCount;
 };
-inline constexpr int PORTAL_COUNT = 0;
-inline constexpr PortalData PORTALS[1] = {
-    {0, -1, -1, 0, 0, 0, 0, 0, -1, 0, 0}
+inline constexpr int PORTAL_COUNT = 2;
+inline constexpr PortalData PORTALS[2] = {
+    {0, 45, 46, 1, 0, 1, 0, 0, -1, 0, 0},  // portal-a,
+    {0, 46, 45, 1, 0, 1, 0, 0, -1, 0, 0},  // portal-b
 };
 inline constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 
@@ -574,7 +575,7 @@ inline constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
 inline constexpr int POSTFX_MOTIONBLUR_IDLE_CLEAR = 1;
 inline constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
 inline constexpr int FLARE_USED = 0;
-inline constexpr int BEAMS_USED = 0;
+inline constexpr int BEAMS_USED = 1;
 inline constexpr int FLASHLIGHT_USED = 0;
 inline constexpr int VEHICLE_HEADLIGHTS_USED = 0;
 inline constexpr int DAYCYCLE_USED = 0;
@@ -586,16 +587,16 @@ inline constexpr int BLOB_SHADOWS = 0;
 inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
 inline constexpr int BLOB_SHADOWS_USED = 0;
 inline constexpr int BLSS_ADAPTIVE = 0;
+inline constexpr int BLSS_PARTICLES = 1;
 inline constexpr int BLSS_ENABLED = 1;
 inline constexpr int BLSS_SCALE_X = 2;
 inline constexpr int BLSS_SCALE_Y = 2;
-inline constexpr float BLSS_SHARPEN = 0.5F;
-inline constexpr int BLSS_TEMPORAL = 1;
-inline constexpr int BLSS_JITTER = 0;
-inline constexpr int BLSS_NETWORK = 1;
-inline constexpr int BLSS_DEBUG_VIEW = 0;
-#define BLSS_SCENE_ON BLSS_ENABLED
-#define BLSS_SCENE_NET BLSS_NETWORK
+// This project's scenes do not all resolve the upscaler alike, so it is
+// switched per scene at load (RendererCoreBlss::setScene, free - configure()
+// below already sized the z buffer for the WIDEST raster any scene uses).
+inline constexpr int BLSS_NATIVE_SCENES = 1;
+inline constexpr bool BLSS_ENABLEDS[SCENE_COUNT] = {true};
+#define BLSS_SCENE_ON BLSS_ENABLEDS[g_activeScene]
 inline constexpr int PROJ_SHADOWS_USED = 0;
 inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
 inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};

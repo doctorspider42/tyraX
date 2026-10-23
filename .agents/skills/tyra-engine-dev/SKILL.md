@@ -23,7 +23,7 @@ description: >
 - **LF only under `vendor/tyra/**`** (`.gitattributes`). vclpp chokes on CRLF in files with a `#macro`, with a misleading `Preprocessor directive inside macro block: '#endmacro'`. Scripts: Python `Path.write_text()` writes CRLF on Windows — write bytes, check `grep -c $'\r'`.
 - The rest of `vendor/` (imgui, glfw, imguizmo, imnodes, stb, tyra's non-engine parts) is git-ignored, cloned by `setup.ps1`/`setup.sh` — never edit. Exception: `vendor/tyra/audsrv/` is an in-tree source fork with committed binaries (references/audio.md).
 - `vendor/tyra` is shared by every project on the machine: revert debug probes before you stop.
-- Several engine pieces have **host twins that must change in the same commit**: `src/objparser.cpp` ↔ `LeanObjLoader`; `src/tmdl.hpp` ↔ `TmdlLoader`; `src/blss.cpp` + `src/blsscorpus.cpp` + docs/blss-reconstruction.md ↔ `RendererCoreBlss` (incl. `TYRA_BLSS_ACT_TABLE` ↔ host `actTable`); `src/vugen.cpp` ↔ the 15 StaPip `.vclpp` programs; `App::ps2ViewportOutput` ↔ `DisplayMode` table; `menulayout.cpp` `gsWords` ↔ `RendererCoreGSVRam::getSize`; `project::tripleBufferingFit` ↔ `allocateVramBuffers` headroom; `src/isoexport.cpp` skip ↔ `RESDIR_SKIP`.
+- Several engine pieces have **host twins that must change in the same commit**: `src/objparser.cpp` ↔ `LeanObjLoader`; `src/tmdl.hpp` ↔ `TmdlLoader`; `src/vugen.cpp` ↔ the 15 StaPip `.vclpp` programs; `App::ps2ViewportOutput` ↔ `DisplayMode` table; `menulayout.cpp` `gsWords` ↔ `RendererCoreGSVRam::getSize`; `project::tripleBufferingFit` ↔ `allocateVramBuffers` headroom (incl. the BLSS low-res colour/z reserve, `setLowResTargetScale`); `src/isoexport.cpp` skip ↔ `RESDIR_SKIP`.
 
 ## How an engine change reaches the game
 No manual engine build: the Runner (`src/runner.cpp`) rebuilds it on every game build (F5 / `tyrax-editor --build <projectDir>`).
@@ -34,7 +34,7 @@ No manual engine build: the Runner (`src/runner.cpp`) rebuilds it on every game 
 - Engine code cannot be compiled on the host; even a syntax check needs a game build (tyra-testing skill).
 
 ## TyraX additions at a glance
-EE clipper with Cohen–Sutherland outcodes and static pools; StaPip `clip` VU1 family (on-VU1 Sutherland–Hodgman, **default** clipping since M4; EE clipper = "Precise clipping on EE (legacy)", still the load-time default for pre-M4 `.tyra` files without a `clipping` key; docs/vu1-clipping.md); post-fx (bloom, grain, DoF, god rays, custom effects, motion blur); env map / camera feeds / projected shadows / shadow-volume alpha mask; billboards; portals; split screen; VU0 ray tracer; BLSS neural upscaler; frame extrapolation warp; triple buffering, Hybrid colour depth, extra display modes; VIF1 queue, retained and baked command streams, triangle strips; `TmdlLoader`; USB kbd/mouse, two pads, rumble, input replay; quiet-halt asserts + `TYRA_SOFT_ERROR`; EE crash handler + VU1 packet tap; audsrv fork with both SPU2 cores + hardware reverb.
+EE clipper with Cohen–Sutherland outcodes and static pools; StaPip `clip` VU1 family (on-VU1 Sutherland–Hodgman, **default** clipping since M4; EE clipper = "Precise clipping on EE (legacy)", still the load-time default for pre-M4 `.tyra` files without a `clipping` key; docs/vu1-clipping.md); post-fx (bloom, grain, DoF, god rays, custom effects, motion blur); env map / camera feeds / projected shadows / shadow-volume alpha mask; billboards; portals; split screen; VU0 ray tracer; BLSS upscaler (whole scene / particles only); frame extrapolation warp; triple buffering, Hybrid colour depth, extra display modes; VIF1 queue, retained and baked command streams, triangle strips; `TmdlLoader`; USB kbd/mouse, two pads, rumble, input replay; quiet-halt asserts + `TYRA_SOFT_ERROR`; EE crash handler + VU1 packet tap; audsrv fork with both SPU2 cores + hardware reverb.
 
 ## Core rules (break one and you will find it the expensive way)
 1. **Never `frustumCulling = None`** except billboard bags → GS 4096-px window wrap, "giant smeared polygons".
@@ -137,13 +137,13 @@ EE clipper with Cohen–Sutherland outcodes and static pools; StaPip `clip` VU1 
 - Half the real FPS in progressive modes → T3 (H-BLNK) clock in old `getFps` → display-framebuffers.md
 - `MEM 32.0/32 MB` with 13.6 MB free → old free-RAM probe → devkit-debugging.md
 - "EE-bound" because `drain ≈ 0` → false discriminator → performance.md
-- Same ELF, different `proxy` ms → scene settled at 201 vs 198 proxies → blss.md
+- BLSS composite only fills the top-left quarter → SCISSOR still at the low-res raster when the full-screen pass ran → blss.md
 - Benchmark suspiciously fast → missing `.res-baked`, placeholders → performance.md
 - "VU1 is free" → instrumented a program the scene doesn't run → vu1-microprograms.md
 - `--vu-check` green but branch wrong → harness can't see the gated path; prove it fails inverted → vu1-microprograms.md
 
 **Measured dead ends — do not reopen without a new hypothesis**
-coarser (8-package) frustum classification (+4.59 ms); package size above 75 (81 max, 144 impossible); 128-byte `BagArray` alignment; >4-bag or large-bag batching; Vif1Queue depth 8; DMAC-interrupt chain start; per-REF `SyncDCache`; uncached / UCAB packets; per-bag `dma_channel_wait`; transformed-light cache; retaining per-bag uniform copies; BLSS emitter spatial split; interleaved BLSS accumulators; a fourth BLSS libm win; BLSS+extrapolation history-buffer theory; k255/ADC-table VU image; REGLIST state compaction; widening the cull programs' ADC guard band.
+coarser (8-package) frustum classification (+4.59 ms); package size above 75 (81 max, 144 impossible); 128-byte `BagArray` alignment; >4-bag or large-bag batching; Vif1Queue depth 8; DMAC-interrupt chain start; per-REF `SyncDCache`; uncached / UCAB packets; per-bag `dma_channel_wait`; transformed-light cache; retaining per-bag uniform copies; k255/ADC-table VU image; REGLIST state compaction; widening the cull programs' ADC guard band.
 
 ## Reference index — read the file when you touch…
 | File | Read when you touch |
@@ -151,7 +151,7 @@ coarser (8-package) frustum classification (+4.59 ms); package size above 75 (81
 | references/build-and-toolchain.md | Runner engine sync, native/Docker builds, `Makefile.base`, `-G0`, `RESDIR_SKIP`, toolchain image, openvcl vs Sony `vcl` |
 | references/engine-additions.md | 2D sprites/aspect, dynamic-light pick, pads/USB kbd-mouse/replay, asserts & soft errors, object ids, collision, boot-time state, SH lighting, skin reuse |
 | references/renderer-features.md | post-fx, env map/cam feeds, shadow map, alpha mask/shadow volumes, billboards (+residency), portals, split view, VU0 ray tracer, frame-extrapolation warp, live texture reload |
-| references/blss.md | neural upscaler, raster redirect, z-buffer sizing/mask, BLSS measurements, nets and incompatibilities |
+| references/blss.md | the upscaler (Whole 3D scene / Particles only), raster redirect, z-buffer sizing/mask, depth copies, GS-state restores, BLSS measurements and incompatibilities |
 | references/vu1-microprograms.md | any `.vclpp`/`.i`, `vugen`/`--vu-check`, vclpp/VCL traps, micro memory, clip images, `VU1_OPTIONS_ADDR`, spot gate, VU1 cost |
 | references/gs-state.md | GS registers, GIF tags, CLAMP/REPEAT, ATEST, FBA, DIMX/DTHE, flicker filter, TEXA/COLCLAMP, debugging an invisible GS pass |
 | references/display-framebuffers.md | display modes, 2D origin, framebuffer PSM, Hybrid, triple buffering, vblank/present, frame pacing, FPS counters |

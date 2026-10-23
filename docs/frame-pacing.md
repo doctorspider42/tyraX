@@ -122,8 +122,8 @@ colour-target reserve is tracked independently of the Z raster: mixed projects
 with full-size depth still recheck headroom when the low-res target is first
 configured, and retain that reserve during video-mode switches in native scenes.
 
-There is still no previous 32-bit image: motion blur, BLSS temporal history and
-frame extrapolation stay disabled. A scene capture reads the finished 32-bit
+There is still no previous 32-bit image: motion blur and frame extrapolation
+stay disabled. A scene capture reads the finished 32-bit
 draw buffer, rather than either display target. Before a scan-mode change resets
 the GS, both drawing paths are drained: a double-buffer hybrid fallback can
 still have an asynchronous copy in flight.
@@ -242,8 +242,8 @@ per field, so it is the mode a game reaches for when it is fighting for frames
 in the first place.
 
 The one combination that puts it within reach at full 512x448 is the
-[neural upscaler](neural-upscaler.md): BLSS sizes the z buffer from the *raster*
-rather than the display buffer, which at 2x2 gives back 172 032 words — more
+[upscaler](upscaler.md) in its *Whole 3D scene* shape: BLSS sizes the z buffer
+from the *raster* rather than the display buffer, which at 2x2 gives back 172 032 words — more
 than enough to pay for the third display buffer. That has not been measured on
 hardware yet, and it comes with two corrections the
 first version of this page did not have:
@@ -252,14 +252,18 @@ first version of this page did not have:
   the check runs**, and is not in the reserve either. It is allocated *after*
   the layout (`blss.configure` → the VRAM rebuild → `blss.allocate`), and the
   384 KB reserve names post fx, the env map, the camera feed and the shadow
-  slots — nothing else. So the headroom check subtracts it explicitly. At
+  slots — nothing else. So the headroom check subtracts it explicitly - and,
+  for *Particles only*, the low-res z target reserved beside it
+  (`setLowResTargetScale(sx, sy, withDepth)`). At
   512x448 with the 1x2 raster that target is 114 688 words, which is the
   difference between a 576 KB texture heap and a 128 KB one, i.e. between a
   workable scene and one that asserts on its first big texture.
 - **A project whose scenes disagree about the upscaler gets none of the
   saving.** Mixed resolution pins z at the full display raster
-  (`setZRasterScale`, docs/neural-upscaler.md "Per scene"), so it pays for the
-  low-res target *and* a full-size z. `project::tripleBufferingFit` therefore
+  (`setZRasterScale`, the engine's `nativeScenes`), and so does *Particles only*
+  (its opaque scene keeps full depth), so either pays for the low-res target
+  *and* a full-size z. A Set Upscaler (BLSS) node anywhere in the project makes
+  it mixed (docs/upscaler.md). `project::tripleBufferingFit` therefore
   takes the whole `Project` and asks `project::blssUse`, not the project
   default — asking the default alone promised a third buffer to projects that
   cannot have one.
@@ -352,7 +356,7 @@ anything else that re-lays the permanent VRAM region, and because it took two
 sessions to find something that is one expression long.
 
 **The symptom.** Reported from use as the emulator "flickering badly", on a
-project with the neural upscaler AND triple buffering on. The picture alternates
+project with the upscaler AND triple buffering on. The picture alternates
 between the scene and a **fully black frame** — no debug HUD in the black member
 either, and the HUD is drawn at full resolution *after* the composite, so that
 display buffer had received no draws at all rather than a failed composite.
@@ -368,7 +372,7 @@ displayedBuffer = context ^ 1;   // "the other buffer" — true only when there 
 ```
 
 `allocateVramBuffers()` arms the queue with that, and it runs **a second time**
-in any game that re-lays the permanent region after boot. Today the neural
+in any game that re-lays the permanent region after boot. Today the
 upscaler is the only thing that asks for one: `configure()` sizes the z buffer
 from the raster, so it goes through `RendererCore::rebuildPermanentBuffers()`.
 By then the ~2 s boot banner (`Banner::show`, a `beginFrame`/`endFrame` loop)
@@ -385,8 +389,8 @@ value of `context`, the upscaler to re-arm the queue **after** boot instead of
 only at `init()` with `context` still 0. With two buffers `context ^ 1` is
 always right; with the upscaler off, the arming only ever runs once.
 
-**Measured**, one fixture (`--new … fpp`, progressive 480p, 2×2 neural, jitter
-off), one build changing only these lines, PCSX2 software renderer:
+**Measured**, one fixture (`--new … fpp`, progressive 480p, 2×2, in the
+since-removed neural mode), one build changing only these lines, PCSX2 software renderer:
 
 | | boot log | 12 back-to-back captures |
 |---|---|---|
@@ -419,7 +423,7 @@ Three things came out of it, and the first is the general one:
 **How it was found, since none of the automated gates could see it**: the
 buffer index was *logged frame by frame* rather than reasoned about. Two
 theories that read very well were wrong — the composite's in-flight DMA against
-the queue handshake, and BLSS' `frameBuffers[1 - context]` history tap — and
+the queue handshake, and the old neural mode's `frameBuffers[1 - context]` history tap — and
 neither would have produced a frame with no HUD. The one instrument that settled
 it fits on the boot line.
 

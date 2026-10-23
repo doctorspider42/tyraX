@@ -1353,6 +1353,24 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "extrapolation preference on - that is what compiles the "
                  "feature in; this only steers it. Fire it at the start of a "
                  "cutscene and again at the end."},
+        {.key = "SetUpscaler", .title = "Set Upscaler (BLSS)",
+         .category = "Scene", .numCount = 1, .numLabels = {"Mode"},
+         .numTips = {"Scene default = what Scene Preferences says for this "
+                     "scene. Off = native resolution. On = the reduced "
+                     "raster (the whole 3D scene, or only the particles - "
+                     "Project Preferences decides which). Automatic = the "
+                     "frame-budget switch: native until frames start missing "
+                     "fields, then reduced. A scene load goes back to Scene "
+                     "default."},
+         .numChoices = {"Scene default|Off (native)|On (reduced)|Automatic"},
+         .desc = "Switches the upscaler while the game runs "
+                 "(docs/upscaler.md, \"At runtime\") - e.g. On when the "
+                 "player walks into the smoke and fire, Off again on the way "
+                 "out. Free: having this node anywhere makes the build "
+                 "reserve both rasters at boot, so a switch moves no VRAM. "
+                 "Whole-scene mode still cannot be combined with depth of "
+                 "field, portals or split screen; use Particles only there. "
+                 "Requires a game rebuild; Live Logic cannot patch this node."},
         {.key = "SetWidescreen", .title = "Set Widescreen", .category = "Scene",
          .numCount = 1, .numLabels = {"On"},
          .numTips = {"On = fit the projection for 16:9, off = 4:3. This "

@@ -52,7 +52,7 @@ blocks inside a single page). At 32bpp:
 | 256×256 | 65 536 | 23% |
 | 512×512 | 262 144 | 93% — one texture, basically the whole heap |
 | Frame buffer × 2 (512×448, 32bpp) | 458 752 | halves in the `InterlacedField` scan mode |
-| Z buffer (512×448, 32bpp) | 229 376 | sized from the **raster**, so the [neural upscaler](neural-upscaler.md) shrinks it to 57 344 at 2×2 |
+| Z buffer (512×448, 32bpp) | 229 376 | sized from the **raster**, so the [upscaler](upscaler.md)'s *Whole 3D scene* shape shrinks it to 57 344 at 2×2 |
 | Post-fx scratch `lowVram[0..1]` + film-grain noise | ~12 288 | bloom/DoF blur chain |
 | Env-map target + its z buffer (128×128) | 32 768 | reflective materials |
 | Camera-feed target + its z buffer (128×128) | 32 768 | texture feeds |
@@ -232,7 +232,7 @@ The rules it keeps:
   and `DTHE` is written back to 0 after it. `CLAMP` is left for
   `Path3::clearScreen`, which re-asserts REPEAT before any 3D draws.
 - **There is no previous 32-bit frame.** `hasRealFrame()` stays false, so
-  motion blur stays off. BLSS refuses the history and drops its temporal pass.
+  motion blur stays off.
   `presentWarpFrame` presents no synthetic frames, and
   triple buffering rotates only the two 16-bit display buffers. The frame
   capture photographs the 32-bit draw buffer (the finished frame, before the next
@@ -328,7 +328,7 @@ texture, `vram.reset()`, re-run the allocation sequence:
 
 - a **display-mode switch** (`RendererCore::setDisplayOutput`), which re-runs the
   whole init including the video mode;
-- **`blss.configure()`** turning the [neural upscaler](neural-upscaler.md) on,
+- **`blss.configure()`** turning the [upscaler](upscaler.md) on,
   through `RendererCore::rebuildPermanentBuffers()` — the same branch minus the
   mode. The z buffer is sized from the raster and the raster scale is not known
   until `configure()` runs, which is *after* z was allocated. Generated games
@@ -339,7 +339,7 @@ texture, `vram.reset()`, re-run the allocation sequence:
   `RendererCoreGS::needsBufferRealloc()` and fires at most once.
 
   **A game whose SCENES disagree about the upscaler pins the layout instead**
-  (per-scene BLSS, docs/neural-upscaler.md). `RendererCoreGS::setZRasterScale`
+  (per-scene BLSS, docs/upscaler.md). `RendererCoreGS::setZRasterScale`
   fixes what the z buffer is sized for independently of the raster scale the
   projection is currently using, so a project with some scenes upscaled and some
   native sizes z for the FULL display once, at init, and `needsBufferRealloc()`

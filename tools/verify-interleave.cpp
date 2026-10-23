@@ -27,8 +27,8 @@ struct Core {
  u32 generation=0,stall=0;bool requested=true,limiter=true,yield=false;
  struct GS{u32 buffers=2;struct Target{int frameAddress=0,frameWidth=448,scissorX0=0,scissorX1=447,scissorY0=0,scissorY1=447,offsetX16=0,offsetY16=0;}target;
  u32 getFrameBufferCount()const{return buffers;}Target getRasterTarget()const{return target;}}gs;
- struct BLSS{bool enabled=false,network=false;int lowW=224,lowH=224;
- bool isEnabled()const{return enabled;}bool usesNetwork()const{return network;}
+ struct BLSS{bool enabled=false,particles=false;int lowW=224,lowH=224;
+ bool isEnabled()const{return enabled;}bool isActive()const{return enabled||particles;}
  int getLowResW()const{return lowW;}int getLowResH()const{return lowH;}}blss;
  Settings settings;u32 getRecordingGeneration()const{return generation;}
  const Settings&getSettings()const{return settings;}bool getFrameLimit()const{return limiter;}
@@ -67,7 +67,7 @@ int main(){
  c.settings.color=Tyra::ColorDepth::Bits16;reset();c.settings.color=Tyra::ColorDepth::Hybrid;reset();
  c.settings.width=512;reset();c.settings.height=512;reset();c.settings.renderHeight=256;reset();
  c.settings.rasterWidth=256;reset();c.settings.rasterHeight=128;reset();
- c.blss.lowW=128;reset();c.blss.lowH=112;reset();c.blss.network=true;reset();
+ c.blss.lowW=128;reset();c.blss.lowH=112;reset();c.blss.particles=true;reset();
  c.settings.wide=true;reset();c.settings.dither=false;reset();
  c.gs.target.frameWidth=512;reset();c.gs.target.scissorX0=1;reset();c.gs.target.scissorX1=511;reset();
  c.gs.target.scissorY0=1;reset();c.gs.target.scissorY1=511;reset();

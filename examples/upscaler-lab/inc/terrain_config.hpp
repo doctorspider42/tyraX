@@ -46,7 +46,7 @@ constexpr int SHADOW_VOLUMES_DEBUG = 0;
 // SPOT_SHADOW_VOLUMES_USED in scene_data.hpp is what the two resolve to for
 // the project as a whole. Only ONE spot casts volumes per frame - the count
 // band is a single buffer, shared with the torch's.
-constexpr int SPOT_SHADOW_VOLUMES = 0;
+constexpr int SPOT_SHADOW_VOLUMES = 1;
 
 // Baked lamp light (docs/dynamic-light-receivers.md, "Baked lamp light";
 // ProjectSettings::bakeStaticLamps): a dynamic light that never moves and

@@ -20,7 +20,6 @@
 
 #include "animedit.hpp"
 #include "aobake.hpp"
-#include "blss.hpp"  // the neural upscaler: scale factors + the net emitter
 #include "gibake.hpp"
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
@@ -2063,14 +2062,14 @@ class TerrainGame : public Tyra::Game {
   // Exact mode/geometry fields: no packed-key collisions or frame-address key.
   struct InterleaveMode {
     u32 video, display, color, buffers;
-    bool field, blss, limiter, yield, widescreen, dither, network;
+    bool field, blss, limiter, yield, widescreen, dither;
     float width, height, renderHeight, rasterWidth, rasterHeight;
     int lowW, lowH, frameWidth, x0, x1, y0, y1;
     bool operator==(const InterleaveMode& o) const {
       return video == o.video && display == o.display && color == o.color &&
              buffers == o.buffers && field == o.field && blss == o.blss &&
              limiter == o.limiter && yield == o.yield && widescreen == o.widescreen &&
-             dither == o.dither && network == o.network && width == o.width &&
+             dither == o.dither && width == o.width &&
              height == o.height && renderHeight == o.renderHeight &&
              rasterWidth == o.rasterWidth && rasterHeight == o.rasterHeight &&
              lowW == o.lowW && lowH == o.lowH && frameWidth == o.frameWidth &&
@@ -2256,6 +2255,7 @@ class TerrainGame : public Tyra::Game {
                   float dvy, float dvz);
   void renderScene();
   void updateAdaptiveResolution();
+  int upscalerMode = 0;  // Set Upscaler: 0 scene, 1 native, 2 reduced, 3 auto
   int adaptiveScene = -1;
   int adaptiveWarmup = 0;
   int adaptiveSlowRun = 0;
@@ -4135,14 +4135,14 @@ class TerrainGame : public Tyra::Game {
   // Exact mode/geometry fields: no packed-key collisions or frame-address key.
   struct InterleaveMode {
     u32 video, display, color, buffers;
-    bool field, blss, limiter, yield, widescreen, dither, network;
+    bool field, blss, limiter, yield, widescreen, dither;
     float width, height, renderHeight, rasterWidth, rasterHeight;
     int lowW, lowH, frameWidth, x0, x1, y0, y1;
     bool operator==(const InterleaveMode& o) const {
       return video == o.video && display == o.display && color == o.color &&
              buffers == o.buffers && field == o.field && blss == o.blss &&
              limiter == o.limiter && yield == o.yield && widescreen == o.widescreen &&
-             dither == o.dither && network == o.network && width == o.width &&
+             dither == o.dither && width == o.width &&
              height == o.height && renderHeight == o.renderHeight &&
              rasterWidth == o.rasterWidth && rasterHeight == o.rasterHeight &&
              lowW == o.lowW && lowH == o.lowH && frameWidth == o.frameWidth &&
@@ -4328,6 +4328,7 @@ class TerrainGame : public Tyra::Game {
                   float dvy, float dvz);
   void renderScene();
   void updateAdaptiveResolution();
+  int upscalerMode = 0;  // Set Upscaler: 0 scene, 1 native, 2 reduced, 3 auto
   int adaptiveScene = -1;
   int adaptiveWarmup = 0;
   int adaptiveSlowRun = 0;
@@ -6164,6 +6165,11 @@ struct ScriptContext {
   // subject to the per-frame gate), 2 = on and IGNORE the gate. The game
   // latches it and clears it back to -1.
   int frameExtrapolation = -1;
+  // The upscaler (docs/upscaler.md, "At runtime"), written by the Set
+  // Upscaler flow node: -1 = leave alone, 0 = the scene's own setting, 1 =
+  // native, 2 = reduced, 3 = automatic (the frame-budget switch). The game
+  // latches it and clears it back to -1; a scene load resets to 0.
+  int upscaler = -1;
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
@@ -11505,62 +11511,39 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
         out << "constexpr int BLOB_SHADOWS_USED = " << (anyBlob ? 1 : 0)
             << ";\n";
     }
-    // The neural upscaler (docs/neural-upscaler.md). Mostly project-wide, like
-    // the blob shadows above: the scale, the jitter, the sharpen/temporal
-    // tuning and the debug view are one net's properties and are plain
-    // constants. Two of them - whether the scene rasterises reduced at all, and
-    // whether the MLP reconstructs it - resolve PER SCENE, and get tables like
-    // the POSTFX_* ones below, but ONLY when the project's scenes actually
-    // disagree (project::blssUse().mixed). A project whose scenes all resolve
-    // alike keeps the scalars it had, which is what makes its regeneration
-    // byte-identical.
+    // The reduced-raster upscaler (BLSS). The scale is project-wide, like the
+    // blob shadows above. Whether a scene rasterises reduced at all resolves
+    // PER SCENE and gets a table like the POSTFX_* ones below, but ONLY when
+    // the project's scenes actually disagree (project::blssUse().mixed).
     //
-    // The whole block is emitted only while some scene has it ON, like the rest
-    // of the feature. A project with the upscaler off must generate the header
-    // it generated before BLSS existed, byte for byte - and nothing references
-    // these constants there, because the init block and the frame bracket are
-    // equally absent.
+    // The whole block is emitted only while some scene has it ON. A project
+    // with the upscaler off generates no BLSS_* constant besides
+    // BLSS_ADAPTIVE, because the init block and the frame bracket are equally
+    // absent.
     const project::BlssUse blssU = project::blssUse(p);
     out << "constexpr int BLSS_ADAPTIVE = "
-        << (p.settings.blssAdaptive && blssU.any && !blssU.anyNetwork ? 1 : 0)
+        << (p.settings.blssAdaptive && blssU.any ? 1 : 0)
+        << ";\n";
+    // Particles only (docs/upscaler.md): renderScene() brackets the emitters
+    // instead of the frame loop bracketing the whole scene.
+    out << "constexpr int BLSS_PARTICLES = " << (blssU.particles ? 1 : 0)
         << ";\n";
     if (blssU.any) {
-        // The refusal itself is NOT here any more - it is its own translation
-        // unit (src/gen/blss_interlock.gen.cpp), because this header is included
+        // The refusal itself is NOT here - it is its own translation unit
+        // (src/gen/blss_interlock.gen.cpp), because this header is included
         // by about fourteen of them and the compiler repeated the whole
         // diagnostic in every one. See blssInterlock().
-        const blss::Scale sc =
-            p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2;
-        // BLSS_ENABLED / BLSS_NETWORK are the WIDEST configuration the run will
-        // take, i.e. what init() has to allocate and bake for; in a mixed
-        // project the per-scene tables below narrow it at every scene load. In
-        // a uniform project the two say exactly what they always said.
+        //
+        // BLSS_ENABLED is the WIDEST configuration the run will take, i.e.
+        // what init() has to allocate for; in a mixed project the per-scene
+        // table below narrows it at every scene load.
         out << "constexpr int BLSS_ENABLED = " << (blssU.any ? 1 : 0)
             << ";\n"
-            << "constexpr int BLSS_SCALE_X = " << blss::scaleX(sc) << ";\n"
-            << "constexpr int BLSS_SCALE_Y = " << blss::scaleY(sc) << ";\n"
-            << "constexpr float BLSS_SHARPEN = "
-            << floatLit(p.settings.blssSharpen) << ";\n"
-            << "constexpr int BLSS_TEMPORAL = "
-            << (p.settings.blssTemporal ? 1 : 0) << ";\n"
-            // The +-1/4-pixel per-frame raster jitter. 0 is the kill switch
-            // for the period-2 bob (docs/neural-upscaler.md, "The
-            // oscillation") at the cost of the temporal supersampling.
-            << "constexpr int BLSS_JITTER = "
-            << (p.settings.blssJitter ? 1 : 0) << ";\n"
-            // PLAIN MODE. 0 = the reduced raster and one bilinear pass, with
-            // no proxy feed, no reprojection, no feature grid and no MLP. The
-            // four constants above are still emitted and still say what the
-            // project holds: configure() is what decides which of them plain
-            // mode reads (none of them, and it forces the jitter off), so the
-            // policy lives in one place instead of being restated here.
-            << "constexpr int BLSS_NETWORK = "
-            << (blssU.anyNetwork ? 1 : 0) << ";\n"
-            << "constexpr int BLSS_DEBUG_VIEW = " << p.settings.blssDebugView
-            << ";\n";
-        // PER SCENE (docs/neural-upscaler.md, "Per scene"). Emitted only when
-        // the scenes disagree, because a table of identical values is a table
-        // that changes every existing project's generated header for nothing.
+            << "constexpr int BLSS_SCALE_X = " << (p.settings.blssScale == 1 ? 1 : 2)
+            << ";\n"
+            << "constexpr int BLSS_SCALE_Y = 2;\n";
+        // PER SCENE. Emitted only when the scenes disagree, because a table of
+        // identical values changes every existing project's header for nothing.
         if (blssU.mixed) {
             out << "// This project's scenes do not all resolve the upscaler "
                    "alike, so it is\n"
@@ -11570,18 +11553,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                    "any scene uses).\n"
                    "constexpr int BLSS_NATIVE_SCENES = 1;\n";
             sceneBools("BLSS_ENABLEDS", [&](int si) { return rs[si].blssEnabled; });
-            sceneBools("BLSS_NETWORKS", [&](int si) {
-                return rs[si].blssEnabled && rs[si].blssNetwork;
-            });
-            out << "#define BLSS_SCENE_ON BLSS_ENABLEDS[g_activeScene]\n"
-                   "#define BLSS_SCENE_NET BLSS_NETWORKS[g_activeScene]\n";
+            out << "#define BLSS_SCENE_ON BLSS_ENABLEDS[g_activeScene]\n";
         } else {
-            out << "#define BLSS_SCENE_ON BLSS_ENABLED\n"
-                   "#define BLSS_SCENE_NET BLSS_NETWORK\n";
+            out << "#define BLSS_SCENE_ON BLSS_ENABLED\n";
         }
     } else {
-        out << "#define BLSS_SCENE_ON 0\n"
-               "#define BLSS_SCENE_NET 0\n";
+        out << "#define BLSS_SCENE_ON 0\n";
     }
     // Projected silhouette shadows: any caster anywhere -> the game
     // allocates the engine's shadow-map VRAM at boot (lazy otherwise).
@@ -12211,25 +12188,21 @@ static bool projectNeedsCamFeed(const Project& p) {
 }
 
 // ---------------------------------------------------------- BLSS upscaler ---
-// The neural upscaler (docs/neural-upscaler.md) is baked at build time, so
-// every piece of it is a pure function of the Project - which is what lets
-// fillTemplate (a pure function too) decide whether the boot log has to admit
-// the network is untrained.
+// The reduced-raster upscaler is baked at build time, so every piece of it is
+// a pure function of the Project.
 //
-// Two of its settings resolve PER SCENE - whether the scene rasterises reduced,
-// and whether the MLP reconstructs it (project::blssUse). So everything below
-// asks blssUse(p) rather than p.settings.blssEnabled, and emits NOTHING while
-// no scene resolves it on. That is the contract for the whole feature: a
-// project with the upscaler off must generate byte-for-byte the sources it
-// generated before BLSS existed - and, since per-scene arrived, a project whose
-// scenes all resolve ALIKE must generate byte-for-byte what the project-wide
+// Whether a scene rasterises reduced resolves PER SCENE (project::blssUse), so
+// everything below asks blssUse(p) rather than p.settings.blssEnabled, and
+// emits NOTHING while no scene resolves it on: a project with the upscaler off
+// generates byte-for-byte the sources it generated before BLSS existed, and a
+// project whose scenes all resolve ALIKE generates what the project-wide
 // setting generated.
 
 // --- The interlock ---------------------------------------------------------
 // BLSS cannot be combined with depth of field, portals or split screen: all
 // three read or write real GS depth at DISPLAY resolution, which since the z
 // buffer started following the raster is not merely unwritten but unallocated
-// (docs/neural-upscaler.md). Until this block existed nothing in codegen knew
+// (docs/upscaler.md). Until this block existed nothing in codegen knew
 // that. Three documents claimed "the generated game does not emit them
 // together" and none of them was ever true; the preferences dialog warned, and
 // a user who went past the warning got an ELF that compiled, booted, and drew
@@ -12278,7 +12251,7 @@ static bool projectNeedsCamFeed(const Project& p) {
 //
 //  - Each line NAMES the pair, the scene and one place to fix it, and points at
 //    the doc page for the why. The long form is not gone - it lives in
-//    docs/neural-upscaler.md and docs/frame-extrapolation.md, and verbatim in
+//    docs/upscaler.md and docs/frame-extrapolation.md, and verbatim in
 //    the dialog (drawBlssClashWarning), which is where a person reads at their
 //    own pace and can click the thing being described.
 //  - It is emitted into a TU OF ITS OWN (src/gen/blss_interlock.gen.cpp), so it
@@ -12328,13 +12301,15 @@ static std::string errorSafe(const std::string& s) {
 // than the game would break is a build that blocks work for nothing.
 static std::vector<std::string> blssClashes(const Project& p) {
     std::vector<std::string> out;
-    if (!project::blssUse(p).any) return out;
+    // Particles only keeps the full raster and the full z buffer for the
+    // opaque scene, so nothing that reads display-resolution depth clashes.
+    if (!project::blssUse(p).any || project::blssUse(p).particles) return out;
     // EVERY clashing feature is reported, but only the first place each one
     // shows up: a project with a portal AND split screen should learn both in
     // one build rather than fix one, rebuild, and be refused again - while
     // eleven scenes with depth of field are eleven copies of one sentence.
     //
-    // PER SCENE (docs/neural-upscaler.md, "Per scene"). Every question below is
+    // PER SCENE (docs/upscaler.md, "Per scene"). Every question below is
     // asked of a scene that RESOLVES the upscaler on, and of no other. That is
     // the whole second half of making this setting per-scene: the interlock was
     // project-wide, so one portal anywhere refused the build for a project
@@ -12377,7 +12352,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
         out.push_back("BLSS x DEPTH OF FIELD in " + sceneName(si) +
                       " (amount " + amountText(rs.dofAmount) +
                       ") - turn one of them off. Why, and where: "
-                      "docs/neural-upscaler.md, Limitations.");
+                      "docs/upscaler.md, Limitations.");
         break;
     }
     // 2. ... and the Set Depth Of Field flow node, which raises it at RUNTIME
@@ -12411,7 +12386,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
                     " turns it on at runtime (amount " +
                     amountText(hit->num[2]) +
                     ") - turn one of them off. Why, and where: "
-                    "docs/neural-upscaler.md, Limitations.");
+                    "docs/upscaler.md, Limitations.");
                 found = true;
                 break;
             }
@@ -12440,7 +12415,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
                           ": the linked portal " + errorSafe(o.name) + " -> " +
                           errorSafe(target->name) +
                           " - turn one of them off. Why, and where: "
-                          "docs/neural-upscaler.md, Limitations.");
+                          "docs/upscaler.md, Limitations.");
             portalFound = true;
             break;
         }
@@ -12462,7 +12437,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
                 "BLSS x SPLIT SCREEN in " + sceneName(si) +
                 " (Multiplayer is set to split screen and the scene has a "
                 "second Player object) - turn one of them off. Why, and where: "
-                "docs/neural-upscaler.md, Limitations.");
+                "docs/upscaler.md, Limitations.");
             break;
         }
     }
@@ -12543,9 +12518,9 @@ static std::string blssInterlock(const Project& p) {
         "// Generated by TyraX. Do not edit - regenerated on every build.\n"
         "// ==========================================================="
         "===============\n"
-        "// BUILD REFUSED - see docs/neural-upscaler.md, Limitations.\n"
+        "// BUILD REFUSED - see docs/upscaler.md, Limitations.\n"
         "//\n"
-        "// The neural upscaler (BLSS) is on in a SCENE that uses a feature it\n"
+        "// The upscaler (BLSS) is on in a SCENE that uses a feature it\n"
         "// cannot be combined with. Both halves would compile and boot; the\n"
         "// picture would be wrong, quietly, which is why this is an error and\n"
         "// not a warning.\n"
@@ -12555,7 +12530,7 @@ static std::string blssInterlock(const Project& p) {
         "// nothing to clean up and nothing to take ownership of. Fix EITHER\n"
         "// side - one click resolves it:\n"
         "//\n"
-        "//   Scene > Scene Preferences > Neural upscaler (BLSS): tick\n"
+        "//   Scene > Scene Preferences > Upscaler (BLSS): tick\n"
         "//     Override the upscaler for this scene and untick Use the\n"
         "//     upscaler. Every OTHER scene keeps it.\n"
         "//   ...or project-wide, Project > Preferences > Display > Frame\n"
@@ -12573,163 +12548,6 @@ static std::string blssInterlock(const Project& p) {
     for (const std::string& c : clashes) s += "#error " + errorSafe(c) + "\n";
     return s;
 }
-
-// WHICH NETWORK THIS BUILD BAKES, and the answer is no longer "the project's or
-// noise".
-//
-// It used to be. A project with BLSS on and no `blss.net` was compiled with the
-// random initialisation the trainer starts from, behind a comment banner in a
-// generated header and a boot-log line - which is the most a build can do when
-// there is genuinely nothing else to bake. But there IS something else now: the
-// editor ships a default network fitted on seven example projects AND the
-// bestiary, and leave-one-PROJECT-out measured that net at +0.29 dB on a project
-// it had never seen against +0.31 dB for that project's own net
-// (docs/neural-upscaler.md, "Can one net ship for every project?"). Random
-// weights are not a neutral fallback - they are a per-tile blend chosen by
-// noise - so "the game will be built with RANDOM weights" was a footgun with a
-// fix sitting next to it.
-//
-// The order is: the project's own net, then the editor's built-in default, then
-// (only if the shipped asset cannot be read by this build at all) the random
-// initialisation. Every step is named in the generated header AND in the boot
-// log, because the one thing worse than the wrong net is not knowing which net
-// you got.
-struct BlssBake {
-    blss::Net net;
-    enum class Source { Random, Default, Project };
-    Source source = Source::Random;
-    blss::Provenance prov;
-    std::vector<std::string> warnings;  // fitted for a different configuration
-    std::vector<std::string> notes;     // why a candidate was passed over
-};
-
-static BlssBake blssBake(const Project& p) {
-    BlssBake b;
-    // What this project will RUN the net in. A net is not wrong because it was
-    // fitted elsewhere; it is wrong when it was fitted for a different raster
-    // scale or a different sampler, and that is a comparison the file could not
-    // support until it grew a provenance sidecar.
-    const blss::NetExpect want{
-        p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2,
-        p.settings.blssJitter ? 1 : 0,
-        // The ENGINE's table, not the host's live `--act-table` setting: this
-        // process never ran a BLSS verb, so that global is 0 here.
-        blss::kEngineActTable};
-    const std::filesystem::path netPath = std::filesystem::path(p.dir) / "blss.net";
-    const std::string path = netPath.string();
-
-    std::string err;
-    if (blss::load(b.net, path, &err)) {
-        const blss::Provenance prov = blss::readProvenance(path);
-        const blss::NetIssues iss = blss::checkProvenance(prov, want);
-        if (iss.fatal.empty()) {
-            b.source = BlssBake::Source::Project;
-            b.prov = prov;
-            b.warnings = iss.warn;
-            return b;
-        }
-        // A net that loads into a differently shaped world is exactly the
-        // "reconstructing garbage" case: refuse it and fall through rather than
-        // bake weights that mean something else.
-        for (const std::string& f : iss.fatal)
-            b.notes.push_back("this project's blss.net was refused - " + f);
-    } else {
-        std::error_code ec;
-        if (std::filesystem::exists(netPath, ec))
-            b.notes.push_back("this project's blss.net was refused - " + err);
-    }
-
-    if (blss::defaultNet(b.net, &err)) {
-        b.source = BlssBake::Source::Default;
-        b.prov = blss::defaultProvenance();
-        const blss::NetIssues iss = blss::checkProvenance(b.prov, want);
-        b.warnings = iss.warn;
-        for (const std::string& f : iss.fatal)
-            b.notes.push_back("the editor's built-in default disagrees with itself - " + f);
-        return b;
-    }
-    b.notes.push_back(err);
-    // The trainer's own starting seed, so an untrained bake is exactly the net
-    // --blss-train begins from rather than a second arbitrary constant.
-    b.net.randomize(blss::TrainConfig{}.seed);
-    return b;
-}
-
-// One sentence naming the network, used by both the generated header's banner
-// and the boot log so the two cannot describe different things.
-static std::string blssNetSummary(const BlssBake& b) {
-    switch (b.source) {
-        case BlssBake::Source::Project:
-            return "this project's own blss.net" +
-                   (b.prov.corpus.empty() ? std::string(" (no provenance recorded)")
-                                          : " (fitted on " + b.prov.corpus + ")");
-        case BlssBake::Source::Default:
-            return "the editor's built-in default network" +
-                   (b.prov.corpus.empty() ? std::string()
-                                          : " (fitted on " + b.prov.corpus + ")");
-        default:
-            return "RANDOM WEIGHTS - no network could be loaded";
-    }
-}
-
-// inc/blss_net.gen.hpp: blss::emitGeneratedSource is THE emitter (it is the
-// twin of the host forward pass, so reimplementing the table here would be a
-// second thing to keep in sync). Only the untrained banner is added.
-static std::string blssNetHeader(const Project& p) {
-    const BlssBake b = blssBake(p);
-    // A comment, so anything user text can reach it has to survive being one -
-    // the corpus and the command come out of a sidecar file somebody may have
-    // edited, and a newline in either would end the comment and start emitting
-    // the file's contents as C++.
-    const auto commentLine = [](const std::string& s) {
-        std::string out = "// ";
-        for (char c : s) out += (c == '\n' || c == '\r') ? ' ' : c;
-        return out + "\n";
-    };
-    std::string s = "// ============================================================"
-                    "==========\n";
-    s += commentLine("Network: " + blssNetSummary(b));
-    if (!b.prov.command.empty()) s += commentLine("  rebuild it with: " + b.prov.command);
-    for (const std::string& n : b.notes) s += commentLine("  " + n);
-    for (const std::string& w : b.warnings) s += commentLine("  WARNING: " + w);
-    if (b.source == BlssBake::Source::Default)
-        s += "//\n"
-             "// This project has no blss.net of its own, so it is built with the\n"
-             "// network the editor ships. Measured leave-one-PROJECT-out, that\n"
-             "// net scores +0.29 dB on a project it has never seen against the\n"
-             "// project's own net's +0.31 - a tie - and fitting your own scene\n"
-             "// still reaches the highest number in distribution:\n"
-             "//\n"
-             "//     tyrax-editor --blss-eval <projectDir>    (is there a ceiling?)\n"
-             "//     tyrax-editor --blss-train <projectDir> --all-shots\n"
-             "//\n"
-             "// then rebuild. See docs/neural-upscaler.md.\n";
-    if (b.source == BlssBake::Source::Random)
-        s += "//\n"
-             "// WARNING: THIS NETWORK IS UNTRAINED. No network could be loaded -\n"
-             "// not the project's, and not the editor's built-in default - so the\n"
-             "// weights below are the random initialisation the trainer STARTS\n"
-             "// from. The upscaler will composite, but its per-tile choices are\n"
-             "// noise. This is a defect in the editor build, not in the project.\n"
-             "//\n"
-             "//     tyrax-editor --blss-train        (writes blss.net)\n"
-             "//     tyrax-editor --blss-eval         (the PSNR table)\n"
-             "//\n"
-             "// then rebuild. See docs/neural-upscaler.md.\n";
-    s += "// ============================================================"
-         "==========\n";
-    s += blss::emitGeneratedSource(b.net);
-    return s;
-}
-
-// The prolog's include line for the baked net.
-//
-// PLAIN MODE INCLUDES NOTHING, and that is the point of doing it here rather
-// than leaving a header nobody reads: the weights are ~2 KB of .rodata and the
-// banner above them describes a network that will not run, so a plain build
-// would ship - and a plain boot log would announce - a net it never loads. The
-// FILE is still generated (blssNetHeader is emitted whenever the upscaler is
-// on), so which files a BLSS project has stays a function of blssEnabled alone.
 
 // --- vehicles (docs/vehicles.md) --------------------------------------------
 //
@@ -20426,79 +20244,44 @@ static std::string vehicleSmokeRenderCall(const Project& p) {
            "costEnd(\"Vehicle_lamp_glow\",-1,ct); }\n";
 }
 
-static std::string blssInclude(const Project& p) {
-    const project::BlssUse u = project::blssUse(p);
-    if (!u.any || !u.anyNetwork) return "";
-    return "#include \"blss_net.gen.hpp\"  // the trained BLSS network "
-           "(--blss-train)\n";
-}
-
-// TerrainGame::init(): configure the low-res target and hand over the net.
+// TerrainGame::init(): configure the low-res target.
 static std::string blssInit(const Project& p) {
     const project::BlssUse u = project::blssUse(p);
     if (!u.any) return "";
-    // The uniform project's comment is left EXACTLY as it was before per-scene
-    // existed, down to the wording: this text lands in src/terrain_game.cpp,
-    // and a project whose scenes all resolve alike has to regenerate byte for
-    // byte (it is still project-wide, so the old sentence is still true).
     std::string s =
         u.mixed
-            ? "  // The neural upscaler (docs/neural-upscaler.md): baked -\n"
-              "  // nothing at runtime turns it on or off, but this project's\n"
-              "  // scenes do not all resolve it alike, so the eighth argument\n"
-              "  // tells configure() to size the z buffer for the FULL display\n"
-              "  // raster. The layout is then decided once and loadScene()'s\n"
-              "  // setScene() switches the upscaler per scene, touching no VRAM.\n"
-              "  // configure() sizes the low-res render target and the\n"
-              "  // reconstruction knobs; in PLAIN mode (BLSS_NETWORK 0) it also\n"
-              "  // switches off the proxy feed, the reprojection, the feature\n"
-              "  // grid and the MLP, leaving one bilinear composite pass.\n"
-            : "  // The neural upscaler (docs/neural-upscaler.md): project-wide and\n"
-              "  // baked - nothing at runtime turns it on or off. configure() sizes\n"
-              "  // the low-res render target and the reconstruction knobs; in PLAIN\n"
-              "  // mode (BLSS_NETWORK 0) it also switches off the proxy feed, the\n"
-              "  // reprojection, the feature grid and the MLP, leaving the reduced\n"
-              "  // raster and one bilinear composite pass.\n";
-    s += "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
-         "BLSS_SHARPEN,\n"
-         "                                       BLSS_TEMPORAL, "
-         "BLSS_DEBUG_VIEW,\n";
-    s += u.mixed ? "                                       BLSS_JITTER, "
-                   "BLSS_NETWORK,\n"
-                   "                                       BLSS_NATIVE_SCENES || BLSS_ADAPTIVE);\n"
-                 : "                                       BLSS_JITTER, "
-                   "BLSS_NETWORK, BLSS_ADAPTIVE);\n";
-    if (u.anyNetwork)
-        s += "  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, "
-             "BLSS_NET_W2,\n"
-             "                                    BLSS_NET_B2);\n";
-    // WHICH RECONSTRUCTION, AND WHICH NET, IN THE BOOT LOG, ALWAYS. Said here
-    // and not only in a generated header, because the person wondering why the
-    // picture looks wrong is reading bin/log.txt. It used to be printed only in
-    // the untrained case, which meant the interesting cases - "I trained one
-    // and it is not being used" and "I never trained one and it works anyway" -
-    // were both silent. Plain mode is a third such case and the loudest of
-    // them: a reader who does not know the mode exists would otherwise measure
-    // a frame with no network in it and attribute the numbers to one.
-    if (!u.anyNetwork) {
-        s += "  TYRA_LOG(\"BLSS: reconstruction = PLAIN (no network) - the reduced "
-             "raster is blown up by one bilinear pass. No proxies, no reprojection, "
-             "no feature grid, no MLP.\");\n";
+            ? "  // The upscaler (BLSS): baked - nothing at runtime turns it on or\n"
+              "  // off, but this project's scenes do not all resolve it alike, so\n"
+              "  // the third argument tells configure() to size the z buffer for\n"
+              "  // the FULL display raster. The layout is then decided once and\n"
+              "  // loadScene()'s setScene() switches the upscaler per scene,\n"
+              "  // touching no VRAM. configure() sizes the low-res render target;\n"
+              "  // composite() blows it up with one bilinear pass.\n"
+            : "  // The upscaler (BLSS): project-wide and baked - nothing at runtime\n"
+              "  // turns it on or off. configure() sizes the low-res render target;\n"
+              "  // composite() blows it up with one bilinear pass.\n";
+    if (u.particles) {
+        // Particles only: the fourth argument reserves the low-res z target
+        // and pins the full-size z the opaque scene keeps. setScene() switches
+        // the shape on - here, or per scene from loadScene() in a mixed
+        // project. An adaptive project starts native and lets
+        // updateAdaptiveResolution() switch the particles down.
+        s += "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
+             "true, true);\n";
+        if (!u.mixed)
+            s += "  engine->renderer.core.blss.setScene(!BLSS_ADAPTIVE, true);\n";
+        s += "  TYRA_LOG(\"BLSS: particle emitters drawn at the reduced raster\");\n";
         return s;
     }
-    const BlssBake b = blssBake(p);
-    s += "  TYRA_LOG(\"BLSS: network = " + escapeCString(blssNetSummary(b)) + "\");\n";
-    for (const std::string& n : b.notes)
-        s += "  TYRA_LOG(\"BLSS: " + escapeCString(n) + "\");\n";
-    for (const std::string& w : b.warnings)
-        s += "  TYRA_LOG(\"BLSS: WARNING - " + escapeCString(w) + "\");\n";
-    if (b.source == BlssBake::Source::Random)
-        s += "  TYRA_LOG(\"BLSS: the baked network is UNTRAINED (random weights) - run"
-             " 'tyrax-editor --blss-train' in the project directory and rebuild.\");\n";
+    s += u.mixed ? "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y,\n"
+                   "                                       BLSS_NATIVE_SCENES || BLSS_ADAPTIVE);\n"
+                 : "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
+                   "BLSS_ADAPTIVE);\n";
+    s += "  TYRA_LOG(\"BLSS: reduced raster, one bilinear composite pass\");\n";
     return s;
 }
 
-// TerrainGame::loadScene(): the PER-SCENE half (docs/neural-upscaler.md, "Per
+// TerrainGame::loadScene(): the PER-SCENE half (docs/upscaler.md, "Per
 // scene"). Emitted only when the project's scenes actually disagree, so a
 // project that resolves the upscaler alike everywhere generates the loadScene()
 // it always generated, byte for byte.
@@ -20514,11 +20297,10 @@ static std::string blssInit(const Project& p) {
 // rejected (docs/backlog.md).
 static std::string blssSceneSetup(const Project& p) {
     if (!project::blssUse(p).mixed) return "";
-    return "  // The neural upscaler, per scene (docs/neural-upscaler.md). No\n"
+    return "  // The upscaler, per scene. No\n"
            "  // VRAM is touched: the z buffer was sized at init for the widest\n"
            "  // raster any scene uses, so this is a flag and a projection.\n"
-           "  engine->renderer.core.blss.setScene(BLSS_SCENE_ON, "
-           "BLSS_SCENE_NET);\n";
+           "  engine->renderer.core.blss.setScene(BLSS_SCENE_ON, BLSS_PARTICLES);\n";
 }
 
 // The frame loop's 3D bracket. Off = the plain call the loop always had, byte
@@ -20530,8 +20312,8 @@ static std::string blssSceneSetup(const Project& p) {
 // display raster, and split screen is one of the three features BLSS cannot be
 // combined with anyway. That is not left to the docs and a warning any more:
 // blssClashes() above refuses the build when a SCENE actually has both, so
-// this branch is unreachable in a game that compiles (docs/neural-upscaler.md,
-// docs/blss-reconstruction.md section 7).
+// this branch is unreachable in a game that compiles (docs/upscaler.md,
+// docs/upscaler.md section 7).
 //
 // PER SCENE NEEDS NO BRANCH HERE, and that is not an accident to be tidied
 // away: beginScene(), endScene() and composite() all return immediately when
@@ -20543,7 +20325,7 @@ static std::string blssSceneSetup(const Project& p) {
 static std::string blssSceneRender(const Project& p) {
     if (!project::blssUse(p).any) return "      renderScene();\n";
     return "      updateAdaptiveResolution();\n"
-           "      // The neural upscaler (docs/neural-upscaler.md): the 3D "
+           "      // The upscaler (BLSS): the 3D "
            "scene\n"
            "      // renders into the low-res target, then the composite blows "
            "it\n"
@@ -20752,11 +20534,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // after it (topmost, layer -1).
     s = replaceAll(s, "{{SCREEN_FX_IN_LOOP}}", screenFxDispatch(p, true));
     s = replaceAll(s, "{{SCREEN_FX_TOP}}", screenFxDispatch(p, false));
-    // The neural upscaler (docs/neural-upscaler.md). Three slots, all empty
-    // while it is off - which is what keeps an existing project's generated
-    // sources byte-identical: the baked net's include, the init that configures
-    // the low-res target, and the frame loop's 3D bracket (whose "off" form IS
-    // the plain renderScene() call the loop always had).
+    // The upscaler (BLSS). Three slots, all empty while it is off - which is
+    // what keeps an existing project's generated sources byte-identical: the
+    // init that configures the low-res target, the per-scene switch in
+    // loadScene(), and the frame loop's 3D bracket (whose "off" form IS the
+    // plain renderScene() call the loop always had).
     // Emitter slots: 8, exactly as it always was - unless the project has a
     // vehicle, where the ENGINE NOTE owns voice base+23 outright and the
     // emitter bank shrinks to 7. All 24 voices of a bus were spoken for
@@ -20846,7 +20628,6 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
     s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));
     s = replaceAll(s, "{{VEHICLE_SMOKE_RENDER}}", vehicleSmokeRenderCall(p));
-    s = replaceAll(s, "{{BLSS_INCLUDE}}", blssInclude(p));
     s = replaceAll(s, "{{BLSS_INIT}}", blssInit(p));
     s = replaceAll(s, "{{BLSS_SCENE_SETUP}}", blssSceneSetup(p));
     s = replaceAll(s, "{{BLSS_SCENE_RENDER}}", blssSceneRender(p));
@@ -25091,6 +24872,12 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             } else if (n.type == "SetFramePipeline") {
                 c << pad << "ctx.requestFramePipeline = "
                   << (n.num[0] != 0.0f ? "1" : "0") << ";\n";
+                c << branch(0, pad);
+            } else if (n.type == "SetUpscaler") {
+                int m = (int)(n.num[0] + 0.5f);
+                if (m < 0) m = 0;
+                if (m > 3) m = 3;
+                c << pad << "ctx.upscaler = " << m << ";\n";
                 c << branch(0, pad);
             } else if (n.type == "SetFrameExtrapolation") {
                 int m = (int)(n.num[0] + 0.5f);
@@ -36652,14 +36439,6 @@ std::vector<File> generate(const Project& source) {
         files.push_back(
             {"inc\\scripts\\vu0_kernels.gen.hpp", vuKernelsStubHeader()});
     }
-    // The baked BLSS network (docs/neural-upscaler.md), and ONLY while the
-    // upscaler is on - a project with it off must generate exactly the file set
-    // it generated before the feature existed. The body comes from
-    // blss::emitGeneratedSource, the twin of the host forward pass; a missing
-    // <projectDir>/blss.net is not an error, it is random weights with a banner
-    // in the header and a TYRA_LOG line in the generated init.
-    if (project::blssUse(p).any)
-        files.push_back({"inc\\blss_net.gen.hpp", blssNetHeader(p)});
     // The build refusal, when there is one. Its own TU so the compiler prints
     // it once; absent while the project is clean, so a clean project's file set
     // is what it always was. project::refreshGenerated deletes a leftover.
@@ -36706,7 +36485,7 @@ std::vector<File> generate(const Project& source) {
             name == "menu_data.gen.hpp" || name == "terrain_heights.gen.hpp" ||
             name == "texture_data.gen.hpp" || name == "ao_data.gen.hpp" ||
             name == "probe_data.gen.hpp" || name == "decal_data.gen.hpp" ||
-            name == "shadow_data.gen.hpp" || name == "blss_net.gen.hpp" ||
+            name == "shadow_data.gen.hpp" ||
             name == "prefab_data.gen.hpp" || name == "icon_data.gen.hpp" ||
             name == "hud_data.gen.hpp" || name == "font_data.gen.hpp" ||
             name == "loading_data.gen.hpp" || name == "credits_data.gen.hpp" ||

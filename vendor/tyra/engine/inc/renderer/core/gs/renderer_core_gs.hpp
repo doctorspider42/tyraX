@@ -37,7 +37,7 @@ class RendererCoreGS {
    * renderScene(), which BLSS brackets - so the first of them inside a BLSS
    * bracket cancelled the redirect and the rest of the frame drew
    * full-resolution into the display buffer, with no assert and no visual
-   * signature beyond "BLSS did nothing" (docs/neural-upscaler.md).
+   * signature beyond "BLSS did nothing" (docs/upscaler.md).
    *
    * Restoring through getRasterTarget() / emitRasterRestore() instead makes
    * those brackets NEST: they restore whatever was redirected before them.
@@ -145,10 +145,12 @@ class RendererCoreGS {
   bool needsBufferRealloc() const;
   /** Modified by TyraX: permanent BLSS target reserve, independent of the
    * active scene raster and the pinned Z raster. Configure before laying out
-   * VRAM; retained across scene and display-mode changes. */
-  void setLowResTargetScale(int sx, int sy) {
+   * VRAM; retained across scene and display-mode changes. `withDepth` also
+   * reserves the low-res z target the particles-only shape draws against. */
+  void setLowResTargetScale(int sx, int sy, bool withDepth = false) {
     lowResTargetScaleX = sx > 0 ? sx : 1;
     lowResTargetScaleY = sy > 0 ? sy : 1;
+    lowResTargetDepth = withDepth;
   }
 
   /**
@@ -399,6 +401,8 @@ class RendererCoreGS {
   int lowResTargetScaleY = 1;
   int layoutLowResScaleX = 1;
   int layoutLowResScaleY = 1;
+  bool lowResTargetDepth = false;
+  bool layoutLowResDepth = false;
   // Modified by TyraX (BLSS per scene): the pinned z raster scale, 0 = follow
   // the settings' active raster scale. See setZRasterScale().
   int zPinScaleX = 0;

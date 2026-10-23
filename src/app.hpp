@@ -17,8 +17,6 @@
 
 #include "aichat.hpp"  // the AI Assistant window's conversation + tool table
 #include "aigen.hpp"
-#include "blss_ui.hpp"  // the Neural Upscaler window's job + parsed tables
-#include "blsscorpus.hpp"  // blss::CoverageReport - the speed half of the answer
 #include "audiopreview.hpp"
 #include "camtake.hpp"
 #include "dronegen.hpp"
@@ -1054,137 +1052,18 @@ private:
     // ModelAabbFn a Vehicle takes - only the App knows the definitions).
     bool vehicleBodyBounds(const SceneObject& o, float* mn, float* mx);
 
-    // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
-    // Training, evaluation, cross-validation, the input-channel report, the
-    // comparison images and the emit step, all of which used to be CLI-only.
-    // Every run is a subprocess of the editor's own binary (blss_ui.hpp says
-    // why) and every number drawn is parsed out of its output.
-    void drawBlssWindow();
-    void drawBlssTitleRow();       // proof-of-concept badge, Net / Corpus chips
-    void drawBlssVerdictBanner();  // the answer first, with Plain/Neural + Use in this project
-    void drawBlssQuestionCards();  // the three checks as cards
-    void drawBlssJobStrip();       // the output pane as one line
-    void blssAskPicture();
-    void blssAskCorpus();
-    // The corpus switch (project vs the built-in bestiary) and the one-line
-    // reminder of which one a table came from. Drawn in the Corpus chip's
-    // popup, read by every verb through blssCommonArgs().
-    void drawBlssCorpusChoice();
-    void drawBlssCorpusReminder();
-    // THE HAPPY PATH (the question cards): the NET-FREE `--blss-eval` answers
-    // "will this scene benefit" with no trained network - the window used to
-    // send people to Evaluate, which could not run without a net.
-    // THE OTHER HALF OF THE HAPPY PATH: will the scene get FASTER. BLSS trades
-    // GS fill for EE work at a measured price, so the answer is entirely a
-    // question about overdraw - and blss::measureCoverage() counts a project's
-    // own overdraw in about a second. Unlike every other verb in this window
-    // this runs IN-PROCESS on a worker thread rather than as a subprocess:
-    // there is no CLI verb behind it, it touches no file, and a second is not
-    // worth a process. `blssCoverageTick` is the poll (called from blssPoll, so
-    // a run that ends while the window is shut still lands).
-    void blssStartCoverage();
-    void blssCoverageTick();
-    // ONE ANSWER, not two tables: the quality ceiling and the speed estimate
-    // combined, in the window's own voice, including the case that occurs on
-    // most scenes - no headroom AND below the break-even, so leave it off.
-    void drawBlssAnswer();
-    // The per-shot coverage breakdown, behind a collapsing header. A project
-    // whose mean is 15 because one scene is 30 and another is 1 has been told
-    // something useful only if it can see that.
-    void drawBlssCoverageDetail();
-    // The net's recorded command line against the project's CURRENT settings.
-    // A blss.net stores no settings at all, so the `.args` sidecar is the only
-    // place "this was trained with --sharpen 0.5 and the project now says 0.80"
-    // can be noticed - everywhere else the mismatch is silent and just worse.
-    void drawBlssProvenanceDrift();
-    // WHICH OF THE TWO NETS THIS PROJECT SHIPS, as a control rather than a
-    // status line. codegen's order is the project's own `blss.net` else the net
-    // embedded in the editor, so the choice is a fact about ONE file - and the
-    // switch is therefore a reversible RENAME (`blss.net.off`), never a delete.
-    // It replaces the line that used to read "none - the game will be built
-    // with RANDOM weights", which stopped being reachable the moment a default
-    // shipped and was this feature's worst footgun while it was.
-    void drawBlssNetSource();
-    void blssSetNetAside(bool aside);
-    // "Will this scene benefit at all?" - the answer --blss-eval already
-    // contains and used to bury in a table. Reads the oracle row, which is the
-    // scene's own ceiling: on examples/showcase it is +0.00 dB, and no network
-    // can beat a bound of zero. `compact` drops the explanatory paragraphs for
-    // the header, where the same verdict has to sit above six tabs.
-    void drawBlssVerdict(const blssui::EvalSummary& sum, bool compact);
-    // bilinear | BLSS | the amplified difference, click-through to Compare.
-    void drawBlssVerdictThumbs();
-    void drawBlssOutput(float height);
-    void drawBlssTrainTab();
-    void drawBlssEvalTab();
-    void drawBlssCvTab();
-    void drawBlssImagesTab();
-    void drawBlssFeaturesTab();
-    // WHAT THE CORPUS IS ALLOWED TO SEE (Project::blssShots). The six automatic
-    // moves are a guess derived from the scene's bounds; this is where the
-    // author says which of them survive and adds vantages of their own, aimed
-    // where the player will actually stand. The plan is .tyra data, so the
-    // trainer reads it out of the project rather than off a command line.
-    void drawBlssShotsTab();
-    // The shot list the corpus will shoot, as the window understands it -
-    // resolved through project::blssResolveShot, which is also what the corpus
-    // loader calls, so the preview cannot describe a different frame from the
-    // one that gets rendered.
-    void drawBlssShotPlanPreview();
-    // The DISTRIBUTION PROBE as a workflow instead of a chore: turn on debug
-    // view 2, run the game, and let the editor find the BLSSFEAT line in the
-    // project's own log rather than making somebody grep for it and paste it
-    // into a CLI. Under ps2link the game writes NO bin/log.txt at all
-    // (templates.cpp sets writeLogsToFile = !ps2link), so the runner's own
-    // [ps2] stream is the second source and the panel says which it used.
-    void drawBlssProbeTab();
-    // Fills blssProbeLine_ from the freshest source that has one. Returns the
-    // human description of where it came from, or "" when nothing was found.
-    std::string blssFindFeatLine();
-    void blssRunProbe();
-    // "Is this corpus good enough to train on" - the third verdict, next to
-    // "will the picture improve" and "will the frame get faster". `compact`
-    // drops the per-channel findings for the header block.
-    void drawBlssHealth(bool compact);
-    // Picks up a finished run. Called every frame from drawUI, NOT from the
-    // window body, so a training run that ends while the tab is shut still
-    // lands - the giBakerPoll rule.
-    void blssPoll();
-    void blssStart(blssui::Kind kind, const std::vector<std::string>& args, int epochs);
-    // Pressed from the Train tab AND from the verdict, so the argument list is
-    // built once - two copies is how one of them stops passing --all-shots.
-    void blssStartTraining();
-    void blssRestoreTrainDefaults();
-    // The four tabs each carry their own frame count and are only comparable
-    // when they agree; this says so when they have drifted.
-    void drawBlssFrameDrift(int mine);
-    std::vector<std::string> blssCommonArgs() const;
-    std::string blssNetPath() const;
-    void blssRefreshNetStatus();
-    static void blssWriteNetSidecar(const std::string& netPath, const std::string& command);
-    void blssReloadImages();
-    void blssReleaseImages();
-    // The amplified |A-B| view of the Compare tab, built on the CPU from the
-    // two loaded PNGs. A 0.4 dB gap is invisible side by side and obvious at
-    // 8x, which is why this is the one view worth adding.
-    void blssRebuildDiff();
-    // How many camera moves the corpus is expected to have - 13 for the
-    // bestiary, six per scene for a project. Only the cross-validation cost
-    // estimate needs it (its fold count defaults to one per shot).
-    int blssExpectedShots() const;
+    // The reduced-raster upscaler's settings (blss_ui.cpp), drawn by Project >
+    // Preferences against the staged settings.
+    //
     // How much GS VRAM the reduced render hands back on THIS project's raster,
     // and the honest answer for 1x2, which is "nothing".
     std::string blssVramLine(const ProjectSettings& s) const;
     // THE BUILD'S OWN INTERLOCK, mirrored live. blssClashes() in templates.cpp
     // emits an #error for each of these, so the dialog and the build must
-    // answer alike; this is the ONE mirror, called by both Project >
-    // Preferences (staged settings) and the BLSS window (live ones).
+    // answer alike; this is the ONE mirror.
     //
-    // It carries the NAMES now, not four bools. "A Set Depth Of Field flow node
-    // turns it on at runtime" is not actionable on a ten-scene project - the
-    // walk in blssClashesFor() has the scene and the object in hand and used to
-    // throw both away - so each clash is a list of what caused it, and each
-    // entry can be selected and framed.
+    // Each clash is a list of what caused it, and each entry can be selected
+    // and framed.
     struct BlssClashRef {
         int scene = -1;
         int object = -1;  // -1 when the clash is a property of the scene itself
@@ -1206,43 +1085,12 @@ private:
     // `informational` styles the block as a note rather than a warning, for the
     // case that matters most: someone EVALUATING whether to turn the feature on
     // has to be able to see what would stop them before they turn it on.
-    void drawBlssClashWarning(const BlssClash&, bool informational, bool compact = false);
+    void drawBlssClashWarning(const BlssClash&, bool informational);
     // Switch to that scene, select that object and put the camera pivot on it.
     void blssSelectClash(const BlssClashRef&);
-    // HOW MUCH OF THE UPSCALER GOES ON SCREEN, and it is the whole shape of
-    // this feature's UI (docs/neural-upscaler.md, "Two layers"). ONE definition
-    // of the settings, one copy of every tooltip, one mirror of the build
-    // interlock - and a parameter deciding how far down the block runs, the
-    // drawBlssVerdict(compact) / drawBlssHealth(compact) idiom.
-    //
-    // `Essentials` is what somebody deciding whether to switch the feature ON
-    // has to answer - use it, which reconstruction, which raster - plus the one
-    // line of verdict that says whether this project is on the right side of
-    // the break-even. `Everything` adds the four knobs that only mean anything
-    // to somebody FITTING a network (sharpen, temporal, jitter, the debug view)
-    // and the long-form prose, and it is what the window's Project settings tab
-    // draws.
-    //
-    // The split is recent and it is a consequence of plain mode: until that
-    // landed, BLSS MEANT "fit a network to your scene" and the whole window was
-    // the feature. It is not the mainstream path any more - plain mode's
-    // break-even is 2.6 coverages against the neural path's 13.1, a trained net
-    // ships embedded, and on every project measured that net chooses nothing -
-    // so the ordinary interaction is a checkbox, a mode and one line to read.
-    enum class BlssDetail { Essentials, Everything };
-    bool drawBlssSettings(ProjectSettings& s, BlssDetail detail = BlssDetail::Everything);
-    bool drawBlssNetworkTuning(ProjectSettings& s);  // sharpen/temporal/jitter/debug view
-    // The speed estimate priced for `s` rather than for the committed project.
-    // One function, because the Preferences dialog must re-price live when the
-    // reader flips the reconstruction (the two modes' break-evens are more than
-    // four times apart) and blssCoverageTick() must not answer differently.
-    // A pure function of blssCov_ and the mode, so it cannot shimmer.
-    blssui::SpeedEstimate blssSpeedFor(const ProjectSettings& s) const;
-    // The one-line verdict for the Essentials layer: the button that measures,
-    // the headline and the two facts behind it. Carries the honesty rules
-    // wholesale by going through blssui::recommend() rather than deciding
-    // anything of its own - a simpler UI must not become a more confident one.
-    void drawBlssSpeedAnswer(const ProjectSettings& staged);
+    // Use the upscaler / Render scale / Adapt resolution + the frame
+    // extrapolation block they exclude. Returns true when `s` changed.
+    bool drawBlssSettings(ProjectSettings& s);
 
     // Tools > World Facts (facts_ui.cpp, docs/world-facts.md): the fact
     // catalog, the named queries over it, the reaction rules, the saved test
@@ -2734,155 +2582,6 @@ private:
     // project every frame, so the poll starts a run when this changes and at
     // no other time (plus the panel's explicit Re-scan).
     uint64_t modelAoIntent_ = 0;
-
-    // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
-    // One job at a time: every verb here saturates the machine, so a second
-    // would only make both slower.
-    bool showBlss_ = false;
-    blssui::Job blssJob_;
-    uint64_t blssJobSeen_ = 0;
-    std::string blssPendingNet_;  // the net a running --blss-train will write
-    std::string blssLastError_;
-    // Negative so the very first frame the window is drawn refreshes rather
-    // than waiting out the throttle - "no network" is the one thing this
-    // window must never say wrongly.
-    double blssStatusChecked_ = -1.0e9;
-    float blssOutputH_ = 150.0f;
-    // What the project's network is, and where it came from. A blss.net is a
-    // bare list of floats and records nothing about how it was made, so the
-    // provenance is a sidecar this editor writes next to the net it trained;
-    // a net newer than its sidecar reports "unknown" rather than a stale one.
-    bool blssNetPresent_ = false;
-    // ...and whether a net this window set ASIDE is waiting to come back. The
-    // net-source radio is the only writer of `blss.net.off`; without this the
-    // "project's own net" option would go permanently dead the moment the
-    // shipped default was selected.
-    bool blssNetAside_ = false;
-    bool blssNetArgsStale_ = false;
-    size_t blssNetBytes_ = 0;
-    std::string blssNetWhen_, blssNetArgs_;
-    char blssNetName_[128] = "blss.net";
-    char blssAssets_[512] = {};
-    // WHICH CORPUS EVERY VERB IN THIS WINDOW RUNS ON, and it defaults to the
-    // project because a measurement says so: a net fitted to the built-in
-    // procedural bestiary scored -0.40 dB on examples/procedural, i.e. WORSE
-    // than not reconstructing at all, while the same code fitted to that
-    // project's own scenes scored +0.06 (commit 29b4de60). The bestiary is the
-    // fallback for a project with nothing to draw, not the thing to ship.
-    //
-    // One switch for all five verbs rather than one per tab: "which corpus
-    // produced this table" must have a single answer visible above every table
-    // in the window, and a per-tab copy is how a Train on the project gets
-    // evaluated against the bestiary without anyone noticing.
-    bool blssCorpusProject_ = true;
-    // Train
-    int blssTrainFrames_ = 156, blssTrainEpochs_ = 400;
-    unsigned blssTrainSeed_ = 0xB1557u;
-    float blssTrainDecay_ = 1e-4f, blssTrainFill_ = 16.0f, blssTrainFlicker_ = 0.0f;
-    // --all-shots ON by default, and it follows the corpus: the console runs
-    // the frames the net was fitted on, so for a PROJECT corpus withholding a
-    // third of it buys an honest held-out column nobody can act on and costs
-    // the shipped net real quality.
-    bool blssTrainAllShots_ = true, blssTrainStandardise_ = false;
-    // Evaluate
-    int blssEvalFrames_ = 156;
-    float blssEvalDeadzone_ = 8.0f;
-    bool blssEvalDump_ = true;
-    std::string blssDumpDir_;
-    // Cross-validate
-    int blssCvFrames_ = 156, blssCvEpochs_ = 400, blssCvSeeds_ = 1, blssCvFolds_ = 0;
-    bool blssCvSweep_ = false;
-    char blssCvSweepList_[128] = "0,1,2,3,4,6,8,12,16,24";
-    // Inputs
-    int blssFeatFrames_ = 156;
-    // Parsed out of the last run of each kind - never computed here.
-    blssui::EvalTable blssEval_;
-    // THE VERDICT'S NUMBERS, from the last Evaluate or "will this scene
-    // benefit" run. Taken from the tool's own machine-readable `[blss] verdict`
-    // line when it is there and re-derived from the parsed table when it is
-    // not, so an older binary still answers.
-    blssui::EvalSummary blssSummary_;
-    // WHICH NET PRODUCED THE TABLE ON SCREEN, from the run's own announce line
-    // rather than from the file system. With a default shipping, "I evaluated
-    // my project" and "I evaluated the editor's net on my project" are one
-    // keystroke apart, and until the line existed they looked identical.
-    blssui::NetSource blssNetSource_;
-    blssui::CvTable blssCv_;
-    blssui::FeatureTable blssFeat_;
-    // The third verdict - "is this corpus good enough to train on" - derived
-    // once from blssFeat_ when a report lands, not per frame, for the same
-    // reason blssSpeed_ is: a sentence a reader is going to quote must not
-    // shimmer between two roundings. Unknown until a report exists, and
-    // deliberately not reassuring while it is.
-    blssui::CorpusHealth blssHealth_;
-    // A CONSOLE frame placed in that corpus. Parsed from the same
-    // `--features` run (the tool prints the probe table under the channel
-    // table), so a run without --probe leaves it empty, which is correct.
-    blssui::ProbeTable blssProbe_;
-    blssui::ProbeVerdict blssProbeVerdict_;
-    // The BLSSFEAT line being probed, and where it came from - the project's
-    // bin/log.txt, the runner's [ps2] stream, or the user's own paste.
-    char blssProbeLine_[2048] = {};
-    std::string blssProbeSource_, blssProbeNote_;
-    // What the corpus loader SAID it found, per scene, out of the last run's
-    // output. It is how an author tells "the trainer honoured my shot plan"
-    // from "the trainer is still shooting its six defaults", which is otherwise
-    // invisible: a plan the tool ignores looks exactly like a plan it obeys.
-    std::vector<blssui::CorpusScene> blssScenes_;
-    // Training shots: which row of Project::blssShots is being edited.
-    int blssShotSel_ = -1;
-    // "Look through this shot" - the editor camera parked at a training
-    // vantage. Held as state rather than pushed once, because drawUI CLEARS the
-    // viewport's camera override on every frame nothing claims it (app.cpp,
-    // the look-through camera branch), so a one-shot push lasts one frame.
-    bool blssLookThrough_ = false;
-    float blssLookEye_[3] = {0.0f, 0.0f, 0.0f};
-    float blssLookAt_[3] = {0.0f, 0.0f, 1.0f};
-    float blssLookFov_ = 60.0f;
-    // THE SPEED HALF. `blssCov_` is the UI's copy and is only ever written by
-    // blssCoverageTick after the worker has finished (the version bump is the
-    // handover, the Runner/giBaker idiom); `blssCovOut_` is the worker's own
-    // slot and must not be read while it runs.
-    blss::CoverageReport blssCov_, blssCovOut_;
-    std::thread blssCovThread_;
-    std::atomic<bool> blssCovRunning_{false};
-    std::atomic<bool> blssCovCancel_{false};
-    std::atomic<uint64_t> blssCovVersion_{0};
-    uint64_t blssCovSeen_ = 0;
-    double blssCovStarted_ = 0.0, blssCovSeconds_ = 0.0;
-    // The estimate, derived from blssCov_ once per finished run rather than per
-    // frame - blssui::speedFrom is pure and cheap, but the verdict text is what
-    // a reader quotes and it must not flicker between two roundings.
-    blssui::SpeedEstimate blssSpeed_;
-    // Which tab to force open next frame (-1 = leave it alone). The verdict's
-    // thumbnails are click-through to Compare, and a strip that showed the
-    // pictures but could not get you to them would be decoration.
-    int blssTabSelect_ = -1;
-    int blssTab_ = 0;                // the work tab shown (BlssTab)
-    bool blssShowOutput_ = false;    // the job strip expanded into the raw output
-    bool blssShowDetails_ = false;   // the long story under the banner
-    double blssAnsweredAt_[3] = {-1.0, -1.0, -1.0};  // ImGui time each check landed
-    double blssSeenQ_ = -2.0, blssSeenS_ = -2.0, blssSeenH_ = -2.0;
-    // The comparison PNGs --blss-eval --dump wrote, as GL textures. The PIXELS
-    // are kept as well, because the difference view is computed from them on
-    // the CPU - ~900 KB each at 512x448, nine of them.
-    struct BlssImage {
-        std::string label, tip, path;
-        unsigned tex = 0;
-        int w = 0, h = 0;
-        std::vector<unsigned char> px;  // RGBA, w*h*4
-    };
-    std::vector<BlssImage> blssImages_;
-    bool blssImagesDirty_ = true;
-    int blssImgA_ = 0, blssImgB_ = 0, blssImgMode_ = 0;
-    float blssWipe_ = 0.5f, blssZoom_ = 1.0f;
-    // |A-B| amplified. Rebuilt when the pair or the amplification changes, and
-    // never per frame - it is a full-image CPU pass.
-    unsigned blssDiffTex_ = 0;
-    int blssDiffW_ = 0, blssDiffH_ = 0;
-    int blssDiffA_ = -1, blssDiffB_ = -1;
-    float blssDiffAmp_ = 8.0f, blssDiffAmpBuilt_ = -1.0f;
-    double blssDiffPeak_ = 0.0, blssDiffMean_ = 0.0;  // the honest scale of the gap
 
     bool showTreeGenerator_ = false;
     treegen::Params treeParams_;
