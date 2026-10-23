@@ -6242,6 +6242,172 @@ bool App::loadingAnimControls(LoadingAnim& a) {
     return changed;
 }
 
+// Loading Screens > Assignments (docs/loading-screens.md, "Assignments"):
+// every load in the game and the screen it shows, in one table - Game start,
+// the Default, then each scene - with what each row resolves to. A screen's
+// own inspector only reports this (Used by); it is edited here.
+bool App::drawLoadingAssignments() {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    auto& screens = project_.loadingScreens;
+    bool changed = false;
+    const bool between = project_.settings.loadingScreen;
+    const int def = project_.defaultLoadingScreen >= 0 && project_.defaultLoadingScreen < (int)screens.size()
+                        ? project_.defaultLoadingScreen
+                        : -1;
+    if (project_.bootLoadingScreen >= (int)screens.size()) project_.bootLoadingScreen = -1;
+    const int startIdx = project_.scenes.empty()                                      ? -1
+                         : project_.startScene >= 0 &&
+                                 project_.startScene < (int)project_.scenes.size() ? project_.startScene
+                                                                                    : 0;
+    // A resolved index (loadingScreenIndexFor codes) as words.
+    auto nameOf = [&](int idx) -> std::string {
+        return idx >= 0 ? screens[idx].name : idx == -3 ? std::string("None") : std::string("Built-in");
+    };
+    // The last column: the screen (a link to it in Screens) and how it got there.
+    auto resolved = [&](int idx, const std::string& via, bool warn) {
+        ImGui::AlignTextToFramePadding();
+        if (idx >= 0) {
+            if (ImGui::TextLink((screens[idx].name + "##go").c_str())) {
+                selectedLoadingScreen_ = idx;
+                lsSelKind_ = 3;
+                lsSelIdx_ = -1;
+                lsTab_ = 0;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Edit this screen");
+        } else {
+            ImGui::TextUnformatted(idx == -4 ? "No loading screen" : nameOf(idx).c_str());
+        }
+        if (!via.empty()) {
+            ImGui::SameLine(0.0f, fs * 0.3f);
+            ImGui::TextColored(warn ? sem.warn : sem.textDim, "\xC2\xB7 %s", via.c_str());
+        }
+    };
+    auto head = [&](const char* name, const char* note) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(name);
+        if (note && *note) {
+            ImGui::SameLine(0.0f, fs * 0.5f);
+            ImGui::TextDisabled("%s", note);
+        }
+    };
+
+    ImGui::Dummy(ImVec2(0.0f, fs * 0.2f));
+    ImGui::TextDisabled("Every load in the game and the screen it shows. Scenes set to Default follow the "
+                        "Default row.");
+    if (!between)
+        ui::StatusLine(1, "Show between scenes is off: scenes cut straight in. Game start still shows its "
+                          "pick.");
+    if (!ImGui::BeginTable("##ls_assign", 3,
+                           ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_ScrollY |
+                               ImGuiTableFlags_SizingStretchProp,
+                           ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
+        return false;
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn("Load", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+    ImGui::TableSetupColumn("Shows", ImGuiTableColumnFlags_WidthStretch, 1.3f);
+    ImGui::TableSetupColumn("Resolves to", ImGuiTableColumnFlags_WidthStretch, 1.1f);
+    ImGui::TableHeadersRow();
+
+    // Game start: the first load at power-on (Project::bootLoadingScreen).
+    {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        head("Game start", "first load at power-on");
+        ImGui::TableNextColumn();
+        const SceneData* st = startIdx >= 0 ? &project_.scenes[startIdx] : nullptr;
+        const int stRes = st ? project::loadingScreenIndexFor(project_, *st) : def;
+        const std::string same = "Same as start scene (" + (st ? st->name : std::string("-")) + " \xE2\x86\x92 " +
+                                 (between ? nameOf(stRes) : std::string("none")) + ")";
+        int& boot = project_.bootLoadingScreen;
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##as_boot", boot >= 0 ? screens[boot].name.c_str() : same.c_str())) {
+            if (ImGui::Selectable(same.c_str(), boot < 0)) {
+                boot = -1;
+                changed = true;
+            }
+            ImGui::Separator();
+            for (int i = 0; i < (int)screens.size(); ++i)
+                if (ImGui::Selectable(screens[i].name.c_str(), boot == i)) {
+                    boot = i;
+                    changed = true;
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::TableNextColumn();
+        if (boot >= 0) resolved(boot, "picked here", false);
+        else if (!between) resolved(-4, "Show between scenes is off", true);
+        else resolved(stRes, "via " + (st ? st->name : std::string("the start scene")), false);
+    }
+    // Default: what every scene left on Default shows.
+    {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        head("Default", "scenes set to Default");
+        ImGui::TableNextColumn();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##as_default", def >= 0 ? screens[def].name.c_str() : "Built-in")) {
+            if (ImGui::Selectable("Built-in", def < 0)) {
+                project_.defaultLoadingScreen = -1;
+                changed = true;
+            }
+            ImGui::Separator();
+            for (int i = 0; i < (int)screens.size(); ++i)
+                if (ImGui::Selectable(screens[i].name.c_str(), def == i)) {
+                    project_.defaultLoadingScreen = i;
+                    changed = true;
+                }
+            ImGui::EndCombo();
+        }
+        ImGui::TableNextColumn();
+        resolved(def, def < 0 ? "res/hud/loading.png" : "", false);
+    }
+    // One row per scene; greyed (still editable) while scenes cut straight in.
+    const std::string defLabel = "Default (" + nameOf(def) + ")";
+    for (int si = 0; si < (int)project_.scenes.size(); ++si) {
+        SceneData& sc = project_.scenes[si];
+        ImGui::PushID(si);
+        if (!between) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.45f);
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        head(sc.name.c_str(), si == startIdx ? "start scene" : "");
+        ImGui::TableNextColumn();
+        bool dangling = !sc.loadingScreen.empty() && sc.loadingScreen != project::kLoadingBuiltIn &&
+                        sc.loadingScreen != project::kLoadingNone;
+        for (const LoadingScreenDef& o : screens) dangling &= o.name != sc.loadingScreen;
+        const std::string cur = sc.loadingScreen.empty() || dangling ? defLabel
+                                : sc.loadingScreen == project::kLoadingBuiltIn ? std::string("Built-in")
+                                : sc.loadingScreen == project::kLoadingNone    ? std::string("None")
+                                                                      : sc.loadingScreen;
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##as_scene", cur.c_str())) {
+            auto pick = [&](const char* label, const std::string& v) {
+                if (ImGui::Selectable(label, sc.loadingScreen == v)) {
+                    sc.loadingScreen = v;
+                    changed = true;
+                }
+            };
+            pick(defLabel.c_str(), std::string());
+            ImGui::Separator();
+            for (const LoadingScreenDef& o : screens) pick(o.name.c_str(), o.name);
+            ImGui::Separator();
+            pick("Built-in", project::kLoadingBuiltIn);
+            pick("None", project::kLoadingNone);
+            ImGui::EndCombo();
+        }
+        ImGui::TableNextColumn();
+        const int res = project::loadingScreenIndexFor(project_, sc);
+        if (dangling) resolved(res, "\"" + sc.loadingScreen + "\" is gone - via Default", true);
+        else if (sc.loadingScreen.empty()) resolved(res, "via Default", false);
+        else if (res == -3) resolved(res, "black while it loads", false);
+        else resolved(res, "", false);
+        if (!between) ImGui::PopStyleVar();
+        ImGui::PopID();
+    }
+    ImGui::EndTable();
+    return changed;
+}
+
 bool App::loadingWaitControls(LoadingScreenDef& ls) {
     bool changed = false;
     int wait = ls.waitForButton ? 1 : 0;
@@ -6255,9 +6421,9 @@ bool App::loadingWaitControls(LoadingScreenDef& ls) {
     if (!ls.waitForButton) return changed;
     static const char* kButtons[] = {"Any", "START", "Cross"};
     if (ui::SegmentedRow("Button", kButtons, 3, &ls.waitButton)) changed = true;
-    ui::RowHelp("ANY = Cross, Circle, Square, Triangle or START.");
-    if (ui::Switch("Only after the boot load", &ls.waitBootOnly)) changed = true;
-    ui::RowHelp("On: the title-screen moment only; scene switches go straight on.");
+    ui::RowHelp("ANY = Cross, Circle, Square, Triangle or START.\n"
+                "Only at power-on? Make this the Game start screen (Assignments)\n"
+                "and give the scenes one that does not wait.");
     return changed;
 }
 
@@ -8561,11 +8727,12 @@ void App::drawAnimEditorWindow() {
 }
 
 // Loading Screens (Tools > Loading Screens): what the player sees from
-// power-on to gameplay. A Boot sequence strip on top (Tyra logo -> splashes
-// -> the loading screen the start scene uses -> the start scene), then
-// Screens + their back-to-front elements | the 512x448 preview, edited in
-// place, with a load-progress scrubber that can simulate a load | the
-// inspector. Like the other preset collections these live outside undo -
+// power-on to gameplay. A First power-on strip on top (TyraX logo -> splashes
+// -> the Game start screen -> the start scene) beside a Between scenes strip,
+// then one of two tabs: Screens (screens + their back-to-front elements | the
+// 512x448 preview, edited in place, with a load-progress scrubber that can
+// simulate a load | the inspector) or Assignments (which load shows which
+// screen, drawLoadingAssignments). Like the other preset collections these live outside undo -
 // commitChange() pushes no undo step here, it marks the project dirty and
 // advances the session serial (see app.hpp). Per-scene assignment (a
 // SceneData field) does push one.
@@ -8606,15 +8773,31 @@ void App::drawLoadingScreenWindow() {
                           : 0;
         return &project_.scenes[s];
     };
-    // The screen a scene shows: its own pick, else the project default, else
-    // the built-in (-1).
-    auto screenOf = [&](const SceneData& sc) {
-        if (!sc.loadingScreen.empty())
-            for (int i = 0; i < (int)screens.size(); ++i)
-                if (screens[i].name == sc.loadingScreen) return i;
+    if (project_.bootLoadingScreen >= (int)screens.size()) project_.bootLoadingScreen = -1;
+    // What the first load at power-on shows (the runtime's LS_BOOT rule): the
+    // Game start pick, else - with Show between scenes on - the start scene's
+    // own screen. loadingScreenIndexFor codes (-1/-2 built-in, -3 none), plus
+    // -4 = no loading screen at all.
+    auto bootResolved = [&]() -> int {
+        if (project_.bootLoadingScreen >= 0) return project_.bootLoadingScreen;
+        if (!project_.settings.loadingScreen) return -4;
+        const SceneData* st = startScene();
+        if (st) return project::loadingScreenIndexFor(project_, *st);
         return project_.defaultLoadingScreen >= 0 && project_.defaultLoadingScreen < (int)screens.size()
                    ? project_.defaultLoadingScreen
                    : -1;
+    };
+    // The loads that show screen `i` (Used by): Game start, then the scenes -
+    // "(default)" when a scene inherits it.
+    auto usersOf = [&](int i) {
+        std::vector<std::string> users;
+        if (bootResolved() == i) users.push_back("Game start");
+        if (!project_.settings.loadingScreen) return users;
+        for (const SceneData& sc : project_.scenes) {
+            if (project::loadingScreenIndexFor(project_, sc) != i) continue;
+            users.push_back(sc.loadingScreen == screens[i].name ? sc.name : sc.name + " (default)");
+        }
+        return users;
     };
     // A new screen from a template (docs/loading-screens.md, "Templates"):
     // 0 blank, 1 minimal bar, 2 dots, 3 spinner, 4 animated progress, 5 press
@@ -8708,8 +8891,8 @@ void App::drawLoadingScreenWindow() {
 
     // --- header: the master switch ------------------------------------------
     {
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextDisabled("From power-on to gameplay, and between scenes");
+        static const char* kTabs[] = {"Screens", "Assignments"};
+        ui::Segmented("##ls_tabs", kTabs, 2, &lsTab_, fs * 13.0f);
         const float swW = ImGui::CalcTextSize("Show between scenes").x + IM_TRUNC(fs * 1.05f) * 1.8f +
                           ImGui::GetStyle().ItemInnerSpacing.x;
         ImGui::SameLine(ImMax(ImGui::GetCursorPosX() + fs, ImGui::GetWindowContentRegionMax().x - swW));
@@ -8722,7 +8905,8 @@ void App::drawLoadingScreenWindow() {
     // --- the boot sequence strip --------------------------------------------
     {
         ImGui::Dummy(ImVec2(0.0f, fs * 0.2f));
-        ui::Caption("Boot sequence");
+        ImGui::BeginGroup();
+        ui::Caption("First power-on");
         const float cardH = IM_TRUNC(fs * 3.4f);
         const float thumb = cardH - fs * 0.9f;
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -8839,17 +9023,20 @@ void App::drawLoadingScreenWindow() {
         }
         arrow();
         const SceneData* start = startScene();
-        const int bootScreen = start ? screenOf(*start) : -1;
+        const int bootScreen = bootResolved();
         {
             std::string title, sub;
             ImVec4 subCol = sem.textDim;
-            if (!project_.settings.loadingScreen) {
+            if (bootScreen == -4) {
                 title = "No loading screen";
                 sub = "Show between scenes is off";
                 subCol = sem.warn;
+            } else if (bootScreen == -3) {
+                title = "None";
+                sub = "black while " + (start ? start->name : std::string("the scene")) + " loads";
             } else if (bootScreen >= 0) {
                 title = screens[bootScreen].name;
-                sub = "while " + (start ? start->name : std::string("the scene")) + " loads";
+                sub = (project_.bootLoadingScreen >= 0 ? std::string("Game start") : std::string("via ") + (start ? start->name : std::string("the start scene")));
                 if (screens[bootScreen].waitForButton) {
                     static const char* kBtn[] = {"a button", "START", "Cross"};
                     sub += std::string(" \xC2\xB7 waits for ") + kBtn[ImClamp(screens[bootScreen].waitButton, 0, 2)];
@@ -8860,18 +9047,47 @@ void App::drawLoadingScreenWindow() {
                 title = "Built-in";
                 sub = "res/hud/loading.png on black";
             }
-            if (card("Boot loading screen", fs * 15.0f, title.c_str(), sub.c_str(), subCol, false,
-                     project_.settings.loadingScreen && bootScreen >= 0, [&](ImVec2 a, ImVec2 b) {
-                         if (bootScreen >= 0 && project_.settings.loadingScreen)
+            if (card("Game start screen", fs * 15.0f, title.c_str(), sub.c_str(), subCol, false, bootScreen >= 0,
+                     [&](ImVec2 a, ImVec2 b) {
+                         if (bootScreen >= 0)
                              drawLoadingFrame(dl, screens[bootScreen], 0.65f, a, ImVec2(b.x - a.x, b.y - a.y),
                                               nullptr);
                          else
                              dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 255), 4.0f);
-                     }) &&
-                bootScreen >= 0) {
-                selectedLoadingScreen_ = bootScreen;
-                lsSelKind_ = 3;
-                lsSelIdx_ = -1;
+                     }))
+                ImGui::OpenPopup("##ls_bootpick");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("The Game start screen: the first load at power-on. Click to pick it.");
+            if (ImGui::BeginPopup("##ls_bootpick")) {
+                ImGui::TextDisabled("Game start shows");
+                const int stRes = start ? project::loadingScreenIndexFor(project_, *start) : -1;
+                const std::string same =
+                    "Same as start scene (" + (start ? start->name : std::string("-")) + " \xE2\x86\x92 " +
+                    (!project_.settings.loadingScreen ? std::string("none")
+                     : stRes >= 0                     ? screens[stRes].name
+                     : stRes == -3                    ? std::string("None")
+                                                      : std::string("Built-in")) +
+                    ")";
+                if (ImGui::Selectable(same.c_str(), project_.bootLoadingScreen < 0)) {
+                    project_.bootLoadingScreen = -1;
+                    changed = true;
+                }
+                ImGui::Separator();
+                for (int i = 0; i < (int)screens.size(); ++i)
+                    if (ImGui::Selectable(screens[i].name.c_str(), project_.bootLoadingScreen == i)) {
+                        project_.bootLoadingScreen = i;
+                        changed = true;
+                    }
+                if (bootScreen >= 0) {
+                    ImGui::Separator();
+                    if (ImGui::Selectable("Edit this screen")) {
+                        selectedLoadingScreen_ = bootScreen;
+                        lsSelKind_ = 3;
+                        lsSelIdx_ = -1;
+                        lsTab_ = 0;
+                    }
+                }
+                ImGui::EndPopup();
             }
         }
         arrow();
@@ -8879,9 +9095,48 @@ void App::drawLoadingScreenWindow() {
              [&](ImVec2 a, ImVec2 b) { dl->AddRectFilled(a, b, tint(sem.surface), 4.0f); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             ImGui::SetTooltip("Pick it in Scene > Preferences > Startup > \"Boot into this scene\".");
+        ImGui::EndGroup();
+
+        // Between scenes: every later load - each scene shows its own screen
+        // (Assignments). Beside the power-on strip when the window is wide
+        // enough, under it otherwise.
+        {
+            const float need = fs * (10.0f + 11.5f + 9.0f + 2.8f + 1.5f);
+            const float right = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+            if (right - ImGui::GetItemRectMax().x > need) ImGui::SameLine(0.0f, fs * 1.5f);
+            ImGui::BeginGroup();
+            ui::Caption("Between scenes");
+            card("Switch Scene", fs * 10.0f, "Switch Scene", "flow node", sem.textDim, false, false,
+                 [&](ImVec2 a, ImVec2 b) { dl->AddRectFilled(a, b, tint(sem.surface), 4.0f); });
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("A Switch Scene node (or a portal) starts the next load.");
+            arrow();
+            const bool on = project_.settings.loadingScreen;
+            if (card("The scene's screen", fs * 11.5f, on ? "Its screen" : "No loading screen",
+                     on ? "see Assignments" : "Show between scenes is off", on ? sem.accent : sem.warn,
+                     lsTab_ == 1, on,
+                     [&](ImVec2 a, ImVec2 b) { dl->AddRectFilled(a, b, IM_COL32(0, 0, 0, 255), 4.0f); }))
+                lsTab_ = 1;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("The screen the TARGET scene picks. Click for Assignments.");
+            arrow();
+            card("Next scene", fs * 9.0f, "Next scene", "gameplay", sem.ok, false, false,
+                 [&](ImVec2 a, ImVec2 b) { dl->AddRectFilled(a, b, tint(sem.surface), 4.0f); });
+            ImGui::EndGroup();
+        }
         ImGui::Dummy(ImVec2(0.0f, fs * 0.3f));
     }
     ImGui::Separator();
+
+    if (lsTab_ == 1) {
+        changed |= drawLoadingAssignments();
+        if (changed || project::sectionJson(project_, project::Section::LoadingScreens) +
+                               project::sectionJson(project_, project::Section::Splash) !=
+                           beforeSection)
+            commitChange();
+        ImGui::End();
+        return;
+    }
 
     const float bodyH = ImGui::GetContentRegionAvail().y;
     const float totalW = ImGui::GetContentRegionAvail().x;
@@ -8931,7 +9186,10 @@ void App::drawLoadingScreenWindow() {
         for (int i = 0; i < (int)screens.size(); ++i) {
             ImGui::PushID(i);
             const bool isDef = project_.defaultLoadingScreen == i;
-            if (screenRow(screens[i].name.c_str(), isDef ? "default" : "", "L", sem.accent,
+            const bool isBoot = project_.bootLoadingScreen == i;
+            if (screenRow(screens[i].name.c_str(),
+                          isDef && isBoot ? "default \xC2\xB7 start" : isDef ? "default" : isBoot ? "game start" : "",
+                          "L", sem.accent,
                           selectedLoadingScreen_ == i && lsSelKind_ != 4, false, false, nullptr)
                     .clicked) {
                 selectedLoadingScreen_ = i;
@@ -8950,17 +9208,12 @@ void App::drawLoadingScreenWindow() {
         if (lsp) {
             // Who shows it: scenes that name it, and - for the default - the
             // ones that inherit. An unused screen says so, with the remedy.
-            std::vector<std::string> users;
-            for (const SceneData& sc : project_.scenes) {
-                if (sc.loadingScreen == lsp->name) users.push_back(sc.name);
-                else if (sc.loadingScreen.empty() && project_.defaultLoadingScreen == selectedLoadingScreen_)
-                    users.push_back(sc.name + " (inherits default)");
-            }
+            const std::vector<std::string> users = usersOf(selectedLoadingScreen_);
             ImGui::Indent(fs * 0.5f);
             ImGui::PushTextWrapPos(0.0f);
             if (users.empty()) {
                 ui::StatusLine(1, "Not shown anywhere");
-                ImGui::TextDisabled("Make it the default, or pick it for a scene.");
+                ImGui::TextDisabled("Make it the default, or pick it in Assignments.");
                 if (ImGui::TextLink("Make default")) {
                     project_.defaultLoadingScreen = selectedLoadingScreen_;
                     changed = true;
@@ -9485,9 +9738,8 @@ void App::drawLoadingScreenWindow() {
                 }
             }
         } else {
-            // The screen itself: name, background, default, and which scenes
-            // pick it - assignable from here (the same field as Scene >
-            // Preferences > Loading screen).
+            // The screen itself: name, background, its wait, and which loads
+            // show it - reported here, assigned in the Assignments tab.
             LoadingScreenDef& ls = *lsp;
             title(ls.name.c_str(), project_.defaultLoadingScreen == selectedLoadingScreen_
                                        ? std::string("Loading screen \xC2\xB7 the default")
@@ -9495,37 +9747,39 @@ void App::drawLoadingScreenWindow() {
             char nameBuf[64];
             std::snprintf(nameBuf, sizeof(nameBuf), "%s", ls.name.c_str());
             if (ui::InputText("Name##lsname", nameBuf, sizeof(nameBuf))) {
+                // '@' starts the no-screen picks (project::kLoadingBuiltIn, project::kLoadingNone).
+                std::string nn = nameBuf;
+                while (!nn.empty() && nn[0] == '@') nn.erase(0, 1);
                 // Keep per-scene references pointing at the renamed screen.
                 for (SceneData& sc : project_.scenes)
-                    if (sc.loadingScreen == ls.name) sc.loadingScreen = nameBuf;
-                ls.name = nameBuf;
+                    if (sc.loadingScreen == ls.name) sc.loadingScreen = nn;
+                ls.name = nn;
             }
             changed |= ImGui::IsItemDeactivatedAfterEdit();
             if (ui::ColorHex("Background", ls.bgColor)) changed = true;
             changed |= ImGui::IsItemDeactivatedAfterEdit();
-            bool isDefault = project_.defaultLoadingScreen == selectedLoadingScreen_;
-            if (ui::Switch("Default at game start (Scenes that pick no screen show this one)", &isDefault)) {
-                project_.defaultLoadingScreen = isDefault ? selectedLoadingScreen_ : -1;
-                changed = true;
-            }
             changed |= loadingWaitControls(ls);
-            ui::Caption("Scenes");
-            for (int si = 0; si < (int)project_.scenes.size(); ++si) {
-                SceneData& sc = project_.scenes[si];
-                ImGui::PushID(si);
-                bool uses = sc.loadingScreen == ls.name;
-                const bool inherits = sc.loadingScreen.empty() && isDefault;
-                std::string lbl = sc.name + (inherits ? " (inherits it as the default)"
-                                             : !sc.loadingScreen.empty() && !uses
-                                                 ? " (shows " + sc.loadingScreen + ")"
-                                                 : "");
-                if (ui::Switch(lbl.c_str(), &uses)) {
-                    sc.loadingScreen = uses ? ls.name : std::string();
-                    changed = true;
+            // Used by: read-only chips (a click opens Assignments, where the
+            // loads are assigned - one place, one answer per load).
+            ui::Caption("Used by");
+            {
+                const std::vector<std::string> users = usersOf(selectedLoadingScreen_);
+                if (users.empty()) ImGui::TextDisabled("Nothing shows it yet.");
+                for (size_t k = 0; k < users.size(); ++k) {
+                    ui::ChipFlow(ui::ChipButtonWidth(users[k].c_str()), k == 0);
+                    if (ui::ChipButton(users[k].c_str())) lsTab_ = 1;
                 }
-                ImGui::PopID();
+                if (ui::ChipButton("Edit in Assignments", true)) lsTab_ = 1;
+                if (project_.defaultLoadingScreen != selectedLoadingScreen_) {
+                    ImGui::SameLine();
+                    if (ui::ChipButton("Make default")) {
+                        project_.defaultLoadingScreen = selectedLoadingScreen_;
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                        ImGui::SetTooltip("Every scene set to Default shows this screen.");
+                }
             }
-            ImGui::TextDisabled("Also in Scene > Preferences > Loading screen.");
             ImGui::Spacing();
             if (ImGui::Button("Duplicate")) {
                 LoadingScreenDef copy = ls;
@@ -9549,6 +9803,10 @@ void App::drawLoadingScreenWindow() {
                         project_.defaultLoadingScreen = -1;
                     else if (project_.defaultLoadingScreen > selectedLoadingScreen_)
                         --project_.defaultLoadingScreen;
+                    if (project_.bootLoadingScreen == selectedLoadingScreen_)
+                        project_.bootLoadingScreen = -1;
+                    else if (project_.bootLoadingScreen > selectedLoadingScreen_)
+                        --project_.bootLoadingScreen;
                     screens.erase(screens.begin() + selectedLoadingScreen_);
                     selectedLoadingScreen_ = -1;
                     changed = true;

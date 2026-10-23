@@ -1606,6 +1606,7 @@ private:
     // Property editors for an animated element and for the continue prompt.
     bool loadingAnimControls(LoadingAnim& a);
     bool loadingWaitControls(LoadingScreenDef& ls);
+    bool drawLoadingAssignments();
     // Cuts a sprite sheet into `count` frame PNGs (cols x rows, row-major) in
     // res/hud and appends them to `a` (docs/loading-screens.md, "Animations").
     bool importLoadingSheet(LoadingAnim& a, const std::string& src, int cols, int rows, int count);
@@ -3266,6 +3267,7 @@ private:
     double lsPlayT0_ = -1.0;  // simulated load running since (< 0 = not)
     int lsDragMode_ = 0;      // preview drag: 0 none, 1 move, 2..5 a corner
     bool lsWaitPreview_ = false;  // Preview ended on the continue prompt
+    int lsTab_ = 0;               // 0 Screens, 1 Assignments
     // Sprite-sheet import dialog state (Add > Animation from a sprite sheet).
     std::string lsSheetPath_;
     int lsSheetCols_ = 4, lsSheetRows_ = 2, lsSheetCount_ = 8;

@@ -32848,7 +32848,7 @@ static std::string loadingDataHeader(const Project& p) {
            "  int txtFirst, txtCount;\n"
            "  int barFirst, barCount;\n"
            "  int animFirst, animCount;\n"
-           "  int wait;          // 0 = straight on, 1 = wait for a button, 2 = only after boot\n"
+           "  int wait;          // 0 = straight on, 1 = wait for a button\n"
            "  int waitButton;    // 0 = any face button or START, 1 = START, 2 = Cross\n"
            "  const char* promptPath;  // baked continue prompt; \"\" = none\n"
            "  float promptX, promptY;  // normalized, center anchor\n"
@@ -32879,7 +32879,7 @@ static std::string loadingDataHeader(const Project& p) {
             copy.name = "ls-" + std::to_string(si) + "-continue";
             int tw = 8, th = 8;
             menubake::textLayout(copy, p, tw, th);
-            screens << (ls.waitBootOnly ? 2 : 1) << ", " << ls.waitButton << ", \"hud/"
+            screens << 1 << ", " << ls.waitButton << ", \"hud/"
                     << menubake::textFileName(copy.name) << "\", " << floatLit(ls.prompt.pos[0])
                     << ", " << floatLit(ls.prompt.pos[1]) << ", " << tw << ", " << th << ", "
                     << ls.promptBlink << ", " << floatLit(ls.promptPeriod) << ", "
@@ -32969,7 +32969,12 @@ static std::string loadingDataHeader(const Project& p) {
     // hud/loading.png-on-black fallback).
     int def = p.defaultLoadingScreen;
     if (def < -1 || def >= n) def = -1;
+    int boot = p.bootLoadingScreen;
+    if (boot < -1 || boot >= n) boot = -1;
     out << "constexpr int LS_DEFAULT = " << def << ";  // -1 = built-in fallback\n"
+        << "// The first load at power-on (Assignments > Game start); -1 = the start\n"
+           "// scene's own screen.\n"
+        << "constexpr int LS_BOOT = " << boot << ";\n"
         << "inline const int SCENE_LOADING_SCREEN[" << p.scenes.size() << "] = {";
     for (size_t i = 0; i < p.scenes.size(); ++i)
         out << (i ? ", " : "") << project::loadingScreenIndexFor(p, p.scenes[i]);

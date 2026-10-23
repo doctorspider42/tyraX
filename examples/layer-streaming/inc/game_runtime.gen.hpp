@@ -2757,6 +2757,9 @@ struct LoadingScreenState {
   // pumped by work done rather than by vsync, so a spinner may skip a frame
   // there - it is a clock for the eye, not for logic.
   float clock = 0.0F;
+  // The power-on load is in progress: it shows LS_BOOT when the project
+  // picked one (Assignments > Game start), whatever the start scene shows.
+  bool boot = false;
 };
 inline LoadingScreenState g_loading;
 
@@ -2818,26 +2821,25 @@ inline void renderSplash(Engine* engine, int i) {
   engine->renderer.endFrame();
 }
 
-// The authored screen a scene's load shows, or -1 for the built-in one.
+// The authored screen a scene's load shows, -1 for the built-in picture or
+// -2 for none (Assignments > a scene > None: black while it loads).
+// SCENE_LOADING_SCREEN is already resolved by the editor: -2 there = Built-in
+// picked, -3 = None.
 inline int screenFor(int sceneIdx) {
-  int screen = -1;
-  if (LS_COUNT > 0) {
-    if (sceneIdx >= 0 && sceneIdx < SCENE_COUNT)
-      screen = SCENE_LOADING_SCREEN[sceneIdx];
-    else
-      screen = LS_DEFAULT;
-    if (screen < 0 || screen >= LS_COUNT) screen = LS_DEFAULT;
+  if (g_loading.boot && LS_BOOT >= 0 && LS_BOOT < LS_COUNT) return LS_BOOT;
+  int screen = LS_DEFAULT;
+  if (sceneIdx >= 0 && sceneIdx < SCENE_COUNT) {
+    screen = SCENE_LOADING_SCREEN[sceneIdx];
+    if (screen == -3) return -2;
   }
   return screen < 0 || screen >= LS_COUNT ? -1 : screen;
 }
 
 // Press a button to continue (docs/loading-screens.md): does this load end on
-// the screen's prompt? `boot` = the first scene's load at power-on.
-inline bool waitWanted(int sceneIdx, bool boot) {
+// the screen's prompt?
+inline bool waitWanted(int sceneIdx, bool /*boot*/) {
   const int screen = screenFor(sceneIdx);
-  if (screen < 0) return false;
-  const int w = LS_SCREENS[screen].wait;
-  return w == 1 || (w == 2 && boot);
+  return screen >= 0 && LS_SCREENS[screen].wait == 1;
 }
 
 // The waiting screen's button, edge-triggered (one press, not a held one).
@@ -2856,6 +2858,13 @@ inline void renderFrame(Engine* engine, int sceneIdx, float fraction, bool waiti
   g_loading.clock += g_frameDt > 0.0001F ? g_frameDt : 0.02F;
 
   const int screen = screenFor(sceneIdx);
+
+  if (screen == -2) {  // None: no picture while this scene loads
+    engine->renderer.setClearScreenColor(Color(0.0F, 0.0F, 0.0F));
+    engine->renderer.beginFrame();
+    engine->renderer.endFrame();
+    return;
+  }
 
   const auto& scr = engine->renderer.core.getSettings();
   const float W = scr.getWidth();

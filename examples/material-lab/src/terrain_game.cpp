@@ -238,13 +238,14 @@ void TerrainGame::loop() {
         return;
       }
       bootPhase = 1;
-      if (LOADING_SCREEN) {
+      if (LOADING_SCREEN || LS_BOOT >= 0) {
         loadingTarget = editorBootScene();
         loadingFrames = loadingTotal = everyFrames(0.7F);
+        g_loading.boot = true;
       }
     }
     if (bootPhase == 1) {
-      if (!LOADING_SCREEN) {
+      if (!(LOADING_SCREEN || LS_BOOT >= 0)) {
         bootFirstScene();
         bootPhase = 2;
       } else {
@@ -263,6 +264,7 @@ void TerrainGame::loop() {
           if (!loadingscreen::continuePressed(engine, editorBootScene())) return;
           loadingWaiting = false;
         }
+        g_loading.boot = false;
         bootPhase = 2;
       }
     }

@@ -6392,7 +6392,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // elements) and "wait" (press a button to continue + its prompt), and
 // ProjectSettings::showEngineLogo - all written only when used/off. Missing =
 // none, no wait, the logo shows, exactly as before. Additive; no migration.
-inline constexpr int kFormatVersion = 115;
+// v116 (docs/loading-screens.md, "Assignments"): Project::bootLoadingScreen,
+// the Game start screen ("bootLoadingScreen", written only when set; missing =
+// the start scene's screen). It replaced 115's "wait": { "bootOnly" }: such a
+// screen becomes the Game start screen and its scenes get a copy that does
+// not wait (project.cpp, migrateBootOnlyWait) - what the player saw stays.
+inline constexpr int kFormatVersion = 116;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

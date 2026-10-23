@@ -21472,7 +21472,9 @@ void App::drawScenePreferencesModal() {
         const char* cur =
             scenePrefLoading_.empty()
                 ? (project_.defaultLoadingScreen >= 0 ? "<default>" : "<built-in>")
-                : scenePrefLoading_.c_str();
+            : scenePrefLoading_ == project::kLoadingBuiltIn ? "Built-in"
+            : scenePrefLoading_ == project::kLoadingNone    ? "None"
+                                                   : scenePrefLoading_.c_str();
         if (ImGui::BeginCombo("Screen", cur)) {
             const char* dflt =
                 project_.defaultLoadingScreen >= 0 &&
@@ -21488,9 +21490,14 @@ void App::drawScenePreferencesModal() {
             for (const LoadingScreenDef& ld : project_.loadingScreens)
                 if (ImGui::Selectable(ld.name.c_str(), ld.name == scenePrefLoading_))
                     scenePrefLoading_ = ld.name;
+            ImGui::Separator();
+            if (ImGui::Selectable("Built-in", scenePrefLoading_ == project::kLoadingBuiltIn))
+                scenePrefLoading_ = project::kLoadingBuiltIn;
+            if (ImGui::Selectable("None", scenePrefLoading_ == project::kLoadingNone))
+                scenePrefLoading_ = project::kLoadingNone;
             ImGui::EndCombo();
         }
-        ImGui::TextDisabled("Author screens in Tools > Loading Screens.");
+        ImGui::TextDisabled("Every load at once: Tools > Loading Screens > Assignments.");
     }
 
     category("Dynamic light reception", ov.dynamicLightReceivers, [&] {

@@ -1675,6 +1675,8 @@ int ambienceIndexFor(const Project& p, const SceneData& s) {
 }
 
 int loadingScreenIndexFor(const Project& p, const SceneData& s) {
+    if (s.loadingScreen == kLoadingBuiltIn) return -2;
+    if (s.loadingScreen == kLoadingNone) return -3;
     if (!s.loadingScreen.empty()) {
         for (int i = 0; i < (int)p.loadingScreens.size(); ++i)
             if (p.loadingScreens[i].name == s.loadingScreen) return i;
@@ -2621,7 +2623,6 @@ static void writeLoadingScreensSection(std::ostream& json, const Project& p) {
         if (ls.waitForButton) {
             const HudText& t = ls.prompt;
             json << ",\n      \"wait\": { \"button\": " << ls.waitButton
-                 << ", \"bootOnly\": " << (ls.waitBootOnly ? "true" : "false")
                  << ", \"blink\": " << ls.promptBlink << ", \"period\": " << fmtFloat(ls.promptPeriod)
                  << ", \"hideOthers\": " << (ls.promptHideOthers ? "true" : "false")
                  << ", \"text\": \"" << jsonEscape(t.text) << "\", \"pos\": ["
@@ -2652,6 +2653,7 @@ static void writeLoadingScreensSection(std::ostream& json, const Project& p) {
     }
     json << (p.loadingScreens.empty() ? "]" : "\n  ]");
     json << ",\n  \"defaultLoadingScreen\": " << p.defaultLoadingScreen;
+    if (p.bootLoadingScreen >= 0) json << ",\n  \"bootLoadingScreen\": " << p.bootLoadingScreen;
 }
 
 static void writeSplashSection(std::ostream& json, const Project& p) {
@@ -7445,9 +7447,17 @@ static void readAmbienceSection(const json::Value& root, Project& out) {
         out.defaultAmbience = -1;
 }
 
+// Format 115 had a per-screen "wait only after the boot load" switch
+// ("wait": { "bootOnly": true }); 116 replaced it with the Game start screen.
+// The reader notes such screens here and migrateBootOnlyWait turns them into
+// the new shape once the scenes are known.
+static thread_local std::vector<int> g_legacyBootOnly;
+
 static void readLoadingScreensSection(const json::Value& root, Project& out) {
     out.loadingScreens.clear();
     out.defaultLoadingScreen = -1;
+    out.bootLoadingScreen = -1;
+    g_legacyBootOnly.clear();
     if (const auto* lss = root.find("loadingScreens");
         lss && lss->type == json::Value::Type::Array) {
         for (const auto& jl : lss->arr) {
@@ -7545,7 +7555,8 @@ static void readLoadingScreensSection(const json::Value& root, Project& out) {
                 HudText& t = ls.prompt;
                 if (const auto* v = w->find("button")) ls.waitButton = (int)v->numberOr(0);
                 if (ls.waitButton < 0 || ls.waitButton > 2) ls.waitButton = 0;
-                if (const auto* v = w->find("bootOnly")) ls.waitBootOnly = v->boolOr(false);
+                if (const auto* v = w->find("bootOnly"); v && v->boolOr(false))
+                    g_legacyBootOnly.push_back((int)out.loadingScreens.size());
                 if (const auto* v = w->find("blink")) ls.promptBlink = (int)v->numberOr(1);
                 if (ls.promptBlink < 0 || ls.promptBlink > 2) ls.promptBlink = 1;
                 if (const auto* v = w->find("period")) ls.promptPeriod = (float)v->numberOr(1.0);
@@ -7610,6 +7621,39 @@ static void readLoadingScreensSection(const json::Value& root, Project& out) {
     if (out.defaultLoadingScreen < -1 ||
         out.defaultLoadingScreen >= (int)out.loadingScreens.size())
         out.defaultLoadingScreen = -1;
+    if (const auto* v = root.find("bootLoadingScreen"))
+        out.bootLoadingScreen = (int)v->numberOr(-1.0);
+    if (out.bootLoadingScreen < -1 || out.bootLoadingScreen >= (int)out.loadingScreens.size())
+        out.bootLoadingScreen = -1;
+}
+
+// A 115 screen that waited "only after the boot load" becomes the Game start
+// screen (still waiting), and the scenes that showed it get a copy that does
+// not wait - the same thing the player saw, in the 116 shape.
+static void migrateBootOnlyWait(Project& p) {
+    for (int si : g_legacyBootOnly) {
+        if (si < 0 || si >= (int)p.loadingScreens.size()) continue;
+        if (p.bootLoadingScreen < 0) p.bootLoadingScreen = si;
+        const std::string name = p.loadingScreens[si].name;
+        bool scenesUse = p.defaultLoadingScreen == si;
+        for (const SceneData& sc : p.scenes) scenesUse |= sc.loadingScreen == name;
+        if (!scenesUse) continue;
+        LoadingScreenDef copy = p.loadingScreens[si];
+        copy.waitForButton = false;
+        std::string n = name + "-scenes";
+        for (int k = 2;; ++k) {
+            bool taken = false;
+            for (const LoadingScreenDef& o : p.loadingScreens) taken |= o.name == n;
+            if (!taken) break;
+            n = name + "-scenes-" + std::to_string(k);
+        }
+        copy.name = n;
+        p.loadingScreens.push_back(std::move(copy));
+        for (SceneData& sc : p.scenes)
+            if (sc.loadingScreen == name) sc.loadingScreen = n;
+        if (p.defaultLoadingScreen == si) p.defaultLoadingScreen = (int)p.loadingScreens.size() - 1;
+    }
+    g_legacyBootOnly.clear();
 }
 
 static void readSplashSection(const json::Value& root, Project& out) {
@@ -8060,7 +8104,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
-        case Section::LoadingScreens: readLoadingScreensSection(root, p); break;
+        case Section::LoadingScreens: readLoadingScreensSection(root, p); migrateBootOnlyWait(p); break;
         case Section::Splash: readSplashSection(root, p); break;
         case Section::Credits: readCreditsSection(root, p); break;
         case Section::Sequences: readSequencesSection(root, p); break;
@@ -8267,6 +8311,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAmbienceSection(root, out);
 
     readLoadingScreensSection(root, out);
+    migrateBootOnlyWait(out);
 
     readSplashSection(root, out);
 

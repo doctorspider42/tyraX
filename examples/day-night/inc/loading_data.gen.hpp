@@ -42,7 +42,7 @@ struct LoadingScreenData {
   int txtFirst, txtCount;
   int barFirst, barCount;
   int animFirst, animCount;
-  int wait;          // 0 = straight on, 1 = wait for a button, 2 = only after boot
+  int wait;          // 0 = straight on, 1 = wait for a button
   int waitButton;    // 0 = any face button or START, 1 = START, 2 = Cross
   const char* promptPath;  // baked continue prompt; "" = none
   float promptX, promptY;  // normalized, center anchor
@@ -83,6 +83,9 @@ inline const char* const LS_ANIM_FRAMES[1] = {
 };
 
 inline constexpr int LS_DEFAULT = -1;  // -1 = built-in fallback
+// The first load at power-on (Assignments > Game start); -1 = the start
+// scene's own screen.
+inline constexpr int LS_BOOT = -1;
 inline const int SCENE_LOADING_SCREEN[5] = {-1, -1, -1, -1, -1};
 
 struct SplashData {

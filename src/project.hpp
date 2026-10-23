@@ -3216,7 +3216,6 @@ struct LoadingScreenDef {
     // shows `prompt` (baked like a text, drawn last) and waits for the button.
     bool waitForButton = false;
     int waitButton = 0;         // 0 = any face button or START, 1 = START, 2 = Cross
-    bool waitBootOnly = false;  // only after the boot load, not every switch
     HudText prompt = defaultContinuePrompt();  // baked as ls-<i>-continue
     int promptBlink = 1;        // 0 = steady, 1 = blink, 2 = pulse
     float promptPeriod = 1.0f;  // seconds per blink / pulse
@@ -3228,7 +3227,7 @@ inline bool operator==(const LoadingScreenDef& a, const LoadingScreenDef& b) {
            a.bgColor[1] == b.bgColor[1] && a.bgColor[2] == b.bgColor[2] &&
            a.images == b.images && a.texts == b.texts && a.anims == b.anims &&
            a.bars == b.bars && a.waitForButton == b.waitForButton &&
-           a.waitButton == b.waitButton && a.waitBootOnly == b.waitBootOnly &&
+           a.waitButton == b.waitButton &&
            a.prompt == b.prompt && a.promptBlink == b.promptBlink &&
            a.promptPeriod == b.promptPeriod && a.promptHideOthers == b.promptHideOthers;
 }
@@ -3532,6 +3531,8 @@ struct SceneData {
     // Loading screen shown while this scene loads (name into
     // Project::loadingScreens). Empty = the project default
     // (Project::defaultLoadingScreen); a dangling name also falls back there.
+    // kLoadingBuiltIn / kLoadingNone pick no screen (Loading Screens >
+    // Assignments): the built-in loading.png, or nothing (black).
     std::string loadingScreen;
 
     // Per-junction road overrides (docs/roads.md, "Junction overrides"):
@@ -4330,6 +4331,11 @@ struct Project {
     // The ProjectSettings::loadingScreen bool stays the master enable.
     std::vector<LoadingScreenDef> loadingScreens;
     int defaultLoadingScreen = -1;
+    // The screen of the FIRST load at power-on (Loading Screens > Assignments
+    // > Game start, docs/loading-screens.md). -1 = the start scene's own
+    // screen, exactly what every project did before it existed; >= 0 lets a
+    // title "PRESS START" screen show only there.
+    int bootLoadingScreen = -1;
     // Boot splash screens (Tools > Loading Screens > Boot splash): images shown
     // in order at startup, after the Tyra logo, before the loading screen.
     std::vector<SplashScreen> splashScreens;
@@ -4983,9 +4989,16 @@ void sortDayKeys(DayCycle& c);
 // (no presets, or a dangling/empty name with no default).
 int ambienceIndexFor(const Project& p, const SceneData& s);
 
+// SceneData::loadingScreen values that name no screen (a screen's name never
+// starts with '@' - the editor strips it on rename).
+inline constexpr const char* kLoadingBuiltIn = "@built-in";
+inline constexpr const char* kLoadingNone = "@none";
+
 // Index into Project::loadingScreens of the screen a scene resolves to: its
 // named screen if it exists, otherwise the project default. -1 = the built-in
-// fallback screen (hud/loading.png centered on black).
+// fallback screen (hud/loading.png centered on black) because nothing else
+// resolves, -2 = the built-in picked on purpose (kLoadingBuiltIn), -3 = no
+// picture at all (kLoadingNone). The runtime's screenFor reads the same codes.
 int loadingScreenIndexFor(const Project& p, const SceneData& s);
 
 // A terrain material resolved to what the terrain actually needs.
