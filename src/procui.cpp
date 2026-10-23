@@ -192,6 +192,7 @@ void App::updateProcPreview() {
         fraction = std::clamp((float)(25.0 / procLastMs_), 0.05f, 1.0f);
 
     procgen::Result merged;
+    std::vector<Viewport::ScatterPreview::AssetSettings> assetSettings;
     merged.type = ProcType::Points;
     procOwnFirst_ = procOwnCount_ = 0;  // no edited volume until one is found
     double ms = 0.0;
@@ -237,6 +238,17 @@ void App::updateProcPreview() {
         const int base = (int)merged.assets.size();
         const int pbase = (int)merged.prefabs.size();
         merged.assets.insert(merged.assets.end(), r.assets.begin(), r.assets.end());
+        const ProcNode* output = procgraph::outputNode(vol.procGraph);
+        for (const std::string& asset : r.assets) {
+            Viewport::ScatterPreview::AssetSettings settings;
+            settings.drawDistance = output ? procgraph::num(*output, "draw") : 0.0f;
+            const ProcRow* row = procgraph::poolRow(vol.procGraph, "PickAsset", asset);
+            if (row && procRowHasLod(*row)) {
+                settings.lod = row->lod;
+                settings.lodDistance = row->v[3];
+            }
+            assetSettings.push_back(std::move(settings));
+        }
         merged.prefabs.insert(merged.prefabs.end(), r.prefabs.begin(),
                               r.prefabs.end());
         for (procgen::Instance inst : r.instances) {
@@ -311,6 +323,7 @@ void App::updateProcPreview() {
             if (project_.objects()[idx].procGraph.frozen)
                 sp.frozenSources.push_back(project_.objects()[idx].id);
         sp.assets = merged.assets;
+        sp.assetSettings = std::move(assetSettings);
         sp.instances = merged.instances;
         sp.prefabObjects = std::move(prefabObjs);
     }

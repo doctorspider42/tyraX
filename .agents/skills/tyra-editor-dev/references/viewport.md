@@ -28,6 +28,13 @@ Read when you touch the editor's 3D preview: camera/navigation, picking/selectio
 
 ## Previews and caches
 
+- Scatter asset previews no longer use the global 4,000-point proxy cutoff.
+  `updateProcPreview` appends per-asset LOD/draw-distance settings alongside each
+  volume's asset slots. The renderer uses camera-to-instance distance, loads
+  the selected mesh, then calls `modelInView` on its transformed bounds. Keep
+  the settings aligned when combining volumes; unassigned points alone draw
+  crosses. Prefab expansion and frozen saved-chunk previews remain separate.
+
 - Preview shading is BAKED into vertex colours (`shadeOf`, the `g*` light globals). The tool windows' *Light* combo (`PreviewLight`) re-bakes the preview's own meshes under a scoped global swap (`ScopedShade`, private unit-shape copies, light folded into the `matPrevModel_` key) - never `setLighting` (scene-wide; rebuilds every mesh incl. the terrain AO grid).
 - Material Editor preview: a primitive, a project `.obj`, or an animated `.glb/.fbx` in bind pose (`buildMatPrevAnimated`, the assigned `.mtl` name-matched like the console, staged values of the selected entry); `materialPreviewPick` (paint raycast); `updateTexturePixels` (live painted texture, shared `texCache_` id so the scene updates too).
 - `modelBounds()` is the GL-FREE model AABB (objparser + own cache) used by the AO occluder pass instead of `modelDraw()` (reading bounds must never upload mid-frame).

@@ -12,6 +12,10 @@ Open `deep-forest.tyra` and Build & Run (`F5`), or use
 look with the right. FPS is visible; live devkit services and the profiler HUD
 are disabled for the authored gameplay configuration.
 
+In the editor, **Show preview** renders the dense forest with the authored
+near/far models and draw distance, rather than switching all 7,000 placements
+to green crosses. Move the viewport camera within 210 units to inspect it.
+
 ## Geometry and distance settings
 
 - Oaks: 503 triangles near, 4 triangles far (two crossed textured capture planes).

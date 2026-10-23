@@ -385,6 +385,12 @@ public:
     struct ScatterPreview {
         uint64_t version = 0;
         std::vector<std::string> assets;  // index = Instance::asset
+        struct AssetSettings {
+            std::string lod;
+            float lodDistance = 0.0f;
+            float drawDistance = 0.0f;
+        };
+        std::vector<AssetSettings> assetSettings;  // same per-volume slots as assets
         std::vector<procgen::Instance> instances;
         // Prefab instances, already expanded into WORLD-SPACE objects by the
         // app (prefab::instantiate - the same function Insert into scene and
@@ -402,10 +408,6 @@ public:
         // drawn as grabbable handles; -1 = none highlighted.
         std::vector<float> handles;
         int activeHandle = -1;
-        // Instances above this are drawn as plain points instead of meshes -
-        // one GL draw per instance is fine for thousands, not for tens of
-        // thousands, and the author still needs to see the layout.
-        int proxyAbove = 4000;
     };
     void setScatterPreview(ScatterPreview p);
 

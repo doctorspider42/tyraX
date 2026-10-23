@@ -5,6 +5,10 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
+## 2.1.1 - Unreleased
+
+- Dense procedural previews keep their models above 4,000 instances instead of replacing the entire layout with green crosses. Pick Asset previews use the pool's distant models, Output draw distance and camera-frustum culling. Unassigned graph points retain their markers.
+
 ## 2.1.0 - Unreleased
 
 - The upscaler (BLSS) can draw **only the particle emitters** at the reduced resolution (*Draw reduced: Particles only*): smoke, haze, fire and rain lose three quarters of their fill while the rest of the scene, the HUD and every texture stay sharp, and depth of field, portals, split screen and frame extrapolation keep working beside it. On a physical PS2, upscaler-lab's haze yard went from 34.8 ms to 13.8 ms of frame work. See docs/upscaler.md.

@@ -31,6 +31,20 @@ see [runtime procedural generation](procedural-runtime.md).
 
 Try the six graphs in [examples/procedural](../examples/procedural).
 
+Dense **Pick Asset** previews keep their geometry even above 4,000 instances.
+They use each pool row's distant model and switch distance, the Output node's
+draw distance (0 means unlimited), and reject models outside the camera view.
+Zooming beyond the authored draw distance hides those instances; move closer
+to inspect them. Green crosses mark points without an assigned asset or prefab,
+such as a preview isolated before Pick Asset, rather than an entire dense forest.
+Missing far geometry falls back to the near model. Expanded prefabs retain their
+existing object preview and 6,000-object expansion limit.
+
+![Deep Forest's 7,000-instance scatter preview, with authored distant tree and rock models, in As PS2 mode.](img/procedural-dense-preview.png)
+
+Keep the editor camera above the terrain when inspecting a forest. A saved view
+under the ground can hide the trees even with Show preview enabled.
+
 ## From rules to geometry
 
 1. Edit the graph with **Show preview** off. The volume is visible, but it has

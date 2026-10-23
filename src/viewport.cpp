@@ -3782,12 +3782,13 @@ void Viewport::setScatterPreview(ScatterPreview p) {
         scatterCurveMesh_ = uploadMesh(v);
     }
 
-    // Proxy dots for counts past proxyAbove: crossed line pairs (a GL point
-    // would be one pixel), so a 40 000-instance layout still previews at speed.
-    if ((int)scatter_.instances.size() > scatter_.proxyAbove) {
+    // Unassigned points (e.g. an isolated Scatter Surface node) still need
+    // markers. Assigned assets keep their geometry regardless of total count.
+    if (!scatter_.instances.empty()) {
         std::vector<float> v;
         v.reserve(scatter_.instances.size() * 4 * 8);
         for (const procgen::Instance& i : scatter_.instances) {
+            if (i.asset >= 0 || i.prefab >= 0) continue;
             const float s = 0.35f * (i.scale > 0.01f ? i.scale : 1.0f);
             auto put = [&](float x, float y, float z) {
                 v.insert(v.end(), {x, y, z, 0.45f, 0.9f, 0.5f, 0.0f, 0.0f});
@@ -6783,13 +6784,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                  mat ? mat->reflRounded : false, o.position);
             lmMode = 0;
         }
-        // Procedural scatter preview: one draw per instance part through the
-        // ordinary model path, so the preview is shaded exactly like the static
-        // chunks the build bakes out of the same instances. Beyond proxyAbove
-        // the instances show as dots (see setScatterPreview) - one GL draw each
-        // is fine for thousands, not for tens of thousands.
-        if (!scatter_.instances.empty() &&
-            (int)scatter_.instances.size() <= scatter_.proxyAbove) {
+        // Keep large layouts visible: reject by authored draw distance first,
+        // choose the pool row's distant mesh, then cull its actual bounds.
+        if (!scatter_.instances.empty()) {
             liveLightReceive = allLightReceivers;
             aoSelfObj = -1;
             aoGroundOn = true;
@@ -6801,7 +6798,20 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             for (const procgen::Instance& inst : scatter_.instances) {
                 if (inst.asset < 0 || inst.asset >= (int)scatter_.assets.size())
                     continue;
-                const ModelDraw* md = modelDraw(scatter_.assets[inst.asset], "");
+                const float dx = inst.pos[0] - eye.x;
+                const float dy = inst.pos[1] - eye.y;
+                const float dz = inst.pos[2] - eye.z;
+                const float dist2 = dx * dx + dy * dy + dz * dz;
+                const auto* settings = inst.asset < (int)scatter_.assetSettings.size()
+                    ? &scatter_.assetSettings[inst.asset] : nullptr;
+                if (settings && settings->drawDistance > 0.0f &&
+                    dist2 > settings->drawDistance * settings->drawDistance) continue;
+                const bool far = settings && !settings->lod.empty() &&
+                    settings->lodDistance > 0.0f &&
+                    dist2 > settings->lodDistance * settings->lodDistance;
+                const ModelDraw* md = modelDraw(far ? settings->lod : scatter_.assets[inst.asset], "");
+                if ((!md || md->parts.empty()) && far)
+                    md = modelDraw(scatter_.assets[inst.asset], "");
                 if (!md) continue;
                 const float s = inst.scale > 0.0001f ? inst.scale : 1.0f;
                 Mat4 model = scaleM(s, s, s);
@@ -6810,6 +6820,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                 model = mul(rotZ(inst.rot[2] * d2r), model);
                 model = mul(translation(inst.pos[0], inst.pos[1], inst.pos[2]), model);
                 const Mat4 mvp = mul(viewProj, model);
+                if (!modelInView(mvp, md->mn, md->mx)) continue;
                 for (int alphaPass = 0; alphaPass < 2; ++alphaPass)
                     for (const ModelPart& part : md->parts) {
                         const bool cutout = part.alpha && !asLines;

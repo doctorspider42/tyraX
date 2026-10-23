@@ -1,5 +1,7 @@
 #pragma once
 
+// 2.1.1: dense procedural previews use authored LOD and visibility culling.
+
 // 2.1.0: Blender-baked broadleaf sprays and forest/hero tree presets.
 // 2.0.0: integrates main, the redesigned editor and the TyraX2 frame pipeline.
 // Combined project format v114 preserves additive fields from all branches.
@@ -5593,7 +5595,7 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 1
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 // 1.173.0: the first step of the main-window redesign (docs/editor-theme.md).
 // Face buttons gets a new palette; Palette/Semantics gain ground, field,
 // special and the axis triple; the dockspace host and its splitters draw in the
