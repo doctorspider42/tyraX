@@ -2566,15 +2566,32 @@ widescreen. Decide which non-menu elements preserve aspect and which pin to
 screen edges, then apply one coordinate model to the HUD, loading screens and
 credits. See [menu styles](menu-styles.md).
 
-### Shadow-volume count band at the reduced raster
+### Shadow-volume count band at the reduced raster - measured, parked
 
-The torch's shadow-volume count band is fill: every volume face rasterises at
-full resolution. Draw it at the upscaler's reduced raster with the same
-depth-copy trick *Particles only* uses (scene z read as a PSMZ texture,
-point-sampled into the quarter-area z target), then blow the mask back up.
-**Measure the volume fill on hardware first** - PCSX2 under-reports GS fill
-~76x - and only build it if the band is a real share of a frame. See
-[the upscaler](upscaler.md).
+The idea: count the torch's shadow volumes at the upscaler's reduced raster
+(the same scene-depth copy *Particles only* makes, the BLSS low-res target as
+the count band - zero extra VRAM, one bracket instead of two bands) and blow
+the mask back up into the display alpha.
+
+**Measured first, on a physical PS2, 2026-10-23**, and the fill is too small a
+share to be worth it yet. `examples/night-walk`, frozen camera at (3.5, 0,
+-1.5) looking at the truck from ~6 units with the torch on it - a heavy
+vantage: the volumes' rect is 512x366 (73 % of the raster, two 256-row bands),
+2 091 front + 309 back volume triangles. One ELF per arm, the torch switched
+off/on every 20 s with Set Flashlight, `TYRA_FRAME_PROFILE 2` FRAMETIME work:
+
+| arm | torch on | torch off | torch costs |
+|---|---|---|---|
+| shadow volumes as shipped | 11.79 ms (78 windows) | 3.95 ms | 7.84 ms |
+| `shadowVolumesDebug 8` (extrusion on the EE, no GS bracket at all) | 10.16 ms (72) | 4.01 ms | 6.15 ms |
+
+So the **whole GS side of the volumes - both bands' clears, the volume fill,
+both resolves and their drains - is 1.63 ms** at that vantage, and a quarter
+raster could save at most part of it (the depth copy and the resolve are not
+free). The other **6.15 ms of the torch is not fill**: the EE extrusion of
+~2 400 volume triangles, the projected pool and the receivers' second light
+pass. That is the target if the torch needs to get cheaper; revisit the
+reduced band only if a scene shows the bracket above ~3 ms.
 
 ### Particles only: more blended layers in the reduced bracket
 
