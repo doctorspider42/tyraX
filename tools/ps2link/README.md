@@ -15,7 +15,11 @@ command). This file is about the build itself.
 
 ## Build it
 
-Needs Docker Desktop running. From the repo root (or this folder):
+Uses the editor's native PS2DEV v2.0.0 toolchain when it is installed
+(`%LOCALAPPDATA%\tyra-editor\toolchain\ps2dev`, run through WSL like a game
+build; `~/.config/tyra-editor/toolchain/ps2dev` on Linux and macOS), else
+Docker. `-Docker` / `--docker` forces the image. From the repo root (or this
+folder):
 
 ```powershell
 tools/ps2link/build.ps1
@@ -306,7 +310,9 @@ Keep the patch LF-only (`.gitattributes` enforces it): it is applied to a Unix
 checkout inside a Linux container, and a CRLF patch fails `git apply`. To move
 to a newer upstream, bump the commit in **both** `build.ps1` and `build.sh` and
 re-generate the patch against the new tree. If a change alters console
-behaviour, bump the `r<n>` in the banner and update
+behaviour, bump `TYRAX_REV` in the patch's `ee/Makefile` hunk — the only place
+the number lives; the banner, both scripts and docker/Dockerfile read it — and
+update
 [docs/ps2link-setup.md](../../docs/ps2link-setup.md) — that banner is how anyone
 tells builds apart, including which fixes a flashed card already has.
 

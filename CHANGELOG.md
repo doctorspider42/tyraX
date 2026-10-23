@@ -13,6 +13,7 @@ history.
 ### Real PS2
 
 - PS2Link r8 fixes a startup hang observed on an SCPH-70004 booted through FreeDVDBoot/uLaunchELF by configuring the sound hardware's bus mapping and timing before muting leftover audio.
+- `tools/ps2link/build.*` builds with the editor's native toolchain when it is installed (Docker stays the fallback, or `-Docker` / `--docker`), and the revision the boot banner shows is set in one place, `TYRAX_REV` in the patch. `build.sh` no longer ignores `--no-usb` and `--packed`.
 
 ## 2.0.0 - Unreleased
 

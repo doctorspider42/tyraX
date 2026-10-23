@@ -59,7 +59,7 @@ Two things worth knowing before you hit a wall:
 | A way to boot homebrew | FreeMcBoot / FreeDVDBoot / uLaunchELF / a disc-swap exploit — whatever already runs `.ELF` files off your memory card. |
 | A memory card | It holds `PS2LINK.ELF` + `IPCONFIG.DAT`. |
 | A wired LAN | Console and PC on the **same subnet**; the PS2 has no Wi-Fi and ps2link has no DHCP. |
-| Docker Desktop on the PC (plain `docker` on Linux) | The ps2link build runs inside the `ps2dev/ps2dev` toolchain image — or you copy the ready-made ELF out of the TyraX toolchain image, which also needs Docker. |
+| The editor's native toolchain, or Docker | The ps2link build uses the PS2DEV v2.0.0 toolchain the editor installs for native game builds (through WSL on Windows). Without it, it runs inside the `ps2dev/ps2dev` image in Docker Desktop (plain `docker` on Linux) — or you copy the ready-made ELF out of the TyraX toolchain image, which also needs Docker. |
 
 ## 1. Build the TyraX ps2link
 
@@ -70,14 +70,20 @@ tools/ps2link/build.ps1
 On Linux: `tools/ps2link/build.sh` (the same script, same pins). Add `-Clean` /
 `--clean` to throw the work tree away first.
 
-It clones ps2link pinned at `0c6138c`, applies `tyrax.patch`, builds inside
-`ps2dev/ps2dev:v2.0.0` and drops **`tools/ps2link/ps2link.elf`** (~285 KB) next
+It clones ps2link pinned at `0c6138c`, applies `tyrax.patch`, builds with the
+editor's native PS2DEV v2.0.0 toolchain (`%LOCALAPPDATA%\tyra-editor\toolchain\ps2dev`
+through WSL; `~/.config/tyra-editor/toolchain/ps2dev` on Linux and macOS) — or,
+when that is not installed or you pass `-Docker` / `--docker`, inside
+`ps2dev/ps2dev:v2.0.0` — and drops **`tools/ps2link/ps2link.elf`** (~285 KB) next
 to the script: high (`0x01ee8000`), unpacked, USB HID included. `-Low` /
 `--low`, `-Packed` / `--packed` and `-NoUsb` / `--no-usb` combine into the other
 variants, and **the build to flash is low + packed + no USB** — like upstream's
 releases it goes through `ps2-packer`, which is what lets FreeMcBoot's menu boot
 it at the low address (an unpacked low image lands on that loader mid-load and
-black-screens). The first run pulls the toolchain image; later runs reuse the
+black-screens). Both toolchains are the same release and build the same code,
+though not the same bytes (the two release builds order their library objects
+differently, so the linker lays functions out in another order). A Docker run
+pulls the image the first time; later runs reuse the
 clone in `tools/ps2link/build/`. The ELF is gitignored — the patch is the source
 of truth, not the binary.
 
@@ -411,7 +417,9 @@ mismatches and fixed-dt sign reversal remain rejected measurement controls.
    keyboard + mouse)") means an r1 build: it has the keyboard and mouse but none
    of the hang fixes below, so reflash it. The number is bumped whenever
    `tyrax.patch` changes console behaviour, precisely so a flashed card can be
-   identified without guessing. And if `Net config:` reads **192.168.1.10 /
+   identified without guessing. It lives in one line, `TYRAX_REV` in the patch's
+   `ee/Makefile`; the banner, both build scripts and the toolchain image all
+   take it from there. And if `Net config:` reads **192.168.1.10 /
    255.255.255.0 / 192.168.1.0**, those are the values compiled into ps2link as
    a fallback: your `IPCONFIG.DAT` was not found or not readable, and it is
    *not* using the address you configured.
@@ -1003,5 +1011,7 @@ Keep the patch **LF-only** (`.gitattributes` enforces it) — it is applied to a
 Unix checkout inside a Linux container, and a CRLF patch fails `git apply`. To
 move to a newer upstream, bump the pinned commit in **both** `build.ps1` and
 `build.sh` and re-generate the patch against the new tree. And if a change
-alters what the console reports on boot, update the expected banner in step 2 above — that
-banner is how anyone tells the two builds apart.
+alters console behaviour, bump `TYRAX_REV` in the patch's `ee/Makefile` (edit
+it in `build/ee/Makefile` and regenerate, like any other source) and update the
+expected banner in step 2 above — that banner is how anyone tells the builds
+apart.

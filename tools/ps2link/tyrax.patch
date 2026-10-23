@@ -1,11 +1,17 @@
 diff --git a/ee/Makefile b/ee/Makefile
-index 2eb1e7e..f433943 100644
+index 2eb1e7e..92c32db 100644
 --- a/ee/Makefile
 +++ b/ee/Makefile
-@@ -9,6 +9,16 @@ EE_LIBS += -lpatches -ldebug
+@@ -9,6 +9,22 @@ EE_LIBS += -lpatches -ldebug
  IRX_FILES += ioptrap.irx ps2dev9.irx poweroff.irx
  IRX_FILES += ps2ip.irx netman.irx smap.irx udptty.irx
  IRX_FILES += ps2link.irx
++# TyraX: the revision the boot banner shows - how a flashed build is told
++# apart. THE one place the number lives: tools/ps2link/build.* print it from
++# here and docker/Dockerfile builds with it. Bump it whenever tyrax.patch
++# changes behaviour, and add the revision to docs/ps2link-setup.md.
++TYRAX_REV := 8
++EE_CFLAGS += -DTYRAX_PS2LINK_REV=\"r$(TYRAX_REV)\"
 +# TyraX: bake in the USB HID stack (usbd + keyboard + mouse). These ship
 +# prebuilt in $(PS2SDK)/iop/irx/ and are picked up by the generic %_irx.c rule.
 +# NOUSB=1 leaves them out: they are ~50 KB of the image, and at the low link
@@ -566,7 +572,7 @@ index 0cf38a6..14cbb38 100644
 +
  #endif /* IRX_VARIABLES_H */
 diff --git a/ee/ps2link.c b/ee/ps2link.c
-index d566140..99a7aad 100644
+index d566140..76068bf 100644
 --- a/ee/ps2link.c
 +++ b/ee/ps2link.c
 @@ -23,6 +23,7 @@
@@ -595,7 +601,7 @@ index d566140..99a7aad 100644
  {
      int ret;
  
-@@ -176,25 +177,66 @@ static void loadModules(void)
+@@ -176,25 +177,62 @@ static void loadModules(void)
      dbgscr_printf("Exec ps2link module. (%x,%d) ", (unsigned int)ps2link_irx, size_ps2link_irx);
      SifExecModuleBuffer(ps2link_irx, size_ps2link_irx, 0, NULL, &ret);
      dbgscr_printf("[%d] returned\n", ret);
@@ -623,20 +629,16 @@ index d566140..99a7aad 100644
  {
      scr_printf("\n\n\n\n");
 -    scr_printf("Welcome to ps2link %s\n", APP_VERSION);
-+    /* TyraX: the r-number is how you tell a flashed build apart. Bump it
-+     * whenever tyrax.patch changes behaviour, and say so in
-+     * docs/ps2link-setup.md - r1 was USB HID only, r2 added the host:/reset
-+     * hardening, r3 silences the SPU2 on reset, r4 lets commands preempt the
-+     * host: file server and quiesces the EE peripherals before restarting, r5
-+     * takes stdio out of every error path in cmdHandler.c, r6 stops rebooting
-+     * the IOP twice per Stop - which is what made a Stop wedge the console. */
++    /* TyraX: the r-number is how you tell a flashed build apart. It comes
++     * from TYRAX_REV in ee/Makefile - bump it there, nowhere else;
++     * docs/ps2link-setup.md says what each revision changed. */
 +#ifdef TYRAX_USB_HID
-+    scr_printf("Welcome to TyraX ps2link r8 (USB keyboard + mouse)\n");
++    scr_printf("Welcome to TyraX ps2link " TYRAX_PS2LINK_REV " (USB keyboard + mouse)\n");
 +#else
 +    /* TyraX: the banner has to say which of the two this is - they differ in
 +     * what stays resident on the IOP and in how far the image reaches, and the
 +     * second is the whole reason this variant exists. */
-+    scr_printf("Welcome to TyraX ps2link r8 (no USB)\n");
++    scr_printf("Welcome to TyraX ps2link " TYRAX_PS2LINK_REV " (no USB)\n");
 +#endif
 +    scr_printf("based on ps2link %s\n", APP_VERSION);
      scr_printf("ps2link loaded at 0x%08X-0x%08X, size: 0x%08X\n", (unsigned int)&__start, (unsigned int)&_end, (unsigned int)&_end - (unsigned int)&__start);
@@ -665,7 +667,7 @@ index d566140..99a7aad 100644
     SifInitRpc(0);
     sbv_patch_enable_lmb();
     sbv_patch_disable_prefix_check();
-@@ -211,22 +253,40 @@ void _libcglue_rtc_update() {}
+@@ -211,22 +249,40 @@ void _libcglue_rtc_update() {}
  
  DISABLE_PATCHED_FUNCTIONS(); // Disable the patched functionalities
  DISABLE_EXTRA_TIMERS_FUNCTIONS(); // Disable the extra functionalities for timers
