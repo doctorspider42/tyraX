@@ -10,6 +10,10 @@ history.
 - Tree Generator adds Forest oak and Hero oak presets with Blender-baked broadleaf sprays for fuller, muted foliage. Existing tree recipes keep their original appearance.
 - deep-forest uses three fuller broadleaf oak variants and a textured Blender fieldstone (56 triangles near / 12 far). Includes editable assets and a reproducible physical-PS2 density/LOD benchmark; 7,000 trees and rocks hold 50 FPS on the sampled hardware route with oak LOD at 25 units and finer spatial culling.
 
+### Real PS2
+
+- PS2Link r8 fixes a startup hang observed on an SCPH-70004 booted through FreeDVDBoot/uLaunchELF by configuring the sound hardware's bus mapping and timing before muting leftover audio.
+
 ## 2.0.0 - Unreleased
 
 ### Examples

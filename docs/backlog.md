@@ -4,6 +4,12 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Check PS2Link r8 on another console
+
+Startup, game audio, Stop and redeployment passed on an SCPH-70004 booted
+through FreeDVDBoot/uLaunchELF, with no leftover audio. Repeat those checks on
+a console that already worked with r7 to cover regressions on another model.
+
 ## TyraX2 performance investigation (closed 2026-10-22)
 
 The long investigation into why Vehicle Playground and Motor District miss
