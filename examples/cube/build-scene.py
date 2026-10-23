@@ -3,13 +3,14 @@
 
 Four room prefabs (identical geometry, different colours, one of them with a
 turning block inside) and one runtime Procedural volume that stamps them onto a
-3 x 3 x 3 grid. Kept as a script because 24 wall slabs times four variants is
+3 x 3 x 3 grid. Kept as a script because 20 wall slabs times four variants is
 not something anyone should read as JSON - this file IS the readable form.
 
 Re-run it after `tyrax-editor --new` to rebuild the example from scratch.
 """
 import json
 import os
+import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TYRA = os.path.join(HERE, "cube.tyra")
@@ -22,7 +23,7 @@ LEVELS = 3         # rooms per axis
 
 # --- one room ---------------------------------------------------------------
 # A hollow cube with a hatch through the middle of all six faces. Each face is
-# four slabs around the hole; that is 24 boxes, and because every one of them is
+# four slabs around a horizontal hole, three around each door: 20 boxes. Each is
 # plain static geometry they merge into a SINGLE draw call per room-coloured
 # chunk (see docs/prefabs.md).
 H = ROOM / 2.0
@@ -56,6 +57,8 @@ def face(axis, sign, color, tag, door=False):
     out = []
     a, b = [i for i in range(3) if i != axis]
     if door:
+        # Door height must always be Y, also on the X-facing walls.
+        a, b = (2, 1) if axis == 0 else (0, 1)
         parts = [(-SIDE, 0.0, Q, ROOM),            # left of the doorway
                  (SIDE, 0.0, Q, ROOM),             # right of it
                  (0.0, (DOOR + ROOM) / 2.0 - H, HOLE, ROOM - DOOR)]  # lintel
@@ -94,6 +97,14 @@ def room_prefab(pid, name, color, accent=None):
     objs += face(0, 1, color, name + "-px", door=True)
     objs += face(2, -1, color, name + "-wz", door=True)
     objs += face(2, 1, color, name + "-pz", door=True)
+    objs.append({
+        "name": name + "-detail", "type": "model",
+        "model": "res/models/cube-room.obj",
+        "position": [0, 0, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1],
+        "color": [round(min(1, c * 1.4 + .12), 3) for c in color],
+        "physics": False, "collision": "none",
+        "castShadow": False,
+    })
     if accent:
         # The one member that is NOT merged: it carries a flow graph, so it
         # needs an identity of its own and takes a clone-pool slot. That split
@@ -111,8 +122,8 @@ def room_prefab(pid, name, color, accent=None):
         }
         objs.append(spin)
     return {"id": pid, "name": name,
-            "notes": "One room of the cube: 20 merged slabs, a doorway through "
-                     "every wall and a hatch through the floor and ceiling.",
+            "notes": "Blender industrial room: 20 collision slabs and one merged "
+                     "detail mesh; four doorways and two open hatches.",
             "objects": objs}
 
 
@@ -153,7 +164,9 @@ volume = {
              "rows": [{"s": p["name"], "v": [w, 1, 1, 0]}
                       for p, w in zip(PREFABS, (34, 26, 26, 14))]},
             {"id": 3, "type": "Output", "pos": [760, 200],
-             "nums": {"cell": 128.0, "draw": 0.0, "shadow": 0, "collide": 0,
+             # Shell and detail occupy separate material chunks with different
+             # centres. Distance-culling those independently opens the walls.
+             "nums": {"cell": 14.0, "draw": 0.0, "shadow": 0, "collide": 0,
                       "detail": 0, "budget": 40000, "maxinst": 256}},
         ],
         "links": [
@@ -205,6 +218,36 @@ def write_object(obj):
 
 
 def main():
+    if "--rooms-only" in sys.argv:
+        # Replace only the four authored rooms; preserve editor settings,
+        # seeds, player and unrelated prefabs. Keep the compact manifest style.
+        text = open(TYRA, encoding="utf-8").read()
+        manifest = json.loads(text)
+        rooms = {p["name"]: p for p in PREFABS}
+        prefabs = [rooms.get(p["name"], p) for p in manifest["prefabs"]]
+        lines = []
+        for p in prefabs:
+            head = {k: v for k, v in p.items() if k != "objects"}
+            lines.append("    " + json.dumps(head)[:-1] + ', "objects": [\n' +
+                         ",\n".join("      " + json.dumps(o) for o in p["objects"]) +
+                         "\n    ] }")
+        start = text.index('  "prefabs": [')
+        _, end = json.JSONDecoder().raw_decode(text[start + len('  "prefabs": '):])
+        end += start + len('  "prefabs": ')
+        text = text[:start] + '  "prefabs": [\n' + ",\n".join(lines) + '\n  ]' + text[end:]
+        text = text.replace('"ambient": 0.4, "diffuse": 0.6',
+                            '"ambient": 0.7, "diffuse": 0.3')
+        with open(TYRA, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        vpath = os.path.join(HERE, "objects", volume["id"] + ".json")
+        text = open(vpath, encoding="utf-8").read()
+        text = text.replace('"budget": 100000', '"budget": 40000')
+        text = text.replace('"cell": 128', '"cell": 14')
+        text = text.replace('"draw": 35', '"draw": 0')
+        with open(vpath, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        print("room prefabs updated; other scene settings preserved")
+        return
     write_object(volume)
     write_object(regen)
     # The manifest is edited as JSON rather than by text substitution: the
@@ -224,8 +267,8 @@ def main():
     amb["skyColor"] = [0.02, 0.02, 0.03]
     amb["skyTopColor"] = [0.0, 0.0, 0.01]
     amb["skyDome"] = False
-    amb["ambient"] = 0.40
-    amb["diffuse"] = 0.60
+    amb["ambient"] = 0.70
+    amb["diffuse"] = 0.30
     with open(TYRA, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2)
         f.write("\n")

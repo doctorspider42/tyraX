@@ -7,6 +7,11 @@ history.
 
 ## 2.0.0 - Unreleased
 
+### Examples
+
+- Fixed distant holes in the cube example: procedural room shells and decorations no longer disappear independently at a short draw-distance cutoff.
+- The cube map now has Blender-authored industrial room details: bevelled panels, hatch frames, vents, deck grips and safety markings. Editable Blender sources and a shared texture atlas are included; the PS2 detail mesh uses 1,048 triangles per room. All four doorways now have the same upright opening.
+
 ### TyraX2 and mainline integration
 
 - The redesigned editor and the TyraX2 frame pipeline now ship together, including ordered frame submission, reflection and shadow improvements, and the accompanying qualification tools. **TyraX2 is the default renderer** for every project, 1.x projects included; the old synchronous renderer stays as *Preferences > Picture > Advanced > Renderer: Legacy*.

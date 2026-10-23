@@ -566,7 +566,7 @@ wait for their polish pass.
 | [ambient-occlusion](examples/ambient-occlusion) | A village on sculpted ground: contact shadows, a ravine that darkens and a bare bank that does not |
 | [baked-shadows](examples/baked-shadows) | A late-afternoon yard where ten casters throw long shadows for ONE draw call — onto a textured brick wall, which is the one thing a lightmap cannot do |
 | [blocks-terrain](examples/blocks-terrain) | A cube world the EE invents at boot. Press TRIANGLE for a new one. Still 50 FPS |
-| [cube](examples/cube) | A 3×3×3 lattice of rooms — prefabs times runtime generation, in ~4 draw calls |
+| [cube](examples/cube) | A 3×3×3 lattice of Blender-authored industrial rooms — tinted prefabs, shared atlas and runtime reshuffling |
 | [world-facts](examples/world-facts) | Every fact type and all four persistence tiers, exercised across a two-scene level |
 | [save-points](examples/save-points) | Both halves of saving: in-RAM checkpoints, and a 3-slot memory-card shrine with a 3D icon |
 | [hud-animation](examples/hud-animation) | Health, stamina and segmented progress bars, plus looped motion, transitions and one-shot HUD effects |
