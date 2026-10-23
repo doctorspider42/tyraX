@@ -155,7 +155,11 @@ Logic pages. Undocked or in a layout of its own it shows everything at once.
 **Not running** shows as a checklist instead of a blank page — *Debug build
 profile*, *Live Debugger on*, *Built with symbols*, *Game reporting*, each
 ticked or with its fix next to it (*Switch to debug*, the Live Debugger switch)
-— and **Build & Run (F5)** as the one primary action.
+— and **Build & Run** as the one primary action. It is the top bar's Run: it
+launches on the target the *PCSX2 | PS2* switch picked (*Build & Run on PS2
+(F6)* with PS2 selected, disabled until the project has a ps2link IP), so
+turning the Live Debugger on from here no longer drops a console session
+into the emulator.
 
 **Halted** shows a *Stopped at* card: the node, its object and scene, what the
 node did when the game says so (a *Set Fact* reads `world.generator.partA ←

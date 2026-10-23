@@ -4096,7 +4096,9 @@ private:
     std::string dbgNodeLabel(const livedbg::NodeSym& n) const;
     void dbgRevealNode(const livedbg::NodeSym& n);
     void dbgSetTransport(int what);  // 0 pause/continue, 1 step frame, 2 step node
-    void dbgBuildAndRun();
+    void dbgBuildAndRun();  // the top bar's Run: follows the PCSX2 | PS2 switch
+    bool dbgRunReady() const;
+    const char* dbgRunLabel() const;
     void dbgDrawHeader();
     void dbgDrawRail(bool compact, bool horizontal = false);
     void dbgDrawChecklist();

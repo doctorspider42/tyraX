@@ -11,6 +11,7 @@ history.
 - Each window layout remembers which side panels it has hidden, so the Procedural layout can keep the Project panel out of the way while Default keeps both. New projects get Procedural with the Project panel hidden. In existing projects, *Layout > Reset to built-in arrangement* applies the new default. Projects are saved as format 119.
 - The workspace switcher on the top bar ends in a **...** button that lists the other layouts (Material Designer, Procedural and your own) and *New layout...*.
 - Text in the Output and Debug panels selects directly with the mouse, colours and all: drag, Shift+click, double-click for a line, Ctrl+A, then Ctrl+C or right-click *Copy*. The *Select text* switch is gone.
+- The Debugger's **Build & Run** follows the PCSX2 | PS2 switch like the top bar's Run. With PS2 selected it used to launch PCSX2 anyway.
 - **Copy image** in *Debugger > Screen* now pastes into Claude and other Electron apps on Windows; it used to fail there unless the PNG was copied from Explorer.
 - The built-in layouts can no longer be deleted. They can still be renamed or reset. A project that lost one in an earlier version gets it back on open.
 

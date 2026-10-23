@@ -1657,11 +1657,17 @@ void App::dbgSetTransport(int what) {
 }
 
 void App::dbgBuildAndRun() {
-    // F5's own path: build, launch PCSX2, bring this panel forward.
-    if (runner_.busy()) return;
-    openDebuggerForLaunch();
-    runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
+    // The top bar's Run: build and launch on the target the PCSX2 | PS2 switch
+    // picked (it used to always launch PCSX2, even with PS2 selected), and
+    // bring this panel forward.
+    if (runner_.busy() || !dbgRunReady()) return;
+    runSelectedTarget(true);
 }
+
+// The PS2 target needs a console address; PCSX2 is always there.
+bool App::dbgRunReady() const { return !runOnPs2_ || !project_.ps2LinkIp.empty(); }
+
+const char* App::dbgRunLabel() const { return runOnPs2_ ? "Build & Run on PS2 (F6)" : "Build & Run (F5)"; }
 
 // The header: where the game is, and the transport.
 void App::dbgDrawHeader() {
@@ -2017,8 +2023,12 @@ void App::dbgDrawChecklist() {
         ImGui::SetTooltip("%s", dbgSilenceDetail());
     ImGui::Spacing();
     const bool busy = runner_.busy();
-    if (ui::PrimaryButton(busy ? "Building...##dbgrun" : "Build & Run (F5)", -1.0f, !busy && debug))
+    char runLabel[64];
+    snprintf(runLabel, sizeof(runLabel), "%s##dbgrun", busy ? "Building..." : dbgRunLabel());
+    if (ui::PrimaryButton(runLabel, -1.0f, !busy && debug && dbgRunReady()))
         dbgBuildAndRun();
+    if (!dbgRunReady() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("PS2 is the selected target: set 'PS2 (ps2link) IP' in Edit > Preferences first.");
 }
 
 // Halted: where, which breakpoint, what the node did, what ran this frame.
@@ -4450,7 +4460,8 @@ void App::drawRemotePadWindow() {
                                         : "Nothing is reporting - Build & Run (F5) a debug build.");
         if (kind == 4 && !runner_.busy()) {
             ImGui::SameLine();
-            if (ui::GhostButton("Run (F5)")) dbgBuildAndRun();
+            if (ui::GhostButton(runOnPs2_ ? "Run on PS2 (F6)###padrun" : "Run (F5)###padrun") && dbgRunReady())
+                dbgBuildAndRun();
         }
         // Pad 1 / Pad 2, each with its port colour (the P1/P2 badge on the pad).
         const float segW = scaled(150);

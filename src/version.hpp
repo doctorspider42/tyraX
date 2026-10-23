@@ -5,6 +5,7 @@
 // lists the other layouts; built-in layouts cannot be deleted and are restored on load.
 // Output/Debug text selects with the mouse over the coloured lines (no Select text switch);
 // Copy image publishes PNG + CF_DIB on Windows so Electron apps accept the paste.
+// The Debugger's Build & Run follows the PCSX2 | PS2 switch (it always launched PCSX2).
 // 2.1.2: object settings live in Output; clarify instanced detail.
 // 2.1.1: dense procedural previews use authored LOD and visibility culling.
 
