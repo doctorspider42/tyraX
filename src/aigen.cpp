@@ -74,6 +74,7 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::AmbienceName:
             return "ambience preset name (see context)";
         case FlowParamKind::LayerName: return "streaming layer name (see context)";
+        case FlowParamKind::SoundBankName: return "sound bank name (see context)";
         case FlowParamKind::AreaName:
             return "Area object name (an invisible volume; see context)";
         case FlowParamKind::SequenceName: return "sequence name (see context)";
@@ -401,6 +402,8 @@ std::string systemPrompt(const Project& p, int ownerIndex,
     }
     ctxLine("Music tracks", nameList(p.music, id));
     ctxLine("Sound effects", nameList(p.sounds, id));
+    ctxLine("Sound banks",
+            nameList(p.soundBanks, [](const Project::SoundBank& b) { return b.name; }));
     ctxLine("Save values",
             nameList(p.saveValues, [](const SaveValue& v) { return v.name; }));
     ctxLine("Save texts",

@@ -2,9 +2,13 @@
 
 TyraX tracks two independent versions (both defined in `src/version.hpp`):
 
+Format v96 adds [dynamic light receiver tokens](dynamic-light-receivers.md)
+and an independent scene override. Missing/invalid values use full reception;
+this additive change needs no destructive migration or automatic resave.
+
 | | What | Where | Who reads it |
 |---|---|---|---|
-| **Editor version** | semver `MAJOR.MINOR.PATCH` | title bar, `"editorVersion"` in the `.tyra` manifest | humans (diagnostics: *which editor wrote this file*) |
+| **Editor version** | semver `MAJOR.MINOR.PATCH` | window title (Mission Control / taskbar when the title bar is merged), *Help* menu, `"editorVersion"` in the `.tyra` manifest | humans (diagnostics: *which editor wrote this file*) |
 | **Format version** | monotonic int `version::kFormatVersion` | `"formatVersion"` in the `.tyra` manifest | the editor (open gate + migrations) |
 
 They are deliberately separate: the editor version moves with every release
@@ -23,6 +27,15 @@ reason the per-version history is not (below) — a number copied into prose is 
 number that goes stale. The refusal messages quote the live values.
 
 ## What happens when you open a project
+
+TyraX 2.0 writes format **114**, combining TyraX2 settings through v113,
+Outliner visibility and the project/scene collision broad phase. These are
+additive fields and need no destructive migration. Earlier development branches
+reused v95 for different features, so an absent `settings.framePipeline` now
+means false regardless of the stamp. Explicit true/false always wins. New
+projects enable the pipeline and current writers always emit its boolean;
+existing main/interface projects do not silently opt in when opened.
+Format-less settings wire blobs likewise retain false when the request is absent.
 
 - **Same version** — opens normally.
 - **Newer than the editor** (`formatVersion` > `kFormatVersion`) — refused,
@@ -117,8 +130,7 @@ than a resave would drop whatever it skipped.
    `src/version.hpp` is the record, and the reverb, sound-priority, World
    Facts and BLSS entries all carry that note. **Grep the docs for the old
    numbers in the same commit**: the meaning is quoted in prose
-   (`docs/neural-upscaler.md`, `docs/blss-reconstruction.md`,
-   `docs/backlog.md`, the skills) as often as it is in the header, and a
+   (`docs/upscaler.md`, `docs/backlog.md`, the skills) as often as it is in the header, and a
    renumber that stops at `version.hpp` leaves every one of them lying.
    No migration step is needed for a renumber itself when both sides were
    additive: nothing on disk changes shape, only the label the file claims.
@@ -328,3 +340,7 @@ Format 83 makes vehicle inheritance automatic and tracks each field separately.
 local semantics while reading; resolution marks non-default values as overrides
 and expands old group overrides. This preserves resolved tuning, so no
 value-changing migration step is required. Section resets clear only their keys.
+
+Format 96 integrates the additive v95 fields from main (collision broad phase)
+and the interface branch (Outliner visibility). Both branch formats remain
+readable without a migration; saving writes the combined format.

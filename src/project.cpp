@@ -185,7 +185,7 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     const int bufferWords = bufferSizeWords(w, h, halfDepth);
 
     // THE UPSCALER IS A PER-SCENE SETTING, so `s.blssEnabled` is the project
-    // DEFAULT and almost never the question (docs/neural-upscaler.md, "Per
+    // DEFAULT and almost never the question (docs/upscaler.md, "Per
     // scene") - blssUse is. `s` is the staged settings the Preferences modal
     // has not committed yet, which is exactly what the two-argument overload
     // exists for.
@@ -199,7 +199,7 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // via configure()'s eighth argument), so it gets none of that back; this
     // used to read the project default alone and promised a third buffer such
     // a project cannot have.
-    const bool zShrinks = u.any && !u.mixed;
+    const bool zShrinks = u.any && !u.mixed && !s.blssAdaptive && !u.particles;
     const int zWords = bufferSizeWords(zShrinks ? w / sx : w,
                                      zShrinks ? h / sy : h, halfDepth);
 
@@ -212,6 +212,8 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     if (u.any) {
         const int lowBufW = -64 & ((w / sx) + 63);  // 64-aligned, as BLSS sizes it
         lowWords = bufferSizeWords(lowBufW, h / sy, halfDepth);
+        // Particles only: a low-res z of the same page geometry beside it.
+        if (u.particles) lowWords *= 2;
     }
 
     // The flashlight shadow volumes' COUNT target (docs/flashlight.md "The
@@ -553,7 +555,10 @@ std::string procGraphJson(const ProcGraph& g) {
                 json += std::string(r ? ", " : "") + "{ \"s\": \"" +
                         jsonEscape(row.s) + "\", \"v\": [" + fmtFloat(row.v[0]) +
                         ", " + fmtFloat(row.v[1]) + ", " + fmtFloat(row.v[2]) +
-                        ", " + fmtFloat(row.v[3]) + "] }";
+                        ", " + fmtFloat(row.v[3]) + "]" +
+                        (row.lod.empty() ? std::string()
+                                         : ", \"lod\": \"" + jsonEscape(row.lod) + "\"") +
+                        " }";
             }
             json += "]";
         }
@@ -622,6 +627,7 @@ static void readProcGraph(const json::Value& jg, ProcGraph& g) {
                 for (const auto& jr : v->arr) {
                     ProcRow row;
                     if (const auto* s = jr.find("s")) row.s = s->stringOr("");
+                    if (const auto* s = jr.find("lod")) row.lod = s->stringOr("");
                     if (const auto* a = jr.find("v");
                         a && a->type == json::Value::Type::Array)
                         for (size_t i = 0; i < 4 && i < a->arr.size(); ++i)
@@ -1110,6 +1116,7 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
     if (!o.editorGroup.empty())
         json += ", \"editorGroup\": \"" + jsonEscape(o.editorGroup) + "\"";
+    if (o.editorHidden) json += ", \"editorHidden\": true";
     if (!o.prefabSource.empty())
         json += ", \"prefabSource\": \"" + jsonEscape(o.prefabSource) + "\"";
     // The mesh's numbers for the project's own VU1 program. Omitted at the
@@ -1293,17 +1300,18 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"width\": " << fmtFloat(s.highlightWidth) << ", \"steps\": " << s.highlightSteps
       << ", \"opacity\": " << fmtFloat(s.highlightOpacity)
       << ", \"overlay\": " << (s.highlightOverlay ? "true" : "false")
-      << " }";
-    // The neural upscaler's two per-scene values, and the override flag below,
-    // are written ONLY when the scene actually overrides - unlike every
+      << " }, \"dynamicLightReceivers\": \""
+      << (s.dynamicLightReceivers == DynamicLightReceivers::Players ? "players" : "all")
+      << "\"";
+    // The upscaler's per-scene value, and the override flag below, are
+    // written ONLY when the scene actually overrides - unlike every
     // category above, which is emitted whether it is active or not. That is
     // deliberate and it is the property the feature is built on: a project
     // whose scenes all inherit produces the bytes it produced before per-scene
     // BLSS existed, so `--resave` on any existing project is a no-op and there
     // is nothing for a migration step to do (the shot plan set the precedent).
     if (sc.overrides.upscaler)
-        j << ", \"blss\": { \"enabled\": " << (s.blssEnabled ? "true" : "false")
-          << ", \"network\": " << (s.blssNetwork ? "true" : "false") << " }";
+        j << ", \"blss\": { \"enabled\": " << (s.blssEnabled ? "true" : "false") << " }";
     // The broad phase, the same way: only a scene that overrides it writes it.
     if (sc.overrides.broadPhase)
         j << ", \"broadPhase\": \"" << s.broadPhase << "\"";
@@ -1317,6 +1325,7 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"highlight\": " << (o.highlight ? "true" : "false");
     if (o.upscaler) j << ", \"upscaler\": true";
     if (o.broadPhase) j << ", \"broadPhase\": true";
+    if (o.dynamicLightReceivers) j << ", \"dynamicLightReceivers\": true";
     j << " }";
     if (!sc.ambiencePreset.empty())
         j << ", \"ambiencePreset\": \"" << jsonEscape(sc.ambiencePreset) << "\"";
@@ -1329,9 +1338,15 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
 // them this scene actually overrides (the rest inherit the project's).
 static void readSceneVisuals(const json::Value& js, SceneData& sc) {
     ProjectSettings& s = sc.settings;
+    s.dynamicLightReceivers = DynamicLightReceivers::All;
+    sc.overrides.dynamicLightReceivers = false;
     auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
     if (const auto* ov = js.find("overrides")) {
         if (const auto* st = js.find("settings")) {
+            if (const auto* v = st->find("dynamicLightReceivers"))
+                s.dynamicLightReceivers = v->stringOr("") == "players"
+                                              ? DynamicLightReceivers::Players
+                                              : DynamicLightReceivers::All;
             if (const auto* li = st->find("lighting")) {
                 readVec3(li->find("dir"), s.lightDir);
                 if (const auto* v = li->find("ambient")) s.ambient = (float)v->numberOr(0.55);
@@ -1405,7 +1420,7 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             // - they are only read at all when "upscaler" is set below.
             if (const auto* bl = st->find("blss")) {
                 if (const auto* v = bl->find("enabled")) s.blssEnabled = v->boolOr(false);
-                if (const auto* v = bl->find("network")) s.blssNetwork = v->boolOr(true);
+                // "network" (the retired neural reconstruction) is ignored.
             }
             if (const auto* v = st->find("broadPhase"))
                 s.broadPhase = v->stringOr("grid") == "octree" ? "octree" : "grid";
@@ -1423,6 +1438,9 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             ov->find("upscaler") ? ov->find("upscaler")->boolOr(false) : false;
         sc.overrides.broadPhase =
             ov->find("broadPhase") ? ov->find("broadPhase")->boolOr(false) : false;
+        sc.overrides.dynamicLightReceivers =
+            ov->find("dynamicLightReceivers")
+                ? ov->find("dynamicLightReceivers")->boolOr(false) : false;
     }
     if (const auto* v = js.find("ambiencePreset")) sc.ambiencePreset = v->stringOr("");
     if (const auto* v = js.find("loadingScreen")) sc.loadingScreen = v->stringOr("");
@@ -1517,6 +1535,8 @@ float settingsSprintSpeed(const ProjectSettings& st) {
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     ProjectSettings r = p.settings;
     const ProjectSettings& o = s.settings;
+    if (s.overrides.dynamicLightReceivers)
+        r.dynamicLightReceivers = o.dynamicLightReceivers;
     if (s.overrides.lighting) {
         for (int i = 0; i < 3; ++i) r.lightDir[i] = o.lightDir[i], r.lightColor[i] = o.lightColor[i];
         r.ambient = o.ambient, r.diffuse = o.diffuse, r.brightness = o.brightness;
@@ -1557,14 +1577,10 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.highlightOpacity = o.highlightOpacity;
         r.highlightOverlay = o.highlightOverlay;
     }
-    // The neural upscaler, per scene: a scene with a portal can refuse it while
-    // the scene next door keeps it (docs/neural-upscaler.md, "Per scene"). Only
-    // these two - the scale, the jitter, the sharpen/temporal tuning and the
-    // debug view stay project-wide; SceneOverrides::upscaler says why.
-    if (s.overrides.upscaler) {
-        r.blssEnabled = o.blssEnabled;
-        r.blssNetwork = o.blssNetwork;
-    }
+    // The upscaler, per scene: a scene with a portal can refuse it while the
+    // scene next door keeps it. Only blssEnabled - the scale stays
+    // project-wide; SceneOverrides::upscaler says why.
+    if (s.overrides.upscaler) r.blssEnabled = o.blssEnabled;
     if (s.overrides.broadPhase) r.broadPhase = o.broadPhase;
     // Ambience preset overlay: a resolved preset owns sky + lighting + fog and
     // wins over the raw project/scene values above (those remain the fallback
@@ -1623,29 +1639,42 @@ BlssUse blssUse(const Project& p) { return blssUse(p, p.settings); }
 BlssUse blssUse(const Project& p, const ProjectSettings& defaults) {
     BlssUse u;
     bool first = true;
-    bool e0 = false, n0 = false;
+    bool e0 = false;
     for (const SceneData& sc : p.scenes) {
-        // resolvedSettings() reaches these two fields through exactly this
-        // branch and nothing else touches them on the way out (the ambience
-        // overlay owns sky/light/fog and no more), so resolving them here
-        // against the supplied defaults IS what that function would do - and it
-        // is the only way to answer for settings a modal has not committed yet.
+        // resolvedSettings() reaches this field through exactly this branch
+        // and nothing else touches it on the way out, so resolving it here
+        // against the supplied defaults IS what that function would do - and
+        // it is the only way to answer for settings a modal has not committed.
         const bool en =
             sc.overrides.upscaler ? sc.settings.blssEnabled : defaults.blssEnabled;
-        const bool nw =
-            sc.overrides.upscaler ? sc.settings.blssNetwork : defaults.blssNetwork;
         u.any |= en;
         u.anyNative |= !en;
-        u.anyNetwork |= (en && nw);
         if (first) {
-            e0 = en, n0 = nw, first = false;
-        } else if (en != e0 || (en && nw != n0)) {
+            e0 = en, first = false;
+        } else if (en != e0) {
             u.mixed = true;
         }
     }
     // A project with no scenes at all (never on disk, but the model allows it)
     // resolves to "nothing uses it", which is what every consumer wants.
     if (!u.any) u.mixed = false;
+    // A Set Upscaler node anywhere: any scene may go reduced or native while
+    // it runs, so the build reserves both rasters exactly as for a project
+    // whose scenes disagree (z at the full raster, the low-res target, the
+    // per-scene table and setScene() at every load).
+    bool runtime = false;
+    auto scan = [&](const std::vector<SceneObject>& objs) {
+        for (const SceneObject& o : objs)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "SetUpscaler") runtime = true;
+    };
+    for (const SceneData& sc : p.scenes) scan(sc.objects);
+    for (const Prefab& pf : p.prefabs) scan(pf.objects);
+    if (runtime && !p.scenes.empty()) {
+        u.runtime = true;
+        u.any = u.anyNative = u.mixed = true;
+    }
+    u.particles = u.any && defaults.blssParticles;
     return u;
 }
 
@@ -1660,6 +1689,8 @@ int ambienceIndexFor(const Project& p, const SceneData& s) {
 }
 
 int loadingScreenIndexFor(const Project& p, const SceneData& s) {
+    if (s.loadingScreen == kLoadingBuiltIn) return -2;
+    if (s.loadingScreen == kLoadingNone) return -3;
     if (!s.loadingScreen.empty()) {
         for (int i = 0; i < (int)p.loadingScreens.size(); ++i)
             if (p.loadingScreens[i].name == s.loadingScreen) return i;
@@ -1770,6 +1801,11 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  : "")
          << (p.settings.dither ? "" : "    \"dither\": false,\n")
          << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
+         << "    \"framePipeline\": "
+         << (p.settings.framePipeline ? "true" : "false") << ",\n"
+         << "    \"dynamicLightReceivers\": \""
+         << (p.settings.dynamicLightReceivers == DynamicLightReceivers::Players
+                 ? "players" : "all") << "\",\n"
          << (p.settings.frameExtrapolation ? "    \"frameExtrapolation\": true,\n" : "")
          << (p.settings.frameExtrapolationPlane != 0.0f
                  ? "    \"frameExtrapolationPlane\": " +
@@ -1866,6 +1902,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.reflectionGroundProxy
                  ? "    \"reflectionGroundProxy\": true,\n"
                  : "")
+         << (p.settings.reflectionPanorama
+                 ? "    \"reflectionPanorama\": true,\n"
+                 : "")
          << (p.settings.reflectionScenery ? "    \"reflectionScenery\": true,\n"
                                           : "")
          << (p.settings.flashShadowVolumes
@@ -1877,6 +1916,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  : "")
          << (p.settings.spotShadowVolumes
                  ? "    \"spotShadowVolumes\": true,\n"
+                 : "")
+         << (p.settings.bakeStaticLamps
+                 ? "    \"bakeStaticLamps\": true,\n"
                  : "")
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
@@ -1977,6 +2019,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.bakedShadowAutoBake
                  ? "    \"bakedShadowAutoBake\": true,\n"
                  : "")
+         << (p.settings.bakedShadowGroundFold
+                 ? std::string("    \"bakedShadowGroundFold\": true,\n")
+                 : std::string())
          << (p.settings.bakedShadowGround != 0
                  ? "    \"bakedShadowGround\": " +
                        std::to_string(p.settings.bakedShadowGround) + ",\n"
@@ -2004,22 +2049,15 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  ? "    \"projShadowDistance\": " +
                        fmtFloat(p.settings.projShadowDistance) + ",\n"
                  : "")
-         // The neural upscaler (docs/neural-upscaler.md). Existing fields stay
+         // The reduced-raster upscaler (BLSS). Existing fields stay
          // project-wide and always emitted like the fog/highlight groups next
          // to them; the later adaptive opt-in writes nothing at its false
          // default so an untouched manifest keeps its established shape.
          << "    \"blssEnabled\": " << (p.settings.blssEnabled ? "true" : "false")
          << ",\n"
          << "    \"blssScale\": " << p.settings.blssScale << ",\n"
-         << "    \"blssNetwork\": "
-         << (p.settings.blssNetwork ? "true" : "false") << ",\n"
          << (p.settings.blssAdaptive ? "    \"blssAdaptive\": true,\n" : "")
-         << "    \"blssSharpen\": " << fmtFloat(p.settings.blssSharpen) << ",\n"
-         << "    \"blssTemporal\": "
-         << (p.settings.blssTemporal ? "true" : "false") << ",\n"
-         << "    \"blssJitter\": "
-         << (p.settings.blssJitter ? "true" : "false") << ",\n"
-         << "    \"blssDebugView\": " << p.settings.blssDebugView << ",\n"
+         << (p.settings.blssParticles ? "    \"blssParticles\": true,\n" : "")
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
          << "    \"fogColor\": " << fmtVec3(p.settings.fogColor) << ",\n"
@@ -2037,6 +2075,7 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"highlightOverlay\": "
          << (p.settings.highlightOverlay ? "true" : "false") << ",\n"
          << "    \"loadingScreen\": " << (p.settings.loadingScreen ? "true" : "false")
+         << (p.settings.showEngineLogo ? "" : ",\n    \"showEngineLogo\": false")
          << "\n"
          << "  }";
 }
@@ -2296,6 +2335,32 @@ static void writeAudioSection(std::ostream& json, const Project& p) {
     for (size_t i = 0; i < p.sounds.size(); ++i)
         json << (i ? ", " : "") << "\"" << jsonEscape(p.sounds[i]) << "\"";
     json << "]";
+    {
+        bool first = true;
+        for (const std::string& s : p.soundsAlwaysLoaded) {
+            if (std::find(p.sounds.begin(), p.sounds.end(), s) == p.sounds.end()) continue;
+            json << (first ? ",\n  \"soundsAlwaysLoaded\": [" : ", ") << "\"" << jsonEscape(s)
+                 << "\"";
+            first = false;
+        }
+        if (!first) json << "]";
+    }
+    if (!p.soundBanks.empty()) {
+        json << ",\n  \"soundBanks\": [";
+        for (size_t b = 0; b < p.soundBanks.size(); ++b) {
+            const Project::SoundBank& bank = p.soundBanks[b];
+            json << (b ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(bank.name)
+                 << "\", \"sounds\": [";
+            bool first = true;
+            for (const std::string& s : bank.sounds) {
+                if (std::find(p.sounds.begin(), p.sounds.end(), s) == p.sounds.end()) continue;
+                json << (first ? "" : ", ") << "\"" << jsonEscape(s) << "\"";
+                first = false;
+            }
+            json << "] }";
+        }
+        json << "\n  ]";
+    }
 }
 
 // Empty (no keys) when there are no overrides - the composers skip it then,
@@ -2564,7 +2629,42 @@ static void writeLoadingScreensSection(std::ostream& json, const Project& p) {
                  << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
                  << ", \"shadow\": " << (t.shadow ? "true" : "false") << " }";
         }
-        json << (ls.texts.empty() ? "]" : "\n      ]") << ",\n      \"bars\": [";
+        json << (ls.texts.empty() ? "]" : "\n      ]");
+        // Animations and the press-to-continue block: written only when used
+        // (v115), so a screen without them keeps its old bytes.
+        if (!ls.anims.empty()) {
+            json << ",\n      \"anims\": [";
+            for (size_t k = 0; k < ls.anims.size(); ++k) {
+                const LoadingAnim& a = ls.anims[k];
+                json << (k ? ",\n        " : "\n        ") << "{ \"name\": \""
+                     << jsonEscape(a.name) << "\", \"pos\": [" << fmtFloat(a.pos[0]) << ", "
+                     << fmtFloat(a.pos[1]) << "], \"size\": [" << fmtFloat(a.size[0]) << ", "
+                     << fmtFloat(a.size[1]) << "], \"mode\": " << a.mode
+                     << ", \"fps\": " << fmtFloat(a.fps) << ", \"playback\": " << a.playback
+                     << ", \"lastAtFull\": " << (a.lastAtFull ? "true" : "false")
+                     << ", \"afterLoad\": " << a.afterLoad << ", \"frames\": [";
+                for (size_t f = 0; f < a.frames.size(); ++f) {
+                    const HudImage& h = a.frames[f];
+                    json << (f ? ", " : "") << "{ \"image\": \"" << h.imagePath
+                         << "\", \"texW\": " << h.texW << ", \"texH\": " << h.texH
+                         << ", \"texQuant\": \"" << h.texQuant << "\" }";
+                }
+                json << "] }";
+            }
+            json << "\n      ]";
+        }
+        if (ls.waitForButton) {
+            const HudText& t = ls.prompt;
+            json << ",\n      \"wait\": { \"button\": " << ls.waitButton
+                 << ", \"blink\": " << ls.promptBlink << ", \"period\": " << fmtFloat(ls.promptPeriod)
+                 << ", \"hideOthers\": " << (ls.promptHideOthers ? "true" : "false")
+                 << ", \"text\": \"" << jsonEscape(t.text) << "\", \"pos\": ["
+                 << fmtFloat(t.pos[0]) << ", " << fmtFloat(t.pos[1]) << "], \"size\": " << t.size
+                 << ", \"color\": " << fmtVec3(t.color)
+                 << (t.font.empty() ? "" : ", \"font\": \"" + jsonEscape(t.font) + "\"")
+                 << ", \"shadow\": " << (t.shadow ? "true" : "false") << " }";
+        }
+        json << ",\n      \"bars\": [";
         for (size_t k = 0; k < ls.bars.size(); ++k) {
             const LoadingBar& b = ls.bars[k];
             json << (k ? ",\n        " : "\n        ") << "{ \"name\": \""
@@ -2586,6 +2686,7 @@ static void writeLoadingScreensSection(std::ostream& json, const Project& p) {
     }
     json << (p.loadingScreens.empty() ? "]" : "\n  ]");
     json << ",\n  \"defaultLoadingScreen\": " << p.defaultLoadingScreen;
+    if (p.bootLoadingScreen >= 0) json << ",\n  \"bootLoadingScreen\": " << p.bootLoadingScreen;
 }
 
 static void writeSplashSection(std::ostream& json, const Project& p) {
@@ -2713,7 +2814,8 @@ static void writeSequencesSection(std::ostream& json, const Project& p) {
                      << ", \"scale\": " << fmtVec3(k.scale)
                      << ", \"color\": " << fmtVec3(k.color)
                      << ", \"vis\": " << (k.visible ? "true" : "false")
-                     << ", \"ease\": " << k.easing << " }";
+                     << ", \"ease\": " << k.easing
+                     << (k.mask != kSeqChAll ? ", \"ch\": " + std::to_string(k.mask) : "") << " }";
             }
             json << "] }";
         }
@@ -3671,67 +3773,6 @@ static void writeVuSection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
-// The neural upscaler's training-shot plan (docs/neural-upscaler.md). Written
-// ONLY when something has been authored: a default plan is what the trainer has
-// always done, so an untouched project's .tyra keeps its exact previous shape
-// and every fold table published against it stays reproducible.
-//
-// The automatic moves are written as a NAME list rather than a bool array, so
-// the order in the enum is free to grow without a file written today meaning
-// something else tomorrow - the same reason `inputCodes()` is append-only and
-// the menu display modes are stored explicitly.
-static void writeBlssShotsSection(std::ostream& json, const Project& p) {
-    const BlssShotPlan& pl = p.blssShots;
-    if (pl.isDefault()) return;
-    json << "\"blssShots\": { \"takes\": " << (pl.authoredTakes ? "true" : "false")
-         << ", \"auto\": [";
-    bool first = true;
-    for (int i = 0; i < kBlssAutoMoveCount; ++i) {
-        if (!pl.autoMove[i]) continue;
-        json << (first ? "" : ", ") << "\"" << blssAutoMoveName(i) << "\"";
-        first = false;
-    }
-    json << "]";
-    // Per-move frame counts, only for the moves that ask for one.
-    bool anyFrames = false;
-    for (int i = 0; i < kBlssAutoMoveCount; ++i) anyFrames = anyFrames || pl.autoFrames[i] > 0;
-    if (anyFrames) {
-        json << ", \"autoFrames\": {";
-        first = true;
-        for (int i = 0; i < kBlssAutoMoveCount; ++i) {
-            if (pl.autoFrames[i] <= 0) continue;
-            json << (first ? "" : ", ") << "\"" << blssAutoMoveName(i) << "\": " << pl.autoFrames[i];
-            first = false;
-        }
-        json << "}";
-    }
-    if (!pl.shots.empty()) {
-        json << ", \"shots\": [";
-        for (size_t i = 0; i < pl.shots.size(); ++i) {
-            const BlssShot& s = pl.shots[i];
-            json << (i ? ",\n      " : "\n      ") << "{ \"name\": \"" << jsonEscape(s.name)
-                 << "\", \"scene\": \"" << jsonEscape(s.scene) << "\"";
-            if (!s.camera.empty()) json << ", \"camera\": \"" << jsonEscape(s.camera) << "\"";
-            if (!s.cameraTo.empty())
-                json << ", \"cameraTo\": \"" << jsonEscape(s.cameraTo) << "\"";
-            json << ", \"eye\": [" << fmtFloat(s.eye[0]) << ", " << fmtFloat(s.eye[1]) << ", "
-                 << fmtFloat(s.eye[2]) << "], \"look\": [" << fmtFloat(s.look[0]) << ", "
-                 << fmtFloat(s.look[1]) << ", " << fmtFloat(s.look[2]) << "]";
-            if (s.move)
-                json << ", \"move\": true, \"eye2\": [" << fmtFloat(s.eye2[0]) << ", "
-                     << fmtFloat(s.eye2[1]) << ", " << fmtFloat(s.eye2[2]) << "], \"look2\": ["
-                     << fmtFloat(s.look2[0]) << ", " << fmtFloat(s.look2[1]) << ", "
-                     << fmtFloat(s.look2[2]) << "]";
-            if (s.fovDeg != 60.0f) json << ", \"fov\": " << fmtFloat(s.fovDeg);
-            if (s.frames > 0) json << ", \"frames\": " << s.frames;
-            if (!s.enabled) json << ", \"off\": true";
-            json << " }";
-        }
-        json << "\n    ]";
-    }
-    json << " }";
-}
-
 // --- World Facts (docs/world-facts.md) ---------------------------------------
 // One section carrying all four collections, because they only mean anything
 // together: a query over facts that are not there, or a rule over a query that
@@ -3757,53 +3798,6 @@ static void writeFactCondition(std::ostream& json, const facts::Condition& c) {
         json << "]";
     }
     json << " }";
-}
-
-static void readBlssShotsSection(const json::Value& root, Project& out) {
-    out.blssShots = BlssShotPlan();
-    const json::Value* v = root.find("blssShots");
-    if (!v || v->type != json::Value::Type::Object) return;
-    if (const json::Value* t = v->find("takes")) out.blssShots.authoredTakes = t->boolOr(true);
-    // An absent "auto" key would mean "every move", but the key is always
-    // written when the section is - and an EMPTY list is a legitimate choice
-    // (shoot only what I authored), so the two must not be confused.
-    if (const json::Value* a = v->find("auto"); a && a->type == json::Value::Type::Array) {
-        for (int i = 0; i < kBlssAutoMoveCount; ++i) out.blssShots.autoMove[i] = false;
-        for (const json::Value& e : a->arr) {
-            const std::string name = e.stringOr("");
-            for (int i = 0; i < kBlssAutoMoveCount; ++i)
-                if (name == blssAutoMoveName(i)) out.blssShots.autoMove[i] = true;
-        }
-    }
-    if (const json::Value* f = v->find("autoFrames"); f && f->type == json::Value::Type::Object)
-        for (int i = 0; i < kBlssAutoMoveCount; ++i)
-            if (const json::Value* n = f->find(blssAutoMoveName(i)))
-                out.blssShots.autoFrames[i] = std::max(0, (int)n->numberOr(0.0));
-    const json::Value* arr = v->find("shots");
-    if (!arr || arr->type != json::Value::Type::Array) return;
-    for (const json::Value& e : arr->arr) {
-        BlssShot s;
-        if (const json::Value* x = e.find("name")) s.name = x->stringOr("");
-        if (const json::Value* x = e.find("scene")) s.scene = x->stringOr("");
-        if (const json::Value* x = e.find("camera")) s.camera = x->stringOr("");
-        if (const json::Value* x = e.find("cameraTo")) s.cameraTo = x->stringOr("");
-        const auto vec3 = [&](const char* key, float dst[3]) {
-            const json::Value* x = e.find(key);
-            if (!x || x->type != json::Value::Type::Array) return;
-            for (size_t k = 0; k < x->arr.size() && k < 3; ++k)
-                dst[k] = (float)x->arr[k].numberOr(0.0);
-        };
-        vec3("eye", s.eye);
-        vec3("look", s.look);
-        if (const json::Value* x = e.find("move")) s.move = x->boolOr(false);
-        vec3("eye2", s.eye2);
-        vec3("look2", s.look2);
-        if (const json::Value* x = e.find("fov")) s.fovDeg = (float)x->numberOr(60.0);
-        if (s.fovDeg < 5.0f || s.fovDeg > 175.0f) s.fovDeg = 60.0f;
-        if (const json::Value* x = e.find("frames")) s.frames = std::max(0, (int)x->numberOr(0.0));
-        if (const json::Value* x = e.find("off")) s.enabled = !x->boolOr(false);
-        out.blssShots.shots.push_back(std::move(s));
-    }
 }
 
 static void readFactCondition(const json::Value& v, facts::Condition& out) {
@@ -4102,7 +4096,6 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Vehicles: writeVehiclesSection(ss, p); break;
         case Section::VuPrograms: writeVuSection(ss, p); break;
         case Section::Facts: writeFactsSection(ss, p); break;
-        case Section::BlssShots: writeBlssShotsSection(ss, p); break;
         case Section::Count: break;  // not a section
     }
     return ss.str();
@@ -4132,7 +4125,6 @@ const char* sectionName(Section s) {
         case Section::Vehicles: return "vehicles";
         case Section::VuPrograms: return "vu";
         case Section::Facts: return "facts";
-        case Section::BlssShots: return "blssShots";
         case Section::Atlas: return "atlas";
         case Section::Particles: return "particles";
         case Section::ModelCollision: return "modelCollision";
@@ -4198,7 +4190,12 @@ static std::string manifestJson(const Project& p) {
              << "\", \"recipe\": " << L.recipe << ", \"open\": [";
         for (size_t j = 0; j < L.openWindows.size(); ++j)
             json << (j ? ", " : "") << "\"" << jsonEscape(L.openWindows[j]) << "\"";
-        json << "], \"ini\": \"" << jsonEscape(L.ini) << "\" }";
+        json << "]";
+        // Written only when set (v119): a layout with both panels out
+        // serializes byte-for-byte as before.
+        if (L.projectCollapsed) json << ", \"projectCollapsed\": true";
+        if (L.propertiesCollapsed) json << ", \"propertiesCollapsed\": true";
+        json << ", \"ini\": \"" << jsonEscape(L.ini) << "\" }";
     }
     json << (p.windowLayouts.empty() ? "]" : "\n  ]");
     json << "\n}\n";
@@ -4603,128 +4600,6 @@ const char* inputRoleName(int role) {
     }
 }
 
-// --- the neural upscaler's training-shot plan --------------------------------
-
-const char* blssAutoMoveName(int move) {
-    switch ((BlssAutoMove)move) {
-        case BlssAutoMove::Walk: return "walk";
-        case BlssAutoMove::Pan: return "pan";
-        case BlssAutoMove::Orbit: return "orbit";
-        case BlssAutoMove::Whip: return "whip";
-        case BlssAutoMove::Pitch: return "pitch";
-        case BlssAutoMove::Strafe: return "strafe";
-        default: return "";
-    }
-}
-
-// The twin of the `s.move = "..."` literals in blssscene.cpp's autoShots(). It
-// is here rather than there because the window has to LABEL a move the same way
-// the tool's own per-shot table does, and a second spelling would make the two
-// tables un-joinable by eye.
-const char* blssAutoMoveKind(int move) {
-    switch ((BlssAutoMove)move) {
-        case BlssAutoMove::Walk: return "dolly-forward";
-        case BlssAutoMove::Pan: return "pan";
-        case BlssAutoMove::Orbit: return "orbit";
-        case BlssAutoMove::Whip: return "whip";
-        case BlssAutoMove::Pitch: return "pitch-up";
-        case BlssAutoMove::Strafe: return "dolly-lateral";
-        default: return "";
-    }
-}
-
-const char* blssAutoMoveWhy(int move) {
-    switch ((BlssAutoMove)move) {
-        case BlssAutoMove::Walk:
-            return "What the player sees for most of the running time - forward from the "
-                   "player start.";
-        case BlssAutoMove::Pan:
-            return "A yaw sweep from one standpoint: the same content at every reprojection "
-                   "offset a stick can produce.";
-        case BlssAutoMove::Orbit:
-            return "The only move that sweeps silhouettes across the whole tile grid.";
-        case BlssAutoMove::Whip:
-            return "Eased, so the angular velocity peaks mid-shot: history that is fine, "
-                   "history that is useless, and both transitions.";
-        case BlssAutoMove::Pitch:
-            return "Sweeps coverage from 1 to nearly 0, which is what makes the empty-tile "
-                   "case a moving target rather than a corner.";
-        case BlssAutoMove::Strafe:
-            return "Real parallax - near geometry sliding across far, which a tile's single "
-                   "representative depth cannot reproject.";
-        default: return "";
-    }
-}
-
-int blssShotScene(const Project& p, const BlssShot& s) {
-    if (p.scenes.empty()) return -1;
-    if (s.scene.empty()) return 0;
-    for (size_t i = 0; i < p.scenes.size(); ++i)
-        if (p.scenes[i].name == s.scene) return (int)i;
-    return -1;
-}
-
-std::string blssShotLabel(const Project& p, const BlssShot& s, int index) {
-    if (!s.name.empty()) return s.name;
-    const int si = blssShotScene(p, s);
-    const std::string scene = si >= 0 ? p.scenes[(size_t)si].name : std::string("?");
-    return scene + " shot " + std::to_string(index + 1);
-}
-
-bool blssResolveShot(const Project& p, const BlssShot& s, float eyeA[3], float lookA[3],
-                     float eyeB[3], float lookB[3], float* fovDeg) {
-    if (!s.enabled) return false;
-    const int si = blssShotScene(p, s);
-    if (si < 0) return false;
-    const SceneData& sc = p.scenes[(size_t)si];
-    float fov = s.fovDeg;
-    // A Camera object gives both the standpoint and the aim, which is the whole
-    // reason the field exists: the author has already placed the camera where
-    // the player stands, and re-typing its numbers into this shot would be a
-    // second copy that goes stale the moment the camera is nudged.
-    const auto fromCamera = [&](const std::string& name, float eye[3], float look[3]) {
-        for (const SceneObject& o : sc.objects) {
-            if (o.type != PrimitiveType::Camera || o.name != name) continue;
-            float fwd[3];
-            seqCameraForward(o.rotation, fwd);
-            for (int k = 0; k < 3; ++k) {
-                eye[k] = o.position[k];
-                look[k] = eye[k] + fwd[k];
-            }
-            fov = o.cameraFov;
-            return true;
-        }
-        return false;
-    };
-    if (!s.camera.empty()) {
-        if (!fromCamera(s.camera, eyeA, lookA)) return false;
-    } else {
-        for (int k = 0; k < 3; ++k) eyeA[k] = s.eye[k], lookA[k] = s.look[k];
-    }
-    // The second key. A `cameraTo` that names nothing is the same class of
-    // mistake as a `camera` that does - drop the shot rather than shoot half
-    // of it, because a move that silently became a still is a corpus that
-    // silently stopped covering the motion the author asked for.
-    if (s.move) {
-        if (!s.cameraTo.empty()) {
-            if (!fromCamera(s.cameraTo, eyeB, lookB)) return false;
-        } else {
-            for (int k = 0; k < 3; ++k) eyeB[k] = s.eye2[k], lookB[k] = s.look2[k];
-        }
-    } else {
-        for (int k = 0; k < 3; ++k) eyeB[k] = eyeA[k], lookB[k] = lookA[k];
-    }
-    // A key whose eye and look-at coincide has no direction at all, and the
-    // corpus would normalise a zero vector.
-    const auto degenerate = [](const float e[3], const float l[3]) {
-        const float d[3] = {l[0] - e[0], l[1] - e[1], l[2] - e[2]};
-        return d[0] * d[0] + d[1] * d[1] + d[2] * d[2] < 1e-8f;
-    };
-    if (degenerate(eyeA, lookA) || degenerate(eyeB, lookB)) return false;
-    if (fovDeg) *fovDeg = fov;
-    return true;
-}
-
 void ensureTextIcons(Project& p) {
     // One entry per pad button, named after it (lowercased) - that convention
     // is what makes {{cross}} and {{action:jump}} resolve. Their PNGs are
@@ -4891,29 +4766,86 @@ void ensureObjectIds(Project& p) {
         }
 }
 
+// The built-in layouts, in menu order. recipe-backed, empty ini:
+// App::buildLayoutRecipe arranges them the first time each is shown (see
+// WindowLayout / LayoutRecipe). seedBuiltinLayouts starts a project with them
+// and load() restores any a project is missing - they cannot be deleted.
+// "debugger" in the DEFAULT layout: the panel is open from the first run of
+// a new project, docked as a tab of the bottom console drawer beside Output
+// and Debug (buildLayoutRecipe), so the first Build & Run has somewhere to
+// report instead of the debugger being a thing you have to know to go and
+// open. Output is the selected tab, so an open Debugger costs one tab
+// header until a debug launch brings it forward.
+static std::vector<WindowLayout> builtinLayouts() {
+    std::vector<WindowLayout> v = {
+        {"Default", "", (int)LayoutRecipe::Default, {"debugger"}},
+        {"Director", "", (int)LayoutRecipe::Director, {"cutscene"}},
+        {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}},
+        {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}},
+        {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}},
+        {"Menu Designer", "", (int)LayoutRecipe::MenuDesigner, {"menus", "menupreview", "fonts"}}};
+    for (WindowLayout& L : v) {
+        L.projectCollapsed = recipeCollapsesProject(L.recipe);
+        L.propertiesCollapsed = recipeCollapsesProperties(L.recipe);
+    }
+    return v;
+}
+
 void seedBuiltinLayouts(Project& p) {
-    p.windowLayouts.clear();
-    // recipe-backed, empty ini: App::buildLayoutRecipe arranges them the first
-    // time each is shown (see WindowLayout / LayoutRecipe).
-    // "debugger" in the DEFAULT layout: the panel is open from the first run of
-    // a new project, docked as a tab behind Properties (buildLayoutRecipe), so
-    // the first Build & Run has somewhere to report instead of the debugger
-    // being a thing you have to know to go and open. Properties is the selected
-    // tab, so an open Debugger costs one tab header until it has something to
-    // say. Existing projects keep the layouts saved in their .tyra.
-    p.windowLayouts.push_back(
-        {"Default", "", (int)LayoutRecipe::Default, {"debugger"}});
-    p.windowLayouts.push_back(
-        {"Director", "", (int)LayoutRecipe::Director, {"cutscene"}});
-    p.windowLayouts.push_back(
-        {"Material Designer", "", (int)LayoutRecipe::Material, {"material"}});
-    p.windowLayouts.push_back(
-        {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
-    p.windowLayouts.push_back(
-        {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
-    p.windowLayouts.push_back({"Menu Designer", "", (int)LayoutRecipe::MenuDesigner,
-                               {"menus", "menupreview", "fonts"}});
+    p.windowLayouts = builtinLayouts();
     p.activeLayout = 0;
+}
+
+// The settings a NEW project starts with. They deliberately differ from the
+// struct defaults in places - those are what a project predating each key
+// loads as, so they cannot carry the new answer without changing existing
+// projects' behavior. Also what Project Preferences calls "default" (its
+// changed-from-default dots and Reset).
+ProjectSettings newProjectSettings(float unitsPerMeter, bool emptyPreset) {
+    ProjectSettings st;
+    // A fresh project is born for authoring: the debug profile so Live Link and
+    // the on-screen overlays work from the first build (switch to release for
+    // the disc), and USB keyboard & mouse OFF - a pad game pays nothing for
+    // drivers it never uses, and the choice is one to make deliberately.
+    st.buildProfile = "debug";
+    st.liveLink = true;
+    st.keyboardMouse = false;
+
+    // PAL picture ON: on a PAL console the region-following interlaced mode
+    // boots the full-height 576i frame (512 rendered lines) instead of the
+    // letterboxed NTSC-sized picture - the "full PAL" of European releases,
+    // and the whole point of a 50 Hz signal. It costs ~380 KB of GS VRAM and
+    // nothing at all on an NTSC console, which still gets its own 448 lines.
+    // Existing projects keep the letterboxed picture (the field reads as false)
+    // because turning it on retroactively would change what they output.
+    st.palFullHeight = true;
+
+    // World scale, chosen when the project is created because the alternative
+    // is discovering it after the world is built. The metric-by-definition
+    // numbers scale with it, so the FPP preset is a 1.8 m player at any scale
+    // (docs/world-scale.md); everything else is in units by nature and stays.
+    if (!(unitsPerMeter > 0.0001f)) unitsPerMeter = 1.0f;
+    st.unitsPerMeter = unitsPerMeter;
+    st.eyeHeight *= unitsPerMeter;
+    st.walkSpeed *= unitsPerMeter;
+    st.gravity *= unitsPerMeter;
+    st.jumpSpeed *= unitsPerMeter;
+
+    // Automatic model AO, by the same rule: the struct default is what an older
+    // file loads as, so the new answer belongs here (docs/ambient-occlusion.md,
+    // "Model AO").
+    st.modelAo = true;
+
+    // An empty project starts EMPTY: nothing in the scene and a camera that
+    // does not move on its own. The template's automatic orbit is what a scene
+    // with no Player object falls back to, and `orbitSpeed = 0` parks it at a
+    // fixed vantage point looking at the origin - so the first thing the
+    // project does is whatever the user adds (a Player, a script, a Camera
+    // object, a cutscene), not a demo turntable. Not the struct initializer,
+    // which is what projects saved before this load as (they keep their
+    // turntable).
+    if (emptyPreset) st.orbitSpeed = 0.0f;
+    return st;
 }
 
 std::string create(Project& out, const std::string& name, const std::string& parentDir,
@@ -4938,37 +4870,11 @@ std::string create(Project& out, const std::string& name, const std::string& par
     out.dir = root.string();
     out.scenes[0].terrain = terrain;
 
-    // New-project defaults that deliberately differ from the struct defaults -
-    // those are what a project predating each key loads as, so they cannot
-    // carry the new answer without changing existing projects' behavior.
-    //
-    // A fresh project is born for authoring: the debug profile so Live Link and
-    // the on-screen overlays work from the first build (switch to release for
-    // the disc), and USB keyboard & mouse OFF - a pad game pays nothing for
-    // drivers it never uses, and the choice is one to make deliberately.
-    out.settings.buildProfile = "debug";
-    out.settings.liveLink = true;
-    out.settings.keyboardMouse = false;
-
-    // PAL picture ON: on a PAL console the region-following interlaced mode
-    // boots the full-height 576i frame (512 rendered lines) instead of the
-    // letterboxed NTSC-sized picture - the "full PAL" of European releases,
-    // and the whole point of a 50 Hz signal. It costs ~380 KB of GS VRAM and
-    // nothing at all on an NTSC console, which still gets its own 448 lines.
-    // Existing projects keep the letterboxed picture (the field reads as false)
-    // because turning it on retroactively would change what they output.
-    out.settings.palFullHeight = true;
-
-    // World scale, chosen when the project is created because the alternative
-    // is discovering it after the world is built. The metric-by-definition
-    // numbers scale with it, so the FPP preset is a 1.8 m player at any scale
-    // (docs/world-scale.md); everything else is in units by nature and stays.
+    // New-project defaults that deliberately differ from the struct defaults
+    // (newProjectSettings: the debug profile, Live Link, PAL full height, the
+    // world scale, model AO, the parked orbit of an empty project).
     if (!(unitsPerMeter > 0.0001f)) unitsPerMeter = 1.0f;
-    out.settings.unitsPerMeter = unitsPerMeter;
-    out.settings.eyeHeight *= unitsPerMeter;
-    out.settings.walkSpeed *= unitsPerMeter;
-    out.settings.gravity *= unitsPerMeter;
-    out.settings.jumpSpeed *= unitsPerMeter;
+    out.settings = newProjectSettings(unitsPerMeter, preset != "thirdperson" && preset != "fpp");
 
     // Start with one ambience preset (its defaults match the project's default
     // sky/lighting/fog) so the sky renders and the Ambience Editor isn't empty.
@@ -4978,10 +4884,6 @@ std::string create(Project& out, const std::string& name, const std::string& par
     amb.name = "Default";
     amb.aoEnabled = true;
     out.ambiencePresets.push_back(amb);
-    // ...and automatic model AO, for the same reason and by the same rule: the
-    // struct default is what an older file loads as, so the new answer belongs
-    // here (docs/ambient-occlusion.md, "Model AO").
-    out.settings.modelAo = true;
     out.defaultAmbience = 0;
 
     // Seed the built-in window layouts (Default/Director/Material Designer).
@@ -4994,18 +4896,6 @@ std::string create(Project& out, const std::string& name, const std::string& par
     const bool thirdPerson = preset == "thirdperson";
     const bool player1st = preset == "fpp";
     out.gameTemplate = thirdPerson ? "thirdperson" : player1st ? "fpp" : "orbit";
-
-    if (!thirdPerson && !player1st) {
-        // An empty project starts EMPTY: nothing in the scene and a camera that
-        // does not move on its own. The template's automatic orbit is what a
-        // scene with no Player object falls back to, and `orbitSpeed = 0` parks
-        // it at a fixed vantage point looking at the origin - so the first
-        // thing the project does is whatever the user adds (a Player, a script,
-        // a Camera object, a cutscene), not a demo turntable. Set here rather
-        // than in the struct initializer, which is what projects saved before
-        // this load as (they keep their turntable).
-        out.settings.orbitSpeed = 0.0f;
-    }
 
     if (thirdPerson || player1st) {
         // The player entity: the camera becomes this player at game start.
@@ -6252,6 +6142,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         if (const auto* v = jo.find("editorGroup"))
             o.editorGroup = v->stringOr("");
+        if (const auto* v = jo.find("editorHidden")) o.editorHidden = v->boolOr(false);
         if (const auto* v = jo.find("prefabSource"))
             o.prefabSource = v->stringOr("");
         if (const auto* v = jo.find("comment")) o.commentText = v->stringOr("");
@@ -6282,12 +6173,25 @@ bool parseObject(const std::string& body, SceneObject& out) {
 // loaded from objects/<id>.json in list order (the merge-friendly split - one
 // file per object). A referenced object file that is missing or malformed is
 // skipped (the object is dropped) rather than aborting the load.
+// The cancel flag of the load() running on THIS thread (null = not
+// cancellable); thread_local so a load on a worker and one on the main thread
+// cannot see each other's.
+static thread_local const std::atomic<bool>* tlLoadCancel = nullptr;
+static bool loadCancelled() { return tlLoadCancel && tlLoadCancel->load(); }
+// The progress report of the load() running on THIS thread (null = none).
+static thread_local LoadProgress* tlLoadProgress = nullptr;
+static void loadPhase(int phase) {
+    if (tlLoadProgress) tlLoadProgress->phase.store(phase);
+}
+
 static void readSceneObjects(const Project& p, const json::Value& objs,
                              std::vector<SceneObject>& out) {
     if (objs.type != json::Value::Type::Array) return;
     for (const auto& jid : objs.arr) {
+        if (loadCancelled()) return;
         const std::string id = jid.stringOr("");
         if (id.empty()) continue;
+        if (tlLoadProgress) tlLoadProgress->objectsDone.fetch_add(1);
         std::ifstream f(objectPath(p, id), std::ios::binary);
         if (!f) continue;
         std::stringstream ss;
@@ -6311,6 +6215,10 @@ static void readSceneObjects(const Project& p, const json::Value& objs,
 
 static void readSettingsSection(const json::Value& root, Project& out) {
     out.settings = ProjectSettings{};
+    // TyraX2 is THE renderer since 2.0: a manifest that never chose (every
+    // 1.x project) gets it too. Only an explicit "framePipeline": false keeps
+    // the Legacy path (Preferences > Picture > Advanced > Renderer).
+    out.settings.framePipeline = true;
     if (const auto* s = root.find("settings")) {
         ProjectSettings& st = out.settings;
         if (const auto* v = s->find("videoSystem")) {
@@ -6345,6 +6253,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("dither")) st.dither = v->boolOr(true);
         if (const auto* v = s->find("tripleBuffering"))
             st.tripleBuffering = v->boolOr(false);
+        if (const auto* v = s->find("framePipeline"))
+            st.framePipeline = v->boolOr(true);
+        if (const auto* v = s->find("dynamicLightReceivers"))
+            st.dynamicLightReceivers = v->stringOr("") == "players"
+                                          ? DynamicLightReceivers::Players
+                                          : DynamicLightReceivers::All;
         if (const auto* v = s->find("frameExtrapolation"))
             st.frameExtrapolation = v->boolOr(false);
         if (const auto* v = s->find("frameExtrapolationPlane"))
@@ -6498,10 +6412,14 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.reflectionScenery = v->boolOr(false);
         if (const auto* v = s->find("reflectionGroundProxy"))
             st.reflectionGroundProxy = v->boolOr(false);
+        if (const auto* v = s->find("reflectionPanorama"))
+            st.reflectionPanorama = v->boolOr(false);
         if (const auto* v = s->find("flashShadowVolumes"))
             st.flashShadowVolumes = v->boolOr(false);
         if (const auto* v = s->find("spotShadowVolumes"))
             st.spotShadowVolumes = v->boolOr(false);
+        if (const auto* v = s->find("bakeStaticLamps"))
+            st.bakeStaticLamps = v->boolOr(false);
         if (const auto* v = s->find("shadowVolumesDebug"))
             st.shadowVolumesDebug = (int)v->numberOr(0);
         readVec3(s->find("skyColor"), st.skyColor);
@@ -6628,6 +6546,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("bakedShadowAutoBake"))
             st.bakedShadowAutoBake = v->boolOr(false);
+        if (const auto* v = s->find("bakedShadowGroundFold"))
+            st.bakedShadowGroundFold = v->boolOr(false);
         if (const auto* v = s->find("bakedShadowGround")) {
             const int g = (int)v->numberOr(0);
             st.bakedShadowGround = (g == 64 || g == 128) ? g : 0;
@@ -6662,52 +6582,20 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             if (st.projShadowDistance < 10.0f) st.projShadowDistance = 10.0f;
             if (st.projShadowDistance > 500.0f) st.projShadowDistance = 500.0f;
         }
-        // The neural upscaler (docs/neural-upscaler.md). Absent = off, which is
-        // every project saved before it existed; blssTemporal defaults ON, so
-        // it reads like loadingScreen (absent means the default, not false).
+        // The reduced-raster upscaler (BLSS). Absent = off, which is every
+        // project saved before it existed. The retired neural reconstruction's
+        // keys (blssNetwork, blssSharpen, blssTemporal, blssJitter,
+        // blssDebugView) may still be in older files and are ignored.
         if (const auto* v = s->find("blssEnabled"))
             st.blssEnabled = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("blssScale"))
             st.blssScale = (int)v->numberOr(0.0);
         if (st.blssScale < 0) st.blssScale = 0;
         if (st.blssScale > 1) st.blssScale = 1;
-        // PLAIN MODE, and it reads like blssTemporal rather than like
-        // blssJitter: absent means the NETWORK, which is the only thing a
-        // project saved before this key existed can have meant. There is no
-        // "the old behaviour was harmful" argument here - the reconstruction a
-        // legacy BLSS project shipped with is the one it was trained for.
-        if (const auto* v = s->find("blssNetwork"))
-            st.blssNetwork = !(v->type == json::Value::Type::Bool && !v->boolean);
         if (const auto* v = s->find("blssAdaptive"))
             st.blssAdaptive = v->type == json::Value::Type::Bool && v->boolean;
-        if (const auto* v = s->find("blssSharpen"))
-            st.blssSharpen = clamp01((float)v->numberOr(0.5));
-        if (const auto* v = s->find("blssTemporal"))
-            st.blssTemporal = !(v->type == json::Value::Type::Bool && !v->boolean);
-        // NOT the "absent means what it always did" rule the keys around it
-        // use, and the difference is deliberate. The jitter is the confirmed
-        // cause of the screen shake (project.hpp), so a project saved before
-        // this key existed - which is every project that ever shook - opens
-        // with it OFF rather than keeping the behaviour it was saved with.
-        // The one direction this can move a legacy project is "stops
-        // flickering"; there is no configuration it makes worse, and a project
-        // that wants the samples back says so explicitly and gets a rewritten
-        // key on the next save. A malformed value lands on the default too,
-        // for the same reason.
-        if (const auto* v = s->find("blssJitter"))
-            st.blssJitter = (v->type == json::Value::Type::Bool && v->boolean);
-        if (const auto* v = s->find("blssDebugView"))
-            st.blssDebugView = (int)v->numberOr(0.0);
-        if (st.blssDebugView < 0) st.blssDebugView = 0;
-        // 2 is the FEATURE-SPREAD INSTRUMENT (RendererCoreBlss::
-        // logFeatureSpread): one BLSSGRID/BLSSFEAT/BLSSOUT/BLSSFILL group per
-        // second into the game's bin/log.txt, picture untouched. It is what
-        // `tyrax-editor --blss-eval --probe "<BLSSFEAT line>"` reads, i.e. the
-        // only way to find out whether the network is being run on the
-        // distribution it was trained on. The panel's combo offers 0 and 1;
-        // this value is reachable by editing the .tyra, which is deliberate -
-        // it is a developer instrument, not a project setting.
-        if (st.blssDebugView > 2) st.blssDebugView = 2;
+        if (const auto* v = s->find("blssParticles"))
+            st.blssParticles = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("fogEnabled"))
             st.fogEnabled = v->type == json::Value::Type::Bool && v->boolean;
         readVec3(s->find("fogColor"), st.fogColor);
@@ -6738,6 +6626,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.highlightOverlay = v->boolOr(false);
         if (const auto* v = s->find("loadingScreen"))
             st.loadingScreen = !(v->type == json::Value::Type::Bool && !v->boolean);
+        if (const auto* v = s->find("showEngineLogo"))
+            st.showEngineLogo = !(v->type == json::Value::Type::Bool && !v->boolean);
     }
 }
 
@@ -7004,6 +6894,8 @@ static void readAudioSection(const json::Value& root, Project& out) {
     out.music.clear();
     out.musicBuild.clear();
     out.sounds.clear();
+    out.soundsAlwaysLoaded.clear();
+    out.soundBanks.clear();
     if (const auto* music = root.find("music");
         music && music->type == json::Value::Type::Array) {
         for (const auto& m : music->arr) {
@@ -7030,6 +6922,25 @@ static void readAudioSection(const json::Value& root, Project& out) {
         for (const auto& s : sounds->arr) {
             const std::string path = s.stringOr("");
             if (!path.empty()) out.sounds.push_back(path);
+        }
+    }
+    if (const auto* pinned = root.find("soundsAlwaysLoaded");
+        pinned && pinned->type == json::Value::Type::Array) {
+        for (const auto& s : pinned->arr) {
+            const std::string path = s.stringOr("");
+            if (!path.empty()) out.soundsAlwaysLoaded.push_back(path);
+        }
+    }
+    if (const auto* banks = root.find("soundBanks");
+        banks && banks->type == json::Value::Type::Array) {
+        for (const auto& jb : banks->arr) {
+            Project::SoundBank bank;
+            if (const auto* v = jb.find("name")) bank.name = v->stringOr("");
+            if (const auto* v = jb.find("sounds"); v && v->type == json::Value::Type::Array)
+                for (const auto& s : v->arr)
+                    if (const std::string path = s.stringOr(""); !path.empty())
+                        bank.sounds.push_back(path);
+            if (!bank.name.empty()) out.soundBanks.push_back(std::move(bank));
         }
     }
 }
@@ -7336,9 +7247,17 @@ static void readAmbienceSection(const json::Value& root, Project& out) {
         out.defaultAmbience = -1;
 }
 
+// Format 115 had a per-screen "wait only after the boot load" switch
+// ("wait": { "bootOnly": true }); 116 replaced it with the Game start screen.
+// The reader notes such screens here and migrateBootOnlyWait turns them into
+// the new shape once the scenes are known.
+static thread_local std::vector<int> g_legacyBootOnly;
+
 static void readLoadingScreensSection(const json::Value& root, Project& out) {
     out.loadingScreens.clear();
     out.defaultLoadingScreen = -1;
+    out.bootLoadingScreen = -1;
+    g_legacyBootOnly.clear();
     if (const auto* lss = root.find("loadingScreens");
         lss && lss->type == json::Value::Type::Array) {
         for (const auto& jl : lss->arr) {
@@ -7391,6 +7310,71 @@ static void readLoadingScreensSection(const json::Value& root, Project& out) {
                     if (!t.name.empty()) ls.texts.push_back(std::move(t));
                 }
             }
+            if (const auto* anims = jl.find("anims");
+                anims && anims->type == json::Value::Type::Array) {
+                for (const auto& ja : anims->arr) {
+                    LoadingAnim a;
+                    if (const auto* v = ja.find("name")) a.name = v->stringOr("anim");
+                    if (const auto* v = ja.find("pos");
+                        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                        a.pos[0] = (float)v->arr[0].numberOr(0.5);
+                        a.pos[1] = (float)v->arr[1].numberOr(0.75);
+                    }
+                    if (const auto* v = ja.find("size");
+                        v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                        a.size[0] = (float)v->arr[0].numberOr(128.0);
+                        a.size[1] = (float)v->arr[1].numberOr(64.0);
+                    }
+                    if (const auto* v = ja.find("mode")) a.mode = (int)v->numberOr(0) == 1 ? 1 : 0;
+                    if (const auto* v = ja.find("fps")) a.fps = (float)v->numberOr(12.0);
+                    if (a.fps < 1.0f) a.fps = 1.0f;
+                    if (a.fps > 60.0f) a.fps = 60.0f;
+                    if (const auto* v = ja.find("playback")) a.playback = (int)v->numberOr(0) == 1 ? 1 : 0;
+                    if (const auto* v = ja.find("lastAtFull")) a.lastAtFull = v->boolOr(true);
+                    if (const auto* v = ja.find("afterLoad")) a.afterLoad = (int)v->numberOr(0) == 1 ? 1 : 0;
+                    if (const auto* fr = ja.find("frames");
+                        fr && fr->type == json::Value::Type::Array) {
+                        for (const auto& jf : fr->arr) {
+                            HudImage h;
+                            h.name = a.name;
+                            if (const auto* v = jf.find("image")) h.imagePath = v->stringOr("");
+                            if (const auto* v = jf.find("texW")) h.texW = (int)v->numberOr(0);
+                            if (const auto* v = jf.find("texH")) h.texH = (int)v->numberOr(0);
+                            if (const auto* v = jf.find("texQuant")) {
+                                const std::string q = v->stringOr("");
+                                h.texQuant = (q == "none" || q == "8bit" || q == "4bit") ? q : "";
+                            }
+                            if (!h.imagePath.empty()) a.frames.push_back(std::move(h));
+                        }
+                    }
+                    ls.anims.push_back(std::move(a));
+                }
+            }
+            if (const auto* w = jl.find("wait")) {
+                ls.waitForButton = true;
+                HudText& t = ls.prompt;
+                if (const auto* v = w->find("button")) ls.waitButton = (int)v->numberOr(0);
+                if (ls.waitButton < 0 || ls.waitButton > 2) ls.waitButton = 0;
+                if (const auto* v = w->find("bootOnly"); v && v->boolOr(false))
+                    g_legacyBootOnly.push_back((int)out.loadingScreens.size());
+                if (const auto* v = w->find("blink")) ls.promptBlink = (int)v->numberOr(1);
+                if (ls.promptBlink < 0 || ls.promptBlink > 2) ls.promptBlink = 1;
+                if (const auto* v = w->find("period")) ls.promptPeriod = (float)v->numberOr(1.0);
+                if (ls.promptPeriod < 0.2f) ls.promptPeriod = 0.2f;
+                if (const auto* v = w->find("hideOthers")) ls.promptHideOthers = v->boolOr(true);
+                if (const auto* v = w->find("text")) t.text = v->stringOr("PRESS START");
+                if (const auto* v = w->find("pos");
+                    v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+                    t.pos[0] = (float)v->arr[0].numberOr(0.5);
+                    t.pos[1] = (float)v->arr[1].numberOr(0.85);
+                }
+                if (const auto* v = w->find("size")) t.size = (int)v->numberOr(16);
+                if (t.size < 8) t.size = 8;
+                if (t.size > 48) t.size = 48;
+                readVec3(w->find("color"), t.color);
+                if (const auto* v = w->find("font")) t.font = v->stringOr("");
+                if (const auto* v = w->find("shadow")) t.shadow = v->boolOr(true);
+            }
             if (const auto* bars = jl.find("bars");
                 bars && bars->type == json::Value::Type::Array) {
                 for (const auto& jb : bars->arr) {
@@ -7437,6 +7421,39 @@ static void readLoadingScreensSection(const json::Value& root, Project& out) {
     if (out.defaultLoadingScreen < -1 ||
         out.defaultLoadingScreen >= (int)out.loadingScreens.size())
         out.defaultLoadingScreen = -1;
+    if (const auto* v = root.find("bootLoadingScreen"))
+        out.bootLoadingScreen = (int)v->numberOr(-1.0);
+    if (out.bootLoadingScreen < -1 || out.bootLoadingScreen >= (int)out.loadingScreens.size())
+        out.bootLoadingScreen = -1;
+}
+
+// A 115 screen that waited "only after the boot load" becomes the Game start
+// screen (still waiting), and the scenes that showed it get a copy that does
+// not wait - the same thing the player saw, in the 116 shape.
+static void migrateBootOnlyWait(Project& p) {
+    for (int si : g_legacyBootOnly) {
+        if (si < 0 || si >= (int)p.loadingScreens.size()) continue;
+        if (p.bootLoadingScreen < 0) p.bootLoadingScreen = si;
+        const std::string name = p.loadingScreens[si].name;
+        bool scenesUse = p.defaultLoadingScreen == si;
+        for (const SceneData& sc : p.scenes) scenesUse |= sc.loadingScreen == name;
+        if (!scenesUse) continue;
+        LoadingScreenDef copy = p.loadingScreens[si];
+        copy.waitForButton = false;
+        std::string n = name + "-scenes";
+        for (int k = 2;; ++k) {
+            bool taken = false;
+            for (const LoadingScreenDef& o : p.loadingScreens) taken |= o.name == n;
+            if (!taken) break;
+            n = name + "-scenes-" + std::to_string(k);
+        }
+        copy.name = n;
+        p.loadingScreens.push_back(std::move(copy));
+        for (SceneData& sc : p.scenes)
+            if (sc.loadingScreen == name) sc.loadingScreen = n;
+        if (p.defaultLoadingScreen == si) p.defaultLoadingScreen = (int)p.loadingScreens.size() - 1;
+    }
+    g_legacyBootOnly.clear();
 }
 
 static void readSplashSection(const json::Value& root, Project& out) {
@@ -7636,6 +7653,10 @@ static void readSequencesSection(const json::Value& root, Project& out) {
                             readVec3(jkk.find("color"), k.color);
                             if (const auto* v = jkk.find("vis")) k.visible = v->boolOr(true);
                             if (const auto* v = jkk.find("ease")) k.easing = (int)v->numberOr(1.0);
+                            // per-channel keys (format 120); older keys carry every component
+                            if (const auto* v = jkk.find("ch"))
+                                k.mask = (unsigned)v->numberOr((double)kSeqChAll) & kSeqChAll;
+                            if (!k.mask) continue;
                             t.keys.push_back(k);
                         }
                     }
@@ -7887,7 +7908,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
-        case Section::LoadingScreens: readLoadingScreensSection(root, p); break;
+        case Section::LoadingScreens: readLoadingScreensSection(root, p); migrateBootOnlyWait(p); break;
         case Section::Splash: readSplashSection(root, p); break;
         case Section::Credits: readCreditsSection(root, p); break;
         case Section::Sequences: readSequencesSection(root, p); break;
@@ -7911,10 +7932,32 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             readFactsSection(root, p);
             ensureFactIds(p);
             break;
-        case Section::BlssShots: readBlssShotsSection(root, p); break;
         case Section::Count: return false;  // not a section
     }
     return true;
+}
+
+std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel) {
+    return load(out, projectDir, cancel, nullptr);
+}
+
+std::string load(Project& out, const std::string& projectDir, const std::atomic<bool>* cancel,
+                 LoadProgress* progress) {
+    struct Scope {
+        Scope(const std::atomic<bool>* c, LoadProgress* pr) {
+            tlLoadCancel = c;
+            tlLoadProgress = pr;
+        }
+        ~Scope() {
+            tlLoadCancel = nullptr;
+            tlLoadProgress = nullptr;
+        }
+    } scope(cancel, progress);
+    loadPhase(0);
+    std::string err = load(out, projectDir);
+    if (err.empty() && loadCancelled()) err = kLoadCancelled;
+    loadPhase(3);
+    return err;
 }
 
 std::string load(Project& out, const std::string& projectDir) {
@@ -8004,6 +8047,15 @@ std::string load(Project& out, const std::string& projectDir) {
     if (const auto* scenes = root.find("scenes");
         scenes && scenes->type == json::Value::Type::Array && !scenes->arr.empty()) {
         out.scenes.clear();
+        if (tlLoadProgress) {
+            int total = 0;
+            for (const auto& js : scenes->arr)
+                if (const auto* objs = js.find("objects"); objs && objs->type == json::Value::Type::Array)
+                    total += (int)objs->arr.size();
+            tlLoadProgress->objectsTotal.store(total);
+            tlLoadProgress->objectsDone.store(0);
+        }
+        loadPhase(1);
         for (const auto& js : scenes->arr) {
             SceneData sc;
             if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
@@ -8032,6 +8084,7 @@ std::string load(Project& out, const std::string& projectDir) {
             }
             readSceneVisuals(js, sc);
             out.scenes.push_back(std::move(sc));
+            if (loadCancelled()) return kLoadCancelled;
         }
     }
     if (out.scenes.empty()) out.scenes.push_back(SceneData{});
@@ -8061,6 +8114,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAmbienceSection(root, out);
 
     readLoadingScreensSection(root, out);
+    migrateBootOnlyWait(out);
 
     readSplashSection(root, out);
 
@@ -8079,7 +8133,6 @@ std::string load(Project& out, const std::string& projectDir) {
     // catalog authored before ids existed gets them before anything
     // can be written - the ensureObjectIds contract.
     ensureFactIds(out);
-    readBlssShotsSection(root, out);
 
     // NOTE there is deliberately no "fold sky/lighting/fog into presets"
     // migration here any more. It was the pre-Ambience-Editor lift, gated on
@@ -8109,6 +8162,8 @@ std::string load(Project& out, const std::string& projectDir) {
     // has no saveMenu entry and would otherwise bake no save panel at all.
     ensureSaveMenu(out);
 
+    if (loadCancelled()) return kLoadCancelled;
+    loadPhase(2);
     loadHeights(out);
     ensureHeightmap(out);
     loadSplat(out);  // reads <scene>.splat sidecars + reconciles with the layers
@@ -8152,6 +8207,8 @@ std::string load(Project& out, const std::string& projectDir) {
                 v && v->type == json::Value::Type::Array)
                 for (const auto& jo : v->arr)
                     if (jo.type == json::Value::Type::String) L.openWindows.push_back(jo.str);
+            if (const auto* v = jl.find("projectCollapsed")) L.projectCollapsed = v->boolOr(false);
+            if (const auto* v = jl.find("propertiesCollapsed")) L.propertiesCollapsed = v->boolOr(false);
             if (!L.name.empty()) out.windowLayouts.push_back(std::move(L));
         }
         if (const auto* v = root.find("activeLayout"))
@@ -8160,25 +8217,20 @@ std::string load(Project& out, const std::string& projectDir) {
         seedBuiltinLayouts(out);
     }
     // Top up the built-in set: a project saved before a built-in layout existed
-    // keeps its own layouts, and would otherwise never see the new one. Only
-    // recipe-backed built-ins are added (a user layout with the same name is
-    // left alone), so this stays a one-time migration per project.
-    {
-        auto hasRecipe = [&](LayoutRecipe r) {
+    // (or by an editor that still let one be deleted) keeps its own layouts and
+    // gets the missing built-ins appended, so activeLayout keeps its index. A
+    // user layout already holding the name keeps it; the built-in is suffixed.
+    if (!out.windowLayouts.empty()) {
+        auto has = [&](auto pred) {
             for (const WindowLayout& L : out.windowLayouts)
-                if (L.recipe == (int)r) return true;
+                if (pred(L)) return true;
             return false;
         };
-        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Debugger))
-            out.windowLayouts.push_back(
-                {"Debugger", "", (int)LayoutRecipe::Debugger, {"debugger"}});
-        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::Procedural))
-            out.windowLayouts.push_back(
-                {"Procedural", "", (int)LayoutRecipe::Procedural, {"proc", "prefabs"}});
-        if (!out.windowLayouts.empty() && !hasRecipe(LayoutRecipe::MenuDesigner))
-            out.windowLayouts.push_back(
-                {"Menu Designer", "", (int)LayoutRecipe::MenuDesigner,
-                 {"menus", "menupreview", "fonts"}});
+        for (WindowLayout& B : builtinLayouts()) {
+            if (has([&](const WindowLayout& L) { return L.recipe == B.recipe; })) continue;
+            if (has([&](const WindowLayout& L) { return L.name == B.name; })) B.name += " (built-in)";
+            out.windowLayouts.push_back(std::move(B));
+        }
     }
     // A project must always have at least one layout, and activeLayout must be
     // in range (a hand-edited or corrupt file could break either).
@@ -8945,6 +8997,9 @@ std::string refreshGenerated(const Project& p) {
             // unconditionally, so every existing project needs it refreshed
             // rather than written once at creation.
             f.relativePath == "inc\\facts.gen.hpp" ||
+            // Sound residency: game_runtime.gen.hpp and the Play Sound graphs
+            // include it.
+            f.relativePath == "inc\\sound_bank.gen.hpp" ||
             f.relativePath == "inc\\nav_data.gen.hpp" ||
             f.relativePath == "inc\\scripts\\navigation.gen.hpp" ||
             f.relativePath == "src\\gen\\navigation.gen.cpp" ||
@@ -8958,18 +9013,16 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\shadow_data.gen.hpp" ||
             f.relativePath == "inc\\occlusion_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
-            // The trained BLSS network (docs/neural-upscaler.md). Only ever IN
-            // `generated` while the upscaler is enabled - but when it is there
-            // it MUST be rewritten, or a project that predates the feature (or
-            // that was just retrained with --blss-train) keeps compiling the
-            // untrained weights it was first scaffolded with.
-            f.relativePath == "inc\\blss_net.gen.hpp" ||
             // The BLSS build refusal, in a TU of its own so the compiler prints
             // it once rather than once per includer of scene_data.hpp. Only in
             // `generated` while the project actually clashes; the sweep below
             // deletes it when it stops, which is the half that matters - a
             // stale refusal would block a build that is fine.
             f.relativePath == "src\\gen\\blss_interlock.gen.cpp" ||
+            // Baked instanced scatter: only in `generated` while a volume draws
+            // as Instanced; the sweep below deletes a leftover, which the game
+            // would otherwise still include through __has_include.
+            f.relativePath == "inc\\proc_instances.gen.hpp" ||
             f.relativePath == "inc\\vehicle_sound_loops.gen.txt" ||
             f.relativePath == "inc\\daynight.gen.hpp" ||
             f.relativePath == "inc\\probe_data.gen.hpp" ||
@@ -9229,7 +9282,7 @@ std::string refreshGenerated(const Project& p) {
     // reasoning as the VU sweep below - Makefile.base globs src/**/*.cpp, so a
     // leftover would keep refusing a build that is now perfectly fine, and
     // there is no worse failure than a guard that fires after the thing it
-    // guards against is gone (docs/neural-upscaler.md, Limitations).
+    // guards against is gone (docs/upscaler.md, Limitations).
     {
         bool wanted = false;
         for (const auto& f : generated)
@@ -9238,6 +9291,21 @@ std::string refreshGenerated(const Project& p) {
             std::error_code ec;
             fs::remove(fs::path(p.dir) / "src" / "gen" / "blss_interlock.gen.cpp",
                        ec);
+        }
+    }
+    // The retired neural upscaler's baked network. Nothing includes it any
+    // more, so a leftover is only clutter - sweep it.
+    {
+        std::error_code ec;
+        fs::remove(fs::path(p.dir) / "inc" / "blss_net.gen.hpp", ec);
+    }
+    {
+        bool wanted = false;
+        for (const auto& f : generated)
+            wanted |= f.relativePath == "inc\\proc_instances.gen.hpp";
+        if (!wanted) {
+            std::error_code ec;
+            fs::remove(fs::path(p.dir) / "inc" / "proc_instances.gen.hpp", ec);
         }
     }
 
@@ -9816,6 +9884,23 @@ std::string refreshGenerated(const Project& p) {
             if (!f) return "Cannot write loading text sprite: " + path.string();
             f.write(reinterpret_cast<const char*>(png.data()),
                     (std::streamsize)png.size());
+        }
+        // The press-to-continue prompt, under the same mangle as its codegen
+        // ("ls-<i>-continue", loadingDataHeader).
+        const LoadingScreenDef& lsd = p.loadingScreens[si];
+        if (lsd.waitForButton) {
+            HudText copy = lsd.prompt;
+            copy.name = "ls-" + std::to_string(si) + "-continue";
+            std::vector<unsigned char> png;
+            if (!menubake::bakeTextPNG(copy, p, png))
+                return "Loading prompt bake failed (no usable TTF font found)";
+            const fs::path path =
+                fs::path(p.dir) / "res" / "hud" / menubake::textFileName(copy.name);
+            std::error_code ec;
+            fs::create_directories(path.parent_path(), ec);
+            std::ofstream f(path, std::ios::binary);
+            if (!f) return "Cannot write loading prompt sprite: " + path.string();
+            f.write(reinterpret_cast<const char*>(png.data()), (std::streamsize)png.size());
         }
     }
     return "";

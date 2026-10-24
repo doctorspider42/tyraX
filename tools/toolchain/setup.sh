@@ -75,7 +75,10 @@ tree_hash() {
 OPENVCL_TREE_SHA=$(tree_hash "$REPO/vendor/openvcl")
 VCLPP_TREE_SHA=$(tree_hash "$REPO/vendor/vclpp")
 BIN2S_TREE_SHA=$(tree_hash "$HERE/bin2s")
-AUDSRV_TREE_SHA=$(tree_hash "$REPO/vendor/tyra/audsrv/ee")
+# The EE half is compiled here, the IOP half (audsrv.irx) is the committed
+# artifact installed below - both have to move the stamp, or a rebuilt irx
+# never reaches the engine (a new stamp drops the engine objects that embed it).
+AUDSRV_TREE_SHA=$(tree_hash "$REPO/vendor/tyra/audsrv/ee")-$(sha256 "$REPO/vendor/tyra/audsrv/bin/audsrv.irx" | awk '{print substr($1, 1, 16)}')
 SETUP_SHA=$(sha256 "$HERE/setup.sh" | awk '{print $1}')
 
 MARKER="$ROOT/.tyrax-toolchain"

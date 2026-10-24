@@ -45,6 +45,11 @@ struct EngineOptions {
    * nothing to reuse and the drivers just report "not ready". */
   bool loadUsbKbdMouseUnderPs2Link = false;
 
+  /** Modified by TyraX: show the engine's logo (Banner, ~2 s) at boot.
+   * Off for a game that wants its own splashes first (the editor's
+   * Loading Screens > Boot sequence switch). */
+  bool showBanner = true;
+
   /** Forced output video signal; Auto follows the console region. */
   VideoMode videoMode = VideoMode::Auto;
 
@@ -82,6 +87,10 @@ struct EngineOptions {
    * than idle.
    */
   bool envMapTarget = true;
+  /** Modified by TyraX: a second 64 KB env colour target, so a game can
+   * render its reflection capture over two frames into the back target and
+   * swap (RendererCoreEnvMap::begin(.., intoBack) / swap()). */
+  bool envMapDoubleBuffered = false;
 
   /** Reserve the camera-feed render target - another 128 KB (TyraX fork).
    * Only projects with a texture feed read it. */

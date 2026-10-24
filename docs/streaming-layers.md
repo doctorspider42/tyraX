@@ -20,8 +20,8 @@ you walk through.
 
 ## Creating layers
 
-Open the **Layers** section in the Project panel (collapsed until the scene
-has layers):
+Open the **Layers** page of the Project panel (the stacked-diamonds icon on the
+left rail):
 
 - **+ Layer** adds a layer. Names are per scene and must be unique.
 - The **eye checkbox** (leftmost) shows/hides the layer's objects in the
@@ -35,8 +35,18 @@ has layers):
 - Rename by typing in the name field — object assignments and flow-graph
   references follow the rename automatically.
 
+The **Outliner** page shows the same thing from the objects' side: in a scene
+with layers the list is grouped into one folder per layer (plus
+*Unassigned*), each with its swatch colour and object count, and a
+**Layers** strip of chips under the list - a click on a chip flips that
+layer's eye, exactly like the checkbox here (the chip's swatch goes hollow and
+its name dim while the layer is hidden). A single object can be hidden on its
+own with the eye at the right end of its row (shown on hover, and always while
+it is off). Like a layer's eye it is saved with the project and undoable, and
+it is editor-only: a hidden object is still in the game.
+
 Assign an object to a layer with the **Layer** combo in the Properties
-window (`<none>` = no layer). Objects without a layer are always resident:
+window (`<none>` = no layer), or drag its Outliner row onto a layer folder. Objects without a layer are always resident:
 terrain, sky, HUD, music and sounds are never streamed either.
 
 Layers are per scene — every scene has its own layer list.
@@ -111,7 +121,7 @@ boundary — so its box only grows by `15% + 0.5 units per side` before
 unloading: step out of the doorway and the layer goes, instead of loading
 you eight units into the next room first. Both bands are wide enough that
 standing ON the edge cannot thrash. If you can't see why a zone is or isn't
-resident, turn on *Preferences > Build > Show areas* and the box is drawn
+resident, turn on *Preferences > Build & debug > Show areas* and the box is drawn
 in the game (see [areas.md](areas.md)).
 
 ## What happens to object state
@@ -140,12 +150,15 @@ Details worth knowing:
 ## Memory notes
 
 - The debug build profile's **Show memory usage** overlay (Project >
-  Preferences > Build) is the easiest way to watch layers work: MEM drops
+  Preferences > Build & debug) is the easiest way to watch layers work: MEM drops
   when a layer unloads and climbs while one streams in.
 - What a layer frees: per-object vertex/color/UV buffers and draw bags,
   model geometry and collision meshes, animated-model data, and textures
   (via reference counting — a PNG used by two layers is freed only when
   both are out).
+- Sound effects: the samples of the layer's sound emitters and vehicles load
+  with it and are freed with it, unless something still loaded uses them too
+  ([sound.md](sound.md), "SPU2 sample RAM").
 - What stays: the compiled scene tables (a few hundred bytes per object in
   the ELF's read-only data) and anything outside the layer.
 

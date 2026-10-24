@@ -13,6 +13,7 @@ const SceneObjectData SCENE_0_OBJECTS[4] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {4};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[4] = {0x03726d9a24321858ULL, 0x32a44337a8e1d29fULL, 0x1fcc75534f49be4aULL, 0x071b161e7f9fcc98ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[4] = {0,1,0,1};
 
 }  // namespace Custom_nodes
 

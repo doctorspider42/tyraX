@@ -18,6 +18,7 @@ const SceneObjectData SCENE_0_OBJECTS[9] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {9};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[9] = {0x2d1457c3ffb9b50aULL, 0x92a826196cc2ddd3ULL, 0x6fd0919411692ab3ULL, 0x1568d50bb49f9d02ULL, 0x24657a1c74908813ULL, 0x9f8cb80478b87c49ULL, 0xda456b0029be95acULL, 0x70ca86b3cb0f2142ULL, 0x70c086b3cb06ccbdULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[9] = {1,1,1,1,1,1,1,1,1};
 
 }  // namespace Particle_lab
 

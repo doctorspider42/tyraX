@@ -19,13 +19,13 @@ glide = 2.5
 # progression
 steps = 4
 step1.notes = 0, 7, 15, 22
-step1.bars = 8
+step1.bars = 4
 step2.notes = 5, 12, 15, 19
-step2.bars = 8
+step2.bars = 4
 step3.notes = 3, 10, 14, 21
-step3.bars = 8
+step3.bars = 4
 step4.notes = -2, 5, 12, 17
-step4.bars = 8
+step4.bars = 4
 step5.notes = 0, 7, 12, 15
 step5.bars = 8
 step6.notes = -4, 3, 12, 14

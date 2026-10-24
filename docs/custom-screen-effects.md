@@ -21,14 +21,14 @@ moving an effect elsewhere is a copy.
 
 ## Quick start
 
-1. Open **Tools ▸ UI Editor ▸ Screen effects ▸ Custom effects… ▸ New starter
+1. Open **Tools ▸ UI Editor ▸ Add ▸ Custom effects ▸ New starter
    effect**. This writes `screen-effects/example.screenfx` (a working "Color
    Wash" effect) and loads it.
-2. It appears under **Screen effects** with a **+ Add** button. Click it to drop
+2. It appears in the **Add** menu as **Effect: Color Wash**. Pick it to drop
    the effect into the screen stack, then drag it where it should composite.
 3. Select it in the stack to set its parameters. Build (F5) — your code lands in
    `src/gen/screen_fx.gen.cpp` and runs at the effect's stack slot.
-4. Edit the file (format below), then **Custom effects… ▸ Reload from folder** to
+4. Edit the file (format below), then **Add ▸ Custom effects ▸ Reload from folder** to
    pick up manifest changes.
 
 ## File format
@@ -182,8 +182,8 @@ These are follow-ups, not built yet:
 
 - Folder: `<project>/screen-effects/`, scanned for `*.screenfx` in alphabetical
   order (the UI list order).
-- Loaded on project open and on **Custom effects… ▸ Reload from folder**.
-- **Custom effects… ▸ Jump to effect file** opens a specific `.screenfx` in
+- Loaded on project open and on **Add ▸ Custom effects ▸ Reload from folder**.
+- **Add ▸ Custom effects ▸ Jump to effect file** opens a specific `.screenfx` in
   VS Code (whole-project context, so the engine headers resolve for the body).
   The TyraX VS Code extension gives `.screenfx` files syntax highlighting,
   snippets and validation — see [the VS Code extension](vscode-extension.md).

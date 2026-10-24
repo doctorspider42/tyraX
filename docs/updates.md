@@ -71,6 +71,11 @@ an update install itself without stopping to ask Windows for permission. The
 directory page still offers Program Files for everybody if you want it (and
 `/ALLUSERS` on the command line forces it).
 
+An update installs over the previous version and lays the bundled examples
+down fresh (`[InstallDelete]` clears `examples\` first), so an object or asset
+an example dropped does not linger in the copies *Open a copy* makes. The
+shipped examples are never edited in place, so nothing of yours is in there.
+
 Uninstalling removes the program directory. It deliberately leaves your
 projects and your editor settings (`%LOCALAPPDATA%\tyra-editor\editor.ini`)
 alone.
@@ -184,20 +189,32 @@ if there is something newer**. If the check fails because the machine is
 offline, nothing is shown at all; an editor that opens a dialog about your
 Wi-Fi is an editor whose update check people switch off.
 
-The dialog offers:
+The dialog shows the version jump (yours -> the new one), the release date
+and the package it would install in words, with its size (*Oct 16 · macOS
+app, Apple silicon · 188 MB*), then **the release notes, rendered**
+(headings, bullets, bold - not raw markdown) in a scroller, with *Full release
+notes on GitHub* under them. A card says what installing does to this session
+before you click: TyraX closes, installs and reopens, and if the open project
+has unsaved changes it says how many and that you will be asked to save first.
+
+![The update dialog in a source checkout, with a test version number: the
+version jump, rendered release notes, the card saying how this install is
+updated instead, Skip / Later / Open the release page, and the startup
+switch.](img/update-dialog.png)
 
 | | |
 |---|---|
-| **Download and install** | fetches the package, closes the editor (asking about unsaved work as usual) and applies the update, then reopens |
-| **What's new** | the release page in your browser |
-| **Skip this version** | stop mentioning *this* version at startup; the next release is announced normally |
+| **Install and restart** (with the size) | downloads the package - a bar with MB done, the total and the speed, and *Cancel download* - then closes the editor (asking about unsaved work as usual), applies the update and reopens |
 | **Later** | ask again next time |
+| **Skip** *version* | stop mentioning *this* version at startup; the next release is announced normally |
 
-**The first button appears only when this install can replace itself** — a
+The **Check at startup** switch sits at the bottom of the dialog too.
+
+**Install and restart appears only when this install can replace itself** — a
 Windows install or a Linux tarball, and in the tarball's case only if the
 directory is actually writable. A `.deb`, an `.rpm` or a source checkout gets a
 sentence naming what to do instead (`apt`, `dnf`, or `git pull && ./build.sh`)
-rather than a button that cannot work. The editor tells the cases apart by a
+in the card, and the button becomes *Open the release page*. The editor tells the cases apart by a
 one-word `.tyrax-package` marker file at the install root, written by the
 packaging script; no marker means a source checkout, which is the correct
 answer for a repo you built yourself.

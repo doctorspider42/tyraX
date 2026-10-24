@@ -23,10 +23,52 @@ of entries in it**, and the lines are drawn in the level's colour:
 | **info** | normal text | what the **editor** says about a build — `=== Build OK ===`, *Compiling (PS2DEV toolchain)…*, *Launching PCSX2* (the `[editor]` channel, when the line carries no diagnostic) |
 | **verbose** | dim text | everything else: the `> …` command echoes, raw docker/rsync/compiler output, and the game's own `LOG:` commentary |
 
-Click a chip to hide or show that level; the choice is remembered per panel in
+Errors and warnings also carry a mark in the left gutter in their colour (a
+fainter one on their continuation lines), so problem lines are found by
+scanning one column. Click a chip to hide or show that level; the choice is remembered per panel in
 `editor.ini` (`logMaskOutput`, `logMaskDebug`) because which noise you want
 hidden is a property of how you work, not of the project. Nothing is hidden by
 default. **Copy** copies the lines currently shown — the filter applies.
+
+## The console drawer
+
+In the *Default* layout, **Output**, **Debug** and the **Debugger** are three
+tabs of one bottom dock node — one drawer for everything the build and the
+running game say (Output is the front tab; a debug launch brings the Debugger
+forward, see [live-debugger.md](live-debugger.md)). Projects that saved their
+Default arrangement keep it; *Layout > Reset to built-in arrangement* applies
+this one. The other built-in layouts are unchanged.
+
+Both log panels share one **header row**: the panel's own actions on the left
+(Output: *Clear*, *Copy*; Debug: the source combo, *Reload*, *Auto*, *Copy*,
+*Clear log*), then the level chips pushed to the right edge.
+When the drawer is too narrow, the pieces move to a second row instead of being
+clipped (the chips stay right-aligned). The Debug window adds one quiet second
+row: the file it is reading, dimmed and cut with an ellipsis (the full path is
+its tooltip), and *Pop up on errors* at the right end.
+
+Every entry has a **time** in a dim column left of the message (`HH:MM:SS`).
+Output lines already carry the Runner's stamp, so the column shows that one and
+the message is drawn without it. A Debug line is stamped when the panel first
+sees it — which for a file that existed before the editor opened is the moment
+it was first read, and a reset (*Clear log*, switching the source, a new run
+recreating `bin/log.txt`, the 1 MB tail moving) restamps everything. Continuation
+lines and blank lines show no time, so the column marks where each entry starts.
+*Copy* gives the raw lines: Output's keep their stamp, Debug's have none. A
+mouse selection copies what it covers on screen — the messages, without the
+time column.
+
+The drawer **tabs carry a count**: a small pill on the *Output* / *Debug* tab
+with the number of error entries (danger colour) or, when there are none, of
+warnings (warn colour), "99+" past 99. The tab's label is the window's name,
+and the name is its id (layouts, `--ui-script` targets and `editor.ini` store
+"Output" / "Debug"), so the count cannot go into the title. Instead the window
+is submitted with `ImGuiWindowFlags_UnsavedDocument` while it is docked and has
+something to count — the stock flag that makes a tab reserve a marker slot at
+its right end — and `App::drawLogTabBadge` paints the pill over that slot,
+reading the tab's rect from the dock node's tab bar (ImGui internals:
+`DockNode->TabBar`, `TabBarFindTabByID(window->TabId)`). A floating log window
+gets neither the flag nor the pill.
 
 ## The two rules worth knowing
 
@@ -53,17 +95,28 @@ it.
 ## Getting to Output while a build runs
 
 *Output* is usually a tab in a dock node, so it is often behind something else
-exactly when a build is happening. The menu bar carries the state instead: a
-spinning **BUILDING** chip at the end of the bar while the Runner works, a red
+exactly when a build is happening. The status bar carries the state instead: a
+spinning **BUILDING** chip at its left end while the Runner works, a red
 **BUILD FAILED** afterwards if it did not make it, and nothing at all otherwise.
 Clicking either brings this panel to the front.
 
-## Select text
+## Selecting text
 
-ImGui's editable text is one colour, so the coloured view cannot be selected
-with the mouse. The **Select text** checkbox swaps in a read-only text box over
-the *same filtered lines* — colouring for selection, with the filter still
-working. It is remembered too (`logSelectOutput` / `logSelectDebug`).
+The coloured lines select directly with the mouse, like a terminal: **drag**
+to select (dragging past the top or bottom edge scrolls), **Shift+click** to
+extend, **double-click** for a whole line, **Ctrl+A** for everything shown,
+**Ctrl+C** to copy, **Esc** to drop the selection; right-click offers *Copy* and
+*Select all*. Hidden levels are skipped in the copy, and the view holds its
+position while a drag is in progress even when new lines arrive.
+
+ImGui's own selectable text is an `InputText`, which is one colour, so the
+panel does the selection itself (`drawLogPanel`): the lines stay plain
+`TextUnformatted` calls and the selection is a (line, byte) pair hit-tested
+against them — every row is one font and one height, so a mouse position maps
+to a line by division and to a byte by measuring glyphs. While a log panel has
+focus, the editor's global Ctrl+C (copy scene objects) stands down. (Older
+versions had a *Select text* switch that swapped in a one-colour text box; its
+`logSelectOutput` / `logSelectDebug` keys in `editor.ini` are now ignored.)
 
 ## Where the code is
 
@@ -84,8 +137,10 @@ so a harness should assert that parsing a log one line at a time gives exactly
 what parsing it in one go does.
 
 The panels themselves are `App::logSetText` / `App::logRefresh` /
-`App::drawLogPanel` in `src/app.cpp`, shared by both windows so they cannot
-drift apart. The view is drawn through an `ImGuiListClipper`, which is what
+`App::drawLogHeader` / `App::drawLogPanel` (+ `App::drawLogTabBadge`) in
+`src/app.cpp`, under the `// --- console drawer ---` comment, shared by both
+windows so they cannot drift apart. `logview::Line::stamp` is the length of a
+line's Runner stamp (0 or 9); `LogView::times` holds each line's arrival time. The view is drawn through an `ImGuiListClipper`, which is what
 keeps a 15 000-line log scrolling at frame rate.
 
 ## Related

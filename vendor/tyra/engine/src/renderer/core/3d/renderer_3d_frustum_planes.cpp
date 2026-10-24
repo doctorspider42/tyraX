@@ -64,6 +64,27 @@ void Renderer3DFrustumPlanes::update(const CameraInfo3D& cameraInfo,
   frustumPlanes[5].update(ftr, ftl, fbl);  // FAR
 }
 
+void Renderer3DFrustumPlanes::narrow(float u0, float u1, float v0, float v1) {
+  if (u0 < -1.0F) u0 = -1.0F;
+  if (u1 > 1.0F) u1 = 1.0F;
+  if (v0 < -1.0F) v0 = -1.0F;
+  if (v1 > 1.0F) v1 = 1.0F;
+  if (u0 >= u1 || v0 >= v1) return;  // degenerate: keep the full frustum
+  // The same corners update() builds, with the edges pulled in: the left
+  // edge sits at X * width * u0 (u0 = -1 is update()'s -X * width).
+  const Vec4 ntl2 = nearCenter + Y * (nearHeight * v1) + X * (nearWidth * u0);
+  const Vec4 ntr2 = nearCenter + Y * (nearHeight * v1) + X * (nearWidth * u1);
+  const Vec4 nbl2 = nearCenter + Y * (nearHeight * v0) + X * (nearWidth * u0);
+  const Vec4 nbr2 = nearCenter + Y * (nearHeight * v0) + X * (nearWidth * u1);
+  const Vec4 ftl2 = farCenter + Y * (farHeight * v1) + X * (farWidth * u0);
+  const Vec4 fbr2 = farCenter + Y * (farHeight * v0) + X * (farWidth * u1);
+  const Vec4 fbl2 = farCenter + Y * (farHeight * v0) + X * (farWidth * u0);
+  frustumPlanes[0].update(ntr2, ntl2, ftl2);  // Top
+  frustumPlanes[1].update(nbl2, nbr2, fbr2);  // BOTTOM
+  frustumPlanes[2].update(ntl2, nbl2, fbl2);  // LEFT
+  frustumPlanes[3].update(nbr2, ntr2, fbr2);  // RIGHT
+}
+
 void Renderer3DFrustumPlanes::computeStaticData(const float& fov) {
   if (fabs(fov - lastFov) < 0.00001F) return;
 

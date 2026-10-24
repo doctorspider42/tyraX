@@ -1,5 +1,102 @@
 #pragma once
 
+// 2.0.0 (the first 2.x release; everything below up to 1.177.14 ships in it):
+// Sound effects load per scene (docs/sound.md, "SPU2 sample RAM") - shared ones at boot,
+// a scene's own on entry, freed newest first on leaving; Project > Audio meters shared + heaviest
+// scene and gains Always loaded (format 121). audsrv's sample RAM is first fit, so a sound freed
+// anywhere gives its RAM back (vendor/tyra/audsrv README, change 5). Layer sounds and named sound
+// banks (Set Sound Bank Loaded, format 122): need-based residency, AudioAdpcm::unload stops only
+// the voices playing the freed sample; the meter estimates each scene's worst moment. The Audio
+// page groups sounds by what loads them (Always / Scene / Layer / Bank / Other scenes / Never),
+// with an inspector for the selected one and a Sound RAM card per scene.
+// The Project and Properties panels slide away (rail icon, status bar, Ctrl+B / Ctrl+Alt+B);
+// each window layout remembers which are collapsed (format 119); the workspace switcher's "..."
+// lists the other layouts; built-in layouts cannot be deleted and are restored on load.
+// Output/Debug text selects with the mouse over the coloured lines (no Select text switch);
+// Copy image publishes PNG + CF_DIB on Windows so Electron apps accept the paste.
+// The Debugger's Build & Run follows the PCSX2 | PS2 switch (it always launched PCSX2).
+// The procedural node inspector is a laid-out form per node (widgets.hpp "node inspector kit").
+// Cutscene Director: full-height timeline with an expandable track tree (track > channel >
+// axis) and per-channel keys (format 120); the shot and the inspector share a side column.
+// Object settings live in Output; clarify instanced detail.
+// Dense procedural previews use authored LOD and visibility culling.
+// Blender-baked broadleaf sprays and forest/hero tree presets.
+// It integrates main, the redesigned editor and the TyraX2 frame pipeline.
+// Combined project format v114 preserves additive fields from all branches.
+
+// 1.176.3 (docs/static-batching.md, "Members at the world origin"): two bakes left the
+// g_bakeLocal global set (a matrix-path LOD tier, a matrix-path invisible wall),
+// so the next static batch rebuild baked its members without their positions and
+// drew them at (0, 0, 0) - the Motor District's night windows and neon blade in
+// the middle of the central crossing. Both clear it; rebuildStaticBatch clears it
+// on entry. Generated game code only, PATCH.
+// 1.176.2 (docs/stapip-stamps.md, "Light pick"): a stamp keeps its light inputs
+// (world sphere, model inverse) with its world box instead of re-deriving them
+// every frame, and pickDynLight rejects out-of-reach lights from a packed
+// position/range array. PS2: the stamps' light section 443 -> 399 us a driving
+// frame; the frame itself unchanged. Engine only, PATCH.
+// 1.176.1 (docs/tyrax2-night-ee-2026-10-12.md, "The submission walked every chain
+// four times"): Vif1Queue::submit records a producer's chain into the frame's
+// native chain in ONE walk - payloads into the arena, REFs straight in - instead
+// of preflight + tag copy + REF fixup + native emission. PS2, same ELF: parked
+// work 10.57 -> 10.35 ms, driving 11.07 -> 10.75 ms. Engine only, PATCH.
+// 1.176.0: roads tessellate into error-bounded bands (docs/roads.md, Bands):
+// scene-0 Motor District roads 19 320 -> 8 018 triangles; PS2 A/B pending.
+// 1.175.5: Show in reflections no longer keeps an object out of static batches;
+// the flag joins the group key and the env-map passes submit reflected batches whole.
+// 1.175.4: the chase camera sweeps the frame's vehicle collider list (boxes carry
+// their world extents) instead of every object: ~0.20 -> ~0.07 ms on a PS2.
+// 1.175.3: sweepSphere keeps each object's box, rotated centre and world
+// extents between calls (keyed like the vehicle colliders): the chase-camera
+// sweep drops from ~0.30 to ~0.20 ms a frame on a PS2.
+// 1.175.2: engine math inline asm (Vec4/M4x4/atan2) declares its memory and
+// register clobbers; atan2 no longer rewrites its inputs behind GCC's back.
+// 1.175.1: reverted 1.175.0 (partly batched models were 0.15 ms slower parked,
+// crossing-bag head stamps saved nothing on the PS2).
+// 1.174.2: crossing packages REF an immutable copy of their streams, so the
+// frame recorder stops copying terrain arrays every frame (70 -> 16 KB).
+// 1.174.1: stamp hits inside a submission batch are queued and replayed in
+// runs with prefetch (StaPipCore::setStampDeferral); packed stamp keys.
+// 1.174.0: VU1 clip programs stream their output (mid-program XGKICKs) and read
+// strips, so a frustum-crossing package is clipped whole and by pointer.
+// 1.173.5: terrain residency/LOD follows the camera target before visual shake.
+// Millimetre camera jitter no longer flips half-chunk detail bands while driving.
+
+// 1.173.4: select the current material's texture filter before encoding TEX1.
+// Static replay and clipped draws no longer inherit the preceding bag's filter.
+
+// 1.173.3: bounded scene-load residency for baked ground-shadow masks.
+// Avoid PNG loading during terrain rendering on qualifying scenes.
+
+// 1.173.2: refine partial terrain strips before VU1 clipping.
+// Preserve strip order and all coplanar passes; no project format change.
+
+// 1.173.1: reuse partial static packet bodies and strip expansion by default.
+// The combined PS2 driving contrast preserves geometry and dynamic captures.
+
+// 1.173.0: all/player dynamic-light receivers with independent scene overrides.
+// Format v96 adds receiver tokens; missing/invalid values preserve full lighting.
+
+// 1.172.0: deferred Set Frame Pipeline and requested-state getter flow nodes.
+// Repeated requests preserve overlap; project format remains v95.
+
+// 1.171.0: default TyraX2 for new projects; preserve legacy and explicit opt-out.
+// Reuse owned snapshot tag counts for native sizing; settled adaptive interleave.
+// Format v95 always writes framePipeline; missing v94-or-older requests stay off.
+
+// 1.170.1: complete the empty vehicle definition initializer after merging controls cards.
+// 1.170.0: hierarchical hardware timeline, actual render jobs and compile-out controls.
+// Project format remains v94.
+
+// 1.169.2: preserve PAL 576i mode 4 in Set Display Mode flow code generation.
+// Project format remains v94.
+
+// 1.169.1: wait direct DMA after pending hybrid presentation starts its copy.
+// Fixes the physical TyraX2 loading race. Project format remains v94.
+
+// 1.169.0: opt-in TyraX2 ordered frame recording and N/N-1 execution.
+// Format v94 adds framePipeline, absent/false preserves ordinary submission.
+
 // 1.162.3: merge native build caching, scene-data separation, parallel game
 // compilation and OpenVCL output checks with painted sky/shadow/handbrake fixes.
 // Project format remains v89 from vehicles.
@@ -5514,8 +5611,65 @@
 // second one swaps the probe's terrain and road chunks for a 21x21 grid in a
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
-#define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 173
+#define TYRAX_VERSION_MAJOR 2
+#define TYRAX_VERSION_MINOR 0
+#define TYRAX_VERSION_PATCH 0
+// 1.173.0: the first step of the main-window redesign (docs/editor-theme.md).
+// Face buttons gets a new palette; Palette/Semantics gain ground, field,
+// special and the axis triple; the dockspace host and its splitters draw in the
+// ground colour (theme::pushDockspaceColors) so docked panels read as cards
+// with 6 px gaps; value fields are inset. App::loadUiFont also loads the
+// family's heading cut and a fixed-width face (platform::uiFontFiles/
+// monoFontFiles), exposed through src/widgets.hpp, whose ui::AxisDrag3 replaces
+// DragFloat3 for transforms and collision boxes; the log panels use the mono face.
+// The window frame (src/shell_ui.cpp): a taller main menu bar (FramePadding
+// pushed for BeginMainMenuBar only) with a drawn mark, project / scene
+// breadcrumb (App::selectScene), Unsaved marker, profile pill, PCSX2|PS2
+// segmented target, Build, filled Run + caret, Stop; App::drawStatusBar is a
+// viewport side bar holding the build/live chips (same ##tb_* ids, same labels).
+// Viewport overlays: ui::OverlayPanel cards + OverlayIconButton (ui::Glyph) /
+// OverlayTextButton replace the SmallButton rows, same labels as IDs.
+// Properties: object header (colour tile, borderless "Name", type subtitle),
+// ui::Section for its sections, ui::Switch for all 53 of its checkboxes.
+// Left rail (App::drawRail, ##Rail side bar) picks leftPage_; the Project
+// panel draws one page; Outliner rows hand-draw icon/name/type over a
+// transparent-text Selectable that keeps the "name  (type)" label.
+// Logs: pill level chips, gutter marks for error/warning lines (lines indented
+// by the gutter; the child has no padding), switches in the Debug window.
+// Workspaces (Scene/Logic/Cinema/UI & HUD = layouts by recipe) in the top bar;
+// command palette (palette_ui.cpp, Ctrl/Cmd+K). The Debugger recipe docks
+// Project on the left. --ui-script `key ctrl+X` now sends Super on macOS
+// (ImGui swaps Ctrl/Cmd under ConfigMacOSXBehaviors), so it reaches Ctrl
+// shortcuts there.
+// Dear ImGui moves in-tree (vendor/imgui-tyrax, dropped from deps.sh/deps.ps1)
+// for its first patch, ImGuiStyle::DockNodeRounding: dock nodes as rounded
+// cards. The viewport image is AddImageRounded over a Dummy.
+// Then, merged from parallel branches: the console drawer (Output/Debug/
+// Debugger in one bottom node, time column, tab count badges), viewport glass
+// cards (Viewport::blurBackdrop) with a view pill / selection readout / As PS2
+// switch, the menus behind the logo (drawLogoMenu/drawMainMenus; uiscript
+// opens it for a bare menu name), "N unsaved" (History::stepsFromSaved), the
+// merged OS title bar (platform_mac.mm; Windows WndProc subclass; editor.ini
+// nativeTitleBar), Properties as label-left rows with Object/Material/Physics
+// tabs (ui::InspectorRows), panel headers instead of dock chrome
+// (ui::PanelChromeNewFrame, ImGui patch TabPillInset) and outliner chips/
+// folders/eyes.
+// Geist (v1.7.2, SIL OFL 1.1) is embedded from resources/fonts via
+// embed_binary.cmake (uifonts::kGeist*) and is the interface font; the system
+// chains are merged behind each face as glyph fallbacks.
+// No PlayStation marks in the editor's own chrome: the top-bar mark is the app
+// icon ("Tx", App::appIconTexture), workspaces use descriptive ui::Glyph icons
+// (Box/Nodes/Film/Screen), theme "Face buttons" is shown as "Graphite" (key
+// unchanged); a trademark notice sits in Help, on the welcome screen and in
+// the README. The pad's buttons stay where they ARE buttons (Remote Pad, prompts).
+// Then every tool window redesigned from the tool canvas, built on the
+// tool-window kit (src/toolkit.*: per-agent sections). Notable mechanics:
+// App::dockToolWindows docks tool windows beside the viewport (Side/Visual/
+// Page); Viewport::renderShot (second render for the Cutscene/Phone preview),
+// Viewport::gradingFrames, Viewport::prefabThumb; the HUD selection-id bug
+// (motion blur now uiFxSel_ 10); hudanim::transition (twin of hudTransEval);
+// .tree sidecars for the Tree Generator; staged project loading; the start
+// page (Welcome window over a KeepAliveOnly dockspace); no format change.
 // 1.173.0: THE CONTACT BROAD PHASE.
 // The walker (and game-side actors), the camera/carry sweep, the physics
 // statics and traceLine stopped walking every scene object: one broad phase
@@ -5546,6 +5700,23 @@
 // Solid objects' Properties come in collapsible sections, and a static
 // model's impostor / hull proxy is one "Distant version" choice with one Bake.
 // No format change.
+// 1.177.0: the reflection probe's baked background - Preferences > Rendering >
+// Reflect a baked background (format v97). The editor bakes one 128x32 8-bit
+// panorama per 16-unit road cell of what the probe sees of the static world
+// (ground within the radius, unmovable box proxies); the probe draws it as one
+// camera-facing card. Motor District, PS2: probe -0.04..-0.08 ms a driving
+// frame, on in examples/vehicle-playground. Also Ground shadows > Fold into
+// the terrain colour (opt-in): the ground maps darken terrain vertex colours
+// instead of drawing a pass (-1.1 ms driving by day on the district; 4-unit
+// node edges, so the district keeps the pass).
+// 1.177.0: the architecture audit's bake items (docs/tyrax2-architecture-
+// audit-2026-10-20.md): the vehicles' static collider grid
+// (TYRA_VEH_COLLIDER_GRID, docs/vehicles.md), baked static lamps
+// (settings.bakeStaticLamps, format v113, docs/dynamic-light-receivers.md),
+// lamp coronas as one VU1 billboard bag (TYRA_BEAM_CORONA_VU1,
+// docs/flashlight.md), headlight pools on the wheel-contact plane
+// (TYRA_VEH_POOL_PLANE) and kept spot shadow volumes (TYRA_SPOT_VOLUME_KEEP,
+// docs/shadows.md). MINOR.
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -5661,10 +5832,62 @@
 // spinner moved after the frame's first query stayed at its old box for the
 // rest of the frame: the loop now refreshes after the script stage and after
 // the spinners (a refresh that changes nothing placed skips the rebuild).
-#define TYRAX_VERSION_PATCH 2
 // 1.170.2: the AI guides installed into game projects (ai-support/) brought up
 // to date - editor-owned file list, the game-source split, script kinds, flow-
 // graph schema, model import, CLI verbs incl. --search-docs; --help lists codex.
+// 1.177.1: roads no longer swim on a console. Road chunks (and their spills
+// and soft edges) are cut to a tight X/Y clip band, StaPipInfoBag::
+// tightClipBand at 0.25 w instead of the 0.9 w guard band, so a road band's
+// long triangles keep no vertex ~1590 px off screen for the GS to interpolate
+// texture coordinates from. PS2: centre-line swing up to 5.5 px -> 1 px.
+// 1.177.2: no more holes in a headlight beam, a blob shadow or a lamp's light
+// pool at a road edge. Their 3x3/4x4 ground lattices spanned the road's
+// 0.12 step linearly and dipped under the asphalt just past the edge, where
+// the road's own triangle won the z test (GS dump). liftLatticeOverRoadStep
+// raises each corner by the largest road step a neighbouring corner sees.
+// 1.177.3: the bumper camera rides the BODY. Its eye was a point on the flat
+// yaw plane at chassis height, so the pitching body swung the bonnet through
+// the lens and a dip sank it into the road. It now takes the drawn attitude
+// (vehBodyRotation, lean included), sits past the baked bodyOverhang, never
+// drops under the ground surface and eases the body's pitch into its aim.
+// 1.177.4: roads (and everything 3D) no longer smear into streaks for one
+// frame when a texture uploads mid-frame. Path3::sendTexture wrote the
+// TEXTURE's wrap into CLAMP_1 behind RendererCoreGS::currentTextureWrap, so a
+// REPEAT x CLAMP upload (tyre marks) left V clamped for the rest of the frame.
+// The upload now restates the wrap in force. Found with an input recording
+// replayed at 60 Hz, PCSX2 video capture and a multi-frame GS dump.
+// 1.177.5: projects without roads build again - liftLatticeOverRoadStep
+// tested ROAD_COUNT, which only a project with roads generates.
+// 1.177.6: the Motor District draws its ground shadow maps as a pass again
+// (bakedShadowGroundFold off in examples/vehicle-playground): the fold's
+// 4-unit grid turned building shadows into blobs. PS2, replayed drive: the
+// pass costs 0.4-0.75 ms and the district still holds 60 fps.
+// 1.177.7: VU0 macro-mode Vec4/M4x4 math inline with exact "m" asm operands
+// and mmi::equal64 for the StaPip matrix checks (from fireapache/tyraX
+// dev-vu0-simd; docs/vu0-macro-mode.md). PS2: driving -0.04..-0.13 ms, parked
+// unchanged; fixes the -Os hang in src/math.
+// 1.177.8: a projected-shadow caster below its floor keeps its own clamped
+// copy (projClampCache) instead of one shared buffer behind a full
+// Vif1Queue::drain() per part: Showcase on a PS2 28.5 -> 47.7 fps
+// (docs/shadows.md, "The clamp buffer is per caster").
+// 1.177.9: a portal view culls against the opening's screen rectangle
+// (RendererCore3D::narrowFrustumToRect), not the whole screen: Showcase on a
+// PS2 47.5 -> 50.0 fps (docs/portals.md).
+// 1.177.10: env (matcap) passes take the stamp route - the stamp re-writes
+// the camera basis on replay (docs/stapip-stamps.md, "Env bags"): Showcase
+// -2.1 ms of EE a frame on a PS2.
+// 1.177.11: streamed music no longer turns into a buzz a few seconds in -
+// audsrv's EE callback server ran below the busy-polling game thread and
+// starved, stalling the IOP's playback thread (docs/sound.md).
+// 1.177.12: static mesh LOD picks its level by the distance to the object's
+// world box, not its origin - a big floor no longer swaps to its far level
+// (and changes brightness) under the player's feet (docs/model-pipeline.md).
+// 1.177.13: a blob shadow lies on the top of a solid object (a model floor),
+// not only on terrain and roads - with the terrain off it used to vanish
+// (docs/shadows.md, "A blob on a model floor").
+// 1.177.14: split screen's per-half scissor/offset packets are DMA chains,
+// so they record into the frame instead of draining the VIF1 queue: two-
+// players on a PS2 25 -> 50 fps in split (docs/multiplayer.md).
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6154,14 +6377,75 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // written with the rest of the spec. Missing = no markers (the guessed pipes)
 // and smoke 1, i.e. an older car smokes too - it is presentation. Additive;
 // no migration step.
+// v94 adds the optional framePipeline project preference (default false).
 // v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
+// v95 (docs/streaming-layers.md, the Outliner eye): an object's
+// "editorHidden", written only when true. Missing = shown, as before. Editor
+// only - codegen never reads it. Additive; no migration step.
 // v95 (docs/collision-boxes.md, "The broad phase"): settings "broadPhase"
 // ("octree"), written only when not "grid", and per scene a settings
 // "broadPhase" plus overrides "broadPhase": true, written only when the scene
 // overrides it. Missing = the grid / inherit. Additive; no migration step.
-inline constexpr int kFormatVersion = 95;
+// v96: unifies the additive Outliner visibility and collision broad-phase
+// fields from the two v95 branches. No transformation is needed.
+// v95 on the TyraX2 branch defaulted new projects to TyraX2 and always wrote
+// framePipeline. v114 preserves explicit requests and treats every missing
+// request as false because other branches independently used v95.
+// No destructive migration step: legacy files retain their request in memory.
+// v97 (docs/reflective-materials.md, "The baked background"):
+// ProjectSettings::reflectionPanorama, written only when true. Missing = off,
+// i.e. the probe redraws the ground and the box proxies live as before.
+// Additive; no migration step. Also ProjectSettings::bakedShadowGroundFold
+// (docs/shadows.md, "Folded into the vertex colour"), written only when true;
+// missing = the ground maps keep their own pass.
+// v113 (docs/dynamic-light-receivers.md, "Baked lamp light"): ProjectSettings::
+// bakeStaticLamps, written only when true. Missing = every dynamic light
+// live, as before. Additive; no migration step. (Numbered well clear of
+// v97..v112 on purpose: several renderer branches were adding formats at the
+// same time - the "arrive-second renumbers" rule still applies on merge.)
+
+// v114: TyraX 2.0 integrates TyraX2 settings through v113, editorHidden,
+// and project/scene collision broadPhase. All keys are read independently of
+// the branch format stamp; no destructive migration is required.
+// v115 (docs/loading-screens.md): a loading screen's "anims" (animated sprite
+// elements) and "wait" (press a button to continue + its prompt), and
+// ProjectSettings::showEngineLogo - all written only when used/off. Missing =
+// none, no wait, the logo shows, exactly as before. Additive; no migration.
+// v116 (docs/loading-screens.md, "Assignments"): Project::bootLoadingScreen,
+// the Game start screen ("bootLoadingScreen", written only when set; missing =
+// the start scene's screen). It replaced 115's "wait": { "bootOnly" }: such a
+// screen becomes the Game start screen and its scenes get a copy that does
+// not wait (project.cpp, migrateBootOnlyWait) - what the player saw stays.
+// v117 (docs/procedural-generation.md, "Distant version per row"): a Pick
+// Asset / Pick Prefab pool row's "lod" (a distant-version .obj), written only
+// when set; its switch distance is the row's previously unused v[3]. Missing =
+// no switch, as before. Additive; no migration.
+// v118 (docs/upscaler.md): the neural BLSS reconstruction is gone, so the
+// writer drops blssNetwork / blssSharpen / blssTemporal / blssJitter /
+// blssDebugView, a scene's upscaler "network" and the blssShots section (the
+// reader ignores them), and adds "blssParticles" (written only when true;
+// missing = the whole scene is reduced, as before). Bumped so an older editor
+// cannot read the missing blssNetwork as true. No migration.
+// v119 (docs/editor-theme.md, "left rail"): a window layout's
+// "projectCollapsed" / "propertiesCollapsed" (the side panels slid away),
+// written only when true; missing = both panels out, as before. The built-in
+// Procedural layout is seeded with the Project panel collapsed. Additive; no
+// migration.
+// v120 (docs/cutscenes.md, "Per-channel keys"): a cutscene object key's "ch"
+// - the components it sets (sequence.hpp kSeqCh*), written only when it is not
+// all of them. Missing = every component, which is what an older key meant, so
+// old projects open unchanged; bumped so an older editor cannot load a partial
+// key as a full pose. No migration.
+// v121 (docs/sound.md, "SPU2 sample RAM"): Project::soundsAlwaysLoaded,
+// "soundsAlwaysLoaded" in the audio keys, written only when a listed sound is
+// pinned. Missing = none, which is what every older project means. Additive;
+// no migration.
+// v122 (docs/sound.md, "SPU2 sample RAM"): Project::soundBanks, "soundBanks"
+// in the audio keys ({ "name", "sounds" }), written only when there is one.
+// Missing = no banks. Additive; no migration.
+inline constexpr int kFormatVersion = 122;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

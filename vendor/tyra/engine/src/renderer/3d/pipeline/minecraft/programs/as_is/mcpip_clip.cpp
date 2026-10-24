@@ -11,6 +11,7 @@
 # (renderer/core/paths/path1/vif1_queue.hpp).
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include "renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.hpp"
 #include "renderer/core/paths/path1/vif1_queue.hpp"
 
@@ -158,8 +159,8 @@ void McpipClip::setDBufferSize() {
 }
 
 void McpipClip::sendVU1StaticData() {
-  Vif1Queue::drain();
-  dma_channel_send_packet2(staticPacket, DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
+  frameSendPacket(staticPacket, DMA_CHANNEL_VIF1, true);
 }
 
 }  // namespace Tyra

@@ -17,6 +17,7 @@ const SceneObjectData SCENE_0_OBJECTS[8] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {8};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[8] = {0xf7e35d92c6dc1ba7ULL, 0x03e3f52819aec9cdULL, 0xdd02563540f3648cULL, 0x88cafb6926a195efULL, 0xe8a2f5b898415d4cULL, 0x7caec24a859d3babULL, 0xb8cc2f5d310aab42ULL, 0x7fc3c1d71538f910ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[8] = {1,1,1,1,1,1,1,1};
 
 }  // namespace Two_players
 

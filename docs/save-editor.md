@@ -5,7 +5,31 @@ the save presents itself in the PS2 browser, exactly what one slot costs, the
 named values and texts every slot carries, and the checkpoint system that saves
 progress without touching the card at all.
 
-![The Save Editor showing the animated card icon, slot settings and exact storage cost.](img/save-editor.png)
+![The Save Editor: the card as the PS2 browser shows it, what every slot carries with who uses it, card space and checkpoints, and how saving behaves.](img/save-editor.png)
+
+The window is three columns (a window narrower than ~860 px stacks them):
+
+- **The card** (left) — the PS2 browser preview: the 3D icon playing its
+  motion with the title under it, then *Title*, the icon source (*Icon* model,
+  *Clip* for a `.glb`, *Image*), **Motion** as one segmented control, *Frames*
+  (with the icon's KB) and *Amount*.
+- **What every slot carries** (centre) — one row per save value (`#`) and
+  text (`T`): name, the **New game** value, **Used by** (the objects whose
+  graphs write or read it, and menu rows; amber *nothing uses it* when none
+  do; hover for the full list) and its bytes. *+ Value* / *+ Text* add one.
+  Under them the fixed part of a slot (Save-state objects, player/scene/header,
+  World Facts) and the padded slot total; the **Card space** bar in clusters
+  with a one-line verdict ("The icon is 90% of the card space..."); and
+  **Checkpoints in this project** — which objects use Save, Load, Commit and
+  Has Checkpoint (click to open the graph).
+- **Behaviour** (right) — *Save menu writes* (Where you stand / Last
+  checkpoint), *Slots*, *Rows per page* with its page count, *Autosave slot*,
+  a link to the save menu's look in the Menu Editor, and **Writing**: the
+  background-write and spinner switches (the spinner's settings summed up under
+  it), a corner picker you click, the live spinner, *Margin*, *Size*, *Spinner
+  sheet*.
+
+The header shows the card folder and how much of an 8 MB card the saves take.
 
 The game keeps **three slots** in its own directory on card 1
 (`/TYRA-<PROJECT>`). When the BIOS memory-card modules cannot be loaded, or no
@@ -76,8 +100,7 @@ written once per card, not once per slot.
 The table breaks down one slot byte for byte: the header (scene index, player
 position and facing), four bytes per save value, a fixed 32 bytes per save
 text, 32 bytes per save-flagged object state — sized by the largest per-scene
-count of objects with *Save state* ticked, which the tree below the table lists
-by name — and 16 bytes per **World Fact** that rides a slot (an id plus three
+count of objects with *Save state* ticked (hover the row for them by scene) — and 16 bytes per **World Fact** that rides a slot (an id plus three
 floats; see [world-facts.md](world-facts.md)). The slot file is that sum
 rounded up to a 64-byte boundary.
 
@@ -85,12 +108,12 @@ A catalog with **profile**-lived facts adds one more row: those live in a file
 of their own beside the slots, shared by every save, and it costs a whole 1 KB
 cluster whatever is in it.
 
-Two totals are shown, and they deliberately disagree:
+Two totals exist, and they deliberately disagree:
 
-- **All data (raw bytes)** — the arithmetic sum. Useful for "did adding that
-  save value matter?".
-- **Card space used (1 KB clusters)** — what the card actually loses, and the
-  number to quote. A PS2 memory card allocates in whole **1 KB clusters** and
+- **raw bytes** — the arithmetic sum (the slot row's note, and the card-space
+  verdict's tooltip). Useful for "did adding that save value matter?".
+- **Card space (1 KB clusters)** — what the card actually loses, and the
+  number to quote: the stacked bar and the header. A PS2 memory card allocates in whole **1 KB clusters** and
   no two files share one, so *every* slot costs at least a full kilobyte
   however small its payload, `icon.sys` costs one, `list.icn` costs as many as
   it needs, and the save's own directory costs one more.
@@ -153,7 +176,7 @@ whole page, and a `2/5` counter sits above the rows. Rows per page is capped at
 8 — the panel bake's row limit.
 
 Every slot is its own file and costs a whole 1 KB cluster however small it is,
-so a hundred slots is about 100 KB of card. The size table below the setting
+so a hundred slots is about 100 KB of card. The Card space bar (centre column)
 does that sum for the count you picked.
 
 **The save menu is a normal menu.** It appears in *Tools > Menu Editor* like

@@ -99,6 +99,10 @@ def find_user_ini(exe):
     sys.exit('pcsx2-capture: no PCSX2.ini found (looked in %s)' % ', '.join(map(str, cands)))
 
 
+# exe -> does this build understand -datapath? Probed at most once per process.
+_datapath_probe = {}
+
+
 def find_pcsx2(explicit):
     if explicit:
         return explicit
@@ -106,6 +110,31 @@ def find_pcsx2(explicit):
         if c and os.path.isfile(c):
             return c
     sys.exit('pcsx2-capture: PCSX2 not found - pass --pcsx2')
+
+
+def assert_datapath_support(exe):
+    """`-datapath` only exists since Apr 2026 (commit bd486f17); older builds,
+    e.g. the 2.0.2 installer, pop a modal "Unknown parameter" dialog that sits
+    there unattended. PCSX2 prints its usage to stderr (it is a GUI-subsystem
+    exe), so probing `-help` is deterministic - see docs/emulator-captures.md."""
+    # Once per interpreter: every invocation spawns the exe a second time just
+    # to read its usage text. The answer cannot change inside one process, and
+    # on a fast disk the probe is a fifth of the time it takes to reach the
+    # guest at all.
+    global _datapath_probe
+    if exe in _datapath_probe:
+        if not _datapath_probe[exe]:
+            sys.exit('pcsx2-capture: %s does not support -datapath - install a '
+                     'PCSX2 nightly or stable >= 2.8.2' % exe)
+        return exe
+    r = subprocess.run([exe, '-help'], capture_output=True, text=True, timeout=15,
+                       creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    ok = '-datapath' in ((r.stdout or '') + (r.stderr or ''))
+    _datapath_probe[exe] = ok
+    if not ok:
+        sys.exit('pcsx2-capture: %s does not support -datapath (usage mentions it: %r) - install a '
+                 'PCSX2 nightly or stable >= 2.8.2' % (exe, '-datapath' in (r.stdout or '') + (r.stderr or '')))
+    return exe
 
 
 def ini_set(text, section, key, value):
@@ -124,11 +153,46 @@ def ini_set(text, section, key, value):
     if start is None:
         return text.rstrip('\n') + '\n\n[%s]\n%s = %s\n' % (section, key, value)
     for i in range(start + 1, end):
-        if re.match(r'^%s\s*=' % re.escape(key), lines[i]):
+        # Case-insensitive: user inis may spell keys differently (PCSX2 writes
+        # SaveStates, some versions/documentation Savestates) and a missed match
+        # would INSERT a duplicate, leaving the user's absolute path live.
+        if re.match(r'^%s\s*=' % re.escape(key), lines[i], re.I):
             lines[i] = '%s = %s' % (key, value)
             return '\n'.join(lines)
     lines.insert(end if lines[end - 1].strip() else end - 1, '%s = %s' % (key, value))
     return '\n'.join(lines)
+
+
+def ini_del(text, section, key):
+    """Removes key (and the section, if it empties) from [section].
+
+    Deleting, not blanking: a key set to an empty value is NOT the same thing to
+    PCSX2. GetStringList() (MemorySettingsInterface.cpp:221) returns one entry
+    per matching key line, so "Paths = " yields a list holding one EMPTY string
+    - `!dirs.empty()` is still true and the scan still runs. Only a key that is
+    genuinely absent reads back as an empty list.
+    """
+    lines = text.split('\n')
+    sec, start, end = None, None, len(lines)
+    for i, l in enumerate(lines):
+        m = re.match(r'^\[(.+)\]\s*$', l)
+        if m:
+            if sec == section:
+                end = i
+                break
+            sec = m.group(1)
+            if sec == section:
+                start = i
+    if start is None:
+        return text
+    body = lines[start + 1:end]
+    kept = [l for l in body if not re.match(r'^%s\s*=' % re.escape(key), l, re.I)]
+    if len(kept) == len(body):
+        return text
+    rest = lines[end:]
+    if any(l.strip() for l in kept):
+        return '\n'.join(lines[:start + 1] + kept + rest)
+    return '\n'.join(lines[:start] + rest)
 
 
 def ini_get(text, section, key):
@@ -138,10 +202,22 @@ def ini_get(text, section, key):
         if m:
             sec = m.group(1)
         elif sec == section:
-            m = re.match(r'^%s\s*=\s*(.*)$' % re.escape(key), l)
+            m = re.match(r'^%s\s*=\s*(.*)$' % re.escape(key), l, re.I)
             if m:
                 return m.group(1).strip()
     return None
+
+
+# Canonical [Folders] keys (as PCSX2 writes them) -> private sub-directory name.
+# Every entry is rewritten to an ABSOLUTE path under the private root: user inis
+# routinely carry absolute overrides (e.g. D:\PSX ROMs\PCSX2_Data\sstates), and
+# any key we skip - by casing or by not knowing it - would leak savestates,
+# memory cards and cache into the user's real PCSX2 data directory.
+FOLDER_KEYS = {'Bios': 'bios', 'Snapshots': 'snaps', 'SaveStates': 'sstates',
+               'MemoryCards': 'memcards', 'Logs': 'logs', 'Cheats': 'cheats',
+               'Patches': 'patches', 'UserResources': 'resources', 'Cache': 'cache',
+               'Textures': 'textures', 'InputProfiles': 'inputprofiles',
+               'Videos': 'videos', 'Covers': 'covers'}
 
 
 def prepare_datapath(dp, user_ini, slot):
@@ -162,16 +238,54 @@ def prepare_datapath(dp, user_ini, slot):
     for f in src_bios.iterdir() if src_bios.is_dir() else []:
         if f.is_file() and (stem is None or f.stem == stem) and not (dst_bios / f.name).exists():
             shutil.copy2(f, dst_bios / f.name)
-    for sec, key, val in (('Folders', 'Bios', 'bios'), ('Folders', 'Snapshots', 'snaps'),
-                          ('Folders', 'Savestates', 'sstates'), ('Folders', 'Logs', 'logs'),
-                          ('EmuCore', 'EnablePINE', 'true'), ('EmuCore', 'PINESlot', str(slot)),
+    for key, sub in FOLDER_KEYS.items():
+        (root / sub).mkdir(exist_ok=True)
+        text = ini_set(text, 'Folders', key, str(root / sub))
+    for sec, key, val in (('EmuCore', 'EnablePINE', 'true'), ('EmuCore', 'PINESlot', str(slot)),
                           ('EmuCore', 'HostFs', 'true'),
                           ('Hotkeys', 'GSDumpSingleFrame', 'Keyboard/F12'),
-                          ('UI', 'SetupWizardIncomplete', 'false')):
+                          ('UI', 'SetupWizardIncomplete', 'false'),
+                          # An unattended run must NEVER pause when it loses
+                          # focus: the user clicking another window silently
+                          # freezes the VM (QtHost.cpp
+                          # onApplicationStateChanged) and every timing turns to
+                          # noise. The user ini has it on. Renderer, MTVU, VSync
+                          # and SDL are deliberately left as the user set them:
+                          # this script must not change emulation behaviour.
+                          ('UI', 'PauseOnFocusLoss', 'false')):
         text = ini_set(text, sec, key, val)
+    # Deleted, not blanked - see ini_del. Each is startup work the run does not
+    # need, measured on a 31 s run whose first guest line arrives 3.3 s in.
+    for sec, key, why in (
+            # Recursively walks the USER'S real ROM folder - "Scanning D:\PSX
+            # ROMs (recursively)", GameList.cpp:689, ~190 ms - and those paths
+            # belong to the machine, not to this private datapath.
+            ('GameList', 'Paths', 'walk the rom folders'),
+            ('GameList', 'RecursivePaths', 'walk the rom folders recursively'),
+            # A stale adapter name costs a failed lookup plus a warning line
+            # ("Adapter 'NVIDIA GeForce GTX 970' not found.", D3D.cpp:233)
+            # before falling back to the first adapter anyway.
+            ('EmuCore/GS', 'Adapter', 'stale adapter name')):
+        text = ini_del(text, sec, key)
     # No BOM: the first section header must parse.
     (root / 'inis' / 'PCSX2.ini').write_bytes(text.replace('\r\n', '\n').encode('utf-8'))
+    # Guard the privacy promise: after all rewrites, no [Folders] entry may
+    # point outside the private root. A future PCSX2 version renaming a key
+    # would otherwise silently leak writes into the user's data directory.
+    written = (root / 'inis' / 'PCSX2.ini').read_text(encoding='utf-8')
+    leaks = [k for k in FOLDER_KEYS if not str(ini_get(written, 'Folders', k) or '').startswith(str(root))]
+    if leaks:
+        sys.exit('pcsx2-capture: private ini would still write outside %s: %s' % (root, ', '.join(leaks)))
     return root
+
+
+# Channel files that belong to a RUN, not to the project. Excluded from the
+# copy rather than deleted after it: bin/log.txt in the source tree is the
+# PREVIOUS run's log, so copy-then-delete both drags stale evidence into the
+# staging area and races the emulator that may still hold a handle on it - which
+# aborted the whole run with a PermissionError out of unlink().
+STALE_CHANNEL_FILES = ('livedbg.cmd', 'livedbg.bin', 'livepad.bin',
+                       'frame.tga', 'log.txt', 'ps2link.run')
 
 
 def stage_elf(elf, work, force):
@@ -184,11 +298,19 @@ def stage_elf(elf, work, force):
     if not force and len(str(elf)) <= 100:
         return elf
     dst = work / 'game'
-    if dst.exists():
-        shutil.rmtree(dst)
-    shutil.copytree(elf.parent, dst)
-    for stale in ('livedbg.cmd', 'livedbg.bin', 'livepad.bin', 'frame.tga', 'log.txt', 'ps2link.run'):
-        (dst / stale).unlink(missing_ok=True)
+    for attempt in range(3):
+        shutil.rmtree(dst, ignore_errors=True)
+        try:
+            shutil.copytree(elf.parent, dst,
+                            ignore=shutil.ignore_patterns(*STALE_CHANNEL_FILES))
+            return dst / elf.name
+        except OSError:
+            if attempt == 2:
+                raise
+            # The previous emulator can still be releasing handles on the
+            # staged tree a moment after its process exited. Back off rather
+            # than failing a whole test run over a locked temp file.
+            time.sleep(0.5)
     return dst / elf.name
 
 
@@ -219,9 +341,11 @@ def post_key_to_process(pid, vk):
     return len(wins)
 
 
-def wait_for(pred, timeout, step=0.5):
+def wait_for(pred, timeout, step=0.5, tick=None):
     end = time.time() + timeout
     while time.time() < end:
+        if tick is not None:
+            tick()
         r = pred()
         if r:
             return r
@@ -245,6 +369,7 @@ def stable_new_file(folder, pattern, since, timeout):
 
 def cmd_run(a):
     exe = find_pcsx2(a.pcsx2)
+    assert_datapath_support(exe)
     work = pathlib.Path(os.environ.get('TEMP', '/tmp')) / 'tyra-editor-test' / ('pcsx2-capture-%d' % a.slot)
     work.mkdir(parents=True, exist_ok=True)
     root = prepare_datapath(work, find_user_ini(exe), a.slot)
@@ -259,20 +384,40 @@ def cmd_run(a):
     print('launch:', ' '.join('"%s"' % x if ' ' in x else x for x in args))
     proc = subprocess.Popen(args)
     print('PID', proc.pid, '(the only process this script will stop)')
+    # `-nogui` only hides PCSX2's main window: the GS display surface is its own
+    # top-level window, so an unattended run would still throw a game window on
+    # the screen. Hide it (see hide_windows_hook) unless --show-window asks to
+    # watch. Called repeatedly - the display window appears a moment after the
+    # process starts. --gsdump keeps it visible too: the dump is the F12 hotkey,
+    # posted to the process's VISIBLE windows (post_key_to_process), and a hidden
+    # GS window would leave nothing to receive it - no dump, "0 windows messaged".
+    keep_visible = a.show_window or a.gsdump
+    if a.gsdump and not a.show_window:
+        print('--gsdump: leaving the GS window visible (the dump hotkey needs it)')
+    hide = None if keep_visible else hide_windows_hook(proc.pid)
+    if hide is not None:
+        hide()
     try:
-        pine = wait_for(lambda: _try_pine(a.slot), 60, 1.0)
+        pine = wait_for(lambda: _try_pine(a.slot), 60, 1.0, tick=hide)
         if not pine:
             sys.exit('pcsx2-capture: PINE slot %d never answered - see %s' % (a.slot, log))
         print('PINE:', pine.text(PINE_VERSION), '|', pine.text(PINE_TITLE), '|', pine.status())
         if a.wait_log:
             rx = re.compile(a.wait_log)
-            if not wait_for(lambda: log.exists() and rx.search(log.read_text(errors='replace')), a.boot_wait):
+            if not wait_for(lambda: log.exists() and rx.search(log.read_text(errors='replace')),
+                            a.boot_wait, tick=hide):
                 print('warning: %r not in the log after %ss, capturing anyway' % (a.wait_log, a.boot_wait))
         else:
-            time.sleep(a.boot_wait)
+            deadline = time.time() + a.boot_wait
+            while time.time() < deadline:
+                if hide is not None:
+                    hide()
+                time.sleep(min(0.5, max(0.0, deadline - time.time())))
 
         captured = []
         for i in range(a.states):
+            if hide is not None:
+                hide()
             slot = 1 + i % 10
             asked = time.time()
             pine.save_state(slot)
@@ -304,6 +449,9 @@ def cmd_run(a):
         else:
             proc.kill(); proc.wait(10)
             print('stopped PID', proc.pid)
+        if hide is not None and hide.state['hidden']:
+            print('hid %d PCSX2 window(s) - unattended run (--show-window to watch)'
+                  % hide.state['hidden'])
 
     report = io.StringIO()
     for f in captured:
@@ -703,6 +851,55 @@ def analyse_state(path, span):
             int(qwc[i]) for i, dp in rec if dp == 0 and ids[i] == 1).most_common(8))
 
 
+def hide_windows_hook(pid):
+    """Return a callable that hides every VISIBLE top-level window owned by
+    `pid` (Windows only; a no-op elsewhere).
+
+    A capture run is unattended, and PCSX2's `-nogui` only hides its *main*
+    window: the GS display surface is its own top-level window, so every run
+    throws a game window over whatever the developer is doing. There is no CLI
+    flag for it, so the windows are hidden at the OS level.
+
+    Called repeatedly rather than once: the display window is created a moment
+    after the process starts, and a GS restart can build a new one. Hiding does
+    NOT stop the guest rendering - the GS thread keeps rasterising into GS
+    memory whatever the host widget does, which is why `--capture-frame` (the
+    GAME photographing its own framebuffer) still works with the window hidden.
+
+    No-op if ctypes/user32 is unavailable, so a run never dies over cosmetics.
+    """
+    try:
+        if os.name != 'nt':
+            return None
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.WinDLL('user32', use_last_error=True)
+        EnumWindows = user32.EnumWindows
+        GetWindowThreadProcessId = user32.GetWindowThreadProcessId
+        IsWindowVisible = user32.IsWindowVisible
+        ShowWindow = user32.ShowWindow
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND,
+                                         wintypes.LPARAM)
+    except Exception:
+        return None
+    SW_HIDE = 0
+    state = {'hidden': 0}
+
+    def hook():
+        def cb(hwnd, _):
+            wpid = wintypes.DWORD()
+            GetWindowThreadProcessId(hwnd, ctypes.byref(wpid))
+            if wpid.value == pid and IsWindowVisible(hwnd):
+                ShowWindow(hwnd, SW_HIDE)
+                state['hidden'] += 1
+            return True
+        EnumWindows(WNDENUMPROC(cb), 0)
+
+    hook.state = state
+    return hook
+
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -710,7 +907,8 @@ def main():
     r.add_argument('elf')
     r.add_argument('--states', type=int, default=3, help='savestates to take (default 3)')
     r.add_argument('--interval', type=float, default=1.0, help='seconds between savestates')
-    r.add_argument('--gsdump', action='store_true', help='also take one single-frame GS dump (Windows)')
+    r.add_argument('--gsdump', action='store_true',
+                   help='also take one single-frame GS dump (Windows; keeps the GS window visible)')
     r.add_argument('--boot-wait', type=float, default=40, help='seconds to wait after PINE answers (default 40)')
     r.add_argument('--wait-log', help='regex to wait for in emulog.txt instead of a fixed boot wait')
     r.add_argument('--slot', type=int, default=28190, help='PINE slot/port; one per parallel run')
@@ -718,6 +916,12 @@ def main():
     r.add_argument('--out', help='output directory (default under the run directory)')
     r.add_argument('--keep', action='store_true', help='leave the emulator running')
     r.add_argument('--stage', action='store_true', help='always copy the ELF directory to a private short path')
+    r.add_argument('--show-window', action='store_true',
+                   help="leave the emulator's GS display window VISIBLE. Default: hide it. "
+                        "-nogui only hides PCSX2's main window; the display surface is its own "
+                        "top-level window, so a run would throw a game window over the "
+                        "developer's screen. Hiding does not stop rendering or --capture-frame. "
+                        "--gsdump implies it (the dump is a hotkey to the visible window).")
     g = sub.add_parser('gs', help='summarise a GS dump')
     g.add_argument('dump')
     g.add_argument('--passes', action='store_true', help='print the pass timeline of one vsync')

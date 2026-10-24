@@ -7,8 +7,8 @@ room looking around), then import it as keyframes on a **Cutscene Director**
 camera track. The handheld motion becomes a PS2 cutscene camera move.
 
 In the editor: **Tools > Cutscene Director**, select a sequence, then
-**Import take...** (button next to the transport, or right-click the camera
-lane label). Pick a file, choose the target (free camera shots, or a specific
+**Import take...** (in the Director's header, or right-click the camera lane
+label). Pick a file, choose the target (free camera shots, or a specific
 Camera entity — see below), tune the mapping in the modal, Import. Either way
 the take lands as ordinary linear-eased keys, so the PS2 runtime needs nothing
 new — scrub the playhead to preview it immediately.

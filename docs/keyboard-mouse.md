@@ -4,7 +4,7 @@
 
 Generated games can be played with a USB keyboard and mouse — in PCSX2 out of
 the box, and on a real PS2 with USB devices in the front ports. The feature is
-a project preference: *Project > Preferences > Build > Keyboard & mouse
+a project preference: *Project > Preferences > Build & debug > Keyboard & mouse
 controls* (stored as `"keyboardMouse"` in the `.tyra`).
 
 **New projects start with it off.** A pad game gains nothing from loading three
@@ -162,7 +162,7 @@ whose boot screen reads **“Welcome to TyraX ps2link (USB keyboard + mouse)”*
 Flash it onto the memory card as `PS2LINK.ELF` and plug in a **wired** USB
 keyboard + mouse.
 
-In *Project > Preferences > Build > Keyboard & mouse controls*, **Also over
+In *Project > Preferences > Build & debug > Keyboard & mouse controls*, **Also over
 ps2link** (stored as `"keyboardMousePs2Link"`) is **on by default** for exactly
 that reason — untick it only if you deliberately boot a stock ps2link. Build,
 hit F6: the engine loads no USB modules of its own (a second `usbd` would wedge

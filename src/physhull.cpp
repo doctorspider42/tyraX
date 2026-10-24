@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "detmath.hpp"
+
 namespace physhull {
 namespace {
 
@@ -46,7 +48,7 @@ std::vector<P3> directions() {
         const double y = 1.0 - 2.0 * (i + 0.5) / n;
         const double r = std::sqrt(1.0 - y * y);
         const double t = golden * i;
-        d.push_back({r * std::cos(t), y, r * std::sin(t)});
+        d.push_back({r * detmath::cos(t), y, r * detmath::sin(t)});
     }
     for (P3& v : d) v = mul(v, 1.0 / len(v));
     return d;
@@ -194,9 +196,11 @@ Hull build(const std::vector<float>& points) {
         if (len(u) < 1e-12) u = sub(poly[1], cen);
         u = mul(u, 1.0 / len(u));
         const P3 v = cross(pl.n, u);
-        std::sort(poly.begin(), poly.end(), [&](const P3& p, const P3& q) {
+        // detmath + stable: the angle order must not depend on the C library
+        // (the hull's inertia is written into the committed model_data)
+        std::stable_sort(poly.begin(), poly.end(), [&](const P3& p, const P3& q) {
             const P3 a = sub(p, cen), b = sub(q, cen);
-            return std::atan2(dot(a, v), dot(a, u)) < std::atan2(dot(b, v), dot(b, u));
+            return detmath::atan2(dot(a, v), dot(a, u)) < detmath::atan2(dot(b, v), dot(b, u));
         });
         for (size_t i = 1; i + 1 < poly.size(); ++i) {
             const P3 a = sub(poly[0], o), b = sub(poly[i], o), c = sub(poly[i + 1], o);

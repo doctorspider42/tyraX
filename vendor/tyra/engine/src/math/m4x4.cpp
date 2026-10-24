@@ -32,41 +32,9 @@ M4x4::M4x4(const float& m11, const float& m12, const float& m13,
       m44);
 }
 
-void M4x4::copy(M4x4* out, const float* in) {
-  asm volatile(
-      "lqc2		$vf1, 0x00(%1)  \n"
-      "lqc2		$vf2, 0x10(%1)  \n"
-      "lqc2		$vf3, 0x20(%1)  \n"
-      "lqc2		$vf4, 0x30(%1)  \n"
-      "sqc2		$vf1, 0x00(%0)  \n"
-      "sqc2		$vf2, 0x10(%0)  \n"
-      "sqc2		$vf3, 0x20(%0)  \n"
-      "sqc2		$vf4, 0x30(%0)  \n"
-      :
-      : "r"(out->data), "r"(in));
-}
-
-void M4x4::copy(M4x4* out, const M4x4& in) { copy(out, in.data); }
-
-void M4x4::operator=(const M4x4& v) { copy(this, v); }
-
-Vec4 M4x4::operator*(const Vec4& v) const {
-  Vec4 result;
-  asm volatile(
-      "lqc2		$vf1, 0x00(%2)	\n"
-      "lqc2		$vf2, 0x10(%2)	\n"
-      "lqc2		$vf3, 0x20(%2)	\n"
-      "lqc2		$vf4, 0x30(%2)	\n"
-      "lqc2		$vf5, 0x00(%1)	\n"
-      "vmulaw	$ACC, $vf4, $vf0\n"
-      "vmaddax	$ACC, $vf1, $vf5\n"
-      "vmadday	$ACC, $vf2, $vf5\n"
-      "vmaddz	$vf6, $vf3, $vf5\n"
-      "sqc2		$vf6, 0x00(%0)	\n"
-      :
-      : "r"(result.xyzw), "r"(v.xyzw), "r"(this->data));
-  return result;
-}
+// Modified by TyraX: copy, operator=, operator*(Vec4) and identity are inline
+// in math/m4x4.hpp; lookAt's and setCamera's blocks now declare the memory and
+// GPRs they touch (docs/vu0-macro-mode.md).
 
 M4x4 M4x4::operator*(const M4x4& v) const {
   M4x4 result;
@@ -103,21 +71,6 @@ void M4x4::set(const float& m11, const float& m12, const float& m13,
   data[13] = m42;
   data[14] = m43;
   data[15] = m44;
-}
-
-void M4x4::identity() {
-  asm volatile(
-      "vsub.xyzw  $vf4, $vf0, $vf0 \n\t"
-      "vadd.w     $vf4, $vf4, $vf0 \n\t"
-      "vmr32.xyzw $vf5, $vf4      \n\t"
-      "vmr32.xyzw $vf6, $vf5      \n\t"
-      "vmr32.xyzw $vf7, $vf6      \n\t"
-      "sqc2       $vf4, 0x30(%0) \n\t"
-      "sqc2       $vf5, 0x20(%0) \n\t"
-      "sqc2       $vf6, 0x10(%0) \n\t"
-      "sqc2       $vf7, 0x0(%0)  \n\t"
-      :
-      : "r"(this->data));
 }
 
 void M4x4::translate(const Vec4& v) {
@@ -287,7 +240,8 @@ void M4x4::lookAt(M4x4* res, const Vec4& position, const Vec4& target) {
       // up_vec
       "sqc2		    $vf6, 0x00(%1)      \n\t"
       :
-      : "r"(viewVec), "r"(upVec), "r"(eye), "r"(obj));
+      : "r"(viewVec), "r"(upVec), "r"(eye), "r"(obj)
+      : "memory");
 
   M4x4 temp = setCamera(eye, viewVec, upVec);
   res->identity();
@@ -471,7 +425,8 @@ M4x4 M4x4::setCamera(const float pos[4], const float vz[4], const float vy[4]) {
       "sq			$10, 0x20(%0)           \n\t"
       "sqc2			$vf5, 0x30(%0)          \n\t"
       :
-      : "r"(res.data), "r"(pos), "r"(vz), "r"(vy));
+      : "r"(res.data), "r"(pos), "r"(vz), "r"(vy)
+      : "$8", "$9", "$10", "$11", "$12", "$13", "$14", "$15", "memory");
   return res;
 }
 

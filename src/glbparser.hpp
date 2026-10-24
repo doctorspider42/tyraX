@@ -67,6 +67,13 @@ struct Baked {
     // Host-preview-only data. One sample per baked frame lets the viewport
     // remove the same root channel the .tskl bake pins for an in-place edit.
     std::vector<RootMotionSample> rootMotion;
+    // Host-preview-only: the Animation Editor's skeleton overlay. One entry
+    // per bone (skin joint) with the index of its nearest ancestor BONE (-1 =
+    // a root), and per baked frame each bone's model-space position - the
+    // same space as Part::positions. Empty for a rigid / skinless model; a
+    // reader checks bonePos.size() == frameCount * boneParent.size() * 3.
+    std::vector<int> boneParent;
+    std::vector<float> bonePos;
     int frameCount = 1;   // total baked frames (all clips, concatenated)
     float fps = 12.0f;    // bake sample rate the clips were sampled at
     float min[3] = {0, 0, 0}, max[3] = {0, 0, 0};  // frame-0 AABB, all parts

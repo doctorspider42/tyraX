@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cctype>
+#include <cstring>
 #include <chrono>
 #include <limits>
 #include <filesystem>
@@ -38,9 +39,12 @@
 
 #include "aichat.hpp"
 #include "aigen.hpp"
+#include "json.hpp"
 #include "theme.hpp"
+#include "toolkit.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 namespace {
 
@@ -125,6 +129,26 @@ void App::aiChatReset() {
     chatFile_.clear();
     chatError_.clear();
     chatCompactNote_.clear();
+    chatTurns_.clear();
+}
+
+// A compaction folds the oldest messages into one summary, which renumbers
+// every message after it. Only the newest turn's info is worth carrying over
+// (it is the one an Undo can still apply to): re-key it to the last User.
+void App::aiChatRekeyTurns() {
+    ChatTurnInfo keep;
+    bool have = false;
+    if (auto t = chatTurns_.find(chatTurnUser_); t != chatTurns_.end()) {
+        keep = t->second;
+        have = true;
+    }
+    chatTurns_.clear();
+    for (size_t i = chat_.messages.size(); i-- > 0;)
+        if (chat_.messages[i].role == aichat::Message::Role::User) {
+            chatTurnUser_ = i;
+            if (have) chatTurns_[i] = keep;
+            break;
+        }
 }
 
 void App::aiChatOpen(const std::string& file) {
@@ -137,6 +161,7 @@ void App::aiChatOpen(const std::string& file) {
     }
     chat_ = std::move(loaded);
     chatFile_ = file;
+    chatTurns_.clear();
     chatInFlight_ = false;
     chatCompactNote_.clear();
     // A reopened chat starts a fresh turn budget: what it spent before it was
@@ -152,6 +177,13 @@ void App::aiChatSend(const std::string& text) {
     m.role = aichat::Message::Role::User;
     m.text = text;
     chat_.messages.push_back(std::move(m));
+    // What this turn may do and where the undo history stood, for its change
+    // card (session-only: a reopened chat shows no Undo for old turns).
+    chatTurnUser_ = chat_.messages.size() - 1;
+    ChatTurnInfo turn;
+    turn.mode = !chatAllowEdits_ ? 0 : chatAllowBuild_ ? 2 : 1;
+    turn.undoBase = turn.undoEnd = history_.index();
+    chatTurns_[chatTurnUser_] = turn;
     chatError_.clear();
     chatStep_ = 0;  // a fresh user turn gets the full tool-step budget
     // Compact FIRST when the conversation has outgrown its budget: the
@@ -341,6 +373,7 @@ void App::aiChatTick() {
         std::vector<aichat::ToolCall> ignored;
         aichat::parseReply(chatGen_.reply(), recap, ignored);
         aichat::applyCompaction(chat_, chatCompactCount_, recap);
+        aiChatRekeyTurns();
         const size_t folded = before - chat_.messages.size() + 1;
         chatCompactNote_ = "Compacted " + std::to_string(folded) +
                            " earlier message(s) into a summary.";
@@ -404,6 +437,8 @@ void App::aiChatTick() {
     results.calls = calls;
     for (aichat::ToolCall& c : results.calls) c.result = runChatTool(c);
     chat_.messages.push_back(std::move(results));
+    if (auto t = chatTurns_.find(chatTurnUser_); t != chatTurns_.end())
+        t->second.undoEnd = history_.index();
     aiChatPersist();  // what the tools did survives a crash mid-loop
     ++chatStep_;
     // A build parks the turn: the branch at the top of this function resumes it
@@ -1352,7 +1387,7 @@ std::string App::runChatTool(aichat::ToolCall& c) {
             !project_.settings.remotePad)
             return fail(
                 "Refused: driving the pad needs a DEBUG build with Remote Pad on "
-                "(Project > Preferences > Build). A release game carries no "
+                "(Project > Preferences > Build & debug). A release game carries no "
                 "channel to drive - that is the devkit's zero-cost promise.");
         if (padScriptRunning_) return fail("A pad script is already playing.");
         std::vector<livepad::Step> steps;
@@ -1460,251 +1495,722 @@ void App::drawAiChatHistory() {
     ImGui::EndPopup();
 }
 
+namespace {
+
+// Click-to-copy over something already drawn: the body is drawn in a group, a
+// full-width InvisibleButton named "Copy message" goes back over it (a "##"
+// label is untargetable by --ui-script), and theme::hoverAnim paints UNDER it
+// through a draw-list channel split. `body` is what the click copies.
+template <class Draw>
+void chatClickToCopy(const std::string& body, Draw&& draw, unsigned& copiedId, double& copiedAt,
+                     float width, float pad) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->ChannelsSplit(2);
+    dl->ChannelsSetCurrent(1);
+    ImGui::BeginGroup();
+    draw();
+    ImGui::EndGroup();
+    const ImVec2 mn = ImGui::GetItemRectMin();
+    const ImVec2 mx = ImGui::GetItemRectMax();
+    const ImVec2 resume = ImGui::GetCursorScreenPos();
+    ImGui::SetCursorScreenPos(mn);
+    ImGui::InvisibleButton("Copy message", ImVec2(std::max(width > 0 ? width : mx.x - mn.x, 1.0f),
+                                                  std::max(mx.y - mn.y, 1.0f)));
+    const bool hovered = ImGui::IsItemHovered();
+    const ImGuiID id = ImGui::GetItemID();
+    if (hovered) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    if (ImGui::IsItemClicked()) {
+        ImGui::SetClipboardText(body.c_str());
+        copiedId = id;
+        copiedAt = ImGui::GetTime();
+    }
+    const float t = theme::hoverAnim(id, hovered, 12.0f);
+    ImGui::SetCursorScreenPos(resume);
+    dl->ChannelsSetCurrent(0);
+    if (t > 0.0f)
+        dl->AddRectFilled(ImVec2(mn.x - pad, mn.y - pad * 0.5f),
+                          ImVec2(mn.x + (width > 0 ? width : mx.x - mn.x) + pad, mx.y + pad * 0.5f),
+                          ImGui::GetColorU32(ImGuiCol_ButtonHovered, t * 0.3f), ImGui::GetStyle().FrameRounding);
+    dl->ChannelsMerge();
+    if (!hovered) return;
+    if (copiedId == id && ImGui::GetTime() - copiedAt < 1.6)
+        ImGui::SetTooltip("Copied to the clipboard");
+    else if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("Click to copy");
+}
+
+ImU32 chatCol(const ImVec4& c, float a = 1.0f) {
+    return ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, c.w * a));
+}
+
+// One line of a turn's change card, in words: what an edit or command tool
+// did, built from its arguments (the result is for the model). kind: 0 added,
+// 1 changed, 2 deleted / failed, 3 graph, 4 checked / quiet.
+struct ChangeRow {
+    std::string verb, title, detail, link, object;
+    int kind = 1;
+    std::string padScript;  // press_pad: drawn as the pads it holds
+};
+
+// What a press_pad script holds, moment by moment: one Compact controller per
+// distinct non-neutral state (pressed buttons + parked sticks), with the
+// buttons and how long it is held under it - what the AI is pressing, in the
+// same drawing as Remote Pad.
+void chatPadSteps(const std::string& script, float fs) {
+    std::vector<livepad::Step> steps;
+    std::string err;
+    if (!livepad::parseScript(script, steps, err)) return;
+    struct Moment {
+        livepad::State st;
+        double seconds;
+    };
+    std::vector<Moment> ms;
+    for (const livepad::Step& st : steps) {
+        if (st.state.neutral()) continue;
+        if (!ms.empty() && ms.back().st == st.state) {
+            ms.back().seconds += st.seconds;
+            continue;
+        }
+        ms.push_back({st.state, st.seconds});
+    }
+    // A moment held for no time is a transition, not something pressed.
+    ms.erase(std::remove_if(ms.begin(), ms.end(), [](const Moment& m) { return m.seconds <= 0.0; }), ms.end());
+    if (ms.empty()) return;
+    const theme::Semantics& sem = theme::semantics();
+    const float w = fs * 8.0f;  // 120 px at 100%
+    const float gap = fs * 0.6f;
+    const int kMax = 8;
+    for (int i = 0; i < (int)ms.size() && i < kMax; ++i) {
+        const livepad::State& st = ms[i].st;
+        const int pi = (st.buttons[0] || st.axes[0][0] || st.axes[0][1] || st.axes[0][2] || st.axes[0][3]) ? 0 : 1;
+        ui::PadState ps;
+        ps.pressed = st.buttons[pi] & 0xFFFFu;
+        ps.stick[0] = ImVec2(st.axes[pi][0] / 127.0f, st.axes[pi][1] / 127.0f);
+        ps.stick[1] = ImVec2(st.axes[pi][2] / 127.0f, st.axes[pi][3] / 127.0f);
+        if (st.buttons[1] || pi == 1) ps.port = pi + 1;
+        std::string cap;
+        for (int b = 0; b < 16; ++b)
+            if (ps.pressed & (1u << b)) cap += (cap.empty() ? "" : " + ") + std::string(ui::PadItemName(b));
+        for (int sd = 0; sd < 2; ++sd)
+            if (st.axes[pi][sd * 2] || st.axes[pi][sd * 2 + 1]) cap += (cap.empty() ? "" : " + ") + std::string(sd ? "R stick" : "L stick");
+        char sec[32];
+        std::snprintf(sec, sizeof(sec), " \xc2\xb7 %.1f s", ms[i].seconds);
+        cap += sec;
+        if (i > 0) {
+            const float next = ImGui::GetItemRectMax().x + gap + w;
+            if (next < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x) ImGui::SameLine(0.0f, gap);
+        }
+        ImGui::BeginGroup();
+        ImGui::PushID(i);
+        ui::PadDiagram("##aipad", ui::PadMode::Compact, w, ps);
+        ImGui::PopID();
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
+        ImGui::TextColored(sem.textDim, "%s", cap.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::EndGroup();
+    }
+    if ((int)ms.size() > kMax) ImGui::TextColored(sem.textDim, "and %d more", (int)ms.size() - kMax);
+}
+
+std::string firstLine(const std::string& s, size_t max = 90) {
+    std::string l = s.substr(0, s.find('\n'));
+    if (l.size() > max) l = l.substr(0, max - 3) + "...";
+    return l;
+}
+
+std::string posText(const aichat::ToolCall& c, const char* key) {
+    const json::Value* v = c.args.find(key);
+    if (!v || v->type != json::Value::Type::Array || v->arr.size() < 3) return "";
+    char b[64];
+    std::snprintf(b, sizeof(b), "%.2f, %.2f, %.2f", v->arr[0].numberOr(0), v->arr[1].numberOr(0),
+                  v->arr[2].numberOr(0));
+    return b;
+}
+
+bool chatChangeRow(const aichat::ToolCall& c, ChangeRow& r) {
+    const aichat::Tool* t = aichat::tool(c.name);
+    if (!t || t->kind == aichat::ToolKind::Read) return false;
+    const std::string& n = c.name;
+    if (n == "select_object" || n == "set_scene" || n == "open_window") return false;  // navigation
+    if (c.failed) {
+        r.verb = "Failed";
+        r.kind = 2;
+        r.title = n;
+        r.detail = firstLine(c.result);
+        return true;
+    }
+    if (n == "add_object" || n == "duplicate_object" || n == "insert_prefab") {
+        r.verb = "Added";
+        r.kind = 0;
+        r.title = aichat::argStr(c, "name");
+        if (n == "duplicate_object" && r.title.empty()) r.title = aichat::argStr(c, "object") + "-copy";
+        if (n == "insert_prefab") r.title = "prefab " + aichat::argStr(c, "name");
+        if (r.title.empty()) r.title = "new " + aichat::argStr(c, "type");
+        const std::string pos = posText(c, "position");
+        r.detail = aichat::argStr(c, "type");
+        if (!pos.empty()) r.detail += (r.detail.empty() ? "" : " \xc2\xb7 ") + pos;
+        if (n != "insert_prefab") {
+            r.link = "Select";
+            r.object = n == "add_object" ? aichat::argStr(c, "name") : "";
+        }
+        if (r.object.empty()) r.link.clear();
+    } else if (n == "set_object" || n == "set_object_json") {
+        r.verb = "Changed";
+        r.kind = 1;
+        r.title = aichat::argStr(c, "object");
+        if (r.title.empty()) r.title = "several objects";
+        if (const json::Value* p = c.args.find("props"); p && p->type == json::Value::Type::Object) {
+            for (const auto& kv : p->obj) r.detail += (r.detail.empty() ? "" : ", ") + kv.first;
+        } else if (n == "set_object_json") {
+            r.detail = "whole object";
+        }
+        r.object = aichat::argStr(c, "object");
+        if (!r.object.empty()) r.link = "Select";
+    } else if (n == "delete_object" || n == "delete_scene") {
+        r.verb = "Deleted";
+        r.kind = 2;
+        r.title = aichat::argStr(c, n == "delete_object" ? "object" : "name");
+        if (n == "delete_scene") r.title = "scene " + r.title;
+    } else if (n == "set_graph" || n == "set_proc_graph") {
+        r.verb = "Graph";
+        r.kind = 3;
+        r.title = aichat::argStr(c, "object");
+        if (const json::Value* g = c.args.find("graph")) {
+            const json::Value* nodes = g->find("nodes");
+            const size_t cnt = nodes && nodes->type == json::Value::Type::Array ? nodes->arr.size() : 0;
+            r.detail = std::to_string(cnt) + " node(s)";
+        }
+        if (n == "set_proc_graph") r.detail += " \xc2\xb7 scatter graph - bake to see it";
+        r.object = r.title;
+        if (n == "set_graph") r.link = "Open";
+    } else if (n == "set_section") {
+        r.verb = "Section";
+        r.kind = 1;
+        r.title = aichat::argStr(c, "name");
+        r.detail = "project-wide - not in Ctrl+Z";
+    } else if (n == "add_scene") {
+        r.verb = "Added";
+        r.kind = 0;
+        r.title = "scene " + aichat::argStr(c, "name");
+    } else if (n == "create_prefab") {
+        r.verb = "Prefab";
+        r.kind = 0;
+        r.title = aichat::argStr(c, "name");
+        if (r.title.empty()) r.title = "from the selection";
+    } else {
+        // Commands that check or build: refresh_generated, bake_*, build_game,
+        // press_pad, save_project.
+        r.verb = n == "save_project" ? "Saved" : n == "build_game" ? "Built" : n == "press_pad" ? "Pad"
+                 : n.rfind("bake", 0) == 0 ? "Baked" : "Checked";
+        r.kind = 4;
+        r.title = n == "press_pad" ? aichat::argStr(c, "script") : n;
+        r.detail = firstLine(c.result);
+        if (n == "press_pad") r.padScript = aichat::argStr(c, "script");
+        // A parked command (pad script, build) answers "... Waiting..." first
+        // and gets its outcome APPENDED when it settles (aiChatTick): once it
+        // is there, the card says how it ended instead of still waiting.
+        const size_t nl = c.result.find('\n');
+        const bool settled = nl != std::string::npos ||
+                             c.result.find("The game is up") != std::string::npos ||
+                             c.result.find("never reported") != std::string::npos;
+        if (settled && (n == "press_pad" || n == "build_game")) {
+            std::string head = c.result.substr(0, nl);
+            for (const char* w : {" Waiting for it...", " Waiting..."}) {
+                const size_t at = head.rfind(w);
+                if (at != std::string::npos && at + std::strlen(w) == head.size()) head.erase(at);
+            }
+            if (n == "press_pad") {
+                const std::string pre = "Driving the pad: ";
+                if (head.rfind(pre, 0) == 0) head = "Played " + head.substr(pre.size());
+                if (!head.empty() && head.back() == '.') head.pop_back();
+                const bool logged = c.result.find("The game logged while it ran") != std::string::npos;
+                r.detail = firstLine(head + (logged ? " - the game logged while it ran" : " - the game logged nothing"));
+            } else {
+                const bool ok = c.result.find("The build SUCCEEDED") != std::string::npos;
+                const bool failed = c.result.find("The build FAILED") != std::string::npos;
+                if (ok || failed) r.detail = ok ? "Build succeeded" : "Build failed";
+                if (ok && c.result.find("The game is up") != std::string::npos) r.detail += " - the game is up";
+                else if (ok && c.result.find("never reported") != std::string::npos)
+                    r.detail += " - the game never reported";
+            }
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+// One user turn: the user's bubble, then what came back - the assistant's
+// prose, the read tools as one quiet line, and the edits as a change card in
+// words with Undo next to them. Raw tool calls stay one disclosure away.
+void App::drawAiChatTurn(size_t userIdx, size_t from, size_t to, bool live) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    const float fullW = ImGui::GetContentRegionAvail().x;
+
+    // --- the user's bubble, on the right
+    if (userIdx < chat_.messages.size() && chat_.messages[userIdx].role == aichat::Message::Role::User) {
+        const aichat::Message& m = chat_.messages[userIdx];
+        ImGui::PushID((int)userIdx);
+        const float maxW = fullW * 0.86f;
+        const float padX = fs * 0.8f, padY = fs * 0.55f;
+        const ImVec2 ts = ImGui::CalcTextSize(m.text.c_str(), nullptr, false, maxW - padX * 2);
+        const float bw = ImMin(maxW, ts.x + padX * 2);
+        const float x0 = ImGui::GetCursorPosX() + fullW - bw;
+        ImGui::SetCursorPosX(x0);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + ts.y + padY * 2), chatCol(sem.surface), fs * 0.8f);
+        dl->AddRect(p, ImVec2(p.x + bw, p.y + ts.y + padY * 2), chatCol(sem.border), fs * 0.8f);
+        chatClickToCopy(
+            aichat::messageText(m),
+            [&] {
+                ImGui::SetCursorScreenPos(ImVec2(p.x + padX, p.y + padY));
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + bw - padX * 2);
+                ImGui::TextUnformatted(m.text.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::Dummy(ImVec2(0, padY - ImGui::GetStyle().ItemSpacing.y));
+            },
+            chatCopiedId_, chatCopiedAt_, bw - padX, 0.0f);
+        ImGui::PopID();
+        ImGui::Spacing();
+    }
+    if (from >= to && !live) return;
+
+    // --- what came back
+    int rounds = 0;
+    std::vector<const aichat::ToolCall*> reads, edits, all;
+    for (size_t i = from; i < to; ++i) {
+        const aichat::Message& m = chat_.messages[i];
+        if (m.role != aichat::Message::Role::Tool) continue;
+        ++rounds;
+        for (const aichat::ToolCall& c : m.calls) {
+            all.push_back(&c);
+            const aichat::Tool* t = aichat::tool(c.name);
+            if (t && t->kind == aichat::ToolKind::Read) reads.push_back(&c);
+            else edits.push_back(&c);
+        }
+    }
+    const auto turnIt = chatTurns_.find(userIdx);
+    ImGui::PushID((int)(userIdx + 100000));
+    {
+        // header: who, in which mode, how many rounds
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float s = fs * 1.2f;
+        dl->AddRectFilled(p, ImVec2(p.x + s, p.y + s), chatCol(sem.accent, 0.14f), fs * 0.35f);
+        ui::DrawRtIcon(dl, ui::RtIcon::Sparkle, ImVec2(p.x + s * 0.5f, p.y + s * 0.5f), s * 0.62f, chatCol(sem.accent));
+        ImGui::SetCursorScreenPos(ImVec2(p.x + s + fs * 0.45f, p.y + (s - ImGui::GetTextLineHeight()) * 0.5f));
+        std::string head = "Assistant";
+        if (turnIt != chatTurns_.end()) {
+            static const char* const kModes[3] = {"Ask only", "Edit project", "Edit + build & run"};
+            head += std::string(" \xc2\xb7 ") + kModes[ImClamp(turnIt->second.mode, 0, 2)];
+        }
+        if (rounds) head += " \xc2\xb7 " + std::to_string(rounds) + (rounds == 1 ? " round" : " rounds");
+        ImGui::TextColored(sem.textDim, "%s", head.c_str());
+        if (live) {
+            ImGui::SameLine();
+            ImGui::TextColored(sem.accent, "\xc2\xb7 %s",
+                               chatCompacting_      ? "compacting"
+                               : chatBuildWaiting_  ? "building the game"
+                               : chatGameWaiting_   ? "waiting for the game"
+                               : chatPadWaiting_    ? "pad script running"
+                                                    : "thinking");
+        }
+        ImGui::SetCursorScreenPos(ImVec2(p.x, ImMax(ImGui::GetCursorScreenPos().y, p.y + s + 4.0f)));
+    }
+
+    // --- read tools: one quiet line, the raw calls under it
+    if (!reads.empty()) {
+        std::string line = "Read ";
+        for (size_t i = 0; i < reads.size() && i < 4; ++i) {
+            const aichat::ToolCall& c = *reads[i];
+            std::string what = aichat::argStr(c, "name");
+            if (what.empty()) what = aichat::argStr(c, "object");
+            if (what.empty()) what = aichat::argStr(c, "query");
+            if (what.empty()) what = c.name;
+            else if (c.name == "read_doc") what += ".md";
+            line += (i ? ", " : "") + what;
+        }
+        if (reads.size() > 4) line += " and " + std::to_string(reads.size() - 4) + " more";
+        line += "##reads";
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        const bool open = ImGui::TreeNodeEx(line.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth);
+        ImGui::PopStyleColor();
+        if (open) {
+            for (size_t k = 0; k < reads.size(); ++k) {
+                const aichat::ToolCall& c = *reads[k];
+                ImGui::PushID((int)k);
+                ImGui::PushStyleColor(ImGuiCol_Text, c.failed ? sem.warn : sem.textDim);
+                const std::string label = c.name + " " + aichat::argsText(c) + (c.failed ? "  [failed]" : "");
+                const bool o = ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth);
+                ImGui::PopStyleColor();
+                if (o) {
+                    chatClickToCopy(
+                        c.result,
+                        [&] {
+                            ImGui::PushTextWrapPos(0.0f);
+                            ImGui::TextUnformatted(c.result.c_str());
+                            ImGui::PopTextWrapPos();
+                        },
+                        chatCopiedId_, chatCopiedAt_, ImGui::GetContentRegionAvail().x, scaled(4));
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    // --- the assistant's prose
+    for (size_t i = from; i < to; ++i) {
+        const aichat::Message& m = chat_.messages[i];
+        if (m.role != aichat::Message::Role::Assistant || m.text.empty()) continue;
+        ImGui::PushID((int)i);
+        chatClickToCopy(
+            aichat::messageText(m),
+            [&] {
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextUnformatted(m.text.c_str());
+                ImGui::PopTextWrapPos();
+            },
+            chatCopiedId_, chatCopiedAt_, ImGui::GetContentRegionAvail().x, scaled(4));
+        ImGui::PopID();
+    }
+
+    // --- the change card
+    std::vector<ChangeRow> rows;
+    for (const aichat::ToolCall* c : edits) {
+        ChangeRow r;
+        if (chatChangeRow(*c, r)) rows.push_back(std::move(r));
+    }
+    if (!rows.empty()) {
+        ImGui::Spacing();
+        int changes = 0, checks = 0, failed = 0;
+        for (const ChangeRow& r : rows) (r.kind == 4 ? checks : r.verb == "Failed" ? failed : changes)++;
+        ui::BeginCard("##changes", ImVec2(0, 0));
+        char cap[96];
+        std::snprintf(cap, sizeof(cap), "%d change%s%s%s", changes, changes == 1 ? "" : "s",
+                      checks ? (", " + std::to_string(checks) + (checks == 1 ? " check" : " checks")).c_str()
+                             : "",
+                      failed ? (", " + std::to_string(failed) + " failed").c_str() : "");
+        ui::Caption(cap, dirty_ ? "unsaved" : nullptr);
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const ChangeRow& r = rows[i];
+            ImGui::PushID((int)i);
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec4 kc = r.kind == 0 ? sem.ok : r.kind == 2 ? sem.danger : r.kind == 3 ? sem.accent
+                              : r.kind == 1 ? sem.warn : sem.textDim;
+            const float bw = fs * 4.4f, bh = fs * 1.35f;
+            dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + bh), chatCol(kc, r.kind == 4 ? 0.1f : 0.14f), fs * 0.3f);
+            {
+                ui::FontScope bold(ui::boldFont());
+                const float vfs = fs * 0.82f;
+                const ImVec2 vs = ImGui::GetFont()->CalcTextSizeA(vfs, FLT_MAX, 0.0f, r.verb.c_str());
+                dl->AddText(ImGui::GetFont(), vfs, ImVec2(p.x + (bw - vs.x) * 0.5f, p.y + (bh - vs.y) * 0.5f),
+                            chatCol(kc), r.verb.c_str());
+            }
+            const float linkW = r.link.empty() ? 0.0f : ImGui::CalcTextSize(r.link.c_str()).x + fs;
+            ImGui::SetCursorScreenPos(ImVec2(p.x + bw + fs * 0.6f, p.y));
+            ImGui::BeginGroup();
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - linkW);
+            ImGui::TextUnformatted(r.title.c_str());
+            if (!r.detail.empty()) ImGui::TextColored(sem.textDim, "%s", r.detail.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::EndGroup();
+            if (!r.link.empty()) {
+                ImGui::SameLine(ImGui::GetContentRegionMax().x - linkW + fs * 0.5f);
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.accent);
+                if (ImGui::TextLink((r.link + "##" + std::to_string(i)).c_str())) {
+                    SceneData& sc = project_.active();
+                    const int oi = aichat::findObject(sc, r.object);
+                    if (oi >= 0) {
+                        selectOnly(oi);
+                        if (r.link == "Open") {
+                            flowGraphObject_ = oi;
+                            flowPositionsApplied_ = false;
+                            ImGui::SetWindowFocus("Flow Graph");
+                        }
+                    } else {
+                        statusMessage_ = "\"" + r.object + "\" is not in the active scene any more";
+                    }
+                }
+                ImGui::PopStyleColor();
+            }
+            if (!r.padScript.empty()) {
+                ImGui::Indent(fs * 5.0f);
+                chatPadSteps(r.padScript, fs);
+                ImGui::Unindent(fs * 5.0f);
+            }
+            ImGui::Dummy(ImVec2(0, fs * 0.2f));
+            ImGui::PopID();
+        }
+        // footer: Undo the turn's steps, the raw calls, the undo rule
+        ImGui::Separator();
+        const bool known = turnIt != chatTurns_.end();
+        const int steps = known ? turnIt->second.undoEnd - turnIt->second.undoBase : 0;
+        const bool canUndo = known && !turnIt->second.undone && steps > 0 && !live &&
+                             history_.index() == turnIt->second.undoEnd;
+        if (known && turnIt->second.undone) {
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(sem.textDim, "Undone.");
+            ImGui::SameLine();
+        } else if (steps > 0) {
+            char u[48];
+            std::snprintf(u, sizeof(u), "Undo %s##turnundo", steps == 1 ? "it" : steps == 2 ? "both" : "all");
+            ImGui::BeginDisabled(!canUndo);
+            if (ImGui::Button(u) && canUndo) {
+                for (int s = 0; s < steps && history_.canUndo(); ++s) undo();
+                turnIt->second.undone = true;
+                statusMessage_ = "AI: undid " + std::to_string(steps) + " step(s)";
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(canUndo ? "Step the undo history back to before this turn (%d step(s))."
+                                          : "Something changed since - use Ctrl+Z (%d step(s) came from this turn).",
+                                  steps);
+            ImGui::SameLine();
+        }
+        ImGuiStorage* store = ImGui::GetStateStorage();
+        const ImGuiID rawId = ImGui::GetID("##rawcalls");
+        bool raw = store->GetBool(rawId, false);
+        char rl[48];
+        std::snprintf(rl, sizeof(rl), "%d tool call%s##rawtoggle", (int)edits.size(), edits.size() == 1 ? "" : "s");
+        if (ui::GhostButton(rl)) store->SetBool(rawId, raw = !raw);
+        const char* rule = steps > 0 && changes > steps ? "project-wide changes are not in Ctrl+Z"
+                                                        : "each is one Ctrl+Z";
+        if (changes > 0) {
+            ImGui::SameLine(ImMax(ImGui::GetCursorPosX(),
+                                  ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(rule).x));
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(sem.textDim, "%s", rule);
+        }
+        if (raw)
+            for (size_t k = 0; k < edits.size(); ++k) {
+                const aichat::ToolCall& c = *edits[k];
+                ImGui::PushID((int)(k + 1000));
+                ImGui::PushStyleColor(ImGuiCol_Text, c.failed ? sem.warn : sem.textDim);
+                const std::string label = c.name + " " + aichat::argsText(c) + (c.failed ? "  [failed]" : "");
+                const bool o = ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth);
+                ImGui::PopStyleColor();
+                if (o) {
+                    chatClickToCopy(
+                        c.result,
+                        [&] {
+                            ImGui::PushTextWrapPos(0.0f);
+                            ImGui::TextUnformatted(c.result.c_str());
+                            ImGui::PopTextWrapPos();
+                        },
+                        chatCopiedId_, chatCopiedAt_, ImGui::GetContentRegionAvail().x, scaled(4));
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+        ui::EndCard();
+    }
+    if (live) {
+        ImGui::Spacing();
+        ui::ProgressInline(-1.0f, nullptr, nullptr);
+    }
+    ImGui::PopID();
+    ImGui::Spacing();
+    ImGui::Spacing();
+}
+
 void App::drawAiChatWindow() {
-    if (!showAiChat_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(520), scaled(620)), ImGuiCond_FirstUseEver);
+    if (!showAiChat_) {
+        chatWasOpen_ = false;
+        return;
+    }
+    // A conversation beside the scene: the first time it opens it docks as a
+    // tab of the Properties column instead of floating over the viewport -
+    // and every time it is opened its tab comes forward (an unselected tab is
+    // as invisible as a closed window).
+    if (ImGuiWindow* props = ImGui::FindWindowByName("Properties"); props && props->DockId)
+        ImGui::SetNextWindowDockID(props->DockId, ImGuiCond_FirstUseEver);
+    if (!chatWasOpen_) ImGui::SetNextWindowFocus();
+    chatWasOpen_ = true;
+    ImGui::SetNextWindowSize(ImVec2(scaled(440), scaled(720)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("AI Assistant", &showAiChat_)) {
         ImGui::End();
         return;
     }
     const theme::Semantics& sem = theme::semantics();
-    const bool busy = chatGen_.busy();
+    const bool busy = chatGen_.busy() || chatBuildWaiting_ || chatGameWaiting_ || chatPadWaiting_;
+    const float fs = ImGui::GetFontSize();
 
-    // --- header: which backend answers, and whether it may act
-    ImGui::TextDisabled("%s", aigen::backendLabel(globalAi_.backend));
-    if (!globalAi_.model.empty()) {
+    // --- header: who answers (a chip that opens the backend settings), and
+    // the conversation actions as icons
+    {
+        ImGui::AlignTextToFramePadding();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ui::DrawRtIcon(ImGui::GetWindowDrawList(), ui::RtIcon::Sparkle,
+                       ImVec2(p.x + fs * 0.55f, p.y + ImGui::GetFrameHeight() * 0.5f), fs * 1.05f, chatCol(sem.accent));
+        ImGui::Dummy(ImVec2(fs * 1.1f, ImGui::GetFrameHeight()));
         ImGui::SameLine();
-        ImGui::TextDisabled("- %s", globalAi_.model.c_str());
-    }
-    if (globalAi_.thinking) {
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted("Assistant");
+        }
         ImGui::SameLine();
-        ImGui::TextDisabled("- thinking");
+        std::string chip = std::string(aigen::backendLabel(globalAi_.backend)) + " \xc2\xb7 " +
+                           (globalAi_.model.empty() ? "default" : globalAi_.model) +
+                           (globalAi_.thinking ? " \xc2\xb7 thinking" : "");
+        const float iconsW = (ImGui::GetFrameHeight() + 2.0f) * 3;
+        const float room = ImGui::GetContentRegionMax().x - ImGui::GetCursorPosX() - iconsW - fs;
+        while (chip.size() > 8 && ui::FilterChipWidth((chip + " v").c_str()) > room) chip = chip.substr(0, chip.size() - 4) + "...";
+        // The caret is drawn, not typed: the interface face has no U+25BE.
+        if (ui::FilterChip((chip + "    ##aibackendchip").c_str(), false)) ImGui::OpenPopup("##aibackend");
+        {
+            const ImVec2 b = ImGui::GetItemRectMax(), a = ImGui::GetItemRectMin();
+            ui::DrawRtIcon(ImGui::GetWindowDrawList(), ui::RtIcon::ChevronDown,
+                           ImVec2(b.x - fs * 0.9f, (a.y + b.y) * 0.5f), fs * 0.6f, chatCol(sem.textDim));
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Backend and model - the machine-wide setting from Edit > Preferences >\n"
+                              "AI assistant (the Flow Graph's \"Generate with AI\" uses it too).");
+        if (ImGui::BeginPopup("##aibackend")) {
+            ui::Caption("AI backend");
+            const auto ids = aigen::backendIds();
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::BeginCombo("Backend", aigen::backendLabel(globalAi_.backend))) {
+                for (const char* id : ids)
+                    if (ImGui::Selectable(aigen::backendLabel(id), globalAi_.backend == id)) {
+                        globalAi_.backend = id;
+                        globalAi_.model.clear();
+                        saveGlobalConfig();
+                    }
+                ImGui::EndCombo();
+            }
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::BeginCombo("Model", globalAi_.model.empty() ? "default" : globalAi_.model.c_str())) {
+                if (ImGui::Selectable("default", globalAi_.model.empty())) {
+                    globalAi_.model.clear();
+                    saveGlobalConfig();
+                }
+                for (const char* m : aigen::modelPresets(globalAi_.backend))
+                    if (ImGui::Selectable(m, globalAi_.model == m)) {
+                        globalAi_.model = m;
+                        saveGlobalConfig();
+                    }
+                ImGui::EndCombo();
+            }
+            if (ui::Switch("Extended thinking", &globalAi_.thinking)) saveGlobalConfig();
+            ImGui::TextDisabled("A custom model id is set in Edit > Preferences.");
+            ImGui::EndPopup();
+        }
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - iconsW + 2.0f);
+        if (ui::IconButton("History", ui::RtIcon::History, 0.0f, "Saved chats for this project")) {
+            chatHistoryScanned_ = false;  // re-scan on every open, never per frame
+            ImGui::OpenPopup("##chathistory");
+        }
+        // The popup is submitted right after the button that opens it, with the
+        // SAME string (an id mismatch is open-but-invisible and eats clicks).
+        drawAiChatHistory();
+        ImGui::SameLine(0.0f, 2.0f);
+        if (ui::IconButton("Copy chat", ui::RtIcon::Copy, 0.0f,
+                           "The whole conversation as plain text - what was asked, what was\n"
+                           "answered and what every tool returned.",
+                           !chat_.messages.empty())) {
+            ImGui::SetClipboardText(aichat::conversationText(chat_).c_str());
+            statusMessage_ = "AI chat copied to the clipboard";
+        }
+        ImGui::SameLine(0.0f, 2.0f);
+        if (ui::IconButton("New chat", ui::RtIcon::Plus, 0.0f, "Start a new chat (this one is kept in History)"))
+            aiChatReset();
     }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "The backend is the machine-wide one in Edit > Preferences >\n"
-            "AI assistant - the same setting the Flow Graph window's\n"
-            "\"Generate with AI\" uses.");
-    ImGui::SameLine(ImGui::GetContentRegionMax().x - scaled(226));
-    ImGui::BeginDisabled(chat_.messages.empty());
-    if (ImGui::Button("Copy chat", ImVec2(scaled(72), 0))) {
-        ImGui::SetClipboardText(aichat::conversationText(chat_).c_str());
-        statusMessage_ = "AI chat copied to the clipboard";
+    {
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddLine(a, ImVec2(a.x + ImGui::GetContentRegionAvail().x, a.y),
+                                            chatCol(sem.border));
+        ImGui::Dummy(ImVec2(0, 2));
     }
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "The whole conversation as plain text - what was asked, what was\n"
-            "answered and what every tool returned.");
-    ImGui::SameLine();
-    if (ImGui::Button("History", ImVec2(scaled(70), 0))) {
-        chatHistoryScanned_ = false;  // re-scan on every open, never per frame
-        ImGui::OpenPopup("##chathistory");
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("New chat", ImVec2(scaled(80), 0))) aiChatReset();
-    // The popup is submitted right after the button that opens it, with the SAME
-    // string - ImGui hashes the label, and a popup opened under one id and drawn
-    // under another is open-but-invisible AND swallows every click in the window.
-    drawAiChatHistory();
 
-    if (ImGui::Checkbox("Allow project edits", &chatAllowEdits_))
-        saveGlobalConfig();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "On: the assistant may add, change and delete objects, write flow\n"
-            "graphs, switch scenes and open windows. Every change is ONE undo\n"
-            "step (Ctrl+Z) and nothing is written to disk until you save.\n"
-            "Off: it can only read the project and the documentation.");
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!chatAllowEdits_);
-    if (ImGui::Checkbox("build & run", &chatAllowBuild_)) saveGlobalConfig();
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Let it build the game in Docker (and launch PCSX2) when it decides\n"
-            "that is what the request needs. The chat WAITS for the build and\n"
-            "the assistant is given the result - including the compiler's errors,\n"
-            "which is the only way it can check its own work properly.\n"
-            "Off by default: a build costs minutes and a container, and unlike\n"
-            "every other thing it does, that is not one Ctrl+Z away.");
-    ImGui::Separator();
-
-    // --- transcript
-    const float inputH = ImGui::GetFrameHeightWithSpacing() * 3.0f + scaled(30);
-    if (ImGui::BeginChild("##chatlog", ImVec2(0, -inputH))) {
+    // --- transcript, grouped into turns
+    const float composerH = ImGui::GetFrameHeightWithSpacing() * 3.2f + ImGui::GetTextLineHeightWithSpacing() * 5.2f +
+                            scaled(34);
+    if (ImGui::BeginChild("##chatlog", ImVec2(0, -composerH))) {
         if (chat_.messages.empty()) {
-            ImGui::TextWrapped(
-                "Ask about the editor, or ask for something to be done. The "
-                "assistant reads the editor's own documentation and can act on "
-                "the open project.");
+            ImGui::Dummy(ImVec2(0, scaled(10)));
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(sem.textDim,
+                               "Ask about the editor, or ask for something to be done. The assistant reads "
+                               "the editor's own documentation and can act on the open project.");
+            ImGui::PopTextWrapPos();
             ImGui::Spacing();
-            static const char* const kExamples[] = {
-                "What is a Procedural volume for?",
-                "Add a usable box called lever at 4, 0, -6",
-                "Give the lever a graph: on Used, play a sound",
-                "How do menu stylesheets work?",
+            struct Starter {
+                const char* text;
+                bool change;
+            };
+            static const Starter kExamples[] = {
+                {"What is a Procedural volume for?", false},
+                {"Add a usable box called lever at 4, 0, -6", true},
+                {"Give the lever a graph: on Used, play a sound", true},
+                {"How do menu stylesheets work?", false},
             };
             for (int i = 0; i < (int)IM_ARRAYSIZE(kExamples); ++i) {
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const float w = ImGui::GetContentRegionAvail().x;
+                const float h = ImGui::GetFrameHeight() + scaled(12);
                 ImGui::PushID(i);
-                if (ImGui::Button(kExamples[i]) && !busy) aiChatSend(kExamples[i]);
+                const bool clicked = ImGui::InvisibleButton(kExamples[i].text, ImVec2(w, h));
+                const float t = theme::hoverAnim(ImGui::GetItemID(), ImGui::IsItemHovered(), 12.0f);
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), chatCol(t > 0 ? sem.surface : sem.field, 1.0f),
+                                  fs * 0.6f);
+                dl->AddRect(p, ImVec2(p.x + w, p.y + h), chatCol(sem.border), fs * 0.6f);
+                ui::DrawRtIcon(dl, kExamples[i].change ? ui::RtIcon::Pencil : ui::RtIcon::Question,
+                               ImVec2(p.x + fs * 1.1f, p.y + h * 0.5f), fs * 0.95f,
+                               chatCol(kExamples[i].change ? sem.ok : sem.accent));
+                dl->AddText(ImVec2(p.x + fs * 2.1f, p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                            chatCol(sem.text), kExamples[i].text);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip(kExamples[i].change ? "A change - needs Edit project" : "A question");
+                if (clicked && !busy) aiChatSend(kExamples[i].text);
                 ImGui::PopID();
             }
         }
-        // Clicking a message COPIES it, and there is no button anywhere: one on
-        // every message turned the transcript into a column of chrome, which is
-        // the opposite of what a conversation should look like. The affordance
-        // is the hand cursor plus the toolbar's own faded hover highlight, and
-        // the acknowledgement is the tooltip - which is the whole reason the
-        // gesture is discoverable at all, since nothing about wrapped text says
-        // "clickable" on its own. (Selecting the text is not an alternative:
-        // ImGui labels cannot be selected.)
-        //
-        // The highlight has to be drawn UNDER text that is already submitted,
-        // hence the draw-list channel split - the toolbar can draw its
-        // rectangle first because its buttons are a fixed size, and a message
-        // is not.
-        //
-        // `body` is what the click copies, which is not always the whole
-        // message: a tool row copies its RESULT, because that is the thing
-        // anyone wants out of it.
-        auto clickToCopy = [this](const std::string& body, auto&& draw) {
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            const float width = ImGui::GetContentRegionAvail().x;
-            dl->ChannelsSplit(2);
-            dl->ChannelsSetCurrent(1);
-            ImGui::BeginGroup();
-            draw();
-            ImGui::EndGroup();
-            const ImVec2 mn = ImGui::GetItemRectMin();
-            const ImVec2 mx = ImGui::GetItemRectMax();
-            // The hit box goes back over what was just drawn, and spans the
-            // full width so the empty space beside a short line is part of the
-            // target rather than a dead strip through the middle of it.
-            const ImVec2 resume = ImGui::GetCursorScreenPos();
-            ImGui::SetCursorScreenPos(mn);
-            // Named rather than "##copy": an InvisibleButton draws nothing
-            // either way, and a widget with no label is one --ui-script cannot
-            // target - which would leave the only way to copy anything in this
-            // window untestable without a human (see docs/ui-scripting.md).
-            ImGui::InvisibleButton("Copy message",
-                                   ImVec2(std::max(width, 1.0f),
-                                          std::max(mx.y - mn.y, 1.0f)));
-            const bool hovered = ImGui::IsItemHovered();
-            const ImGuiID id = ImGui::GetItemID();
-            if (hovered) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-            if (ImGui::IsItemClicked()) {
-                ImGui::SetClipboardText(body.c_str());
-                chatCopiedId_ = id;
-                chatCopiedAt_ = ImGui::GetTime();
-            }
-            const float t = theme::hoverAnim(id, hovered, 12.0f);
-            ImGui::SetCursorScreenPos(resume);
-            dl->ChannelsSetCurrent(0);
-            if (t > 0.0f)
-                dl->AddRectFilled(ImVec2(mn.x - scaled(4), mn.y - scaled(2)),
-                                  ImVec2(mn.x + width + scaled(4), mx.y + scaled(2)),
-                                  ImGui::GetColorU32(ImGuiCol_ButtonHovered, t * 0.45f),
-                                  ImGui::GetStyle().FrameRounding);
-            dl->ChannelsMerge();
-            if (!hovered) return;
-            // "Copied" wins for a moment after the click; the invitation is on
-            // ImGui's usual hover delay, so reading the transcript does not put
-            // a tooltip under the cursor every time it passes over a message.
-            if (chatCopiedId_ == id && ImGui::GetTime() - chatCopiedAt_ < 1.6)
-                ImGui::SetTooltip("Copied to the clipboard");
-            else if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                ImGui::SetTooltip("Click to copy");
-        };
-        for (size_t i = 0; i < chat_.messages.size(); ++i) {
+        // Turns: everything from one User message to the next. Messages before
+        // the first User (a compaction summary) are drawn as such.
+        size_t i = 0;
+        while (i < chat_.messages.size()) {
             const aichat::Message& m = chat_.messages[i];
-            ImGui::PushID((int)i);
-            switch (m.role) {
-                case aichat::Message::Role::User:
-                    clickToCopy(aichat::messageText(m), [&] {
-                        ImGui::TextColored(sem.accent, "You");
-                        ImGui::TextWrapped("%s", m.text.c_str());
-                    });
-                    break;
-                case aichat::Message::Role::Assistant:
-                    clickToCopy(aichat::messageText(m), [&] {
-                        ImGui::TextColored(sem.ok, "Assistant");
-                        if (!m.text.empty())
-                            ImGui::TextWrapped("%s", m.text.c_str());
-                        for (const aichat::ToolCall& c : m.calls)
-                            ImGui::TextDisabled("-> %s %s", c.name.c_str(),
-                                                aichat::argsText(c).c_str());
-                    });
-                    break;
-                case aichat::Message::Role::Summary: {
-                    // Collapsed: it stands in for messages that are gone, and
-                    // the point of compacting was to stop reading them. The
-                    // header stays a tree node (clicking it must unfold), so
-                    // only the recap itself is click-to-copy.
-                    ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
-                    const bool openSummary =
-                        ImGui::TreeNodeEx("Earlier conversation, summarised",
-                                          ImGuiTreeNodeFlags_SpanAvailWidth);
-                    ImGui::PopStyleColor();
-                    if (openSummary) {
-                        clickToCopy(m.text, [&] {
+            if (m.role == aichat::Message::Role::Summary) {
+                // Collapsed: it stands in for messages that are gone.
+                ImGui::PushID((int)i);
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+                const bool openSummary =
+                    ImGui::TreeNodeEx("Earlier conversation, summarised", ImGuiTreeNodeFlags_SpanAvailWidth);
+                ImGui::PopStyleColor();
+                if (openSummary) {
+                    chatClickToCopy(
+                        m.text,
+                        [&] {
                             ImGui::PushTextWrapPos(0.0f);
                             ImGui::TextUnformatted(m.text.c_str());
                             ImGui::PopTextWrapPos();
-                        });
-                        ImGui::TreePop();
-                    }
-                    break;
+                        },
+                        chatCopiedId_, chatCopiedAt_, ImGui::GetContentRegionAvail().x, scaled(4));
+                    ImGui::TreePop();
                 }
-                case aichat::Message::Role::Tool:
-                    // Collapsed by default: the results are for the model, and a
-                    // 40 KB doc page would bury the conversation. Open one to see
-                    // exactly what the assistant was told.
-                    for (size_t k = 0; k < m.calls.size(); ++k) {
-                        const aichat::ToolCall& c = m.calls[k];
-                        ImGui::PushID((int)k);
-                        ImGui::PushStyleColor(ImGuiCol_Text,
-                                              c.failed ? sem.warn : sem.textDim);
-                        const std::string label =
-                            c.name + " " + aichat::argsText(c) +
-                            (c.failed ? "  [failed]" : "");
-                        const bool open = ImGui::TreeNodeEx(
-                            label.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth);
-                        ImGui::PopStyleColor();
-                        // Clicking the row unfolds it, so the RESULT is what
-                        // click-to-copy covers - which is the half anyone wants
-                        // out of a tool row anyway (a doc page, the tail of a
-                        // build log). Copy chat has the rest.
-                        if (open) {
-                            clickToCopy(c.result, [&] {
-                                ImGui::PushTextWrapPos(0.0f);
-                                ImGui::TextUnformatted(c.result.c_str());
-                                ImGui::PopTextWrapPos();
-                            });
-                            ImGui::TreePop();
-                        }
-                        ImGui::PopID();
-                    }
-                    break;
+                ImGui::PopID();
+                ++i;
+                continue;
             }
-            ImGui::PopID();
-            ImGui::Spacing();
+            const size_t user = m.role == aichat::Message::Role::User ? i : (size_t)-1;
+            size_t j = i + (user == i ? 1 : 0);
+            while (j < chat_.messages.size() && chat_.messages[j].role != aichat::Message::Role::User &&
+                   chat_.messages[j].role != aichat::Message::Role::Summary)
+                ++j;
+            const bool last = j >= chat_.messages.size();
+            drawAiChatTurn(user, user == i ? i + 1 : i, j, last && busy);
+            i = j;
         }
         if (!chatCompactNote_.empty()) ImGui::TextDisabled("%s", chatCompactNote_.c_str());
-        if (busy) {
-            // Three dots that fill up: the backend gives no progress, so the only
-            // honest signal is "still running".
-            const int dots = (int)(ImGui::GetTime() * 2.0) % 4;
-            ImGui::TextColored(sem.accentMuted, "%s%s",
-                               chatCompacting_ ? "Compacting the conversation"
-                                               : "Thinking",
-                               std::string(dots, '.').c_str());
-        }
         if (!chatError_.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text,
-                                  sem.danger);
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
             ImGui::PushTextWrapPos(0.0f);
             ImGui::TextUnformatted(chatError_.c_str());
             ImGui::PopTextWrapPos();
@@ -1717,98 +2223,190 @@ void App::drawAiChatWindow() {
     }
     ImGui::EndChild();
 
-    // --- input
-    const bool send =
-        ImGui::InputTextMultiline(
-            "##chatinput", chatInputBuf_, sizeof(chatInputBuf_),
-            ImVec2(-FLT_MIN, ImGui::GetFrameHeightWithSpacing() * 2.0f),
-            ImGuiInputTextFlags_CtrlEnterForNewLine |
-                ImGuiInputTextFlags_EnterReturnsTrue) &&
-        !busy;
-    if (ImGui::IsItemHovered() && chatInputBuf_[0] == '\0')
-        ImGui::SetTooltip("Enter sends, Ctrl+Enter starts a new line.");
+    // --- composer: what it may do, the draft, the send button
+    {
+        const ImVec2 a = ImGui::GetCursorScreenPos();
+        ImGui::GetWindowDrawList()->AddLine(a, ImVec2(a.x + ImGui::GetContentRegionAvail().x, a.y),
+                                            chatCol(sem.border));
+        ImGui::Dummy(ImVec2(0, 2));
+    }
+    static const char* const kModes[3] = {"Ask only", "Edit project", "+ Build & run"};
+    int mode = !chatAllowEdits_ ? 0 : chatAllowBuild_ ? 2 : 1;
+    if (ui::Segmented("##chatmode", kModes, 3, &mode, -1.0f)) {
+        chatAllowEdits_ = mode >= 1;
+        chatAllowBuild_ = mode == 2;
+        saveGlobalConfig();
+    }
+    static const char* const kConsequence[3] = {
+        "Reads the project and the docs; changes nothing.",
+        "Changes objects, graphs and sections. Every scene change is one Ctrl+Z; nothing is saved "
+        "unless you ask.",
+        "Also builds and runs the game and drives the Remote Pad - minutes, and not undone by Ctrl+Z.",
+    };
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(sem.textDim, "%s", kConsequence[mode]);
+    ImGui::PopTextWrapPos();
+
+    // The draft in a card: a frameless multi-line field, then a row with what
+    // "this" refers to, the key hint and the send / stop button.
+    const ImVec2 cardMin = ImGui::GetCursorScreenPos();
+    const float cardW = ImGui::GetContentRegionAvail().x;
+    const float inputH = ImGui::GetTextLineHeightWithSpacing() * 2.6f;
+    const float rowH = ImGui::GetFrameHeight();
+    const float pad = fs * 0.55f;
+    const float cardH = inputH + rowH + pad * 3;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(cardMin, ImVec2(cardMin.x + cardW, cardMin.y + cardH), chatCol(sem.field), fs * 0.8f);
+    const bool inputFocused = ImGui::GetActiveID() == ImGui::GetID("##chatinput");
+    dl->AddRect(cardMin, ImVec2(cardMin.x + cardW, cardMin.y + cardH),
+                inputFocused ? chatCol(sem.accent, 0.6f) : chatCol(sem.border), fs * 0.8f, 0, 1.2f);
+    ImGui::SetCursorScreenPos(ImVec2(cardMin.x + pad, cardMin.y + pad));
+    if (chatFocusInput_) {  // the command palette handed over a draft
+        ImGui::SetKeyboardFocusHere();
+        chatFocusInput_ = false;
+    }
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    const bool send = ImGui::InputTextMultiline("##chatinput", chatInputBuf_, sizeof(chatInputBuf_),
+                                                ImVec2(cardW - pad * 2, inputH),
+                                                ImGuiInputTextFlags_CtrlEnterForNewLine |
+                                                    ImGuiInputTextFlags_EnterReturnsTrue) &&
+                      !busy;
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
     const bool empty = chatInputBuf_[0] == '\0';
+    if (empty) {
+        dl->AddText(ImVec2(cardMin.x + pad, cardMin.y + pad), chatCol(sem.textDim, 0.8f),
+                    "Ask, or describe a change...");
+    }
+    ImGui::SetCursorScreenPos(ImVec2(cardMin.x + pad, cardMin.y + pad * 2 + inputH));
+    {
+        // What "this", "here" and "selected" mean to the assistant.
+        const auto& objs = project_.objects();
+        std::string sel = hasProject_ ? project_.active().name : "no project";
+        if (hasProject_ && selectedObject_ >= 0 && selectedObject_ < (int)objs.size())
+            sel = objs[selectedObject_].name + " \xc2\xb7 " + project_.active().name;
+        ImGui::AlignTextToFramePadding();
+        ui::Badge(sel.c_str(), 4);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("What \"this\", \"here\" and \"selected\" refer to: the selection and the\n"
+                              "active scene, sent with every request.");
+    }
+    const float btn = rowH;
+    const char* hint = "Enter sends \xc2\xb7 Ctrl+Enter new line";
+    const float hintW = ImGui::CalcTextSize(hint).x * 0.85f;
+    const float right = cardMin.x + cardW - pad;
+    if (right - btn - hintW - fs > ImGui::GetItemRectMax().x) {
+        dl->AddText(ImGui::GetFont(), fs * 0.85f,
+                    ImVec2(right - btn - fs * 0.6f - hintW, cardMin.y + pad * 2 + inputH + (rowH - fs * 0.85f) * 0.5f),
+                    chatCol(sem.textDim, 0.8f), hint);
+    }
+    ImGui::SetCursorScreenPos(ImVec2(right - btn, cardMin.y + pad * 2 + inputH));
     if (busy) {
-        if (ImGui::Button("Cancel", ImVec2(scaled(110), 0))) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("Stop", ImVec2(btn, btn))) {
             chatGen_.cancel();
             chatError_ = "Cancelled.";
         }
+        dl->AddRectFilled(p, ImVec2(p.x + btn, p.y + btn), chatCol(sem.danger), fs * 0.4f);
+        ui::DrawRtIcon(dl, ui::RtIcon::Stop, ImVec2(p.x + btn * 0.5f, p.y + btn * 0.5f), btn * 0.45f,
+                       chatCol(sem.ground));
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Stop this request");
     } else {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
         ImGui::BeginDisabled(empty);
-        const bool clicked = ImGui::Button("Send", ImVec2(scaled(110), 0));
+        const bool clicked = ImGui::InvisibleButton("Send", ImVec2(btn, btn));
         ImGui::EndDisabled();
+        dl->AddRectFilled(p, ImVec2(p.x + btn, p.y + btn), chatCol(empty ? sem.surface : sem.accent), fs * 0.4f);
+        ui::DrawRtIcon(dl, ui::RtIcon::Send, ImVec2(p.x + btn * 0.5f, p.y + btn * 0.5f), btn * 0.5f,
+                       chatCol(empty ? sem.textDim : sem.ground));
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Send (Enter)");
         if ((clicked || send) && !empty) {
             const std::string text = chatInputBuf_;
             chatInputBuf_[0] = '\0';
             aiChatSend(text);
         }
     }
-    if (!chatAllowEdits_) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("read-only");
-    } else if (chatStep_ > 0) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%d tool round(s) this turn", chatStep_);
-    }
+    ImGui::SetCursorScreenPos(ImVec2(cardMin.x, cardMin.y + cardH + ImGui::GetStyle().ItemSpacing.y));
 
-    // --- what this is costing. Two different kinds of number, kept apart on
-    // purpose: the context is an ESTIMATE of a request not sent yet, the session
-    // totals are what the backend actually reported.
+    // --- what this is costing: the context of the NEXT request (an estimate)
+    // against where it compacts, then what the backend reported for the session
     const aichat::ContextStats st = aichat::contextStats(aiChatSystemPrompt(), chat_);
     const size_t foldable = aichat::compactableCount(chat_);
-    ImGui::PushStyleColor(ImGuiCol_Text, st.overBudget ? sem.warn : sem.textDim);
-    ImGui::Text("ctx ~%s", tokText(st.totalTokens).c_str());
-    ImGui::PopStyleColor();
-    if (ImGui::IsItemHovered())
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(sem.textDim, "Context");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         ImGui::SetTooltip(
             "What the next request carries, estimated at 4 bytes per token:\n"
             "  instructions  ~%s  (tools, the documentation index, your project)\n"
             "  conversation  ~%s  (%d message(s))\n"
             "The instructions are re-sent every time - none of the backends keeps\n"
-            "state between calls - so a question costs the instructions plus the\n"
-            "conversation so far. Past ~%s of conversation it is compacted: the\n"
+            "state between calls. Past ~%s of conversation it is compacted: the\n"
             "model writes a recap of the older messages and that replaces them.%s",
-            tokText(st.promptTokens).c_str(), tokText(st.transcriptTokens).c_str(),
-            st.messages, tokText(st.compactAtTokens).c_str(),
-            st.overBudget
-                ? "\n\nIt is past that now - the next question compacts first."
-                : "");
+            tokText(st.promptTokens).c_str(), tokText(st.transcriptTokens).c_str(), st.messages,
+            tokText(st.compactAtTokens).c_str(),
+            st.overBudget ? "\n\nIt is past that now - the next question compacts first." : "");
+    ImGui::SameLine();
+    {
+        const float mw = scaled(80), mh = ImMax(3.0f, fs * 0.28f);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float y = p.y + (ImGui::GetFrameHeight() - mh) * 0.5f;
+        const float frac = st.compactAtTokens > 0 ? (float)st.transcriptTokens / (float)st.compactAtTokens : 0.0f;
+        dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + mw, y + mh), chatCol(sem.surface), mh);
+        dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + mw * ImClamp(frac, 0.0f, 1.0f), y + mh),
+                          chatCol(st.overBudget ? sem.warn : sem.ok), mh);
+        ImGui::Dummy(ImVec2(mw, ImGui::GetFrameHeight()));
+    }
+    ImGui::SameLine();
+    {
+        ui::FontScope mono(ui::monoFont());
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextColored(st.overBudget ? sem.warn : sem.textDim, "%s / %s", tokText(st.transcriptTokens).c_str(),
+                           tokText(st.compactAtTokens).c_str());
+    }
+    std::string usage;
     if (chatUsageReal_) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("- session %s in / %s out", tokText(chatTokensIn_).c_str(),
-                            tokText(chatTokensOut_).c_str());
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Reported by the backend itself, for every request this editor\n"
-                "session made (this chat and the ones before it), input including\n"
-                "what the prompt cache served.");
+        usage = tokText(chatTokensIn_) + " in \xc2\xb7 " + tokText(chatTokensOut_) + " out";
         if (chatCostUsd_ > 0.0) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("- $%.2f", chatCostUsd_);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "What the backend says it billed this editor session.\n"
-                    "On a subscription that is what it WOULD have cost on the API.");
+            char c[32];
+            std::snprintf(c, sizeof(c), " \xc2\xb7 $%.2f", chatCostUsd_);
+            usage += c;
         }
     } else if (!chat_.messages.empty()) {
+        usage = "no usage reported";
+    }
+    const char* compact = "Compact";
+    const float compactW = ImGui::CalcTextSize(compact).x + ImGui::GetStyle().FramePadding.x * 2.6f;
+    if (!usage.empty()) {
+        ui::FontScope mono(ui::monoFont());
+        const float uw = ImGui::CalcTextSize(usage.c_str()).x;
+        const float x = ImGui::GetContentRegionMax().x - compactW - uw - fs * 0.6f;
         ImGui::SameLine();
-        ImGui::TextDisabled("- this backend reports no usage");
-    }
-    if (foldable > 0) {
-        ImGui::SameLine(ImGui::GetContentRegionMax().x - scaled(78));
-        ImGui::BeginDisabled(busy);
-        if (ImGui::SmallButton("Compact")) {
-            chatCompactPending_ = true;
-            chatCompactThenSend_ = false;
-            aiChatStart();
+        if (x > ImGui::GetCursorPosX()) {
+            ImGui::SetCursorPosX(x);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(sem.textDim, "%s", usage.c_str());
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip(
+                    "Reported by the backend itself, for every request this editor session\n"
+                    "made (this chat and the ones before it). A cost is what the backend says\n"
+                    "it billed - on a subscription, what it WOULD have cost on the API.");
+        } else {
+            ImGui::NewLine();
         }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Fold the %d oldest message(s) into a summary now, instead of\n"
-                "waiting until the conversation outgrows its budget. Costs one\n"
-                "backend request; the recent turns are kept word for word.",
-                (int)foldable);
     }
+    ImGui::SameLine(ImGui::GetContentRegionMax().x - compactW);
+    if (ui::GhostButton(compact, compactW, foldable > 0 && !busy)) {
+        chatCompactPending_ = true;
+        chatCompactThenSend_ = false;
+        aiChatStart();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip(foldable > 0 ? "Fold the %d oldest message(s) into a summary now, instead of\n"
+                                         "waiting until the conversation outgrows its budget. Costs one\n"
+                                         "backend request; the recent turns are kept word for word."
+                                       : "Nothing to fold yet - the conversation is short.",
+                          (int)foldable);
     ImGui::End();
 }

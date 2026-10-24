@@ -35,12 +35,9 @@
 #            commit is the upstream fork point recorded in .gitignore, not
 #            something setup.ps1 checks out over the tracked engine sources.
 
+# Dear ImGui is NOT here: it is tracked in vendor/imgui-tyrax with TyraX
+# patches (TYRAX-PATCHES.md there; upstream docking b334d19b, 1.92.9).
 $VendorDeps = @(
-    @{ Url = 'https://github.com/ocornut/imgui.git'
-       Mirror = 'https://github.com/doctorspider42/tyrax-vendor-imgui.git'
-       Commit = 'b334d19b667958ed970000073644d911fae17e57'; Ref = 'docking'
-       Dir = 'vendor/imgui'
-       Probe = 'vendor/imgui/imgui.cpp'; Build = $true },
     @{ Url = 'https://github.com/glfw/glfw.git'
        Mirror = 'https://github.com/doctorspider42/tyrax-vendor-glfw.git'
        Commit = '7b6aead9fb88b3623e3b3725ebb42670cbe4c579'; Ref = '3.4'

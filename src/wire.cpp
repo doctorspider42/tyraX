@@ -776,6 +776,15 @@ std::unique_ptr<Transport> makeTcpTransport() {
     return std::make_unique<TcpTransport>();
 }
 
+std::string probeTcp(const std::string& host, uint16_t port, int timeoutMs) {
+    // The transport's own client connect: same non-blocking connect + poll on
+    // both socket stacks, closed when the transport goes out of scope.
+    std::unique_ptr<Transport> t = makeTcpTransport();
+    std::string err = t->connect(host, port, timeoutMs);
+    t->close();
+    return err;
+}
+
 std::unique_ptr<Transport> makeWebSocketTransport(std::string httpPage) {
     return std::make_unique<TcpTransport>(&httpPage);
 }

@@ -9,6 +9,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include <tamtypes.h>
@@ -188,7 +189,7 @@ void RendererCoreGS::allocateVramBuffers() {
   const bool halfDepthColor = frameBuffers[0].psm == GS_PSM_16;
   zBuffer.zsm = halfDepthColor ? GS_ZBUF_16 : GS_ZBUF_32;
   RendererCoreDepth::setBits(halfDepthColor ? 16 : 24);
-  // Modified by TyraX (BLSS, docs/neural-upscaler.md): the z buffer covers the
+  // Modified by TyraX (BLSS, docs/upscaler.md): the z buffer covers the
   // RASTER, not the display buffer. With the raster scale on, nothing ever
   // renders 3D at display resolution - the whole scene is bracketed into the
   // low-res target and the composite that blows it back up masks z writes - so
@@ -256,6 +257,7 @@ void RendererCoreGS::allocateVramBuffers() {
   bufferCount = 2;
   layoutLowResScaleX = lowResTargetScaleX;
   layoutLowResScaleY = lowResTargetScaleY;
+  layoutLowResDepth = lowResTargetDepth;
   if (settings->getFrameBufferCount() >= 3) {
     // Modified by TyraX: Hybrid adds a DISPLAY target (PSMCT16), not a
     // second 32-bit draw target. Charge the format we actually allocate.
@@ -266,7 +268,7 @@ void RendererCoreGS::allocateVramBuffers() {
                          third.psm, GRAPH_ALIGN_PAGE) *
             kWordsPerMB +
         0.5F);
-    // Modified by TyraX: the neural upscaler's low-res colour target is NOT in
+    // Modified by TyraX: the upscaler's low-res colour target is NOT in
     // getHeapWords() yet and is not in the reserve either. It is allocated
     // after this function (blss.configure -> this rebuild -> blss.allocate),
     // and the reserve names post fx, the env map, the camera feed and the
@@ -286,6 +288,9 @@ void RendererCoreGS::allocateVramBuffers() {
                           GRAPH_ALIGN_PAGE) *
               kWordsPerMB +
           0.5F);
+      // The particles-only shape adds a low-res z of the same page geometry
+      // (PSMZ32 beside PSMCT32, PSMZ16 beside PSMCT16) - the same words.
+      if (lowResTargetDepth) blssWords *= 2;
     }
     const int left = vram.getHeapWords() - bufferWords - blssWords;
     if (left < kThirdBufferReserveWords + kThirdBufferMinTextureWords) {
@@ -380,7 +385,8 @@ bool RendererCoreGS::needsBufferRealloc() const {
   const int wantY = zPinScaleY > 0 ? zPinScaleY : settings->getRasterScaleY();
   return zRasterScaleX != wantX || zRasterScaleY != wantY ||
          layoutLowResScaleX != lowResTargetScaleX ||
-         layoutLowResScaleY != lowResTargetScaleY;
+         layoutLowResScaleY != lowResTargetScaleY ||
+         layoutLowResDepth != lowResTargetDepth;
 }
 
 // Modified by TyraX (BLSS): the same VRAM reset reinit() does, minus the video
@@ -605,10 +611,10 @@ void RendererCoreGS::setFogColor(const u8& r, const u8& g, const u8& b) {
   PACK_GIFTAG(q, GS_SET_FOGCOL(r, g, b), GS_REG_FOGCOL);
   q++;
   packet2_update(packet2, q);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet2, DMA_CHANNEL_GIF, true);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameSendPacket(packet2, DMA_CHANNEL_GIF, true);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   packet2_free(packet2);
 }
 
@@ -620,10 +626,10 @@ void RendererCoreGS::setAlpha(const u64& alpha) {
   PACK_GIFTAG(q, alpha, GS_REG_ALPHA_1);
   q++;
   packet2_update(alphaPacket, q);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(alphaPacket, DMA_CHANNEL_GIF, true);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameSendPacket(alphaPacket, DMA_CHANNEL_GIF, true);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
 }
 
 // Modified by TyraX: per-bag texture wrap (see the header). Mirrors setAlpha
@@ -646,20 +652,20 @@ void RendererCoreGS::setTextureWrap(const texwrap_t& wrap) {
               GS_REG_CLAMP_1);
   q++;
   packet2_update(wrapPacket, q);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(wrapPacket, DMA_CHANNEL_GIF, true);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameSendPacket(wrapPacket, DMA_CHANNEL_GIF, true);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
 }
 
 void RendererCoreGS::enableZTests() {
   packet2_reset(zTestPacket, false);
   packet2_update(zTestPacket,
                  draw_enable_tests(zTestPacket->base, 0, &zBuffer));
-  packet2_update(zTestPacket, draw_finish(zTestPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(zTestPacket, frameDrawFinish(zTestPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(zTestPacket, DMA_CHANNEL_GIF, true);
+  frameSendPacket(zTestPacket, DMA_CHANNEL_GIF, true);
 }
 
 void RendererCoreGS::initDrawingEnvironment() {
@@ -722,10 +728,10 @@ void RendererCoreGS::initDrawingEnvironment() {
                               screenCenter - (settings->getWidth() / 2.0F),
                               screenCenter -
                                   (settings->getRenderHeightF() / 2.0F)));
-  packet2_update(packet2, draw_finish(packet2->next));
+  packet2_update(packet2, frameDrawFinish(packet2->next));
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet2, DMA_CHANNEL_GIF, true);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameSendPacket(packet2, DMA_CHANNEL_GIF, true);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   packet2_free(packet2);
   TYRA_LOG("Drawing environment initialized!");
 }
@@ -930,9 +936,9 @@ void RendererCoreGS::emitHybridPresent(u8 target) {
   PACK_GIFTAG(q, GS_SET_DTHE(0), GS_REG_DTHE);
   q++;
   packet2_update(hybridPacket, q);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(hybridPacket, DMA_CHANNEL_GIF, true);
+  frameSendPacket(hybridPacket, DMA_CHANNEL_GIF, true);
 }
 
 // Modified by TyraX: the FRAME switch, shared by both flip paths.
@@ -958,11 +964,11 @@ void RendererCoreGS::emitDrawTargetSwitch(u8 target) {
                     screenCenter - (settings->getRenderHeightF() / 2.0F)));
   }
 
-  packet2_update(flipPacket, draw_finish(flipPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(flipPacket, frameDrawFinish(flipPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(flipPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(flipPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCoreGS::flipBuffers(bool throttle, bool synthetic) {

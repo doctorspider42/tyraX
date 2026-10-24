@@ -12,12 +12,13 @@ class DistrictMood : public Script {
   void update(ScriptContext& ctx) override {
     const bool night = ctx.saveValues && DISTRICT_NIGHT_VALUE < ctx.saveValueCount &&
                        ctx.saveValues[DISTRICT_NIGHT_VALUE] >= 0.5F;
-    // Pin the live clock every simulation frame. The regular render tick
-    // evaluates sky, moon, stars, fog and the grade from the same hour.
-    daynight::g_hour = night ? 0.0F : 12.0F;
     if (previous == (int)night && generation == ctx.sceneGeneration) return;
     generation = ctx.sceneGeneration;
     previous = (int)night;
+    // Fixed mood: choose and pause once per mood/scene change. The normal
+    // render tick still evaluates sky, moon, stars, fog and grading.
+    daynight::setHour(night ? 0.0F : 12.0F);
+    daynight::setPaused(true);
     for (int i = 0; i < ctx.objectCount; ++i) {
       if (ctx.objects[i].data.type == 9 && ctx.lightRequest)
         ctx.lightRequest[i] = night ? 1 : 0;

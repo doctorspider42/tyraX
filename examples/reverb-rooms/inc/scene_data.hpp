@@ -253,6 +253,9 @@ inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
+extern const unsigned char SCENE_0_STATIC_COLLIDERS[];
+inline const unsigned char* SCENE_STATIC_COLLIDER_TABLES[SCENE_COUNT] = {SCENE_0_STATIC_COLLIDERS};
+
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
 // SCROLLER_CLONES maps each baked clone object to its scroller +
 // belt phase; SCROLLER_HIDDEN lists the authored member templates
@@ -516,6 +519,8 @@ inline constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
 inline constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
 inline constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
 inline constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
+inline constexpr bool SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[SCENE_COUNT] = {false};
+inline constexpr bool ANY_PLAYER_ONLY_DYNAMIC_LIGHTS = false;
 inline constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.0F};
 inline constexpr float SCENE_SUN_YS[SCENE_COUNT] = {1.0F};
 inline constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.0F};
@@ -768,6 +773,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+#define PLAYER_ONLY_DYNAMIC_LIGHTS SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[g_activeScene]
 // Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
 // and the moon, their apparent radius as a fraction of the dome radius (0 = the
 // body is down, draw nothing) and the moon disc's roll so its lit limb faces

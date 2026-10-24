@@ -12,6 +12,7 @@ const SceneObjectData SCENE_0_OBJECTS[3] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {3};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[3] = {0x49e6108115c7e0f9ULL, 0x7c94986f259d0cf2ULL, 0xad9cea6c55e37713ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[3] = {1,0,0};
 
 }  // namespace Blocks_terrain
 

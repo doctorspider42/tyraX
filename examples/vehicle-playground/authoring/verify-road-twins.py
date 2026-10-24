@@ -11,7 +11,8 @@ root = Path(__file__).resolve().parents[3]
 templates = (root/'src/templates.cpp').read_text(encoding='utf-8-sig')
 roadgen_source = (root/'src/roadgen.cpp').read_text(encoding='utf-8-sig')
 roadgen_header = (root/'src/roadgen.hpp').read_text(encoding='utf-8-sig')
-start = templates.index('void TerrainGame::buildRoads(int scene) {')
+# The planner block and its row type sit right before buildRoads.
+start = templates.index("// One sample of a road's dense lateral grid")
 end = templates.index('\n}\n)";', start) + 2
 runtime = templates[start:end]
 stub = r'''
@@ -86,18 +87,16 @@ bool sample(const std::vector<roadgen::Vertex>& mesh, float x, float z, roadgen:
     }
   } return false;
 }
-// The two budgets, as the surface check reads them. SURFACE is the one this
-// repository keeps exact: kSpanFlatness is the float noise floor, so `dy` may
-// not move at all. UV is the one that was relaxed, so it is bounded by the
-// shear budget rather than by zero - and the bound is reported per case, not
-// merely asserted, because the number IS the quality claim. 0.02 of a texture
-// repeat is 2.6 texels on the district's 128-pixel road; the measured worst
-// anywhere in the Motor District is 0.36 of a texel, and these synthetic
-// fixtures bend harder than any street in it.
-static const float kSurfaceTol = 2.f*roadgen::kSpanFlatness + 1e-4f;
-static const float kUvTol = 0.02f;
+// The band budgets (roadgen.hpp, docs/roads.md "Bands"), as the surface check
+// reads them: the planner holds every dense sample AND every dense triangle's
+// centroid of the road to kRoadTolY in height and kRoadTolUV in texture, so
+// the centroids this check samples may not exceed them either. The bounds are
+// reported per case, not merely asserted, because the numbers ARE the
+// quality claim.
+static const float kSurfaceTol = roadgen::kRoadTolY + 1e-4f;
+static const float kUvTol = roadgen::kRoadTolUV + 1e-4f;
 void requireBaselineSurface(const std::vector<roadgen::Vertex>& opt,
-                            const std::vector<roadgen_dense::Vertex>& dense,
+                            const std::vector<roadgen::Vertex>& dense,
                             double* worstY, double* worstUv) {
   for(size_t i=0;i+2<dense.size();i+=3) {
     const auto& a=dense[i]; const auto& b=dense[i+1]; const auto& c=dense[i+2];
@@ -168,31 +167,29 @@ void requireNoSeams(const std::vector<roadgen::Vertex>& opt, double* worst) {
         if (gap > *worst) *worst = gap;
       }
     }
-  require(*worst <= 2.0 * (double)roadgen::kSpanFlatness + 1e-5,
-          "a lateral merge opened a seam between neighbouring spans");
+  // Both bands that meet at a kept row use that row's whole kept set, so a
+  // seam cannot open there by construction - whatever the budgets.
+  require(*worst <= 1e-5,
+          "a band opened a seam against its neighbour");
 }
-// The invariant the EDITOR's selected-road overlay reads, pinned here because
-// nothing else would catch it breaking. The overlay draws the two authored
-// borders by U - A->D is a border when A's u is 0, B->C when B's u is 1 -
-// rather than by counting `crossSteps * 6` vertices per station pair, which
-// stopped being true the moment a pair could be cut anywhere. That is only
-// correct if every station pair's spans run left to right, starting at u 0 and
-// ending at u 1, which is exactly what this checks: a span begins a pair if and
-// only if the span before it ended one.
+// The invariant the EDITOR's selected-road overlay reads (app.cpp): a band's
+// shoulder is the one triangle edge whose two ends share u 0 (or u 1) across
+// its two rows. Each side must therefore have exactly one such edge per band,
+// and the two sides the same number.
 void requireBorderRule(const std::vector<roadgen::Vertex>& list, size_t* pairs) {
-  *pairs = 0;
-  require(list.size() % 6 == 0, "the list emitter did not emit whole spans");
-  bool expectStart = true;
-  for (size_t s = 0; s + 5 < list.size(); s += 6) {
-    const bool startsPair = list[s].u == 0.0f;
-    const bool endsPair = list[s + 1].u == 1.0f;
-    require(startsPair == expectStart,
-            "a station pair's spans do not start at the left shoulder");
-    if (endsPair) ++*pairs;
-    expectStart = endsPair;
-  }
-  require(expectStart, "the last station pair does not reach the right shoulder");
-  require(*pairs > 0, "no station pair reached both shoulders");
+  require(list.size() % 3 == 0, "the list emitter did not emit whole triangles");
+  size_t left = 0, right = 0;
+  for (size_t s = 0; s + 2 < list.size(); s += 3)
+    for (int e = 0; e < 3; ++e) {
+      const auto& p = list[s + (size_t)e];
+      const auto& q = list[s + (size_t)((e + 1) % 3)];
+      if (p.u != q.u || p.v == q.v) continue;
+      if (p.u == 0.0f) ++left;
+      if (p.u == 1.0f) ++right;
+    }
+  require(left == right, "the two shoulders have different numbers of border edges");
+  require(left > 0, "no band reached both shoulders");
+  *pairs = left;
 }
 // A triangle as an ORDER-INDEPENDENT key: the three corners sorted. A strip
 // keeps every triangle of the list but neither its rotation nor its winding,
@@ -254,15 +251,15 @@ size_t check(const char* name, const std::vector<float>& points, float width,
   ROAD_DEFS[0]={0,0,(int)points.size()/2,width,sampleStep,-1};
   for(size_t i=0;i<points.size();++i) ROAD_POINTS[i]=points[i];
   std::vector<roadgen::Vertex> host, hostStrip;
-  std::vector<roadgen_dense::Vertex> dense;
+  std::vector<roadgen::Vertex> dense;
   std::vector<int> chunkSizes;
   roadgen::tessellate(points,width,height,host,{},sampleStep);
   roadgen::tessellateStrips(points,width,height,hostStrip,&chunkSizes,sampleStep);
   // Closed-loop fixtures compare lateral reduction at the authored cadence.
   // Coarse curved stations intentionally approximate a different surface.
   // Existing open-road fixtures retain their original 1m baseline contract.
-  roadgen_dense::tessellate(points,width,height,dense,{},
-                          roadgen::isClosed(points) ? sampleStep : 1.0F);
+  roadgen::tessellateDense(points,width,height,dense,
+                           roadgen::isClosed(points) ? sampleStep : 1.0F);
   double worstY = 0.0, worstUv = 0.0;
   requireBaselineSurface(host,dense,&worstY,&worstUv);
   double seam = 0.0;
@@ -408,18 +405,18 @@ int main(int argc,char** argv) {
   check("slope 2m",straight,13,[](float x,float z){return .1f*x+.2f*z;},2.0F);
   require(slope==flat,"a planar slope must collapse without changing its surface");
   const auto crown=check("crown with equal shoulders",straight,13,[](float x,float){return 1.f-x*x/42.25f;});
-  require(crown==flat*26,"equal shoulders must not flatten an interior crown");
+  require(crown>flat,"equal shoulders must not flatten an interior crown");
   const auto curvedFlat=check("curved flat (legacy)",{0,0,0,20,15,40,35,30},11,
       [](float,float){return 3.f;});
-  require(curvedFlat==420,"curved flat spans keep the established reduction");
+  // The old flat collapse drew a curved flat street as full-width quads with
+  // NO texture check (420 vertices here, its UV drift unbounded). Bands hold
+  // flat streets to the same UV budget as every other, so a bend keeps more -
+  // still a fraction of the dense grid.
+  require(curvedFlat<9240/2,"curved flat bands must merge within the UV budget");
   const auto curved=check("curved plane",{0,0,0,20,15,40,35,30},11,
       [](float x,float z){return 3.f+.03f*x-.02f*z;});
-  // This used to read `curved == 9240` - "a curved plane must keep its dense
-  // UV mapping" - and it was the rule that refused every merge on a bend, so
-  // a district of curved splines got nothing from the lateral reduction. The
-  // rule is now a BUDGET rather than a veto: the surface stays exact (checked
-  // inside check(), against the float noise floor) and the UV may drift by up
-  // to kSpanShear's worth, which check() measures and prints. A curved plane
+  // A BUDGET rather than a veto: the surface and the UVs may drift by up to
+  // kRoadTolY / kRoadTolUV, which check() measures and prints. A curved plane
   // is the fixture that proves the budget is live, so it must MERGE.
   require(curved<9240,"a curved plane must merge within the shear budget");
   check("saddle",{0,0,0,20,15,40,35,30},11,[](float x,float z){return .003f*x*z;});
@@ -447,9 +444,23 @@ int main(int argc,char** argv) {
   const auto seamDistance=[](const roadgen::Vertex& a,const roadgen::Vertex& b) {
     return std::fabs(a.x-b.x)+std::fabs(a.y-b.y)+std::fabs(a.z-b.z);
   };
-  require(seamDistance(seamMesh.front(),seamMesh.back())<1e-4f &&
-          seamDistance(seamMesh[1],seamMesh[seamMesh.size()-4])<1e-4f,
-          "both closed shoulders must meet at the seam");
+  // The first row's two shoulders must reappear in the LAST band: the loop
+  // closes on itself. Order-free, because a band's zipper decides the order
+  // and a bend may give the rows more than their two shoulders.
+  const roadgen::Vertex* left0 = &seamMesh.front();  // a[0] opens every band
+  const roadgen::Vertex* right0 = nullptr;
+  for (const auto& q : seamMesh)
+    if (q.u == 1.f && q.v == left0->v) { right0 = &q; break; }
+  require(left0->u == 0.f && right0, "the first band starts at both shoulders of the first row");
+  bool leftMet = false, rightMet = false;
+  // The last band's triangles: at most a dense row pair's worth (2 per cell).
+  const size_t tail = (size_t)3 * 2 * 64;
+  for (size_t k = seamMesh.size() >= tail ? seamMesh.size() - tail : 0; k < seamMesh.size(); ++k) {
+    if (&seamMesh[k] == left0 || &seamMesh[k] == right0) continue;
+    if (seamDistance(seamMesh[k], *left0) < 1e-4f) leftMet = true;
+    if (seamDistance(seamMesh[k], *right0) < 1e-4f) rightMet = true;
+  }
+  require(leftMet && rightMet, "both closed shoulders must meet at the seam");
   check("closed loop 2m",loop,6,[](float,float){return 0.f;},2.0F);
   check("closed loop terrain",loop,8,gridHeight);
   float sx,sz,ex,ez;
@@ -508,24 +519,12 @@ with tempfile.TemporaryDirectory(prefix='tyrax-roads-') as tmp:
     dense_source = Path(tmp)/'roadgen_dense.cpp'
     dense_header = Path(tmp)/'roadgen_dense.hpp'
     binary = Path(tmp)/'oracle.exe'
-    dense_header.write_text(roadgen_header.replace('namespace roadgen', 'namespace roadgen_dense'))
-    baseline_merge = 'while (j1 < crossSteps && spanIsExact(rows, i, j0, j1 + 1)) ++j1;'
-    if roadgen_source.count(baseline_merge) != 1:
-        raise RuntimeError('road lateral merge changed; update the oracle deliberately')
-    # The reference is the oldest shipped behavior: horizontal spans collapse,
-    # every non-flat span stays fully dense. Deleting the greedy extension is
-    # exactly that - `cuts` then holds every lateral sample. The candidate may
-    # additionally merge its proven coplanar/affine runs, and the checks below
-    # are what say the merge kept the surface, the UVs and the seams.
-    dense_source.write_text(roadgen_source.replace('#include "roadgen.hpp"', '#include "roadgen_dense.hpp"')
-                            .replace('namespace roadgen', 'namespace roadgen_dense')
-                            .replace(baseline_merge, ''))
-    source.write_text(stub + '#include "roadgen_dense.hpp"\n' + runtime + test)
+    source.write_text(stub + runtime + test)
     # The shipping runtime defaults roads to lists after a hardware-only PS2
     # strip corruption. This oracle deliberately enables the retained strip
     # producer: it verifies that the diagnostic arm still expands to the exact
     # list surface if it is used for future hardware investigation.
     subprocess.run(['g++','-std=c++20','-O2','-static','-DTYRA_STRIP_ROADS=1',
                     '-I',str(root/'src'),'-I',tmp,str(source),
-                    str(root/'src/roadgen.cpp'),str(dense_source),'-o',str(binary)],check=True)
+                    str(root/'src/roadgen.cpp'),'-o',str(binary)],check=True)
     subprocess.run([str(binary),str(root/'examples/vehicle-playground/terrain-main.heights')],check=True)

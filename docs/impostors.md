@@ -5,13 +5,13 @@ original object's collision and gameplay identity.
 
 ![Properties > Distance and LOD > Distant version: a baked 8-view billboard and its switch distance](img/impostor-model.png)
 
-In **Tools > Tree Generator**, enable **Bake distant impostor** before **Add to
-scene**. The generator writes the ordinary tree plus an `-impostor.obj`, matching
+In **Tools > Tree Generator**, turn on **Distant impostor** before **Add to
+scene** (or **Save to project**); its **Impostor** preview shows the card first. The generator writes the ordinary tree plus an `-impostor.obj`, matching
 material and a PNG atlas: 4, 8 or 16 orthographic 128x128 views in four columns.
 For a placed model, open **Properties > Distance and LOD > Distant version**:
 pick **Far away: Billboard (captured views)**, choose **Views**, and click
-**Bake**; in the Tree Generator pick **Tree capture views** before adding a
-tree. The choice takes effect only when baking succeeds; existing assets retain
+**Bake**; in the Tree Generator pick 4, 8 or 16 **views** beside the switch before
+saving a tree. The choice takes effect only when baking succeeds; existing assets retain
 their old count until rebaked (the status next to the button says so). Capture
 runs on the GPU and falls back to the CPU on its own.
 Only one OBJ part is drawn at a time, on a vertical camera-facing card: **two
@@ -24,7 +24,8 @@ the selected model's **Properties > Distance and LOD > Distant version**, change
 **Switch at** below the Bake button. Zero disables replacement; **Far away: None**
 removes the distant version (the baked files stay on disk). The game
 returns to the full model below 90% of that distance. At most four representation
-switches happen per scene render. Initial geometry is built directly in the
+switches happen per scene render, and the switch back to the full model is
+baked ahead over a few frames (see below). Initial geometry is built directly in the
 selected representation. Camera movement subsequently updates six positions and
 texture coordinates in place, without rebuilding the tree or allocating bags.
 The viewport previews the same camera-facing capture selection.
@@ -77,6 +78,43 @@ X/Z scale. Unsupported transforms or missing/incompatible replacement assets
 fall back to the original model. Physics, animated models and matrix-path moving
 props do not use replacement. Re-export old generated trees to obtain camera-facing views;
 turning on the flag alone does not convert their old two-card assets.
+
+## Switching back to the full model
+
+Going from the card back to the full model means baking the whole model on the
+EE: every vertex is transformed and lit into world space. In the grove a canopy tree
+is about 3000 vertices, and on a PS2 that bake used to take **12.7 ms in the
+frame the tree crossed its distance** (16 ms at worst). That missed a vsync. Standing still never
+switches anything, so the map held 60 FPS at rest and fell to 50, or to 40 at
+a run, while walking through the trees.
+
+Two things now keep that out of a single frame:
+
+- **A faster bake.** When only the scene's directional light reaches a model
+  (no light probes, ambient occlusion, point lights, emissive pools, baked lamps,
+  prelit, dynamically lit or reflective parts), `pushModelPartRange` bakes each part with the
+  rotation's sines and cosines computed once instead of twelve times per vertex. It
+  produces exactly the same vertices, colours and texture coordinates as
+  `pushVert`; an element-by-element comparison over 274 parts found no difference. It
+  applies to every rebuild of such a model, including the initial ones at load time.
+- **The bake is spread over frames.** When an eligible object asks for its full model,
+  the card keeps drawing while the vertex arrays fill **1024 vertices per frame**
+  (a budget shared by every object waiting). The switch happens once all parts
+  are complete, and the rebuild then takes the finished arrays instead of
+  baking them again. If the tree falls back beyond the distance first, the
+  partial arrays are dropped. Objects that are not eligible switch in one frame,
+  as before.
+
+Measured on a PS2 over ps2link, walking 15 s forward and back through the grove:
+
+| | far-to-near rebuild | worst walking frame (bake work) |
+|---|---|---|
+| before | 12.7 ms average, 16.0 ms max | 27.4 ms |
+| after | 1.6 ms swap + 1.15 ms per frame of baking ahead | 2.7 ms |
+
+In PCSX2 the same walk went from 44-45 frames that missed a vsync to none.
+At normal walking speed the extra frames move a tree only a fraction of a unit
+past its switch distance.
 
 ## Trade-offs
 
@@ -153,7 +191,9 @@ uploads geometry/textures once per asset, dilates RGB borders in four GPU
 passes (without spreading alpha), and reads back once for all views.
 `bakegl.hpp` shares hidden-window creation and scoped context restoration with
 GI. The capture context is separate from GI and the viewport; it requires
-OpenGL 3.3, whereas GI compute requires 4.3. Failed GPU capture automatically
+OpenGL 3.3, whereas GI compute requires 4.3 (Metal on a Mac). In the editor it
+follows *Edit > Preferences > Build > Use the GPU for bakes*, the one switch for
+every GPU bake; off, the capture runs on the CPU. Failed GPU capture automatically
 retries on CPU, and the result message identifies the backend or fallback reason.
 Both paths use the same projected bounds, binary alpha and per-capture RGB
 padding. Silhouette edge coverage may differ slightly between GL rasterization

@@ -8,7 +8,7 @@ until you put it down.
 
 ## Surface snapping
 
-With **Surface snap** on (the button in the viewport's tool row, or
+With **Surface snap** on (the snap button in the view pill at the top centre of the viewport, or
 *View > Placement > Snap to surface*), an object entering the scene is placed
 so its underside touches the highest surface under its footprint: the
 **terrain**, sampled with the same bilinear filter the game walks on, or the
@@ -33,7 +33,7 @@ contains. Off, objects appear at their literal spawn position, as before.
 ### Drop to floor (`End`)
 
 Independent of the preference: select any number of objects and press **End**
-(or *Scene > Drop to floor*) to rest each one on the first surface **below**
+(or *Edit > Drop to floor*) to rest each one on the first surface **below**
 it. Unlike the insert snap, nothing can lift an object — a prop hovering over
 a shelf lands on the shelf, a prop already on the ground stays put. One undo
 step for the whole selection.

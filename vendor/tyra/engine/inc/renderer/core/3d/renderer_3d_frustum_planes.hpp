@@ -24,6 +24,15 @@ class Renderer3DFrustumPlanes {
 
   void init(RendererSettings* settings, const float& fov);
   void update(const CameraInfo3D& cameraInfo, const float& fov);
+  /**
+   * Modified by TyraX: shrink the four side planes of the frustum last built
+   * by update() to a sub-rectangle of the view - u from -1 (left edge) to 1
+   * (right edge), v from -1 (bottom) to 1 (top). Near and far stay. A portal
+   * view draws through an opening a fraction of the screen wide; culling
+   * against the whole screen sent every object the virtual camera could see
+   * anywhere to VU1 only for the GS scissor to throw the pixels away.
+   */
+  void narrow(float u0, float u1, float v0, float v1);
   const Plane& get(u8 index) const { return frustumPlanes[index]; }
   const Plane* getAll() const { return frustumPlanes; }
   const Plane& operator[](u8 index) const { return frustumPlanes[index]; }

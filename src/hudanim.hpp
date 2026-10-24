@@ -32,8 +32,8 @@ inline const char* kindName(int k) {
 }
 
 // The transition an element plays when it is shown or hidden
-// (HudTransition::kind). Runtime-only - the editor overlay does not preview
-// it. Append only.
+// (HudTransition::kind). The UI Editor previews it (Play show / hide) through
+// transition() below. Append only.
 enum Transition {
     Cut = 0,
     Fade,
@@ -115,6 +115,27 @@ inline Motion evaluate(int kind, float period, float amount, float t) {
     if (m.alpha > 1.0f) m.alpha = 1.0f;
     if (m.scale < 0.05f) m.scale = 0.05f;
     return m;
+}
+
+// The show/hide transition at progress p (0 hidden .. 1 shown), folded into
+// a pose's offset/scale/alpha. Eased out, so an arrival lands softly and a
+// departure (the same curve run backwards) starts quickly.
+// KEEP IN SYNC with hudTransEval in the generated game (game_templates.inc).
+inline void transition(int kind, float p, float& dx, float& dy, float& scale,
+                       float& alpha) {
+    if (kind <= Cut || p >= 1.0f) return;
+    if (p < 0.0f) p = 0.0f;
+    const float e = 1.0f - (1.0f - p) * (1.0f - p);
+    const float d = (1.0f - e) * 40.0f;
+    switch (kind) {
+        case Fade: alpha *= e; break;
+        case SlideLeft: dx -= d; alpha *= e; break;
+        case SlideRight: dx += d; alpha *= e; break;
+        case SlideUp: dy -= d; alpha *= e; break;
+        case SlideDown: dy += d; alpha *= e; break;
+        case Pop: scale *= 0.3f + 0.7f * e; alpha *= e; break;
+        default: break;
+    }
 }
 
 // Where a bar's fill stands right now given what it is asked to show. The

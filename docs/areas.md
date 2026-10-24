@@ -193,7 +193,7 @@ An area is invisible on the console by design — which is exactly the problem
 the moment something misbehaves: *why did that layer not unload, why is that
 crate not reflecting, is the volume even where I think it is?*
 
-*Preferences > Build > **Show areas*** (debug build profile only, next to Show
+*Preferences > Build & debug > **Show areas*** (debug build profile only, next to Show
 FPS / Show memory / Show frame profiler) draws every area in the game as a
 wireframe box, the same shape the editor shows, tinted with the area's color.
 Twelve thin beams through the ordinary box primitive: one small object per
@@ -232,6 +232,6 @@ express them either.
   a reused `liveCaught` buffer once per owner per frame.
 - Live Link: an area's transform is part of its recipe hash, because catch
   areas expand into baked tables at build. Moving an area during a live
-  session flips the toolbar chip to **LIVE (rebuild)** instead of showing you
+  session flips the status bar chip to **LIVE (rebuild)** instead of showing you
   half the edit. (That holds for live catch areas too — the *candidate list*
   is baked even though the test is not.)

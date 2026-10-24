@@ -180,6 +180,26 @@ class FlowGraphScript_0_44 : public Script {
       livedbg::hit(5);
       ctx.particles = 1;
     }
+    if (livedbg::forced(6)) {  // Live Debugger: fired from the editor
+      livedbg::hit(6);
+      livedbg::hit(7);
+      ctx.upscaler = 1;
+    }
+    if (ctx.engine->pad.getClicked().Triangle) {
+      livedbg::hit(6);
+      livedbg::hit(7);
+      ctx.upscaler = 1;
+    }
+    if (livedbg::forced(8)) {  // Live Debugger: fired from the editor
+      livedbg::hit(8);
+      livedbg::hit(9);
+      ctx.upscaler = 2;
+    }
+    if (ctx.engine->pad.getClicked().R1) {
+      livedbg::hit(8);
+      livedbg::hit(9);
+      ctx.upscaler = 2;
+    }
   }
 
  public:
