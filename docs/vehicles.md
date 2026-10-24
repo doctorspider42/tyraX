@@ -229,7 +229,13 @@ into a cell grid. (Until 2.1.0 a layer made an object dynamic, so the Big
 City - every building on an auto-streamed district - had no static collider
 at all: 2 334 objects re-derived every frame and scanned whole by every
 car, 3.8-7 ms of vehicle update on the PS2. With them static: 2.4 ms, and
-the frame holds 60.) Each frame only the
+the frame holds 60.) The guard below walks a QUARTER of the statics a
+frame (2.1.0): on the console it cost ~2.5 us an object, one miss per
+scattered `RuntimeObject`, so the city's 458 statics took 1.15 ms of every
+frame (now 0.41 ms of `buildVehicleColliders`, vehicle update 1.8 ms).
+A rebuild is still seen at once (`g_colStaticRebuilt`); a spin, the matrix
+path or a shown flip up to three frames late, which the VERIFY oracle
+below reports as a mismatch for those frames. Each frame only the
 rest - vehicles, physics bodies, scripted props, the spawn pool - are derived
 again, and a car walks just the grid cells its reach can touch plus that short
 dynamic list.

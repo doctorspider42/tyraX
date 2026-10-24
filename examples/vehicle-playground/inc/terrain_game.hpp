@@ -1545,6 +1545,7 @@ class TerrainGame : public Tyra::Game {
   unsigned int vehColQuery_ = 0;
   unsigned int vehColSetGen_ = ~0u;
   bool vehColStaticStale_ = true, vehColMergeStale_ = true, vehColGridOn_ = false;
+  unsigned int vehColGuardPhase_ = 0;  // which quarter of the statics is guarded
   VehColGrid vehColGrid_;
   void vehColCandidates(float x, float z, float r);
   void buildVehicleColliders();

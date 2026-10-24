@@ -3682,11 +3682,17 @@ void TerrainGame::buildVehicleColliders() {
   // shown flip only re-places. A global script that writes a static object's
   // position without dirty is not followed - the renderer does not follow it
   // either (docs/vehicles.md, "The static collider grid").
+  // A QUARTER of the statics a frame (2.1.0): on the PS2 the guard cost 2.5 us
+  // an object - a miss per scattered RuntimeObject - so the Big City's 458
+  // statics took 1.15 ms of every frame. What it catches (a spin, the matrix
+  // path, a shown flip, a dirty flag) is rare, and a rebuild is caught at
+  // once through g_colStaticRebuilt; the rest is seen up to three frames late.
   if (g_colStaticRebuilt) {
     g_colStaticRebuilt = false;
     vehColStaticStale_ = true;
   }
-  for (size_t k = 0; k < vehColStaticObj_.size(); ++k) {
+  std::vector<size_t> vehColDemote;
+  for (size_t k = (size_t)(vehColGuardPhase_++ & 3U); k < vehColStaticObj_.size(); k += 4) {
     VehColStaticObj& so = vehColStaticObj_[k];
     const RuntimeObject& o = runtimeObjects[(size_t)so.oi];
     bool moved = o.onMatrixPath || o.wantsMatrixPath || o.spinRate[0] != 0.0F ||
@@ -3700,16 +3706,20 @@ void TerrainGame::buildVehicleColliders() {
       so.dirtyFrames = 0;
     }
     if (moved) {
-      vehColDynObj_.insert(std::lower_bound(vehColDynObj_.begin(), vehColDynObj_.end(), so.oi),
-                           so.oi);
-      if ((size_t)so.oi < g_colStaticObj.size()) g_colStaticObj[(size_t)so.oi] = 0;
-      vehColStaticObj_.erase(vehColStaticObj_.begin() + (long)k);
-      --k;
-      vehColStaticStale_ = true;
+      vehColDemote.push_back(k);
       continue;
     }
     if (so.shown != (unsigned char)((o.active && o.visible) ? 1 : 0))
       vehColStaticStale_ = true;
+  }
+  // Demoted after the walk, back to front, so the stride stays on its quarter.
+  for (size_t d = vehColDemote.size(); d > 0; --d) {
+    const size_t k = vehColDemote[d - 1];
+    const int oi = vehColStaticObj_[k].oi;
+    vehColDynObj_.insert(std::lower_bound(vehColDynObj_.begin(), vehColDynObj_.end(), oi), oi);
+    if ((size_t)oi < g_colStaticObj.size()) g_colStaticObj[(size_t)oi] = 0;
+    vehColStaticObj_.erase(vehColStaticObj_.begin() + (long)k);
+    vehColStaticStale_ = true;
   }
   if (vehColStaticStale_) {
     vehColStaticStale_ = false;
