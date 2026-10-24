@@ -5,7 +5,9 @@
 // scene and gains Always loaded (format 121). audsrv's sample RAM is first fit, so a sound freed
 // anywhere gives its RAM back (vendor/tyra/audsrv README, change 5). Layer sounds and named sound
 // banks (Set Sound Bank Loaded, format 122): need-based residency, AudioAdpcm::unload stops only
-// the voices playing the freed sample; the meter estimates each scene's worst moment.
+// the voices playing the freed sample; the meter estimates each scene's worst moment. The Audio
+// page groups sounds by what loads them (Always / Scene / Layer / Bank / Other scenes / Never),
+// with an inspector for the selected one and a Sound RAM card per scene.
 // 2.2.0: the Project and Properties panels slide away (rail icon, status bar, Ctrl+B / Ctrl+Alt+B);
 // each window layout remembers which are collapsed (format 119); the workspace switcher's "..."
 // lists the other layouts; built-in layouts cannot be deleted and are restored on load.

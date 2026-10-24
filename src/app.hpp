@@ -810,6 +810,10 @@ private:
     std::vector<int> soundResShared_;
     std::vector<std::vector<int>> soundResScene_;
     std::vector<std::vector<int>> soundResBank_;
+    std::vector<std::vector<int>> soundResBase_;                 // per scene
+    std::vector<std::vector<std::vector<int>>> soundResLayer_;   // [scene][layer]
+    int audioScene_ = -1;  // scene the Audio page groups by; -1 = the active one
+    int audioTab_ = 0;     // 0 Sounds, 1 Music
     std::string soundBankRenameFrom_;  // bank name while its field is edited
     std::map<std::string, AssetUsage> assetUsage_;
     // Reverse Wavefront map (a texture / .mtl -> the .obj/.mtl files naming it),

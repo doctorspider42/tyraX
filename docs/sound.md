@@ -69,15 +69,24 @@ the project. A sound is loaded while something that uses it is:
   streams in, by its zone or a *Set Layer Loaded* node, and are freed when it
   streams out. This is what lets one big open-world scene keep only the
   district you are in.
-- **Sound banks** are named sets of sounds you make in **Project > Audio >
-  Banks** and load by hand with the **Set Sound Bank Loaded** node (*load* and
+- **Sound banks** are named sets of sounds you make with **+ New bank** at
+  the bottom of **Project > Audio** and load by hand with the **Set Sound Bank Loaded** node (*load* and
   *unload* inputs). They are for sounds nothing else brings with it, such as
   one mission's lines. A loaded bank stays loaded until it is unloaded or the
-  scene ends. Tick a sound into a bank on its row in the Sounds list. A sound
+  scene ends. Add sounds with the bank's **+ Add a sound** line, or select a
+  sound and use **+ Add to bank**. Rename or delete a bank from its **...**
+  button. A sound
   in a bank that a *Play Sound* node plays loads only with the bank, so load
   the bank before the node fires.
 
-![Project > Audio with layer sounds and a corridor bank](img/sound-banks.png)
+![Project > Audio: the sound RAM card, sounds grouped by what loads them, and the selected sound's inspector](img/sound-banks.png)
+
+**Project > Audio** is laid out by these groups. The **Sounds** tab lists
+*Always loaded*, the scene's own sounds, one group per streaming layer that has
+sounds, one per bank, then *Other scenes* (sounds only another scene loads) and
+*Never loaded*. A sound in two places shows in both. Select a sound to see
+everything that loads it (*Loads with*), what plays it, its banks and the
+*Always loaded* switch. Music has its own tab.
 
 [examples/layer-streaming](../examples/layer-streaming) shows layers and a bank
 together: each building's hum streams with it, and a corridor bank holds a
@@ -92,21 +101,23 @@ so a sound played the moment its bank was loaded can be silent. Load the bank a
 little before you need it, the way *Is Layer Loaded* gates a layer. When a
 scene starts, everything it needs loads behind the loading screen instead.
 
-The **SPU2 sample RAM** meter at the top of **Project > Audio** shows the most
-that can be loaded at once: the shared sounds plus the heaviest scene's worst
-moment. A scene's worst moment counts its own sounds, every layer that starts
+The **Sound RAM at most** card at the top of **Project > Audio** shows the most
+that can be loaded at once in the scene picked in its **Scene** menu (the scene
+you are editing unless you pick another): the shared sounds plus that scene's
+worst moment, split into Always, Scene, Layers and Banks. When another scene's
+worst moment is heavier, the card names it. A scene's worst moment counts its own sounds, every layer that starts
 loaded or that a graph loads, the heaviest group of auto-streamed zones close
 enough to be in at the same time (the two heaviest groups with two players),
 and every bank its graphs load. The estimate is pessimistic: it would rather
 warn about a moment that never happens than miss one that does. Hover the bar
-for each scene's figure. The meter reads against 1.98 MB, because audsrv
+for every scene's figure. The meter reads against 1.98 MB, because audsrv
 places the first sample 20 KB in. Reverb rooms ([reverb.md](reverb.md)) take up
 to another 192 KB from the top of the same RAM. A sound that does not fit fails
 to load and is silent, and the game log says so.
 
 **Always loaded** is for a sound the editor cannot see being played, for
-example one your own C++ script plays. Each sound row also shows *shared* when
-the sound stays loaded for the whole game.
+example one your own C++ script plays. Select the sound and switch it on; it
+moves to the *Always loaded* group.
 
 How it works: the game works out what has to be loaded the same way layers
 work out their models. Whenever the scene, a layer or a bank changes, it frees
