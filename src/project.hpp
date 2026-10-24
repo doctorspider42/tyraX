@@ -4015,6 +4015,10 @@ struct Project {
     // Sound effects (16-bit 22kHz WAV in res/sfx/, converted to ADPCM by the
     // toolchain at build). One-shots via the flow graph Play Sound action.
     std::vector<std::string> sounds;
+    // Sounds kept in SPU2 RAM for the whole game, whatever scene is running
+    // (docs/sound.md, "SPU2 sample RAM") - for one played from somewhere the
+    // per-scene residency cannot see. Entries not in `sounds` are ignored.
+    std::vector<std::string> soundsAlwaysLoaded;
     // Custom values persisted in memory card saves (Tools > Save Editor).
     std::vector<SaveValue> saveValues;
     // Custom text values persisted in memory card saves (same window).
@@ -4631,7 +4635,7 @@ bool parseProcGraph(const std::string& body, ProcGraph& out);
 enum class Section {
     Settings = 0,    // "settings" (project preferences)
     Hud,             // "hud", "usePrompt", "hudTexts", the post-fx layers, "screenFx"
-    Audio,           // "music", "musicBuild", "sounds"
+    Audio,           // "music", "musicBuild", "sounds", "soundsAlwaysLoaded"
     TexQuality,      // "textureQuality" (per-asset overrides)
     ModelLods,       // "modelLods" (per-model custom LOD meshes)
     ModelAo,         // "modelAoMode" (per-model automatic-AO overrides)

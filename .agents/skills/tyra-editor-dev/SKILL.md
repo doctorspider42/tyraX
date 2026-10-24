@@ -123,7 +123,7 @@ The editor and the PS2 game compute many things twice (host C++ for preview/bake
 | `assets-import-animation.md` | Asset Browser, model importer, glb/fbx parsing, clip edits, animation import/bone mapping/retargeting, UV unwrap, tree generator |
 | `ai-features.md` | AI flow-graph generation backends, the AI Assistant (prompt, tools, search, compaction, chat store, acting loop), AI support files |
 | `blss.md` | The upscaler (BLSS): settings and the two shapes (Whole 3D scene / Particles only), per-scene override, Set Upscaler node + `ctx.upscaler`, `blssUse`, codegen, interlock, VRAM twin, numbers to quote |
-| `audio.md` | Drone Generator synth + window, editor audio output, WAV conversion and the sfx bake |
+| `audio.md` | Drone Generator synth + window, editor audio output, WAV conversion and the sfx bake, per-scene sound residency (`soundResidency`, `sound_bank.gen.hpp`) |
 | `vu-framework.md` | vuir/vuasm/vusim/vugen/vucap/vushader/vumain, `--vu-check`/`--vu-replay`, VU clip-image aliases |
 | `build-platform-release.md` | Build scripts and CMake, dependencies, platform parity table, `platform.cpp`, paths and shell quoting, packaging/release workflow, update check |
 

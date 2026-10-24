@@ -1,5 +1,8 @@
 #pragma once
 
+// 2.2.0: sound effects load per scene (docs/sound.md, "SPU2 sample RAM") - shared ones at boot,
+// a scene's own on entry, freed newest first on leaving; Project > Audio meters shared + heaviest
+// scene and gains Always loaded (format 121).
 // 2.2.0: the Project and Properties panels slide away (rail icon, status bar, Ctrl+B / Ctrl+Alt+B);
 // each window layout remembers which are collapsed (format 119); the workspace switcher's "..."
 // lists the other layouts; built-in layouts cannot be deleted and are restored on load.
@@ -6430,7 +6433,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // all of them. Missing = every component, which is what an older key meant, so
 // old projects open unchanged; bumped so an older editor cannot load a partial
 // key as a full pose. No migration.
-inline constexpr int kFormatVersion = 120;
+// v121 (docs/sound.md, "SPU2 sample RAM"): Project::soundsAlwaysLoaded,
+// "soundsAlwaysLoaded" in the audio keys, written only when a listed sound is
+// pinned. Missing = none, which is what every older project means. Additive;
+// no migration.
+inline constexpr int kFormatVersion = 121;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

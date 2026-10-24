@@ -12588,6 +12588,56 @@ static bool projectHasVehicles(const Project& p) {
     return false;
 }
 
+SoundResidency soundResidency(const Project& p) {
+    SoundResidency r;
+    r.scene.resize(p.scenes.size());
+    auto slot = [&](const std::string& path) {
+        if (path.empty()) return -1;
+        for (size_t i = 0; i < p.sounds.size(); ++i)
+            if (p.sounds[i] == path) return (int)i;
+        return -1;
+    };
+    // Every sound one object plays: an emitter's sample, a vehicle's (the
+    // same definition VEHICLE_DEFS resolves the name to), a graph's Play Sound.
+    auto objectSounds = [&](const SceneObject& o, std::set<int>& into) {
+        if (o.type == PrimitiveType::SoundEmitter) into.insert(slot(o.soundPath));
+        if (o.type == PrimitiveType::Vehicle && vehicleDefIndex(p, o.vehicleDef) >= 0)
+            for (const VehicleDef& v : p.vehicles) {
+                if (v.name != o.vehicleDef) continue;
+                into.insert(slot(v.engineSound));
+                if (v.engineHighEnabled) into.insert(slot(v.engineHighSound));
+                into.insert(slot(v.screechSound));
+                into.insert(slot(v.shiftSound));
+                break;
+            }
+        for (const FlowNode& n : o.flowGraph.nodes)
+            if (n.type == "PlaySound") into.insert(slot(n.str));
+    };
+    std::set<int> shared;
+    for (const std::string& s : p.soundsAlwaysLoaded) shared.insert(slot(s));
+    // A prefab member can be spawned into any scene, so its sounds cannot
+    // belong to one.
+    for (const Prefab& pf : p.prefabs)
+        for (const SceneObject& o : pf.objects) objectSounds(o, shared);
+    std::vector<std::set<int>> used(p.scenes.size());
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        for (const SceneObject& o : p.scenes[si].objects) objectSounds(o, used[si]);
+    // A sound every scene plays would only be freed to be loaded again.
+    if (p.scenes.size() > 1)
+        for (const int s : used[0]) {
+            bool everywhere = true;
+            for (size_t si = 1; si < used.size() && everywhere; ++si)
+                everywhere = used[si].count(s) != 0;
+            if (everywhere) shared.insert(s);
+        }
+    shared.erase(-1);
+    r.shared.assign(shared.begin(), shared.end());
+    for (size_t si = 0; si < used.size(); ++si)
+        for (const int s : used[si])
+            if (s >= 0 && !shared.count(s)) r.scene[si].push_back(s);
+    return r;
+}
+
 // Sparse per-object blob metadata. Keeping an asset path out of the fixed
 // SceneObjectData POD means projects that use only the round/vehicle defaults
 // pay no pointer or footprint fields on every unrelated object.
@@ -22622,6 +22672,8 @@ std::string flowGraphScript(const Project& p) {
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n"
            "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n"
            "#include \"facts.gen.hpp\"  // World Facts store + save walks\n";
+    if (uses("PlaySound"))
+        out << "#include \"sound_bank.gen.hpp\"  // Play Sound samples\n";
     if (anyRaycast || anyTerrainQuery)
         out << "#include \"terrain_heights.gen.hpp\"  // Raycast / Snap To "
                "Terrain\n";
@@ -24485,17 +24537,19 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             return s;
         };
 
-        // Sounds referenced by this graph's Play Sound nodes become sfx<i>
-        // members loaded once in init().
-        std::vector<std::string> usedSounds;
+        // Play Sound reads its sample from the game's sound bank by SND_PATHS
+        // slot (sound_bank.gen.hpp) - loaded with the scene, not per graph.
+        // usedSounds is for init(), which loads them itself only in a game
+        // that does not manage the bank.
+        std::vector<int> usedSounds;
         auto soundIndex = [&](const std::string& path) {
-            bool known = false;
-            for (const std::string& s : p.sounds) known |= (s == path);
-            if (!known) return -1;
-            for (size_t i = 0; i < usedSounds.size(); ++i)
-                if (usedSounds[i] == path) return (int)i;
-            usedSounds.push_back(path);
-            return (int)usedSounds.size() - 1;
+            int slot = -1;
+            for (size_t i = 0; i < p.sounds.size() && slot < 0; ++i)
+                if (p.sounds[i] == path) slot = (int)i;
+            if (slot >= 0 &&
+                std::find(usedSounds.begin(), usedSounds.end(), slot) == usedSounds.end())
+                usedSounds.push_back(slot);
+            return slot;
         };
 
         // The exec walker, forward-declared: a flow-control node (Branch,
@@ -25103,7 +25157,10 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     // Everything inside the auto path is guarded by "did I get
                     // a channel at all", so it is one level deeper.
                     const std::string in = pad + (ch >= 0 ? "  " : "    ");
-                    c << pad << "{\n";
+                    // A sound this scene did not load is null: skipped
+                    // before it takes a channel from anything.
+                    c << pad << "if (audsrv_adpcm_t* const sfx = soundbank::sample("
+                      << si << ")) {\n";
                     if (ch >= 0) {
                         c << pad << "  const s8 ch = (s8)flowPinSfxChannel(ctx, "
                           << ch << ", " << prio << ");\n";
@@ -25145,8 +25202,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     // refuse a busy channel, so a pinned sound dropped every
                     // retrigger instead of cutting itself off), and an auto
                     // one was either free or deliberately stolen.
-                    c << in << "ctx.engine->audio.adpcm.forcePlay(sfx" << si
-                      << ", ch);\n";
+                    c << in << "ctx.engine->audio.adpcm.forcePlay(sfx, ch);\n";
                     if (ch < 0) c << pad << "  }\n";
                     c << pad << "}\n";
                 }
@@ -26544,14 +26600,19 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
 
         if (!usedSounds.empty()) {
             clsOut << "\n  void init(ScriptContext& ctx) override {\n";
-            for (size_t i = 0; i < usedSounds.size(); ++i) {
+            // The game loaded the scene's sounds before this runs; a
+            // terrain_game.cpp owned from before the sound bank did not, and
+            // gets every graph sound loaded here, once, as it always did.
+            clsOut << "    if (soundbank::g_bank) return;\n";
+            for (const int slot : usedSounds) {
                 // res/sfx/x.wav lands as sfx/x.adpcm next to the ELF (adpenc)
-                std::string binPath = usedSounds[i];
+                std::string binPath = p.sounds[slot];
                 if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
                 const size_t dot = binPath.rfind('.');
                 if (dot != std::string::npos) binPath = binPath.substr(0, dot);
-                clsOut << "    sfx" << i << " = ctx.engine->audio.adpcm.load(\n"
-                    << "        Tyra::FileUtils::fromCwd(\"" << binPath << ".adpcm\"));\n";
+                clsOut << "    if (!soundbank::own[" << slot << "])\n"
+                    << "      soundbank::own[" << slot << "] = ctx.engine->audio.adpcm.load(\n"
+                    << "          Tyra::FileUtils::fromCwd(\"" << binPath << ".adpcm\"));\n";
             }
             clsOut << "  }\n";
         }
@@ -26622,13 +26683,6 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "  unsigned int generation = 0;\n"
                "  int frame = 0;\n"
                "  bool started = false;\n";
-        if (!usedSounds.empty()) {
-            // (the channel cursor is one per TU, not one per graph - the
-            // sixteen voices are shared by every graph in the game; see
-            // flowPickSfxChannel)
-            for (size_t i = 0; i < usedSounds.size(); ++i)
-                clsOut << "  audsrv_adpcm_t* sfx" << i << " = nullptr;\n";
-        }
         clsOut << members.str() << "};\n";
 
         // One instance per class (TYRA_SCRIPT makes exactly one) remembered in
@@ -31567,6 +31621,53 @@ static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
     return out;
 }
 
+// inc/sound_bank.gen.hpp - which SND_PATHS slots live in SPU2 sample RAM
+// when (soundResidency, docs/sound.md "SPU2 sample RAM"), and the bank every
+// player of a sound reads its sample from. Written by hand as inline - this
+// header is included by more than one TU.
+static std::string soundBankHeader(const Project& p) {
+    const SoundResidency r = soundResidency(p);
+    std::ostringstream out;
+    auto list = [&](const std::vector<int>& v) {
+        if (v.empty()) return std::string("0");
+        std::string t;
+        for (size_t i = 0; i < v.size(); ++i) t += (i ? ", " : "") + std::to_string(v[i]);
+        return t;
+    };
+    std::vector<int> first, all;
+    for (const auto& sc : r.scene) {
+        first.push_back((int)all.size());
+        all.insert(all.end(), sc.begin(), sc.end());
+    }
+    first.push_back((int)all.size());
+    const size_t n = p.sounds.size();
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "// Sound effects in SPU2 sample RAM (docs/sound.md, \"SPU2 sample RAM\"):\n"
+           "// SHARED loads at boot and stays; a scene's SCENE_LIST slice loads when\n"
+           "// it starts and is freed, newest first, when it ends. Values are\n"
+           "// SND_PATHS slots.\n"
+           "#pragma once\n"
+           "#include <audsrv.h>\n\n"
+           "namespace soundbank {\n"
+        << "inline constexpr int SHARED_COUNT = " << r.shared.size() << ";\n"
+        << "inline constexpr int SHARED[" << (r.shared.empty() ? 1 : r.shared.size())
+        << "] = {" << list(r.shared) << "};\n"
+        << "inline constexpr int SCENE_FIRST[" << first.size() << "] = {" << list(first)
+        << "};\n"
+        << "inline constexpr int SCENE_LIST[" << (all.empty() ? 1 : all.size()) << "] = {"
+        << list(all) << "};\n\n"
+        << "// The resident samples by slot: the game's sound table once it manages\n"
+           "// residency (loadScene). Until then - a terrain_game.cpp owned from\n"
+           "// before the bank - the graphs load their own sounds into `own`.\n"
+           "inline audsrv_adpcm_t** g_bank = nullptr;\n"
+        << "inline audsrv_adpcm_t* own[" << (n ? n : 1) << "] = {};\n"
+        << "inline audsrv_adpcm_t* sample(int slot) {\n"
+           "  return g_bank ? g_bank[slot] : own[slot];\n"
+           "}\n"
+           "}  // namespace soundbank\n";
+    return out.str();
+}
+
 // inc/facts.gen.hpp - the World Facts store, as the game sees it
 // (docs/world-facts.md).
 //
@@ -36446,6 +36547,7 @@ std::vector<File> generate(const Project& source) {
         {"src\\gen\\credits.gen.cpp", creditsScript(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
         {"inc\\facts.gen.hpp", factsDataHeader(p)},
+        {"inc\\sound_bank.gen.hpp", soundBankHeader(p)},
         {"inc\\nav_data.gen.hpp", navDataHeader(p)},
         {"inc\\scripts\\navigation.gen.hpp", navigationHeader(p)},
         {"src\\gen\\navigation.gen.cpp", navigationSource(p)},

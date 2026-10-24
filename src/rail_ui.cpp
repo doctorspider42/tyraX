@@ -24,6 +24,7 @@
 #include "audiopreview.hpp"
 #include "flowgraph.hpp"
 #include "logview.hpp"
+#include "templates.hpp"
 #include "theme.hpp"
 #include "toolkit.hpp"
 #include "uiscript.hpp"
@@ -415,42 +416,75 @@ void App::drawAudioPage() {
     const std::string playing = clipPlayer_->current();
 
     // --- the SPU2 budget ------------------------------------------------------
+    // What is resident at once (docs/sound.md, "SPU2 sample RAM"): the shared
+    // sounds, plus the scene whose own sounds weigh the most.
     struct SoundRow { std::string rel; uintmax_t wav = 0, adpcm = 0; };
     std::vector<SoundRow> rows;
-    uintmax_t total = 0;
     for (const std::string& s : project_.sounds) {
         std::error_code ec;
         SoundRow r;
         r.rel = s;
         r.wav = fs::file_size(fs::path(project_.dir) / s, ec);
         r.adpcm = ec ? 0 : estimateAdpcmBytes(r.wav);
-        total += r.adpcm;
         rows.push_back(r);
     }
+    if (soundResSerial_ != modelEditSerial_) {
+        templates::SoundResidency res = templates::soundResidency(project_);
+        soundResShared_ = std::move(res.shared);
+        soundResScene_ = std::move(res.scene);
+        soundResSerial_ = modelEditSerial_;
+    }
+    auto sumOf = [&](const std::vector<int>& slots) {
+        uintmax_t b = 0;
+        for (const int s : slots) if (s >= 0 && s < (int)rows.size()) b += rows[s].adpcm;
+        return b;
+    };
+    const uintmax_t shared = sumOf(soundResShared_);
+    int heavy = -1;
+    uintmax_t heavyBytes = 0;
+    for (int si = 0; si < (int)soundResScene_.size(); ++si)
+        if (const uintmax_t b = sumOf(soundResScene_[si]); b > heavyBytes) heavy = si, heavyBytes = b;
     {
+        const uintmax_t total = shared + heavyBytes;
         const double mb = total / (1024.0 * 1024.0);
         const double cap = kSpu2SampleBudgetBytes / (1024.0 * 1024.0);
         ImGui::TextUnformatted("SPU2 sample RAM");
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("0.00 / 0.0 MB").x);
-        if (total > kSpu2SampleBudgetBytes) ImGui::TextColored(sem.danger, "%.2f / %.1f MB", mb, cap);
-        else ImGui::Text("%.2f / %.1f MB", mb, cap);
-        // One segment per sound; an oversized one in amber.
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("0.00 / 0.00 MB").x);
+        if (total > kSpu2SampleBudgetBytes) ImGui::TextColored(sem.danger, "%.2f / %.2f MB", mb, cap);
+        else ImGui::Text("%.2f / %.2f MB", mb, cap);
+        // One segment per resident sound, shared ones first; an oversized one
+        // in amber.
         const ImVec2 p = ImGui::GetCursorScreenPos();
         const float w = ImGui::GetContentRegionAvail().x, h = scaled(8);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col(sem.surface), h * 0.5f);
         float x = p.x;
-        for (size_t i = 0; i < rows.size(); ++i) {
-            const float sw = (float)((double)rows[i].adpcm / ImMax<double>(kSpu2SampleBudgetBytes, total) * w);
-            if (sw < 0.5f) continue;
-            const bool big = rows[i].adpcm > kSpu2SampleBudgetBytes / 4;
-            const ImVec4 c = big ? sem.warn : ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, 1.0f - 0.08f * (i % 6));
-            dl->AddRectFilled(ImVec2(x, p.y), ImVec2(x + sw - 1.0f, p.y + h), col(c));
-            x += sw;
-        }
+        auto segments = [&](const std::vector<int>& slots, float alpha) {
+            for (size_t i = 0; i < slots.size(); ++i) {
+                if (slots[i] < 0 || slots[i] >= (int)rows.size()) continue;
+                const uintmax_t b = rows[slots[i]].adpcm;
+                const float sw = (float)((double)b / ImMax<double>(kSpu2SampleBudgetBytes, total) * w);
+                if (sw < 0.5f) continue;
+                const bool big = b > kSpu2SampleBudgetBytes / 4;
+                const ImVec4 c = big ? sem.warn
+                                     : ImVec4(sem.accent.x, sem.accent.y, sem.accent.z, alpha - 0.08f * (i % 4));
+                dl->AddRectFilled(ImVec2(x, p.y), ImVec2(x + sw - 1.0f, p.y + h), col(c));
+                x += sw;
+            }
+        };
+        segments(soundResShared_, 1.0f);
+        if (heavy >= 0) segments(soundResScene_[heavy], 0.6f);
         ImGui::Dummy(ImVec2(w, h));
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Reverb rooms take up to 192 KB more from the top of the same RAM.");
+        std::string split = "Shared " + bytesText(shared);
+        if (heavy >= 0)
+            split += "  +  " + project_.scenes[heavy].name + " " + bytesText(heavyBytes) +
+                     (soundResScene_.size() > 1 ? "  (heaviest scene)" : "");
+        ImGui::TextDisabled("%s", split.c_str());
         ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextDisabled("Sounds load whole at scene start. Music streams through the IOP and takes no SPU2 RAM.");
+        ImGui::TextDisabled("Shared sounds load at boot. A scene's own load when it starts and are "
+                            "freed when it ends. Music streams and takes no SPU2 RAM.");
         ImGui::PopTextWrapPos();
     }
     ImGui::Separator();
@@ -618,6 +652,13 @@ void App::drawAudioPage() {
             ImGui::TextDisabled("%s", len);
             ImGui::SameLine(0, 0);
             usedLine(r.rel);
+            if (std::find(soundResShared_.begin(), soundResShared_.end(), i) != soundResShared_.end()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("- shared");
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("In SPU2 RAM for the whole game: always loaded, every scene\n"
+                                      "plays it, or a prefab can spawn it anywhere.");
+            }
         }
         ImGui::EndGroup();
         rightText(bytesText(r.adpcm), tooBig ? sem.danger : sem.textDim);
@@ -658,6 +699,17 @@ void App::drawAudioPage() {
             ImGui::Indent(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
             if (const AssetUsage* use = assetUsageFor(r.rel); use && !use->lines.empty())
                 ui::UsedBy("Used by", use->lines);
+            auto& pinned = project_.soundsAlwaysLoaded;
+            const auto pin = std::find(pinned.begin(), pinned.end(), r.rel);
+            bool always = pin != pinned.end();
+            if (ImGui::Checkbox("Always loaded", &always)) {
+                if (always) pinned.push_back(r.rel);
+                else pinned.erase(pin);
+                commitChange();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Keep it in SPU2 RAM in every scene - for a sound played from\n"
+                                  "your own C++, which the scene loading cannot see.");
             if (ImGui::SmallButton("Delete sound..."))
                 requestAssetDelete(PendingAssetDelete::Sound, r.rel, name);
             ImGui::Unindent(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);

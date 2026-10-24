@@ -2335,6 +2335,16 @@ static void writeAudioSection(std::ostream& json, const Project& p) {
     for (size_t i = 0; i < p.sounds.size(); ++i)
         json << (i ? ", " : "") << "\"" << jsonEscape(p.sounds[i]) << "\"";
     json << "]";
+    {
+        bool first = true;
+        for (const std::string& s : p.soundsAlwaysLoaded) {
+            if (std::find(p.sounds.begin(), p.sounds.end(), s) == p.sounds.end()) continue;
+            json << (first ? ",\n  \"soundsAlwaysLoaded\": [" : ", ") << "\"" << jsonEscape(s)
+                 << "\"";
+            first = false;
+        }
+        if (!first) json << "]";
+    }
 }
 
 // Empty (no keys) when there are no overrides - the composers skip it then,
@@ -6868,6 +6878,7 @@ static void readAudioSection(const json::Value& root, Project& out) {
     out.music.clear();
     out.musicBuild.clear();
     out.sounds.clear();
+    out.soundsAlwaysLoaded.clear();
     if (const auto* music = root.find("music");
         music && music->type == json::Value::Type::Array) {
         for (const auto& m : music->arr) {
@@ -6894,6 +6905,13 @@ static void readAudioSection(const json::Value& root, Project& out) {
         for (const auto& s : sounds->arr) {
             const std::string path = s.stringOr("");
             if (!path.empty()) out.sounds.push_back(path);
+        }
+    }
+    if (const auto* pinned = root.find("soundsAlwaysLoaded");
+        pinned && pinned->type == json::Value::Type::Array) {
+        for (const auto& s : pinned->arr) {
+            const std::string path = s.stringOr("");
+            if (!path.empty()) out.soundsAlwaysLoaded.push_back(path);
         }
     }
 }
@@ -8950,6 +8968,9 @@ std::string refreshGenerated(const Project& p) {
             // unconditionally, so every existing project needs it refreshed
             // rather than written once at creation.
             f.relativePath == "inc\\facts.gen.hpp" ||
+            // Sound residency: game_runtime.gen.hpp and the Play Sound graphs
+            // include it.
+            f.relativePath == "inc\\sound_bank.gen.hpp" ||
             f.relativePath == "inc\\nav_data.gen.hpp" ||
             f.relativePath == "inc\\scripts\\navigation.gen.hpp" ||
             f.relativePath == "src\\gen\\navigation.gen.cpp" ||

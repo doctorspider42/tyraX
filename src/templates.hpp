@@ -209,6 +209,17 @@ struct SaveSizeInfo {
 };
 SaveSizeInfo saveSizeInfo(const Project& p);
 
+// Where each sound effect lives in SPU2 sample RAM (docs/sound.md, "SPU2
+// sample RAM"), as Project::sounds indices. `shared` loads at boot and stays;
+// scene[i] loads when scene i starts and is freed (newest first - audsrv
+// allocates like a stack) when it ends. A sound in neither is referenced by
+// nothing the game can see and never loads.
+struct SoundResidency {
+    std::vector<int> shared;
+    std::vector<std::vector<int>> scene;  // per Project::scenes index
+};
+SoundResidency soundResidency(const Project& p);
+
 // The game's save directory on the memory card ("/TYRA-<NAME>").
 std::string saveDirName(const Project& p);
 

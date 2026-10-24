@@ -49,6 +49,53 @@ carrying whatever was still sounding when the player walked out of it.
 Sixteen and eight are generous for a PS2 game and stingy for a bad frame: a
 firefight in a room with a dozen ambiences will hit the wall.
 
+## SPU2 sample RAM: which sounds are loaded when
+
+Sound effects play from the SPU2's own 2 MB of sample RAM, so a sound has to be
+loaded there before anything can play it. The game does not load every sound in
+the project. It splits them into two groups:
+
+- **Shared** sounds load once at boot and stay for the whole game. A sound is
+  shared when every scene plays it, when a prefab member plays it (a prefab can
+  be spawned into any scene), or when you tick **Always loaded** on it in
+  **Project > Audio**.
+- **Scene** sounds load when their scene starts and are freed when it ends.
+  They are the sounds the scene's sound emitters, *Play Sound* nodes and
+  vehicles use.
+
+A sound nothing references is never loaded. Music is a separate system: it
+streams through the IOP and takes no SPU2 RAM.
+
+The **SPU2 sample RAM** meter at the top of **Project > Audio** shows what is
+loaded at the worst moment: the shared sounds plus the heaviest scene's own
+sounds. It reads against 1.98 MB, because audsrv places the first sample 20 KB
+in. Reverb rooms ([reverb.md](reverb.md)) take up to another 192 KB from the
+top of the same RAM. A sound that does not fit fails to load and is silent, and
+the game log says so.
+
+**Always loaded** is for a sound the editor cannot see being played, for
+example one your own C++ script plays. Each sound row also shows *shared* when
+the sound stays loaded for the whole game.
+
+How it works: audsrv hands out sample RAM like a stack and only takes it back
+from the top. The game loads the shared sounds first and the scene's sounds
+above them. On a scene switch it frees the scene's sounds newest first, then
+loads the next scene's. Before freeing, it stops every voice by playing a tiny
+silent sample on it, so no voice keeps reading memory that is about to hold a
+different sound. Sounds still playing when you switch scenes are therefore cut,
+unless the outgoing scene had no sounds of its own. Reloading the same scene
+keeps its sounds loaded.
+
+audsrv also copies each sample through IOP memory while loading it. That limits
+how big one sample can be, whatever the SPU2 has free: a 1.7 MB sample failed to
+load in PCSX2, while five 350 KB samples loaded fine. Long material belongs in
+music.
+
+A game whose `src/terrain_game.cpp` you took ownership of before this
+(TyraX 2.2) still loads every sound in `init()`. The game notices this and
+keeps all of them loaded, so those games behave exactly as before. To get
+per-scene loading, delete the `SND_PATHS` load loop from that `init()`.
+
 ## Sound emitters: the eight loudest win
 
 Eight channels, any number of emitters. Every frame the game works out how
@@ -281,6 +328,7 @@ image, or keep the PC quiet while the game runs.
 | The scene runs at 25 FPS while music plays and an emitter is in earshot | Fixed 2026-08 — the music stream no longer blocks audsrv for everyone else. If you see it again, you are on an engine build from before that; see *Emitters and streaming music* above. |
 | Music plays right for a few seconds, then turns into a steady buzz | Fixed in 1.177.11: audsrv's EE callback thread was starved by the game thread. See *Music turns into a buzz a few seconds in*. |
 | Music drags, stutters or pops while running over ps2link, and the log says "Music ring ran low" | The music streams from the PC and the IOP is busy with the network. From a disc it plays evenly. See *Music stutters over ps2link*. |
+| A sound plays in one scene and is silent in another, or is silent since it was moved into C++ | The game loads only the sounds each scene uses, so that scene never loaded it. Tick **Always loaded** on the sound in **Project > Audio**. See *SPU2 sample RAM* above. |
 | A Play Sound node does nothing, sometimes | Its priority is not above anything currently playing, so it is being dropped. Raise it, or pin it a channel. |
 | A pinned sound stopped layering over itself | That is the fix — pinning cuts off, as the parameter always claimed. Use auto if you want copies to overlap. |
 | Nothing plays at all, on hardware, but PCSX2 is fine | Not this page. See the EE cache write-back in the `tyra-engine-dev` skill's audio section. |
