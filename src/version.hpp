@@ -2,7 +2,8 @@
 
 // 2.2.0: sound effects load per scene (docs/sound.md, "SPU2 sample RAM") - shared ones at boot,
 // a scene's own on entry, freed newest first on leaving; Project > Audio meters shared + heaviest
-// scene and gains Always loaded (format 121).
+// scene and gains Always loaded (format 121). audsrv's sample RAM is first fit, so a sound freed
+// anywhere gives its RAM back (vendor/tyra/audsrv README, change 5).
 // 2.2.0: the Project and Properties panels slide away (rail icon, status bar, Ctrl+B / Ctrl+Alt+B);
 // each window layout remembers which are collapsed (format 119); the workspace switcher's "..."
 // lists the other layouts; built-in layouts cannot be deleted and are restored on load.

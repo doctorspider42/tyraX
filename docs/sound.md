@@ -77,10 +77,11 @@ the game log says so.
 example one your own C++ script plays. Each sound row also shows *shared* when
 the sound stays loaded for the whole game.
 
-How it works: audsrv hands out sample RAM like a stack and only takes it back
-from the top. The game loads the shared sounds first and the scene's sounds
-above them. On a scene switch it frees the scene's sounds newest first, then
-loads the next scene's. Before freeing, it stops every voice by playing a tiny
+How it works: the game loads the shared sounds first and the scene's sounds
+above them. On a scene switch it frees the scene's sounds, then loads the next
+scene's into the room they left. audsrv reuses freed sample RAM wherever it
+lies, so a sound freed from the middle leaves a hole the next sound that fits
+can take. Before freeing, it stops every voice by playing a tiny
 silent sample on it, so no voice keeps reading memory that is about to hold a
 different sound. Sounds still playing when you switch scenes are therefore cut,
 unless the outgoing scene had no sounds of its own. Reloading the same scene
