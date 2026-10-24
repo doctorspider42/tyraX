@@ -429,9 +429,14 @@ void App::drawAudioPage() {
         rows.push_back(r);
     }
     if (soundResSerial_ != modelEditSerial_) {
-        templates::SoundResidency res = templates::soundResidency(project_);
-        soundResShared_ = std::move(res.shared);
-        soundResScene_ = std::move(res.scene);
+        std::vector<uintmax_t> bytes;
+        for (const SoundRow& r : rows) bytes.push_back(r.adpcm);
+        const templates::SoundResidency res = templates::soundResidency(project_);
+        soundResShared_ = res.shared;
+        soundResBank_ = res.bank;
+        soundResScene_.clear();
+        for (int si = 0; si < (int)project_.scenes.size(); ++si)
+            soundResScene_.push_back(templates::soundWorstCase(project_, res, si, bytes));
         soundResSerial_ = modelEditSerial_;
     }
     auto sumOf = [&](const std::vector<int>& slots) {
@@ -443,7 +448,8 @@ void App::drawAudioPage() {
     int heavy = -1;
     uintmax_t heavyBytes = 0;
     for (int si = 0; si < (int)soundResScene_.size(); ++si)
-        if (const uintmax_t b = sumOf(soundResScene_[si]); b > heavyBytes) heavy = si, heavyBytes = b;
+        if (const uintmax_t b = sumOf(soundResScene_[si]); heavy < 0 || b > heavyBytes)
+            heavy = si, heavyBytes = b;
     {
         const uintmax_t total = shared + heavyBytes;
         const double mb = total / (1024.0 * 1024.0);
@@ -452,8 +458,8 @@ void App::drawAudioPage() {
         ImGui::SameLine(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("0.00 / 0.00 MB").x);
         if (total > kSpu2SampleBudgetBytes) ImGui::TextColored(sem.danger, "%.2f / %.2f MB", mb, cap);
         else ImGui::Text("%.2f / %.2f MB", mb, cap);
-        // One segment per resident sound, shared ones first; an oversized one
-        // in amber.
+        // One segment per sound loaded at the worst moment, shared ones first;
+        // an oversized one in amber.
         const ImVec2 p = ImGui::GetCursorScreenPos();
         const float w = ImGui::GetContentRegionAvail().x, h = scaled(8);
         ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -475,16 +481,23 @@ void App::drawAudioPage() {
         segments(soundResShared_, 1.0f);
         if (heavy >= 0) segments(soundResScene_[heavy], 0.6f);
         ImGui::Dummy(ImVec2(w, h));
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-            ImGui::SetTooltip("Reverb rooms take up to 192 KB more from the top of the same RAM.");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+            ImGui::BeginTooltip();
+            ImGui::TextUnformatted("Most loaded at once, per scene (shared not included):");
+            for (int si = 0; si < (int)soundResScene_.size(); ++si)
+                ImGui::Text("  %s  %s", project_.scenes[si].name.c_str(),
+                            bytesText(sumOf(soundResScene_[si])).c_str());
+            ImGui::TextDisabled("Counts every layer that can be in together, every bank\n"
+                                "the scene loads. Reverb rooms take up to 192 KB more.");
+            ImGui::EndTooltip();
+        }
         std::string split = "Shared " + bytesText(shared);
-        if (heavy >= 0)
-            split += "  +  " + project_.scenes[heavy].name + " " + bytesText(heavyBytes) +
-                     (soundResScene_.size() > 1 ? "  (heaviest scene)" : "");
+        if (heavy >= 0 && heavyBytes > 0)
+            split += "  +  " + project_.scenes[heavy].name + " " + bytesText(heavyBytes) + " at most";
         ImGui::TextDisabled("%s", split.c_str());
         ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextDisabled("Shared sounds load at boot. A scene's own load when it starts and are "
-                            "freed when it ends. Music streams and takes no SPU2 RAM.");
+        ImGui::TextDisabled("Sounds load with the scene, the layer or the bank that uses them and are "
+                            "freed with it; shared ones stay. Music streams and takes no SPU2 RAM.");
         ImGui::PopTextWrapPos();
     }
     ImGui::Separator();
@@ -710,6 +723,18 @@ void App::drawAudioPage() {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                 ImGui::SetTooltip("Keep it in SPU2 RAM in every scene - for a sound played from\n"
                                   "your own C++, which the scene loading cannot see.");
+            for (int b = 0; b < (int)project_.soundBanks.size(); ++b) {
+                auto& members = project_.soundBanks[b].sounds;
+                const auto it = std::find(members.begin(), members.end(), r.rel);
+                bool in = it != members.end();
+                ImGui::PushID(b);
+                if (ImGui::Checkbox(("In " + project_.soundBanks[b].name).c_str(), &in)) {
+                    if (in) members.push_back(r.rel);
+                    else members.erase(it);
+                    commitChange();
+                }
+                ImGui::PopID();
+            }
             if (ImGui::SmallButton("Delete sound..."))
                 requestAssetDelete(PendingAssetDelete::Sound, r.rel, name);
             ImGui::Unindent(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
@@ -718,6 +743,69 @@ void App::drawAudioPage() {
     }
     if (project_.sounds.empty())
         ImGui::TextDisabled("No sounds. Import a WAV: effects, footsteps, engine loops.");
+
+    // --- Sound banks -------------------------------------------------------------
+    // Named sets a graph loads by hand (Set Sound Bank Loaded); membership is
+    // ticked on each sound's row above.
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    ui::Caption("Banks", std::to_string(project_.soundBanks.size()).c_str());
+    for (int b = 0; b < (int)project_.soundBanks.size(); ++b) {
+        Project::SoundBank& bank = project_.soundBanks[b];
+        ImGui::PushID(b + 5000);
+        char name[64];
+        std::snprintf(name, sizeof name, "%s", bank.name.c_str());
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - scaled(130));
+        if (ImGui::IsWindowAppearing()) soundBankRenameFrom_.clear();
+        if (ImGui::InputText("##bankname", name, sizeof name)) {
+            if (soundBankRenameFrom_.empty()) soundBankRenameFrom_ = bank.name;
+            bank.name = name;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            // A Set Sound Bank Loaded node names its bank; keep them pointing at it.
+            const std::string from = soundBankRenameFrom_;
+            soundBankRenameFrom_.clear();
+            if (bank.name.empty()) bank.name = from;
+            for (SceneData& sc : project_.scenes)
+                for (SceneObject& o : sc.objects)
+                    for (FlowNode& n : o.flowGraph.nodes)
+                        if (n.type == "SetSoundBankLoaded" && n.str == from && !from.empty())
+                            n.str = bank.name;
+            commitChange();
+        }
+        ImGui::SameLine();
+        const uintmax_t bytes = b < (int)soundResBank_.size() ? sumOf(soundResBank_[b]) : 0;
+        ImGui::TextDisabled("%d - %s", (int)bank.sounds.size(), bytesText(bytes).c_str());
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && !bank.sounds.empty()) {
+            ImGui::BeginTooltip();
+            for (const std::string& snd : bank.sounds)
+                ImGui::TextUnformatted(fs::path(snd).filename().string().c_str());
+            ImGui::EndTooltip();
+        }
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize("Delete").x -
+                        ImGui::GetStyle().FramePadding.x * 2);
+        if (ImGui::SmallButton("Delete")) {
+            project_.soundBanks.erase(project_.soundBanks.begin() + b);
+            commitChange();
+            ImGui::PopID();
+            break;
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("+ New bank")) {
+        std::string name;
+        for (int k = 1; name.empty(); ++k) {
+            const std::string c = "Bank " + std::to_string(k);
+            bool used = false;
+            for (const Project::SoundBank& b : project_.soundBanks) used |= b.name == c;
+            if (!used) name = c;
+        }
+        project_.soundBanks.push_back({name, {}});
+        commitChange();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("A set of sounds a Set Sound Bank Loaded node loads and unloads -\n"
+                          "for sounds no layer or emitter brings, like a mission's.\n"
+                          "Tick sounds into it on their rows above.");
     if (const std::string err = clipPlayer_->error(); !err.empty()) ImGui::TextColored(sem.danger, "%s", err.c_str());
     ImGui::EndChild();
     ImGui::TextDisabled("Imports convert to what the PS2 plays.");

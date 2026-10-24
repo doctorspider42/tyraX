@@ -2345,6 +2345,22 @@ static void writeAudioSection(std::ostream& json, const Project& p) {
         }
         if (!first) json << "]";
     }
+    if (!p.soundBanks.empty()) {
+        json << ",\n  \"soundBanks\": [";
+        for (size_t b = 0; b < p.soundBanks.size(); ++b) {
+            const Project::SoundBank& bank = p.soundBanks[b];
+            json << (b ? ",\n    " : "\n    ") << "{ \"name\": \"" << jsonEscape(bank.name)
+                 << "\", \"sounds\": [";
+            bool first = true;
+            for (const std::string& s : bank.sounds) {
+                if (std::find(p.sounds.begin(), p.sounds.end(), s) == p.sounds.end()) continue;
+                json << (first ? "" : ", ") << "\"" << jsonEscape(s) << "\"";
+                first = false;
+            }
+            json << "] }";
+        }
+        json << "\n  ]";
+    }
 }
 
 // Empty (no keys) when there are no overrides - the composers skip it then,
@@ -6879,6 +6895,7 @@ static void readAudioSection(const json::Value& root, Project& out) {
     out.musicBuild.clear();
     out.sounds.clear();
     out.soundsAlwaysLoaded.clear();
+    out.soundBanks.clear();
     if (const auto* music = root.find("music");
         music && music->type == json::Value::Type::Array) {
         for (const auto& m : music->arr) {
@@ -6912,6 +6929,18 @@ static void readAudioSection(const json::Value& root, Project& out) {
         for (const auto& s : pinned->arr) {
             const std::string path = s.stringOr("");
             if (!path.empty()) out.soundsAlwaysLoaded.push_back(path);
+        }
+    }
+    if (const auto* banks = root.find("soundBanks");
+        banks && banks->type == json::Value::Type::Array) {
+        for (const auto& jb : banks->arr) {
+            Project::SoundBank bank;
+            if (const auto* v = jb.find("name")) bank.name = v->stringOr("");
+            if (const auto* v = jb.find("sounds"); v && v->type == json::Value::Type::Array)
+                for (const auto& s : v->arr)
+                    if (const std::string path = s.stringOr(""); !path.empty())
+                        bank.sounds.push_back(path);
+            if (!bank.name.empty()) out.soundBanks.push_back(std::move(bank));
         }
     }
 }

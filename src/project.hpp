@@ -4019,6 +4019,14 @@ struct Project {
     // (docs/sound.md, "SPU2 sample RAM") - for one played from somewhere the
     // per-scene residency cannot see. Entries not in `sounds` are ignored.
     std::vector<std::string> soundsAlwaysLoaded;
+    // Named sets of sounds a flow graph loads and unloads by hand (Set Sound
+    // Bank Loaded) - for sounds no layer or emitter carries, such as a
+    // mission's. A loaded bank stays until unloaded or the scene ends.
+    struct SoundBank {
+        std::string name;
+        std::vector<std::string> sounds;  // Project::sounds paths
+    };
+    std::vector<SoundBank> soundBanks;
     // Custom values persisted in memory card saves (Tools > Save Editor).
     std::vector<SaveValue> saveValues;
     // Custom text values persisted in memory card saves (same window).
@@ -4635,7 +4643,8 @@ bool parseProcGraph(const std::string& body, ProcGraph& out);
 enum class Section {
     Settings = 0,    // "settings" (project preferences)
     Hud,             // "hud", "usePrompt", "hudTexts", the post-fx layers, "screenFx"
-    Audio,           // "music", "musicBuild", "sounds", "soundsAlwaysLoaded"
+    Audio,           // "music", "musicBuild", "sounds", "soundsAlwaysLoaded",
+                     // "soundBanks"
     TexQuality,      // "textureQuality" (per-asset overrides)
     ModelLods,       // "modelLods" (per-model custom LOD meshes)
     ModelAo,         // "modelAoMode" (per-model automatic-AO overrides)

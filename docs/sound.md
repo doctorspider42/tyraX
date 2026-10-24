@@ -53,39 +53,61 @@ firefight in a room with a dozen ambiences will hit the wall.
 
 Sound effects play from the SPU2's own 2 MB of sample RAM, so a sound has to be
 loaded there before anything can play it. The game does not load every sound in
-the project. It splits them into two groups:
+the project. A sound is loaded while something that uses it is:
 
 - **Shared** sounds load once at boot and stay for the whole game. A sound is
-  shared when every scene plays it, when a prefab member plays it (a prefab can
-  be spawned into any scene), or when you tick **Always loaded** on it in
-  **Project > Audio**.
-- **Scene** sounds load when their scene starts and are freed when it ends.
-  They are the sounds the scene's sound emitters, *Play Sound* nodes and
-  vehicles use.
+  shared when every scene loads it with itself, when a prefab member plays it
+  (a prefab can be spawned into any scene), or when you tick **Always loaded**
+  on it in **Project > Audio**.
+- **Scene** sounds load when their scene starts and are freed when it ends:
+  the sounds of emitters and vehicles outside any streaming layer, and every
+  sound a *Play Sound* node in the scene plays. (A graph runs whether or not
+  its object's layer is in, so its sounds stay with the scene.)
+- **Layer** sounds belong to the emitters and vehicles of one streaming layer
+  ([streaming-layers.md](streaming-layers.md)). They load when the layer
+  streams in, by its zone or a *Set Layer Loaded* node, and are freed when it
+  streams out. This is what lets one big open-world scene keep only the
+  district you are in.
+- **Sound banks** are named sets of sounds you make in **Project > Audio >
+  Banks** and load by hand with the **Set Sound Bank Loaded** node (*load* and
+  *unload* inputs). They are for sounds nothing else brings with it, such as
+  one mission's lines. A loaded bank stays loaded until it is unloaded or the
+  scene ends. Tick a sound into a bank on its row in the Sounds list.
 
-A sound nothing references is never loaded. Music is a separate system: it
-streams through the IOP and takes no SPU2 RAM.
+A sound used in several of these places is loaded once and stays as long as
+any of them needs it. A sound nothing references is never loaded. Music is a
+separate system: it streams through the IOP and takes no SPU2 RAM.
 
-The **SPU2 sample RAM** meter at the top of **Project > Audio** shows what is
-loaded at the worst moment: the shared sounds plus the heaviest scene's own
-sounds. It reads against 1.98 MB, because audsrv places the first sample 20 KB
-in. Reverb rooms ([reverb.md](reverb.md)) take up to another 192 KB from the
-top of the same RAM. A sound that does not fit fails to load and is silent, and
-the game log says so.
+During play, sounds load **one per frame** after a layer or bank asks for them,
+so a sound played the moment its bank was loaded can be silent. Load the bank a
+little before you need it, the way *Is Layer Loaded* gates a layer. When a
+scene starts, everything it needs loads behind the loading screen instead.
+
+The **SPU2 sample RAM** meter at the top of **Project > Audio** shows the most
+that can be loaded at once: the shared sounds plus the heaviest scene's worst
+moment. A scene's worst moment counts its own sounds, every layer that starts
+loaded or that a graph loads, the heaviest group of auto-streamed zones close
+enough to be in at the same time (the two heaviest groups with two players),
+and every bank its graphs load. The estimate is pessimistic: it would rather
+warn about a moment that never happens than miss one that does. Hover the bar
+for each scene's figure. The meter reads against 1.98 MB, because audsrv
+places the first sample 20 KB in. Reverb rooms ([reverb.md](reverb.md)) take up
+to another 192 KB from the top of the same RAM. A sound that does not fit fails
+to load and is silent, and the game log says so.
 
 **Always loaded** is for a sound the editor cannot see being played, for
 example one your own C++ script plays. Each sound row also shows *shared* when
 the sound stays loaded for the whole game.
 
-How it works: the game loads the shared sounds first and the scene's sounds
-above them. On a scene switch it frees the scene's sounds, then loads the next
-scene's into the room they left. audsrv reuses freed sample RAM wherever it
-lies, so a sound freed from the middle leaves a hole the next sound that fits
-can take. Before freeing, it stops every voice by playing a tiny
-silent sample on it, so no voice keeps reading memory that is about to hold a
-different sound. Sounds still playing when you switch scenes are therefore cut,
-unless the outgoing scene had no sounds of its own. Reloading the same scene
-keeps its sounds loaded.
+How it works: the game works out what has to be loaded the same way layers
+work out their models. Whenever the scene, a layer or a bank changes, it frees
+every sound nothing needs any more and queues the missing ones. audsrv reuses
+freed sample RAM wherever it lies, so layers and banks can come and go in any
+order. Before a sound is freed, every voice still playing it is switched to a
+tiny silent sample, so no voice keeps reading memory that is about to hold a
+different sound. Only the voices playing that sound are cut, so a shared sound
+plays on through a scene switch. Reloading the same scene keeps its sounds
+loaded.
 
 audsrv also copies each sample through IOP memory while loading it. That limits
 how big one sample can be, whatever the SPU2 has free: a 1.7 MB sample failed to
@@ -329,7 +351,8 @@ image, or keep the PC quiet while the game runs.
 | The scene runs at 25 FPS while music plays and an emitter is in earshot | Fixed 2026-08 — the music stream no longer blocks audsrv for everyone else. If you see it again, you are on an engine build from before that; see *Emitters and streaming music* above. |
 | Music plays right for a few seconds, then turns into a steady buzz | Fixed in 1.177.11: audsrv's EE callback thread was starved by the game thread. See *Music turns into a buzz a few seconds in*. |
 | Music drags, stutters or pops while running over ps2link, and the log says "Music ring ran low" | The music streams from the PC and the IOP is busy with the network. From a disc it plays evenly. See *Music stutters over ps2link*. |
-| A sound plays in one scene and is silent in another, or is silent since it was moved into C++ | The game loads only the sounds each scene uses, so that scene never loaded it. Tick **Always loaded** on the sound in **Project > Audio**. See *SPU2 sample RAM* above. |
+| A sound plays in one scene and is silent in another, or is silent since it was moved into C++ | The game loads only the sounds each scene, layer and bank uses, so nothing loaded it there. Put it in a bank that you load, or tick **Always loaded** on the sound in **Project > Audio**. See *SPU2 sample RAM* above. |
+| A sound is silent the first time, right after Set Sound Bank Loaded | Bank sounds load one per frame. Load the bank a moment earlier. |
 | A Play Sound node does nothing, sometimes | Its priority is not above anything currently playing, so it is being dropped. Raise it, or pin it a channel. |
 | A pinned sound stopped layering over itself | That is the fix — pinning cuts off, as the parameter always claimed. Use auto if you want copies to overlap. |
 | Nothing plays at all, on hardware, but PCSX2 is fine | Not this page. See the EE cache write-back in the `tyra-engine-dev` skill's audio section. |

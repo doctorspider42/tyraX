@@ -3,7 +3,9 @@
 // 2.2.0: sound effects load per scene (docs/sound.md, "SPU2 sample RAM") - shared ones at boot,
 // a scene's own on entry, freed newest first on leaving; Project > Audio meters shared + heaviest
 // scene and gains Always loaded (format 121). audsrv's sample RAM is first fit, so a sound freed
-// anywhere gives its RAM back (vendor/tyra/audsrv README, change 5).
+// anywhere gives its RAM back (vendor/tyra/audsrv README, change 5). Layer sounds and named sound
+// banks (Set Sound Bank Loaded, format 122): need-based residency, AudioAdpcm::unload stops only
+// the voices playing the freed sample; the meter estimates each scene's worst moment.
 // 2.2.0: the Project and Properties panels slide away (rail icon, status bar, Ctrl+B / Ctrl+Alt+B);
 // each window layout remembers which are collapsed (format 119); the workspace switcher's "..."
 // lists the other layouts; built-in layouts cannot be deleted and are restored on load.
@@ -6438,7 +6440,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // "soundsAlwaysLoaded" in the audio keys, written only when a listed sound is
 // pinned. Missing = none, which is what every older project means. Additive;
 // no migration.
-inline constexpr int kFormatVersion = 121;
+// v122 (docs/sound.md, "SPU2 sample RAM"): Project::soundBanks, "soundBanks"
+// in the audio keys ({ "name", "sounds" }), written only when there is one.
+// Missing = no banks. Additive; no migration.
+inline constexpr int kFormatVersion = 122;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -800,6 +800,8 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (std::string& m : project_.music) swap(m);
     for (std::string& s : project_.sounds) swap(s);
     for (std::string& s : project_.soundsAlwaysLoaded) swap(s);
+    for (Project::SoundBank& b : project_.soundBanks)
+        for (std::string& s : b.sounds) swap(s);
     for (AnimClipEdit& e : project_.animClipEdits) swap(e.model);
     // Both ends of an animation import name an asset (docs/animation-import.md):
     // the character the clips land on and the file they come from.

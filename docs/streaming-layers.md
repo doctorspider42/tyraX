@@ -156,6 +156,9 @@ Details worth knowing:
   model geometry and collision meshes, animated-model data, and textures
   (via reference counting — a PNG used by two layers is freed only when
   both are out).
+- Sound effects: the samples of the layer's sound emitters and vehicles load
+  with it and are freed with it, unless something still loaded uses them too
+  ([sound.md](sound.md), "SPU2 sample RAM").
 - What stays: the compiled scene tables (a few hundred bytes per object in
   the ELF's read-only data) and anything outside the layer.
 

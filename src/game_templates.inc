@@ -5105,8 +5105,8 @@ void TerrainGame::init() {
   // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
   // first present (loadingscreen::renderFrame), so nothing to set up here.
 
-  // Sound effect samples load with their scene (syncSceneSounds, called from
-  // loadScene), not here.
+  // Sound effect samples load with their scene and layers
+  // (applySoundResidency, called from loadScene), not here.
 }
 
 
@@ -7449,8 +7449,8 @@ void TerrainGame::init() {
   // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
   // first present (loadingscreen::renderFrame), so nothing to set up here.
 
-  // Sound effect samples load with their scene (syncSceneSounds, called from
-  // loadScene), not here.
+  // Sound effect samples load with their scene and layers
+  // (applySoundResidency, called from loadScene), not here.
 }
 
 
@@ -10711,66 +10711,80 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
 
  // last quantized depth written
 
-// Sound effects in SPU2 sample RAM (docs/sound.md, "SPU2 sample RAM"). The
-// first call loads the shared sounds; every call then frees the outgoing
-// scene's own, newest first - audsrv hands sample RAM out like a stack and
-// only takes it back from the top - and loads the incoming scene's. A
-// terrain_game.cpp owned from before this filled `samples` with every sound in
-// init(): that table is adopted as it is and nothing is ever freed.
+// Sound effects in SPU2 sample RAM (docs/sound.md, "SPU2 sample RAM"): the
+// same need-based residency the layers use for models, for sounds. Loaded =
+// the shared sounds, the scene's own, each resident layer's and each sound
+// bank a graph loaded (sound_bank.gen.hpp); anything else is freed - the
+// engine first stops the voices playing it - and what is missing loads, all
+// at once behind a scene's loading screen and one sample a frame in play. The
+// forked audsrv reuses freed RAM wherever it lies, so the order layers and
+// banks come and go in does not matter.
+//
+// A terrain_game.cpp owned from before this filled `samples` with every sound
+// in init(): that table is adopted as it is and nothing is ever freed.
 namespace {
-int sndBankScene = -2;  // -2 not set up yet, -1 adopted (see above)
-audsrv_adpcm_t* sndSilence = nullptr;
-// An adpenc file of 64 bytes of silence whose last block carries the end flag.
-// Keying it on a voice stops whatever the voice was playing - audsrv has no
-// key-off - so no voice is left reading sample RAM that gets reused.
-alignas(64) unsigned char kSilentAdpcm[16 + 64] = {
-    'A', 'P', 'C', 'M', 1, 1, 0, 0, 0x00, 0x08, 0, 0, 112, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+int sndBankMode = 0;  // 0 not set up yet, 1 managed, -1 adopted (see above)
+int sndBankScene = -1;
+int sndBankSerial = -1;
+std::vector<unsigned char> sndLayersSeen;
+std::vector<int> sndQueue;  // slots still to load, in play
 }  // namespace
 
-static void syncSceneSounds(Engine* engine, std::vector<audsrv_adpcm_t*>& samples,
-                            int scene) {
-  if (sndBankScene == -1 || sndBankScene == scene) return;
-  if (sndBankScene == -2) {
+static void applySoundResidency(Engine* engine, std::vector<audsrv_adpcm_t*>& samples,
+                                int scene, const std::vector<unsigned char>& layers,
+                                bool now) {
+  if (sndBankMode == 0) {
     if (!samples.empty()) {
-      sndBankScene = -1;
+      sndBankMode = -1;
       soundbank::g_bank = samples.data();
       return;
     }
+    sndBankMode = 1;
     samples.assign(SND_COUNT, nullptr);  // never resized again: g_bank points in
     soundbank::g_bank = samples.empty() ? nullptr : samples.data();
-    sndSilence = new audsrv_adpcm_t();
-    if (audsrv_load_adpcm(sndSilence, kSilentAdpcm, sizeof(kSilentAdpcm)) != 0) {
-      delete sndSilence;
-      sndSilence = nullptr;
-    }
-    for (int k = 0; k < soundbank::SHARED_COUNT; ++k) {
-      const int s = soundbank::SHARED[k];
-      samples[s] = engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[s]));
-    }
-  } else {
-    // Only when something is freed: a sound still playing out of a scene with
-    // nothing of its own (a door slam before Load Scene) is shared, and safe.
-    const int first = soundbank::SCENE_FIRST[sndBankScene];
-    if (sndSilence && soundbank::SCENE_FIRST[sndBankScene + 1] > first)
-      for (int ch = 0; ch < 48; ++ch) engine->audio.adpcm.forcePlay(sndSilence, (s8)ch);
-    for (int k = soundbank::SCENE_FIRST[sndBankScene + 1] - 1;
-         k >= first; --k) {
-      audsrv_adpcm_t*& a = samples[soundbank::SCENE_LIST[k]];
-      if (!a) continue;
-      audsrv_free_adpcm(a);
-      delete a;
-      a = nullptr;
-    }
   }
+  if (sndBankMode != 1 || samples.empty()) return;
   sndBankScene = scene;
-  for (int k = soundbank::SCENE_FIRST[scene]; k < soundbank::SCENE_FIRST[scene + 1]; ++k) {
-    const int s = soundbank::SCENE_LIST[k];
+  sndBankSerial = soundbank::g_bankSerial;
+  sndLayersSeen = layers;
+  std::vector<unsigned char> need(samples.size(), 0);
+  auto mark = [&](const int* list, int first, int last) {
+    for (int k = first; k < last; ++k) need[list[k]] = 1;
+  };
+  mark(soundbank::SHARED, 0, soundbank::SHARED_COUNT);
+  mark(soundbank::SCENE_LIST, soundbank::SCENE_FIRST[scene], soundbank::SCENE_FIRST[scene + 1]);
+  const int lb = soundbank::SCENE_LAYER_BASE[scene];
+  const int lc = soundbank::SCENE_LAYER_BASE[scene + 1] - lb;
+  for (int l = 0; l < lc && l < (int)layers.size(); ++l)
+    if (layers[l])
+      mark(soundbank::LAYER_LIST, soundbank::LAYER_FIRST[lb + l],
+           soundbank::LAYER_FIRST[lb + l + 1]);
+  for (int b = 0; b < soundbank::BANK_COUNT; ++b)
+    if (soundbank::g_bankOn[b])
+      mark(soundbank::BANK_LIST, soundbank::BANK_FIRST[b], soundbank::BANK_FIRST[b + 1]);
+  // Frees first, so the loads below have the room.
+  for (int s = 0; s < (int)samples.size(); ++s)
+    if (!need[s] && samples[s]) engine->audio.adpcm.unload(samples[s]);
+  sndQueue.clear();
+  for (int s = 0; s < (int)samples.size(); ++s)
+    if (need[s] && !samples[s]) sndQueue.push_back(s);
+  if (!now) return;
+  for (const int s : sndQueue)
     samples[s] = engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[s]));
-  }
+  sndQueue.clear();
+}
+
+// Per frame, in play: a layer streamed in or out, or a graph loaded or
+// unloaded a sound bank -> settle again; then load one waiting sample.
+static void tickSoundResidency(Engine* engine, std::vector<audsrv_adpcm_t*>& samples,
+                               const std::vector<unsigned char>& layers) {
+  if (sndBankMode != 1 || sndBankScene < 0) return;
+  if (layers != sndLayersSeen || soundbank::g_bankSerial != sndBankSerial)
+    applySoundResidency(engine, samples, sndBankScene, layers, false);
+  if (sndQueue.empty()) return;
+  const int s = sndQueue.front();
+  sndQueue.erase(sndQueue.begin());
+  if (!samples[s]) samples[s] = engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[s]));
 }
 
 // Switches the runtime state to a scene from scene_data.hpp and settles the
@@ -11231,7 +11245,9 @@ void TerrainGame::loadScene(int sceneIndex) {
 
   buildParticles();
 
-  syncSceneSounds(engine, sndSamples, sceneIndex);
+  // A sound bank lasts until the scene ends.
+  for (int b = 0; b < soundbank::BANK_COUNT; ++b) soundbank::setBank(b, false);
+  applySoundResidency(engine, sndSamples, sceneIndex, layerTarget, true);
 
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
   // ADPCM sample can't be stopped - it plays out, but silently). Both cores'
@@ -11295,6 +11311,7 @@ void TerrainGame::loadScene(int sceneIndex) {
 // sndOnPlayer emitters skip all of that: full volume, centered - they play
 // "on the player" wherever they are (dialogs, narration). Hiding it mutes.
 void TerrainGame::updateSoundEmitters() {
+  tickSoundResidency(engine, sndSamples, layerTarget);
   if (sndSamples.empty()) return;
   // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
   // Whatever is in flight plays out - an ADPCM voice cannot be stopped - so

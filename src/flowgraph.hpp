@@ -122,6 +122,7 @@ enum class FlowParamKind {
     GradingName,  // name of a Project::gradings preset ("" = neutral/off)
     AmbienceName,  // name of a Project::ambiencePresets entry ("" = none)
     LayerName,  // name of a SceneData::layers entry (streaming layer)
+    SoundBankName,  // name of a Project::soundBanks entry
     AreaName,   // name of a PrimitiveType::Area object in the scene
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
     CreditsName,   // name of a Project::credits roll (Tools > Credits Editor)
@@ -1704,6 +1705,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "ordinary; raise it for a gunshot or a line of dialogue, "
                      "lower it for chatter you would rather lose."},
          .desc = "Fires a one-shot sound effect."},
+        {.key = "SetSoundBankLoaded", .title = "Set Sound Bank Loaded",
+         .category = "Audio", .strKind = FlowParamKind::SoundBankName,
+         .strTip = "The sound bank to load or unload (Project panel > Audio > "
+                   "Banks).",
+         .execInCount = 2, .execInLabels = {"load", "unload"},
+         .execInTips = {"Starts loading the bank's sounds into the PS2's sound "
+                        "RAM, one per frame - a sound played before it arrives "
+                        "is silent.",
+                        "Frees the bank's sounds that nothing else loaded "
+                        "still needs, cutting off any that are playing."},
+         .desc = "Loads a named set of sounds by hand, for sounds no layer or "
+                 "emitter brings with it - a mission's, a cutscene's. A bank "
+                 "stays loaded until unloaded or the scene ends."},
         // Save data: named values persisted in memory card slots (Project
         // panel, "Save data"); every save slot stores a snapshot.
         {.key = "SetValue", .title = "Set Save Value", .category = "Save",
@@ -2737,6 +2751,7 @@ inline const char* flowStrLabel(const FlowNodeType& t) {
         case FlowParamKind::SoundTrack: return "Sound";
         case FlowParamKind::SceneName: return "Scene";
         case FlowParamKind::LayerName: return "Layer";
+        case FlowParamKind::SoundBankName: return "Bank";
         case FlowParamKind::AreaName: return "Area";
         case FlowParamKind::SaveValue: return "Value";
         case FlowParamKind::SaveText: return "Value";

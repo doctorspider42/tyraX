@@ -1335,6 +1335,18 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("Add layers in the\nProject panel (Layers).");
                 endCombo();
             }
+        } else if (t->strKind == FlowParamKind::SoundBankName) {
+            if (beginCombo("Bank", n.str.empty() ? "<none>" : n.str.c_str(), t->strTip)) {
+                for (const Project::SoundBank& b : project_.soundBanks) {
+                    if (ImGui::Selectable(b.name.c_str(), b.name == n.str)) {
+                        n.str = b.name;
+                        changed = true;
+                    }
+                }
+                if (project_.soundBanks.empty())
+                    ImGui::TextDisabled("Make banks in the\nProject panel (Audio).");
+                endCombo();
+            }
         } else if (t->strKind == FlowParamKind::AreaName) {
             // In Area: pick one of the scene's Area objects (docs/areas.md).
             if (areaCombo("Area", n.str)) changed = true;
@@ -2363,6 +2375,8 @@ void App::drawFlowGraphWindow() {
         if (t.strKind == FlowParamKind::LayerName &&
             !project_.active().layers.empty())
             n.str = project_.active().layers.front().name;
+        if (t.strKind == FlowParamKind::SoundBankName && !project_.soundBanks.empty())
+            n.str = project_.soundBanks.front().name;
         // In Area starts on the scene's first area, if any.
         if (t.strKind == FlowParamKind::AreaName)
             for (const SceneObject& a : project_.objects())

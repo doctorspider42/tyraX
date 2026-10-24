@@ -12591,15 +12591,18 @@ static bool projectHasVehicles(const Project& p) {
 SoundResidency soundResidency(const Project& p) {
     SoundResidency r;
     r.scene.resize(p.scenes.size());
+    r.layer.resize(p.scenes.size());
     auto slot = [&](const std::string& path) {
         if (path.empty()) return -1;
         for (size_t i = 0; i < p.sounds.size(); ++i)
             if (p.sounds[i] == path) return (int)i;
         return -1;
     };
-    // Every sound one object plays: an emitter's sample, a vehicle's (the
-    // same definition VEHICLE_DEFS resolves the name to), a graph's Play Sound.
-    auto objectSounds = [&](const SceneObject& o, std::set<int>& into) {
+    // What one object plays by itself: an emitter's sample and a vehicle's
+    // (the definition VEHICLE_DEFS resolves the name to). These follow the
+    // object's layer; its graph's Play Sound nodes stay with the scene, since
+    // a graph runs whether or not its owner's layer is resident.
+    auto ownSounds = [&](const SceneObject& o, std::set<int>& into) {
         if (o.type == PrimitiveType::SoundEmitter) into.insert(slot(o.soundPath));
         if (o.type == PrimitiveType::Vehicle && vehicleDefIndex(p, o.vehicleDef) >= 0)
             for (const VehicleDef& v : p.vehicles) {
@@ -12610,6 +12613,8 @@ SoundResidency soundResidency(const Project& p) {
                 into.insert(slot(v.shiftSound));
                 break;
             }
+    };
+    auto graphSounds = [&](const SceneObject& o, std::set<int>& into) {
         for (const FlowNode& n : o.flowGraph.nodes)
             if (n.type == "PlaySound") into.insert(slot(n.str));
     };
@@ -12618,24 +12623,111 @@ SoundResidency soundResidency(const Project& p) {
     // A prefab member can be spawned into any scene, so its sounds cannot
     // belong to one.
     for (const Prefab& pf : p.prefabs)
-        for (const SceneObject& o : pf.objects) objectSounds(o, shared);
-    std::vector<std::set<int>> used(p.scenes.size());
-    for (size_t si = 0; si < p.scenes.size(); ++si)
-        for (const SceneObject& o : p.scenes[si].objects) objectSounds(o, used[si]);
-    // A sound every scene plays would only be freed to be loaded again.
+        for (const SceneObject& o : pf.objects) ownSounds(o, shared), graphSounds(o, shared);
+    std::vector<std::set<int>> base(p.scenes.size());
+    std::vector<std::vector<std::set<int>>> layered(p.scenes.size());
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const SceneData& sc = p.scenes[si];
+        layered[si].resize(sc.layers.size());
+        for (const SceneObject& o : sc.objects) {
+            int li = -1;  // an unknown layer name is always resident
+            for (size_t l = 0; l < sc.layers.size() && !o.layer.empty(); ++l)
+                if (sc.layers[l].name == o.layer) li = (int)l;
+            ownSounds(o, li < 0 ? base[si] : layered[si][li]);
+            graphSounds(o, base[si]);
+        }
+    }
+    // A sound every scene loads with itself would only be freed to be loaded
+    // again. Layer sounds do not count: they come and go inside a scene.
     if (p.scenes.size() > 1)
-        for (const int s : used[0]) {
+        for (const int s : base[0]) {
             bool everywhere = true;
-            for (size_t si = 1; si < used.size() && everywhere; ++si)
-                everywhere = used[si].count(s) != 0;
+            for (size_t si = 1; si < base.size() && everywhere; ++si)
+                everywhere = base[si].count(s) != 0;
             if (everywhere) shared.insert(s);
         }
     shared.erase(-1);
     r.shared.assign(shared.begin(), shared.end());
-    for (size_t si = 0; si < used.size(); ++si)
-        for (const int s : used[si])
-            if (s >= 0 && !shared.count(s)) r.scene[si].push_back(s);
+    auto keep = [&](const std::set<int>& from, const std::set<int>& skip) {
+        std::vector<int> v;
+        for (const int s : from)
+            if (s >= 0 && !shared.count(s) && !skip.count(s)) v.push_back(s);
+        return v;
+    };
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        r.scene[si] = keep(base[si], {});
+        for (const auto& l : layered[si]) r.layer[si].push_back(keep(l, base[si]));
+    }
+    for (const Project::SoundBank& b : p.soundBanks) {
+        std::set<int> in;
+        for (const std::string& s : b.sounds) in.insert(slot(s));
+        r.bank.push_back(keep(in, {}));
+    }
     return r;
+}
+
+std::vector<int> soundWorstCase(const Project& p, const SoundResidency& r, int si,
+                                const std::vector<uintmax_t>& bytes) {
+    std::set<int> out;
+    if (si < 0 || si >= (int)p.scenes.size()) return {};
+    const SceneData& sc = p.scenes[si];
+    auto add = [&](std::set<int>& to, const auto& v) { to.insert(v.begin(), v.end()); };
+    auto weight = [&](const std::set<int>& v) {
+        uintmax_t b = 0;
+        for (const int s : v) if (s >= 0 && s < (int)bytes.size()) b += bytes[s];
+        return b;
+    };
+    add(out, r.scene[si]);
+    // Layers and banks the scene's graphs name.
+    std::set<std::string> scripted, banks;
+    for (const SceneObject& o : sc.objects)
+        for (const FlowNode& n : o.flowGraph.nodes) {
+            if (n.type == "SetLayerLoaded") scripted.insert(n.str);
+            if (n.type == "SetSoundBankLoaded") banks.insert(n.str);
+        }
+    for (size_t b = 0; b < p.soundBanks.size() && b < r.bank.size(); ++b)
+        if (banks.count(p.soundBanks[b].name)) add(out, r.bank[b]);
+    // A zone: where it is and how far out it stays loaded (the runtime's
+    // unload band, docs/streaming-layers.md).
+    struct Zone { int layer; float x, z, r; };
+    std::vector<Zone> zones;
+    for (size_t l = 0; l < sc.layers.size() && l < r.layer[si].size(); ++l) {
+        const SceneLayer& L = sc.layers[l];
+        const SceneObject* area = nullptr;
+        for (const SceneObject& o : sc.objects)
+            if (!L.streamArea.empty() && o.type == PrimitiveType::Area && o.name == L.streamArea)
+                area = &o;
+        const bool zoned = L.autoStream && (area || L.streamRadius > 0.0f);
+        if (!zoned || scripted.count(L.name)) {
+            // By hand, or overridden by a script: it may be in at any time.
+            if (L.startLoaded || scripted.count(L.name) || L.autoStream) add(out, r.layer[si][l]);
+            continue;
+        }
+        if (area)
+            zones.push_back({(int)l, area->position[0], area->position[2],
+                             0.5f * std::sqrt(area->scale[0] * area->scale[0] +
+                                              area->scale[2] * area->scale[2]) * 1.15f + 1.0f});
+        else
+            zones.push_back({(int)l, L.streamX, L.streamZ, L.streamRadius * 1.15f + 8.0f});
+    }
+    // Each zone with every zone it overlaps - a superset of what one player
+    // can have loaded standing in it.
+    std::vector<std::set<int>> groups;
+    for (const Zone& a : zones) {
+        std::set<int> g;
+        for (const Zone& b : zones) {
+            const float dx = a.x - b.x, dz = a.z - b.z;
+            if (std::sqrt(dx * dx + dz * dz) < a.r + b.r) add(g, r.layer[si][b.layer]);
+        }
+        for (const int s : out) g.erase(s);
+        groups.push_back(std::move(g));
+    }
+    std::sort(groups.begin(), groups.end(),
+              [&](const std::set<int>& a, const std::set<int>& b) { return weight(a) > weight(b); });
+    int players = 0;
+    for (const SceneObject& o : sc.objects) players += o.type == PrimitiveType::Player;
+    for (size_t g = 0; g < groups.size() && g < (players > 1 ? 2u : 1u); ++g) add(out, groups[g]);
+    return std::vector<int>(out.begin(), out.end());
 }
 
 // Sparse per-object blob metadata. Keeping an asset path out of the fixed
@@ -22672,8 +22764,8 @@ std::string flowGraphScript(const Project& p) {
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n"
            "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n"
            "#include \"facts.gen.hpp\"  // World Facts store + save walks\n";
-    if (uses("PlaySound"))
-        out << "#include \"sound_bank.gen.hpp\"  // Play Sound samples\n";
+    if (uses("PlaySound") || uses("SetSoundBankLoaded"))
+        out << "#include \"sound_bank.gen.hpp\"  // Play Sound, sound banks\n";
     if (anyRaycast || anyTerrainQuery)
         out << "#include \"terrain_heights.gen.hpp\"  // Raycast / Snap To "
                "Terrain\n";
@@ -24605,6 +24697,17 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 } else {
                     c << pad << "ctx.requestScene = " << target << ";  // \"" << n.str
                       << "\"\n";
+                }
+            } else if (n.type == "SetSoundBankLoaded") {
+                int bi = -1;
+                for (size_t b = 0; b < p.soundBanks.size() && bi < 0; ++b)
+                    if (p.soundBanks[b].name == n.str) bi = (int)b;
+                if (bi < 0) {
+                    c << pad << "// node " << n.id << " (" << n.type
+                      << "): unknown sound bank '" << n.str << "'\n";
+                } else {
+                    c << pad << "soundbank::setBank(" << bi << ", "
+                      << (pin == 1 ? "false" : "true") << ");  // \"" << n.str << "\"\n";
                 }
             } else if (n.type == "SetLayerLoaded") {
                 const int li = layerIndexOf(n.str);
@@ -31622,9 +31725,9 @@ static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
 }
 
 // inc/sound_bank.gen.hpp - which SND_PATHS slots live in SPU2 sample RAM
-// when (soundResidency, docs/sound.md "SPU2 sample RAM"), and the bank every
-// player of a sound reads its sample from. Written by hand as inline - this
-// header is included by more than one TU.
+// when (soundResidency, docs/sound.md "SPU2 sample RAM"), the bank every
+// player of a sound reads its sample from, and the requests Set Sound Bank
+// Loaded writes. Written by hand as inline - more than one TU includes it.
 static std::string soundBankHeader(const Project& p) {
     const SoundResidency r = soundResidency(p);
     std::ostringstream out;
@@ -31634,35 +31737,63 @@ static std::string soundBankHeader(const Project& p) {
         for (size_t i = 0; i < v.size(); ++i) t += (i ? ", " : "") + std::to_string(v[i]);
         return t;
     };
-    std::vector<int> first, all;
-    for (const auto& sc : r.scene) {
+    // One flattened table + a FIRST index per list (FIRST has one more entry
+    // than there are lists, so list i is [FIRST[i], FIRST[i + 1])).
+    auto table = [&](const char* name, const std::vector<std::vector<int>>& lists) {
+        std::vector<int> first, all;
+        for (const auto& l : lists) {
+            first.push_back((int)all.size());
+            all.insert(all.end(), l.begin(), l.end());
+        }
         first.push_back((int)all.size());
-        all.insert(all.end(), sc.begin(), sc.end());
+        out << "inline constexpr int " << name << "_FIRST[" << first.size() << "] = {"
+            << list(first) << "};\n"
+            << "inline constexpr int " << name << "_LIST[" << (all.empty() ? 1 : all.size())
+            << "] = {" << list(all) << "};\n";
+    };
+    std::vector<std::vector<int>> layers;
+    std::vector<int> layerBase;
+    for (const auto& sc : r.layer) {
+        layerBase.push_back((int)layers.size());
+        layers.insert(layers.end(), sc.begin(), sc.end());
     }
-    first.push_back((int)all.size());
-    const size_t n = p.sounds.size();
+    layerBase.push_back((int)layers.size());
+    const size_t n = p.sounds.size(), nb = r.bank.size();
     out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
            "// Sound effects in SPU2 sample RAM (docs/sound.md, \"SPU2 sample RAM\"):\n"
-           "// SHARED loads at boot and stays; a scene's SCENE_LIST slice loads when\n"
-           "// it starts and is freed, newest first, when it ends. Values are\n"
-           "// SND_PATHS slots.\n"
+           "// the game keeps loaded SHARED, the running scene's SCENE list, the LAYER\n"
+           "// list of each of its resident layers (scene s, layer l = list\n"
+           "// SCENE_LAYER_BASE[s] + l) and the BANK list of each loaded sound bank.\n"
+           "// Values are SND_PATHS slots.\n"
            "#pragma once\n"
            "#include <audsrv.h>\n\n"
            "namespace soundbank {\n"
         << "inline constexpr int SHARED_COUNT = " << r.shared.size() << ";\n"
         << "inline constexpr int SHARED[" << (r.shared.empty() ? 1 : r.shared.size())
-        << "] = {" << list(r.shared) << "};\n"
-        << "inline constexpr int SCENE_FIRST[" << first.size() << "] = {" << list(first)
-        << "};\n"
-        << "inline constexpr int SCENE_LIST[" << (all.empty() ? 1 : all.size()) << "] = {"
-        << list(all) << "};\n\n"
-        << "// The resident samples by slot: the game's sound table once it manages\n"
+        << "] = {" << list(r.shared) << "};\n";
+    table("SCENE", r.scene);
+    out << "inline constexpr int SCENE_LAYER_BASE[" << layerBase.size() << "] = {"
+        << list(layerBase) << "};\n";
+    table("LAYER", layers);
+    out << "inline constexpr int BANK_COUNT = " << nb << ";\n";
+    table("BANK", r.bank);
+    out << "\n// The resident samples by slot: the game's sound table once it manages\n"
            "// residency (loadScene). Until then - a terrain_game.cpp owned from\n"
            "// before the bank - the graphs load their own sounds into `own`.\n"
            "inline audsrv_adpcm_t** g_bank = nullptr;\n"
         << "inline audsrv_adpcm_t* own[" << (n ? n : 1) << "] = {};\n"
         << "inline audsrv_adpcm_t* sample(int slot) {\n"
            "  return g_bank ? g_bank[slot] : own[slot];\n"
+           "}\n\n"
+           "// Sound banks a graph has loaded (Set Sound Bank Loaded). The game\n"
+           "// notices g_bankSerial move and loads/frees on the following frames;\n"
+           "// a scene switch unloads them all.\n"
+        << "inline unsigned char g_bankOn[" << (nb ? nb : 1) << "] = {};\n"
+        << "inline int g_bankSerial = 0;\n"
+           "inline void setBank(int b, bool on) {\n"
+           "  if (b < 0 || b >= BANK_COUNT || (g_bankOn[b] != 0) == on) return;\n"
+           "  g_bankOn[b] = on ? 1 : 0;\n"
+           "  ++g_bankSerial;\n"
            "}\n"
            "}  // namespace soundbank\n";
     return out.str();

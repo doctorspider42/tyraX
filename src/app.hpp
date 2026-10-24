@@ -803,11 +803,14 @@ private:
     float assetOrbitYaw_ = 35.0f, assetOrbitPitch_ = 22.0f, assetOrbitZoom_ = 1.0f;
     float assetOrbitPanX_ = 0.0f, assetOrbitPanY_ = 0.0f;  // framing radii
     uint64_t assetUsageSerial_ = ~0ull;  // edit serial the census was built at
-    // Audio page: templates::soundResidency, as Project::sounds indices,
-    // rebuilt when the edit serial moves.
+    // Audio page: templates::soundResidency's shared set and each scene's
+    // soundWorstCase, as Project::sounds indices, rebuilt when the edit serial
+    // moves. soundResBank_ is the bank lists (Project::soundBanks order).
     uint64_t soundResSerial_ = ~0ull;
     std::vector<int> soundResShared_;
     std::vector<std::vector<int>> soundResScene_;
+    std::vector<std::vector<int>> soundResBank_;
+    std::string soundBankRenameFrom_;  // bank name while its field is edited
     std::map<std::string, AssetUsage> assetUsage_;
     // Reverse Wavefront map (a texture / .mtl -> the .obj/.mtl files naming it),
     // parsed from disk on first use after a scan - the file operations need it,

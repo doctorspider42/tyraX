@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -210,15 +211,24 @@ struct SaveSizeInfo {
 SaveSizeInfo saveSizeInfo(const Project& p);
 
 // Where each sound effect lives in SPU2 sample RAM (docs/sound.md, "SPU2
-// sample RAM"), as Project::sounds indices. `shared` loads at boot and stays;
-// scene[i] loads when scene i starts and is freed (newest first - audsrv
-// allocates like a stack) when it ends. A sound in neither is referenced by
-// nothing the game can see and never loads.
+// sample RAM"), as Project::sounds indices. The game keeps loaded the union of
+// `shared`, the running scene's base set, the bank of every layer of it that
+// is resident and every sound bank a graph has loaded; the rest are freed.
 struct SoundResidency {
-    std::vector<int> shared;
-    std::vector<std::vector<int>> scene;  // per Project::scenes index
+    std::vector<int> shared;                          // boot to exit
+    std::vector<std::vector<int>> scene;              // with the scene
+    std::vector<std::vector<std::vector<int>>> layer; // [scene][layer]: with the layer
+    std::vector<std::vector<int>> bank;               // per Project::soundBanks entry
 };
 SoundResidency soundResidency(const Project& p);
+
+// The most of scene `si`'s sounds that can be loaded at once, on top of the
+// shared ones, as a set of slots: the base set, every layer a script may load
+// or that starts loaded, the heaviest group of auto-streamed zones close
+// enough to be resident together (the two heaviest with two players), and
+// every bank the scene's graphs load. An estimate, pessimistic by design.
+std::vector<int> soundWorstCase(const Project& p, const SoundResidency& r, int si,
+                                const std::vector<uintmax_t>& bytes);
 
 // The game's save directory on the memory card ("/TYRA-<NAME>").
 std::string saveDirName(const Project& p);
