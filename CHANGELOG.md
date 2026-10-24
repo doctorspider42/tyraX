@@ -7,6 +7,7 @@ history.
 
 ## 2.2.0 - Unreleased
 
+- Camera drags in the viewport no longer stop at the edge of the window. Orbiting, panning or pushing forward with the right and middle buttons together wraps the cursor to the other side of the viewport when it reaches an edge, so a drag lasts as long as your desk does.
 - Shining the flashlight on a big block no longer switches off the lamps already lighting it. Large boxes skip only the torch's per-vertex cone (the beam lands on them as a per-pixel pool), and they used to lose every dynamic light with it.
 - A flashlight held in the eye no longer takes a shadow away. It used to win the shadow slot of whatever it lit from the moon or a lamp, and a torch shadow cast from the eye falls exactly behind its caster, so the shadow simply vanished. A torch held off the eye (*Held right* / *Held below eye*) casts its shadows as before.
 - A prop lit by a lamp keeps that lamp's light when the flashlight sweeps over it. Each mesh takes one dynamic light, and the torch used to take it whenever it scored brighter, so a ball next to the pulsing crystal turned torch-white and lost its blue. A lamp that properly reaches a mesh now keeps it, and the torch still lights what it is aimed at through its per-pixel pass.

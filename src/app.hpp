@@ -2057,6 +2057,19 @@ private:
     // all. A press released without motion has not, and is treated as a click
     // (it picks) rather than as an empty edit (it used to dirty the project).
     bool gizmoEdited_ = false;
+    // A viewport camera drag (orbit / pan / dolly) in progress: the OS cursor
+    // position it last saw, in that GLFW window's coordinates, and the frame
+    // it saw it on - a gap of more than one frame starts the drag afresh.
+    struct CameraDrag {
+        bool active = false;
+        double x = 0.0, y = 0.0;
+        int frame = -1;
+    } camDrag_;
+    // The camera drag's motion this frame (zero when `dragging` is false, which
+    // also ends the drag). Measured on the OS cursor rather than io.MouseDelta,
+    // and the cursor is wrapped to the opposite edge of the viewport image
+    // when it reaches one, so the drag never stops at a window or screen edge.
+    ImVec2 cameraDragDelta(bool dragging, const ImVec2& imgPos, const ImVec2& imgSize);
 
     // Measuring tape (docs/world-scale.md): click two points on the scene and
     // read the distance between them, in world units and in meters. A pure

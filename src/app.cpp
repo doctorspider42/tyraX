@@ -3314,6 +3314,59 @@ void App::drawWelcomeScreen() {
     if (openIndex >= 0) openRecentProject(recentProjects_[openIndex].dir);
 }
 
+ImVec2 App::cameraDragDelta(bool dragging, const ImVec2& imgPos, const ImVec2& imgSize) {
+    const ImGuiIO& io = ImGui::GetIO();
+    const int frame = ImGui::GetFrameCount();
+    const bool resumed = camDrag_.active && camDrag_.frame == frame - 1;
+    camDrag_.active = dragging;
+    camDrag_.frame = frame;
+    if (!dragging) return ImVec2(0.0f, 0.0f);
+    // A --ui-script drag moves an injected cursor the OS knows nothing about.
+    if (uiScriptActive_) return io.MouseDelta;
+
+    // The OS window the viewport panel is drawn in (its own one when the panel
+    // was dragged out of the editor), and that window's origin in ImGui
+    // coordinates - desktop space with multi-viewports on, (0,0) otherwise.
+    const ImGuiViewport* vp = ImGui::GetWindowViewport();
+    GLFWwindow* win = static_cast<GLFWwindow*>(vp->PlatformHandle);
+    if (!win) return io.MouseDelta;
+    double cx = 0.0, cy = 0.0;
+    glfwGetCursorPos(win, &cx, &cy);
+    // The first frame is ImGui's: it is the one that crossed the drag
+    // threshold, and its motion is all there is to go on yet.
+    const ImVec2 delta = resumed ? ImVec2((float)(cx - camDrag_.x), (float)(cy - camDrag_.y))
+                                 : io.MouseDelta;
+
+    // Wrap: a cursor at an edge of the image jumps to the opposite one (a few
+    // pixels in, so it never leaves the image and the next frame still sees
+    // the drag), the way Blender's viewport does. The jump itself is not
+    // motion - camDrag_ is re-read after the warp, not offset - so a platform
+    // that ignores the warp (Wayland) just stops at the screen edge as before.
+    constexpr float kInset = 4.0f;
+    auto wrap = [&](float p, float lo, float hi) {
+        const float span = hi - lo;
+        if (span < 16.0f) return p;  // too small a panel to wrap in
+        if (p < lo) return hi - std::fmod(lo - p, span);
+        if (p > hi) return lo + std::fmod(p - hi, span);
+        return p;
+    };
+    const float mx = (float)cx + vp->Pos.x, my = (float)cy + vp->Pos.y;
+    const float wx = wrap(mx, imgPos.x + kInset, imgPos.x + imgSize.x - kInset);
+    const float wy = wrap(my, imgPos.y + kInset, imgPos.y + imgSize.y - kInset);
+    if (wx != mx || wy != my) {
+        glfwSetCursorPos(win, (double)(wx - vp->Pos.x), (double)(wy - vp->Pos.y));
+        glfwGetCursorPos(win, &cx, &cy);
+        // ImGui follows at once, with no delta from the jump. Not through
+        // TeleportMousePos: its WantSetMousePos makes the backend warp AGAIN
+        // next frame, to this spot, eating whatever the mouse did in between.
+        ImGuiIO& mio = ImGui::GetIO();
+        mio.MousePos = mio.MousePosPrev = ImVec2((float)cx + vp->Pos.x, (float)cy + vp->Pos.y);
+    }
+    camDrag_.x = cx;
+    camDrag_.y = cy;
+    return delta;
+}
+
 void App::drawViewportWindow() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     // NoNav: keep ImGui keyboard navigation out of the viewport. Otherwise the
@@ -4145,7 +4198,9 @@ void App::drawViewportWindow() {
                                 io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f;
 
         // --- Camera + selection input ---
-        if (imageHovered && !gizmoBusy) {
+        // A camera drag that started over the image keeps going after the
+        // cursor leaves it (camDrag_, below), so the gate is hover OR a live drag.
+        if ((imageHovered || camDrag_.active) && !gizmoBusy) {
             // Which drag orbits vs pans depends on the chosen navigation scheme
             // (see NavScheme). Sculpt mode paints with LMB, so any scheme that
             // orbits on plain LMB yields it to the brush. The wheel always
@@ -4154,7 +4209,7 @@ void App::drawViewportWindow() {
             const bool rmb = ImGui::IsMouseDragging(ImGuiMouseButton_Right);
             const bool mmb = ImGui::IsMouseDragging(ImGuiMouseButton_Middle);
             const bool alt = io.KeyAlt, shift = io.KeyShift;
-            bool doOrbit = false, doPan = false;
+            bool doOrbit = false, doPan = false, mayaDolly = false;
             float dolly = 0.0f;  // extra wheel-equivalent zoom from a drag
             // Right + middle together: pan the pivot FORWARD/BACK along the view
             // direction. Checked before the scheme switch because it has to beat
@@ -4173,7 +4228,7 @@ void App::drawViewportWindow() {
                 case NavScheme::Maya:
                     doOrbit = alt && lmb;
                     doPan = alt && mmb;
-                    if (alt && rmb) dolly = io.MouseDelta.x * 0.02f;  // drag right = in
+                    mayaDolly = alt && rmb;
                     break;
                 case NavScheme::Unity:
                     doOrbit = rmb;
@@ -4191,21 +4246,24 @@ void App::drawViewportWindow() {
                 doOrbit = false;
                 doPan = true;
             }
+            if (doDollyPan) doOrbit = doPan = mayaDolly = false;  // the pair is its own gesture
+            // The drag's motion, read from the OS cursor and wrapped at the
+            // image edges (cameraDragDelta) so a drag runs as far as the desk.
+            const ImVec2 md = cameraDragDelta(doOrbit || doPan || doDollyPan || mayaDolly, imgPos,
+                                              avail);
+            if (mayaDolly) dolly = md.x * 0.02f;  // drag right = in
             if (doDollyPan) {
-                doOrbit = doPan = false;  // the pair is its own gesture
                 // Dragging DOWN moves forward. That is the pan sense, not the
                 // zoom sense: a pan drags the WORLD under the cursor, so pulling
                 // the mouse toward you pulls the scene toward you.
-                viewport_.dolly(io.MouseDelta.y * nav_.dollySensitivity);
+                viewport_.dolly(md.y * nav_.dollySensitivity);
             }
             if (doOrbit) {
                 const float sx = nav_.orbitSensitivity * (nav_.invertX ? -1.0f : 1.0f);
                 const float sy = nav_.orbitSensitivity * (nav_.invertY ? -1.0f : 1.0f);
-                viewport_.orbit(io.MouseDelta.x * sx, io.MouseDelta.y * sy);
+                viewport_.orbit(md.x * sx, md.y * sy);
             }
-            if (doPan)
-                viewport_.pan(io.MouseDelta.x * nav_.panSensitivity,
-                              io.MouseDelta.y * nav_.panSensitivity);
+            if (doPan) viewport_.pan(md.x * nav_.panSensitivity, md.y * nav_.panSensitivity);
             // The wheel. With the trackpad option a two-finger scroll is a
             // DRAG of the scene (both axes, so it follows the fingers the way
             // a middle-drag follows the mouse), Cmd/Ctrl + scroll zooms and

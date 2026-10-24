@@ -381,7 +381,11 @@ The **left button never moves the camera** - it picks, paints and drags
 handles (the Material Editor's brush and part picker, the import preview's
 click-to-select). Where a preview had a left double-click reset (Asset
 Browser, Tree Generator) it still resets everything. The main viewport keeps
-its own schemes (*Preferences > Navigation*). In code: make the preview's
+its own schemes (*Preferences > Navigation*), and its camera drags (orbit, pan
+and the right+middle forward pan) never run out of room: the cursor wraps to
+the opposite edge of the viewport when it reaches one, and a drag that leaves
+the panel keeps going until the buttons are released
+(`App::cameraDragDelta`, app.cpp). In code: make the preview's
 `InvisibleButton` with `ui::kPreviewButtons` and read `ui::PreviewNavigation()`
 right after it (widgets.hpp); the renderers take the pan as `panX`/`panY` in
 framing radii (`pannedTarget` in viewport.cpp).
