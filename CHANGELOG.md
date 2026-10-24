@@ -101,6 +101,7 @@ history.
 
 - The TyraX2 performance investigation is closed: its raw evidence (about 134,000 files, 10.6 GB under `docs/tyrax2-*`) and lab scripts are gone from the tree; the write-ups stay in `docs/`, the evidence in git history.
 - Installers ship only the tools an installed editor runs (`ps2client`, `toolchain`, `ps2link`, `vscode-tyrax`), not the developer scripts in `tools/`.
+- Updating on Windows lays the bundled examples down fresh, so files an example no longer has do not stay behind in the install and in the copies you open.
 
 
 ### A redesigned main window

@@ -71,6 +71,11 @@ an update install itself without stopping to ask Windows for permission. The
 directory page still offers Program Files for everybody if you want it (and
 `/ALLUSERS` on the command line forces it).
 
+An update installs over the previous version and lays the bundled examples
+down fresh (`[InstallDelete]` clears `examples\` first), so an object or asset
+an example dropped does not linger in the copies *Open a copy* makes. The
+shipped examples are never edited in place, so nothing of yours is in there.
+
 Uninstalling removes the program directory. It deliberately leaves your
 projects and your editor settings (`%LOCALAPPDATA%\tyra-editor\editor.ini`)
 alone.

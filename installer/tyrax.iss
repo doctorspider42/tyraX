@@ -196,6 +196,14 @@ Filename: "{app}\bin\tyrax-editor.exe"; Description: "{cm:LaunchProgram,{#AppNam
 Filename: "{app}\bin\tyrax-editor.exe"; Flags: nowait postinstall; \
     Check: RelaunchAfterSilentUpdate
 
+[InstallDelete]
+; An update installs over the previous version, and Inno never removes a file
+; the new version no longer ships - a deleted example object or asset would
+; stay in {app}\examples and travel into every copy *Open a copy* makes. The
+; shipped examples are never edited in place (the editor opens copies), so the
+; folder is cleared and laid down fresh.
+Type: filesandordirs; Name: "{app}\examples"
+
 [UninstallDelete]
 ; Anything a game build wrote inside the installed examples. The editor's own
 ; settings (%LOCALAPPDATA%\tyra-editor) and the user's projects are deliberately
