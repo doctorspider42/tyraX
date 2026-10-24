@@ -1,6 +1,7 @@
 # Installing TyraX, and keeping it up to date
 
-TyraX ships as a Windows installer and as three Linux packages, every push to
+TyraX ships as a Windows installer, three Linux packages and a macOS disk
+image, every push to
 `main` publishes a new version, and the editor tells you when one has arrived.
 This page is the whole loop: what each package puts on disk, how the update
 check behaves and how to turn it off, and how a release is actually made.
@@ -12,8 +13,9 @@ editor rather than work on it.
 ## What a release carries
 
 Every release on the
-[releases page](https://github.com/doctorspider42/tyraX/releases) has four
-assets:
+[releases page](https://github.com/doctorspider42/tyraX/releases) has these
+assets (the two macOS ones whenever that release's macOS job could sign and
+notarize - see [Releasing for macOS](#releasing-for-macos)):
 
 | Asset | For | Updates itself? |
 |---|---|---|
@@ -21,8 +23,12 @@ assets:
 | `tyrax-<version>-linux-x86_64.tar.gz` | any Linux | yes |
 | `tyrax_<version>_amd64.deb` | Debian, Ubuntu, Mint… | no — `apt` does |
 | `tyrax-<version>-1.x86_64.rpm` | Fedora, openSUSE, RHEL… | no — `dnf`/`zypper` does |
+| `tyrax-<version>-macos-arm64.dmg` | macOS 15+, Apple silicon | yes |
+| `tyrax-<version>-macos-x86_64.dmg` | macOS 15+, Intel | yes |
 
-**All four contain the same tree**, and that shape is not decoration:
+**All of them contain the same tree** (on macOS as `TyraX.app/Contents/
+Resources`, with the binary in `Contents/MacOS`), and that shape is not
+decoration:
 
 ```
 bin/tyrax-editor      the editor
@@ -65,9 +71,43 @@ an update install itself without stopping to ask Windows for permission. The
 directory page still offers Program Files for everybody if you want it (and
 `/ALLUSERS` on the command line forces it).
 
+An update installs over the previous version and lays the bundled examples
+down fresh (`[InstallDelete]` clears `examples\` first), so an object or asset
+an example dropped does not linger in the copies *Open a copy* makes. The
+shipped examples are never edited in place, so nothing of yours is in there.
+
 Uninstalling removes the program directory. It deliberately leaves your
 projects and your editor settings (`%LOCALAPPDATA%\tyra-editor\editor.ini`)
 alone.
+
+## macOS
+
+Open `tyrax-<version>-macos-<arch>.dmg` and drag **TyraX** onto
+**Applications**. The app is signed with a Developer ID and notarized by Apple,
+so it opens with a double click like any other.
+
+**It needs nothing else to build games** - no Homebrew, no Xcode. The first
+Build & Run downloads the pinned PS2DEV archive like on Linux; everything the
+macOS build of it lacks travels inside the app, in `Contents/Resources/
+tools/macos`: GNU make (`/usr/bin/make` is only a stub that offers to install
+Xcode's Command Line Tools), the gmp/mpfr/mpc/zstd libraries PS2DEV's
+compilers load, OpenVCL/vclpp/bin2s already compiled, and `machorelink`, which
+points the downloaded compilers at those libraries ([the native
+toolchain](native-toolchain.md#macos)). The one exception is a project with its
+own VU programs (`src/vu*/`): those are compiled for this Mac, and the build
+says to run `xcode-select --install` once.
+
+**Updates replace the whole app.** *Install* downloads the new disk image; when
+TyraX closes, a small script mounts it, swaps `TyraX.app` for the new one and
+opens it again (a signed app is sealed - overlaying files the way the Linux
+tarball does would break its signature). That needs write access to the folder
+the app is in, which /Applications gives an administrator account. Started
+straight from the mounted image, or from Downloads (macOS then runs it from a
+read-only copy - "App Translocation"), the editor asks you to drag it into
+Applications first instead of offering the button.
+
+Removing it is dragging `TyraX.app` to the Bin. Your projects, the editor
+settings and the PS2 toolchain (`~/.config/tyra-editor`) stay.
 
 ## Linux
 
@@ -149,20 +189,32 @@ if there is something newer**. If the check fails because the machine is
 offline, nothing is shown at all; an editor that opens a dialog about your
 Wi-Fi is an editor whose update check people switch off.
 
-The dialog offers:
+The dialog shows the version jump (yours -> the new one), the release date
+and the package it would install in words, with its size (*Oct 16 · macOS
+app, Apple silicon · 188 MB*), then **the release notes, rendered**
+(headings, bullets, bold - not raw markdown) in a scroller, with *Full release
+notes on GitHub* under them. A card says what installing does to this session
+before you click: TyraX closes, installs and reopens, and if the open project
+has unsaved changes it says how many and that you will be asked to save first.
+
+![The update dialog in a source checkout, with a test version number: the
+version jump, rendered release notes, the card saying how this install is
+updated instead, Skip / Later / Open the release page, and the startup
+switch.](img/update-dialog.png)
 
 | | |
 |---|---|
-| **Download and install** | fetches the package, closes the editor (asking about unsaved work as usual) and applies the update, then reopens |
-| **What's new** | the release page in your browser |
-| **Skip this version** | stop mentioning *this* version at startup; the next release is announced normally |
+| **Install and restart** (with the size) | downloads the package - a bar with MB done, the total and the speed, and *Cancel download* - then closes the editor (asking about unsaved work as usual), applies the update and reopens |
 | **Later** | ask again next time |
+| **Skip** *version* | stop mentioning *this* version at startup; the next release is announced normally |
 
-**The first button appears only when this install can replace itself** — a
+The **Check at startup** switch sits at the bottom of the dialog too.
+
+**Install and restart appears only when this install can replace itself** — a
 Windows install or a Linux tarball, and in the tarball's case only if the
 directory is actually writable. A `.deb`, an `.rpm` or a source checkout gets a
 sentence naming what to do instead (`apt`, `dnf`, or `git pull && ./build.sh`)
-rather than a button that cannot work. The editor tells the cases apart by a
+in the card, and the button becomes *Open the release page*. The editor tells the cases apart by a
 one-word `.tyrax-package` marker file at the install root, written by the
 packaging script; no marker means a source checkout, which is the correct
 answer for a repo you built yourself.
@@ -205,7 +257,16 @@ a machine without it loses the update check and nothing else.
 3. **build-linux** — Ubuntu 22.04 runner: builds the editor and runs
    `installer/build-package.sh --all` for the tarball, the `.deb` and the
    `.rpm`.
-4. **release** — publishes the tag with generated notes and all four attached.
+4. **build-macos** — two macOS runners (Apple silicon, Intel): the same stamp,
+   then `installer/build-macos.sh`, which signs and notarizes the `.dmg`
+   ([Releasing for macOS](#releasing-for-macos)).
+5. **release** — publishes the tag with generated notes and every package
+   attached. It waits for the macOS job but does not need it to succeed: a
+   notarization outage costs that release its `.dmg`, not its Windows and
+   Linux packages. Re-running only the failed jobs (`gh run rerun <run-id>
+   --failed`) re-runs this one too, and on a tag that is already released it
+   uploads the packages into the existing release (`--clobber`) instead of
+   creating it - so the missing `.dmg` lands where it belongs.
 
 **`src/version.hpp` is where the version is authored** — in CI and on a
 developer's machine alike (`installer/build-installer.ps1` and
@@ -231,9 +292,41 @@ underneath, so that no push to `main` can leave `main` unreleased.
 > is why the tag — not a commit — is what records a version as used.
 
 No asset name is hardcoded in the editor: the update check picks the asset whose
-name *ends* with its platform's suffix (`.exe`, `-linux-x86_64.tar.gz`), so the
-version inside a file name is free to move. Those two suffixes are the only part
-of the naming that is a contract.
+name *ends* with its platform's suffix (`.exe`, `-linux-x86_64.tar.gz`,
+`-macos-arm64.dmg`, `-macos-x86_64.dmg`), so the version inside a file name is
+free to move. Those suffixes are the only part of the naming that is a
+contract.
+
+### Releasing for macOS
+
+A `.dmg` that is only ad-hoc signed opens on the Mac that built it and nowhere
+else - downloaded from the web, Gatekeeper calls it "damaged". So the release
+job uploads an image only when it could **sign it with the Developer ID and
+have Apple notarize it**, which takes five repository secrets
+(*Settings > Secrets and variables > Actions*):
+
+| Secret | What |
+|---|---|
+| `MACOS_CERT_P12_BASE64` | the **Developer ID Application** certificate with its private key: Keychain Access > My Certificates > right-click > Export as `.p12`, then `base64 -i cert.p12 \| pbcopy` |
+| `MACOS_CERT_PASSWORD` | the password chosen for that `.p12` |
+| `APPLE_API_KEY_P8_BASE64` | an App Store Connect API key (*Users and Access > Integrations > App Store Connect API*, role Developer), the downloaded `AuthKey_<id>.p8` base64-encoded |
+| `APPLE_API_KEY_ID` | that key's ID |
+| `APPLE_API_ISSUER` | the Issuer ID shown above the keys |
+
+Without them the job still builds an ad-hoc image (so the path stays tested)
+and the release carries no `.dmg`. The certificate goes into a throwaway
+keychain that the job deletes at the end.
+
+Notarizing is two calls to Apple: `notarytool submit --wait` (the verdict),
+then `stapler staple`, which fetches the ticket from a separate CloudKit
+service and writes it into the file so it verifies offline. Right after an
+accepted submission that fetch can fail for minutes ("The network connection
+was lost", Error 68 - both Intel runs of 1.172.1 hit it on the image), so
+`build-macos.sh` retries it six times over about five minutes and never
+resubmits. If the **app** still cannot be stapled the job fails: re-run the
+failed job (above). The **image** may then ship unstapled, with a warning in
+the log: it is notarized, so Gatekeeper fetches its ticket online when it is
+opened, and the app inside carries its own stapled ticket.
 
 ### Building packages yourself
 
@@ -269,3 +362,31 @@ those. `--deb` needs `dpkg-deb` (`apt-get install dpkg-dev`) and `--rpm` needs
 `rpmbuild` (`apt-get install rpm`, or `dnf install rpm-build`); both are staged
 from the same tree the tarball is, so the three cannot disagree about what is
 inside them.
+
+```bash
+./installer/build-macos.sh                         # build, sign, disk image
+./installer/build-macos.sh --skip-build            # package build-macos/editor as is
+./installer/build-macos.sh --notary-profile tyrax-notary   # ...and notarize
+./installer/build-macos.sh --sign -                # ad hoc: runs on this Mac only
+```
+
+macOS only, for the Mac's own architecture. It builds the editor for macOS 15+
+into `build-macos/editor`, the bundled host tools from pinned, hashed upstream
+sources (`installer/macos/build-host-tools.sh`, about three minutes, reused
+until that script or the VU tool sources change), assembles `TyraX.app` from
+the same `installer/stage-tree.sh` the Linux packager uses, signs every Mach-O
+inside and then the bundle (hardened runtime, secure timestamp), and lays out
+the disk image with `dmgbuild` (installed into `build-macos/py`; the window art
+is `installer/macos/dmg-background*.png`, drawn by `make-dmg-background.py`).
+`--sign auto` (the default) takes the first *Developer ID Application*
+identity in the keychain - the first run makes macOS ask whether `codesign`
+may use its key; leave that dialog waiting too long and the signature's
+timestamp is refused ("timestamps differ by N seconds"), so just run it again.
+
+To notarize locally, store the credentials once - an
+[app-specific password](https://account.apple.com) and the team ID - and pass
+the profile name:
+
+```bash
+xcrun notarytool store-credentials tyrax-notary --apple-id <apple-id> --team-id <team-id>
+```

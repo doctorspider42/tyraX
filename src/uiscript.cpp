@@ -35,6 +35,8 @@ std::unordered_map<uint32_t, size_t> g_byId;
 // fixes the whole class.
 std::unordered_map<uint32_t, std::pair<std::string, ImGuiItemStatusFlags>> g_pending;
 bool g_enabled = false;
+// Window id -> the name its items are reported under (aliasCurrentWindow).
+std::unordered_map<uint32_t, std::string> g_windowAlias;
 
 std::string lower(std::string s) {
     for (char& c : s) c = (char)std::tolower((unsigned char)c);
@@ -76,6 +78,8 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext* ctx, ImGuiID id, const ImRect& bb
     if (ctx && ctx->CurrentWindow && ctx->CurrentWindow->Name) {
         it.window = ctx->CurrentWindow->Name;
         it.windowId = (uint32_t)ctx->CurrentWindow->ID;
+        auto alias = g_windowAlias.find(it.windowId);
+        if (alias != g_windowAlias.end()) it.window = alias->second;
         // ImGui registers each window as an item under the window's own id.
         it.isWindow = ctx->CurrentWindow->ID == id;
     }
@@ -166,6 +170,27 @@ void markLastItemChecked(bool checked) {
     Item& it = g_items[found->second];
     it.checkable = true;
     it.checked = checked;
+}
+
+void aliasCurrentWindow(const char* name) {
+    if (!g_enabled || !name) return;
+    ImGuiWindow* w = ImGui::GetCurrentWindow();
+    if (!w) return;
+    g_windowAlias[(uint32_t)w->ID] = name;
+    for (Item& it : g_items)  // the window's own item came in with its Begin
+        if (it.windowId == (uint32_t)w->ID) it.window = name;
+}
+
+bool namesMainMenu(const std::string& target) {
+    std::string t = lower(trim(target));
+    const std::string bar = "##mainmenubar/";
+    const bool qualified = t.rfind(bar, 0) == 0;
+    if (qualified) t = trim(t.substr(bar.size()));
+    static const char* const kMenus[] = {"file",  "edit",  "view",    "layout", "scene",
+                                         "project", "build", "session", "tools",  "help"};
+    for (const char* m : kMenus)
+        if (t == m) return qualified || (t != "project" && t != "scene");
+    return false;
 }
 
 void nameItem(uint32_t id, const char* label) {
@@ -445,10 +470,17 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
             if (tok.size() == 3 && !toNumber(tok[2], s.seconds))
                 return fail("bad duration '" + tok[2] + "'");
         } else if (cmd == "drag") {
-            if (!needArg(4)) return fail("drag needs a target and dx dy");
+            if (tok.size() != 4 && tok.size() != 5) return fail("drag needs a target and dx dy");
             double dx = 0, dy = 0;
             if (!toNumber(tok[2], dx) || !toNumber(tok[3], dy))
                 return fail("drag dx/dy must be numbers");
+            s.n = 0;  // optional button: left (default), right, middle
+            if (tok.size() > 4) {
+                if (tok[4] == "right") s.n = 1;
+                else if (tok[4] == "middle") s.n = 2;
+                else if (tok[4] != "left")
+                    return fail("drag button must be left, right or middle");
+            }
             s.kind = Step::Drag;
             s.arg = tok[1];
             s.dx = (float)dx;
@@ -491,6 +523,50 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
             s.kind = Step::Log;
             for (size_t i = 1; i < tok.size(); ++i)
                 s.arg += (i > 1 ? " " : "") + tok[i];
+        } else if (cmd == "drop") {
+            // An OS file drop (Finder / Explorer) landing on a widget - the
+            // editor's own drop handler is called with the target's centre.
+            if (tok.size() != 3 && tok.size() != 4)
+                return fail("drop needs a target, a file path and an optional <dx>,<dy>");
+            s.kind = Step::Drop;
+            s.arg = tok[1];
+            s.path = tok[2];
+            if (tok.size() == 4) {
+                const size_t comma = tok[3].find(',');
+                double dx = 0, dy = 0;
+                if (comma == std::string::npos || !toNumber(tok[3].substr(0, comma), dx) ||
+                    !toNumber(tok[3].substr(comma + 1), dy))
+                    return fail("drop offset must be <dx>,<dy>");
+                s.dx = (float)dx;
+                s.dy = (float)dy;
+            }
+        } else if (cmd == "undock" || cmd == "mainwindow") {
+            // undock <window> <x>,<y> [<w>,<h>] - x,y from the main window's
+            // top-left; a spot outside the main window gives the panel its own
+            // OS window (when Windows can leave the main window is on).
+            // mainwindow <x>,<y> <w>,<h> - the editor window itself, desktop
+            // coordinates, un-maximized.
+            const bool main = cmd == "mainwindow";
+            if (main ? tok.size() != 3 : (tok.size() != 3 && tok.size() != 4))
+                return fail(main ? "mainwindow needs <x>,<y> <w>,<h>"
+                                 : "undock needs a window name, <x>,<y> and an optional <w>,<h>");
+            s.kind = main ? Step::MainWindow : Step::Undock;
+            if (!main) s.arg = tok[1];
+            for (size_t k = main ? 1 : 2; k < tok.size(); ++k) {
+                const size_t comma = tok[k].find(',');
+                double a = 0, b = 0;
+                if (comma == std::string::npos || !toNumber(tok[k].substr(0, comma), a) ||
+                    !toNumber(tok[k].substr(comma + 1), b))
+                    return fail(cmd + " position and size must be <x>,<y> and <w>,<h>");
+                (k == (main ? 1u : 2u) ? s.dx : s.w) = (float)a;
+                (k == (main ? 1u : 2u) ? s.dy : s.h) = (float)b;
+            }
+        } else if (cmd == "dock") {
+            // dock <window> <docked window> - joins that window's dock node.
+            if (!needArg(3)) return fail("dock needs a window name and the docked window to join");
+            s.kind = Step::Dock;
+            s.arg = tok[1];
+            s.path = tok[2];
         } else if (cmd == "quit" || cmd == "exit") {
             s.kind = Step::Quit;
         } else {

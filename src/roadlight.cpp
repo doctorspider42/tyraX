@@ -668,10 +668,10 @@ const char* kCarStreaks = R"RLCAR(  // 3. Car lights on a wet road: every car wh
 
 std::string patchTemplate(std::string s, const Gates& g) {
     if (!g.lamps && !g.weather) return s;
-    // 1. ProcChunk gains its lamp flag; the class gains the members.
+    // 1. ProcChunk gains its lamp flag (as its last fields, whatever the
+    //    struct ends with); the class gains the members.
     s = replaceAll(s,
-                   "    bool smooth = false;\n  };\n  std::vector<ProcChunk> procChunks;\n",
-                   "    bool smooth = false;\n"
+                   "  };\n  std::vector<ProcChunk> procChunks;\n",
                    "    // A street lamp's POOL of light (docs/weather.md): an additive\n"
                    "    // furniture chunk drawn by renderRoadLamps at night, never by\n"
                    "    // renderProcChunks.\n"

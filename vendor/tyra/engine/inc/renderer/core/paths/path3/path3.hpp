@@ -29,8 +29,12 @@ class Path3 {
 
   void sendDrawFinishTag();
   void clearScreen(zbuffer_t* z, const Color& color);
+  /** Modified by TyraX: `wrapInForce` is the CLAMP_1 state the GS already
+   * holds (RendererCoreGS::currentTextureWrap) - an upload writes it back
+   * unchanged instead of the texture's own wrap; see path3.cpp. */
   void sendTexture(const Texture* texture,
-                   const RendererCoreTextureBuffers& texBuffers);
+                   const RendererCoreTextureBuffers& texBuffers,
+                   const texwrap_t& wrapInForce);
 
  private:
   packet2_t* drawFinishPacket;

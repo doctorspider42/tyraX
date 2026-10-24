@@ -12,6 +12,15 @@ CACHE_ROOT=$3
 PS2DEV_ROOT=$4
 REBUILD=$5
 HERE=$(cd "$(dirname "$0")" && pwd)
+# Runs on macOS too, with the system's own bash 3.2 and rsync (openrsync since
+# 15.4): no mapfile, no `sed -i`, nothing GNU-only. `make` there is the Xcode
+# Command Line Tools' 3.81, or in a TyraX.app the bundled GNU make
+# (tools/macos/bin/gmake) - /usr/bin/make is only an xcode-select shim, so an
+# app user without the Command Line Tools would otherwise get an install prompt.
+MAKE_TOOL=make
+if [ -x "$HERE/../macos/bin/gmake" ]; then
+  MAKE_TOOL="$HERE/../macos/bin/gmake"
+fi
 
 case "$CACHE_ROOT" in
   /*) ;;
@@ -142,7 +151,8 @@ mkdir -p "$CACHE_ROOT"
 rsync -rlci --delete --exclude=obj --exclude=bin \
   "$ENGINE_SOURCE/engine/" "$ENGINE/" > "$SYNC_LOG"
 # Empty output is normal; a failed source sync must still stop the build.
-sed -i '/^.d/d' "$SYNC_LOG"
+grep -v '^.d' "$SYNC_LOG" > "$SYNC_LOG.tmp" || true
+mv "$SYNC_LOG.tmp" "$SYNC_LOG"
 if ! cmp -s "$ENGINE_SOURCE/Makefile.base" "$ENGINE_ROOT/Makefile.base"; then
   cp "$ENGINE_SOURCE/Makefile.base" "$ENGINE_ROOT/Makefile.base"
 fi
@@ -160,15 +170,23 @@ fi
 # Always ask make: a failed compile can leave synced sources beside stale
 # objects, and a changed Makefile must invalidate the old compiler flags.
 # An unchanged engine is a cheap no-op now that its archive target is real.
-make -C "$ENGINE" -j"$(getconf _NPROCESSORS_ONLN)" NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
+"$MAKE_TOOL" -C "$ENGINE" -j"$(getconf _NPROCESSORS_ONLN)" NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
 
 # Project-authored VU programs are host C++, just as in the Docker backend.
 if find "$PROJECT/src/vu" "$PROJECT/src/vu0" -maxdepth 1 -name '*.cpp' \
      -print -quit 2>/dev/null | grep -q .; then
   echo "[editor] Building the project's VU sources..."
+  # They are host C++ (vugen), compiled by this machine's own compiler.
+  if [ "$(uname -s)" = Darwin ] && ! xcode-select -p >/dev/null 2>&1; then
+    echo "[editor] This project has its own VU programs (src/vu*/), which are compiled" >&2
+    echo "[editor] on this Mac: install the Xcode Command Line Tools once with" >&2
+    echo "[editor]   xcode-select --install" >&2
+    exit 1
+  fi
   VUGEN="$CACHE_ROOT/vugen"
-  mapfile -t VUSRC < <(find "$PROJECT/src/vu" "$PROJECT/src/vu0" \
-    -maxdepth 1 -name '*.cpp' -print 2>/dev/null | sort)
+  VUSRC=()
+  while IFS= read -r f; do VUSRC+=("$f"); done < <(find "$PROJECT/src/vu" \
+    "$PROJECT/src/vu0" -maxdepth 1 -name '*.cpp' -print 2>/dev/null | sort)
   g++ -std=c++17 -O0 -w -I"$PROJECT/vugen" -o "$VUGEN" \
     "$PROJECT"/vugen/*.cpp "${VUSRC[@]}"
   mkdir -p "$PROJECT/src/gen" "$PROJECT/inc/scripts"
@@ -184,7 +202,7 @@ echo "[editor] Compiling natively (PS2DEV + OpenVCL)..."
 for sym in "$PROJECT/bin/"*.elf.sym; do
   [ ! -e "$sym" ] || [ -w "$sym" ] || rm -f "$sym"
 done
-make -C "$PROJECT" -j"$(getconf _NPROCESSORS_ONLN)" \
+"$MAKE_TOOL" -C "$PROJECT" -j"$(getconf _NPROCESSORS_ONLN)" \
   ENGINEDIR="$ENGINE" TYRA_MAKEFILE="$ENGINE_ROOT/Makefile.base" \
   NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
 

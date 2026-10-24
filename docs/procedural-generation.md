@@ -4,13 +4,55 @@ Procedural volumes fill a region with rule-driven objects: forests, rocks,
 fences, orchards or exact arrays. Open **Tools > Procedural** or switch to the
 **Procedural** layout.
 
-![A procedural forest graph beside its baked preview in the editor.](img/procedural-editor.png)
+![The Procedural window: the volumes with their bake state, the forest graph as compact nodes with per-node point counts, and the selected Filter by Attribute node in the inspector - its slope histogram, the kept range and Keep inside / outside.](img/procedural-editor.png)
+
+The window is three panes. **Volumes** on the left lists every procedural
+volume in the scene with its state (`baked`, `stale`, `frozen`, `runtime`),
+node count and seed; **+** adds one. The **graph** in the middle shows each
+node as a compact card: its title, one line of what it is set to
+(`slope · min 0`, `pine · rock`) and the number of points leaving it, so the
+recipe reads without opening a node and the filter that thins the forest is the
+one where the number drops. The canvas frames the graph whenever a volume is
+opened; its toolbar has *Add node* (Tab, or right-click), *Frame all* (F) and
+*Auto-arrange*, which lays the graph out left to right in rows that fit the
+canvas, plus *Procedural layout* while another layout is active - one click to
+the docked desk with the graph under the viewport. The **inspector** on the right holds the volume - *Baked at build* /
+*Runtime on PS2*, the bake state card, the labelled triangle budget - then the
+selected node, then the seed and the preview switches. The node starts with a
+header: its category icon, its name, what it takes and gives
+(*Filters · points → points*), and three buttons - preview this node, **Bypass**
+and help (hover for every control's meaning, click to keep the full
+description open). Under it are one sentence of description, the *In → out*
+count (`245 → 235, -4%`) and the node's form: values that belong together on
+one row, min..max pairs as one range with draggable ends, short choices as
+segments, on/off settings as chips, and safety caps in a collapsed *Advanced*
+row that still shows their values. A setting only appears while it does
+something - Output's runtime instance cap only on a runtime volume, Terrain
+Mask's material only when it reads a material.
+
+Selecting a node also shows its output in the viewport (*Viewport shows
+Filter by Attribute* on the canvas, with *Show final output*); counts on the
+nodes after it are from the last full pass and are drawn dim until then.
 
 The graph runs on your PC. A build merges its instances into ordinary chunk
 meshes, so the PS2 never evaluates the graph. For generation on the console,
 see [runtime procedural generation](procedural-runtime.md).
 
 Try the six graphs in [examples/procedural](../examples/procedural).
+
+Dense **Pick Asset** previews keep their geometry even above 4,000 instances.
+They use each pool row's distant model and switch distance, the Output node's
+draw distance (0 means unlimited), and reject models outside the camera view.
+Zooming beyond the authored draw distance hides those instances; move closer
+to inspect them. Green crosses mark points without an assigned asset or prefab,
+such as a preview isolated before Pick Asset, rather than an entire dense forest.
+Missing far geometry falls back to the near model. Expanded prefabs retain their
+existing object preview and 6,000-object expansion limit.
+
+![Deep Forest's 7,000-instance scatter preview, with authored distant tree and rock models, in As PS2 mode.](img/procedural-dense-preview.png)
+
+Keep the editor camera above the terrain when inspecting a forest. A saved view
+under the ground can hide the trees even with Show preview enabled.
 
 ## From rules to geometry
 
@@ -25,13 +67,15 @@ Try the six graphs in [examples/procedural](../examples/procedural).
    ![The same graph with its generated trees visible as a live preview.](img/procedural-preview.png)
 
 3. Click **Bake now**. The preview becomes chunk meshes that will ship in the
-   game; the status changes to `baked`.
+   game; the state card turns green, *Baked - up to date*. A stale bake reads
+   *Bake is stale* with how long ago the graph changed.
 
    ![The same result baked into chunk meshes with the live preview disabled again.](img/procedural-baked.png)
 
 ## Freeze a finished layout
 
-In baked mode, check **Frozen** beside **Clear bake**. If the current layout
+In baked mode, turn on **Frozen** beside **Bake now** (**Clear bake** is in the
+card's `...` menu). If the current layout
 has not been baked, or its bake is stale, the editor bakes it first. The saved
 chunks then stay in place when roads, painted materials, terrain, the volume
 transform or graph parameters change. The viewport draws those chunks, and
@@ -48,8 +92,8 @@ deletes its generated output.
 
 ## Start a volume
 
-Add **Procedural volume** from the object menu or click **New volume** in the
-Procedural window. Its transform is the region: position sets the centre, scale
+Add **Procedural volume** from the object menu or click **+** (*New volume*) in
+the Procedural window's volume list. Its transform is the region: position sets the centre, scale
 sets its size and Y rotation turns the footprint.
 
 The window lets you:
@@ -62,7 +106,9 @@ The window lets you:
 
 Graphs pass three data types: **points**, **masks** (0–1 fields over the region)
 and **curves**. Pins only accept their own type, and cycles are refused.
-Input labels sit on the left; output labels sit on the right beside their pins.
+Pins are coloured by type - points blue, masks pink, curves green, from the
+theme's accent / special / ok colours (the legend is on the canvas); a node with more than
+one input or output labels the extra ones beside their pins.
 
 ## Node cheat sheet
 
@@ -73,9 +119,10 @@ Input labels sit on the left; output labels sit on the right beside their pins.
 | Filters | Attribute, Mask, Minimum Distance, Keep Away, Validate Placement, Limit Count | Remove unwanted points |
 | Repeat | Array, Radial Array | Exact rows, stacks, rings and arcs |
 | Assign | Pick Asset, Pick Prefab, Vary Transform, Set Attribute | Choose and vary the result |
-| Output | Output, Object Settings | Set chunks, budget and shared properties |
+| Output | Output | Set chunks, budget and shared properties |
 
-Hover a node or its controls for the full parameter description.
+Select a node to edit it in the inspector; hover a node or a control for the
+full parameter description.
 
 ### Common recipes
 
@@ -206,9 +253,97 @@ Keep source assets deliberately low-poly. Instance count can be misleading:
 500 trees at 600 triangles each are still 300,000 triangles after merging.
 
 Generated chunks inherit the volume's layer. Put them on a streamed layer when
-the region should load and unload together. Use **Object Settings** for shared
+the region should load and unload together. Use **Output > Object settings** for shared
 mesh LOD, baked lighting and reflection flags; edit the graph, not individual
 generated chunks, when the setting should survive the next bake.
+
+## Distant version per row
+
+Every row of a **Pick Asset** or **Pick Prefab** pool is a card: the model or
+prefab with its share of the points (its weight over the pool's total, also
+drawn as the bar above the cards), the weight and size range, and a last line
+for an optional **distant version** (a `.obj` from `res/models`) and the distance it
+takes over at, in world units. Past that distance every instance of the row
+draws the distant version instead of its own geometry; collision stays the
+near geometry's at any distance. *0* keeps the model chosen but never switches.
+
+- **Pick Asset, baked volume**: each chunk of the row also bakes a
+  `procgen-...-far.obj` from the distant version (same instances, never
+  decimated, written next to that model so its materials resolve) and the chunk
+  object switches to it through the ordinary
+  [distant version](impostors.md) of a model. The distance is measured to the
+  chunk object, like any other.
+- **Pick Asset and Pick Prefab, runtime volume**: see
+  [runtime procedural generation](procedural-runtime.md#distant-versions).
+  This is the one way to switch a whole prefab: the one model replaces every
+  merged member together (a room's slabs and its detail mesh), which a
+  per-member draw distance cannot do without opening holes.
+
+The distant version does not have to share anything with the row's model -
+other materials and one texture atlas instead of several are the usual reason
+to author one. Its origin, orientation and scale must match the row's model or
+prefab, because it is placed with the same transform. A baked Pick Prefab row
+ignores it: baked volumes do not merge prefab points at all.
+
+## Instanced
+
+The Output node's **Draw as** chooses how the copies reach the console:
+
+- **Merged** (default): every copy is baked into the chunk meshes. Full baked
+  lighting (probe GI, ambient occlusion, lamps) and a handful of draws - but
+  each copy is its own geometry in EE RAM. A 32-triangle tree costs ~7 KB, so
+  a whole scene tops out at roughly 2,900 trees: 4,307 crashed a PS2 with
+  `std::bad_alloc`, 2,800 used 31.1 of 32 MB.
+- **Instanced**: the console keeps ONE copy of each model and a table of
+  where the copies stand (~60 bytes each), and draws the visible ones as many
+  matrices of one mesh. 2,800 spruces used 11.4 MB in total; see below for
+  what 10 ha can hold.
+
+What Instanced costs and drops:
+
+- Light: copies are shaded with the scene's sun and ambient only, baked once
+  per model in four 90° yaw buckets (a copy takes the nearest one). No probe
+  GI, no ambient occlusion, no point or baked lamps, no tint per copy.
+- Only **Pick Asset** points; prefab and Blocks points are not placed in this
+  mode (the budget card warns). *Instance detail* does not apply - the shared
+  copy is the model as authored, so author it low-poly.
+- A row's [distant version](#distant-version-per-row) switches per COPY at the
+  row's distance.
+- Collision Box = one box per copy, from the model's bounds.
+- EE time per frame grows with the copies in view: every copy in a visible
+  cell is frustum-tested, the first copy of each (model, yaw bucket) is an
+  ordinary submit and every further one costs a matrix product and seven DMA
+  quadwords (`StaPipCore::renderInstances`). The game logs
+  `INSTANCES copies N tested T appended A ordinary O (crossing C)` every 50
+  frames with the frame profiler on; `crossing` counts copies that had to be
+  clipped (near plane, guard band) and took the ordinary path.
+
+Baked volumes write no chunk files in this mode: the build evaluates the graph
+and emits `inc/proc_instances.gen.hpp`, which exists only while some volume is
+Instanced. Runtime volumes honour the same switch on the console.
+
+Measured on a physical PS2 (10 ha of the deep-forest fixture, frozen camera,
+three Blender spruces with 12-triangle distant versions at 45 units, draw
+distance 120, frame profiler on):
+
+| copies | draw as | drawn / frame | SCENE (EE) | MEM | FPS |
+|---|---|---:|---:|---:|---:|
+| 2,800 | Merged (Half detail) | - | 5.4 ms | 24.2 / 32 MB | 50 |
+| 4,307 | Merged (old pine) | - | `std::bad_alloc` | - | - |
+| 2,800 | Instanced | 238 | 6.3 ms | 11.4 / 32 MB | 50 |
+| 5,000 | Instanced | 443 | 8.9 ms | 11.8 / 32 MB | 50 |
+| 10,000 | Instanced | 875 | 13.5 ms | 12.5 / 32 MB | 50 |
+| 17,081 | Instanced | 1,531 | 20.3 ms | 13.8 / 32 MB | 25 |
+
+Memory stays flat; the price moves to EE time, about 11 µs per DRAWN copy
+(each drawn one comes with ~2.7 tested). So density is now a draw-distance
+decision: keep the copies in view around a thousand for 50 fps, and let fog
+hide where the draw distance cuts. Two things made those numbers and are the
+traps if this path is ever reworked: the baked-stream cache holds one entry per
+vertex ARRAY, so every colour variant needs its own position array (sharing one
+made every group re-bake each frame: 14.5 ms at 2,800), and the per-copy tests
+are world bounding spheres against planes normalised once per call
+(transforming the planes into each copy's object space was ~40% of the cost).
 
 ## Limits
 
@@ -221,3 +356,39 @@ generated chunks, when the setting should survive the next bake.
 If the result is empty, check the selected volume, source surface, filters and
 Output connection in that order. If it is too dense, lower source density or
 add **Limit Count** before tuning chunk size.
+
+### Shared object settings and bypass
+
+![The Output inspector of an Instanced volume: Draw as, the budget, chunk size and draw distance on one row, and the tick list of properties set on every generated object.](img/procedural-output-settings.png)
+
+Select **Output** to edit **Every generated object** in its inspector: every
+property the bake can set is listed, and ticking one sets it on all the
+generated objects (unticked = not set, the object keeps its own default).
+Existing graphs keep their saved properties automatically; the old
+disconnected Object Settings card no longer appears in the canvas or Add node
+menu.
+
+**Detail** simplifies source geometry only when baking merged chunks:
+Full preserves it, while Half and Quarter target roughly 50% and 25% of its
+triangles. Simplification can damage leaf cards and silhouettes. Prefer authored
+distant models when their shape matters. In **Instanced** mode the control is
+not shown: shared models retain full detail.
+
+**Bypass** (the power button in the node's header) passes a node's first input through without applying that node's
+operation. For example, bypassing Vary Transform removes its random transforms;
+bypassing a filter keeps the points it would discard. It does not delete the
+node or disconnect its wires. Source nodes with no input have nothing to pass
+through, so bypass does not disable those generators.
+
+### Budget in Instanced mode
+
+![Deep Forest uses 1,589 shared mesh triangles; the 3,035,558-triangle all-placement sum is informational.](img/procedural-instanced-budget.png)
+
+**Shared mesh budget** counts each used near and authored far mesh once, against
+Output's geometry budget. **All placements (near)** is the informational sum
+across every placement at full near detail, not a per-frame submission count.
+It does not turn the shared budget bar red. **KB geo** estimates geometry and
+instance-table memory, excluding textures, engine allocations and other scene
+assets. Neither readout measures free RAM or predicts FPS: LOD, visibility,
+materials and overdraw matter, and actual performance needs a running game.
+Merged mode continues to compare the baked triangle total against its budget.

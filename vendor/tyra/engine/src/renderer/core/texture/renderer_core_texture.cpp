@@ -155,7 +155,7 @@ RendererCoreTextureBuffers RendererCoreTexture::useTexture(
 #if TYRA_VRAM_CENSUS
   censusRemember(t_tex);  // Modified by TyraX: see the census block above.
 #endif
-  path3->sendTexture(t_tex, newTexBuffer);
+  path3->sendTexture(t_tex, newTexBuffer, gs->currentTextureWrap());
   registerAllocation(newTexBuffer);
 
   stats.uploads++;
@@ -366,7 +366,7 @@ RendererCoreTextureBuffers RendererCoreTexture::updateTextureInfo(
   TYRA_ASSERT(allocated.id != 0, "Can't update an unallocated texture!");
 
   beforeMutation();
-  path3->sendTexture(t_tex, allocated);
+  path3->sendTexture(t_tex, allocated, gs->currentTextureWrap());
   return allocated;
 }
 

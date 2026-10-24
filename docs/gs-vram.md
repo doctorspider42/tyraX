@@ -52,7 +52,7 @@ blocks inside a single page). At 32bpp:
 | 256×256 | 65 536 | 23% |
 | 512×512 | 262 144 | 93% — one texture, basically the whole heap |
 | Frame buffer × 2 (512×448, 32bpp) | 458 752 | halves in the `InterlacedField` scan mode |
-| Z buffer (512×448, 32bpp) | 229 376 | sized from the **raster**, so the [neural upscaler](neural-upscaler.md) shrinks it to 57 344 at 2×2 |
+| Z buffer (512×448, 32bpp) | 229 376 | sized from the **raster**, so the [upscaler](upscaler.md)'s *Whole 3D scene* shape shrinks it to 57 344 at 2×2 |
 | Post-fx scratch `lowVram[0..1]` + film-grain noise | ~12 288 | bloom/DoF blur chain |
 | Env-map target + its z buffer (128×128) | 32 768 | reflective materials |
 | Camera-feed target + its z buffer (128×128) | 32 768 | texture feeds |
@@ -64,7 +64,7 @@ A **CLUT** is addressed by CBP in blocks, not pages: a 16-entry palette is one
 block (64 words, 256 B) and a 256-entry one is four (256 words, 1 KB).
 
 Palettizing is the single biggest lever after the colour depth:
-*Preferences > Rendering > Textures* at 4-bit turns a 256×256 into ~1/8 of the
+*Preferences > Graphics > Textures* at 4-bit turns a 256×256 into ~1/8 of the
 pixels plus a 64-byte CLUT (8 192 words instead of 65 536). It is why the
 `showcase` example, which draws a whole village, never comes close to filling
 VRAM.
@@ -81,7 +81,7 @@ VRAM.
 
 ## Colour depth
 
-*Preferences > Display > Colour depth* picks the frame buffers' pixel format
+*Preferences > Picture > Colour depth* picks the frame buffers' pixel format
 (`ProjectSettings::colorDepth`, `EngineOptions::colorDepth`):
 
 - **32-bit** (`PSMCT32`) — the stock 8-8-8-8 buffer.
@@ -143,7 +143,7 @@ setting that exists today.
 
 The cost of 16-bit colour is 32 levels per channel instead of 256, i.e.
 banding in anything smooth — skies, fog, the post-fx blur. **GS ordered
-dithering** (the `DTHE` + `DIMX` registers, *Preferences > Display > Dithering*,
+dithering** (the `DTHE` + `DIMX` registers, *Preferences > Picture > Dithering*,
 on by default) trades that banding for fine noise a TV blurs away. The
 hardware only dithers 16-bit destinations, so the switch does nothing at
 32-bit. Measured on a `showcase` sky band (500×120 px of the captured frame):
@@ -232,7 +232,7 @@ The rules it keeps:
   and `DTHE` is written back to 0 after it. `CLAMP` is left for
   `Path3::clearScreen`, which re-asserts REPEAT before any 3D draws.
 - **There is no previous 32-bit frame.** `hasRealFrame()` stays false, so
-  motion blur stays off. BLSS refuses the history and drops its temporal pass.
+  motion blur stays off.
   `presentWarpFrame` presents no synthetic frames, and
   triple buffering rotates only the two 16-bit display buffers. The frame
   capture photographs the 32-bit draw buffer (the finished frame, before the next
@@ -328,7 +328,7 @@ texture, `vram.reset()`, re-run the allocation sequence:
 
 - a **display-mode switch** (`RendererCore::setDisplayOutput`), which re-runs the
   whole init including the video mode;
-- **`blss.configure()`** turning the [neural upscaler](neural-upscaler.md) on,
+- **`blss.configure()`** turning the [upscaler](upscaler.md) on,
   through `RendererCore::rebuildPermanentBuffers()` — the same branch minus the
   mode. The z buffer is sized from the raster and the raster scale is not known
   until `configure()` runs, which is *after* z was allocated. Generated games
@@ -339,7 +339,7 @@ texture, `vram.reset()`, re-run the allocation sequence:
   `RendererCoreGS::needsBufferRealloc()` and fires at most once.
 
   **A game whose SCENES disagree about the upscaler pins the layout instead**
-  (per-scene BLSS, docs/neural-upscaler.md). `RendererCoreGS::setZRasterScale`
+  (per-scene BLSS, docs/upscaler.md). `RendererCoreGS::setZRasterScale`
   fixes what the z buffer is sized for independently of the raster scale the
   projection is currently using, so a project with some scenes upscaled and some
   native sizes z for the FULL display once, at init, and `needsBufferRealloc()`
@@ -632,6 +632,62 @@ read the warning under the table before treating any palettization as free:
 > changes no texture's format and no texture's address — it changes the heap
 > floor — so on this evidence it is the cheapest 384 KB on the list.
 
+### The cliff is gone at 480p Hybrid (2026-10-20, physical PS2)
+
+Everything above is the Pal576i 32-bit layout. The district ships
+**Progressive480p (448x448) in the Hybrid colour depth** now, whose permanent
+region is much smaller, and the architecture audit's question - should the
+scene plan a resident set at load instead of uploading on first bind behind an
+`align3D` barrier - was answered by measuring rather than building. Lean rig,
+release profile, residency counters printed per window, the pause menu opened
+by the rig at a fixed frame and closed 120 frames later, three cycles:
+
+| moment | uploads | re-uploads | evictions | free | largest block |
+|---|---:|---:|---:|---:|---:|
+| scene start (first 150 frames) | 56 | 0 | 0 | 768 KB | 768 KB |
+| pause menu open (120 frames) | 4 | 0 | 0 | 607 KB | 607 KB |
+| the 80 frames after it closes | 0 | 0 | 0 | 607 KB | 607 KB |
+| every park/drive window, day and night | 0 | 0 | 0 | 607 KB | 607 KB |
+| same, Hybrid **triple** buffering | 0 | 0 | 0 | 649 KB* | 649 KB |
+
+\* after the rig's runtime rebuild, which evicts everything and lets the scene
+re-upload only what it draws (31 allocations instead of 59), so it is not
+comparable with the double-buffered row; the third display buffer costs
+392 KB.
+
+So **no residency plan is needed here**: the whole working set, the pause menu
+included, uploads exactly once and nothing is ever evicted; the menu's four
+uploads land while the game is paused. A resident set would move those
+uploads to the loading screen and buy nothing a player can see. The census and
+the counters above remain the instrument to rerun if a scene grows past
+~600 KB of textures.
+
+## CLUT loads (measured 2026-10-20)
+
+Every TEX0 the renderer emits carries `CLD = 1`, so the GS reloads the palette
+on every textured bag's material state - the same texture included. The
+architecture audit priced the alternative at "< 0.2 ms": `CLD = 4` (load only
+when CBP differs from the GS's CBP0, then CBP0 = CBP), with a CLD = 2 re-sync
+after any upload that rewrites a palette at a reused address. It was built
+(the commit before the one that removed it again) and measured on a physical
+PS2:
+
+- **What a load costs the GS**, timed between frames with the GPU idle: 512
+  TEX0 writes at CLD = 1 took 120 us for 8-bit palettes and 73 us for 4-bit,
+  against 31 us with CLD = 0 - **0.17 us per 8-bit load, 0.08 us per 4-bit
+  one.** A district frame has about two hundred textured bags, so the reloads
+  are at most ~0.04 ms of GS time.
+- **What it changes in a frame:** nothing measurable. Same ELF, CLD = 1 and
+  CLD = 4 arms alternating per cycle, night and day: parked work 10.16 vs
+  10.18 ms (night), 9.56 vs 9.56 (day); driving within the cycle-to-cycle
+  spread; presentation identical. The district's frame is EE-bound and the GS
+  is idle for most of it, so GS time this small has nowhere to show.
+
+So CLD = 1 stays. The re-sync rule is the part worth keeping in mind if a GS
+bound scene ever makes this worth doing: CBP0 is GS state shared by both
+contexts, every CLD = 1 load leaves it stale, and an upload into a freed CLUT
+block can put new colours behind an address CBP0 still names.
+
 ## Measured behaviour
 
 All PCSX2, software renderer, PAL, 512×448.
@@ -686,3 +742,22 @@ is the closest proxy available for what the transfers cost a real console.
   `menulayout.cpp` (`gsWords`) for the Menu Editor's "does it fit" check. It
   and `getSize()` must agree, or the editor reports menus as too big when they
   fit.
+- **An upload must not change draw state.** `Path3::sendTexture` used to write
+  the uploaded texture's own wrap into `CLAMP_1` (upstream Tyra did that so a
+  freshly loaded texture drew with its wrap). The wrap is per-bag draw state
+  now, written in each bag's chain against `RendererCoreGS::currentTextureWrap`,
+  and that cache never saw the upload's write. So an upload in the middle of a
+  frame - a texture's first use, or a re-upload after an eviction, which a heap
+  at 3.3 of 4 MB does often - of a REPEAT x CLAMP texture (the tyre marks)
+  left V clamped for every later 3D bag of the frame: the roads smeared into
+  streaks along their length for one frame, on a console and in PCSX2 alike.
+  Found with an input recording (`recordings/record.tyrarep`) replayed at
+  60 Hz in PCSX2 with its video capture on, a frame-outlier detector, and a
+  multi-frame GS dump whose road draws all read `CLAMP_1 = 4` right after the
+  new texture's first draw. Since 1.177.4 the upload restates the wrap already
+  in force (`beforeMutation()` drained the pipeline, so the cache is the GS
+  state). Anything new that writes `CLAMP_1` must either go through the bag
+  wrap path or update the cache with `noteTextureWrap`.
+- Related, still open: `StaPipCore::render` picks a bag's wrap only when the
+  texture's HORIZONTAL axis is not REPEAT, so a REPEAT x CLAMP texture draws
+  with REPEAT on both axes.

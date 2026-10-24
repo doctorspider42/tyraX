@@ -253,6 +253,9 @@ inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
+extern const unsigned char SCENE_0_STATIC_COLLIDERS[];
+inline const unsigned char* SCENE_STATIC_COLLIDER_TABLES[SCENE_COUNT] = {SCENE_0_STATIC_COLLIDERS};
+
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
 // SCROLLER_CLONES maps each baked clone object to its scroller +
 // belt phase; SCROLLER_HIDDEN lists the authored member templates
@@ -503,15 +506,17 @@ inline constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {36.0F};
 inline constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {64.0F};
 inline constexpr float TERRAIN_VOID_Y = -1000000.0F;
 inline constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true};
-inline constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.369465F};
-inline constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.818814F};
-inline constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.439363F};
+inline constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {-0.451129F};
+inline constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.55138F};
+inline constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.701757F};
 inline constexpr float SCENE_AMBIENTS[SCENE_COUNT] = {0.39F};
 inline constexpr float SCENE_DIFFUSES[SCENE_COUNT] = {0.61F};
-inline constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {0.0F};
-inline constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {0.0F};
-inline constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {0.45F};
+inline constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {0.55F};
+inline constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {0.8F};
 inline constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {0.32F};
+inline constexpr bool SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[SCENE_COUNT] = {false};
+inline constexpr bool ANY_PLAYER_ONLY_DYNAMIC_LIGHTS = false;
 inline constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.0F};
 inline constexpr float SCENE_SUN_YS[SCENE_COUNT] = {1.0F};
 inline constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.0F};
@@ -581,27 +586,27 @@ inline constexpr int BLOB_SHADOWS = 1;
 inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
 inline constexpr int BLOB_SHADOWS_USED = 1;
 inline constexpr int BLSS_ADAPTIVE = 0;
+inline constexpr int BLSS_PARTICLES = 0;
 #define BLSS_SCENE_ON 0
-#define BLSS_SCENE_NET 0
 inline constexpr int PROJ_SHADOWS_USED = 1;
-inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
+inline constexpr bool SPOT_SHADOW_VOLUMES_USED = true;
 inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
 inline constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
 inline constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
-inline constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {false};
-inline constexpr float FOG_RS[SCENE_COUNT] = {127.5F};
-inline constexpr float FOG_GS[SCENE_COUNT] = {127.5F};
-inline constexpr float FOG_BS[SCENE_COUNT] = {140.25F};
-inline constexpr float FOG_STARTS[SCENE_COUNT] = {15.0F};
-inline constexpr float FOG_ENDS[SCENE_COUNT] = {120.0F};
+inline constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {true};
+inline constexpr float FOG_RS[SCENE_COUNT] = {5.1F};
+inline constexpr float FOG_GS[SCENE_COUNT] = {8.925F};
+inline constexpr float FOG_BS[SCENE_COUNT] = {17.85F};
+inline constexpr float FOG_STARTS[SCENE_COUNT] = {16.0F};
+inline constexpr float FOG_ENDS[SCENE_COUNT] = {58.0F};
 inline constexpr bool FLASHLIGHT_ENABLEDS[SCENE_COUNT] = {true};
 inline constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {89.6F};
 inline constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {89.6F};
 inline constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {74.24F};
 inline constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {26.0F};
 inline constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {17.0F};
-inline constexpr float FLASHLIGHT_OFF_RIGHTS[SCENE_COUNT] = {0.0F};
-inline constexpr float FLASHLIGHT_OFF_DOWNS[SCENE_COUNT] = {0.0F};
+inline constexpr float FLASHLIGHT_OFF_RIGHTS[SCENE_COUNT] = {0.2F};
+inline constexpr float FLASHLIGHT_OFF_DOWNS[SCENE_COUNT] = {0.25F};
 inline constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {""};
 inline constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
 inline constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
@@ -765,6 +770,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+#define PLAYER_ONLY_DYNAMIC_LIGHTS SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[g_activeScene]
 // Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
 // and the moon, their apparent radius as a fraction of the dome radius (0 = the
 // body is down, draw nothing) and the moon disc's roll so its lit limb faces

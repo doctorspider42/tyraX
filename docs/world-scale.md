@@ -25,7 +25,7 @@ along.
 
 ## Choosing it when the project is created
 
-The *New Project* dialog asks for it up front (**World scale > Scale**:
+The *New Project* dialog asks for it up front (**World > Scale**:
 metric, 10 cm, 1 cm, 10 m per unit, or Custom), and `--new` takes it as a
 trailing argument. Not because it can't be changed later — it can, and the
 field above is where — but because changing it later deliberately rescales
@@ -114,9 +114,10 @@ edited in the same units/s form with the same metric readout. See
 ## Models: the real-world size of an asset
 
 A model asset can carry **how many meters one unit of the file measures**
-(`Project::modelUnitMeters`, the `"modelUnits"` manifest section). The editor
-asks for it right after an import, and the **Size...** button in the
-[Asset Browser](asset-browser.md)'s inspector (select a model) changes it
+(`Project::modelUnitMeters`, the `"modelUnits"` manifest section). The import
+window asks for it ([model-import.md](model-import.md)), and the **Real size** row in the
+[Asset Browser](asset-browser.md)'s inspector (select a model; it shows the
+size in meters, with `?` while none is recorded) changes it
 afterwards:
 
 - **Source units** — Meters / Centimeters / Inches / Custom. `.glb` and

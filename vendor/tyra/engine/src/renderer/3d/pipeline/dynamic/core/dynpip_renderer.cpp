@@ -14,6 +14,7 @@
 // Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData;
 // alpha-test AFAIL fixed to ATEST_KEEP_ALL (cutout texels write no z).
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include "renderer/3d/pipeline/dynamic/core/dynpip_renderer.hpp"
 #include "renderer/core/paths/path1/vif1_queue.hpp"
 #include "renderer/3d/pipeline/dynamic/core/programs/dynpip_vu1_shared_defines.h"
@@ -97,14 +98,14 @@ void DynPipRenderer::sendStaticData() const {
   packet2_utils_vu_close_unpack(staticDataPacket);
 
   packet2_utils_vu_add_end_tag(staticDataPacket);
-  Vif1Queue::drain();
-  dma_channel_send_packet2(staticDataPacket, DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
+  frameSendPacket(staticDataPacket, DMA_CHANNEL_VIF1, true);
 }
 
 void DynPipRenderer::sendObjectData(
     DynPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) const {
   // The previous DMA must finish before reusing its packet storage.
-  Vif1Queue::drain();
+  frameWaitVif();
   packet2_reset(objectDataPacket, false);
   // Modified by TyraX: same barrier as StaPipQBufferRenderer::sendObjectData.
   // The wait above only proves the previous chain was CONSUMED; its last MSCAL
@@ -194,7 +195,7 @@ void DynPipRenderer::sendObjectData(
   packet2_utils_vu_close_unpack(objectDataPacket);
 
   packet2_utils_vu_add_end_tag(objectDataPacket);
-  dma_channel_send_packet2(objectDataPacket, DMA_CHANNEL_VIF1, true);
+  frameSendPacket(objectDataPacket, DMA_CHANNEL_VIF1, true);
 }
 
 void DynPipRenderer::render(DynPipBag** bags, const u32& count) {
@@ -228,11 +229,11 @@ void DynPipRenderer::addBufferDataToPacket(DynPipBag** bags, const u32& count) {
 }
 
 void DynPipRenderer::sendPacket() {
-  Vif1Queue::drain();
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
+  frameWaitVif();
+  frameWaitGif(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
 
   // dma_wait_fast(); // This have no impact on performance
-  dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
+  frameSendPacket(currentPacket, DMA_CHANNEL_VIF1, true);
 
   TYRA_ASSERT(packet2_get_qw_count(currentPacket) <= packetSize,
               "Packet is too big. Internal error.");
@@ -246,9 +247,9 @@ void DynPipRenderer::clearLastProgramName() {
 }
 
 void DynPipRenderer::uploadPrograms() {
-  Vif1Queue::drain();
-  dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
-  Vif1Queue::drain();
+  frameWaitVif();
+  frameSendPacket(programsPacket, DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
 }
 
 void DynPipRenderer::setDoubleBuffer() {

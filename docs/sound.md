@@ -49,6 +49,96 @@ carrying whatever was still sounding when the player walked out of it.
 Sixteen and eight are generous for a PS2 game and stingy for a bad frame: a
 firefight in a room with a dozen ambiences will hit the wall.
 
+## SPU2 sample RAM: which sounds are loaded when
+
+Sound effects play from the SPU2's own 2 MB of sample RAM, so a sound has to be
+loaded there before anything can play it. The game does not load every sound in
+the project. A sound is loaded while something that uses it is:
+
+- **Shared** sounds load once at boot and stay for the whole game. A sound is
+  shared when every scene loads it with itself, when a prefab member plays it
+  (a prefab can be spawned into any scene), or when you tick **Always loaded**
+  on it in **Project > Audio**.
+- **Scene** sounds load when their scene starts and are freed when it ends:
+  the sounds of emitters and vehicles outside any streaming layer, and every
+  sound a *Play Sound* node in the scene plays, unless that sound is in a
+  sound bank. (A graph runs whether or not its object's layer is in, so its
+  sounds stay with the scene.)
+- **Layer** sounds belong to the emitters and vehicles of one streaming layer
+  ([streaming-layers.md](streaming-layers.md)). They load when the layer
+  streams in, by its zone or a *Set Layer Loaded* node, and are freed when it
+  streams out. This is what lets one big open-world scene keep only the
+  district you are in.
+- **Sound banks** are named sets of sounds you make with **+ New bank** at
+  the bottom of **Project > Audio** and load by hand with the **Set Sound Bank Loaded** node (*load* and
+  *unload* inputs). They are for sounds nothing else brings with it, such as
+  one mission's lines. A loaded bank stays loaded until it is unloaded or the
+  scene ends. Add sounds with the bank's **+ Add a sound** line, or select a
+  sound and use **+ Add to bank**. Rename or delete a bank from its **...**
+  button. A sound
+  in a bank that a *Play Sound* node plays loads only with the bank, so load
+  the bank before the node fires.
+
+![Project > Audio: the sound RAM card, sounds grouped by what loads them, and the selected sound's inspector](img/sound-banks.png)
+
+**Project > Audio** is laid out by these groups. The **Sounds** tab lists
+*Always loaded*, the scene's own sounds, one group per streaming layer that has
+sounds, one per bank, then *Other scenes* (sounds only another scene loads) and
+*Never loaded*. A sound in two places shows in both. Select a sound to see
+everything that loads it (*Loads with*), what plays it, its banks and the
+*Always loaded* switch. Music has its own tab.
+
+[examples/layer-streaming](../examples/layer-streaming) shows layers and a bank
+together: each building's hum streams with it, and a corridor bank holds a
+chime.
+
+A sound used in several of these places is loaded once and stays as long as
+any of them needs it. A sound nothing references is never loaded. Music is a
+separate system: it streams through the IOP and takes no SPU2 RAM.
+
+During play, sounds load **one per frame** after a layer or bank asks for them,
+so a sound played the moment its bank was loaded can be silent. Load the bank a
+little before you need it, the way *Is Layer Loaded* gates a layer. When a
+scene starts, everything it needs loads behind the loading screen instead.
+
+The **Sound RAM at most** card at the top of **Project > Audio** shows the most
+that can be loaded at once in the scene picked in its **Scene** menu (the scene
+you are editing unless you pick another): the shared sounds plus that scene's
+worst moment, split into Always, Scene, Layers and Banks. When another scene's
+worst moment is heavier, the card names it. A scene's worst moment counts its own sounds, every layer that starts
+loaded or that a graph loads, the heaviest group of auto-streamed zones close
+enough to be in at the same time (the two heaviest groups with two players),
+and every bank its graphs load. The estimate is pessimistic: it would rather
+warn about a moment that never happens than miss one that does. Hover the bar
+for every scene's figure. The meter reads against 1.98 MB, because audsrv
+places the first sample 20 KB in. Reverb rooms ([reverb.md](reverb.md)) take up
+to another 192 KB from the top of the same RAM. A sound that does not fit fails
+to load and is silent, and the game log says so.
+
+**Always loaded** is for a sound the editor cannot see being played, for
+example one your own C++ script plays. Select the sound and switch it on; it
+moves to the *Always loaded* group.
+
+How it works: the game works out what has to be loaded the same way layers
+work out their models. Whenever the scene, a layer or a bank changes, it frees
+every sound nothing needs any more and queues the missing ones. audsrv reuses
+freed sample RAM wherever it lies, so layers and banks can come and go in any
+order. Before a sound is freed, every voice still playing it is switched to a
+tiny silent sample, so no voice keeps reading memory that is about to hold a
+different sound. Only the voices playing that sound are cut, so a shared sound
+plays on through a scene switch. Reloading the same scene keeps its sounds
+loaded.
+
+audsrv also copies each sample through IOP memory while loading it. That limits
+how big one sample can be, whatever the SPU2 has free: a 1.7 MB sample failed to
+load in PCSX2, while five 350 KB samples loaded fine. Long material belongs in
+music.
+
+A game whose `src/terrain_game.cpp` you took ownership of before this
+(TyraX 2.2) still loads every sound in `init()`. The game notices this and
+keeps all of them loaded, so those games behave exactly as before. To get
+per-scene loading, delete the `SND_PATHS` load loop from that `init()`.
+
 ## Sound emitters: the eight loudest win
 
 Eight channels, any number of emitters. Every frame the game works out how
@@ -195,6 +285,40 @@ authored with an interval **under its sample length** (a quarter second
 restarts the loop inaudibly), and *Range* is worth setting to where the sound
 is meant to be heard, because an emitter outside it costs nothing at all.
 
+### Music turns into a buzz a few seconds in
+
+Fixed in 1.177.11. The track started cleanly, then after about six seconds it
+became a steady buzz at ~47 Hz and its harmonics, in PCSX2 and on the console
+alike. A capture of Showcase showed exactly what the SPU2 was doing: the same
+1024 samples (21 ms at 48 kHz), repeated forever. That block is audsrv's
+double buffer for the music input, so the IOP's playback thread had stopped
+writing it altogether. Had the EE only been late with data, the stale ~107 ms
+ring would have looped instead.
+
+The cause was a thread priority on the EE. Once a chunk of the ring is free,
+the IOP playback thread asks the EE for more data with a callback RPC. Before
+it sends the next one, it waits for the EE to answer the last. audsrv's EE
+server for those callbacks ran at priority 0x60, below Tyra's game thread
+(0x40). The game thread never sleeps: `graph_wait_vsync` is a busy poll on the
+GS CSR register, and since 2026-10-01 (#253) the frame yield
+(`RendererCore::setFrameYield`) is off unless the Live Debugger is attached. With nothing left to give the server CPU time, the first
+callback after loading never got its answer, and the playback thread waited
+forever. While the game was still loading, its file reads blocked the game
+thread and gave the server its time, which is why the first seconds sounded
+right.
+
+The fix is in the audsrv fork: that server now runs at 0x8 (see the fork's
+README, change 4). That is above the game thread and below the engine's own
+audio threads (0x5, 0x6). It wakes only once per callback. Measured in PCSX2
+on Showcase, the whole 30 s capture follows the WAV (correlation about 0.9 in
+every window, no 1024-sample loop), and the log's "Music ring ran low"
+warnings went from 102 to 0 in the same run.
+
+**The rule this leaves:** any EE thread that has to answer the IOP needs a
+priority number below the game thread's 0x40. On this engine, a lower-priority
+thread runs only when the game thread blocks, and in a normal frame it never
+does.
+
 ### Music stutters over ps2link
 
 Streamed music can play unevenly when the game runs from the PC over ps2link
@@ -245,7 +369,10 @@ image, or keep the PC quiet while the game runs.
 | An emitter near the player is silent while distant ones play | It lost the ranking — check *Priority* on the ones that are playing. |
 | An emitter fires the instant you walk into range | The intended reset of its interval; shorten the interval if you want it sooner. |
 | The scene runs at 25 FPS while music plays and an emitter is in earshot | Fixed 2026-08 — the music stream no longer blocks audsrv for everyone else. If you see it again, you are on an engine build from before that; see *Emitters and streaming music* above. |
+| Music plays right for a few seconds, then turns into a steady buzz | Fixed in 1.177.11: audsrv's EE callback thread was starved by the game thread. See *Music turns into a buzz a few seconds in*. |
 | Music drags, stutters or pops while running over ps2link, and the log says "Music ring ran low" | The music streams from the PC and the IOP is busy with the network. From a disc it plays evenly. See *Music stutters over ps2link*. |
+| A sound plays in one scene and is silent in another, or is silent since it was moved into C++ | The game loads only the sounds each scene, layer and bank uses, so nothing loaded it there. Put it in a bank that you load, or tick **Always loaded** on the sound in **Project > Audio**. See *SPU2 sample RAM* above. |
+| A sound is silent the first time, right after Set Sound Bank Loaded | Bank sounds load one per frame. Load the bank a moment earlier. |
 | A Play Sound node does nothing, sometimes | Its priority is not above anything currently playing, so it is being dropped. Raise it, or pin it a channel. |
 | A pinned sound stopped layering over itself | That is the fix — pinning cuts off, as the parameter always claimed. Use auto if you want copies to overlap. |
 | Nothing plays at all, on hardware, but PCSX2 is fine | Not this page. See the EE cache write-back in the `tyra-engine-dev` skill's audio section. |

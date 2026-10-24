@@ -73,6 +73,7 @@ struct VolumeDef {
   int assetCount;
   const short* prefabs; // prefab index per prefab slot
   int prefabCount;
+  int drawMode;         // Output "Draw as": 0 merged, 1 instanced
 };
 
 extern const VolumeDef VOLUMES[];
@@ -89,5 +90,12 @@ const char* const* volumeAssetNames(int v, int* count);
 const char* const* volumePrefabNames(int v, int* count);
 short* volumeAssetSlots(int v);
 short* volumePrefabSlots(int v);
+
+// Each slot's distant version (asset slots, then prefab slots):
+// a model name or 0, its switch distance, and the model index
+// the game resolves into the slot table at generation time.
+const char* const* volumeLodNames(int v);
+const float* volumeLodDist(int v);
+short* volumeLodSlots(int v);
 
 }  // namespace procrt

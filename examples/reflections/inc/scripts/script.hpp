@@ -114,6 +114,7 @@ struct ScriptContext {
   float playerBoom = 0.0F;
   bool teleportMotion = false;
   bool cameraOverride = false;
+  uintptr_t cameraSource = 0;  // custom overrides: stable opaque owner, never dereferenced
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
   // Camera up vector - the Dutch angle. Defaults to world up, so a cutscene
@@ -320,9 +321,18 @@ struct ScriptContext {
   // subject to the per-frame gate), 2 = on and IGNORE the gate. The game
   // latches it and clears it back to -1.
   int frameExtrapolation = -1;
+  // The upscaler (docs/upscaler.md, "At runtime"), written by the Set
+  // Upscaler flow node: -1 = leave alone, 0 = the scene's own setting, 1 =
+  // native, 2 = reduced, 3 = automatic (the frame-budget switch). The game
+  // latches it and clears it back to -1; a scene load resets to 0.
+  int upscaler = -1;
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
+  // Set Frame Pipeline is deferred until applyVideoRequests, before the next
+  // beginFrame. -1 = leave, 0 = Off, 1 = On; last request wins. The getter
+  // reads RendererCore's applied requested state, not this pending request.
+  int requestFramePipeline = -1;
 
   // Master sound-effect volume as a percentage (0..100), driven by a menu
   // "Sound volume" option block (applyMenuBindings). 100 = unscaled. Applied

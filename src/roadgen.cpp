@@ -145,87 +145,277 @@ float buildRows(const std::vector<float>& pointsXZ, float width,
     return arc;
 }
 
-// Is the quad rows[i..i+1][j0..j1] EXACTLY the dense mesh it would replace?
-// Two conditions, both of them the ones the full-width test has always used,
-// only asked of a sub-span:
-//   - every dense sample of both rows lies in the quad's 3-D plane, so the
-//     surface is unchanged (a crown, a crest or a saddle fails this and stays
-//     dense), and
-//   - the quad is an affine parallelogram, so its two triangles interpolate
-//     ST exactly as the lateral cells it replaces do. `u` is j / crossSteps
-//     and a row's samples are uniformly spaced along it, so a parallelogram's
-//     linear interpolation reproduces every interior sample's U as well.
-bool spanIsExact(const std::vector<std::vector<Vertex>>& rows, size_t i,
-                 int j0, int j1) {
-    const Vertex& a = rows[i][(size_t)j0];
-    const Vertex& b = rows[i][(size_t)j1];
-    const Vertex& d = rows[i + 1][(size_t)j0];
-    const Vertex& c = rows[i + 1][(size_t)j1];
-    const float ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
-    const float vx = d.x - a.x, vy = d.y - a.y, vz = d.z - a.z;
-    const float nx = uy * vz - uz * vy;
-    const float ny = uz * vx - ux * vz;
-    const float nz = ux * vy - uy * vx;
-    const float nl = std::sqrt(nx * nx + ny * ny + nz * nz);
-    if (!(nl > 1e-6f)) return false;
-    const float ax = (b.x - a.x) - (c.x - d.x);
-    const float ay = (b.y - a.y) - (c.y - d.y);
-    const float az = (b.z - a.z) - (c.z - d.z);
-    if (std::sqrt(ax * ax + ay * ay + az * az) > kSpanShear) return false;
-    for (int r = 0; r < 2; ++r)
-        for (int j = j0; j <= j1; ++j) {
-            const Vertex& q = rows[i + (size_t)r][(size_t)j];
-            const float dist = std::fabs(nx * (q.x - a.x) + ny * (q.y - a.y) +
-                                         nz * (q.z - a.z)) / nl;
-            if (dist > kSpanFlatness) return false;
-        }
-    return true;
+// ---- The road band planner (docs/roads.md, "Bands"). TWIN BLOCK: this text
+// is pasted VERBATIM into roadgen.cpp and into the generated buildRoads
+// (templates.cpp); verify-road-twins.py compares the two vertex for vertex.
+// It works on rows of the dense lateral grid (x, y, z, u, v per sample), one
+// row per spline station, and decides two things:
+//   - which samples of a row to KEEP: Douglas-Peucker on the row's height
+//     profile, so a row keeps the points where the ground under the road
+//     actually bends (a terrain crease) and drops the ones in between;
+//   - which STATIONS to keep: the band between two kept stations is the
+//     zipper triangulation of their kept samples, and it may skip the
+//     stations in between only while every dense sample of every skipped row
+//     lies on it within the height, plan and texture budgets.
+// A kept row's samples are shared by both bands that meet at it, so no seam
+// can open between bands (no T-vertex), whatever the budgets.
+struct RoadPlan {
+  std::vector<int> stations;           // kept stations, first 0, last rows-1
+  std::vector<std::vector<int>> keep;  // per station: kept dense sample indices
+};
+
+// Douglas-Peucker over a row's height profile against its u.
+template <class V>
+static void roadRowKeep(const std::vector<V>& d, float tol, std::vector<int>& out) {
+  const int n = (int)d.size();
+  std::vector<unsigned char> mark((size_t)n, 0);
+  mark[0] = 1;
+  mark[(size_t)(n - 1)] = 1;
+  std::vector<int> st;
+  st.push_back(0);
+  st.push_back(n - 1);
+  while (!st.empty()) {
+    const int s1 = st.back();
+    st.pop_back();
+    const int s0 = st.back();
+    st.pop_back();
+    float worst = 0.0F;
+    int wk = -1;
+    const float du = d[(size_t)s1].u - d[(size_t)s0].u;
+    for (int k = s0 + 1; k < s1; ++k) {
+      const float f = du != 0.0F ? (d[(size_t)k].u - d[(size_t)s0].u) / du : 0.0F;
+      const float e = fabsf(d[(size_t)k].y -
+                            (d[(size_t)s0].y + (d[(size_t)s1].y - d[(size_t)s0].y) * f));
+      if (e > worst) {
+        worst = e;
+        wk = k;
+      }
+    }
+    if (wk >= 0 && worst > tol) {
+      mark[(size_t)wk] = 1;
+      st.push_back(s0);
+      st.push_back(wk);
+      st.push_back(wk);
+      st.push_back(s1);
+    }
+  }
+  out.clear();
+  for (int k = 0; k < n; ++k)
+    if (mark[(size_t)k]) out.push_back(k);
 }
 
-// Where this station pair is CUT laterally: always 0 and crossSteps, plus
-// every interior boundary the exactness test above refuses to cross. This is
-// the exact planar-span reduction docs/roads.md describes and the oracle pins
-// - it decides the SURFACE, so both emitters ask it rather than deciding for
-// themselves.
-//
-// It used to be all-or-nothing: one full-width quad, or all crossSteps dense
-// cells. That is the wrong shape for a road that is a DECAL on a heightfield.
-// The district's terrain cell is 4 world units and the road samples across at
-// 0.5, so a 13-unit street is 26 lateral cells laid over three or four terrain
-// triangles: the full width is almost never one plane, and every one of the
-// 26 cells was therefore retained even though runs of eight of them sit inside
-// a single terrain triangle and are exactly coplanar. Merging maximal runs
-// instead keeps the same surface to the same tolerance and is what takes the
-// district's roads from 31 050 triangles to a third of that.
-void spanCuts(const std::vector<std::vector<Vertex>>& rows, size_t i,
-              int crossSteps, std::vector<int>& cuts) {
-    cuts.clear();
-    // Retain the established horizontal path, including curved flat spans.
-    // Its wide-triangle UV interpolation is the shipped look, and it is the
-    // one case that does NOT owe the affine check.
-    bool flat = true;
-    const float flatY = rows[i][0].y;
-    for (int r = 0; r < 2 && flat; ++r)
-        for (int j = 0; j <= crossSteps; ++j)
-            if (std::fabs(rows[i + (size_t)r][(size_t)j].y - flatY) >
-                0.00001f) { flat = false; break; }
-    cuts.push_back(0);
-    if (flat) {
-        cuts.push_back(crossSteps);
-        return;
-    }
-    // Greedy maximal runs, extended one cell at a time. A single cell is the
-    // fallback and is never tested, so this can only ever remove vertices
-    // from what the dense mesh would have emitted - the previous behaviour is
-    // its lower bound, and the full-width collapse its upper one.
-    int j0 = 0;
-    while (j0 < crossSteps) {
-        int j1 = j0 + 1;
-        while (j1 < crossSteps && spanIsExact(rows, i, j0, j1 + 1)) ++j1;
-        cuts.push_back(j1);
-        j0 = j1;
-    }
+// The zipper between two kept rows: 1 = advance the later row (b), 0 = the
+// earlier one (a). Both rows sample the same lateral grid, so the order is
+// decided on the dense INDEX - exact, no float compare. A tie advances b
+// first, which is the diagonal the list stitch has always cut (P[j]-N[j+s]).
+static void roadZipper(const std::vector<int>& A, const std::vector<int>& B,
+                       std::vector<unsigned char>& steps) {
+  steps.clear();
+  size_t i = 0, j = 0;
+  while (i + 1 < A.size() || j + 1 < B.size()) {
+    bool advB;
+    if (i + 1 >= A.size()) advB = true;
+    else if (j + 1 >= B.size()) advB = false;
+    else advB = B[j + 1] <= A[i + 1];
+    steps.push_back(advB ? 1 : 0);
+    if (advB) ++j;
+    else ++i;
+  }
 }
+
+// May the band a..b skip every station in between?
+template <class V>
+static bool roadBandFits(const std::vector<std::vector<V>>& rows, int a, int b,
+                         const std::vector<int>& A, const std::vector<int>& B,
+                         float tolY, float tolXZ, float tolUV,
+                         std::vector<unsigned char>& steps,
+                         std::vector<const V*>& tri, int* failCell = nullptr) {
+  if (failCell) *failCell = -1;
+  roadZipper(A, B, steps);
+  const std::vector<V>& ra = rows[(size_t)a];
+  const std::vector<V>& rb = rows[(size_t)b];
+  tri.clear();
+  size_t i = 0, j = 0;
+  for (size_t s = 0; s < steps.size(); ++s) {
+    if (steps[s]) {
+      tri.push_back(&ra[(size_t)A[i]]);
+      tri.push_back(&rb[(size_t)B[j + 1]]);
+      tri.push_back(&rb[(size_t)B[j]]);
+      ++j;
+    } else {
+      tri.push_back(&ra[(size_t)A[i]]);
+      tri.push_back(&ra[(size_t)A[i + 1]]);
+      tri.push_back(&rb[(size_t)B[j]]);
+      ++i;
+    }
+  }
+  const size_t tris = tri.size() / 3;
+  const int last = (int)ra.size() - 1;
+  // One test point against the band: located by a walk (the points of a pass
+  // run left to right, and so do the zipper's triangles, each of which
+  // advances one row by at least one sample) and compared in height and in
+  // texture.
+  size_t at = 0;
+  auto fits = [&](float qx, float qy, float qz, float qu, float qv) {
+    float best = -1.0e30F, by = 0.0F, bu = 0.0F, bv = 0.0F;
+    size_t bt = at;
+    const size_t lo = at > 2 ? at - 2 : 0;
+    const size_t hi = at + 5 < tris ? at + 5 : tris;
+    for (size_t c = lo; c < hi; ++c) {
+      const V& t0 = *tri[c * 3];
+      const V& t1 = *tri[c * 3 + 1];
+      const V& t2 = *tri[c * 3 + 2];
+      const float den = (t1.z - t2.z) * (t0.x - t2.x) + (t2.x - t1.x) * (t0.z - t2.z);
+      if (fabsf(den) < 1e-12F) continue;
+      const float l0 = ((t1.z - t2.z) * (qx - t2.x) + (t2.x - t1.x) * (qz - t2.z)) / den;
+      const float l1 = ((t2.z - t0.z) * (qx - t2.x) + (t0.x - t2.x) * (qz - t2.z)) / den;
+      const float l2 = 1.0F - l0 - l1;
+      float mn = l0 < l1 ? l0 : l1;
+      if (l2 < mn) mn = l2;
+      if (mn > best) {
+        best = mn;
+        bt = c;
+        by = l0 * t0.y + l1 * t1.y + l2 * t2.y;
+        bu = l0 * t0.u + l1 * t1.u + l2 * t2.u;
+        bv = l0 * t0.v + l1 * t1.v + l2 * t2.v;
+      }
+    }
+    if (best < -0.05F) return false;
+    at = bt;
+    return fabsf(by - qy) <= tolY && fabsf(bu - qu) <= tolUV &&
+           fabsf(bv - qv) <= tolUV;
+  };
+  // The dense surface's own triangles, by their centroids: two surfaces that
+  // agree at every sample can still part between them, where neither has a
+  // vertex - the difference of two piecewise-linear surfaces peaks where their
+  // edges cross. The centroids are where the verifier measures, too.
+  for (int k = a; k < b; ++k) {
+    const std::vector<V>& r0 = rows[(size_t)k];
+    const std::vector<V>& r1 = rows[(size_t)(k + 1)];
+    at = 0;
+    for (int m = 0; m < last; ++m) {
+      const V& p = r0[(size_t)m];
+      const V& q = r0[(size_t)(m + 1)];
+      const V& r = r1[(size_t)(m + 1)];
+      const V& s = r1[(size_t)m];
+      if (!fits((p.x + q.x + r.x) / 3.0F, (p.y + q.y + r.y) / 3.0F,
+                (p.z + q.z + r.z) / 3.0F, (p.u + q.u + r.u) / 3.0F,
+                (p.v + q.v + r.v) / 3.0F) ||
+          !fits((p.x + r.x + s.x) / 3.0F, (p.y + r.y + s.y) / 3.0F,
+                (p.z + r.z + s.z) / 3.0F, (p.u + r.u + s.u) / 3.0F,
+                (p.v + r.v + s.v) / 3.0F)) {
+        if (failCell) *failCell = m;
+        return false;
+      }
+    }
+  }
+  for (int k = a + 1; k < b; ++k) {
+    const std::vector<V>& rk = rows[(size_t)k];
+    // Plan: the skipped row's shoulders must lie on the band's shoulder chords.
+    for (int side = 0; side < 2; ++side) {
+      const int e = side ? last : 0;
+      const V& p = rk[(size_t)e];
+      const V& q0 = ra[(size_t)e];
+      const V& q1 = rb[(size_t)e];
+      const float dx = q1.x - q0.x, dz = q1.z - q0.z;
+      const float l2 = dx * dx + dz * dz;
+      float t = l2 > 0.0F ? ((p.x - q0.x) * dx + (p.z - q0.z) * dz) / l2 : 0.0F;
+      if (t < 0.0F) t = 0.0F;
+      if (t > 1.0F) t = 1.0F;
+      const float ex = q0.x + dx * t - p.x, ez = q0.z + dz * t - p.z;
+      if (ex * ex + ez * ez > tolXZ * tolXZ) return false;
+    }
+    // Height and texture at every dense sample of the skipped row.
+    at = 0;
+    for (int m = 0; m <= last; ++m) {
+      const V& q = rk[(size_t)m];
+      if (!fits(q.x, q.y, q.z, q.u, q.v)) return false;
+    }
+  }
+  return true;
+}
+
+// The plan for one road: kept samples per row, then kept stations, greedily -
+// a band grows one station at a time while it still fits, up to maxBand.
+template <class V>
+static void roadPlanBands(const std::vector<std::vector<V>>& rows, int maxBand,
+                          float tolY, float tolXZ, float tolUV, RoadPlan& plan) {
+  const int count = (int)rows.size();
+  plan.stations.clear();
+  plan.keep.assign((size_t)count, std::vector<int>());
+  if (count < 2) return;
+  for (int s = 0; s < count; ++s)
+    roadRowKeep(rows[(size_t)s], tolY * 0.5F, plan.keep[(size_t)s]);
+  std::vector<unsigned char> steps;
+  std::vector<const V*> tri;
+  // Every neighbouring station pair must fit on its own before any band may
+  // skip a station. Where the rows converge (a bend) or a crease crosses the
+  // pair at a slant, a long zipper triangle across the whole width drifts in
+  // texture and height between the samples it keeps. The test names the dense
+  // cell that broke the budget; both rows gain that cell's two edges, and the
+  // pairs are re-checked until none fails. Samples are only ever added, and a
+  // cell whose four corners are kept zips into exactly the dense cell, so this
+  // ends - at worst at the dense grid.
+  auto add = [&](std::vector<int>& k, int m) {
+    size_t at = 0;
+    while (at < k.size() && k[at] < m) ++at;
+    if (at < k.size() && k[at] == m) return false;
+    k.insert(k.begin() + (long)at, m);
+    return true;
+  };
+  for (bool changed = true; changed;) {
+    changed = false;
+    for (int s = 0; s + 1 < count; ++s) {
+      int cell = -1;
+      while (!roadBandFits(rows, s, s + 1, plan.keep[(size_t)s],
+                           plan.keep[(size_t)(s + 1)], tolY, tolXZ, tolUV, steps,
+                           tri, &cell)) {
+        bool grew = false;
+        if (cell >= 0) {
+          for (int r = s; r <= s + 1; ++r) {
+            if (add(plan.keep[(size_t)r], cell)) grew = true;
+            if (add(plan.keep[(size_t)r], cell + 1)) grew = true;
+          }
+        }
+        if (!grew) {
+          // Nothing left to add at the named cell: the whole rows, dense.
+          for (int r = s; r <= s + 1; ++r) {
+            std::vector<int>& k = plan.keep[(size_t)r];
+            k.clear();
+            for (int m = 0; m < (int)rows[(size_t)r].size(); ++m) k.push_back(m);
+          }
+          break;
+        }
+        changed = true;
+      }
+    }
+  }
+  int a = 0;
+  plan.stations.push_back(0);
+  while (a < count - 1) {
+    int b = a + 1;
+    while (b + 1 < count && b + 1 - a <= maxBand &&
+           roadBandFits(rows, a, b + 1, plan.keep[(size_t)a],
+                        plan.keep[(size_t)(b + 1)], tolY, tolXZ, tolUV, steps, tri))
+      ++b;
+    plan.stations.push_back(b);
+    a = b;
+  }
+}
+
+// Strip vertices one band costs, in the emitter's own currency: the opening
+// pair, the join into an open run, one per zipper step and one for every
+// step that advances the same row as the step before it (the pivot repeat).
+static size_t roadBandStripCost(const std::vector<unsigned char>& steps) {
+  size_t cost = 4 + steps.size();
+  int last = 0;  // the band opens on b[0], a[0]: the last vertex is row a's
+  for (size_t s = 0; s < steps.size(); ++s) {
+    if ((int)steps[s] == last) ++cost;
+    last = steps[s];
+  }
+  return cost;
+}
+// ---- end of the twin block ----
 
 std::vector<P> centreLine(const std::vector<float>& pts) {
     std::vector<P> out;
@@ -245,30 +435,38 @@ std::vector<P> centreLine(const std::vector<float>& pts) {
 
 float tessellate(const std::vector<float>& pointsXZ, float width,
                  const HeightFn& height, std::vector<Vertex>& out,
-                 const std::vector<float>& lifts, float sampleStep, float uInset) {
+                 const std::vector<float>& lifts, float sampleStep, float uInset,
+                 int maxBand) {
     (void)lifts;  // legacy project field; roads are always terrain-projected
     out.clear();
     std::vector<std::vector<Vertex>> rows;
     int crossSteps = 1;
     const float arc =
         buildRows(pointsXZ, width, height, sampleStep, rows, &crossSteps, uInset);
+    RoadPlan plan;
+    roadPlanBands(rows, uInset > 0.0f ? 1 : maxBand, kRoadTolY, kRoadTolXZ,
+                  kRoadTolUV, plan);
 
-    // Stitch every lateral cell. Wound counter-clockwise seen from above
-    // (+Y), the terrain's own convention.
-    std::vector<int> cuts;
+    // Each band is its zipper, wound counter-clockwise seen from above (+Y),
+    // the terrain's own convention: a step on row b is (a[i], b[j+1], b[j]),
+    // a step on row a is (a[i], a[i+1], b[j]).
+    std::vector<unsigned char> steps;
     int spansInChunk = 0;
     size_t verticesInChunk = 0;
     float chunkVBase = 0.0f;
-    for (size_t i = 0; i + 1 < rows.size(); ++i) {
-        spanCuts(rows, i, crossSteps, cuts);
-        const size_t cost = (cuts.size() - 1) * 6;
+    for (size_t s = 0; s + 1 < plan.stations.size(); ++s) {
+        const int a = plan.stations[s], b = plan.stations[s + 1];
+        const std::vector<int>& A = plan.keep[(size_t)a];
+        const std::vector<int>& B = plan.keep[(size_t)b];
+        roadZipper(A, B, steps);
+        const size_t cost = steps.size() * 3;
         if (spansInChunk == 0 || spansInChunk >= kChunkSpans ||
-            rows[i + 1][0].v - chunkVBase >= kChunkTexRange ||
+            rows[(size_t)b][0].v - chunkVBase >= kChunkTexRange ||
             verticesInChunk + cost > (size_t)kChunkBudget) {
             // The GS repeats the texture every integer V. Rebase each runtime
             // bag to a nearby integer so a long road never feeds a large ST
             // coordinate into the physical PS2's fixed-precision path.
-            chunkVBase = std::floor(rows[i][0].v);
+            chunkVBase = std::floor(rows[(size_t)a][0].v);
             spansInChunk = 0;
             verticesInChunk = 0;
         }
@@ -276,18 +474,44 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
             v.v -= chunkVBase;
             return v;
         };
-        for (size_t k = 0; k + 1 < cuts.size(); ++k) {
-            const int j = cuts[k], j2 = cuts[k + 1];
-            out.push_back(local(rows[i][(size_t)j]));
-            out.push_back(local(rows[i][(size_t)j2]));
-            out.push_back(local(rows[i + 1][(size_t)j2]));
-            out.push_back(local(rows[i][(size_t)j]));
-            out.push_back(local(rows[i + 1][(size_t)j2]));
-            out.push_back(local(rows[i + 1][(size_t)j]));
+        const std::vector<Vertex>& ra = rows[(size_t)a];
+        const std::vector<Vertex>& rb = rows[(size_t)b];
+        size_t i = 0, j = 0;
+        for (unsigned char st : steps) {
+            if (st) {
+                out.push_back(local(ra[(size_t)A[i]]));
+                out.push_back(local(rb[(size_t)B[j + 1]]));
+                out.push_back(local(rb[(size_t)B[j]]));
+                ++j;
+            } else {
+                out.push_back(local(ra[(size_t)A[i]]));
+                out.push_back(local(ra[(size_t)A[i + 1]]));
+                out.push_back(local(rb[(size_t)B[j]]));
+                ++i;
+            }
         }
         ++spansInChunk;
         verticesInChunk += cost;
     }
+    return arc;
+}
+
+float tessellateDense(const std::vector<float>& pointsXZ, float width,
+                      const HeightFn& height, std::vector<Vertex>& out,
+                      float sampleStep, float uInset) {
+    out.clear();
+    std::vector<std::vector<Vertex>> rows;
+    int crossSteps = 1;
+    const float arc =
+        buildRows(pointsXZ, width, height, sampleStep, rows, &crossSteps, uInset);
+    for (size_t i = 0; i + 1 < rows.size(); ++i)
+        for (int j = 0; j < crossSteps; ++j) {
+            const Vertex& A = rows[i][(size_t)j];
+            const Vertex& B = rows[i][(size_t)j + 1];
+            const Vertex& C = rows[i + 1][(size_t)j + 1];
+            const Vertex& D = rows[i + 1][(size_t)j];
+            for (const Vertex* q : {&A, &B, &C, &A, &C, &D}) out.push_back(*q);
+        }
     return arc;
 }
 
@@ -296,7 +520,7 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
 float tessellateStrips(const std::vector<float>& pointsXZ, float width,
                        const HeightFn& height, std::vector<Vertex>& out,
                        std::vector<int>* chunkSizes, float sampleStep,
-                       float uInset) {
+                       float uInset, int maxBand) {
     static_assert(kStripRun == (int)meshstrip::kRun,
                   "the road run must be the run the .tmdl bake uses - both are "
                   "the smallest package a static program class derives");
@@ -306,6 +530,9 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
     int crossSteps = 1;
     const float arc =
         buildRows(pointsXZ, width, height, sampleStep, rows, &crossSteps, uInset);
+    RoadPlan plan;
+    roadPlanBands(rows, uInset > 0.0f ? 1 : maxBand, kRoadTolY, kRoadTolXZ,
+                  kRoadTolUV, plan);
 
     // Run and chunk bookkeeping. A chunk is a bag; a run is one VU1 package
     // inside it, so the LAST run of a chunk owes only the multiple of 3 the
@@ -351,57 +578,64 @@ float tessellateStrips(const std::vector<float>& pointsXZ, float width,
         open = false;
     };
 
-    // A collapsed span is ONE full-width quad, so a road of them is a grid one
-    // cell WIDE and many stations LONG - and a strip has to run along the long
-    // axis or it buys nothing. Taken laterally, a collapsed span is 4 vertices
-    // plus a 2-vertex join against the list's 6: exactly break-even on the EE
-    // and 3x the GS primitives, two thirds of them degenerate. Taken
-    // longitudinally it is 2 vertices per STATION, the same 0.345x the dense
-    // spans reach. So the emitter follows the grid: dense spans strip ACROSS
-    // the road, consecutive collapsed spans strip ALONG it.
+    // A band of two two-sample rows is ONE full-width quad, and a street of
+    // them strips ALONG the road at 2 vertices per band ... a[w], a[0], b[w],
+    // b[0] ... - successive triples are the zipper's own two triangles. Any
+    // other band strips ACROSS: b[0], a[0], then one vertex per zipper step,
+    // and when two steps in a row advance the same row the other row's vertex
+    // is repeated first (a zero-area triangle) so the next triple is still
+    // the zipper's.
     bool alongOpen = false;
     float chunkVBase = 0.0f;
     auto local = [&](Vertex v) {
         v.v -= chunkVBase;
         return v;
     };
-    std::vector<int> cuts;
-    for (size_t i = 0; i + 1 < rows.size(); ++i) {
-        spanCuts(rows, i, crossSteps, cuts);
-        const bool collapsed = cuts.size() == 2;
+    std::vector<unsigned char> steps;
+    for (size_t s = 0; s + 1 < plan.stations.size(); ++s) {
+        const int a = plan.stations[s], b = plan.stations[s + 1];
+        const std::vector<int>& A = plan.keep[(size_t)a];
+        const std::vector<int>& B = plan.keep[(size_t)b];
+        const std::vector<Vertex>& ra = rows[(size_t)a];
+        const std::vector<Vertex>& rb = rows[(size_t)b];
+        roadZipper(A, B, steps);
+        const bool collapsed = A.size() == 2 && B.size() == 2;
         const size_t cost =
-            collapsed ? (alongOpen ? 2u : 4u) : (2 * cuts.size() + 2);
+            collapsed ? (alongOpen ? 2u : 4u) : roadBandStripCost(steps);
         if (!open || spansInChunk >= kChunkSpans ||
-            rows[i + 1][0].v - chunkVBase >= kChunkTexRange ||
+            rb[0].v - chunkVBase >= kChunkTexRange ||
             (out.size() - chunkStart) + cost > (size_t)kChunkBudget) {
             closeChunk();
             alongOpen = false;
             open = true;
-            chunkVBase = std::floor(rows[i][0].v);
+            chunkVBase = std::floor(ra[0].v);
         }
         if (collapsed) {
-            // ... P[w], P[0], N[w], N[0] ... - successive triples are this
-            // span's two triangles, cut along P[0]-N[w], which is the cut the
-            // list stitch makes. The other interleaving takes the other
-            // diagonal and silently reshapes every non-planar quad.
             if (!alongOpen) {
-                startStrip(local(rows[i][(size_t)crossSteps]));
-                pushRaw(local(rows[i][0]));
+                startStrip(local(ra[(size_t)crossSteps]));
+                pushRaw(local(ra[0]));
                 alongOpen = true;
             }
-            pushRaw(local(rows[i + 1][(size_t)crossSteps]));
-            pushRaw(local(rows[i + 1][0]));
+            pushRaw(local(rb[(size_t)crossSteps]));
+            pushRaw(local(rb[0]));
         } else {
-            // N[0], P[0], N[s], P[s], ... - same argument, same diagonal
-            // P[j]-N[j+s], walked across the road instead. The cuts are no
-            // longer uniformly spaced, which changes nothing here: the walk
-            // visits them in order and the diagonal is the same one.
             alongOpen = false;
-            startStrip(local(rows[i + 1][0]));
-            pushRaw(local(rows[i][0]));
-            for (size_t k = 1; k < cuts.size(); ++k) {
-                pushRaw(local(rows[i + 1][(size_t)cuts[k]]));
-                pushRaw(local(rows[i][(size_t)cuts[k]]));
+            startStrip(local(rb[0]));
+            pushRaw(local(ra[0]));
+            int last = 0;
+            size_t i = 0, j = 0;
+            for (unsigned char st : steps) {
+                if (st) {
+                    if (last == 1) pushRaw(local(ra[(size_t)A[i]]));
+                    pushRaw(local(rb[(size_t)B[j + 1]]));
+                    ++j;
+                    last = 1;
+                } else {
+                    if (last == 0) pushRaw(local(rb[(size_t)B[j]]));
+                    pushRaw(local(ra[(size_t)A[i + 1]]));
+                    ++i;
+                    last = 0;
+                }
             }
         }
         ++spansInChunk;
@@ -915,7 +1149,9 @@ void tessellateSpill(const std::vector<float>& lowPts, float lowWidth,
                 for (int jj : {j, j + 1, j + 1, j, j + 1, j}) lateral.push_back(lat(jj));
             }
     } else {
-        tessellate(lowPts, lowWidth, nullptr, tris, {}, lowSampleStep);
+        // Every station: the spill fades per VERTEX along the low road, so it
+        // keeps the dense stations a band would skip.
+        tessellate(lowPts, lowWidth, nullptr, tris, {}, lowSampleStep, 0.0f, 1);
         lateral.assign(tris.size(), 1.0f);
     }
     for (size_t t = 0; t + 2 < tris.size(); t += 3) {

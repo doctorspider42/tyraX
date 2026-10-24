@@ -9,52 +9,53 @@ description: How a TyraX-generated PS2 game project is structured - the project 
 
 ## What this project is
 
-A PlayStation 2 game authored in the TyraX editor (a cross-platform GUI app -
-Windows and Linux). The
-editor edits a **data model** and generates the complete game from it on every
-build. Two kinds of files coexist here:
+A PlayStation 2 game authored in the TyraX editor (a GUI app for Windows and
+Linux). The editor edits a **data model** and generates the complete game from
+it on every build. Two kinds of files coexist here:
 
 - **Data + assets** (the source of truth): `<name>.tyra`, `objects/*.json`,
   `terrain-*.heights`, `res/**`, `flow-nodes/*.flownode`,
-  `screen-effects/*.screenfx`, and your own code in `src/scripts/*.cpp`.
+  `screen-effects/*.screenfx`, `menu-styles/*.menustyle`, and your own code in
+  `src/scripts/`, `src/vu/`, `src/vu0/`.
 - **Generated game sources**: C++/build files the editor rewrites from the data.
 
 ## File map
 
 | Path | What it is | Edit by hand? |
 |---|---|---|
-| `<name>.tyra` | Project manifest: scenes, settings, assets lists, menus, sequences, per-scene ordered object-id lists, editor state | Prefer the editor/CLI; it is JSON if you must |
-| `objects/<id>.json` | One scene object per file (transform, type, properties, its flow graph) | Prefer the CLI (`--apply-graph`, `--resave` validates) |
-| `terrain-<scene>.heights` | Terrain heightmap | No (binary-ish; sculpted in the editor) |
+| `<name>.tyra` | Project manifest: scenes, settings, asset lists, menus, sequences, per-scene ordered object-id lists, editor state | Prefer the editor/CLI; it is JSON if you must |
+| `objects/<id>.json` | One scene object per file (transform, type, properties, its flow graph) | Prefer the CLI (`--apply-graph`; `--resave` validates) |
+| `terrain-<scene>.heights` | Terrain heightmap | No (sculpted in the editor) |
 | `<name>.history` | Editor undo stack (gitignored) | No |
-| `res/models`, `res/materials`, `res/textures` | .obj/.glb models, .mtl materials, PNGs. Sub-folders are fine | Yes (import via the editor keeps references sane; move/rename in the editor's Asset Browser, which retargets every reference - a hand-moved file leaves objects pointing at the old path, and a `map_Kd` must stay a bare name next to its .mtl) |
-| `res/models/*.tmdl`, `*.tskl` | Build output: the binary models the game loads (compiled from the .obj/.glb next to them on every build) | No - regenerated, edit the source model instead |
-| `res/audio`, `res/sfx` | Music WAVs (16-bit 22kHz stereo), sound-effect WAVs | Yes |
-| `res/audio/*.drone` | Patch for a track the editor's Drone Generator made (`key = value` text; editor-only, never ships) | Yes - re-render it in the editor (Tools > Drone Generator) after editing |
+| `res/models`, `res/materials`, `res/textures` | Models (`.obj` static, `.glb`/`.fbx` animated), `.mtl` materials, PNG textures. Sub-folders are fine | Yes, but import models through the editor's importer (or `--import-model`) and move/rename in the Asset Browser, which retargets every reference - a hand-moved file leaves objects pointing at the old path, and a `map_Kd` must stay a bare name next to its `.mtl` |
+| `res/models/**/*.tmdl`, `*.tskl` | Build output: the binary static (`.tmdl`) and animated (`.tskl`) models the game loads, compiled from the source model next to them | No - edit the source model |
+| `res/audio`, `res/sfx` | Music WAVs (16-bit 22 kHz stereo), sound-effect WAVs | Yes |
+| `res/audio/*.drone` | Patch for a track made by the editor's Drone Generator (editor-only, never ships) | Yes - re-render it in Tools > Drone Generator afterwards |
 | `res/hud`, `res/fonts` | HUD sprites, menu fonts | Yes |
-| `flow-nodes/*.flownode` | Project-defined custom flow-graph nodes | Yes - see the tyra-scripting skill |
-| `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - see the tyra-scripting skill |
-| `menu-styles/*.menustyle` | Menu stylesheets: what a menu LOOKS like, CSS-shaped | Yes - a menu names one in its `"style"` key; the editor's Menu Editor > Style edits the same file with widgets |
-| `src/scripts/*.cpp` (non-`.gen`) | Your custom object scripts (`TYRA_OBJECT_SCRIPT`) | Yes - this is where game code goes |
-| `src/vu/*.cpp`, `src/vu0/*.cpp` | Your own VU1 programs (`vu::Program`) and VU0 compute kernels (`vu::Kernel`), against `vugen/vushader.hpp`. **HOST C++**: compiled and RUN at build time inside the build container, leaving a microprogram in the ELF - not PS2 code, and excluded from the PS2 compile | Yes - `New script...` writes a working stub for each |
-| `inc/scripts/flow_nodes.hpp` | Bodies for `call = fn` custom flow nodes | Yes |
-| `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources. `controls.hpp`'s `BTN_*`/`KEY_*` are generated from the project's **Input Map** (named actions + binding presets) - rebind buttons there, not here | Only after deleting the ownership marker line |
-| `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
-| `src/gen/livelogic.built` | Live Logic record of the graphs this build compiled natively (the editor patches only what differs) | No - regenerated |
-| `src/gen/livedbg.sym` | Live Debugger symbol map (node keys -> object ids), written by codegen for the editor | No - regenerated |
-| `bin/` | Build output: `<name>.elf`, runtime assets, `log.txt` (game log) | No |
-| `bin/livelogic.bin` | Live Logic patch: flow graphs the editor compiled and streamed into the running game (no rebuild) | No - runtime file |
-| `bin/livedbg.bin`, `bin/livedbg.cmd` | Live Debugger channel while a debug build runs (game -> editor telemetry, editor -> game commands) | No - runtime files |
-| `bin/frame.tga` | The last frame the game photographed of ITSELF, on request (Debugger > Screen). A 32-bit TGA of the console's own frame buffer, deleted at every launch | No - runtime file |
-| `screenshots/` | Those captures kept as PNGs, one per capture, named by the clock. Yours to keep or delete | No - git-ignored |
-| `logs/` | One `ps2-<date>-<time>-<ms>.log` per Run on PS2 session: the console's log, flushed line by line, bounded by Preferences (last N lines, last K sessions) | No - git-ignored |
-| `run.sh`, `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 (`run.sh` on Linux/macOS, the `.ps1` pair on Windows) | Rarely |
+| `res/menus/*.png` | Baked menu panels | No - rebaked from the menus + stylesheets |
+| `.res-baked/` | Bake caches (GI, shadows, model AO) and the texture-quantized mirror of `res/` the build ships | No |
+| `flow-nodes/*.flownode` | Custom flow-graph nodes | Yes - tyra-scripting skill |
+| `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - tyra-scripting skill |
+| `menu-styles/*.menustyle` | Menu stylesheets (CSS-shaped) | Yes - tyra-menustyle skill |
+| `src/scripts/**/*.cpp` | Your C++ scripts (`TYRA_OBJECT_SCRIPT` / `TYRA_SCRIPT`) | Yes - this is where game code goes |
+| `src/vu/*.cpp`, `src/vu0/*.cpp` | Your VU1 programs (`vu::Program`) and VU0 kernels (`vu::Kernel`). **Host C++**: compiled and run at build time on the build machine (host `g++`; inside the container with `--docker`), leaving a microprogram in the ELF; excluded from the PS2 compile | Yes - `New script...` writes a working stub for each |
+| `vugen/` | Copy of the editor's VU framework, present only while `src/vu*` has sources | **Never** |
+| `src/terrain_game.cpp` | Startup, frame loop, camera, exported globals | Only after deleting the ownership marker (keep its `#include "game_runtime.gen.hpp"`) |
+| `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp`, `inc/scripts/flow_nodes.hpp` | Game class header; button defines (`BTN_*`/`KEY_*`, generated from the project's **Input Map** - rebind there, not here); the script API; bodies for `call = fn` custom nodes | Only after deleting the ownership marker |
+| `src/gen/**`, `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `src/main.cpp`, `Makefile`, `docker-compose.yml`, `.vscode/c_cpp_properties.json` | Regenerated on every build/refresh. The game runtime is split into `src/gen/game_{scene,lighting,collision,vehicles,physics}.gen.cpp` + `inc/game_runtime.gen.hpp`; `src/gen/livelogic.built` and `livedbg.sym` are the Live Logic / Live Debugger records | **Never** |
+| `run.sh`, `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 (Linux/macOS; Windows pair) | Yours - written only if missing |
+| `.gitignore`, `.gitattributes`, `COLLABORATION.md`, `THIRD-PARTY-NOTICES.txt`, `.vscode/extensions.json` | Repo hygiene, git-merge/locking guide, credits | Yours - written only if missing (`extensions.json` gains missing recommendations) |
+| `bin/` | Build output: `<name>.elf`, runtime assets, `log.txt` (game log), and the devkit channels: `livelogic.bin`, `livedbg.bin`/`.cmd`, `livepad.bin`, `frame.tga` (the game's own last-frame capture) | No |
+| `screenshots/`, `logs/`, `recordings/` | Frame captures as PNGs; one `ps2-<date>-<time>.log` per Run on PS2 session; input recordings (`.tyrarep`, meant to be committed) | Yours |
+| `_backup/` | Snapshot written by `--migrate` before a format migration | Yours (gitignored) |
 
 **Ownership markers.** The first line of a generated file tells you its rule:
 `Do not edit - regenerated on every build` means never touch it; `Delete this
 line to take ownership` means the editor regenerates it only while the marker
 is present - delete the marker to make the file yours (it then stops receiving
-template updates).
+template updates). A user-owned `src/terrain_game.cpp` that still includes
+`game_runtime.gen.hpp` keeps receiving the generated subsystem files; an old
+user-owned monolith without that include gets none.
 
 ## The TyraX editor CLI
 
@@ -69,23 +70,37 @@ tyrax-editor binary lives.)
 
 | Command | What it does |
 |---|---|
-| `--dump <projectDir>` | JSON summary: scenes, objects (name/type/position/flags), assets, and every name flow graphs can reference |
+| `--dump <projectDir>` | JSON summary: scenes, objects (name/type/position/flags), and every name flow graphs can reference (music, sounds, save values/texts, menus, HUD, gradings, ambiences, sequences, credits, prefabs, fonts, input actions/presets) |
 | `--list-nodes <projectDir>` | Full flow-node catalog + graph JSON schema (includes this project's custom nodes) |
 | `--dump-graph <projectDir> <object> [scene]` | Print one object's flow graph as JSON |
 | `--apply-graph <projectDir> <object> <graph.json> [scene] [--append]` | Validate a graph JSON and write it into the object |
-| `--ai-graph <projectDir> <object> <prompt\|file> [scene] [...]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
-| `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
-| `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
-| `--bake-particles <projectDir>` | Re-bake every particle-library effect's procedural texture into `res/materials/particles/` (docs/particles.md), re-sync linked emitters, save and regenerate. Writes nothing for an unchanged recipe |
-| `--road-texture <projectDir> <name> [key=value ...]` | Generate a road surface material (`.png` + `.mtl` + `.roadtex` recipe) into `res/materials/roads/` (docs/road-textures.md). Keys: `surface` (asphalt, cobble, gravel, dirt, slabs, pavers), `lanes`, `wear`, `grime`, `cracks` (all three 0 = clean), `pavement`, `slab`, `joint`, `tint`, `seed`, `size`, `width`, `ragged`, `shoulder` (verge width), `intersection`, and per line `centre`/`divider`/`edge` (`=style`, `.colour`, `.width`, `.dash`, `.gap`). Starts from the existing recipe of that name |
-| `--draw-road <projectDir> <scene> "x,z[,h] x,z ..." [preset] [--angle] [--grid N] [--no-snap] [--no-extend]` | Draw a road the way the editor's Draw road tool does (docs/roads.md "Drawing roads"): each point snaps to an existing road's END (a corner, or that road carried on in line) or CENTRE LINE (a T where the drawing ends, a crossing where it carries on), so junction nodes form by themselves; a preset (`city-street`, `avenue-tram`, `boulevard`, `country-road`, `dirt-track`, `railway`, `highway`, `alley`, or a project preset's name) sets the whole look and writes missing materials. `x,z,h` = a bridge deck height there. Saves the project; prints each snap and the nodes the road joins |
-| `--bake-shadows <projectDir>` | Bake the static shadow decals into `.res-baked/shadow/` (explicit, like `--bake-gi` - a build only READS the cache). Prints draws, atlas pages, triangles, VRAM and ELF bytes per scene, plus every caster that asked for a shadow and could not have one, by name. Seconds, not minutes |
-| `--bake-model-ao <projectDir> [--texbake]` | Bake every eligible `.obj` model's own ambient occlusion into `.res-baked/modelao/` and report what was skipped and why. A build does this itself; the verb is how you see it without Docker. `--texbake` also runs the texture bake, i.e. the multiply into `.res-baked` |
-| `--bake-prelit <projectDir> [sceneName]` | Re-bake every object marked to ship pre-lit whose baked texture no longer matches the scene (it moved, or the light did), then save + regenerate. Prints `baked` / `fresh` per object; a second run bakes nothing. Never part of a build - a pre-lit bake is explicit |
-| `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
-| `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a fresh project (defaults: `empty` preset - the editor's dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own. `--no-terrain` starts the scene with no ground at all (see below) |
-| `--build <projectDir> [--run] [--docker]` | Full native build; `--run` launches PCSX2, `--docker` selects the fallback |
-| `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
+| `--ai-graph <projectDir> <object> <prompt\|file> [scene] [--backend claude\|copilot\|openai] [--model m] [--thinking]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
+| `--refresh-gen <projectDir>` | Regenerate the game sources (and bake menus) without building - the fast codegen check |
+| `--build <projectDir> [--run \| --run-ps2 [ip]] [--rebuild] [--docker]` | Full native build; `--run` launches PCSX2, `--run-ps2` deploys to a real PS2, `--rebuild` forces a clean build, `--docker` selects the fallback (tyra-building) |
+| `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a project (defaults: `empty` preset - the GUI dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life: it picks the generated game sources. `--no-terrain` starts with no ground at all |
+| `--resave <projectDir>` | Load + save (validates and normalizes the files) |
+| `--migrate <projectDir>` | Back up (into `_backup/`) and apply pending format migrations. Commands that write the project (`--build`, `--refresh-gen`, `--apply-graph`, `--resave`, ...) refuse a project that needs one |
+| `--import-model <projectDir> <model> [--split none\|top\|mesh] [--pivot keep\|bottom\|center] [--keep f] [--max-texture px] [--animated] [--no-static] [--textures dir] [--name stem] [--dry-run]` | Import an `.obj`/`.glb`/`.fbx` into `res/models` exactly like the editor's import window: static = `.obj` + `.mtl` + PNGs, `--animated` also keeps the `.glb`/`.fbx` (+ `.mtl`) with skeleton and clips, `--no-static` only that. `--split` writes a pack as separate models. Does not place objects |
+| `--bake-status <projectDir>` | Read-only: is every bake cache (GI, baked shadows per scene, pre-lit objects, model AO) `fresh`/`stale`/`absent`/`off`? Exit 3 = something is stale |
+| `--bake-gi <projectDir> [--gpu]` | Bake global illumination + light probes into `.res-baked/gi/` |
+| `--bake-shadows <projectDir>` | Bake the static shadow decals into `.res-baked/shadow/`; prints per-scene cost and every caster that could not get a shadow, by name |
+| `--bake-prelit <projectDir> [sceneName]` | Re-bake every object marked to ship pre-lit whose baked texture is stale, then save + regenerate (`baked` / `fresh` per object) |
+| `--bake-object-light <projectDir> <object> [size] [rays]` | Bake one object's static light into its texture and mark it pre-lit |
+| `--bake-model-ao <projectDir> [--texbake]` | Bake every eligible `.obj` model's own AO into `.res-baked/modelao/` and report skips (a build does this itself); `--texbake` also runs the texture multiply |
+| `--bake-particles <projectDir>` | Re-bake procedural particle textures into `res/materials/particles/`, re-sync emitters, save + regenerate |
+| `--road-texture <projectDir> <name> [key=value ...]` | Generate a road surface material (`.png` + `.mtl` + `.roadtex` recipe) into `res/materials/roads/`, starting from the existing recipe of that name (docs/road-textures.md). Keys: `surface` (asphalt, cobble, gravel, dirt, slabs, pavers), `lanes`, `wear`, `grime`, `cracks` (all three 0 = clean), `pavement`, `slab`, `joint`, `tint`, `seed`, `size`, `width`, `ragged`, `shoulder` (verge width), `intersection`, and per line `centre`/`divider`/`edge` (`=style`, `.colour`, `.width`, `.dash`, `.gap`) |
+| `--draw-road <projectDir> <scene> "x,z[,h] x,z ..." [preset] [--angle] [--grid N] [--no-snap] [--no-extend]` | Draw a road like the editor's Draw road tool (docs/roads.md "Drawing roads"): each point snaps to an existing road's END (a corner, or that road carried on in line) or CENTRE LINE (a T where the drawing ends, a crossing where it carries on), so junction nodes form by themselves; a preset (`city-street`, `avenue-tram`, `boulevard`, `country-road`, `dirt-track`, `railway`, `highway`, `alley`, or a project preset's name) sets the whole look and writes missing materials; `x,z,h` = a bridge deck height there. Saves; prints each snap and the nodes the road joins |
+| `--road-lanes <projectDir> [scene]` | Print the traffic lane graph (docs/traffic.md); exit 1 = a lane with no legal exit |
+| `--export-iso <projectDir>` | Pack the built `bin/` into `<name>.iso` (Project > Export PS2 ISO) |
+| `--pad`, `--record`, `--replay`, `--capture-frame`, `--profile-frame` | Drive and observe the RUNNING debug game - see tyra-building |
+| `--search-docs "<terms>" [page]` | Full-text search over the editor's built-in docs (the `docs/<page>.md` the guides cite; `page` = name without `.md`) |
+| `--add-ai-support <projectDir> [claude] [codex] [copilot]` | (Re)install these AI guides (files whose marker you deleted are kept) |
+
+GI, baked shadows and pre-lit textures are explicit bakes: a build only READS
+their caches (a stale cache silently falls back to the unbaked lighting) unless
+the project opted into re-baking stale ones before each build (`giAutoBake`,
+`bakedShadowAutoBake`, `prelitAutoBake` in the `.tyra` settings). Procedural
+volumes are always re-baked by a build when stale.
 
 Typical inspection flow: `--dump` to see the world, `--dump-graph` to read
 logic, edit data, then `--refresh-gen` and check the diff under `src/`/`inc/`
@@ -93,142 +108,109 @@ to see exactly what the game will compile.
 
 ## Scenes and objects (mental model)
 
-- A project has one or more **scenes**; each scene has a terrain, streaming
-  layers and a list of **objects** (boxes, spheres, models, lights, particle
-  emitters, sound emitters, the player, decals, mirrors, cameras, areas,
+- A project has one or more **scenes**; each has a terrain, streaming layers
+  and a list of **objects** (boxes, spheres, models, animated models, lights,
+  particle and sound emitters, the player, decals, mirrors, cameras, areas,
   procedural volumes...).
+- **Models**: one importer turns `.obj`/`.glb`/`.fbx` into a static `.obj` +
+  `.mtl` + PNGs, or keeps the `.glb`/`.fbx` (+ `.mtl`) for an animated one
+  (docs/model-import.md). The ENTITY decides: a **Model** object draws an
+  `.obj` (picking a `.glb`/`.fbx` writes its bind-pose `.obj` beside it), an
+  **Animated model** object draws a `.glb`/`.fbx` with its clips and wears its
+  `.mtl` through the per-object material override.
 - The **terrain is optional per scene** (`"terrain": { ..., "enabled": false }`
-  in the `.tyra`; `--dump` reports it as `"terrainRemoved": true`). With it
-  removed the scene has **no ground at all**: nothing is drawn and the game has
-  no floor, so the player, physics bodies and particles rest on the geometry the
-  scene places (a box, a plane, a model with collision) and fall through the
-  void anywhere else - and a Player or spawn point starts at its own authored
-  Y, not on a surface. The scene's width/depth still bound the world. Terrain
-  sculpting/painting, the ground bakes and **navigation AI** (the navmesh
-  rasterizes the ground, so agents have nowhere to walk) do not apply there.
-- An **area** is an invisible box (no geometry in the game). Other things
-  reference one by name instead of carrying a distance: a streaming layer's
-  auto zone, a mirror/portal/camera-feed target list (`catchArea`), and the
-  **In Area** flow trigger. A catch area resolves at build unless
-  `catchAreaLive` is set, in which case objects that can move join and leave
-  the list as they cross the boundary at runtime.
-- Every object can carry a **flow graph** (visual logic - tyra-flowgraph skill)
-  and **attached scripts** (your C++ classes - tyra-scripting skill).
-- Object references (in graphs, sequences, menus) are **by name**; keep names
+  in the `.tyra`; `--dump` reports `"terrainRemoved": true`). Without it there
+  is **no ground at all**: the player, physics bodies and particles rest only on
+  geometry the scene places and fall through the void elsewhere, a Player or
+  spawn point starts at its own authored Y, and terrain sculpting/painting, the
+  ground bakes and **navigation AI** (the navmesh rasterizes the ground) do not
+  apply. Width/depth still bound the world.
+- An **area** is an invisible box. Things reference it by name instead of
+  carrying a distance: a streaming layer's auto zone, a mirror/portal/camera-feed
+  target list (`catchArea`; resolved at build unless `catchAreaLive`, which lets
+  moving objects join/leave at runtime) and the **In Area** flow trigger.
+- Every object can carry a **flow graph** (tyra-flowgraph skill) and
+  **attached scripts** (tyra-scripting skill).
+- Object references (graphs, sequences, menus) are **by name**; keep names
   unique and stable. Object *ids* (`objects/<id>.json` filenames) are internal
   merge keys - never reference or reuse them.
-- A menu's **look** is a stylesheet, not fields: `menu-styles/<key>.menustyle`
-  (CSS-shaped - `panel`, `title`, `row`, `row:selected`, `row.myclass`, `list`,
-  `value`, `description`, `hint`, plus `@transition`), named by the menu's
-  `"style"` key. An empty `"style"` is the built-in Classic look. The menu's own
-  `accent` / `titleSize` / `entrySize` / `panelW` / `font` are the BASE the sheet
-  overrides, so a sheet only has to say what differs. A row may also carry
-  `"class"`, `"icon"`, `"desc"` and `"enabledWhen"` (a save value that greys the
-  row out and makes the cursor skip it), and the `"label"` action is a
-  non-selectable header/spacer row. Everything static is baked into
-  `res/menus/*.png` at build; menus scale themselves to the display mode.
-- Project-wide collections: music/sound lists, save values + save texts, menus,
-  HUD images/texts/**live bars**, color gradings, ambience presets, loading screens,
-  cutscene sequences, **credits rolls** and the **input map** (named input
-  actions + binding presets). `--dump` lists all of their names.
-- **A cutscene sequence carries presentation switches** (docs/cutscenes.md):
-  `"hideHud"` takes the HUD, the USE prompt AND the USE interaction off for the
-  duration (leave it off for a cutscene the player keeps playing under;
-  Display Text still draws, so subtitles keep working), and `"skippable"` makes
-  the `menu` action end it - which that cutscene then OWNS, so the pause menu
-  does not open on top of it. `"skipMode": 1` opens the project's skip screen
-  first: the one menu with `"skipMenu": true`, whose confirming row carries the
-  `"skip-cutscene"` action (anything that dismisses the menu declines).
-- **HUD elements can move without game code.** Images, baked texts and live
-  bars each carry an optional looped animation plus a show/hide transition;
-  bars can follow a numeric save value or be driven by **Set HUD Bar**. Use
-  **Set HUD Element Visible** for one element and **Play HUD Effect** for a
-  flash, bounce or shake. See `docs/hud-animation.md` for the fields and
-  runtime behaviour.
-- **Baked shadow decals** are the static directional shadow: an object's
-  `"shadowMode": 4` asks for one, and the editor traces it into a shared atlas
-  page and projects it onto whatever is under the caster. It is the only
-  shadow that reaches textured walls and imported models, it costs one draw
-  call per atlas page however many shadows there are, and it needs an explicit
-  bake (*Ambience Editor > Baked lighting*, or `--bake-shadows`) cached in
-  `.res-baked/shadow/`. The caster and its receivers must stand still; a
-  physics body, a carryable or an animated model is refused by name. The six
-  `bakedShadow*` keys in the project settings are the quality and the
-  pre-build opt-in. See `docs/shadows.md`.
-- **Ambience presets** may carry a **day/night cycle** (`"cycle"` inside the
-  preset in the `.tyra`): a time-of-day hour, sun and moon arcs, and a list of
-  colour keyframes. When enabled it OVERWRITES the preset's sky, light
-  direction/colour and fog colour at that hour - so editing `cycle.time` moves
-  every baked shadow, the AO bake and the GI bake, and stales the GI cache on
-  purpose. The moon disc and sun disc are baked into `res/hud/` at build.
-- **Credits rolls** (Tools > Credits Editor) are the end-credits screen: a flow
-  of headings, role/name rows, lines, images and page breaks that scrolls (or
-  plays as cards) over music, is skippable, and finishes by resuming, switching
-  scene, opening a menu or firing a flow event. Started by a menu row (action
-  "Play credits") or the Play Credits node; a roll owns the screen and the pad
-  while it plays, so nothing else runs behind it. A long roll can also be
-  imported from a plain text file.
-- **Comments** (type `comment`) are editor-only notes pinned to a place in the
-  scene: the prose lives in the object's `"comment"` key and reaches NOTHING -
-  no generated file, no bake, no asset. Read them (they usually say why
-  something in the scene is the way it is) and leave them alone unless asked;
-  the object itself is inert, with no geometry, collision or behaviour.
-- **Procedural volumes** (type `scatter` in the file - the display name changed,
-  the key did not) are procedural authoring regions: the object carries a node
-  graph (`procGraph` in its `objects/<id>.json`) that fills its box - scattered,
-  along a curve, or repeated exactly (Array / Radial Array) - and every build
-  bakes the result into merged static chunk meshes plus one generated Model
-  object per chunk. Those chunk objects carry `procSource` (the volume's id),
-  live in `res/models/.../procgen-*.obj` and are **rewritten wholesale by the
-  next bake** - never hand-edit them or reference them by name; edit the
-  volume's graph in the editor instead (*Tools > Procedural*). To give every
-  generated chunk a property (mesh LOD distance, baked lighting, reflections),
-  put an **ObjectSettings** node in the graph - a hand edit on one chunk does
-  not survive the next bake. A `--build` / `--refresh-gen` of such a project
-  rewrites the `.tyra`, which is expected.
-- A volume whose graph has `"runtime": true` is the other mode: the graph is
-  compiled into the game and evaluated on the console instead of baked, so it
-  produces NO chunk objects and no meshes at all. Only a subset of the node
-  library can run there (the editor lists what cannot, and codegen skips a
-  volume it cannot compile). The **Generate Volume** flow node re-runs one at
-  runtime with a fresh seed.
-- **Prefabs** are a project-wide list (`"prefabs"` in the `.tyra`): named groups
-  of scene objects - flow graphs included - stored in the prefab's own local
-  frame. Reference one BY NAME from a **Spawn Prefab** flow node or a **Pick
-  Prefab** procedural row; the editor's *Tools > Prefabs* window inserts copies
-  into a scene. An instance is not linked back to the prefab: inserted copies
-  are ordinary objects from then on.
+- An optional `editorGroup` string groups objects in the editor only (same
+  non-empty name = selected and transformed together). No runtime parent:
+  transforms stay world-space. When duplicating an assembly use a fresh group
+  name and remap its internal references to the copies.
+- A menu's **look** is a stylesheet, `menu-styles/<key>.menustyle`, named by
+  the menu's `"style"` key ("" = built-in Classic; tyra-menustyle skill). A row
+  may carry `"class"`, `"icon"`, `"desc"` and `"enabledWhen"` (a save value that
+  greys it out and makes the cursor skip it); the `"label"` action is a
+  non-selectable header/spacer row. Menus are baked into `res/menus/*.png`.
+- Project-wide collections: music/sound lists, save values + save texts,
+  **World Facts** (Tools > World Facts), menus, HUD images/texts/**live bars**,
+  color gradings, ambience presets, loading screens, cutscene sequences,
+  **credits rolls**, **prefabs** and the **input map**. `--dump` lists their
+  names.
+- **Buttons go through named input actions**: the Input Map binds each action
+  ("jump", "use", ...) to a pad button / key / mouse button per preset, and a
+  menu "Rebind key" row lets the player override it (persisted in a save
+  value). In graphs use the **On Action** trigger.
 - **Any text can splice in a button glyph**: `{{cross}}` draws the pad icon,
-  `{{action:jump}}` draws whatever that action is currently bound to. Works in
-  HUD texts, menu titles/labels, option labels, loading screens and Display Text
-  nodes; the pad set is seeded per project (Tools > UI Editor > Button icons).
-- **Buttons go through named input actions**, not raw pad buttons: the project's
-  Input Map binds each action ("jump", "sprint", "use", ...) to a pad button
-  and/or keyboard key and/or mouse button per preset, and a menu "Rebind key"
-  row lets the player override one at runtime (the override persists in a save
-  value). In graphs use the **On Action** trigger so logic follows the binding.
+  `{{action:jump}}` whatever that action is bound to (HUD texts, menus, option
+  labels, loading screens, Display Text).
+- **Cutscene sequences** (docs/cutscenes.md): `"hideHud"` removes the HUD, the
+  USE prompt and USE itself for the duration (Display Text still draws);
+  `"skippable"` lets the `menu` action end it (the pause menu then does not
+  open over it); `"skipMode": 1` first opens the menu with `"skipMenu": true`,
+  whose confirming row has the `"skip-cutscene"` action.
+- **HUD elements animate without code**: images, texts and bars each carry an
+  optional looped animation and a show/hide transition; bars follow a numeric
+  save value or **Set HUD Bar** (docs/hud-animation.md).
+- **Credits rolls** (Tools > Credits Editor): a scrolling or card-based roll
+  over music, skippable, ending by resuming, switching scene, opening a menu or
+  firing a flow event. Started by a menu row ("Play credits") or the Play
+  Credits node; it owns the screen and pad while it plays.
+- **Baked shadow decals** (`"shadowMode": 4`, docs/shadows.md): the static
+  directional shadow, traced into a shared atlas and projected onto whatever is
+  under the caster - the only shadow that reaches textured walls and imported
+  models, one draw per atlas page. Needs a bake (*Ambience Editor > Baked
+  lighting* or `--bake-shadows`); caster and receivers must stand still (physics
+  bodies, carryables and animated models are refused by name). Quality and the
+  pre-build opt-in are the `bakedShadow*` project settings.
+- **Ambience presets** may carry a **day/night cycle** (`"cycle"`): when
+  enabled it OVERWRITES the preset's sky, light and fog colour for its hour, so
+  editing `cycle.time` moves every baked shadow, AO and GI bake and stales the
+  GI cache on purpose.
+- **Comments** (type `comment`) are editor-only notes: the text in
+  `"comment"` reaches no generated file. Read them, leave them alone.
+- **Procedural volumes** (type `scatter` in the file) fill their box from a
+  node graph (`procGraph`; *Tools > Procedural*): scattered, along a curve, or
+  arrayed. Every build bakes stale ones into merged chunk meshes plus one
+  generated Model object per chunk (`procSource` = the volume's id,
+  `res/models/.../procgen-*.obj`), **rewritten wholesale by the next bake** -
+  never hand-edit or reference them; set per-chunk properties with an
+  **ObjectSettings** node in the graph. A build or `--refresh-gen` therefore may
+  rewrite the `.tyra`. With `"runtime": true` the graph is instead compiled into
+  the game and evaluated on the console (no chunks; only a subset of nodes can
+  run there); the **Generate Volume** flow node re-runs it with a fresh seed.
+  A Pick Asset / Pick Prefab pool row (`{"s", "v": [weight, min, max, dist]}`)
+  may add `"lod": "res/models/....obj"`: past `dist` units that model replaces
+  every instance of the row (a prefab as a whole; collision stays the near
+  geometry's). Prefab rows switch only in runtime volumes. The Output node's
+  `"mode": 1` ("Draw as: Instanced") draws Pick Asset copies as instances of
+  one shared mesh instead of baking chunk objects (no `procgen-*.obj`; the
+  build emits `inc/proc_instances.gen.hpp`) - for thousands of small repeated
+  models; lit by sun + ambient only.
+- **Prefabs** (`"prefabs"` in the `.tyra`): named groups of objects, graphs
+  included, in a local frame. Referenced BY NAME from **Spawn Prefab** or a
+  **Pick Prefab** procedural row; *Tools > Prefabs* inserts copies, which are
+  ordinary unlinked objects from then on.
 
-### Static foliage impostors
+### Distant versions (impostors)
 
-A static model object may store `impostor` (project-relative far OBJ) and
-`impostorDistance` (world units, 0 disables). The Tree Generator authors eight-view billboards automatically and sets
-`impostorBillboard: true` (format v40). This mode requires eight ordered view
-parts, upright rotation and equal positive X/Z scale. Leave the flag false for
-ordinary replacement meshes. The original `model` still owns collision. Far assets keep
-their own materials and must travel with the project. Do not replace `model` to
-change the distant appearance. Runtime geometry switches with 10% hysteresis.
-
-Properties > Bake impostor captures any supported static OBJ with its material
-override, Kd colours and cutout textures. Missing inputs and reflective/emissive
-materials fail visibly. Rebuild the game after baking; exported files are assets.
-
-Impostor format v41 adds `impostorViews` (4/8/16, defaults to 8). It must match
-the baked model part count; rebake and rebuild after changing it.
-
-## Object groups
-
-An optional `editorGroup` string on each object (format 43) identifies a flat,
-scene-local editor group. Equal nonempty names select and transform together.
-Groups have no runtime parent: position/rotation/scale remain world transforms.
-Use a fresh group name when duplicating an assembly; remap internal object
-references to its copies and retain external references.
+A static model object may store `impostor` (project-relative far `.obj`) and
+`impostorDistance` (world units, 0 = off); the original `model` still owns
+collision, and runtime switching has 10% hysteresis. Author it in *Properties >
+Distance and LOD > Distant version* (**Billboard** with 4/8/16 captured views,
+or **Hull proxy**), then rebuild. `impostorBillboard: true` (the Tree Generator
+sets it) needs exactly `impostorViews` (4/8/16, default 8) ordered view parts,
+upright rotation and equal positive X/Z scale; leave it false for an ordinary
+replacement mesh. Do not replace `model` to change the distant look. The baked
+files are assets and travel with the project.

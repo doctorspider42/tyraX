@@ -81,6 +81,208 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
   return b;
 }
 
+// --- the broad phase (docs/collision-boxes.md, "The broad phase") ------------
+// Every contact query against scene objects - the walker, sweepSphere and the
+// physics statics (and traceLine) - asks Tyra::BroadPhase (the engine,
+// physics/broad_phase) which objects may be near; their exact tests run on
+// those alone. The backend is the project's choice (SCENE_BROADPHASE, or per
+// scene SCENE_BROADPHASES: a
+// height-aware grid or a loose octree); this side only keeps each obstacle's
+// world box current: on the first query of a frame (g_frameStamp), at the
+// frame loop's refresh boundaries (after the script stage, after the
+// spinners) and after any spawn or (de)activation. Each box covers both
+// shapes an obstacle collides as - the full-rotation box (sweep, physics) and
+// the walker's upright yaw-only one.
+
+// Does the segment a -> a + d cross the box padded by `pad`? (slabs; verify)
+static bool broadPhaseSegmentHits(const float* a, const float* d,
+                                  const Tyra::BroadBox& b, float pad) {
+  float t0 = 0.0F, t1 = 1.0F;
+  for (int k = 0; k < 3; ++k) {
+    const float lo = b.mn[k] - pad, hi = b.mx[k] + pad;
+    if (fabsf(d[k]) < 1e-9F) {
+      if (a[k] < lo || a[k] > hi) return false;
+      continue;
+    }
+    float ta = (lo - a[k]) / d[k], tb = (hi - a[k]) / d[k];
+    if (ta > tb) { const float t = ta; ta = tb; tb = t; }
+    if (ta > t0) t0 = ta;
+    if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+void TerrainGame::broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const {
+  const CollisionBox cb = objectCollisionBox(o);
+  const V3 ax = boxRotate({1.0F, 0.0F, 0.0F}, o.data);
+  const V3 ay = boxRotate({0.0F, 1.0F, 0.0F}, o.data);
+  const V3 az = boxRotate({0.0F, 0.0F, 1.0F}, o.data);
+  const V3 c = boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+  const float cw[3] = {o.data.position[0] + c.x, o.data.position[1] + c.y,
+                       o.data.position[2] + c.z};
+  float h[3] = {
+      fabsf(ax.x) * cb.half[0] + fabsf(ay.x) * cb.half[1] + fabsf(az.x) * cb.half[2],
+      fabsf(ax.y) * cb.half[0] + fabsf(ay.y) * cb.half[1] + fabsf(az.y) * cb.half[2],
+      fabsf(ax.z) * cb.half[0] + fabsf(ay.z) * cb.half[1] + fabsf(az.z) * cb.half[2]};
+  // That is the box the sweep and the physics statics test (the full
+  // rotation). The walker's box mode stands the same box UPRIGHT about the
+  // same centre, turned by yaw alone (collidePlayer: a pitched/rolled box
+  // collides upright) - a long box rolled 90 degrees is tall here but long on
+  // the ground there. The world box holds both, so neither loses a candidate.
+  {
+    const float yaw = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
+    const float yc = fabsf(cosf(yaw)), ys = fabsf(sinf(yaw));
+    const float up[3] = {yc * cb.half[0] + ys * cb.half[2], cb.half[1],
+                         ys * cb.half[0] + yc * cb.half[2]};
+    for (int k = 0; k < 3; ++k) h[k] = fmaxf(h[k], up[k]);
+  }
+  // A collision MESH pushes the walker out of triangles up to 0.6 mesh units
+  // past its radius (CollisionMesh::resolveSphere's capture band).
+  float pad = kBroadPhaseMargin;
+  if (o.data.collision == 1) {
+    float s = 0.0F;
+    for (int k = 0; k < 3; ++k) s = fmaxf(s, fabsf(o.data.scale[k]));
+    pad += 0.6F * s;
+  }
+  for (int k = 0; k < 3; ++k) {
+    box.mn[k] = cw[k] - h[k] - pad;
+    box.mx[k] = cw[k] + h[k] + pad;
+  }
+}
+
+void TerrainGame::broadPhaseRefresh() const {
+  bpFrame = g_frameStamp;
+  // The active scene's backend: its own when a scene overrides one
+  // (SCENE_BROADPHASES, Scene Preferences > Collision), else the project's.
+  // A level load that changes it rebuilds the structure below.
+#ifdef SCENE_BROADPHASE_PER_SCENE
+  const auto kind = (Tyra::BroadPhase::Kind)
+      SCENE_BROADPHASES[currentScene >= 0 && currentScene < SCENE_COUNT ? currentScene : 0];
+#else
+  const auto kind = (Tyra::BroadPhase::Kind)SCENE_BROADPHASE;
+#endif
+  const int n = (int)runtimeObjects.size();
+  bool changed = false;
+  if (bpGen != sceneGeneration || (int)bpCache.size() != n ||
+      broadPhase.kind() != kind) {
+    if (broadPhase.kind() != kind) broadPhase = Tyra::BroadPhase(kind);
+    broadPhase.clear();
+    bpCache.assign((size_t)n, BroadPhaseCache());
+    bpGen = sceneGeneration;
+    changed = true;
+  }
+  // First bring every entry up to date and see whether the structure would
+  // change at all: an object came or went, started or stopped moving, or a
+  // placed box changed. A refresh boundary after a stage that moved nothing
+  // (or only what is already moving) then costs this walk, not a rebuild.
+  for (int i = 0; i < n; ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    BroadPhaseCache& e = bpCache[(size_t)i];
+    // physObstacle is the widest "can be touched" list (the walker's and the
+    // sweep's objectCollides is a subset): every consumer re-applies its own.
+    if (!o.active || !physObstacle(o.data)) {
+      changed = changed || e.present;
+      e.present = false;
+      continue;
+    }
+    const float key[12] = {o.data.position[0], o.data.position[1],
+                           o.data.position[2], o.data.rotation[0],
+                           o.data.rotation[1], o.data.rotation[2],
+                           o.data.scale[0],    o.data.scale[1],
+                           o.data.scale[2],    o.data.modelYaw,
+                           (float)o.data.model, (float)o.data.collision};
+    bool same = e.valid;
+    for (int k = 0; k < 12 && same; ++k) same = e.key[k] == key[k];
+    if (!same) {
+      // A first sighting is not a move: "moved" two frames ago, i.e. never.
+      e.movedAt = e.valid ? g_frameStamp : g_frameStamp - 2u;
+      for (int k = 0; k < 12; ++k) e.key[k] = key[k];
+      e.valid = true;
+      e.stale = true;
+    }
+    // Moving (a physics body, or moved this frame or the last): a candidate
+    // of every query until it settles - a placed box would lag it. By FRAME,
+    // not since the last refresh: something that moves every frame in a late
+    // stage (a vehicle) must not settle at an earlier boundary of the next
+    // frame and then move away from its box. Nothing reads a moving object's
+    // box, so it is rebuilt once, when it settles.
+    const bool moving = o.data.physics || g_frameStamp - e.movedAt <= 1u;
+    if (!moving && e.stale) {
+      broadPhaseBoxOf(o, e.box);
+      e.stale = false;
+      changed = true;
+    }
+    changed = changed || !e.present || moving != e.moving;
+    e.present = true;
+    e.moving = moving;
+  }
+  if (!changed) return;
+  broadPhase.begin(n);
+  for (int i = 0; i < n; ++i) {
+    const BroadPhaseCache& e = bpCache[(size_t)i];
+    if (e.present) broadPhase.set(i, e.box, e.moving);
+  }
+  broadPhase.commit();
+}
+
+void TerrainGame::broadPhaseNear(const Tyra::BroadBox& area,
+                                 std::vector<int>& out) const {
+  if (bpFrame != g_frameStamp) broadPhaseRefresh();
+  if (bpVerifyAll) {  // the verify run's brute-force side
+    out.clear();
+    for (int i = 0; i < (int)runtimeObjects.size(); ++i) out.push_back(i);
+    return;
+  }
+  broadPhase.queryBox(area, out);
+  if (kBroadPhaseVerify) broadPhaseVerify(&area, nullptr, nullptr, 0.0F, out);
+}
+
+void TerrainGame::broadPhaseAlong(const float* a, const float* b, float radius,
+                                  std::vector<int>& out) const {
+  if (bpFrame != g_frameStamp) broadPhaseRefresh();
+  if (bpVerifyAll) {
+    out.clear();
+    for (int i = 0; i < (int)runtimeObjects.size(); ++i) out.push_back(i);
+    return;
+  }
+  broadPhase.querySegment(a, b, radius, out);
+  if (kBroadPhaseVerify) broadPhaseVerify(nullptr, a, b, radius, out);
+}
+
+void TerrainGame::broadPhaseVerify(const Tyra::BroadBox* area, const float* a,
+                                   const float* b, float radius,
+                                   const std::vector<int>& out) const {
+  // Every active obstacle whose CURRENT box (not the cached one) reaches the
+  // area or the segment must be in `out`, which must be ascending.
+  for (size_t k = 1; k < out.size(); ++k)
+    if (out[k] <= out[k - 1]) TYRA_LOG("[BROADPHASE] result not ascending");
+  const float d[3] = {b ? b[0] - a[0] : 0.0F, b ? b[1] - a[1] : 0.0F,
+                      b ? b[2] - a[2] : 0.0F};
+  for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
+    const RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || !physObstacle(o.data)) continue;
+    Tyra::BroadBox bx;
+    broadPhaseBoxOf(o, bx);
+    bool reach = true;
+    if (area) {
+      for (int k = 0; k < 3; ++k)
+        reach = reach && bx.mn[k] <= area->mx[k] && bx.mx[k] >= area->mn[k];
+    } else {
+      reach = broadPhaseSegmentHits(a, d, bx, radius);
+    }
+    if (!reach) continue;
+    bool found = false;
+    for (int j : out) found = found || j == i;
+    if (!found) {
+      char line[96];
+      snprintf(line, sizeof(line), "[BROADPHASE] miss obj=%d (%s)", i,
+               area ? "area" : "segment");
+      TYRA_LOG(line);
+    }
+  }
+}
+
 
 
 // Debug "show collision boxes" (DEBUG_SHOW_COLLISION): the box every collider
@@ -194,6 +396,7 @@ void TerrainGame::renderCollisionBoxes() {
     batchInfoBag->shadingType = TyraShadingGouraud;
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
+    batchInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;  // batches + chunks carry them
   }
   if (!collisionBoxBag) {
     collisionBoxColorBag = std::make_unique<StaPipColorBag>();
@@ -207,7 +410,7 @@ void TerrainGame::renderCollisionBoxes() {
   collisionBoxVerts.bind(collisionBoxBag);
   collisionBoxBag->count = static_cast<u32>(collisionBoxVerts.size());
   collisionBoxBag->bboxVersion = ++g_bboxStamp;
-  stapip.core.render(collisionBoxBag.get());
+  renderWorldBag(collisionBoxBag.get());
 }
 
 
@@ -221,93 +424,143 @@ float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
 
 
 
-float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
-                               float dy, float dz, float maxDist, float radius,
-                               int skipIndex) const {
-  const float r = radius;
-  float best = maxDist;
+// Per-object box geometry for the sweeps, kept across calls and keyed on
+// everything objectCollisionBox and boxRotate read (the vehicle colliders'
+// VehColCache rule). Building it fresh for every object on every call - the
+// box, its rotated centre and three rotated half-extent vectors, each rotation
+// a handful of sinf/cosf - was ~0.3 ms of the frame on a PS2 for the ONE
+// chase-camera sweep, nearly all of it for objects nowhere near the boom.
+namespace {
+struct SweepBoxCache {
+  float key[12] = {};
+  float half[3] = {0.0F, 0.0F, 0.0F};
+  V3 cW = {0.0F, 0.0F, 0.0F};
+  float we[3] = {0.0F, 0.0F, 0.0F};  // the OBB's world AABB half-extents
+  bool valid = false;
+};
+std::vector<SweepBoxCache> g_sweepBoxCache;
+unsigned int g_sweepBoxGen = ~0u;
+}  // namespace
 
-  // Broad-phase key: the boom segment's AABB, expanded by the camera radius.
-  const float qx = px + dx * maxDist, qy = py + dy * maxDist,
-              qz = pz + dz * maxDist;
-  const float sminX = (px < qx ? px : qx) - r, smaxX = (px > qx ? px : qx) + r;
-  const float sminY = (py < qy ? py : qy) - r, smaxY = (py > qy ? py : qy) + r;
-  const float sminZ = (pz < qz ? pz : qz) - r, smaxZ = (pz > qz ? pz : qz) + r;
+// The boom segment's AABB, expanded by the sphere radius: the broad-phase key.
+TerrainGame::SweepSeg TerrainGame::sweepSegment(float px, float py, float pz,
+                                                float dx, float dy, float dz,
+                                                float maxDist, float r) const {
+  SweepSeg s;
+  s.p[0] = px, s.p[1] = py, s.p[2] = pz;
+  s.d[0] = dx, s.d[1] = dy, s.d[2] = dz;
+  s.r = r;
+  const float q[3] = {px + dx * maxDist, py + dy * maxDist, pz + dz * maxDist};
+  for (int k = 0; k < 3; ++k) {
+    s.mn[k] = (s.p[k] < q[k] ? s.p[k] : q[k]) - r;
+    s.mx[k] = (s.p[k] > q[k] ? s.p[k] : q[k]) + r;
+  }
+  return s;
+}
 
-  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
-    const RuntimeObject& o = runtimeObjects[oi];
-    if (oi == skipIndex) continue;  // the swept object itself
-    if (!o.active || !o.visible) continue;
-    // Markers, lights, decals, areas, volumes, belts and "collision: none"
-    // are not blockers - one list, shared with the walker (objectCollides).
-    if (!objectCollides(o.data)) continue;
-    // Portal pass-through for a swept body (a throw, the carried object,
-    // the carry whisker): the geometry the aimed opening is cut into opens
-    // up - collidePlayer's doorway rule, same function.
-    if (sweepPassOn && portalDoorwayOpens(o, sweepPassPlane, sweepPassPoint))
-      continue;
+// Narrow phase for one placed box: slab test in the box's local frame (the
+// frame is orthonormal, so the hit parameter is still a world distance).
+// Returns the hit distance when it is nearer than `best`, else `best`.
+float TerrainGame::sweepBoxHit(const SweepSeg& s, const SceneObjectData& d,
+                               float cx, float cy, float cz, float ex,
+                               float ey, float ez, float best) const {
+  const float r = s.r;
+  const V3 lo = boxInvRotate({s.p[0] - cx, s.p[1] - cy, s.p[2] - cz}, d);
+  const V3 ld = boxInvRotate({s.d[0], s.d[1], s.d[2]}, d);
+  float t0 = 0.0F, t1 = best;
+  bool miss = false;
+  auto slab = [&](float o1, float d1, float lo1, float hi1) {
+    if (miss) return;
+    if (d1 > 1e-6F || d1 < -1e-6F) {
+      const float inv = 1.0F / d1;
+      float ta = (lo1 - o1) * inv, tb = (hi1 - o1) * inv;
+      if (ta > tb) {
+        const float sw = ta;
+        ta = tb;
+        tb = sw;
+      }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+    } else if (o1 < lo1 || o1 > hi1) {
+      miss = true;  // parallel and outside the slab
+    }
+  };
+  slab(lo.x, ld.x, -ex - r, ex + r);
+  slab(lo.y, ld.y, -ey - r, ey + r);
+  slab(lo.z, ld.z, -ez - r, ez + r);
+  if (miss || t0 > t1) return best;
+  // t0 < 0 = the pivot is already inside this (inflated) box - e.g. the
+  // player brushing a wall. Ignore it rather than collapse the camera onto
+  // the head; a box we are standing in cannot usefully block the boom.
+  if (t0 < 0.0F) return best;
+  return t0 < best ? t0 : best;
+}
 
+// One object against the segment: the filters, the cached box, the broad
+// phase and the narrow phase. Returns the new best distance.
+float TerrainGame::sweepObject(const SweepSeg& s, int oi, float best) const {
+  const RuntimeObject& o = runtimeObjects[oi];
+  if (!o.active || !o.visible) return best;
+  // Markers, lights, decals, areas, volumes, belts and "collision: none"
+  // are not blockers - one list, shared with the walker (objectCollides).
+  if (!objectCollides(o.data)) return best;
+  // Portal pass-through for a swept body (a throw, the carried object,
+  // the carry whisker): the geometry the aimed opening is cut into opens
+  // up - collidePlayer's doorway rule, same function.
+  if (sweepPassOn && portalDoorwayOpens(o, sweepPassPlane, sweepPassPoint))
+    return best;
+
+  if (g_sweepBoxCache.size() != runtimeObjects.size() ||
+      g_sweepBoxGen != sceneGeneration) {
+    g_sweepBoxCache.assign(runtimeObjects.size(), SweepBoxCache{});
+    g_sweepBoxGen = sceneGeneration;
+  }
+  SweepBoxCache& sc = g_sweepBoxCache[(size_t)oi];
+  const float skey[12] = {o.data.rotation[0], o.data.rotation[1], o.data.rotation[2],
+                          o.data.scale[0], o.data.scale[1], o.data.scale[2],
+                          o.data.modelYaw, (float)o.data.model,
+                          (float)o.data.animModel, (float)o.data.type,
+                          (float)o.data.collision, o.dirty ? 1.0F : 0.0F};
+  bool same = sc.valid;
+  for (int k = 0; k < 12 && same; ++k) same = sc.key[k] == skey[k];
+  if (!same) {
     // The shared collision box, cast in the box's OWN frame - so a rotated
     // block stops the boom at its real faces instead of leaking through the
     // corners of an axis-aligned stand-in.
     const CollisionBox b = objectCollisionBox(o);
-    const float ex = b.half[0], ey = b.half[1], ez = b.half[2];
-    const V3 cW = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
-    const float cx = o.data.position[0] + cW.x;
-    const float cy = o.data.position[1] + cW.y;
-    const float cz = o.data.position[2] + cW.z;
-
-    // Broad phase: the OBB's own world AABB (rotated half-extent vectors summed
-    // per axis), inflated by r, vs the boom segment AABB. Conservative - it
-    // never rejects an object the local slab test could still hit (the old
-    // scale-box AABB was too small for a rotated block and leaked candidates).
-    const V3 hxv = boxRotate({ex, 0.0F, 0.0F}, o.data);
-    const V3 hyv = boxRotate({0.0F, ey, 0.0F}, o.data);
-    const V3 hzv = boxRotate({0.0F, 0.0F, ez}, o.data);
-    const float wex = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
-    const float wey = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
-    const float wez = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
-    if (cx + wex + r < sminX || cx - wex - r > smaxX ||
-        cy + wey + r < sminY || cy - wey - r > smaxY ||
-        cz + wez + r < sminZ || cz - wez - r > smaxZ)
-      continue;  // broad phase: nowhere near the boom
-
-    // Narrow phase: slab test in the box's local frame. The frame is
-    // orthonormal, so the hit parameter t is still a world-space distance.
-    const V3 lo = boxInvRotate({px - cx, py - cy, pz - cz}, o.data);
-    const V3 ld = boxInvRotate({dx, dy, dz}, o.data);
-    float t0 = 0.0F, t1 = best;
-    bool miss = false;
-    auto slab = [&](float o1, float d1, float lo1, float hi1) {
-      if (miss) return;
-      if (d1 > 1e-6F || d1 < -1e-6F) {
-        const float inv = 1.0F / d1;
-        float ta = (lo1 - o1) * inv, tb = (hi1 - o1) * inv;
-        if (ta > tb) {
-          const float s = ta;
-          ta = tb;
-          tb = s;
-        }
-        if (ta > t0) t0 = ta;
-        if (tb < t1) t1 = tb;
-      } else if (o1 < lo1 || o1 > hi1) {
-        miss = true;  // parallel and outside the slab
-      }
-    };
-    slab(lo.x, ld.x, -ex - r, ex + r);
-    slab(lo.y, ld.y, -ey - r, ey + r);
-    slab(lo.z, ld.z, -ez - r, ez + r);
-    if (miss || t0 > t1) continue;
-    // t0 < 0 = the pivot is already inside this (inflated) box - e.g. the
-    // player brushing a wall. Ignore it rather than collapse the camera onto
-    // the head; a box we are standing in cannot usefully block the boom.
-    if (t0 < 0.0F) continue;
-    if (t0 < best) best = t0;
+    for (int k = 0; k < 3; ++k) sc.half[k] = b.half[k];
+    sc.cW = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
+    // Broad-phase box: the OBB's own world AABB (rotated half-extent vectors
+    // summed per axis). Conservative - it never rejects an object the local
+    // slab test could still hit (the old scale-box AABB was too small for a
+    // rotated block and leaked candidates).
+    const V3 hxv = boxRotate({b.half[0], 0.0F, 0.0F}, o.data);
+    const V3 hyv = boxRotate({0.0F, b.half[1], 0.0F}, o.data);
+    const V3 hzv = boxRotate({0.0F, 0.0F, b.half[2]}, o.data);
+    sc.we[0] = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
+    sc.we[1] = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
+    sc.we[2] = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
+    for (int k = 0; k < 12; ++k) sc.key[k] = skey[k];
+    sc.valid = true;
   }
+  const float cx = o.data.position[0] + sc.cW.x;
+  const float cy = o.data.position[1] + sc.cW.y;
+  const float cz = o.data.position[2] + sc.cW.z;
+  const float r = s.r;
+  if (cx + sc.we[0] + r < s.mn[0] || cx - sc.we[0] - r > s.mx[0] ||
+      cy + sc.we[1] + r < s.mn[1] || cy - sc.we[1] - r > s.mx[1] ||
+      cz + sc.we[2] + r < s.mn[2] || cz - sc.we[2] - r > s.mx[2])
+    return best;  // broad phase: nowhere near the boom
+  return sweepBoxHit(s, o.data, cx, cy, cz, sc.half[0], sc.half[1], sc.half[2],
+                     best);
+}
 
-  // Terrain: march the surviving distance, then bisect to tighten the hit.
-  // `- r` keeps the eye a radius clear of the ground, and `lo` (the last
-  // known-free sample) is the conservative answer.
+// Terrain: march the surviving distance, then bisect to tighten the hit.
+// `- r` keeps the eye a radius clear of the ground, and `lo` (the last
+// known-free sample) is the conservative answer.
+float TerrainGame::sweepTerrain(const SweepSeg& s, float best) const {
+  const float px = s.p[0], py = s.p[1], pz = s.p[2];
+  const float dx = s.d[0], dy = s.d[1], dz = s.d[2], r = s.r;
   const float step = best * 0.125F;
   if (step > 1e-4F) {
     float prev = 0.0F;
@@ -329,6 +582,21 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     }
   }
   return best;
+}
+
+float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
+                               float dy, float dz, float maxDist, float radius,
+                               int skipIndex) const {
+  const SweepSeg s = sweepSegment(px, py, pz, dx, dy, dz, maxDist, radius);
+  float best = maxDist;
+  const float a[3] = {px, py, pz};
+  const float b[3] = {px + dx * maxDist, py + dy * maxDist, pz + dz * maxDist};
+  broadPhaseAlong(a, b, radius, bpNearSweep);
+  for (int oi : bpNearSweep) {
+    if (oi == skipIndex) continue;  // the swept object itself
+    best = sweepObject(s, oi, best);
+  }
+  return sweepTerrain(s, best);
 }
 
 
@@ -831,6 +1099,60 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
 
 
 
+// RGB-only update: scene/texture/shape changes must still call buildSkyDome.
+// One color span invalidates packets without invalidating geometry or bounds.
+bool TerrainGame::retintSkyDomeColors() {
+ if(!SKY_DOME)return false;
+#ifdef SKY_TEXTURES_ON
+  const bool textured = skyTex != nullptr;
+#else
+  const bool textured = false;
+#endif
+  const int stacks = textured ? 8 : 6, slices = textured ? 24 : 14;
+  // The zenith comes from skyTop*, seeded to the baked SKY_TOP_* and moved by
+  // the runtime cycle - so one dome build serves both.
+  if (skyTopR < 0.0F) skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
+  auto skyAt = [&](float t) {  // t: 0 = horizon, 1 = zenith
+    return Color(skyHorizonR + (skyTopR - skyHorizonR) * t,
+                 skyHorizonG + (skyTopG - skyHorizonG) * t,
+                 skyHorizonB + (skyTopB - skyHorizonB) * t, 128.0F);
+  };
+  // On a painted sky the gradient only TINTS: the ratio of the live colour to
+  // the one the scene was authored with (128 = the panorama as painted), so
+  // the authored hour shows the image untouched while the day/night cycle and
+  // Set Sky Color still darken or warm it.
+  auto tintAt = [&](float t) {
+    const Color live = skyAt(t);
+    auto ratio = [](float cur, float ref) {
+      const float r = ref > 1.0F ? cur / ref : 1.0F;
+      const float c = r * 128.0F;
+      return c > 255.0F ? 255.0F : (c < 0.0F ? 0.0F : c);
+    };
+    return Color(ratio(live.r, SKY_R + (SKY_TOP_R - SKY_R) * t),
+                 ratio(live.g, SKY_G + (SKY_TOP_G - SKY_G) * t),
+                 ratio(live.b, SKY_B + (SKY_TOP_B - SKY_B) * t), 128.0F);
+  };
+
+ const u32 count=static_cast<u32>(stacks*slices*6);
+ if(!skyDome.bag||!skyDome.infoBag||!skyDome.colorBag||
+    skyDome.bag->info!=skyDome.infoBag.get()||skyDome.bag->color!=skyDome.colorBag.get()||
+    skyDome.bag->count!=count||skyDome.vertices.size()!=count||skyDome.colors.size()!=count||
+    skyDome.bag->vertices!=skyDome.vertices.data()||skyDome.colorBag->many!=skyDome.colors.data())return false;
+#ifdef SKY_TEXTURES_ON
+ if(textured){if(!skyDome.texBag||skyDome.bag->texture!=skyDome.texBag.get()||skyDome.texBag->texture!=skyTex||skyDome.sts.size()!=count||skyDome.texBag->coordinates!=skyDome.sts.data())return false;}
+ else if(skyDome.bag->texture!=nullptr)return false;
+#else
+ if(skyDome.bag->texture!=nullptr)return false;
+#endif
+ auto colors=skyDome.colors.span(0,count);u32 v=0;
+ for(int st=0;st<stacks;++st){
+  const float t0=powf((float)st/stacks,SKY_ZENITH_EXP),t1=powf((float)(st+1)/stacks,SKY_ZENITH_EXP);
+  const Color c0=textured?tintAt(t0):skyAt(t0),c1=textured?tintAt(t1):skyAt(t1);
+  for(int sl=0;sl<slices;++sl){colors[v++]=c0;colors[v++]=c1;colors[v++]=c1;colors[v++]=c0;colors[v++]=c1;colors[v++]=c0;}
+ }
+ return true;
+}
+
 void TerrainGame::buildSkyDome() {
   if (!SKY_DOME) return;
 
@@ -947,11 +1269,6 @@ void TerrainGame::buildSkyDome() {
   skyDome.infoBag->dynLightPick = false;
   // ...and for the same reason it cannot be described to the BLSS upscaler:
   // a shell around the eye has no screen bounding box that means anything.
-  // Its package boxes wrap the near plane, so each one reports "the frame,
-  // fully covered, at the nearest representable depth" and flattens coverage,
-  // depth and depthGrad wherever it lands. Measured: with the dome in, the
-  // widest proxy of an `fpp` frame was the top 106 rows of the screen.
-  skyDome.infoBag->blssProxy = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colors.bind(skyDome.colorBag);
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -1402,6 +1719,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
+  if ((size_t)index < g_colStaticObj.size() && g_colStaticObj[(size_t)index])
+    g_colStaticRebuilt = true;  // the vehicle grid re-places its static half
   g.coarseBoxValid = false;
   g.reflectionProxy.reset();
   g.matrixMode = localSpace;
@@ -1417,6 +1736,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   if (o.data.collision == 3) {
     g.parts.clear();
     g.outlineVerts.clear();
+    g_bakeLocal = false;  // a global: never leave it set for the next bake
     return;
   }
 
@@ -1559,6 +1879,15 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // wrote. Staged inside the loops instead.
     for (GeoPart& part : g.parts) part.litNormals.clear();
   }
+  // Baked static lamps (BAKE_STATIC_LAMPS): a world-space bake of a model or
+  // a shaded primitive carries their light in its vertex colours, and its
+  // bags then skip them in the per-bag pick. A matrix-path or dynamically lit
+  // object keeps every lamp live, and so do the builders below that write
+  // their own colours (mirrors, portals, projected decals).
+  const bool lampBaked = BAKE_STATIC_LAMPS && !localSpace && !dynLit &&
+                         (o.data.type == 5 || (o.data.type >= 0 && o.data.type <= 3) ||
+                          o.data.type == 12);
+  g_lampBakeHere = lampBaked;
 
   if (o.data.type == 5 && g.shared) {
     bakeSharedObject(index, *gm);
@@ -1585,21 +1914,39 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       const bool hasAo = geoAo.size() * 8 == geo.size();
       g_litNormals = dynLit ? &part.litNormals : nullptr;
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
-      // Exact capacity up front: a push_back-grown vector carries up to as
-      // much slack again as it holds, and a solo bake keeps it for life.
-      part.vertices.reserve(geo.size() / 8);
-      part.colors.reserve(geo.size() / 8);
-      part.sts.reserve(geo.size() / 8);
-      if (g_litNormals) g_litNormals->reserve(geo.size() / 8);
-      if (g_envNormals) g_envNormals->reserve(geo.size() / 8);
-      for (size_t i = 0; i + 7 < geo.size(); i += 8) {
-        const float* v = &geo[i];
-        pushVert(part.vertices, part.colors, part.sts, visualData,
-                 {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
-                 textured, hasAo ? geoAo[i / 8] : (unsigned char)255,
-                 src.ke);
+      // The far-to-near switch baked these arrays over the last few frames
+      // (advanceNearStage) with the same function and inputs as the branch
+      // below - take them instead of baking the part again here.
+      const bool fast = !billboard && directionalOnlyBake();
+      if (fast && g.nearStageDone && pi < (int)g.nearStage.size() &&
+          g.nearStage[pi].vertices.size() * 8 == geo.size() / 8 * 8) {
+        part.vertices.swap(g.nearStage[pi].vertices);
+        part.colors.swap(g.nearStage[pi].colors);
+        part.sts.swap(g.nearStage[pi].sts);
+      } else if (fast) {
+        pushModelPartRange(part.vertices, part.colors, part.sts, visualData,
+                           geo, 0, geo.size() / 8, src.kd, textured, src.ke);
+      } else {
+        // Exact capacity up front: a push_back-grown vector carries up to as
+        // much slack again as it holds, and a solo bake keeps it for life.
+        part.vertices.reserve(geo.size() / 8);
+        part.colors.reserve(geo.size() / 8);
+        part.sts.reserve(geo.size() / 8);
+        if (g_litNormals) g_litNormals->reserve(geo.size() / 8);
+        if (g_envNormals) g_envNormals->reserve(geo.size() / 8);
+        for (size_t i = 0; i + 7 < geo.size(); i += 8) {
+          const float* v = &geo[i];
+          pushVert(part.vertices, part.colors, part.sts, visualData,
+                   {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
+                   textured, hasAo ? geoAo[i / 8] : (unsigned char)255,
+                   src.ke);
+        }
       }
     }
+    // Consumed above, or stale: this bake is the object's truth either way.
+    g.nearStage.clear();
+    g.nearStaging = g.nearStageDone = false;
+    g.nearStagePart = g.nearStageVert = 0;
     g_envNormals = nullptr;
   } else {
     // Primitives, decals and every other builder emit triangle lists.
@@ -1711,6 +2058,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   g_giLightmap = false;
   g_giProbeShade = false;
   g_litNormals = nullptr;
+  g_lampBakeHere = false;
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
@@ -1769,6 +2117,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // Reset on every rebuild (the bag may have been created under the other
     // mode).
     part.infoBag->model = (g.matrixMode || g.shared) ? &g.objMat : &model;
+    part.infoBag->dynLightSkipBaked = lampBaked;
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
@@ -1793,6 +2142,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
           if (r.object == fd.src) { ftex = r.texture; break; }
       if (ftex) {
         tex = ftex;
+        part.infoBag->dynLightSkipBaked = false;  // colours flattened below
         auto c128 = [](float v) {
           return v * 128.0F > 255.0F ? 255.0F : v * 128.0F;
         };
@@ -2148,7 +2498,66 @@ void TerrainGame::renderReflectionProxy(int index) {
     p->bag->bboxVersion = ++g_bboxStamp;
     g.reflectionProxy = std::move(p);
   }
-  if (g.reflectionProxy->bag) stapip.core.render(g.reflectionProxy->bag.get());
+  if (g.reflectionProxy->bag) renderObjectBag(index, g.reflectionProxy->bag.get());
+}
+
+
+
+// Whether this object's full model can be baked ahead of its far-to-near
+// switch (advanceNearStage). Conservative on purpose: only when every part is
+// sure to take directionalOnlyBake() inside rebuildObjectGeometry - no probe
+// grid, point light, emissive or baked lamp in the scene, no prelit, lit or
+// reflective part. Anything else switches the old way, in one frame.
+bool TerrainGame::nearStageEligible(int index) const {
+  const SceneObjectData& d = runtimeObjects[index].data;
+  if (d.type != 5 || d.model < 0 || d.model >= (int)gameModels.size() ||
+      d.collision == 3 || d.prelit != 0 || d.dynLit != 0)
+    return false;
+  if (SCENE_PROBES != nullptr || !g_scenePointLights.empty() ||
+      (SCENE_EMIS != nullptr && SCENE_EMIS_COUNT > 0) ||
+      (BAKE_STATIC_LAMPS && !g_bakedLamps.empty()))
+    return false;
+  for (const GameModelPart& p : gameModels[d.model].parts)
+    if (p.reflTexture) return false;
+  return true;
+}
+
+
+
+// Bakes up to `vertBudget` more vertices of the full model into the object's
+// near stage, part by part, and spends them from the budget. True once every
+// part is complete; rebuildObjectGeometry then swaps the arrays in.
+bool TerrainGame::advanceNearStage(int index, int& vertBudget) {
+  ObjectGeometry& g = objectGeometry[index];
+  const SceneObjectData& d = runtimeObjects[index].data;
+  const GameModel& gm = gameModels[d.model];
+  if (g.nearStage.size() != gm.parts.size()) g.nearStage.resize(gm.parts.size());
+  while (vertBudget > 0 && g.nearStagePart < gm.parts.size()) {
+    const GameModelPart& src = gm.parts[g.nearStagePart];
+    // The same list/strip choice as rebuildObjectGeometry.
+    const bool useStrip = src.stripRun != 0 && !src.stripVerts.empty() &&
+                          src.stripRun <= minPackageSize();
+    const std::vector<float>& geo = useStrip ? src.stripVerts : src.verts;
+    const size_t total = geo.size() / 8;
+    GeoPart& part = g.nearStage[g.nearStagePart];
+    if (g.nearStageVert == 0) {
+      part.vertices.reserve(total);
+      part.colors.reserve(total);
+      part.sts.reserve(total);
+    }
+    size_t last = g.nearStageVert + (size_t)vertBudget;
+    if (last > total) last = total;
+    pushModelPartRange(part.vertices, part.colors, part.sts, d, geo,
+                       g.nearStageVert, last, src.kd, src.texture != nullptr,
+                       src.ke);
+    vertBudget -= (int)(last - g.nearStageVert);
+    g.nearStageVert = last;
+    if (last >= total) {
+      ++g.nearStagePart;
+      g.nearStageVert = 0;
+    }
+  }
+  return g.nearStagePart >= gm.parts.size();
 }
 
 
@@ -2327,6 +2736,9 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       // baked at promotion; objMat applies the motion to every tier alike.
       g_bakeLocal = g.matrixMode;
       g_envNormals = part.envBag ? &tier.envNormals : nullptr;
+      // The tier shares tier 0's info bag, so it must carry the baked lamps
+      // exactly when tier 0 does (rebuildObjectGeometry's lampBaked).
+      g_lampBakeHere = part.infoBag && part.infoBag->dynLightSkipBaked;
       const bool textured = src.texture != nullptr;
       for (size_t k = 0; k + 7 < sv.size(); k += 8) {
         const float* v = &sv[k];
@@ -2335,8 +2747,11 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
                  textured, 255, src.ke);
       }
       // ...and hand every global back: g_bakeLocal used to stay set after a
-      // matrix-path tier, for whatever baked next (a static batch).
+      // matrix-path tier, for whatever baked next (a static batch rebuilt
+      // after a parked car baked its far tier put every member at the world
+      // origin).
       resetModelShading();
+      g_lampBakeHere = false;
       if (tier.vertices.empty()) return;  // nothing to show - keep tier 0
       if (part.envBag) {
         tier.envColors.assign(tier.vertices.size(),
@@ -2500,6 +2915,9 @@ void TerrainGame::buildStaticBatchList() {
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
+  // Batches and generated chunks carry the baked static lamps in their
+  // vertex colours (re-stated per scene load, not only at creation).
+  batchInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
   // Cell width: a quarter of the map on big maps (a 2048-unit map gets a
   // 4x4 grid), but never below 48 units - on a small map a finer grid (or
   // one straddling the origin) splits a handful of objects into
@@ -2560,6 +2978,9 @@ void TerrainGame::buildStaticBatchList() {
     int best = -1;
     float bestD2 = 0.0F;
     for (size_t li = 0; li < g_dynLights.size(); ++li) {
+      // A baked static lamp is not a pick at all for a batch - the batch's
+      // vertex colours carry it - so it splits nothing (BAKE_STATIC_LAMPS).
+      if (g_dynLights[li].baked) continue;
       const SceneObjectData& L = SCENE_OBJECTS[g_dynLights[li].objIndex];
       if (L.lightRadius <= 0.0F) continue;
       const float dx = L.position[0] - d.position[0];
@@ -2579,18 +3000,21 @@ void TerrainGame::buildStaticBatchList() {
   // the nearest member's number would silently extend every other member's.
   // Objects that leave it at 0 group exactly as they did before.
   auto addMember = [&](int object, int part, Texture* texture, int cx, int cz,
-                       float dd, int lamp, unsigned int stripRun) {
+                       float dd, int lamp, unsigned int stripRun,
+                       bool reflected) {
     int bi = -1;
     for (int b = 0; b < (int)staticBatches.size(); ++b)
       if (staticBatches[b].texture == texture && keyX[b] == cx &&
           keyZ[b] == cz && staticBatches[b].drawDistance == dd &&
-          keyL[b] == lamp && staticBatches[b].stripRun == stripRun) {
+          keyL[b] == lamp && staticBatches[b].stripRun == stripRun &&
+          staticBatches[b].reflected == reflected) {
         bi = b;
         break;
       }
     if (bi < 0) {
       staticBatches.emplace_back();
       staticBatches.back().texture = texture;
+      staticBatches.back().reflected = reflected;
       staticBatches.back().drawDistance = dd;
       staticBatches.back().stripRun = stripRun;
       keyX.push_back(cx);
@@ -2636,7 +3060,7 @@ void TerrainGame::buildStaticBatchList() {
       if (reflective || gm.parts.empty()) continue;
       for (int pi = 0; pi < (int)gm.parts.size(); ++pi)
         addMember(i, pi, gm.parts[pi].texture, cx, cz, d.drawDistance, lamp,
-                  gm.parts[pi].stripRun);
+                  gm.parts[pi].stripRun, d.reflected != 0);
     } else {
       if (d.material >= 0 &&
           (d.material >= (int)gameMaterials.size() ||
@@ -2644,7 +3068,8 @@ void TerrainGame::buildStaticBatchList() {
         continue;
       Texture* texture =
           d.material >= 0 ? gameMaterials[d.material].texture : nullptr;
-      addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u);
+      addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u,
+                d.reflected != 0);
     }
   }
   // A model is skipped by the solo path as ONE object, so batching it is also
@@ -2746,6 +3171,12 @@ void TerrainGame::buildStaticBatchList() {
 // keeps reused pointers from resurrecting stale boxes.
 void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   b.dirty = false;
+  // A batch is world space by definition, whatever the last bake left in
+  // the global (see applyGeoLod's tier bake).
+  g_bakeLocal = false;
+  // The streams are about to change: hand them back first (see the
+  // immutableStreams note where the bag is made).
+  if (b.bag) b.bag->releaseImmutableStreams();
   b.vertices.clear();
   b.colors.clear();
   b.sts.clear();
@@ -2756,6 +3187,9 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   // rebuildObjectGeometry left set would shade a whole batch by accident.
   g_giLightmap = false;
   g_giProbeShade = SCENE_PROBES != nullptr;
+  // Baked static lamps land in the batch's vertex colours (batchInfoBag skips
+  // them in the pick - see buildStaticBatchList).
+  g_lampBakeHere = BAKE_STATIC_LAMPS;
   // Strip or list for the WHOLE batch, decided before a single vertex is
   // emitted. It has to be all-or-nothing: the combined array carries one
   // topology, so emitting one member's strip beside another's list would hand
@@ -2890,6 +3324,7 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   g_aoOff = false;
   g_prelitTex = false;
   g_giProbeShade = false;
+  g_lampBakeHere = false;
   if (b.vertices.empty()) {
     b.bag.reset();
     return;
@@ -2906,6 +3341,11 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     b.bag->color = b.colorBag.get();
     b.bag->texture = nullptr;
     b.bag->lighting = nullptr;
+    // Static geometry: the frame recorder may REF these arrays in place
+    // instead of copying them into the frame arena every frame
+    // (docs/stapip-stamps.md, "Immutable streams"). rebuildStaticBatch
+    // releases them before it touches them; destroying the bag does too.
+    b.bag->immutableStreams = true;
   }
   b.colors.bind(b.colorBag);
   b.vertices.bind(b.bag);
@@ -3250,11 +3690,39 @@ void TerrainGame::procBlockVertexAo(float x, float y, float z,
 void TerrainGame::procAddMergedObject(int owner, int instance,
                                       const SceneObjectData& d,
                                       unsigned char faces,
-                                      const unsigned char* blockAo) {
+                                      const unsigned char* blockAo,
+                                      int lodTier, float lodDist,
+                                      const float* lodAnchor) {
   const float cell =
       owner >= 0 ? procrt::VOLUMES[owner].cell : 100000.0F;  // one bag per prefab
-  const int cx = (int)floorf(d.position[0] / cell);
-  const int cz = (int)floorf(d.position[2] / cell);
+  // A prefab instance's members land in the cell of the INSTANCE's origin
+  // (lodAnchor), never each member's own position, and Y joins the key. Two
+  // reasons, one measured: a distant-version switch is decided per chunk, so
+  // a whole room must switch together; and on a physical PS2 the cube example
+  // ran 25.4 -> 8.8 ms of SCENE (25 -> 50 fps) from this alone - chunks keyed
+  // by member position spanned all three floors and crossed the edge of the
+  // view, which the EE then clips triangle by triangle, while a room-sized
+  // chunk is mostly wholly in or wholly out (docs/procedural-runtime.md).
+  if (lodTier >= 0 && !lodAnchor) lodTier = -1;
+  const float* at = lodAnchor ? lodAnchor : d.position;
+  const int cx = (int)floorf(at[0] / cell);
+  const int cy = lodAnchor ? (int)floorf(at[1] / cell) : 0;
+  const int cz = (int)floorf(at[2] / cell);
+  // The group's one reference point (see ProcLodRef): the origin of the
+  // first instance in the cell, so every chunk of the group measures the
+  // same distance whichever instance created it.
+  float lodRef[3] = {at[0], at[1], at[2]};
+  if (lodTier >= 0 && owner >= 0) {
+    bool found = false;
+    for (const ProcLodRef& r : procLodRefs)
+      if (r.owner == owner && r.cx == cx && r.cy == cy && r.cz == cz) {
+        for (int a = 0; a < 3; ++a) lodRef[a] = r.p[a];
+        found = true;
+        break;
+      }
+    if (!found)
+      procLodRefs.push_back({owner, cx, cy, cz, {at[0], at[1], at[2]}});
+  }
 
   // Analytic lights are pruned PER OBJECT (pushVert reads the g_*Local lists),
   // exactly as rebuildStaticBatch does for its members - collecting once for a
@@ -3316,8 +3784,12 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
   auto chunkFor = [&](int model, int part, int material) -> ProcChunk& {
     for (ProcChunk& c : procChunks)
       if (c.owner == owner && c.instance == instance && c.model == model &&
-          c.part == part && c.material == material && c.cx == cx && c.cz == cz) {
+          c.part == part && c.material == material && c.cx == cx && c.cz == cz &&
+          c.lodTier == lodTier && c.cy == cy &&
+          (lodTier < 0 || c.lodDist == lodDist)) {
         c.smooth = c.smooth || wantSmooth;
+        // About to grow its arrays: release them first (immutableStreams).
+        if (c.bag) c.bag->releaseImmutableStreams();
         return c;
       }
     procChunks.emplace_back();
@@ -3330,7 +3802,11 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
     c.material = material;
     c.cx = cx;
     c.cz = cz;
+    c.cy = cy;
     c.drawDist = owner >= 0 ? procrt::VOLUMES[owner].drawDist : 0.0F;
+    c.lodTier = lodTier;
+    c.lodDist = lodDist;
+    for (int a = 0; a < 3; ++a) c.lodRef[a] = lodRef[a];
     return c;
   };
 
@@ -3395,6 +3871,288 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
 
 
 
+// --- Instanced scatter (docs/procedural-generation.md, "Instanced") ---------
+// The geometry every copy of `model` shares: model-local, unscaled, one entry
+// per texture its parts use. Colours are baked once per yaw bucket, with the
+// scene's directional light and ambient only - a copy has no position of its
+// own at bake time, so probe GI, ambient occlusion and point/baked lamps are
+// not on instanced copies (the price the Output tooltip states).
+int TerrainGame::procInstGeoRange(int model, int* count) {
+  *count = 0;
+  if (model < 0 || model >= (int)gameModels.size()) return -1;
+  if (procInstGeoFirst.size() < gameModels.size()) {
+    procInstGeoFirst.resize(gameModels.size(), -1);
+    procInstGeoCount.resize(gameModels.size(), 0);
+  }
+  if (procInstGeoFirst[(size_t)model] >= 0) {
+    *count = procInstGeoCount[(size_t)model];
+    return procInstGeoFirst[(size_t)model];
+  }
+  const GameModel& gm = gameModels[(size_t)model];
+  std::vector<Tyra::Texture*> textures;
+  for (const GameModelPart& p : gm.parts)
+    if (!p.verts.empty() &&
+        std::find(textures.begin(), textures.end(), p.texture) == textures.end())
+      textures.push_back(p.texture);
+  const int first = (int)procInstGeo.size();
+  // The bake's pose: far above everything, so no point light, emissive pool
+  // or AO occluder reaches it, and local-space output (g_bakeLocal).
+  g_aoAtlas = false;
+  g_emisAtlas = false;
+  g_aoSts = nullptr;
+  g_aoOff = true;
+  g_giLightmap = false;
+  g_giProbeShade = false;
+  g_litNormals = nullptr;
+  g_envNormals = nullptr;
+  g_bakeLocal = true;
+  aoCollectLocal(0.0F, 1.0e6F, 0.0F, 0.0F, -1);
+  emisCollectLocal(0.0F, 1.0e6F, 0.0F, 0.0F, -1);
+  SceneObjectData d{};
+  d.type = 5;
+  d.model = model;
+  d.position[1] = 1.0e6F;
+  for (int a = 0; a < 3; ++a) d.scale[a] = d.color[a] = 1.0F;
+  for (Tyra::Texture* tex : textures) {
+    auto g = std::make_unique<ProcInstGeo>();
+    g->model = model;
+    for (int b = 0; b < kInstYawBuckets; ++b) {
+      d.rotation[1] = 360.0F * (float)b / (float)kInstYawBuckets;
+      for (const GameModelPart& src : gm.parts) {
+        if (src.texture != tex || src.verts.empty()) continue;
+        const bool textured = src.texture != nullptr;
+        for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
+          const float* v = &src.verts[i];
+          pushVert(g->vertices[b], g->colors[b], g->sts[b], d,
+                   {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
+                   textured, 255, src.ke);
+        }
+      }
+    }
+    for (size_t i = 0; i < g->vertices[0].size(); ++i) {
+      const Vec4& v = g->vertices[0][i];
+      const float r = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+      if (r > g->radius) g->radius = r;
+    }
+    g->identity.identity();
+    g->info = std::make_unique<StaPipInfoBag>();
+    g->info->model = &g->identity;  // renderInstances supplies the real ones
+    g->info->shadingType = TyraShadingGouraud;
+    g->info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    g->info->fullClipChecks = true;
+    g->info->dynLightSkipBaked = BAKE_STATIC_LAMPS;
+    for (int b = 0; b < kInstYawBuckets; ++b) {
+      if (tex) {
+        g->texBag[b] = std::make_unique<StaPipTextureBag>();
+        g->texBag[b]->texture = tex;
+        g->sts[b].bind(g->texBag[b]);
+      }
+      g->colorBag[b] = std::make_unique<StaPipColorBag>();
+      g->bag[b] = std::make_unique<StaPipBag>();
+      g->bag[b]->info = g->info.get();
+      g->bag[b]->color = g->colorBag[b].get();
+      g->bag[b]->lighting = nullptr;
+      g->bag[b]->texture = tex ? g->texBag[b].get() : nullptr;
+      g->colors[b].bind(g->colorBag[b]);
+      g->vertices[b].bind(g->bag[b]);
+      // One stamp per array, never bumped: every copy of the bucket shares
+      // the package-bbox and baked-stream entries (the wheels' trap,
+      // docs/wheel-rebake-skip.md).
+      g->bag[b]->bboxVersion = ++g_bboxStamp;
+      g->bag[b]->immutableStreams = true;
+    }
+    procInstGeo.push_back(std::move(g));
+  }
+  g_bakeLocal = false;
+  procInstGeoFirst[(size_t)model] = first;
+  procInstGeoCount[(size_t)model] = (int)procInstGeo.size() - first;
+  *count = procInstGeoCount[(size_t)model];
+  return first;
+}
+
+// One copy of `d.model` (position, rotation, uniform scale). Collision, when
+// asked for, is the conservative world box of the model's bounds - not the
+// merged path's scale-sized box, which is a primitive's size, not a model's.
+void TerrainGame::procAddInstance(int owner, const SceneObjectData& d,
+                                  int lodModel, float lodDist, bool collide) {
+  if (d.model < 0 || d.model >= (int)gameModels.size()) return;
+  ProcInst p;
+  const float s = d.scale[0];
+  const V3 ax = rotated({s, 0.0F, 0.0F}, d.rotation);
+  const V3 ay = rotated({0.0F, s, 0.0F}, d.rotation);
+  const V3 az = rotated({0.0F, 0.0F, s}, d.rotation);
+  p.axes[0] = ax.x, p.axes[1] = ax.y, p.axes[2] = ax.z;
+  p.axes[3] = ay.x, p.axes[4] = ay.y, p.axes[5] = ay.z;
+  p.axes[6] = az.x, p.axes[7] = az.y, p.axes[8] = az.z;
+  p.x = d.position[0];
+  p.y = d.position[1];
+  p.z = d.position[2];
+  p.model = (short)d.model;
+  p.lodModel = (short)lodModel;
+  p.lodDist2 = lodModel >= 0 ? lodDist * lodDist : 0.0F;
+  float yaw = fmodf(d.rotation[1], 360.0F);
+  if (yaw < 0.0F) yaw += 360.0F;
+  p.bucket = (unsigned char)((int)floorf(yaw / (360.0F / kInstYawBuckets) + 0.5F) %
+                             kInstYawBuckets);
+  procInsts.push_back(p);
+  if (!collide) return;
+  const GameModel& gm = gameModels[(size_t)d.model];
+  StaticBox b;
+  for (int a = 0; a < 3; ++a) {
+    b.mn[a] = 1.0e30F;
+    b.mx[a] = -1.0e30F;
+  }
+  for (int k = 0; k < 8; ++k) {
+    const float lx = k & 1 ? gm.mx[0] : gm.mn[0];
+    const float ly = k & 2 ? gm.mx[1] : gm.mn[1];
+    const float lz = k & 4 ? gm.mx[2] : gm.mn[2];
+    const float w[3] = {p.x + ax.x * lx + ay.x * ly + az.x * lz,
+                        p.y + ax.y * lx + ay.y * ly + az.y * lz,
+                        p.z + ax.z * lx + ay.z * ly + az.z * lz};
+    for (int a = 0; a < 3; ++a) {
+      if (w[a] < b.mn[a]) b.mn[a] = w[a];
+      if (w[a] > b.mx[a]) b.mx[a] = w[a];
+    }
+  }
+  b.owner = (short)owner;
+  b.instance = -1;
+  procColliders.push_back(b);
+}
+
+// Buckets the copies added since `from` into cells of `cell` units (the
+// Output node's chunk size): the frustum and draw-distance tests run per cell
+// first, so a copy outside every visible cell costs nothing per frame.
+void TerrainGame::procFinishInstances(int owner, float cell, float drawDist,
+                                      int from) {
+  if (cell < 1.0F) cell = 1.0F;
+  const int n = (int)procInsts.size() - from;
+  if (n <= 0) return;
+  auto key = [cell](const ProcInst& p) {
+    const int cx = (int)floorf(p.x / cell), cz = (int)floorf(p.z / cell);
+    return ((long long)cx << 32) ^ (unsigned int)cz;
+  };
+  std::sort(procInsts.begin() + from, procInsts.end(),
+            [&](const ProcInst& a, const ProcInst& b) { return key(a) < key(b); });
+  int start = from;
+  for (int i = from; i <= (int)procInsts.size(); ++i) {
+    if (i < (int)procInsts.size() && i > start &&
+        key(procInsts[(size_t)i]) == key(procInsts[(size_t)start]))
+      continue;
+    if (i == start) continue;
+    ProcInstCell c;
+    c.owner = owner;
+    c.drawDist = drawDist;
+    c.first = start;
+    c.count = i - start;
+    for (int a = 0; a < 3; ++a) {
+      c.mn[a] = 1.0e30F;
+      c.mx[a] = -1.0e30F;
+    }
+    for (int k = start; k < i; ++k) {
+      const ProcInst& p = procInsts[(size_t)k];
+      int gn = 0;
+      const int g0 = procInstGeoRange(p.model, &gn);
+      float r = 0.0F;
+      for (int g = 0; g0 >= 0 && g < gn; ++g)
+        if (procInstGeo[(size_t)(g0 + g)]->radius > r)
+          r = procInstGeo[(size_t)(g0 + g)]->radius;
+      const float s = sqrtf(p.axes[0] * p.axes[0] + p.axes[1] * p.axes[1] +
+                            p.axes[2] * p.axes[2]);
+      r *= s;
+      const float pc[3] = {p.x, p.y, p.z};
+      for (int a = 0; a < 3; ++a) {
+        if (pc[a] - r < c.mn[a]) c.mn[a] = pc[a] - r;
+        if (pc[a] + r > c.mx[a]) c.mx[a] = pc[a] + r;
+      }
+    }
+    procInstCells.push_back(c);
+    start = i;
+  }
+}
+
+void TerrainGame::procClearInstances(int owner) {
+  // Cells of other owners keep their ranges valid only if nothing before them
+  // moves, so compact the copies and re-point every surviving cell.
+  std::vector<ProcInst> kept;
+  std::vector<ProcInstCell> cells;
+  for (const ProcInstCell& c : procInstCells) {
+    if (c.owner == owner) continue;
+    ProcInstCell nc = c;
+    nc.first = (int)kept.size();
+    kept.insert(kept.end(), procInsts.begin() + c.first,
+                procInsts.begin() + c.first + c.count);
+    cells.push_back(nc);
+  }
+  procInsts.swap(kept);
+  procInstCells.swap(cells);
+}
+
+void TerrainGame::renderProcInstances() {
+  if (procInstCells.empty()) return;
+  const size_t groups = procInstGeo.size() * kInstYawBuckets;
+  if (procInstMats.size() < groups) procInstMats.resize(groups);
+  for (auto& v : procInstMats) v.clear();
+  const auto* planes = engine->renderer.core.renderer3D.frustumPlanes.getAll();
+  const float cam[3] = {cameraPosition.x, cameraPosition.y, cameraPosition.z};
+  for (const ProcInstCell& c : procInstCells) {
+    const Tyra::Vec4 mn(c.mn[0], c.mn[1], c.mn[2], 1.0F);
+    const Tyra::Vec4 mx(c.mx[0], c.mx[1], c.mx[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(planes, mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
+    if (splitBandActive && outsideSplitBand(c.mn, c.mx)) continue;
+    for (int i = c.first; i < c.first + c.count; ++i) {
+      const ProcInst& p = procInsts[(size_t)i];
+      const float dx = p.x - cam[0], dy = p.y - cam[1], dz = p.z - cam[2];
+      const float d2 = dx * dx + dy * dy + dz * dz;
+      if (c.drawDist > 0.0F && d2 > c.drawDist * c.drawDist) continue;
+      const int model =
+          p.lodModel >= 0 && p.lodDist2 > 0.0F && d2 > p.lodDist2 ? p.lodModel
+                                                                  : p.model;
+      int gn = 0;
+      const int g0 = procInstGeoRange(model, &gn);
+      if (g0 < 0) continue;
+      // A distant version's geometry is built the first frame one is seen.
+      if (procInstMats.size() < (size_t)(g0 + gn) * kInstYawBuckets)
+        procInstMats.resize((size_t)(g0 + gn) * kInstYawBuckets);
+      Tyra::M4x4 m;
+      m.data[0] = p.axes[0], m.data[1] = p.axes[1], m.data[2] = p.axes[2];
+      m.data[3] = 0.0F;
+      m.data[4] = p.axes[3], m.data[5] = p.axes[4], m.data[6] = p.axes[5];
+      m.data[7] = 0.0F;
+      m.data[8] = p.axes[6], m.data[9] = p.axes[7], m.data[10] = p.axes[8];
+      m.data[11] = 0.0F;
+      m.data[12] = p.x, m.data[13] = p.y, m.data[14] = p.z, m.data[15] = 1.0F;
+      for (int g = 0; g < gn; ++g)
+        procInstMats[(size_t)(g0 + g) * kInstYawBuckets + p.bucket].push_back(m);
+    }
+  }
+  for (size_t g = 0; g < procInstGeo.size(); ++g)
+    for (int b = 0; b < kInstYawBuckets; ++b) {
+      const auto& mats = procInstMats[g * kInstYawBuckets + (size_t)b];
+      if (mats.empty()) continue;
+      stapip.core.renderInstances(procInstGeo[g]->bag[b].get(), mats.data(),
+                                  (u32)mats.size());
+    }
+  if (DEBUG_SHOW_PROFILER) {
+    // Per 50 frames: copies that reached StaPip, how many were one REF to the
+    // shared body, how many took an ordinary submit (the first of each group
+    // and every copy crossing the guard band or the near plane).
+    static int beat = 0;
+    if (++beat >= 50) {
+      u32 tested = 0, appended = 0, ordinary = 0, crossing = 0;
+      stapip.core.takeInstanceStats(&tested, &appended, &ordinary, &crossing);
+      TYRA_LOG("INSTANCES copies ", (int)procInsts.size(), " tested ",
+               (int)tested / beat, " appended ", (int)appended / beat,
+               " ordinary ", (int)ordinary / beat, " (crossing ",
+               (int)crossing / beat, ") per frame");
+      beat = 0;
+    }
+  }
+}
+
+
+
 // Wires the bags of every chunk that gained vertices and computes its box.
 // Called once after a generation pass rather than per instance: a bag pointing
 // at a vector that is still growing is a dangling pointer the moment it
@@ -3410,6 +4168,7 @@ void TerrainGame::procFinishChunks() {
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
+  batchInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;  // as buildStaticBatchList
   // Its Gouraud twin, built only once a chunk asks for it - a project with no
   // block world never allocates it.
   for (const ProcChunk& c : procChunks)
@@ -3419,6 +4178,7 @@ void TerrainGame::procFinishChunks() {
       procSmoothInfoBag->shadingType = TyraShadingGouraud;
       procSmoothInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
       procSmoothInfoBag->fullClipChecks = true;
+      procSmoothInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
       break;
     }
   for (ProcChunk& c : procChunks) {
@@ -3431,10 +4191,29 @@ void TerrainGame::procFinishChunks() {
       c.bag = std::make_unique<StaPipBag>();
       c.bag->color = c.colorBag.get();
       c.bag->lighting = nullptr;
+      // Static between regenerations (immutableStreams): chunkFor releases
+      // the arrays before it grows them, and erasing a chunk destroys its bag.
+      c.bag->immutableStreams = true;
     }
     // Re-stated every pass, not only on creation: a regeneration reuses the
     // chunk, and a world whose blocks moved may have gained or lost the AO.
     c.bag->info = c.smooth ? procSmoothInfoBag.get() : batchInfoBag.get();
+    if (c.owner == -3 && !c.roadBlend && !c.roadEdge) {
+      // A road chunk: the batch settings plus the TIGHT clip band. Road
+      // bands are long flat triangles, and seen from the road the console's
+      // GS swims their texture by several pixels a frame under the wide
+      // guard band (docs/roads.md, "Texture swim on the console").
+      if (!roadInfoBag) {
+        roadInfoBag = std::make_unique<StaPipInfoBag>();
+        roadInfoBag->model = &model;
+        roadInfoBag->shadingType = TyraShadingGouraud;
+        roadInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        roadInfoBag->fullClipChecks = true;
+        roadInfoBag->tightClipBand = true;
+      }
+      roadInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
+      c.bag->info = roadInfoBag.get();
+    }
     if (c.roadBlend || c.roadEdge) {
       // A spill is alpha-over by its vertex alpha (the fade) on the road
       // under it, a soft edge on the terrain: the painted terrain layer's
@@ -3446,7 +4225,9 @@ void TerrainGame::procFinishChunks() {
         roadBlendInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
         roadBlendInfoBag->fullClipChecks = true;
         roadBlendInfoBag->blendingEnabled = true;
+        roadBlendInfoBag->tightClipBand = true;  // as roadInfoBag
       }
+      roadBlendInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
       c.bag->info = roadBlendInfoBag.get();
     }
     // Street lamps and weather (docs/weather.md): a lamp pool is additive,
@@ -3511,7 +4292,139 @@ void TerrainGame::procFinishChunks() {
     }
     for (int a = 0; a < 3; ++a)
       c.centre[a] = 0.5F * (c.aabbMin[a] + c.aabbMax[a]);
+    // Baked static lamps: a chunk the builder just (re)wrote takes the
+    // current lamp light on top of its fresh colours.
+    applyBakedLampsToChunk(c, false);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Baked static lamps (BAKE_STATIC_LAMPS, docs/dynamic-light-receivers.md "Baked lamp light")
+// ---------------------------------------------------------------------------
+// Squared distance from a sphere's centre to a box, against its radius.
+static inline bool lampTouchesBox(const BakedLampRt& L, const float* mn,
+                                  const float* mx) {
+  const float c[3] = {L.pos.x, L.pos.y, L.pos.z};
+  float d2 = 0.0F;
+  for (int a = 0; a < 3; ++a) {
+    const float d = c[a] < mn[a] ? mn[a] - c[a] : (c[a] > mx[a] ? c[a] - mx[a] : 0.0F);
+    d2 += d * d;
+  }
+  return d2 < L.range * L.range;
+}
+
+// Generated chunks (roads, procedural volumes, prefabs) are re-coloured in
+// place rather than rebuilt: the colours the builder wrote are kept the first
+// time a lamp could touch the chunk, and every lamp change re-derives the
+// chunk from them. `force` = re-derive even though the builder did not touch
+// the colours since the last time (the lamps changed).
+void TerrainGame::applyBakedLampsToChunk(ProcChunk& c, bool force) {
+  if (!BAKE_STATIC_LAMPS || c.vertices.empty() ||
+      c.colors.size() != c.vertices.size())
+    return;
+  const bool rebuilt = c.colors.stamp() != c.lampStamp;
+  if (!rebuilt && !force) return;
+  if (rebuilt) {
+    // Fresh builder colours. Remember them only if some baked lamp could
+    // ever reach this chunk - most of a district is out of every lamp's range.
+    bool reachable = false;
+    for (const DynLightRt& D : g_dynLights) {
+      if (!D.baked) continue;
+      const SceneObjectData& L = SCENE_OBJECTS[D.objIndex];
+      BakedLampRt probe;
+      probe.pos = {L.position[0], L.position[1], L.position[2]};
+      probe.range = L.lightRadius > 0.01F ? L.lightRadius : 0.01F;
+      if (lampTouchesBox(probe, c.aabbMin, c.aabbMax)) {
+        reachable = true;
+        break;
+      }
+    }
+    c.lampBase.clear();
+    if (reachable)
+      c.lampBase.assign(c.colors.data(), c.colors.data() + c.colors.size());
+    c.lampStamp = c.colors.stamp();
+  }
+  if (c.lampBase.size() != c.colors.size()) return;  // no lamp can reach it
+  // The streams are about to change: hand them back first (rebuildStaticBatch
+  // does the same before it rewrites a batch).
+  if (c.bag) c.bag->releaseImmutableStreams();
+  const size_t n = c.colors.size();
+  auto dst = c.colors.span(0, n);
+  for (size_t i = 0; i < n; ++i) {
+    const Color& b = c.lampBase[i];
+    float r = b.r, g = b.g, bl = b.b;
+    const Vec4& v = c.vertices[i];
+    bakedLampAdd(V3{v.x, v.y, v.z}, r, g, bl);
+    dst[i] = Color(r > 255.0F ? 255.0F : r, g > 255.0F ? 255.0F : g,
+                   bl > 255.0F ? 255.0F : bl, b.a);
+  }
+  c.lampStamp = c.colors.stamp();
+}
+
+// The baked lamps changed state (updateDynLights raised g_lampRebake): every
+// static receiver either set - the one geometry carries now, or the one it
+// must carry - can reach is re-baked. Solo objects and static batches go
+// through their ordinary rebuild (dirty / stale); generated chunks are
+// re-coloured in place. Runs before the frame renders, so no frame shows the
+// new pick mask over the old colours. A one-time cost at the switch (the
+// day/night menu), never a per-frame one.
+void TerrainGame::rebakeLampLight() {
+  g_lampRebake = false;
+  auto touchesSphere = [&](float x, float y, float z, float r) {
+    for (const std::vector<BakedLampRt>* set : {&g_bakedLampsPrev, &g_bakedLamps})
+      for (const BakedLampRt& L : *set) {
+        const float dx = x - L.pos.x, dy = y - L.pos.y, dz = z - L.pos.z;
+        const float rr = r + L.range;
+        if (dx * dx + dy * dy + dz * dz < rr * rr) return true;
+      }
+    return false;
+  };
+  auto touchesBox = [&](const float* mn, const float* mx) {
+    for (const std::vector<BakedLampRt>* set : {&g_bakedLampsPrev, &g_bakedLamps})
+      for (const BakedLampRt& L : *set)
+        if (lampTouchesBox(L, mn, mx)) return true;
+    return false;
+  };
+  int objects = 0, batches = 0, chunks = 0;
+  for (int i = 0; i < (int)runtimeObjects.size() && i < (int)objectGeometry.size(); ++i) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (!o.active || o.dirty) continue;
+    if (i < (int)objectBatchOf.size() && objectBatchOf[i] != -1) continue;
+    bool lit = false;
+    for (const GeoPart& part : objectGeometry[i].parts)
+      if (part.infoBag && part.infoBag->dynLightSkipBaked) {
+        lit = true;
+        break;
+      }
+    if (!lit) continue;
+    // The same bounding sphere rebuildObjectGeometry prunes the AO with.
+    const float sx = o.data.scale[0], sy = o.data.scale[1], sz = o.data.scale[2];
+    float rad = 0.87F * sqrtf(sx * sx + sy * sy + sz * sz);
+    if (o.data.type == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size()) {
+      const GameModel& gm = gameModels[o.data.model];
+      const float ex = fmaxf(fabsf(gm.mn[0]), fabsf(gm.mx[0])) * fabsf(sx);
+      const float ey = fmaxf(fabsf(gm.mn[1]), fabsf(gm.mx[1])) * fabsf(sy);
+      const float ez = fmaxf(fabsf(gm.mn[2]), fabsf(gm.mx[2])) * fabsf(sz);
+      rad = sqrtf(ex * ex + ey * ey + ez * ez);
+    }
+    if (!touchesSphere(o.data.position[0], o.data.position[1], o.data.position[2], rad))
+      continue;
+    o.dirty = true;
+    ++objects;
+  }
+  for (StaticBatch& b : staticBatches) {
+    if (b.dirty || !b.bag) continue;
+    if (!touchesBox(b.aabbMin, b.aabbMax)) continue;
+    b.dirty = true;
+    ++batches;
+  }
+  for (ProcChunk& c : procChunks) {
+    if (!c.bag || !touchesBox(c.aabbMin, c.aabbMax)) continue;
+    applyBakedLampsToChunk(c, true);
+    ++chunks;
+  }
+  TYRA_LOG("LAMPBAKE lamps ", (int)g_bakedLamps.size(), " objects ", objects,
+           " batches ", batches, " chunks ", chunks);
 }
 
 
@@ -3716,7 +4629,7 @@ void TerrainGame::renderVehicleSmoke() {
           fx.smokeFrameTex[(int)(fx.smokeClock * fx.smokeFps) % fx.smokeFrames];
     fx.smokeBag->count = (u32)kVehSmokeMax;
     fx.smokeBag->bboxVersion = ++g_bboxStamp;  // centres move every frame
-    stapip.core.render(fx.smokeBag.get());
+    renderWorldBag(fx.smokeBag.get());
   }
 }
 
@@ -3881,7 +4794,7 @@ void TerrainGame::renderVehicleSkids() {
       fx.skidDirty = 0;
       fx.skidBag->bboxVersion = ++g_bboxStamp;
     }
-    stapip.core.render(fx.skidBag.get());
+    renderWorldBag(fx.skidBag.get());
   }
 }
 
@@ -3966,7 +4879,12 @@ void TerrainGame::renderVehicleGlow() {
         if ((int)headlightCache_.size() < vehicleCount_)
           headlightCache_.resize((size_t)vehicleCount_);
         HeadlightPoolCache& hc = headlightCache_[(size_t)vi];
-        const float hk[5] = {v.pos[0], v.pos[2], v.yaw, SC, (float)v.def};
+        // The plane pool (TYRA_VEH_POOL_PLANE) also follows the wheel
+        // heights: the plane they span is its ground.
+        const bool pk = TYRA_VEH_POOL_PLANE != 0;
+        const float hk[9] = {v.pos[0], v.pos[2], v.yaw, SC, (float)v.def,
+                             pk ? v.wheelY[0] : 0.0F, pk ? v.wheelY[1] : 0.0F,
+                             pk ? v.wheelY[2] : 0.0F, pk ? v.wheelY[3] : 0.0F};
         rebuild = !hc.valid || memcmp(hk, hc.key, sizeof(hk)) != 0;
         if (rebuild) {
           memcpy(hc.key, hk, sizeof(hk));
@@ -3996,6 +4914,19 @@ void TerrainGame::renderVehicleGlow() {
       // exact baked road/junction surface inside the beam as well.
       constexpr int kCells = 3;
       const float e = 0.065F;
+      // THE PLANE POOL (TYRA_VEH_POOL_PLANE, docs/vehicles.md "Headlight
+      // pools"): the ground under the beam is the plane the car's four wheel
+      // contacts already measured this step (v.wheelY: FL, FR, RL, RR), so
+      // the 16 lattice heights are a multiply-add each instead of 16
+      // groundSurfaceAt road/junction searches - the pool rebuilds every
+      // frame for every car that moves. A wheel off every surface (the raw
+      // sentinel) falls back to the searched surface.
+      const float hxW = 0.5F * s.track * SC;
+      bool planeOk = TYRA_VEH_POOL_PLANE != 0 && hz > 1e-3F && hxW > 1e-3F;
+      for (int w = 0; w < 4 && planeOk; ++w) planeOk = v.wheelY[w] > -1e5F;
+      const float pyc = 0.25F * (v.wheelY[0] + v.wheelY[1] + v.wheelY[2] + v.wheelY[3]);
+      const float pgF = ((v.wheelY[0] + v.wheelY[1]) - (v.wheelY[2] + v.wheelY[3])) / (4.0F * hz);
+      const float pgS = ((v.wheelY[1] + v.wheelY[3]) - (v.wheelY[0] + v.wheelY[2])) / (4.0F * hxW);
       auto point = [&](float t, float side) {
         const float bx = nx + (fx2 - nx) * t;
         const float bz = nz + (fz2 - nz) * t;
@@ -4003,6 +4934,11 @@ void TerrainGame::renderVehicleGlow() {
         const float rz = rzn + (rzf - rzn) * t;
         const float x = bx + rx * side;
         const float z = bz + rz * side;
+        if (planeOk) {
+          const float dx = x - v.pos[0], dz = z - v.pos[2];
+          const float f = dx * sy + dz * cy, sd = dx * cy - dz * sy;
+          return Vec4(x, pyc + pgF * f + pgS * sd + e, z, 1.0F);
+        }
         return Vec4(x, groundSurfaceAt(x, z, v.pos[1] + 1.5F) + e, z, 1.0F);
       };
       auto beamColor = [&](float t) {
@@ -4027,6 +4963,9 @@ void TerrainGame::renderVehicleGlow() {
           gridCol[iz][ix] = beamColor(t);
         }
       }
+      // The plane pool follows the car's own plane; the searched one has to
+      // clear the road's edge step (liftLatticeOverRoadStep).
+      if (!planeOk) liftLatticeOverRoadStep(&gridP[0][0], kCells + 1, kCells + 1);
       constexpr int tri[6] = {0, 1, 2, 0, 2, 3};
       for (int iz = 0; iz < kCells; ++iz) {
         for (int ix = 0; ix < kCells; ++ix) {
@@ -4153,7 +5092,7 @@ void TerrainGame::renderVehicleGlow() {
         headlightCount_ != headlightCountPrev_)
       headlightBag_->bboxVersion = ++g_bboxStamp;
     headlightCountPrev_ = headlightCount_;
-    stapip.core.render(headlightBag_.get());
+    renderWorldBag(headlightBag_.get());
   } else {
     headlightCountPrev_ = 0;
   }
@@ -4180,7 +5119,7 @@ void TerrainGame::renderVehicleGlow() {
   }
   glowBag_->count = (u32)(glowCount_ * 6);
   glowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
-  stapip.core.render(glowBag_.get());
+  renderWorldBag(glowBag_.get());
 }
 
 // The gearbox, the per-frame twin of vehiclesim::gearCount/gearTopSpeed/
@@ -4860,7 +5799,7 @@ void TerrainGame::renderVehicleDebris() {
       b.bag->color = b.colorBag.get();
       b.bag->lighting = nullptr;
     }
-    b.bag->info = batchInfoBag.get();
+    b.bag->info = vehMovingInfo();  // moving: keeps the baked lamps live
     b.cols.bind(b.colorBag);
     b.verts.bind(b.bag);
     b.bag->count = static_cast<u32>(b.verts.size());
@@ -4875,7 +5814,7 @@ void TerrainGame::renderVehicleDebris() {
     } else {
       b.bag->texture = nullptr;
     }
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
   }
 }
 
@@ -5225,7 +6164,7 @@ void TerrainGame::renderVehicleLampGlow() {
   if (!TYRA_VEH_LIGHTS_KEEP || lampGlowWrote || quads != lampGlowQuadsPrev_)
     lampGlowBag_->bboxVersion = ++g_bboxStamp;
   lampGlowQuadsPrev_ = quads;
-  stapip.core.render(lampGlowBag_.get());
+  renderWorldBag(lampGlowBag_.get());
 }
 
 void TerrainGame::updateVehicleDamage(float dt) {
@@ -5464,6 +6403,8 @@ void TerrainGame::setupVehicles(int scene) {
   // Source parts are resident only for this scene. Drop every pointer-derived
   // run/radius now, before loadModelAsset can replace or free its vectors.
   wheelBatches_.clear();
+  wheelGeos_.clear();
+  wheelRigs_.clear();
   // Damage never survives a scene change: the undamaged poses belong to the
   // geometry the unload just freed.
   vehDamageGeo_.clear();
@@ -5573,10 +6514,10 @@ void TerrainGame::buildVehicleColliders() {
     CollisionBox cb;
     V3 cW = {0.0F, 0.0F, 0.0F};
     float cy = 1.0F, sy = 0.0F;
+    float we[3] = {0.0F, 0.0F, 0.0F};  // world-AABB half extents (full rotation)
     bool valid = false;
   };
   static std::vector<VehColCache> vehColCache_;
-  vehColliders_.clear();
   if (vehColIsVeh_.size() != runtimeObjects.size() || vehColGen_ != sceneGeneration) {
     vehColIsVeh_.assign(runtimeObjects.size(), 0);
     vehColCache_.assign(runtimeObjects.size(), VehColCache{});
@@ -5590,19 +6531,20 @@ void TerrainGame::buildVehicleColliders() {
     if (vehicles_[vk].active && vehicles_[vk].object >= 0 &&
         vehicles_[vk].object < (int)vehColIsVeh_.size())
       vehColIsVeh_[(size_t)vehicles_[vk].object] = 1;
-  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
-    if (vehColIsVeh_[(size_t)oi]) continue;
+  // One object's entry, or false when a car cannot touch it. The same code
+  // fills the static half once and the dynamic half every frame, so an entry
+  // is bit-identical whichever half placed it.
+  auto entryOf = [&](int oi, VehColEntry& e) -> bool {
     const RuntimeObject& o = runtimeObjects[oi];
-    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
-    VehColEntry e;
+    if (!o.active || !o.visible || !objectCollides(o.data)) return false;
+    e = VehColEntry{};
     e.oi = oi;
     if (o.data.physics && physObstacle(o.data)) {
       e.kind = 2;
       e.wx = o.data.position[0];
       e.wz = o.data.position[2];
       e.rs = 0.5F * (o.data.scale[0] + o.data.scale[2]);
-      vehColliders_.push_back(e);
-      continue;
+      return true;
     }
     const GameModel* gm = nullptr;
     if (o.data.type == 5 && o.data.model >= 0 &&
@@ -5615,8 +6557,7 @@ void TerrainGame::buildVehicleColliders() {
       e.wx = o.data.position[0];
       e.wz = o.data.position[2];
       e.rs = 0.5F * (o.data.scale[0] + o.data.scale[2]);
-      vehColliders_.push_back(e);
-      continue;
+      return true;
     }
     VehColCache& vc = vehColCache_[(size_t)oi];
     const float vkey[11] = {o.data.rotation[0], o.data.rotation[1], o.data.rotation[2],
@@ -5631,6 +6572,12 @@ void TerrainGame::buildVehicleColliders() {
       const float yr = (o.data.rotation[1] + vc.cb.yaw) * PI / 180.0F;
       vc.cy = cosf(yr);
       vc.sy = sinf(yr);
+      const V3 hxv = boxRotate({vc.cb.half[0], 0.0F, 0.0F}, o.data);
+      const V3 hyv = boxRotate({0.0F, vc.cb.half[1], 0.0F}, o.data);
+      const V3 hzv = boxRotate({0.0F, 0.0F, vc.cb.half[2]}, o.data);
+      vc.we[0] = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
+      vc.we[1] = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
+      vc.we[2] = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
       for (int k = 0; k < 11; ++k) vc.key[k] = vkey[k];
       vc.valid = true;
     }
@@ -5643,7 +6590,269 @@ void TerrainGame::buildVehicleColliders() {
     e.hz = vc.cb.half[2];
     e.cy = vc.cy;
     e.sy = vc.sy;
-    vehColliders_.push_back(e);
+    for (int k = 0; k < 3; ++k) e.we[k] = vc.we[k];
+    return true;
+  };
+  vehColFresh_ = true;
+  if (!TYRA_VEH_COLLIDER_GRID) {
+    // The full walk, every frame (what the runtime did before the grid).
+    vehColGridOn_ = false;
+    vehColSetGen_ = ~0u;  // re-seed the static set if the grid comes back
+    g_colStaticObj.clear();
+    vehColliders_.clear();
+    for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+      if (vehColIsVeh_[(size_t)oi]) continue;
+      VehColEntry e;
+      if (entryOf(oi, e)) vehColliders_.push_back(e);
+    }
+    return;
+  }
+  vehColGridOn_ = true;
+  // (Re)seed on a scene (re)load: which objects the build called static.
+  // A vehicle's own object is never static - inactive cars are walls, active
+  // ones are not, and that flips at runtime.
+  if (vehColSetGen_ != sceneGeneration) {
+    vehColSetGen_ = sceneGeneration;
+    vehColStaticObj_.clear();
+    vehColDynObj_.clear();
+    g_colStaticObj.assign(runtimeObjects.size(), 0);
+    const unsigned char* table = SCENE_STATIC_COLLIDER_TABLES[g_activeScene];
+    const int authored = SCENE_OBJECT_COUNT;
+    for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+      bool isStatic = oi < authored && table[oi] != 0;
+      for (int vk = 0; vk < vehicleCount_ && isStatic; ++vk)
+        if (vehicles_[vk].object == oi) isStatic = false;
+      if (isStatic) {
+        VehColStaticObj so;
+        so.oi = oi;
+        vehColStaticObj_.push_back(so);
+        g_colStaticObj[(size_t)oi] = 1;
+      } else {
+        vehColDynObj_.push_back(oi);
+      }
+    }
+    vehColStaticStale_ = true;
+  }
+  // The static half's guard: ONE cache line per static object - the flags at
+  // the tail of RuntimeObject, never the transform (reading that too cost a
+  // second and third miss per object, 0.13 ms a frame on a PS2). A transform
+  // only ever reaches the screen through a rebuild (dirty) or the matrix path
+  // (onMatrixPath / a spin), and both are seen here: a dirty flag re-places the
+  // static half this frame, and a rebuild that consumed one later in a frame
+  // (rebuildObjectGeometry raises g_colStaticRebuilt) re-places it the next -
+  // exactly when the full walk would first have seen the moved box. The
+  // matrix path or a spin demotes the object to the dynamic half for good; a
+  // shown flip only re-places. A global script that writes a static object's
+  // position without dirty is not followed - the renderer does not follow it
+  // either (docs/vehicles.md, "The static collider grid").
+  if (g_colStaticRebuilt) {
+    g_colStaticRebuilt = false;
+    vehColStaticStale_ = true;
+  }
+  for (size_t k = 0; k < vehColStaticObj_.size(); ++k) {
+    VehColStaticObj& so = vehColStaticObj_[k];
+    const RuntimeObject& o = runtimeObjects[(size_t)so.oi];
+    bool moved = o.onMatrixPath || o.wantsMatrixPath || o.spinRate[0] != 0.0F ||
+                 o.spinRate[1] != 0.0F || o.spinRate[2] != 0.0F;
+    // A dirty flag that outlives a few frames is something re-dirtying the
+    // object every frame: cheaper on the dynamic side than re-placing.
+    if (o.dirty) {
+      vehColStaticStale_ = true;
+      if (++so.dirtyFrames > 8) moved = true;
+    } else {
+      so.dirtyFrames = 0;
+    }
+    if (moved) {
+      vehColDynObj_.insert(std::lower_bound(vehColDynObj_.begin(), vehColDynObj_.end(), so.oi),
+                           so.oi);
+      if ((size_t)so.oi < g_colStaticObj.size()) g_colStaticObj[(size_t)so.oi] = 0;
+      vehColStaticObj_.erase(vehColStaticObj_.begin() + (long)k);
+      --k;
+      vehColStaticStale_ = true;
+      continue;
+    }
+    if (so.shown != (unsigned char)((o.active && o.visible) ? 1 : 0))
+      vehColStaticStale_ = true;
+  }
+  if (vehColStaticStale_) {
+    vehColStaticStale_ = false;
+    vehColMergeStale_ = true;
+    vehColStatic_.clear();
+    for (VehColStaticObj& so : vehColStaticObj_) {
+      const RuntimeObject& o = runtimeObjects[(size_t)so.oi];
+      so.shown = (unsigned char)((o.active && o.visible) ? 1 : 0);
+      VehColEntry e;
+      if (entryOf(so.oi, e)) vehColStatic_.push_back(e);
+    }
+    // The grid: every static entry is listed in each cell its widest gather
+    // reach can touch - a box's footprint plus the wall inflation, a mesh's
+    // radius plus its 2-unit pad (the spans considerCol and the sub-step
+    // recorder test against), plus a small float guard.
+    VehColGrid& g = vehColGrid_;
+    g.nx = g.nz = 0;
+    g.start.clear();
+    g.items.clear();
+    if (!vehColStatic_.empty()) {
+      auto span = [](const VehColEntry& e) {
+        return (e.kind == 0 ? e.hx + e.hz + 0.7F : e.rs + 2.0F) + 0.05F;
+      };
+      float mn[2] = {1e30F, 1e30F}, mx[2] = {-1e30F, -1e30F};
+      for (const VehColEntry& e : vehColStatic_) {
+        const float s = span(e);
+        mn[0] = fminf(mn[0], e.wx - s);
+        mx[0] = fmaxf(mx[0], e.wx + s);
+        mn[1] = fminf(mn[1], e.wz - s);
+        mx[1] = fmaxf(mx[1], e.wz + s);
+      }
+      float cell = 8.0F;
+      const float ext = fmaxf(mx[0] - mn[0], mx[1] - mn[1]);
+      if (ext / cell > 64.0F) cell = ext / 64.0F;
+      g.ox = mn[0];
+      g.oz = mn[1];
+      g.inv = 1.0F / cell;
+      g.nx = (int)((mx[0] - mn[0]) * g.inv) + 1;
+      g.nz = (int)((mx[1] - mn[1]) * g.inv) + 1;
+      g.start.assign((size_t)(g.nx * g.nz + 1), 0);
+      auto range = [&](float c, float s, float o, int n, int& lo, int& hi) {
+        lo = (int)floorf((c - s - o) * g.inv);
+        hi = (int)floorf((c + s - o) * g.inv);
+        if (lo < 0) lo = 0;
+        if (hi > n - 1) hi = n - 1;
+      };
+      for (int pass = 0; pass < 2; ++pass) {
+        if (pass == 1) {
+          for (size_t c = 1; c < g.start.size(); ++c) g.start[c] += g.start[c - 1];
+          g.items.assign((size_t)g.start.back(), 0);
+        }
+        std::vector<int> fill;
+        if (pass == 1) fill.assign(g.start.begin(), g.start.end() - 1);
+        for (size_t si = 0; si < vehColStatic_.size(); ++si) {
+          const VehColEntry& e = vehColStatic_[si];
+          const float s = span(e);
+          int x0, x1, z0, z1;
+          range(e.wx, s, g.ox, g.nx, x0, x1);
+          range(e.wz, s, g.oz, g.nz, z0, z1);
+          for (int cz = z0; cz <= z1; ++cz)
+            for (int cx = x0; cx <= x1; ++cx) {
+              const int c = cz * g.nx + cx;
+              if (pass == 0) ++g.start[(size_t)c + 1];
+              else g.items[(size_t)fill[(size_t)c]++] = (int)si;
+            }
+        }
+      }
+    }
+    vehColSeen_.assign(vehColStatic_.size(), 0);
+    vehColQuery_ = 0;
+  }
+  // The dynamic half: the full per-object derivation, but only for objects
+  // the build could not call static (vehicles, bodies, scripted props, the
+  // spawn pool) - a short list instead of every object in the scene.
+  vehColDynE_.clear();
+  for (const int oi : vehColDynObj_) {
+    if (vehColIsVeh_[(size_t)oi]) continue;
+    VehColEntry e;
+    if (entryOf(oi, e)) vehColDynE_.push_back(e);
+  }
+  // Merge into vehColliders_ in object order. While the same dynamic objects
+  // are listed as last frame, their slots are known and only their values
+  // are written; anything else re-merges the whole list.
+  bool sameDyn = !vehColMergeStale_ && vehColDynE_.size() == vehColDynPrev_.size();
+  for (size_t j = 0; j < vehColDynE_.size() && sameDyn; ++j)
+    sameDyn = vehColDynE_[j].oi == vehColDynPrev_[j];
+  if (sameDyn) {
+    for (size_t j = 0; j < vehColDynE_.size(); ++j)
+      vehColliders_[(size_t)vehColDynPos_[j]] = vehColDynE_[j];
+  } else {
+    vehColMergeStale_ = false;
+    vehColliders_.clear();
+    vehColStaticPos_.assign(vehColStatic_.size(), 0);
+    vehColDynPos_.assign(vehColDynE_.size(), 0);
+    vehColDynPrev_.assign(vehColDynE_.size(), 0);
+    size_t a = 0, b = 0;
+    while (a < vehColStatic_.size() || b < vehColDynE_.size()) {
+      const bool takeStatic =
+          b >= vehColDynE_.size() ||
+          (a < vehColStatic_.size() && vehColStatic_[a].oi < vehColDynE_[b].oi);
+      if (takeStatic) {
+        vehColStaticPos_[a] = (int)vehColliders_.size();
+        vehColliders_.push_back(vehColStatic_[a++]);
+      } else {
+        vehColDynPos_[b] = (int)vehColliders_.size();
+        vehColDynPrev_[b] = vehColDynE_[b].oi;
+        vehColliders_.push_back(vehColDynE_[b++]);
+      }
+    }
+  }
+#if TYRA_VEH_COLLIDER_GRID_VERIFY
+  // THE ORACLE: the full walk again, compared with the merged list to the
+  // byte. Off in anything measured or shipped.
+  {
+    static std::vector<VehColEntry> full;
+    full.clear();
+    for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+      if (vehColIsVeh_[(size_t)oi]) continue;
+      VehColEntry e;
+      if (entryOf(oi, e)) full.push_back(e);
+    }
+    static u32 lChecked = 0, lBad = 0, lFrames = 0;
+    ++lChecked;
+    if (full.size() != vehColliders_.size() ||
+        (!full.empty() &&
+         memcmp(full.data(), vehColliders_.data(), sizeof(VehColEntry) * full.size()) != 0))
+      ++lBad;
+    if (++lFrames >= 300) {
+      // printf, not TYRA_LOG: the oracle must also report from a release ELF.
+      printf("VEHCOLGRID list checked %u MISMATCH %u entries %d static %d dynamic %d cells %dx%d\n",
+             (unsigned)lChecked, (unsigned)lBad, (int)vehColliders_.size(),
+             (int)vehColStatic_.size(), (int)vehColDynE_.size(), vehColGrid_.nx,
+             vehColGrid_.nz);
+      lChecked = lBad = lFrames = 0;
+    }
+  }
+#endif
+}
+
+// A gather's candidates (TYRA_VEH_COLLIDER_GRID): into vehColCand_, the
+// vehColliders_ slots, ascending, that a test of reach `r` around (x, z) can
+// accept - every dynamic entry, plus each static entry listed in a grid cell
+// the query box touches. A superset of what the full walk accepts, in the
+// full walk's order, so walking it gives the full walk's lists and caps.
+void TerrainGame::vehColCandidates(float x, float z, float r) {
+  vehColCand_.clear();
+  const VehColGrid& g = vehColGrid_;
+  if (g.nx > 0) {
+    if (++vehColQuery_ == 0) {
+      for (unsigned int& s : vehColSeen_) s = 0;
+      vehColQuery_ = 1;
+    }
+    const float s = r + 0.05F;
+    int x0 = (int)floorf((x - s - g.ox) * g.inv), x1 = (int)floorf((x + s - g.ox) * g.inv);
+    int z0 = (int)floorf((z - s - g.oz) * g.inv), z1 = (int)floorf((z + s - g.oz) * g.inv);
+    if (x0 < 0) x0 = 0;
+    if (z0 < 0) z0 = 0;
+    if (x1 > g.nx - 1) x1 = g.nx - 1;
+    if (z1 > g.nz - 1) z1 = g.nz - 1;
+    for (int cz = z0; cz <= z1; ++cz)
+      for (int cx = x0; cx <= x1; ++cx) {
+        const int c = cz * g.nx + cx;
+        for (int k = g.start[(size_t)c]; k < g.start[(size_t)c + 1]; ++k) {
+          const int si = g.items[(size_t)k];
+          if (vehColSeen_[(size_t)si] == vehColQuery_) continue;
+          vehColSeen_[(size_t)si] = vehColQuery_;
+          vehColCand_.push_back(vehColStaticPos_[(size_t)si]);
+        }
+      }
+  }
+  for (const int p : vehColDynPos_) vehColCand_.push_back(p);
+  // Insertion sort: a handful of candidates, mostly in order already.
+  for (size_t i = 1; i < vehColCand_.size(); ++i) {
+    const int v = vehColCand_[i];
+    size_t j = i;
+    while (j > 0 && vehColCand_[j - 1] > v) {
+      vehColCand_[j] = vehColCand_[j - 1];
+      --j;
+    }
+    vehColCand_[j] = v;
   }
 }
 
@@ -5733,6 +6942,46 @@ void TerrainGame::updateVehicleSpeedFeel(const VehicleRt* v, float dt) {
   }
 }
 
+// The chase camera's boom against the frame's vehicle collider list instead of
+// every object: buildVehicleColliders already filtered the scene down to the
+// boxes a car can hit and placed them, so a box nowhere near the boom costs
+// a compact-array read - the object itself is touched only for the narrow
+// phase. What the list leaves out goes the general way: physics bodies and
+// mesh colliders (listed by position only) and the other cars (never walls
+// for a car, always walls for the camera). Same answer as sweepSphere; when
+// the list was not built this frame (menu open) it IS sweepSphere.
+float TerrainGame::sweepVehicleCamera(float px, float py, float pz, float dx,
+                                      float dy, float dz, float maxDist,
+                                      int skipIndex) const {
+  if (!vehColFresh_)
+    return sweepSphere(px, py, pz, dx, dy, dz, maxDist, CAM_RADIUS, skipIndex);
+  const SweepSeg s = sweepSegment(px, py, pz, dx, dy, dz, maxDist, CAM_RADIUS);
+  const float r = s.r;
+  float best = maxDist;
+  for (const VehColEntry& e : vehColliders_) {
+    if (e.oi == skipIndex) continue;
+    if (e.kind != 0) {
+      best = sweepObject(s, e.oi, best);
+      continue;
+    }
+    const float cy = 0.5F * (e.top + e.bottom);
+    if (e.wx + e.we[0] + r < s.mn[0] || e.wx - e.we[0] - r > s.mx[0] ||
+        cy + e.we[1] + r < s.mn[1] || cy - e.we[1] - r > s.mx[1] ||
+        e.wz + e.we[2] + r < s.mn[2] || e.wz - e.we[2] - r > s.mx[2])
+      continue;  // broad phase: nowhere near the boom
+    best = sweepBoxHit(s, runtimeObjects[(size_t)e.oi].data, e.wx, cy, e.wz,
+                       e.hx, 0.5F * (e.top - e.bottom), e.hz, best);
+  }
+  for (int vk = 0; vk < vehicleCount_; ++vk) {
+    const VehicleRt& o = vehicles_[vk];
+    if (!o.active || o.object < 0 || o.object == skipIndex ||
+        o.object >= (int)runtimeObjects.size())
+      continue;
+    best = sweepObject(s, o.object, best);
+  }
+  return sweepTerrain(s, best);
+}
+
 // Run after camera shake and car-car separation, immediately before drawing.
 void TerrainGame::collideVehicleCamera() {
   vehCamWanted_ = vehCamAllowed_ = 0.0F;
@@ -5753,8 +7002,9 @@ void TerrainGame::collideVehicleCamera() {
                      pz + cosf(v.yaw * 0.0174532925F), 1.0F);
     return;
   }
-  vehCamAllowed_ = sweepSphere(px, py, pz, dx / vehCamWanted_,
-      dy / vehCamWanted_, dz / vehCamWanted_, vehCamWanted_, CAM_RADIUS, v.object);
+  vehCamAllowed_ = sweepVehicleCamera(px, py, pz, dx / vehCamWanted_,
+      dy / vehCamWanted_, dz / vehCamWanted_, vehCamWanted_, v.object);
+  vehColFresh_ = false;
   const float fraction = vehCamAllowed_ / vehCamWanted_;
   cameraPosition.set(px + dx * fraction, py + dy * fraction,
                      pz + dz * fraction, 1.0F);
@@ -6532,13 +7782,21 @@ void TerrainGame::updateVehicles(float dt) {
         gc.reach = reach;
         gc.margin = margin;
         gc.valid = true;
-        for (size_t ci = 0; ci < vehColliders_.size(); ++ci) {
+        // The static collider grid hands over every slot this walk could
+        // record or accept (its query covers the margin too), in order.
+        auto recordCol = [&](size_t ci) {
           const VehColEntry& e = vehColliders_[ci];
           const float dx = e.wx - v.pos[0], dz = e.wz - v.pos[2];
           const float span = e.kind == 0 ? e.hx + e.hz + 0.7F : e.rs + 2.0F;
           const float r = reach + span + margin;
           if (dx * dx + dz * dz < r * r) gc.col.push_back((int)ci);
           considerCol(e);
+        };
+        if (vehColGridOn_) {
+          vehColCandidates(v.pos[0], v.pos[2], reach + margin);
+          for (const int ci : vehColCand_) recordCol((size_t)ci);
+        } else {
+          for (size_t ci = 0; ci < vehColliders_.size(); ++ci) recordCol(ci);
         }
         for (size_t pi = 0; pi < procColliders.size(); ++pi) {
           const StaticBox& b = procColliders[pi];
@@ -6549,6 +7807,42 @@ void TerrainGame::updateVehicles(float dt) {
           if (dx * dx + dz * dz < r * r) gc.proc.push_back((int)pi);
           considerProc(b);
         }
+      } else if (vehColGridOn_) {
+        // The static collider grid (docs/vehicles.md, "The static collider
+        // grid"): only the slots near the car, in the full walk's order.
+        vehColCandidates(v.pos[0], v.pos[2], reach);
+        for (const int ci : vehColCand_) considerCol(vehColliders_[(size_t)ci]);
+#if TYRA_VEH_COLLIDER_GRID_VERIFY
+        // THE ORACLE: the full walk again, every list compared to the byte.
+        {
+          VehWallBox w0[12];
+          VehFloorBox f0[8];
+          int m0[4], p0[8];
+          const int wn = wallBoxN, fn = floorBoxN, mn = nearMeshN, pn = pushN;
+          memcpy(w0, wallBox, sizeof(w0));
+          memcpy(f0, floorBox, sizeof(f0));
+          memcpy(m0, nearMesh, sizeof(m0));
+          memcpy(p0, pushIdx, sizeof(p0));
+          wallBoxN = floorBoxN = nearMeshN = pushN = 0;
+          for (const VehColEntry& e : vehColliders_) considerCol(e);
+          const bool same =
+              wn == wallBoxN && fn == floorBoxN && mn == nearMeshN && pn == pushN &&
+              memcmp(w0, wallBox, sizeof(VehWallBox) * (size_t)wn) == 0 &&
+              memcmp(f0, floorBox, sizeof(VehFloorBox) * (size_t)fn) == 0 &&
+              memcmp(m0, nearMesh, sizeof(int) * (size_t)mn) == 0 &&
+              memcmp(p0, pushIdx, sizeof(int) * (size_t)pn) == 0;
+          static u32 gChecked = 0, gBad = 0, gFrames = 0;
+          ++gChecked;
+          if (!same) ++gBad;
+          if (++gFrames >= 300) {
+            printf("VEHCOLGRID gather checked %u MISMATCH %u cand %d of %d\n",
+                   (unsigned)gChecked, (unsigned)gBad, (int)vehColCand_.size(),
+                   (int)vehColliders_.size());
+            gChecked = gBad = gFrames = 0;
+          }
+        }
+#endif
+        for (const StaticBox& b : procColliders) considerProc(b);
       } else {
         for (const VehColEntry& e : vehColliders_) considerCol(e);
         for (const StaticBox& b : procColliders) considerProc(b);
@@ -7602,15 +8896,43 @@ void TerrainGame::updateVehicles(float dt) {
       const float bc = cosf(rigYaw * kDeg), bs = sinf(rigYaw * kDeg);
       float atY = v.pos[1] + s.camHeight * SC * 0.35F;
       if (vehCamMode_ == 1) {
-        // Bumper: at the nose, low, looking where the CAR points. Pushed out
-        // past the front axle so the body it belongs to does not fill the view.
-        const float nose = (0.5F * s.wheelBase + s.wheelRadius * 1.5F) * SC;
-        players[0].x = v.pos[0] + bodyS * nose;
-        players[0].z = v.pos[2] + bodyC * nose;
-        players[0].y = v.pos[1] + s.camHeight * SC * 0.30F;
+        // Bumper: at the nose, low, looking where the CAR points. The eye is
+        // a point ON THE BODY - the drawn attitude (terrain pitch/roll plus
+        // the lean), the same vehBodyRotation the body's matrix takes - not
+        // a point on the flat yaw plane at chassis height. The flat one
+        // stayed level while the body pitched under it, so a bump swung the
+        // bonnet up through the lens and a dip sank the eye into the road
+        // ahead ("przenika fragment pojazdu, wnika w ziemie na wertepach").
+        // It sits just past the BAKED bumper (bodyOverhang), not a guess
+        // from the wheel radius that a long-nosed body reached past.
+        float bodyRot[3];
+        vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll,
+                        bodyRot);
+        const RotTrig br = rotTrigOf(bodyRot);
+        float reach = s.wheelRadius * 1.5F;
+        if (s.bodyOverhang + 0.15F > reach) reach = s.bodyOverhang + 0.15F;
+        const V3 eye = rotatedBy(
+            {0.0F, s.camHeight * 0.30F * SC, (0.5F * s.wheelBase + reach) * SC},
+            br);
+        const V3 fwd = rotatedBy({0.0F, 0.0F, 1.0F}, br);
+        players[0].x = v.pos[0] + eye.x;
+        players[0].z = v.pos[2] + eye.z;
+        players[0].y = v.pos[1] + eye.y;
+        // The ground backstop: a nose dropping off a kerb, or a crest the
+        // sprung body has not caught up with yet, can still put a point that
+        // far forward under the surface the wheels never touched.
+        const float floorY = groundSurfaceAt(players[0].x, players[0].z) +
+                             0.25F * SC;
+        if (players[0].y < floorY) players[0].y = floorY;
+        // Aim: the body's heading, its pitch eased (never its roll - the
+        // horizon stays level, cameraUp is shared with the chase rigs).
+        float lk = dt * 8.0F;
+        if (lk > 1.0F) lk = 1.0F;
+        vehBumpLookY_ += (fwd.y - vehBumpLookY_) * lk;
         players[0].yaw = v.yaw;
         cameraPosition.set(players[0].x, players[0].y, players[0].z, 1.0F);
-        cameraLookAt.set(players[0].x + bodyS * 20.0F, players[0].y,
+        cameraLookAt.set(players[0].x + bodyS * 20.0F,
+                         players[0].y + vehBumpLookY_ * 20.0F,
                          players[0].z + bodyC * 20.0F, 1.0F);
       } else {
         // Chase (0) and far (2) differ only in how much rig there is.
@@ -8067,7 +9389,7 @@ void TerrainGame::renderVehicleGlass() {
       auto dst = part.colors.span(0, n);
       for (u32 k = 0; k < n; ++k) dst[k].a = s.glassAlpha;
     }
-    stapip.core.render(part.bag.get());
+    renderObjectBag(v.object, part.bag.get());
   }
 }
 
@@ -8627,19 +9949,54 @@ static u32 g_whBatches = 0;
 static u32 g_whVerifyCars = 0, g_whVerifyFailWheels = 0;
 #endif
 
+// The immutable local copy of one wheel array for the matrix path: positions
+// with w = 1, STs, and the flat modulate-identity colour, padded to the batch's
+// block length exactly like the batch pads a run tail. Built once per array
+// and scene; every wheel drawn from the array shares it and its bboxVersion.
+TerrainGame::WheelGeo& TerrainGame::wheelGeoFor(const std::vector<float>& geo,
+                                                u32 real, u32 nv) {
+  for (auto& g : wheelGeos_)
+    if (g->src == (const void*)geo.data() && g->nv == nv) return *g;
+  wheelGeos_.push_back(std::make_unique<WheelGeo>());
+  WheelGeo& g = *wheelGeos_.back();
+  g.src = geo.data();
+  g.nv = nv;
+  g.stamp = ++g_bboxStamp;
+  g.v.resize(nv);
+  g.st.resize(nv);
+  g.c.assign(nv, Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+  for (u32 i = 0; i < nv; ++i) {
+    const float* q = &geo[(size_t)(i < real ? i : real - 1) * 8];
+    g.v[i] = Tyra::Vec4(q[0], q[1], q[2], 1.0F);
+    g.st[i] = Tyra::Vec4(q[6], q[7], 1.0F, 0.0F);
+  }
+  return g;
+}
+
 void TerrainGame::renderVehicleWheels() {
   if (vehicleCount_ <= 0) return;
   const float kDeg = 3.14159265F / 180.0F;
   // Distinct definitions can use different palettes or source images. A single
   // shared bag would sample every car's wheel UVs through the last car's image.
-  // The bag POINTER may still be shared: both caches downstream are keyed by
-  // the vertex-buffer address (StapipBagBBoxesCacher's id, and the retained
-  // command key's `vertices`), never by the bag, and every batch owns its own
-  // vertex vector.
+  // Each batch also owns its bag (see WheelBatch::bag): the bbox and baked
+  // caches are keyed by the vertex buffer, but the stamp cache is keyed by the
+  // BAG, and one shared pointer made every batch evict the previous one's stamp.
+  const int receiverClasses = ANY_PLAYER_ONLY_DYNAMIC_LIGHTS &&
+      PLAYER_ONLY_DYNAMIC_LIGHTS ? 2 : 1;
+  // Allocate every class before any submit: growth must not move stamp/
+  // content owners while an earlier wheel batch is still referenced by DMA.
+  const size_t batchCount = (size_t)VEHICLE_DEF_COUNT * receiverClasses;
+  if (wheelBatches_.size() < batchCount) wheelBatches_.resize(batchCount);
+  // Same rule for the moving-wheel rigs: one per vehicle, allocated up front.
+  if (wheelRigs_.size() < (size_t)vehicleCount_) {
+    wheelRigs_.reserve((size_t)vehicleCount_);
+    while (wheelRigs_.size() < (size_t)vehicleCount_)
+      wheelRigs_.push_back(std::make_unique<WheelRig>());
+  }
   for (int drawDef = 0; drawDef < VEHICLE_DEF_COUNT; ++drawDef) {
-  if ((int)wheelBatches_.size() <= drawDef)
-    wheelBatches_.resize((size_t)drawDef + 1);
-  WheelBatch& batch = wheelBatches_[(size_t)drawDef];
+  for (int receiverClass = 0; receiverClass < receiverClasses; ++receiverClass) {
+  const int batchIndex = drawDef * receiverClasses + receiverClass;
+  WheelBatch& batch = wheelBatches_[(size_t)batchIndex];
   // NOT cleared. The batch is addressed by SLOT - car k owns
   // [k*vertsPerCar, (k+1)*vertsPerCar) - so a car whose inputs did not move
   // keeps the vertices already sitting there, and the frame does no work for
@@ -8654,6 +10011,8 @@ void TerrainGame::renderVehicleWheels() {
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def != drawDef) continue;
+    if (receiverClasses == 2 &&
+        isLivePlayerReceiver(v.object) != (receiverClass == 1)) continue;
     // The body obeys this state in the ordinary object loop. Its separately
     // submitted wheels must obey it too or a hidden car leaves four ghosts.
     if (v.object < 0 || v.object >= (int)runtimeObjects.size() ||
@@ -8780,6 +10139,126 @@ void TerrainGame::renderVehicleWheels() {
     }
     srcRun = run;
     const u32 vpc = nv * 4;
+    // MOVING WHEELS RIDE A MATRIX (docs/vehicles.md). The batch below is the
+    // right shape for cars at rest - one bag, replayed or stamped for free -
+    // and the wrong one for a car in motion: its spin changes every frame, so
+    // the EE re-derived ~3000 world vertices AND packed them into a fresh VIF
+    // stream every frame (1.05 ms on a PS2 for the driven car, night drive).
+    // A moving rig instead draws each wheel as the model's immutable local
+    // array plus one matrix: VU1 does the transform, and StaPip replays the
+    // array's baked stream with only the MVP patched (0.28 ms for the same
+    // car). A rig stays on this path for kWheelLiveHold frames after it last
+    // moved, so a car easing to a stop does not reshuffle the batch slots of
+    // every other car each time it twitches.
+    {
+      constexpr int kWheelLiveHold = 30;
+      WheelRig& rg = *wheelRigs_[(size_t)vi];
+      const float rsig[9] = {v.pos[0], v.pos[1], v.pos[2],
+                             v.pitch + v.leanPitch, v.yaw,
+                             v.roll + v.leanRoll, v.steerAngle, v.wheelSpin,
+                             SC};
+      bool moved = !rg.valid || rg.geo != (const void*)geo.data();
+      for (int k = 0; k < 9 && !moved; ++k) moved = rg.sig[k] != rsig[k];
+      for (int w = 0; w < 4 && !moved; ++w) moved = rg.wy[w] != v.wheelY[w];
+      if (moved) {
+        rg.hold = kWheelLiveHold;
+        for (int k = 0; k < 9; ++k) rg.sig[k] = rsig[k];
+        for (int w = 0; w < 4; ++w) rg.wy[w] = v.wheelY[w];
+        rg.geo = geo.data();
+        rg.valid = 1;
+      } else if (rg.hold > 0) {
+        --rg.hold;
+      }
+      if (rg.hold > 0) {
+        WheelGeo& G = wheelGeoFor(geo, real, nv);
+        // The rig arithmetic of the bake below, ending in a matrix instead of
+        // in vertices: columns = the composed spin/steer/attitude basis, the
+        // translation = the hub after the suspension clamp.
+        const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
+        const float lx[4] = {-hx, hx, -hx, hx};
+        const float lz[4] = {hz, hz, -hz, -hz};
+        float bodyRot[3];
+        vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll, bodyRot);
+        const RotTrig br = rotTrigOf(bodyRot);
+        const V3 up = rotatedBy({0.0F, 1.0F, 0.0F}, br);
+        const float sp = v.wheelSpin * kDeg;
+        const float cp = cosf(sp), spn = sinf(sp);
+        static int liveContactTick = 0;
+        const bool logContact =
+            vi == vehicleDriver_ && (++liveContactTick % 50) == 0;
+        int gap[4] = {0, 0, 0, 0}, lift[4] = {0, 0, 0, 0};
+        for (int w = 0; w < 4; ++w) {
+          const float st = (w < 2 ? v.steerAngle : 0.0F) * kDeg;
+          const float cs = cosf(st), ss = sinf(st);
+          const V3 mx3 = rotatedBy({cs * SC, 0.0F, -ss * SC}, br);
+          const V3 my3 = rotatedBy({spn * ss * SC, cp * SC, spn * cs * SC}, br);
+          const V3 mz3 = rotatedBy({cp * ss * SC, -spn * SC, cp * cs * SC}, br);
+          const V3 hard = rotatedBy({lx[w], 0.0F, lz[w]}, br);
+          const float targetY = v.wheelY[w] + s.wheelRadius * SC;
+          float travel = up.y > 0.2F ? (targetY - (v.pos[1] + hard.y)) / up.y : 0.0F;
+          const float tlo = -s.suspensionTravel * SC * 0.45F;
+          const float hiTravel = s.suspensionTravel * SC * 0.10F;
+          const float hiRadius = s.wheelRadius * SC * 0.06F;
+          const float thi = hiTravel < hiRadius ? hiTravel : hiRadius;
+          if (travel < tlo) travel = tlo;
+          if (travel > thi) travel = thi;
+          WheelLive& W = rg.wheel[w];
+          float* m = W.mat.data;
+          m[0] = mx3.x; m[1] = mx3.y; m[2] = mx3.z; m[3] = 0.0F;
+          m[4] = my3.x; m[5] = my3.y; m[6] = my3.z; m[7] = 0.0F;
+          m[8] = mz3.x; m[9] = mz3.y; m[10] = mz3.z; m[11] = 0.0F;
+          m[12] = v.pos[0] + hard.x + up.x * travel;
+          m[13] = v.pos[1] + hard.y + up.y * travel;
+          m[14] = v.pos[2] + hard.z + up.z * travel;
+          m[15] = 1.0F;
+          W.info = *batchInfoBag;
+          W.info.model = &W.mat;
+          W.bag.info = &W.info;
+          W.bag.vertices = G.v.data();
+          W.bag.count = G.nv;
+          W.color.many = G.c.data();
+          W.bag.color = &W.color;
+          W.bag.lighting = nullptr;
+          W.bag.stripped = run != 0;
+          W.bag.packageSize = run;
+          W.bag.bboxVersion = G.stamp;
+          if (part.texture) {
+            W.tex.texture = const_cast<Tyra::Texture*>(part.texture);
+            W.tex.coordinates = G.st.data();
+            W.bag.texture = &W.tex;
+          } else {
+            W.bag.texture = nullptr;
+          }
+          stapip.core.render(&W.bag, receiverClasses == 2 && receiverClass == 0 ?
+              Tyra::StaPipLightReception::Suppress : Tyra::StaPipLightReception::FromInfo);
+          // VEHCONTACT for the driven car, which now lives on this path while
+          // it moves: the same numbers as the batch path's, with the drawn
+          // vertices reconstructed from the matrix on the logging frame only.
+          if (logContact) {
+            float lo = 1e30F, sx = 0.0F, sz = 0.0F;
+            for (u32 i = 0; i < real; ++i) {
+              const Tyra::Vec4& q = G.v[i];
+              const float wx = m[0] * q.x + m[4] * q.y + m[8] * q.z + m[12];
+              const float wyv = m[1] * q.x + m[5] * q.y + m[9] * q.z + m[13];
+              const float wz = m[2] * q.x + m[6] * q.y + m[10] * q.z + m[14];
+              if (wyv < lo) lo = wyv;
+              sx += wx;
+              sz += wz;
+            }
+            const float cx = sx / (float)real, cz = sz / (float)real;
+            const float surf = groundSurfaceAt(cx, cz);
+            gap[w] = (int)((lo - surf) * 1000.0F);
+            lift[w] = (int)((surf - terrainHeightAt(cx, cz)) * 1000.0F);
+          }
+        }
+        if (logContact)
+          TYRA_LOG("VEHCONTACT car ", vi, " def ", v.def, " driven",
+                   " gap1000 ", gap[0], " ", gap[1], " ", gap[2], " ", gap[3],
+                   " roadlift1000 ", lift[0], " ", lift[1], " ", lift[2], " ", lift[3]);
+        v.contactLogged = 0;
+        continue;  // out of the batch: resting cars keep their one bag
+      }
+    }
     // Every car in this batch reads the same definition, so this can only
     // fire on the frame the wheel model itself changed, at slot 0.
     if (batch.vertsPerCar != vpc) {
@@ -9058,22 +10537,22 @@ void TerrainGame::renderVehicleWheels() {
   if (batch.cols.size() != total)
     batch.cols.resize(total, Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
   batch.staticCars = cars;
-  if (!wheelBag_) {
-    wheelColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
-    wheelBag_ = std::make_unique<Tyra::StaPipBag>();
-    wheelBag_->color = wheelColorBag_.get();
-    wheelBag_->lighting = nullptr;
+  if (!batch.bag) {
+    batch.colorBag = std::make_unique<Tyra::StaPipColorBag>();
+    batch.bag = std::make_unique<Tyra::StaPipBag>();
+    batch.bag->color = batch.colorBag.get();
+    batch.bag->lighting = nullptr;
   }
-  wheelBag_->info = batchInfoBag.get();
-  batch.cols.bind(wheelColorBag_);
-  batch.verts.bind(wheelBag_);
-  wheelBag_->count = static_cast<u32>(batch.verts.size());
+  batch.bag->info = vehMovingInfo();  // moving: keeps the baked lamps live
+  batch.cols.bind(batch.colorBag);
+  batch.verts.bind(batch.bag);
+  batch.bag->count = static_cast<u32>(batch.verts.size());
   // The runs ARE the packages. Every per-wheel block is a whole number of
   // runs, so pinning the package size to the run means no package boundary can
   // fall inside a run or across two wheels. 0 asks for the derived size, which
   // is what a triangle-list batch wants.
-  wheelBag_->stripped = srcRun != 0;
-  wheelBag_->packageSize = srcRun;
+  batch.bag->stripped = srcRun != 0;
+  batch.bag->packageSize = srcRun;
   // THE STAMP IS STICKY. bboxVersion says "this vertex buffer holds different
   // numbers than it did"; bumping it unconditionally made that a lie on every
   // frame a car did not move, and it cost twice - the package-bbox cache
@@ -9097,19 +10576,21 @@ void TerrainGame::renderVehicleWheels() {
     ++g_whStampBumps;
 #endif
   }
-  wheelBag_->bboxVersion = batch.stamp;
+  batch.bag->bboxVersion = batch.stamp;
 #if TYRA_WHEEL_REBUILD_REPORT
   ++g_whBatches;
 #endif
   if (src->texture && batch.sts.size() >= batch.verts.size()) {
-    if (!wheelTexBag_) wheelTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
-    wheelTexBag_->texture = const_cast<Tyra::Texture*>(src->texture);
-    batch.sts.bind(wheelTexBag_);
-    wheelBag_->texture = wheelTexBag_.get();
+    if (!batch.texBag) batch.texBag = std::make_unique<Tyra::StaPipTextureBag>();
+    batch.texBag->texture = const_cast<Tyra::Texture*>(src->texture);
+    batch.sts.bind(batch.texBag);
+    batch.bag->texture = batch.texBag.get();
   } else {
-    wheelBag_->texture = nullptr;
+    batch.bag->texture = nullptr;
   }
-  stapip.core.render(wheelBag_.get());
+  stapip.core.render(batch.bag.get(), receiverClasses == 2 && receiverClass == 0 ?
+      Tyra::StaPipLightReception::Suppress : Tyra::StaPipLightReception::FromInfo);
+  }
   }
 #if TYRA_WHEEL_REBUILD_REPORT
   // Same 300-frame cadence as STAPIPRET, and the same reason for the cadence:
@@ -9146,6 +10627,284 @@ void TerrainGame::renderVehicleWheels() {
 // small texture tiles the entire street, and the stations are packed into
 // procChunks (owner -3) roughly 12 per chunk - each chunk its own AABB, so
 // the frustum culls a road the way it culls everything else.
+// One sample of a road's dense lateral grid - roadgen::Vertex's twin.
+struct RoadRowV {
+  float x, y, z;
+  float u, v;
+};
+
+// ---- The road band planner (docs/roads.md, "Bands"). TWIN BLOCK: this text
+// is pasted VERBATIM into roadgen.cpp and into the generated buildRoads
+// (templates.cpp); verify-road-twins.py compares the two vertex for vertex.
+// It works on rows of the dense lateral grid (x, y, z, u, v per sample), one
+// row per spline station, and decides two things:
+//   - which samples of a row to KEEP: Douglas-Peucker on the row's height
+//     profile, so a row keeps the points where the ground under the road
+//     actually bends (a terrain crease) and drops the ones in between;
+//   - which STATIONS to keep: the band between two kept stations is the
+//     zipper triangulation of their kept samples, and it may skip the
+//     stations in between only while every dense sample of every skipped row
+//     lies on it within the height, plan and texture budgets.
+// A kept row's samples are shared by both bands that meet at it, so no seam
+// can open between bands (no T-vertex), whatever the budgets.
+struct RoadPlan {
+  std::vector<int> stations;           // kept stations, first 0, last rows-1
+  std::vector<std::vector<int>> keep;  // per station: kept dense sample indices
+};
+
+// Douglas-Peucker over a row's height profile against its u.
+template <class V>
+static void roadRowKeep(const std::vector<V>& d, float tol, std::vector<int>& out) {
+  const int n = (int)d.size();
+  std::vector<unsigned char> mark((size_t)n, 0);
+  mark[0] = 1;
+  mark[(size_t)(n - 1)] = 1;
+  std::vector<int> st;
+  st.push_back(0);
+  st.push_back(n - 1);
+  while (!st.empty()) {
+    const int s1 = st.back();
+    st.pop_back();
+    const int s0 = st.back();
+    st.pop_back();
+    float worst = 0.0F;
+    int wk = -1;
+    const float du = d[(size_t)s1].u - d[(size_t)s0].u;
+    for (int k = s0 + 1; k < s1; ++k) {
+      const float f = du != 0.0F ? (d[(size_t)k].u - d[(size_t)s0].u) / du : 0.0F;
+      const float e = fabsf(d[(size_t)k].y -
+                            (d[(size_t)s0].y + (d[(size_t)s1].y - d[(size_t)s0].y) * f));
+      if (e > worst) {
+        worst = e;
+        wk = k;
+      }
+    }
+    if (wk >= 0 && worst > tol) {
+      mark[(size_t)wk] = 1;
+      st.push_back(s0);
+      st.push_back(wk);
+      st.push_back(wk);
+      st.push_back(s1);
+    }
+  }
+  out.clear();
+  for (int k = 0; k < n; ++k)
+    if (mark[(size_t)k]) out.push_back(k);
+}
+
+// The zipper between two kept rows: 1 = advance the later row (b), 0 = the
+// earlier one (a). Both rows sample the same lateral grid, so the order is
+// decided on the dense INDEX - exact, no float compare. A tie advances b
+// first, which is the diagonal the list stitch has always cut (P[j]-N[j+s]).
+static void roadZipper(const std::vector<int>& A, const std::vector<int>& B,
+                       std::vector<unsigned char>& steps) {
+  steps.clear();
+  size_t i = 0, j = 0;
+  while (i + 1 < A.size() || j + 1 < B.size()) {
+    bool advB;
+    if (i + 1 >= A.size()) advB = true;
+    else if (j + 1 >= B.size()) advB = false;
+    else advB = B[j + 1] <= A[i + 1];
+    steps.push_back(advB ? 1 : 0);
+    if (advB) ++j;
+    else ++i;
+  }
+}
+
+// May the band a..b skip every station in between?
+template <class V>
+static bool roadBandFits(const std::vector<std::vector<V>>& rows, int a, int b,
+                         const std::vector<int>& A, const std::vector<int>& B,
+                         float tolY, float tolXZ, float tolUV,
+                         std::vector<unsigned char>& steps,
+                         std::vector<const V*>& tri, int* failCell = nullptr) {
+  if (failCell) *failCell = -1;
+  roadZipper(A, B, steps);
+  const std::vector<V>& ra = rows[(size_t)a];
+  const std::vector<V>& rb = rows[(size_t)b];
+  tri.clear();
+  size_t i = 0, j = 0;
+  for (size_t s = 0; s < steps.size(); ++s) {
+    if (steps[s]) {
+      tri.push_back(&ra[(size_t)A[i]]);
+      tri.push_back(&rb[(size_t)B[j + 1]]);
+      tri.push_back(&rb[(size_t)B[j]]);
+      ++j;
+    } else {
+      tri.push_back(&ra[(size_t)A[i]]);
+      tri.push_back(&ra[(size_t)A[i + 1]]);
+      tri.push_back(&rb[(size_t)B[j]]);
+      ++i;
+    }
+  }
+  const size_t tris = tri.size() / 3;
+  const int last = (int)ra.size() - 1;
+  // One test point against the band: located by a walk (the points of a pass
+  // run left to right, and so do the zipper's triangles, each of which
+  // advances one row by at least one sample) and compared in height and in
+  // texture.
+  size_t at = 0;
+  auto fits = [&](float qx, float qy, float qz, float qu, float qv) {
+    float best = -1.0e30F, by = 0.0F, bu = 0.0F, bv = 0.0F;
+    size_t bt = at;
+    const size_t lo = at > 2 ? at - 2 : 0;
+    const size_t hi = at + 5 < tris ? at + 5 : tris;
+    for (size_t c = lo; c < hi; ++c) {
+      const V& t0 = *tri[c * 3];
+      const V& t1 = *tri[c * 3 + 1];
+      const V& t2 = *tri[c * 3 + 2];
+      const float den = (t1.z - t2.z) * (t0.x - t2.x) + (t2.x - t1.x) * (t0.z - t2.z);
+      if (fabsf(den) < 1e-12F) continue;
+      const float l0 = ((t1.z - t2.z) * (qx - t2.x) + (t2.x - t1.x) * (qz - t2.z)) / den;
+      const float l1 = ((t2.z - t0.z) * (qx - t2.x) + (t0.x - t2.x) * (qz - t2.z)) / den;
+      const float l2 = 1.0F - l0 - l1;
+      float mn = l0 < l1 ? l0 : l1;
+      if (l2 < mn) mn = l2;
+      if (mn > best) {
+        best = mn;
+        bt = c;
+        by = l0 * t0.y + l1 * t1.y + l2 * t2.y;
+        bu = l0 * t0.u + l1 * t1.u + l2 * t2.u;
+        bv = l0 * t0.v + l1 * t1.v + l2 * t2.v;
+      }
+    }
+    if (best < -0.05F) return false;
+    at = bt;
+    return fabsf(by - qy) <= tolY && fabsf(bu - qu) <= tolUV &&
+           fabsf(bv - qv) <= tolUV;
+  };
+  // The dense surface's own triangles, by their centroids: two surfaces that
+  // agree at every sample can still part between them, where neither has a
+  // vertex - the difference of two piecewise-linear surfaces peaks where their
+  // edges cross. The centroids are where the verifier measures, too.
+  for (int k = a; k < b; ++k) {
+    const std::vector<V>& r0 = rows[(size_t)k];
+    const std::vector<V>& r1 = rows[(size_t)(k + 1)];
+    at = 0;
+    for (int m = 0; m < last; ++m) {
+      const V& p = r0[(size_t)m];
+      const V& q = r0[(size_t)(m + 1)];
+      const V& r = r1[(size_t)(m + 1)];
+      const V& s = r1[(size_t)m];
+      if (!fits((p.x + q.x + r.x) / 3.0F, (p.y + q.y + r.y) / 3.0F,
+                (p.z + q.z + r.z) / 3.0F, (p.u + q.u + r.u) / 3.0F,
+                (p.v + q.v + r.v) / 3.0F) ||
+          !fits((p.x + r.x + s.x) / 3.0F, (p.y + r.y + s.y) / 3.0F,
+                (p.z + r.z + s.z) / 3.0F, (p.u + r.u + s.u) / 3.0F,
+                (p.v + r.v + s.v) / 3.0F)) {
+        if (failCell) *failCell = m;
+        return false;
+      }
+    }
+  }
+  for (int k = a + 1; k < b; ++k) {
+    const std::vector<V>& rk = rows[(size_t)k];
+    // Plan: the skipped row's shoulders must lie on the band's shoulder chords.
+    for (int side = 0; side < 2; ++side) {
+      const int e = side ? last : 0;
+      const V& p = rk[(size_t)e];
+      const V& q0 = ra[(size_t)e];
+      const V& q1 = rb[(size_t)e];
+      const float dx = q1.x - q0.x, dz = q1.z - q0.z;
+      const float l2 = dx * dx + dz * dz;
+      float t = l2 > 0.0F ? ((p.x - q0.x) * dx + (p.z - q0.z) * dz) / l2 : 0.0F;
+      if (t < 0.0F) t = 0.0F;
+      if (t > 1.0F) t = 1.0F;
+      const float ex = q0.x + dx * t - p.x, ez = q0.z + dz * t - p.z;
+      if (ex * ex + ez * ez > tolXZ * tolXZ) return false;
+    }
+    // Height and texture at every dense sample of the skipped row.
+    at = 0;
+    for (int m = 0; m <= last; ++m) {
+      const V& q = rk[(size_t)m];
+      if (!fits(q.x, q.y, q.z, q.u, q.v)) return false;
+    }
+  }
+  return true;
+}
+
+// The plan for one road: kept samples per row, then kept stations, greedily -
+// a band grows one station at a time while it still fits, up to maxBand.
+template <class V>
+static void roadPlanBands(const std::vector<std::vector<V>>& rows, int maxBand,
+                          float tolY, float tolXZ, float tolUV, RoadPlan& plan) {
+  const int count = (int)rows.size();
+  plan.stations.clear();
+  plan.keep.assign((size_t)count, std::vector<int>());
+  if (count < 2) return;
+  for (int s = 0; s < count; ++s)
+    roadRowKeep(rows[(size_t)s], tolY * 0.5F, plan.keep[(size_t)s]);
+  std::vector<unsigned char> steps;
+  std::vector<const V*> tri;
+  // Every neighbouring station pair must fit on its own before any band may
+  // skip a station. Where the rows converge (a bend) or a crease crosses the
+  // pair at a slant, a long zipper triangle across the whole width drifts in
+  // texture and height between the samples it keeps. The test names the dense
+  // cell that broke the budget; both rows gain that cell's two edges, and the
+  // pairs are re-checked until none fails. Samples are only ever added, and a
+  // cell whose four corners are kept zips into exactly the dense cell, so this
+  // ends - at worst at the dense grid.
+  auto add = [&](std::vector<int>& k, int m) {
+    size_t at = 0;
+    while (at < k.size() && k[at] < m) ++at;
+    if (at < k.size() && k[at] == m) return false;
+    k.insert(k.begin() + (long)at, m);
+    return true;
+  };
+  for (bool changed = true; changed;) {
+    changed = false;
+    for (int s = 0; s + 1 < count; ++s) {
+      int cell = -1;
+      while (!roadBandFits(rows, s, s + 1, plan.keep[(size_t)s],
+                           plan.keep[(size_t)(s + 1)], tolY, tolXZ, tolUV, steps,
+                           tri, &cell)) {
+        bool grew = false;
+        if (cell >= 0) {
+          for (int r = s; r <= s + 1; ++r) {
+            if (add(plan.keep[(size_t)r], cell)) grew = true;
+            if (add(plan.keep[(size_t)r], cell + 1)) grew = true;
+          }
+        }
+        if (!grew) {
+          // Nothing left to add at the named cell: the whole rows, dense.
+          for (int r = s; r <= s + 1; ++r) {
+            std::vector<int>& k = plan.keep[(size_t)r];
+            k.clear();
+            for (int m = 0; m < (int)rows[(size_t)r].size(); ++m) k.push_back(m);
+          }
+          break;
+        }
+        changed = true;
+      }
+    }
+  }
+  int a = 0;
+  plan.stations.push_back(0);
+  while (a < count - 1) {
+    int b = a + 1;
+    while (b + 1 < count && b + 1 - a <= maxBand &&
+           roadBandFits(rows, a, b + 1, plan.keep[(size_t)a],
+                        plan.keep[(size_t)(b + 1)], tolY, tolXZ, tolUV, steps, tri))
+      ++b;
+    plan.stations.push_back(b);
+    a = b;
+  }
+}
+
+// Strip vertices one band costs, in the emitter's own currency: the opening
+// pair, the join into an open run, one per zipper step and one for every
+// step that advances the same row as the step before it (the pivot repeat).
+static size_t roadBandStripCost(const std::vector<unsigned char>& steps) {
+  size_t cost = 4 + steps.size();
+  int last = 0;  // the band opens on b[0], a[0]: the last vertex is row a's
+  for (size_t s = 0; s < steps.size(); ++s) {
+    if ((int)steps[s] == last) ++cost;
+    last = steps[s];
+  }
+  return cost;
+}
+// ---- end of the twin block ----
+
 void TerrainGame::buildRoads(int scene) {
   // A scene revisit rebuilds: drop the previous scene's road chunks only.
   for (size_t i = procChunks.size(); i > 0; --i)
@@ -9266,16 +11025,10 @@ void TerrainGame::buildRoads(int scene) {
       }
       runStart = c->vertices.size();
     };
-    std::vector<float> px0((size_t)crossSteps + 1);
-    std::vector<float> py0((size_t)crossSteps + 1);
-    std::vector<float> pz0((size_t)crossSteps + 1);
-    // Where this station pair is cut laterally. Hoisted out of the station
-    // loop: this runs on the EE at scene load, once per station of every road
-    // in the district, and a per-station heap allocation there is not free.
-    std::vector<int> cuts;
-    cuts.reserve((size_t)crossSteps + 1);
-    float lv0 = 0.0F;
-    bool havePrev = false;
+    // The dense lateral grid, one row per spline station - roadgen.cpp's
+    // buildRows, arithmetic for arithmetic. The band planner needs the rows
+    // a band may skip, so the whole road is sampled before anything is cut.
+    std::vector<std::vector<RoadRowV>> rows;
     float arc = 0.0F, prevX = 0.0F, prevZ = 0.0F;
     sampleAt(0, 0.0F, &prevX, &prevZ);
     for (int seg = 0; seg < n - 1; ++seg) {
@@ -9333,196 +11086,113 @@ void TerrainGame::buildRoads(int scene) {
         prevX = cx2;
         prevZ = cz2;
         const float v = arc / 4.0F;
-        std::vector<float> nx((size_t)crossSteps + 1);
-        std::vector<float> ny((size_t)crossSteps + 1);
-        std::vector<float> nz((size_t)crossSteps + 1);
+        std::vector<RoadRowV> row((size_t)crossSteps + 1);
         for (int j = 0; j <= crossSteps; ++j) {
           const float u = (float)j / (float)crossSteps;
           const float side = u * 2.0F - 1.0F;
-          nx[(size_t)j] = cx2 + rxu * side;
-          nz[(size_t)j] = cz2 + rzu * side;
-          ny[(size_t)j] =
-              terrainHeightAt(nx[(size_t)j], nz[(size_t)j]) + 0.12F + rd.lift;
+          RoadRowV& q = row[(size_t)j];
+          q.x = cx2 + rxu * side;
+          q.z = cz2 + rzu * side;
+          q.y = terrainHeightAt(q.x, q.z) + 0.12F + rd.lift;
+          q.u = rd.uInset + (1.0F - 2.0F * rd.uInset) * u;
+          q.v = v;
         }
-        if (havePrev) {
-          // Two triangles per lateral cell, CCW seen from above - the twin's
-          // stitch, emitted station by station so a chunk boundary never
-          // leaves a gap (the previous row is re-used as the base).
-          // Exact lateral reduction: every dense sample must lie on the
-          // proposed quad plane, and the quad must be an affine parallelogram
-          // so its two triangles interpolate ST as the cells they replace do.
-          // The reduction is per SUB-SPAN rather than all-or-nothing, because
-          // a road is a decal on a heightfield sampled far more finely than
-          // the heightfield itself - runs of lateral cells inside one terrain
-          // triangle are exactly coplanar even when the full width is not.
-          // The two budgets are the roadgen.hpp twin's kSpanFlatness (surface,
-          // and with it the T-junction) and kSpanShear (UV, tripped by bends).
-          auto spanIsExact = [&](int j0, int j1) {
-            const float ax = px0[(size_t)j0], ay = py0[(size_t)j0];
-            const float az = pz0[(size_t)j0];
-            const float bx = px0[(size_t)j1], by = py0[(size_t)j1];
-            const float bz = pz0[(size_t)j1];
-            const float dx = nx[(size_t)j0], dy = ny[(size_t)j0];
-            const float dz = nz[(size_t)j0];
-            const float cx = nx[(size_t)j1], cy = ny[(size_t)j1];
-            const float cz = nz[(size_t)j1];
-            const float ux = bx - ax, uy = by - ay, uz = bz - az;
-            const float vx = dx - ax, vy = dy - ay, vz = dz - az;
-            const float pnx = uy * vz - uz * vy;
-            const float pny = uz * vx - ux * vz;
-            const float pnz = ux * vy - uy * vx;
-            const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
-            if (!(pnl > 1e-6F)) return false;
-            const float qax = (bx - ax) - (cx - dx);
-            const float qay = (by - ay) - (cy - dy);
-            const float qaz = (bz - az) - (cz - dz);
-            if (sqrtf(qax * qax + qay * qay + qaz * qaz) > 0.05F)
-              return false;
-            for (int r = 0; r < 2; ++r)
-              for (int j = j0; j <= j1; ++j) {
-                const float qx = r ? nx[(size_t)j] : px0[(size_t)j];
-                const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
-                const float qz = r ? nz[(size_t)j] : pz0[(size_t)j];
-                const float dist = fabsf(pnx * (qx - ax) + pny * (qy - ay) +
-                                         pnz * (qz - az)) / pnl;
-                if (dist > 0.00001F) return false;
-              }
-            return true;
-          };
-          // Keep the long-standing horizontal reduction, including curved
-          // spans, as the roadgen.cpp twin does. It is the one case that does
-          // NOT owe the affine check.
-          bool flat = true;
-          const float flatY = py0[0];
-          for (int r = 0; r < 2 && flat; ++r)
-            for (int j = 0; j <= crossSteps; ++j) {
-              const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
-              if (fabsf(qy - flatY) > 0.00001F) { flat = false; break; }
-            }
-          cuts.clear();
-          cuts.push_back(0);
-          if (flat) {
-            cuts.push_back(crossSteps);
-          } else {
-            // Greedy maximal runs. A single cell is the fallback and is never
-            // tested, so this can only remove vertices from the dense mesh.
-            int j0 = 0;
-            while (j0 < crossSteps) {
-              int j1 = j0 + 1;
-              while (j1 < crossSteps && spanIsExact(j0, j1 + 1)) ++j1;
-              cuts.push_back(j1);
-              j0 = j1;
-            }
-          }
-          const bool collapsed = cuts.size() == 2;
-          // Amortize EE bag/bounds work on flat streets, without making dense
-          // slopes unbounded or joining a whole road into one culling box.
-          // The budget is in the currency the chunk actually holds, so the
-          // two emitters cut a road into the SAME number of chunks only by
-          // accident - what matters is that a run never straddles one.
-          const size_t spanVertices =
-              useStrips
-                  ? (collapsed
-                         ? (alongOpen ? (size_t)2 : (size_t)4)
-                         : (2 * cuts.size() + 2))
-                  : (cuts.size() - 1) * 6;
-          if (!c || stationsInChunk >= 36 ||
-              v - chunkVBase >= 16.0F ||
-              c->vertices.size() + spanVertices > 1800) {
-            closeChunk();
-            procChunks.push_back(ProcChunk());
-            c = &procChunks.back();
-            c->owner = -3;
-            c->roadTex = tex;
-            c->roadGrip = rd.grip;
-            c->stripRun = useStrips ? (int)stripRun : 0;
-            // Texture repeat is invariant under an integer V offset. Keep the
-            // value local to this bag: long roads otherwise feed ever-growing
-            // ST coordinates into the physical GS/VU path, where the lost
-            // fractional precision can smear one texel over the whole road.
-            chunkVBase = floorf(lv0);
-            stationsInChunk = 0;
-            runStart = 0;
-            alongOpen = false;
-          }
-          // P is the previous station's row, N this one's.
-          auto vAt = [&](int j, bool newRow) {
-            return newRow ? Tyra::Vec4(nx[(size_t)j], ny[(size_t)j],
-                                       nz[(size_t)j], 1.0F)
-                          : Tyra::Vec4(px0[(size_t)j], py0[(size_t)j],
-                                       pz0[(size_t)j], 1.0F);
-          };
-          auto sAt = [&](int j, bool newRow) {
-            return Tyra::Vec4(rd.uInset + (1.0F - 2.0F * rd.uInset) *
-                                              (float)j / (float)crossSteps,
-                              (newRow ? v : lv0) - chunkVBase, 1.0F, 0.0F);
-          };
-          if (!useStrips) {
-            for (size_t ci = 0; ci + 1 < cuts.size(); ++ci) {
-              const int j = cuts[ci], j2 = cuts[ci + 1];
-              const float u0 = rd.uInset + (1.0F - 2.0F * rd.uInset) *
-                                               (float)j / (float)crossSteps;
-              const float u1 = rd.uInset + (1.0F - 2.0F * rd.uInset) *
-                                               (float)j2 / (float)crossSteps;
-              const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
-                                 pz0[(size_t)j], 1.0F);
-              const Tyra::Vec4 B(px0[(size_t)j2], py0[(size_t)j2],
-                                 pz0[(size_t)j2], 1.0F);
-              const Tyra::Vec4 C(nx[(size_t)j2], ny[(size_t)j2],
-                                 nz[(size_t)j2], 1.0F);
-              const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
-                                 nz[(size_t)j], 1.0F);
-              const Tyra::Vec4 sA(u0, lv0 - chunkVBase, 1.0F, 0.0F);
-              const Tyra::Vec4 sB(u1, lv0 - chunkVBase, 1.0F, 0.0F);
-              const Tyra::Vec4 sC(u1, v - chunkVBase, 1.0F, 0.0F);
-              const Tyra::Vec4 sD(u0, v - chunkVBase, 1.0F, 0.0F);
-              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
-              c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
-              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
-              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
-              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
-              c->vertices.push_back(D); c->sts.push_back(sD); c->colors.push_back(grey);
-            }
-          } else if (collapsed) {
-            // A collapsed span is ONE full-width quad, so a street of them is
-            // a grid one cell WIDE and many stations LONG - and a strip has
-            // to run along the long axis or it buys nothing. Taken laterally
-            // a collapsed span is 4 vertices plus a 2-vertex join against the
-            // list's 6: break-even on the EE and 3x the GS primitives, two
-            // thirds of them degenerate. Taken longitudinally it is 2
-            // vertices per STATION, the same 0.35x the dense spans reach.
-            // ... P[w], P[0], N[w], N[0] ... - successive triples are this
-            // span's two triangles, cut along P[0]-N[w], which is the cut the
-            // list stitch above makes. The other interleaving takes the other
-            // diagonal and silently reshapes every non-planar quad.
-            if (!alongOpen) {
-              startStrip(vAt(crossSteps, false), sAt(crossSteps, false));
-              pushRaw(vAt(0, false), sAt(0, false));
-              alongOpen = true;
-            }
-            pushRaw(vAt(crossSteps, true), sAt(crossSteps, true));
-            pushRaw(vAt(0, true), sAt(0, true));
-          } else {
-            // N[0], P[0], N[s], P[s], ... - same argument, same diagonal
-            // P[j]-N[j+s], walked ACROSS the road instead. The cuts are no
-            // longer uniformly spaced, which changes nothing here: the walk
-            // visits them in order and the diagonal is the same one.
-            alongOpen = false;
-            startStrip(vAt(0, true), sAt(0, true));
-            pushRaw(vAt(0, false), sAt(0, false));
-            for (size_t ci = 1; ci < cuts.size(); ++ci) {
-              pushRaw(vAt(cuts[ci], true), sAt(cuts[ci], true));
-              pushRaw(vAt(cuts[ci], false), sAt(cuts[ci], false));
-            }
-          }
-          ++stationsInChunk;
-        }
-        px0.swap(nx);
-        py0.swap(ny);
-        pz0.swap(nz);
-        lv0 = v;
-        havePrev = true;
+        rows.push_back(std::move(row));
       }
+    }
+    // The bands (docs/roads.md "Bands"): roadgen.hpp's kRoadTolY / kRoadTolXZ
+    // / kRoadTolUV / kRoadBandMax as literals - static_asserted at the top of
+    // templates.cpp. A soft-edged road keeps every station: its faded bands
+    // are baked on them and must meet the core exactly.
+    RoadPlan plan;
+    roadPlanBands(rows, rd.uInset > 0.0F ? 1 : 8, 0.01F, 0.01F, 0.006F, plan);
+    std::vector<unsigned char> steps;
+    for (size_t bs = 0; bs + 1 < plan.stations.size(); ++bs) {
+      const int a = plan.stations[bs], b = plan.stations[bs + 1];
+      const std::vector<int>& A = plan.keep[(size_t)a];
+      const std::vector<int>& B = plan.keep[(size_t)b];
+      const std::vector<RoadRowV>& ra = rows[(size_t)a];
+      const std::vector<RoadRowV>& rb = rows[(size_t)b];
+      roadZipper(A, B, steps);
+      const bool collapsed = A.size() == 2 && B.size() == 2;
+      // Amortize EE bag/bounds work on flat streets, without making dense
+      // slopes unbounded or joining a whole road into one culling box. The
+      // budget is in the currency the chunk actually holds.
+      const size_t spanVertices =
+          useStrips ? (collapsed ? (alongOpen ? (size_t)2 : (size_t)4)
+                                 : roadBandStripCost(steps))
+                    : steps.size() * 3;
+      if (!c || stationsInChunk >= 36 || rb[0].v - chunkVBase >= 16.0F ||
+          c->vertices.size() + spanVertices > 1800) {
+        closeChunk();
+        procChunks.push_back(ProcChunk());
+        c = &procChunks.back();
+        c->owner = -3;
+        c->roadTex = tex;
+        c->roadGrip = rd.grip;
+        c->stripRun = useStrips ? (int)stripRun : 0;
+        // Texture repeat is invariant under an integer V offset. Keep the
+        // value local to this bag: long roads otherwise feed ever-growing
+        // ST coordinates into the physical GS/VU path, where the lost
+        // fractional precision can smear one texel over the whole road.
+        chunkVBase = floorf(ra[0].v);
+        stationsInChunk = 0;
+        runStart = 0;
+        alongOpen = false;
+      }
+      auto P = [&](const RoadRowV& q) { return Tyra::Vec4(q.x, q.y, q.z, 1.0F); };
+      auto S = [&](const RoadRowV& q) {
+        return Tyra::Vec4(q.u, q.v - chunkVBase, 1.0F, 0.0F);
+      };
+      if (!useStrips) {
+        // The zipper as a list, CCW seen from above: a step on b is
+        // (a[i], b[j+1], b[j]), a step on a is (a[i], a[i+1], b[j]).
+        size_t i = 0, j = 0;
+        for (unsigned char st : steps) {
+          const RoadRowV& q0 = ra[(size_t)A[i]];
+          const RoadRowV& q1 = st ? rb[(size_t)B[j + 1]] : ra[(size_t)A[i + 1]];
+          const RoadRowV& q2 = rb[(size_t)B[j]];
+          c->vertices.push_back(P(q0)); c->sts.push_back(S(q0)); c->colors.push_back(grey);
+          c->vertices.push_back(P(q1)); c->sts.push_back(S(q1)); c->colors.push_back(grey);
+          c->vertices.push_back(P(q2)); c->sts.push_back(S(q2)); c->colors.push_back(grey);
+          if (st) ++j;
+          else ++i;
+        }
+      } else if (collapsed) {
+        // A band of two two-sample rows is ONE full-width quad, so a street of
+        // them strips ALONG the road at 2 vertices per band: ... a[w], a[0],
+        // b[w], b[0] ... - successive triples are the zipper's two triangles.
+        if (!alongOpen) {
+          startStrip(P(ra[(size_t)crossSteps]), S(ra[(size_t)crossSteps]));
+          pushRaw(P(ra[0]), S(ra[0]));
+          alongOpen = true;
+        }
+        pushRaw(P(rb[(size_t)crossSteps]), S(rb[(size_t)crossSteps]));
+        pushRaw(P(rb[0]), S(rb[0]));
+      } else {
+        // ACROSS the road: b[0], a[0], then one vertex per zipper step; two
+        // steps on the same row in a row repeat the other row's vertex first
+        // (a zero-area triangle) so the next triple is still the zipper's.
+        alongOpen = false;
+        startStrip(P(rb[0]), S(rb[0]));
+        pushRaw(P(ra[0]), S(ra[0]));
+        int last = 0;
+        size_t i = 0, j = 0;
+        for (unsigned char st : steps) {
+          if (st) {
+            if (last == 1) pushRaw(P(ra[(size_t)A[i]]), S(ra[(size_t)A[i]]));
+            pushRaw(P(rb[(size_t)B[j + 1]]), S(rb[(size_t)B[j + 1]]));
+            ++j;
+            last = 1;
+          } else {
+            if (last == 0) pushRaw(P(rb[(size_t)B[j]]), S(rb[(size_t)B[j]]));
+            pushRaw(P(ra[(size_t)A[i + 1]]), S(ra[(size_t)A[i + 1]]));
+            ++i;
+            last = 0;
+          }
+        }
+      }
+      ++stationsInChunk;
     }
     // This road's last chunk still has an open run.
     closeChunk();
@@ -10411,6 +12081,16 @@ void TerrainGame::renderProcChunks() {
     // them now that the main view calls renderRoadChunks explicitly.
     if (c.owner == -3 || c.owner == -6) continue;  // -6 draws with the roads
     if (!c.bag || c.bag->count == 0) continue;
+    // Distant version per pool row: the near chunks and the far model of one
+    // group read the same reference point and distance, so exactly one side
+    // of the group draws.
+    if (c.lodTier >= 0) {
+      const float dx = c.lodRef[0] - cameraPosition.x;
+      const float dy = c.lodRef[1] - cameraPosition.y;
+      const float dz = c.lodRef[2] - cameraPosition.z;
+      const bool isFar = dx * dx + dy * dy + dz * dz > c.lodDist * c.lodDist;
+      if (isFar != (c.lodTier == 1)) continue;
+    }
     // StaPip has its own precise clipper, but entering it for every generated
     // road/prefab chunk still pays the bag setup and classification cost. The
     // chunks already own world-space bounds, so reject wholly invisible ones
@@ -10431,7 +12111,7 @@ void TerrainGame::renderProcChunks() {
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
     if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
-    stapip.core.render(c.bag.get());
+    renderWorldBag(c.bag.get());
   }
 }
 }

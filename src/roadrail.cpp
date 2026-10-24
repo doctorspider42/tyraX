@@ -61,8 +61,11 @@ struct Station {
 // exactly one unit either side of the centre, along the right vector. This
 // reads them back instead of copying the Catmull-Rom sampler a third time.
 std::vector<Station> stationsOf(const CrossingRoad& r) {
+    // The DENSE surface, one lateral cell wide (0.5 <= kCrossSampleStep): six
+    // vertices per station pair, left/right of each station in a fixed order.
+    // roadgen::tessellate plans bands (1.176.0), so its layout is not per station.
     std::vector<Vertex> tris;
-    roadgen::tessellate(r.points, 2.0f, HeightFn{}, tris, {}, r.sampleStep);
+    roadgen::tessellateDense(r.points, 0.5f, HeightFn{}, tris, r.sampleStep);
     std::vector<Station> st;
     auto push = [&](const Vertex& l, const Vertex& rt) {
         float rx = 0.5f * (rt.x - l.x), rz = 0.5f * (rt.z - l.z);

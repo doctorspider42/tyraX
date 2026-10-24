@@ -51,6 +51,20 @@ struct RendererCoreDepth {
   /** 24 (a 32/24-bit z buffer) or 16 (a 16-bit one). */
   static int bits;
 
+  /**
+   * Modified by TyraX (BLSS particles): the VU1 scale that maps NDC x / y
+   * onto the GS raster - vert = ndc * s + s, so NDC -1..1 lands on 0..2s.
+   * 2048 everywhere (the GS's +-2048 window) except while
+   * RendererCoreBlss::beginParticles draws the emitters into the reduced
+   * target: there it is 2048 / rasterScale with the PROJECTION left native, so
+   * the billboard program's per-quad clipw cull - the raster-window test that
+   * drops a huge puff right in front of the camera - keeps the native
+   * threshold instead of moving twice as close. Read by the StaPip packet
+   * builder; only the BLSS bracket writes it.
+   */
+  static float screenScaleX;
+  static float screenScaleY;
+
   /** Called by RendererCoreGS::allocateVramBuffers once the formats are
    * known. Anything cached from `scale` before that point is wrong. */
   static void setBits(int t_bits);

@@ -23,7 +23,8 @@ as the engine — is in [`LICENSE`](LICENSE), with the summary notice in
 | Component | Version pinned | License | Redistributed in this repo? |
 | --- | --- | --- | --- |
 | [Tyra engine](https://github.com/h4570/tyra) | fork of `9273416` | Apache-2.0 | **Yes** — `vendor/tyra/engine`, sources tracked |
-| [Dear ImGui](https://github.com/ocornut/imgui) | `b334d19b` (docking) | MIT | No — fetched by `setup.sh` / `setup.ps1` |
+| [Geist](https://github.com/vercel/geist-font) | `v1.7.2` (Geist, Geist SemiBold, Geist Mono, Geist Mono SemiBold) | SIL OFL 1.1 | **Yes** — `resources/fonts`, unmodified, embedded in the editor; Geist Mono SemiBold is also the games' default font, shipped as baked glyph images |
+| [Dear ImGui](https://github.com/ocornut/imgui) | `b334d19b` (docking), patched | MIT | **Yes** — `vendor/imgui-tyrax`, the compiled subset, modified (see its `TYRAX-PATCHES.md`) |
 | [GLFW](https://www.glfw.org/) | `7b6aead9` (3.4) | zlib/libpng | No — fetched |
 | [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) | `dc25afb9` | MIT | No — fetched |
 | [imnodes](https://github.com/Nelarius/imnodes) | `eb36902c` | MIT | No — fetched |
@@ -35,7 +36,12 @@ as the engine — is in [`LICENSE`](LICENSE), with the summary notice in
 | [OpenVCL](https://github.com/ps2dev/openvcl) | TyraX fork snapshot `89efa51e`, based on upstream `a5867c3` | AFL-2.0 | **Yes** — `vendor/openvcl`, modified sources tracked |
 | [vclpp](https://github.com/glampert/vclpp) | `00e44ecf` | MIT | **Yes** — `vendor/vclpp`, sources tracked |
 | PS2SDK `bin2s` | `8f397576` | AFL-2.0 | **Yes** — `tools/toolchain/bin2s`, source tracked |
-| [PS2DEV toolchain](https://github.com/ps2dev/ps2dev/releases/tag/v2.0.0) | v2.0.0 Linux release, SHA-256 pinned | component licences shipped by PS2DEV | No — downloaded directly to the user's cache |
+| [PS2DEV toolchain](https://github.com/ps2dev/ps2dev/releases/tag/v2.0.0) | v2.0.0 Linux/macOS releases, SHA-256 pinned | component licences shipped by PS2DEV | No — downloaded directly to the user's cache |
+| [GNU make](https://www.gnu.org/software/make/) | 4.4.1 | GPL-3.0-or-later | **macOS app only** — binary + its source tarball, see below |
+| [GMP](https://gmplib.org/) | 6.3.0 | LGPL-3.0-or-later **or** GPL-2.0-or-later | **macOS app only** — library + source, see below |
+| [MPFR](https://www.mpfr.org/) | 4.2.2 | LGPL-3.0-or-later | **macOS app only** — library + source |
+| [MPC](https://www.multiprecision.org/mpc/) | 1.4.1 | LGPL-3.0-or-later | **macOS app only** — library + source |
+| [zstd](https://github.com/facebook/zstd) | 1.5.7 | BSD-3-Clause **or** GPL-2.0 | **macOS app only** — library + source |
 
 For the dual-licensed entries (stb, ufbx, miniaudio) TyraX makes no election —
 both alternatives are reproduced below, as the upstream files present them.
@@ -88,6 +94,113 @@ recovered verbatim from `h4570/tyra@68eb496`, the last commit that carried it.
 Since Apache-2.0 §4(a) requires giving recipients a copy of the license, and
 this repo *does* redistribute the engine sources, shipping that recovered text
 is the compliant thing to do regardless of upstream's current state.
+
+## Geist — SIL Open Font License 1.1
+
+`resources/fonts/Geist-Regular.ttf`, `Geist-SemiBold.ttf`,
+`GeistMono-Regular.ttf` and `GeistMono-SemiBold.ttf` are the static fonts of the Geist v1.7.2 release
+(github.com/vercel/geist-font, `geist-font-v1.7.2.zip`, sha256
+`7fc800d2ac6b92844895196e5041aca55d814c15db70c44f79b3b83ab82b04e2`), unmodified.
+They are embedded in the editor executable (cmake/embed_binary.cmake) to draw
+its interface, and Geist Mono SemiBold is rasterized into the glyph atlas and
+text images of a game whose font is left on *Default*; they are not sold on their own and are not renamed. The license
+travels with them as `resources/fonts/OFL.txt`:
+
+```
+Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+https://openfontlicense.org
+
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded, 
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+```
 
 ## Dear ImGui — MIT
 
@@ -336,13 +449,32 @@ SOFTWARE.
 built from source with one local patch
 ([`tools/ps2client/nodelay.patch`](tools/ps2client/nodelay.patch)). Upstream
 declares no license file, so it is redistributed here in the spirit of the
-ps2dev homebrew SDK with full credit to its authors. The Linux binary is not
-redistributed at all — `setup.sh` downloads it unmodified from an upstream
-release. ps2link is likewise not redistributed: `tools/ps2link/` holds only a
+ps2dev homebrew SDK with full credit to its authors. The Linux and macOS
+binaries are not in this repository — `setup.sh` downloads them unmodified from
+an upstream release; the macOS app (built from such a checkout) carries that
+download, re-signed with the app's own signature. ps2link is likewise not redistributed: `tools/ps2link/` holds only a
 patch, and its build clones ps2link from upstream itself.
 
 If the ps2dev project ever states an explicit license, this entry should be
 replaced with it.
+
+## The macOS app's host tools — GNU make, GMP, MPFR, MPC, zstd
+
+`TyraX.app` (installer/build-macos.sh) carries, in
+`Contents/Resources/tools/macos/`, what the macOS build of the PS2DEV toolchain
+needs from the host and a Mac without Homebrew or Xcode does not have: **GNU
+make 4.4.1** (GPL-3.0-or-later) and the shared libraries **GMP 6.3.0**
+(LGPL-3.0-or-later or GPL-2.0-or-later; TyraX makes no election), **MPFR
+4.2.2** and **MPC 1.4.1** (LGPL-3.0-or-later) and **zstd 1.5.7** (BSD-3-Clause
+or GPL-2.0; TyraX makes no election). All five are built unmodified by
+`installer/macos/build-host-tools.sh` from the upstream release tarballs it
+pins by SHA-256, and **those exact tarballs ship beside the binaries** in
+`tools/macos/src/` - the Corresponding Source the GPL and LGPL ask for, with
+each project's own licence texts inside. The libraries stay separate shared
+objects, which is what lets a recipient replace them (LGPL §4): the toolchain
+setup copies whatever is in `tools/macos/lib` and relinks the PS2DEV
+compilers onto it. Nothing in the TyraX editor itself links against any of
+them.
 
 ## PS2SDK `audsrv` — GNU Library General Public License v2
 

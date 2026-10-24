@@ -172,8 +172,83 @@ std::string describe(const Ps2Client& c) {
 }  // namespace
 
 Runner::~Runner() {
+    {
+        std::lock_guard<std::mutex> lock(watchMutex_);
+        watchStop_ = true;
+    }
+    watchWake_.notify_all();
+    if (watchThread_.joinable()) watchThread_.join();
     join();
     killPs2Client();
+}
+
+void Runner::watchGame(const Project* p) {
+    std::string elf, hint;
+    if (p && !p->dir.empty()) {
+        elf = absoluteNativePath(p->elfPath());
+        hint = p->emulatorPath;
+    }
+    std::lock_guard<std::mutex> lock(watchMutex_);
+    if (elf != watchElf_) {
+        watchElf_ = elf;
+        emuRunning_ = false;  // a different project: forget the last answer
+        watchWake_.notify_all();
+    }
+    watchEmuHint_ = hint;
+    if (!watchThread_.joinable() && !watchStop_)
+        watchThread_ = std::thread([this] { watchLoop(); });
+}
+
+// One scan a second. Only processes under the emulator's names are opened, and
+// only their command lines decide (killEmulatorsFor's rule): an instance whose
+// line cannot be read is not ours, so it never shows as "Running".
+void Runner::watchLoop() {
+    std::unique_lock<std::mutex> lock(watchMutex_);
+    while (!watchStop_) {
+        const std::string elf = watchElf_;
+        const std::string exe = !watchLastEmu_.empty() ? watchLastEmu_ : watchEmuHint_;
+        lock.unlock();
+        bool found = false;
+        if (!elf.empty())
+            for (const std::string& name : emulatorProcessNames(exe)) {
+                for (const platform::RunningProcess& proc : platform::processesNamed(name))
+                    if (platform::commandLineNamesPath(proc.commandLine, elf)) {
+                        found = true;
+                        break;
+                    }
+                if (found) break;
+            }
+        lock.lock();
+        if (elf == watchElf_) {
+            if (found && !emuRunning_) {
+                // The clock starts at our own launch when this is it (the
+                // process takes a moment to appear), else when first seen.
+                const auto now = SteadyClock::now();
+                emuSince_ = (launchElf_ == elf && now - launchAt_ < std::chrono::minutes(2))
+                                ? launchAt_ : now;
+            }
+            emuRunning_ = found;
+        }
+        watchWake_.wait_for(lock, std::chrono::seconds(1));
+    }
+}
+
+Runner::GameStatus Runner::gameStatus() const {
+    GameStatus g;
+    const auto now = SteadyClock::now();
+    if (ps2ClientAlive()) {
+        std::lock_guard<std::mutex> lock(watchMutex_);
+        g.running = true;
+        g.onPs2 = true;
+        g.seconds = std::chrono::duration<double>(now - deployAt_).count();
+        return g;
+    }
+    std::lock_guard<std::mutex> lock(watchMutex_);
+    if (emuRunning_ && !watchElf_.empty()) {
+        g.running = true;
+        g.seconds = std::chrono::duration<double>(now - emuSince_).count();
+    }
+    return g;
 }
 
 void Runner::join() {
@@ -429,7 +504,8 @@ int Runner::exec(const std::string& rawCmdline, const std::string& cwd) {
 // Where a PCSX2 install lives is the one thing that is genuinely differently
 // SHAPED per OS rather than just differently spelled, so it stays here instead
 // of moving into platform.cpp: Windows has two Program Files roots, Linux has
-// PATH plus flatpak plus a downloaded AppImage in the usual places.
+// PATH plus flatpak plus a downloaded AppImage in the usual places, macOS has
+// an app bundle.
 static std::string findPCSX2() {
     std::error_code ec;
 #ifdef _WIN32
@@ -441,6 +517,29 @@ static std::string findPCSX2() {
             fs::path p = dir / exe;
             if (fs::exists(p, ec)) return p.string();
         }
+#elif defined(__APPLE__)
+    // The upstream macOS build is an app bundle; Finder installs it in
+    // /Applications, a user without admin rights in ~/Applications.
+    std::vector<fs::path> roots{"/Applications"};
+    if (const fs::path home = platform::homeDir(); !home.empty())
+        roots.push_back(home / "Applications");
+    // The download is named after its version (PCSX2-v2.8.2.app) until
+    // somebody renames it, so any PCSX2*.app counts - the plain name first.
+    for (const fs::path& root : roots) {
+        std::vector<fs::path> apps{root / "PCSX2.app"};
+        for (const auto& e : fs::directory_iterator(root, ec)) {
+            const std::string name = e.path().filename().string();
+            if (name.rfind("PCSX2", 0) == 0 && e.path().extension() == ".app" &&
+                name != "PCSX2.app")
+                apps.push_back(e.path());
+        }
+        for (const fs::path& app : apps) {
+            const fs::path p = app / "Contents" / "MacOS" / "PCSX2";
+            if (fs::exists(p, ec)) return p.string();
+        }
+    }
+    for (const char* exe : {"pcsx2-qt", "pcsx2"})
+        if (platform::commandExists(exe)) return exe;
 #else
     // A packaged install (deb/rpm/AUR) puts one of these on PATH.
     for (const char* exe : {"pcsx2-qt", "pcsx2"})
@@ -470,6 +569,8 @@ static std::string findPCSX2() {
 #endif
     return "";
 }
+
+std::string detectEmulatorPath() { return findPCSX2(); }
 
 // The PCSX2 executable to launch: the project's configured path when set (and
 // it exists), otherwise the Program Files auto-detect. Empty when neither is
@@ -675,6 +776,14 @@ bool Runner::launchPCSX2(const Project& p) {
         appendLine("[editor] Failed to launch PCSX2.");
         return false;
     }
+    {
+        std::lock_guard<std::mutex> lock(watchMutex_);
+        watchLastEmu_ = exe;
+        launchElf_ = elfPath;
+        launchAt_ = SteadyClock::now();
+        emuRunning_ = false;  // the killed predecessor is not this run
+    }
+    watchWake_.notify_all();
     return true;
 }
 
@@ -682,9 +791,8 @@ bool Runner::launchPCSX2(const Project& p) {
 // in build/, so probe upward from it for the tools folder. Returns "" when the
 // tool is nowhere to be found.
 static std::string findTool(const std::string& relUnderTools) {
-    const std::string exe = platform::exePath();
-    if (exe.empty()) return "";
-    fs::path dir = fs::path(exe).parent_path();
+    fs::path dir = platform::resourceBinDir();
+    if (dir.empty()) return "";
     for (int up = 0; up < 3; up++) {
         fs::path candidate = dir / "tools" / relUnderTools;
         std::error_code ec;
@@ -1086,6 +1194,10 @@ bool Runner::deployToPs2(const Project& p) {
         std::lock_guard<std::mutex> lock(ps2ClientMutex_);
         ps2Client_ = proc;
     }
+    {
+        std::lock_guard<std::mutex> lock(watchMutex_);
+        deployAt_ = SteadyClock::now();
+    }
     ps2Lines_ = 0;
 
     // The session log (sessionlog.hpp): the same lines, on disk, bounded, so a
@@ -1268,9 +1380,7 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild,
             const std::string script = findTool("toolchain/native-build.sh");
 #endif
             fs::path engineSource;
-            const std::string exe = platform::exePath();
-            if (!exe.empty()) {
-                fs::path dir = fs::path(exe).parent_path();
+            if (fs::path dir = platform::resourceBinDir(); !dir.empty()) {
                 for (int up = 0; up < 3 && engineSource.empty(); ++up) {
                     std::error_code ec;
                     fs::path candidate = dir / "vendor" / "tyra";
@@ -1283,7 +1393,7 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild,
                 appendLine("[editor] Native toolchain files are missing. Run the editor "
                            "from a complete TyraX checkout/package (tools/toolchain and "
                            "vendor/tyra are required), or select Docker fallback in "
-                           "Edit > Preferences > Build toolchain.");
+                           "Edit > Preferences > Build.");
                 ok = false;
             } else {
                 const fs::path cache = config / "native-build" /

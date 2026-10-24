@@ -9,4 +9,7 @@ const char* const* volumeAssetNames(int, int* n) { *n = 0; return 0; }
 const char* const* volumePrefabNames(int, int* n) { *n = 0; return 0; }
 short* volumeAssetSlots(int) { return 0; }
 short* volumePrefabSlots(int) { return 0; }
+const char* const* volumeLodNames(int) { return 0; }
+const float* volumeLodDist(int) { return 0; }
+short* volumeLodSlots(int) { return 0; }
 }  // namespace procrt

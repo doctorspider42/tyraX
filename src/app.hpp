@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <array>
+#include <functional>
+#include <future>
 #include <map>
 #include <memory>
 #include <set>
@@ -15,8 +17,6 @@
 
 #include "aichat.hpp"  // the AI Assistant window's conversation + tool table
 #include "aigen.hpp"
-#include "blss_ui.hpp"  // the Neural Upscaler window's job + parsed tables
-#include "blsscorpus.hpp"  // blss::CoverageReport - the speed half of the answer
 #include "audiopreview.hpp"
 #include "camtake.hpp"
 #include "dronegen.hpp"
@@ -48,6 +48,7 @@
 #include "roaddraw.hpp"  // the Draw road tool's snapping state
 #include "prefab.hpp"
 #include "vehbake.hpp"  // the import bake cached per vehicle definition
+#include "modelimport.hpp"
 #include "project.hpp"
 #include "staticbatch.hpp"
 #include "texatlas.hpp"
@@ -61,6 +62,9 @@
 #include "viewport.hpp"
 
 struct GLFWwindow;
+namespace menuact {
+struct Item;
+}
 
 // Viewport navigation preferences. These are a machine/muscle-memory property,
 // not project data, so they live in the global editor config (editor.ini in
@@ -89,6 +93,15 @@ struct NavConfig {
     bool invertX = false;  // reverse horizontal orbit direction
     bool invertY = false;  // reverse vertical orbit direction
     bool orbitAroundSelection = true;  // pivot snaps to the selected object
+    // Trackpad navigation (no middle button): two-finger scroll PANS, Cmd/Ctrl
+    // + scroll zooms, Option + scroll orbits. On by default on macOS, where
+    // the built-in trackpad is the usual pointer; a mouse user turns it off in
+    // View > Navigation controls to get wheel-zoom back.
+#ifdef __APPLE__
+    bool trackpad = true;
+#else
+    bool trackpad = false;
+#endif
 };
 
 // One log panel's classified view of its text (docs/log-panels.md) - the state
@@ -107,9 +120,26 @@ struct LogView {
     logview::State state;
     size_t parsed = 0;    // offset after the last COMPLETE line classified
     size_t complete = 0;  // lines.size() at that offset (the partial tail is dropped)
+    // When each line ARRIVED, parallel to `lines`: seconds since local midnight,
+    // -1 for no time (a continuation line, a blank one). A line carrying the
+    // runner's own "HH:MM:SS " stamp keeps that time; a file source (the Debug
+    // window) is stamped when logSetText first sees the line. A reset (Clear, a
+    // new log, a moved 1 MB tail) restamps everything with the current time.
+    std::vector<int> times;
 
     unsigned mask = logview::kAll;  // levels shown; persisted in editor.ini
-    bool selectText = false;        // swap the colours for a selectable text box
+
+    // The mouse selection over the coloured lines: an anchor and a caret, each a
+    // line index into `lines` plus a byte offset into that line's MESSAGE (after
+    // its stamp - the time column is not text). Line indices survive appends;
+    // logSetText resets the pair when the text is rewritten.
+    struct SelPos {
+        size_t line = 0;
+        size_t off = 0;
+    };
+    SelPos selA, selB;          // anchor, caret; empty when equal
+    bool selDrag = false;       // a press is extending the caret (not a double-click)
+    int focusFrame = -1;        // last frame the panel had focus (gates global Ctrl+C)
 
     // Derived from (lines, mask) - rebuilt when either changes, or when the font
     // size does (the width is measured in pixels).
@@ -119,9 +149,6 @@ struct LogView {
     float widthFont = 0.0f;    // font size `width` was measured at
     bool dirty = true;
     size_t shown = 0;          // visible.size() last frame (autoscroll edge)
-    bool scrollBottom = false; // jump to the tail once (the two modes scroll
-                               // differently, so a switch would land at the top)
-    std::string joined;        // the kept lines as text (Copy / selectable mode)
 };
 
 class App {
@@ -143,6 +170,22 @@ public:
 private:
     void drawUI();
     void drawMenuBar();
+    // The logo at the top bar's left (mark + "TyraX" + caret) is one button,
+    // "TyraX menu": it - or F10, or Alt tapped on its own - opens a popup whose
+    // items are the ten menus (drawMainMenus) as submenus. shell_ui.cpp.
+    void drawLogoMenu();
+    void drawMainMenus();
+    // drawMainMenus as data (menu_actions.hpp): every item it would draw is
+    // appended to `out`; invoke >= 0 runs the item with that ordinal. Must be
+    // called inside a window (the palette's): it opens an item-less child.
+    void harvestMainMenus(std::vector<menuact::Item>* out, int invoke = -1);
+    // Set by --ui-script (a step naming a top-level menu while the logo menu is
+    // closed - devkit_ui.cpp) to open it on the next frame.
+    bool logoMenuOpenRequest_ = false;
+    bool logoMenuOpen_ = false;  // last frame's state, for the script shim
+    bool logoMenuOpenOnPress_ = false;  // so a second click closes, not reopens
+    bool altTapArmed_ = false;   // Alt went down with nothing else (yet)
+    double altTapStart_ = 0.0;
     // Writes the editor's own framebuffer to <TYRAX_SHOT>/shotNN.png every
     // TYRAX_SHOT_EVERY seconds (default 2), and nothing at all when the
     // variable is unset. The only screenshot path that works under a compositor
@@ -151,6 +194,48 @@ private:
     // Icon toolbar drawn inline in the main menu bar (Save / Build / Run / Stop
     // + the live chips). Custom vector-drawn - the editor loads no icon font.
     void drawToolbar();
+    // Merged title bar (platform.hpp, docs/editor-theme.md "Title bar"): the
+    // room the top bar leaves for the OS at its left end (macOS traffic
+    // lights) and for our own caption buttons at its right end (Windows), and
+    // the per-frame part - drawing those buttons and telling the platform
+    // layer where the bar's bare, draggable area is. All shell_ui.cpp.
+    float titleBarInsetLeft() const;
+    float titleBarInsetRight() const;
+    void drawTitleBarControls();
+    // The bar along the bottom: build state, live channels, scene counts.
+    void drawStatusBar();
+    // Make scene i the active one (clears the selection, reapplies terrain and
+    // lighting). No-op for the active scene or an out-of-range index.
+    void selectScene(int i);
+    // The icon rail along the window's left edge: picks which page the
+    // Project panel shows (leftPage_), plus AI Assistant / Project Preferences.
+    void drawRail();
+    // The app icon (resources/icon.png, the "Tx" mark) as a GL texture for the
+    // top bar's logo button; created on first use, 0 if it cannot be decoded.
+    unsigned int appIconTexture();
+    unsigned int appIconTex_ = 0;
+    bool appIconTried_ = false;
+    // The Project panel's page: 0 Outliner, 1 Layers, 2 Assets, 3 Audio,
+    // 4 Scripts (kLeftPageCount). View state, not saved.
+    int leftPage_ = 0;
+    // The side panels slid away: the Project panel (clicking the open page's
+    // rail icon, Ctrl+B) and the Properties panel (Ctrl+Alt+B). A collapsed
+    // panel is simply not submitted, so ImGui gives its dock node's width to
+    // the neighbours and puts it back in the same place on reopen. Each window
+    // layout carries its own pair (WindowLayout::projectCollapsed /
+    // propertiesCollapsed), applied and captured with its open windows.
+    bool leftCollapsed_ = false;
+    bool rightCollapsed_ = false;
+    // The command palette (palette_ui.cpp): Ctrl/Cmd+K or the top bar's
+    // search button. Draws nothing while closed.
+    void drawCommandPalette();
+    bool paletteOpen_ = false;
+    bool paletteFocus_ = false;  // put the caret in the query on the next frame
+    char paletteQuery_[128] = "";
+    int paletteSel_ = 0;
+    // Put the AI Assistant's input caret in its box on the next frame (the
+    // palette's Ctrl+Enter hands its query over as the draft).
+    bool chatFocusInput_ = false;
     // Which machine the toolbar's Run/Stop pair drives: false = the emulator
     // (PCSX2), true = a real console over ps2link. Machine-global (editor.ini
     // `runOnPs2`) - which console is on this desk is not project data. The Play
@@ -266,6 +351,8 @@ private:
     void drawLayersSection();
     bool isObjectHiddenInEditor(const SceneObject& o) const;
     void drawScriptsSection();
+    int railScriptFilter_ = 0;  // All | Flow graphs | C++ | VU
+    char railScriptSearch_[96] = "";
     void drawNewScriptModal();
     void drawNewSceneModal();
     void drawDeleteSceneModal();
@@ -312,10 +399,16 @@ private:
     // filter row with per-level counts, then the lines themselves coloured by
     // level. logSetText() classifies new text (incrementally while a build
     // streams into it), logRefresh() rebuilds the filtered view once per frame,
-    // and drawLogPanel() draws v.text through v's filter.
+    // and drawLogPanel() draws v.text through v's filter. drawLogHeader() ends
+    // the panel's header row: the level chips right-aligned, after whatever
+    // actions the caller put at the row's left (wrapping when the panel is
+    // narrow). drawLogTabBadge() puts the error/warning count on the panel's
+    // dock tab (see its definition for why not in the title).
     void logSetText(LogView& v, std::string&& text);
     void logRefresh(LogView& v);
+    void drawLogHeader(LogView& v);
     void drawLogPanel(const char* id, LogView& v);
+    void drawLogTabBadge(const LogView& v);
     void drawDiscLayoutWindow();
     void drawNewProjectModal();
     void drawPreferencesWindow();         // project-wide defaults (Project menu)
@@ -361,34 +454,87 @@ private:
     // picker + "Update every frame" + the resolved counts. `verb` is how the
     // panel words what happens to a caught object ("re-drawn", "shown", ...).
     bool catchAreaControls(SceneObject& o, const char* verb);
-    // Picks a model, then copies and validates it on a worker thread. The
-    // optional target is the Asset Browser folder that requested the import;
-    // completion moves the finished dependency group there on the UI thread.
-    // Does NOT create a scene object.
+    // --- The model importer (modelimport_ui.cpp, docs/model-import.md) ------
+    // ONE window for every model format: pick a file, it is read on a worker
+    // (modelimport::load), the window previews the planned result and offers
+    // the options (split, pivot, size, clean-up, reduction, texture size,
+    // static / animated), and Import writes it on the worker. The optional
+    // target is the Asset Browser folder that asked; `forObject` is the
+    // object waiting for a model (an entity being created from the model
+    // picker), see ModelImportFor.
     void importModelAsset(const std::string& targetFolder = {});
-    void modelImportWorker(std::string source, std::string projectDir,
-                           std::string targetFolder);
+    void importModelFile(const std::string& path, const std::string& targetFolder);
     void modelImportTick();
     void drawModelImportModal();
-    struct ModelImportResult {
-        std::string projectDir;
-        std::string targetFolder;
-        std::string relPath;
-        std::string status;
-        std::array<float, 6> bounds{};  // min xyz, max xyz
-        bool installed = false;
-        bool measured = false;
-        bool animated = false;
-    };
+    void modelImportReplan();
+    void modelImportPlace(const modelimport::Result& res);
+    enum class ImportPhase { Idle, Loading, Ready, Writing };
+    // Who is waiting on the import: nothing, a new Model / Animated model
+    // entity (placed when the import lands), or an existing object whose
+    // model is being replaced (modelPickObjectId_).
+    // Borrow: the Animation Editor's "Borrow clips from a file > Import a
+    // file..." - the imported .glb/.fbx becomes a clip-import row on
+    // modelImportBorrowFor_ once the (asynchronous) import finishes.
+    enum class ModelImportFor { Nothing, NewStatic, NewAnimated, Retarget, Borrow };
+    std::string modelImportBorrowFor_;
     std::thread modelImportThread_;
-    std::atomic<float> modelImportProgress_{0.0f};
-    std::atomic<int> modelImportStage_{0};
     std::atomic<bool> modelImportDone_{false};
-    bool modelImporting_ = false;
+    ImportPhase modelImportPhase_ = ImportPhase::Idle;
+    bool modelImporting_ = false;  // any phase but Idle
     bool modelImportOpen_ = false;
-    bool modelImportClose_ = false;
-    std::string modelImportName_;
-    ModelImportResult modelImportResult_;
+    ModelImportFor modelImportFor_ = ModelImportFor::Nothing;
+    std::string modelImportFile_, modelImportTarget_, modelImportProjectDir_;
+    std::string modelImportError_;
+    std::vector<std::string> modelImportTexDirs_;
+    std::unique_ptr<modelimport::Source> modelImportSrc_;
+    modelimport::Options modelImportOpt_;
+    std::vector<modelimport::Planned> modelImportPlan_;
+    modelimport::Result modelImportResult_;
+    std::string modelImportWriteError_;
+    uint64_t modelImportVersion_ = 1;
+    int modelImportSel_ = -1;  // highlighted planned model (-1 = none)
+    bool modelImportScrollToSel_ = false;  // a preview click: bring the row into view
+    float modelImportAngle_ = 40.0f, modelImportPitch_ = 18.0f;
+    float modelImportZoom_ = 1.0f;
+    float modelImportPanX_ = 0.0f, modelImportPanY_ = 0.0f;
+    bool modelImportWire_ = false;
+    // Clip playback in the import preview: the source file posed through the
+    // Animation Editor's preview path (by absolute path - nothing is written).
+    // Playing or a time past 0 shows the pose; 0 and paused = the planned model.
+    int modelImportClip_ = 0;
+    bool modelImportClipPlay_ = false;
+    float modelImportClipTime_ = 0.0f;
+    int modelImportUnit_ = 0;         // kUnitPresetMeters index, 3 = custom
+    float modelImportMeters_ = 1.0f;   // meters per file unit
+    bool modelImportAddToScene_ = false;
+    bool modelImportLayout_ = true;    // split: place at the source layout
+    char modelImportName_[96] = {};
+    // Where the import writes, project-relative ("res/models/terrain/rocks");
+    // a split import adds /<name>. Remembered between imports, so filing a
+    // pack into a catalogue is one setting, not one per file.
+    char modelImportFolder_[256] = "res/models";
+    std::string modelImportLastFolder_ = "res/models";
+
+    // --- The model picker (modelimport_ui.cpp) ------------------------------
+    // What a Model / Animated model entity's "Model" field opens: a thumbnail
+    // grid of the project's models of the right KIND (static: .obj, plus any
+    // .glb/.fbx - placed through its static twin; animated: .glb/.fbx), with
+    // a search box and "Import new...". objectId empty = create a new entity.
+    void openModelPicker(bool animated, const std::string& objectId = {});
+    void drawModelPicker();
+    // Points `o` at a model asset as `animated` or static, the one place that
+    // knows what a model change resets (clips, player clips, the material
+    // that belonged to the previous model). False + status on failure.
+    bool assignModel(SceneObject& o, const std::string& rel, bool animated);
+    // Creates a Model / Animated model entity around an asset (the picker's
+    // and the importer's "add to scene"). One undo step.
+    void addModelEntity(const std::string& rel, bool animated);
+    bool modelPickOpen_ = false;
+    bool modelPickAnimated_ = false;
+    std::string modelPickObjectId_;
+    char modelPickFilter_[64] = {};
+    std::vector<std::string> modelPickItems_;  // listed when the picker opens
+    std::string modelPickFolder_;  // folder shown ("" = every model), remembered
     // "Real-world size" of a model asset (docs/world-scale.md): what one unit
     // of the file measures in meters, which combined with the project's world
     // scale is the scale objects made from it are inserted at. Opened right
@@ -427,6 +573,9 @@ private:
     // assigns it to o.materialPath and opens the Material Editor on the model.
     // Returns the new material's project-relative path, or "" on failure.
     std::string createMaterialForModel(SceneObject& o);
+    // The .mtl a model wears without an override (its sibling <stem>.mtl,
+    // else the .obj's first mtllib); "" when it has none.
+    std::string modelOwnMaterial(const std::string& modelRel);
     // Friendly authored-forward selector for skeletal models and player
     // avatars. It writes SceneObject::modelYawOffset, including the common
     // "backwards" 180-degree correction. Returns true when committed.
@@ -435,6 +584,9 @@ private:
     // static .obj model only takes the mesh-LOD distance. Returns true when a
     // value changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
+    // The static model's distant version (billboard impostor / hull proxy):
+    // one kind, one Bake, the switch distance. Returns true on a change.
+    bool drawDistantVersion(SceneObject& o);
     // Roads (docs/roads.md): flatten the heightfield to the selected
     // road's interpolated line, smooth shoulder falloff, one undo step.
     void alignTerrainToRoad(int objIndex);
@@ -531,6 +683,14 @@ private:
     // Project-panel section listing res/models + res/textures with the
     // Import... buttons (the object pickers only offer what is listed here)
     void drawAssetsSection();
+    // Assets page state (rail_ui.cpp): type chip, search, folder, Unused,
+    // Grid | List and the selected file.
+    int railAssetKind_ = 0;
+    char railAssetSearch_[96] = "";
+    std::string railAssetFolder_;
+    bool railAssetUnused_ = false;
+    bool railAssetList_ = false;
+    std::string railAssetSel_;
 
     // --- Asset Browser (Tools > Asset Browser, docs/asset-browser.md) -------
     // A file manager over the project's res/ tree: folder tree, thumbnail grid,
@@ -591,6 +751,12 @@ private:
     // "Size..." - the model's recorded real-world size (docs/world-scale.md),
     // which decides the scale objects made from it are inserted at.
     void drawAssetSizeButton(const std::string& assetRel);
+    // Asset Browser inspector rows (assetbrowser.cpp): the per-asset texture
+    // quality with its meaning spelled out, and a caption + field-like value
+    // button (Real size, LOD).
+    void drawAssetTexturesRow(const std::string& assetRel);
+    void assetSettingRow(const char* caption, const char* value, const std::string& assetRel,
+                         const std::function<void()>& onClick, const char* tip);
     // Rebuild assetItems_/assetDirs_ from disk. Cheap enough for a res/ tree
     // (a few hundred files); throttled by assetScanTime_ while the window is
     // open and forced by assetsChanged() after any file operation.
@@ -670,6 +836,9 @@ private:
     std::string assetAnchor_;                    // last click (shift-range end)
     std::string assetSearch_;                    // name filter (substring)
     int assetFilter_ = 0;                        // type chip, 0 = All
+    // Smart view instead of a folder: 0 = the folder, 1 = Unused, 2 =
+    // Recently changed, 3 = Generated by build (replaced the Generated box).
+    int assetView_ = 0;
     bool assetRecursive_ = false;                // list sub-folders too
     bool assetShowGenerated_ = false;
     int assetSort_ = 0;         // 0 name, 1 type, 2 size, 3 newest first
@@ -677,7 +846,23 @@ private:
     float assetTileSize_ = 84.0f;
     double assetScanTime_ = -1.0;   // ImGui time of the last disk scan
     int assetThumbBudget_ = 0;      // thumbnails still allowed this frame
+    // Asset Browser inspector preview orbit (view state; reset per asset).
+    std::string assetOrbitRel_;
+    float assetOrbitYaw_ = 35.0f, assetOrbitPitch_ = 22.0f, assetOrbitZoom_ = 1.0f;
+    float assetOrbitPanX_ = 0.0f, assetOrbitPanY_ = 0.0f;  // framing radii
     uint64_t assetUsageSerial_ = ~0ull;  // edit serial the census was built at
+    // Audio page: templates::soundResidency's shared set and each scene's
+    // soundWorstCase, as Project::sounds indices, rebuilt when the edit serial
+    // moves. soundResBank_ is the bank lists (Project::soundBanks order).
+    uint64_t soundResSerial_ = ~0ull;
+    std::vector<int> soundResShared_;
+    std::vector<std::vector<int>> soundResScene_;
+    std::vector<std::vector<int>> soundResBank_;
+    std::vector<std::vector<int>> soundResBase_;                 // per scene
+    std::vector<std::vector<std::vector<int>>> soundResLayer_;   // [scene][layer]
+    int audioScene_ = -1;  // scene the Audio page groups by; -1 = the active one
+    int audioTab_ = 0;     // 0 Sounds, 1 Music
+    std::string soundBankRenameFrom_;  // bank name while its field is edited
     std::map<std::string, AssetUsage> assetUsage_;
     // Reverse Wavefront map (a texture / .mtl -> the .obj/.mtl files naming it),
     // parsed from disk on first use after a scan - the file operations need it,
@@ -787,6 +972,8 @@ private:
     // the UI Editor's HUD list and the Loading Screen editor). Returns the new
     // index, or -1 on failure.
     int importHudImageInto(std::vector<HudImage>& target);
+    // The same import from a known file (an OS drop): copy into res/hud, append.
+    int importHudImageFile(const std::string& src, std::vector<HudImage>& target);
     // Picks one of the project's fonts by name (menus, HUD texts, loading
     // texts). "" = the default entry. Returns true when the reference changed.
     bool fontCombo(std::string& fontRef);
@@ -828,6 +1015,13 @@ private:
     // "Baked shadows" - the fourth section (docs/shadows.md): the project-wide
     // quality, the per-scene staleness + budget readout and the bake itself.
     void drawShadowBakeSection();
+    // The bakes those tabs start, shared with the Build menu's Bake items (and so
+    // the command palette): one starter per button, never a second mechanism.
+    void startGiBake(bool allScenes);
+    void startShadowBake(bool allScenes);
+    void startModelAoBake();
+    void startPrelitBake(bool onlyStale);
+    int prelitPendingCount();  // the "Bake pending (N)" count of the active scene
     // Pushes the CACHED shadow bake into the viewport (never bakes), and
     // drains shadowBaker_ so a finished one becomes visible.
     void updateShadowDecals();
@@ -855,9 +1049,14 @@ private:
     // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
     // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
     void rebuildTreePreview();
-    // "Add to scene": bakes the current tree's assets into res/models/trees
-    // and inserts a Model object pointing at them.
-    void addTreeToScene();
+    // "Add to scene" / "Save to project": bakes the current tree's assets
+    // into res/models/trees (+ the `<stem>.tree` parameter sidecar that lets
+    // the generator re-open it) and, when `place`, inserts a Model object.
+    void addTreeToScene(bool place = true);
+    // Loads a tree saved by the generator (the `.tree` sidecar beside
+    // `objRel`) back into the Tree Generator and opens it. False when the
+    // model has no sidecar. The Asset Browser's "Edit in Tree Generator".
+    bool openTreeInGenerator(const std::string& objRel);
     // Tools > Prefabs (docs/prefabs.md): reusable groups of scene objects,
     // captured from a selection and stamped back into the world - by hand, by
     // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
@@ -932,136 +1131,18 @@ private:
     // ModelAabbFn a Vehicle takes - only the App knows the definitions).
     bool vehicleBodyBounds(const SceneObject& o, float* mn, float* mx);
 
-    // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
-    // Training, evaluation, cross-validation, the input-channel report, the
-    // comparison images and the emit step, all of which used to be CLI-only.
-    // Every run is a subprocess of the editor's own binary (blss_ui.hpp says
-    // why) and every number drawn is parsed out of its output.
-    void drawBlssWindow();
-    void drawBlssHeader();
-    // The corpus switch (project vs the built-in bestiary) and the one-line
-    // reminder of which one a table came from. Drawn in the header, read by
-    // every verb through blssCommonArgs().
-    void drawBlssCorpusChoice();
-    void drawBlssCorpusReminder();
-    // THE HAPPY PATH, and it is above the tabs because it is the only question
-    // most people have: one button that runs the NET-FREE `--blss-eval` on this
-    // project and answers "will this scene benefit" in plain language. It needs
-    // no trained network, which is the whole point - the window used to tell
-    // people to run Evaluate first, and Evaluate could not run without a net
-    // that only Train could produce.
-    void drawBlssHappyPath();
-    // THE OTHER HALF OF THE HAPPY PATH: will the scene get FASTER. BLSS trades
-    // GS fill for EE work at a measured price, so the answer is entirely a
-    // question about overdraw - and blss::measureCoverage() counts a project's
-    // own overdraw in about a second. Unlike every other verb in this window
-    // this runs IN-PROCESS on a worker thread rather than as a subprocess:
-    // there is no CLI verb behind it, it touches no file, and a second is not
-    // worth a process. `blssCoverageTick` is the poll (called from blssPoll, so
-    // a run that ends while the window is shut still lands).
-    void blssStartCoverage();
-    void blssCoverageTick();
-    // ONE ANSWER, not two tables: the quality ceiling and the speed estimate
-    // combined, in the window's own voice, including the case that occurs on
-    // most scenes - no headroom AND below the break-even, so leave it off.
-    void drawBlssAnswer();
-    // The per-shot coverage breakdown, behind a collapsing header. A project
-    // whose mean is 15 because one scene is 30 and another is 1 has been told
-    // something useful only if it can see that.
-    void drawBlssCoverageDetail();
-    // The net's recorded command line against the project's CURRENT settings.
-    // A blss.net stores no settings at all, so the `.args` sidecar is the only
-    // place "this was trained with --sharpen 0.5 and the project now says 0.80"
-    // can be noticed - everywhere else the mismatch is silent and just worse.
-    void drawBlssProvenanceDrift();
-    // WHICH OF THE TWO NETS THIS PROJECT SHIPS, as a control rather than a
-    // status line. codegen's order is the project's own `blss.net` else the net
-    // embedded in the editor, so the choice is a fact about ONE file - and the
-    // switch is therefore a reversible RENAME (`blss.net.off`), never a delete.
-    // It replaces the line that used to read "none - the game will be built
-    // with RANDOM weights", which stopped being reachable the moment a default
-    // shipped and was this feature's worst footgun while it was.
-    void drawBlssNetSource();
-    void blssSetNetAside(bool aside);
-    // "Will this scene benefit at all?" - the answer --blss-eval already
-    // contains and used to bury in a table. Reads the oracle row, which is the
-    // scene's own ceiling: on examples/showcase it is +0.00 dB, and no network
-    // can beat a bound of zero. `compact` drops the explanatory paragraphs for
-    // the header, where the same verdict has to sit above six tabs.
-    void drawBlssVerdict(const blssui::EvalSummary& sum, bool compact);
-    // bilinear | BLSS | the amplified difference, click-through to Compare.
-    void drawBlssVerdictThumbs();
-    void drawBlssOutput(float height);
-    void drawBlssTrainTab();
-    void drawBlssEvalTab();
-    void drawBlssCvTab();
-    void drawBlssImagesTab();
-    void drawBlssFeaturesTab();
-    // WHAT THE CORPUS IS ALLOWED TO SEE (Project::blssShots). The six automatic
-    // moves are a guess derived from the scene's bounds; this is where the
-    // author says which of them survive and adds vantages of their own, aimed
-    // where the player will actually stand. The plan is .tyra data, so the
-    // trainer reads it out of the project rather than off a command line.
-    void drawBlssShotsTab();
-    // The shot list the corpus will shoot, as the window understands it -
-    // resolved through project::blssResolveShot, which is also what the corpus
-    // loader calls, so the preview cannot describe a different frame from the
-    // one that gets rendered.
-    void drawBlssShotPlanPreview();
-    // The DISTRIBUTION PROBE as a workflow instead of a chore: turn on debug
-    // view 2, run the game, and let the editor find the BLSSFEAT line in the
-    // project's own log rather than making somebody grep for it and paste it
-    // into a CLI. Under ps2link the game writes NO bin/log.txt at all
-    // (templates.cpp sets writeLogsToFile = !ps2link), so the runner's own
-    // [ps2] stream is the second source and the panel says which it used.
-    void drawBlssProbeTab();
-    // Fills blssProbeLine_ from the freshest source that has one. Returns the
-    // human description of where it came from, or "" when nothing was found.
-    std::string blssFindFeatLine();
-    void blssRunProbe();
-    // "Is this corpus good enough to train on" - the third verdict, next to
-    // "will the picture improve" and "will the frame get faster". `compact`
-    // drops the per-channel findings for the header block.
-    void drawBlssHealth(bool compact);
-    // Picks up a finished run. Called every frame from drawUI, NOT from the
-    // window body, so a training run that ends while the tab is shut still
-    // lands - the giBakerPoll rule.
-    void blssPoll();
-    void blssStart(blssui::Kind kind, const std::vector<std::string>& args, int epochs);
-    // Pressed from the Train tab AND from the verdict, so the argument list is
-    // built once - two copies is how one of them stops passing --all-shots.
-    void blssStartTraining();
-    void blssRestoreTrainDefaults();
-    // The four tabs each carry their own frame count and are only comparable
-    // when they agree; this says so when they have drifted.
-    void drawBlssFrameDrift(int mine);
-    std::vector<std::string> blssCommonArgs() const;
-    std::string blssNetPath() const;
-    void blssRefreshNetStatus();
-    static void blssWriteNetSidecar(const std::string& netPath, const std::string& command);
-    void blssReloadImages();
-    void blssReleaseImages();
-    // The amplified |A-B| view of the Compare tab, built on the CPU from the
-    // two loaded PNGs. A 0.4 dB gap is invisible side by side and obvious at
-    // 8x, which is why this is the one view worth adding.
-    void blssRebuildDiff();
-    // How many camera moves the corpus is expected to have - 13 for the
-    // bestiary, six per scene for a project. Only the cross-validation cost
-    // estimate needs it (its fold count defaults to one per shot).
-    int blssExpectedShots() const;
+    // The reduced-raster upscaler's settings (blss_ui.cpp), drawn by Project >
+    // Preferences against the staged settings.
+    //
     // How much GS VRAM the reduced render hands back on THIS project's raster,
     // and the honest answer for 1x2, which is "nothing".
     std::string blssVramLine(const ProjectSettings& s) const;
     // THE BUILD'S OWN INTERLOCK, mirrored live. blssClashes() in templates.cpp
     // emits an #error for each of these, so the dialog and the build must
-    // answer alike; this is the ONE mirror, called by both Project >
-    // Preferences (staged settings) and the BLSS window (live ones).
+    // answer alike; this is the ONE mirror.
     //
-    // It carries the NAMES now, not four bools. "A Set Depth Of Field flow node
-    // turns it on at runtime" is not actionable on a ten-scene project - the
-    // walk in blssClashesFor() has the scene and the object in hand and used to
-    // throw both away - so each clash is a list of what caused it, and each
-    // entry can be selected and framed.
+    // Each clash is a list of what caused it, and each entry can be selected
+    // and framed.
     struct BlssClashRef {
         int scene = -1;
         int object = -1;  // -1 when the clash is a property of the scene itself
@@ -1086,39 +1167,9 @@ private:
     void drawBlssClashWarning(const BlssClash&, bool informational);
     // Switch to that scene, select that object and put the camera pivot on it.
     void blssSelectClash(const BlssClashRef&);
-    // HOW MUCH OF THE UPSCALER GOES ON SCREEN, and it is the whole shape of
-    // this feature's UI (docs/neural-upscaler.md, "Two layers"). ONE definition
-    // of the settings, one copy of every tooltip, one mirror of the build
-    // interlock - and a parameter deciding how far down the block runs, the
-    // drawBlssVerdict(compact) / drawBlssHealth(compact) idiom.
-    //
-    // `Essentials` is what somebody deciding whether to switch the feature ON
-    // has to answer - use it, which reconstruction, which raster - plus the one
-    // line of verdict that says whether this project is on the right side of
-    // the break-even. `Everything` adds the four knobs that only mean anything
-    // to somebody FITTING a network (sharpen, temporal, jitter, the debug view)
-    // and the long-form prose, and it is what the window's Project settings tab
-    // draws.
-    //
-    // The split is recent and it is a consequence of plain mode: until that
-    // landed, BLSS MEANT "fit a network to your scene" and the whole window was
-    // the feature. It is not the mainstream path any more - plain mode's
-    // break-even is 2.6 coverages against the neural path's 13.1, a trained net
-    // ships embedded, and on every project measured that net chooses nothing -
-    // so the ordinary interaction is a checkbox, a mode and one line to read.
-    enum class BlssDetail { Essentials, Everything };
-    bool drawBlssSettings(ProjectSettings& s, BlssDetail detail = BlssDetail::Everything);
-    // The speed estimate priced for `s` rather than for the committed project.
-    // One function, because the Preferences dialog must re-price live when the
-    // reader flips the reconstruction (the two modes' break-evens are more than
-    // four times apart) and blssCoverageTick() must not answer differently.
-    // A pure function of blssCov_ and the mode, so it cannot shimmer.
-    blssui::SpeedEstimate blssSpeedFor(const ProjectSettings& s) const;
-    // The one-line verdict for the Essentials layer: the button that measures,
-    // the headline and the two facts behind it. Carries the honesty rules
-    // wholesale by going through blssui::recommend() rather than deciding
-    // anything of its own - a simpler UI must not become a more confident one.
-    void drawBlssSpeedAnswer(const ProjectSettings& staged);
+    // Use the upscaler / Render scale / Adapt resolution + the frame
+    // extrapolation block they exclude. Returns true when `s` changed.
+    bool drawBlssSettings(ProjectSettings& s);
 
     // Tools > World Facts (facts_ui.cpp, docs/world-facts.md): the fact
     // catalog, the named queries over it, the reaction rules, the saved test
@@ -1127,6 +1178,8 @@ private:
     // build's critical path.
     void drawWorldFactsWindow();
     void drawFactCatalogTab();
+    void drawFactUsedBy(const facts::Fact& f);
+    void factJumpTo(int tab, int index);  // a Used-by click: select + bring the tab forward
     void drawFactQueriesTab();
     void drawFactRulesTab();
     void drawFactScenariosTab();
@@ -1159,6 +1212,10 @@ private:
     void vuRebuildPreview();
     int vuObjectsInClass(unsigned classBit) const;
     void vuSimulate();
+    void drawVuLook(int look);    // the centre column for one look
+    void drawVuCheck(int look);   // host run + generated .vclpp beside it
+    void drawVuKernel();
+    void drawVuMicroMemory(unsigned mask, unsigned needed, int fam);
 
     // Tools > Procedural (docs/procedural-generation.md): the scatter-graph
     // editor. One window drives every Scatter volume in the active scene -
@@ -1242,6 +1299,19 @@ private:
     // and the Timeline tab (one editable lane per automated parameter).
     void drawDroneTimelineBar();
     void drawDroneTimelineTab();
+    // The Simple view (drone_simple_ui.cpp, the default; Detailed is the rest
+    // of drawDroneGeneratorWindow). Edits set `dirty` like the Detailed knobs;
+    // a track switch that needs the unsaved-changes question sets openNewAsk.
+    void drawDroneSimple(bool& dirty, bool& openNewAsk);
+    void drawDroneDetailed(bool& dirty, bool& openNewAsk);
+    // Simple | Detailed (##drone_view), drawn with its right end at `right`
+    // (window coords) on row `y`. Returns its width; draw = false only
+    // measures.
+    float drawDroneViewSwitch(float right, float y, bool draw = true);
+    // Adds On Start -> Play Music(<wav>) to a scene (Simple > In the game).
+    // `replaceNode` >= 0 retargets that existing Play Music instead. One
+    // commitChange.
+    void droneUseInScene(int scene, int object, int replaceNode, bool createObject);
     // The playhead: the live transport while auditioning, the scrubbed position
     // otherwise. droneSeek moves both.
     double droneHeadTime() const;
@@ -1253,8 +1323,8 @@ private:
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
-    // The "Imported clips" block of that window (docs/animation-import.md):
-    // borrow clips from another model file. Returns true when it changed
+    // The inspector of the import row selected under "Borrowed from other
+    // files" (animEdImport_, docs/animation-import.md). Returns true when it changed
     // something, which the caller turns into a commit + a cache drop - an
     // import alters what clips a model HAS, so every parse of it is stale.
     bool drawAnimImportSection(const std::string& modelRel);
@@ -1297,6 +1367,7 @@ private:
     // Staged entirely on the App: the two skeletons are parsed ONCE when the
     // window opens and the pair list is a working copy, committed on Apply.
     int animMapRow_ = -1;  // index into project_.animImports; -1 = closed
+    bool animMapFocusNext_ = false;  // bring Map bones to the front on its next Begin
     bool animMapParsed_ = false;
     glbparser::Skel animMapTarget_, animMapDonor_;
     std::vector<float> animMapTPos_, animMapDPos_;  // bind-pose globals
@@ -1310,6 +1381,10 @@ private:
     // Canvas view: wheel zooms to the cursor, middle-drag pans - without it
     // finger and toe joints of a real rig are unclickable. Reset on open.
     float animMapZoom_ = 1.0f, animMapPanX_ = 0.0f, animMapPanY_ = 0.0f;
+    // Projection of the target rig: 0 side (z, y), 1 front (x, y) - picked
+    // at open by which plane shows the rig wider; the source rig always
+    // gets its own widest plane (a chain seen end-on was one dot).
+    int animMapTargetView_ = 0;
     // Test pose: both rigs posed through the CURRENT mapping - the check
     // that beats every percentage (docs/animation-import.md).
     int animMapPoseClip_ = -1;  // donor clip index, -1 = off
@@ -1370,9 +1445,12 @@ private:
     // (preset bindings, On Action nodes, menu rebind rows, Set Input Preset).
     void renameInputAction(int index, const std::string& newName);
     void renameInputPreset(int index, const std::string& newName);
-    void drawMusicSection();
+    // The Project panel's Audio page (rail_ui.cpp): music + sounds, play,
+    // the SPU2 budget, build knobs on the selected track.
+    void drawAudioPage();
+    std::unique_ptr<audiopreview::ClipPlayer> clipPlayer_;
+    std::string railAudioSel_;
     void importMusicTrack();
-    void drawSoundsSection();
     void importSoundEffect();
 
     // --- Asset deletion (Assets / HUD / Music / Sounds sections) -----------
@@ -1402,12 +1480,19 @@ private:
     void countAssetUsers(const PendingAssetDelete& d, int& objectUsers,
                          int& nodeUsers) const;
     void drawSaveDataSection();
+    void drawSaveDataAddButtons();
     void drawSaveEditorWindow();
     void drawMenusWindow();
     void drawGradingWindow();
     void drawAmbienceWindow();
-    void drawAmbiencePresets(bool& changed);
-    void drawAmbienceDayCycle(bool& changed);
+    void drawAmbienceSkyTime(bool& changed);  // Sky & time: presets | sky | inspector
+    void drawAmbienceSkyHero(AmbiencePreset& a, bool& changed);
+    void drawAmbienceSimple(bool& changed);  // ambience_simple_ui.cpp
+    // The "..." menu of a preset (rename, default, duplicate, delete); a delete
+    // is only requested through deleteIdx and applied after the panes.
+    void drawAmbiencePresetMenu(AmbiencePreset& a, int& deleteIdx, bool& changed);
+    void deleteAmbiencePreset(int idx);
+    void drawAmbienceInspector(AmbiencePreset& a, bool& changed);
     // Pushes the sun/moon discs at `presetIndex`'s cycle into the viewport
     // (-1 = whatever the active scene resolves to). Re-bakes the moon only when
     // its phase or texture changed.
@@ -1422,19 +1507,43 @@ private:
     // full-screen effect layers (bloom, grain, motion blur), reorderable so
     // effects can sit under the crosshair/text instead of blurring them.
     void drawUiEditorWindow();
-    // Loading Screens (Tools > Loading Screens): named loading screens (bg
-    // color + images + baked texts + progress bars) assignable per scene, with
-    // a 2D preview driven by a simulated load fraction.
+    // One HUD element's on-screen box as the UI Editor preview hit-tests it;
+    // `sel` uses the uiFxSel_ codes (0 image, 3 USE prompt, 4 text, 9 bar).
+    struct HudHit {
+        int sel = 0;
+        int index = 0;
+        ImVec2 min, max;
+    };
+    // Draws the HUD (images in stack order, then bars, the USE prompt and the
+    // texts - the game's order) into the 512x448 frame at fMin/fSize. The
+    // viewport overlay and the UI Editor preview share it. `editing` also
+    // draws hidden-at-start elements (dimmed), the selected bar at its preview
+    // fill and the selected element's transition preview; `clock` drives the
+    // looped animations; `hits` (may be null) receives every box drawn.
+    void drawHudFrame(ImDrawList* dl, ImVec2 fMin, ImVec2 fSize, bool editing,
+                      float clock, std::vector<HudHit>* hits);
+    // Loading Screens (Tools > Loading Screens): the boot sequence strip
+    // (logo -> splashes -> loading screen -> start scene), named loading
+    // screens (bg color + images + baked texts + progress bars) assignable
+    // per scene, edited in place on a 2D preview driven by a load fraction.
     void drawLoadingScreenWindow();
-    // Collapsing "Boot splash screens" section at the top of the Loading
-    // Screens window: a list of images shown at startup, each for a set time.
-    // Returns true when something changed (the caller saves).
-    bool drawSplashSection();
-    // Draws the 512x448-space loading-screen preview into the current ImGui
-    // window (background, images, texts, bars honoring `fraction`).
-    void drawLoadingPreview(const LoadingScreenDef& ls, float fraction);
+    // Draws a loading screen into the 512x448-space frame at p0/size (bars and
+    // progress animations at `fraction`, spinners on `clock` seconds);
+    // `hits` (may be null) receives each element's box (HudHit sel 0 image /
+    // 1 text / 2 bar / 5 animation / 6 the continue prompt). `waiting` draws
+    // the press-to-continue state the game holds on after the load.
+    void drawLoadingFrame(ImDrawList* dl, const LoadingScreenDef& ls, float fraction, ImVec2 p0,
+                          ImVec2 size, std::vector<HudHit>* hits, bool waiting = false,
+                          float clock = 0.0f);
     // Property editor for a single progress bar (returns true on change).
     bool loadingBarControls(LoadingBar& b);
+    // Property editors for an animated element and for the continue prompt.
+    bool loadingAnimControls(LoadingAnim& a);
+    bool loadingWaitControls(LoadingScreenDef& ls);
+    bool drawLoadingAssignments();
+    // Cuts a sprite sheet into `count` frame PNGs (cols x rows, row-major) in
+    // res/hud and appends them to `a` (docs/loading-screens.md, "Animations").
+    bool importLoadingSheet(LoadingAnim& a, const std::string& src, int cols, int rows, int count);
     // Material Editor (Tools > Material Editor): authors the .mtl files the
     // whole pipeline already consumes (newmtl/Kd/map_Kd) with a live preview.
     void drawMaterialEditorWindow();
@@ -1461,7 +1570,9 @@ private:
     void matEdSavePaintTarget();  // CPU pixels -> the PNG on disk (the "bake")
     void matEdStamp(float u, float v);      // one brush splat at a surface UV
     void matEdPaintTo(float u, float v);    // stamp + gap fill from the last UV
-    void handleFileDrop(int count, const char** paths);
+    // OS file drop. (x, y) = where it landed in ImGui screen coords (the GLFW
+    // cursor, or a --ui-script `drop` target); negative = unknown.
+    void handleFileDrop(int count, const char** paths, float x = -1.0f, float y = -1.0f);
     void saveProject();
 
     // Editing model: mutate project_ freely, then commitChange() once per
@@ -1536,6 +1647,7 @@ private:
         std::string dir;     // project folder, what gets opened
         std::string name;    // display name (manifest stem, else the folder's)
         bool valid = false;  // the folder still holds a <name>.tyra manifest
+        long long savedAt = 0;  // the manifest's last write (unix s), 0 = unknown
     };
     std::vector<RecentProject> recentProjects_;
     void probeRecentProject(RecentProject& r);  // fill name + valid from disk
@@ -1560,7 +1672,62 @@ private:
     double projectLoadShowUntil_ = 0.0;
     std::string projectLoadDir_;
     std::string projectLoadName_;
-    void drawWelcomeScreen();  // the Viewport's content while nothing is open
+    // openExampleCopy: the bundled example the stage-0 worker copies into
+    // projectLoadDir_ before reading it, so the card is up the moment the
+    // example is clicked instead of after a multi-second copy.
+    std::string projectLoadCopyFrom_;
+    // Overwrite an existing copy: the worker deletes projectLoadDir_ first.
+    bool projectLoadReplace_ = false;
+    std::atomic<bool> projectLoadCopying_{false};
+    int projectLoadStage_ = 0;      // 0 = read the files, 1 = migrate + attach
+    int projectLoadDrawn_ = 0;      // card frames presented since the stage began
+    bool projectLoadCancel_ = false;  // honoured at the next stage boundary
+    std::string projectLoadError_;  // non-empty = the card shows the failure
+    std::unique_ptr<Project> projectLoadPending_;  // stage 0's result
+    // Stage 0 runs project::load on this thread (projectLoadTick); the flag
+    // stops it between object files. projectLoadJoin waits for it and, after
+    // a cancel, restores the registries the abandoned read replaced.
+    std::thread projectLoadThread_;
+    std::atomic<bool> projectLoadAbort_{false};
+    std::atomic<bool> projectLoadReady_{false};
+    project::LoadProgress projectLoadProgress_;  // the phase list's live state (written by the thread)
+    bool projectLoadResultTaken_ = true;
+    std::unique_ptr<Project> projectLoadResult_;  // written by the thread
+    std::string projectLoadResultErr_;            // written by the thread
+    void projectLoadJoin();
+    int projectLoadObjects_ = 0, projectLoadScenes_ = 0, projectLoadTerrains_ = 0;
+    double projectLoadStarted_ = 0.0;
+    // The start page: drawn INSTEAD of the docked layout while nothing is open
+    // (drawUI keeps the dockspace alive but hidden). Recent projects on the
+    // left, the bundled examples on the right, setup chips at the bottom.
+    void drawWelcomeScreen();
+    struct WelcomeExample {
+        std::string folder;   // examples/<folder>
+        std::string dir;      // absolute source folder
+        std::string title;    // README H1, shortened
+        std::string blurb;    // README's first sentence
+        std::string tag;      // category chip
+        std::string preview;  // README's first image inside the folder, or ""
+        unsigned int tex = 0;
+        int texW = 0, texH = 0;
+        bool texTried = false;
+    };
+    std::vector<WelcomeExample> welcomeExamples_;
+    bool welcomeExamplesScanned_ = false;
+    int welcomeExampleTab_ = 0;          // 0 = Featured, 1 = All, then tags
+    char welcomeRecentFilter_[96] = {};
+    double welcomeProbeAt_ = -1.0;       // setup chips, re-probed every few s
+    std::string welcomePcsx2_;           // auto-detected or configured, "" = none
+    bool welcomeToolchainReady_ = false;
+    void scanWelcomeExamples();
+    // mode 0 = ask when the projects folder already has this example (the
+    // "You already have it" dialog), 1 = a copy under a free name, 2 =
+    // replace the existing copy.
+    void openExampleCopy(const WelcomeExample& ex, int mode = 0);
+    void drawExampleExistsModal();
+    bool exampleExistsAsk_ = false;      // open the dialog next frame
+    WelcomeExample exampleExists_;       // the example it is about
+    std::string exampleExistsDir_;       // the copy already there
 
     // --- Collaboration session (docs/collaboration.md) ----------------------
     // Live LAN sessions: this editor hosts its open project or joins another
@@ -1699,6 +1866,9 @@ private:
     // Which face loadUiFont() found, for the Preferences readout. Empty = the
     // built-in font (no system face resolved).
     std::string uiFontLabel_;
+    // The fixed-width face for numbers and logs (ui::monoFont); empty = none
+    // resolved, and those fall back to the interface font.
+    std::string monoFontLabel_;
 
     // Viewport navigation (global editor config, see editor.ini persistence).
     NavConfig nav_;
@@ -1736,6 +1906,17 @@ private:
     // Both are machine-global: which build is installed on this PC is not a
     // property of any project.
     bool globalUpdateCheck_ = true;
+    // "Use the native title bar" (editor.ini nativeTitleBar, Edit >
+    // Preferences > Appearance): off = the OS title bar is merged into our top
+    // bar where platform::titleBarMergeSupported(). Read once at startup -
+    // titleBarMerged_ is what THIS session actually did, so flipping the
+    // preference changes nothing until the next start.
+    bool nativeTitleBar_ = false;
+    bool titleBarMerged_ = false;
+    // "Windows can leave the main window" (editor.ini multiViewports, Edit >
+    // Preferences > Appearance; multiviewport.hpp). Applied live, between
+    // frames, by run().
+    bool multiViewports_ = true;
     // The console session log (sessionlog.hpp): EditorConfig::consoleLogLines /
     // consoleLogFiles, and their Preferences working copies.
     int globalConsoleLogLines_ = 20000;
@@ -1758,6 +1939,9 @@ private:
     bool updateManual_ = false;      // asked for from the menu: say so either way
     bool updateChecking_ = false;    // a check is in flight (menu item greys out)
     bool updateDownloading_ = false;
+    bool updateDownloadCancelled_ = false;  // Cancel download pressed (not a failure)
+    double updateRateAt_ = 0.0, updateRate_ = 0.0;  // the download's MB/s readout
+    long long updateRateBytes_ = 0;
     bool openUpdatePopup_ = false;   // request to open the modal next frame
     std::string updateStatus_;       // one line under the menu item / in the modal
     // Started at startup (when the preference is on) and from Help > Check for
@@ -1778,7 +1962,16 @@ private:
     // discard-confirmation guard). Layout/docking changes do not set this -
     // they fold into the .tyra only when the user saves the project.
     bool dirty_ = false;
-    bool titleShowsDirty_ = false;   // last title state pushed to GLFW
+    // How many edits the top bar's "N unsaved" counts: the undo steps between
+    // the current state and the saved one (History::stepsFromSaved) plus the
+    // commits to project-wide data, which make no undo step. Those are counted
+    // once per widget activation, so a dragged slider is one edit, not sixty.
+    // Reset (with History::markSaved) by saveAll and on open/close.
+    int unsavedEditCount() const;
+    void markEditsSaved();
+    int projectEditsUnsaved_ = 0;
+    unsigned projectEditActiveId_ = 0;  // the ImGui item the last one came from
+    bool titleShowsDirty_ = false;  // last title state pushed to GLFW
     bool titleShowsJoined_ = false;  // last session-client marker in the title
     std::string titleName_;          // project name currently in the title
     // Discard guard (Exit/Open/New while dirty). pendingAction_ is what runs
@@ -1807,9 +2000,15 @@ private:
     bool sessionAttachKeep_ = false;  // openRemoteProject: don't close on attach
     char sessionName_[48] = "";
     char sessionAddr_[128] = "";
-    int sessionPort_ = 7797;
-    char sessionCode_[16] = "";
+    int sessionPort_ = 7797;      // the port this editor HOSTS on
+    int sessionJoinPort_ = 7797;  // the port of the host it joins (Join segment)
+    char sessionCode_[16] = "";      // the code this editor hosts with
+    char sessionJoinCode_[16] = "";  // the code typed / pasted to join
     std::string sessionError_;      // inline error in the join modal
+    int sessionTab_ = 0;            // the Live session modal: 0 Host, 1 Join
+    char sessionInvite_[256] = "";  // pasted invite / host:port (parsed live)
+    double sessionStartedAt_ = 0.0; // the panel's elapsed time
+    double sessionCloseArmedUntil_ = 0.0;  // "Close session" asks for a 2nd click
     std::string sessionEndedText_;  // reason shown by the session-ended popup
     std::vector<session::PeerView> sessionPeers_;
     // Presence: what each OTHER participant has selected (object ids + the
@@ -1819,10 +2018,23 @@ private:
     struct PeerPresence {
         int scene = 0;
         std::vector<std::string> sel;  // object ids
+        // Their editor camera (presence "cam", optional - an older editor
+        // sends none): yaw, pitch, distance, target xyz (Viewport::camState).
+        bool hasCam = false;
+        float cam[6] = {0, 0, 0, 0, 0, 0};
     };
     std::map<int, PeerPresence> peerPresence_;
     std::vector<std::string> presenceSentSel_;
     int presenceSentScene_ = -1;
+    float presenceSentCam_[6] = {0, 0, -1, 0, 0, 0};
+    double presenceRefreshAt_ = 0.0;  // next unchanged re-send (late joiners)
+    // Session panel "Follow": the peer whose camera ours rides (-1 = none),
+    // and the camera sessionFollowTick last set (to notice the user moving).
+    int followPeer_ = -1;
+    bool followApplied_ = false;
+    float followCam_[6] = {0, 0, 0, 0, 0, 0};
+    void sessionFollowTick();
+    static bool sameSessionCam(const float a[6], const float b[6]);
     double presenceNextSend_ = 0.0;
     // Set by attachProject()/switchLayout(): load the active layout's saved ini
     // at the next frame boundary (ImGui cannot reload settings between NewFrame
@@ -1863,13 +2075,30 @@ private:
     std::vector<int> pickMenu_;
     // Scene-objects list filters (view state, per session - a filter that
     // outlived a restart would hide objects nobody remembers hiding).
-    // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
+    // sceneFilterCat_ is one of the outliner's filter-chip categories (Models,
+    // Primitives, Lights... - outlinerCategory() in app.cpp), or -1 for All.
     std::string sceneFilterName_;
-    int sceneFilterType_ = -1;
+    int sceneFilterCat_ = -1;
 
     // Layouts saved before the Properties window existed lack a slot for it;
     // when set, the next frame docks it under the Project panel.
     bool dockPropertiesPending_ = false;
+
+    // Default dock for the world tools (Terrain Editor, Ambience Editor, Color
+    // Grading, Disc Layout, Project Preferences): a tool window that has no
+    // place in the current layout yet is docked BESIDE the Viewport instead of
+    // floating over it - Terrain into the Properties column, the wide ones
+    // into one node split off the Viewport's right side. Runs in drawUI before
+    // any window is submitted (dockToolWindows); a window the user has placed
+    // keeps its place (ImGui settings exist). toolWasOpen_ remembers last
+    // frame's flags so a window that just opened is brought to the front of
+    // its node (takeToolFocus) - a shared node otherwise shows whichever
+    // window is submitted first.
+    void dockToolWindows(unsigned int dockspace);
+    bool takeToolFocus(const char* window);
+    bool toolDockReady(const char* window);
+    std::set<std::string> toolFocusPending_;
+    std::map<std::string, bool> toolWasOpen_;
 
     // Window layouts (project_.windowLayouts). A switch/rebuild is applied at a
     // frame boundary: recipeRebuildPending_ rebuilds the active layout from its
@@ -1897,6 +2126,19 @@ private:
     // all. A press released without motion has not, and is treated as a click
     // (it picks) rather than as an empty edit (it used to dirty the project).
     bool gizmoEdited_ = false;
+    // A viewport camera drag (orbit / pan / dolly) in progress: the OS cursor
+    // position it last saw, in that GLFW window's coordinates, and the frame
+    // it saw it on - a gap of more than one frame starts the drag afresh.
+    struct CameraDrag {
+        bool active = false;
+        double x = 0.0, y = 0.0;
+        int frame = -1;
+    } camDrag_;
+    // The camera drag's motion this frame (zero when `dragging` is false, which
+    // also ends the drag). Measured on the OS cursor rather than io.MouseDelta,
+    // and the cursor is wrapped to the opposite edge of the viewport image
+    // when it reaches one, so the drag never stops at a window or screen edge.
+    ImVec2 cameraDragDelta(bool dragging, const ImVec2& imgPos, const ImVec2& imgSize);
 
     // Measuring tape (docs/world-scale.md): click two points on the scene and
     // read the distance between them, in world units and in meters. A pure
@@ -1947,6 +2189,9 @@ private:
     bool sculptStroke_ = false;    // an LMB stroke is in progress
     bool sculptFlatten_ = false;   // level toward flattenHeight_ instead of raise
     float flattenHeight_ = 0.0f;   // flatten target height (world units)
+    // The viewport's brush card (bottom centre) as last drawn: a press inside it
+    // is a click on the card, never a stroke on the ground under it.
+    ImVec2 brushCardMin_{0, 0}, brushCardMax_{0, 0};
 
     // Terrain splat painting (docs/terrain-painting.md). Paints the active layer
     // into SceneData::splat with the same brush raycast as sculpting (mutually
@@ -1965,10 +2210,44 @@ private:
     int flowGraphObject_ = -1;           // object whose graph is open in the editor
     bool flowPositionsApplied_ = false;  // node positions pushed to imnodes per graph
     float flowZoom_ = 1.0f;              // canvas zoom (imnodes emulation, 0.4-1.8)
-    // "Graph of" picker: list only objects that already own nodes (the ones
-    // the list marks with a *). View state, per session - like the Scene
-    // panel's filters above.
-    bool flowOnlyWithNodes_ = false;
+    // The graph follows the selected object (and, while the Live Debugger is
+    // halted, the graph that stopped). Remembers what it last followed so a
+    // graph picked by hand stays until the selection actually changes.
+    bool flowFollowSel_ = true;
+    int flowFollowedSel_ = -2;
+    int flowFollowedBreak_ = -1;
+    // Left list "Graphs in <scene>": its width, filter text, and whether the
+    // objects without logic are listed too. View state, per session.
+    float flowListW_ = 0.0f;
+    float flowInspW_ = 0.0f;
+    std::string flowListFilter_;
+    std::string flowSwitchFilter_;  // the graph switcher popup's own filter
+    bool flowListAll_ = false;
+    // Inspector tab while the Live Debugger is reporting (0 node, 1 live).
+    int flowInspTab_ = 0;
+    bool flowInspWasLive_ = false;
+    // Add-node palette (Space, right-click, or a wire dropped on empty canvas):
+    // the query, the category chip (-1 all), the highlighted row, where the
+    // node lands, and the pin a dropped wire started at (-1 none) - the
+    // palette then lists only nodes that can take it and wires the new one.
+    std::string flowPalQuery_;
+    int flowPalCat_ = -1;
+    int flowPalSel_ = 0;
+    bool flowPalOpen_ = false;
+    bool flowPalFocus_ = false;
+    bool flowPalMoreCats_ = false;
+    ImVec2 flowPalPos_ = ImVec2(0, 0);
+    int flowPalFromPin_ = -1;
+    std::vector<std::string> flowRecent_;  // node type keys, newest first
+    // Frame-all / select requests carried to the frame that can do them
+    // (node sizes are known only after the canvas has been drawn once).
+    int flowFrameAllReq_ = 0;  // frames to wait; 0 = none
+    int flowSelectReq_ = -1;   // node id to select next frame
+    // Live Logic per-graph capability, cached per (graph, edit serial).
+    int flowCapObj_ = -1;
+    uint64_t flowCapSerial_ = ~0ull;
+    bool flowCapPatchable_ = true;
+    std::vector<std::string> flowCapReasons_;
     // Set every frame by drawFlowGraphWindow(): the Flow Graph window (or one of
     // its children) has keyboard focus, so Ctrl+C/V copy nodes, not scene objects.
     bool flowGraphFocused_ = false;
@@ -2012,6 +2291,12 @@ private:
     std::vector<std::vector<ParticlePreviewDot>> particlePreview_;  // per layer
     unsigned particlePreviewRng_ = 1u;
     float particlePreviewAcc_ = 0.0f;
+    // Preview view state (not edits): solo the selected layer, pause, layers
+    // hidden by their eye (indexed like particlePreview_), inspector tab.
+    bool particleSolo_ = false;
+    bool particlePaused_ = false;
+    std::vector<char> particleHidden_;
+    int particleTab_ = 0;  // 0 Behaviour, 1 Texture, 2 Placement
     bool showVehicles_ = false;
     int vehicleSel_ = -1;  // selected definition in the Vehicle Editor
     void drawVehiclePreview(const VehicleDef& v, int modelIndex);
@@ -2024,6 +2309,24 @@ private:
     bool vehiclePreviewPlay_ = false, vehiclePreviewSound_ = false;
     bool vehiclePreviewFast_ = false;
     bool vehicleBudgetEdit_ = false;
+    // Vehicle Editor view state: inspector tab (vehicle_ui.cpp's VehTab:
+    // Handling, Engine & sound, Camera & HUD, Damage, Look, Model & cost), the
+    // "Wheels & measures" overlay, and the wheel row the pointer is over in
+    // the Model & cost tab (-1 none) - the preview rings it.
+    int vehicleTab_ = 0;
+    // The vehicle the "Editing: Defaults | <vehicle>" switch goes back to
+    // from Defaults, and the "Show: Own only" filter.
+    int vehicleScopeVehicle_ = -1;
+    bool vehicleOwnOnly_ = false;
+    bool vehicleShowMeasures_ = true;
+    // Vehicle Editor preview: Near (tier 0) or Far (the far tier the console
+    // swaps to past farDistance). View state.
+    bool vehiclePreviewFar_ = false;
+    // Ambience Editor > Global illumination > "Show probes in viewport":
+    // the baked probe grid drawn over the scene (Viewport::setGiProbeView).
+    // View state, session only.
+    bool giShowProbes_ = false;
+    int vehicleHoverWheel_ = -1;
     // Cached import bakes, one per definition, keyed by what the bake depends
     // on. A bake parses a .glb/.fbx and decimates it - far too slow for a
     // frame - so the window shows the last result and re-runs it only when
@@ -2049,6 +2352,14 @@ private:
     int factQuerySel_ = -1;   // selected query
     int factRuleSel_ = -1;    // selected rule
     int factScenarioSel_ = -1;
+    int factFocusFrames_ = 0;  // >0: bring the window forward (Tools menu)
+    int factTab_ = 0;         // Catalog / Queries / Rules / Scenarios / Blackboard
+    int factTabJump_ = -1;     // a Used-by click selects that tab next frame
+    int factKeepFilter_ = -1;  // catalog chip: -1 all, a Persist, 100 = computed
+    float factListW_ = 0.0f;   // catalog list | detail splitter (0 = default share)
+    float factSideW_ = 0.0f;   // Queries/Rules/Scenarios list | detail splitter
+    std::string factSideFilter_;   // their list filter (one, shared by the three)
+    std::string factBoardFilter_;  // Blackboard filter
     std::string factFilter_;  // catalog search box
     // The name a rename is being typed over, so renameFactRefs can retarget
     // every reference when the field commits - the objRenameFrom_ idiom.
@@ -2079,6 +2390,12 @@ private:
     float vuSimParams_[4] = {1.0f, 0.0f, 0.0f, 0.0f};
     float vuSimTime_ = 0.0f;
     std::string vuSimOut_;
+    std::vector<int> vuSimRows_;  // per vertex: x y z (values), x y z (zero), same
+    std::string vuSimErr_;
+    int vuSimQ_ = 0;
+    bool vuSimRan_ = false, vuSimSame_ = true;
+    int vuSelKind_ = 0;  // the list: 0 a look, 1 the VU0 kernel, 2 Micro memory
+    int vuSelLook_ = 0;
     int prefabSelected_ = 0;
     // The Notes field: a wrapped paragraph at rest, a multiline editor while it
     // is being typed in (ImGui's multiline InputText does not word-wrap, so the
@@ -2098,6 +2415,10 @@ private:
     // bake / Delete bake, never per frame.
     std::string prefabBakeDiskKey_;
     std::string prefabBakeDiskPath_;
+    // Panel view state (not edits): the name/notes filter over the tile grid
+    // and whether the member list is expanded past its first rows.
+    char prefabSearch_[96] = {};
+    bool prefabMembersAll_ = false;
 
     // Procedural scatter (Tools > Procedural). The graph editor mirrors the
     // flow-graph editor's imnodes setup (own editor context, so panning and
@@ -2122,6 +2443,16 @@ private:
     // over a node, and an open popup is exactly such a frame - sharing them made
     // the menu close on the frame after it opened, i.e. right-click did nothing.
     int procCtxNode_ = -1;
+    int procInspectNode_ = 0;     // the node the inspector edits (selected on the canvas)
+    int procFramePending_ = 0;    // >0: frame all nodes (fit zoom, then centre)
+    std::string procFrameVolume_; // the volume last framed (a switch frames again)
+    ImVec2 procAddAt_ = ImVec2(0, 0);  // where the Add node menu puts its node
+    std::map<std::string, int> procVolState_;      // per volume: 0 baked 1 stale 2 frozen 3 runtime
+    std::map<std::string, double> procStaleSince_; // ImGui time a volume went stale (session)
+    bool drawProcNodeParams(ProcNode& n, const ProcNodeType& t, const std::vector<std::string>& models);
+    int drawProcInspector(SceneObject& vol, ProcGraph& g, bool stale, bool& changed,
+                          const std::vector<std::string>& models);
+    void procAutoArrange(ProcGraph& g, float canvasW);
     ProcGraph procClipboard_;
     void* procEditorCtx_ = nullptr;  // ImNodesEditorContext (own canvas state)
     // Evaluation. One cache per volume id (keyed so switching volumes keeps
@@ -2208,16 +2539,30 @@ private:
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =
-    // bloom + color grading, 2 = film grain, 9 = motion blur), the pinned USE
-    // prompt (3), a HUD text (4, index in selectedText_) or a custom screen
-    // effect placement (5, index in selectedFx_ into project_.screenFx). The
-    // pinned-under-the-stack effects take 6 (depth of field), 7 (lens flare)
-    // and 8 (god rays).
+    // bloom + color grading, 2 = film grain, 10 = motion blur), the pinned USE
+    // prompt (3), a HUD text (4, index in selectedText_), a HUD bar (9, index
+    // in selectedBar_) or a custom screen effect placement (5, index in
+    // selectedFx_ into project_.screenFx). The pinned-under-the-stack effects
+    // take 6 (depth of field), 7 (lens flare) and 8 (god rays). Every kind
+    // needs its OWN id: the inspector is an if/else chain on uiFxSel_, so two
+    // kinds sharing one opens the wrong panel.
     bool showUiEditor_ = false;
+    // Where the UI Editor was last drawn, for OS file drops (handleFileDrop):
+    // window and 512x448 preview frame rects (min x/y, max x/y) and the frame.
+    float uiEdDropWin_[4] = {}, uiEdDropFrame_[4] = {};
+    int uiEdDropSeen_ = -10;
     bool showFontManager_ = false;
     bool showInputMap_ = false;
     int inputActionSel_ = 0;  // row selected in the Input Map action list
     int inputPresetSel_ = 0;  // preset tab being edited
+    // Input Map session state: the find field, the controller diagram's
+    // context (0 on foot, 1 menus, 2 vehicle), and "press to set" capture
+    // (0 off, 1 pad button from a host gamepad, 2 keyboard key).
+    char inputFind_[64] = "";
+    int inputDiagramCtx_ = 0;
+    int inputCapture_ = 0;
+    bool inputCaptureNoPad_ = false;
+    bool inputCapturePrev_[16] = {};
 
     // Live Debugger panel (Tools > Debugger, the DBG toolbar chip, or the
     // built-in "Debugger" window layout).
@@ -2256,10 +2601,17 @@ private:
     int batchSelected_ = -1;  // focuses the overlay on one batch, -1 = all
     staticbatch::Result batchResult_;
     std::vector<std::string> batchWarnings_;
+    double batchComputedAt_ = -1.0;  // ImGui time of the last compute ("updated N s ago")
+    int batchListMode_ = 0;          // 0 = Batches, 1 = Drawn solo
+    float batchListW_ = 0.0f;        // list | detail splitter (0 = default share)
+    char batchFilter_[96] = {};      // texture or object name, substring
     void drawStaticBatchesWindow();
     void refreshStaticBatches();
     void updateBatchOverlay();
     void drawBatchExcludeCheckbox(int objectIndex);
+    void drawBatchDetail();      // the selected batch: cost, members, solo neighbours
+    void drawBatchSoloList();    // Drawn solo, grouped by reason, fix per group
+    void drawBatchSoloRow(int objectIndex, bool compact);
 
     bool showTextureAtlas_ = false;
     bool atlasPlanDirty_ = true;
@@ -2270,6 +2622,18 @@ private:
     // the bake (which lags every edit) - the map lives beside HudTexture,
     // which is declared further down.
     void rebuildAtlasPreviews();
+    // The window's view state (session only): the page shown as the hero, the
+    // one texture the inspector edits (a member or a refused texture, by its
+    // res path), Baked/Slots, the member filter. atlasFreeSlots_ is derived
+    // with the plan: per page, the free slots of its most common member size
+    // still open on it (x, y, w, h in page pixels, gutter included) - the
+    // "how many more fit before a second page" answer.
+    int atlasPageSel_ = 0;
+    std::string atlasSel_;
+    std::string atlasHover_;  // the member row hovered last frame (lights its slot)
+    int atlasView_ = 0;  // 0 baked, 1 slots
+    char atlasFilter_[64] = {};
+    std::vector<std::vector<std::array<int, 4>>> atlasFreeSlots_;
     gibake::Baker giBaker_;
     // Baked shadow decals (docs/shadows.md). Async like the two bakers around
     // it; unlike them it writes only to disk, so there is nothing to apply
@@ -2326,150 +2690,6 @@ private:
     // no other time (plus the panel's explicit Re-scan).
     uint64_t modelAoIntent_ = 0;
 
-    // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
-    // One job at a time: every verb here saturates the machine, so a second
-    // would only make both slower.
-    bool showBlss_ = false;
-    blssui::Job blssJob_;
-    uint64_t blssJobSeen_ = 0;
-    std::string blssPendingNet_;  // the net a running --blss-train will write
-    std::string blssLastError_;
-    // Negative so the very first frame the window is drawn refreshes rather
-    // than waiting out the throttle - "no network" is the one thing this
-    // window must never say wrongly.
-    double blssStatusChecked_ = -1.0e9;
-    float blssOutputH_ = 150.0f;
-    // What the project's network is, and where it came from. A blss.net is a
-    // bare list of floats and records nothing about how it was made, so the
-    // provenance is a sidecar this editor writes next to the net it trained;
-    // a net newer than its sidecar reports "unknown" rather than a stale one.
-    bool blssNetPresent_ = false;
-    // ...and whether a net this window set ASIDE is waiting to come back. The
-    // net-source radio is the only writer of `blss.net.off`; without this the
-    // "project's own net" option would go permanently dead the moment the
-    // shipped default was selected.
-    bool blssNetAside_ = false;
-    bool blssNetArgsStale_ = false;
-    size_t blssNetBytes_ = 0;
-    std::string blssNetWhen_, blssNetArgs_;
-    char blssNetName_[128] = "blss.net";
-    char blssAssets_[512] = {};
-    // WHICH CORPUS EVERY VERB IN THIS WINDOW RUNS ON, and it defaults to the
-    // project because a measurement says so: a net fitted to the built-in
-    // procedural bestiary scored -0.40 dB on examples/procedural, i.e. WORSE
-    // than not reconstructing at all, while the same code fitted to that
-    // project's own scenes scored +0.06 (commit 29b4de60). The bestiary is the
-    // fallback for a project with nothing to draw, not the thing to ship.
-    //
-    // One switch for all five verbs rather than one per tab: "which corpus
-    // produced this table" must have a single answer visible above every table
-    // in the window, and a per-tab copy is how a Train on the project gets
-    // evaluated against the bestiary without anyone noticing.
-    bool blssCorpusProject_ = true;
-    // Train
-    int blssTrainFrames_ = 156, blssTrainEpochs_ = 400;
-    unsigned blssTrainSeed_ = 0xB1557u;
-    float blssTrainDecay_ = 1e-4f, blssTrainFill_ = 16.0f, blssTrainFlicker_ = 0.0f;
-    // --all-shots ON by default, and it follows the corpus: the console runs
-    // the frames the net was fitted on, so for a PROJECT corpus withholding a
-    // third of it buys an honest held-out column nobody can act on and costs
-    // the shipped net real quality.
-    bool blssTrainAllShots_ = true, blssTrainStandardise_ = false;
-    // Evaluate
-    int blssEvalFrames_ = 156;
-    float blssEvalDeadzone_ = 8.0f;
-    bool blssEvalDump_ = true;
-    std::string blssDumpDir_;
-    // Cross-validate
-    int blssCvFrames_ = 156, blssCvEpochs_ = 400, blssCvSeeds_ = 1, blssCvFolds_ = 0;
-    bool blssCvSweep_ = false;
-    char blssCvSweepList_[128] = "0,1,2,3,4,6,8,12,16,24";
-    // Inputs
-    int blssFeatFrames_ = 156;
-    // Parsed out of the last run of each kind - never computed here.
-    blssui::EvalTable blssEval_;
-    // THE VERDICT'S NUMBERS, from the last Evaluate or "will this scene
-    // benefit" run. Taken from the tool's own machine-readable `[blss] verdict`
-    // line when it is there and re-derived from the parsed table when it is
-    // not, so an older binary still answers.
-    blssui::EvalSummary blssSummary_;
-    // WHICH NET PRODUCED THE TABLE ON SCREEN, from the run's own announce line
-    // rather than from the file system. With a default shipping, "I evaluated
-    // my project" and "I evaluated the editor's net on my project" are one
-    // keystroke apart, and until the line existed they looked identical.
-    blssui::NetSource blssNetSource_;
-    blssui::CvTable blssCv_;
-    blssui::FeatureTable blssFeat_;
-    // The third verdict - "is this corpus good enough to train on" - derived
-    // once from blssFeat_ when a report lands, not per frame, for the same
-    // reason blssSpeed_ is: a sentence a reader is going to quote must not
-    // shimmer between two roundings. Unknown until a report exists, and
-    // deliberately not reassuring while it is.
-    blssui::CorpusHealth blssHealth_;
-    // A CONSOLE frame placed in that corpus. Parsed from the same
-    // `--features` run (the tool prints the probe table under the channel
-    // table), so a run without --probe leaves it empty, which is correct.
-    blssui::ProbeTable blssProbe_;
-    blssui::ProbeVerdict blssProbeVerdict_;
-    // The BLSSFEAT line being probed, and where it came from - the project's
-    // bin/log.txt, the runner's [ps2] stream, or the user's own paste.
-    char blssProbeLine_[2048] = {};
-    std::string blssProbeSource_, blssProbeNote_;
-    // What the corpus loader SAID it found, per scene, out of the last run's
-    // output. It is how an author tells "the trainer honoured my shot plan"
-    // from "the trainer is still shooting its six defaults", which is otherwise
-    // invisible: a plan the tool ignores looks exactly like a plan it obeys.
-    std::vector<blssui::CorpusScene> blssScenes_;
-    // Training shots: which row of Project::blssShots is being edited.
-    int blssShotSel_ = -1;
-    // "Look through this shot" - the editor camera parked at a training
-    // vantage. Held as state rather than pushed once, because drawUI CLEARS the
-    // viewport's camera override on every frame nothing claims it (app.cpp,
-    // the look-through camera branch), so a one-shot push lasts one frame.
-    bool blssLookThrough_ = false;
-    float blssLookEye_[3] = {0.0f, 0.0f, 0.0f};
-    float blssLookAt_[3] = {0.0f, 0.0f, 1.0f};
-    float blssLookFov_ = 60.0f;
-    // THE SPEED HALF. `blssCov_` is the UI's copy and is only ever written by
-    // blssCoverageTick after the worker has finished (the version bump is the
-    // handover, the Runner/giBaker idiom); `blssCovOut_` is the worker's own
-    // slot and must not be read while it runs.
-    blss::CoverageReport blssCov_, blssCovOut_;
-    std::thread blssCovThread_;
-    std::atomic<bool> blssCovRunning_{false};
-    std::atomic<bool> blssCovCancel_{false};
-    std::atomic<uint64_t> blssCovVersion_{0};
-    uint64_t blssCovSeen_ = 0;
-    double blssCovStarted_ = 0.0, blssCovSeconds_ = 0.0;
-    // The estimate, derived from blssCov_ once per finished run rather than per
-    // frame - blssui::speedFrom is pure and cheap, but the verdict text is what
-    // a reader quotes and it must not flicker between two roundings.
-    blssui::SpeedEstimate blssSpeed_;
-    // Which tab to force open next frame (-1 = leave it alone). The verdict's
-    // thumbnails are click-through to Compare, and a strip that showed the
-    // pictures but could not get you to them would be decoration.
-    int blssTabSelect_ = -1;
-    // The comparison PNGs --blss-eval --dump wrote, as GL textures. The PIXELS
-    // are kept as well, because the difference view is computed from them on
-    // the CPU - ~900 KB each at 512x448, nine of them.
-    struct BlssImage {
-        std::string label, tip, path;
-        unsigned tex = 0;
-        int w = 0, h = 0;
-        std::vector<unsigned char> px;  // RGBA, w*h*4
-    };
-    std::vector<BlssImage> blssImages_;
-    bool blssImagesDirty_ = true;
-    int blssImgA_ = 0, blssImgB_ = 0, blssImgMode_ = 0;
-    float blssWipe_ = 0.5f, blssZoom_ = 1.0f;
-    // |A-B| amplified. Rebuilt when the pair or the amplification changes, and
-    // never per frame - it is a full-image CPU pass.
-    unsigned blssDiffTex_ = 0;
-    int blssDiffW_ = 0, blssDiffH_ = 0;
-    int blssDiffA_ = -1, blssDiffB_ = -1;
-    float blssDiffAmp_ = 8.0f, blssDiffAmpBuilt_ = -1.0f;
-    double blssDiffPeak_ = 0.0, blssDiffMean_ = 0.0;  // the honest scale of the gap
-
     bool showTreeGenerator_ = false;
     treegen::Params treeParams_;
     int treePreset_ = 0;
@@ -2477,14 +2697,29 @@ private:
     treegen::Image treeBarkTex_, treeLeafTex_;
     uint64_t treePreviewVersion_ = 0;
     bool treePreviewDirty_ = true;
-    char treeName_[64] = "tree";
+    char treeName_[64] = "oak";
+    // The name still follows the preset (oak, birch...) until it is typed in.
+    bool treeNameTouched_ = false;
+    int treeTab_ = 0;  // Trunk / Branches / Leaves / Look / Detail
+    // Near / Impostor preview: the distant card captured on the CPU (the
+    // same capture the bake runs) into treeImpTex_, redone when the tree or
+    // the view count changes.
+    bool treeShowImpostor_ = false;
+    unsigned treeImpTex_ = 0;
+    uint64_t treeImpVersion_ = 0;
+    int treeImpViewsBuilt_ = 0;
+    int treeImpSize_ = 128;
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
+    float treeGenPanX_ = 0.0f, treeGenPanY_ = 0.0f;  // framing radii
     bool treeGenSpin_ = true;
     bool treeGenImpostor_ = true;
     int treeImpostorViews_ = 8;
+    // Properties > Distance and LOD > Distant version, staged per object until
+    // its Bake button runs: the kind (0 none, 1 billboard, 2 hull proxy) and
+    // the billboard's view count.
     int modelImpostorViews_ = 8;
+    int modelDistantKind_ = 0;
     std::string modelImpostorObject_;
-    bool impostorGpu_ = true;
     int treeGenDisplayMode_ = 0;
     // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
     // droneParams_ is the whole patch; the LiveSynth and the audio device are
@@ -2503,6 +2738,7 @@ private:
     dronegen::Params droneParams_;
     int dronePreset_ = 0;
     int droneTab_ = 0;
+    int droneLayerTab_ = 0;  // Layers tab: the layer being edited (pill tabs)
     char droneTrackName_[64] = "ambient";
     std::unique_ptr<dronegen::LiveSynth> droneLive_;
     std::unique_ptr<audiopreview::Device> droneDevice_;
@@ -2544,6 +2780,54 @@ private:
     bool droneWriteArmed_ = false;
     std::string droneWriteMsg_;    // "Filter cutoff @ 0:12.4" - write feedback
     char droneLaneFilter_[48] = "";  // search box of the "add lane" picker
+    // The left rail's "in this project" list: every .drone under res/, its
+    // title, whether its WAV exists and whether the patch is newer than the
+    // WAV ("changed since last render"). Rescanned every couple of seconds
+    // and right after a save/render (droneTrackScanAt_ < 0).
+    struct DroneTrackRow {
+        std::string rel, title;
+        bool hasWav = false, newerThanWav = false;
+    };
+    std::vector<DroneTrackRow> droneTracks_;
+    double droneTrackScanAt_ = -1.0;
+    // Opening the tool on a project that already has a patch opens that
+    // patch (once per project, and only over the untouched default).
+    std::string droneAutoOpenFor_;
+    std::string dronePendingLoad_;  // a rail click waiting on the unsaved-patch question
+    int droneChordSel_ = 0;         // Harmony: the chord card being edited
+    char droneTitleBuf_[96] = "";
+    // The Simple view (editor.ini droneDetailed flips to the Detailed one -
+    // how much machinery a person wants to see is theirs, not the project's).
+    // Nothing below is saved: the mood a patch came from (session only), the
+    // one-step undo a mood pick / Another take offers, a slider drag's
+    // snapshot (every frame rewrites from it, so a drag never accumulates),
+    // the live waveform history and the In the game questions.
+    bool droneDetailed_ = false;
+    int droneMoodFrom_ = -1;
+    struct DroneMoodUndo {
+        bool valid = false;
+        dronegen::Params params;
+        std::string title, what;
+        int moodFrom = -1;
+        bool wasDirty = false;
+        double until = 0.0;
+        uint64_t serial = 0;
+    } droneMoodUndo_;
+    uint64_t droneEditSerial_ = 0;  // bumped by every edit of the patch
+    int droneDragSlider_ = -1;
+    dronegen::Params droneDragP0_;
+    float droneDragR0_ = 0.0f;
+    float droneLoadR_[6] = {};      // slider values at the last load (double-click)
+    std::string droneLoadRFor_;     // which document droneLoadR_ belongs to
+    std::vector<float> droneLiveHist_;  // peak per column while playing
+    bool droneScrollToGame_ = false;
+    struct DroneUseAsk {
+        int scene = -1, object = -1, replaceNode = -1;
+        bool create = false;
+        std::string text;
+    } droneUseAsk_;
+    void droneScanTracks();
+    std::string droneUniqueTrackName(const std::string& base) const;
 
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
@@ -2553,13 +2837,29 @@ private:
     // to, so a bar can be judged at 30% without running the game (-1 = start).
     int selectedBar_ = -1;
     float hudBarPreview_ = -1.0f;
+    // UI Editor preview (session state, never saved): background (0 = the
+    // viewport's last frame, 1 = checker, 2 = black), looped animations
+    // running, the 90% safe-area guide, the in-preview drag (0 none, 1 move,
+    // 2..5 a corner handle) and the start of a Play show / hide transition
+    // preview (< 0 = none).
+    int uiPrevBg_ = 0;
+    bool uiPrevAnimate_ = true;
+    bool uiPrevSafe_ = true;
+    int uiDragMode_ = 0;
+    double uiTransPlayT0_ = -1.0;
     // Font Manager selection (index into Project::fonts).
     int fontSel_ = 0;
-    // Cached atlas footprint line: measuring it walks all 95 glyphs, so it is
-    // recomputed only when a bake-affecting field changes (see fontAtlasKey_).
-    std::string fontAtlasKey_;
-    std::string fontAtlasInfo_;
-    bool fontAtlasClipped_ = false;
+    // The specimen and the atlas card: backdrop (0 on the scene, 1 on black,
+    // 2 as PS2 = drawn glyph by glyph from the baked atlas), the editable
+    // sample line, and the baked atlas itself as a GL texture. Baking walks
+    // all 95 glyphs, so it reruns only when fontAtlasTexKey_ (project dir +
+    // the bake-affecting fields) changes.
+    int fontPreviewMode_ = 0;
+    char fontSample_[96] = "Press X to look through the lens";
+    unsigned fontAtlasTex_ = 0;
+    std::string fontAtlasTexKey_;
+    menubake::AtlasLayout fontAtlasLayout_;
+    int fontAtlasKb_ = 0;
     int selectedFx_ = -1;
     // Baked preview of the selected HUD text (menubake::bakeTextRGBA),
     // re-rasterized whenever its content changes.
@@ -2579,11 +2879,27 @@ private:
     float animEdTime_ = 0.0f;   // playhead, seconds into the TRIMMED clip
     bool animEdPlaying_ = true;
     bool animEdWireframe_ = false;
+    bool animEdBones_ = false;  // skeleton overlay on the preview (view state)
     std::string animEdLight_;  // preview lighting, see matEdLight_
     float animEdYaw_ = 40.0f, animEdPitch_ = 15.0f, animEdZoom_ = 1.0f;
     float animEdPanX_ = 0.0f, animEdPanY_ = 0.0f;  // radius-relative target
     double animEdClock_ = 0.0;  // wall clock of the previous frame
     char animEdRename_[64] = {};  // rename field buffer for the selected clip
+    // The inspector shows the selected clip, or (>= 0) the import row picked
+    // under "Borrowed from other files" - index into Project::animImports.
+    int animEdImport_ = -1;
+    bool animEdLoopPreview_ = true;  // preview wraps (off: stops at the end)
+    int animEdSpeed_ = 1;            // preview speed: 0 = 0.5x, 1 = 1x, 2 = 2x
+    int animEdTimelineDrag_ = 0;     // 1 trim start, 2 trim end, 3 playhead
+
+    // A "used by / started by / handled by" link the screen editors show: a
+    // line of text and where a click goes - a menu (Menu Editor) or one
+    // object's flow graph.
+    struct ToolRef {
+        std::string text;
+        int menu = -1;
+        int scene = -1, object = -1;
+    };
 
     // Menus editing (Menu Editor window): selected menu + a live preview of
     // the baked panel (re-baked whenever the menu's content changes)
@@ -2615,7 +2931,6 @@ private:
     // from; the file on disk is only written by Save. Style edits get their OWN
     // undo stack - a stylesheet is not project data, so commitChange() must not
     // see them (the Material Editor made the same call).
-    void drawMenuPreview(const GameMenu& m);
     // The preview in three parts, because it is drawn in two windows and must
     // not become two previews: refresh owns the bake, controls the mode picker
     // and the simulated cursor, draw the image. The texture is shared - a
@@ -2624,12 +2939,33 @@ private:
                               int row) const;
     void menuPreviewStep(const GameMenu& m, const menulayout::Layout& L, int dir);
     void menuPreviewRefresh(const GameMenu& m);
-    void menuPreviewControls(const GameMenu& m, int& mode);
-    void menuPreviewDraw(const GameMenu& m, int mode, float zoom);
     void drawMenuPreviewWindow();
     void drawMenuStyleTab(GameMenu& m, bool& projectChanged);
     void drawMenuStyleText(GameMenu& m, bool& projectChanged);
-    void drawMenuCost(const GameMenu& m);
+    void drawMenuCostCard(const GameMenu& m);
+    // The preview's building blocks (menustyle_ui.cpp): one clock tick per
+    // frame, this frame's transition/sheen, the panel at its texels, the
+    // panel on a mock TV of one display mode (with its fit verdict).
+    struct MenuMotion {
+        float ofsX = 0.0f, ofsY = 0.0f, tint = 1.0f;
+        const menustyle::Animation* sheen = nullptr;
+    };
+    struct MenuFit {
+        bool fits = true;
+        float panelW = 0.0f, panelH = 0.0f;  // framebuffer px in that mode
+        float screenH = 0.0f;                // drawn TV height
+    };
+    void menuPreviewTick();
+    MenuMotion menuPreviewMotion(const GameMenu& m);
+    void menuPreviewSheen(const MenuMotion& mo, ImDrawList* dl, ImVec2 m0, ImVec2 m1,
+                          float pxPerTexel);
+    void menuPreviewPanel(const GameMenu& m, ImVec2 p0, float scale, bool outline);
+    MenuFit menuPreviewTV(const GameMenu& m, const std::string& modeKey, bool wide, ImVec2 p0,
+                          float sw, bool outline);
+    void menuPreviewStepRow(const GameMenu& m, int dir);
+    int menuPreviewTickFrame_ = -1;
+    float menuPreviewCloseT_ = -1.0f;  // >= 0 = replaying the close transition
+    int menuPreviewView_ = 0;  // Menu Preview: every resolution / one, large / texels
     void drawMenuStyleDeleteModal();
     std::string menuStyleDeleteKey_;  // the sheet the confirm is about
     void menuStyleSync(const GameMenu& m);
@@ -2667,7 +3003,18 @@ private:
     int menuPreviewW_ = 0, menuPreviewH_ = 0;
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)
     bool menuPreviewClipped_ = false;  // content hit the 512px texture cap
-    int menuPreviewMode_ = 0;      // 0 = panel 1:1, 1 = TV PAL, 2 = TV NTSC
+    // Menu Editor preview: 0 = panel texels, 1.. = that supported display
+    // mode (in game frame); -1 = not chosen yet (opens on the boot mode).
+    int menuPreviewMode_ = -1;
+    int menuPreviewLastMode_ = 0;  // the frame's mode while showing texels
+    double menuPreviewBakedAt_ = -1.0;  // ImGui time of the last preview bake
+    int menuEdTab_ = 0;               // Rows / Opens / Layout / Style / Stylesheet
+    bool menuEdTabForce_ = true;
+    std::vector<ToolRef> menuEventHandlers(const std::string& event) const;
+    std::vector<ToolRef> menuOpenedBy(const std::string& menu) const;
+    void drawMenuRowsTab(GameMenu& m, bool& changed);
+    void drawMenuRowOptions(MenuEntry& en, bool& changed);
+    void drawMenuLayoutTab(GameMenu& m, bool& changed);
     // Preview aspect: 0 = follow the project (Preferences > Widescreen), 1 =
     // force 4:3, 2 = force 16:9 - the safe-area overlay's Aspect control, for
     // the same reason. Widescreen is anamorphic, so it changes what a baked
@@ -2682,6 +3029,8 @@ private:
     bool showGradingEditor_ = false;
     int selectedGrading_ = -1;
     bool gradingPreview_ = true;
+    int gradingView_ = 0;          // Color Grading preview: 0 split, 1 after, 2 before
+    float gradingSplit_ = 0.5f;    // where the before/after split sits, 0..1
 
     // Ambience Editor (Tools > Ambience Editor): selected sky/light/fog preset
     // and whether the viewport previews the edited preset over the scene's.
@@ -2704,15 +3053,49 @@ private:
     float skyBodyComp_[3] = {1.0f, 1.0f, 1.0f};
     // Which key row the cycle tab has selected (-1 = none).
     int selectedDayKey_ = -1;
+    // Ambience Editor view state: the window tab (0 Sky & time, 1 Global
+    // illumination, 2 Baked lighting), the inspector tab, and the hero's
+    // Play-the-day hour (-1 = not playing; it never edits the preset).
+    int ambienceTab_ = 0;
+    // Sky & time shows the Simple view unless this is on (editor.ini
+    // ambienceDetailed - how much of the machinery a person wants to see is
+    // theirs, not the project's).
+    bool ambienceDetailed_ = false;
+    int ambienceInspTab_ = 0;
+    float ambiencePlayHour_ = -1.0f;
+    // Per-scene GI cache state (refreshGiStates, hud_ui.cpp): the GI tab's
+    // scene list and the "stale" mark on its window tab. Throttled - reading a
+    // cache parses the file and the signature walks the scene.
+    struct GiSceneState {
+        bool present = false, fresh = false;
+        int atlas = 0, ground = 0, dim[3] = {0, 0, 0};
+    };
+    std::vector<GiSceneState> giStates_;
+    double giStatesAt_ = -10.0;
+    uint64_t giStatesSerial_ = ~0ull, giStatesVersion_ = ~0ull;
+    void refreshGiStates(bool force);
+    double giBakeStartedAt_ = 0.0;  // for the running bake's elapsed time
+    float giLastBakeSecs_ = 0.0f;
+    bool giWasRunning_ = false;
 
     // Loading Screens (Tools > Loading Screens): selected screen + selected
-    // element within it (lsSelKind_: 0 image / 1 text / 2 bar; lsSelIdx_ into
-    // that element vector) + the preview's simulated load fraction.
+    // element within it (lsSelKind_: 0 image / 1 text / 2 bar / 3 the screen
+    // itself / 4 the boot splash selectedSplash_ / 5 an animation / 6 the
+    // continue prompt; lsSelIdx_ into that element vector) + the preview's
+    // simulated load fraction, and whether it sits on "waiting for START".
     bool showLoadingEditor_ = false;
     int selectedLoadingScreen_ = -1;
-    int lsSelKind_ = 0;
+    int lsSelKind_ = 3;
     int lsSelIdx_ = -1;
     float lsPreviewProgress_ = 0.65f;
+    double lsPlayT0_ = -1.0;  // simulated load running since (< 0 = not)
+    int lsDragMode_ = 0;      // preview drag: 0 none, 1 move, 2..5 a corner
+    bool lsWaitPreview_ = false;  // Preview ended on the continue prompt
+    int lsTab_ = 0;               // 0 Screens, 1 Assignments
+    // Sprite-sheet import dialog state (Add > Animation from a sprite sheet).
+    std::string lsSheetPath_;
+    int lsSheetCols_ = 4, lsSheetRows_ = 2, lsSheetCount_ = 8;
+    bool lsSheetOpen_ = false;
     int selectedSplash_ = -1;  // boot splash screen being edited (-1 = none)
 
     // Credits Editor (Tools > Credits Editor, docs/credits.md): the selected
@@ -2725,9 +3108,9 @@ private:
     int crSelBlock_ = -1;
     float crPreviewTime_ = 0.0f;
     bool crPreviewPlaying_ = false;
-    // The preview strip's share of the window height, dragged on the splitter
-    // above it and persisted in editor.ini (machine setting, like matEdSplit_).
-    float creditsSplit_ = 0.42f;
+    // The block list's share of the window width, dragged on the splitter
+    // beside it and persisted in editor.ini (machine setting, like matEdSplit_).
+    float creditsSplit_ = 0.3f;
     std::vector<unsigned int> crPreviewTex_;  // one GL texture per page
     // What those textures were baked FROM: a copy of the roll (compared with
     // its operator==, so a new field can never be forgotten here the way a
@@ -2746,15 +3129,27 @@ private:
     // The roll's total running time in seconds, as the generated player will
     // pace it - what the window reports next to the page count.
     float creditsDuration(const CreditsRoll& r) const;
+    // When block `i` of the previewed roll is centred on screen (crLayout_).
+    float creditsBlockTime(const CreditsRoll& r, int i) const;
+    int crTab_ = 1;               // Look / Playback / Block
+    bool crTabForce_ = true;      // crTab_ changed in code: select it this frame
+    bool crPreviewSeek_ = true;   // move the playhead to the first content
+    bool crImportRequest_ = false;  // open the import picker outside the popup
+    std::vector<ToolRef> creditsStartedBy(const std::string& roll) const;
+    // Shows that object's graph in the Flow Graph window (active scene only;
+    // anything else says where it is in the status bar).
+    void openGraphOf(int scene, int object);
     void drawCreditsWindow();
     // Import a text file (docs/credits.md markup) into `r`, replacing its
     // blocks. Returns an error message, or "" on success.
     std::string creditsImportFile(CreditsRoll& r, const std::string& file);
 
     // Snapshots the track target's current static pose into a key at `time`
-    // (replacing a key within 1/60 s). Used by the dopesheet buttons,
-    // double-click drops and auto-key. Returns false if the target is gone.
-    bool cutsceneSnapshotObjectKey(SeqTrack& tr, float time);
+    // for the components in `bits` (0 = every channel the track animates; a
+    // key within 1/60 s takes them). Used by the dopesheet buttons,
+    // double-click drops and auto-key. Returns the key index, -1 if the
+    // target is gone.
+    int cutsceneSnapshotObjectKey(SeqTrack& tr, float time, unsigned bits = 0);
     // Auto-key: a finished gizmo drag drops keys at the playhead for every
     // selected object tracked by the selected sequence (seqAutoKey_).
     void cutsceneAutoKey();
@@ -2765,8 +3160,27 @@ private:
     int selectedSeqTrack_ = -1;   // dopesheet lane of the selected key
                                   // (-1 = camera lane, >= 0 = object track)
     int selectedSeqKey_ = -1;     // selected key within that lane (-1 = none)
+    // The components the selected object key was picked by: the row it was
+    // clicked on (kSeqChAll = the track row, kSeqChPosX = the Position X row).
+    // Delete, retime and the inspector act on these only.
+    unsigned selectedSeqBits_ = 0x7FFu;
+    // A key being dragged on an object row. The drag is the Director's, not an
+    // ImGui item's: retiming part of a key splits it, which re-indexes it.
+    int seqDragTrack_ = -1, seqDragKey_ = -1;
+    unsigned seqDragBits_ = 0;
+    bool seqDragMoved_ = false;
+    // Expanded dopesheet rows: "<target>" opens a track's channels,
+    // "<target>/<channel>" a channel's axes. View state.
+    std::set<std::string> seqOpenRows_;
     float seqPlayhead_ = 0.0f;    // scrub time in seconds
-    bool seqPreview_ = true;      // pose the viewport at the playhead
+    // Opening the Director (or picking a sequence) parks the playhead on the
+    // first frame with something to see - t = 0 is black inside the fade-in.
+    // Display only: the saved sequence is untouched.
+    bool seqOpenSeek_ = true;
+    bool seqWasOpen_ = false;
+    // The sequence camera (and its bars/fade) also drives the main viewport.
+    // Off by default: the Director shows the shot in its own preview.
+    bool seqPreview_ = false;
     bool seqPlaying_ = false;     // auto-advance the playhead (preview playback)
     bool seqAutoKey_ = false;     // gizmo release drops a key at the playhead
     float seqZoom_ = 1.0f;        // dopesheet horizontal zoom (1 = fit duration)
@@ -2777,6 +3191,20 @@ private:
     int seqBarsStyleNow_ = 0;     // kSeqBars* while previewing, else 0
     float seqBarsNow_ = 0.0f;     // bars slide-in envelope 0..1
     float seqFadeNow_ = 0.0f;     // fade-to-black overlay alpha 0..1
+    // The shot at the playhead, resolved by cutscenePosedObjects() whether or
+    // not it also drives the viewport (seqPreview_): the Director renders it
+    // into its own preview (Viewport::renderShot).
+    bool seqShotValid_ = false;
+    float seqShotEye_[3] = {0.0f, 0.0f, 0.0f};
+    float seqShotAt_[3] = {0.0f, 0.0f, -1.0f};
+    float seqShotFov_ = 60.0f, seqShotRoll_ = 0.0f, seqShotShake_ = 0.0f;
+    std::string seqShotCam_;      // Camera entity filming at the playhead ("" free)
+    // Director layout: inspector tab (0 Key, 1 Sequence), the side column's
+    // width (shot over inspector) and whether the shot is folded. View state.
+    int seqInspTab_ = 0;
+    bool seqInspTabForce_ = false;
+    float seqInspW_ = 0.0f;
+    bool seqShotFolded_ = false;
     // "Import take..." modal (camera lane): a phone-recorded 6DoF camera take
     // (src/camtake.hpp) staged for baking into free camera shots. The bake
     // preview is cached and recomputed only when a mapping control changes.
@@ -2834,6 +3262,13 @@ private:
     float phoneRoll_ = 0.0f;  // live Dutch angle, degrees (see phoneMap_)
     bool phoneCamPushed_ = false;  // camera override handed to the viewport?
     double phonePreviewAt_ = 0.0;  // ImGui time of the last streamed frame
+    // For the window's device row: poses per second (counted over ~1 s) and
+    // metres walked since the phone connected.
+    float phonePoseHz_ = 0.0f;
+    double phonePoseRateAt_ = 0.0;
+    int phonePoseRateN_ = 0;
+    float phoneWalked_ = 0.0f;
+    float phoneLastPos_[3] = {0.0f, 0.0f, 0.0f};
     // Recording. The buffer is a plain CamTake, so everything downstream is the
     // file importer's code.
     bool phoneRec_ = false;
@@ -2873,6 +3308,14 @@ private:
     // updates live. Not project data, so no undo history (same as imports).
     bool showMaterialEditor_ = false;
     bool showTerrainEditor_ = false;  // the unified Sculpt + Paint terrain tool
+    // Terrain Editor layer coverage: the share of the ground each layer
+    // VISIBLY covers (top of the stack wins), from the splat weights.
+    // Recomputed at most twice a second - a 512x512 four-layer map is a
+    // million bytes to walk.
+    std::vector<float> terrainCoverage_;
+    double terrainCoverageAt_ = -1.0;
+    int terrainCoverageScene_ = -1;
+    bool terrainBaseOpen_ = false;  // the Base row's "Change" popup asked to open
     ImGuiTextFilter matEdFilter_;
     bool matEdFocusNext_ = false;
     std::string matEdInfoPath_;
@@ -2928,6 +3371,7 @@ private:
     float matEdAngle_ = 40.0f;
     float matEdPitch_ = 30.0f;  // camera elevation (drag up/down on preview)
     float matEdZoom_ = 1.0f;    // mouse-wheel dolly on the preview
+    float matEdPanX_ = 0.0f, matEdPanY_ = 0.0f;  // middle-drag pan, framing radii
     // Preview panel's share of the window width (the draggable splitter
     // between the property column and the preview; editor.ini, machine
     // setting like uiScale).
@@ -2948,6 +3392,12 @@ private:
     // still quantizes at build like any other PNG). Asset edits, so no
     // project undo - a small per-stroke snapshot stack covers mistakes.
     bool matEdPaint_ = false;          // paint mode toggle
+    // The inspector's tab: 0 Look, 1 Paint (arms the brush - matEdPaint_
+    // follows it), 2 Bake.
+    int matEdTab_ = 0;
+    // The material list's second line per .mtl (its first texture, or the
+    // entry count), keyed by path and refreshed when the file's time moves.
+    std::map<std::string, std::pair<long long, std::string>> matEdListInfo_;
     int matEdBrushMode_ = 0;           // 0 = color, 1 = brush image, 2 = eraser
     float matEdBrushColor_[3] = {0.8f, 0.2f, 0.15f};
     float matEdBrushSize_ = 24.0f;     // radius in texture pixels
@@ -3142,6 +3592,8 @@ private:
     void matEdRegenMasks();  // all genOn layers + composite (no disk write)
     bool matEdAnyGenLayer() const;
     void matEdGenControls();  // generator UI for the active layer
+    // a layer row's thumbnail: its pixels over a checker, `s` px square
+    void matEdLayerThumb(ImDrawList* dl, const MatEdLayer& L, ImVec2 at, float s) const;
     // Presets: the gen-enabled layers' parameters as a reusable JSON under
     // <project>/material-presets/ (project dir, never ships).
     void matEdSavePreset(const std::string& name);
@@ -3261,6 +3713,7 @@ private:
     char newLocation_[512] = "";
     int newWidth_ = 100;
     int newDepth_ = 100;
+    bool newSizeCustom_ = false;  // the size segment's "Custom" (free width/depth)
     // "Create terrain" (docs/terrain.md): off starts the scene with NO ground
     // at all - no mesh, no floor in the game - for a project whose floors are
     // placed geometry (an interior, a platformer). Default on: a ground plane
@@ -3280,7 +3733,7 @@ private:
     float newUnitsPerMeter_ = 1.0f;
     // "Add AI support": install the assistant skill files (aisupport.hpp)
     // into the fresh project. Also available later in Project Preferences.
-    bool newAiClaude_ = false;
+    bool newAiClaude_ = true;  // pre-selected, as designed (NewProject.dc.html)
     bool newAiCopilot_ = false;
     bool newAiCodex_ = false;
     std::string newProjectError_;
@@ -3320,6 +3773,11 @@ private:
     // when the Properties name edit ends.
     std::string objRenameFrom_;
     int objRenameIdx_ = -1;
+    // Properties tab of a solid object (0 Object, 1 Material, 2 Physics):
+    // remembered for the session, so selecting another object - or a light,
+    // which has no tabs - keeps the tab you were working in.
+    int propsTab_ = 0;
+    int propsTabFrame_ = -1;  // last frame the tab bar was drawn
 
     // Layers panel RAM readout: estimated resident bytes per layer name
     // ("" = the always-resident unassigned group). Parsing models/materials
@@ -3347,6 +3805,9 @@ private:
     std::string discPlanWarnings_;
     int discSelected_ = -1;   // index into discPlan_.items (list <-> disc sync)
     int discCapacity_ = 2;    // 0 = fit to data, 1 = CD-R 700 MB, 2 = DVD-5
+    std::set<std::string> discCollapsed_;  // load groups folded in the file list
+    double discElfAge_ = -1.0;    // seconds since the planned ELF was written (-1 = none)
+    double discElfAgeAt_ = 0.0;   // ImGui time discElfAge_ was measured
 
     // "Project Preferences" - an ordinary WINDOW, and it applies live like
     // every other panel in this editor (see drawPreferencesWindow for why the
@@ -3360,7 +3821,36 @@ private:
     // beginTab lambda there); empty = leave whichever tab the author left on.
     // One-shot: honoured once and cleared.
     std::string prefsFocusTab_;
+    // Project Preferences navigation: the selected category (the old tab
+    // names), a pending section jump, the search text, and the sections the
+    // last drawn category had (the sidebar's index, one frame behind).
+    std::string prefsCat_;
+    std::string prefsScrollTo_;
+    // One setting to bring into view and ring briefly (accent outline that
+    // fades over ~1.5 s), by its kPrefIndex label - "Texture atlasing" from
+    // the Texture Atlas, a search hit, a "what I changed" entry. Its category's
+    // Advanced fold opens for it when it lives there.
+    std::string prefsScrollToItem_;
+    std::string prefsFlashItem_;
+    double prefsFlashStart_ = 0.0;
+    bool prefsScrollTop_ = false;
+    char prefsSearch_[96] = {};
+    std::vector<std::string> prefsSections_;
+    // Categories whose Advanced fold is open (closed by default, per session),
+    // the sidebar's "Show what I changed" list, and the new-project settings
+    // "changed" is measured against (sectionJson text, rebuilt when the world
+    // scale or the preset differs from the key it was built for).
+    std::vector<std::string> prefsAdvOpen_;
+    bool prefsShowChanged_ = false;
+    std::string prefsDefaultsJson_, prefsDefaultsKey_;
     bool focusProjectPrefs_ = false;  // menu/shortcut re-open raises the window
+    // Set by a FLOATING tool window that sends the user to a preference (the
+    // Texture Atlas's "Turn it on in Rendering prefs"): Project Preferences
+    // then opens floating, centred over that window and focused - docked as a
+    // tab it would sit behind the very window that asked for it, and the click
+    // would look like it did nothing. Holds that window's rect.
+    bool prefsOverFloating_ = false;
+    ImVec2 prefsOverPos_{0, 0}, prefsOverSize_{0, 0};
     TerrainConfig prefTerrain_;       // width/depth scratch - see prefGridDetail_
     ProjectSettings prefSettings_;
     // THE TERRAIN GRID IS THE ONE THING THAT MAY NOT APPLY PER FRAME.
@@ -3377,11 +3867,20 @@ private:
     // per-frame cost while a slider is being dragged.
     bool prefsViewportDirty_ = false;
 
-    // "Editor Preferences" modal staging (Edit > Preferences, applied on Save).
+    // "Editor Preferences" modal edit buffers (Edit > Preferences). Every
+    // change is applied and saved at once - the buffers only hold typing.
     // Machine-global settings, mirror of globalEmulatorPath_ / globalPs2Ip_.
     bool openEditorPrefsPopup_ = false;
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
+    // Edit > Preferences > ps2link "Test connection": a TCP connect to
+    // tcp/18193 on a worker (wire::probeTcp), never a deploy. The verdict is
+    // kept with the IP it was for, so editing the field drops it.
+    std::future<std::string> ps2TestJob_;
+    std::string ps2TestIp_;      // the address the running/last test asked
+    std::string ps2TestResult_;  // "" none yet; else the verdict line
+    int ps2TestKind_ = 3;        // StatusLine kind of the verdict
+    double ps2TestStarted_ = 0.0;
     char prefToolchainImage_[256] = "";  // Docker image games compile in ("" = compose default)
     int prefBuildBackend_ = 0;             // 0 native, 1 Docker fallback
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
@@ -3393,6 +3892,11 @@ private:
     // is not one of the backend's listed models (or the user picked Custom).
     bool prefAiCustomModel_ = false;
     bool prefAiThinking_ = false;
+    int prefCategory_ = 0;          // the sidebar's page (Appearance...)
+    char prefSearch_[64] = "";      // filters rows across every page
+    std::string prefDetectedPcsx2_; // what an empty PCSX2 path resolves to
+    bool prefSwatchesReady_ = false;
+    ImVec4 prefSwatches_[4][5];     // the theme cards' colours, read once
 
     // "Generate with AI" modal (Flow Graph window). The Generator runs on its
     // own worker thread; the modal polls it every frame, shows a spinner and a
@@ -3495,6 +3999,20 @@ private:
     size_t chatPadLogMark_ = 0;      // bin/log.txt size when the script started
     size_t chatCompactCount_ = 0;       // messages being folded
     std::string chatCompactNote_;       // what happened, for the window
+    // Per user turn (keyed by the User message's index; session-only, never
+    // saved): the mode it was asked in and the undo history's index before
+    // and after its tools ran, so the turn's change card can offer "Undo".
+    struct ChatTurnInfo {
+        int mode = 1;        // 0 ask only, 1 edit project, 2 edit + build & run
+        int undoBase = -1;   // history_.index() when the turn started
+        int undoEnd = -1;    // ... after its last tool round
+        bool undone = false;
+    };
+    std::map<size_t, ChatTurnInfo> chatTurns_;
+    size_t chatTurnUser_ = 0;           // the User message the running turn answers
+    bool chatWasOpen_ = false;          // to bring a just-opened, docked window forward
+    void aiChatRekeyTurns();            // after a compaction renumbers messages
+    void drawAiChatTurn(size_t userIdx, size_t from, size_t to, bool live);
     void aiChatPersist();                        // save the current conversation
     void aiChatOpen(const std::string& file);    // load a saved one
     void drawAiChatHistory();                    // the History popup body
@@ -3544,12 +4062,11 @@ private:
     // track that; they are baselined on project attach so opening a project
     // with a stale dump in its log neither pops it nor looks like a shrink.
     bool errorPopupEnabled_ = true;
-    // "Bake GI on the GPU when this machine has one" - machine-global
-    // (editor.ini), edited from the Ambience Editor's Global illumination tab
-    // next to the Bake buttons, which is where a person looks for it. The
-    // errorPopup precedent: a machine-wide setting does not have to live in the
-    // Preferences modal, it just has to go through saveGlobalConfig().
-    bool giGpuBake_ = false;
+    // "Use the GPU for bakes" - ONE machine-wide switch (editor.ini gpuBakes,
+    // Edit > Preferences > Build) for the GI gather and the impostor capture;
+    // the Ambience Editor shows which engine the next GI bake uses and links
+    // here instead of keeping a switch of its own.
+    bool gpuBakes_ = true;
     std::string errorSeenSig_;
     std::string errorModalText_;      // block shown in the open dialog
     bool openErrorPopup_ = false;     // request to open the modal next frame
@@ -3583,7 +4100,7 @@ private:
     // no template (or carrying logic / baked lights / projected decals /
     // mirrors), or layer-table drift flips the toolbar chip to "rebuild"
     // instead of mis-patching. The chip doubles as the on/off switch for the
-    // project preference (also in Build > Live Link and Preferences > Build).
+    // project preference (also in Build > Live Link and Preferences > Build & debug).
     enum class LiveLinkState {
         Off,           // preference off, no project, or release build profile
         NoBuild,       // no bin/livelink.sig yet - run a debug build first
@@ -3658,6 +4175,9 @@ private:
      * about it. Empty while the game is reporting normally. Shared by the
      * window's state block and the Stats tab so the two cannot disagree. */
     std::string dbgSilenceReason() const;
+    /** PCSX2 is the target and is not running this ELF: a frozen snapshot is
+     *  a closed game's, not a stale transport (devkit_ui.cpp). */
+    bool dbgGameClosed() const;
     /** The paragraph dbgSilenceReason() no longer prints inline: which file is
      * silent and how a running console ends up with nowhere to write. For the
      * (?) hover next to it; only meaningful when the reason is non-empty. */
@@ -3667,6 +4187,46 @@ private:
     std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
     void livedbgTick();
     void drawDebuggerWindow();
+    // The window's parts (devkit_ui.cpp): a status header with the transport,
+    // a section rail instead of a tab strip, one page, a right column (where
+    // the game stopped, or why it is not running) and one time strip.
+    enum class DbgPage {
+        Watch, Nodes, Breakpoints, Patches,  // Logic
+        Objects, Screen,                     // World
+        Stats, RenderCost, Hardware, Vu      // Performance
+    };
+    DbgPage dbgPage_ = DbgPage::Watch;
+    bool dbgTimeOpen_ = true;       // the time strip expanded (else one row)
+    int dbgWatchKind_ = 0;          // 0 all, 1 facts, 2 save values, 3 flow vars, 4 just changed
+    // Watch "Changed" column: each row's frame of the report that last changed
+    // it (0 = no change seen), diffed in livedbgTick from consecutive reports.
+    std::vector<float> dbgPrevVars_;
+    std::vector<uint32_t> dbgVarChanged_;
+    // Stats chart: the game's rendered rate per report, as ms a frame.
+    std::vector<float> dbgFrameMs_;
+    static constexpr size_t kDbgFrameMsKeep = 150;
+    std::string dbgNodeLabel(const livedbg::NodeSym& n) const;
+    void dbgRevealNode(const livedbg::NodeSym& n);
+    void dbgSetTransport(int what);  // 0 pause/continue, 1 step frame, 2 step node
+    void dbgBuildAndRun();  // the top bar's Run: follows the PCSX2 | PS2 switch
+    bool dbgRunReady() const;
+    const char* dbgRunLabel() const;
+    void dbgDrawHeader();
+    void dbgDrawRail(bool compact, bool horizontal = false);
+    void dbgDrawChecklist();
+    void dbgDrawStoppedAt(bool showPath);
+    void dbgDrawBreakpointList(bool compactRows);
+    void dbgDrawCrashBanner();
+    void dbgDrawTimeStrip(bool open);
+    void dbgDrawWatchPage();
+    void dbgDrawNodesPage();
+    void dbgDrawBreakpointsPage();
+    void dbgDrawPatchesPage();
+    void dbgDrawObjectsPage();
+    void dbgDrawScreenPage();
+    void dbgDrawStatsPage();
+    void dbgDrawRenderCostPage();
+    void dbgDrawVuPage();
 
     // The time machine (docs/time-machine.md): the third direction of the same
     // host: channel. The game captures everything it mutates into
@@ -3687,7 +4247,6 @@ private:
     void livetimeTick();
     /** Pushes history entry `index` back into the running game. */
     void timeMachineRewind(int index);
-    void drawTimeMachinePanel();
 
     // The input recorder (docs/input-replay.md): the fifth direction of the
     // same host: channel, and the only one that reproduces a whole SESSION.
@@ -3711,7 +4270,7 @@ private:
      * chunk, and canonicalizes bin/replay.out into recordings/<name>.tyrarep.
      * Returns "" or an error. */
     std::string replayStopAndSave(const std::string& name);
-    /** recordings/*.tyrarep, refreshed at most a few times a second. */
+    /** Replay files in recordings/, refreshed at most a few times a second. */
     void replayRescan(bool force);
 
     // Remote Pad (docs/remote-pad.md): the fourth direction of the same host:
@@ -3731,6 +4290,12 @@ private:
     // than the write interval would otherwise fall between two snapshots and
     // never be announced at all - "I clicked Cross and nothing happened".
     double padLatch_[livepad::kPads][16] = {};
+    // The drawn controller: shift-click latches a button until clicked again
+    // (when padShiftHold_ is on); a stick is dragged in 2-D and springs back
+    // on release unless Shift is held then.
+    bool padShiftHold_ = false;
+    bool padSticky_[livepad::kPads][16] = {};
+    bool padStickDragged_[2] = {false, false};
     std::string padStatus_;
     // A pad SCRIPT being played (docs/remote-pad.md's own language, parsed by
     // the same livepad::parseScript the --pad CLI uses). While one runs the
@@ -3794,6 +4359,7 @@ private:
     int dbgVuCapTorn_ = 0;         // consecutive incomplete reads of that file
     bool dbgVuCapWaiting_ = false;  // a capture was asked for, none arrived yet
     float dbgVuYaw_ = 0.6f, dbgVuPitch_ = 0.35f, dbgVuZoom_ = 1.0f;
+    ImVec2 dbgVuPan_{0.0f, 0.0f};  // middle-drag pan, pixels
     int dbgVuMesh_ = 0;  // which position stream of the flush the preview draws
     bool dbgVuPinFlush_ = false;  // re-grab one draw instead of walking them
     int dbgVuFlushWanted_ = 0;    // ...which one

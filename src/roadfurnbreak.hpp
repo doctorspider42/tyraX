@@ -6,7 +6,7 @@
 // that hits a lamp post, a sign, a bollard or a traffic light (a tree, if its
 // road says so) at its kind's Break speed or faster knocks it over, Need for
 // Speed style. The settings are roadfurn::Settings::breakable / brk (format
-// v109); the tables are roadfurn::Tables::pieces (ROAD_FURN_PIECES). This
+// v137); the tables are roadfurn::Tables::pieces (ROAD_FURN_PIECES). This
 // module is the generated RUNTIME (a text patch applied to the filled
 // template, the roadlight shape), the host twin of its two rules and the
 // --vehicle-check block "breakable furniture".

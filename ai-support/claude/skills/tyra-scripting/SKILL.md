@@ -9,35 +9,55 @@ description: Writing custom code in a TyraX project - C++ object scripts (TYRA_O
 
 Three extension points, from most to least common:
 
-## 1. Object scripts (C++ classes)
+## TyraX2 custom-code contract
+
+[TyraX2 source documentation](https://github.com/doctorspider42/tyraX/blob/main/docs/tyrax2.md) describes the default-off frame pipeline.
+Ordinary renderer APIs supply ordering fences; do not add an unconditional
+wait to every custom node/script. Raw DMA/GS writes and CPU GPU readbacks are
+not automatically recorded. Use `Tyra::frameSendPacket` from
+`renderer/core/paths/path1/frame_submission.hpp` for custom packets, or retain
+the queue/channel completion and source-ownership contract; drain
+`Tyra::Vif1Queue` before a foreign direct VIF1 send. DMA completion alone does
+not release a GS texture reader.
+
+Call `RendererCore::setFramePipeline(bool)` only between frames;
+`getFramePipeline()` returns the request, not actual overlap in compatibility
+modes. Before a between-frame CPU GPU readback, call
+`renderer.core.synchronizeFrame()` (the generated debugger does). During
+recording, `sync.align3D()` / `sync.align2D()` may only record ordering barriers,
+so neither they nor `synchronizeFrame()` are a general mid-recording readback
+or resource-destruction recipe. Keep referenced buffers and VRAM alive until
+their actual readers complete.
+
+## 1. C++ scripts
 
 Files in `src/scripts/*.cpp`, subfolders included - that directory is
-exclusively yours (generated sources live in `src/gen/`).
-Register a class with the `TYRA_OBJECT_SCRIPT(Name)` macro; the editor's
-Properties panel then offers it for attaching to scene objects, and the build
-runs it for every object it is attached to. `src/scripts/example_interaction.cpp`
-is a working reference; the base class + the API you can call live in
-`inc/scripts/script.hpp` (`ScriptContext`: engine access, the object list,
-player position, save values, audio...).
+exclusively yours (generated sources live in `src/gen/`). The API is
+`inc/scripts/script.hpp` (`ScriptContext`: `engine` for pad/renderer/audio,
+`objects`/`objectCount`, player position and look, camera and fade overrides,
+save values and texts, ...). Two kinds, both in the project's namespace:
 
-- One class can be attached to many objects; each attachment gets its own
-  instance.
-- The game is plain C++20 compiled for the PS2 (`mips64r5900el-ps2-elf-g++`,
-  no exceptions on hot paths, 32 MB RAM) - keep per-frame work small, avoid
-  allocation in update loops.
-- The scene tables (`inc/scene_data.hpp`) and every `*.gen.hpp` are
-  regenerated - read them, never edit them. Object values are defined in
-  `src/gen/scene_objects.gen.cpp`; the arrays are `extern const`, so read them
-  at runtime rather than using them in a `constexpr` expression. Object arrays
-  are unsized declarations: use `SCENE_OBJECT_COUNTS[scene]` for their lengths
-  instead of `sizeof` or `std::size`. Counts and object ID values also live in
-  the generated data source.
+- **Object scripts** - derive from `ObjectScript` (`onStart`, `onUpdate`,
+  `onUsed`), register with `TYRA_OBJECT_SCRIPT(MyScript);` at file scope INSIDE
+  the namespace, then attach it in the editor (Properties > Scripts). One
+  instance per attachment, created at scene load; `self` is the owner - mutate
+  `self->data` (position/rotation/scale/color), `self->visible` or the
+  velocity fields, then set `self->dirty = true`. Unattached classes cost
+  nothing.
+- **Global scripts** - derive from `Script` (`init`, `update`), register with
+  `TYRA_SCRIPT(Ns::MyScript);` at file scope; they always run.
+  `src/scripts/example_interaction.cpp` is one (never regenerated).
 
-Generated game methods also live in `src/gen/game_*.gen.cpp`, with shared
-inline helpers/state in `inc/game_runtime.gen.hpp`; both are editor-owned.
-`src/terrain_game.cpp` remains user-ownable for startup/loop/camera edits.
-Keep its shared-header include when taking ownership of a split main.
-A legacy user-owned monolith remains supported without generated subsystem files.
+Constraints:
+
+- The game is C++ for the PS2 (`mips64r5900el-ps2-elf-g++` at `-O3`, the
+  compiler's default dialect - no `-std` flag is passed; 32 MB RAM) - keep
+  per-frame work small, avoid allocation in update loops.
+- `inc/scene_data.hpp` and every `*.gen.hpp` are regenerated - read them, never
+  edit them. Object values are defined in `src/gen/scene_objects.gen.cpp`; the
+  arrays are `extern const` and unsized, so read them at runtime (not in a
+  `constexpr`) and use `SCENE_OBJECT_COUNTS[scene]` for lengths instead of
+  `sizeof`/`std::size`.
 
 ## 2. Custom flow-graph nodes (`.flownode`)
 
@@ -58,6 +78,7 @@ Header keys:
 | `out` | Output pins: any of `object position bool text` (needs `call`) |
 | `exec_out` | `true` = follow-up exec output firing after the node runs |
 | `call` | C++ function in `inc/scripts/flow_nodes.hpp` to run |
+| `tip_string`, `tip0`..`tip3` | Per-parameter glosses (shown as tooltips and in `--list-nodes`) |
 
 Without `call`, the body after `---` is an inline C++ snippet emitted verbatim
 with placeholders: `{obj}` target object index, `{self}` owner index,
@@ -67,34 +88,43 @@ receives a `FlowNodeIO` struct to read inputs and write outputs.
 
 The file NAME is the node's identity (`custom:<stem>` in graph JSON); copying
 the file into another project's `flow-nodes/` ports the node. The full format
-reference is `docs/custom-flow-nodes.md` in the TyraX repo; the editor can also
-scaffold a commented starter (`Flow Graph window → Custom nodes... → New
+reference is docs/custom-flow-nodes.md (`--search-docs "<terms>"
+custom-flow-nodes`); the editor can also
+scaffold a commented starter (`Flow Graph window → </> (Custom nodes) → New
 starter node`).
 
 ## 3. Custom screen effects (`.screenfx`)
 
-A text file in `screen-effects/<name>.screenfx`: a manifest (title + up to four
-numeric params) plus a raw C++ body doing low-level PS2 GS blits. Placed into
+A text file in `screen-effects/<name>.screenfx`: a manifest (`title`, and
+`param0`..`param3 = Label, default, min, max`) plus a raw C++ body doing
+low-level PS2 GS blits. Placed into
 the screen stack in the editor (`Tools → UI Editor`), so it can sit under the
 HUD like bloom/grain. This is advanced PS2 territory - study the built-in
 effects before writing one.
 
 ## Taking ownership of template sources
 
-`src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp` and
-`inc/scripts/script.hpp` start with `// Generated by TyraX. Delete this line to
-take ownership of this file.` The editor rewrites them on every build **until
-you delete that first line** - after that they are yours, but they stop
-receiving template updates (new editor features that patch the game loop will
-no longer reach the file). Prefer scripts and custom nodes; take ownership only
-when you truly need to restructure the game loop.
+`src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`,
+`inc/scripts/script.hpp` and `inc/scripts/flow_nodes.hpp` start with
+`// Generated by TyraX. Delete this line to take ownership of this file.` The
+editor rewrites them on every build **until you delete that first line** -
+after that they are yours, but they stop receiving template updates (new
+editor features that patch the game loop no longer reach them). Prefer scripts
+and custom nodes; take ownership only to restructure the game loop.
+
+`src/terrain_game.cpp` holds startup, the frame loop, the camera and the
+exported globals; the rest of the game runtime is editor-owned in
+`src/gen/game_{scene,lighting,collision,vehicles,physics}.gen.cpp` with shared
+helpers/state in `inc/game_runtime.gen.hpp`. Keep the
+`#include "game_runtime.gen.hpp"` when you own `terrain_game.cpp`, or the
+generated subsystem files stop being written (that is the legacy monolith
+mode).
 
 ## VS Code extension
 
-The editor installs/recommends the **TyraX VS Code extension**
-(`tools/vscode-tyrax` in the editor repo, auto-installed via
-`code --install-extension` when the editor opens a project in VS Code). It
-provides syntax highlighting + validation for `.flownode` and `.screenfx`
-files. The generated `.vscode/c_cpp_properties.json` gives IntelliSense the
+The editor recommends (`.vscode/extensions.json`) and, when it opens the
+project in VS Code, installs the **TyraX VS Code extension**: highlighting and
+validation for `.flownode`, `.screenfx` and `.menustyle`, and VU-program
+checks. The generated `.vscode/c_cpp_properties.json` gives IntelliSense the
 PS2 include paths - regenerate it (and all game sources) with
 `"{TYRAX_EXE}" --refresh-gen <projectDir>`.

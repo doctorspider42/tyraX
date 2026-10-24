@@ -16,8 +16,8 @@ in VRAM.** There is no baked geometry to store, ship or stream.
 ## Drawing roads
 
 The fastest way to lay out a street network is the **Draw road** tool: the
-viewport toolbar's **Draw road (8)** button, the `8` key, Insert > Gameplay >
-**Draw road...**, or **Draw road...** in a road's Properties.
+viewport tool palette's **Draw road (8)** button, the `8` key, Scene > Add >
+Gameplay > **Draw road...**, or **Draw road...** in a road's Properties.
 
 ![The editor's Draw road tool: the preset panel top left, a City street being drawn from the grass toward the alley - the width ghost, the snap marker on the alley and the label "T / crossing on alley-1 -90 deg 6.7 u"](img/road-drawing-editor.png)
 
@@ -463,7 +463,7 @@ it costs no texture and no VRAM, one bag per scene, and no work per frame.
 The stop-line rule is `roadgen::giveWayArms`, and it is also what decides who
 gives way in [road traffic](traffic.md): an AI car stops where the paint says.
 
-Each road chooses with **Markings** in Properties (`roadMarkings`, format 96,
+Each road chooses with **Markings** in Properties (`roadMarkings`, format 124,
 written only when not 1): *None*, *Stop lines* (the default, edge lines
 included) or *Stop lines + zebras*. A node paints edge lines only when every
 road at it allows markings. Paint that would hang past a road is dropped.
@@ -512,7 +512,7 @@ paint, laid onto that surface, with it. Slivers are now skipped by the proof and
 dropped by the ear clipper. `--vehicle-check` "a node patch on rolling ground
 stays on the ground" pins it on a real heightfield.
 
-## Kerbs (format 95)
+## Kerbs (format 123)
 
 A road's **Kerbs** checkbox (`roadKerb`, off by default) puts a concrete kerb
 along both of its edges. **Kerb height** (`roadKerbHeight`, 0.02-0.5, default
@@ -656,7 +656,7 @@ round a fillet, the painted edge line inside it, a zebra beyond.
 
 ![PCSX2: kerb and painted edge line round a junction fillet in the Motor District, a zebra crossing beyond](img/road-kerbs-markings-district.png)
 
-## Pavements (format 97)
+## Pavements (format 125)
 
 A kerbed road's **Pavement** slider (`roadPavement`, 0-6 units, default 0 =
 none) lays a walk that wide behind each of its kerbs, at the kerb's height.
@@ -750,7 +750,7 @@ them out, like the kerbs), and they have no draw distance of their own:
 - the strip runs hold exactly the list's triangles;
 - a fillet loses its kerb when one of its roads has none.
 
-## Rails and tram tracks (format 98)
+## Rails and tram tracks (format 126)
 
 A road's **Kind** (`roadKind`) turns it into track. **Railway** (1) makes the
 strip itself the ballast bed, and real steel rails stand on it. **Tram street**
@@ -887,7 +887,7 @@ zebra-painted street on flat ground and checks that:
 - the ballast texture is deterministic, tiles, has seven sleepers per repeat,
   and round-trips its recipe.
 
-## Bridges (format 100)
+## Bridges (format 128)
 
 A road with **Bridge** ticked leaves the ground: its deck runs through a height
 profile instead of hugging the terrain, and wherever it stands clear of the
@@ -1072,7 +1072,7 @@ same road on the ground makes one; the lower road keeps both kerbs, uncut, at it
 own height; a wheel under the deck reads the lower road and one on the deck the
 deck; piers and abutments reach into the ground and none stands on the lower
 road; a 100-unit bridge stays under 2 000 structure vertices.
-## Road details (format 99)
+## Road details (format 127)
 
 A road's **Details** slider (`roadDetails`, 0..1, default 0 = none) scatters
 the small things that make a generated street read as a used one: **manhole
@@ -1258,7 +1258,7 @@ drawn surface; gullies only on kerbed roads; chunks hold whole triangles within
 budget; a new seed changes the arrangement; fewer decals at density 0.25, none
 at 0; and the atlas survives a 16-colour quantization unchanged.
 
-## Street furniture (format 101)
+## Street furniture (format 129)
 
 A road's **Street furniture** section (Properties, a collapsing header under
 the road's own controls) fills the street the way a city does: **street
@@ -1289,14 +1289,14 @@ Each of the three lines has the same controls:
 **Furniture seed** turns and sizes every tree (a random yaw, 0.85-1.15 size)
 without moving or dropping one. **Signs** picks None, Give way or Stop for the
 stop lines this road gives way at; **Traffic lights** puts a signal on every
-arm of this road's three- and four-way nodes instead (before format 108, only
+arm of this road's three- and four-way nodes instead (before format 136, only
 four-way nodes). A junction's own **Control** (the Junction panel: Auto, None,
-Traffic lights, Stop signs; format 108) overrides both at that one node -
+Traffic lights, Stop signs; format 136) overrides both at that one node -
 docs/traffic.md, "Signals". Sign and signal models are pickable too.
 
 Everything is stored as one `roadFurniture` object on the road, holding only
 the keys that differ from the defaults, and written only when something is set
-(format 101). A road without furniture saves byte-identical.
+(format 129). A road without furniture saves byte-identical.
 
 ### Where things go
 
@@ -1427,7 +1427,7 @@ streaming and Big City are in weather.md, "What it costs".
 
 ![PCSX2, Motor District at night: the lamps' pools on Garage boulevard's pavements and road, their halos down the street](img/road-night-lamps-pcsx2.png)
 
-### Breakable furniture (format 109)
+### Breakable furniture (format 137)
 
 Need for Speed style: a car that hits a lamp post, a sign, a bollard or a
 traffic light fast enough knocks it over. The prop snaps off and tumbles away.
@@ -1454,7 +1454,7 @@ a hit sound plays. A slow bump still stops the car, as before.
   hit is silent and the dust and sparks still fly.
 
 All of it is saved as a `breakable` object inside `roadFurniture`, holding only
-what differs from the defaults (format 109). The whole runtime exists only in
+what differs from the defaults (format 137). The whole runtime exists only in
 a project with a vehicle and a breakable road (`projectHasBreakableFurniture`).
 Every other project generates byte for byte what it did before.
 
@@ -1599,7 +1599,7 @@ Garage boulevard's four-way nodes.
   four-way nodes) - from 222 candidates (44 dropped on a carriageway, 50 at a
   node, none overlapping); **15 564 vertices (5 188 triangles) in 23 chunks**,
   128 collision boxes. ELF data: 46 692 floats + 15 564 colour words, about
-  250 KB. Since format 108 Garage boulevard's two T's onto the ring road are
+  250 KB. Since format 136 Garage boulevard's two T's onto the ring road are
   signalled too: 132 instances (6 signs, 18 signals), 15 966 vertices in 26
   chunks.
 - **Untouched**: `ROADS scene 0 chunks 187 vertices 52131` and `ROADKERB scene
@@ -1655,7 +1655,7 @@ the trees without moving them; an `.obj` model is instanced with its own
 triangles and colours; and the settings round-trip with nothing saved at the
 defaults.
 
-## Road streaming (format 102)
+## Road streaming (format 130)
 
 **Project > Preferences > World > Road stream radius** keeps only the road
 geometry near the camera in memory. With a radius above 0 the game builds every
@@ -1697,12 +1697,14 @@ the fog is wasted memory rather than something you see.
   1134 vertices 89043`, `packages 1667 triangles 50186`, the same numbers as
   without streaming). It costs what building the roads used to: 0.8 s on the
   1 km city, 1.4 s on the 1.4 km one.
-- **The replay.** Building a strip item resumes the tessellator at that
-  station: the station rebuilds the row the first span needs (it emits nothing,
-  `havePrev` is still false), and the replay stops where buildRoads would have
-  opened the next chunk. A replayed chunk is the planned chunk vertex for
-  vertex (the vertex count is checked on every build; `ROADSTREAM replay
-  mismatch` would name one). Every other item is a copy of its rows.
+- **The replay.** Building a strip item resumes the tessellator at the first
+  kept station of its chunk ("Bands") with the arc state the plan pass
+  recorded there, rebuilds only the rows its bands span, and draws them with
+  the chunk's own slice of the road's band plan, recorded by the plan pass
+  (a few bytes a band: the band planner is a fixpoint over the whole road, so
+  one chunk cannot plan itself again). A replayed chunk is the planned chunk
+  vertex for vertex (the vertex count is checked on every build; `ROADSTREAM
+  replay mismatch` would name one). Every other item is a copy of its rows.
 - **One source.** None of that code is retyped. `roadstream::emit`
   (src/roadstream.cpp) CUTS the streaming runtime out of the non-streaming
   build's own text - buildRoads' per-road loop, its junction/spill/edge
@@ -1819,7 +1821,7 @@ valid checksum; that the directory holds exactly the items the embedded plan
 makes; that a file from another build fails the header hash; and the LRU
 cache.
 
-### Tables on disk (format 104)
+### Tables on disk (format 132)
 
 Streaming frees the expanded runtime copy of a road (~60 bytes a vertex), but
 the rows it is built from - the host-baked `ROAD_JUNCTION_VERTS` (node patches,
@@ -2265,7 +2267,7 @@ crossing: select a road, click the white diamond on a crossing (or the road's
   the roads' own intersection material.
 - **Own grip**: the tyre grip of the crossing's surface. Auto = the lower road
   for a patch, the winner's for a winner.
-- **Control** (format 108): *Auto* (traffic lights at a three- or four-way node
+- **Control** (format 136): *Auto* (traffic lights at a three- or four-way node
   when one of its roads asks for them), *None* (no lights, no signs), *Traffic
   lights* (whatever the roads ask) or *Stop signs* (a STOP at every arm that
   gives way). It never changes who gives way - docs/traffic.md, "Signals".
@@ -2282,7 +2284,7 @@ accent = overridden, red = orphaned.
 An override is stored in the scene (`SceneData::roadJunctions`, the scene
 table's `"roadJunctions"` list, format 79): the two road object ids, the
 crossing's position, and the four fields (each omitted at Auto; `"control"`
-since format 108). It matches
+since format 136). It matches
 the computed crossing of the same road pair nearest to the stored position
 within the narrower road's width, so point edits that move the crossing a
 little keep it. Editing a field re-stamps the position.
@@ -2656,3 +2658,117 @@ Traps met on the way:
 Verified: PCSX2 and physical-PS2 captures of the reported pose (107, -67, yaw
 65) with the full scene and with terrain and static batches off. Before, the
 holes are there; after, the road and junction are whole.
+
+## Bands (1.176.0)
+
+The lateral merge (above) and the flat collapse are replaced by a **band
+planner** (`roadPlanBands` in `src/roadgen.cpp`, pasted verbatim into the
+generated `buildRoads`). It still samples the dense grid first, then keeps:
+
+- per row, the samples where the ground under it **bends** (Douglas-Peucker on
+  the row's height profile at half `kRoadTolY`);
+- per neighbouring station pair, more samples where that pair alone breaks a
+  budget (both rows gain the failing dense cell's edges);
+- per road, only the stations a band cannot skip: a band of up to
+  `kRoadBandMax` (8) stations is the **zipper** triangulation of its two kept
+  rows, accepted while every dense sample and every dense triangle centroid it
+  replaces lies on it within `kRoadTolY` (1 cm) in height, `kRoadTolUV` (0.006
+  of a repeat, 0.77 texel at 128 px) in texture, and the skipped shoulders
+  within `kRoadTolXZ` (1 cm) of its chords.
+
+Both bands meeting at a kept row use that row's whole kept set, so no T-vertex
+seam can open. Soft-edged roads keep every station (their baked fade bands
+meet the core on them), and spills keep every station too.
+
+**Why:** on the Motor District the roads were 41% of every frame's VU1
+vertices (~21k of ~51k, measured with the GPU timeline rig on a PS2, where VU1
+is ~9 ms of the frame). The decal was sampled every 0.5 units across and 1-2
+along on a 4-unit terrain. Scene 0's roads go from 22 104 strip vertices /
+19 320 triangles to 12 165 / 8 018 (sweep: UV 0.003 keeps 12 544 triangles,
+0.01 keeps 6 094). `verify-road-twins.py` checks the budgets against
+`roadgen::tessellateDense`, the seams, strip = list, and host = runtime
+vertex for vertex. The selected-road outline finds a band's shoulder as the
+triangle edge whose ends share u 0 (or 1) across two rows.
+
+**Measured on a PS2** (Motor District rig, one ELF per arm, three cycles each,
+the GPU timeline sampler on): the parked view's StaPip strip vertices drop
+from 41.7k to 29.3k a frame, VU1 computing from ~48% to ~36% of the frame
+(about 2 ms of VU1 time), GPU idle from 30% to 44.5%, and the parked frame
+p50 from 12.37 to 11.70-11.80 ms - the first change in a week of EE work to
+move the parked view, which is VU1-bound. Driving windows: 12.67 / 13.03 /
+10.92 -> 12.33-12.39 / 12.98 / 10.68-10.70 ms. PCSX2 screenshots of the
+parked and driving views differ in ~70 of 307 200 pixels by more than 8
+levels (dither noise).
+
+## Texture swim on the console (1.177.1)
+
+On a physical PS2 the road texture used to "tremble" while the camera moved -
+the centre line and the edge lines stepped sideways by a few pixels from one
+frame to the next, like a PS1 game, and now and then jumped. PCSX2 never showed
+it. The cause is the bands above meeting the guard band
+([vu1-clipping.md](vu1-clipping.md#a-tight-band-for-big-flat-triangles-11771)):
+a band of up to 8 stations is two long triangles, and seen from the road a
+triangle under the camera keeps a vertex up to ~1590 px off screen. The
+console's GS interpolates texture coordinates from those vertices with too
+little precision, so the texels it picks move while the geometry does not.
+
+Road chunks, spills and soft edges therefore draw with
+`StaPipInfoBag::tightClipBand` (`roadInfoBag` / `roadBlendInfoBag` in
+`procFinishChunks`): their crossing packages are cut to 0.25 w instead of
+0.9 w, ~256 px past each screen edge.
+
+Measured on a PS2 (`F:\Tyra-Projects\vehicles-test`, a walk at a fixed step
+from (0.074, -51.077) towards +z down Garage boulevard, eye 1.8 above the
+terrain, 16 bursts of 10 consecutive VRAM grabs; the walk is straight along
+the centre line, so the dash's centre column at a fixed row must not move):
+
+| Arm | mean | > 2 px | max |
+| --- | ---: | ---: | ---: |
+| bands 8, guard band 0.9 (1.176-1.177.0) | 0.39-0.83 px | 3.3-7.9 % | 5.5-6.5 px |
+| bands 4 | 0.26 px | 0.7 % | 3.0 px |
+| bands 2 | 0.18 px | 0.6 % | 4.0 px |
+| bands 1 (no bands) | 0.15 px | 0 % | 2.0 px |
+| bands 8, every bag at 0.5 | 0.20 px | 0.1 % | 4.8 px |
+| bands 8, every bag at 0.25 | 0.09 px | 0 % | 1.0 px |
+| **bands 8, roads at 0.25 (shipped)** | **0.09 px** | **0 %** | **1.0 px** |
+
+PCSX2 reads 0.00 px for every arm. Cost on the same walk (EE time from the
+frame's camera to `endFrame`, frames that missed vsync of 1584): every bag at
+0.25 6.04 -> 6.94 ms and 22 -> 62 late, every bag at 0.5 6.19 ms; roads only
+5.98-6.01 -> 5.87-5.88 ms and 23-26 -> 14 late (two builds, so the small gain
+is not attributable - code layout alone moves 0.17 ms). Shortening the bands
+instead would have given back the VU1 they saved.
+
+Two things this cost to find. A ps2link deploy also drops frames on its own:
+the Live Debugger polls a host file every 25 frames and Remote Pad every 4,
+each a synchronous network round trip of 8-18 ms on the EE - a periodic hitch
+that is NOT this bug (it stays with the Live Debugger off). And the swim
+depends on where you stand: a straight road at the spawn showed nothing, the
+reported spot did - reproduce at the reported position, not at a convenient
+one.
+
+## Beams and shadows at the road edge (1.177.2)
+
+A car's headlight beam, a blob shadow and a lamp's light pool are flat ground
+lattices (3x3 or 4x4 cells) whose corners take `groundSurfaceAt` plus a few
+centimetres. Driving along the verge, the beam showed a dark rectangle or wedge
+just past the road's white edge line (console and PCSX2 alike); shadows did the
+same. A GS dump of the reported pose ((-50, -62), yaw -92, bumper camera) put a
+number on it: at a hole pixel the road's own triangle was drawn at z 831 029
+and the beam at 812 435, so the beam lost its `GEQUAL` test. The beam's corners
+there read terrain 0.000 on one side and road 0.120 on the other - a hard step
+- and a cell spanning it linearly runs under the asphalt for the first part of
+the road, deeper than its 0.065 lift.
+
+`TerrainGame::liftLatticeOverRoadStep` raises every lattice corner by the
+largest road step (`groundSurfaceAt - terrainHeightAt`) any corner within one
+cell of it stands on, measured over the terrain at that corner, so slopes lift
+nothing and a patch floats at most one step over the verge. The headlight beam
+(when it searches the ground, not with `TYRA_VEH_POOL_PLANE`), the blob shadows
+and the lamp pools call it. After it, the same pixel draws the beam at z
+894 532, and a sweep of the car across the edge that showed holes in four of
+six poses shows none.
+
+Trap: a straight road with a gentle verge (Garage boulevard at z = -60)
+measured the beam at most 1.8 cm low and looked clean, which first read as
+"the step is not it". Measure at the reported pose.

@@ -50,6 +50,8 @@ TerrainGame::~TerrainGame() {}
 
 
 void TerrainGame::init() {
+  engine->renderer.core.setFramePipeline(true);
+  stapip.core.setStampEnabled(true);
   // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
   // engine (its keyboard/mouse half needs it) and resolve the boot preset into
   // the live bindings before anything reads a button.
@@ -189,16 +191,14 @@ void TerrainGame::init() {
   // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
   // first present (loadingscreen::renderFrame), so nothing to set up here.
 
-  // Sound emitter samples (adpenc output next to the ELF)
-  for (int i = 0; i < SND_COUNT; ++i)
-    sndSamples.push_back(
-        engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[i])));
+  // Sound effect samples load with their scene and layers
+  // (applySoundResidency, called from loadScene), not here.
 }
 
 
 
 void TerrainGame::loop() {
-  const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
+  Tyra::HardwareTrace::Scope traceUpdate("Update", Tyra::HardwareTrace::Kind::Span, false);
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
   beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
 #ifdef TYRAX_KBD_MOUSE
@@ -236,13 +236,14 @@ void TerrainGame::loop() {
         return;
       }
       bootPhase = 1;
-      if (LOADING_SCREEN) {
+      if (LOADING_SCREEN || LS_BOOT >= 0) {
         loadingTarget = editorBootScene();
         loadingFrames = loadingTotal = everyFrames(0.7F);
+        g_loading.boot = true;
       }
     }
     if (bootPhase == 1) {
-      if (!LOADING_SCREEN) {
+      if (!(LOADING_SCREEN || LS_BOOT >= 0)) {
         bootFirstScene();
         bootPhase = 2;
       } else {
@@ -251,8 +252,17 @@ void TerrainGame::loop() {
           loadingscreen::renderFrame(engine, editorBootScene(), preLoad ? 0.0F : 1.0F);
           --loadingFrames;
           if (loadingFrames == loadingTotal - 5) bootFirstScene();
+          if (loadingFrames == 0 && loadingscreen::waitWanted(editorBootScene(), true))
+            loadingWaiting = true;
           return;
         }
+        if (loadingWaiting) {  // loaded; the screen holds for its button
+          livedbg::tickFromLoop(scriptCtx);  // the debugger, capture and pad stay live
+          loadingscreen::renderFrame(engine, editorBootScene(), 1.0F, true);
+          if (!loadingscreen::continuePressed(engine, editorBootScene())) return;
+          loadingWaiting = false;
+        }
+        g_loading.boot = false;
         bootPhase = 2;
       }
     }
@@ -374,7 +384,15 @@ void TerrainGame::loop() {
     --loadingFrames;
     if (loadingFrames == loadingTotal - 5)
       loadScene(loadingTarget);  // 5 frames shown first
+    if (loadingFrames == 0 && loadingscreen::waitWanted(loadingTarget, false))
+      loadingWaiting = true;
     return;
+  }
+  if (loadingWaiting) {  // loaded; the screen holds for its button
+    livedbg::tickFromLoop(scriptCtx);  // the debugger, capture and pad stay live
+    loadingscreen::renderFrame(engine, loadingTarget, 1.0F, true);
+    if (!loadingscreen::continuePressed(engine, loadingTarget)) return;
+    loadingWaiting = false;
   }
 
   // Streaming layers: Load/Unload Layer requests, one asset load per frame,
@@ -407,11 +425,17 @@ void TerrainGame::loop() {
     }
   }
 
+  // Broad-phase refresh boundary: what the scripts, streaming and teleports
+  // above changed is seen by everything below (see the FPP loop note).
+  broadPhaseInvalidate();
   if (!menuActive) updateObjectPhysics();
   // Scripted rotation, right after the physics integration: both write
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
   if (!menuActive) updateSpinners();
+  // Refresh boundary: the spinners turned colliders after the physics step,
+  // and the vehicles, portals and carry sweep below query them.
+  broadPhaseInvalidate();
 
   // Portal surfaces: carry the player / physics objects that crossed a
   // linked portal through to its target. After the physics step so object
@@ -532,6 +556,9 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  // Visual shake must not move the terrain residency/LOD focus.
+  terrainFocusX = cameraLookAt.x;
+  terrainFocusZ = cameraLookAt.z;
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.
@@ -580,7 +607,7 @@ void TerrainGame::loop() {
   if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
     runtimeObjects[players[1].objIndex].visible =
         !scriptCtx.hidePlayer && playerTwoActive;
-  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // Runtime video output and deferred Frame Pipeline flow-node requests +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
   // open game menu: the player judges the new picture unobstructed and the
@@ -635,6 +662,7 @@ void TerrainGame::loop() {
   // Dynamic point lights: apply Set Light requests + register this frame's
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
+  if (g_lampRebake) rebakeLampLight();  // baked static lamps changed state
   updateDynLitObjects();
   // The clock the project's own VU1 stages read, WRAPPED - the microprogram's
   // range reduction folds through a 2^23 add, so an unbounded seconds counter
@@ -650,7 +678,7 @@ void TerrainGame::loop() {
     if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
     if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
   }
-  if (Tyra::HardwareTrace::active) Tyra::HardwareTrace::record("Update", traceUpdateStart, Tyra::HardwareTrace::ticks());
+  traceUpdate.finish();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -835,26 +863,42 @@ void TerrainGame::loop() {
 
 
 
-// Adaptive plain BLSS (docs/neural-upscaler.md). The timer is the previous
+// Adaptive BLSS (docs/upscaler.md). The timer is the previous
 // whole loop, including presentation: on a double-buffered PS2 it therefore
 // sees the thing the player sees - one missed field becomes a 2x step. Four
 // misses engage reduced rendering; 150 full-rate reduced frames buy a brief
 // native probe. No VRAM moves: configure() reserved both rasters at boot.
 void TerrainGame::updateAdaptiveResolution() {
-  if (!BLSS_ADAPTIVE) return;
+  // A scene load puts the upscaler back to the scene's own answer FIRST, so an
+  // On Start in the new scene that asks for something else wins over it.
   if (adaptiveScene != g_activeScene) {
     adaptiveScene = g_activeScene;
+    upscalerMode = 0;
     adaptiveWarmup = 30;
     adaptiveSlowRun = adaptiveFastRun = 0;
     adaptiveReduced = false;
-    engine->renderer.core.blss.setScene(false, false);
-    return;
+    if (BLSS_ADAPTIVE) engine->renderer.core.blss.setScene(false);
   }
-  if (!BLSS_SCENE_ON) {
-    if (adaptiveReduced) engine->renderer.core.blss.setScene(false, false);
+  // Set Upscaler (flow node, or ctx.upscaler from a script - docs/upscaler.md,
+  // "At runtime"), latched: 0 = the scene's own answer, 1 = native, 2 =
+  // reduced, 3 = automatic. Free: configure() reserved both rasters at boot.
+  if (scriptCtx.upscaler >= 0) {
+    upscalerMode = scriptCtx.upscaler > 3 ? 0 : scriptCtx.upscaler;
+    scriptCtx.upscaler = -1;
+    adaptiveWarmup = 30;
+    adaptiveSlowRun = adaptiveFastRun = 0;
     adaptiveReduced = false;
-    return;
+    if (upscalerMode == 2)
+      engine->renderer.core.blss.setScene(true, BLSS_PARTICLES);
+    else if (upscalerMode == 0)
+      engine->renderer.core.blss.setScene(BLSS_SCENE_ON && !BLSS_ADAPTIVE,
+                                          BLSS_PARTICLES);
+    else
+      engine->renderer.core.blss.setScene(false);  // native; automatic starts here
   }
+  const bool automatic =
+      upscalerMode == 3 || (upscalerMode == 0 && BLSS_ADAPTIVE && BLSS_SCENE_ON);
+  if (!automatic) return;
   if (adaptiveWarmup > 0) {
     --adaptiveWarmup;
     return;
@@ -868,7 +912,7 @@ void TerrainGame::updateAdaptiveResolution() {
       if (++adaptiveSlowRun < 4) return;
       adaptiveReduced = true;
       adaptiveSlowRun = 0;
-      engine->renderer.core.blss.setScene(true, false);
+      engine->renderer.core.blss.setScene(true, BLSS_PARTICLES);
       TYRA_LOG("Adaptive resolution: REDUCED after sustained missed fields");
     } else {
       adaptiveSlowRun = 0;
@@ -881,7 +925,7 @@ void TerrainGame::updateAdaptiveResolution() {
     adaptiveReduced = false;
     adaptiveFastRun = 0;
     adaptiveWarmup = 8;
-    engine->renderer.core.blss.setScene(false, false);
+    engine->renderer.core.blss.setScene(false);
     TYRA_LOG("Adaptive resolution: NATIVE probe after sustained headroom");
   } else {
     adaptiveFastRun = 0;
@@ -1919,7 +1963,24 @@ void TerrainGame::applyLayerResidency() {
       for (int i = 0; i < n; ++i)
         for (int m = 0; m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
           if (!strcmp(MODEL_SOURCES[m], names[i])) modelNeed[m] = 1;
+      // ...and every slot's distant version (asset slots, then prefab slots).
+      int np = 0;
+      procrt::volumePrefabNames(v, &np);
+      const char* const* lods = procrt::volumeLodNames(v);
+      for (int i = 0; lods && i < n + np; ++i)
+        for (int m = 0; lods[i] && m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
+          if (!strcmp(MODEL_SOURCES[m], lods[i])) modelNeed[m] = 1;
     }
+#if TYRAX_PROC_INSTANCES
+  // Baked instanced volumes reference their models from a table only.
+  for (int v = 0; v < PROC_INST_VOLUME_COUNT; ++v) {
+    if (PROC_INST_VOLUMES[v].scene != currentScene) continue;
+    for (int i = PROC_INST_VOLUMES[v].first;
+         i < PROC_INST_VOLUMES[v].first + PROC_INST_VOLUMES[v].count; ++i)
+      for (int m : {(int)PROC_INST_ROWS[i].model, (int)PROC_INST_ROWS[i].lodModel})
+        if (m >= 0 && m < (int)modelNeed.size()) modelNeed[m] = 1;
+  }
+#endif
   for (int k = 0; k < SCENE_PREFAB_COUNT; ++k) {
     const int pf = SCENE_PREFAB_LIST[SCENE_PREFAB_FIRST + k];
     if (pf < 0 || pf >= PREFAB_COUNT) continue;
@@ -1997,12 +2058,14 @@ void TerrainGame::processOneStreamJob() {
   // ring and layer residency; freeing the built chunks lets the ordinary
   // budgeted pass rebuild them with the texture bound (the buffers keep their
   // capacity, so it costs a rebuild, not an allocation).
-  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0)
+  if (kind == 3 && index == TERRAIN_TEXTURE && terrainChunksX > 0) {
+    terrainShadeCache.clear();
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
       terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
       ch.cx = ch.cz = -1;
     }
+  }
 
   // A clone spawned before its template's assets were resident built empty
   // geometry - re-arm it now that the asset landed (authored objects go
@@ -2015,6 +2078,10 @@ void TerrainGame::processOneStreamJob() {
         (kind == 2 && o.data.animModel == index)) {
       o.dirty = true;
       if (kind == 2) setupAnimObject(i);
+      // Its broad-phase box was sized from the placeholder bounds and the
+      // cache key (pose, model, collision) did not change when they did.
+      if (i < (int)bpCache.size()) bpCache[(size_t)i].valid = false;
+      broadPhaseInvalidate();
     }
   }
 }
@@ -2025,6 +2092,7 @@ void TerrainGame::processOneStreamJob() {
 // data - like a scene load, a re-entered GTA3 interior resets the same way.
 // Geometry rebuilds lazily through the dirty flag.
 void TerrainGame::activateObject(int i) {
+  broadPhaseInvalidate();  // it joined the world mid-frame
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[i];
@@ -2040,6 +2108,7 @@ void TerrainGame::activateObject(int i) {
 // bags, skeletal instance, hull) is released. The constexpr scene data
 // stays, so activateObject() can rebuild it exactly.
 void TerrainGame::deactivateObject(int i) {
+  broadPhaseInvalidate();  // it left the world mid-frame
   runtimeObjects[i].active = false;
   runtimeObjects[i].visible = false;
   runtimeObjects[i].dirty = false;
@@ -2079,6 +2148,7 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
   o.visible = o.data.type != 4 && o.data.type != 6 &&
               !(o.data.type == 7 && !o.data.emitEnabled);
   o.dirty = true;
+  broadPhaseInvalidate();  // a clone joined the world mid-frame
   objectGeometry[slot] = ObjectGeometry();
   setupAnimObject(slot);
   applyLayerResidency();  // queue the template's assets if not resident yet

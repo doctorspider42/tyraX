@@ -21,6 +21,7 @@
 #define PICK_MIN_DIST 0.3F
 #endif
 #include "scene_data.hpp"
+#include "sound_bank.gen.hpp"  // SPU2 sample residency (docs/sound.md)
 #include "model_data.gen.hpp"
 #include "hud_data.gen.hpp"
 #include "font_data.gen.hpp"
@@ -36,6 +37,14 @@
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
+// Baked instanced scatter (docs/procedural-generation.md, "Instanced"): only
+// generated while some baked volume draws as Instanced.
+#if __has_include("proc_instances.gen.hpp")
+#include "proc_instances.gen.hpp"
+#define TYRAX_PROC_INSTANCES 1
+#else
+#define TYRAX_PROC_INSTANCES 0
+#endif
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
@@ -79,6 +88,30 @@
 #ifndef TYRA_VEH_SUBSTEP_VERIFY
 #define TYRA_VEH_SUBSTEP_VERIFY 0
 #endif
+// TYRA_VEH_COLLIDER_GRID: objects the build flagged static
+// (SCENE_STATIC_COLLIDER_TABLES) are placed once into a cell grid, and a car
+// gathers only the cells around it plus the dynamic objects, instead of every
+// collider being re-derived each frame and scanned by every car
+// (docs/vehicles.md, "The static collider grid"). Same lists, same order.
+#ifndef TYRA_VEH_COLLIDER_GRID
+#define TYRA_VEH_COLLIDER_GRID 1
+#endif
+// Its oracle: the merged list and every grid gather are re-done by the full
+// walk and compared, logged as VEHCOLGRID. Never on when measuring.
+#ifndef TYRA_VEH_COLLIDER_GRID_VERIFY
+#define TYRA_VEH_COLLIDER_GRID_VERIFY 0
+#endif
+// TYRA_SPOT_VOLUME_KEEP: the carving scene spot's shadow-volume triangles are
+// captured once and replayed against each frame's camera while the lamp and
+// its casters stay put (docs/shadows.md, "A still lamp keeps its volumes").
+#ifndef TYRA_SPOT_VOLUME_KEEP
+#define TYRA_SPOT_VOLUME_KEEP 1
+#endif
+// Its oracle: the emitters re-run and both count lists compared, logged as
+// SPOTVOLKEEP. Never on when measuring.
+#ifndef TYRA_SPOT_VOLUME_KEEP_VERIFY
+#define TYRA_SPOT_VOLUME_KEEP_VERIFY 0
+#endif
 #ifndef TYRA_VEH_PAINT_DISTANCE_STEP
 #define TYRA_VEH_PAINT_DISTANCE_STEP 1
 #endif
@@ -90,6 +123,18 @@
 #endif
 #ifndef TYRA_BEAMS_KEEP
 #define TYRA_BEAMS_KEEP 1
+#endif
+// TYRA_BEAM_CORONA_VU1: the lamp coronas as one VU1 billboard bag (centre +
+// basis weight + colour a lamp, the particles' program) instead of EE-built
+// camera-facing quads (docs/flashlight.md, "Coronas on VU1").
+#ifndef TYRA_BEAM_CORONA_VU1
+#define TYRA_BEAM_CORONA_VU1 0  // opt-in until priced on a PS2
+#endif
+// TYRA_VEH_POOL_PLANE: a car's headlight pool takes its heights from the
+// plane of its four wheel contacts instead of 16 ground searches a rebuild
+// (docs/vehicles.md, "Headlight pools").
+#ifndef TYRA_VEH_POOL_PLANE
+#define TYRA_VEH_POOL_PLANE 0  // opt-in until priced on a PS2
 #endif
 
 // Definition of the active-scene index declared in scene_data.hpp (which also
@@ -239,7 +284,22 @@ inline float stickAxis(const u8& raw, float dz, int curve, float e) {
 // drop) or shorter (vsync disabled) frames pass through, clamped to
 // [1/4, 4x] nominal - a scene load is a hitch, not a gameplay leap.
 inline u32 g_frameClockLast = 0;
+// Bumped once a frame by updateFrameClock: what per-frame caches (the scene
+// grid) key on, since every game loop - a taken-over one included - calls it.
+inline u32 g_frameStamp = 0;
+
+// The contact broad phase (TerrainGame::broadPhaseNear, docs/collision-boxes.md,
+// "The broad phase"). Padding on every box: motion of an object that STARTED
+// moving after the last refresh - within one stage of the frame, since the
+// loop refreshes after the scripts and after the spinners (one that keeps
+// moving is a candidate of every query from the next refresh on).
+inline constexpr float kBroadPhaseMargin = 0.5F;
+// Development switch: every walker call also runs over EVERY object and the
+// two are compared, and every query is checked against the objects' CURRENT
+// boxes; a disagreement logs a "[BROADPHASE] ..." line. Off: compiled away.
+inline constexpr bool kBroadPhaseVerify = false;
 inline void updateFrameClock() {
+  ++g_frameStamp;
   u32 now;
   asm volatile("mfc0 %0, $9" : "=r"(now));
   const u32 delta = now - g_frameClockLast;
@@ -314,6 +374,143 @@ inline bool assetFileExists(const std::string& cwdRel) {
   if (f) fclose(f);
   return f != nullptr;
 }
+
+// Ground shadows folded into the terrain's vertex colour (docs/shadows.md,
+// "Folded into the vertex colour"). GROUND_SHADOW_FOLD comes from the
+// project (bakedShadowGroundFold); the variable lets a test flip it before a
+// scene (re)builds its chunks. Only while the sun is up - the same gate the
+// mask pass has - and a chunk remembers which way it was built
+// (g_terrainFoldState, per slot) so a sunset re-colours it.
+#ifndef GROUND_SHADOW_FOLD
+#define GROUND_SHADOW_FOLD 0
+#endif
+inline bool g_groundShadowFold = GROUND_SHADOW_FOLD != 0;
+inline std::vector<signed char> g_terrainFoldState;
+inline bool groundShadowFoldWanted(int scene) {
+#ifdef GROUND_SHADOWS_ON
+  return g_groundShadowFold &&
+         (!daynight::active(scene) || daynight::g_sun[1] >= 0.0F);
+#else
+  (void)scene;
+  return false;
+#endif
+}
+
+#ifdef REFL_PANO_ON
+#include <malloc.h>
+// The reflection probe's baked background (docs/reflective-materials.md, "The
+// baked background"; host half: src/reflpano.cpp). One file per scene,
+// reflpano/s<scene>.bin, read once on the scene's first capture: per 16-unit
+// road cell a 128x32 8-bit panorama (azimuth x elevation) of what the probe
+// would draw of the STATIC world from the cell's centre, run-length coded and
+// expanded only when the eye enters the cell, and one palette for the scene. The capture code in renderScene draws it as one camera-facing
+// card instead of the terrain and road chunks and the baked box proxies.
+namespace reflpano_rt {
+struct File {
+  int scene = -1;
+  unsigned char* data = nullptr;
+  int w = 0, h = 0, cellsX = 0, cellsZ = 0, slots = 0, boxes = 0;
+  float minX = 0.0F, minZ = 0.0F, cell = 16.0F, elTop = 64.0F, elBottom = -90.0F;
+  const short* slot = nullptr;
+  const int* boxObject = nullptr;
+  const unsigned char* palette = nullptr;  // 256 x RGBA, logical order
+  const unsigned int* offsets = nullptr;   // slots + 1, into runs
+  const unsigned char* runs = nullptr;     // (count, index) pairs per slot
+  size_t runBytes = 0;
+};
+inline File g_file;
+
+// One cell's w x h indices out of its runs; false = a damaged stream.
+inline bool expand(int slot, unsigned char* dst) {
+  const File& f = g_file;
+  const unsigned int a = f.offsets[slot], b = f.offsets[slot + 1];
+  if (a > b || b > f.runBytes || ((b - a) & 1U)) return false;
+  const size_t total = (size_t)f.w * f.h;
+  size_t at = 0;
+  for (unsigned int i = a; i < b; i += 2) {
+    const size_t n = f.runs[i];
+    if (at + n > total) return false;
+    memset(dst + at, f.runs[i + 1], n);
+    at += n;
+  }
+  return at == total;
+}
+
+// The panorama of the cell (x, z) is in, -1 = none (off the baked roads).
+inline int slotAt(float x, float z) {
+  const File& f = g_file;
+  if (!f.data) return -1;
+  const int cx = (int)floorf((x - f.minX) / f.cell);
+  const int cz = (int)floorf((z - f.minZ) / f.cell);
+  if (cx < 0 || cz < 0 || cx >= f.cellsX || cz >= f.cellsZ) return -1;
+  return f.slot[cz * f.cellsX + cx];
+}
+
+// Is authored object `ri` one the panorama stands in for?
+inline bool baked(int ri) {
+  for (int i = 0; i < g_file.boxes; ++i)
+    if (g_file.boxObject[i] == ri) return true;
+  return false;
+}
+
+// Reads the scene's file once; false = no panorama (the live path draws).
+inline bool load(int scene) {
+  if (g_file.scene == scene) return g_file.data != nullptr;
+  free(g_file.data);
+  g_file = File();
+  g_file.scene = scene;
+  if (scene < 0 || scene >= SCENE_COUNT || !REFL_PANO_SCENES[scene]) return false;
+  char path[32];
+  snprintf(path, sizeof(path), "reflpano/s%d.bin", scene);
+  FILE* fp = fopen(FileUtils::fromCwd(path).c_str(), "rb");
+  if (!fp) return false;
+  fseek(fp, 0, SEEK_END);
+  const long n = ftell(fp);
+  fseek(fp, 0, SEEK_SET);
+  unsigned char* d = n >= 48 ? static_cast<unsigned char*>(memalign(64, (size_t)n)) : nullptr;
+  const bool ok = d && fread(d, 1, (size_t)n, fp) == (size_t)n;
+  fclose(fp);
+  if (!ok || memcmp(d, "RPAN", 4) != 0) {
+    free(d);
+    TYRA_WARN("Reflection panorama: ", path, " is missing or not readable.");
+    return false;
+  }
+  auto u16 = [&](int at) { unsigned short v; memcpy(&v, d + at, 2); return (int)v; };
+  auto s16 = [&](int at) { short v; memcpy(&v, d + at, 2); return (int)v; };
+  auto f32 = [&](int at) { float v; memcpy(&v, d + at, 4); return v; };
+  File& f = g_file;
+  f.w = u16(8), f.h = u16(10), f.cellsX = u16(12), f.cellsZ = u16(14);
+  f.minX = f32(16), f.minZ = f32(20), f.cell = f32(24);
+  f.slots = u16(32), f.boxes = u16(34);
+  f.elTop = s16(36) / 10.0F, f.elBottom = s16(38) / 10.0F;
+  size_t at = 48;
+  f.slot = reinterpret_cast<const short*>(d + at);
+  at += (size_t)f.cellsX * f.cellsZ * 2;
+  at = (at + 15) & ~(size_t)15;
+  f.boxObject = reinterpret_cast<const int*>(d + at);
+  at += (size_t)f.boxes * 4;
+  at = (at + 15) & ~(size_t)15;
+  f.palette = d + at;
+  at += 256 * 4;
+  f.offsets = reinterpret_cast<const unsigned int*>(d + at);
+  at += ((size_t)f.slots + 1) * 4;
+  f.runs = d + at;
+  f.runBytes = at <= (size_t)n ? (size_t)n - at : 0;
+  unsigned int version;
+  memcpy(&version, d + 4, 4);
+  if (version != 2 || f.w != 128 || f.h != 32 || at > (size_t)n ||
+      f.offsets[f.slots] != f.runBytes) {
+    free(d);
+    f = File();
+    f.scene = scene;
+    TYRA_WARN("Reflection panorama: ", path, " does not match this game.");
+    return false;
+  }
+  f.data = d;
+  return true;
+}
+}  // namespace reflpano_rt
+#endif
 
 /** Per-object rendering cut-off (Properties > Draw distance) measured from
  * the object center - the cheapest LOD. Draw-time only: collision, sounds
@@ -593,17 +790,112 @@ struct DynLightRt {
   // The engine slot this light took this frame (-1 = not registered: off,
   // hidden, dark) - what a receiver names to be skipped by the slot pick.
   int slot = -1;
+  // BAKED STATIC LAMP (BAKE_STATIC_LAMPS, docs/dynamic-light-receivers.md "Baked lamp
+  // light"): a lamp that never moves and never flickers. Its light is folded
+  // into the vertex colours of the static geometry whenever its on/level
+  // state changes (the day/night switch), so static bags skip it in the
+  // per-bag pick; moving receivers still pick it live.
+  bool baked = false;
 };
 inline std::vector<DynLightRt> g_dynLights;
+
+/** The baked lamps' light as static geometry carries it right now: one entry
+ * per baked lamp that is lit, in the exact constants the VU1 spot program
+ * uses (StaPipQBufferRenderer::buildSpotForBagInverse, world space - static
+ * geometry has an identity model), so a baked vertex receives what the live
+ * slot gave it. Rebuilt by updateDynLights when the lamps' state changes,
+ * which then raises g_lampRebake for TerrainGame::rebakeLampLight. */
+struct BakedLampRt {
+  V3 pos, dir;
+  float col[3];  // 128 = +1.0, as the registry's colour
+  float range, invRange2, cosCut2, invSoft;
+};
+inline std::vector<BakedLampRt> g_bakedLamps;
+inline std::vector<BakedLampRt> g_bakedLampsPrev;  // what geometry had before
+inline unsigned int g_bakedLampSig = 0;
+inline bool g_lampRebake = false;
+// Staged around world-space bakes of static geometry (objects, LOD tiers,
+// static batches): pushVert then adds g_bakedLamps on top of the finished
+// vertex colour, exactly where the VU1 spot term would have landed.
+inline bool g_lampBakeHere = false;
+
+/** The static collider grid (docs/vehicles.md, "The static collider grid"):
+ * which runtime objects the vehicle code placed in its static half (1 =
+ * placed once, guarded by flags only), and whether one of them was rebuilt
+ * since the vehicle step last looked - rebuildObjectGeometry raises it, so a
+ * dirty flag consumed after the step still re-places the static half. Empty
+ * in a project without vehicles. */
+inline std::vector<unsigned char> g_colStaticObj;
+inline bool g_colStaticRebuilt = false;
+
+inline void bakedLampAdd(const V3& wp, float& r, float& g, float& b) {
+  for (const BakedLampRt& L : g_bakedLamps) {
+    const float dx = wp.x - L.pos.x, dy = wp.y - L.pos.y, dz = wp.z - L.pos.z;
+    const float dist2 = dx * dx + dy * dy + dz * dz;
+    float t = dx * L.dir.x + dy * L.dir.y + dz * L.dir.z;
+    if (t < 0.0F) t = 0.0F;
+    float cone = (t * t - L.cosCut2 * dist2) * L.invSoft;
+    if (cone <= 0.0F) continue;
+    if (cone > 1.0F) cone = 1.0F;
+    const float axial = 1.0F - dist2 * L.invRange2;
+    if (axial <= 0.0F) continue;
+    const float k = cone * axial;
+    r += L.col[0] * k;
+    g += L.col[1] * k;
+    b += L.col[2] * k;
+  }
+}
 inline float g_dynLightTime = 0.0F;
 // The starfield's own clock. It cannot borrow g_dynLightTime: that one only
 // advances while the scene HAS dynamic lights, so a night sky over an unlit
 // scene would freeze mid-shimmer.
 inline float g_starTime = 0.0F;
 
+/** One baked lamp's entry at multiplier `level` (Set Light intensity times
+ * nothing else - a baked lamp never flickers), in the registry's units. */
+inline void bakedLampPush(const SceneObjectData& d, float level) {
+  const float k = d.lightBright * level;
+  if (k <= 0.0F) return;
+  BakedLampRt b;
+  b.pos = {d.position[0], d.position[1], d.position[2]};
+  for (int c = 0; c < 3; ++c) {
+    const float v = d.color[c] * 128.0F * k;
+    b.col[c] = v > 255.0F ? 255.0F : v;
+  }
+  b.range = d.lightRadius > 0.01F ? d.lightRadius : 0.01F;
+  const float r2 = b.range * b.range;
+  b.invRange2 = 1.0F / r2;
+  if (d.lightSpot) {
+    V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
+    const float len = sqrtf(sd.x * sd.x + sd.y * sd.y + sd.z * sd.z);
+    if (len > 1e-5F) sd = {sd.x / len, sd.y / len, sd.z / len};
+    b.dir = sd;
+    const float c = cosf(d.lightSpotAngle * 3.14159265F / 180.0F);
+    b.cosCut2 = c * c;
+    // buildSpotForBagInverse: full brightness at 0.18 of the range on the
+    // axis, softness 1.6 as updateDynLights registers it.
+    const float coneBase = r2 * 0.18F * 0.18F * (1.0F - b.cosCut2);
+    b.invSoft = coneBase > 1e-10F ? 1.6F / coneBase : 0.0F;
+  } else {
+    b.dir = {0.0F, 0.0F, 0.0F};
+    b.cosCut2 = -1.0F;
+    b.invSoft = 1.0e4F / r2;
+  }
+  g_bakedLamps.push_back(b);
+}
+
+inline unsigned int bakedLampSigStep(unsigned int h, unsigned int v) {
+  return (h ^ v) * 16777619u;
+}
+
 inline void collectScenePointLights() {
   g_scenePointLights.clear();
   g_dynLights.clear();
+  g_bakedLamps.clear();
+  g_bakedLampsPrev.clear();
+  g_lampRebake = false;
+  unsigned int sig = 2166136261u;
+  const unsigned char* staticTable = SCENE_STATIC_COLLIDER_TABLES[g_activeScene];
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& L = SCENE_OBJECTS[i];
     if (L.type != 9) continue;
@@ -611,6 +903,26 @@ inline void collectScenePointLights() {
       if ((int)g_dynLights.size() < (int)Tyra::RendererCore::DYN_LIGHTS_MAX) {
         DynLightRt d;
         d.objIndex = i;
+        // Baked: the project asks for it, the lamp never flickers, nothing
+        // the build can see moves or retargets it (the static-object table),
+        // and it does not carve shadow volumes (that machinery owns its
+        // receivers' light per frame).
+        const bool carves = L.lightSpot &&
+            (L.lightShadowVolumes == 2 ||
+             (L.lightShadowVolumes == 0 && SPOT_SHADOW_VOLUMES));
+        d.baked = BAKE_STATIC_LAMPS && L.lightFlicker <= 0.0F &&
+                  staticTable[i] != 0 && !carves;
+        // The state the scene's geometry is about to be built with: a baked
+        // lamp starts on at full intensity, like every dynamic light.
+        // (A baked lamp is never on a streaming layer: the static table
+        // already refuses layered objects.)
+        if (d.baked) {
+          bakedLampPush(L, 1.0F);
+          unsigned int lv;
+          const float one = 1.0F;
+          memcpy(&lv, &one, 4);
+          sig = bakedLampSigStep(bakedLampSigStep(sig, (unsigned)g_dynLights.size()), lv);
+        }
         g_dynLights.push_back(d);
       }
       continue;  // never baked - the engine lights it live
@@ -624,6 +936,7 @@ inline void collectScenePointLights() {
     b.bright = L.lightBright;
     g_scenePointLights.push_back(b);
   }
+  g_bakedLampSig = sig;
 }
 
 /** Applies Set Light requests and registers this frame's dynamic point
@@ -677,11 +990,39 @@ inline void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
           Tyra::Vec4(sd.x, sd.y, sd.z, 0.0F),
           d.lightRadius > 0.01F ? d.lightRadius : 0.01F, d.lightSpotAngle,
           1.6F);
+      if (L.baked) core.markDynLightBaked(L.slot);
     } else {
-      core.addDynPointLight(
+      const int slot = core.addDynPointLight(
           Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
           Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
           d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
+      if (L.baked) core.markDynLightBaked(slot);
+    }
+    // (A baked lamp stays registered - the cars, the player and every other
+    // moving receiver still pick it per vertex - but static bags, whose
+    // vertex colours already carry it, skip it: dynLightSkipBaked.)
+  }
+  // The baked lamps' state, as the static geometry must carry it. Any change
+  // (the day/night switch, a Set Light on one of them) re-derives the set and
+  // asks the game to re-bake what it lights (TerrainGame::rebakeLampLight).
+  if (BAKE_STATIC_LAMPS) {
+    unsigned int sig = 2166136261u;
+    for (size_t li = 0; li < g_dynLights.size(); ++li) {
+      const DynLightRt& L = g_dynLights[li];
+      if (!L.baked || L.lastLevel <= 0.0F) continue;
+      unsigned int lv;
+      memcpy(&lv, &L.lastLevel, 4);
+      sig = bakedLampSigStep(bakedLampSigStep(sig, (unsigned)li), lv);
+    }
+    if (sig != g_bakedLampSig) {
+      g_bakedLampSig = sig;
+      g_bakedLampsPrev.swap(g_bakedLamps);
+      g_bakedLamps.clear();
+      for (const DynLightRt& L : g_dynLights)
+        if (L.baked && L.lastLevel > 0.0F && ctx.objects &&
+            L.objIndex < ctx.objectCount)
+          bakedLampPush(ctx.objects[L.objIndex].data, L.lastLevel);
+      g_lampRebake = true;
     }
   }
 }
@@ -692,8 +1033,9 @@ inline void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
  * work (the lit anim programs have no spot slot). The flashlight's cone is
  * a rough cos test at model scale; the falloff mirrors the VU1 shape. */
 inline void dynLightAt(Tyra::Engine* engine, float wx, float wy, float wz,
-                float out[3]) {
+                float out[3], bool receivesLive) {
   out[0] = out[1] = out[2] = 0.0F;
+  if (!receivesLive) return;
   auto& core = engine->renderer.core;
   const Tyra::RendererCoreSpotLight* ls[Tyra::RendererCore::DYN_LIGHTS_MAX + 1];
   u32 n = 0;
@@ -1251,9 +1593,18 @@ inline Color shadeVertexColor(const SceneObjectData& o, const V3& wp,
   // colors cannot wrap.
   const float scale = textured ? 128.0F : 255.0F;
   auto c255 = [](float c) { return c > 255.0F ? 255.0F : c; };
-  return Color(c255(o.color[0] * scale * shade.x),
-               c255(o.color[1] * scale * shade.y),
-               c255(o.color[2] * scale * shade.z), 128.0F);
+  float cr = c255(o.color[0] * scale * shade.x);
+  float cg = c255(o.color[1] * scale * shade.y);
+  float cb = c255(o.color[2] * scale * shade.z);
+  // Baked static lamps (BAKE_STATIC_LAMPS): added to the FINISHED colour and
+  // clamped again, which is exactly what the VU1 spot slot did to it per
+  // frame - so a static receiver lit by one lamp looks as it did live. (Two
+  // lamps reaching one vertex now both land; the live slot picked one.)
+  if (g_lampBakeHere && !g_bakedLamps.empty() && !g_litNormals && !g_bakeLocal) {
+    bakedLampAdd(wp, cr, cg, cb);
+    cr = c255(cr), cg = c255(cg), cb = c255(cb);
+  }
+  return Color(cr, cg, cb, 128.0F);
 }
 
 inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
@@ -1291,6 +1642,64 @@ inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
   if (g_envNormals)
     g_envNormals->push_back(g_bakeLocal ? Vec4(ln.x, ln.y, ln.z, 0.0F)
                                         : Vec4(n.x, n.y, n.z, 0.0F));
+}
+
+// True when pushVert, with the globals as they are staged right now, would
+// shade with the directional light alone: no GI route, no AO, no point light,
+// no emissive pool, no baked lamp, no capture array to fill. A placed model
+// in a sun-only scene (the common case) qualifies, and pushModelPartRange
+// then bakes it without pushVert's per-vertex overhead.
+inline bool directionalOnlyBake() {
+  return !g_litNormals && !g_prelitTex && !g_giLightmap && !g_giProbeShade &&
+         !g_aoAtlas && !(SCENE_AO_ENABLED && !g_aoOff) &&
+         g_scenePointLights.empty() && (g_emisAtlas || g_emisLocal.empty()) &&
+         !(g_lampBakeHere && !g_bakedLamps.empty()) && !g_envNormals &&
+         !g_bakeLocal;
+}
+
+// pushVert for vertices [first, last) of a model part's 8-float stream, valid
+// only under directionalOnlyBake(). Same arithmetic in the same order - the
+// rotation through rotatedBy() is bit-identical to rotated() - with the
+// trigonometry, the fallbacks and the growth hoisted out of the loop. pushVert
+// took 12 sinf/cosf per vertex (two rotated() calls), which made a 3000-vertex
+// tree a 13 ms frame on the EE (docs/impostors.md, "Switching back to the
+// full model").
+inline void pushModelPartRange(BagArray<Vec4>& verts, BagArray<Color>& cols,
+                               BagArray<Vec4>& sts, const SceneObjectData& o,
+                               const std::vector<float>& geo, size_t first,
+                               size_t last, const float* kd, bool textured,
+                               const float* ke) {
+  if (!kd) kd = g_primKd;
+  if (!ke) ke = g_primKe;
+  textured = textured || g_primTextured;
+  const RotTrig t = rotTrigOf(o.rotation);
+  verts.reserve(verts.size() + (last - first));
+  cols.reserve(cols.size() + (last - first));
+  sts.reserve(sts.size() + (last - first));
+  const float scale = textured ? 128.0F : 255.0F;
+  auto c255 = [](float v) { return v > 255.0F ? 255.0F : v; };
+  for (size_t i = first; i < last; ++i) {
+    const float* v = &geo[i * 8];
+    V3 p = {v[0], v[1], v[2]};
+    p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
+    p = rotatedBy(p, t);
+    V3 shade = shadeOf(rotatedBy(V3{v[3], v[4], v[5]}, t));
+    if (shade.x > 1.0F) shade.x = 1.0F;
+    if (shade.y > 1.0F) shade.y = 1.0F;
+    if (shade.z > 1.0F) shade.z = 1.0F;
+    if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
+    if (ke) {
+      if (shade.x < ke[0]) shade.x = ke[0];
+      if (shade.y < ke[1]) shade.y = ke[1];
+      if (shade.z < ke[2]) shade.z = ke[2];
+    }
+    verts.push_back(Vec4(p.x + o.position[0], p.y + o.position[1],
+                         p.z + o.position[2], 1.0F));
+    cols.push_back(Color(c255(o.color[0] * scale * shade.x),
+                         c255(o.color[1] * scale * shade.y),
+                         c255(o.color[2] * scale * shade.z), 128.0F));
+    sts.push_back(Vec4(v[6], v[7], 1.0F, 0.0F));
+  }
 }
 
 inline void pushQuad(BagArray<Vec4>& verts, BagArray<Color>& cols,
@@ -1789,6 +2198,13 @@ inline u32 profTicks() {
   asm volatile("mfc0 %0, $9" : "=r"(v));
   return v;
 }
+// Auto selection samples memory work on both sides of this single clock read.
+inline u32 ilObservationTicks() {
+  u32 v;
+  asm volatile("mfc0 %0, $9" : "=r"(v) : : "memory");
+  return v;
+}
+
 
 #if TYRA_FRAME_PROFILE
 // ---------------------------------------------------------------------------
@@ -2310,6 +2726,13 @@ inline void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) 
       snprintf(l1, sizeof(l1), "FRAME %.2f SCENE %.2f", frameAcc * k,
                sScene * k);
       snprintf(l2, sizeof(l2), "HL %.2f PART %.2f", sHl * k, sPart * k);
+      // The same window in the log, so a console run over ps2link (or a
+      // headless emulator) can be read without a picture of the HUD - with
+      // the EE memory in use, which a dense scene runs out of first.
+      char mem[24];
+      snprintf(mem, sizeof(mem), "MEM %.1f/32",
+               32.0F - engine->info.getAvailableRAM());
+      TYRA_LOG("PROFILE ", l1, " ", l2, " ", mem);
       frames = frameAcc = sScene = sHl = sPart = 0;
     }
     drawHudText(engine, l1, 16.0F, y);
@@ -2330,7 +2753,7 @@ struct VideoConfirm {
 };
 inline VideoConfirm g_videoConfirm;
 
-/** Applies the Set Display Mode / Set Widescreen flow-node requests and
+/** Applies the display, widescreen and frame pipeline flow-node requests and
  * ticks the confirm countdown. Must run between frames (before
  * beginFrame): a scan-mode switch rebuilds the VRAM layout. Returns true
  * the frame a scan-mode switch happens - the caller closes any open game
@@ -2339,6 +2762,13 @@ inline VideoConfirm g_videoConfirm;
 inline bool applyVideoRequests(Engine* engine, ScriptContext& ctx) {
   auto& core = engine->renderer.core;
   bool switched = false;
+  if (ctx.requestFramePipeline >= 0) {
+    const bool requested = ctx.requestFramePipeline != 0;
+    // Even an unchanged engine setter completes a pending frame. Consume
+    // repeated graph requests without presenting early and losing overlap.
+    if (core.getFramePipeline() != requested) core.setFramePipeline(requested);
+    ctx.requestFramePipeline = -1;
+  }
   if (ctx.widescreen >= 0) {
     core.setDisplayOutput(core.getSettings().getDisplayMode(),
                           ctx.widescreen != 0);
@@ -2410,6 +2840,16 @@ struct LoadingScreenState {
   std::vector<Tyra::Sprite> texts;     // LS_TEXT_TOTAL, one per LS_TEXTS
   std::vector<Tyra::Sprite> segs;      // LS_BAR_TOTAL, linked only for seg bars
   std::vector<Tyra::Sprite> splashes;  // SPLASH_COUNT, one per SPLASHES
+  std::vector<Tyra::Sprite> animFrames;  // LS_ANIM_FRAME_TOTAL, one per frame
+  std::vector<Tyra::Sprite> prompts;     // LS_COUNT, linked for waiting screens
+  // Seconds of loading screen shown, advanced per presented frame: what the
+  // spinners and the prompt's blink are timed by. The in-load frames are
+  // pumped by work done rather than by vsync, so a spinner may skip a frame
+  // there - it is a clock for the eye, not for logic.
+  float clock = 0.0F;
+  // The power-on load is in progress: it shows LS_BOOT when the project
+  // picked one (Assignments > Game start), whatever the start scene shows.
+  bool boot = false;
 };
 inline LoadingScreenState g_loading;
 
@@ -2434,6 +2874,17 @@ inline void loadingEnsureReady(Engine* engine) {
     if (LS_BARS[i].segPath[0] == '\0') continue;
     g_loading.segs[i].mode = SpriteMode::MODE_STRETCH;
     repo.add(FileUtils::fromCwd(LS_BARS[i].segPath))->addLink(g_loading.segs[i].id);
+  }
+  g_loading.animFrames.resize(LS_ANIM_FRAME_TOTAL > 0 ? LS_ANIM_FRAME_TOTAL : 0);
+  for (int i = 0; i < LS_ANIM_FRAME_TOTAL; ++i) {
+    g_loading.animFrames[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(LS_ANIM_FRAMES[i]))->addLink(g_loading.animFrames[i].id);
+  }
+  g_loading.prompts.resize(LS_COUNT > 0 ? LS_COUNT : 0);
+  for (int i = 0; i < LS_COUNT; ++i) {
+    if (LS_SCREENS[i].promptPath[0] == '\0') continue;
+    g_loading.prompts[i].mode = SpriteMode::MODE_STRETCH;
+    repo.add(FileUtils::fromCwd(LS_SCREENS[i].promptPath))->addLink(g_loading.prompts[i].id);
   }
   g_loading.splashes.resize(SPLASH_COUNT > 0 ? SPLASH_COUNT : 0);
   for (int i = 0; i < SPLASH_COUNT; ++i) {
@@ -2460,17 +2911,49 @@ inline void renderSplash(Engine* engine, int i) {
   engine->renderer.endFrame();
 }
 
-inline void renderFrame(Engine* engine, int sceneIdx, float fraction) {
+// The authored screen a scene's load shows, -1 for the built-in picture or
+// -2 for none (Assignments > a scene > None: black while it loads).
+// SCENE_LOADING_SCREEN is already resolved by the editor: -2 there = Built-in
+// picked, -3 = None.
+inline int screenFor(int sceneIdx) {
+  if (g_loading.boot && LS_BOOT >= 0 && LS_BOOT < LS_COUNT) return LS_BOOT;
+  int screen = LS_DEFAULT;
+  if (sceneIdx >= 0 && sceneIdx < SCENE_COUNT) {
+    screen = SCENE_LOADING_SCREEN[sceneIdx];
+    if (screen == -3) return -2;
+  }
+  return screen < 0 || screen >= LS_COUNT ? -1 : screen;
+}
+
+// Press a button to continue (docs/loading-screens.md): does this load end on
+// the screen's prompt?
+inline bool waitWanted(int sceneIdx, bool /*boot*/) {
+  const int screen = screenFor(sceneIdx);
+  return screen >= 0 && LS_SCREENS[screen].wait == 1;
+}
+
+// The waiting screen's button, edge-triggered (one press, not a held one).
+inline bool continuePressed(Engine* engine, int sceneIdx) {
+  const int screen = screenFor(sceneIdx);
+  const auto& c = engine->pad.getClicked();
+  const int b = screen < 0 ? 0 : LS_SCREENS[screen].waitButton;
+  if (b == 1) return c.Start;
+  if (b == 2) return c.Cross;
+  return c.Cross || c.Circle || c.Square || c.Triangle || c.Start;
+}
+
+inline void renderFrame(Engine* engine, int sceneIdx, float fraction, bool waiting = false) {
   if (fraction < 0.0F) fraction = 0.0F;
   if (fraction > 1.0F) fraction = 1.0F;
+  g_loading.clock += g_frameDt > 0.0001F ? g_frameDt : 0.02F;
 
-  int screen = -1;
-  if (LS_COUNT > 0) {
-    if (sceneIdx >= 0 && sceneIdx < SCENE_COUNT)
-      screen = SCENE_LOADING_SCREEN[sceneIdx];
-    else
-      screen = LS_DEFAULT;
-    if (screen < 0 || screen >= LS_COUNT) screen = LS_DEFAULT;
+  const int screen = screenFor(sceneIdx);
+
+  if (screen == -2) {  // None: no picture while this scene loads
+    engine->renderer.setClearScreenColor(Color(0.0F, 0.0F, 0.0F));
+    engine->renderer.beginFrame();
+    engine->renderer.endFrame();
+    return;
   }
 
   const auto& scr = engine->renderer.core.getSettings();
@@ -2524,7 +3007,42 @@ inline void renderFrame(Engine* engine, int sceneIdx, float fraction) {
     sp.position = Vec2(t.x * W - t.w * 0.5F, t.y * H - t.h * 0.5F);
     engine->renderer.renderer2D.render(sp);
   }
-  for (int i = 0; i < s.barCount; ++i) {
+  const bool showPrompt = waiting && s.promptPath[0] != '\0';
+  const bool hideOthers = showPrompt && s.promptHideOthers != 0;
+
+  // Animated elements: a spinner on its own fps, a progress strip on the load
+  // fraction (docs/loading-screens.md, "Animations").
+  for (int i = 0; i < s.animCount && !hideOthers; ++i) {
+    const LoadingAnimData& a = LS_ANIMS[s.animFirst + i];
+    const int n = a.frameCount;
+    if (n <= 0) continue;
+    const int tick = (int)(g_loading.clock * a.fps);
+    int idx = 0;
+    if (a.mode == 0) {
+      if (waiting && a.afterLoad == 0) continue;
+      if (a.playback == 1 && n > 1) {
+        const int k = tick % (2 * n - 2);
+        idx = k < n ? k : 2 * n - 2 - k;
+      } else {
+        idx = tick % n;
+      }
+    } else if (waiting && a.afterLoad == 1 && n >= 2) {
+      idx = n - 2 + (tick & 1);
+    } else if (a.lastAtFull && n >= 2) {
+      // The last frame (the crash) only once fully loaded.
+      idx = fraction >= 1.0F ? n - 1 : (int)(fraction * (float)(n - 1));
+      if (fraction < 1.0F && idx > n - 2) idx = n - 2;
+    } else {
+      idx = (int)(fraction * (float)n);
+      if (idx > n - 1) idx = n - 1;
+    }
+    Sprite& sp = g_loading.animFrames[a.frameFirst + idx];
+    sp.size = Vec2(a.w, a.h);
+    sp.position = Vec2(a.x * W - a.w * 0.5F, a.y * H - a.h * 0.5F);
+    engine->renderer.renderer2D.render(sp);
+  }
+
+  for (int i = 0; i < s.barCount && !hideOthers; ++i) {
     const LoadingBarData& b = LS_BARS[s.barFirst + i];
     const float bx = b.x * W - b.w * 0.5F;  // top-left of the bar
     const float by = b.y * H - b.h * 0.5F;
@@ -2549,6 +3067,22 @@ inline void renderFrame(Engine* engine, int sceneIdx, float fraction) {
           quad(sx, by, segW, b.h, c);
         }
       }
+    }
+  }
+  // The continue prompt, last: steady, blinking or pulsing on its period.
+  if (showPrompt) {
+    const float period = s.promptPeriod > 0.05F ? s.promptPeriod : 1.0F;
+    float phase = g_loading.clock / period;
+    phase -= (float)(int)phase;
+    float alpha = 128.0F;
+    if (s.promptBlink == 1) alpha = phase < 0.5F ? 128.0F : 0.0F;
+    if (s.promptBlink == 2) alpha = 128.0F * (0.3F + 0.7F * (phase < 0.5F ? phase * 2.0F : 2.0F - phase * 2.0F));
+    if (alpha > 0.5F) {
+      Sprite& sp = g_loading.prompts[screen];
+      sp.size = Vec2((float)s.promptW, (float)s.promptH);
+      sp.position = Vec2(s.promptX * W - s.promptW * 0.5F, s.promptY * H - s.promptH * 0.5F);
+      sp.color = Color(128.0F, 128.0F, 128.0F, alpha);
+      engine->renderer.renderer2D.render(sp);
     }
   }
   engine->renderer.endFrame();
@@ -3220,6 +3754,33 @@ inline void buildShadowMesh(
 // pushed a short way down the beam (a hand-held light's parallax), which
 // makes every shadow diverge a little and show around its caster, the way
 // the silhouette mode's wider-FOV projector does.
+// KEPT SPOT VOLUMES (docs/shadows.md, "A still lamp keeps its volumes"): a
+// volume triangle in world space with its outward normal and centroid - the
+// only part of a shadow volume that depends on the CAMERA is which of the two
+// count lists (front / back) each triangle goes to, and that is one dot
+// product. While g_volCapture is set, the emitters below record the triangle
+// here instead of classifying it; classifyVolTris then replays the capture
+// against any camera, triangle for triangle and in the same order, which is
+// exactly what the emitter would have produced for that camera.
+struct VolTri {
+  Vec4 a, b, c;
+  float n[3], ctr[3];
+};
+inline std::vector<VolTri>* g_volCapture = nullptr;
+inline void classifyVolTris(const std::vector<VolTri>& tris, const Vec4& cam,
+                            BagArray<Vec4>& outFront, BagArray<Vec4>& outBack) {
+  for (const VolTri& t : tris) {
+    const bool front = t.n[0] * (cam.x - t.ctr[0]) + t.n[1] * (cam.y - t.ctr[1]) +
+                           t.n[2] * (cam.z - t.ctr[2]) >
+                       0.0F;
+    BagArray<Vec4>& dst = front ? outFront : outBack;
+    if (dst.size() > 3996) continue;  // the emitters' fill-rate backstop
+    dst.push_back(t.a);
+    dst.push_back(t.b);
+    dst.push_back(t.c);
+  }
+}
+
 inline void emitMeshShadowVolume(const ShadowMesh& m,
                                  const SceneObjectData& cdd,
                                  const ProjBox& basis, const Vec4& vL,
@@ -3276,6 +3837,13 @@ inline void emitMeshShadowVolume(const ShadowMesh& m,
               nz * (refPt[2] - cz);
     if (refIsInterior) s = -s;
     if (s < 0.0F) nx = -nx, ny = -ny, nz = -nz;
+    if (g_volCapture) {
+      g_volCapture->push_back(VolTri{Vec4(a[0], a[1], a[2], 1.0F),
+                                     Vec4(b[0], b[1], b[2], 1.0F),
+                                     Vec4(c[0], c[1], c[2], 1.0F),
+                                     {nx, ny, nz}, {cx, cy, cz}});
+      return;
+    }
     const bool front =
         nx * (cam.x - cx) + ny * (cam.y - cy) + nz * (cam.z - cz) > 0.0F;
     BagArray<Vec4>& dst = front ? outFront : outBack;
@@ -3409,6 +3977,10 @@ inline void emitBoxShadowVolume(const ProjBox& pb, const Vec4& origin,
             nz2 * (cz3 - volC[2]) <
         0.0F)
       nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+    if (g_volCapture) {
+      g_volCapture->push_back(VolTri{a3, b3, c3, {nx2, ny2, nz2}, {cx3, cy3, cz3}});
+      return;
+    }
     const bool front =
         nx2 * (cam.x - cx3) + ny2 * (cam.y - cy3) + nz2 * (cam.z - cz3) >
         0.0F;

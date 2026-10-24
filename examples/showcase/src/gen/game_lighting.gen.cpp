@@ -134,6 +134,31 @@ TerrainGame::BeamBatch& TerrainGame::beamBatchForCall() {
     s.coneBag = std::make_unique<StaPipBag>();
     s.coneBag->info = s.coneInfo.get();
     s.coneBag->color = s.coneColorBag.get();
+    // The coronas' billboard twin (TYRA_BEAM_CORONA_VU1): the particles'
+    // contract - centres in `vertices`, one 2x2 basis weight per lamp in the
+    // texture coordinates, one colour per lamp, no EE frustum or clip work
+    // (the VU1 program drops a quad whose corner leaves the GS raster
+    // window; a corona that big is a camera inside the lamp head).
+    s.bbCenters.reserve(lightBeams.size());
+    s.bbWeights.reserve(lightBeams.size());
+    s.bbColors.reserve(lightBeams.size());
+    s.bbInfo = std::make_unique<StaPipInfoBag>();
+    s.bbInfo->model = &s.mat;
+    s.bbInfo->shadingType = TyraShadingGouraud;
+    s.bbInfo->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    s.bbInfo->fullClipChecks = false;
+    s.bbInfo->zTestType = PipelineZTest_TestOnly;  // occluded, no z write
+    s.bbInfo->additiveBlendFix = 128;
+    s.bbColorBag = std::make_unique<StaPipColorBag>();
+    s.bbTexBag = std::make_unique<StaPipTextureBag>();
+    s.bbTexBag->texture = beamCoronaTex;
+    s.bbBasis = std::make_unique<StaPipBillboardBag>();
+    s.bbBag = std::make_unique<StaPipBag>();
+    s.bbBag->info = s.bbInfo.get();
+    s.bbBag->color = s.bbColorBag.get();
+    s.bbBag->texture = s.bbTexBag.get();
+    s.bbBag->lighting = nullptr;
+    s.bbBag->billboard = s.bbBasis.get();
   }
   return *beamBatches[beamBatchCall++];
 }
@@ -435,6 +460,7 @@ bool TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
       grid[iz][ix] = Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
     }
   }
+  liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
   int v = 0;
   for (int iz = 0; iz < kCells; ++iz) {
     for (int ix = 0; ix < kCells; ++ix) {
@@ -521,7 +547,7 @@ void TerrainGame::poolBatchFlush() {
     pb.bag->bboxVersion = ++g_bboxStamp;
     pb.lastKey = pb.key;
   }
-  stapip.core.render(pb.bag.get());
+  renderWorldBag(pb.bag.get());
   pb.members.clear();
   pb.memberFix.clear();
 }
@@ -618,13 +644,81 @@ void TerrainGame::updateAndRenderLightPools() {
   auto buildVolMask = [&](BagArray<Vec4>& front, BagArray<Vec4>& back,
                           StaPipBag* setBag, StaPipBag* clrBag,
                           const ProjBox* const picks[4], int n,
-                          const Vec4& vOrigin, float range) -> bool {
+                          const Vec4& vOrigin, float range,
+                          bool keepable = false) -> bool {
     front.clear();
     back.clear();
-    for (int vj = 0; vj < n; ++vj)
-      emitCasterVolume(*picks[vj], gameModels,
-                       runtimeObjects[picks[vj]->obj].data, vOrigin,
-                       cameraPosition, range, /*farCaps=*/false, front, back);
+    // KEPT VOLUMES (TYRA_SPOT_VOLUME_KEEP, docs/shadows.md "A still lamp
+    // keeps its volumes"): a scene spot's volumes are a function of the light,
+    // its range and its casters' placement - none of which moves for a street
+    // lamp over parked props - plus ONE camera dot product per triangle that
+    // picks its count list. So the world-space triangles are captured once and
+    // replayed against each frame's camera; any change to the key below (the
+    // lamp, the picks, a caster's box or transform) captures afresh. The torch
+    // moves with the eye every frame and never asks for this.
+    static std::vector<float> keepKey, keyNow;
+    static std::vector<VolTri> keepTris;
+    bool replay = false;
+    if (keepable && TYRA_SPOT_VOLUME_KEEP) {
+      keyNow.clear();
+      keyNow.push_back(vOrigin.x);
+      keyNow.push_back(vOrigin.y);
+      keyNow.push_back(vOrigin.z);
+      keyNow.push_back(range);
+      keyNow.push_back((float)n);
+      for (int vj = 0; vj < n; ++vj) {
+        const ProjBox& pb = *picks[vj];
+        const SceneObjectData& cd = runtimeObjects[pb.obj].data;
+        const float* pf = &pb.o[0];
+        for (int k = 0; k < 15; ++k) keyNow.push_back(pf[k]);
+        keyNow.push_back((float)pb.obj);
+        keyNow.push_back((float)pb.type);
+        for (int k = 0; k < 3; ++k) keyNow.push_back(cd.position[k]);
+        for (int k = 0; k < 3; ++k) keyNow.push_back(cd.scale[k]);
+        keyNow.push_back((float)cd.model);
+      }
+      replay = keyNow == keepKey;
+      if (!replay) {
+        keepTris.clear();
+        g_volCapture = &keepTris;
+        for (int vj = 0; vj < n; ++vj)
+          emitCasterVolume(*picks[vj], gameModels,
+                           runtimeObjects[picks[vj]->obj].data, vOrigin,
+                           cameraPosition, range, /*farCaps=*/false, front, back);
+        g_volCapture = nullptr;
+        keepKey = keyNow;
+      }
+      classifyVolTris(keepTris, cameraPosition, front, back);
+#if TYRA_SPOT_VOLUME_KEEP_VERIFY
+      // THE ORACLE: the emitters again, and both lists compared to the byte.
+      {
+        static BagArray<Vec4> f0, b0;
+        f0.clear();
+        b0.clear();
+        for (int vj = 0; vj < n; ++vj)
+          emitCasterVolume(*picks[vj], gameModels,
+                           runtimeObjects[picks[vj]->obj].data, vOrigin,
+                           cameraPosition, range, /*farCaps=*/false, f0, b0);
+        static u32 vChecked = 0, vBad = 0;
+        ++vChecked;
+        if (f0.size() != front.size() || b0.size() != back.size() ||
+            (front.size() &&
+             memcmp(f0.data(), front.data(), front.size() * sizeof(Vec4)) != 0) ||
+            (back.size() &&
+             memcmp(b0.data(), back.data(), back.size() * sizeof(Vec4)) != 0))
+          ++vBad;
+        if (vChecked % 300 == 0)
+          printf("SPOTVOLKEEP checked %u MISMATCH %u replay %d tris %d\n",
+                 (unsigned)vChecked, (unsigned)vBad, replay ? 1 : 0,
+                 (int)keepTris.size());
+      }
+#endif
+    } else {
+      for (int vj = 0; vj < n; ++vj)
+        emitCasterVolume(*picks[vj], gameModels,
+                         runtimeObjects[picks[vj]->obj].data, vOrigin,
+                         cameraPosition, range, /*farCaps=*/false, front, back);
+    }
     if (front.empty() && back.empty()) return false;
     // The counting bracket is SCISSORED to the volumes' screen bbox - a
     // full-raster clear plus a full-raster resolve every frame measurably
@@ -726,13 +820,13 @@ void TerrainGame::updateAndRenderLightPools() {
         front.bind(setBag);
         setBag->count = (u32)front.size();
         setBag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(setBag);
+        renderWorldBag(setBag);
       }
       if (!back.empty() && SHADOW_VOLUMES_DEBUG != 2) {
         back.bind(clrBag);
         clrBag->count = (u32)back.size();
         clrBag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(clrBag);
+        renderWorldBag(clrBag);
       }
       if (SHADOW_VOLUMES_DEBUG != 1)
         rc.alphaMask.countResolve(rx0, ry0, rx1, ry1, by);
@@ -1049,6 +1143,9 @@ void TerrainGame::updateAndRenderLightPools() {
       // its own place in the caster order.
       int wSliceStart[3] = {0, 0, 0};
       int wSliceCount[3] = {0, 0, 0};
+      // The matrix each slice draws under: the pass's identity for world
+      // geometry, a physics body's own objMat for its local floats.
+      M4x4* wSliceModel[3] = {&b.mat, &b.mat, &b.mat};
       b.wVerts.clear();
       b.wSts.clear();
       b.wColors.clear();
@@ -1093,11 +1190,25 @@ void TerrainGame::updateAndRenderLightPools() {
           // own transform) cannot promise - it goes back to a solo bake.
           unshareObject(oi);
           ObjectGeometry& g = objectGeometry[oi];
-          // Nothing to re-render: animated models (skinned buffers) and
-          // physics bodies (LOCAL verts under a live matrix - an EE transform
-          // would not be bit-identical to VU1's, and this pass depends on
-          // EQUAL depth). Both are small and keep the cone instead.
-          if (g.parts.empty() || g.matrixMode) continue;
+          // Nothing to re-render: animated models (skinned buffers), which
+          // keep the cone instead. A physics body (LOCAL verts under a live
+          // matrix) IS re-rendered, and the same way it draws itself: its
+          // own local floats under its own objMat, so VU1 lands every pixel
+          // at exactly the depth the body wrote - an EE transform would not
+          // be bit-identical, and this pass depends on EQUAL depth. Only
+          // the facing test and the STQ, which never touch depth, use the
+          // world positions. (It used to be skipped, and once a lamp kept a
+          // crate's per-vertex slot the torch could not reach it at all.)
+          if (g.parts.empty()) continue;
+          const bool local = g.matrixMode;
+          if (local) wSliceModel[ri] = &g.objMat;
+          auto toWorld = [&](const Vec4& v) {
+            if (!local) return v;
+            const float* m = g.objMat.data;
+            return Vec4(m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12],
+                        m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13],
+                        m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14], 1.0F);
+          };
           // Two things per TRIANGLE, both cheap and both reported from the
           // console. A FACING cull: the STQ is a function of position alone,
           // so a face pointing away from the torch sampled a lit texel - a
@@ -1125,9 +1236,9 @@ void TerrainGame::updateAndRenderLightPools() {
               if ((int)b.wVerts.size() >= wLimit ||
                   b.wVerts.size() >= 3997)
                 break;  // fill-rate backstop
-              const Vec4& a3 = part.vertices[vi];
-              const Vec4& b3 = part.vertices[vi + 1];
-              const Vec4& c3 = part.vertices[vi + 2];
+              const Vec4 a3 = toWorld(part.vertices[vi]);
+              const Vec4 b3 = toWorld(part.vertices[vi + 1]);
+              const Vec4 c3 = toWorld(part.vertices[vi + 2]);
               float nx2 = (b3.y - a3.y) * (c3.z - a3.z) -
                           (b3.z - a3.z) * (c3.y - a3.y);
               float ny2 = (b3.z - a3.z) * (c3.x - a3.x) -
@@ -1148,7 +1259,8 @@ void TerrainGame::updateAndRenderLightPools() {
                 continue;  // faces away from the torch
               const Vec4 tri3[3] = {a3, b3, c3};
               for (int k3 = 0; k3 < 3; ++k3) {
-                b.wVerts.push_back(tri3[k3]);
+                // The body's own float, untouched, under its own matrix.
+                b.wVerts.push_back(local ? part.vertices[vi + k3] : tri3[k3]);
                 const Vec4 st3 = goboST(tri3[k3].x, tri3[k3].y, tri3[k3].z);
                 b.wSts.push_back(st3);
                 float reach = 1.0F - st3.z / FLASHLIGHT_RANGE;
@@ -1245,8 +1357,10 @@ void TerrainGame::updateAndRenderLightPools() {
         b.wColors.bindFrom(b.wColorBag, wSliceStart[ri]);
         b.wColorBag->single = nullptr;
         b.wInfo->additiveBlendFix = (u8)wfix;
+        b.wInfo->model = wSliceModel[ri];
         b.wBag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(b.wBag.get());
+        renderWorldBag(b.wBag.get());
+        b.wInfo->model = &b.mat;
       };
       // The occluder candidates (pickVolCasters above, shared with the
       // scene's spot lights). Nothing nearer than the VIRTUAL torch may
@@ -1350,13 +1464,13 @@ void TerrainGame::updateAndRenderLightPools() {
               b.volFront.bind(b.volSetBag);
               b.volSetBag->count = (u32)b.volFront.size();
               b.volSetBag->bboxVersion = ++g_bboxStamp;
-              stapip.core.render(b.volSetBag.get());
+              renderWorldBag(b.volSetBag.get());
             }
             if (!b.volBack.empty()) {
               b.volBack.bind(b.volClrBag);
               b.volClrBag->count = (u32)b.volBack.size();
               b.volClrBag->bboxVersion = ++g_bboxStamp;
-              stapip.core.render(b.volClrBag.get());
+              renderWorldBag(b.volClrBag.get());
             }
             rc.alphaMask.end();
           }
@@ -1424,7 +1538,23 @@ void TerrainGame::updateAndRenderLightPools() {
       // (the axis never reached the floor), the canvas is laid from its far
       // end back toward the player over `backSpan` of ground.
       const float hitAxis = hit;
-      const float wallFoot = onWall && wallT > 0.5F ? wallT - 0.15F : -1.0F;
+      // Only a WALL-SIZED face moves the floor landing to its foot - the
+      // same 1.4-unit rule that strips a wall's cone (updateFlashSpotOff).
+      // A crate is not a wall: the receiver pass lights it per pixel, and
+      // the floor around it is lit by the pool where the axis really lands.
+      // Pulling the canvas to a crate's foot made the pool jump between the
+      // foot and the floor behind every time the beam's centre crossed one
+      // of its edges - read as someone shaking the torch.
+      bool wallSized = false;
+      if (onWall) {
+        float h0 = wallBox.h[0], h1 = wallBox.h[1], h2 = wallBox.h[2];
+        if (h0 < h1) { const float tmp = h0; h0 = h1, h1 = tmp; }
+        if (h1 < h2) { const float tmp = h1; h1 = h2, h2 = tmp; }
+        if (h0 < h1) { const float tmp = h0; h0 = h1, h1 = tmp; }
+        wallSized = sqrtf(h0 * h0 + h1 * h1) > 1.4F;
+      }
+      const float wallFoot =
+          onWall && wallSized && wallT > 0.5F ? wallT - 0.15F : -1.0F;
       float hitLow = -1.0F;
       float ldx = dx, ldy = dy, ldz = dz;  // the ray the landing is on
       float lowDx = dx, lowDy = dy, lowDz = dz;
@@ -1488,16 +1618,60 @@ void TerrainGame::updateAndRenderLightPools() {
         finishVolMask();
         continue;
       }
-      const float gx = torch.x + ldx * hit;
-      const float gz = torch.z + ldz * hit;
+      float gx = torch.x + ldx * hit;
+      float gz = torch.z + ldz * hit;
       // What the patch lies on is decided ONCE, at the landing point, never
       // per vertex: projSurfaceAt answers "the top of any receiver over this
       // point", so a prop standing inside the patch would otherwise punch a
       // cliff into it and the quad between would rasterize as a wall
       // (renderProjShadows pays for that lesson in full). Terrain relief IS
       // followed - it is smooth, and following it keeps the pool grounded.
-      const float baseY = projSurfaceAt(gx, gz);
-      const bool onGeometry = baseY > groundSurfaceAt(gx, gz) + 0.01F;
+      float baseY = projSurfaceAt(gx, gz);
+      bool onGeometry = baseY > groundSurfaceAt(gx, gz) + 0.01F;
+      // ...but only a top big enough to HOLD the canvas is a floor. Landing
+      // on a crate's lid laid the whole several-unit canvas at the lid's
+      // height, a sheet hanging in the air around the crate, and the pool
+      // "lay down" on it the moment the beam's centre touched the lid. Past
+      // a small top the axis is marched again against the ground alone; the
+      // lid itself is lit by the receiver pass.
+      if (onGeometry) {
+        bool smallTop = false;
+        for (const ProjRecv& r : g_projRecv) {
+          if (r.top != baseY) continue;
+          if (gx < r.minX || gx > r.maxX || gz < r.minZ || gz > r.maxZ)
+            continue;
+          const float w = r.maxX - r.minX, d = r.maxZ - r.minZ;
+          smallTop = (w < d ? w : d) < 2.0F;
+          break;
+        }
+        if (smallTop) {
+          float prevG = 0.0F, hitG = -1.0F;
+          for (float t = 0.3F; t <= FLASHLIGHT_RANGE; t += 0.3F) {
+            if (torch.y + ldy * t <=
+                groundSurfaceAt(torch.x + ldx * t, torch.z + ldz * t)) {
+              float lo = prevG, hi2 = t;
+              for (int k2 = 0; k2 < 6; ++k2) {
+                const float mid = (lo + hi2) * 0.5F;
+                if (torch.y + ldy * mid <=
+                    groundSurfaceAt(torch.x + ldx * mid, torch.z + ldz * mid))
+                  hi2 = mid;
+                else
+                  lo = mid;
+              }
+              hitG = hi2;
+              break;
+            }
+            prevG = t;
+          }
+          if (hitG > 0.0F) {
+            hit = hitG;
+            gx = torch.x + ldx * hit;
+            gz = torch.z + ldz * hit;
+            baseY = groundSurfaceAt(gx, gz);
+            onGeometry = false;
+          }
+        }
+      }
 
       // --- and the FLOOR patch, whether or not there was a wall -------------
       // Nothing to stand on where the beam lands (no terrain, no receiver) is
@@ -1658,14 +1832,22 @@ void TerrainGame::updateAndRenderLightPools() {
       // cuts through a chord that a knee-high lift covers on a short patch.
       // Seen as bright trapezoids marching into the distance - the pieces of
       // the pool that survived the z test between the crests that ate it.
-      float lift = 0.10F + 0.07F * across + 0.02F * along;
-      if (lift > 1.2F) lift = 1.2F;
+      // That is now a CEILING, not the lift: the relief measured under the
+      // patch (the hull pass below) decides how much of it is spent. The
+      // float is not invisible where the canvas runs into a WALL - the sheet
+      // in front of the face covers the wall's foot up to the lift's height,
+      // and the torch drew a bright band with a dead-straight top across the
+      // bottom of every box it lit ("the lit blocks have two parts",
+      // examples/lighting, ~0.6 u on flat paving). Flat ground needs no
+      // float at all, so it gets none beyond a few centimetres.
+      float liftCap = 0.10F + 0.07F * across + 0.02F * along;
+      if (liftCap > 1.2F) liftCap = 1.2F;
       // ...but never above the TORCH: a patch lifted past the lens is seen
       // from below and covers no ground pixel at all (a crouched or
       // hand-low torch a hair above the floor lost its whole pool to this).
       {
         const float headroom = (torch.y - baseY) * 0.5F;
-        if (lift > headroom) lift = headroom > 0.02F ? headroom : 0.02F;
+        if (liftCap > headroom) liftCap = headroom > 0.02F ? headroom : 0.02F;
       }
       float aOff[9], cOff[9];
       for (int i = 0; i <= cellsA; ++i) {
@@ -1726,6 +1908,11 @@ void TerrainGame::updateAndRenderLightPools() {
       // About 300 height reads per frame; the lift still rides on top, for
       // the triangle split the bilinear read does not see.
       float hull[9][5];
+      // How far the ground under the patch departs from the sheet through
+      // its cells' corners, either way - zero on flat or planar ground. A dip
+      // matters as much as a bulge here: it is the terrain's own triangle
+      // split, which the bilinear read does not see, that the lift covers.
+      float relief = 0.0F;
       if (!onGeometry) {
         constexpr int kSub = 4;
         static float sub[8 * kSub + 1][4 * kSub + 1];
@@ -1757,6 +1944,8 @@ void TerrainGame::updateAndRenderLightPools() {
                                     (h01 * (1.0F - fa) + h11 * fa) * fc;
                 const float d = sub[ia * kSub + sa][ic * kSub + sc] - sheet;
                 if (d > worst) worst = d;
+                if (d > relief) relief = d;
+                if (-d > relief) relief = -d;
               }
             }
             if (worst > bulge[ia][ic]) bulge[ia][ic] = worst;
@@ -1769,6 +1958,10 @@ void TerrainGame::updateAndRenderLightPools() {
           for (int ic = 0; ic <= cellsC; ++ic)
             hull[ia][ic] = sub[ia * kSub][ic * kSub] + bulge[ia][ic];
       }
+      // A few centimetres always (the depth bias does the rest), plus twice
+      // the measured relief, up to the old size-based ceiling.
+      float lift = 0.05F + 2.0F * relief;
+      if (lift > liftCap) lift = liftCap;
       int v = 0;
       for (int iz = 0; iz < cellsA; ++iz) {
         for (int ix = 0; ix < cellsC; ++ix) {
@@ -1852,7 +2045,7 @@ void TerrainGame::updateAndRenderLightPools() {
       }
       b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
       b.bag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(b.bag.get());
+      renderWorldBag(b.bag.get());
       finishVolMask();
       continue;
     }
@@ -1983,7 +2176,7 @@ void TerrainGame::updateAndRenderLightPools() {
           spotVol = buildVolMask(volBags->volFront, volBags->volBack,
                                  volBags->volSetBag.get(),
                                  volBags->volClrBag.get(), picks, nPick,
-                                 lightAt, d.lightRadius);
+                                 lightAt, d.lightRadius, /*keepable=*/true);
       }
     } else {
       patchChanged =
@@ -2002,7 +2195,7 @@ void TerrainGame::updateAndRenderLightPools() {
         b.texBag->texture == flashGoboTex && b.colorBag->single != nullptr)
       poolBatchAdd(b, (float)b.info->additiveBlendFix);
     else
-      stapip.core.render(b.bag.get());
+      renderWorldBag(b.bag.get());
     // --- the carving spot's RECEIVER pass ----------------------------------
     // The torch's wall pass on a scene lamp (docs/shadows.md): the solids
     // its cone touches - nearest three, the torch's rules - are rendered a
@@ -2173,7 +2366,7 @@ void TerrainGame::updateAndRenderLightPools() {
           w.sWColors.bind(w.sWColorBag);
           w.sWColorBag->single = nullptr;
           w.sWBag->bboxVersion = ++g_bboxStamp;
-          stapip.core.render(w.sWBag.get());
+          renderWorldBag(w.sWBag.get());
         }
       }
     }
@@ -2289,7 +2482,7 @@ void TerrainGame::renderShadowDecals() {
     // A shadow belongs to its caster's layer, so it streams with it: when the
     // layer is out, the thing that throws the shadow is gone from the world.
     if (d.layer >= 0 && !layerOn(d.layer)) continue;
-    stapip.core.render(d.bag.get());
+    renderWorldBag(d.bag.get());
   }
 }
 
@@ -2428,7 +2621,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
               engine->renderer.core.renderer3D.frustumPlanes.getAll(),
               b.cullMin, b.cullMax) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
         continue;
-      stapip.core.render(b.bag.get());
+      renderWorldBag(b.bag.get());
       continue;
     }
     float cx = d.position[0], cz = d.position[2];
@@ -2493,9 +2686,20 @@ void TerrainGame::updateAndRenderBlobShadows() {
     // Object base: the player entity sits at its feet, everything else is
     // centered (base = center - halfY).
     if (b.objIndex == PLAYER_INDEX) halfY = 0.0F;
-    // The surface under the caster, not a bridge deck above it.
+    // What the blob lies on: the terrain and the roads, or the top of a solid
+    // object below the caster - the same receivers the projected patch takes
+    // (projCollectReceivers). Terrain alone was all this used to ask, so in a
+    // scene built from model floors (Showcase has no terrain) the ground came
+    // back as the void, every caster stood miles above it and the fade hid
+    // the blob on its first frame (docs/shadows.md, "A blob on a model floor").
+    // The surface under the caster, not a bridge deck above it (maxY).
     const float casterBase = d.position[1] - halfY;
-    const float ground = groundSurfaceAt(cx, cz, casterBase + 0.5F);
+    float blobReach = shapeHx > shapeHz ? shapeHx : shapeHz;
+    if (r > blobReach) blobReach = r;
+    blobReach += 0.5F;
+    projCollectReceivers(cx, cz, blobReach, casterBase + 0.35F);
+    const bool onObjects = !g_projRecv.empty();
+    const float ground = projSurfaceAt(cx, cz, casterBase + 0.5F);
     const float h = casterBase - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
     // NOT the day/night handover fade (daynight::g_shadowFade), which the
@@ -2529,7 +2733,9 @@ void TerrainGame::updateAndRenderBlobShadows() {
     auto receiver = [&](float lx, float lz) {
       const float x = cx + lx * cy + lz * sy;
       const float z = cz - lx * sy + lz * cy;
-      return Vec4(x, groundSurfaceAt(x, z, casterBase + 0.5F) + lift, z, 1.0F);
+      return Vec4(x, (onObjects ? projSurfaceAt(x, z, casterBase + 0.5F)
+                                : groundSurfaceAt(x, z, casterBase + 0.5F)) + lift,
+                  z, 1.0F);
     };
     // A 3x3 cell patch has only 4x4 unique corners. groundSurfaceAt also
     // searches road/junction chunks and their triangles, so rebuilding the
@@ -2545,6 +2751,10 @@ void TerrainGame::updateAndRenderBlobShadows() {
         grid[iz][ix] = receiver(lx, lz);
       }
     }
+    // The road-step lift measures each corner against the TERRAIN under it;
+    // over an object's top that "step" is the object's height, and the lift
+    // would drag the neighbouring ground corners up to it.
+    if (!onObjects) liftLatticeOverRoadStep(&grid[0][0], kCells + 1, kCells + 1);
     int bv = 0;
     for (int iz = 0; iz < kCells; ++iz) {
       for (int ix = 0; ix < kCells; ++ix) {
@@ -2559,7 +2769,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
     }
     b.color.a = 60.0F * fade;
     b.bag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
   }
 }
 
@@ -2572,6 +2782,8 @@ void TerrainGame::updateAndRenderBlobShadows() {
 // nearest `slots` of them render each frame.
 void TerrainGame::setupProjShadows() {
   projShadows.clear();
+  Tyra::Vif1Queue::drain();  // no reader may still hold a cached clamp copy
+  projClampCache.clear();
   projCasters.clear();
   if (!PROJ_SHADOWS_USED) return;
   // The per-object mode overrides the flag both ways: 3 casts a silhouette
@@ -2965,6 +3177,7 @@ void TerrainGame::setFlashSpotOff(int obj, bool spot) {
               PipelineInfoBagFrustumCulling_Precise;
           batchNoSpotInfoBag->fullClipChecks = true;
           batchNoSpotInfoBag->spotLit = false;
+          batchNoSpotInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
         }
         sb->bag->info = batchNoSpotInfoBag.get();
       }
@@ -3011,6 +3224,7 @@ void TerrainGame::setDynLightSkip(int obj, int slot) {
             batchSkipInfoBag->frustumCulling =
                 PipelineInfoBagFrustumCulling_Precise;
             batchSkipInfoBag->fullClipChecks = true;
+            batchSkipInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
           }
           // One spot carves per frame, so one bag serves every lone batch.
           batchSkipInfoBag->dynLightSkipSlot = slot;
@@ -3025,8 +3239,8 @@ void TerrainGame::setDynLightSkip(int obj, int slot) {
 
 
 
-float TerrainGame::projSurfaceAt(float x, float z) {
-  float best = groundSurfaceAt(x, z);
+float TerrainGame::projSurfaceAt(float x, float z, float maxY) {
+  float best = groundSurfaceAt(x, z, maxY);
   for (const ProjRecv& r : g_projRecv) {
     if (r.top <= best) continue;
     if (x < r.minX || x > r.maxX || z < r.minZ || z > r.maxZ) continue;
@@ -3153,12 +3367,64 @@ void TerrainGame::renderProjShadows() {
       // the yard's log, again - and a caster you cannot see holding one of
       // four slots is the wrong trade even when a sliver of its shadow could
       // enter the frame.
-      const float reach = r * 1.5F;
-      const float fwd = dx * cfx + dy * cfy + dz * cfz;
-      if (fwd < -reach) continue;  // behind the camera
-      const float lat2 = d2 - fwd * fwd;
-      const float lim = (fwd > 0.0F ? fwd : 0.0F) * 1.6F + reach;  // ~58 deg
-      if (lat2 > lim * lim) continue;  // beside the frame
+      auto inView = [&](float px, float py, float pz, float reach) {
+        const float vx = px - cameraPosition.x, vy = py - cameraPosition.y,
+                    vz = pz - cameraPosition.z;
+        const float fwd = vx * cfx + vy * cfy + vz * cfz;
+        if (fwd < -reach) return false;  // behind the camera
+        const float lat2 = vx * vx + vy * vy + vz * vz - fwd * fwd;
+        const float lim = (fwd > 0.0F ? fwd : 0.0F) * 1.6F + reach;  // ~58 deg
+        return lat2 <= lim * lim;  // not beside the frame
+      };
+      // ...or one of its SHADOWS is. A low lamp or moon lays the silhouette up
+      // to 3.5 radii away from the caster, so walking past an obelisk turned
+      // it out of the frame while the shadow the street lamp threw from it
+      // still lay across the screen - and the shadow switched off
+      // mid-picture ("I walk forward and the shadow suddenly vanishes",
+      // examples/lighting). Each footprint is the one the slot below lays:
+      // the ray from the light through the centre down to the ground, the
+      // walk capped at the patch, the patch's own half size. Still honest
+      // about the yard's case: a caster behind the camera whose shadows lie
+      // behind it as well qualifies for nothing.
+      bool visible = inView(ccx, ccy, ccz, r * 1.5F);
+      const float cap = r * 3.5F;
+      float groundY = 0.0F;
+      bool haveGround = false;
+      // dirX/Y/Z: the shadow ray's direction (down, away from the light).
+      auto footprintInView = [&](float dirX, float dirY, float dirZ,
+                                 bool sun, float eDist) {
+        if (dirY > -0.0001F) return false;  // level or upward: no ground
+        if (!haveGround) groundY = groundSurfaceAt(ccx, ccz), haveGround = true;
+        float t = (ccy - groundY) / -dirY;
+        if (t < 0.0F) t = 0.0F;
+        const float hl = sqrtf(dirX * dirX + dirZ * dirZ);
+        if (hl * t > cap) t = cap / hl;
+        float half = sun ? r * 1.6F + t * 0.25F
+                         : r * 1.7F * ((eDist + t) / eDist);
+        if (half > cap) half = cap;
+        return inView(ccx + dirX * t, groundY, ccz + dirZ * t, half);
+      };
+      if (!visible && sunScore > 0.0F)
+        visible = footprintInView(-sxd, -syd, -szd, true, 1.0F);
+      auto lightInView = [&](float lx, float ly, float lz, float radius) {
+        const float lx2 = ccx - lx, ly2 = ccy - ly, lz2 = ccz - lz;
+        const float ld = sqrtf(lx2 * lx2 + ly2 * ly2 + lz2 * lz2);
+        if (ld < 0.05F || ld >= radius) return false;  // out of its reach
+        return footprintInView(lx2 / ld, ly2 / ld, lz2 / ld, false, ld);
+      };
+      for (const DynLightRt& L : g_dynLights) {
+        if (visible) break;
+        if (L.lastLevel <= 0.0F || L.objIndex >= (int)runtimeObjects.size())
+          continue;
+        const SceneObjectData& ld = runtimeObjects[L.objIndex].data;
+        visible = lightInView(ld.position[0], ld.position[1], ld.position[2],
+                              ld.lightRadius);
+      }
+      for (const BakedPointLight& L : g_scenePointLights) {
+        if (visible) break;
+        visible = lightInView(L.pos.x, L.pos.y, L.pos.z, L.radius);
+      }
+      if (!visible) continue;
       cands.push_back({i, d2, sqrtf(d2) / (r > 0.5F ? r : 0.5F)});
     }
   }
@@ -3448,7 +3714,16 @@ void TerrainGame::renderProjShadows() {
     // light you stand next to can still outbid it through its falloff term.
     // (Volumes mode carries the torch's shadows in the destination alpha
     // instead - the slots stay free for the scene's own lights there.)
-    if (!FLASH_SHADOW_VOLUMES && g_flashEnabled &&
+    // A torch held IN the eye does not compete at all. Its silhouette lands
+    // exactly behind the caster on screen, so winning the slot drew nothing
+    // anyone can see and took the lamp's shadow away with it: "I shine the
+    // torch into the shadow and it disappears" (examples/lighting, whose
+    // torch sat at 0,0). Off the eye it casts as before.
+    const bool torchOffEye =
+        FLASHLIGHT_OFF_RIGHT * FLASHLIGHT_OFF_RIGHT +
+            FLASHLIGHT_OFF_DOWN * FLASHLIGHT_OFF_DOWN >
+        0.05F * 0.05F;
+    if (!FLASH_SHADOW_VOLUMES && torchOffEye && g_flashEnabled &&
         g_flashOn) {
       const float tx2 = cx - torchPos.x, ty2 = cy - torchPos.y,
                   tz2 = cz - torchPos.z;
@@ -3598,7 +3873,6 @@ void TerrainGame::renderProjShadows() {
     // its underground part, a mesh's underground part flattens to a sliver
     // at floor level. Read the bag's own pointer, not part.vertices - a LOD
     // tier re-aims it.
-    static BagArray<Vec4> projClamp;
     auto renderAtFloor = [&](StaPipBag* bag) {
       if (!bag || !bag->vertices || bag->count == 0) return;
       // A shared instance's bag holds MODEL-space vertices under objMat
@@ -3621,22 +3895,47 @@ void TerrainGame::renderProjShadows() {
           }
         }
       if (!below) {
-        stapip.core.render(bag);
+        renderWorldBag(bag);
         return;
       }
-      // One shared buffer for every part of every caster, handed to the
-      // pipeline by REFERENCE: the previous part's DMA may still be reading it
-      // when the next part overwrites it (assign() may even reallocate under
-      // the transfer). Only the shadow-slot brackets fence this; between two
-      // parts of one caster nothing does, so wait for the readers first -
-      // ALL of them: with the engine's VIF1 queue a plain channel wait can
-      // return while chains are still queued (vif1_queue.hpp).
-      Tyra::Vif1Queue::drain();
-      projClamp.assign(bag->vertices, bag->vertices + bag->count);
-      if (sharedCaster)
-        for (Vec4& v : projClamp) v = g.objMat * v;
-      for (Vec4& v : projClamp)
-        if (v.y < gy0) v.y = gy0;
+      // ONE CLAMPED COPY PER CASTER BAG, kept between frames. It used to be
+      // one buffer shared by every part of every caster, so rewriting it for
+      // the next part needed every reader gone: Vif1Queue::drain() - with the
+      // VIF1 queue and the frame pipeline that is the whole frame so far. On
+      // Showcase (a patrolling 1 000-triangle caster) that drain was ~20 ms of
+      // a 34 ms frame on a physical PS2 (docs/shadows.md, "The clamp buffer
+      // is per caster"). A bag draws its copy once per frame, and nothing
+      // from the previous frame still reads it when the next one rewrites it
+      // (the pipelined frame snapshots mutable REF payloads into its bank at
+      // submit; without the pipeline the frame ends on a GS finish), so the
+      // copy is rewritten in place with no wait. Only a size change - which
+      // reallocates - still drains. A still caster also keeps its bytes and
+      // its bbox stamp, so its baked stream is not re-built every frame.
+      // A shared instance's bag is the MODEL's, drawn by every copy under its
+      // own matrix, so its copy is keyed by the instance too and made in
+      // world space through that instance's objMat (docs/instance-sharing.md).
+      ProjClampEntry& ce =
+          projClampCache[{bag, sharedCaster ? static_cast<const void*>(&g) : nullptr}];
+      const u32 content = bag->contentVersion ? *bag->contentVersion : 0U;
+      if (ce.src != bag->vertices || ce.count != bag->count ||
+          ce.bbox != bag->bboxVersion || ce.content != content ||
+          ce.floorY != gy0 || ce.arr.empty() ||
+          (sharedCaster && !std::equal(om, om + 16, ce.mat))) {
+        if (ce.arr.size() != bag->count) Tyra::Vif1Queue::drain();
+        ce.arr.assign(bag->vertices, bag->vertices + bag->count);
+        if (sharedCaster)
+          for (Vec4& v : ce.arr) v = g.objMat * v;
+        for (Vec4& v : ce.arr)
+          if (v.y < gy0) v.y = gy0;
+        ce.src = bag->vertices;
+        ce.count = bag->count;
+        ce.bbox = bag->bboxVersion;
+        ce.content = content;
+        ce.floorY = gy0;
+        if (sharedCaster) std::copy(om, om + 16, ce.mat);
+        ce.stamp = ++g_bboxStamp;
+      }
+      BagArray<Vec4>& projClamp = ce.arr;
       // (the info bag is the base pass's, shared with the silhouette bag -
       // swapped to the identity for this submit and handed straight back)
       M4x4* const keepModel = bag->info->model;
@@ -3653,8 +3952,8 @@ void TerrainGame::renderProjShadows() {
       const unsigned int* const keepContent = bag->contentVersion;
       projClamp.bind(bag);
       bag->count = static_cast<u32>(projClamp.size());
-      bag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(bag);
+      bag->bboxVersion = ce.stamp;
+      renderWorldBag(bag);
       bag->vertices = keepVerts;
       bag->contentVersion = keepContent;
       bag->bboxVersion = keepStamp;
@@ -3972,7 +4271,7 @@ void TerrainGame::renderProjShadows() {
     b.wallBag->count = (u32)b.wallVerts.size();
     b.wallSts.bind(b.wallTexBag);
     b.wallBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.wallBag.get());
+    renderWorldBag(b.wallBag.get());
     b.barren = 0;  // this slot is earning its keep
     } while (0);
     if (half < 0.01F) continue;  // a flat torch ray: wall only
@@ -4098,7 +4397,7 @@ void TerrainGame::renderProjShadows() {
     // (see updateAndRenderBlobShadows and ambience::Resolved::shadowFade).
     b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
     b.barren = 0;
 
   }
@@ -4141,11 +4440,16 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
   const bool keep = TYRA_BEAMS_KEEP != 0;
   static std::vector<Vec4> kCoronaV, kCoronaS, kConeV;
   static std::vector<Color> kCoronaC, kConeC;
+  static std::vector<Vec4> kBbC, kBbW;  // TYRA_BEAM_CORONA_VU1 billboards
+  static std::vector<Color> kBbK;
   kCoronaV.clear();
   kCoronaS.clear();
   kCoronaC.clear();
   kConeV.clear();
   kConeC.clear();
+  kBbC.clear();
+  kBbW.clear();
+  kBbK.clear();
   if (!keep) {
     bb.coronaVerts.clear();
     bb.coronaSts.clear();
@@ -4236,6 +4540,16 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
           out = true;
       if (out) continue;
     }
+    if (TYRA_BEAM_CORONA_VU1) {
+      // One billboard per lamp: the pulled centre, a basis weight that scales
+      // the camera right/up by chalf - corner = C +/- R*chalf +/- U*chalf,
+      // the four corners the EE quad below would have built - and the colour.
+      const float kb = k > 1.0F ? 1.0F : k;
+      kBbC.push_back(Vec4(pcx, pcy, pcz, 1.0F));
+      kBbW.push_back(Vec4(chalf, 0.0F, 0.0F, chalf));
+      kBbK.push_back(Color(128.0F * d.color[0] * kb, 128.0F * d.color[1] * kb,
+                           128.0F * d.color[2] * kb, 128.0F));
+    } else {
     const Vec4 corners[4] = {
         Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
              pcz + (-rz - uz) * chalf, 1.0F),
@@ -4268,6 +4582,9 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
       bb.coronaSts.push_back(cb.coronaSts[v]);
       bb.coronaColors.push_back(cc);
     }
+    }  // !TYRA_BEAM_CORONA_VU1
+    const float kk = k > 1.0F ? 1.0F : k;
+    const LightBeam& cb = b;  // read-only: no content stamp on the sources
 
     if (b.kind == 2 && b.coneBag &&
         (!adaptiveReduced || beamDistance <= d.lightRadius * 8.0F)) {
@@ -4322,6 +4639,29 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     }
   }
 
+  // The coronas as VU1 billboards: written only where a byte changed (a
+  // still camera over steady lamps rewrites nothing), the camera basis rides
+  // as a per-mesh upload. Same reserve-then-resize rule as the arrays below.
+  if (TYRA_BEAM_CORONA_VU1 && !kBbC.empty()) {
+    auto bbWrite = [](auto& arr, const auto& src) {
+      bool wrote = false;
+      if (arr.size() != src.size()) {
+        arr.resize(src.size());
+        wrote = true;
+      }
+      return bagWriteIfChanged(arr, 0, src.data(), src.size()) || wrote;
+    };
+    bbWrite(bb.bbCenters, kBbC);
+    bbWrite(bb.bbWeights, kBbW);
+    bbWrite(bb.bbColors, kBbK);
+    bb.bbCenters.bind(bb.bbBag);
+    bb.bbWeights.bind(bb.bbTexBag);
+    bb.bbColors.bind(bb.bbColorBag);
+    bb.bbBag->count = (u32)bb.bbCenters.size();
+    bb.bbBasis->right = Vec4(rx, ry, rz, 0.0F);
+    bb.bbBasis->up = Vec4(ux, uy, uz, 0.0F);
+    renderWorldBag(bb.bbBag.get());
+  }
   if (keep) {
     // Resizing stays inside the capacity beamBatchForCall reserved, so the
     // arrays never move under a stream the VIF may still be reading. A
@@ -4343,7 +4683,7 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
       bb.coronaSts.bind(bb.coronaTexBag);
       bb.coronaColors.bind(bb.coronaColorBag);
       if (cw) bb.coronaBag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(bb.coronaBag.get());
+      renderWorldBag(bb.coronaBag.get());
     }
     bool nw = keepWrite(bb.coneVerts, kConeV);
     nw = keepWrite(bb.coneColors, kConeC) || nw;
@@ -4351,7 +4691,7 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
       bb.coneVerts.bind(bb.coneBag);
       bb.coneColors.bind(bb.coneColorBag);
       if (nw) bb.coneBag->bboxVersion = ++g_bboxStamp;
-      stapip.core.render(bb.coneBag.get());
+      renderWorldBag(bb.coneBag.get());
     }
     return;
   }
@@ -4363,13 +4703,13 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
     bb.coronaSts.bind(bb.coronaTexBag);
     bb.coronaColors.bind(bb.coronaColorBag);
     bb.coronaBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(bb.coronaBag.get());
+    renderWorldBag(bb.coronaBag.get());
   }
   if (!bb.coneVerts.empty()) {
     bb.coneVerts.bind(bb.coneBag);
     bb.coneColors.bind(bb.coneColorBag);
     bb.coneBag->bboxVersion = ++g_bboxStamp;
-    stapip.core.render(bb.coneBag.get());
+    renderWorldBag(bb.coneBag.get());
   }
 }
 

@@ -3,13 +3,15 @@
 
 namespace Cube {
 
-inline constexpr int MODEL_COUNT = 0;
+inline constexpr int MODEL_COUNT = 2;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
+    "models/cube-room.tmdl",
+    "models/cube-room-lod.tmdl",
 };
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "",
     "",
 };
 // The AUTHORED asset path each slot was baked from ("res/models/x.obj").
@@ -17,9 +19,10 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 // resolves its asset pool against, because a graph names assets the
 // way the editor does and the console only has baked .tmdl names.
 inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
+    "res/models/cube-room.obj",
+    "res/models/cube-room-lod.obj",
 };
-inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
+inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false};
 
 inline constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
@@ -53,7 +56,7 @@ inline const PhysHullData PHYS_HULLS[PHYS_HULL_COUNT > 0 ? PHYS_HULL_COUNT : 1] 
 inline const float PHYS_HULL_VERTS[1] = {0.0F};
 inline const float PHYS_HULL_PLANES[1] = {0.0F};
 // PHYS_HULLS slot per MODEL_PATHS slot (-1 = collide as the mesh box)
-inline const short MODEL_PHYS_HULL[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {-1};
+inline const short MODEL_PHYS_HULL[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {-1, -1};
 // unit box, cylinder, cone, plane
 inline const short PHYS_PRIM_HULL[4] = {-1, -1, -1, -1};
 

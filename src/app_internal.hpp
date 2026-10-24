@@ -13,7 +13,9 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -21,6 +23,8 @@
 #include <system_error>
 
 #include <imgui.h>
+
+#include "widgets.hpp"
 
 #include "platform.hpp"
 
@@ -104,6 +108,16 @@ inline std::string sanitizeAssetName(const std::string& fileName) {
     return out;
 }
 
+// Meters per file unit for the unit presets the model-size dialogs offer
+// (the import window and Model size).
+inline constexpr float kUnitPresetMeters[3] = {1.0f, 0.01f, 0.0254f};
+// Which preset a stored size matches (3 = none of them, "Custom").
+inline int unitPresetIndex(float meters) {
+    for (int i = 0; i < 3; ++i)
+        if (std::fabs(meters - kUnitPresetMeters[i]) < 1e-6f) return i;
+    return 3;
+}
+
 // Size of a file in bytes, or 0 when it is absent/unreadable (a deleted or
 // not-yet-written log reads as 0 - which is exactly the "shrank" signal the
 // game-error catcher wants).
@@ -133,7 +147,7 @@ inline std::string readTextFileTail(const std::string& path, size_t maxBytes) {
     return data;
 }
 
-// ImGui's own std::string bridge (vendor/imgui/misc/cpp/imgui_stdlib.cpp is
+// ImGui's own std::string bridge (imgui_stdlib.cpp from upstream misc/ is
 // not in the build): the widget writes into the string's own buffer and asks
 // for a bigger one through this callback, so the field has no length limit.
 inline int growString(ImGuiInputTextCallbackData* d) {
@@ -191,7 +205,11 @@ inline void inputTextProse(const char* id, std::string& value, bool* changed,
 // that reveals its explanation on hover, instead of unrolling a multi-paragraph
 // description inline. Keeps the dense Preferences dialogs from running several
 // screens tall - the same idiom the Layers list already uses.
+// Inside the Properties panel's label-left rows the help goes on the row's
+// caption instead (ui::RowHelp: dotted underline + hover), so a field can fill
+// the row without a marker being pushed off its end.
 inline void prefHelp(const char* tip) {
+    if (ui::RowHelp(tip)) return;
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
@@ -231,13 +249,19 @@ inline bool walkSpeedDrag(const char* label, float& stored, float ups,
     // cross it makes every adjustment near 5 jump), so the drag is
     // LOGARITHMIC: it moves by a fraction of the current value, which is the
     // same feel at 0.5 and at 50. Ctrl+click still types an exact number.
+    //
+    // A caption-left inspector row like every other field (ui::DragFloat); the
+    // metric equivalent rides in the field's own text, so nothing trails it.
+    char fmt[64], probe[96];
+    snprintf(fmt, sizeof fmt, "%%.2f units/s  \xC2\xB7  %.2f m/s", perSec / (ups > 0.0001f ? ups : 1.0f));
+    snprintf(probe, sizeof probe, fmt, perSec);
+    if (ImGui::CalcTextSize(probe).x >
+        ImGui::GetContentRegionAvail().x * 0.66f - ImGui::GetStyle().FramePadding.x * 2.0f)
+        snprintf(fmt, sizeof fmt, "%%.2f units/s");
     const bool changed =
-        ImGui::DragFloat(label, &perSec, 0.05f, 0.01f, 500.0f, "%.2f units/s",
-                         ImGuiSliderFlags_Logarithmic);
+        ui::DragFloat(label, &perSec, 0.05f, 0.01f, 500.0f, fmt, ImGuiSliderFlags_Logarithmic);
     if (changed) stored = perSec / 50.0f;
     if (committed) *committed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SameLine();
-    ImGui::TextDisabled("= %.2f m/s", perSec / (ups > 0.0001f ? ups : 1.0f));
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(
             "Metres from Preferences > World > Units per meter (now %.3f).\n"
@@ -267,17 +291,34 @@ inline bool speedTierDrag(const char* label, float& stored, float inherited,
     // The format string carries the source note when the tier is unset. ImGui
     // prints a format with no second specifier verbatim, so this stays one
     // widget rather than a drag plus a label that would wrap differently.
-    char fmt[64];
-    if (autoValue)
-        snprintf(fmt, sizeof fmt, "%%.2f units/s  (%s)", note);
-    else
-        snprintf(fmt, sizeof fmt, "%%.2f units/s");
-    const bool changed = ImGui::DragFloat(label, &perSec, 0.05f, 0.01f, 500.0f,
-                                          fmt, ImGuiSliderFlags_Logarithmic);
+    // A caption-left inspector row (ui::DragFloat) with the metric equivalent
+    // in the field's text; an explicit tier's "Auto" button gets room on the
+    // right of the field (ui::SetNextRowFieldTrim).
+    //
+    // A narrow panel drops the pieces from the end - the source note, then the
+    // metres - rather than cutting the number off; the hover says it all.
+    const float metres = perSec / (ups > 0.0001f ? ups : 1.0f);
+    const float trim = autoValue ? 0.0f
+                                 : ImGui::CalcTextSize("Auto").x + ImGui::GetStyle().FramePadding.x * 2.0f +
+                                       ImGui::GetStyle().ItemSpacing.x;
+    const float fieldW = ImGui::GetContentRegionAvail().x * 0.66f - trim - ImGui::GetStyle().FramePadding.x * 2.0f;
+    char fmt[96], probe[128];
+    snprintf(fmt, sizeof fmt, "%%.2f units/s  \xC2\xB7  %.2f m/s  (%s)", metres, autoValue ? note : "");
+    if (!autoValue) snprintf(fmt, sizeof fmt, "%%.2f units/s  \xC2\xB7  %.2f m/s", metres);
+    snprintf(probe, sizeof probe, fmt, perSec);
+    if (ImGui::CalcTextSize(probe).x > fieldW) {
+        snprintf(fmt, sizeof fmt, "%%.2f units/s  \xC2\xB7  %.2f m/s", metres);
+        snprintf(probe, sizeof probe, fmt, perSec);
+        if (ImGui::CalcTextSize(probe).x > fieldW) snprintf(fmt, sizeof fmt, "%%.2f units/s");
+    }
+    if (!autoValue) ui::SetNextRowFieldTrim(trim);
+    const bool changed = ui::DragFloat(label, &perSec, 0.05f, 0.01f, 500.0f,
+                                       fmt, ImGuiSliderFlags_Logarithmic);
     if (changed) stored = perSec / 50.0f;  // editing makes the tier explicit
     if (committed) *committed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SameLine();
-    ImGui::TextDisabled("= %.2f m/s", perSec / (ups > 0.0001f ? ups : 1.0f));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("%.2f units/s = %.2f m/s%s%s%s", perSec, metres, autoValue ? " (" : "",
+                          autoValue ? note : "", autoValue ? ")" : "");
     if (!autoValue) {
         ImGui::SameLine();
         // The label is what --ui-script targets, so it stays a real word and
@@ -291,4 +332,16 @@ inline bool speedTierDrag(const char* label, float& stored, float inherited,
             ImGui::SetTooltip("Clear this tier back to %s.", note);
     }
     return changed;
+}
+
+// PS2 SPU2 has 2 MB of sample RAM; audsrv places the first sample at 0x5010
+// and reverb work areas come off the top. The game keeps the shared sounds
+// plus the running scene's own in it (templates::soundResidency) - a sample
+// that does not fit fails to load and plays nothing. adpenc packs 28 samples
+// into 16 bytes, so ADPCM is ~2/7 of the 16-bit PCM data; that lets us
+// estimate the SPU2 footprint from the WAV file size and warn before a build
+// silently drops it.
+inline constexpr uintmax_t kSpu2SampleBudgetBytes = 2u * 1024 * 1024 - 0x5010;
+inline uintmax_t estimateAdpcmBytes(uintmax_t wavFileBytes) {
+    return wavFileBytes * 2 / 7;
 }

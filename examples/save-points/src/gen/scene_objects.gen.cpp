@@ -23,6 +23,7 @@ const SceneObjectData SCENE_0_OBJECTS[14] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {14};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[14] = {0xa665db330a71d5eaULL, 0xef805fc6c9f2a0caULL, 0xef765fc6c9ea4c45ULL, 0xe81736c6c61b8467ULL, 0xe81336c6c6179b90ULL, 0xdf080dc6c0dd5de0ULL, 0xdf0c0dc6c0e146b7ULL, 0x2ccbe341f05f6a95ULL, 0x2cd5e341f067bf1aULL, 0x2cd1e341f063d643ULL, 0x2cdbe341f06c2ac8ULL, 0xcd47bbc6b6aff256ULL, 0xcd3dbbc6b6a79dd1ULL, 0xc42a92c6b1658e73ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[14] = {1,0,1,0,1,0,1,0,0,0,0,1,0,0};
 
 }  // namespace Save_points
 

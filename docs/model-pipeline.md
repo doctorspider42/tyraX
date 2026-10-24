@@ -1,5 +1,11 @@
 # Static models: the .tmdl pipeline and mesh LOD
 
+The October 7 strip audit inventories
+the actual city assets and tests compact batch-run padding on PS2. Most static
+parts already have strips; 12% fewer resident batch vertices produce only a
+0.016 ms observed stationary daylight work contrast. The candidate remains
+private, with no production stripifier or generated-runtime change.
+
 ![Browsing model assets before placing them](img/asset-browser.png)
 
 You author static geometry as `.obj` and nothing about that changes. What
@@ -671,9 +677,9 @@ z-fighting, and it will re-shuffle any that a scene already has.
   RAM anyway. Memory use is unchanged; you trade disc space for load time.
 - **Nothing to configure.** There is no switch: a static model referenced by
   a scene object is compiled.
-- **An `.obj` carries no unit**, so the importer asks for one (the **Model
-  size** dialog, and the **Size...** button next to the model in the Assets
-  list afterwards). It records how many meters one unit of the file measures;
+- **An `.obj` carries no unit**, so the importer asks for one (the import
+  window's unit next to **Real height**, and the **Real size** row of the Asset
+  Browser's Build settings afterwards). It records how many meters one unit of the file measures;
   combined with the project's world scale that is the scale objects made from
   the model are inserted at. The file itself is never rewritten - see
   docs/world-scale.md.
@@ -683,7 +689,7 @@ z-fighting, and it will re-shuffle any that a scene already has.
 
 ## Mesh LOD: fewer triangles far away
 
-**Project > Preferences > Rendering > Mesh LOD distance** turns distance
+**Project > Preferences > Graphics > Mesh LOD distance** turns distance
 levels on for the whole project (`off` = no levels at all). An object farther
 from the camera than the distance renders a reduced mesh, and past twice the
 distance a further reduced one. This used to apply only to animated models,
@@ -714,6 +720,34 @@ nothing. This is why `off` bakes nothing at all.
 If you can see the switch from a normal gameplay camera, the distance is too
 short. The editor viewport always shows the full mesh.
 
+### LOD distance is measured to the box
+
+Since 1.177.12 a static model picks its level by the distance from the camera
+to the **nearest point of its world bounding box**, not to its origin. The
+box is the one the whole-model frustum test already keeps (built once from
+the full mesh), so the change costs three comparisons per object. A physics
+body on the matrix path keeps the origin distance, because its box is in
+its own space.
+
+The origin distance was wrong for anything big enough to stand on. In
+Showcase, the east promenade is a 12 × 34-unit slab, and its origin is 15
+units away while the camera stands at its far end. The far level was drawn
+under the player's feet and swapped back to the full mesh two steps later.
+The swap was visible as lighting, not shape. Models are lit per vertex (GI
+probes, baked lamps), and the slab's top is a 2-unit grid that exists only to
+carry that light. The quadric collapse counts a flat grid as free to remove
+and reduced it to a few long triangles across the walkway. Those triangles
+sample the probes at different points, so the floor brightness jumped from
+64 to 41, and the soft shading from the cypress rows vanished. Measured on a
+PS2 and in PCSX2 with a fixed camera path; after the change the same path
+reads 46.3 / 46.4 across the old switch point, and every other frame is
+unchanged.
+
+The general rule for your own scenes: a big floor, road or terrace is now on
+its full mesh whenever you are on or near it. It goes to a reduced level only
+when all of it is past the distance, where a lighting change is far smaller
+on screen.
+
 ## Your own LOD meshes
 
 Automatic decimation is a quadric-error collapse: it protects UV seams and
@@ -722,7 +756,8 @@ anything - which also means some models barely shrink. When you want control,
 model the levels yourself.
 
 In the **Asset Browser** (*Tools > Asset Browser*), a selected model has a
-**LOD...** button in the inspector:
+**LOD** row in the inspector's Build settings (*Automatic* or the number of
+custom levels; click it to change them):
 
 - **Level 1** shows past the mesh LOD distance, **Level 2** past twice it.
 - Pick any other `.obj` in the project (the list shows each candidate's
@@ -787,7 +822,8 @@ under 1200` and casts its bounding sub-boxes, as every big model used to.
 The Asset Browser shows the same models it can read.
 
 **A level never seems to show.** Distances are measured from the camera to
-the object's center, in world units - the same units as object positions. A
+the nearest point of the object's bounding box (to the center for a moving
+physics body), in world units - the same units as object positions. A
 level also needs to have been produced: with the project preference `off`,
 only objects whose own override is above zero get levels.
 

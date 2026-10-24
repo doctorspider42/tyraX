@@ -94,8 +94,23 @@ const char* kMembers = R"RSMEM(  // --- road streaming (docs/roads.md "Road stre
     float arc = 0.0F, px = 0.0F, pz = 0.0F;  // strip: the arc state before that station
     int verts = 0;           // vertices the item makes (planned)
     int chunk = -1;          // its procChunks index while resident
+    // strip: the stations its bands span (rows to rebuild), and its slice of
+    // the road's band plan in rsPlanBytes_ (bands + 1 kept stations)
+    int rows = 0, planAt = 0, bands = 0;
   };
   mutable std::vector<RsItem> rsItems_;
+  // The plan pass's per-station resume state for the road being planned
+  // (the station before which a replay restarts the arc integration).
+  struct RsStation {
+    int seg, k;
+    float arc, x, z;
+  };
+  std::vector<RsStation> rsStations_;
+  // Every strip item's slice of its road's band plan (roadPlanBands), packed:
+  // per kept station its distance from the previous one, its kept-sample
+  // count, then the samples. The plan is a fixpoint over the WHOLE road, so a
+  // replay of one chunk reads it instead of planning again.
+  std::vector<unsigned char> rsPlanBytes_;
   std::vector<RsBox> rsBoxes_;
   std::vector<unsigned char> rsOn_;       // resident, per item
   std::vector<RsLocalIndex> rsIndex_;     // per item: its height index while resident
@@ -167,6 +182,9 @@ Tyra::Texture* TerrainGame::roadStreamTexture(int tex) {
   return roadTextures_[tex];
 }
 
+// The band planner buildRoads' tessellator calls (docs/roads.md "Bands"),
+// cut from the non-streaming build: a streaming project emits no buildRoads.
+{{PLANNER}}
 // One road's strip chunks: buildRoads' own tessellator. item < 0 PLANS the
 // whole road (every chunk into rsScratch_, recorded as an item with its
 // resume state); item >= 0 REPLAYS that one chunk into procChunks[rsTarget_]
@@ -184,7 +202,6 @@ bool TerrainGame::roadStreamOpen(ProcChunk*& c, int item, int ri, int seg, int k
     c = &procChunks[(size_t)rsTarget_];
     return true;
   }
-  if (c) roadStreamPlanClose();
   RsItem it;
   it.kind = RS_STRIP;
   it.a = ri;
@@ -301,6 +318,7 @@ void TerrainGame::roadStreamSetup(int scene) {
       procColliders.erase(procColliders.begin() + (i - 1));
   if (erased) roadStreamRebindAll();
   rsItems_.clear();
+  rsPlanBytes_.clear();
   rsBoxes_.clear();
   rsOn_.clear();
   rsIndex_.clear();
@@ -1231,6 +1249,12 @@ Emitted emit(const Sources& src, const Params& prm) {
     // grey every road vertex carries, `any`).
     const std::string prologue = cut.between(R, "  const unsigned int stripRun = 75u;\n",
                                              "  bool any = false;\n", true, "buildRoads prologue");
+    // The band planner (RoadRowV, RoadPlan, roadPlanBands, roadZipper, ...):
+    // file-scope helpers buildRoads calls, which a streaming build has no
+    // other copy of.
+    const std::string planner =
+        cut.between(R, "// One sample of a road's dense lateral grid - roadgen::Vertex's twin.\n",
+                    "// ---- end of the twin block ----\n", true, "band planner");
     // One road's tessellation: the body of buildRoads' per-road loop.
     std::string body = cut.between(R, "    const RoadDefRt& rd = ROAD_DEFS[ri];\n",
                                    "    // This road's last chunk still has an open run.\n"
@@ -1245,21 +1269,21 @@ Emitted emit(const Sources& src, const Params& prm) {
                     "    for (int seg = 0; seg < n - 1; ++seg) {\n",
                     "    float arc = 0.0F, prevX = 0.0F, prevZ = 0.0F;\n"
                     "    sampleAt(0, 0.0F, &prevX, &prevZ);\n"
-                    "    // ROAD STREAMING: a replay resumes at the station BEFORE its chunk's\n"
-                    "    // first span, with the arc state that station started from - the\n"
-                    "    // state the plan pass recorded there. That station emits no span\n"
-                    "    // (havePrev is still false), it only rebuilds the row the span needs.\n"
-                    "    int rsSeg0 = 0, rsK0 = 0;\n"
+                    "    // ROAD STREAMING: a replay rebuilds only the rows its chunk's bands\n"
+                    "    // span, from its first kept station, with the arc state that station\n"
+                    "    // started from - the state the plan pass recorded there.\n"
+                    "    int rsSeg0 = 0, rsK0 = 0, rsRowCount = 0;\n"
                     "    if (item >= 0) {\n"
                     "      const RsItem& rsIt = rsItems_[(size_t)item];\n"
                     "      rsSeg0 = rsIt.b >> 16;\n"
                     "      rsK0 = rsIt.b & 0xFFFF;\n"
+                    "      rsRowCount = rsIt.rows;\n"
                     "      arc = rsIt.arc;\n"
                     "      prevX = rsIt.px;\n"
                     "      prevZ = rsIt.pz;\n"
+                    "    } else {\n"
+                    "      rsStations_.clear();\n"
                     "    }\n"
-                    "    int rsLastSeg = 0, rsLastK = 0;\n"
-                    "    float rsLastArc = 0.0F, rsLastX = prevX, rsLastZ = prevZ;\n"
                     "    for (int seg = rsSeg0; seg < n - 1; ++seg) {\n",
                     "station loop");
     body = cut.once(body,
@@ -1268,24 +1292,77 @@ Emitted emit(const Sources& src, const Params& prm) {
                     "        const int rsSeg = seg, rsK = k;\n"
                     "        const float rsArc = arc, rsX = prevX, rsZ = prevZ;\n",
                     "station step");
-    body = cut.once(body,
-                    "            closeChunk();\n"
-                    "            procChunks.push_back(ProcChunk());\n"
-                    "            c = &procChunks.back();\n",
-                    "            closeChunk();\n"
-                    "            if (!roadStreamOpen(c, item, ri, rsLastSeg, rsLastK, rsLastArc,\n"
-                    "                                rsLastX, rsLastZ))\n"
-                    "              return;\n",
-                    "chunk open");
-    body = cut.once(body, "        px0.swap(nx);\n",
-                    "        rsLastSeg = rsSeg;\n"
-                    "        rsLastK = rsK;\n"
-                    "        rsLastArc = rsArc;\n"
-                    "        rsLastX = rsX;\n"
-                    "        rsLastZ = rsZ;\n"
-                    "        px0.swap(nx);\n",
+    // Each row's resume state (plan), or the end of the replayed rows.
+    body = cut.once(body, "        rows.push_back(std::move(row));\n",
+                    "        rows.push_back(std::move(row));\n"
+                    "        if (item < 0) {\n"
+                    "          rsStations_.push_back(RsStation{rsSeg, rsK, rsArc, rsX, rsZ});\n"
+                    "        } else if ((int)rows.size() >= rsRowCount) {\n"
+                    "          seg = n;  // every row the chunk's bands span is built\n"
+                    "          break;\n"
+                    "        }\n",
                     "station end");
-    body += "    if (item < 0 && c) roadStreamPlanClose();\n";
+    // The band plan: planned over the whole road, read back for a replay.
+    body = cut.once(body,
+                    "    RoadPlan plan;\n"
+                    "    roadPlanBands(rows, rd.uInset > 0.0F ? 1 : 8, 0.01F, 0.01F, 0.006F, plan);\n",
+                    "    RoadPlan plan;\n"
+                    "    if (item < 0) {\n"
+                    "      roadPlanBands(rows, rd.uInset > 0.0F ? 1 : 8, 0.01F, 0.01F, 0.006F, plan);\n"
+                    "    } else {\n"
+                    "      const RsItem& rsIt = rsItems_[(size_t)item];\n"
+                    "      size_t rsAt = (size_t)rsIt.planAt;\n"
+                    "      plan.keep.assign(rows.size(), std::vector<int>());\n"
+                    "      int rsS = 0;\n"
+                    "      for (int q = 0; q <= rsIt.bands; ++q) {\n"
+                    "        rsS += rsPlanBytes_[rsAt++];\n"
+                    "        plan.stations.push_back(rsS);\n"
+                    "        const int rsN = rsPlanBytes_[rsAt++];\n"
+                    "        std::vector<int>& rsKeep = plan.keep[(size_t)rsS];\n"
+                    "        for (int m = 0; m < rsN; ++m) rsKeep.push_back(rsPlanBytes_[rsAt++]);\n"
+                    "      }\n"
+                    "    }\n"
+                    "    // The plan pass records each chunk's bands [rsBand0, end) with it.\n"
+                    "    int rsBand0 = 0;\n"
+                    "    auto rsSlice = [&](int bandEnd) {\n"
+                    "      RsItem& it = rsItems_.back();\n"
+                    "      const int s0 = plan.stations[(size_t)rsBand0];\n"
+                    "      it.planAt = (int)rsPlanBytes_.size();\n"
+                    "      it.bands = bandEnd - rsBand0;\n"
+                    "      it.rows = plan.stations[(size_t)bandEnd] - s0 + 1;\n"
+                    "      int last = s0;\n"
+                    "      for (int q = rsBand0; q <= bandEnd; ++q) {\n"
+                    "        const int s = plan.stations[(size_t)q];\n"
+                    "        rsPlanBytes_.push_back((unsigned char)(s - last));\n"
+                    "        last = s;\n"
+                    "        const std::vector<int>& kp = plan.keep[(size_t)s];\n"
+                    "        rsPlanBytes_.push_back((unsigned char)kp.size());\n"
+                    "        for (int m : kp) rsPlanBytes_.push_back((unsigned char)m);\n"
+                    "      }\n"
+                    "    };\n",
+                    "band plan");
+    body = cut.once(body,
+                    "        closeChunk();\n"
+                    "        procChunks.push_back(ProcChunk());\n"
+                    "        c = &procChunks.back();\n",
+                    "        closeChunk();\n"
+                    "        if (item >= 0) {\n"
+                    "          if (c) return;  // the replayed chunk is complete\n"
+                    "          c = &procChunks[(size_t)rsTarget_];\n"
+                    "        } else {\n"
+                    "          if (c) {\n"
+                    "            rsSlice((int)bs);\n"
+                    "            roadStreamPlanClose();\n"
+                    "          }\n"
+                    "          rsBand0 = (int)bs;\n"
+                    "          const RsStation& rsQ = rsStations_[(size_t)plan.stations[bs]];\n"
+                    "          roadStreamOpen(c, item, ri, rsQ.seg, rsQ.k, rsQ.arc, rsQ.x, rsQ.z);\n"
+                    "        }\n",
+                    "chunk open");
+    body += "    if (item < 0 && c) {\n"
+            "      rsSlice((int)plan.stations.size() - 1);\n"
+            "      roadStreamPlanClose();\n"
+            "    }\n";
 
     // The row uploads' per-chunk bodies.
     const std::string junction =
@@ -1535,6 +1612,7 @@ Emitted emit(const Sources& src, const Params& prm) {
         impl = replaceAll(impl, "{{SLOTS}}", std::to_string(kIoSlots));
         members = replaceAll(members, "{{SLOTS}}", std::to_string(kIoSlots));
     }
+    impl = replaceAll(impl, "{{PLANNER}}", planner);
     impl = replaceAll(impl, "{{PROLOGUE}}", prologue);
     impl = replaceAll(impl, "{{BODY}}", body);
     impl = replaceAll(impl, "{{JUNCTION_FILL}}", junction);
@@ -1946,6 +2024,11 @@ void check(void (*verdict)(bool, const char*)) {
                     on.find("case RS_BRIDGE:") != std::string::npos &&
                     on.find("case RS_FURN:") != std::string::npos,
                 "a streaming project generates the streaming runtime and its three hooks");
+        // Name each anchor that missed: the verdict alone says only that one did.
+        for (size_t at = on.find("#error road streaming: template anchor missing");
+             at != std::string::npos;
+             at = on.find("#error road streaming: template anchor missing", at + 1))
+            std::printf("  %s\n", on.substr(at, on.find('\n', at) - at).c_str());
         verdict(on.find("road streaming: template anchor missing") == std::string::npos,
                 "every streaming anchor still matches the non-streaming source");
         const std::string off = gen(0.0f);

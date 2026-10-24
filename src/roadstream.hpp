@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-// Road streaming (docs/roads.md "Road streaming", format v102): with
+// Road streaming (docs/roads.md "Road streaming", format v130): with
 // ProjectSettings::roadStreamRadius > 0 the generated game keeps only the road
 // geometry within that radius of the view focus resident - strip chunks,
 // junction rows, spills, soft edges, kerbs and rails, bridge structure,

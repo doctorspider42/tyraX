@@ -110,6 +110,13 @@ in-place render).
   local frame -> 180° flip -> target frame) with the **same projection as the
   screen** (only the view matrix swaps), so the destination lands exactly
   where the opening sits — correct parallax with no per-pixel work.
+- **Culled to the opening (1.177.9).** The view is classified against a frustum
+  narrowed to the opening's screen rectangle (plus 16 px), not the whole
+  screen (`RendererCore3D::narrowFrustumToRect`). Before, everything the
+  virtual camera could see anywhere went to VU1 and the GS scissor discarded
+  the pixels outside the opening. Showcase entrance, physical PS2, same ELF:
+  21.04 -> 19.98 ms a frame (47.5 -> 50.0 fps), 119 -> 104 bags a frame;
+  the frames match the full-frustum arm.
 - Every other portal (and a portal with no/dangling target) draws as a
   translucent quad tinted with the object color. Hiding a portal (layer or
   Set Object Visible) disables its view *and* its teleport.

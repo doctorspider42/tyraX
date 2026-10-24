@@ -1,34 +1,38 @@
 # Devkit
 
-![Devkit channels in Project Preferences](img/project-preferences-build.png)
+![The live tools (devkit channels) in Project Preferences > Build & debug](img/project-preferences-build.png)
 
 TyraX debug builds can inspect and control a running game. Release builds remove
 the devkit completely.
 
-Enable individual channels in **Project > Preferences > Build**. Most need a
+Enable individual channels in **Project > Preferences > Build & debug**. Most need a
 game launched with **Build & Run** (`F5`) or **Run on PS2** (`F6`).
 
 ## Choosing the work and frequency
 
 ![Devkit frequency settings](img/devkit-frequency.png)
 
-The channel checkboxes select what the game actually includes. Disable Live
+The channel switches select what the game actually includes. Disable Live
 Link when not editing the scene/textures, Live Logic when not patching graphs,
 Time Machine when not rewinding, and Remote Pad when using a physical pad.
 Keep Live Debugger for frame statistics, watches, breakpoints and captures.
 The input recorder remains a separate opt-in channel.
 
-**Devkit frequency** in the same Build tab provides five independent overrides:
+The **Devkit channels** section is one table: each channel's row has its
+switch, a line saying what it does, and an **Every** column with its interval
+override (greyed out while the channel is off; Live Debugger has two, commands
+and reports; Remote Pad and the input recorder keep their own cadence, shown as
+`-`). The five fields keep these names:
 
 | Setting | Work scheduled |
 |---|---|
-| Live Link / textures interval | Scene-edit and painted-texture command reads |
-| Live Logic interval | Graph patch reads; graph execution still runs every update |
-| Debugger commands interval | Breakpoints, stop/step and capture request reads |
-| Debugger reports interval | Snapshot writes with statistics and watched history |
-| Time machine interval | Restore request reads and state capture writes |
+| Live Link every | Scene-edit and painted-texture command reads |
+| Live Logic every | Graph patch reads; graph execution still runs every update |
+| Debugger commands every | Breakpoints, stop/step and capture request reads |
+| Debugger reports every | Snapshot writes with statistics and watched history |
+| Time machine every | Restore request reads and state capture writes |
 
-Values are game updates: **0 = existing platform defaults**, 1 = every update,
+Values are game updates: **0 = existing platform defaults** (shown as *auto*), 1 = every update,
 up to 120. Missing fields in older projects mean 0. Changes require rebuilding
 the game. At 50 FPS, 50 updates take one second; at 16 FPS, about three seconds.
 Increasing an interval trades response latency or history density for fewer
@@ -273,8 +277,12 @@ finished frame straight out of GS VRAM, writes `bin/frame.tga` over the same
 Every capture is then **kept as a PNG in the project's `screenshots/` folder**,
 named by the clock (`frame-20260817-164501.png`). **Show file** reveals that
 copy, while **Copy image** puts the decoded bitmap itself on the desktop
-clipboard, ready to paste into chat or an image editor. On Linux this uses
-`wl-copy` or `xclip`; the button reports failure when neither is installed.
+clipboard, ready to paste into chat or an image editor. On Windows it is
+published the way Paint and the browsers do it — the PNG's bytes as `PNG` plus
+a classic bottom-up `CF_DIB` — because Electron apps (Claude, Slack, Discord)
+read `PNG` first and failed the paste on the top-down `CF_DIBV5` alone. On
+Linux this uses `wl-copy` or `xclip`; the button reports failure when neither
+is installed.
 `bin/frame.tga` is a *channel*, not an album — one file, overwritten by
 the next capture and deleted at every launch — so the PNG is the one that lasts:
 it sits outside `bin/`, survives a *Clean*, opens in anything, and is
@@ -348,7 +356,7 @@ reported instead of being written out as picture.
 
 ## Inspecting VU1 input
 
-In **Debugger > VU**, arm a capture and choose a flush. The game writes
+In **Debugger > VU memory**, arm a capture and choose a flush. The game writes
 `bin/vucap.bin`; the editor shows DMA/VIF commands, mesh boundaries, vertices
 and common packet problems.
 

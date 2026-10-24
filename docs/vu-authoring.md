@@ -8,7 +8,7 @@ as different distances from the metal:
 | | |
 |---|---|
 | **A script** — `src/vu/*.cpp` | You write C++. It runs on the HOST at build time and leaves behind a microprogram. Anything the framework can do, you can do. **This is the main road.** |
-| **A look** — the stage list in *Tools > VU Programs* | You tick classes and pick from a catalogue of stages. No code, no build container, and a live preview in the editor. The shortcut for the cases the catalogue already covers. |
+| **A look** — the stage list in *Tools > VU Programs* | You tick classes and pick from a catalogue of stages. No code, no game build, and a live preview in the editor. The shortcut for the cases the catalogue already covers. |
 
 Both produce the same thing - a program that REPLACES the engine's resident VU1
 program for a material class - so everything this page says about classes,
@@ -269,13 +269,13 @@ VS Code extension treats them as first-class files rather than as anonymous C++
 page that are NOT expressible in a header - a Q write, a fifth scratch
 register, a geometry slot without `movesGeometry()`, a displacement claiming a
 subset of the classes - are reported in the Problems panel as you type instead
-of by a container build or a console run. Type `vuprogram` for the skeleton.
+of by a game build or a console run. Type `vuprogram` for the skeleton.
 
 ## What the build actually does
 
 ```
 src/vu/*.cpp + src/vu0/*.cpp  +  vugen/*.cpp   your code and the framework
-        |  g++ (in the build container, installed once)
+        |  g++ (the build machine's own; inside the container with --docker)
         v
      a generator                     runs on the HOST, at build time
         |
@@ -287,10 +287,13 @@ src/gen/vu0_script*.vclpp + _kernel.cpp  + vu0_kernels.gen.hpp
      the ELF
 ```
 
-The container ships no host compiler (it is a ps2dev image), so the first build
-with a script or a kernel installs `g++` once - about a minute, stamped, and
-paid again only if the container is recreated. A mistake in your file is an
-ordinary C++ error with your own filename and line number.
+The default native build compiles it with the build machine's `g++`
+(`tools/toolchain/native-build.sh`; on Windows the one inside WSL, which
+`prepare-host` checks for). The Docker backend's image ships no host compiler (it
+is a ps2dev image), so there the first build with a script or a kernel installs
+`g++` once - about a minute, stamped, and paid again only if the container is
+recreated. Either way a mistake in your file is an ordinary C++ error with your
+own filename and line number.
 
 Neither directory reaches the PS2 compiler: `Makefile.base` excludes both from
 its `src/**.cpp` glob, because handing host C++ to `mips64r5900el-ps2-elf-g++`
@@ -401,7 +404,7 @@ whatever look was active afterwards.
 
 Check the panel first. This is the easiest way to overflow by accident — a
 custom program replaces the cull half in BOTH modes while the twin beside it
-doubles — so the Micro memory tab prices the mode you are *not* in and says
+doubles — so the budget strip prices the mode you are *not* in and says
 whether it fits. A console run that flipped vu-lab to VU1 clipping mid-game hit
 the engine's own `VU1 pipeline programs overflow into the draw-finish program`
 assert; that line now reads `1152..2304 of 2042 - DOES NOT FIT` before you try.
@@ -411,7 +414,8 @@ assert; that line now reads `1152..2304 of 2042 - DOES NOT FIT` before you try.
 - **Project panel > Scripts > VU programs** - every `src/vu/*.cpp`, click to open
   in VS Code. *New script...* creates one from a working stub - three kinds,
   *Game script* (the EE), *VU program* (VU1) and *VU0 kernel* (`src/vu0/`).
-- **Tools > VU Programs > Micro memory** reads as a LIST of what runs on the VU,
+- **Tools > VU Programs > Micro memory** (the list's last entry, under the
+  always-visible budget strip) reads as a LIST of what runs on the VU,
   in three groups: what is resident (the clipping mode, the material classes,
   your looks, your scripts — this is the budget), what the other clipping mode
   would cost, and what runs on a VU but is not in this budget at all (animated
@@ -426,29 +430,59 @@ same reason.
 
 ## The panel
 
-*Tools > VU Programs*, four tabs.
+*Tools > VU Programs* is one page: the budget across the top, a list on the
+left, the selected thing in the middle and, for a look, its host check on the
+right.
 
-- **Micro memory** — the resident set as a bar against the real 2042-slot
-  ceiling, one row per material class with what that class costs, and the mask
-  **auto-detected from the scenes and prefabs**. A class the project draws but
-  the mask drops is flagged: dropping it does not crash (the engine walks down
-  to a resident relative) but those meshes lose the feature, which reads as a
-  material bug rather than a settings one.
-- **Programs** — the looks. Each carries a name, the classes it applies to
-  (with the object count per class, so an abstract class name becomes *these
-  things*) and its stage list. A new look starts covering **everything the
-  project draws**: narrowing it should be a decision, not something the default
-  makes for you by omission. A stage that would emit nothing is drawn dimmed
-  with the reason on hover, so "I added it and nothing happened" has an answer
-  on screen. Each parameter is a plain value — meaning every mesh — or a
-  mesh-slot binding.
-- **Generated** — the `.vclpp` this exact stage list produces, and **Run it on
-  the host**: the program executed in the VU simulator over a small synthetic
-  mesh, printed as GS vertices, *twice* — once with the panel's mesh parameters
-  and once with them at zero. The second column is the identity the whole design
-  rests on, and having it next to the first is what makes it a fact rather than
-  a promise. It also reports Q clobbers, which is the one mistake the assembler
-  will not catch.
+- **The budget strip** is always on top, so editing a look and watching what it
+  costs happen in one place: `738-1476 of 2042 slots` (a range — VCL pairs an
+  upper and a lower op when it can, so the exact size is only known after it
+  runs), a bar stacked by what occupies VU1 (the clipper twins, each resident
+  material class in its own colour, then your looks and scripts over the
+  engine's own), hatched from the low to the high estimate, with the six-slot
+  Path1 reserve as a red tick. The legend gives each class's range and which
+  classes are left out (and whether that was detected or set by hand); the
+  verdict at its end — *fits either way*, *fits - the other clipping mode does
+  not*, *DOES NOT FIT* — prices the clipping mode you are *not* in too. The
+  clipping choice itself is the segmented *Clip on EE / Clip on VU1* with each
+  mode's crossing cost. It recomputes every frame from the same `vugen::build`
+  calls the build makes, so adding a stage moves it immediately.
+- **The list**: the **looks** (stage count, how many classes, and a *not built*
+  / *built* / *active* badge), *+ Add a look*, the **VU0 kernel**, the
+  project's **scripts** (`src/vu/*.cpp`) with their on-at-boot switch and slot
+  delta, and **Micro memory**.
+- **A look** — its name, *Build into the game* (off = the game draws without
+  it, and a note under the header says exactly that and how to turn it on),
+  *Active at boot* (which look `install()` activates; the game swaps with
+  `vuprog::activate(i)`), and a menu with *Duplicate* and *Remove look*. **Applies
+  to** is a chip per material class with its object count, so an abstract class
+  name becomes *these things*; a class no scene draws is dimmed. A new look
+  starts covering **everything the project draws**: narrowing it should be a
+  decision, not something the default makes for you by omission. The **stages**
+  are ordered cards — index, name, the slot badge (*Colour*, *Texture (ST)*...),
+  "only Textured and Reflective meshes run it" where that applies, the
+  instruction estimate, an enable switch and a menu (move up/down, remove) —
+  with each parameter as a labelled slider and its binding: **every mesh** (a
+  plain value, the normal case), **mesh slot X..W** (from the object's own VU
+  numbers), or *baked* for a literal-only one. A stage that would emit nothing
+  is drawn dimmed with the reason on hover, so "I added it and nothing
+  happened" has an answer on screen. The dashed *Add stage* row names what can
+  be added.
+- **Check on the host**, beside the look: **Run it** executes the generated
+  program in the VU simulator over a small synthetic mesh *twice* — with the
+  panel's mesh values and with them at zero — and shows a verdict (Q clobbers,
+  the one mistake the assembler will not catch, turn it red), the three
+  vertices with values and at zero, and the generated `.vclpp` (*Copy*). The
+  at-zero column is the identity the whole design rests on, and having it next
+  to the first is what makes it a fact rather than a promise. A look that
+  generates for several classes picks the class from a dropdown.
+- **Micro memory** — the resident set: *Detect from the scenes* (the mask
+  **auto-detected from the scenes and prefabs**) or one switch per material
+  class with what it costs and how many objects use it. A class the project
+  draws but the mask drops is flagged: dropping it does not crash (the engine
+  walks down to a resident relative) but those meshes lose the feature, which
+  reads as a material bug rather than a settings one. Below: the looks and the
+  scripts as resident programs, and what runs on a VU outside this budget.
 - **VU0 kernel** — the same stages on the other unit, with the instruction count
   against VU0's 512 slots, and below it the project's C++ kernels
   (`src/vu0/*.cpp`) with theirs. Those rows come from the last BUILD's manifest,
@@ -645,8 +679,8 @@ and the body sees what they left in the element.
 
 ### Where the files land
 
-The build container compiles and runs `src/vu0/*.cpp` and leaves behind, per
-kernel:
+The game build compiles and runs `src/vu0/*.cpp` (natively, or in the container
+with `--docker`) and leaves behind, per kernel:
 
 ```
   src/gen/vu0_script<i>.vclpp              the VU0 microprogram
@@ -1219,8 +1253,8 @@ Written by the **EDITOR**, from the panel's looks and stage-composed kernel:
 | `src/gen/vu_programs.gen.cpp` | `install` / `activate` / `setTime` / `setParams` |
 | `src/gen/vu0_<name>.vclpp` + `inc/vu0_<name>.gen.hpp` + `src/gen/vu0_<name>.gen.cpp` | the stage-composed VU0 kernel and its driver |
 
-Written by the **BUILD CONTAINER**, from your `src/vu/*.cpp` and `src/vu0/*.cpp`
-— the host has no compiler to run them with:
+Written by the **GAME BUILD'S GENERATOR STEP** (native or Docker), from your
+`src/vu/*.cpp` and `src/vu0/*.cpp` - not by the editor itself:
 
 | File | What it is |
 |---|---|
@@ -1316,7 +1350,7 @@ one. **A project's C++ SCRIPT already gets it** (see below); the panel's LOOKS
 do not yet, because a look is installed through `VuBuild::LookClass`, which
 carries exactly two program slots per class. Until that grows a third, a look
 authored under VU1 clipping keeps the stock shading on a clip-classified
-package — author it on the EE clipper (*Preferences > Rendering*) or write the
+package — author it on the EE clipper (*Preferences > Graphics*) or write the
 effect as a script instead. The panel says so in as many words when it sees the
 combination.
 
@@ -1413,12 +1447,12 @@ its microprogram rather than orphaning it. This is not tidiness:
 `Makefile.base` globs `src/**.vclpp`, so a leftover microprogram would still be
 assembled and **linked**, taking micro memory for a program nobody asked for.
 
-What the editor writes, the editor sweeps; what the **container** writes
+What the editor writes, the editor sweeps; what the **generator step** writes
 (`src/gen/vu_script*` and `src/gen/vu0_script*`) it sweeps itself, against a
-ledger of every file the last generator run produced. The host cannot do that
-job for it — it has no compiler, so it cannot know which files the current
-sources would produce — and a host sweep over container output would delete
-microprograms it could not put back.
+ledger of every file the last generator run produced. The editor cannot do that
+job for it - it never compiles your VU sources, so it cannot know which files
+they would produce - and an editor-side sweep would delete microprograms it
+could not put back.
 
 ## The other ceiling: VF registers
 

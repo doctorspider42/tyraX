@@ -23,6 +23,7 @@ up as `// node N: unknown ...` comments in `src/gen/flow_graph.gen.cpp`).
 ```
 "{TYRAX_EXE}" --build <projectDir>          # build only
 "{TYRAX_EXE}" --build <projectDir> --run    # build + launch PCSX2
+"{TYRAX_EXE}" --build <projectDir> --rebuild   # clean build
 "{TYRAX_EXE}" --export-iso <projectDir>     # pack the built bin/ into <name>.iso
 ```
 
@@ -50,16 +51,17 @@ not replace it with a bare `make` or compose call.
   asset was skipped). The block names the file/line and the values involved.
   Typical causes: a referenced asset missing from `res/`, oversized textures,
   the SPU2 sample budget (~2 MB for all sound effects) exceeded.
-- The game only prints logs in the **debug** build profile (Project
-  Preferences > Build > Profile) - if `bin/log.txt` stays empty, check the
-  profile.
+- Both build profiles write the log (release never defines `NDEBUG`; only
+  the devkit channels below are debug-only). Under ps2link (a real PS2) the
+  log goes to the editor's Output panel and `logs/` instead of `bin/log.txt`.
 
 - **Editing a flow graph does NOT always need a build**: with the *Live Logic*
   preference on (debug profile), the editor compiles an edited graph itself and
   the running game switches to it within a fraction of a second
-  (`bin/livelogic.bin`). Graphs using nodes the interpreter does not implement
-  (audio, AI, animation, spawning, runtime text, custom nodes) still need
-  `--build`; the editor's Debugger > Logic tab names them.
+  (`bin/livelogic.bin`). The interpreter covers a small core only;
+  audio, AI, animation, spawning, sequences, menus, runtime text, Raycast,
+  custom nodes and any wired number/text plane still need `--build`
+  (docs/live-logic.md; the editor's Debugger > Hot patches page names them).
 - **Flow-graph logic**: a debug build with the *Live Debugger* preference on
   reports every trigger and action it runs into `bin/livedbg.bin`, and the
   editor can set breakpoints / stop / step / force-fire a trigger through
@@ -77,7 +79,9 @@ not replace it with a bare `make` or compose call.
   PlayStation 2, or from a machine whose screen is locked - and what it hands
   over is the frame buffer as the console holds it, with no aspect correction.
   It costs the game a visible hitch (about three seconds over ps2link), so it
-  is one press per picture.
+  is one press per picture. Headless:
+  `"{TYRAX_EXE}" --capture-frame <projectDir> [-o out.png] [--alpha a.png] [--timeout s]`
+  (needs the Live Debugger; default output `screenshots/frame-cli.png`).
 
 ## Driving the running game (no window focus needed)
 
@@ -144,15 +148,17 @@ log for conversion warnings.
 - `run.sh` (Linux/macOS) and `run.ps1` + `windows-pcsx2.ps1` (Windows) in the
   project launch the already-built ELF. Both sets are always present - a
   project is portable, so the helper for the other machine ships with it.
-- ISO export and real-PS2 network deploy (`--build <dir> --run-ps2 <ip>`) exist
+- ISO export and real-PS2 network deploy (`--build <dir> --run-ps2 [ip]`) exist
   but need editor-side setup; ask the user before reaching for them.
+- `"{TYRAX_EXE}" --bake-status <projectDir>` (read-only, exit 3 = stale) tells
+  whether the GI / shadow / pre-lit / model-AO caches still match the scene -
+  a stale cache falls back silently, so check it before blaming lighting.
 
 ### Render-cost capture
 
-`tyrax-editor --profile-frame <projectDir> [-o report.csv]` asks a running debug
-game with Live Debugger enabled for one synchronized render pass. Keep its host
-server running; do not run a second debugger command writer at the same time.
-The CLI waits up to 45 seconds for the matching complete report. Object rows
-are included in Objects; engine counters overlap phases. Use ordinary FPS for
-throughput, since this diagnostic deliberately drains VU/GS between draws.
-The GUI equivalent is Debugger > Render cost, with baseline comparison and CSV.
+`"{TYRAX_EXE}" --profile-frame <projectDir> [-o report.csv]` asks the running
+debug game (Live Debugger on) for one synchronized render pass and waits up to
+45 s for it. Keep its host server running and do not run a second debugger
+command writer meanwhile. Engine counters overlap phases, and the pass drains
+VU/GS between draws, so use ordinary FPS for throughput. GUI twin: Debugger >
+Render cost (with baseline comparison and CSV).

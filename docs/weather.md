@@ -4,7 +4,7 @@ Weather is a per-scene setting, plus a flow node, that makes it rain: drops fall
 around the camera, the asphalt turns dark and wet, puddles fill by the kerbs, and
 every street lamp and every lit car lamp reflects in the road as a long streak.
 The street lamps that
-[road furniture](roads.md#street-furniture-format-101) places light the street at
+[road furniture](roads.md#street-furniture-format-129) places light the street at
 night: each one throws a pool of warm light onto the road under it and glows with
 a halo. Both are built the cheap PS2 way. The pools are decals baked on the host,
 and the halos and reflections are a few sprites rebuilt each frame. The wet
@@ -101,7 +101,7 @@ The pools ride in the furniture's own table:
 - They upload through the furniture's own upload block, with one changed line
   set (`roadfurn::uploadSource(true)`). So a streamed project builds them as
   **ordinary furniture items** (`RS_FURN`), and with
-  [tables on disk](roads.md#tables-on-disk-format-104) they are pages of
+  [tables on disk](roads.md#tables-on-disk-format-132) they are pages of
   `bin/roadfile/roads.bin` like any other furniture row.
 - On the console a pool chunk is owner -7 with `ProcChunk::lampLight` set. Its
   bag is additive (FIX 128), z-tested, never z-written and unfogged, textured
@@ -188,7 +188,7 @@ bakes the corona sprite, even with no street lamps.
 
 ![PCSX2, Motor District in the rain, the same pose by day (left) and at night (right): a puddle along the kerb, lighter and bluer than the wet asphalt by day, a warm sheen at night](img/road-puddles-pcsx2.png)
 
-A puddle is a [road detail](roads.md#road-details-format-99): a host-baked
+A puddle is a [road detail](roads.md#road-details-format-127): a host-baked
 decal in an owner -6 chunk, blended and laid kDetailLift over the drawn road.
 It is streamed, and stored in `roads.bin` with tables on disk, like any other
 detail. Puddles need no new setting:

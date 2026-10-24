@@ -35,7 +35,52 @@ void AudioAdpcm::initAUDSRV() {
               "AUDSRV returned error string:", audsrv_get_error_string());
 }
 
-void AudioAdpcm::reset() { audsrv_adpcm_init(); }
+// audsrv_adpcm_init frees every sample, the silent one included.
+void AudioAdpcm::reset() {
+  audsrv_adpcm_init();
+  silence = nullptr;
+  for (auto& v : voiceSample) v = nullptr;
+}
+
+void AudioAdpcm::noteVoice(const int& t_ch, audsrv_adpcm_t* t_adpcm) {
+  if (t_ch >= 0 && t_ch < (int)AUDSRV_ADPCM_CHANNELS) voiceSample[t_ch] = t_adpcm;
+}
+
+// Added by TyraX - see the header. An adpenc file holding 64 bytes of silence
+// whose last block carries the end flag (1): a voice keyed onto it plays four
+// silent blocks and stops, and audsrv then reports the channel free.
+alignas(64) static unsigned char kSilentAdpcm[16 + 64] = {
+    'A', 'P', 'C', 'M', 1, 1, 0, 0, 0x00, 0x10, 0, 0, 112, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+void AudioAdpcm::unload(audsrv_adpcm_t*& t_adpcm) {
+  if (!t_adpcm) return;
+  bool playing = false;
+  for (auto* v : voiceSample) playing |= v == t_adpcm;
+  if (playing && !silence) {
+    silence = new audsrv_adpcm_t();
+    if (audsrv_load_adpcm(silence, kSilentAdpcm, sizeof(kSilentAdpcm)) != 0) {
+      delete silence;
+      silence = nullptr;
+    }
+  }
+  for (int ch = 0; ch < (int)AUDSRV_ADPCM_CHANNELS; ++ch) {
+    if (voiceSample[ch] != t_adpcm) continue;
+    voiceSample[ch] = nullptr;
+    // Without a silent sample the voice is at least muted.
+    if (silence)
+      audsrv_ch_play_adpcm(ch | AUDSRV_ADPCM_FORCE, silence);
+    else
+      audsrv_adpcm_set_volume(ch, 0);
+  }
+  audsrv_free_adpcm(t_adpcm);
+  TYRA_LOG("ADPCM freed: id ", (int)(long)t_adpcm);  // pairs with the load line
+  delete t_adpcm;
+  t_adpcm = nullptr;
+}
 
 // Modified by TyraX: the upstream version read the whole file into a
 // variable-length array on the EE stack (u8 data[size]) - fine for a few-KB
@@ -213,6 +258,7 @@ AdpcmResult AudioAdpcm::tryPlay(audsrv_adpcm_t* t_adpcm, const s8& t_ch) {
       logAdpcmFailure(t_ch, "audsrv does not know this sample", res);
       return AdpcmResult::ADPCM_ERROR;
     }
+    noteVoice(res, t_adpcm);
     logVoiceState((s8)res);
     return AdpcmResult::ADPCM_OK;
   } else if (res == -AUDSRV_ERR_NO_MORE_CHANNELS) {
@@ -242,6 +288,7 @@ AdpcmResult AudioAdpcm::forcePlay(audsrv_adpcm_t* t_adpcm, const s8& t_ch) {
   const int res =
       audsrv_ch_play_adpcm((int)t_ch | AUDSRV_ADPCM_FORCE, t_adpcm);
   if (res == (int)t_ch) {
+    noteVoice(t_ch, t_adpcm);
     logVoiceState(t_ch);  // once per channel, like tryPlay
     return AdpcmResult::ADPCM_OK;
   }

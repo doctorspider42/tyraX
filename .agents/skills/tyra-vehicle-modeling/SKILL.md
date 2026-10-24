@@ -61,7 +61,9 @@ only `export_format`, `use_selection`, `export_apply`, `export_yup`,
    cabin + the atlas), fix the obvious, THEN show the user a contact sheet and
    iterate on their verdict. They judge shape far better than you do.
 4. Check it against the import (section 4) on a SCRATCH COPY of the example
-   under `%TEMP%\tyra-editor-test\` (short path - PCSX2 host: limit), never the
+   under a SHORT path (`%TEMP%\tyra-editor-test\` on Windows, the session
+   scratchpad or `/tmp/...` on Linux - PCSX2's host: loader refuses ELF paths
+   over ~145 characters), never the
    checked-in project: `tyrax-editor --refresh-gen <copy>` and read the
    `[vehicle] <name>:` lines.
 5. Boot it in PCSX2 on the copy and photograph it with the game's own
@@ -139,8 +141,8 @@ only `export_format`, `use_selection`, `export_apply`, `export_yup`,
 - Material names drive the bake: `headlights` / `rear lights` (the emissive
   lamp part; the runtime overrides their colour, grey when off), anything with
   `glass`/`window` (shiny; the glass part), `rubber`/`trim` (matte).
-- Budget: body <= the definition's bodyTris (2400 default); the bake decimates
-  above it.
+- Budget: body <= the definition's `bodyTriBudget` (2400 default, Vehicle
+  Editor); the bake decimates above it.
 - **Exhaust pipes are EMPTIES named `exhaust*`** (docs/vehicles.md, "Exhaust
   pipes"): one per opening, Single Arrow rotated to point out of the pipe
   (`(0, -90 deg, 0)` = -X, out of the back of a +X-forward car). The nitrous
@@ -151,8 +153,8 @@ only `export_format`, `use_selection`, `export_apply`, `export_yup`,
   puts the arrow on the node's +Y, the FBX one on +Z - the bake knows; an
   unrotated empty (arrow up) reads as "out of the back".
 - **Interior + see-through glass**: give the glass its own UNTEXTURED material
-  and set the definition's Glass opacity < 1 (docs/vehicles.md, "See-through
-  glass"); model a minimal interior (tub, seats, dash, wheel - ~100 tris,
+  and set the definition's Glass opacity < 1 (docs/vehicles.md, "Importing a
+  model" + "Effects and display"); model a minimal interior (tub, seats, dash, wheel - ~100 tris,
   UV'd into dark cells). With opacity 1 the interior is invisible but harmless.
 - The bake reports measured wheelBase / track / radius - they must equal what
   the script built (times SCALE); copy them into the definition's drive block.
@@ -180,7 +182,7 @@ only `export_format`, `use_selection`, `export_apply`, `export_yup`,
 - Do not name a local `out` in `main()` if the output path is `out`.
 - Writing edit scripts through a bash heredoc eats backslashes here (`\n`
   inside C++ strings turned into real newlines). Write scripts with the Write
-  tool (memory: bash-heredoc-backslash-trap).
+  tool.
 - Commit only your own files: other sessions may be committing on the same
   branch in the same checkout.
 

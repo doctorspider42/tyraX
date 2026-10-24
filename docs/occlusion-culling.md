@@ -2,7 +2,7 @@
 
 TyraX can reject whole objects, static batches and procedural chunks that are
 completely hidden behind solid scene geometry. Enable it in
-**Project > Preferences > Rendering > Conservative occlusion culling**. It is
+**Project > Preferences > Graphics > Conservative occlusion culling**. It is
 off by default: the result depends on the map's layout, while every enabled
 project pays a small EE cost to build the visibility buffer each camera pass.
 
@@ -104,6 +104,19 @@ before judging the feature on a city:
 - a static batch that contains an occluder is never tested, and the dense
   scene's buildings are batched;
 - terrain and road chunks are never tested, and they are the largest phases.
+
+## Where a box test cannot win: rooms that touch
+
+Tried and measured on the cube example (2026-10-23) with its 540 room walls
+added as occluders at runtime: from two poses it hid **0 of 17** and **0 of
+12** tested room chunks and cost **0.9 ms** on a physical PS2, so the code was
+not kept. The reason is structural, not a tuning problem. Every neighbouring
+room's box touches the walls in front of it, so its nearest point is exactly
+as deep as the occluder's farthest one, and the test (covered everywhere AND
+deeper by a bias) can never pass. A lattice of rooms joined by doorways needs
+portal visibility, not conservative boxes. The cube's frame rate came from
+merging each room into its own chunks instead
+([runtime procedural generation](procedural-runtime.md#how-it-draws)).
 
 ## Limits
 

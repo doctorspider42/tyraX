@@ -8,8 +8,8 @@ anywhere inside the ring road (Square gets you out).
 ![Big City running in PCSX2: the Ravager on a downtown avenue, 20.3 of 32 MB used](../../docs/img/big-city-pcsx2.png)
 
 It fits in the EE's 32 MB because almost nothing in it is resident at once:
-the roads stream by distance ([road streaming](../../docs/roads.md#road-streaming-format-102),
-260 units, their baked rows [read from a file](../../docs/roads.md#tables-on-disk-format-104)
+the roads stream by distance ([road streaming](../../docs/roads.md#road-streaming-format-130),
+260 units, their baked rows [read from a file](../../docs/roads.md#tables-on-disk-format-132)
 piece by piece instead of sitting in the ELF) and the buildings, trees, lamps and parked cars live in 200-unit
 district layers that load and unload around the car
 ([auto-streamed layers](../../docs/streaming-layers.md#a-city-districts-plus-road-streaming)).
@@ -35,7 +35,7 @@ from one seed. With the shipped knobs:
 - **Kerbs and road details** (manholes, gullies, patches, cracks) on every
   road, **pavements** along every lane and the diagonals, zebra crossings on
   downtown roads; stop/edge-line paint downtown only. Until the road tables
-  moved out of the ELF (format 104) kerbs, pavements and details were on the
+  moved out of the ELF (format 132) kerbs, pavements and details were on the
   *core* roads only (`KERBS_DOWNTOWN_ONLY`).
 - **2 420 objects** (the roads among them): 1 462 buildings (lean
   Kenney-derived shells plus generated stacked towers up to 80 m downtown,
@@ -146,7 +146,7 @@ unload`, ...).
 plan ... ms 1376`, `ROADSTREAM load ... ms 443`, reading 588 items / 927 KB of
 road rows in 103 ms); the ELF is 5.1 MB plus a 6.0 MB `bin/roadfile/roads.bin`.
 
-**Tables on disk** (format 104, 2026-10-03, the same 30 s R2 drive from spawn
+**Tables on disk** (format 132, 2026-10-03, the same 30 s R2 drive from spawn
 for every arm, HUD readings; docs/roads.md "Tables on disk"):
 
 | configuration | ELF + road file | MEM spawn | MEM driving | FPS driving | worst stream frame |
@@ -187,9 +187,9 @@ other emulator on the machine). The emulator's `MEM` readout, by configuration:
 | **shipped: 1.4 km, roads and districts streamed** | **15.8-21.6 MB** |
 | 1.4 km, kerbs and furniture on every road (4 946 objects, 212 514 road vertices, 11.8 MB ELF) | 30.7 MB at spawn |
 | 1.4 km, plus pavements on every street (659 334 road vertices, 20.8 MB ELF) | out of memory at load |
-| **format 104, tables on disk**: kerbs and furniture on every road (4 946 objects, 6.0 MB ELF) | 26.0 at spawn, 27.7 driving, 30 FPS downtown |
-| format 104: plus pavements on every street (730 014 road vertices, 6.1 MB ELF) | 29.5 at spawn, `std::bad_alloc` seconds into the drive |
-| format 104: pavements and kerbs everywhere, core-only trees and lamps (2 420 objects, 5.2 MB ELF) | 22.5 at spawn, 26.2 driving, 32 FPS downtown |
+| **format 132, tables on disk**: kerbs and furniture on every road (4 946 objects, 6.0 MB ELF) | 26.0 at spawn, 27.7 driving, 30 FPS downtown |
+| format 132: plus pavements on every street (730 014 road vertices, 6.1 MB ELF) | 29.5 at spawn, `std::bad_alloc` seconds into the drive |
+| format 132: pavements and kerbs everywhere, core-only trees and lamps (2 420 objects, 5.2 MB ELF) | 22.5 at spawn, 26.2 driving, 32 FPS downtown |
 | 1.4 km, everything resident | out of memory (the first version's finding) |
 | **1.173, shared model geometry**: shipped 1.4 km city, downtown walker / car at spawn / driving | **18.4 / 18.2 / 17.0-19.1 MB** (19.9 / 19.6 / 18.0-20.7 with `instanceSharing` off) |
 
@@ -204,7 +204,7 @@ What that works out to:
 - **The ELF was the next wall, and is gone for the roads.** Streaming freed
   the expanded runtime copies, but the baked road tables were `.rodata`:
   kerbs and furniture everywhere took the ELF from 6.9 to 11.8 MB, pavements
-  everywhere to 20.8 MB. Since format 104 they are read per item from
+  everywhere to 20.8 MB. Since format 132 they are read per item from
   `bin/roadfile/roads.bin`, and the ELF stays at 5-6 MB whatever the roads
   carry. The wall is now the RESIDENT road (pavements everywhere: ~120 000
   resident road vertices downtown) and the per-object cost of 4 900 objects.

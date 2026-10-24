@@ -29,8 +29,9 @@
 #            the upstream fork point recorded in .gitignore, not something
 #            setup.sh checks out over the tracked engine sources.
 
+# Dear ImGui is NOT here: it is tracked in vendor/imgui-tyrax with TyraX
+# patches (TYRAX-PATCHES.md there; upstream docking b334d19b, 1.92.9).
 VENDOR_DEPS=(
-    "https://github.com/ocornut/imgui.git|https://github.com/doctorspider42/tyrax-vendor-imgui.git|b334d19b667958ed970000073644d911fae17e57|docking|vendor/imgui|vendor/imgui/imgui.cpp|1"
     "https://github.com/glfw/glfw.git|https://github.com/doctorspider42/tyrax-vendor-glfw.git|7b6aead9fb88b3623e3b3725ebb42670cbe4c579|3.4|vendor/glfw|vendor/glfw/CMakeLists.txt|1"
     "https://github.com/CedricGuillemet/ImGuizmo.git|https://github.com/doctorspider42/tyrax-vendor-imguizmo.git|dc25afb98bc3ebe00dfc9a23ba7235fead2ccb1d|master|vendor/imguizmo|vendor/imguizmo/src/ImGuizmo.cpp|1"
     "https://github.com/Nelarius/imnodes.git|https://github.com/doctorspider42/tyrax-vendor-imnodes.git|eb36902c892548ef94f88f51ad7e7c9c7058a71c|master|vendor/imnodes|vendor/imnodes/imnodes.cpp|1"
@@ -50,15 +51,20 @@ STB_HEADERS=(stb_image.h stb_truetype.h stb_image_write.h)
 # Real-PS2 network deploy tools ("Run on PS2" in the editor): ps2client talks
 # to a console running the TyraX ps2link. The Runner looks for it in
 # tools/ps2client/bin. Not needed to build the editor, so build.sh never blocks
-# on it. Note the ps2client tarball is per-OS - this is the Linux build;
-# deps.ps1 names the Windows one.
+# on it. Note the ps2client tarball is per-OS - this file picks the Linux or
+# the macOS build; deps.ps1 names the Windows one.
 #
 # ps2link itself is NOT downloaded: the console side is always OUR ps2link,
 # built from tools/ps2link/ (a pinned upstream + tyrax.patch, in Docker) and
 # flashed onto the memory card once. See docs/ps2link-setup.md.
 #   url|dir|probe
+if [ "$(uname -s)" = Darwin ]; then
+    PS2CLIENT_HOST=macos-latest
+else
+    PS2CLIENT_HOST=ubuntu-latest
+fi
 PS2_TOOLS=(
-    "https://github.com/ps2dev/ps2client/releases/download/v1.3.0/ps2client-211df54b-ubuntu-latest.tar.gz|tools/ps2client|tools/ps2client/bin/ps2client"
+    "https://github.com/ps2dev/ps2client/releases/download/v1.3.0/ps2client-211df54b-$PS2CLIENT_HOST.tar.gz|tools/ps2client|tools/ps2client/bin/ps2client"
 )
 
 # Distro packages the editor needs to configure, link and run: the toolchain,
@@ -79,7 +85,8 @@ PS2_TOOLS=(
 # build.sh names it when a tool or header is missing. One list per family
 # because the split of the X11 headers into packages differs everywhere - the
 # CONTENT is the same set every time, so a new dependency has to be added to
-# all four or that distro's users get a link error instead of a clear message.
+# all four Linux lists (and to the Homebrew one below when macOS needs it too)
+# or that distro's users get a link error instead of a clear message.
 #
 # THE LISTS COVER BOTH HALVES OF THE PROJECT, and that is deliberate: the
 # editor's own build needs the compiler and the GL/X11/Wayland headers, and the
@@ -93,12 +100,24 @@ PS2_TOOLS=(
 SYSTEM_PACKAGES_apt="build-essential cmake ninja-build git pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols zenity ccache curl rsync tar"
 SYSTEM_PACKAGES_dnf="gcc-c++ cmake ninja-build git pkgconf-pkg-config mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity ccache curl rsync tar"
 SYSTEM_PACKAGES_pacman="base-devel cmake ninja git pkgconf mesa libx11 libxrandr libxinerama libxcursor libxi libxkbcommon wayland wayland-protocols zenity ccache curl rsync tar"
+# macOS: Homebrew, no root. The compiler is the Xcode Command Line Tools'
+# clang (`xcode-select --install`), which no package manager installs; GLFW
+# builds against Cocoa and the system OpenGL framework, so there are no X11
+# headers to list, and the file dialogs are osascript, so no zenity. The game
+# build uses the system's make, rsync, curl and tar; gmp/mpfr/libmpc/zstd are
+# the libraries the macOS PS2DEV archive's gcc loads from Homebrew - the set
+# tools/toolchain/prepare-host.sh checks for.
+SYSTEM_PACKAGES_brew="cmake ninja git ccache gmp mpfr libmpc zstd"
 SYSTEM_PACKAGES_zypper="gcc-c++ cmake ninja git pkg-config Mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity ccache curl rsync tar"
 
 # Package manager for THIS machine -> "<manager>|<install command>|<packages>",
 # or "" when none is recognised. Sourced by both setup.sh (to install) and
 # build.sh (to print the one command that fixes a missing toolchain).
 tyrax_system_packages() {
+    if [ "$(uname -s)" = Darwin ]; then
+        command -v brew >/dev/null 2>&1 && echo "brew|brew install|$SYSTEM_PACKAGES_brew"
+        return 0
+    fi
     if command -v apt-get >/dev/null 2>&1; then
         echo "apt|apt-get install -y|$SYSTEM_PACKAGES_apt"
     elif command -v dnf >/dev/null 2>&1; then
@@ -116,6 +135,8 @@ tyrax_system_packages() {
 # already root, "-" when neither is available.
 tyrax_root_prefix() {
     [ "$(id -u)" = "0" ] && return 0
+    # Homebrew refuses to run as root; it installs into a user-owned prefix.
+    [ "$(uname -s)" = Darwin ] && return 0
     if command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 || [ -t 0 ]; }; then
         echo "sudo"
     elif command -v pkexec >/dev/null 2>&1; then

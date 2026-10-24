@@ -18,9 +18,6 @@
 #include "aichat.hpp"
 #include "aigen.hpp"
 #include "aisupport.hpp"
-#include "blss.hpp"  // the neural upscaler's headless trainer / eval / emitter
-#include "blss_ui.hpp"     // the measured speed model (fill::) + speedFrom()
-#include "blsscorpus.hpp"  // blss::measureCoverage - the overdraw counter
 #include "devsession.hpp"
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
@@ -29,6 +26,7 @@
 #include "isoexport.hpp"  // --export-iso
 #include "impostorgpu.hpp"
 #include "litbake.hpp"
+#include "modelimport.hpp"
 #include "modelao.hpp"
 #include "texbake.hpp"  // --bake-model-ao --texbake: the multiply, no Docker
 #include "livedbg.hpp"
@@ -1361,7 +1359,7 @@ static int batchReportFromCli(int argc, char** argv) {
         for (const std::string& w : warnings)
             std::printf("    %s\n", w.c_str());
     }
-    // Machine-readable tail, the --blss-coverage convention: a number a
+    // Machine-readable tail: a number a
     // script can diff across two arms without parsing the prose above.
     std::printf("\n[batch] eligible=%d batched=%d solo=%d batches=%d\n",
                 totalEligible, totalBatched, totalEligible - totalBatched,
@@ -1834,6 +1832,122 @@ static int bakeModelAoFromCli(int argc, char** argv) {
     return failed ? 1 : 0;
 }
 
+// tyrax-editor --import-model <projectDir> <modelFile> [options]
+//
+// The headless twin of the import window (docs/model-import.md): the same
+// modelimport::load / plan / write the window runs. Options:
+//   --split none|top|mesh   one model, one per top-level object, one per mesh
+//   --pivot keep|bottom|center
+//   --keep <0.05..1>        triangle reduction (fraction kept)
+//   --max-texture <px>      longest texture side written (0 = as is)
+//   --animated              also keep the .glb/.fbx skeleton + clips
+//   --no-static             only the animated model
+//   --textures <dir>        extra folder searched for missing textures
+//   --name <stem>           file name of the result
+//   --dry-run               report the plan, write nothing
+// Writes into res/models (a split import: res/models/<name>/). Does not touch
+// the project file - placing the models is the editor's job.
+static int importModelFromCli(int argc, char** argv) {
+    if (argc < 4) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --import-model <projectDir> <model> "
+                     "[--split none|top|mesh] [--pivot keep|bottom|center] "
+                     "[--keep f] [--max-texture px] [--animated] [--no-static] "
+                     "[--textures dir] [--name stem] [--dry-run]\n");
+        return 2;
+    }
+    const std::string projectDir = argv[2];
+    const std::string file = argv[3];
+    modelimport::Options opt;
+    std::vector<std::string> texDirs;
+    bool dry = false;
+    for (int i = 4; i < argc; ++i) {
+        const std::string a = argv[i];
+        auto next = [&]() -> std::string { return i + 1 < argc ? argv[++i] : ""; };
+        if (a == "--split") {
+            const std::string v = next();
+            opt.split = v == "top" ? modelimport::Split::TopLevel
+                        : v == "mesh" ? modelimport::Split::EveryMesh
+                                      : modelimport::Split::None;
+        } else if (a == "--pivot") {
+            const std::string v = next();
+            opt.pivot = v == "bottom" ? modelimport::Pivot::BottomCenter
+                        : v == "center" ? modelimport::Pivot::Center
+                                        : modelimport::Pivot::Keep;
+        } else if (a == "--keep") {
+            opt.keep = (float)std::atof(next().c_str());
+        } else if (a == "--max-texture") {
+            opt.maxTexture = std::atoi(next().c_str());
+        } else if (a == "--animated") {
+            opt.writeAnimated = true;
+        } else if (a == "--no-static") {
+            opt.writeStatic = false;
+        } else if (a == "--textures") {
+            texDirs.push_back(next());
+        } else if (a == "--name") {
+            opt.baseName = next();
+        } else if (a == "--dry-run") {
+            dry = true;
+        }
+    }
+    modelimport::Source src;
+    std::string err;
+    if (!modelimport::load(file, texDirs, src, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("[import] %s: %s, %d triangle(s), %zu object(s) in %zu top-level "
+                "group(s), %zu material(s), %zu texture(s), %d missing, %s\n",
+                file.c_str(), src.format.c_str(), src.tris, src.objects.size(),
+                src.groups.size(), src.materials.size(), src.images.size(),
+                src.missingTextures(),
+                src.canAnimate() ? (src.skinned ? "skinned" : "animated") : "static");
+    for (const std::string& w : src.warnings)
+        std::printf("[import] warning: %s\n", w.c_str());
+    for (const modelimport::Material& m : src.materials)
+        if (!m.missingTexture.empty())
+            std::printf("[import] missing texture: %s (material %s)\n",
+                        m.missingTexture.c_str(), m.name.c_str());
+    if (opt.writeAnimated && !src.canAnimate()) {
+        std::printf("[import] note: no skin and no clips - nothing to animate\n");
+        opt.writeAnimated = false;
+    }
+    const std::vector<modelimport::Planned> plan = modelimport::plan(src, opt);
+    int tris = 0, list = 0, strip = 0;
+    for (const modelimport::Planned& m : plan) {
+        tris += m.tris;
+        list += m.listVerts;
+        strip += m.stripVerts;
+    }
+    std::printf("[import] plan: %zu model(s), %d triangle(s), %d list vertices, "
+                "%d as strips\n",
+                plan.size(), tris, list, strip);
+    if (plan.size() <= 12)
+        for (const modelimport::Planned& m : plan)
+            std::printf("[import]   %s: %d tris, size %.3f x %.3f x %.3f, origin "
+                        "%.3f %.3f %.3f\n",
+                        m.name.c_str(), m.tris, m.mx[0] - m.mn[0],
+                        m.mx[1] - m.mn[1], m.mx[2] - m.mn[2], m.origin[0],
+                        m.origin[1], m.origin[2]);
+    if (dry) return 0;
+    const std::string stem = modelimport::safeName(
+        opt.baseName.empty() ? std::filesystem::path(file).stem().string()
+                             : opt.baseName);
+    const std::string dest =
+        plan.size() > 1 ? "res/models/" + stem : std::string("res/models");
+    modelimport::Result res;
+    if (!modelimport::write(src, plan, opt, projectDir, dest, res, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("[import] wrote %zu static model(s), %d texture(s), material %s%s%s\n",
+                res.staticModels.size(), res.textures, res.material.c_str(),
+                res.animatedModel.empty() ? "" : ", animated ",
+                res.animatedModel.c_str());
+    for (const std::string& n : res.notes) std::printf("[import] %s\n", n.c_str());
+    return 0;
+}
+
 // tyrax-editor --bake-status <projectDir>
 //
 // Is every bake cache still FRESH? Read-only: it bakes nothing, writes nothing
@@ -2129,172 +2243,6 @@ static int bakeShadowsFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
-    return 0;
-}
-
-// tyrax-editor --blss-coverage <projectDir> [--frames N] [--raster N]
-//                                           [--threads N] [--out WxH] [--verbose]
-//
-// HOW MUCH FILL A PROJECT ASKS THE GS FOR, headless - the speed half of "should
-// I turn BLSS on", which until now existed ONLY as a button in the Neural
-// Upscaler window.
-//
-// That is why this verb exists, and the reason is not convenience. The hardware
-// calibration on 2026-08-09 (docs/profiling.md) worked back from five measured
-// load points to `examples/upscaler-lab`'s true fill and wanted to compare it
-// against what the estimator says - and could not, because the estimator was
-// reachable only by clicking a button in a GUI. So the round that MEASURED the
-// model had to quote `kAnchorCoverages` as recorded rather than re-derive it,
-// and wrote down that whoever owns the estimator should print its own figure
-// before rescaling anything. A number nobody can re-run is a number nobody can
-// check; this makes the estimate as falsifiable as `--blss-eval`'s tables.
-//
-// IN-PROCESS like the window's button, and for the same reason the window gives:
-// `blss::measureCoverage` IS the public API here, there is nothing in an
-// anonymous namespace to re-implement, and it takes about a second - so unlike
-// --blss-train/--blss-eval there is no second answer to keep honest.
-//
-// The output is script-parseable: every line a tool should read starts `[blss]`
-// and is `key=value` pairs, the same shape `--blss-eval`'s verdict line uses.
-// The human table underneath is what makes those lines falsifiable.
-static int blssCoverageFromCli(int argc, char** argv) {
-    if (argc < 3 || argv[2][0] == '-') {
-        std::fprintf(stderr,
-                     "usage: tyrax-editor --blss-coverage <projectDir> [--frames N] "
-                     "[--raster N] [--threads N] [--out WxH] [--verbose]\n");
-        return 2;
-    }
-    blss::CoverageConfig cfg;
-    cfg.projectDir = argv[2];
-    // The PROJECT'S own raster by default, so the coverages are per the frame
-    // the console will present rather than per a nominal 512x448 - the same
-    // resolution App::blssStartCoverage passes, or the verb and the window
-    // would answer slightly different questions.
-    // ...and the project's own RECONSTRUCTION, for the same reason: plain mode
-    // (ProjectSettings::blssNetwork false) pays a seventh of the neural EE bill,
-    // so the verdict below is against a break-even four times lower. A CLI that
-    // priced every project as neural would tell a plain project at 5 coverages
-    // to leave the feature off when it is a clear win.
-    bool network = true;
-    {
-        Project p;
-        if (project::load(p, argv[2]).empty()) {
-            const DisplayModeInfo& dm =
-                project::displayModeInfo(project::bootDisplayMode(p.settings));
-            cfg.outW = dm.bufW;
-            cfg.outH = dm.halfHeight ? dm.logicalH / 2 : dm.logicalH;
-            network = p.settings.blssNetwork;
-        }
-    }
-    for (int i = 3; i < argc; ++i) {
-        const std::string a = argv[i];
-        const auto next = [&](int def) {
-            return i + 1 < argc ? std::atoi(argv[++i]) : def;
-        };
-        if (a == "--frames") cfg.framesPerShot = std::max(1, next(cfg.framesPerShot));
-        else if (a == "--raster") cfg.raster = std::max(32, next(cfg.raster));
-        else if (a == "--threads") cfg.threads = std::max(0, next(0));
-        else if (a == "--verbose") cfg.verbose = true;
-        else if (a == "--out" && i + 1 < argc) {
-            int w = 0, h = 0;
-            if (std::sscanf(argv[++i], "%dx%d", &w, &h) == 2 && w > 0 && h > 0)
-                cfg.outW = w, cfg.outH = h;
-        } else {
-            std::fprintf(stderr, "blss: unknown argument '%s'\n", a.c_str());
-            return 2;
-        }
-    }
-
-    const auto t0 = std::chrono::steady_clock::now();
-    const blss::CoverageReport rep = blss::measureCoverage(cfg, nullptr);
-    const double secs =
-        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-    if (!rep.ok) {
-        std::fprintf(stderr, "blss: %s\n",
-                     rep.err.empty() ? "the coverage estimate produced nothing" : rep.err.c_str());
-        return 1;
-    }
-
-    std::printf("blss: %d scene(s), %zu shot(s), %d frame(s), %zu triangle(s), %d emitter(s) "
-                "/ %d billboard(s) at %dx%d output, %d raster, %.1fs\n",
-                rep.scenes, rep.shots.size(), rep.frames, rep.triangles, rep.emitters,
-                rep.billboards, cfg.outW, cfg.outH, cfg.raster, secs);
-    std::printf("\n  %-14s %-16s %-8s %8s %8s %8s %7s\n", "scene", "camera move", "kind",
-                "geometry", "emitters", "total", "worst");
-    for (const blss::CoverageShot& s : rep.shots)
-        std::printf("  %-14.14s %-16.16s %-8.8s %8.2f %8.2f %8.2f %7.2f\n", s.scene.c_str(),
-                    s.name.c_str(), s.move.c_str(), s.geom, s.emit, s.geom + s.emit, s.peak);
-    std::printf("  %-14s %-16s %-8s %8.2f %8.2f %8.2f %7.2f\n", "", "-- all shots --", "",
-                rep.geomMean, rep.emitMean, rep.mean, rep.p95);
-
-    // The derived verdict, from the SAME pure function the window draws
-    // (blssui::speedFrom) rather than arithmetic restated here - a CLI with its
-    // own copy of the model is exactly the second answer this feature has spent
-    // its whole life avoiding.
-    // Priced at the raster the coverages were counted per, which the report
-    // echoes back: one full-screen pass is per PIXEL, so a 512x512 project pays
-    // 14.3 % more per coverage than a 512x448 one and its break-even is 11.4
-    // rather than 13.1. The single scalar this replaces was a 576i measurement
-    // quoted at every resolution.
-    const blssui::SpeedEstimate sp =
-        blssui::speedFrom(rep.mean, (double)rep.outW * rep.outH, network);
-    const char* band = sp.band == blssui::SpeedEstimate::Band::Win      ? "win"
-                       : sp.band == blssui::SpeedEstimate::Band::Marginal ? "marginal"
-                                                                          : "loss";
-    std::printf("\nblss: %.2f coverages against a %.1f break-even at %dx%d, %s mode -> %s%.2f ms "
-                "a frame (%s)\n",
-                rep.mean, sp.breakEven, rep.outW, rep.outH, network ? "neural" : "plain",
-                sp.savedMs >= 0 ? "+" : "", sp.savedMs, band);
-    // The OTHER mode's line, always, because it is one project setting away and
-    // the two answers can disagree about the verdict entirely.
-    {
-        const blssui::SpeedEstimate other =
-            blssui::speedFrom(rep.mean, (double)rep.outW * rep.outH, !network);
-        std::printf("blss: in %s mode the same scene is a %.1f break-even -> %s%.2f ms (%s)\n",
-                    network ? "plain" : "neural", other.breakEven,
-                    other.savedMs >= 0 ? "+" : "", other.savedMs,
-                    other.band == blssui::SpeedEstimate::Band::Win        ? "win"
-                    : other.band == blssui::SpeedEstimate::Band::Marginal ? "marginal"
-                                                                          : "loss");
-    }
-    if (sp.band == blssui::SpeedEstimate::Band::Win)
-        std::printf("blss: roughly %.2f-%.2fx, the ends being 'the frame is 60%% fill' and "
-                    "'the frame is nothing but fill'\n", sp.lo, sp.hi);
-    else if (sp.band == blssui::SpeedEstimate::Band::Marginal)
-        std::printf("blss: NO MULTIPLIER IS QUOTED - %.2f ms is smaller than what this count "
-                    "admits it cannot see\n", sp.savedMs);
-
-    // What the count could not see. Every one of these can only make the real
-    // figure BIGGER, which is what makes the estimate a floor rather than a
-    // guess - and a caller reading the machine lines below is entitled to the
-    // same caveats the window prints under its answer.
-    std::printf("blss: not counted - the sky dome (~1 more coverage); particle lifetimes and "
-                "drift%s%s%s.\n"
-                "blss: the HUD, the menus and the post effects are neither counted nor reduced. "
-                "A FLOOR, not a measurement.\n",
-                rep.sawCutout ? "; alpha-tested cutouts, counted here as solid" : "",
-                rep.sawDisabledEmitter ? "; emitters that start disabled" : "",
-                rep.sawAnimated ? "" : "; nothing animated was found");
-
-    // --- the machine-readable half -----------------------------------------
-    for (const blss::CoverageShot& s : rep.shots)
-        std::printf("[blss] coverage shot scene=%s name=%s move=%s geom=%.4f emit=%.4f "
-                    "total=%.4f peak=%.4f frames=%d\n",
-                    s.scene.c_str(), s.name.c_str(), s.move.c_str(), s.geom, s.emit,
-                    s.geom + s.emit, s.peak, s.frames);
-    std::printf("[blss] coverage mean=%.4f p95=%.4f geom=%.4f emit=%.4f scenes=%d shots=%zu "
-                "frames=%d triangles=%zu emitters=%d billboards=%d cutout=%d animated=%d "
-                "disabledEmitter=%d\n",
-                rep.mean, rep.p95, rep.geomMean, rep.emitMean, rep.scenes, rep.shots.size(),
-                rep.frames, rep.triangles, rep.emitters, rep.billboards, rep.sawCutout ? 1 : 0,
-                rep.sawAnimated ? 1 : 0, rep.sawDisabledEmitter ? 1 : 0);
-    std::printf("[blss] coverage verdict coverages=%.4f fillMs=%.4f savedMs=%.4f breakEven=%.4f "
-                "lo=%.4f hi=%.4f band=%s anchorCoverages=%.4f passMs=%.4f raster=%dx%d "
-                "perMpx=%.4f network=%d eeMs=%.4f\n",
-                sp.coverages, sp.fillMs, sp.savedMs, sp.breakEven, sp.lo, sp.hi, band,
-                blssui::fill::kAnchorCoverages, sp.passMs, rep.outW, rep.outH,
-                blssui::fill::kPassMsPerMpx, network ? 1 : 0,
-                blssui::fill::eeCostMs(network));
     return 0;
 }
 
@@ -2747,7 +2695,7 @@ bool warnRecorderOff(const Project& p) {
     if (!p.settings.inputRecorder) {
         std::fprintf(stderr,
                      "error: the \"Input recorder\" preference is off for this "
-                     "project (Project > Preferences > Build).\n");
+                     "project (Project > Preferences > Build & debug).\n");
         return false;
     }
     return true;
@@ -2830,7 +2778,7 @@ static int recordFromCli(int argc, char** argv) {
     if (!padText.empty() && !p.settings.remotePad) {
         std::fprintf(stderr,
                      "error: --pad needs the \"Remote Pad\" preference on "
-                     "(Project > Preferences > Build).\n");
+                     "(Project > Preferences > Build & debug).\n");
         return 1;
     }
 
@@ -3143,8 +3091,10 @@ static int uiScriptFromCli(int argc, char** argv) {
             "        key <chord> | text <string> | wait <s> | frames <n>\n"
             "        shot <file.png> | dump | log <text> | quit\n"
             "target: \"Window/Label\" or \"Label\" (case-insensitive)\n"
-            "example: --ui-script myproj \"click Tools; click \\\"Remote Pad\\\";"
-            " shot pad.png\"\n"
+            "example: --ui-script myproj \"click \\\"TyraX menu\\\"; click Tools;"
+            " click \\\"Remote Pad\\\"; shot pad.png\"\n"
+            "         (the menus live behind the logo button \"TyraX menu\"; a step\n"
+            "         naming a menu - click Tools - opens it first)\n"
             "hint:    a script of just \"dump\" lists every widget on screen\n");
         return 2;
     };
@@ -3547,11 +3497,9 @@ static int dumpVuCapFromCli(int argc, char** argv) {
 static std::string vuEngineDir(const char* override) {
     namespace fs = std::filesystem;
     if (override && *override) return override;
-    const std::string exe = platform::exePath();
-    if (!exe.empty()) {
+    if (const fs::path binDir = platform::resourceBinDir(); !binDir.empty()) {
         std::error_code ec;
-        const fs::path candidate =
-            fs::path(exe).parent_path() / ".." / "vendor" / "tyra" / "engine";
+        const fs::path candidate = binDir / ".." / "vendor" / "tyra" / "engine";
         if (fs::exists(candidate / "Makefile", ec))
             return fs::weakly_canonical(candidate, ec).string();
     }
@@ -3598,7 +3546,7 @@ static VuProvenance vuProvenance(const std::string& engine) {
     if (exe.empty()) return pv;
     const auto exeTime = fs::last_write_time(fs::path(exe), ec);
     if (ec) return pv;
-    const fs::path src = fs::path(exe).parent_path() / ".." / "src";
+    const fs::path src = platform::resourceBinDir() / ".." / "src";
     for (const char* name : {"vugen.cpp", "vugen.hpp", "vusim.cpp", "vuir.cpp",
                              "vuasm.cpp", "main.cpp"}) {
         std::error_code fec;
@@ -4457,6 +4405,51 @@ static int vuCheckFromCli(int argc, char** argv) {
             ++mismatches;
             if (!eq.error.empty()) std::printf("      %s\n", eq.error.c_str());
             if (!eq.detail.empty()) std::printf("      %s\n", eq.detail.c_str());
+        }
+    }
+    std::printf("\n");
+
+    // Modified by TyraX: the clip family streams its output (mid-program
+    // XGKICKs) so the EE can hand it a WHOLE package, list or strip. The
+    // reference feeds the same triangles in 12-vertex list slices, the shape
+    // the EE used to cut; TYRAX_CLIP_REF_DIR may point at an older tree's
+    // clip/*.vclpp to use THOSE programs as the reference instead.
+    std::printf("-- clip stream: whole package vs 12-vertex slices --\n");
+    for (size_t i = 0; i < built.size(); ++i) {
+        const vugen::Desc d = vugen::allDescs()[i];
+        const vugen::Built& b = built[i];
+        if (!d.clip || b.program.code.empty()) continue;
+        vuir::Program ref = b.program;
+        const char* refDir = std::getenv("TYRAX_CLIP_REF_DIR");
+        if (refDir && *refDir) {
+            vuasm::Options opt;
+            opt.includeRoot = engine;
+            std::string err;
+            const std::string path =
+                (fs::path(refDir) / (d.fileStem + ".vclpp")).string();
+            ref = vuir::Program{};  // parseFile appends
+            if (!vuasm::parseFile(path, opt, ref, err)) {
+                std::printf("  %-16s no reference at %s: %s\n", d.vclName.c_str(),
+                            path.c_str(), err.c_str());
+                ++mismatches;
+                continue;
+            }
+        }
+        const vugen::StreamEquivalence se =
+            vugen::streamEquivalence(b.program, ref, d, 80, 0x51ce5u);
+        std::printf("  %-16s %-9s %d trials (%d strips), up to %d vertices, "
+                    "%d kicks, %lld GS vertices\n",
+                    d.vclName.c_str(), se.identical ? "IDENTICAL" : "DIFFERENT",
+                    se.trials, se.stripTrials, se.maxVertices, se.kicks,
+                    se.vertices);
+        // A run that drew nothing compares equal to anything.
+        if (se.identical && se.vertices == 0) {
+            ++mismatches;
+            std::printf("      VACUOUS: no vertex reached the GIF\n");
+        }
+        if (!se.identical) {
+            ++mismatches;
+            std::printf("      %s\n", se.detail.c_str());
         }
     }
     std::printf("\n");
@@ -5332,6 +5325,8 @@ int main(int argc, char** argv) {
         return bakeGiFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-status") == 0)
         return bakeStatusFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--import-model") == 0)
+        return importModelFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-shadows") == 0)
         return bakeShadowsFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-particles") == 0)
@@ -5348,27 +5343,6 @@ int main(int argc, char** argv) {
         return chatPromptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--search-docs") == 0)
         return searchDocsFromCli(argc, argv);
-    // The neural upscaler's host side (docs/neural-upscaler.md). Headless like
-    // --bake-gi: no display, no Project - the network is trained on a
-    // procedural corpus and baked into the game as a header.
-    //
-    // UNBUFFERED, because these three are the only commands here that report
-    // PROGRESS over minutes and the only ones something else watches. A C
-    // stdout writing to a PIPE is block-buffered, so `--blss-train | tee`, a
-    // CI log and the editor's own Neural Upscaler window all saw nothing at all
-    // until the process exited and then the whole run at once - a corpus
-    // render, an oracle pass and 400 epochs arriving as one lump. Total output
-    // is a couple of kilobytes, so there is nothing to pay for it with.
-    if (argc > 1 && std::strncmp(argv[1], "--blss-", 7) == 0)
-        std::setvbuf(stdout, nullptr, _IONBF, 0);
-    if (argc > 1 && std::strcmp(argv[1], "--blss-train") == 0)
-        return blss::trainMain(argc, argv);
-    if (argc > 1 && std::strcmp(argv[1], "--blss-eval") == 0)
-        return blss::evalMain(argc, argv);
-    if (argc > 1 && std::strcmp(argv[1], "--blss-emit") == 0)
-        return blss::emitMain(argc, argv);
-    if (argc > 1 && std::strcmp(argv[1], "--blss-coverage") == 0)
-        return blssCoverageFromCli(argc, argv);
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
         std::printf(
             "tyrax-editor [projectDir]                 open the GUI\n"
@@ -5380,7 +5354,8 @@ int main(int argc, char** argv) {
             "  --debug-state [--verbose]               what is being debugged "
             "on this machine right now\n"
             "  --profile-frame <projectDir> [-o report.csv]  synchronized render costs\n"
-            "  --capture-frame <projectDir> [-o out.png] [--alpha a.png]  the "
+            "  --capture-frame <projectDir> [-o out.png] [--alpha a.png] "
+            "[--timeout s]  the "
             "game's own screenshot (works over ps2link)\n"
             "  --dump-vucap <dir> [--full] [--peek N]  decode the last VU1 "
             "capture\n"
@@ -5410,6 +5385,9 @@ int main(int argc, char** argv) {
             "illumination + light probes\n"
             "  --bake-status <projectDir>              is every bake cache "
             "fresh? read-only; exit 3 = stale\n"
+            "  --import-model <projectDir> <model> [--split none|top|mesh] ...\n"
+            "                                          import an .obj/.glb/.fbx "
+            "(docs/model-import.md)\n"
             "  --bake-model-ao <projectDir> [--texbake]\n"
             "                                          bake every model "
             "asset's own AO into its texture\n"
@@ -5417,58 +5395,13 @@ int main(int argc, char** argv) {
             "  --bake-prelit <projectDir> [sceneName]  re-bake every STALE "
             "pre-lit object\n"
             "                                          (docs/prelit-models.md)\n"
-            "Neural upscaler (docs/neural-upscaler.md):\n"
-            "  --blss-train [<projectDir>] [-o blss.net] [--frames N] "
-            "[--epochs N] [--dump <dir>]\n"
-            "                                          train the BLSS net. With "
-            "a project directory the corpus\n"
-            "                                          is THAT PROJECT'S own "
-            "scenes; without one, the built-in\n"
-            "                                          procedural bestiary\n"
-            "        --all-shots                       fit ALL shots, not just "
-            "the split's training side:\n"
-            "                                          the net to SHIP (and "
-            "--blss-eval's held-out columns\n"
-            "                                          then mean nothing - use "
-            "--blss-eval --cv)\n"
-            "  --blss-eval [<projectDir>] [-i blss.net] [--frames N] [--dump "
-            "<dir>]\n"
-            "                                          PSNR + flicker + "
-            "occupancy: the net vs every fixed kernel\n"
-            "        --cv [--cv-seeds N] [--cv-folds N] leave-one-shot-out "
-            "cross-validation: trains its\n"
-            "                                          own net per fold, so it "
-            "ignores -i. THE honest\n"
-            "                                          out-of-distribution "
-            "number - one split is one draw\n"
-            "        --features [--probe \"<line>\"]      what the six input "
-            "channels look like over the\n"
-            "                                          corpus; --probe places a "
-            "console BLSSFEAT line in it\n"
-            "        --drop-feature <name>[,...]       hold channels at zero - "
-            "\"does this one earn its keep\"\n"
-            "        --no-package-split                one bag proxy per object "
-            "instead of one per VU1\n"
-            "                                          package (reproduces the "
-            "pre-split fold tables)\n"
-            "      both take --assets <dir> --seed N --sharpen K --scale-1x2 "
-            "--weight-decay W\n"
-            "      --standardise, and the two\n"
-            "      oracle-objective weights (sweep them as a PAIR, they trade "
-            "against each other):\n"
-            "        --flicker-weight W                penalty vs the "
-            "reprojected history (default 0)\n"
-            "        --fill-weight W                   cost per full-screen "
-            "composite pass (default 16)\n"
-            "  --blss-emit [-i blss.net] [-o inc/blss_net.gen.hpp]\n"
-            "                                          bake a net into the C++ "
-            "the game compiles (no -o: stdout)\n"
-            "  --blss-coverage <projectDir> [--frames N] [--raster N] [--threads "
-            "N] [--out WxH]\n"
-            "                                          how much FILL the scenes "
-            "ask the GS for, against the\n"
-            "                                          measured break-even: the "
-            "speed half of 'turn it on?'\n"
+            "  --bake-object-light <projectDir> <object> [size] [rays]\n"
+            "                                          bake one object's light "
+            "into its texture (docs/prelit-models.md)\n"
+            "  --bake-shadows <projectDir>             bake the static shadow "
+            "decals (docs/shadows.md)\n"
+            "  --bake-particles <projectDir>           re-bake the particle "
+            "library's textures (docs/particles.md)\n"
             "  --road-texture <projectDir> <name> [key=value ...]\n"
             "                                          generate a road material into "
             "res/materials/roads\n"
@@ -5503,7 +5436,7 @@ int main(int argc, char** argv) {
             "  --ai-graph <projectDir> <object> <prompt|file> [scene]\n"
             "             [--backend claude|copilot|openai] [--model <m>]\n"
             "             [--thinking]\n"
-            "  --add-ai-support <projectDir> [claude] [copilot]\n"
+            "  --add-ai-support <projectDir> [claude] [codex] [copilot]\n"
             "  --chat-prompt [projectDir]              print the AI "
             "Assistant's system prompt (docs/ai-chat.md)\n"
             "  --search-docs \"<query>\" [page]           full-text search over "

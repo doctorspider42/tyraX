@@ -3,7 +3,7 @@
 TyraX imports skeletal `.glb` and `.fbx` models, previews their clips and bakes
 them into the PS2-native `.tskl` format.
 
-![The Animation Editor showing the model preview, clip list and non-destructive trim controls.](img/animation-editor.png)
+![The Animation Editor: clips with their usage, the preview with its transport and trim timeline, and the clip inspector with Used by.](img/animation-editor.png)
 
 ## Authoring
 
@@ -21,11 +21,13 @@ external textures must be available during import.
 
 ## Import and place
 
-Use **Project > Import model** or the [Asset Browser](asset-browser.md), then
-drag the model into the viewport. The inspector reports vertices, bones, clips
-and estimated runtime memory before you build.
+Import it with the model importer ([model-import.md](model-import.md)) with
+**Animated model** ticked, then place it with **Add object > Object > Animated
+model...** (or drag it from the [Asset Browser](asset-browser.md)). The
+inspector reports vertices, bones, clips and estimated runtime memory before you
+build. The same `.glb`/`.fbx` can also be placed as a static **Model**.
 
-![An imported animated model selected in the scene, with its clips, playback and LOD settings in Properties.](img/animated-model-properties.png)
+![An animated model (the showcase keeper) selected in the scene: its Model field, clips, playback and LOD settings in Properties.](img/animated-model-properties.png)
 
 **An untextured model's colour is its glTF `baseColorFactor`**, and the
 viewport reads it the way the game does. That is worth saying because the two
@@ -41,9 +43,9 @@ Animated model properties include:
 - animation and mesh LOD overrides;
 - the usual transform, draw distance, material and gameplay flags.
 
-Assigning an `.mtl` overrides the imported materials for the whole model. Use
-this for simple recolours or effects; use the embedded materials when different
-mesh parts need different textures.
+The importer writes the model's materials to a sibling `<name>.mtl`, which a
+new Animated model entity wears automatically; edit it, or assign another `.mtl`,
+to change the materials. Parts are matched by material name.
 
 A **clip-only file** — a downloaded move with no useful mesh — is imported the
 same way, but you put its animation on a character you already have rather than
@@ -51,8 +53,18 @@ placing it. See [animation-import.md](animation-import.md).
 
 ## Edit clips
 
-Open **Tools > Animation Editor**. Select a model and clip (the list has a
-name filter), then preview, pause, scrub or switch to wireframe.
+Open **Tools > Animation Editor**. The model is the dropdown in the header,
+beside the project's `source -> play fps`. The left column lists the model's
+clips - game name, duration, the source name, and who plays it (`walk · 2
+players`, or an amber `not used`) - then **Borrowed from other files**. The
+preview is the centre: Shaded / Wireframe, **Bones** (the skeleton drawn over
+the model - joints as dots, each bone a line to its parent, at the pose on
+screen; a model without a skin has nothing to draw), the preview light and
+*Reset view* on top (right-drag to orbit, middle-drag to pan, wheel to zoom), and under it the
+transport: back to start, play/pause, loop, the time as the game plays it,
+a preview speed (0.5x / 1x / 2x) and the **timeline** in source seconds. Its
+green handles are the trim: drag them, and the cut parts are hatched; drag
+anywhere else to scrub.
 
 Clip edits are non-destructive:
 
@@ -62,11 +74,19 @@ Clip edits are non-destructive:
 - **In place** removes root translation for locomotion.
 - **Loop by default** sets the initial object behaviour.
 
+**Used by** under them lists every object that plays the clip - a Player's
+locomotion slots, an object's start clip, *Animation* nodes in the object's own
+graph; click one to select it. An empty Idle or Walk slot plays the model's
+first clip, and counts as using it (`(first clip)`). A clip nothing plays gets a
+warning card and, when the scene has a Player with this model, **Set as Walk on
+<player>** (one undoable edit). The footer shows the clip's keys and channels and
+**Reset clip** (back to exactly what the file contains).
+
 Project Preferences also has a global animation FPS for exports whose authored
 rate was interpreted incorrectly. Fix a single clip with Time scale; use the
 project setting only when every clip is wrong by the same factor.
 
-The same window's **Imported clips** section borrows clips out of a *different*
+The same window's **Borrowed from other files** section borrows clips out of a *different*
 rigged file — a Mixamo download, another export from an animator — and puts them
 on this model, matching bones by name and keeping this model's own proportions.
 An imported clip then behaves as one of this model's clips everywhere, including

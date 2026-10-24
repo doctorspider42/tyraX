@@ -19,7 +19,7 @@ struct Value;
 // and Properties applies one to the selected roads.
 //
 // Presets are DATA: the built-in table lives in roadpresets.cpp, and a project
-// can add its own (ProjectSettings::roadPresets, format v105) - captured from a
+// can add its own (ProjectSettings::roadPresets, format v133) - captured from a
 // road with fromRoad(). Host-only: no GL, no ImGui, and no project.hpp in this
 // header (project.hpp includes it for the settings list).
 namespace roadpresets {
@@ -90,7 +90,7 @@ void applyRailway(SceneObject& road, const std::string& projectDir, float unitsP
 // A file-name-safe key from a display name ("My Street!" -> "my-street").
 std::string keyOf(const std::string& name);
 
-// The project list as JSON (ProjectSettings::roadPresets, format v105):
+// The project list as JSON (ProjectSettings::roadPresets, format v133):
 // "" when empty, else a JSON array; every key written only off its default.
 std::string toJson(const std::vector<Preset>& list);
 void fromJson(const json::Value& v, std::vector<Preset>& out);

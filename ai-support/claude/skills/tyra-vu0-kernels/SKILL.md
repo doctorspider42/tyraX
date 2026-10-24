@@ -118,7 +118,8 @@ float d = sqrtf(dx*dx + dy*dy + dz*dz) - out[i].x;
 
 `sqrtf` against VU0's reciprocal square root is a fair comparison — both are
 single precision — so a disagreement is an arithmetic bug and not a tolerance
-argument. This project's `Ranges` kernel agrees with the EE to about 1e-6 units.
+argument. The reference `Ranges` kernel in docs/vu-authoring.md agrees with the EE to
+about 1e-6 units.
 
 ## Where to look
 

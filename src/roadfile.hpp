@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-// Road tables on disk (docs/roads.md "Tables on disk", format v104). A project
+// Road tables on disk (docs/roads.md "Tables on disk", format v132). A project
 // that streams its roads (roadStreamRadius > 0) no longer bakes the big
 // per-vertex road tables into the ELF - ROAD_JUNCTION_VERTS (node patches,
 // paint, pavements, bridge decks), ROAD_SPILL_VERTS, ROAD_EDGE_VERTS,

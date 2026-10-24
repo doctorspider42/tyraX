@@ -6,8 +6,9 @@ scene gets it through the preset it uses, the same way it gets its sky colours.
 
 ## Using it
 
-1. *Ambience Editor > Sky > **Sky texture (PNG)...***, with *Gradient sky
-   dome* on. Pick a **360-degree equirectangular** panorama (2:1, horizon
+1. *Ambience Editor > Sky & time*, inspector: **Sky texture (PNG)...** (in
+   the *Look* tab's Sky section, or under *Sky dome* on the *Key* tab when the
+   preset has a day/night cycle), with *Gradient sky dome* on. Pick a **360-degree equirectangular** panorama (2:1, horizon
    across the middle). The file is copied into `res/sky/`.
 2. Turn **Sky rotation** until the painted sun sits where the scene's light
    comes from. The picture does not move the light and the light does not move
@@ -41,6 +42,15 @@ royalty-free for commercial use.
 - **It reflects.** The shared reflection probe draws the dome, so the painted
   sky appears in chrome and car paint without any extra setting and at no extra
   cost beyond the texture.
+
+## Runtime color updates
+
+Day/night and Set Sky Color updates change only the dome vertex colors. The
+color version invalidates cached color packets; positions, UVs and bounds stay
+valid. Scene loading and texture/shape changes still rebuild the full dome.
+This applies to both painted and gradient skies and both renderer backends.
+The color calculation and triangle order are unchanged. A missing or inconsistent
+binding falls back to the full builder.
 
 ## What it will not do
 

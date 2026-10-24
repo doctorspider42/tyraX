@@ -9,6 +9,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
@@ -134,11 +135,11 @@ void RendererCoreShadowMap::begin(const int slot) {
               GS_REG_XYZ2);
   q++;
   packet2_update(beginPacket, q);
-  packet2_update(beginPacket, draw_finish(beginPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(beginPacket, frameDrawFinish(beginPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(beginPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCoreShadowMap::end() {
@@ -153,11 +154,11 @@ void RendererCoreShadowMap::end() {
   // RendererCoreGS::getRasterTarget().
   qword_t* q = gs->emitRasterRestore(endPacket->base, true);
   packet2_update(endPacket, q);
-  packet2_update(endPacket, draw_finish(endPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(endPacket, frameDrawFinish(endPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(endPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 }  // namespace Tyra

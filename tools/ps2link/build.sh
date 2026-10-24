@@ -2,15 +2,26 @@
 # Builds the TyraX ps2link - the ONLY ps2link the editor deploys to. The POSIX
 # twin of build.ps1; keep the two in step (same repo, same commit, same patch).
 #
-# Reproducible: clones a pinned ps2link, applies tyrax.patch, builds inside the
-# official ps2dev/ps2dev toolchain image (Docker), and drops ps2link.elf next to
-# this script. Needs Docker running (and the current user in the docker group).
+# Reproducible: clones a pinned ps2link, applies tyrax.patch, builds it with the
+# pinned PS2DEV v2.0.0 toolchain, and drops ps2link.elf next to this script.
+# The toolchain is the editor's native one (~/.config/tyra-editor/toolchain/
+# ps2dev, or under $XDG_CONFIG_HOME) when it is installed, else the official
+# ps2dev/ps2dev image in Docker (current user in the docker group). Same
+# release either way, so the same code - but not the same bytes: the release
+# archive and the image are separate CI builds whose ps2sdk libraries list
+# their objects in another order, so the linker lays the same functions out
+# differently (measured r8: identical section sizes and instructions, 12k
+# disassembly lines moved). Each path is reproducible against itself.
 #
 #   ./build.sh           # build -> tools/ps2link/ps2link.elf  (0x01ee8000)
 #   ./build.sh --clean   # nuke the work tree first
 #   ./build.sh --low     # -> tools/ps2link/ps2link-low.elf   (0x00094000)
 #   ./build.sh --no-usb  # -> ...-nousb.elf: no usbd/ps2kbd/ps2mouse baked in
 #   ./build.sh --packed  # -> ...-packed.elf: run ps2-packer over it
+#   ./build.sh --docker  # use the Docker image even with a native toolchain
+#
+# The revision the banner shows (r8, ...) is TYRAX_REV in tyrax.patch's
+# ee/Makefile hunk - the one place it lives.
 #
 # --packed runs ps2-packer over the image, the way upstream's releases ship:
 # what a launcher loads is then a small stub high in memory that decompresses
@@ -44,13 +55,15 @@ CLEAN=0
 LOADHIGH=1
 NOUSB=0
 PACKED=0
+DOCKER=0
 for arg in "$@"; do
     case "$arg" in
         --clean|-Clean) CLEAN=1 ;;
         --low|-Low) LOADHIGH=0 ;;
         --no-usb|-NoUsb) NOUSB=1 ;;
         --packed|-Packed) PACKED=1 ;;
-        *) echo "Unknown option: $arg (expected --clean, --low, --no-usb or --packed)" >&2; exit 2 ;;
+        --docker|-Docker) DOCKER=1 ;;
+        *) echo "Unknown option: $arg (expected --clean, --low, --no-usb, --packed or --docker)" >&2; exit 2 ;;
     esac
 done
 # `make` runs ps2-packer over ee/ps2link.elf and writes bin/PS2LINK.ELF;
@@ -73,14 +86,22 @@ commit='0c6138c5553760423070d1797ac475c4d98a06e6'
 # 285 620 B a few weeks later, with nothing here changed. v2.0.0 gives 284 340 B
 # every time.
 image='ps2dev/ps2dev:v2.0.0'
+rev="r$(sed -n 's/^+TYRAX_REV := \([0-9]*\).*/\1/p' "$patch")"
 
-if ! command -v docker >/dev/null 2>&1; then
-    echo "docker not found - the ps2link build runs inside $image." >&2
+# The editor's native toolchain - the same PS2DEV v2.0.0 release the image
+# above is tagged with.
+toolchain="${XDG_CONFIG_HOME:-$HOME/.config}/tyra-editor/toolchain/ps2dev"
+NATIVE=0
+[ "$DOCKER" = 0 ] && [ -x "$toolchain/ee/bin/mips64r5900el-ps2-elf-gcc" ] && NATIVE=1
+
+if [ "$NATIVE" = 0 ] && ! command -v docker >/dev/null 2>&1; then
+    echo "no native toolchain at $toolchain and docker not found - the ps2link" >&2
+    echo "build needs one of them (the editor's setup installs the first)." >&2
     exit 1
 fi
 
 if [ "$CLEAN" = 1 ] && [ -d "$work" ]; then
-    # The container builds as root, so object files under build/ can end up
+    # A Docker build runs as root, so object files under build/ can end up
     # root-owned; a plain rm then fails halfway and the next run would quietly
     # "reuse the existing clone" and build a stale tree.
     rm -rf "$work" 2>/dev/null || docker run --rm -v "$work:/work" "$image" \
@@ -102,16 +123,39 @@ fi
 echo "== Applying tyrax.patch =="
 git -C "$work" apply --verbose "$patch"
 
-echo "== Building in $image (this pulls the image on first run) =="
-# make ee builds the unpacked ELF (no ps2-packer needed). apk adds make/git the
-# minimal ps2dev image lacks. Non-login shell so the image's toolchain PATH stays.
-docker run --rm -v "$work:/work" -e "LOADHIGH=$LOADHIGH" "$image" sh -c '
-set -e
+# The flags go on the make line itself, never through the environment: this
+# used to hand the container LOADHIGH alone and run `make ee`, so --no-usb and
+# --packed were silently ignored (and --packed then found no bin/PS2LINK.ELF).
+make_cmd="make clean >/dev/null 2>&1 || true
+make $MAKETARGET LOADHIGH=$LOADHIGH NOUSB=$NOUSB"
+if [ "$NATIVE" = 1 ]; then
+    echo "== Building $rev with the native toolchain ($toolchain) =="
+    (
+        export PS2DEV="$toolchain"
+        export PS2SDK="$PS2DEV/ps2sdk"
+        export PATH="$PS2DEV/bin:$PS2DEV/ee/bin:$PS2DEV/iop/bin:$PS2SDK/bin:$PATH"
+        cd "$work"
+        make clean >/dev/null 2>&1 || true
+        make ee LOADHIGH=$LOADHIGH NOUSB=$NOUSB
+        if [ "$PACKED" = 1 ]; then
+            # The packer step of `make`, by hand: the release's ps2-packer
+            # looks for its stub under the path it was built at
+            # (/__w/ps2dev/...), not next to itself. Same default stub, so the
+            # same packed ELF.
+            mkdir -p bin
+            "$PS2DEV/bin/ps2-packer" -s "$PS2DEV/share/ps2-packer/stub/lzma-1d00-stub" \
+                ee/ps2link.elf bin/PS2LINK.ELF >/dev/null
+        fi
+    )
+else
+    echo "== Building $rev in $image (this pulls the image on first run) =="
+    # apk adds make/git the minimal ps2dev image lacks. Non-login shell so the
+    # image's toolchain PATH stays.
+    docker run --rm -v "$work:/work" "$image" sh -ec "
 apk add --no-cache make git >/dev/null 2>&1 || true
 cd /work
-make clean >/dev/null 2>&1 || true
-make ee LOADHIGH=$LOADHIGH
-'
+$make_cmd"
+fi
 
 elf="$work/ee/ps2link.elf"
 [ "$PACKED" = 1 ] && elf="$work/bin/PS2LINK.ELF"
@@ -135,5 +179,5 @@ fi
 if [ "$NOUSB" = 1 ]; then
     echo "      No keyboard or mouse over ps2link with this one - it bakes in"
     echo "      no usbd/ps2kbd/ps2mouse, and a game cannot load them itself on"
-    echo "      a network-booted ps2link. The banner reads 'r6 (no USB)'."
+    echo "      a network-booted ps2link. The banner reads '$rev (no USB)'."
 fi

@@ -12,6 +12,7 @@
 #include <stb_image.h>        // implementation lives in app.cpp
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
 
+#include "detmath.hpp"  // .tskl/.tmdl are committed - same bits on every OS
 #include "json.hpp"
 #include "meshlod.hpp"  // shared bake-time decimator (also used by .tmdl)
 
@@ -81,10 +82,10 @@ void slerp(const float* a, const float* bIn, float t, float* out) {
         wa = 1.0f - t;
         wb = t;
     } else {
-        const float theta = std::acos(std::min(dot, 1.0f));
-        const float sinTheta = std::sin(theta);
-        wa = std::sin((1.0f - t) * theta) / sinTheta;
-        wb = std::sin(t * theta) / sinTheta;
+        const float theta = detmath::acos(std::min(dot, 1.0f));
+        const float sinTheta = detmath::sin(theta);
+        wa = detmath::sin((1.0f - t) * theta) / sinTheta;
+        wb = detmath::sin(t * theta) / sinTheta;
     }
     for (int i = 0; i < 4; ++i) out[i] = wa * a[i] + wb * b[i];
     const float len = std::sqrt(out[0] * out[0] + out[1] * out[1] +
@@ -976,9 +977,35 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
         }
     };
 
+    // Skeleton overlay bones: every skin joint, parented to its nearest
+    // ancestor that is also a joint.
+    std::vector<int> boneNodes;
+    {
+        std::vector<int> boneOf(P.nodes.size(), -1);
+        for (const Skin& sk : skins)
+            for (int jn : sk.joints)
+                if (jn >= 0 && jn < (int)P.nodes.size() && boneOf[(size_t)jn] < 0) {
+                    boneOf[(size_t)jn] = (int)boneNodes.size();
+                    boneNodes.push_back(jn);
+                }
+        for (int jn : boneNodes) {
+            int pn = P.parent[(size_t)jn];
+            while (pn >= 0 && boneOf[(size_t)pn] < 0) pn = P.parent[(size_t)pn];
+            out.boneParent.push_back(pn >= 0 ? boneOf[(size_t)pn] : -1);
+        }
+    }
+    auto appendBones = [&]() {
+        for (int jn : boneNodes) {
+            out.bonePos.push_back(globals[(size_t)jn].m[12]);
+            out.bonePos.push_back(globals[(size_t)jn].m[13]);
+            out.bonePos.push_back(globals[(size_t)jn].m[14]);
+        }
+    };
+
     int framesBaked = 0;
     if (clipSrcs.empty()) {
         computeGlobals(pose, P.order, P.parent, globals);
+        appendBones();
         out.rootMotion.push_back({});
         appendFrame(true);
         out.clips.push_back({"default", 0, 1});
@@ -1017,6 +1044,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                     root.z = globals[motionRoot].m[14];
                 }
                 out.rootMotion.push_back(root);
+                appendBones();
                 appendFrame(framesBaked + f == 0);
             }
             std::string name = clip.name;

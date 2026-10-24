@@ -61,7 +61,7 @@ ignore `res/materials/`, so they are tracked.
   ordinary undoable edits. With Pavement on it reads **Apply as pavement
   material**: it sets the Road's Pavement material, turns its kerbs on and
   gives it a 2.5-unit pavement if it had none
-  ([Pavements](roads.md#pavements-format-97)).
+  ([Pavements](roads.md#pavements-format-125)).
 
 The preview shows the texture repeated as a strip of road at its design
 proportions (or 2 x 2 for a junction patch or a pavement tile), on a grass-coloured ground so the

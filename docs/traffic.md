@@ -12,7 +12,7 @@ definitions, driven by the same vehicle sim as the player's car.
 ## Turning it on
 
 **Project > Preferences > World > Traffic** (saved as `settings.traffic`,
-format 106, only the keys that differ from the defaults):
+format 134, only the keys that differ from the defaults):
 
 | setting | default | what it does |
 |---|---|---|
@@ -23,8 +23,8 @@ format 106, only the keys that differ from the defaults):
 | Lane speed | 11 units/s | the speed every lane is driven at, curves permitting |
 | Green / Amber / All red | 12 / 3 / 2 s | one phase of the traffic lights |
 | Left-hand traffic | off | lanes on the left of the direction of travel |
-| Lane changes | on | multi-lane roads: move into the turn's lane, pass a stopped car (`laneChanges`, format 108) |
-| Headlights at night | on | the cars light their lamps with the scene's night (`headlights`, format 108) |
+| Lane changes | on | multi-lane roads: move into the turn's lane, pass a stopped car (`laneChanges`, format 136) |
+| Headlights at night | on | the cars light their lamps with the scene's night (`headlights`, format 136) |
 
 Traffic lights come from the roads' **Street furniture**: a three- or four-way
 node where any of its roads ticks **Traffic lights** gets a signal head on every
@@ -88,7 +88,7 @@ keeps cycling):
 
 - **Auto** (every node, unless overridden): a patch node of three or four arms -
   not a transition, not one a railway crosses - where any of its roads ticks
-  Street furniture > **Traffic lights**. Before format 108 only four-way nodes
+  Street furniture > **Traffic lights**. Before format 136 only four-way nodes
   were signalled; a road that already asked for lights now gets them at its T's
   too (the Motor District's Garage boulevard has two).
 - **A T runs three phases**, one arm at a time: each approach gets its own
@@ -98,7 +98,7 @@ keeps cycling):
   opposite arms together, with the far-side turn giving way to the oncoming
   stream.
 - **The junction's Control** (select a junction's diamond in the viewport,
-  saved as the override's `"control"`, format 108):
+  saved as the override's `"control"`, format 136):
 
   | Control | what the node does |
   |---|---|

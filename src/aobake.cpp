@@ -1732,8 +1732,10 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     std::vector<int> order(regions.size());
     auto packAll = [&](int size) {
         for (size_t i = 0; i < order.size(); ++i) order[i] = (int)i;
-        std::sort(order.begin(), order.end(),
-                  [&](int a, int b) { return regions[a].h > regions[b].h; });
+        // stable: equal heights keep region order, the same with libc++ and
+        // libstdc++ (std::sort did not, so the atlas rects differed by OS)
+        std::stable_sort(order.begin(), order.end(),
+                         [&](int a, int b) { return regions[a].h > regions[b].h; });
         int cx = 0, cy = 0, shelfH = 0;
         for (int i : order) {
             Region& rg = regions[i];

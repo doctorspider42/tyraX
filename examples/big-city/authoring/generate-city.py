@@ -107,7 +107,7 @@ KERB_KINDS = ('avenue', 'street', 'local', 'ring', 'diagonal', 'boulevard', 'spu
 KERBS_DOWNTOWN_ONLY = False  # True = kerbs, pavements and details only on the 'core' roads:
 CORE_RADIUS = 100.0        # grid lines this close to the centre, the tram diagonal and
                            # the downtown lanes. Every vertex is EE RAM - see the README.
-                           # False since the road tables moved to a file (format 104):
+                           # False since the road tables moved to a file (format 132):
                            # kerbs everywhere cost ~2.5 MB, see the README.
 MARKINGS_OUTSIDE_DOWNTOWN = False  # node paint (stop/edge lines) outside downtown
 LOWPOLY_PROPS = True       # 20-30-triangle generated trees and lamps instead of

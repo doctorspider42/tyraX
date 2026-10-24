@@ -53,6 +53,31 @@ class Device {
     std::string name_;
 };
 
+// Plays one sound or music file once, for the Project panel's Audio page.
+// Decoding a whole track takes a moment, so it runs on a worker: play()
+// returns at once, playing() turns true when the samples are in. A second
+// play() (or stop()) cancels whatever was loading or sounding.
+class ClipPlayer {
+ public:
+    ClipPlayer();
+    ~ClipPlayer();
+    ClipPlayer(const ClipPlayer&) = delete;
+    ClipPlayer& operator=(const ClipPlayer&) = delete;
+    void play(const std::string& absPath, const std::string& key);
+    void stop();
+    // The key passed to play() while it loads or sounds, "" once it ended.
+    std::string current() const;
+    bool loading() const;
+    double position() const;  // seconds
+    double length() const;    // seconds, 0 until loaded
+    std::string error() const;
+
+    struct Impl;
+
+ private:
+    std::unique_ptr<Impl> d_;
+};
+
 // Host audition of the vehicle's two looping samples. Decoding stays off the
 // audio thread; live controls are atomic and stopping joins the device thread.
 class EngineLoop {

@@ -334,7 +334,7 @@ void App::drawJunctionProperties() {
             changed = true;
         commit |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    // Lights and signs (format v108, docs/traffic.md "Signals"): what the
+    // Lights and signs (format v136, docs/traffic.md "Signals"): what the
     // node does about who goes first, from the plan + the roads' furniture.
     {
         std::vector<roadfurn::Settings> fs;

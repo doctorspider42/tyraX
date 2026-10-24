@@ -29,6 +29,11 @@ done
 say_how_to_fix() {
     local spec manager install packages
     spec="$(tyrax_system_packages)"
+    if [ -z "$spec" ] && [ "$(uname -s)" = Darwin ]; then
+        echo "  Install Homebrew (https://brew.sh) and the Xcode Command Line Tools" >&2
+        echo "  (xcode-select --install), then run ./setup.sh --deps." >&2
+        return
+    fi
     if [ -z "$spec" ]; then
         echo "  Install a C++20 toolchain, cmake, ninja, git, pkg-config, the" >&2
         echo "  X11/Wayland/GL development headers and zenity, then re-run." >&2
@@ -37,11 +42,32 @@ say_how_to_fix() {
     IFS='|' read -r manager install packages <<<"$spec"
     echo "  ./setup.sh --deps        # installs them with $manager" >&2
     echo "or by hand:" >&2
-    echo "  sudo $install $packages" >&2
+    if [ "$manager" = brew ]; then
+        echo "  xcode-select --install; $install $packages" >&2
+    else
+        echo "  sudo $install $packages" >&2
+    fi
 }
 
+# macOS: clang from the Xcode Command Line Tools, GLFW on Cocoa and the
+# system OpenGL framework - no X11 headers, and dialogs go through osascript.
+IS_MACOS=0
+[ "$(uname -s)" = Darwin ] && IS_MACOS=1
+if [ "$IS_MACOS" = 1 ]; then
+    for d in /opt/homebrew/bin /usr/local/bin; do
+        [ -d "$d" ] && PATH="$d:$PATH"
+    done
+    export PATH
+fi
+
 missing_tools=()
-for t in cmake ninja g++ git pkg-config; do
+if [ "$IS_MACOS" = 1 ]; then
+    xcode-select -p >/dev/null 2>&1 || missing_tools+=(xcode-command-line-tools)
+    build_tools=(cmake ninja c++ git)
+else
+    build_tools=(cmake ninja g++ git pkg-config)
+fi
+for t in "${build_tools[@]}"; do
     command -v "$t" >/dev/null 2>&1 || missing_tools+=("$t")
 done
 if [ ${#missing_tools[@]} -gt 0 ]; then
@@ -52,7 +78,7 @@ fi
 # GLFW needs the X11 and GL headers; without them cmake configures and only
 # fails much later with an opaque link error, so check up front.
 missing_pkgs=()
-for p in gl x11 xrandr xinerama xcursor xi; do
+[ "$IS_MACOS" = 1 ] || for p in gl x11 xrandr xinerama xcursor xi; do
     pkg-config --exists "$p" || missing_pkgs+=("$p")
 done
 if [ ${#missing_pkgs[@]} -gt 0 ]; then
@@ -63,7 +89,8 @@ fi
 # zenity/kdialog is a RUNTIME dependency, not a build one: without it the
 # editor builds and starts but every Open/Import button silently does nothing
 # (platform::pickFile has no backend). Warn, never block.
-if ! command -v zenity >/dev/null 2>&1 && ! command -v kdialog >/dev/null 2>&1; then
+if [ "$IS_MACOS" = 0 ] && ! command -v zenity >/dev/null 2>&1 &&
+   ! command -v kdialog >/dev/null 2>&1; then
     echo "NOTE: neither zenity nor kdialog is installed - the editor's file" >&2
     echo "      dialogs (Open project, Import model/texture/WAV) will not open." >&2
 fi

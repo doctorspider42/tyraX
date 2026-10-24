@@ -119,7 +119,7 @@ bool App::drawRoadFurniture(SceneObject& o) {
              "in place of the signs there. A junction's own Control (select\n"
              "its diamond) can turn them on or off at that node alone.");
     if (s.signals && modelCombo("Signal model", s.signalModel)) changed = true;
-    // Breakable furniture (docs/roads.md "Breakable furniture", format v109).
+    // Breakable furniture (docs/roads.md "Breakable furniture", format v137).
     ImGui::SeparatorText("Breakable");
     if (ImGui::Checkbox("Cars knock it over", &s.breakable)) changed = true;
     prefHelp("Need for Speed style: a car that hits a lamp post, a sign,\n"

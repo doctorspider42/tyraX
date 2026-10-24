@@ -7,10 +7,18 @@ placed cars. [The Blender tutorial](blender-vehicle-modeling.md) covers making
 and exporting a model from scratch. [Motor District](../examples/vehicle-playground/README.md)
 is a playable example with three editable Blender cars.
 
+[Dynamic light receivers](dynamic-light-receivers.md) can keep live light on
+the driven vehicle's body, glass and wheels while excluding parked/traffic cars.
+
+A placed vehicle whose definition has no ID or model path is skipped. If no
+usable definitions remain, generated code keeps a complete inert placeholder
+(including both engine sound layers and the controls card fields), so an
+incomplete vehicle setup still compiles.
+
 ## Importing a model
 
 Import a `.glb` into `res/models/`, then select it on the Vehicle Editor's
-**Model** tab. Keep four separate, similarly sized wheel mesh objects with
+**Model & cost** tab. Keep four separate, similarly sized wheel mesh objects with
 their origins at the hubs. The importer detects them by shape and position;
 the wheel table lets you mark each one **Steered** and **Driven**. Check the
 measured wheelbase, track and radius. Use **Flip front/rear** if it guessed the
@@ -19,11 +27,11 @@ nose incorrectly. Re-export from Blender when geometry or UVs are wrong.
 Give lamps materials named `headlights` and `rear lights`; use `glass` or
 `window` for glazing. A single compact body atlas and few materials reduce
 PS2 draw submissions. The default body budget is 2400 triangles; roughly 160
-per wheel is a useful target. The **Cost** tab reports the actual baked
+per wheel is a useful target. The **Model & cost** tab reports the actual baked
 triangles and submissions. Models with an interior can use translucent glass.
 
-For traffic and distant cars, assign a **Far model** on the Cost tab. Export it
-in the same coordinates and with the same atlas as the full model. The Cost tab
+For traffic and distant cars, assign a **Far model** on the Model & cost tab. Export it
+in the same coordinates and with the same atlas as the full model. The Model & cost tab
 also sets the full-to-far distance and the separate distance for parked and AI
 cars. An optional fast-wheel model replaces all four wheels above the authored
 spin threshold. The full model remains the source of wheel positions and
@@ -41,27 +49,78 @@ can instead use a material whose name contains `paint`.
 
 ## The Vehicle Editor
 
-Choose **Global defaults** for settings shared by new vehicles, or choose a
-vehicle to edit it. Changing one inherited control creates a local override
-for that field. **Use defaults** resets the current section. Model, wheel
-geometry, paint, LOD and exit offset stay local to each definition.
+The window is three columns: the vehicle list, the **live preview** in the
+middle, and the settings. The list starts with **Defaults** (the base every
+vehicle follows - "base for 3 vehicles"), then each vehicle with a silhouette
+in its paint colour and how much of it is its own ("all from Defaults",
+"8 own - 63 from Defaults"), with the own-value count as a badge; a vehicle
+made before Defaults existed reads *legacy*. **+** adds a vehicle, right-click
+one for *Duplicate* and *Delete*.
+
+### Defaults and own values
+
+The top of the settings says **which values you are editing**: *Editing:
+Defaults | <vehicle>* switches between the project-wide Defaults and the
+selected car, and a line under it says how many of the car's values are its
+own. In Defaults there is no switch - the list on the left goes back to a car.
+
+Every tuned value is a row of three columns - caption, control, and a fixed
+**state slot** on the right, so nothing is drawn over a caption:
+
+- **follows Defaults**: the row is dimmed and the slot reads *Defaults*;
+  hovering the row turns it into **Make own**, and editing the value does the
+  same;
+- **own**: full ink, an **Own** pill, a grey tick on the slider at the
+  Defaults value, and a revert button (its tooltip names the value it goes
+  back to);
+- **measured from the model** (wheel placement): a *Model* pill, and
+  **Re-measure** takes the model's numbers back;
+- **waiting on another value** (a pitch with no sample, the high-rev loop
+  switched off): faded, with the reason in the slot instead of disappearing;
+- in **Defaults** the slot shows who follows: a square per vehicle in its
+  paint colour, filled when it follows and outlined when it has its own -
+  click it for the list and a **Follow** per vehicle.
+
+**Reset to defaults** at the top of a tab resets every own value of that
+section; **Show: Own only** hides everything that follows. A legacy vehicle
+gets one banner and one button, **Adopt Defaults**, which keeps the values
+that differ as its own and lets the rest follow. Model, wheel geometry,
+paint, the body's shine and glass, LOD and exit offset stay local to each
+definition.
 
 | Tab | Main controls |
 |---|---|
-| Model | Model, wheel roles, front direction, paint and glass |
-| Driving | Acceleration, speed, steering, grip, suspension, gearbox and nitrous |
-| Damage | Visual and performance damage, dents, loose parts and power loss |
-| Driver | Cameras, HUD and exit position |
-| Sounds | Engine loops, pitch curves, tyre squeal and gear shift |
-| Effects | Headlights, lamp glow, skid marks and tyre smoke |
-| Cost | Triangle budgets, submissions, fast wheels and far model |
+| Handling | Wheel placement (measured), power and speed, steering and grip, road surfaces, suspension, gearbox, nitrous, fast wheel swap - each a collapsible section |
+| Engine & sound | A pitch-against-revs chart (idle loop, high-rev loop over its crossfade band, the Defaults curve dashed), then Idle loop, High-rev loop, Tyre squeal and Gear shift - each sample picker shows the file's length and size |
+| Camera & HUD | Cameras, HUD, controls card, exit position |
+| Damage | Visual and performance damage, dents, loose parts, power loss and test hits |
+| Look | Paint, body shine, reflection map and glass (this vehicle), then headlights, skid marks, tyre smoke, lamp glow, speed feel and exhaust |
+| Model & cost | Model, the import summary, front direction and the wheel table, then triangle budgets, submissions, fast wheels and far model |
 
-The **Live preview** uses the baked body and wheels. Drag to orbit, scroll to
-zoom, move **Steering**, or enable **Spin wheels**. The Damage tab can apply
-test hits and repair the preview. **Listen to engine** and **Revs** audition
-the current sound tuning without driving the game.
+Each tab shows how many of its values are the car's own.
 
-![Vehicle Editor live preview](img/vehicle-live-preview.png)
+The **live preview** uses the baked body and wheels. Right-drag to orbit,
+middle-drag to pan, scroll to zoom. Its overlay has **Near | Far** - *Far* shows the far tier the console
+swaps to past the far distance: every tiered part at its first tier, the
+wheels baked in (no wheel meshes), the parts an authored far model hides left
+out; disabled when the car has no far tier or a damage test is showing -
+*Reset view*, **Spin wheels** and **Wheels & measures**,
+which tags each wheel with its position and role (FL *steer*, RL *drive*...)
+and draws the measured wheelbase under the car; hovering a row of the Model
+tab's wheel table rings that wheel. The **Baked cost** card (triangles, draw
+submissions, the far tier) stays visible whatever tab you are on. Under the
+preview, **Speed**, **Steering** and **Revs** scrub the pose and the engine;
+**Listen to engine** auditions the current sound tuning without driving the
+game. The Damage tab can apply test hits and repair the preview.
+
+**Drive it** is hidden in 2.0 (`kShowDriveIt` in `vehicle_ui.cpp`; the
+simulation behind it stays). When shown, the green button, top right, drives the first placed instance of the vehicle in the
+active scene with the same simulation the console runs (W/S/A/D, Space, E);
+the card under the preview then shows the telemetry, and *Stop driving* puts
+the car back where it was. With no instance placed the button is disabled and
+says why.
+
+![The Vehicle Editor on vehicle-playground: Pica Turbo selected, the preview with Wheels & measures tags and the wheelbase, the Baked cost card, the scrubbers, and the Handling tab with measured (model) and custom (dot) values.](img/vehicle-live-preview.png)
 
 ## Driving and handling
 
@@ -126,7 +185,11 @@ the other side, behind or in front - the first spot clear of every collision
 box (a walker that starts inside a box cannot move until it jumps out). The
 log line `VEH exit spot N` names the spot taken (0 = the door, -1 = none was
 clear, so the door spot stands). Chase and far cameras shorten their boom
-against terrain and obstacles.
+against terrain and obstacles. The bumper camera is bolted to the body: it
+takes the drawn pitch, roll and lean, sits just past the front bumper (the
+baked `bodyOverhang`), is kept above the ground surface under it, and follows
+the body's pitch a beat late so a rough road does not shake the horizon. It
+never rolls.
 
 Use enters the car you are **looking at**, not just the nearest one: it must
 be in reach (1.2x wheelbase + 2 units from the player) and under the camera's
@@ -152,6 +215,60 @@ seat, release or repair the player without a pad press. Enter Vehicle can seat
 the player from anywhere, including at scene start. Repair Vehicle restores
 the body and performance. These nodes are handled in the generated game.
 
+### The static collider grid
+
+Every car's wall, floor and push-body tests read one per-frame list of the
+scene's colliders (`buildVehicleColliders`). It used to be rebuilt from every
+runtime object each frame and then scanned whole by every car, although almost
+nothing in it moves. Now the build flags the objects nothing can move
+(`SCENE_STATIC_COLLIDER_TABLES`, the inverse of `project::objectRuntimeMovable`:
+no physics, no flow-graph or script reference, no layer, no pickup, no save
+state), and the game places those **once** into a cell grid. Each frame only the
+rest - vehicles, physics bodies, scripted props, the spawn pool - are derived
+again, and a car walks just the grid cells its reach can touch plus that short
+dynamic list.
+
+The list every consumer reads keeps the same entries in the same object order,
+and a car's candidates are sorted back into that order, so each cap (12 walls,
+8 floors, 8 bodies, 4 mesh props) fills exactly as before. A static object is
+still guarded every frame by the flags at the tail of its `RuntimeObject` - one
+cache line: a dirty flag or a visibility flip re-places the static half, a spin
+or the matrix path demotes the object to the dynamic half for good, and a
+rebuild that consumes a dirty flag later in the frame
+(`rebuildObjectGeometry` raises `g_colStaticRebuilt`) re-places it on the next
+step. What is not followed is a global script writing a static object's
+position without setting `dirty`; the renderer does not follow that either.
+
+`TYRA_VEH_COLLIDER_GRID` (0 = the old full walk) is the A/B knob, and
+`TYRA_VEH_COLLIDER_GRID_VERIFY` the oracle: every merged list and every gather
+is redone by the full walk and compared to the byte, logged as `VEHCOLGRID`.
+On the Motor District in PCSX2 (78 entries, 68 static, 10 dynamic, 64x64
+cells) it compared 0 mismatches over the whole rig drive, plain and with two
+sub-steps forced every frame (where `VEHSUBSTEP` checked the recorded
+candidates the same way). On the physical PS2 (one ELF, the grid switched per
+cycle, 6 cycles an arm) the vehicle update fell from 0.52 to 0.36 ms parked
+and 0.58 to 0.42 ms driving, frame work -0.10 to -0.16 ms in the driving
+windows ([night EE notes](tyrax2-night-ee-2026-10-12.md), "Static collider
+grid").
+
+### Headlight pools
+
+A car's headlight pool is a 3x3 cell patch laid on the ground ahead of it. It
+is rebuilt whenever the car moves, and each rebuild asked `groundSurfaceAt`
+(a road and junction search) for 16 lattice heights - per moving car, per
+frame. `TYRA_VEH_POOL_PLANE` (off by default until priced on a physical PS2)
+takes the heights from the plane the car's four wheel contacts measured this
+step (`v.wheelY`), a multiply-add each, falling back to the searched surface
+when a wheel is off every surface. The trade: a pool reaching past a crest or
+off the road edge follows the car's plane instead of the ground there.
+
+The searched pool crosses the road's edge step (0.12 over the terrain) with
+cells as wide as half a metre, and a cell with corners on both sides used to
+dip under the asphalt just past the edge - a dark hole in the beam while
+driving along the verge. `liftLatticeOverRoadStep` (1.177.2) raises such
+corners to the road step; blob shadows and lamp pools share it. Details and
+the measurement: [roads.md](roads.md#beams-and-shadows-at-the-road-edge-11772).
+
 ## Sounds
 
 Choose an imported WAV for **Idle loop**. Its pitch moves from **Pitch at idle**
@@ -162,7 +279,7 @@ recording across the whole range without losing the selected high-rev sample
 or its settings. The Sounds tab also sets volumes, tyre squeal and gear shift.
 
 Use short, clean, steady-RPM loops; the build encodes continuous roles as
-looping PS2 audio. **Listen to engine** in Live preview follows the same pitch
+looping PS2 audio. **Listen to engine** under the preview follows the same pitch
 and crossfade controls. The preview uses host audio, while the game plays the
 encoded samples on SPU2.
 
@@ -192,12 +309,12 @@ bollard or a traffic light over instead of stopping at it. It keeps most of its
 speed, and the prop flies off as one of the debris pieces lost panels use (the
 same 8-slot pool, physics and batch). The speed the hit takes counts as an
 impact like any other, so a hard one can dent. See
-[roads.md, "Breakable furniture"](roads.md#breakable-furniture-format-109).
+[roads.md, "Breakable furniture"](roads.md#breakable-furniture-format-137).
 
 ## Effects and display
 
 Headlights project pools onto the ground; lamp glow follows the authored lamp
-materials. Skid marks and tyre smoke respond to slip. The Effects tab accepts
+materials. Skid marks and tyre smoke respond to slip. Feel > Effects accepts
 built-in effects, materials, or a particle-library smoke effect. **Body shine**
 uses a reflection texture or the sky (with the city as boxes when *Reflect static
 scenery as boxes* is on, and a flat-colour ground that costs ~2 ms less a turning
@@ -210,7 +327,7 @@ flames as speed rises. The Driver tab controls the speedometer and HUD scale.
 
 ### Controls card
 
-*Driver > Controls card on entry* shows a short list of what to press the first
+*Feel > Driver > Controls card on entry* shows a short list of what to press the first
 time the player gets into each car (each definition, once per boot). The card is
 built while the game runs, so it always matches what is actually set up:
 
@@ -253,7 +370,7 @@ the steps.
 
 A model with no markers keeps the old behaviour: two pipes guessed a quarter of
 the track apart under the rear bumper, and one centred pop per upshift. The
-Effects tab says which one a car has. **Exhaust smoke** (Effects > Exhaust)
+Feel > Effects says which one a car has. **Exhaust smoke** (Feel > Effects > Exhaust)
 scales the smoke, 0 switches it off; it puffs only from cars that are driven
 (by the player or an AI route) within about 35 units of the camera, thicker on
 the throttle, and shares the tyre-smoke pool, so it costs no draw submission.

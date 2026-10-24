@@ -147,39 +147,48 @@ EdgeFade edgeFadeFor(float width, float fade);
 void tessellateEdges(const std::vector<float>& pointsXZ, float width,
                      float sampleStep, float fade, std::vector<SpillVertex>& out);
 
-// The two budgets that decide how coarsely a station pair may be stitched
-// laterally (roadgen.cpp, spanCuts). Both are world units and both are
-// measured against the DENSE sampling. THEY ARE NOT THE SAME KIND OF NUMBER,
-// which is the whole reason there are two of them:
-//
-//   - `kSpanFlatness` bounds how far a dense sample may sit off the merged
-//     quad's plane. It is the SURFACE error, and - because neighbouring
-//     station pairs cut the row they share independently - it is also the
-//     size of the T-vertex seam a merge can open. At 1e-5, the float noise
-//     floor at district coordinates, both are exactly zero: a row's samples
-//     lie on a straight line in XZ, so coplanar implies collinear and the
-//     shared segment has ONE representation. Raising it buys a great deal of
-//     geometry and starts opening cracks; the sweep in docs/roads.md prices
-//     both halves and this repository has not accepted that trade.
-//
-//   - `kSpanShear` bounds the quad's parallelogram defect. The two triangles
-//     of a trapezoid interpolate ST with two different affine maps, so this is
-//     a pure UV error - the surface and the seams are untouched by it, which
-//     is why it is the budget that was relaxed. It is what a BEND trips, and
-//     on the district's curved splines it is what was refusing every merge.
-//
-// 0.05 is the measured knee: the reduction saturates just past it, and the
-// worst UV drift it causes anywhere in the Motor District is 0.36 of a texel
-// on the 128-pixel road texture. docs/roads.md, "The lateral budget", carries
-// the sweep, the error at each setting and the harness that produced them.
-#ifndef TYRA_ROAD_SPAN_FLATNESS
-#define TYRA_ROAD_SPAN_FLATNESS 0.00001f
+// The band budgets (1.176.0, docs/roads.md "Bands"). A road is a decal on a
+// heightfield, sampled on a dense grid (kCrossSampleStep across, the authored
+// step along) far finer than the 4-unit terrain it lies on. The planner in
+// roadgen.cpp keeps only what that surface needs:
+//   - per row, the samples where the ground under it BENDS (Douglas-Peucker on
+//     the row's height profile at half kRoadTolY);
+//   - per road, the stations a band may not skip: a band between two kept
+//     stations replaces the ones in between only while every dense sample of
+//     every skipped row lies on it within kRoadTolY in height, its shoulders
+//     within kRoadTolXZ of the band's chords (the bend allowance), and its
+//     texture within kRoadTolUV of a repeat.
+// All three are measured against the DENSE grid, which is the surface every
+// earlier build drew. Both bands meeting at a kept row use that row's whole
+// kept set, so no T-vertex - and no crack - can open between them.
+// Each neighbouring station pair is held to the same budgets on its own first:
+// where it fails (rows converging on a bend, a crease crossing at a slant) both
+// rows gain the edges of the dense cell that failed, until it fits.
+// 1 cm against the road's 12 cm lift is far below anything a car can see, and
+// 0.006 of a repeat is 0.77 texel on the 128-pixel road texture - under one
+// texel, which bilinear filtering does not show (the previous lateral merge
+// shipped 0.36). UV is the budget that limits the bends: 0.003 keeps 12.5k of
+// the Motor District's scene-0 road triangles, 0.006 keeps 8.0k, where the
+// merge it replaces kept 19.3k (docs/roads.md, "Bands", carries the sweep).
+#ifndef TYRA_ROAD_TOL_Y
+#define TYRA_ROAD_TOL_Y 0.01f
 #endif
-#ifndef TYRA_ROAD_SPAN_SHEAR
-#define TYRA_ROAD_SPAN_SHEAR 0.05f
+#ifndef TYRA_ROAD_TOL_XZ
+#define TYRA_ROAD_TOL_XZ 0.01f
 #endif
-inline constexpr float kSpanFlatness = TYRA_ROAD_SPAN_FLATNESS;
-inline constexpr float kSpanShear = TYRA_ROAD_SPAN_SHEAR;
+#ifndef TYRA_ROAD_TOL_UV
+#define TYRA_ROAD_TOL_UV 0.006f
+#endif
+#ifndef TYRA_ROAD_BAND_MAX
+#define TYRA_ROAD_BAND_MAX 8
+#endif
+inline constexpr float kRoadTolY = TYRA_ROAD_TOL_Y;
+inline constexpr float kRoadTolXZ = TYRA_ROAD_TOL_XZ;
+inline constexpr float kRoadTolUV = TYRA_ROAD_TOL_UV;
+// Most stations one band may span. A soft-edged road (uInset > 0) always uses
+// 1: its faded bands are baked on the dense stations and their inner vertices
+// must BE the core's outer ones.
+inline constexpr int kRoadBandMax = TYRA_ROAD_BAND_MAX;
 
 // Tessellates `pointsXZ` (x0,z0,x1,z1,... - at least 2 points) into a
 // triangle list, three Vertex per triangle, two triangles per longitudinal /
@@ -197,7 +206,14 @@ inline constexpr float kSpanShear = TYRA_ROAD_SPAN_SHEAR;
 float tessellate(const std::vector<float>& pointsXZ, float width,
                  const HeightFn& height, std::vector<Vertex>& out,
                  const std::vector<float>& lifts = {},
-                 float sampleStep = kSampleStep, float uInset = 0.0f);
+                 float sampleStep = kSampleStep, float uInset = 0.0f,
+                 int maxBand = kRoadBandMax);
+// The DENSE surface - every lateral cell of every station pair, no planning.
+// The reference the band budgets are measured against (verify-road-twins.py)
+// and nothing else: no consumer draws it.
+float tessellateDense(const std::vector<float>& pointsXZ, float width,
+                      const HeightFn& height, std::vector<Vertex>& out,
+                      float sampleStep = kSampleStep, float uInset = 0.0f);
 
 // Conforming junction patch: sample the actual road triangles, refine the
 // shared fan grid, then bound clearance at every triangle intersection.
@@ -275,7 +291,8 @@ inline constexpr int kChunkBudget = 1800; // ... and this many vertices
 float tessellateStrips(const std::vector<float>& pointsXZ, float width,
                        const HeightFn& height, std::vector<Vertex>& out,
                        std::vector<int>* chunkSizes = nullptr,
-                       float sampleStep = kSampleStep, float uInset = 0.0f);
+                       float sampleStep = kSampleStep, float uInset = 0.0f,
+                       int maxBand = kRoadBandMax);
 
 // Find centre-line crossings and turn each into four terrain-projected
 // triangles. Near-parallel crossings are rejected because their strip overlap
@@ -408,7 +425,7 @@ enum JunctionWinner : int {
     kWinnerRoadA = 2,  // road A runs through, B is covered (and may spill)
     kWinnerRoadB = 3,
 };
-// How a node is controlled (format v108, docs/traffic.md "Signals"). Auto =
+// How a node is controlled (format v136, docs/traffic.md "Signals"). Auto =
 // the roads' street furniture decides: traffic lights at a three- or four-way
 // node when one of its roads ticks Traffic lights. Who gives way when there
 // are no lights is always giveWayArms - the control only adds or removes the

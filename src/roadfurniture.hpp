@@ -10,7 +10,7 @@ namespace json {
 struct Value;
 }
 
-// Street furniture (docs/roads.md "Street furniture", format v101): street
+// Street furniture (docs/roads.md "Street furniture", format v129): street
 // lamps, trees and bollards in lines along a road's pavement (or its edge
 // when it has none), plus a give-way / stop sign at each stop line and
 // optional traffic lights at four-way nodes - all GENERATED from the road at
@@ -68,7 +68,7 @@ struct Line {
     bool operator==(const Line&) const = default;
 };
 
-// Breakable furniture (docs/roads.md "Breakable furniture", format v109): a
+// Breakable furniture (docs/roads.md "Breakable furniture", format v137): a
 // car that hits one of this kind at `speed` units/s or faster knocks it over
 // - the prop snaps off as debris, its collision box goes, and the car keeps
 // (1 - loss) of its speed instead of stopping dead. Slower, it is a wall, as
@@ -102,7 +102,7 @@ struct Settings {
     bool signals = false;       // traffic lights at this road's three- and four-way nodes
     std::string signModel;      // "" = built-in (the sign kind picks it)
     std::string signalModel;    // "" = built-in
-    // Breakable furniture (format v109): the road's switch, one Break per
+    // Breakable furniture (format v137): the road's switch, one Break per
     // kind (lamps, trees, bollards, signs, signals) and the hit's sound - a
     // project .wav, "" = the project sound whose name says break / crash /
     // impact / hit / smash / clank / thud / knock, or none.

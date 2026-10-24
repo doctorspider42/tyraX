@@ -5,14 +5,35 @@ saved once and stamped into the world as many times as you like: by hand, by a
 [procedural graph](procedural-runtime.md), or by a flow node while the game is
 running.
 
-![A one-object prefab created from the selected sphere, with its member and runtime cost shown.](img/prefabs-editor.png)
+![The Prefabs panel on the cube example: a thumbnail grid of the four rooms and a two-sphere prefab, room-amber selected with its notes, fact chips, Place in scene and its first members.](img/prefabs-editor.png)
 
-Build a hut out of primitives, select it, press **Create from selection**.
-From then on it is one thing with a name — and a **Notes** field, a wrapped
-paragraph you click to edit rather than a one-line box, because what a prefab
-is for and how it wants to be placed does not fit in fifty characters. The
-list shows the note as a tooltip, so a pool of a dozen prefabs is browsable
-without selecting each one.
+Build a hut out of primitives, select it, press **+ From selection** in the
+panel's header (while nothing is selected the button is disabled and its
+tooltip says why). From then on it is one thing with a name — and a **Notes**
+paragraph you click to edit, because what a prefab is for and how it wants to
+be placed does not fit in fifty characters.
+
+The panel is meant to be docked beside Properties. The library is a
+**thumbnail grid**: each tile is a render of the prefab's geometry members in
+their own colours (lights, markers and sound sources are left out), with its
+member count; the search field above it matches names *and* notes, and a
+tile's tooltip shows its note. Below the grid, the selected prefab:
+
+- its **name** (click to rename, Enter applies - flow nodes and *Pick Prefab*
+  rows that name it follow) and a **...** menu with *Bake to model*,
+  *Delete bake...* and *Delete prefab...*;
+- the notes, then **fact chips**: members, size in units, the draw calls its
+  merged members cost (green), spawned objects (amber past eight per
+  instance), and *spawned in: &lt;scene&gt;* for the scenes whose graphs spawn
+  it (or *placed copies only*) - hover a chip for what it means;
+- **Place in scene**, the panel's one primary action, and **Replace**, which
+  overwrites the prefab with the current selection (its tooltip names the
+  prefab and counts both sides; disabled with nothing selected);
+- a card restating the rule below: placed copies are independent;
+- the first four **members** (name, local position; hover for type and
+  whether it merges), *Show N more* for the rest;
+- a footer link: *Not baked - Bake to res/models/&lt;name&gt;.obj*, or the
+  baked path with *Delete bake...*.
 
 **A prefab of one object is a normal prefab**, and that is the answer to "how
 do I scatter a primitive": a *Pick Prefab* row's picker can capture any scene
@@ -37,9 +58,9 @@ origin**, so instantiating is a yaw plus a translation.
 The origin is the selection's horizontal centre at its **lowest** point, which
 is what makes "click the ground to place it" land the way a person expects.
 
-**Instances are not linked back.** *Insert into scene* stamps copies with
+**Instances are not linked back.** *Place in scene* stamps copies with
 fresh identities and walks away; editing the prefab afterwards does not
-disturb what you already placed (use *Replace from selection* to update the
+disturb what you already placed (use *Replace* to update the
 prefab itself). This is deliberate: a live link would have to decide what
 happens to an instance somebody has since moved, recoloured or scripted, and
 every answer to that is worse than "the copy is yours now".
@@ -52,7 +73,7 @@ group label to select the whole instance, the arrow to list its members. The
 Properties panel says *From prefab: &lt;name&gt;* with an *Open in Prefabs*
 shortcut and a *Forget* button for a member you have reworked into something
 else. The mark travels through a copy/paste (a copy of a room is still a room)
-and is dropped by *Create from selection*, which would otherwise file every
+and is dropped by *From selection*, which would otherwise file every
 instance of the NEW prefab under the old one's name.
 
 Flow graphs come along untouched, and **object-name references inside them are
@@ -76,9 +97,9 @@ frame and a half, for one room. So when the game spawns a prefab it **merges**:
 | plain static geometry — a primitive or a static `.obj` with no graph, no scripts, no physics, no layer, not usable/pickable/save-state | folded into a shared geometry bag with every other member of the same material | one submit for the whole group |
 | anything with an identity something can address at runtime | spawned as a real object through the ordinary 32-slot clone pool | a slot and a submit each |
 
-The Prefabs window states both numbers per prefab (*"20 merged into 1 draw
-call, 1 spawned object"*) and lists which member is which, because the second
-column is the one that runs out. Eight spawned members per instance is the
+The Prefabs panel states both numbers per prefab as chips (*"1 draw call (merged)", "1 spawned object"*)
+and the member list says which member is which (hover a row), because the
+second number is the one that runs out. Eight spawned members per instance is the
 hard cap; the clone pool holds 32 in total across the whole scene.
 
 **Merged geometry still collides.** A merged member whose collision is not
@@ -94,7 +115,7 @@ scripting.
 
 ## Bake to model
 
-*Tools > Prefabs > **Bake to model*** flattens the mergeable members into one
+*Tools > Prefabs > ... > **Bake to model*** (or the footer link) flattens the mergeable members into one
 `res/models/<name>.obj` plus a generated `.mtl` carrying their colours, and
 the prefab stays put as the source.
 
@@ -121,7 +142,7 @@ repeatable (the prefab stays as the source; re-bake to update), guarded, and
 takes itself back: re-baking only ever overwrites a previous bake's output,
 and if `res/models/<name>.obj` already exists and was **not** written by a
 bake, the bake refuses rather than clobber a hand-made model that happens to
-share the name. **Delete bake...** next to the *Baked:* line deletes the
+share the name. **Delete bake...** next to the *Baked:* line (and in the ... menu) deletes the
 generated `.obj`/`.mtl` (and the derived `.tmdl`) after a confirm that counts
 who still draws from the file - objects and *Pick Asset* rows keep the path
 and would show as missing. Textures the bake copied in stay (they are copies
@@ -143,7 +164,7 @@ The [AI Assistant](ai-chat.md) can do all three verbs on this page —
 `insert_prefab` (stamp a copy) and `bake_prefab_model` — which matters most in
 the middle of a [procedural](procedural-generation.md) job: a *Pick Prefab*
 row can only name a prefab that already exists, so without those tools the
-assistant had to build a graph, stop, and ask you to press *Create from
+assistant had to build a graph, stop, and ask you to press *From
 selection* yourself.
 
 It is told the 48-record cap and the escape hatch above, and told to choose
@@ -205,6 +226,6 @@ drift.
   undo history (the snapshot holds scenes, like sequences and menus do), so
   *Delete* asks for confirmation first and warns when graphs still spawn the
   prefab by name. Placed copies are ordinary scene objects and stay. Editing
-  prefabs is an ordinary unsaved edit like everything else — the toolbar save
-  icon lights and the change reaches disk on Ctrl+S — so until you save,
+  prefabs is an ordinary unsaved edit like everything else — the top bar's **N unsaved**
+  marker appears and the change reaches disk on Ctrl+S — so until you save,
   closing the project without saving is the one way back.

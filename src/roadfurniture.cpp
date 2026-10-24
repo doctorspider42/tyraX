@@ -504,7 +504,7 @@ void lineFrom(const json::Value* v, Line& l) {
 }  // namespace
 
 namespace {
-// The "breakable" object (format v109): "on", the sound and one object per
+// The "breakable" object (format v137): "on", the sound and one object per
 // kind, each holding only what differs from defaultBreak.
 const char* const kBreakKeys[kKindCount] = {"lamps", "trees", "bollards", "signs", "signals"};
 bool breakDefault(const Settings& s) {
@@ -610,7 +610,7 @@ uint64_t signature(const Settings& s) {
     const int sg = s.signals ? 1 : 0;
     mixB(&sg, sizeof(int));
     mixS(s.signModel), mixS(s.signalModel);
-    // Breakable furniture (v109): mixed only when set, so every signature
+    // Breakable furniture (v137): mixed only when set, so every signature
     // taken before it existed is unchanged.
     if (!breakDefault(s)) {
         const int on = s.breakable ? 1 : 0;
@@ -1475,7 +1475,7 @@ void check(void (*verdict)(bool, const char*)) {
         verdict(tNode >= 0 && signalsAtT == 3 && signsAtT == 0,
                 "a T on a road with traffic lights gets one light per arm and no signs");
     }
-    // A junction's own Control (format v108): None drops the X's lights,
+    // A junction's own Control (format v136): None drops the X's lights,
     // Signals lights the unsignalled T, Stop signs puts a STOP at the side
     // road's give-way arm - and none of them moves a stop line.
     {

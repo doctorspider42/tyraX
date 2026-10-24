@@ -25,19 +25,41 @@ struct LoadingBarData {
   const char* segPath;   // segment sprite; "" = colored rects
 };
 
+struct LoadingAnimData {
+  int frameFirst, frameCount;  // slice into LS_ANIM_FRAMES
+  float x, y;    // normalized screen position, center anchor
+  float w, h;    // on-screen size in pixels
+  int mode;      // 0 = spinner (fps), 1 = progress (load fraction)
+  float fps;     // spinner
+  int playback;  // spinner: 0 = loop, 1 = ping-pong
+  int lastAtFull;  // progress: the last frame only at 100%
+  int afterLoad;   // waiting: spinner 0 hide / 1 spin; progress 0 hold / 1 loop last two
+};
+
 struct LoadingScreenData {
   float bg[3];  // clear color, 0..255
-  int imgFirst, imgCount;  // slices into LS_IMAGES/LS_TEXTS/LS_BARS
+  int imgFirst, imgCount;  // slices into LS_IMAGES/LS_TEXTS/LS_BARS/LS_ANIMS
   int txtFirst, txtCount;
   int barFirst, barCount;
+  int animFirst, animCount;
+  int wait;          // 0 = straight on, 1 = wait for a button
+  int waitButton;    // 0 = any face button or START, 1 = START, 2 = Cross
+  const char* promptPath;  // baked continue prompt; "" = none
+  float promptX, promptY;  // normalized, center anchor
+  int promptW, promptH;    // texture size
+  int promptBlink;   // 0 = steady, 1 = blink, 2 = pulse
+  float promptPeriod;  // seconds
+  int promptHideOthers;  // hide bars and animations while waiting
 };
 
 inline constexpr int LS_COUNT = 0;
 inline constexpr int LS_IMAGE_TOTAL = 0;
 inline constexpr int LS_TEXT_TOTAL = 0;
 inline constexpr int LS_BAR_TOTAL = 0;
+inline constexpr int LS_ANIM_TOTAL = 0;
+inline constexpr int LS_ANIM_FRAME_TOTAL = 0;
 inline const LoadingScreenData LS_SCREENS[LS_COUNT > 0 ? LS_COUNT : 1] = {
-    {{0, 0, 0}, 0, 0, 0, 0, 0, 0},
+    {{0, 0, 0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", 0, 0, 0, 0, 0, 1, 0},
 };
 
 inline const LoadingImageData LS_IMAGES[1] = {
@@ -52,7 +74,18 @@ inline const LoadingBarData LS_BARS[1] = {
     {0, 0, 0, 0, 0, {0, 0, 0}, {0, 0, 0}, 0, 0, ""},
 };
 
+inline const LoadingAnimData LS_ANIMS[1] = {
+    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+};
+
+inline const char* const LS_ANIM_FRAMES[1] = {
+    "",
+};
+
 inline constexpr int LS_DEFAULT = -1;  // -1 = built-in fallback
+// The first load at power-on (Assignments > Game start); -1 = the start
+// scene's own screen.
+inline constexpr int LS_BOOT = -1;
 inline const int SCENE_LOADING_SCREEN[3] = {-1, -1, -1};
 
 struct SplashData {

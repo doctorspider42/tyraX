@@ -136,10 +136,17 @@ Source: "{#SourceDir}\vendor\openvcl\*"; DestDir: "{app}\vendor\openvcl"; Compon
 Source: "{#SourceDir}\vendor\vclpp\*"; DestDir: "{app}\vendor\vclpp"; Components: editor; \
     Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "\.git\*,\vclpp"
 ; ps2client.exe (network deploy), the ps2link build scripts and the VS Code
-; extension package the editor installs on request.
-Source: "{#SourceDir}\tools\*"; DestDir: "{app}\tools"; Components: editor; \
-    Flags: ignoreversion recursesubdirs createallsubdirs; \
-    Excludes: "\ps2link\work\*,*.o,*.a"
+; extension package the editor installs on request. Only these four folders:
+; the rest of tools\ is developer scripts no installed editor runs (the same
+; whitelist as installer/stage-tree.sh).
+Source: "{#SourceDir}\tools\ps2client\*"; DestDir: "{app}\tools\ps2client"; Components: editor; \
+    Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.o,*.a,__pycache__"
+Source: "{#SourceDir}\tools\toolchain\*"; DestDir: "{app}\tools\toolchain"; Components: editor; \
+    Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.o,*.a,__pycache__"
+Source: "{#SourceDir}\tools\ps2link\*"; DestDir: "{app}\tools\ps2link"; Components: editor; \
+    Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "\work\*,*.o,*.a,__pycache__"
+Source: "{#SourceDir}\tools\vscode-tyrax\*"; DestDir: "{app}\tools\vscode-tyrax"; Components: editor; \
+    Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.o,*.a,__pycache__"
 ; The VU framework, copied into any project that has VU scripts. Exactly the
 ; nine files project.cpp's kVuFrameworkFiles lists - the probe it locates them
 ; with is src\vushader.hpp, so all nine travel or none do.
@@ -188,6 +195,14 @@ Filename: "{app}\bin\tyrax-editor.exe"; Description: "{cm:LaunchProgram,{#AppNam
 ; the old behaviour, because it passes no such parameter.
 Filename: "{app}\bin\tyrax-editor.exe"; Flags: nowait postinstall; \
     Check: RelaunchAfterSilentUpdate
+
+[InstallDelete]
+; An update installs over the previous version, and Inno never removes a file
+; the new version no longer ships - a deleted example object or asset would
+; stay in {app}\examples and travel into every copy *Open a copy* makes. The
+; shipped examples are never edited in place (the editor opens copies), so the
+; folder is cleared and laid down fresh.
+Type: filesandordirs; Name: "{app}\examples"
 
 [UninstallDelete]
 ; Anything a game build wrote inside the installed examples. The editor's own

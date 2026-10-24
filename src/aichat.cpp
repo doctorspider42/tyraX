@@ -447,7 +447,7 @@ const std::vector<Tool>& tools() {
           {"scene", "string", false, "scene name; omitted = the active scene"}}},
         {"create_prefab", ToolKind::Edit,
          "Capture scene objects into a reusable prefab - the Prefabs window's "
-         "\"Create from selection\", which is otherwise the one step you would "
+         "\"+ From selection\", which is otherwise the one step you would "
          "have to hand back to the user in the middle of your own work (a Pick "
          "Prefab pool can only name a prefab that already exists). Members keep "
          "their materials, physics, scripts and flow graphs; the origin is the "
@@ -662,10 +662,12 @@ static const char* procRowKindName(ProcRowKind k) {
     switch (k) {
         case ProcRowKind::Assets:
             return "asset pool - rows: s = res/models/... path, v[0] = weight, "
-                   "v[1]/v[2] = min/max scale";
+                   "v[1]/v[2] = min/max scale, optional lod = res/models/... "
+                   "distant version with v[3] = its switch distance";
         case ProcRowKind::Prefabs:
             return "prefab pool - rows: s = prefab name, v[0] = weight, "
-                   "v[1]/v[2] = min/max scale";
+                   "v[1]/v[2] = min/max scale, optional lod = res/models/... "
+                   "distant version with v[3] = its switch distance";
         case ProcRowKind::Points:
             return "control points - rows: v[0..2] = world XYZ";
         case ProcRowKind::Settings:

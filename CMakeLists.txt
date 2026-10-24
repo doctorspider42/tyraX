@@ -43,6 +43,18 @@ foreach(_devflag C_FLAGS_DEV CXX_FLAGS_DEV)
     endif()
 endforeach()
 
+# --- Same float results on every platform ---
+# The host bakes write files that are committed (examples' .tmdl, AO atlases,
+# physics hulls, light probes) and hash floats into cache signatures. clang on
+# arm64 (every Mac) fuses a*b+c into one FMA by default, which rounds once
+# instead of twice, so a Mac and a PC baked different bytes from the same
+# project. Off everywhere: plain IEEE add/mul are then bit-identical on x86-64
+# SSE and arm64. Transcendentals (sin, cos, pow) still differ between C
+# libraries - code whose result is hashed or committed uses detmath.hpp.
+if(NOT MSVC)
+    add_compile_options(-ffp-contract=off)
+endif()
+
 # Compile the Windows resource script (app icon). Named GLFW_ICON so GLFW picks
 # it up for the window/taskbar icon too - see resources/app.rc.
 if(WIN32)
@@ -53,6 +65,18 @@ if(WIN32)
     set(CMAKE_RC_FLAGS "${CMAKE_RC_FLAGS} -I${CMAKE_CURRENT_SOURCE_DIR}/resources")
 endif()
 
+# macOS: the merged title bar (platform.hpp) talks to NSWindow, which has no C
+# API - src/platform_mac.mm is the editor's one Objective-C++ file.
+if(APPLE)
+    # OBJC as well: with only OBJCXX enabled, CMake compiles GLFW's own .m
+    # files as Objective-C++ (and they do not build as C++).
+    enable_language(OBJC OBJCXX)
+    # gigpu_metal.mm: the GPU GI bake on Metal (macOS OpenGL has no compute
+    # shaders) - the macOS half of gigpu.cpp. ARC for that file only.
+    set(TYRAX_EDITOR_MAC_SOURCES src/platform_mac.mm src/gigpu_metal.mm)
+    set_source_files_properties(src/gigpu_metal.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+endif()
+
 # --- GLFW ---
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -61,7 +85,9 @@ set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/glfw)
 
 # --- Dear ImGui (docking branch) ---
-set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/vendor/imgui)
+# Dear ImGui is tracked in the repo (patched - see vendor/imgui-tyrax/TYRAX-PATCHES.md),
+# not fetched like the other vendor/ dependencies.
+set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/vendor/imgui-tyrax)
 add_library(imgui STATIC
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_demo.cpp
@@ -153,45 +179,39 @@ add_custom_command(
             ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
     COMMENT "Embedding resources/moon-lroc-color-1k.jpg")
 
-# --- Embedded default BLSS network (resources/blss-default.net + .meta) ---
-# The neural upscaler's shipped network (docs/neural-upscaler.md, "Can one net
-# ship for every project?"): 500 bytes of weights fitted on seven example
-# projects AND the procedural bestiary, plus its provenance sidecar. Baked into
-# the editor rather than shipped loose for the same reason the app icon is - a
-# default that is only there when someone remembered to copy a data file is
-# worse than no default - and templates.cpp falls back to it whenever a project
-# has BLSS on and no blss.net of its own.
+# --- Embedded interface fonts (resources/fonts, Geist - SIL OFL 1.1) ---
+# The editor's own typeface (docs/editor-theme.md, "The interface font"): Geist
+# for the interface, Geist SemiBold for headings, Geist Mono for numbers and
+# logs. Baked in like the icon, so every platform draws the same letters
+# whatever the machine has installed; the system font chains stay as the
+# fallback for glyphs Geist does not have.
 #
-# REBUILD BOTH FILES WHENEVER THE CORPUS, THE TOPOLOGY OR blss::kNetVersion
-# MOVES. The net carries no topology beyond that version number, so a stale
-# asset is refused at bake time (the build then falls back to random weights and
-# says so) rather than silently mis-shaped. `tyrax-editor --blss-emit -o <tmp>`
-# in a directory with no blss.net is the cheap check: it loads the embedded net
-# and fails when this build cannot read it. The command that produces them is
-# recorded in the .meta file itself.
-set(BLSS_NET_GEN ${CMAKE_BINARY_DIR}/generated/blssnet_gen.hpp)
-add_custom_command(
-    OUTPUT ${BLSS_NET_GEN}
-    COMMAND ${CMAKE_COMMAND}
-            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/blss-default.net
-            -DOUT_FILE=${BLSS_NET_GEN}
-            -DNAMESPACE=blssdefault -DSYMBOL=kDefaultNet
-            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
-    DEPENDS ${CMAKE_SOURCE_DIR}/resources/blss-default.net
-            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
-    COMMENT "Embedding resources/blss-default.net")
-
-set(BLSS_META_GEN ${CMAKE_BINARY_DIR}/generated/blssmeta_gen.hpp)
-add_custom_command(
-    OUTPUT ${BLSS_META_GEN}
-    COMMAND ${CMAKE_COMMAND}
-            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/blss-default.net.meta
-            -DOUT_FILE=${BLSS_META_GEN}
-            -DNAMESPACE=blssdefault -DSYMBOL=kDefaultNetMeta
-            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
-    DEPENDS ${CMAKE_SOURCE_DIR}/resources/blss-default.net.meta
-            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
-    COMMENT "Embedding resources/blss-default.net.meta")
+# Geist Mono SemiBold is the GAME's default font (menubake::resolveFontPath):
+# a "Default" font with no file used to be the OS's own (Consolas Bold, Arial
+# Bold, DejaVu Sans Bold), so the same project baked a different atlas on
+# every platform.
+set(UI_FONT_GENS)
+foreach(pair "Geist-Regular.ttf|kGeistRegular|geist_regular"
+             "Geist-SemiBold.ttf|kGeistSemiBold|geist_semibold"
+             "GeistMono-Regular.ttf|kGeistMonoRegular|geist_mono_regular"
+             "GeistMono-SemiBold.ttf|kGeistMonoSemiBold|geist_mono_semibold")
+    string(REPLACE "|" ";" parts "${pair}")
+    list(GET parts 0 font_file)
+    list(GET parts 1 font_symbol)
+    list(GET parts 2 font_stem)
+    set(font_gen ${CMAKE_BINARY_DIR}/generated/${font_stem}_gen.hpp)
+    add_custom_command(
+        OUTPUT ${font_gen}
+        COMMAND ${CMAKE_COMMAND}
+                -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/fonts/${font_file}
+                -DOUT_FILE=${font_gen}
+                -DNAMESPACE=uifonts -DSYMBOL=${font_symbol}
+                -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+        DEPENDS ${CMAKE_SOURCE_DIR}/resources/fonts/${font_file}
+                ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+        COMMENT "Embedding resources/fonts/${font_file}")
+    list(APPEND UI_FONT_GENS ${font_gen})
+endforeach()
 
 # Own target for the generators. If the headers were listed straight in
 # tyrax-editor's sources, CMake would attach their custom commands to that
@@ -248,7 +268,7 @@ add_custom_command(
 
 add_custom_target(tyrax-generated
     DEPENDS ${AI_SUPPORT_GEN} ${DOCS_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN}
-            ${BLSS_NET_GEN} ${BLSS_META_GEN} ${ROADSTREAM_CORE_GEN} ${TRAFFIC_CORE_GEN}
+            ${UI_FONT_GENS} ${ROADSTREAM_CORE_GEN} ${TRAFFIC_CORE_GEN}
             ${WEATHER_CORE_GEN})
 
 # --- Editor ---
@@ -258,17 +278,15 @@ add_executable(tyrax-editor
     src/aigen.cpp
     src/aisupport.cpp
     src/ambience.cpp
+    src/ambience_simple_ui.cpp
     src/animedit.cpp
     src/animmerge.cpp
     src/aobake.cpp
     src/app.cpp
     src/audiopreview.cpp
     src/assetbrowser.cpp
-    src/blss.cpp
-    src/blsscorpus.cpp
-    src/blssscene.cpp
+    src/rail_ui.cpp
     src/blss_ui.cpp
-    src/blss_window.cpp
     src/blobshadowbake.cpp
     src/camtake.cpp
     src/chat_ui.cpp
@@ -319,6 +337,8 @@ add_executable(tyrax-editor
     src/vukernel_sample.cpp
     src/matbake.cpp
     src/modelao.cpp
+    src/modelimport.cpp
+    src/modelimport_ui.cpp
     src/objparser.cpp
     src/occlusionbake.cpp
     src/iso9660.cpp
@@ -344,8 +364,10 @@ add_executable(tyrax-editor
     src/procbake.cpp
     src/procrt.cpp
     src/reflscenery.cpp
+    src/reflpano.cpp
     src/decalproj.cpp
     src/dronegen.cpp
+    src/drone_simple_ui.cpp
     src/droneui.cpp
     src/navmesh.cpp
     src/project.cpp
@@ -362,6 +384,13 @@ add_executable(tyrax-editor
     src/texatlas.cpp
     src/texbake.cpp
     src/theme.cpp
+    src/widgets.cpp
+    src/shell_ui.cpp
+    src/palette_ui.cpp
+    src/menu_actions.cpp
+    src/multiviewport.cpp
+    src/toolkit.cpp
+    src/pad_widget.cpp
     src/tmdl.cpp
     src/treegen.cpp
     src/treeimpostor.cpp
@@ -407,6 +436,7 @@ add_executable(tyrax-editor
     vendor/ufbx/ufbx.c
 
     ${TYRAX_EDITOR_RC}
+    ${TYRAX_EDITOR_MAC_SOURCES}
 )
 target_include_directories(tyrax-editor PRIVATE src vendor/imguizmo/src vendor/imnodes vendor/stb vendor/ufbx vendor/miniaudio ${CMAKE_BINARY_DIR}/generated)
 target_compile_definitions(tyrax-editor PRIVATE GLFW_INCLUDE_NONE)
@@ -418,12 +448,19 @@ target_link_libraries(tyrax-editor PRIVATE imgui glfw OpenGL::GL)
 if(WIN32)
     # shell32/ole32/uuid: the native file pickers and "Reveal in Explorer"
     # (src/platform.cpp). ws2_32: the socket transport (src/wire.cpp).
-    target_link_libraries(tyrax-editor PRIVATE shell32 ole32 uuid ws2_32)
+    # dwmapi: the merged title bar's DwmExtendFrameIntoClientArea (platform.cpp).
+    target_link_libraries(tyrax-editor PRIVATE shell32 ole32 uuid ws2_32 dwmapi)
 else()
     # Threads: std::thread needs an explicit -pthread with libstdc++, and
     # ${CMAKE_DL_LIBS} is what GLFW's runtime GL/Vulkan loading wants.
     find_package(Threads REQUIRED)
     target_link_libraries(tyrax-editor PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+    if(APPLE)
+        # Cocoa: NSWindow / NSEvent in src/platform_mac.mm (the merged title bar).
+        target_link_libraries(tyrax-editor PRIVATE "-framework Cocoa")
+        # Metal: the GPU GI bake (src/gigpu_metal.mm).
+        target_link_libraries(tyrax-editor PRIVATE "-framework Metal" "-framework Foundation")
+    endif()
 endif()
 
 if(MINGW)

@@ -20,7 +20,6 @@
 
 #include "animedit.hpp"
 #include "aobake.hpp"
-#include "blss.hpp"  // the neural upscaler: scale factors + the net emitter
 #include "gibake.hpp"
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
@@ -44,9 +43,11 @@
 #include "particletex.hpp"
 #include "platform.hpp"
 #include "prefab.hpp"
+#include "procgen.hpp"  // baked instanced volumes are evaluated for their table
 #include "procrt.hpp"
 #include "project.hpp"
 #include "reflscenery.hpp"  // which static objects the reflection probe boxes
+#include "reflpano.hpp"     // the probe's baked background
 #include "savebake.hpp"
 #include "scrollsim.hpp"
 #include "shadowbake.hpp"  // the baked shadow-decal cache (docs/shadows.md)
@@ -77,10 +78,14 @@ namespace templates {
 // its console self. The road oracle compares the two emitters vertex for
 // vertex and would catch it, but only if someone runs it; this catches it at
 // compile time. See docs/roads.md, "The lateral budget".
-static_assert(roadgen::kSpanFlatness == 0.00001f,
-              "buildRoads carries the flatness budget as the literal 0.00001F");
-static_assert(roadgen::kSpanShear == 0.05f,
-              "buildRoads carries the shear budget as the literal 0.05F");
+static_assert(roadgen::kRoadTolY == 0.01f,
+              "buildRoads carries the band height budget as the literal 0.01F");
+static_assert(roadgen::kRoadTolXZ == 0.01f,
+              "buildRoads carries the band plan budget as the literal 0.01F");
+static_assert(roadgen::kRoadTolUV == 0.006f,
+              "buildRoads carries the band texture budget as the literal 0.006F");
+static_assert(roadgen::kRoadBandMax == 8,
+              "buildRoads carries the longest band as the literal 8");
 static_assert(roadgen::kSampleStep == 1.0f,
               "buildRoads carries the longitudinal sample step as the literal 1.0F");
 
@@ -106,6 +111,23 @@ static std::vector<std::string> collectMenuEvents(const Project& p);
 static bool anyNavAiNode(const Project& p);
 static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
                                         const std::string& prefix);
+
+// Baked (not runtime) procedural volumes whose Output draws as Instanced
+// (docs/procedural-generation.md, "Instanced"): (scene index, volume). Their
+// copies reach the game as a table in inc/proc_instances.gen.hpp.
+static std::vector<std::pair<int, const SceneObject*>> bakedInstancedVolumes(
+    const Project& p) {
+    std::vector<std::pair<int, const SceneObject*>> out;
+    for (int si = 0; si < (int)p.scenes.size(); ++si)
+        for (const SceneObject& o : p.scenes[(size_t)si].objects) {
+            if (o.type != PrimitiveType::Scatter || o.procGraph.runtime ||
+                o.procGraph.nodes.empty())
+                continue;
+            const ProcNode* on = procgraph::outputNode(o.procGraph);
+            if (on && procgraph::inum(*on, "mode") == 1) out.push_back({si, &o});
+        }
+    return out;
+}
 
 // Unique (modelPath, material override) pairs referenced by static .obj
 // model objects, in first-use order. A material override changes what gets
@@ -148,12 +170,30 @@ static std::vector<std::pair<std::string, std::string>> collectModelKeys(
     // the scene references them (the objects that would have don't exist until
     // the console generates them), so without this the game boots and reports
     // "no model for asset" for every one of them.
-    for (const procrt::Volume& v : procrt::volumes(p))
-        for (const std::string& a : v.assets) {
+    // A pool row's distant version ships the same way, after them.
+    for (const procrt::Volume& v : procrt::volumes(p)) {
+        std::vector<std::string> paths = v.assets;
+        for (const std::string& l : v.lods)
+            if (!l.empty()) paths.push_back(l);
+        for (const std::string& a : paths) {
             const std::pair<std::string, std::string> key{a, std::string()};
             bool seen = false;
             for (const auto& e : keys) seen |= (e == key);
             if (!seen) keys.push_back(key);
+        }
+    }
+    // ...and a baked INSTANCED volume's pool and distant versions: no chunk
+    // object references them, the instance table does.
+    for (const auto& sv : bakedInstancedVolumes(p))
+        for (const ProcNode& n : sv.second->procGraph.nodes) {
+            if (n.type != "PickAsset") continue;
+            for (const ProcRow& r : n.rows)
+                for (const std::string* a : {&r.s, &r.lod}) {
+                    if (a->empty()) continue;
+                    const std::pair<std::string, std::string> key{*a, std::string()};
+                    if (std::find(keys.begin(), keys.end(), key) == keys.end())
+                        keys.push_back(key);
+                }
         }
     return keys;
 }
@@ -736,6 +776,10 @@ int main(int argc, char** argv) {
   // map, a feed camera for the camera feed. Computed at build time - see
   // projectNeedsEnvMap / projectNeedsCamFeed in the editor's templates.cpp.
   options.envMapTarget = {{ENV_MAP_TARGET}};
+  // A second 64 KB env target: the shared reflection probe is captured over
+  // two frames into it and swapped in, so no frame pays the whole capture
+  // (docs/reflective-materials.md, "Amortised capture").
+  options.envMapDoubleBuffered = {{ENV_MAP_TARGET}};
   options.camFeedTarget = {{CAM_FEED_TARGET}};
   // Triple buffering (Preferences > Display > Triple buffering, docs/
   // frame-pacing.md): present from a vblank interrupt instead of stalling
@@ -753,6 +797,8 @@ int main(int argc, char** argv) {
   // (tools/ps2link), which bakes usbd+ps2kbd+ps2mouse into its own boot - it
   // loads none of its own. See docs/ps2link-setup.md and docs/keyboard-mouse.md.
   options.loadUsbKbdMouseUnderPs2Link = {{KBD_MOUSE_PS2LINK}};
+  // Tools > Loading Screens > Boot sequence: the engine's logo on or off.
+  options.showBanner = {{SHOW_ENGINE_LOGO}};
   Tyra::Engine engine(options);
   {{NAME_UPPER_NS}}::TerrainGame game(&engine);
   engine.run(&game);
@@ -1037,6 +1083,13 @@ constexpr int SHADOW_VOLUMES_DEBUG = {{SHADOW_VOLUMES_DEBUG}};
 // band is a single buffer, shared with the torch's.
 constexpr int SPOT_SHADOW_VOLUMES = {{SPOT_SHADOW_VOLUMES}};
 
+// Baked lamp light (docs/dynamic-light-receivers.md, "Baked lamp light";
+// ProjectSettings::bakeStaticLamps): a dynamic light that never moves and
+// never flickers has its light folded into the static geometry's vertex
+// colours whenever it switches, instead of being picked and evaluated per bag
+// every frame. Moving receivers still take it live.
+constexpr bool BAKE_STATIC_LAMPS = {{BAKE_STATIC_LAMPS}};
+
 constexpr float EYE_HEIGHT = {{EYE_HEIGHT}};
 constexpr float WALK_SPEED = {{WALK_SPEED}};
 // The full-stick tier and the sprint tier, already resolved (0 = inherit is
@@ -1061,6 +1114,8 @@ constexpr float STICK_EXP_L = {{STICK_EXP_L}};
 constexpr float STICK_EXP_R = {{STICK_EXP_R}};
 constexpr float ORBIT_SPEED = {{ORBIT_SPEED}};  // multiplier
 constexpr float GRAVITY = {{GRAVITY}};          // units/s^2
+// The contact broad phase (docs/collision-boxes.md): 0 grid, 1 octree.
+constexpr int SCENE_BROADPHASE = {{SCENE_BROADPHASE}};
 constexpr float JUMP_SPEED = {{JUMP_SPEED}};    // units/s
 
 // Two players (Preferences > Multiplayer, docs/multiplayer.md). The mode
@@ -1236,12 +1291,25 @@ class TerrainGame : public Tyra::Game {
   // crosses a snap line, instead of on every centimetre of walking.
   float terrainLodFocus[2][2] = {{0.0F, 0.0F}, {0.0F, 0.0F}};
   int terrainLodFocusCount = 0;
+  // The view rects of the last streaming pass, in chunk indices
+  // (cx0, cz0, cx1, cz1). When the whole map fits the slot pool nothing is
+  // evicted, and these rects only decide what renderTerrain draws.
+  int terrainDrawRect[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+  int terrainDrawRectCount = 0;
+  bool terrainWholeMapResident() const;
+  // The vertex shade of every heightfield node, computed once (r, g, b and a
+  // "valid" flag per node). Only kept for a whole-map-resident terrain; see
+  // buildTerrainChunk.
+  std::vector<float> terrainShadeCache;
   // Streams the chunk ring around one or two view foci (two-player modes:
   // P2's avatar is the second focus) - a chunk near EITHER focus stays
   // resident, so the split halves stop evicting each other's terrain.
   void updateTerrainChunks(float focusX, float focusZ, float focus2X,
                            float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
+  // Chunks built this frame (reset where the frame streams): the amortised
+  // reflection capture skips a half on such a frame so the costs never stack.
+  int terrainBuiltThisFrame = 0;
   void renderTerrain();
   void updateCameraOrbit();
 
@@ -1249,6 +1317,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  float terrainFocusX = 0.0F, terrainFocusZ = 0.0F;
   // Camera up vector. World up unless a cutscene rolls the camera
   // (Dutch angle); CameraInfo3D takes it and both the view matrix and
   // the frustum planes honour it.
@@ -1278,6 +1347,9 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
+    // The TERRAINSTRIP diagnostic ran for this slot's first build (the scene
+    // load); LOD rebuilds while driving skip its per-vertex walk.
+    bool stripLogged = false;
     // The terrain lightmap passes, both blended over the base (and the
     // layers) and both sampling ONE map with the chunk's extent-normalized
     // STs - texturing is MODULATE, so the vertex color of each pass picks
@@ -1323,6 +1395,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
   int terrainChunksX = 0, terrainChunksZ = 0;
+  std::vector<std::string> groundShadowPins;
+  void prepareGroundShadowTextures();
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
@@ -1583,6 +1657,11 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+#if TYRA_VU1_EXP_PAINT
+    const void* envPaintSource = nullptr;
+    u32 envPaintCount = 0, envPaintVersion = 0, paintMapVersion = 0;
+    bool envPaintEeReady = false;
+#endif
     // The paint pass evaluates each DISTINCT normal once (see renderEnvPass):
     // paintMap[k] is vertex k's slot in paintNormals, built from the array
     // the env bag reads, and rebuilt whenever that array or its size changes.
@@ -1611,6 +1690,13 @@ class TerrainGame : public Tyra::Game {
     bool impostor = false; // visual representation only; data.model owns collision
     bool impostorInitialized = false;
     int impostorView = 0;
+    // The full model's vertex arrays, baked a slice per frame while the card
+    // still draws; the far-to-near switch waits until they are complete
+    // (docs/impostors.md, "Switching back to the full model"). Any rebuild
+    // consumes or drops them.
+    std::vector<GeoPart> nearStage;
+    size_t nearStagePart = 0, nearStageVert = 0;
+    bool nearStaging = false, nearStageDone = false;
     // Physics fast path (awake bodies): parts hold LOCAL-space vertices
     // (scale baked in, shading frozen at the wake pose) and every
     // part.infoBag->model points at objMat, rebuilt from position/rotation
@@ -1800,6 +1886,11 @@ class TerrainGame : public Tyra::Game {
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
+  bool isLivePlayerReceiver(int i) const;
+  void renderObjectBag(int owner, Tyra::StaPipBag* bag);
+  void renderWorldBag(Tyra::StaPipBag* bag);
+  void fillAnimLightColors(int i);
+  unsigned int dynamicReceiverGeneration_ = ~0U;
   void updateDynLitObjects();
   void fillDynLitColors(int index);
   // Directional light for the animated pass, mirroring the baked static
@@ -1824,8 +1915,11 @@ class TerrainGame : public Tyra::Game {
   // costing four: a volume owns a region, so its prefabs can share the
   // region's chunks. A flow-node spawn passes -1, because Despawn Prefab has
   // to be able to take that one instance's geometry away again.
+  // lodModel/lodDist: the pool row's distant version (a volume spawn only) -
+  // that model replaces the merged members as a whole past lodDist.
   int spawnPrefabAt(int prefabIndex, float x, float y, float z, float yaw,
-                    float scale, int mergeOwner = -1);
+                    float scale, int mergeOwner = -1, int lodModel = -1,
+                    float lodDist = 0.0F);
   void despawnPrefabsNamed(int prefabIndex);  // -1 = every instance
   // Generates one runtime volume and builds its geometry. seed: 0 = the
   // authored one, -1 = a fresh one, anything else = use it.
@@ -1913,6 +2007,10 @@ class TerrainGame : public Tyra::Game {
   };
   struct StaticBatch {
     Tyra::Texture* texture = nullptr;  // group key; colors already carry Kd
+    // Group key too: every member is "Show in reflections", so the
+    // environment-map passes submit this batch whole (and a reflected batch
+    // never drags a non-reflected object into the map).
+    bool reflected = false;
     std::vector<StaticBatchMember> members;
     std::vector<unsigned char> shown;  // per member: baked as visible?
     BagArray<Tyra::Vec4> vertices;  // world-space baked, like terrain
@@ -1950,6 +2048,7 @@ class TerrainGame : public Tyra::Game {
   // are flat-shaded by design.
   std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
   std::unique_ptr<Tyra::StaPipInfoBag> roadBlendInfoBag;  // road spills
+  std::unique_ptr<Tyra::StaPipInfoBag> roadInfoBag;  // road chunks (tight clip band)
   // The same settings with the camera spot switched off, for a batch that holds
   // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
   // one bag for many objects, so this is only ever swapped in for a batch of
@@ -2011,11 +2110,24 @@ class TerrainGame : public Tyra::Game {
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};
     float centre[3] = {0, 0, 0};
     float drawDist = 0.0F;  // 0 = always drawn
+    // Distant version per pool row (docs/procedural-generation.md): -1 = no
+    // switch, 0 = the near geometry, 1 = the far model. A switch group is
+    // keyed by the INSTANCE's cell (cx, cy, cz), not each member's, and its
+    // chunks share lodRef and lodDist, so near and far flip together.
+    int lodTier = -1;
+    int cy = 0;
+    float lodDist = 0.0F;
+    float lodRef[3] = {0, 0, 0};
     // Something in this chunk carries per-VERTEX colour that varies across a
     // face, so it must be Gouraud-shaded. Sticky, and safe to be: Gouraud over
     // equal corner colours is the flat result, so a chunk that mixes blocks
     // with ordinary instances loses nothing.
     bool smooth = false;
+    // Baked static lamps (BAKE_STATIC_LAMPS): the colours as built, before
+    // any lamp light was added - applyBakedLampsToChunk re-derives the
+    // chunk from these whenever the lamps change. Empty = never lamp-lit.
+    std::vector<Tyra::Color> lampBase;
+    unsigned int lampStamp = 0;  // colors.stamp() after the last lamp write
   };
   std::vector<ProcChunk> procChunks;
   // Collision for generated geometry. Merged geometry has no objects, so a
@@ -2039,6 +2151,68 @@ class TerrainGame : public Tyra::Game {
     float lhx = 0.0F, lhz = 0.0F, yc = 1.0F, ys = 0.0F;
   };
   std::vector<StaticBox> procColliders;
+  // Distant-version switch groups of runtime volumes: the reference point of
+  // each (volume, cell), fixed by the first instance that claimed the cell.
+  // The cell grid starts at multiples of the cell size, a scattered lattice
+  // usually CENTRES its instances there - a cell-centre reference would sit
+  // on an instance's edge and skew every distance by half a cell.
+  struct ProcLodRef {
+    int owner;
+    int cx, cy, cz;
+    float p[3];
+  };
+  std::vector<ProcLodRef> procLodRefs;
+  // --- Instanced scatter (docs/procedural-generation.md, "Instanced") -------
+  // A volume whose Output says "Draw as: Instanced" keeps ONE copy of each
+  // model and ~40 bytes per instance instead of merging world-space copies.
+  // The geometry is model-local and unscaled; its colours are baked once per
+  // yaw bucket (the directional light depends on how the copy is turned), and
+  // the copies are drawn by StaPipCore::renderInstances - one ordinary submit
+  // per (model, bucket) and an MVP + one REF for every further copy.
+  static constexpr int kInstYawBuckets = 4;
+  struct ProcInstGeo {
+    int model = -1;
+    // One position/ST array PER BUCKET, not one shared: the baked-stream cache
+    // keeps one entry per vertex array, so four buckets over one array evicted
+    // each other every frame and every copy group re-baked (measured: 88
+    // ordinary submits a frame for 28 groups, 0 of them clip crossings).
+    BagArray<Tyra::Vec4> vertices[kInstYawBuckets];
+    BagArray<Tyra::Vec4> sts[kInstYawBuckets];
+    BagArray<Tyra::Color> colors[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipBag> bag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    Tyra::M4x4 identity;
+    float radius = 0.0F;  // bounding sphere of the model, unscaled
+  };
+  std::vector<std::unique_ptr<ProcInstGeo>> procInstGeo;
+  struct ProcInst {
+    float axes[9];  // rotated(X/Y/Z axis) x scale - the matrix columns
+    float x, y, z;
+    short model, lodModel;  // gameModels indices; lodModel -1 = none
+    float lodDist2;         // switch distance squared (0 = never)
+    unsigned char bucket;   // shading bucket of the yaw
+  };
+  struct ProcInstCell {
+    int owner;  // procrt volume, -4 = a baked instanced volume
+    float mn[3], mx[3];
+    float drawDist;
+    int first, count;  // range in procInsts
+  };
+  std::vector<ProcInst> procInsts;
+  std::vector<ProcInstCell> procInstCells;
+  // Per frame: the matrices of the visible copies, grouped by (geo, bucket).
+  std::vector<std::vector<Tyra::M4x4>> procInstMats;
+  // One geo per texture a model's parts use (untextured parts share one: Kd
+  // is folded into the colours), built on first use per scene.
+  std::vector<int> procInstGeoFirst, procInstGeoCount;  // by gameModels index
+  int procInstGeoRange(int model, int* count);
+  void procAddInstance(int owner, const SceneObjectData& d, int lodModel,
+                       float lodDist, bool collide);
+  void procFinishInstances(int owner, float cell, float drawDist, int from);
+  void procClearInstances(int owner);
+  void renderProcInstances();
   // Live prefab instances, so Despawn Prefab can find what it made.
   struct PrefabInstance {
     int prefab = -1;              // PREFAB_NAMES index, -1 = free slot
@@ -2074,10 +2248,18 @@ class TerrainGame : public Tyra::Game {
   // volume, a prefab instance) differ only in where the transforms come from.
   // blockAo is the table procBlockVertexAo filled, and passing it is what
   // makes an instance a self-occluding block rather than a scattered model.
+  // lodAnchor (world origin of the scattered point) picks the chunk cell -
+  // the instance's, with height - instead of the object's own position;
+  // lodTier >= 0 also puts the object in that cell's distant-version group.
   void procAddMergedObject(int owner, int instance, const SceneObjectData& d,
                            unsigned char faces,
-                           const unsigned char* blockAo = nullptr);
+                           const unsigned char* blockAo = nullptr,
+                           int lodTier = -1, float lodDist = 0.0F,
+                           const float* lodAnchor = nullptr);
   void procFinishChunks();
+  // Baked static lamps (docs/dynamic-light-receivers.md, "Baked lamp light").
+  void applyBakedLampsToChunk(ProcChunk& c, bool force);
+  void rebakeLampLight();
   void renderProcChunks();
   void renderRoadChunks();
   // Interleaved passes (docs/interleaved-passes.md, INTERLEAVE_PASSES).
@@ -2087,7 +2269,7 @@ class TerrainGame : public Tyra::Game {
   // object that may blend and after the loop.
   void submitHeavy(Tyra::StaPipBag* bag);
   void dripHeavy(bool all);
-  bool interleaveBegin();
+  bool interleaveBegin(bool serializedCost = false);
   void interleaveEnd();
   void ilAccount(u32 work);
   bool objectMayBlend(int index);
@@ -2098,16 +2280,38 @@ class TerrainGame : public Tyra::Game {
   int heavyDrawn = 0, heavyPrevDrawn = 16;
   int heavyBlendAt = -1;  // drawn-object index of this frame's blend flush
   int ilLastBlendAt = -1;  // the same, for the last interleaved frame
-  // The auto tuner: 8 probe pairs (one frame in each order), then the order
-  // that won most pairs is held for 100 frames before probing again.
+  // Settled homogeneous blocks: four reversed-order block pairs, then hold.
+  // Observation is inclusive loop wall work minus pacing, not per-job GPU cost.
+  void ilReset();
   bool ilProbing = true, ilChoice = false;
-  int ilFrame = 0, ilWins = 0;
-  u32 ilPairOn = 0, ilSumOn = 0, ilSumOff = 0;
+  int ilFrame = 0, ilWins = 0, ilPair = 0, ilBlock = 0, ilAccepted = 0;
+  int ilWarmup = 2, ilViews = 0, ilCameraRig = 0;
+  u32 ilPairOn = 0, ilPairOff = 0;
+  unsigned long long ilBlockSum = 0, ilSumOn = 0, ilSumOff = 0;
   int ilLastHeavy = 0;
-  // Whole-loop work of the previous frame: COP0 period minus the renderer's
-  // stall (vsync / display buffer), taken from one interleaveBegin to the next.
-  bool ilHaveMark = false, ilMarkActive = false;
-  u32 ilMark = 0, ilStallMark = 0;
+  bool ilHaveMark = false, ilMarkActive = false, ilHaveGeneration = false;
+  bool ilPipelined = false, ilRequested = false, ilCameraOverride = false;
+  u32 ilMark = 0, ilStallMark = 0, ilGeneration = 0;
+  // Exact mode/geometry fields: no packed-key collisions or frame-address key.
+  struct InterleaveMode {
+    u32 video, display, color, buffers;
+    bool field, blss, limiter, yield, widescreen, dither;
+    float width, height, renderHeight, rasterWidth, rasterHeight;
+    int lowW, lowH, frameWidth, x0, x1, y0, y1;
+    bool operator==(const InterleaveMode& o) const {
+      return video == o.video && display == o.display && color == o.color &&
+             buffers == o.buffers && field == o.field && blss == o.blss &&
+             limiter == o.limiter && yield == o.yield && widescreen == o.widescreen &&
+             dither == o.dither && width == o.width &&
+             height == o.height && renderHeight == o.renderHeight &&
+             rasterWidth == o.rasterWidth && rasterHeight == o.rasterHeight &&
+             lowW == o.lowW && lowH == o.lowH && frameWidth == o.frameWidth &&
+             x0 == o.x0 && x1 == o.x1 && y0 == o.y0 && y1 == o.y1;
+    }
+  } ilMode{};
+  unsigned int ilSceneGeneration = 0;
+  uintptr_t ilCameraSource = 0;
+  std::vector<unsigned char> ilPortalTopology;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
   // `maxY` (docs/roads.md "Bridges"): the highest surface NOT above it - a
@@ -2129,6 +2333,7 @@ class TerrainGame : public Tyra::Game {
   mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z, float maxY = 1.0e30F) const;
   float walkGroundAt(float x, float z, float feetY) const;
+  void liftLatticeOverRoadStep(Tyra::Vec4* grid, int nx, int nz) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
@@ -2195,6 +2400,7 @@ class TerrainGame : public Tyra::Game {
   void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
 
   void buildSkyDome();
+  bool retintSkyDomeColors();
   // Pins every pass that draws one vertex array to a single VU1 package size -
   // see the implementation for why coplanar passes must classify identically.
   // `stripRun` non-zero: the bags draw a TRIANGLE STRIP whose packages must
@@ -2208,6 +2414,8 @@ class TerrainGame : public Tyra::Game {
   unsigned int minPackageSize();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  bool nearStageEligible(int index) const;
+  bool advanceNearStage(int index, int& vertBudget);
   // Cheap whole-object reject for multi-part static geometry. The normal
   // pipeline still owns precise per-part/package clipping for anything that
   // touches the view.
@@ -2285,6 +2493,7 @@ class TerrainGame : public Tyra::Game {
                   float dvy, float dvz);
   void renderScene();
   void updateAdaptiveResolution();
+  int upscalerMode = 0;  // Set Upscaler: 0 scene, 1 native, 2 reduced, 3 auto
   int adaptiveScene = -1;
   int adaptiveWarmup = 0;
   int adaptiveSlowRun = 0;
@@ -2585,6 +2794,20 @@ class TerrainGame : public Tyra::Game {
   // excluded (the swept object itself). Also carries/throws pickable objects.
   float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
                     float maxDist, float radius, int skipIndex) const;
+  // Its pieces, shared with the chase camera's sweep over the vehicle
+  // collider list: the segment's broad-phase box, one object (filters, cached
+  // box, broad + narrow phase), one already placed box (narrow phase only)
+  // and the terrain march. Each returns the new nearest distance.
+  struct SweepSeg {
+    float p[3], d[3], r, mn[3], mx[3];
+  };
+  SweepSeg sweepSegment(float px, float py, float pz, float dx, float dy,
+                        float dz, float maxDist, float r) const;
+  float sweepObject(const SweepSeg& s, int oi, float best) const;
+  float sweepBoxHit(const SweepSeg& s, const SceneObjectData& d, float cx,
+                    float cy, float cz, float ex, float ey, float ez,
+                    float best) const;
+  float sweepTerrain(const SweepSeg& s, float best) const;
 
   // --- the collision box (docs/collision-boxes.md) --------------------------
   // What an object reduces to for the walker, the camera boom and the
@@ -2601,6 +2824,44 @@ class TerrainGame : public Tyra::Game {
     float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
   };
   CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+
+  // --- the broad phase (docs/collision-boxes.md, "The broad phase") ---------
+  // ONE broad phase for every contact query against scene objects - the
+  // walker (and collideActor), sweepSphere (camera boom, carry, throw), the
+  // physics step's static obstacles and traceLine: Tyra::BroadPhase (engine,
+  // physics/broad_phase), backend per project (SCENE_BROADPHASE: height-aware
+  // grid or loose octree). Refreshed on the first query of a frame
+  // (g_frameStamp), at the frame loop's refresh boundaries (after the script
+  // stage, after the spinners) and after any spawn or (de)activation; a query
+  // fills `out` with every object whose box may reach it - never fewer - in
+  // ascending order, and the caller's own exact tests decide.
+  void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
+  void broadPhaseAlong(const float* a, const float* b, float radius,
+                       std::vector<int>& out) const;
+  // The next query refreshes first. The contract for code that moves, turns
+  // or rescales a collider (or changes its model or collision mode) and then
+  // queries before the next boundary: call this in between. Cheap when little
+  // changed - a refresh that changes nothing placed skips the rebuild.
+  void broadPhaseInvalidate() const { bpFrame = ~0u; }
+  void broadPhaseRefresh() const;
+  void broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const;
+  void broadPhaseVerify(const Tyra::BroadBox* area, const float* a, const float* b,
+                        float radius, const std::vector<int>& out) const;
+  struct BroadPhaseCache {
+    float key[12] = {};      // pose + model + collision mode the box was made for
+    Tyra::BroadBox box;      // world box, padded
+    bool valid = false;
+    bool stale = false;      // key moved on while moving: box not rebuilt yet
+    bool present = false;    // what the last commit was handed for it
+    bool moving = false;
+    unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
+  };
+  mutable Tyra::BroadPhase broadPhase;
+  mutable std::vector<BroadPhaseCache> bpCache;
+  mutable unsigned bpFrame = ~0u, bpGen = ~0u;
+  mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
+  // One candidate list per call site: the queries never nest inside a site.
+  mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;
   // Debug overlay: draws those boxes as red wireframes in the running game
   // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
   // constexpr, so a shipping build emits nothing). Rebuilt every frame from
@@ -2673,6 +2934,9 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // A loading screen that waits for a button holds here once its load is
+  // done (docs/loading-screens.md, "Press a button to continue").
+  bool loadingWaiting = false;
   // Snapshot of the armed hold length: everyFrames() tracks the measured
   // frame time now, so re-evaluating it in a == comparison against the
   // counter could miss its frame at uncapped FPS.
@@ -2906,6 +3170,18 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
     std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+    // TYRA_BEAM_CORONA_VU1 (docs/flashlight.md, "Coronas on VU1"): the
+    // coronas as ONE billboard bag - a centre, a 2x2 basis weight and a
+    // colour per lamp, expanded into camera-facing quads by the VU1
+    // billboard program the particles use - instead of six EE-built
+    // vertices a lamp re-staged on every camera move.
+    BagArray<Tyra::Vec4> bbCenters, bbWeights;
+    BagArray<Tyra::Color> bbColors;
+    std::unique_ptr<Tyra::StaPipInfoBag> bbInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> bbColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> bbTexBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> bbBasis;
+    std::unique_ptr<Tyra::StaPipBag> bbBag;
   };
   std::vector<std::unique_ptr<BeamBatch>> beamBatches;
   int beamBatchCall = 0;  // reset by loop() every frame
@@ -3098,13 +3374,26 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<ProjShadow> projShadows;  // one per engine slot in use
   std::vector<int> projCasters;         // authored caster object indices
+  // A still caster's below-the-floor clamped copy, per bag, kept between
+  // frames so it is rewritten (behind a queue drain) only when the bag or
+  // the floor moved - renderProjShadows, docs/shadows.md.
+  struct ProjClampEntry {
+    BagArray<Tyra::Vec4> arr;
+    const Tyra::Vec4* src = nullptr;
+    u32 count = 0, bbox = 0, content = 0, stamp = 0;
+    float floorY = 0.0F;
+    float mat[16] = {};  // a shared instance's objMat the copy was made under
+  };
+  // Keyed by the bag and, for a shared instance (whose bag is the model's),
+  // by the instance too.
+  std::map<std::pair<const Tyra::StaPipBag*, const void*>, ProjClampEntry> projClampCache;
   void setupProjShadows();   // per scene load
   void renderProjShadows();  // per frame, end of renderScene
   // The floor a shadow lands on. Terrain OR geometry: an indoor level's real
   // floor is boxes metres above the heightfield, and a patch built on the
   // heightfield alone ends up underneath it (see projCollectReceivers).
   void projCollectReceivers(float cx, float cz, float reach, float yMax);
-  float projSurfaceAt(float x, float z);
+  float projSurfaceAt(float x, float z, float maxY = 1.0e30F);
   // ...and the same objects as full boxes, walls included, for the flashlight's
   // pool: shine a beam at a wall and the light belongs ON the wall, which the
   // receiver list cannot say (it drops anything taller than the caster) and the
@@ -3215,12 +3504,25 @@ class TerrainGame : public Tyra::Game {
   // crosses a snap line, instead of on every centimetre of walking.
   float terrainLodFocus[2][2] = {{0.0F, 0.0F}, {0.0F, 0.0F}};
   int terrainLodFocusCount = 0;
+  // The view rects of the last streaming pass, in chunk indices
+  // (cx0, cz0, cx1, cz1). When the whole map fits the slot pool nothing is
+  // evicted, and these rects only decide what renderTerrain draws.
+  int terrainDrawRect[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+  int terrainDrawRectCount = 0;
+  bool terrainWholeMapResident() const;
+  // The vertex shade of every heightfield node, computed once (r, g, b and a
+  // "valid" flag per node). Only kept for a whole-map-resident terrain; see
+  // buildTerrainChunk.
+  std::vector<float> terrainShadeCache;
   // Streams the chunk ring around one or two view foci (two-player modes:
   // P2's avatar is the second focus) - a chunk near EITHER focus stays
   // resident, so the split halves stop evicting each other's terrain.
   void updateTerrainChunks(float focusX, float focusZ, float focus2X,
                            float focus2Z, bool twoFoci, int budget);
   int countPendingChunks(float focusX, float focusZ);
+  // Chunks built this frame (reset where the frame streams): the amortised
+  // reflection capture skips a half on such a frame so the costs never stack.
+  int terrainBuiltThisFrame = 0;
   void renderTerrain();
   void updatePlayer();
 
@@ -3228,6 +3530,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::StaticPipeline stapip;
 
   Tyra::Vec4 cameraPosition, cameraLookAt;
+  float terrainFocusX = 0.0F, terrainFocusZ = 0.0F;
   // Camera up vector. World up unless a cutscene rolls the camera
   // (Dutch angle); CameraInfo3D takes it and both the view matrix and
   // the frustum planes honour it.
@@ -3258,6 +3561,9 @@ class TerrainGame : public Tyra::Game {
       int layer = -1;
     };
     std::vector<LayerPass> layerPasses;
+    // The TERRAINSTRIP diagnostic ran for this slot's first build (the scene
+    // load); LOD rebuilds while driving skip its per-vertex walk.
+    bool stripLogged = false;
     // The terrain lightmap passes, both blended over the base (and the
     // layers) and both sampling ONE map with the chunk's extent-normalized
     // STs - texturing is MODULATE, so the vertex color of each pass picks
@@ -3303,6 +3609,8 @@ class TerrainGame : public Tyra::Game {
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
   int terrainChunksX = 0, terrainChunksZ = 0;
+  std::vector<std::string> groundShadowPins;
+  void prepareGroundShadowTextures();
 
   Tyra::M4x4 model;
   std::unique_ptr<Tyra::StaPipInfoBag> infoBag;  // shared by all chunk bags
@@ -3563,6 +3871,11 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+#if TYRA_VU1_EXP_PAINT
+    const void* envPaintSource = nullptr;
+    u32 envPaintCount = 0, envPaintVersion = 0, paintMapVersion = 0;
+    bool envPaintEeReady = false;
+#endif
     // The paint pass evaluates each DISTINCT normal once (see renderEnvPass):
     // paintMap[k] is vertex k's slot in paintNormals, built from the array
     // the env bag reads, and rebuilt whenever that array or its size changes.
@@ -3591,6 +3904,13 @@ class TerrainGame : public Tyra::Game {
     bool impostor = false; // visual representation only; data.model owns collision
     bool impostorInitialized = false;
     int impostorView = 0;
+    // The full model's vertex arrays, baked a slice per frame while the card
+    // still draws; the far-to-near switch waits until they are complete
+    // (docs/impostors.md, "Switching back to the full model"). Any rebuild
+    // consumes or drops them.
+    std::vector<GeoPart> nearStage;
+    size_t nearStagePart = 0, nearStageVert = 0;
+    bool nearStaging = false, nearStageDone = false;
     // Physics fast path (awake bodies): parts hold LOCAL-space vertices
     // (scale baked in, shading frozen at the wake pose) and every
     // part.infoBag->model points at objMat, rebuilt from position/rotation
@@ -3780,6 +4100,11 @@ class TerrainGame : public Tyra::Game {
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
+  bool isLivePlayerReceiver(int i) const;
+  void renderObjectBag(int owner, Tyra::StaPipBag* bag);
+  void renderWorldBag(Tyra::StaPipBag* bag);
+  void fillAnimLightColors(int i);
+  unsigned int dynamicReceiverGeneration_ = ~0U;
   void updateDynLitObjects();
   void fillDynLitColors(int index);
   // Directional light for the animated pass, mirroring the baked static
@@ -3804,8 +4129,11 @@ class TerrainGame : public Tyra::Game {
   // costing four: a volume owns a region, so its prefabs can share the
   // region's chunks. A flow-node spawn passes -1, because Despawn Prefab has
   // to be able to take that one instance's geometry away again.
+  // lodModel/lodDist: the pool row's distant version (a volume spawn only) -
+  // that model replaces the merged members as a whole past lodDist.
   int spawnPrefabAt(int prefabIndex, float x, float y, float z, float yaw,
-                    float scale, int mergeOwner = -1);
+                    float scale, int mergeOwner = -1, int lodModel = -1,
+                    float lodDist = 0.0F);
   void despawnPrefabsNamed(int prefabIndex);  // -1 = every instance
   // Generates one runtime volume and builds its geometry. seed: 0 = the
   // authored one, -1 = a fresh one, anything else = use it.
@@ -3893,6 +4221,10 @@ class TerrainGame : public Tyra::Game {
   };
   struct StaticBatch {
     Tyra::Texture* texture = nullptr;  // group key; colors already carry Kd
+    // Group key too: every member is "Show in reflections", so the
+    // environment-map passes submit this batch whole (and a reflected batch
+    // never drags a non-reflected object into the map).
+    bool reflected = false;
     std::vector<StaticBatchMember> members;
     std::vector<unsigned char> shown;  // per member: baked as visible?
     BagArray<Tyra::Vec4> vertices;  // world-space baked, like terrain
@@ -3930,6 +4262,7 @@ class TerrainGame : public Tyra::Game {
   // are flat-shaded by design.
   std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
   std::unique_ptr<Tyra::StaPipInfoBag> roadBlendInfoBag;  // road spills
+  std::unique_ptr<Tyra::StaPipInfoBag> roadInfoBag;  // road chunks (tight clip band)
   // The same settings with the camera spot switched off, for a batch that holds
   // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
   // one bag for many objects, so this is only ever swapped in for a batch of
@@ -3991,11 +4324,24 @@ class TerrainGame : public Tyra::Game {
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};
     float centre[3] = {0, 0, 0};
     float drawDist = 0.0F;  // 0 = always drawn
+    // Distant version per pool row (docs/procedural-generation.md): -1 = no
+    // switch, 0 = the near geometry, 1 = the far model. A switch group is
+    // keyed by the INSTANCE's cell (cx, cy, cz), not each member's, and its
+    // chunks share lodRef and lodDist, so near and far flip together.
+    int lodTier = -1;
+    int cy = 0;
+    float lodDist = 0.0F;
+    float lodRef[3] = {0, 0, 0};
     // Something in this chunk carries per-VERTEX colour that varies across a
     // face, so it must be Gouraud-shaded. Sticky, and safe to be: Gouraud over
     // equal corner colours is the flat result, so a chunk that mixes blocks
     // with ordinary instances loses nothing.
     bool smooth = false;
+    // Baked static lamps (BAKE_STATIC_LAMPS): the colours as built, before
+    // any lamp light was added - applyBakedLampsToChunk re-derives the
+    // chunk from these whenever the lamps change. Empty = never lamp-lit.
+    std::vector<Tyra::Color> lampBase;
+    unsigned int lampStamp = 0;  // colors.stamp() after the last lamp write
   };
   std::vector<ProcChunk> procChunks;
   // Collision for generated geometry. Merged geometry has no objects, so a
@@ -4019,6 +4365,68 @@ class TerrainGame : public Tyra::Game {
     float lhx = 0.0F, lhz = 0.0F, yc = 1.0F, ys = 0.0F;
   };
   std::vector<StaticBox> procColliders;
+  // Distant-version switch groups of runtime volumes: the reference point of
+  // each (volume, cell), fixed by the first instance that claimed the cell.
+  // The cell grid starts at multiples of the cell size, a scattered lattice
+  // usually CENTRES its instances there - a cell-centre reference would sit
+  // on an instance's edge and skew every distance by half a cell.
+  struct ProcLodRef {
+    int owner;
+    int cx, cy, cz;
+    float p[3];
+  };
+  std::vector<ProcLodRef> procLodRefs;
+  // --- Instanced scatter (docs/procedural-generation.md, "Instanced") -------
+  // A volume whose Output says "Draw as: Instanced" keeps ONE copy of each
+  // model and ~40 bytes per instance instead of merging world-space copies.
+  // The geometry is model-local and unscaled; its colours are baked once per
+  // yaw bucket (the directional light depends on how the copy is turned), and
+  // the copies are drawn by StaPipCore::renderInstances - one ordinary submit
+  // per (model, bucket) and an MVP + one REF for every further copy.
+  static constexpr int kInstYawBuckets = 4;
+  struct ProcInstGeo {
+    int model = -1;
+    // One position/ST array PER BUCKET, not one shared: the baked-stream cache
+    // keeps one entry per vertex array, so four buckets over one array evicted
+    // each other every frame and every copy group re-baked (measured: 88
+    // ordinary submits a frame for 28 groups, 0 of them clip crossings).
+    BagArray<Tyra::Vec4> vertices[kInstYawBuckets];
+    BagArray<Tyra::Vec4> sts[kInstYawBuckets];
+    BagArray<Tyra::Color> colors[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipBag> bag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    Tyra::M4x4 identity;
+    float radius = 0.0F;  // bounding sphere of the model, unscaled
+  };
+  std::vector<std::unique_ptr<ProcInstGeo>> procInstGeo;
+  struct ProcInst {
+    float axes[9];  // rotated(X/Y/Z axis) x scale - the matrix columns
+    float x, y, z;
+    short model, lodModel;  // gameModels indices; lodModel -1 = none
+    float lodDist2;         // switch distance squared (0 = never)
+    unsigned char bucket;   // shading bucket of the yaw
+  };
+  struct ProcInstCell {
+    int owner;  // procrt volume, -4 = a baked instanced volume
+    float mn[3], mx[3];
+    float drawDist;
+    int first, count;  // range in procInsts
+  };
+  std::vector<ProcInst> procInsts;
+  std::vector<ProcInstCell> procInstCells;
+  // Per frame: the matrices of the visible copies, grouped by (geo, bucket).
+  std::vector<std::vector<Tyra::M4x4>> procInstMats;
+  // One geo per texture a model's parts use (untextured parts share one: Kd
+  // is folded into the colours), built on first use per scene.
+  std::vector<int> procInstGeoFirst, procInstGeoCount;  // by gameModels index
+  int procInstGeoRange(int model, int* count);
+  void procAddInstance(int owner, const SceneObjectData& d, int lodModel,
+                       float lodDist, bool collide);
+  void procFinishInstances(int owner, float cell, float drawDist, int from);
+  void procClearInstances(int owner);
+  void renderProcInstances();
   // Live prefab instances, so Despawn Prefab can find what it made.
   struct PrefabInstance {
     int prefab = -1;              // PREFAB_NAMES index, -1 = free slot
@@ -4054,10 +4462,18 @@ class TerrainGame : public Tyra::Game {
   // volume, a prefab instance) differ only in where the transforms come from.
   // blockAo is the table procBlockVertexAo filled, and passing it is what
   // makes an instance a self-occluding block rather than a scattered model.
+  // lodAnchor (world origin of the scattered point) picks the chunk cell -
+  // the instance's, with height - instead of the object's own position;
+  // lodTier >= 0 also puts the object in that cell's distant-version group.
   void procAddMergedObject(int owner, int instance, const SceneObjectData& d,
                            unsigned char faces,
-                           const unsigned char* blockAo = nullptr);
+                           const unsigned char* blockAo = nullptr,
+                           int lodTier = -1, float lodDist = 0.0F,
+                           const float* lodAnchor = nullptr);
   void procFinishChunks();
+  // Baked static lamps (docs/dynamic-light-receivers.md, "Baked lamp light").
+  void applyBakedLampsToChunk(ProcChunk& c, bool force);
+  void rebakeLampLight();
   void renderProcChunks();
   void renderRoadChunks();
   // Interleaved passes (docs/interleaved-passes.md, INTERLEAVE_PASSES).
@@ -4067,7 +4483,7 @@ class TerrainGame : public Tyra::Game {
   // object that may blend and after the loop.
   void submitHeavy(Tyra::StaPipBag* bag);
   void dripHeavy(bool all);
-  bool interleaveBegin();
+  bool interleaveBegin(bool serializedCost = false);
   void interleaveEnd();
   void ilAccount(u32 work);
   bool objectMayBlend(int index);
@@ -4078,16 +4494,38 @@ class TerrainGame : public Tyra::Game {
   int heavyDrawn = 0, heavyPrevDrawn = 16;
   int heavyBlendAt = -1;  // drawn-object index of this frame's blend flush
   int ilLastBlendAt = -1;  // the same, for the last interleaved frame
-  // The auto tuner: 8 probe pairs (one frame in each order), then the order
-  // that won most pairs is held for 100 frames before probing again.
+  // Settled homogeneous blocks: four reversed-order block pairs, then hold.
+  // Observation is inclusive loop wall work minus pacing, not per-job GPU cost.
+  void ilReset();
   bool ilProbing = true, ilChoice = false;
-  int ilFrame = 0, ilWins = 0;
-  u32 ilPairOn = 0, ilSumOn = 0, ilSumOff = 0;
+  int ilFrame = 0, ilWins = 0, ilPair = 0, ilBlock = 0, ilAccepted = 0;
+  int ilWarmup = 2, ilViews = 0, ilCameraRig = 0;
+  u32 ilPairOn = 0, ilPairOff = 0;
+  unsigned long long ilBlockSum = 0, ilSumOn = 0, ilSumOff = 0;
   int ilLastHeavy = 0;
-  // Whole-loop work of the previous frame: COP0 period minus the renderer's
-  // stall (vsync / display buffer), taken from one interleaveBegin to the next.
-  bool ilHaveMark = false, ilMarkActive = false;
-  u32 ilMark = 0, ilStallMark = 0;
+  bool ilHaveMark = false, ilMarkActive = false, ilHaveGeneration = false;
+  bool ilPipelined = false, ilRequested = false, ilCameraOverride = false;
+  u32 ilMark = 0, ilStallMark = 0, ilGeneration = 0;
+  // Exact mode/geometry fields: no packed-key collisions or frame-address key.
+  struct InterleaveMode {
+    u32 video, display, color, buffers;
+    bool field, blss, limiter, yield, widescreen, dither;
+    float width, height, renderHeight, rasterWidth, rasterHeight;
+    int lowW, lowH, frameWidth, x0, x1, y0, y1;
+    bool operator==(const InterleaveMode& o) const {
+      return video == o.video && display == o.display && color == o.color &&
+             buffers == o.buffers && field == o.field && blss == o.blss &&
+             limiter == o.limiter && yield == o.yield && widescreen == o.widescreen &&
+             dither == o.dither && width == o.width &&
+             height == o.height && renderHeight == o.renderHeight &&
+             rasterWidth == o.rasterWidth && rasterHeight == o.rasterHeight &&
+             lowW == o.lowW && lowH == o.lowH && frameWidth == o.frameWidth &&
+             x0 == o.x0 && x1 == o.x1 && y0 == o.y0 && y1 == o.y1;
+    }
+  } ilMode{};
+  unsigned int ilSceneGeneration = 0;
+  uintptr_t ilCameraSource = 0;
+  std::vector<unsigned char> ilPortalTopology;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
   // `maxY` (docs/roads.md "Bridges"): the highest surface NOT above it - a
@@ -4109,6 +4547,7 @@ class TerrainGame : public Tyra::Game {
   mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z, float maxY = 1.0e30F) const;
   float walkGroundAt(float x, float z, float feetY) const;
+  void liftLatticeOverRoadStep(Tyra::Vec4* grid, int nx, int nz) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
@@ -4175,6 +4614,7 @@ class TerrainGame : public Tyra::Game {
   void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
 
   void buildSkyDome();
+  bool retintSkyDomeColors();
   // Pins every pass that draws one vertex array to a single VU1 package size -
   // see the implementation for why coplanar passes must classify identically.
   // `stripRun` non-zero: the bags draw a TRIANGLE STRIP whose packages must
@@ -4188,6 +4628,8 @@ class TerrainGame : public Tyra::Game {
   unsigned int minPackageSize();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  bool nearStageEligible(int index) const;
+  bool advanceNearStage(int index, int& vertBudget);
   // Cheap whole-object reject for multi-part static geometry. The normal
   // pipeline still owns precise per-part/package clipping for anything that
   // touches the view.
@@ -4265,6 +4707,7 @@ class TerrainGame : public Tyra::Game {
                   float dvy, float dvz);
   void renderScene();
   void updateAdaptiveResolution();
+  int upscalerMode = 0;  // Set Upscaler: 0 scene, 1 native, 2 reduced, 3 auto
   int adaptiveScene = -1;
   int adaptiveWarmup = 0;
   int adaptiveSlowRun = 0;
@@ -4565,6 +5008,20 @@ class TerrainGame : public Tyra::Game {
   // excluded (the swept object itself). Also carries/throws pickable objects.
   float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
                     float maxDist, float radius, int skipIndex) const;
+  // Its pieces, shared with the chase camera's sweep over the vehicle
+  // collider list: the segment's broad-phase box, one object (filters, cached
+  // box, broad + narrow phase), one already placed box (narrow phase only)
+  // and the terrain march. Each returns the new nearest distance.
+  struct SweepSeg {
+    float p[3], d[3], r, mn[3], mx[3];
+  };
+  SweepSeg sweepSegment(float px, float py, float pz, float dx, float dy,
+                        float dz, float maxDist, float r) const;
+  float sweepObject(const SweepSeg& s, int oi, float best) const;
+  float sweepBoxHit(const SweepSeg& s, const SceneObjectData& d, float cx,
+                    float cy, float cz, float ex, float ey, float ez,
+                    float best) const;
+  float sweepTerrain(const SweepSeg& s, float best) const;
 
   // --- the collision box (docs/collision-boxes.md) --------------------------
   // What an object reduces to for the walker, the camera boom and the
@@ -4581,6 +5038,44 @@ class TerrainGame : public Tyra::Game {
     float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
   };
   CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+
+  // --- the broad phase (docs/collision-boxes.md, "The broad phase") ---------
+  // ONE broad phase for every contact query against scene objects - the
+  // walker (and collideActor), sweepSphere (camera boom, carry, throw), the
+  // physics step's static obstacles and traceLine: Tyra::BroadPhase (engine,
+  // physics/broad_phase), backend per project (SCENE_BROADPHASE: height-aware
+  // grid or loose octree). Refreshed on the first query of a frame
+  // (g_frameStamp), at the frame loop's refresh boundaries (after the script
+  // stage, after the spinners) and after any spawn or (de)activation; a query
+  // fills `out` with every object whose box may reach it - never fewer - in
+  // ascending order, and the caller's own exact tests decide.
+  void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
+  void broadPhaseAlong(const float* a, const float* b, float radius,
+                       std::vector<int>& out) const;
+  // The next query refreshes first. The contract for code that moves, turns
+  // or rescales a collider (or changes its model or collision mode) and then
+  // queries before the next boundary: call this in between. Cheap when little
+  // changed - a refresh that changes nothing placed skips the rebuild.
+  void broadPhaseInvalidate() const { bpFrame = ~0u; }
+  void broadPhaseRefresh() const;
+  void broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const;
+  void broadPhaseVerify(const Tyra::BroadBox* area, const float* a, const float* b,
+                        float radius, const std::vector<int>& out) const;
+  struct BroadPhaseCache {
+    float key[12] = {};      // pose + model + collision mode the box was made for
+    Tyra::BroadBox box;      // world box, padded
+    bool valid = false;
+    bool stale = false;      // key moved on while moving: box not rebuilt yet
+    bool present = false;    // what the last commit was handed for it
+    bool moving = false;
+    unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
+  };
+  mutable Tyra::BroadPhase broadPhase;
+  mutable std::vector<BroadPhaseCache> bpCache;
+  mutable unsigned bpFrame = ~0u, bpGen = ~0u;
+  mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
+  // One candidate list per call site: the queries never nest inside a site.
+  mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;
   // Debug overlay: draws those boxes as red wireframes in the running game
   // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
   // constexpr, so a shipping build emits nothing). Rebuilt every frame from
@@ -4653,6 +5148,9 @@ class TerrainGame : public Tyra::Game {
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).
   int loadingFrames = 0, loadingTarget = -1;
+  // A loading screen that waits for a button holds here once its load is
+  // done (docs/loading-screens.md, "Press a button to continue").
+  bool loadingWaiting = false;
   // Snapshot of the armed hold length: everyFrames() tracks the measured
   // frame time now, so re-evaluating it in a == comparison against the
   // counter could miss its frame at uncapped FPS.
@@ -4886,6 +5384,18 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> coronaColorBag, coneColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> coronaTexBag;
     std::unique_ptr<Tyra::StaPipBag> coronaBag, coneBag;
+    // TYRA_BEAM_CORONA_VU1 (docs/flashlight.md, "Coronas on VU1"): the
+    // coronas as ONE billboard bag - a centre, a 2x2 basis weight and a
+    // colour per lamp, expanded into camera-facing quads by the VU1
+    // billboard program the particles use - instead of six EE-built
+    // vertices a lamp re-staged on every camera move.
+    BagArray<Tyra::Vec4> bbCenters, bbWeights;
+    BagArray<Tyra::Color> bbColors;
+    std::unique_ptr<Tyra::StaPipInfoBag> bbInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> bbColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> bbTexBag;
+    std::unique_ptr<Tyra::StaPipBillboardBag> bbBasis;
+    std::unique_ptr<Tyra::StaPipBag> bbBag;
   };
   std::vector<std::unique_ptr<BeamBatch>> beamBatches;
   int beamBatchCall = 0;  // reset by loop() every frame
@@ -5078,13 +5588,26 @@ class TerrainGame : public Tyra::Game {
   };
   std::vector<ProjShadow> projShadows;  // one per engine slot in use
   std::vector<int> projCasters;         // authored caster object indices
+  // A still caster's below-the-floor clamped copy, per bag, kept between
+  // frames so it is rewritten (behind a queue drain) only when the bag or
+  // the floor moved - renderProjShadows, docs/shadows.md.
+  struct ProjClampEntry {
+    BagArray<Tyra::Vec4> arr;
+    const Tyra::Vec4* src = nullptr;
+    u32 count = 0, bbox = 0, content = 0, stamp = 0;
+    float floorY = 0.0F;
+    float mat[16] = {};  // a shared instance's objMat the copy was made under
+  };
+  // Keyed by the bag and, for a shared instance (whose bag is the model's),
+  // by the instance too.
+  std::map<std::pair<const Tyra::StaPipBag*, const void*>, ProjClampEntry> projClampCache;
   void setupProjShadows();   // per scene load
   void renderProjShadows();  // per frame, end of renderScene
   // The floor a shadow lands on. Terrain OR geometry: an indoor level's real
   // floor is boxes metres above the heightfield, and a patch built on the
   // heightfield alone ends up underneath it (see projCollectReceivers).
   void projCollectReceivers(float cx, float cz, float reach, float yMax);
-  float projSurfaceAt(float x, float z);
+  float projSurfaceAt(float x, float z, float maxY = 1.0e30F);
   // ...and the same objects as full boxes, walls included, for the flashlight's
   // pool: shine a beam at a wall and the light belongs ON the wall, which the
   // receiver list cannot say (it drops anything taller than the caster) and the
@@ -5833,6 +6356,7 @@ struct ScriptContext {
   float playerBoom = 0.0F;
   bool teleportMotion = false;
   bool cameraOverride = false;
+  uintptr_t cameraSource = 0;  // custom overrides: stable opaque owner, never dereferenced
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
   // Camera up vector - the Dutch angle. Defaults to world up, so a cutscene
@@ -6039,9 +6563,18 @@ struct ScriptContext {
   // subject to the per-frame gate), 2 = on and IGNORE the gate. The game
   // latches it and clears it back to -1.
   int frameExtrapolation = -1;
+  // The upscaler (docs/upscaler.md, "At runtime"), written by the Set
+  // Upscaler flow node: -1 = leave alone, 0 = the scene's own setting, 1 =
+  // native, 2 = reduced, 3 = automatic (the frame-budget switch). The game
+  // latches it and clears it back to -1; a scene load resets to 0.
+  int upscaler = -1;
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
+  // Set Frame Pipeline is deferred until applyVideoRequests, before the next
+  // beginFrame. -1 = leave, 0 = Off, 1 = On; last request wins. The getter
+  // reads RendererCore's applied requested state, not this pending request.
+  int requestFramePipeline = -1;
 
   // Master sound-effect volume as a percentage (0..100), driven by a menu
   // "Sound volume" option block (applyMenuBindings). 100 = unscaled. Applied
@@ -6541,6 +7074,13 @@ if [ -z "$PCSX2" ] && command -v flatpak >/dev/null 2>&1 &&
     PCSX2="flatpak run net.pcsx2.PCSX2"
 fi
 if [ -z "$PCSX2" ]; then
+    # macOS: the upstream app bundle.
+    for c in /Applications/PCSX2.app "$HOME"/Applications/PCSX2.app \
+             /Applications/PCSX2*.app "$HOME"/Applications/PCSX2*.app; do
+        [ -x "$c/Contents/MacOS/PCSX2" ] && PCSX2="$c/Contents/MacOS/PCSX2" && break
+    done
+fi
+if [ -z "$PCSX2" ]; then
     for c in "$HOME"/Applications/*.AppImage "$HOME"/Downloads/*.AppImage; do
         case "$(basename "$c")" in [Pp][Cc][Ss][Xx]2*) PCSX2="$c"; break;; esac
     done
@@ -6555,9 +7095,10 @@ ELF="bin/$(grep -oE '[^ ]*\.elf' Makefile | head -1)"
 
 # Close only the PCSX2 running THIS project's ELF (the editor's rule,
 # Runner::killEmulatorsFor): several emulators run at once, one per project or
-# worktree, and pkill by name ends somebody else's.
-for pid in $(pgrep -x pcsx2-qt 2>/dev/null; pgrep -x pcsx2 2>/dev/null); do
-    if [ -r "/proc/$pid/cmdline" ] && tr '\0' ' ' < "/proc/$pid/cmdline" | grep -qF -- "$PWD/$ELF"; then
+# worktree, and pkill by name ends somebody else's. ps -o args= reads the
+# command line on Linux and macOS alike.
+for pid in $(pgrep -x pcsx2-qt 2>/dev/null; pgrep -x pcsx2 2>/dev/null; pgrep -x PCSX2 2>/dev/null); do
+    if ps -o args= -p "$pid" 2>/dev/null | grep -qF -- "$PWD/$ELF"; then
         kill "$pid" 2>/dev/null || true
     fi
 done
@@ -6894,6 +7435,219 @@ static std::string reflGroundTable(const Project& p) {
     return out.str();
 }
 
+// The baked reflection background (docs/reflective-materials.md, "The baked
+// background"): the switch and which scenes have a file. Emitted only while
+// the setting is on, so a project with it off regenerates byte for byte.
+static std::string reflPanoTable(const Project& p) {
+    if (!p.settings.reflectionPanorama) return "";
+    std::ostringstream out;
+    out << "// The reflection probe's baked background (reflpano/s<scene>.bin).\n"
+           "#define REFL_PANO_ON 1\n"
+        << "constexpr bool REFL_PANO_SCENES[" << p.scenes.size() << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        out << (si ? ", " : "") << (reflpano::wanted(p, p.scenes[si]) ? "true" : "false");
+    out << "};\n\n";
+    return out.str();
+}
+
+// The probe's object loop: the baked box proxies are in the panorama.
+static std::string reflPanoSkip(const Project& p) {
+    if (!p.settings.reflectionPanorama) return "";
+    return "      if (envPanoActive && reflpano_rt::baked(ri)) continue;\n";
+}
+
+// The capture's half of the baked background, in front of the live ground.
+// Sets envPanoActive when the probe's eye stands in a baked cell; the live
+// ground code that follows then draws nothing.
+static std::string reflPanoCapture(const Project& p) {
+    if (!p.settings.reflectionPanorama) return "";
+    return R"REFL(    // The baked background (docs/reflective-materials.md, "The baked
+    // background"): in a baked road cell the probe draws ONE camera-facing
+    // card textured with the cell's panorama instead of the terrain and road
+    // chunks and the baked box proxies. The probe camera is level, so every
+    // card vertex keeps its elevation and its azimuth relative to the camera:
+    // the card's vertices are built once in the camera's level frame and a
+    // matrix puts them at the eye and the yaw; only the texture coordinates
+    // follow the yaw. Two textures alternate on a cell change, so a re-upload
+    // never rewrites RAM or VRAM a frame still in flight reads.
+    bool envPanoActive = false;
+    if (TERRAIN_ENABLED && reflpano_rt::load(currentScene)) {
+      const int panoSlot = reflpano_rt::slotAt(probeEye.x, probeEye.z);
+      if (panoSlot >= 0) {
+        envPanoActive = true;
+        if (envDoTerrain) {
+          constexpr int kPanoGrid = 6, kPanoSide = kPanoGrid + 1;
+          static Texture* panoTex[2] = {nullptr, nullptr};
+          static int panoTexSlot[2] = {-1, -1};
+          static unsigned int panoTexKey[2] = {0u, 0u};
+          static int panoUse = 0;
+          static float panoDirs[kPanoSide * kPanoSide][3];
+          static float panoAz[kPanoSide * kPanoSide], panoV[kPanoSide * kPanoSide];
+          static std::unique_ptr<GeoPart> panoCard;
+          static unsigned char panoClut[256 * 4];
+          static unsigned int panoGeneration = ~0u;
+          static M4x4 panoMat;
+          const reflpano_rt::File& pf = reflpano_rt::g_file;
+          if (!panoCard) {
+            // The card's directions, once: a grid over the probe's square
+            // frustum, a hair inside its edges so no vertex needs clipping.
+            const float t = tanf(0.5F * REFLECTION_PROBE_FOV_DEG * 0.01745329252F) * 0.995F;
+            for (int j = 0; j < kPanoSide; ++j)
+              for (int i = 0; i < kPanoSide; ++i) {
+                const float sx = (2.0F * i / kPanoGrid - 1.0F) * t;
+                const float sy = (1.0F - 2.0F * j / kPanoGrid) * t;
+                const float inv = 1.0F / sqrtf(1.0F + sx * sx + sy * sy);
+                float* d = panoDirs[j * kPanoSide + i];
+                d[0] = inv, d[1] = sy * inv, d[2] = sx * inv;  // x forward, z side
+                panoAz[j * kPanoSide + i] = atan2f(d[2], d[0]);
+                const float el = asinf(d[1]) * 57.2957795F;
+                panoV[j * kPanoSide + i] = (pf.elTop - el) / (pf.elTop - pf.elBottom);
+              }
+            panoCard = std::make_unique<GeoPart>();
+            panoCard->infoBag = std::make_unique<StaPipInfoBag>();
+            panoMat.identity();
+            panoCard->infoBag->model = &panoMat;
+            panoCard->infoBag->shadingType = TyraShadingGouraud;
+            panoCard->infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+            // Far away, like the sky dome: hardware fog would paint it solid.
+            panoCard->infoBag->fogDisabled = true;
+            panoCard->infoBag->dynLightPick = false;
+            panoCard->colorBag = std::make_unique<StaPipColorBag>();
+            panoCard->texBag = std::make_unique<StaPipTextureBag>();
+            panoCard->bag = std::make_unique<StaPipBag>();
+            panoCard->bag->info = panoCard->infoBag.get();
+            panoCard->bag->color = panoCard->colorBag.get();
+            panoCard->bag->lighting = nullptr;
+            panoCard->bag->texture = panoCard->texBag.get();
+            for (int q = 0; q < kPanoGrid * kPanoGrid * 6; ++q) {
+              panoCard->vertices.push_back(Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+              panoCard->sts.push_back(Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+              panoCard->colors.push_back(Color(128.0F, 128.0F, 128.0F, 128.0F));
+            }
+            panoCard->colors.bind(panoCard->colorBag);
+            panoCard->vertices.bind(panoCard->bag);
+            panoCard->sts.bind(panoCard->texBag);
+            panoCard->bag->count = (u32)panoCard->vertices.size();
+            for (int k = 0; k < 2; ++k) {
+              TextureBuilderData td;
+              td.name = "refl-panorama";
+              td.width = pf.w;
+              td.height = pf.h;
+              td.data = static_cast<unsigned char*>(memalign(128, (size_t)pf.w * pf.h));
+              memset(td.data, 0, (size_t)pf.w * pf.h);
+              td.bpp = bpp8;
+              td.gsComponents = TEXTURE_COMPONENTS_RGBA;
+              td.clutWidth = 16;
+              td.clutHeight = 16;
+              td.clut = static_cast<unsigned char*>(memalign(128, 256 * 4));
+              memset(td.clut, 0, 256 * 4);
+              td.clutBpp = bpp32;
+              td.clutGsComponents = TEXTURE_COMPONENTS_RGBA;
+              panoTex[k] = new Texture(&td);
+              // Around the horizon it wraps; top and bottom rows must not
+              // bleed into each other.
+              panoTex[k]->setWrapSettings(Tyra::Repeat, Tyra::Clamp);
+            }
+          }
+          if (panoGeneration != sceneGeneration) {
+            panoGeneration = sceneGeneration;
+            panoTexSlot[0] = panoTexSlot[1] = -1;
+          }
+          // The palette: entry 0 is see-through with the sky's colour (a
+          // filtered edge fades toward the sky), 1..boxes the baked proxies in
+          // the colour renderReflectionProxy would give their live box - the
+          // mean of the real object's vertex colours - and the rest the
+          // ground, as baked.
+          memcpy(panoClut, pf.palette, sizeof(panoClut));
+          panoClut[0] = (unsigned char)scriptCtx.skyColor.r;
+          panoClut[1] = (unsigned char)scriptCtx.skyColor.g;
+          panoClut[2] = (unsigned char)scriptCtx.skyColor.b;
+          panoClut[3] = 0;
+          for (int b = 0; b < pf.boxes; ++b) {
+            const int ri = pf.boxObject[b];
+            float cr = 0, cg = 0, cb = 0, cn = 0;
+            if (ri >= 0 && ri < (int)objectGeometry.size())
+              for (const GeoPart& src : objectGeometry[ri].parts)
+                for (const Color& c : src.colors) { cr += c.r; cg += c.g; cb += c.b; cn += 1.0F; }
+            unsigned char* e = &panoClut[(1 + b) * 4];
+            e[0] = (unsigned char)(cn ? cr / cn : 160.0F);
+            e[1] = (unsigned char)(cn ? cg / cn : 160.0F);
+            e[2] = (unsigned char)(cn ? cb / cn : 160.0F);
+            e[3] = 0x80;
+          }
+          unsigned int key = 2166136261u;
+          for (int b = 0; b < 4 + pf.boxes * 4 + 4; ++b) key = (key ^ panoClut[b]) * 16777619u;
+          if (panoTexSlot[panoUse] != panoSlot || panoTexKey[panoUse] != key) {
+            // The OTHER texture takes the new picture: the current one may
+            // still be read by a frame the GS has not finished.
+            panoUse ^= 1;
+            Texture* tx = panoTex[panoUse];
+            if (!reflpano_rt::expand(panoSlot, tx->core->data))
+              memset(tx->core->data, 0, (size_t)pf.w * pf.h);  // see-through
+            // CSM1 stores an 8-bit palette with entries 8..15 and 16..23 of
+            // every 32 swapped (the PNG loader's "rotate clut").
+            unsigned char* cl = tx->clut->data;
+            for (int i = 0; i < 256; ++i) {
+              const int s = (i & 0x18) == 8 ? i + 8 : ((i & 0x18) == 16 ? i - 8 : i);
+              memcpy(cl + s * 4, panoClut + i * 4, 4);
+            }
+            panoTexSlot[panoUse] = panoSlot;
+            panoTexKey[panoUse] = key;
+            auto& coreTex = engine->renderer.core.texture;
+            if (coreTex.getAllocatedBuffersByTextureId(tx->id).id != 0)
+              coreTex.updateTextureInfo(tx);
+          }
+          // The card: built once, radius inside the sky dome; this capture's
+          // matrix turns it to the yaw and parks it on the eye. Texture u is
+          // the world azimuth (camera yaw + the vertex's own), v baked.
+          static const int kCorner[6][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 0}, {1, 1}, {0, 1}};
+          static bool panoBuilt = false;
+          if (!panoBuilt) {
+            panoBuilt = true;
+            const float diag = TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
+            float rad = diag * 1.5F;
+            rad = (rad < 60.0F ? 60.0F : (rad > 450.0F ? 450.0F : rad)) * 0.9F;
+            int out = 0;
+            for (int j = 0; j < kPanoGrid; ++j)
+              for (int i = 0; i < kPanoGrid; ++i)
+                for (const auto& c : kCorner) {
+                  const float* d = panoDirs[(j + c[1]) * kPanoSide + (i + c[0])];
+                  panoCard->vertices[out++].set(d[0] * rad, d[1] * rad, d[2] * rad, 1.0F);
+                }
+            panoCard->bag->bboxVersion = ++g_bboxStamp;
+          }
+          static float panoYaw = 1e9F;
+          const float yaw = atan2f(probeDir.z, probeDir.x);
+          if (yaw != panoYaw) {
+            panoYaw = yaw;
+            int out = 0;
+            for (int j = 0; j < kPanoGrid; ++j)
+              for (int i = 0; i < kPanoGrid; ++i)
+                for (const auto& c : kCorner) {
+                  const int vi = (j + c[1]) * kPanoSide + (i + c[0]);
+                  panoCard->sts[out++].set((yaw + panoAz[vi]) * 0.159154943F, panoV[vi],
+                                           1.0F, 0.0F);
+                }
+          }
+          // Column-major: local x (forward) -> (cos, 0, sin), local z (side)
+          // -> (-sin, 0, cos), then the eye.
+          const float cy = cosf(yaw), sy = sinf(yaw);
+          panoMat.identity();
+          panoMat.data[0] = cy;
+          panoMat.data[2] = sy;
+          panoMat.data[8] = -sy;
+          panoMat.data[10] = cy;
+          panoMat.data[12] = probeEye.x;
+          panoMat.data[13] = probeEye.y;
+          panoMat.data[14] = probeEye.z;
+          panoCard->texBag->texture = panoTex[panoUse];
+          renderWorldBag(panoCard->bag.get());
+        }
+      }
+    }
+)REFL";
+}
+
 // The capture's ground: the real chunks, or the stand-in grid.
 static std::string reflGroundCapture(const Project& p) {
     if (!p.settings.reflectionGroundProxy)
@@ -6981,7 +7735,7 @@ static std::string reflGroundCapture(const Project& p) {
           }
       }
       for (auto& gp : groundParts)
-        if (gp && gp->bag) stapip.core.render(gp->bag.get());
+        if (gp && gp->bag) renderWorldBag(gp->bag.get());
     }
 )REFL";
 }
@@ -7152,7 +7906,7 @@ static std::string reflSceneryCapture(const Project& p) {
           p->bag->bboxVersion = ++g_bboxStamp;
           cell.part = std::move(p);
         }
-        if (cell.part && cell.part->bag) stapip.core.render(cell.part->bag.get());
+        if (cell.part && cell.part->bag) renderWorldBag(cell.part->bag.get());
       }
     }
 )REFL";
@@ -7161,10 +7915,8 @@ static std::string reflSceneryCapture(const Project& p) {
 // Absolute path to the in-tree Tyra engine (editor repo, vendor/tyra), with
 // forward slashes - bind-mounted into the build container by docker-compose.
 static std::string engineSourceDir() {
-    const std::string exe = platform::exePath();
-    if (!exe.empty()) {
-        std::filesystem::path candidate =
-            std::filesystem::path(exe).parent_path() / ".." / "vendor" / "tyra";
+    if (const std::filesystem::path binDir = platform::resourceBinDir(); !binDir.empty()) {
+        std::filesystem::path candidate = binDir / ".." / "vendor" / "tyra";
         std::error_code ec;
         if (std::filesystem::exists(candidate / "Makefile.base", ec)) {
             std::string s = std::filesystem::weakly_canonical(candidate, ec).string();
@@ -7297,6 +8049,80 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
 // computed by prefab::memberMerges on the host so the editor's cost readout and
 // the console cannot disagree about it.
 static std::string sanitizeNamespace(const std::string& name);
+
+// inc/proc_instances.gen.hpp - every copy of the baked INSTANCED volumes
+// (docs/procedural-generation.md, "Instanced"), or "" when there is none, so a
+// project without one generates exactly the file set it always did. The graph
+// is evaluated here rather than stored by the bake: the evaluator is
+// deterministic, the bake has no chunk files to write for these volumes, and
+// a table that could disagree with its graph is one more thing to go stale.
+static std::string procInstancesHeader(const Project& p) {
+    const auto volumes = bakedInstancedVolumes(p);
+    if (volumes.empty()) return "";
+    const auto keys = collectModelKeys(p);
+    auto modelIndex = [&](const std::string& path) {
+        for (size_t i = 0; i < keys.size(); ++i)
+            if (keys[i].first == path && keys[i].second.empty()) return (int)i;
+        return -1;
+    };
+    std::ostringstream rows, vols;
+    int total = 0;
+    for (const auto& sv : volumes) {
+        const SceneData& sc = p.scenes[(size_t)sv.first];
+        const SceneObject& vol = *sv.second;
+        procgen::Options opt;
+        opt.fraction = 1.0f;
+        opt.contextSerial = procgen::bakeHash(p, sc, vol);
+        const procgen::Result r = procgen::evaluate(p, sc, vol, opt, nullptr);
+        const ProcNode* on = procgraph::outputNode(vol.procGraph);
+        const int first = total;
+        for (const procgen::Instance& inst : r.instances) {
+            if (inst.asset < 0 || inst.asset >= (int)r.assets.size()) continue;
+            const std::string& asset = r.assets[(size_t)inst.asset];
+            const int model = modelIndex(asset);
+            if (model < 0) continue;
+            const ProcRow* row = procgraph::poolRow(vol.procGraph, "PickAsset", asset);
+            const bool lod = row && procRowHasLod(*row);
+            rows << "  {" << floatLit(inst.pos[0]) << ", " << floatLit(inst.pos[1])
+                 << ", " << floatLit(inst.pos[2]) << ", " << floatLit(inst.rot[0])
+                 << ", " << floatLit(inst.rot[1]) << ", " << floatLit(inst.rot[2])
+                 << ", " << floatLit(inst.scale) << ", " << model << ", "
+                 << (lod ? modelIndex(row->lod) : -1) << ", "
+                 << floatLit(lod ? row->v[3] : 0.0f) << "},\n";
+            ++total;
+        }
+        vols << "  {" << sv.first << ", "
+             << floatLit(on ? std::max(8.0f, procgraph::num(*on, "cell")) : 48.0f)
+             << ", " << floatLit(on ? procgraph::num(*on, "draw") : 0.0f) << ", "
+             << (on ? procgraph::inum(*on, "collide") : 0) << ", " << first << ", "
+             << (total - first) << "},  // " << vol.name << "\n";
+    }
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "// The copies of every baked procedural volume that draws as\n"
+           "// Instanced (docs/procedural-generation.md, \"Instanced\").\n"
+           "#pragma once\n\n"
+           "#include \"scene_data.hpp\"\n\nnamespace "
+        << sanitizeNamespace(p.name) << " {\n\n"
+        << "struct ProcInstRow {\n"
+           "  float x, y, z, rx, ry, rz, scale;\n"
+           "  short model, lodModel;  // MODEL table indices, -1 = none\n"
+           "  float lodDist;          // distant version past this, 0 = never\n"
+           "};\n"
+           "struct ProcInstVolumeRow {\n"
+           "  int scene;\n"
+           "  float cell, drawDist;\n"
+           "  int collide;\n"
+           "  int first, count;  // range in PROC_INST_ROWS\n"
+           "};\n"
+        << "inline constexpr int PROC_INST_VOLUME_COUNT = " << volumes.size() << ";\n"
+        << "inline const ProcInstVolumeRow PROC_INST_VOLUMES[] = {\n" << vols.str()
+        << "};\n"
+        << "inline const ProcInstRow PROC_INST_ROWS[" << std::max(1, total) << "] = {\n"
+        << (total ? rows.str() : std::string("  {0, 0, 0, 0, 0, 0, 1, -1, -1, 0},\n"))
+        << "};\n\n}  // namespace\n";
+    return out.str();
+}
 
 static std::string prefabDataHeader(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
@@ -7574,6 +8400,8 @@ static std::string shadowDataHeader(const Project& p) {
         }
         if (anyGround) {
             out << "\n#define GROUND_SHADOWS_ON 1\n";
+            // docs/shadows.md, "Folded into the vertex colour".
+            if (p.settings.bakedShadowGroundFold) out << "#define GROUND_SHADOW_FOLD 1\n";
             std::vector<int> chunksX(sceneCount, 0);
             for (int si = 0; si < sceneCount; ++si) {
                 const SceneData& sc = p.scenes[si];
@@ -7611,6 +8439,18 @@ static std::string shadowDataHeader(const Project& p) {
             for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << chunksX[si];
             out << "};\n#define SCENE_GROUND SCENE_GROUND_TABLES[g_activeScene]\n"
                    "#define SCENE_GROUND_CHUNKS_X SCENE_GROUND_CHUNKS_XS[g_activeScene]\n";
+            // Indexed4 pixels, 16-entry RGBA palette and conservative per-map
+            // ownership/alignment allowance. Reject a whole scene over budget.
+            out << "static const unsigned SCENE_GROUND_PRELOAD_BYTES[] = {";
+            for (int si = 0; si < sceneCount; ++si) {
+                const auto& bake = gb[si];
+                const uint64_t bytes = chunksX[si]
+                    ? uint64_t(bake.ground.size()) *
+                          (uint64_t(bake.groundRes) * bake.groundRes / 2 + 64 + 1024)
+                    : 0;
+                out << (si ? ", " : "") << std::min<uint64_t>(bytes, 512 * 1024 + 1);
+            }
+            out << "};\n";
         }
     }
     return out.str();
@@ -7648,6 +8488,7 @@ static std::string dayNightHeader(const Project& p) {
            "// consumer reads these instead of the baked SCENE_* constants while\n"
            "// active(scene) is true.\n"
            "inline float g_hour = 12.0F;\n"
+           "inline bool g_paused = false;\n"
            "inline float g_sun[3] = {0.0F, 1.0F, 0.0F};\n"
            "inline float g_moon[3] = {0.0F, -1.0F, 0.0F};\n"
            "inline float g_light[3] = {0.0F, 1.0F, 0.0F};\n"
@@ -7876,7 +8717,11 @@ static std::string dayNightHeader(const Project& p) {
            "}\n\n"
            "// Called on every scene load: park the clock at the authored hour so\n"
            "// the first frame of a scene matches what the editor previewed.\n"
+           "// Scripts can park the cycle without changing physics dt.\n"
+           "inline void setHour(float hour) { g_hour = wrap24(hour); }\n"
+           "inline void setPaused(bool paused) { g_paused = paused; }\n"
            "inline void reset(int scene) {\n"
+           "  g_paused = false;\n"
            "  if (!active(scene)) return;\n"
            "  evaluate(scene, DAYCYCLE_STARTS[scene]);\n"
            "}\n\n"
@@ -7885,7 +8730,7 @@ static std::string dayNightHeader(const Project& p) {
            "inline void tick(int scene, float dt) {\n"
            "  if (!active(scene)) return;\n"
            "  const float len = DAYCYCLE_DAYLENS[scene];\n"
-           "  if (len > 0.001F) g_hour = wrap24(g_hour + dt * (24.0F / len));\n"
+           "  if (!g_paused && len > 0.001F) g_hour = wrap24(g_hour + dt * (24.0F / len));\n"
            "  evaluate(scene, g_hour);\n"
            "}\n\n"
            "}  // namespace daynight\n";
@@ -8429,7 +9274,11 @@ static bool staticBatchEligible(const SceneObject& o,
     if (o.usable) return false;       // highlight defers/re-submits the body
     if (o.pickable) return false;     // carried/thrown - moves at runtime
     if (o.saveState) return false;    // a loaded save repositions it
-    if (o.reflected) return false;    // re-submitted into the env map pass
+    // Reflected objects batch among THEMSELVES (the group key carries the
+    // flag) and the environment-map passes submit those batches whole. A
+    // reflection PROXY is a different shape in the map than on screen, so it
+    // stays solo.
+    if (o.reflected && o.reflectionProxy) return false;
     // Dynamic lighting is a per-OBJECT bag on the lit VU1 program, refilled
     // from the probe grid every frame. A batch merges members into one baked
     // bag built by rebuildStaticBatch, which knows nothing about it - the
@@ -9013,6 +9862,43 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
         out << "};\n\n";
     }
 
+    // Static colliders (docs/vehicles.md, "The static collider grid"): 1 =
+    // nothing the build can see moves, hides or streams this object at
+    // runtime (project::objectRuntimeMovable is false), so the vehicle code
+    // places its collision box ONCE into a cell grid instead of re-deriving
+    // it every frame. The game still checks these objects' transform and
+    // shown state each frame and demotes one that changes anyway (a global
+    // script, Live Link), so the flag is a cost hint, never a behaviour.
+    // Baked scroller clones are repositioned every frame: always 0.
+    {
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[si].objects;
+            const size_t total = sceneObjTotal(si);
+            const std::set<std::string> movableRefs =
+                batchBlockedNames(p, p.scenes[si]);
+            out << "extern const unsigned char SCENE_" << si
+                << "_STATIC_COLLIDERS[];\n";
+            objects << "const unsigned char SCENE_" << si
+                    << "_STATIC_COLLIDERS[" << (total == 0 ? (size_t)1 : total)
+                    << "] = {";
+            if (total == 0) {
+                objects << "0";
+            } else {
+                for (size_t i = 0; i < objs.size(); ++i)
+                    objects << (i ? "," : "")
+                            << (project::objectRuntimeMovable(objs[i], movableRefs) ? 0 : 1);
+                for (size_t i = 0; i < sceneClones[si].size(); ++i)
+                    objects << (objs.empty() && i == 0 ? "" : ",") << "0";
+            }
+            objects << "};\n";
+        }
+        out << "inline const unsigned char* SCENE_STATIC_COLLIDER_TABLES"
+               "[SCENE_COUNT] = {";
+        for (int si = 0; si < sceneCount; ++si)
+            out << (si ? ", " : "") << "SCENE_" << si << "_STATIC_COLLIDERS";
+        out << "};\n\n";
+    }
+
     objects << "\n}  // namespace " << ns << "\n";
     objectSource = objects.str();
 
@@ -9188,7 +10074,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
         if (defs.empty()) {
             out << "    {-1, -1, \"\"";
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
-            out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
+            out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0.55F, 0.85F, 1.7F, 0,"
                    " -1, -1, -1, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F},"
                    " {0.0F, 0.0F, 0.0F, 0.0F}, -1, -1, -1, 1.0F, -1, \"\", \"\","
                    " -1, 128.0F, -1, 0, 0.0F, 0.0F, -1, 0.0F}\n";
@@ -11264,6 +12150,21 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
         return n < 0 ? 0 : (n > 128 ? 128 : n);
     };
 
+    // The contact broad phase per scene (docs/collision-boxes.md): emitted only
+    // when a scene overrides it - a project whose scenes all inherit keeps the
+    // header it had, and the game reads the project's SCENE_BROADPHASE. Keyed
+    // on ANY override, not on disagreement: every scene overriding to the same
+    // backend still differs from the project constant.
+    {
+        bool anyOverride = false;
+        for (const SceneData& sc : p.scenes) anyOverride |= sc.overrides.broadPhase;
+        if (anyOverride) {
+            out << "#define SCENE_BROADPHASE_PER_SCENE 1  // 0 grid, 1 octree\n";
+            sceneInts("SCENE_BROADPHASES",
+                      [&](int si) { return rs[si].broadPhase == "octree" ? 1 : 0; });
+        }
+    }
+
     // The terrain SIZE is also the scene's world bounds (every walker is
     // clamped to it), so it is emitted whether or not the scene has a ground.
     sceneFloats("TERRAIN_WIDTHS",
@@ -11297,6 +12198,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
     sceneFloats("SCENE_LIGHT_COL_GS", [&](int si) { return floatLit(rs[si].lightColor[1]); });
     sceneFloats("SCENE_LIGHT_COL_BS", [&](int si) { return floatLit(rs[si].lightColor[2]); });
     sceneFloats("SCENE_BRIGHTNESSES", [&](int si) { return floatLit(rs[si].brightness); });
+    sceneBools("SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS", [&](int si) {
+        return rs[si].dynamicLightReceivers == DynamicLightReceivers::Players;
+    });
+    out << "constexpr bool ANY_PLAYER_ONLY_DYNAMIC_LIGHTS = "
+        << (std::any_of(rs.begin(), rs.end(), [](const ProjectSettings& settings) {
+                return settings.dynamicLightReceivers == DynamicLightReceivers::Players;
+            }) ? "true" : "false") << ";\n";
     // Day/night cycle sky bodies (docs/day-night-cycle.md). The arcs are
     // evaluated HERE, at the authored hour, so the game does no astronomy: it
     // just places two quads on the dome. A scene with no cycle gets a sun
@@ -11619,62 +12527,39 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
         out << "constexpr int BLOB_SHADOWS_USED = " << (anyBlob ? 1 : 0)
             << ";\n";
     }
-    // The neural upscaler (docs/neural-upscaler.md). Mostly project-wide, like
-    // the blob shadows above: the scale, the jitter, the sharpen/temporal
-    // tuning and the debug view are one net's properties and are plain
-    // constants. Two of them - whether the scene rasterises reduced at all, and
-    // whether the MLP reconstructs it - resolve PER SCENE, and get tables like
-    // the POSTFX_* ones below, but ONLY when the project's scenes actually
-    // disagree (project::blssUse().mixed). A project whose scenes all resolve
-    // alike keeps the scalars it had, which is what makes its regeneration
-    // byte-identical.
+    // The reduced-raster upscaler (BLSS). The scale is project-wide, like the
+    // blob shadows above. Whether a scene rasterises reduced at all resolves
+    // PER SCENE and gets a table like the POSTFX_* ones below, but ONLY when
+    // the project's scenes actually disagree (project::blssUse().mixed).
     //
-    // The whole block is emitted only while some scene has it ON, like the rest
-    // of the feature. A project with the upscaler off must generate the header
-    // it generated before BLSS existed, byte for byte - and nothing references
-    // these constants there, because the init block and the frame bracket are
-    // equally absent.
+    // The whole block is emitted only while some scene has it ON. A project
+    // with the upscaler off generates no BLSS_* constant besides
+    // BLSS_ADAPTIVE, because the init block and the frame bracket are equally
+    // absent.
     const project::BlssUse blssU = project::blssUse(p);
     out << "constexpr int BLSS_ADAPTIVE = "
-        << (p.settings.blssAdaptive && blssU.any && !blssU.anyNetwork ? 1 : 0)
+        << (p.settings.blssAdaptive && blssU.any ? 1 : 0)
+        << ";\n";
+    // Particles only (docs/upscaler.md): renderScene() brackets the emitters
+    // instead of the frame loop bracketing the whole scene.
+    out << "constexpr int BLSS_PARTICLES = " << (blssU.particles ? 1 : 0)
         << ";\n";
     if (blssU.any) {
-        // The refusal itself is NOT here any more - it is its own translation
-        // unit (src/gen/blss_interlock.gen.cpp), because this header is included
+        // The refusal itself is NOT here - it is its own translation unit
+        // (src/gen/blss_interlock.gen.cpp), because this header is included
         // by about fourteen of them and the compiler repeated the whole
         // diagnostic in every one. See blssInterlock().
-        const blss::Scale sc =
-            p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2;
-        // BLSS_ENABLED / BLSS_NETWORK are the WIDEST configuration the run will
-        // take, i.e. what init() has to allocate and bake for; in a mixed
-        // project the per-scene tables below narrow it at every scene load. In
-        // a uniform project the two say exactly what they always said.
+        //
+        // BLSS_ENABLED is the WIDEST configuration the run will take, i.e.
+        // what init() has to allocate for; in a mixed project the per-scene
+        // table below narrows it at every scene load.
         out << "constexpr int BLSS_ENABLED = " << (blssU.any ? 1 : 0)
             << ";\n"
-            << "constexpr int BLSS_SCALE_X = " << blss::scaleX(sc) << ";\n"
-            << "constexpr int BLSS_SCALE_Y = " << blss::scaleY(sc) << ";\n"
-            << "constexpr float BLSS_SHARPEN = "
-            << floatLit(p.settings.blssSharpen) << ";\n"
-            << "constexpr int BLSS_TEMPORAL = "
-            << (p.settings.blssTemporal ? 1 : 0) << ";\n"
-            // The +-1/4-pixel per-frame raster jitter. 0 is the kill switch
-            // for the period-2 bob (docs/neural-upscaler.md, "The
-            // oscillation") at the cost of the temporal supersampling.
-            << "constexpr int BLSS_JITTER = "
-            << (p.settings.blssJitter ? 1 : 0) << ";\n"
-            // PLAIN MODE. 0 = the reduced raster and one bilinear pass, with
-            // no proxy feed, no reprojection, no feature grid and no MLP. The
-            // four constants above are still emitted and still say what the
-            // project holds: configure() is what decides which of them plain
-            // mode reads (none of them, and it forces the jitter off), so the
-            // policy lives in one place instead of being restated here.
-            << "constexpr int BLSS_NETWORK = "
-            << (blssU.anyNetwork ? 1 : 0) << ";\n"
-            << "constexpr int BLSS_DEBUG_VIEW = " << p.settings.blssDebugView
-            << ";\n";
-        // PER SCENE (docs/neural-upscaler.md, "Per scene"). Emitted only when
-        // the scenes disagree, because a table of identical values is a table
-        // that changes every existing project's generated header for nothing.
+            << "constexpr int BLSS_SCALE_X = " << (p.settings.blssScale == 1 ? 1 : 2)
+            << ";\n"
+            << "constexpr int BLSS_SCALE_Y = 2;\n";
+        // PER SCENE. Emitted only when the scenes disagree, because a table of
+        // identical values changes every existing project's header for nothing.
         if (blssU.mixed) {
             out << "// This project's scenes do not all resolve the upscaler "
                    "alike, so it is\n"
@@ -11684,18 +12569,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                    "any scene uses).\n"
                    "constexpr int BLSS_NATIVE_SCENES = 1;\n";
             sceneBools("BLSS_ENABLEDS", [&](int si) { return rs[si].blssEnabled; });
-            sceneBools("BLSS_NETWORKS", [&](int si) {
-                return rs[si].blssEnabled && rs[si].blssNetwork;
-            });
-            out << "#define BLSS_SCENE_ON BLSS_ENABLEDS[g_activeScene]\n"
-                   "#define BLSS_SCENE_NET BLSS_NETWORKS[g_activeScene]\n";
+            out << "#define BLSS_SCENE_ON BLSS_ENABLEDS[g_activeScene]\n";
         } else {
-            out << "#define BLSS_SCENE_ON BLSS_ENABLED\n"
-                   "#define BLSS_SCENE_NET BLSS_NETWORK\n";
+            out << "#define BLSS_SCENE_ON BLSS_ENABLED\n";
         }
     } else {
-        out << "#define BLSS_SCENE_ON 0\n"
-               "#define BLSS_SCENE_NET 0\n";
+        out << "#define BLSS_SCENE_ON 0\n";
     }
     // Projected silhouette shadows: any caster anywhere -> the game
     // allocates the engine's shadow-map VRAM at boot (lazy otherwise).
@@ -11950,6 +12829,7 @@ extern bool g_flashOn;
            "}\n";
     out << reflSceneryTable(p);
     out << reflGroundTable(p);
+    out << reflPanoTable(p);
     out << R"(// Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
 // Uses the MEASURED frame time, not the nominal vsync rate: with vsync
 // disabled the loop free-runs way past 50 FPS and a nominal-rate count would
@@ -12041,6 +12921,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+#define PLAYER_ONLY_DYNAMIC_LIGHTS SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[g_activeScene]
 // Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
 // and the moon, their apparent radius as a fraction of the dome radius (0 = the
 // body is down, draw nothing) and the moon disc's roll so its lit limb faces
@@ -12323,25 +13204,21 @@ static bool projectNeedsCamFeed(const Project& p) {
 }
 
 // ---------------------------------------------------------- BLSS upscaler ---
-// The neural upscaler (docs/neural-upscaler.md) is baked at build time, so
-// every piece of it is a pure function of the Project - which is what lets
-// fillTemplate (a pure function too) decide whether the boot log has to admit
-// the network is untrained.
+// The reduced-raster upscaler is baked at build time, so every piece of it is
+// a pure function of the Project.
 //
-// Two of its settings resolve PER SCENE - whether the scene rasterises reduced,
-// and whether the MLP reconstructs it (project::blssUse). So everything below
-// asks blssUse(p) rather than p.settings.blssEnabled, and emits NOTHING while
-// no scene resolves it on. That is the contract for the whole feature: a
-// project with the upscaler off must generate byte-for-byte the sources it
-// generated before BLSS existed - and, since per-scene arrived, a project whose
-// scenes all resolve ALIKE must generate byte-for-byte what the project-wide
+// Whether a scene rasterises reduced resolves PER SCENE (project::blssUse), so
+// everything below asks blssUse(p) rather than p.settings.blssEnabled, and
+// emits NOTHING while no scene resolves it on: a project with the upscaler off
+// generates byte-for-byte the sources it generated before BLSS existed, and a
+// project whose scenes all resolve ALIKE generates what the project-wide
 // setting generated.
 
 // --- The interlock ---------------------------------------------------------
 // BLSS cannot be combined with depth of field, portals or split screen: all
 // three read or write real GS depth at DISPLAY resolution, which since the z
 // buffer started following the raster is not merely unwritten but unallocated
-// (docs/neural-upscaler.md). Until this block existed nothing in codegen knew
+// (docs/upscaler.md). Until this block existed nothing in codegen knew
 // that. Three documents claimed "the generated game does not emit them
 // together" and none of them was ever true; the preferences dialog warned, and
 // a user who went past the warning got an ELF that compiled, booted, and drew
@@ -12390,7 +13267,7 @@ static bool projectNeedsCamFeed(const Project& p) {
 //
 //  - Each line NAMES the pair, the scene and one place to fix it, and points at
 //    the doc page for the why. The long form is not gone - it lives in
-//    docs/neural-upscaler.md and docs/frame-extrapolation.md, and verbatim in
+//    docs/upscaler.md and docs/frame-extrapolation.md, and verbatim in
 //    the dialog (drawBlssClashWarning), which is where a person reads at their
 //    own pace and can click the thing being described.
 //  - It is emitted into a TU OF ITS OWN (src/gen/blss_interlock.gen.cpp), so it
@@ -12440,13 +13317,15 @@ static std::string errorSafe(const std::string& s) {
 // than the game would break is a build that blocks work for nothing.
 static std::vector<std::string> blssClashes(const Project& p) {
     std::vector<std::string> out;
-    if (!project::blssUse(p).any) return out;
+    // Particles only keeps the full raster and the full z buffer for the
+    // opaque scene, so nothing that reads display-resolution depth clashes.
+    if (!project::blssUse(p).any || project::blssUse(p).particles) return out;
     // EVERY clashing feature is reported, but only the first place each one
     // shows up: a project with a portal AND split screen should learn both in
     // one build rather than fix one, rebuild, and be refused again - while
     // eleven scenes with depth of field are eleven copies of one sentence.
     //
-    // PER SCENE (docs/neural-upscaler.md, "Per scene"). Every question below is
+    // PER SCENE (docs/upscaler.md, "Per scene"). Every question below is
     // asked of a scene that RESOLVES the upscaler on, and of no other. That is
     // the whole second half of making this setting per-scene: the interlock was
     // project-wide, so one portal anywhere refused the build for a project
@@ -12489,7 +13368,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
         out.push_back("BLSS x DEPTH OF FIELD in " + sceneName(si) +
                       " (amount " + amountText(rs.dofAmount) +
                       ") - turn one of them off. Why, and where: "
-                      "docs/neural-upscaler.md, Limitations.");
+                      "docs/upscaler.md, Limitations.");
         break;
     }
     // 2. ... and the Set Depth Of Field flow node, which raises it at RUNTIME
@@ -12523,7 +13402,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
                     " turns it on at runtime (amount " +
                     amountText(hit->num[2]) +
                     ") - turn one of them off. Why, and where: "
-                    "docs/neural-upscaler.md, Limitations.");
+                    "docs/upscaler.md, Limitations.");
                 found = true;
                 break;
             }
@@ -12552,7 +13431,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
                           ": the linked portal " + errorSafe(o.name) + " -> " +
                           errorSafe(target->name) +
                           " - turn one of them off. Why, and where: "
-                          "docs/neural-upscaler.md, Limitations.");
+                          "docs/upscaler.md, Limitations.");
             portalFound = true;
             break;
         }
@@ -12574,7 +13453,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
                 "BLSS x SPLIT SCREEN in " + sceneName(si) +
                 " (Multiplayer is set to split screen and the scene has a "
                 "second Player object) - turn one of them off. Why, and where: "
-                "docs/neural-upscaler.md, Limitations.");
+                "docs/upscaler.md, Limitations.");
             break;
         }
     }
@@ -12655,9 +13534,9 @@ static std::string blssInterlock(const Project& p) {
         "// Generated by TyraX. Do not edit - regenerated on every build.\n"
         "// ==========================================================="
         "===============\n"
-        "// BUILD REFUSED - see docs/neural-upscaler.md, Limitations.\n"
+        "// BUILD REFUSED - see docs/upscaler.md, Limitations.\n"
         "//\n"
-        "// The neural upscaler (BLSS) is on in a SCENE that uses a feature it\n"
+        "// The upscaler (BLSS) is on in a SCENE that uses a feature it\n"
         "// cannot be combined with. Both halves would compile and boot; the\n"
         "// picture would be wrong, quietly, which is why this is an error and\n"
         "// not a warning.\n"
@@ -12667,7 +13546,7 @@ static std::string blssInterlock(const Project& p) {
         "// nothing to clean up and nothing to take ownership of. Fix EITHER\n"
         "// side - one click resolves it:\n"
         "//\n"
-        "//   Scene > Scene Preferences > Neural upscaler (BLSS): tick\n"
+        "//   Scene > Scene Preferences > Upscaler (BLSS): tick\n"
         "//     Override the upscaler for this scene and untick Use the\n"
         "//     upscaler. Every OTHER scene keeps it.\n"
         "//   ...or project-wide, Project > Preferences > Display > Frame\n"
@@ -12685,163 +13564,6 @@ static std::string blssInterlock(const Project& p) {
     for (const std::string& c : clashes) s += "#error " + errorSafe(c) + "\n";
     return s;
 }
-
-// WHICH NETWORK THIS BUILD BAKES, and the answer is no longer "the project's or
-// noise".
-//
-// It used to be. A project with BLSS on and no `blss.net` was compiled with the
-// random initialisation the trainer starts from, behind a comment banner in a
-// generated header and a boot-log line - which is the most a build can do when
-// there is genuinely nothing else to bake. But there IS something else now: the
-// editor ships a default network fitted on seven example projects AND the
-// bestiary, and leave-one-PROJECT-out measured that net at +0.29 dB on a project
-// it had never seen against +0.31 dB for that project's own net
-// (docs/neural-upscaler.md, "Can one net ship for every project?"). Random
-// weights are not a neutral fallback - they are a per-tile blend chosen by
-// noise - so "the game will be built with RANDOM weights" was a footgun with a
-// fix sitting next to it.
-//
-// The order is: the project's own net, then the editor's built-in default, then
-// (only if the shipped asset cannot be read by this build at all) the random
-// initialisation. Every step is named in the generated header AND in the boot
-// log, because the one thing worse than the wrong net is not knowing which net
-// you got.
-struct BlssBake {
-    blss::Net net;
-    enum class Source { Random, Default, Project };
-    Source source = Source::Random;
-    blss::Provenance prov;
-    std::vector<std::string> warnings;  // fitted for a different configuration
-    std::vector<std::string> notes;     // why a candidate was passed over
-};
-
-static BlssBake blssBake(const Project& p) {
-    BlssBake b;
-    // What this project will RUN the net in. A net is not wrong because it was
-    // fitted elsewhere; it is wrong when it was fitted for a different raster
-    // scale or a different sampler, and that is a comparison the file could not
-    // support until it grew a provenance sidecar.
-    const blss::NetExpect want{
-        p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2,
-        p.settings.blssJitter ? 1 : 0,
-        // The ENGINE's table, not the host's live `--act-table` setting: this
-        // process never ran a BLSS verb, so that global is 0 here.
-        blss::kEngineActTable};
-    const std::filesystem::path netPath = std::filesystem::path(p.dir) / "blss.net";
-    const std::string path = netPath.string();
-
-    std::string err;
-    if (blss::load(b.net, path, &err)) {
-        const blss::Provenance prov = blss::readProvenance(path);
-        const blss::NetIssues iss = blss::checkProvenance(prov, want);
-        if (iss.fatal.empty()) {
-            b.source = BlssBake::Source::Project;
-            b.prov = prov;
-            b.warnings = iss.warn;
-            return b;
-        }
-        // A net that loads into a differently shaped world is exactly the
-        // "reconstructing garbage" case: refuse it and fall through rather than
-        // bake weights that mean something else.
-        for (const std::string& f : iss.fatal)
-            b.notes.push_back("this project's blss.net was refused - " + f);
-    } else {
-        std::error_code ec;
-        if (std::filesystem::exists(netPath, ec))
-            b.notes.push_back("this project's blss.net was refused - " + err);
-    }
-
-    if (blss::defaultNet(b.net, &err)) {
-        b.source = BlssBake::Source::Default;
-        b.prov = blss::defaultProvenance();
-        const blss::NetIssues iss = blss::checkProvenance(b.prov, want);
-        b.warnings = iss.warn;
-        for (const std::string& f : iss.fatal)
-            b.notes.push_back("the editor's built-in default disagrees with itself - " + f);
-        return b;
-    }
-    b.notes.push_back(err);
-    // The trainer's own starting seed, so an untrained bake is exactly the net
-    // --blss-train begins from rather than a second arbitrary constant.
-    b.net.randomize(blss::TrainConfig{}.seed);
-    return b;
-}
-
-// One sentence naming the network, used by both the generated header's banner
-// and the boot log so the two cannot describe different things.
-static std::string blssNetSummary(const BlssBake& b) {
-    switch (b.source) {
-        case BlssBake::Source::Project:
-            return "this project's own blss.net" +
-                   (b.prov.corpus.empty() ? std::string(" (no provenance recorded)")
-                                          : " (fitted on " + b.prov.corpus + ")");
-        case BlssBake::Source::Default:
-            return "the editor's built-in default network" +
-                   (b.prov.corpus.empty() ? std::string()
-                                          : " (fitted on " + b.prov.corpus + ")");
-        default:
-            return "RANDOM WEIGHTS - no network could be loaded";
-    }
-}
-
-// inc/blss_net.gen.hpp: blss::emitGeneratedSource is THE emitter (it is the
-// twin of the host forward pass, so reimplementing the table here would be a
-// second thing to keep in sync). Only the untrained banner is added.
-static std::string blssNetHeader(const Project& p) {
-    const BlssBake b = blssBake(p);
-    // A comment, so anything user text can reach it has to survive being one -
-    // the corpus and the command come out of a sidecar file somebody may have
-    // edited, and a newline in either would end the comment and start emitting
-    // the file's contents as C++.
-    const auto commentLine = [](const std::string& s) {
-        std::string out = "// ";
-        for (char c : s) out += (c == '\n' || c == '\r') ? ' ' : c;
-        return out + "\n";
-    };
-    std::string s = "// ============================================================"
-                    "==========\n";
-    s += commentLine("Network: " + blssNetSummary(b));
-    if (!b.prov.command.empty()) s += commentLine("  rebuild it with: " + b.prov.command);
-    for (const std::string& n : b.notes) s += commentLine("  " + n);
-    for (const std::string& w : b.warnings) s += commentLine("  WARNING: " + w);
-    if (b.source == BlssBake::Source::Default)
-        s += "//\n"
-             "// This project has no blss.net of its own, so it is built with the\n"
-             "// network the editor ships. Measured leave-one-PROJECT-out, that\n"
-             "// net scores +0.29 dB on a project it has never seen against the\n"
-             "// project's own net's +0.31 - a tie - and fitting your own scene\n"
-             "// still reaches the highest number in distribution:\n"
-             "//\n"
-             "//     tyrax-editor --blss-eval <projectDir>    (is there a ceiling?)\n"
-             "//     tyrax-editor --blss-train <projectDir> --all-shots\n"
-             "//\n"
-             "// then rebuild. See docs/neural-upscaler.md.\n";
-    if (b.source == BlssBake::Source::Random)
-        s += "//\n"
-             "// WARNING: THIS NETWORK IS UNTRAINED. No network could be loaded -\n"
-             "// not the project's, and not the editor's built-in default - so the\n"
-             "// weights below are the random initialisation the trainer STARTS\n"
-             "// from. The upscaler will composite, but its per-tile choices are\n"
-             "// noise. This is a defect in the editor build, not in the project.\n"
-             "//\n"
-             "//     tyrax-editor --blss-train        (writes blss.net)\n"
-             "//     tyrax-editor --blss-eval         (the PSNR table)\n"
-             "//\n"
-             "// then rebuild. See docs/neural-upscaler.md.\n";
-    s += "// ============================================================"
-         "==========\n";
-    s += blss::emitGeneratedSource(b.net);
-    return s;
-}
-
-// The prolog's include line for the baked net.
-//
-// PLAIN MODE INCLUDES NOTHING, and that is the point of doing it here rather
-// than leaving a header nobody reads: the weights are ~2 KB of .rodata and the
-// banner above them describes a network that will not run, so a plain build
-// would ship - and a plain boot log would announce - a net it never loads. The
-// FILE is still generated (blssNetHeader is emitted whenever the upscaler is
-// on), so which files a BLSS project has stays a function of blssEnabled alone.
 
 // --- vehicles (docs/vehicles.md) --------------------------------------------
 //
@@ -12862,6 +13584,154 @@ static bool projectHasVehicles(const Project& p) {
         for (const SceneObject& o : sc.objects)
             if (o.type == PrimitiveType::Vehicle) return true;
     return false;
+}
+
+SoundResidency soundResidency(const Project& p) {
+    SoundResidency r;
+    r.scene.resize(p.scenes.size());
+    r.layer.resize(p.scenes.size());
+    auto slot = [&](const std::string& path) {
+        if (path.empty()) return -1;
+        for (size_t i = 0; i < p.sounds.size(); ++i)
+            if (p.sounds[i] == path) return (int)i;
+        return -1;
+    };
+    // What one object plays by itself: an emitter's sample and a vehicle's
+    // (the definition VEHICLE_DEFS resolves the name to). These follow the
+    // object's layer; its graph's Play Sound nodes stay with the scene, since
+    // a graph runs whether or not its owner's layer is resident.
+    auto ownSounds = [&](const SceneObject& o, std::set<int>& into) {
+        if (o.type == PrimitiveType::SoundEmitter) into.insert(slot(o.soundPath));
+        if (o.type == PrimitiveType::Vehicle && vehicleDefIndex(p, o.vehicleDef) >= 0)
+            for (const VehicleDef& v : p.vehicles) {
+                if (v.name != o.vehicleDef) continue;
+                into.insert(slot(v.engineSound));
+                if (v.engineHighEnabled) into.insert(slot(v.engineHighSound));
+                into.insert(slot(v.screechSound));
+                into.insert(slot(v.shiftSound));
+                break;
+            }
+    };
+    // ...except a sound the author put in a sound bank: it loads with the
+    // bank, which is the reason to put it there (a mission's lines played by
+    // Play Sound must not sit in RAM all scene).
+    std::set<int> banked;
+    for (const Project::SoundBank& b : p.soundBanks)
+        for (const std::string& s : b.sounds) banked.insert(slot(s));
+    auto graphSounds = [&](const SceneObject& o, std::set<int>& into) {
+        for (const FlowNode& n : o.flowGraph.nodes)
+            if (n.type == "PlaySound" && !banked.count(slot(n.str))) into.insert(slot(n.str));
+    };
+    std::set<int> shared;
+    for (const std::string& s : p.soundsAlwaysLoaded) shared.insert(slot(s));
+    // A prefab member can be spawned into any scene, so its sounds cannot
+    // belong to one.
+    for (const Prefab& pf : p.prefabs)
+        for (const SceneObject& o : pf.objects) ownSounds(o, shared), graphSounds(o, shared);
+    std::vector<std::set<int>> base(p.scenes.size());
+    std::vector<std::vector<std::set<int>>> layered(p.scenes.size());
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const SceneData& sc = p.scenes[si];
+        layered[si].resize(sc.layers.size());
+        for (const SceneObject& o : sc.objects) {
+            int li = -1;  // an unknown layer name is always resident
+            for (size_t l = 0; l < sc.layers.size() && !o.layer.empty(); ++l)
+                if (sc.layers[l].name == o.layer) li = (int)l;
+            ownSounds(o, li < 0 ? base[si] : layered[si][li]);
+            graphSounds(o, base[si]);
+        }
+    }
+    // A sound every scene loads with itself would only be freed to be loaded
+    // again. Layer sounds do not count: they come and go inside a scene.
+    if (p.scenes.size() > 1)
+        for (const int s : base[0]) {
+            bool everywhere = true;
+            for (size_t si = 1; si < base.size() && everywhere; ++si)
+                everywhere = base[si].count(s) != 0;
+            if (everywhere) shared.insert(s);
+        }
+    shared.erase(-1);
+    r.shared.assign(shared.begin(), shared.end());
+    auto keep = [&](const std::set<int>& from, const std::set<int>& skip) {
+        std::vector<int> v;
+        for (const int s : from)
+            if (s >= 0 && !shared.count(s) && !skip.count(s)) v.push_back(s);
+        return v;
+    };
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        r.scene[si] = keep(base[si], {});
+        for (const auto& l : layered[si]) r.layer[si].push_back(keep(l, base[si]));
+    }
+    for (const Project::SoundBank& b : p.soundBanks) {
+        std::set<int> in;
+        for (const std::string& s : b.sounds) in.insert(slot(s));
+        r.bank.push_back(keep(in, {}));
+    }
+    return r;
+}
+
+std::vector<int> soundWorstCase(const Project& p, const SoundResidency& r, int si,
+                                const std::vector<uintmax_t>& bytes) {
+    std::set<int> out;
+    if (si < 0 || si >= (int)p.scenes.size()) return {};
+    const SceneData& sc = p.scenes[si];
+    auto add = [&](std::set<int>& to, const auto& v) { to.insert(v.begin(), v.end()); };
+    auto weight = [&](const std::set<int>& v) {
+        uintmax_t b = 0;
+        for (const int s : v) if (s >= 0 && s < (int)bytes.size()) b += bytes[s];
+        return b;
+    };
+    add(out, r.scene[si]);
+    // Layers and banks the scene's graphs name.
+    std::set<std::string> scripted, banks;
+    for (const SceneObject& o : sc.objects)
+        for (const FlowNode& n : o.flowGraph.nodes) {
+            if (n.type == "SetLayerLoaded") scripted.insert(n.str);
+            if (n.type == "SetSoundBankLoaded") banks.insert(n.str);
+        }
+    for (size_t b = 0; b < p.soundBanks.size() && b < r.bank.size(); ++b)
+        if (banks.count(p.soundBanks[b].name)) add(out, r.bank[b]);
+    // A zone: where it is and how far out it stays loaded (the runtime's
+    // unload band, docs/streaming-layers.md).
+    struct Zone { int layer; float x, z, r; };
+    std::vector<Zone> zones;
+    for (size_t l = 0; l < sc.layers.size() && l < r.layer[si].size(); ++l) {
+        const SceneLayer& L = sc.layers[l];
+        const SceneObject* area = nullptr;
+        for (const SceneObject& o : sc.objects)
+            if (!L.streamArea.empty() && o.type == PrimitiveType::Area && o.name == L.streamArea)
+                area = &o;
+        const bool zoned = L.autoStream && (area || L.streamRadius > 0.0f);
+        if (!zoned || scripted.count(L.name)) {
+            // By hand, or overridden by a script: it may be in at any time.
+            if (L.startLoaded || scripted.count(L.name) || L.autoStream) add(out, r.layer[si][l]);
+            continue;
+        }
+        if (area)
+            zones.push_back({(int)l, area->position[0], area->position[2],
+                             0.5f * std::sqrt(area->scale[0] * area->scale[0] +
+                                              area->scale[2] * area->scale[2]) * 1.15f + 1.0f});
+        else
+            zones.push_back({(int)l, L.streamX, L.streamZ, L.streamRadius * 1.15f + 8.0f});
+    }
+    // Each zone with every zone it overlaps - a superset of what one player
+    // can have loaded standing in it.
+    std::vector<std::set<int>> groups;
+    for (const Zone& a : zones) {
+        std::set<int> g;
+        for (const Zone& b : zones) {
+            const float dx = a.x - b.x, dz = a.z - b.z;
+            if (std::sqrt(dx * dx + dz * dz) < a.r + b.r) add(g, r.layer[si][b.layer]);
+        }
+        for (const int s : out) g.erase(s);
+        groups.push_back(std::move(g));
+    }
+    std::sort(groups.begin(), groups.end(),
+              [&](const std::set<int>& a, const std::set<int>& b) { return weight(a) > weight(b); });
+    int players = 0;
+    for (const SceneObject& o : sc.objects) players += o.type == PrimitiveType::Player;
+    for (size_t g = 0; g < groups.size() && g < (players > 1 ? 2u : 1u); ++g) add(out, groups[g]);
+    return std::vector<int>(out.begin(), out.end());
 }
 
 // Sparse per-object blob metadata. Keeping an asset path out of the fixed
@@ -13141,12 +14011,62 @@ static std::string vehicleMembers(const Project& p) {
     int kind = 0;
     float wx = 0.0F, wz = 0.0F, top = 0.0F, bottom = 0.0F;
     float hx = 0.0F, hz = 0.0F, cy = 1.0F, sy = 0.0F, rs = 0.0F;
+    // kind 0: the box's world-AABB half extents (its full rotation), so the
+    // chase camera's sweep can reject it without touching the object.
+    float we[3] = {0.0F, 0.0F, 0.0F};
   };
   std::vector<VehColEntry> vehColliders_;
+  // Built this frame and not yet used by the camera (sweepVehicleCamera).
+  bool vehColFresh_ = false;
   std::vector<unsigned char> vehColIsVeh_;
   unsigned int vehColGen_ = ~0u;
+  // The static collider grid (docs/vehicles.md, "The static collider
+  // grid"; TYRA_VEH_COLLIDER_GRID). Objects the build flagged static
+  // (SCENE_STATIC_COLLIDER_TABLES) are placed once into vehColStatic_ and a
+  // cell grid over it; only the rest are re-derived every frame. The
+  // vehColliders_ list every consumer reads is unchanged - same entries, same
+  // object order - it is merged from the two halves and patched in place.
+  struct VehColGrid {
+    float ox = 0.0F, oz = 0.0F, inv = 0.125F;
+    int nx = 0, nz = 0;
+    std::vector<int> start, items;  // CSR: static entry ordinals per cell
+  };
+  struct VehColStaticObj {
+    int oi = -1;
+    unsigned char shown = 0, dirtyFrames = 0;
+  };
+  std::vector<VehColStaticObj> vehColStaticObj_;
+  std::vector<int> vehColDynObj_;           // every other object, ascending
+  std::vector<VehColEntry> vehColStatic_;   // placed static entries
+  std::vector<int> vehColStaticPos_;        // their slot in vehColliders_
+  std::vector<VehColEntry> vehColDynE_;     // this frame's dynamic entries
+  std::vector<int> vehColDynPos_;           // their slot in vehColliders_
+  std::vector<int> vehColDynPrev_;          // last merge's dynamic object list
+  std::vector<unsigned int> vehColSeen_;
+  std::vector<int> vehColCand_;
+  unsigned int vehColQuery_ = 0;
+  unsigned int vehColSetGen_ = ~0u;
+  bool vehColStaticStale_ = true, vehColMergeStale_ = true, vehColGridOn_ = false;
+  VehColGrid vehColGrid_;
+  void vehColCandidates(float x, float z, float r);
   void buildVehicleColliders();
+  // The wheels' and the debris' shared info bag: batchInfoBag's settings,
+  // but a MOVING receiver - it keeps picking the baked static lamps live
+  // (batchInfoBag skips them, its static geometry carries them).
+  std::unique_ptr<Tyra::StaPipInfoBag> vehMovingInfoBag_;
+  Tyra::StaPipInfoBag* vehMovingInfo() {
+    if (!vehMovingInfoBag_) {
+      vehMovingInfoBag_ = std::make_unique<Tyra::StaPipInfoBag>();
+      vehMovingInfoBag_->model = &model;
+      vehMovingInfoBag_->shadingType = Tyra::TyraShadingGouraud;
+      vehMovingInfoBag_->frustumCulling = Tyra::PipelineInfoBagFrustumCulling_Precise;
+      vehMovingInfoBag_->fullClipChecks = true;
+    }
+    return vehMovingInfoBag_.get();
+  }
   void collideVehicleCamera();
+  float sweepVehicleCamera(float px, float py, float pz, float dx, float dy,
+                           float dz, float maxDist, int skipIndex) const;
   float vehCamWanted_ = 0.0F, vehCamAllowed_ = 0.0F;
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
   // Speed feel (docs/vehicles.md, "Speed feel"): the driven car's eased
@@ -13175,6 +14095,10 @@ static std::string vehicleMembers(const Project& p) {
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
   int vehCamMode_ = 0;
+  // The bumper cam's look pitch (the forward vector's Y), eased toward the
+  // body's: the eye is bolted to the sprung body, the aim follows it a beat
+  // late so a washboard road does not shake the horizon.
+  float vehBumpLookY_ = 0.0F;
   // What one car's four wheels were last BAKED from. The batch is rebuilt
   // slot by slot instead of cleared and refilled, so a rig whose inputs did
   // not move keeps the vertices it already has - and if no slot moves, the
@@ -13216,11 +14140,48 @@ static std::string vehicleMembers(const Project& p) {
     // Largest source-vertex distance from the baked hub. Scanned once after
     // load and invalidated with the scene/model lifetime below.
     float localRadius = -1.0F;
+    // The batch's OWN bag. A bag pointer shared by every batch made StaPip's
+    // per-bag stamp (docs/stapip-stamps.md) overwrite itself once per batch, so
+    // three resting batches paid the full frontend every frame instead of a
+    // replay (440 -> 231 us per frame on a PS2, night district).
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
   };
   std::vector<WheelBatch> wheelBatches_;
-  std::unique_ptr<Tyra::StaPipBag> wheelBag_;
-  std::unique_ptr<Tyra::StaPipColorBag> wheelColorBag_;
-  std::unique_ptr<Tyra::StaPipTextureBag> wheelTexBag_;
+  // MOVING WHEELS RIDE A MATRIX (docs/vehicles.md). A car whose rig moved keeps
+  // its wheels out of the batch: each wheel is the model's immutable LOCAL
+  // array plus one matrix, transformed by VU1, so the EE neither re-bakes
+  // ~750 vertices per wheel nor packs them into a fresh VIF stream.
+  struct WheelGeo {
+    const void* src = nullptr;  // the source array (part verts or strip)
+    u32 nv = 0;                 // padded block length (see the strip rule)
+    // ONE bboxVersion for the array, shared by every wheel drawing it: the
+    // baked stream is keyed by (vertices, version), so per-wheel versions over
+    // one array would evict each other every draw.
+    u32 stamp = 0;
+    std::vector<Tyra::Vec4> v, st;
+    std::vector<Tyra::Color> c;
+  };
+  struct WheelLive {
+    Tyra::StaPipBag bag;
+    Tyra::StaPipInfoBag info;
+    Tyra::StaPipColorBag color;
+    Tyra::StaPipTextureBag tex;
+    Tyra::M4x4 mat;
+  };
+  struct WheelRig {
+    float sig[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+    float wy[4] = {0, 0, 0, 0};
+    const void* geo = nullptr;
+    int hold = 0;  // frames left on the matrix path after the rig last moved
+    int valid = 0;
+    WheelLive wheel[4];
+  };
+  // unique_ptr so growth never moves an array or bag a queued draw references.
+  std::vector<std::unique_ptr<WheelGeo>> wheelGeos_;
+  std::vector<std::unique_ptr<WheelRig>> wheelRigs_;
+  WheelGeo& wheelGeoFor(const std::vector<float>& geo, u32 real, u32 nv);
   void setupVehicles(int scene);
   void updateVehicles(float dt);
   // Fixed 1/50 s sub-steps around updateVehicles (1.135.6): a 25 fps frame
@@ -13358,7 +14319,7 @@ static std::string vehicleMembers(const Project& p) {
   // that key moves (TYRA_VEH_LIGHTS_KEEP) - a parked car with its lights on
   // used to pay both every frame.
   struct HeadlightPoolCache {
-    float key[5] = {0, 0, 0, 0, 0};
+    float key[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};  // + wheel heights (plane pool)
     bool valid = false;
     Tyra::Vec4 p[kVehHeadlightCells * 6];
     Tyra::Vec4 st[kVehHeadlightCells * 6];
@@ -13611,7 +14572,7 @@ void TerrainGame::renderVehicleSmoke() {
           fx.smokeFrameTex[(int)(fx.smokeClock * fx.smokeFps) % fx.smokeFrames];
     fx.smokeBag->count = (u32)kVehSmokeMax;
     fx.smokeBag->bboxVersion = ++g_bboxStamp;  // centres move every frame
-    stapip.core.render(fx.smokeBag.get());
+    renderWorldBag(fx.smokeBag.get());
   }
 }
 
@@ -13776,7 +14737,7 @@ void TerrainGame::renderVehicleSkids() {
       fx.skidDirty = 0;
       fx.skidBag->bboxVersion = ++g_bboxStamp;
     }
-    stapip.core.render(fx.skidBag.get());
+    renderWorldBag(fx.skidBag.get());
   }
 }
 
@@ -13861,7 +14822,12 @@ void TerrainGame::renderVehicleGlow() {
         if ((int)headlightCache_.size() < vehicleCount_)
           headlightCache_.resize((size_t)vehicleCount_);
         HeadlightPoolCache& hc = headlightCache_[(size_t)vi];
-        const float hk[5] = {v.pos[0], v.pos[2], v.yaw, SC, (float)v.def};
+        // The plane pool (TYRA_VEH_POOL_PLANE) also follows the wheel
+        // heights: the plane they span is its ground.
+        const bool pk = TYRA_VEH_POOL_PLANE != 0;
+        const float hk[9] = {v.pos[0], v.pos[2], v.yaw, SC, (float)v.def,
+                             pk ? v.wheelY[0] : 0.0F, pk ? v.wheelY[1] : 0.0F,
+                             pk ? v.wheelY[2] : 0.0F, pk ? v.wheelY[3] : 0.0F};
         rebuild = !hc.valid || memcmp(hk, hc.key, sizeof(hk)) != 0;
         if (rebuild) {
           memcpy(hc.key, hk, sizeof(hk));
@@ -13891,6 +14857,19 @@ void TerrainGame::renderVehicleGlow() {
       // exact baked road/junction surface inside the beam as well.
       constexpr int kCells = 3;
       const float e = 0.065F;
+      // THE PLANE POOL (TYRA_VEH_POOL_PLANE, docs/vehicles.md "Headlight
+      // pools"): the ground under the beam is the plane the car's four wheel
+      // contacts already measured this step (v.wheelY: FL, FR, RL, RR), so
+      // the 16 lattice heights are a multiply-add each instead of 16
+      // groundSurfaceAt road/junction searches - the pool rebuilds every
+      // frame for every car that moves. A wheel off every surface (the raw
+      // sentinel) falls back to the searched surface.
+      const float hxW = 0.5F * s.track * SC;
+      bool planeOk = TYRA_VEH_POOL_PLANE != 0 && hz > 1e-3F && hxW > 1e-3F;
+      for (int w = 0; w < 4 && planeOk; ++w) planeOk = v.wheelY[w] > -1e5F;
+      const float pyc = 0.25F * (v.wheelY[0] + v.wheelY[1] + v.wheelY[2] + v.wheelY[3]);
+      const float pgF = ((v.wheelY[0] + v.wheelY[1]) - (v.wheelY[2] + v.wheelY[3])) / (4.0F * hz);
+      const float pgS = ((v.wheelY[1] + v.wheelY[3]) - (v.wheelY[0] + v.wheelY[2])) / (4.0F * hxW);
       auto point = [&](float t, float side) {
         const float bx = nx + (fx2 - nx) * t;
         const float bz = nz + (fz2 - nz) * t;
@@ -13898,6 +14877,11 @@ void TerrainGame::renderVehicleGlow() {
         const float rz = rzn + (rzf - rzn) * t;
         const float x = bx + rx * side;
         const float z = bz + rz * side;
+        if (planeOk) {
+          const float dx = x - v.pos[0], dz = z - v.pos[2];
+          const float f = dx * sy + dz * cy, sd = dx * cy - dz * sy;
+          return Vec4(x, pyc + pgF * f + pgS * sd + e, z, 1.0F);
+        }
         return Vec4(x, groundSurfaceAt(x, z, v.pos[1] + 1.5F) + e, z, 1.0F);
       };
       auto beamColor = [&](float t) {
@@ -13922,6 +14906,9 @@ void TerrainGame::renderVehicleGlow() {
           gridCol[iz][ix] = beamColor(t);
         }
       }
+      // The plane pool follows the car's own plane; the searched one has to
+      // clear the road's edge step (liftLatticeOverRoadStep).
+      if (!planeOk) liftLatticeOverRoadStep(&gridP[0][0], kCells + 1, kCells + 1);
       constexpr int tri[6] = {0, 1, 2, 0, 2, 3};
       for (int iz = 0; iz < kCells; ++iz) {
         for (int ix = 0; ix < kCells; ++ix) {
@@ -14048,7 +15035,7 @@ void TerrainGame::renderVehicleGlow() {
         headlightCount_ != headlightCountPrev_)
       headlightBag_->bboxVersion = ++g_bboxStamp;
     headlightCountPrev_ = headlightCount_;
-    stapip.core.render(headlightBag_.get());
+    renderWorldBag(headlightBag_.get());
   } else {
     headlightCountPrev_ = 0;
   }
@@ -14075,7 +15062,7 @@ void TerrainGame::renderVehicleGlow() {
   }
   glowBag_->count = (u32)(glowCount_ * 6);
   glowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
-  stapip.core.render(glowBag_.get());
+  renderWorldBag(glowBag_.get());
 }
 
 // The gearbox, the per-frame twin of vehiclesim::gearCount/gearTopSpeed/
@@ -14755,7 +15742,7 @@ void TerrainGame::renderVehicleDebris() {
       b.bag->color = b.colorBag.get();
       b.bag->lighting = nullptr;
     }
-    b.bag->info = batchInfoBag.get();
+    b.bag->info = vehMovingInfo();  // moving: keeps the baked lamps live
     b.cols.bind(b.colorBag);
     b.verts.bind(b.bag);
     b.bag->count = static_cast<u32>(b.verts.size());
@@ -14770,7 +15757,7 @@ void TerrainGame::renderVehicleDebris() {
     } else {
       b.bag->texture = nullptr;
     }
-    stapip.core.render(b.bag.get());
+    renderWorldBag(b.bag.get());
   }
 }
 
@@ -15120,7 +16107,7 @@ void TerrainGame::renderVehicleLampGlow() {
   if (!TYRA_VEH_LIGHTS_KEEP || lampGlowWrote || quads != lampGlowQuadsPrev_)
     lampGlowBag_->bboxVersion = ++g_bboxStamp;
   lampGlowQuadsPrev_ = quads;
-  stapip.core.render(lampGlowBag_.get());
+  renderWorldBag(lampGlowBag_.get());
 }
 
 void TerrainGame::updateVehicleDamage(float dt) {
@@ -15359,6 +16346,8 @@ void TerrainGame::setupVehicles(int scene) {
   // Source parts are resident only for this scene. Drop every pointer-derived
   // run/radius now, before loadModelAsset can replace or free its vectors.
   wheelBatches_.clear();
+  wheelGeos_.clear();
+  wheelRigs_.clear();
   // Damage never survives a scene change: the undamaged poses belong to the
   // geometry the unload just freed.
   vehDamageGeo_.clear();
@@ -15467,10 +16456,10 @@ void TerrainGame::buildVehicleColliders() {
     CollisionBox cb;
     V3 cW = {0.0F, 0.0F, 0.0F};
     float cy = 1.0F, sy = 0.0F;
+    float we[3] = {0.0F, 0.0F, 0.0F};  // world-AABB half extents (full rotation)
     bool valid = false;
   };
   static std::vector<VehColCache> vehColCache_;
-  vehColliders_.clear();
   if (vehColIsVeh_.size() != runtimeObjects.size() || vehColGen_ != sceneGeneration) {
     vehColIsVeh_.assign(runtimeObjects.size(), 0);
     vehColCache_.assign(runtimeObjects.size(), VehColCache{});
@@ -15484,19 +16473,20 @@ void TerrainGame::buildVehicleColliders() {
     if (vehicles_[vk].active && vehicles_[vk].object >= 0 &&
         vehicles_[vk].object < (int)vehColIsVeh_.size())
       vehColIsVeh_[(size_t)vehicles_[vk].object] = 1;
-  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
-    if (vehColIsVeh_[(size_t)oi]) continue;
+  // One object's entry, or false when a car cannot touch it. The same code
+  // fills the static half once and the dynamic half every frame, so an entry
+  // is bit-identical whichever half placed it.
+  auto entryOf = [&](int oi, VehColEntry& e) -> bool {
     const RuntimeObject& o = runtimeObjects[oi];
-    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
-    VehColEntry e;
+    if (!o.active || !o.visible || !objectCollides(o.data)) return false;
+    e = VehColEntry{};
     e.oi = oi;
     if (o.data.physics && physObstacle(o.data)) {
       e.kind = 2;
       e.wx = o.data.position[0];
       e.wz = o.data.position[2];
       e.rs = 0.5F * (o.data.scale[0] + o.data.scale[2]);
-      vehColliders_.push_back(e);
-      continue;
+      return true;
     }
     const GameModel* gm = nullptr;
     if (o.data.type == 5 && o.data.model >= 0 &&
@@ -15509,8 +16499,7 @@ void TerrainGame::buildVehicleColliders() {
       e.wx = o.data.position[0];
       e.wz = o.data.position[2];
       e.rs = 0.5F * (o.data.scale[0] + o.data.scale[2]);
-      vehColliders_.push_back(e);
-      continue;
+      return true;
     }
     VehColCache& vc = vehColCache_[(size_t)oi];
     const float vkey[11] = {o.data.rotation[0], o.data.rotation[1], o.data.rotation[2],
@@ -15525,6 +16514,12 @@ void TerrainGame::buildVehicleColliders() {
       const float yr = (o.data.rotation[1] + vc.cb.yaw) * PI / 180.0F;
       vc.cy = cosf(yr);
       vc.sy = sinf(yr);
+      const V3 hxv = boxRotate({vc.cb.half[0], 0.0F, 0.0F}, o.data);
+      const V3 hyv = boxRotate({0.0F, vc.cb.half[1], 0.0F}, o.data);
+      const V3 hzv = boxRotate({0.0F, 0.0F, vc.cb.half[2]}, o.data);
+      vc.we[0] = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
+      vc.we[1] = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
+      vc.we[2] = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
       for (int k = 0; k < 11; ++k) vc.key[k] = vkey[k];
       vc.valid = true;
     }
@@ -15537,7 +16532,269 @@ void TerrainGame::buildVehicleColliders() {
     e.hz = vc.cb.half[2];
     e.cy = vc.cy;
     e.sy = vc.sy;
-    vehColliders_.push_back(e);
+    for (int k = 0; k < 3; ++k) e.we[k] = vc.we[k];
+    return true;
+  };
+  vehColFresh_ = true;
+  if (!TYRA_VEH_COLLIDER_GRID) {
+    // The full walk, every frame (what the runtime did before the grid).
+    vehColGridOn_ = false;
+    vehColSetGen_ = ~0u;  // re-seed the static set if the grid comes back
+    g_colStaticObj.clear();
+    vehColliders_.clear();
+    for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+      if (vehColIsVeh_[(size_t)oi]) continue;
+      VehColEntry e;
+      if (entryOf(oi, e)) vehColliders_.push_back(e);
+    }
+    return;
+  }
+  vehColGridOn_ = true;
+  // (Re)seed on a scene (re)load: which objects the build called static.
+  // A vehicle's own object is never static - inactive cars are walls, active
+  // ones are not, and that flips at runtime.
+  if (vehColSetGen_ != sceneGeneration) {
+    vehColSetGen_ = sceneGeneration;
+    vehColStaticObj_.clear();
+    vehColDynObj_.clear();
+    g_colStaticObj.assign(runtimeObjects.size(), 0);
+    const unsigned char* table = SCENE_STATIC_COLLIDER_TABLES[g_activeScene];
+    const int authored = SCENE_OBJECT_COUNT;
+    for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+      bool isStatic = oi < authored && table[oi] != 0;
+      for (int vk = 0; vk < vehicleCount_ && isStatic; ++vk)
+        if (vehicles_[vk].object == oi) isStatic = false;
+      if (isStatic) {
+        VehColStaticObj so;
+        so.oi = oi;
+        vehColStaticObj_.push_back(so);
+        g_colStaticObj[(size_t)oi] = 1;
+      } else {
+        vehColDynObj_.push_back(oi);
+      }
+    }
+    vehColStaticStale_ = true;
+  }
+  // The static half's guard: ONE cache line per static object - the flags at
+  // the tail of RuntimeObject, never the transform (reading that too cost a
+  // second and third miss per object, 0.13 ms a frame on a PS2). A transform
+  // only ever reaches the screen through a rebuild (dirty) or the matrix path
+  // (onMatrixPath / a spin), and both are seen here: a dirty flag re-places the
+  // static half this frame, and a rebuild that consumed one later in a frame
+  // (rebuildObjectGeometry raises g_colStaticRebuilt) re-places it the next -
+  // exactly when the full walk would first have seen the moved box. The
+  // matrix path or a spin demotes the object to the dynamic half for good; a
+  // shown flip only re-places. A global script that writes a static object's
+  // position without dirty is not followed - the renderer does not follow it
+  // either (docs/vehicles.md, "The static collider grid").
+  if (g_colStaticRebuilt) {
+    g_colStaticRebuilt = false;
+    vehColStaticStale_ = true;
+  }
+  for (size_t k = 0; k < vehColStaticObj_.size(); ++k) {
+    VehColStaticObj& so = vehColStaticObj_[k];
+    const RuntimeObject& o = runtimeObjects[(size_t)so.oi];
+    bool moved = o.onMatrixPath || o.wantsMatrixPath || o.spinRate[0] != 0.0F ||
+                 o.spinRate[1] != 0.0F || o.spinRate[2] != 0.0F;
+    // A dirty flag that outlives a few frames is something re-dirtying the
+    // object every frame: cheaper on the dynamic side than re-placing.
+    if (o.dirty) {
+      vehColStaticStale_ = true;
+      if (++so.dirtyFrames > 8) moved = true;
+    } else {
+      so.dirtyFrames = 0;
+    }
+    if (moved) {
+      vehColDynObj_.insert(std::lower_bound(vehColDynObj_.begin(), vehColDynObj_.end(), so.oi),
+                           so.oi);
+      if ((size_t)so.oi < g_colStaticObj.size()) g_colStaticObj[(size_t)so.oi] = 0;
+      vehColStaticObj_.erase(vehColStaticObj_.begin() + (long)k);
+      --k;
+      vehColStaticStale_ = true;
+      continue;
+    }
+    if (so.shown != (unsigned char)((o.active && o.visible) ? 1 : 0))
+      vehColStaticStale_ = true;
+  }
+  if (vehColStaticStale_) {
+    vehColStaticStale_ = false;
+    vehColMergeStale_ = true;
+    vehColStatic_.clear();
+    for (VehColStaticObj& so : vehColStaticObj_) {
+      const RuntimeObject& o = runtimeObjects[(size_t)so.oi];
+      so.shown = (unsigned char)((o.active && o.visible) ? 1 : 0);
+      VehColEntry e;
+      if (entryOf(so.oi, e)) vehColStatic_.push_back(e);
+    }
+    // The grid: every static entry is listed in each cell its widest gather
+    // reach can touch - a box's footprint plus the wall inflation, a mesh's
+    // radius plus its 2-unit pad (the spans considerCol and the sub-step
+    // recorder test against), plus a small float guard.
+    VehColGrid& g = vehColGrid_;
+    g.nx = g.nz = 0;
+    g.start.clear();
+    g.items.clear();
+    if (!vehColStatic_.empty()) {
+      auto span = [](const VehColEntry& e) {
+        return (e.kind == 0 ? e.hx + e.hz + 0.7F : e.rs + 2.0F) + 0.05F;
+      };
+      float mn[2] = {1e30F, 1e30F}, mx[2] = {-1e30F, -1e30F};
+      for (const VehColEntry& e : vehColStatic_) {
+        const float s = span(e);
+        mn[0] = fminf(mn[0], e.wx - s);
+        mx[0] = fmaxf(mx[0], e.wx + s);
+        mn[1] = fminf(mn[1], e.wz - s);
+        mx[1] = fmaxf(mx[1], e.wz + s);
+      }
+      float cell = 8.0F;
+      const float ext = fmaxf(mx[0] - mn[0], mx[1] - mn[1]);
+      if (ext / cell > 64.0F) cell = ext / 64.0F;
+      g.ox = mn[0];
+      g.oz = mn[1];
+      g.inv = 1.0F / cell;
+      g.nx = (int)((mx[0] - mn[0]) * g.inv) + 1;
+      g.nz = (int)((mx[1] - mn[1]) * g.inv) + 1;
+      g.start.assign((size_t)(g.nx * g.nz + 1), 0);
+      auto range = [&](float c, float s, float o, int n, int& lo, int& hi) {
+        lo = (int)floorf((c - s - o) * g.inv);
+        hi = (int)floorf((c + s - o) * g.inv);
+        if (lo < 0) lo = 0;
+        if (hi > n - 1) hi = n - 1;
+      };
+      for (int pass = 0; pass < 2; ++pass) {
+        if (pass == 1) {
+          for (size_t c = 1; c < g.start.size(); ++c) g.start[c] += g.start[c - 1];
+          g.items.assign((size_t)g.start.back(), 0);
+        }
+        std::vector<int> fill;
+        if (pass == 1) fill.assign(g.start.begin(), g.start.end() - 1);
+        for (size_t si = 0; si < vehColStatic_.size(); ++si) {
+          const VehColEntry& e = vehColStatic_[si];
+          const float s = span(e);
+          int x0, x1, z0, z1;
+          range(e.wx, s, g.ox, g.nx, x0, x1);
+          range(e.wz, s, g.oz, g.nz, z0, z1);
+          for (int cz = z0; cz <= z1; ++cz)
+            for (int cx = x0; cx <= x1; ++cx) {
+              const int c = cz * g.nx + cx;
+              if (pass == 0) ++g.start[(size_t)c + 1];
+              else g.items[(size_t)fill[(size_t)c]++] = (int)si;
+            }
+        }
+      }
+    }
+    vehColSeen_.assign(vehColStatic_.size(), 0);
+    vehColQuery_ = 0;
+  }
+  // The dynamic half: the full per-object derivation, but only for objects
+  // the build could not call static (vehicles, bodies, scripted props, the
+  // spawn pool) - a short list instead of every object in the scene.
+  vehColDynE_.clear();
+  for (const int oi : vehColDynObj_) {
+    if (vehColIsVeh_[(size_t)oi]) continue;
+    VehColEntry e;
+    if (entryOf(oi, e)) vehColDynE_.push_back(e);
+  }
+  // Merge into vehColliders_ in object order. While the same dynamic objects
+  // are listed as last frame, their slots are known and only their values
+  // are written; anything else re-merges the whole list.
+  bool sameDyn = !vehColMergeStale_ && vehColDynE_.size() == vehColDynPrev_.size();
+  for (size_t j = 0; j < vehColDynE_.size() && sameDyn; ++j)
+    sameDyn = vehColDynE_[j].oi == vehColDynPrev_[j];
+  if (sameDyn) {
+    for (size_t j = 0; j < vehColDynE_.size(); ++j)
+      vehColliders_[(size_t)vehColDynPos_[j]] = vehColDynE_[j];
+  } else {
+    vehColMergeStale_ = false;
+    vehColliders_.clear();
+    vehColStaticPos_.assign(vehColStatic_.size(), 0);
+    vehColDynPos_.assign(vehColDynE_.size(), 0);
+    vehColDynPrev_.assign(vehColDynE_.size(), 0);
+    size_t a = 0, b = 0;
+    while (a < vehColStatic_.size() || b < vehColDynE_.size()) {
+      const bool takeStatic =
+          b >= vehColDynE_.size() ||
+          (a < vehColStatic_.size() && vehColStatic_[a].oi < vehColDynE_[b].oi);
+      if (takeStatic) {
+        vehColStaticPos_[a] = (int)vehColliders_.size();
+        vehColliders_.push_back(vehColStatic_[a++]);
+      } else {
+        vehColDynPos_[b] = (int)vehColliders_.size();
+        vehColDynPrev_[b] = vehColDynE_[b].oi;
+        vehColliders_.push_back(vehColDynE_[b++]);
+      }
+    }
+  }
+#if TYRA_VEH_COLLIDER_GRID_VERIFY
+  // THE ORACLE: the full walk again, compared with the merged list to the
+  // byte. Off in anything measured or shipped.
+  {
+    static std::vector<VehColEntry> full;
+    full.clear();
+    for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+      if (vehColIsVeh_[(size_t)oi]) continue;
+      VehColEntry e;
+      if (entryOf(oi, e)) full.push_back(e);
+    }
+    static u32 lChecked = 0, lBad = 0, lFrames = 0;
+    ++lChecked;
+    if (full.size() != vehColliders_.size() ||
+        (!full.empty() &&
+         memcmp(full.data(), vehColliders_.data(), sizeof(VehColEntry) * full.size()) != 0))
+      ++lBad;
+    if (++lFrames >= 300) {
+      // printf, not TYRA_LOG: the oracle must also report from a release ELF.
+      printf("VEHCOLGRID list checked %u MISMATCH %u entries %d static %d dynamic %d cells %dx%d\n",
+             (unsigned)lChecked, (unsigned)lBad, (int)vehColliders_.size(),
+             (int)vehColStatic_.size(), (int)vehColDynE_.size(), vehColGrid_.nx,
+             vehColGrid_.nz);
+      lChecked = lBad = lFrames = 0;
+    }
+  }
+#endif
+}
+
+// A gather's candidates (TYRA_VEH_COLLIDER_GRID): into vehColCand_, the
+// vehColliders_ slots, ascending, that a test of reach `r` around (x, z) can
+// accept - every dynamic entry, plus each static entry listed in a grid cell
+// the query box touches. A superset of what the full walk accepts, in the
+// full walk's order, so walking it gives the full walk's lists and caps.
+void TerrainGame::vehColCandidates(float x, float z, float r) {
+  vehColCand_.clear();
+  const VehColGrid& g = vehColGrid_;
+  if (g.nx > 0) {
+    if (++vehColQuery_ == 0) {
+      for (unsigned int& s : vehColSeen_) s = 0;
+      vehColQuery_ = 1;
+    }
+    const float s = r + 0.05F;
+    int x0 = (int)floorf((x - s - g.ox) * g.inv), x1 = (int)floorf((x + s - g.ox) * g.inv);
+    int z0 = (int)floorf((z - s - g.oz) * g.inv), z1 = (int)floorf((z + s - g.oz) * g.inv);
+    if (x0 < 0) x0 = 0;
+    if (z0 < 0) z0 = 0;
+    if (x1 > g.nx - 1) x1 = g.nx - 1;
+    if (z1 > g.nz - 1) z1 = g.nz - 1;
+    for (int cz = z0; cz <= z1; ++cz)
+      for (int cx = x0; cx <= x1; ++cx) {
+        const int c = cz * g.nx + cx;
+        for (int k = g.start[(size_t)c]; k < g.start[(size_t)c + 1]; ++k) {
+          const int si = g.items[(size_t)k];
+          if (vehColSeen_[(size_t)si] == vehColQuery_) continue;
+          vehColSeen_[(size_t)si] = vehColQuery_;
+          vehColCand_.push_back(vehColStaticPos_[(size_t)si]);
+        }
+      }
+  }
+  for (const int p : vehColDynPos_) vehColCand_.push_back(p);
+  // Insertion sort: a handful of candidates, mostly in order already.
+  for (size_t i = 1; i < vehColCand_.size(); ++i) {
+    const int v = vehColCand_[i];
+    size_t j = i;
+    while (j > 0 && vehColCand_[j - 1] > v) {
+      vehColCand_[j] = vehColCand_[j - 1];
+      --j;
+    }
+    vehColCand_[j] = v;
   }
 }
 
@@ -15624,6 +16881,46 @@ void TerrainGame::updateVehicleSpeedFeel(const VehicleRt* v, float dt) {
   }
 }
 
+// The chase camera's boom against the frame's vehicle collider list instead of
+// every object: buildVehicleColliders already filtered the scene down to the
+// boxes a car can hit and placed them, so a box nowhere near the boom costs
+// a compact-array read - the object itself is touched only for the narrow
+// phase. What the list leaves out goes the general way: physics bodies and
+// mesh colliders (listed by position only) and the other cars (never walls
+// for a car, always walls for the camera). Same answer as sweepSphere; when
+// the list was not built this frame (menu open) it IS sweepSphere.
+float TerrainGame::sweepVehicleCamera(float px, float py, float pz, float dx,
+                                      float dy, float dz, float maxDist,
+                                      int skipIndex) const {
+  if (!vehColFresh_)
+    return sweepSphere(px, py, pz, dx, dy, dz, maxDist, CAM_RADIUS, skipIndex);
+  const SweepSeg s = sweepSegment(px, py, pz, dx, dy, dz, maxDist, CAM_RADIUS);
+  const float r = s.r;
+  float best = maxDist;
+  for (const VehColEntry& e : vehColliders_) {
+    if (e.oi == skipIndex) continue;
+    if (e.kind != 0) {
+      best = sweepObject(s, e.oi, best);
+      continue;
+    }
+    const float cy = 0.5F * (e.top + e.bottom);
+    if (e.wx + e.we[0] + r < s.mn[0] || e.wx - e.we[0] - r > s.mx[0] ||
+        cy + e.we[1] + r < s.mn[1] || cy - e.we[1] - r > s.mx[1] ||
+        e.wz + e.we[2] + r < s.mn[2] || e.wz - e.we[2] - r > s.mx[2])
+      continue;  // broad phase: nowhere near the boom
+    best = sweepBoxHit(s, runtimeObjects[(size_t)e.oi].data, e.wx, cy, e.wz,
+                       e.hx, 0.5F * (e.top - e.bottom), e.hz, best);
+  }
+  for (int vk = 0; vk < vehicleCount_; ++vk) {
+    const VehicleRt& o = vehicles_[vk];
+    if (!o.active || o.object < 0 || o.object == skipIndex ||
+        o.object >= (int)runtimeObjects.size())
+      continue;
+    best = sweepObject(s, o.object, best);
+  }
+  return sweepTerrain(s, best);
+}
+
 // Run after camera shake and car-car separation, immediately before drawing.
 void TerrainGame::collideVehicleCamera() {
   vehCamWanted_ = vehCamAllowed_ = 0.0F;
@@ -15644,8 +16941,9 @@ void TerrainGame::collideVehicleCamera() {
                      pz + cosf(v.yaw * 0.0174532925F), 1.0F);
     return;
   }
-  vehCamAllowed_ = sweepSphere(px, py, pz, dx / vehCamWanted_,
-      dy / vehCamWanted_, dz / vehCamWanted_, vehCamWanted_, CAM_RADIUS, v.object);
+  vehCamAllowed_ = sweepVehicleCamera(px, py, pz, dx / vehCamWanted_,
+      dy / vehCamWanted_, dz / vehCamWanted_, vehCamWanted_, v.object);
+  vehColFresh_ = false;
   const float fraction = vehCamAllowed_ / vehCamWanted_;
   cameraPosition.set(px + dx * fraction, py + dy * fraction,
                      pz + dz * fraction, 1.0F);
@@ -16408,13 +17706,21 @@ void TerrainGame::updateVehicles(float dt) {
         gc.reach = reach;
         gc.margin = margin;
         gc.valid = true;
-        for (size_t ci = 0; ci < vehColliders_.size(); ++ci) {
+        // The static collider grid hands over every slot this walk could
+        // record or accept (its query covers the margin too), in order.
+        auto recordCol = [&](size_t ci) {
           const VehColEntry& e = vehColliders_[ci];
           const float dx = e.wx - v.pos[0], dz = e.wz - v.pos[2];
           const float span = e.kind == 0 ? e.hx + e.hz + 0.7F : e.rs + 2.0F;
           const float r = reach + span + margin;
           if (dx * dx + dz * dz < r * r) gc.col.push_back((int)ci);
           considerCol(e);
+        };
+        if (vehColGridOn_) {
+          vehColCandidates(v.pos[0], v.pos[2], reach + margin);
+          for (const int ci : vehColCand_) recordCol((size_t)ci);
+        } else {
+          for (size_t ci = 0; ci < vehColliders_.size(); ++ci) recordCol(ci);
         }
         for (size_t pi = 0; pi < procColliders.size(); ++pi) {
           const StaticBox& b = procColliders[pi];
@@ -16425,6 +17731,42 @@ void TerrainGame::updateVehicles(float dt) {
           if (dx * dx + dz * dz < r * r) gc.proc.push_back((int)pi);
           considerProc(b);
         }
+      } else if (vehColGridOn_) {
+        // The static collider grid (docs/vehicles.md, "The static collider
+        // grid"): only the slots near the car, in the full walk's order.
+        vehColCandidates(v.pos[0], v.pos[2], reach);
+        for (const int ci : vehColCand_) considerCol(vehColliders_[(size_t)ci]);
+#if TYRA_VEH_COLLIDER_GRID_VERIFY
+        // THE ORACLE: the full walk again, every list compared to the byte.
+        {
+          VehWallBox w0[12];
+          VehFloorBox f0[8];
+          int m0[4], p0[8];
+          const int wn = wallBoxN, fn = floorBoxN, mn = nearMeshN, pn = pushN;
+          memcpy(w0, wallBox, sizeof(w0));
+          memcpy(f0, floorBox, sizeof(f0));
+          memcpy(m0, nearMesh, sizeof(m0));
+          memcpy(p0, pushIdx, sizeof(p0));
+          wallBoxN = floorBoxN = nearMeshN = pushN = 0;
+          for (const VehColEntry& e : vehColliders_) considerCol(e);
+          const bool same =
+              wn == wallBoxN && fn == floorBoxN && mn == nearMeshN && pn == pushN &&
+              memcmp(w0, wallBox, sizeof(VehWallBox) * (size_t)wn) == 0 &&
+              memcmp(f0, floorBox, sizeof(VehFloorBox) * (size_t)fn) == 0 &&
+              memcmp(m0, nearMesh, sizeof(int) * (size_t)mn) == 0 &&
+              memcmp(p0, pushIdx, sizeof(int) * (size_t)pn) == 0;
+          static u32 gChecked = 0, gBad = 0, gFrames = 0;
+          ++gChecked;
+          if (!same) ++gBad;
+          if (++gFrames >= 300) {
+            printf("VEHCOLGRID gather checked %u MISMATCH %u cand %d of %d\n",
+                   (unsigned)gChecked, (unsigned)gBad, (int)vehColCand_.size(),
+                   (int)vehColliders_.size());
+            gChecked = gBad = gFrames = 0;
+          }
+        }
+#endif
+        for (const StaticBox& b : procColliders) considerProc(b);
       } else {
         for (const VehColEntry& e : vehColliders_) considerCol(e);
         for (const StaticBox& b : procColliders) considerProc(b);
@@ -17477,15 +18819,43 @@ void TerrainGame::updateVehicles(float dt) {
       const float bc = cosf(rigYaw * kDeg), bs = sinf(rigYaw * kDeg);
       float atY = v.pos[1] + s.camHeight * SC * 0.35F;
       if (vehCamMode_ == 1) {
-        // Bumper: at the nose, low, looking where the CAR points. Pushed out
-        // past the front axle so the body it belongs to does not fill the view.
-        const float nose = (0.5F * s.wheelBase + s.wheelRadius * 1.5F) * SC;
-        players[0].x = v.pos[0] + bodyS * nose;
-        players[0].z = v.pos[2] + bodyC * nose;
-        players[0].y = v.pos[1] + s.camHeight * SC * 0.30F;
+        // Bumper: at the nose, low, looking where the CAR points. The eye is
+        // a point ON THE BODY - the drawn attitude (terrain pitch/roll plus
+        // the lean), the same vehBodyRotation the body's matrix takes - not
+        // a point on the flat yaw plane at chassis height. The flat one
+        // stayed level while the body pitched under it, so a bump swung the
+        // bonnet up through the lens and a dip sank the eye into the road
+        // ahead ("przenika fragment pojazdu, wnika w ziemie na wertepach").
+        // It sits just past the BAKED bumper (bodyOverhang), not a guess
+        // from the wheel radius that a long-nosed body reached past.
+        float bodyRot[3];
+        vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll,
+                        bodyRot);
+        const RotTrig br = rotTrigOf(bodyRot);
+        float reach = s.wheelRadius * 1.5F;
+        if (s.bodyOverhang + 0.15F > reach) reach = s.bodyOverhang + 0.15F;
+        const V3 eye = rotatedBy(
+            {0.0F, s.camHeight * 0.30F * SC, (0.5F * s.wheelBase + reach) * SC},
+            br);
+        const V3 fwd = rotatedBy({0.0F, 0.0F, 1.0F}, br);
+        players[0].x = v.pos[0] + eye.x;
+        players[0].z = v.pos[2] + eye.z;
+        players[0].y = v.pos[1] + eye.y;
+        // The ground backstop: a nose dropping off a kerb, or a crest the
+        // sprung body has not caught up with yet, can still put a point that
+        // far forward under the surface the wheels never touched.
+        const float floorY = groundSurfaceAt(players[0].x, players[0].z) +
+                             0.25F * SC;
+        if (players[0].y < floorY) players[0].y = floorY;
+        // Aim: the body's heading, its pitch eased (never its roll - the
+        // horizon stays level, cameraUp is shared with the chase rigs).
+        float lk = dt * 8.0F;
+        if (lk > 1.0F) lk = 1.0F;
+        vehBumpLookY_ += (fwd.y - vehBumpLookY_) * lk;
         players[0].yaw = v.yaw;
         cameraPosition.set(players[0].x, players[0].y, players[0].z, 1.0F);
-        cameraLookAt.set(players[0].x + bodyS * 20.0F, players[0].y,
+        cameraLookAt.set(players[0].x + bodyS * 20.0F,
+                         players[0].y + vehBumpLookY_ * 20.0F,
                          players[0].z + bodyC * 20.0F, 1.0F);
       } else {
         // Chase (0) and far (2) differ only in how much rig there is.
@@ -17942,7 +19312,7 @@ void TerrainGame::renderVehicleGlass() {
       auto dst = part.colors.span(0, n);
       for (u32 k = 0; k < n; ++k) dst[k].a = s.glassAlpha;
     }
-    stapip.core.render(part.bag.get());
+    renderObjectBag(v.object, part.bag.get());
   }
 }
 
@@ -18502,19 +19872,54 @@ static u32 g_whBatches = 0;
 static u32 g_whVerifyCars = 0, g_whVerifyFailWheels = 0;
 #endif
 
+// The immutable local copy of one wheel array for the matrix path: positions
+// with w = 1, STs, and the flat modulate-identity colour, padded to the batch's
+// block length exactly like the batch pads a run tail. Built once per array
+// and scene; every wheel drawn from the array shares it and its bboxVersion.
+TerrainGame::WheelGeo& TerrainGame::wheelGeoFor(const std::vector<float>& geo,
+                                                u32 real, u32 nv) {
+  for (auto& g : wheelGeos_)
+    if (g->src == (const void*)geo.data() && g->nv == nv) return *g;
+  wheelGeos_.push_back(std::make_unique<WheelGeo>());
+  WheelGeo& g = *wheelGeos_.back();
+  g.src = geo.data();
+  g.nv = nv;
+  g.stamp = ++g_bboxStamp;
+  g.v.resize(nv);
+  g.st.resize(nv);
+  g.c.assign(nv, Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+  for (u32 i = 0; i < nv; ++i) {
+    const float* q = &geo[(size_t)(i < real ? i : real - 1) * 8];
+    g.v[i] = Tyra::Vec4(q[0], q[1], q[2], 1.0F);
+    g.st[i] = Tyra::Vec4(q[6], q[7], 1.0F, 0.0F);
+  }
+  return g;
+}
+
 void TerrainGame::renderVehicleWheels() {
   if (vehicleCount_ <= 0) return;
   const float kDeg = 3.14159265F / 180.0F;
   // Distinct definitions can use different palettes or source images. A single
   // shared bag would sample every car's wheel UVs through the last car's image.
-  // The bag POINTER may still be shared: both caches downstream are keyed by
-  // the vertex-buffer address (StapipBagBBoxesCacher's id, and the retained
-  // command key's `vertices`), never by the bag, and every batch owns its own
-  // vertex vector.
+  // Each batch also owns its bag (see WheelBatch::bag): the bbox and baked
+  // caches are keyed by the vertex buffer, but the stamp cache is keyed by the
+  // BAG, and one shared pointer made every batch evict the previous one's stamp.
+  const int receiverClasses = ANY_PLAYER_ONLY_DYNAMIC_LIGHTS &&
+      PLAYER_ONLY_DYNAMIC_LIGHTS ? 2 : 1;
+  // Allocate every class before any submit: growth must not move stamp/
+  // content owners while an earlier wheel batch is still referenced by DMA.
+  const size_t batchCount = (size_t)VEHICLE_DEF_COUNT * receiverClasses;
+  if (wheelBatches_.size() < batchCount) wheelBatches_.resize(batchCount);
+  // Same rule for the moving-wheel rigs: one per vehicle, allocated up front.
+  if (wheelRigs_.size() < (size_t)vehicleCount_) {
+    wheelRigs_.reserve((size_t)vehicleCount_);
+    while (wheelRigs_.size() < (size_t)vehicleCount_)
+      wheelRigs_.push_back(std::make_unique<WheelRig>());
+  }
   for (int drawDef = 0; drawDef < VEHICLE_DEF_COUNT; ++drawDef) {
-  if ((int)wheelBatches_.size() <= drawDef)
-    wheelBatches_.resize((size_t)drawDef + 1);
-  WheelBatch& batch = wheelBatches_[(size_t)drawDef];
+  for (int receiverClass = 0; receiverClass < receiverClasses; ++receiverClass) {
+  const int batchIndex = drawDef * receiverClasses + receiverClass;
+  WheelBatch& batch = wheelBatches_[(size_t)batchIndex];
   // NOT cleared. The batch is addressed by SLOT - car k owns
   // [k*vertsPerCar, (k+1)*vertsPerCar) - so a car whose inputs did not move
   // keeps the vertices already sitting there, and the frame does no work for
@@ -18529,6 +19934,8 @@ void TerrainGame::renderVehicleWheels() {
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def != drawDef) continue;
+    if (receiverClasses == 2 &&
+        isLivePlayerReceiver(v.object) != (receiverClass == 1)) continue;
     // The body obeys this state in the ordinary object loop. Its separately
     // submitted wheels must obey it too or a hidden car leaves four ghosts.
     if (v.object < 0 || v.object >= (int)runtimeObjects.size() ||
@@ -18655,6 +20062,126 @@ void TerrainGame::renderVehicleWheels() {
     }
     srcRun = run;
     const u32 vpc = nv * 4;
+    // MOVING WHEELS RIDE A MATRIX (docs/vehicles.md). The batch below is the
+    // right shape for cars at rest - one bag, replayed or stamped for free -
+    // and the wrong one for a car in motion: its spin changes every frame, so
+    // the EE re-derived ~3000 world vertices AND packed them into a fresh VIF
+    // stream every frame (1.05 ms on a PS2 for the driven car, night drive).
+    // A moving rig instead draws each wheel as the model's immutable local
+    // array plus one matrix: VU1 does the transform, and StaPip replays the
+    // array's baked stream with only the MVP patched (0.28 ms for the same
+    // car). A rig stays on this path for kWheelLiveHold frames after it last
+    // moved, so a car easing to a stop does not reshuffle the batch slots of
+    // every other car each time it twitches.
+    {
+      constexpr int kWheelLiveHold = 30;
+      WheelRig& rg = *wheelRigs_[(size_t)vi];
+      const float rsig[9] = {v.pos[0], v.pos[1], v.pos[2],
+                             v.pitch + v.leanPitch, v.yaw,
+                             v.roll + v.leanRoll, v.steerAngle, v.wheelSpin,
+                             SC};
+      bool moved = !rg.valid || rg.geo != (const void*)geo.data();
+      for (int k = 0; k < 9 && !moved; ++k) moved = rg.sig[k] != rsig[k];
+      for (int w = 0; w < 4 && !moved; ++w) moved = rg.wy[w] != v.wheelY[w];
+      if (moved) {
+        rg.hold = kWheelLiveHold;
+        for (int k = 0; k < 9; ++k) rg.sig[k] = rsig[k];
+        for (int w = 0; w < 4; ++w) rg.wy[w] = v.wheelY[w];
+        rg.geo = geo.data();
+        rg.valid = 1;
+      } else if (rg.hold > 0) {
+        --rg.hold;
+      }
+      if (rg.hold > 0) {
+        WheelGeo& G = wheelGeoFor(geo, real, nv);
+        // The rig arithmetic of the bake below, ending in a matrix instead of
+        // in vertices: columns = the composed spin/steer/attitude basis, the
+        // translation = the hub after the suspension clamp.
+        const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
+        const float lx[4] = {-hx, hx, -hx, hx};
+        const float lz[4] = {hz, hz, -hz, -hz};
+        float bodyRot[3];
+        vehBodyRotation(v.pitch + v.leanPitch, v.yaw, v.roll + v.leanRoll, bodyRot);
+        const RotTrig br = rotTrigOf(bodyRot);
+        const V3 up = rotatedBy({0.0F, 1.0F, 0.0F}, br);
+        const float sp = v.wheelSpin * kDeg;
+        const float cp = cosf(sp), spn = sinf(sp);
+        static int liveContactTick = 0;
+        const bool logContact =
+            vi == vehicleDriver_ && (++liveContactTick % 50) == 0;
+        int gap[4] = {0, 0, 0, 0}, lift[4] = {0, 0, 0, 0};
+        for (int w = 0; w < 4; ++w) {
+          const float st = (w < 2 ? v.steerAngle : 0.0F) * kDeg;
+          const float cs = cosf(st), ss = sinf(st);
+          const V3 mx3 = rotatedBy({cs * SC, 0.0F, -ss * SC}, br);
+          const V3 my3 = rotatedBy({spn * ss * SC, cp * SC, spn * cs * SC}, br);
+          const V3 mz3 = rotatedBy({cp * ss * SC, -spn * SC, cp * cs * SC}, br);
+          const V3 hard = rotatedBy({lx[w], 0.0F, lz[w]}, br);
+          const float targetY = v.wheelY[w] + s.wheelRadius * SC;
+          float travel = up.y > 0.2F ? (targetY - (v.pos[1] + hard.y)) / up.y : 0.0F;
+          const float tlo = -s.suspensionTravel * SC * 0.45F;
+          const float hiTravel = s.suspensionTravel * SC * 0.10F;
+          const float hiRadius = s.wheelRadius * SC * 0.06F;
+          const float thi = hiTravel < hiRadius ? hiTravel : hiRadius;
+          if (travel < tlo) travel = tlo;
+          if (travel > thi) travel = thi;
+          WheelLive& W = rg.wheel[w];
+          float* m = W.mat.data;
+          m[0] = mx3.x; m[1] = mx3.y; m[2] = mx3.z; m[3] = 0.0F;
+          m[4] = my3.x; m[5] = my3.y; m[6] = my3.z; m[7] = 0.0F;
+          m[8] = mz3.x; m[9] = mz3.y; m[10] = mz3.z; m[11] = 0.0F;
+          m[12] = v.pos[0] + hard.x + up.x * travel;
+          m[13] = v.pos[1] + hard.y + up.y * travel;
+          m[14] = v.pos[2] + hard.z + up.z * travel;
+          m[15] = 1.0F;
+          W.info = *batchInfoBag;
+          W.info.model = &W.mat;
+          W.bag.info = &W.info;
+          W.bag.vertices = G.v.data();
+          W.bag.count = G.nv;
+          W.color.many = G.c.data();
+          W.bag.color = &W.color;
+          W.bag.lighting = nullptr;
+          W.bag.stripped = run != 0;
+          W.bag.packageSize = run;
+          W.bag.bboxVersion = G.stamp;
+          if (part.texture) {
+            W.tex.texture = const_cast<Tyra::Texture*>(part.texture);
+            W.tex.coordinates = G.st.data();
+            W.bag.texture = &W.tex;
+          } else {
+            W.bag.texture = nullptr;
+          }
+          stapip.core.render(&W.bag, receiverClasses == 2 && receiverClass == 0 ?
+              Tyra::StaPipLightReception::Suppress : Tyra::StaPipLightReception::FromInfo);
+          // VEHCONTACT for the driven car, which now lives on this path while
+          // it moves: the same numbers as the batch path's, with the drawn
+          // vertices reconstructed from the matrix on the logging frame only.
+          if (logContact) {
+            float lo = 1e30F, sx = 0.0F, sz = 0.0F;
+            for (u32 i = 0; i < real; ++i) {
+              const Tyra::Vec4& q = G.v[i];
+              const float wx = m[0] * q.x + m[4] * q.y + m[8] * q.z + m[12];
+              const float wyv = m[1] * q.x + m[5] * q.y + m[9] * q.z + m[13];
+              const float wz = m[2] * q.x + m[6] * q.y + m[10] * q.z + m[14];
+              if (wyv < lo) lo = wyv;
+              sx += wx;
+              sz += wz;
+            }
+            const float cx = sx / (float)real, cz = sz / (float)real;
+            const float surf = groundSurfaceAt(cx, cz);
+            gap[w] = (int)((lo - surf) * 1000.0F);
+            lift[w] = (int)((surf - terrainHeightAt(cx, cz)) * 1000.0F);
+          }
+        }
+        if (logContact)
+          TYRA_LOG("VEHCONTACT car ", vi, " def ", v.def, " driven",
+                   " gap1000 ", gap[0], " ", gap[1], " ", gap[2], " ", gap[3],
+                   " roadlift1000 ", lift[0], " ", lift[1], " ", lift[2], " ", lift[3]);
+        v.contactLogged = 0;
+        continue;  // out of the batch: resting cars keep their one bag
+      }
+    }
     // Every car in this batch reads the same definition, so this can only
     // fire on the frame the wheel model itself changed, at slot 0.
     if (batch.vertsPerCar != vpc) {
@@ -18933,22 +20460,22 @@ void TerrainGame::renderVehicleWheels() {
   if (batch.cols.size() != total)
     batch.cols.resize(total, Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
   batch.staticCars = cars;
-  if (!wheelBag_) {
-    wheelColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
-    wheelBag_ = std::make_unique<Tyra::StaPipBag>();
-    wheelBag_->color = wheelColorBag_.get();
-    wheelBag_->lighting = nullptr;
+  if (!batch.bag) {
+    batch.colorBag = std::make_unique<Tyra::StaPipColorBag>();
+    batch.bag = std::make_unique<Tyra::StaPipBag>();
+    batch.bag->color = batch.colorBag.get();
+    batch.bag->lighting = nullptr;
   }
-  wheelBag_->info = batchInfoBag.get();
-  batch.cols.bind(wheelColorBag_);
-  batch.verts.bind(wheelBag_);
-  wheelBag_->count = static_cast<u32>(batch.verts.size());
+  batch.bag->info = vehMovingInfo();  // moving: keeps the baked lamps live
+  batch.cols.bind(batch.colorBag);
+  batch.verts.bind(batch.bag);
+  batch.bag->count = static_cast<u32>(batch.verts.size());
   // The runs ARE the packages. Every per-wheel block is a whole number of
   // runs, so pinning the package size to the run means no package boundary can
   // fall inside a run or across two wheels. 0 asks for the derived size, which
   // is what a triangle-list batch wants.
-  wheelBag_->stripped = srcRun != 0;
-  wheelBag_->packageSize = srcRun;
+  batch.bag->stripped = srcRun != 0;
+  batch.bag->packageSize = srcRun;
   // THE STAMP IS STICKY. bboxVersion says "this vertex buffer holds different
   // numbers than it did"; bumping it unconditionally made that a lie on every
   // frame a car did not move, and it cost twice - the package-bbox cache
@@ -18972,19 +20499,21 @@ void TerrainGame::renderVehicleWheels() {
     ++g_whStampBumps;
 #endif
   }
-  wheelBag_->bboxVersion = batch.stamp;
+  batch.bag->bboxVersion = batch.stamp;
 #if TYRA_WHEEL_REBUILD_REPORT
   ++g_whBatches;
 #endif
   if (src->texture && batch.sts.size() >= batch.verts.size()) {
-    if (!wheelTexBag_) wheelTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
-    wheelTexBag_->texture = const_cast<Tyra::Texture*>(src->texture);
-    batch.sts.bind(wheelTexBag_);
-    wheelBag_->texture = wheelTexBag_.get();
+    if (!batch.texBag) batch.texBag = std::make_unique<Tyra::StaPipTextureBag>();
+    batch.texBag->texture = const_cast<Tyra::Texture*>(src->texture);
+    batch.sts.bind(batch.texBag);
+    batch.bag->texture = batch.texBag.get();
   } else {
-    wheelBag_->texture = nullptr;
+    batch.bag->texture = nullptr;
   }
-  stapip.core.render(wheelBag_.get());
+  stapip.core.render(batch.bag.get(), receiverClasses == 2 && receiverClass == 0 ?
+      Tyra::StaPipLightReception::Suppress : Tyra::StaPipLightReception::FromInfo);
+  }
   }
 #if TYRA_WHEEL_REBUILD_REPORT
   // Same 300-frame cadence as STAPIPRET, and the same reason for the cadence:
@@ -19106,7 +20635,7 @@ static bool projectStreamsRoads(const Project& p) {
     return p.settings.roadStreamRadius > 0.0f && projectHasRoads(p);
 }
 
-// Road tables on disk (docs/roads.md "Tables on disk", format v104): the
+// Road tables on disk (docs/roads.md "Tables on disk", format v132): the
 // default for a streamed project, unless it asked to keep them in the ELF.
 static bool projectRoadTablesOnDisk(const Project& p) {
     return projectStreamsRoads(p) && !p.settings.roadStreamEmbedTables;
@@ -19306,6 +20835,284 @@ static std::string roadsImplBuild(const Project& p) {
 // small texture tiles the entire street, and the stations are packed into
 // procChunks (owner -3) roughly 12 per chunk - each chunk its own AABB, so
 // the frustum culls a road the way it culls everything else.
+// One sample of a road's dense lateral grid - roadgen::Vertex's twin.
+struct RoadRowV {
+  float x, y, z;
+  float u, v;
+};
+
+// ---- The road band planner (docs/roads.md, "Bands"). TWIN BLOCK: this text
+// is pasted VERBATIM into roadgen.cpp and into the generated buildRoads
+// (templates.cpp); verify-road-twins.py compares the two vertex for vertex.
+// It works on rows of the dense lateral grid (x, y, z, u, v per sample), one
+// row per spline station, and decides two things:
+//   - which samples of a row to KEEP: Douglas-Peucker on the row's height
+//     profile, so a row keeps the points where the ground under the road
+//     actually bends (a terrain crease) and drops the ones in between;
+//   - which STATIONS to keep: the band between two kept stations is the
+//     zipper triangulation of their kept samples, and it may skip the
+//     stations in between only while every dense sample of every skipped row
+//     lies on it within the height, plan and texture budgets.
+// A kept row's samples are shared by both bands that meet at it, so no seam
+// can open between bands (no T-vertex), whatever the budgets.
+struct RoadPlan {
+  std::vector<int> stations;           // kept stations, first 0, last rows-1
+  std::vector<std::vector<int>> keep;  // per station: kept dense sample indices
+};
+
+// Douglas-Peucker over a row's height profile against its u.
+template <class V>
+static void roadRowKeep(const std::vector<V>& d, float tol, std::vector<int>& out) {
+  const int n = (int)d.size();
+  std::vector<unsigned char> mark((size_t)n, 0);
+  mark[0] = 1;
+  mark[(size_t)(n - 1)] = 1;
+  std::vector<int> st;
+  st.push_back(0);
+  st.push_back(n - 1);
+  while (!st.empty()) {
+    const int s1 = st.back();
+    st.pop_back();
+    const int s0 = st.back();
+    st.pop_back();
+    float worst = 0.0F;
+    int wk = -1;
+    const float du = d[(size_t)s1].u - d[(size_t)s0].u;
+    for (int k = s0 + 1; k < s1; ++k) {
+      const float f = du != 0.0F ? (d[(size_t)k].u - d[(size_t)s0].u) / du : 0.0F;
+      const float e = fabsf(d[(size_t)k].y -
+                            (d[(size_t)s0].y + (d[(size_t)s1].y - d[(size_t)s0].y) * f));
+      if (e > worst) {
+        worst = e;
+        wk = k;
+      }
+    }
+    if (wk >= 0 && worst > tol) {
+      mark[(size_t)wk] = 1;
+      st.push_back(s0);
+      st.push_back(wk);
+      st.push_back(wk);
+      st.push_back(s1);
+    }
+  }
+  out.clear();
+  for (int k = 0; k < n; ++k)
+    if (mark[(size_t)k]) out.push_back(k);
+}
+
+// The zipper between two kept rows: 1 = advance the later row (b), 0 = the
+// earlier one (a). Both rows sample the same lateral grid, so the order is
+// decided on the dense INDEX - exact, no float compare. A tie advances b
+// first, which is the diagonal the list stitch has always cut (P[j]-N[j+s]).
+static void roadZipper(const std::vector<int>& A, const std::vector<int>& B,
+                       std::vector<unsigned char>& steps) {
+  steps.clear();
+  size_t i = 0, j = 0;
+  while (i + 1 < A.size() || j + 1 < B.size()) {
+    bool advB;
+    if (i + 1 >= A.size()) advB = true;
+    else if (j + 1 >= B.size()) advB = false;
+    else advB = B[j + 1] <= A[i + 1];
+    steps.push_back(advB ? 1 : 0);
+    if (advB) ++j;
+    else ++i;
+  }
+}
+
+// May the band a..b skip every station in between?
+template <class V>
+static bool roadBandFits(const std::vector<std::vector<V>>& rows, int a, int b,
+                         const std::vector<int>& A, const std::vector<int>& B,
+                         float tolY, float tolXZ, float tolUV,
+                         std::vector<unsigned char>& steps,
+                         std::vector<const V*>& tri, int* failCell = nullptr) {
+  if (failCell) *failCell = -1;
+  roadZipper(A, B, steps);
+  const std::vector<V>& ra = rows[(size_t)a];
+  const std::vector<V>& rb = rows[(size_t)b];
+  tri.clear();
+  size_t i = 0, j = 0;
+  for (size_t s = 0; s < steps.size(); ++s) {
+    if (steps[s]) {
+      tri.push_back(&ra[(size_t)A[i]]);
+      tri.push_back(&rb[(size_t)B[j + 1]]);
+      tri.push_back(&rb[(size_t)B[j]]);
+      ++j;
+    } else {
+      tri.push_back(&ra[(size_t)A[i]]);
+      tri.push_back(&ra[(size_t)A[i + 1]]);
+      tri.push_back(&rb[(size_t)B[j]]);
+      ++i;
+    }
+  }
+  const size_t tris = tri.size() / 3;
+  const int last = (int)ra.size() - 1;
+  // One test point against the band: located by a walk (the points of a pass
+  // run left to right, and so do the zipper's triangles, each of which
+  // advances one row by at least one sample) and compared in height and in
+  // texture.
+  size_t at = 0;
+  auto fits = [&](float qx, float qy, float qz, float qu, float qv) {
+    float best = -1.0e30F, by = 0.0F, bu = 0.0F, bv = 0.0F;
+    size_t bt = at;
+    const size_t lo = at > 2 ? at - 2 : 0;
+    const size_t hi = at + 5 < tris ? at + 5 : tris;
+    for (size_t c = lo; c < hi; ++c) {
+      const V& t0 = *tri[c * 3];
+      const V& t1 = *tri[c * 3 + 1];
+      const V& t2 = *tri[c * 3 + 2];
+      const float den = (t1.z - t2.z) * (t0.x - t2.x) + (t2.x - t1.x) * (t0.z - t2.z);
+      if (fabsf(den) < 1e-12F) continue;
+      const float l0 = ((t1.z - t2.z) * (qx - t2.x) + (t2.x - t1.x) * (qz - t2.z)) / den;
+      const float l1 = ((t2.z - t0.z) * (qx - t2.x) + (t0.x - t2.x) * (qz - t2.z)) / den;
+      const float l2 = 1.0F - l0 - l1;
+      float mn = l0 < l1 ? l0 : l1;
+      if (l2 < mn) mn = l2;
+      if (mn > best) {
+        best = mn;
+        bt = c;
+        by = l0 * t0.y + l1 * t1.y + l2 * t2.y;
+        bu = l0 * t0.u + l1 * t1.u + l2 * t2.u;
+        bv = l0 * t0.v + l1 * t1.v + l2 * t2.v;
+      }
+    }
+    if (best < -0.05F) return false;
+    at = bt;
+    return fabsf(by - qy) <= tolY && fabsf(bu - qu) <= tolUV &&
+           fabsf(bv - qv) <= tolUV;
+  };
+  // The dense surface's own triangles, by their centroids: two surfaces that
+  // agree at every sample can still part between them, where neither has a
+  // vertex - the difference of two piecewise-linear surfaces peaks where their
+  // edges cross. The centroids are where the verifier measures, too.
+  for (int k = a; k < b; ++k) {
+    const std::vector<V>& r0 = rows[(size_t)k];
+    const std::vector<V>& r1 = rows[(size_t)(k + 1)];
+    at = 0;
+    for (int m = 0; m < last; ++m) {
+      const V& p = r0[(size_t)m];
+      const V& q = r0[(size_t)(m + 1)];
+      const V& r = r1[(size_t)(m + 1)];
+      const V& s = r1[(size_t)m];
+      if (!fits((p.x + q.x + r.x) / 3.0F, (p.y + q.y + r.y) / 3.0F,
+                (p.z + q.z + r.z) / 3.0F, (p.u + q.u + r.u) / 3.0F,
+                (p.v + q.v + r.v) / 3.0F) ||
+          !fits((p.x + r.x + s.x) / 3.0F, (p.y + r.y + s.y) / 3.0F,
+                (p.z + r.z + s.z) / 3.0F, (p.u + r.u + s.u) / 3.0F,
+                (p.v + r.v + s.v) / 3.0F)) {
+        if (failCell) *failCell = m;
+        return false;
+      }
+    }
+  }
+  for (int k = a + 1; k < b; ++k) {
+    const std::vector<V>& rk = rows[(size_t)k];
+    // Plan: the skipped row's shoulders must lie on the band's shoulder chords.
+    for (int side = 0; side < 2; ++side) {
+      const int e = side ? last : 0;
+      const V& p = rk[(size_t)e];
+      const V& q0 = ra[(size_t)e];
+      const V& q1 = rb[(size_t)e];
+      const float dx = q1.x - q0.x, dz = q1.z - q0.z;
+      const float l2 = dx * dx + dz * dz;
+      float t = l2 > 0.0F ? ((p.x - q0.x) * dx + (p.z - q0.z) * dz) / l2 : 0.0F;
+      if (t < 0.0F) t = 0.0F;
+      if (t > 1.0F) t = 1.0F;
+      const float ex = q0.x + dx * t - p.x, ez = q0.z + dz * t - p.z;
+      if (ex * ex + ez * ez > tolXZ * tolXZ) return false;
+    }
+    // Height and texture at every dense sample of the skipped row.
+    at = 0;
+    for (int m = 0; m <= last; ++m) {
+      const V& q = rk[(size_t)m];
+      if (!fits(q.x, q.y, q.z, q.u, q.v)) return false;
+    }
+  }
+  return true;
+}
+
+// The plan for one road: kept samples per row, then kept stations, greedily -
+// a band grows one station at a time while it still fits, up to maxBand.
+template <class V>
+static void roadPlanBands(const std::vector<std::vector<V>>& rows, int maxBand,
+                          float tolY, float tolXZ, float tolUV, RoadPlan& plan) {
+  const int count = (int)rows.size();
+  plan.stations.clear();
+  plan.keep.assign((size_t)count, std::vector<int>());
+  if (count < 2) return;
+  for (int s = 0; s < count; ++s)
+    roadRowKeep(rows[(size_t)s], tolY * 0.5F, plan.keep[(size_t)s]);
+  std::vector<unsigned char> steps;
+  std::vector<const V*> tri;
+  // Every neighbouring station pair must fit on its own before any band may
+  // skip a station. Where the rows converge (a bend) or a crease crosses the
+  // pair at a slant, a long zipper triangle across the whole width drifts in
+  // texture and height between the samples it keeps. The test names the dense
+  // cell that broke the budget; both rows gain that cell's two edges, and the
+  // pairs are re-checked until none fails. Samples are only ever added, and a
+  // cell whose four corners are kept zips into exactly the dense cell, so this
+  // ends - at worst at the dense grid.
+  auto add = [&](std::vector<int>& k, int m) {
+    size_t at = 0;
+    while (at < k.size() && k[at] < m) ++at;
+    if (at < k.size() && k[at] == m) return false;
+    k.insert(k.begin() + (long)at, m);
+    return true;
+  };
+  for (bool changed = true; changed;) {
+    changed = false;
+    for (int s = 0; s + 1 < count; ++s) {
+      int cell = -1;
+      while (!roadBandFits(rows, s, s + 1, plan.keep[(size_t)s],
+                           plan.keep[(size_t)(s + 1)], tolY, tolXZ, tolUV, steps,
+                           tri, &cell)) {
+        bool grew = false;
+        if (cell >= 0) {
+          for (int r = s; r <= s + 1; ++r) {
+            if (add(plan.keep[(size_t)r], cell)) grew = true;
+            if (add(plan.keep[(size_t)r], cell + 1)) grew = true;
+          }
+        }
+        if (!grew) {
+          // Nothing left to add at the named cell: the whole rows, dense.
+          for (int r = s; r <= s + 1; ++r) {
+            std::vector<int>& k = plan.keep[(size_t)r];
+            k.clear();
+            for (int m = 0; m < (int)rows[(size_t)r].size(); ++m) k.push_back(m);
+          }
+          break;
+        }
+        changed = true;
+      }
+    }
+  }
+  int a = 0;
+  plan.stations.push_back(0);
+  while (a < count - 1) {
+    int b = a + 1;
+    while (b + 1 < count && b + 1 - a <= maxBand &&
+           roadBandFits(rows, a, b + 1, plan.keep[(size_t)a],
+                        plan.keep[(size_t)(b + 1)], tolY, tolXZ, tolUV, steps, tri))
+      ++b;
+    plan.stations.push_back(b);
+    a = b;
+  }
+}
+
+// Strip vertices one band costs, in the emitter's own currency: the opening
+// pair, the join into an open run, one per zipper step and one for every
+// step that advances the same row as the step before it (the pivot repeat).
+static size_t roadBandStripCost(const std::vector<unsigned char>& steps) {
+  size_t cost = 4 + steps.size();
+  int last = 0;  // the band opens on b[0], a[0]: the last vertex is row a's
+  for (size_t s = 0; s < steps.size(); ++s) {
+    if ((int)steps[s] == last) ++cost;
+    last = steps[s];
+  }
+  return cost;
+}
+// ---- end of the twin block ----
+
 void TerrainGame::buildRoads(int scene) {
   // A scene revisit rebuilds: drop the previous scene's road chunks only.
   for (size_t i = procChunks.size(); i > 0; --i)
@@ -19426,16 +21233,10 @@ void TerrainGame::buildRoads(int scene) {
       }
       runStart = c->vertices.size();
     };
-    std::vector<float> px0((size_t)crossSteps + 1);
-    std::vector<float> py0((size_t)crossSteps + 1);
-    std::vector<float> pz0((size_t)crossSteps + 1);
-    // Where this station pair is cut laterally. Hoisted out of the station
-    // loop: this runs on the EE at scene load, once per station of every road
-    // in the district, and a per-station heap allocation there is not free.
-    std::vector<int> cuts;
-    cuts.reserve((size_t)crossSteps + 1);
-    float lv0 = 0.0F;
-    bool havePrev = false;
+    // The dense lateral grid, one row per spline station - roadgen.cpp's
+    // buildRows, arithmetic for arithmetic. The band planner needs the rows
+    // a band may skip, so the whole road is sampled before anything is cut.
+    std::vector<std::vector<RoadRowV>> rows;
     float arc = 0.0F, prevX = 0.0F, prevZ = 0.0F;
     sampleAt(0, 0.0F, &prevX, &prevZ);
     for (int seg = 0; seg < n - 1; ++seg) {
@@ -19493,196 +21294,113 @@ void TerrainGame::buildRoads(int scene) {
         prevX = cx2;
         prevZ = cz2;
         const float v = arc / 4.0F;
-        std::vector<float> nx((size_t)crossSteps + 1);
-        std::vector<float> ny((size_t)crossSteps + 1);
-        std::vector<float> nz((size_t)crossSteps + 1);
+        std::vector<RoadRowV> row((size_t)crossSteps + 1);
         for (int j = 0; j <= crossSteps; ++j) {
           const float u = (float)j / (float)crossSteps;
           const float side = u * 2.0F - 1.0F;
-          nx[(size_t)j] = cx2 + rxu * side;
-          nz[(size_t)j] = cz2 + rzu * side;
-          ny[(size_t)j] =
-              terrainHeightAt(nx[(size_t)j], nz[(size_t)j]) + 0.12F + rd.lift;
+          RoadRowV& q = row[(size_t)j];
+          q.x = cx2 + rxu * side;
+          q.z = cz2 + rzu * side;
+          q.y = terrainHeightAt(q.x, q.z) + 0.12F + rd.lift;
+          q.u = rd.uInset + (1.0F - 2.0F * rd.uInset) * u;
+          q.v = v;
         }
-        if (havePrev) {
-          // Two triangles per lateral cell, CCW seen from above - the twin's
-          // stitch, emitted station by station so a chunk boundary never
-          // leaves a gap (the previous row is re-used as the base).
-          // Exact lateral reduction: every dense sample must lie on the
-          // proposed quad plane, and the quad must be an affine parallelogram
-          // so its two triangles interpolate ST as the cells they replace do.
-          // The reduction is per SUB-SPAN rather than all-or-nothing, because
-          // a road is a decal on a heightfield sampled far more finely than
-          // the heightfield itself - runs of lateral cells inside one terrain
-          // triangle are exactly coplanar even when the full width is not.
-          // The two budgets are the roadgen.hpp twin's kSpanFlatness (surface,
-          // and with it the T-junction) and kSpanShear (UV, tripped by bends).
-          auto spanIsExact = [&](int j0, int j1) {
-            const float ax = px0[(size_t)j0], ay = py0[(size_t)j0];
-            const float az = pz0[(size_t)j0];
-            const float bx = px0[(size_t)j1], by = py0[(size_t)j1];
-            const float bz = pz0[(size_t)j1];
-            const float dx = nx[(size_t)j0], dy = ny[(size_t)j0];
-            const float dz = nz[(size_t)j0];
-            const float cx = nx[(size_t)j1], cy = ny[(size_t)j1];
-            const float cz = nz[(size_t)j1];
-            const float ux = bx - ax, uy = by - ay, uz = bz - az;
-            const float vx = dx - ax, vy = dy - ay, vz = dz - az;
-            const float pnx = uy * vz - uz * vy;
-            const float pny = uz * vx - ux * vz;
-            const float pnz = ux * vy - uy * vx;
-            const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
-            if (!(pnl > 1e-6F)) return false;
-            const float qax = (bx - ax) - (cx - dx);
-            const float qay = (by - ay) - (cy - dy);
-            const float qaz = (bz - az) - (cz - dz);
-            if (sqrtf(qax * qax + qay * qay + qaz * qaz) > 0.05F)
-              return false;
-            for (int r = 0; r < 2; ++r)
-              for (int j = j0; j <= j1; ++j) {
-                const float qx = r ? nx[(size_t)j] : px0[(size_t)j];
-                const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
-                const float qz = r ? nz[(size_t)j] : pz0[(size_t)j];
-                const float dist = fabsf(pnx * (qx - ax) + pny * (qy - ay) +
-                                         pnz * (qz - az)) / pnl;
-                if (dist > 0.00001F) return false;
-              }
-            return true;
-          };
-          // Keep the long-standing horizontal reduction, including curved
-          // spans, as the roadgen.cpp twin does. It is the one case that does
-          // NOT owe the affine check.
-          bool flat = true;
-          const float flatY = py0[0];
-          for (int r = 0; r < 2 && flat; ++r)
-            for (int j = 0; j <= crossSteps; ++j) {
-              const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
-              if (fabsf(qy - flatY) > 0.00001F) { flat = false; break; }
-            }
-          cuts.clear();
-          cuts.push_back(0);
-          if (flat) {
-            cuts.push_back(crossSteps);
-          } else {
-            // Greedy maximal runs. A single cell is the fallback and is never
-            // tested, so this can only remove vertices from the dense mesh.
-            int j0 = 0;
-            while (j0 < crossSteps) {
-              int j1 = j0 + 1;
-              while (j1 < crossSteps && spanIsExact(j0, j1 + 1)) ++j1;
-              cuts.push_back(j1);
-              j0 = j1;
-            }
-          }
-          const bool collapsed = cuts.size() == 2;
-          // Amortize EE bag/bounds work on flat streets, without making dense
-          // slopes unbounded or joining a whole road into one culling box.
-          // The budget is in the currency the chunk actually holds, so the
-          // two emitters cut a road into the SAME number of chunks only by
-          // accident - what matters is that a run never straddles one.
-          const size_t spanVertices =
-              useStrips
-                  ? (collapsed
-                         ? (alongOpen ? (size_t)2 : (size_t)4)
-                         : (2 * cuts.size() + 2))
-                  : (cuts.size() - 1) * 6;
-          if (!c || stationsInChunk >= 36 ||
-              v - chunkVBase >= 16.0F ||
-              c->vertices.size() + spanVertices > 1800) {
-            closeChunk();
-            procChunks.push_back(ProcChunk());
-            c = &procChunks.back();
-            c->owner = -3;
-            c->roadTex = tex;
-            c->roadGrip = rd.grip;
-            c->stripRun = useStrips ? (int)stripRun : 0;
-            // Texture repeat is invariant under an integer V offset. Keep the
-            // value local to this bag: long roads otherwise feed ever-growing
-            // ST coordinates into the physical GS/VU path, where the lost
-            // fractional precision can smear one texel over the whole road.
-            chunkVBase = floorf(lv0);
-            stationsInChunk = 0;
-            runStart = 0;
-            alongOpen = false;
-          }
-          // P is the previous station's row, N this one's.
-          auto vAt = [&](int j, bool newRow) {
-            return newRow ? Tyra::Vec4(nx[(size_t)j], ny[(size_t)j],
-                                       nz[(size_t)j], 1.0F)
-                          : Tyra::Vec4(px0[(size_t)j], py0[(size_t)j],
-                                       pz0[(size_t)j], 1.0F);
-          };
-          auto sAt = [&](int j, bool newRow) {
-            return Tyra::Vec4(rd.uInset + (1.0F - 2.0F * rd.uInset) *
-                                              (float)j / (float)crossSteps,
-                              (newRow ? v : lv0) - chunkVBase, 1.0F, 0.0F);
-          };
-          if (!useStrips) {
-            for (size_t ci = 0; ci + 1 < cuts.size(); ++ci) {
-              const int j = cuts[ci], j2 = cuts[ci + 1];
-              const float u0 = rd.uInset + (1.0F - 2.0F * rd.uInset) *
-                                               (float)j / (float)crossSteps;
-              const float u1 = rd.uInset + (1.0F - 2.0F * rd.uInset) *
-                                               (float)j2 / (float)crossSteps;
-              const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
-                                 pz0[(size_t)j], 1.0F);
-              const Tyra::Vec4 B(px0[(size_t)j2], py0[(size_t)j2],
-                                 pz0[(size_t)j2], 1.0F);
-              const Tyra::Vec4 C(nx[(size_t)j2], ny[(size_t)j2],
-                                 nz[(size_t)j2], 1.0F);
-              const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
-                                 nz[(size_t)j], 1.0F);
-              const Tyra::Vec4 sA(u0, lv0 - chunkVBase, 1.0F, 0.0F);
-              const Tyra::Vec4 sB(u1, lv0 - chunkVBase, 1.0F, 0.0F);
-              const Tyra::Vec4 sC(u1, v - chunkVBase, 1.0F, 0.0F);
-              const Tyra::Vec4 sD(u0, v - chunkVBase, 1.0F, 0.0F);
-              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
-              c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
-              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
-              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
-              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
-              c->vertices.push_back(D); c->sts.push_back(sD); c->colors.push_back(grey);
-            }
-          } else if (collapsed) {
-            // A collapsed span is ONE full-width quad, so a street of them is
-            // a grid one cell WIDE and many stations LONG - and a strip has
-            // to run along the long axis or it buys nothing. Taken laterally
-            // a collapsed span is 4 vertices plus a 2-vertex join against the
-            // list's 6: break-even on the EE and 3x the GS primitives, two
-            // thirds of them degenerate. Taken longitudinally it is 2
-            // vertices per STATION, the same 0.35x the dense spans reach.
-            // ... P[w], P[0], N[w], N[0] ... - successive triples are this
-            // span's two triangles, cut along P[0]-N[w], which is the cut the
-            // list stitch above makes. The other interleaving takes the other
-            // diagonal and silently reshapes every non-planar quad.
-            if (!alongOpen) {
-              startStrip(vAt(crossSteps, false), sAt(crossSteps, false));
-              pushRaw(vAt(0, false), sAt(0, false));
-              alongOpen = true;
-            }
-            pushRaw(vAt(crossSteps, true), sAt(crossSteps, true));
-            pushRaw(vAt(0, true), sAt(0, true));
-          } else {
-            // N[0], P[0], N[s], P[s], ... - same argument, same diagonal
-            // P[j]-N[j+s], walked ACROSS the road instead. The cuts are no
-            // longer uniformly spaced, which changes nothing here: the walk
-            // visits them in order and the diagonal is the same one.
-            alongOpen = false;
-            startStrip(vAt(0, true), sAt(0, true));
-            pushRaw(vAt(0, false), sAt(0, false));
-            for (size_t ci = 1; ci < cuts.size(); ++ci) {
-              pushRaw(vAt(cuts[ci], true), sAt(cuts[ci], true));
-              pushRaw(vAt(cuts[ci], false), sAt(cuts[ci], false));
-            }
-          }
-          ++stationsInChunk;
-        }
-        px0.swap(nx);
-        py0.swap(ny);
-        pz0.swap(nz);
-        lv0 = v;
-        havePrev = true;
+        rows.push_back(std::move(row));
       }
+    }
+    // The bands (docs/roads.md "Bands"): roadgen.hpp's kRoadTolY / kRoadTolXZ
+    // / kRoadTolUV / kRoadBandMax as literals - static_asserted at the top of
+    // templates.cpp. A soft-edged road keeps every station: its faded bands
+    // are baked on them and must meet the core exactly.
+    RoadPlan plan;
+    roadPlanBands(rows, rd.uInset > 0.0F ? 1 : 8, 0.01F, 0.01F, 0.006F, plan);
+    std::vector<unsigned char> steps;
+    for (size_t bs = 0; bs + 1 < plan.stations.size(); ++bs) {
+      const int a = plan.stations[bs], b = plan.stations[bs + 1];
+      const std::vector<int>& A = plan.keep[(size_t)a];
+      const std::vector<int>& B = plan.keep[(size_t)b];
+      const std::vector<RoadRowV>& ra = rows[(size_t)a];
+      const std::vector<RoadRowV>& rb = rows[(size_t)b];
+      roadZipper(A, B, steps);
+      const bool collapsed = A.size() == 2 && B.size() == 2;
+      // Amortize EE bag/bounds work on flat streets, without making dense
+      // slopes unbounded or joining a whole road into one culling box. The
+      // budget is in the currency the chunk actually holds.
+      const size_t spanVertices =
+          useStrips ? (collapsed ? (alongOpen ? (size_t)2 : (size_t)4)
+                                 : roadBandStripCost(steps))
+                    : steps.size() * 3;
+      if (!c || stationsInChunk >= 36 || rb[0].v - chunkVBase >= 16.0F ||
+          c->vertices.size() + spanVertices > 1800) {
+        closeChunk();
+        procChunks.push_back(ProcChunk());
+        c = &procChunks.back();
+        c->owner = -3;
+        c->roadTex = tex;
+        c->roadGrip = rd.grip;
+        c->stripRun = useStrips ? (int)stripRun : 0;
+        // Texture repeat is invariant under an integer V offset. Keep the
+        // value local to this bag: long roads otherwise feed ever-growing
+        // ST coordinates into the physical GS/VU path, where the lost
+        // fractional precision can smear one texel over the whole road.
+        chunkVBase = floorf(ra[0].v);
+        stationsInChunk = 0;
+        runStart = 0;
+        alongOpen = false;
+      }
+      auto P = [&](const RoadRowV& q) { return Tyra::Vec4(q.x, q.y, q.z, 1.0F); };
+      auto S = [&](const RoadRowV& q) {
+        return Tyra::Vec4(q.u, q.v - chunkVBase, 1.0F, 0.0F);
+      };
+      if (!useStrips) {
+        // The zipper as a list, CCW seen from above: a step on b is
+        // (a[i], b[j+1], b[j]), a step on a is (a[i], a[i+1], b[j]).
+        size_t i = 0, j = 0;
+        for (unsigned char st : steps) {
+          const RoadRowV& q0 = ra[(size_t)A[i]];
+          const RoadRowV& q1 = st ? rb[(size_t)B[j + 1]] : ra[(size_t)A[i + 1]];
+          const RoadRowV& q2 = rb[(size_t)B[j]];
+          c->vertices.push_back(P(q0)); c->sts.push_back(S(q0)); c->colors.push_back(grey);
+          c->vertices.push_back(P(q1)); c->sts.push_back(S(q1)); c->colors.push_back(grey);
+          c->vertices.push_back(P(q2)); c->sts.push_back(S(q2)); c->colors.push_back(grey);
+          if (st) ++j;
+          else ++i;
+        }
+      } else if (collapsed) {
+        // A band of two two-sample rows is ONE full-width quad, so a street of
+        // them strips ALONG the road at 2 vertices per band: ... a[w], a[0],
+        // b[w], b[0] ... - successive triples are the zipper's two triangles.
+        if (!alongOpen) {
+          startStrip(P(ra[(size_t)crossSteps]), S(ra[(size_t)crossSteps]));
+          pushRaw(P(ra[0]), S(ra[0]));
+          alongOpen = true;
+        }
+        pushRaw(P(rb[(size_t)crossSteps]), S(rb[(size_t)crossSteps]));
+        pushRaw(P(rb[0]), S(rb[0]));
+      } else {
+        // ACROSS the road: b[0], a[0], then one vertex per zipper step; two
+        // steps on the same row in a row repeat the other row's vertex first
+        // (a zero-area triangle) so the next triple is still the zipper's.
+        alongOpen = false;
+        startStrip(P(rb[0]), S(rb[0]));
+        pushRaw(P(ra[0]), S(ra[0]));
+        int last = 0;
+        size_t i = 0, j = 0;
+        for (unsigned char st : steps) {
+          if (st) {
+            if (last == 1) pushRaw(P(ra[(size_t)A[i]]), S(ra[(size_t)A[i]]));
+            pushRaw(P(rb[(size_t)B[j + 1]]), S(rb[(size_t)B[j + 1]]));
+            ++j;
+            last = 1;
+          } else {
+            if (last == 0) pushRaw(P(rb[(size_t)B[j]]), S(rb[(size_t)B[j]]));
+            pushRaw(P(ra[(size_t)A[i + 1]]), S(ra[(size_t)A[i + 1]]));
+            ++i;
+            last = 0;
+          }
+        }
+      }
+      ++stationsInChunk;
     }
     // This road's last chunk still has an open run.
     closeChunk();
@@ -19986,79 +21704,44 @@ static std::string vehicleSmokeRenderCall(const Project& p) {
            "costEnd(\"Vehicle_lamp_glow\",-1,ct); }\n";
 }
 
-static std::string blssInclude(const Project& p) {
-    const project::BlssUse u = project::blssUse(p);
-    if (!u.any || !u.anyNetwork) return "";
-    return "#include \"blss_net.gen.hpp\"  // the trained BLSS network "
-           "(--blss-train)\n";
-}
-
-// TerrainGame::init(): configure the low-res target and hand over the net.
+// TerrainGame::init(): configure the low-res target.
 static std::string blssInit(const Project& p) {
     const project::BlssUse u = project::blssUse(p);
     if (!u.any) return "";
-    // The uniform project's comment is left EXACTLY as it was before per-scene
-    // existed, down to the wording: this text lands in src/terrain_game.cpp,
-    // and a project whose scenes all resolve alike has to regenerate byte for
-    // byte (it is still project-wide, so the old sentence is still true).
     std::string s =
         u.mixed
-            ? "  // The neural upscaler (docs/neural-upscaler.md): baked -\n"
-              "  // nothing at runtime turns it on or off, but this project's\n"
-              "  // scenes do not all resolve it alike, so the eighth argument\n"
-              "  // tells configure() to size the z buffer for the FULL display\n"
-              "  // raster. The layout is then decided once and loadScene()'s\n"
-              "  // setScene() switches the upscaler per scene, touching no VRAM.\n"
-              "  // configure() sizes the low-res render target and the\n"
-              "  // reconstruction knobs; in PLAIN mode (BLSS_NETWORK 0) it also\n"
-              "  // switches off the proxy feed, the reprojection, the feature\n"
-              "  // grid and the MLP, leaving one bilinear composite pass.\n"
-            : "  // The neural upscaler (docs/neural-upscaler.md): project-wide and\n"
-              "  // baked - nothing at runtime turns it on or off. configure() sizes\n"
-              "  // the low-res render target and the reconstruction knobs; in PLAIN\n"
-              "  // mode (BLSS_NETWORK 0) it also switches off the proxy feed, the\n"
-              "  // reprojection, the feature grid and the MLP, leaving the reduced\n"
-              "  // raster and one bilinear composite pass.\n";
-    s += "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
-         "BLSS_SHARPEN,\n"
-         "                                       BLSS_TEMPORAL, "
-         "BLSS_DEBUG_VIEW,\n";
-    s += u.mixed ? "                                       BLSS_JITTER, "
-                   "BLSS_NETWORK,\n"
-                   "                                       BLSS_NATIVE_SCENES || BLSS_ADAPTIVE);\n"
-                 : "                                       BLSS_JITTER, "
-                   "BLSS_NETWORK, BLSS_ADAPTIVE);\n";
-    if (u.anyNetwork)
-        s += "  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, "
-             "BLSS_NET_W2,\n"
-             "                                    BLSS_NET_B2);\n";
-    // WHICH RECONSTRUCTION, AND WHICH NET, IN THE BOOT LOG, ALWAYS. Said here
-    // and not only in a generated header, because the person wondering why the
-    // picture looks wrong is reading bin/log.txt. It used to be printed only in
-    // the untrained case, which meant the interesting cases - "I trained one
-    // and it is not being used" and "I never trained one and it works anyway" -
-    // were both silent. Plain mode is a third such case and the loudest of
-    // them: a reader who does not know the mode exists would otherwise measure
-    // a frame with no network in it and attribute the numbers to one.
-    if (!u.anyNetwork) {
-        s += "  TYRA_LOG(\"BLSS: reconstruction = PLAIN (no network) - the reduced "
-             "raster is blown up by one bilinear pass. No proxies, no reprojection, "
-             "no feature grid, no MLP.\");\n";
+            ? "  // The upscaler (BLSS): baked - nothing at runtime turns it on or\n"
+              "  // off, but this project's scenes do not all resolve it alike, so\n"
+              "  // the third argument tells configure() to size the z buffer for\n"
+              "  // the FULL display raster. The layout is then decided once and\n"
+              "  // loadScene()'s setScene() switches the upscaler per scene,\n"
+              "  // touching no VRAM. configure() sizes the low-res render target;\n"
+              "  // composite() blows it up with one bilinear pass.\n"
+            : "  // The upscaler (BLSS): project-wide and baked - nothing at runtime\n"
+              "  // turns it on or off. configure() sizes the low-res render target;\n"
+              "  // composite() blows it up with one bilinear pass.\n";
+    if (u.particles) {
+        // Particles only: the fourth argument reserves the low-res z target
+        // and pins the full-size z the opaque scene keeps. setScene() switches
+        // the shape on - here, or per scene from loadScene() in a mixed
+        // project. An adaptive project starts native and lets
+        // updateAdaptiveResolution() switch the particles down.
+        s += "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
+             "true, true);\n";
+        if (!u.mixed)
+            s += "  engine->renderer.core.blss.setScene(!BLSS_ADAPTIVE, true);\n";
+        s += "  TYRA_LOG(\"BLSS: particle emitters drawn at the reduced raster\");\n";
         return s;
     }
-    const BlssBake b = blssBake(p);
-    s += "  TYRA_LOG(\"BLSS: network = " + escapeCString(blssNetSummary(b)) + "\");\n";
-    for (const std::string& n : b.notes)
-        s += "  TYRA_LOG(\"BLSS: " + escapeCString(n) + "\");\n";
-    for (const std::string& w : b.warnings)
-        s += "  TYRA_LOG(\"BLSS: WARNING - " + escapeCString(w) + "\");\n";
-    if (b.source == BlssBake::Source::Random)
-        s += "  TYRA_LOG(\"BLSS: the baked network is UNTRAINED (random weights) - run"
-             " 'tyrax-editor --blss-train' in the project directory and rebuild.\");\n";
+    s += u.mixed ? "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y,\n"
+                   "                                       BLSS_NATIVE_SCENES || BLSS_ADAPTIVE);\n"
+                 : "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
+                   "BLSS_ADAPTIVE);\n";
+    s += "  TYRA_LOG(\"BLSS: reduced raster, one bilinear composite pass\");\n";
     return s;
 }
 
-// TerrainGame::loadScene(): the PER-SCENE half (docs/neural-upscaler.md, "Per
+// TerrainGame::loadScene(): the PER-SCENE half (docs/upscaler.md, "Per
 // scene"). Emitted only when the project's scenes actually disagree, so a
 // project that resolves the upscaler alike everywhere generates the loadScene()
 // it always generated, byte for byte.
@@ -20074,11 +21757,10 @@ static std::string blssInit(const Project& p) {
 // rejected (docs/backlog.md).
 static std::string blssSceneSetup(const Project& p) {
     if (!project::blssUse(p).mixed) return "";
-    return "  // The neural upscaler, per scene (docs/neural-upscaler.md). No\n"
+    return "  // The upscaler, per scene. No\n"
            "  // VRAM is touched: the z buffer was sized at init for the widest\n"
            "  // raster any scene uses, so this is a flag and a projection.\n"
-           "  engine->renderer.core.blss.setScene(BLSS_SCENE_ON, "
-           "BLSS_SCENE_NET);\n";
+           "  engine->renderer.core.blss.setScene(BLSS_SCENE_ON, BLSS_PARTICLES);\n";
 }
 
 // The frame loop's 3D bracket. Off = the plain call the loop always had, byte
@@ -20090,8 +21772,8 @@ static std::string blssSceneSetup(const Project& p) {
 // display raster, and split screen is one of the three features BLSS cannot be
 // combined with anyway. That is not left to the docs and a warning any more:
 // blssClashes() above refuses the build when a SCENE actually has both, so
-// this branch is unreachable in a game that compiles (docs/neural-upscaler.md,
-// docs/blss-reconstruction.md section 7).
+// this branch is unreachable in a game that compiles (docs/upscaler.md,
+// docs/upscaler.md section 7).
 //
 // PER SCENE NEEDS NO BRANCH HERE, and that is not an accident to be tidied
 // away: beginScene(), endScene() and composite() all return immediately when
@@ -20103,7 +21785,7 @@ static std::string blssSceneSetup(const Project& p) {
 static std::string blssSceneRender(const Project& p) {
     if (!project::blssUse(p).any) return "      renderScene();\n";
     return "      updateAdaptiveResolution();\n"
-           "      // The neural upscaler (docs/neural-upscaler.md): the 3D "
+           "      // The upscaler (BLSS): the 3D "
            "scene\n"
            "      // renders into the low-res target, then the composite blows "
            "it\n"
@@ -20170,6 +21852,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    st.flashShadowVolumes ? "1" : "0");
     s = replaceAll(s, "{{SPOT_SHADOW_VOLUMES}}",
                    st.spotShadowVolumes ? "1" : "0");
+    s = replaceAll(s, "{{BAKE_STATIC_LAMPS}}",
+                   st.bakeStaticLamps ? "true" : "false");
     s = replaceAll(s, "{{SHADOW_VOLUMES_DEBUG}}",
                    std::to_string(st.shadowVolumesDebug));
     s = replaceAll(s, "{{SHADOW_MESH_MAX_TRIS}}",
@@ -20234,6 +21918,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{P2_JOIN_ON_START}}",
                    st.p2JoinOnStart ? "true" : "false");
     s = replaceAll(s, "{{GRAVITY}}", floatLit(st.gravity));
+    s = replaceAll(s, "{{SCENE_BROADPHASE}}", st.broadPhase == "octree" ? "1" : "0");
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
@@ -20280,9 +21965,18 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    projectNeedsCamFeed(p) ? "true" : "false");
     s = replaceAll(s, "{{TRIPLE_BUFFERING}}",
                    st.tripleBuffering ? "true" : "false");
+    s = replaceAll(s, "{{FRAME_PIPELINE_SETUP}}",
+                   std::string(st.framePipeline ?
+                   "  engine->renderer.core.setFramePipeline(true);\n" :
+                   "  engine->renderer.core.setFramePipeline(false);\n") +
+                   // Bag stamps (docs/stapip-stamps.md): a static, wholly
+                   // visible draw re-emits last frame's prepared head instead
+                   // of re-deriving it - the per-draw EE frontend.
+                   "  stapip.core.setStampEnabled(true);\n");
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
                    st.keyboardMousePs2Link ? "true" : "false");
+    s = replaceAll(s, "{{SHOW_ENGINE_LOGO}}", st.showEngineLogo ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");
@@ -20301,11 +21995,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // after it (topmost, layer -1).
     s = replaceAll(s, "{{SCREEN_FX_IN_LOOP}}", screenFxDispatch(p, true));
     s = replaceAll(s, "{{SCREEN_FX_TOP}}", screenFxDispatch(p, false));
-    // The neural upscaler (docs/neural-upscaler.md). Three slots, all empty
-    // while it is off - which is what keeps an existing project's generated
-    // sources byte-identical: the baked net's include, the init that configures
-    // the low-res target, and the frame loop's 3D bracket (whose "off" form IS
-    // the plain renderScene() call the loop always had).
+    // The upscaler (BLSS). Three slots, all empty while it is off - which is
+    // what keeps an existing project's generated sources byte-identical: the
+    // init that configures the low-res target, the per-scene switch in
+    // loadScene(), and the frame loop's 3D bracket (whose "off" form IS the
+    // plain renderScene() call the loop always had).
     // Emitter slots: 8, exactly as it always was - unless the project has a
     // vehicle, where the ENGINE NOTE owns voice base+23 outright and the
     // emitter bank shrinks to 7. All 24 voices of a bus were spoken for
@@ -20322,6 +22016,9 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // flowPickSfxChannel exists only in projects whose flow graph plays
     // sounds (the zero-cost rule).
     s = replaceAll(s, "{{SND_SLOTS}}", projectHasVehicles(p) ? "4" : "8");
+    s = replaceAll(s, "  {{VEHICLE_LIGHT_RECEIVER}}", projectHasVehicles(p) ?
+        "  if (vehicleDriver_ >= 0 && vehicleDriver_ < vehicleCount_ && "
+        "vehicles_[vehicleDriver_].active && vehicles_[vehicleDriver_].object == i) return true;" : "");
     s = replaceAll(s, "{{VEHICLE_MEMBERS}}", vehicleMembers(p));
     s = replaceAll(s, "{{ROADS_MEMBERS}}", roadsMembers(p));
     s = replaceAll(s, "{{ROADS_IMPL}}", roadsImpl(p));
@@ -20340,6 +22037,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     }
     s = replaceAll(s, "{{ROADS_SETUP}}", roadsSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_SETUP}}", vehicleSetupCall(p));
+    s = replaceAll(s, "{{INTERLEAVE_CAMERA_RIG}}",
+                   projectHasVehicles(p) ? "(vehicleDriver_ + 1) * 4 + vehCamMode_" : "0");
     s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));
     s = replaceAll(s, "{{VEHICLE_USE}}", vehicleUseCall(p));
     s = replaceAll(s, "{{VEHICLE_WALKER_GATE}}", vehicleWalkerGate(p));
@@ -20361,8 +22060,32 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_SHINE_SELECT}}",
                    projectHasVehicles(p) ? "selectVehicleShine();" : "");
     s = replaceAll(s, "{{REFL_SCENERY_KEY}}", reflSceneryKey(p));
-    s = replaceAll(s, "{{REFL_SCENERY_CAPTURE}}", reflSceneryCapture(p));
-    s = replaceAll(s, "{{REFL_GROUND_CAPTURE}}", reflGroundCapture(p));
+    // The shared probe may be captured over three frames (envDoSky /
+    // envDoTerrain / envDoRest, docs/reflective-materials.md "Amortised
+    // capture"): the ground in the terrain phase, roads and scenery in the
+    // last. A single target runs every phase in one frame, exactly as before.
+    {
+        const std::string scenery = reflSceneryCapture(p);
+        s = replaceAll(s, "{{REFL_SCENERY_CAPTURE}}",
+                       scenery.empty() ? scenery
+                                       : "    if (envDoRest) {\n" + scenery + "    }\n");
+        const std::string ground =
+            p.settings.reflectionGroundProxy
+                ? "    if (envDoTerrain) {\n" + reflGroundCapture(p) + "    }\n"
+                : std::string(
+                      "    g_groundDrawRadius = REFLECTION_GROUND_RADIUS;\n"
+                      "    if (envDoTerrain) renderTerrain();\n"
+                      "    if (envDoRest) renderRoadChunks();\n"
+                      "    g_groundDrawRadius = 0.0F;\n");
+        // The baked background stands in for the ground in a baked cell; the
+        // live ground stays the fallback everywhere else.
+        s = replaceAll(s, "{{REFL_GROUND_CAPTURE}}",
+                       p.settings.reflectionPanorama
+                           ? reflPanoCapture(p) + "    if (!envPanoActive) {\n" + ground +
+                                 "    }\n"
+                           : ground);
+        s = replaceAll(s, "{{REFL_PANO_SKIP}}", reflPanoSkip(p));
+    }
     // A vehicle body's tier is the vehicle's own (hysteresis, and the traffic
     // distance for cars nobody drives - vehicleLodTier), and its far tier
     // may hide the glass part.
@@ -20379,7 +22102,6 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
     s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));
     s = replaceAll(s, "{{VEHICLE_SMOKE_RENDER}}", vehicleSmokeRenderCall(p));
-    s = replaceAll(s, "{{BLSS_INCLUDE}}", blssInclude(p));
     s = replaceAll(s, "{{BLSS_INIT}}", blssInit(p));
     s = replaceAll(s, "{{BLSS_SCENE_SETUP}}", blssSceneSetup(p));
     s = replaceAll(s, "{{BLSS_SCENE_RENDER}}", blssSceneRender(p));
@@ -20968,6 +22690,14 @@ std::string sequencesScript(const Project& p) {
         return "{" + floatLit(a[0]) + ", " + floatLit(a[1]) + ", " + floatLit(a[2]) + "}";
     };
 
+    // Per-channel keys (format 120): only a project that has a key setting
+    // some components and not others gets the masked key table and sampler,
+    // so every other project regenerates byte-identical.
+    bool partialKeys = false;
+    for (const Sequence& s : p.sequences)
+        for (const SeqTrack& t : s.tracks)
+            for (const SeqObjectKey& k : t.keys) partialKeys |= k.mask != kSeqChAll;
+
     std::ostringstream out;
     out << "// Generated by TyraX from the Cutscene Director. Do not edit -\n"
            "// regenerated on every build. Edit the sequences in the editor.\n"
@@ -20987,7 +22717,9 @@ std::string sequencesScript(const Project& p) {
            "  return u;\n"
            "}\n\n"
            "struct ObjKey { float t; float pos[3]; float rot[3]; float scale[3];\n"
-           "                float col[3]; int vis; int ease; };\n"
+           "                float col[3]; int vis; int ease;"
+        << (partialKeys ? " unsigned mask;" : "") << " };"
+        << (partialKeys ? "  // mask: the components a key sets (bit i = component i)" : "") << "\n"
            "struct Track { int scene; int obj; int chPos; int chRot; int chScale;\n"
            "               int chCol; int chVis; const ObjKey* keys; int keyCount; };\n"
            "// A camera shot. camScene/camObj >= 0 = bound to a Camera entity: the\n"
@@ -21029,7 +22761,8 @@ std::string sequencesScript(const Project& p) {
                 const SeqObjectKey& k = t.keys[ki];
                 out << (ki ? ", " : "") << "{" << floatLit(k.time) << ", " << v3(k.position)
                     << ", " << v3(k.rotation) << ", " << v3(k.scale) << ", " << v3(k.color)
-                    << ", " << (k.visible ? 1 : 0) << ", " << k.easing << "}";
+                    << ", " << (k.visible ? 1 : 0) << ", " << k.easing
+                    << (partialKeys ? ", " + std::to_string(k.mask) + "u" : "") << "}";
             }
             out << "};  // \"" << t.target << "\" -> scene " << rr.first << " obj "
                 << rr.second << "\n";
@@ -21119,7 +22852,45 @@ std::string sequencesScript(const Project& p) {
         << "static const int kSeqCount = " << p.sequences.size() << ";\n\n";
 
     // Sampler + director.
-    out << R"(// Interpolates one component of an object channel (0 pos, 1 rot, 2 scale,
+    if (partialKeys)
+        out << R"(// The float component `comp` lives in (0-2 pos, 3-5 rot, 6-8 scale, 9 color).
+static const float* keyField(const ObjKey& k, int comp) {
+  if (comp < 3) return &k.pos[comp];
+  if (comp < 6) return &k.rot[comp - 3];
+  if (comp < 9) return &k.scale[comp - 6];
+  return k.col;
+}
+
+// Interpolates component `comp` (bit 1 << comp; `lane` picks one of color's
+// three numbers) across a track's keys at time t, between the keys that set
+// it only - a key that sets position X alone is invisible to Y and Z. Holds
+// the ends; leaves `out` alone when no key sets it. Twin of src/sequence.hpp
+// seqSampleComponent.
+static void sampleObj(const ObjKey* k, int n, float t, int comp, int lane, float& out) {
+  const unsigned bit = 1u << comp;
+  int a = -1, b = -1;  // last setting key at/before t, first one after it
+  for (int i = 0; i < n; ++i) {
+    if (!(k[i].mask & bit)) continue;
+    if (k[i].t <= t) {
+      a = i;
+    } else {
+      b = i;
+      break;
+    }
+  }
+  if (a < 0 && b < 0) return;
+  if (a < 0 || b < 0) {
+    out = keyField(k[a < 0 ? b : a], comp)[lane];
+    return;
+  }
+  const float va = keyField(k[a], comp)[lane], vb = keyField(k[b], comp)[lane];
+  const float span = k[b].t - k[a].t;
+  const float u = span > 1e-6F ? (t - k[a].t) / span : 0.0F;
+  out = va + (vb - va) * seqEase(k[a].ease, u);
+}
+)";
+    else
+        out << R"(// Interpolates one component of an object channel (0 pos, 1 rot, 2 scale,
 // 3 color) across a track's keys at time t. Holds the ends.
 static float sampleObj(const ObjKey* k, int n, float t, int comp, int which) {
   if (n <= 0) return 0.0F;
@@ -21138,7 +22909,8 @@ static float sampleObj(const ObjKey* k, int n, float t, int comp, int which) {
   const float e = seqEase(k[i].ease, u);
   return val(i) + (val(i + 1) - val(i)) * e;
 }
-
+)";
+    out << R"(
 // The Cutscene Director: one global Script. While a sequence is active it
 // poses every track's object (in the matching scene), resolves and blends the
 // camera shots (free or bound to Camera entities), applies the shot FOV to the
@@ -21167,6 +22939,7 @@ class SequenceDirector : public Script {
   // projection FOV restored.
   void release(ScriptContext& ctx) {
     ctx.cameraOverride = false;
+    ctx.cameraSource = 0;
     ctx.hidePlayer = false;
     ctx.hudSuppressed = false;
     ctx.barsStyle = 0;
@@ -21217,7 +22990,28 @@ class SequenceDirector : public Script {
       if (tr.scene != ctx.scene || tr.obj < 0 || tr.obj >= ctx.objectCount) continue;
       if (tr.keyCount <= 0) continue;
       RuntimeObject& o = ctx.objects[tr.obj];
-      if (tr.chPos)
+)";
+    if (partialKeys)
+        out << R"(      for (int c = 0; c < 3; ++c) {
+        if (tr.chPos) sampleObj(tr.keys, tr.keyCount, time_, c, 0, o.data.position[c]);
+        if (tr.chRot) sampleObj(tr.keys, tr.keyCount, time_, 3 + c, 0, o.data.rotation[c]);
+        if (tr.chScale) sampleObj(tr.keys, tr.keyCount, time_, 6 + c, 0, o.data.scale[c]);
+        if (tr.chCol) sampleObj(tr.keys, tr.keyCount, time_, 9, c, o.data.color[c]);
+      }
+      if (tr.chVis) {
+        // visibility steps: the last key setting it at/before now, else the first
+        int j = -1, first = -1;
+        for (int i = 0; i < tr.keyCount; ++i) {
+          if (!(tr.keys[i].mask & (1u << 10))) continue;
+          if (first < 0) first = i;
+          if (tr.keys[i].t <= time_) j = i;
+        }
+        if (j < 0) j = first;
+        if (j >= 0) o.visible = tr.keys[j].vis != 0;
+      }
+)";
+    else
+        out << R"(      if (tr.chPos)
         for (int c = 0; c < 3; ++c)
           o.data.position[c] = sampleObj(tr.keys, tr.keyCount, time_, c, 0);
       if (tr.chRot)
@@ -21234,7 +23028,8 @@ class SequenceDirector : public Script {
         while (j < tr.keyCount - 1 && time_ >= tr.keys[j + 1].t) ++j;
         o.visible = tr.keys[j].vis != 0;  // visibility steps between keys
       }
-      o.dirty = true;
+)";
+    out << R"(      o.dirty = true;
     }
     if (s.camEnabled && s.camKeyCount > 0) {
       const CamKey* k = s.camKeys;
@@ -21346,6 +23141,7 @@ class SequenceDirector : public Script {
         at[0] += ox, at[1] += oy, at[2] += oz;
       }
       ctx.cameraOverride = true;
+      ctx.cameraSource = (uintptr_t)(active_ + 1);
       ctx.cameraEye.x = eye[0];
       ctx.cameraEye.y = eye[1];
       ctx.cameraEye.z = eye[2];
@@ -22360,6 +24156,8 @@ std::string flowGraphScript(const Project& p) {
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n"
            "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n"
            "#include \"facts.gen.hpp\"  // World Facts store + save walks\n";
+    if (uses("PlaySound") || uses("SetSoundBankLoaded"))
+        out << "#include \"sound_bank.gen.hpp\"  // Play Sound, sound banks\n";
     if (anyRaycast || anyTerrainQuery)
         out << "#include \"terrain_heights.gen.hpp\"  // Raycast / Snap To "
                "Terrain\n";
@@ -22736,6 +24534,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "  const Tyra::Vec4 fwd(cx * sy * cz + sx * sz,\n"
                "                       cx * sy * sz - sx * cz, cx * cy);\n"
                "  ctx.cameraOverride = true;\n"
+               "  ctx.cameraSource = reinterpret_cast<uintptr_t>(&o);\n"
                "  ctx.cameraEye = eye;\n"
                "  ctx.cameraAt = eye + fwd;\n"
                "  ctx.cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);\n"
@@ -23900,6 +25699,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             if (const FlowNodeType* t = flowNodeType(n.type);
                 t && t->boolOut && flowCustomNode(n.type))
                 return "boolOut" + std::to_string(n.id);
+            if (n.type == "GetFramePipeline")
+                return "(ctx.engine && ctx.engine->renderer.core.getFramePipeline())";
             if (n.type == "IsVisible") {
                 const std::string dyn = targetExpr(n);
                 if (!dyn.empty())
@@ -24226,17 +26027,19 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             return s;
         };
 
-        // Sounds referenced by this graph's Play Sound nodes become sfx<i>
-        // members loaded once in init().
-        std::vector<std::string> usedSounds;
+        // Play Sound reads its sample from the game's sound bank by SND_PATHS
+        // slot (sound_bank.gen.hpp) - loaded with the scene, not per graph.
+        // usedSounds is for init(), which loads them itself only in a game
+        // that does not manage the bank.
+        std::vector<int> usedSounds;
         auto soundIndex = [&](const std::string& path) {
-            bool known = false;
-            for (const std::string& s : p.sounds) known |= (s == path);
-            if (!known) return -1;
-            for (size_t i = 0; i < usedSounds.size(); ++i)
-                if (usedSounds[i] == path) return (int)i;
-            usedSounds.push_back(path);
-            return (int)usedSounds.size() - 1;
+            int slot = -1;
+            for (size_t i = 0; i < p.sounds.size() && slot < 0; ++i)
+                if (p.sounds[i] == path) slot = (int)i;
+            if (slot >= 0 &&
+                std::find(usedSounds.begin(), usedSounds.end(), slot) == usedSounds.end())
+                usedSounds.push_back(slot);
+            return slot;
         };
 
         // The exec walker, forward-declared: a flow-control node (Branch,
@@ -24292,6 +26095,17 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 } else {
                     c << pad << "ctx.requestScene = " << target << ";  // \"" << n.str
                       << "\"\n";
+                }
+            } else if (n.type == "SetSoundBankLoaded") {
+                int bi = -1;
+                for (size_t b = 0; b < p.soundBanks.size() && bi < 0; ++b)
+                    if (p.soundBanks[b].name == n.str) bi = (int)b;
+                if (bi < 0) {
+                    c << pad << "// node " << n.id << " (" << n.type
+                      << "): unknown sound bank '" << n.str << "'\n";
+                } else {
+                    c << pad << "soundbank::setBank(" << bi << ", "
+                      << (pin == 1 ? "false" : "true") << ");  // \"" << n.str << "\"\n";
                 }
             } else if (n.type == "SetLayerLoaded") {
                 const int li = layerIndexOf(n.str);
@@ -24703,11 +26517,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "ctx.rumbleSec = " << floatLit(secs) << ";\n";
             } else if (n.type == "SetDisplayMode") {
                 int mode = (int)n.num[0];
-                mode = mode < 0 ? 0 : mode > 3 ? 3 : mode;
+                mode = mode < 0 ? 0 : mode > 4 ? 4 : mode;
                 float confirm = n.num[1] < 0.0f ? 0.0f : n.num[1];
                 c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
                 c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
                   << ";\n";
+            } else if (n.type == "SetFramePipeline") {
+                c << pad << "ctx.requestFramePipeline = "
+                  << (n.num[0] != 0.0f ? "1" : "0") << ";\n";
+                c << branch(0, pad);
+            } else if (n.type == "SetUpscaler") {
+                int m = (int)(n.num[0] + 0.5f);
+                if (m < 0) m = 0;
+                if (m > 3) m = 3;
+                c << pad << "ctx.upscaler = " << m << ";\n";
             } else if (n.type == "SetFrameExtrapolation") {
                 int m = (int)(n.num[0] + 0.5f);
                 if (m < 0) m = 0;
@@ -24843,7 +26666,10 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     // Everything inside the auto path is guarded by "did I get
                     // a channel at all", so it is one level deeper.
                     const std::string in = pad + (ch >= 0 ? "  " : "    ");
-                    c << pad << "{\n";
+                    // A sound this scene did not load is null: skipped
+                    // before it takes a channel from anything.
+                    c << pad << "if (audsrv_adpcm_t* const sfx = soundbank::sample("
+                      << si << ")) {\n";
                     if (ch >= 0) {
                         c << pad << "  const s8 ch = (s8)flowPinSfxChannel(ctx, "
                           << ch << ", " << prio << ");\n";
@@ -24885,8 +26711,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     // refuse a busy channel, so a pinned sound dropped every
                     // retrigger instead of cutting itself off), and an auto
                     // one was either free or deliberately stolen.
-                    c << in << "ctx.engine->audio.adpcm.forcePlay(sfx" << si
-                      << ", ch);\n";
+                    c << in << "ctx.engine->audio.adpcm.forcePlay(sfx, ch);\n";
                     if (ch < 0) c << pad << "  }\n";
                     c << pad << "}\n";
                 }
@@ -25381,6 +27206,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 // playing cutscene simply overwrites them next frame.
                 const auto e = posExpr(n);
                 c << pad << "ctx.cameraOverride = true;\n"
+                  << pad << "ctx.cameraSource = reinterpret_cast<uintptr_t>(&" << obj << ");\n"
                   << pad << "ctx.cameraEye = Tyra::Vec4(" << e[0] << ", " << e[1]
                   << ", " << e[2] << ");\n"
                   << pad << "ctx.cameraAt = Tyra::Vec4(" << obj
@@ -25391,6 +27217,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "flowCameraFrom(ctx, " << obj << ");\n";
             } else if (n.type == "ReleaseCamera") {
                 c << pad << "ctx.cameraOverride = false;\n"
+                  << pad << "ctx.cameraSource = 0;\n"
                   << pad << "ctx.cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);\n";
             } else if (n.type == "CameraShake") {
                 c << pad << "ctx.shakeAmp = " << numOperand(n) << ";\n"
@@ -26325,14 +28152,19 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
 
         if (!usedSounds.empty()) {
             clsOut << "\n  void init(ScriptContext& ctx) override {\n";
-            for (size_t i = 0; i < usedSounds.size(); ++i) {
+            // The game loaded the scene's sounds before this runs; a
+            // terrain_game.cpp owned from before the sound bank did not, and
+            // gets every graph sound loaded here, once, as it always did.
+            clsOut << "    if (soundbank::g_bank) return;\n";
+            for (const int slot : usedSounds) {
                 // res/sfx/x.wav lands as sfx/x.adpcm next to the ELF (adpenc)
-                std::string binPath = usedSounds[i];
+                std::string binPath = p.sounds[slot];
                 if (binPath.rfind("res/", 0) == 0) binPath = binPath.substr(4);
                 const size_t dot = binPath.rfind('.');
                 if (dot != std::string::npos) binPath = binPath.substr(0, dot);
-                clsOut << "    sfx" << i << " = ctx.engine->audio.adpcm.load(\n"
-                    << "        Tyra::FileUtils::fromCwd(\"" << binPath << ".adpcm\"));\n";
+                clsOut << "    if (!soundbank::own[" << slot << "])\n"
+                    << "      soundbank::own[" << slot << "] = ctx.engine->audio.adpcm.load(\n"
+                    << "          Tyra::FileUtils::fromCwd(\"" << binPath << ".adpcm\"));\n";
             }
             clsOut << "  }\n";
         }
@@ -26403,13 +28235,6 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "  unsigned int generation = 0;\n"
                "  int frame = 0;\n"
                "  bool started = false;\n";
-        if (!usedSounds.empty()) {
-            // (the channel cursor is one per TU, not one per graph - the
-            // sixteen voices are shared by every graph in the game; see
-            // flowPickSfxChannel)
-            for (size_t i = 0; i < usedSounds.size(); ++i)
-                clsOut << "  audsrv_adpcm_t* sfx" << i << " = nullptr;\n";
-        }
         clsOut << members.str() << "};\n";
 
         // One instance per class (TYRA_SCRIPT makes exactly one) remembered in
@@ -28423,6 +30248,7 @@ void writeVuCapture(ScriptContext& ctx) {
 // 4 bytes per pixel - and never a return value.
 void writeFrameCapture(ScriptContext& ctx) {
   if (!ctx.engine) return;
+  ctx.engine->renderer.core.synchronizeFrame();
   framebuffer_t* fb = ctx.engine->renderer.core.gs.getPreviousRealFrameBuffer();
   if (!fb || fb->width == 0 || fb->height == 0) return;
   if (fb->width > 1024) {
@@ -31377,6 +33203,81 @@ static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
     return out;
 }
 
+// inc/sound_bank.gen.hpp - which SND_PATHS slots live in SPU2 sample RAM
+// when (soundResidency, docs/sound.md "SPU2 sample RAM"), the bank every
+// player of a sound reads its sample from, and the requests Set Sound Bank
+// Loaded writes. Written by hand as inline - more than one TU includes it.
+static std::string soundBankHeader(const Project& p) {
+    const SoundResidency r = soundResidency(p);
+    std::ostringstream out;
+    auto list = [&](const std::vector<int>& v) {
+        if (v.empty()) return std::string("0");
+        std::string t;
+        for (size_t i = 0; i < v.size(); ++i) t += (i ? ", " : "") + std::to_string(v[i]);
+        return t;
+    };
+    // One flattened table + a FIRST index per list (FIRST has one more entry
+    // than there are lists, so list i is [FIRST[i], FIRST[i + 1])).
+    auto table = [&](const char* name, const std::vector<std::vector<int>>& lists) {
+        std::vector<int> first, all;
+        for (const auto& l : lists) {
+            first.push_back((int)all.size());
+            all.insert(all.end(), l.begin(), l.end());
+        }
+        first.push_back((int)all.size());
+        out << "inline constexpr int " << name << "_FIRST[" << first.size() << "] = {"
+            << list(first) << "};\n"
+            << "inline constexpr int " << name << "_LIST[" << (all.empty() ? 1 : all.size())
+            << "] = {" << list(all) << "};\n";
+    };
+    std::vector<std::vector<int>> layers;
+    std::vector<int> layerBase;
+    for (const auto& sc : r.layer) {
+        layerBase.push_back((int)layers.size());
+        layers.insert(layers.end(), sc.begin(), sc.end());
+    }
+    layerBase.push_back((int)layers.size());
+    const size_t n = p.sounds.size(), nb = r.bank.size();
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "// Sound effects in SPU2 sample RAM (docs/sound.md, \"SPU2 sample RAM\"):\n"
+           "// the game keeps loaded SHARED, the running scene's SCENE list, the LAYER\n"
+           "// list of each of its resident layers (scene s, layer l = list\n"
+           "// SCENE_LAYER_BASE[s] + l) and the BANK list of each loaded sound bank.\n"
+           "// Values are SND_PATHS slots.\n"
+           "#pragma once\n"
+           "#include <audsrv.h>\n\n"
+           "namespace soundbank {\n"
+        << "inline constexpr int SHARED_COUNT = " << r.shared.size() << ";\n"
+        << "inline constexpr int SHARED[" << (r.shared.empty() ? 1 : r.shared.size())
+        << "] = {" << list(r.shared) << "};\n";
+    table("SCENE", r.scene);
+    out << "inline constexpr int SCENE_LAYER_BASE[" << layerBase.size() << "] = {"
+        << list(layerBase) << "};\n";
+    table("LAYER", layers);
+    out << "inline constexpr int BANK_COUNT = " << nb << ";\n";
+    table("BANK", r.bank);
+    out << "\n// The resident samples by slot: the game's sound table once it manages\n"
+           "// residency (loadScene). Until then - a terrain_game.cpp owned from\n"
+           "// before the bank - the graphs load their own sounds into `own`.\n"
+           "inline audsrv_adpcm_t** g_bank = nullptr;\n"
+        << "inline audsrv_adpcm_t* own[" << (n ? n : 1) << "] = {};\n"
+        << "inline audsrv_adpcm_t* sample(int slot) {\n"
+           "  return g_bank ? g_bank[slot] : own[slot];\n"
+           "}\n\n"
+           "// Sound banks a graph has loaded (Set Sound Bank Loaded). The game\n"
+           "// notices g_bankSerial move and loads/frees on the following frames;\n"
+           "// a scene switch unloads them all.\n"
+        << "inline unsigned char g_bankOn[" << (nb ? nb : 1) << "] = {};\n"
+        << "inline int g_bankSerial = 0;\n"
+           "inline void setBank(int b, bool on) {\n"
+           "  if (b < 0 || b >= BANK_COUNT || (g_bankOn[b] != 0) == on) return;\n"
+           "  g_bankOn[b] = on ? 1 : 0;\n"
+           "  ++g_bankSerial;\n"
+           "}\n"
+           "}  // namespace soundbank\n";
+    return out.str();
+}
+
 // inc/facts.gen.hpp - the World Facts store, as the game sees it
 // (docs/world-facts.md).
 //
@@ -32784,27 +34685,74 @@ static std::string loadingDataHeader(const Project& p) {
            "  float spacing;         // quantized: gap between segments, px\n"
            "  const char* segPath;   // segment sprite; \"\" = colored rects\n"
            "};\n\n"
+           "struct LoadingAnimData {\n"
+           "  int frameFirst, frameCount;  // slice into LS_ANIM_FRAMES\n"
+           "  float x, y;    // normalized screen position, center anchor\n"
+           "  float w, h;    // on-screen size in pixels\n"
+           "  int mode;      // 0 = spinner (fps), 1 = progress (load fraction)\n"
+           "  float fps;     // spinner\n"
+           "  int playback;  // spinner: 0 = loop, 1 = ping-pong\n"
+           "  int lastAtFull;  // progress: the last frame only at 100%\n"
+           "  int afterLoad;   // waiting: spinner 0 hide / 1 spin; progress 0 hold / 1 loop last two\n"
+           "};\n\n"
            "struct LoadingScreenData {\n"
            "  float bg[3];  // clear color, 0..255\n"
-           "  int imgFirst, imgCount;  // slices into LS_IMAGES/LS_TEXTS/LS_BARS\n"
+           "  int imgFirst, imgCount;  // slices into LS_IMAGES/LS_TEXTS/LS_BARS/LS_ANIMS\n"
            "  int txtFirst, txtCount;\n"
            "  int barFirst, barCount;\n"
+           "  int animFirst, animCount;\n"
+           "  int wait;          // 0 = straight on, 1 = wait for a button\n"
+           "  int waitButton;    // 0 = any face button or START, 1 = START, 2 = Cross\n"
+           "  const char* promptPath;  // baked continue prompt; \"\" = none\n"
+           "  float promptX, promptY;  // normalized, center anchor\n"
+           "  int promptW, promptH;    // texture size\n"
+           "  int promptBlink;   // 0 = steady, 1 = blink, 2 = pulse\n"
+           "  float promptPeriod;  // seconds\n"
+           "  int promptHideOthers;  // hide bars and animations while waiting\n"
            "};\n\n";
 
     auto binPath = [](std::string s) {
         if (s.rfind("res/", 0) == 0) s = s.substr(4);
         return s;
     };
-    std::ostringstream imgs, txts, bars, screens;
-    int nImg = 0, nTxt = 0, nBar = 0;
+    std::ostringstream imgs, txts, bars, screens, anims, frames;
+    int nImg = 0, nTxt = 0, nBar = 0, nAnim = 0, nFrame = 0;
     for (size_t si = 0; si < p.loadingScreens.size(); ++si) {
         const LoadingScreenDef& ls = p.loadingScreens[si];
         screens << "    {{" << floatLit(ls.bgColor[0] * 255.0f) << ", "
                 << floatLit(ls.bgColor[1] * 255.0f) << ", "
                 << floatLit(ls.bgColor[2] * 255.0f) << "}, " << nImg << ", "
                 << ls.images.size() << ", " << nTxt << ", " << ls.texts.size()
-                << ", " << nBar << ", " << ls.bars.size() << "},  // "
-                << ls.name << "\n";
+                << ", " << nBar << ", " << ls.bars.size() << ", " << nAnim << ", "
+                << ls.anims.size() << ", ";
+        // Press to continue: the prompt is baked like a loading text under the
+        // same screen-index mangle ("ls-<i>-continue", writeGeneratedAssets).
+        if (ls.waitForButton) {
+            HudText copy = ls.prompt;
+            copy.name = "ls-" + std::to_string(si) + "-continue";
+            int tw = 8, th = 8;
+            menubake::textLayout(copy, p, tw, th);
+            screens << 1 << ", " << ls.waitButton << ", \"hud/"
+                    << menubake::textFileName(copy.name) << "\", " << floatLit(ls.prompt.pos[0])
+                    << ", " << floatLit(ls.prompt.pos[1]) << ", " << tw << ", " << th << ", "
+                    << ls.promptBlink << ", " << floatLit(ls.promptPeriod) << ", "
+                    << (ls.promptHideOthers ? 1 : 0);
+        } else {
+            screens << "0, 0, \"\", 0, 0, 0, 0, 0, 1, 0";
+        }
+        screens << "},  // " << ls.name << "\n";
+        for (const LoadingAnim& a : ls.anims) {
+            anims << "    {" << nFrame << ", " << a.frames.size() << ", " << floatLit(a.pos[0])
+                  << ", " << floatLit(a.pos[1]) << ", " << floatLit(a.size[0]) << ", "
+                  << floatLit(a.size[1]) << ", " << a.mode << ", " << floatLit(a.fps) << ", "
+                  << a.playback << ", " << (a.lastAtFull ? 1 : 0) << ", " << a.afterLoad
+                  << "},  // " << ls.name << ": " << a.name << "\n";
+            for (const HudImage& f : a.frames) {
+                frames << "    \"" << binPath(f.imagePath) << "\",\n";
+                ++nFrame;
+            }
+            ++nAnim;
+        }
         for (const HudImage& h : ls.images) {
             imgs << "    {\"" << binPath(h.imagePath) << "\", "
                  << floatLit(h.pos[0]) << ", " << floatLit(h.pos[1]) << ", "
@@ -32846,8 +34794,11 @@ static std::string loadingDataHeader(const Project& p) {
         << "constexpr int LS_IMAGE_TOTAL = " << nImg << ";\n"
         << "constexpr int LS_TEXT_TOTAL = " << nTxt << ";\n"
         << "constexpr int LS_BAR_TOTAL = " << nBar << ";\n"
+        << "constexpr int LS_ANIM_TOTAL = " << nAnim << ";\n"
+        << "constexpr int LS_ANIM_FRAME_TOTAL = " << nFrame << ";\n"
         << "inline const LoadingScreenData LS_SCREENS[LS_COUNT > 0 ? LS_COUNT : 1] = {\n"
-        << (n ? screens.str() : std::string("    {{0, 0, 0}, 0, 0, 0, 0, 0, 0},\n"))
+        << (n ? screens.str()
+              : std::string("    {{0, 0, 0}, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, \"\", 0, 0, 0, 0, 0, 1, 0},\n"))
         << "};\n\n"
         << "inline const LoadingImageData LS_IMAGES[" << (nImg > 0 ? nImg : 1)
         << "] = {\n"
@@ -32859,14 +34810,24 @@ static std::string loadingDataHeader(const Project& p) {
         << "] = {\n"
         << (nBar ? bars.str()
                  : std::string("    {0, 0, 0, 0, 0, {0, 0, 0}, {0, 0, 0}, 0, 0, \"\"},\n"))
-        << "};\n\n";
+        << "};\n\n"
+        << "inline const LoadingAnimData LS_ANIMS[" << (nAnim > 0 ? nAnim : 1) << "] = {\n"
+        << (nAnim ? anims.str() : std::string("    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},\n"))
+        << "};\n\n"
+        << "inline const char* const LS_ANIM_FRAMES[" << (nFrame > 0 ? nFrame : 1) << "] = {\n"
+        << (nFrame ? frames.str() : std::string("    \"\",\n")) << "};\n\n";
 
     // Scene -> screen assignment, resolved at codegen exactly like the editor
     // resolves it (name, else project default, else -1 = the built-in
     // hud/loading.png-on-black fallback).
     int def = p.defaultLoadingScreen;
     if (def < -1 || def >= n) def = -1;
+    int boot = p.bootLoadingScreen;
+    if (boot < -1 || boot >= n) boot = -1;
     out << "constexpr int LS_DEFAULT = " << def << ";  // -1 = built-in fallback\n"
+        << "// The first load at power-on (Assignments > Game start); -1 = the start\n"
+           "// scene's own screen.\n"
+        << "constexpr int LS_BOOT = " << boot << ";\n"
         << "inline const int SCENE_LOADING_SCREEN[" << p.scenes.size() << "] = {";
     for (size_t i = 0; i < p.scenes.size(); ++i)
         out << (i ? ", " : "") << project::loadingScreenIndexFor(p, p.scenes[i]);
@@ -34881,9 +36842,9 @@ static std::string vscodeCppProperties(const Project& p) {
     };
 
     std::string engineInc;
-    if (const std::string exe = platform::exePath(); !exe.empty()) {
-        std::filesystem::path candidate = std::filesystem::path(exe).parent_path() /
-                                          ".." / "vendor" / "tyra" / "engine" / "inc";
+    if (const std::filesystem::path binDir = platform::resourceBinDir(); !binDir.empty()) {
+        std::filesystem::path candidate =
+            binDir / ".." / "vendor" / "tyra" / "engine" / "inc";
         std::error_code ec;
         if (std::filesystem::exists(candidate, ec))
             engineInc = slashes(std::filesystem::weakly_canonical(candidate, ec).string());
@@ -36204,6 +38165,7 @@ std::vector<File> generate(const Project& source) {
         {"src\\gen\\credits.gen.cpp", creditsScript(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
         {"inc\\facts.gen.hpp", factsDataHeader(p)},
+        {"inc\\sound_bank.gen.hpp", soundBankHeader(p)},
         {"inc\\nav_data.gen.hpp", navDataHeader(p)},
         {"inc\\scripts\\navigation.gen.hpp", navigationHeader(p)},
         {"src\\gen\\navigation.gen.cpp", navigationSource(p)},
@@ -36286,14 +38248,6 @@ std::vector<File> generate(const Project& source) {
         files.push_back(
             {"inc\\scripts\\vu0_kernels.gen.hpp", vuKernelsStubHeader()});
     }
-    // The baked BLSS network (docs/neural-upscaler.md), and ONLY while the
-    // upscaler is on - a project with it off must generate exactly the file set
-    // it generated before the feature existed. The body comes from
-    // blss::emitGeneratedSource, the twin of the host forward pass; a missing
-    // <projectDir>/blss.net is not an error, it is random weights with a banner
-    // in the header and a TYRA_LOG line in the generated init.
-    if (project::blssUse(p).any)
-        files.push_back({"inc\\blss_net.gen.hpp", blssNetHeader(p)});
     // The build refusal, when there is one. Its own TU so the compiler prints
     // it once; absent while the project is clean, so a clean project's file set
     // is what it always was. project::refreshGenerated deletes a leftover.
@@ -36307,6 +38261,11 @@ std::vector<File> generate(const Project& source) {
     // drops bin/ after this refresh. Binary; refreshGenerated writes it and
     // deletes a leftover when the project stops needing it.
     if (!roadFile.empty()) files.push_back({".res-baked\\roadfile\\roads.bin", roadFile});
+    // Baked instanced scatter: only while some volume draws as Instanced (the
+    // game includes it through __has_include); refreshGenerated deletes a
+    // leftover.
+    if (std::string inst = procInstancesHeader(p); !inst.empty())
+        files.push_back({"inc\\proc_instances.gen.hpp", std::move(inst)});
     // Source names need no magic suffix. The encoder is outside the model,
     // so supply just the additional paths that continuous vehicle roles use.
     // Legacy *-loop.wav still works without this optional manifest.
@@ -36343,7 +38302,7 @@ std::vector<File> generate(const Project& source) {
             name == "menu_data.gen.hpp" || name == "terrain_heights.gen.hpp" ||
             name == "texture_data.gen.hpp" || name == "ao_data.gen.hpp" ||
             name == "probe_data.gen.hpp" || name == "decal_data.gen.hpp" ||
-            name == "shadow_data.gen.hpp" || name == "blss_net.gen.hpp" ||
+            name == "shadow_data.gen.hpp" ||
             name == "prefab_data.gen.hpp" || name == "icon_data.gen.hpp" ||
             name == "hud_data.gen.hpp" || name == "font_data.gen.hpp" ||
             name == "loading_data.gen.hpp" || name == "credits_data.gen.hpp" ||
