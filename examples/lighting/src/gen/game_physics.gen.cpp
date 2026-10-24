@@ -1671,6 +1671,7 @@ void TerrainGame::renderScene() {
   // the same deal one step further: the game built these bags itself, so they
   // need no per-object bookkeeping at all, only a distance test and a submit.
   { const u32 ct=costStart(); renderProcChunks(); costEnd("Procedural",-1,ct); }
+  { const u32 ct=costStart(); renderProcInstances(); costEnd("Instances",-1,ct); }
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
   renderCollisionBoxes();
@@ -2385,9 +2386,25 @@ void TerrainGame::renderScene() {
                                       : Vec4(ux, uy, uz, 0.0F);
     }
   }
+  // BLSS particles only (docs/upscaler.md): every emitter of the MAIN view
+  // draws into the reduced target, depth-tested against a quarter-area copy of
+  // the finished opaque scene, and is composited back where it drew. Not in
+  // split screen - each half is a scissored view of one buffer, so one
+  // full-screen copy cannot serve both. Skipped when nothing would draw: the
+  // two copies and the composite are not free.
+  bool blssParts = false;
+  if (BLSS_PARTICLES && !splitPassActive &&
+      engine->renderer.core.blss.isParticleMode())
+    for (ParticleSystem& ps : particles)
+      if (ps.bag && ps.bag->count > 0) { blssParts = true; break; }
+  if (blssParts) {
+    stapip.core.flushDeferred();  // queued stamps are opaque scene: draw them first
+    engine->renderer.core.blss.beginParticles();
+  }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) renderWorldBag(ps.bag.get());
 
+  if (blssParts) engine->renderer.core.blss.endParticles();
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
   costEnd("Particles",-1,costParticleStart);
   if (costSeq) {

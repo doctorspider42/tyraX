@@ -9772,6 +9772,9 @@ void TerrainGame::setupAnimObject(int index) {
   g.animMat.identity();
   g.animLightMat.identity();
   g.animInfoBag = std::make_unique<StaPipInfoBag>();
+  // Skinned: the torch's receiver pass never re-renders it (see
+  // PipelineInfoBag::torchPerPixel).
+  g.animInfoBag->torchPerPixel = false;
   g.animInfoBag->model = &g.animMat;
   g.animInfoBag->shadingType = TyraShadingGouraud;  // per-vertex lighting
   g.animInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
@@ -15409,6 +15412,9 @@ void TerrainGame::updateAndRenderLightPools() {
       // its own place in the caster order.
       int wSliceStart[3] = {0, 0, 0};
       int wSliceCount[3] = {0, 0, 0};
+      // The matrix each slice draws under: the pass's identity for world
+      // geometry, a physics body's own objMat for its local floats.
+      M4x4* wSliceModel[3] = {&b.mat, &b.mat, &b.mat};
       b.wVerts.clear();
       b.wSts.clear();
       b.wColors.clear();
@@ -15449,11 +15455,25 @@ void TerrainGame::updateAndRenderLightPools() {
             rebuildObjectGeometry(oi);
           }
           ObjectGeometry& g = objectGeometry[oi];
-          // Nothing to re-render: animated models (skinned buffers) and
-          // physics bodies (LOCAL verts under a live matrix - an EE transform
-          // would not be bit-identical to VU1's, and this pass depends on
-          // EQUAL depth). Both are small and keep the cone instead.
-          if (g.parts.empty() || g.matrixMode) continue;
+          // Nothing to re-render: animated models (skinned buffers), which
+          // keep the cone instead. A physics body (LOCAL verts under a live
+          // matrix) IS re-rendered, and the same way it draws itself: its
+          // own local floats under its own objMat, so VU1 lands every pixel
+          // at exactly the depth the body wrote - an EE transform would not
+          // be bit-identical, and this pass depends on EQUAL depth. Only
+          // the facing test and the STQ, which never touch depth, use the
+          // world positions. (It used to be skipped, and once a lamp kept a
+          // crate's per-vertex slot the torch could not reach it at all.)
+          if (g.parts.empty()) continue;
+          const bool local = g.matrixMode;
+          if (local) wSliceModel[ri] = &g.objMat;
+          auto toWorld = [&](const Vec4& v) {
+            if (!local) return v;
+            const float* m = g.objMat.data;
+            return Vec4(m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12],
+                        m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13],
+                        m[2] * v.x + m[6] * v.y + m[10] * v.z + m[14], 1.0F);
+          };
           // Two things per TRIANGLE, both cheap and both reported from the
           // console. A FACING cull: the STQ is a function of position alone,
           // so a face pointing away from the torch sampled a lit texel - a
@@ -15481,9 +15501,9 @@ void TerrainGame::updateAndRenderLightPools() {
               if ((int)b.wVerts.size() >= wLimit ||
                   b.wVerts.size() >= 3997)
                 break;  // fill-rate backstop
-              const Vec4& a3 = part.vertices[vi];
-              const Vec4& b3 = part.vertices[vi + 1];
-              const Vec4& c3 = part.vertices[vi + 2];
+              const Vec4 a3 = toWorld(part.vertices[vi]);
+              const Vec4 b3 = toWorld(part.vertices[vi + 1]);
+              const Vec4 c3 = toWorld(part.vertices[vi + 2]);
               float nx2 = (b3.y - a3.y) * (c3.z - a3.z) -
                           (b3.z - a3.z) * (c3.y - a3.y);
               float ny2 = (b3.z - a3.z) * (c3.x - a3.x) -
@@ -15504,7 +15524,8 @@ void TerrainGame::updateAndRenderLightPools() {
                 continue;  // faces away from the torch
               const Vec4 tri3[3] = {a3, b3, c3};
               for (int k3 = 0; k3 < 3; ++k3) {
-                b.wVerts.push_back(tri3[k3]);
+                // The body's own float, untouched, under its own matrix.
+                b.wVerts.push_back(local ? part.vertices[vi + k3] : tri3[k3]);
                 const Vec4 st3 = goboST(tri3[k3].x, tri3[k3].y, tri3[k3].z);
                 b.wSts.push_back(st3);
                 float reach = 1.0F - st3.z / FLASHLIGHT_RANGE;
@@ -15601,8 +15622,10 @@ void TerrainGame::updateAndRenderLightPools() {
         b.wColors.bindFrom(b.wColorBag, wSliceStart[ri]);
         b.wColorBag->single = nullptr;
         b.wInfo->additiveBlendFix = (u8)wfix;
+        b.wInfo->model = wSliceModel[ri];
         b.wBag->bboxVersion = ++g_bboxStamp;
         renderWorldBag(b.wBag.get());
+        b.wInfo->model = &b.mat;
       };
       // The occluder candidates (pickVolCasters above, shared with the
       // scene's spot lights). Nothing nearer than the VIRTUAL torch may
@@ -16014,14 +16037,22 @@ void TerrainGame::updateAndRenderLightPools() {
       // cuts through a chord that a knee-high lift covers on a short patch.
       // Seen as bright trapezoids marching into the distance - the pieces of
       // the pool that survived the z test between the crests that ate it.
-      float lift = 0.10F + 0.07F * across + 0.02F * along;
-      if (lift > 1.2F) lift = 1.2F;
+      // That is now a CEILING, not the lift: the relief measured under the
+      // patch (the hull pass below) decides how much of it is spent. The
+      // float is not invisible where the canvas runs into a WALL - the sheet
+      // in front of the face covers the wall's foot up to the lift's height,
+      // and the torch drew a bright band with a dead-straight top across the
+      // bottom of every box it lit ("the lit blocks have two parts",
+      // examples/lighting, ~0.6 u on flat paving). Flat ground needs no
+      // float at all, so it gets none beyond a few centimetres.
+      float liftCap = 0.10F + 0.07F * across + 0.02F * along;
+      if (liftCap > 1.2F) liftCap = 1.2F;
       // ...but never above the TORCH: a patch lifted past the lens is seen
       // from below and covers no ground pixel at all (a crouched or
       // hand-low torch a hair above the floor lost its whole pool to this).
       {
         const float headroom = (torch.y - baseY) * 0.5F;
-        if (lift > headroom) lift = headroom > 0.02F ? headroom : 0.02F;
+        if (liftCap > headroom) liftCap = headroom > 0.02F ? headroom : 0.02F;
       }
       float aOff[9], cOff[9];
       for (int i = 0; i <= cellsA; ++i) {
@@ -16082,6 +16113,11 @@ void TerrainGame::updateAndRenderLightPools() {
       // About 300 height reads per frame; the lift still rides on top, for
       // the triangle split the bilinear read does not see.
       float hull[9][5];
+      // How far the ground under the patch departs from the sheet through
+      // its cells' corners, either way - zero on flat or planar ground. A dip
+      // matters as much as a bulge here: it is the terrain's own triangle
+      // split, which the bilinear read does not see, that the lift covers.
+      float relief = 0.0F;
       if (!onGeometry) {
         constexpr int kSub = 4;
         static float sub[8 * kSub + 1][4 * kSub + 1];
@@ -16113,6 +16149,8 @@ void TerrainGame::updateAndRenderLightPools() {
                                     (h01 * (1.0F - fa) + h11 * fa) * fc;
                 const float d = sub[ia * kSub + sa][ic * kSub + sc] - sheet;
                 if (d > worst) worst = d;
+                if (d > relief) relief = d;
+                if (-d > relief) relief = -d;
               }
             }
             if (worst > bulge[ia][ic]) bulge[ia][ic] = worst;
@@ -16125,6 +16163,10 @@ void TerrainGame::updateAndRenderLightPools() {
           for (int ic = 0; ic <= cellsC; ++ic)
             hull[ia][ic] = sub[ia * kSub][ic * kSub] + bulge[ia][ic];
       }
+      // A few centimetres always (the depth bias does the rest), plus twice
+      // the measured relief, up to the old size-based ceiling.
+      float lift = 0.05F + 2.0F * relief;
+      if (lift > liftCap) lift = liftCap;
       int v = 0;
       for (int iz = 0; iz < cellsA; ++iz) {
         for (int ix = 0; ix < cellsC; ++ix) {
@@ -17522,12 +17564,64 @@ void TerrainGame::renderProjShadows() {
       // the yard's log, again - and a caster you cannot see holding one of
       // four slots is the wrong trade even when a sliver of its shadow could
       // enter the frame.
-      const float reach = r * 1.5F;
-      const float fwd = dx * cfx + dy * cfy + dz * cfz;
-      if (fwd < -reach) continue;  // behind the camera
-      const float lat2 = d2 - fwd * fwd;
-      const float lim = (fwd > 0.0F ? fwd : 0.0F) * 1.6F + reach;  // ~58 deg
-      if (lat2 > lim * lim) continue;  // beside the frame
+      auto inView = [&](float px, float py, float pz, float reach) {
+        const float vx = px - cameraPosition.x, vy = py - cameraPosition.y,
+                    vz = pz - cameraPosition.z;
+        const float fwd = vx * cfx + vy * cfy + vz * cfz;
+        if (fwd < -reach) return false;  // behind the camera
+        const float lat2 = vx * vx + vy * vy + vz * vz - fwd * fwd;
+        const float lim = (fwd > 0.0F ? fwd : 0.0F) * 1.6F + reach;  // ~58 deg
+        return lat2 <= lim * lim;  // not beside the frame
+      };
+      // ...or one of its SHADOWS is. A low lamp or moon lays the silhouette up
+      // to 3.5 radii away from the caster, so walking past an obelisk turned
+      // it out of the frame while the shadow the street lamp threw from it
+      // still lay across the screen - and the shadow switched off
+      // mid-picture ("I walk forward and the shadow suddenly vanishes",
+      // examples/lighting). Each footprint is the one the slot below lays:
+      // the ray from the light through the centre down to the ground, the
+      // walk capped at the patch, the patch's own half size. Still honest
+      // about the yard's case: a caster behind the camera whose shadows lie
+      // behind it as well qualifies for nothing.
+      bool visible = inView(ccx, ccy, ccz, r * 1.5F);
+      const float cap = r * 3.5F;
+      float groundY = 0.0F;
+      bool haveGround = false;
+      // dirX/Y/Z: the shadow ray's direction (down, away from the light).
+      auto footprintInView = [&](float dirX, float dirY, float dirZ,
+                                 bool sun, float eDist) {
+        if (dirY > -0.0001F) return false;  // level or upward: no ground
+        if (!haveGround) groundY = groundSurfaceAt(ccx, ccz), haveGround = true;
+        float t = (ccy - groundY) / -dirY;
+        if (t < 0.0F) t = 0.0F;
+        const float hl = sqrtf(dirX * dirX + dirZ * dirZ);
+        if (hl * t > cap) t = cap / hl;
+        float half = sun ? r * 1.6F + t * 0.25F
+                         : r * 1.7F * ((eDist + t) / eDist);
+        if (half > cap) half = cap;
+        return inView(ccx + dirX * t, groundY, ccz + dirZ * t, half);
+      };
+      if (!visible && sunScore > 0.0F)
+        visible = footprintInView(-sxd, -syd, -szd, true, 1.0F);
+      auto lightInView = [&](float lx, float ly, float lz, float radius) {
+        const float lx2 = ccx - lx, ly2 = ccy - ly, lz2 = ccz - lz;
+        const float ld = sqrtf(lx2 * lx2 + ly2 * ly2 + lz2 * lz2);
+        if (ld < 0.05F || ld >= radius) return false;  // out of its reach
+        return footprintInView(lx2 / ld, ly2 / ld, lz2 / ld, false, ld);
+      };
+      for (const DynLightRt& L : g_dynLights) {
+        if (visible) break;
+        if (L.lastLevel <= 0.0F || L.objIndex >= (int)runtimeObjects.size())
+          continue;
+        const SceneObjectData& ld = runtimeObjects[L.objIndex].data;
+        visible = lightInView(ld.position[0], ld.position[1], ld.position[2],
+                              ld.lightRadius);
+      }
+      for (const BakedPointLight& L : g_scenePointLights) {
+        if (visible) break;
+        visible = lightInView(L.pos.x, L.pos.y, L.pos.z, L.radius);
+      }
+      if (!visible) continue;
       cands.push_back({i, d2, sqrtf(d2) / (r > 0.5F ? r : 0.5F)});
     }
   }
@@ -17817,7 +17911,16 @@ void TerrainGame::renderProjShadows() {
     // light you stand next to can still outbid it through its falloff term.
     // (Volumes mode carries the torch's shadows in the destination alpha
     // instead - the slots stay free for the scene's own lights there.)
-    if (!FLASH_SHADOW_VOLUMES && g_flashEnabled &&
+    // A torch held IN the eye does not compete at all. Its silhouette lands
+    // exactly behind the caster on screen, so winning the slot drew nothing
+    // anyone can see and took the lamp's shadow away with it: "I shine the
+    // torch into the shadow and it disappears" (examples/lighting, whose
+    // torch sat at 0,0). Off the eye it casts as before.
+    const bool torchOffEye =
+        FLASHLIGHT_OFF_RIGHT * FLASHLIGHT_OFF_RIGHT +
+            FLASHLIGHT_OFF_DOWN * FLASHLIGHT_OFF_DOWN >
+        0.05F * 0.05F;
+    if (!FLASH_SHADOW_VOLUMES && torchOffEye && g_flashEnabled &&
         g_flashOn{{VEHICLE_DRIVING_AND}}) {
       const float tx2 = cx - torchPos.x, ty2 = cy - torchPos.y,
                   tz2 = cz - torchPos.z;

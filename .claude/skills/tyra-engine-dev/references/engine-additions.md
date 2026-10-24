@@ -11,10 +11,10 @@ Layout: `vendor/tyra/engine/{inc,src}/` mirror each other: `audio`, `debug`, `fi
 - 2D origin per mode: display-framebuffers.md.
 
 ## Scene dynamic lights
-`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/`pickDynLight`. Colour VU1 programs have ONE spot slot per mesh; `StaPipCore::render` picks the strongest contributor (flashlight or point light) per bag on its world bounding sphere → `StaPipQBufferRenderer::setBagLight`. A point light uses the SAME spot constants (zero direction, `cosCut2 = -1`, saturated `invSoft`) — no VU1 change. Levers (don't conflate):
+`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/`pickDynLight`. Colour VU1 programs have ONE spot slot per mesh; `StaPipCore::render` picks per bag on its world bounding sphere: a placed light reaching it properly (att^2 >= 0.1 at the nearest point, a spot only with the bag in its cone) wins over the flashlight (`sceneLightsKeepMeshes`, default true since 2.2.0 - the torch reaches aimed-at props per pixel through the game's receiver pass; a bag that pass cannot draw sets `PipelineInfoBag::torchPerPixel = false` and keeps strongest-wins); otherwise the strongest contributor → `StaPipQBufferRenderer::setBagLight`. A point light uses the SAME spot constants (zero direction, `cosCut2 = -1`, saturated `invSoft`) — no VU1 change. Levers (don't conflate):
 - `PipelineInfoBag::dynLightPick = false` — no scene light (generated games: terrain chunks — neighbours picking different lights truncate a pool at the chunk border; the sky dome — camera-centred).
 - `PipelineInfoBag::dynLightSkipSlot` — a `dynLights` index the pick must skip (spot receiver pass draws that lamp projected).
-- `spotLit = false` — no torch.
+- `spotLit = false` — no torch. On a bag that still picks, the pick runs without the torch (`pickDynLight(..., withSpot = false)`) and the scene's lights stay; before 2.2.0 it handed every such bag the off light, so a wall in the beam lost the lamp beside it.
 - Spot bounds / cone sizing: static-pipeline.md.
 
 ## Input

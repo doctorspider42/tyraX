@@ -3435,7 +3435,8 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
       // box (stampWorldBox) - the same numbers, not re-derived per frame.
       light = rendererCore->pickDynLight(
           s->worldCenter, s->worldRadius, bag->info->dynLightSkipSlot,
-          bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u);
+          bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u,
+          bag->info->spotLit, bag->info->torchPerPixel);
     } else {
       const M4x4& m = s->model;
       const Vec4 mid(0.5F * (s->lo.x + s->hi.x), 0.5F * (s->lo.y + s->hi.y),
@@ -3449,10 +3450,15 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
           worldCenter,
           0.5F * Math::sqrtNonNegative(ex * ex + ey * ey + ez * ez) * scale,
           bag->info->dynLightSkipSlot,
-          bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u);
+          bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u,
+          bag->info->spotLit, bag->info->torchPerPixel);
     }
   }
-  if (!dynamicLightReceive || !bag->info->spotLit) light = noSpot;
+  // Modified by TyraX: as StaPipCore - spotLit = false drops the torch from
+  // the pick, not the scene's lights.
+  if (!dynamicLightReceive ||
+      (!bag->info->spotLit && (!bag->info->dynLightPick || light == nullptr)))
+    light = noSpot;
   auto meshSpot =
       fastLight ? buildSpotForBagInverse(light ? *light : rendererCore->spot,
                                          s->inv, s->invT)

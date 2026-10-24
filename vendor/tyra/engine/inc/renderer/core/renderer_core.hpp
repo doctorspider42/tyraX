@@ -161,6 +161,13 @@ class RendererCore : public RendererCore2dBounds {
   // A/B knob for the rig: false = the pre-1.176.2 pick (full entries) and no
   // per-stamp light cache. Default true.
   static bool fastLightPick;
+  // Modified by TyraX: a placed light that genuinely reaches a mesh keeps its
+  // one VU1 slot against the camera flashlight (pickDynLight). The torch
+  // reaches what it aims at per pixel (the game's receiver pass) and lights
+  // the ground through its pool; taking a lamp-lit prop's only slot made the
+  // lamp's light vanish from it whenever the beam swept by. false = the old
+  // strongest-wins pick. Default true.
+  static bool sceneLightsKeepMeshes;
 
   // Set once Renderer2D has drained PATH1 this frame (sprites race the tail
   // of the async 3D stream otherwise - see Renderer2D::render). Reset by
@@ -254,10 +261,15 @@ class RendererCore : public RendererCore2dBounds {
    * PipelineInfoBag::dynLightSkipSlot. */
   /** skipMask: further dynLights slots to ignore, as bits (the baked ones,
    * for a bag whose vertex colours carry them - dynBakedMask). */
+  /** withSpot = false: the camera flashlight is not a candidate (a bag with
+   * spotLit = false that still takes the scene's lights). Then nothing in
+   * reach returns nullptr instead of the flashlight state. */
   const RendererCoreSpotLight* pickDynLight(const Vec4& worldCenter,
                                             const float& worldRadius,
                                             int skipSlot = -1,
-                                            u32 skipMask = 0) const;
+                                            u32 skipMask = 0,
+                                            bool withSpot = true,
+                                            bool sceneKeeps = true) const;
 
   /** Clear screen and update view frustum for frustum culling. NO 3D support */
   void beginFrame();

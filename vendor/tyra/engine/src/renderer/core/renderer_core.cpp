@@ -284,18 +284,29 @@ int RendererCore::addDynSpotLight(const Color& color,
 }
 
 bool RendererCore::fastLightPick = true;
+bool RendererCore::sceneLightsKeepMeshes = true;
 
 const RendererCoreSpotLight* RendererCore::pickDynLight(
     const Vec4& worldCenter, const float& worldRadius, int skipSlot,
-    u32 skipMask) const {
+    u32 skipMask, bool withSpot, bool sceneKeeps) const {
   // Score = luminance * quadratic falloff at the sphere's NEAREST point, so
   // a big mesh near a torch competes fairly with the camera flashlight.
-  const RendererCoreSpotLight* best = &spot;
+  // Modified by TyraX: withSpot = false drops the camera flashlight from the
+  // contest AND from the fallback - a spotLit = false bag keeps the scene's
+  // lights (a wall the torch's pool lands on must stay lit by the lamp beside
+  // it), and the caller maps "nothing" to its off light.
+  const RendererCoreSpotLight* best = withSpot ? &spot : nullptr;
   float bestScore = -1.0F;
+  // Modified by TyraX: the strongest placed light that reaches the mesh
+  // properly - its falloff at the sphere's nearest point at least ~0.32
+  // (att^2 >= 0.1, inside about two thirds of its range) and, for a scene
+  // spot, the mesh inside its cone. See sceneLightsKeepMeshes.
+  const RendererCoreSpotLight* bestScene = nullptr;
+  float bestSceneScore = -1.0F;
 
   const RendererCoreSpotLight* candidates[DYN_LIGHTS_MAX + 1];
   u32 count = 0;
-  if (spot.enabled) candidates[count++] = &spot;
+  if (withSpot && spot.enabled) candidates[count++] = &spot;
   for (u32 i = 0; i < dynLightCount; i++) {
     // Modified by TyraX: the bag's named exclusion (its light is drawn
     // projected, per pixel, by the game's shadow pass instead).
@@ -348,11 +359,29 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
         if (cosAng + worldRadius / dist < l->cosCutoff) score *= 0.05F;
       }
     }
+    if (l != &spot && att * att >= 0.1F && score > bestSceneScore) {
+      // (A scene spot whose cone misses the mesh lights next to nothing
+      // there, so it holds nothing.)
+      bool inCone = l->point;
+      if (!inCone) {
+        const float dist = d + worldRadius;
+        inCone = dist <= 1e-4F ||
+                 -(dx * l->direction.x + dy * l->direction.y +
+                   dz * l->direction.z) / dist + worldRadius / dist >=
+                     l->cosCutoff;
+      }
+      if (inCone) {
+        bestSceneScore = score;
+        bestScene = l;
+      }
+    }
     if (score > bestScore) {
       bestScore = score;
       best = l;
     }
   }
+  if (sceneLightsKeepMeshes && sceneKeeps && bestScene != nullptr)
+    return bestScene;
   return best;
 }
 

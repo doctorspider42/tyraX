@@ -42,6 +42,7 @@ class PipelineInfoBag {
     dynLightSkipSlot = -1;
     dynLightSkipBaked = false;
     spotLit = true;
+    torchPerPixel = true;
     dateLit = false;
   }
   ~PipelineInfoBag() {}
@@ -151,10 +152,23 @@ class PipelineInfoBag {
    * cell-sized steps. So the terrain takes the light from the pool alone and
    * sets this false; everything small enough to be lit properly keeps it.
    *
-   * Nothing else in the frame changes - the scene's own point lights never
-   * reached such a bag anyway (that is what dynLightPick = false means).
+   * Nothing else in the frame changes. A bag that still picks
+   * (dynLightPick = true - a wall the torch's pool lands on) keeps the
+   * scene's lights: the pick leaves the torch out instead of handing the
+   * bag the off light (pickDynLight's withSpot).
    */
   bool spotLit;
+
+  /**
+   * Modified by TyraX: the game can light this bag with the camera
+   * flashlight PER PIXEL when it is in the beam (its receiver pass), so a
+   * placed light that reaches it keeps the bag's one per-vertex slot
+   * (RendererCore::sceneLightsKeepMeshes). False for what that pass cannot
+   * draw - a body under a live matrix, a skinned model: there the cone is
+   * the torch's only way in, and the strongest light wins the slot as
+   * before. Default true.
+   */
+  bool torchPerPixel;
 
   /**
    * Modified by TyraX: gate this bag on the destination-alpha shadow mask

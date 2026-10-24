@@ -997,14 +997,19 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   if (wantsLightPick) {
     bagLight = rendererCore->pickDynLight(
         worldCenter, worldRadius, bag->info->dynLightSkipSlot,
-        bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u);
+        bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u,
+        bag->info->spotLit, bag->info->torchPerPixel);
   }
   // Modified by TyraX: a bag may opt out of the camera spot as well
   // (PipelineInfoBag::spotLit - the terrain, whose light comes from the
   // flashlight's projected pool instead). A null bagLight means "the global
   // flashlight", so opting out needs a light OBJECT rather than a null: the
   // one below is off and black, which the programs compute with as a no-op.
-  if (!dynamicLightReceive || !bag->info->spotLit) bagLight = &kNoSpotLight;
+  // A picking bag that opts out still takes the scene's lights: the pick
+  // above left the torch out, and only "nothing in reach" lands here.
+  if (!dynamicLightReceive ||
+      (!bag->info->spotLit && (!wantsLightPick || bagLight == nullptr)))
+    bagLight = &kNoSpotLight;
   // Modified by TyraX: test the selected light in the same local space as
   // its shader, using the existing versioned bounds. Particle descriptors
   // do not enclose their expanded billboard corners, so remain unfiltered.

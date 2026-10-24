@@ -33,7 +33,7 @@ contains. Off, objects appear at their literal spawn position, as before.
 ### Drop to floor (`End`)
 
 Independent of the preference: select any number of objects and press **End**
-(or *Scene > Drop to floor*) to rest each one on the first surface **below**
+(or *Edit > Drop to floor*) to rest each one on the first surface **below**
 it. Unlike the insert snap, nothing can lift an object — a prop hovering over
 a shelf lands on the shelf, a prop already on the ground stays put. One undo
 step for the whole selection.

@@ -1498,6 +1498,15 @@ void App::drawMainMenus() {
                             hasProject_ && (pastePending_ || !clipboard_.empty())))
             pasteObject();
         ImGui::Separator();
+        // An edit of the selection, like copy and group - not a scene setting.
+        if (menuact::MenuItem("Drop to floor", "End", false,
+                              hasProject_ && !selection_.empty()))
+            dropSelectionToFloor();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Rest every selected object on the first surface below it "
+                "-\nthe terrain or the top of another object.");
+        ImGui::Separator();
         // The modal seeds its own fields when it opens (the start page opens
         // it too).
         if (menuact::MenuItem("Preferences...")) {
@@ -1791,13 +1800,6 @@ void App::drawMainMenus() {
             drawAddObjectMenu();
             menuact::EndMenu();
         }
-        ImGui::Separator();
-        if (menuact::MenuItem("Drop to floor", "End", false, !selection_.empty()))
-            dropSelectionToFloor();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(
-                "Rest every selected object on the first surface below it "
-                "-\nthe terrain or the top of another object.");
         ImGui::Separator();
         if (menuact::MenuItem("Scene Preferences...")) openScenePreferences();
         menuact::EndMenu();

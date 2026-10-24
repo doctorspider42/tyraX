@@ -533,8 +533,11 @@ class TerrainGame : public Tyra::Game {
   // costing four: a volume owns a region, so its prefabs can share the
   // region's chunks. A flow-node spawn passes -1, because Despawn Prefab has
   // to be able to take that one instance's geometry away again.
+  // lodModel/lodDist: the pool row's distant version (a volume spawn only) -
+  // that model replaces the merged members as a whole past lodDist.
   int spawnPrefabAt(int prefabIndex, float x, float y, float z, float yaw,
-                    float scale, int mergeOwner = -1);
+                    float scale, int mergeOwner = -1, int lodModel = -1,
+                    float lodDist = 0.0F);
   void despawnPrefabsNamed(int prefabIndex);  // -1 = every instance
   // Generates one runtime volume and builds its geometry. seed: 0 = the
   // authored one, -1 = a fresh one, anything else = use it.
@@ -725,6 +728,14 @@ class TerrainGame : public Tyra::Game {
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};
     float centre[3] = {0, 0, 0};
     float drawDist = 0.0F;  // 0 = always drawn
+    // Distant version per pool row (docs/procedural-generation.md): -1 = no
+    // switch, 0 = the near geometry, 1 = the far model. A switch group is
+    // keyed by the INSTANCE's cell (cx, cy, cz), not each member's, and its
+    // chunks share lodRef and lodDist, so near and far flip together.
+    int lodTier = -1;
+    int cy = 0;
+    float lodDist = 0.0F;
+    float lodRef[3] = {0, 0, 0};
     // Something in this chunk carries per-VERTEX colour that varies across a
     // face, so it must be Gouraud-shaded. Sticky, and safe to be: Gouraud over
     // equal corner colours is the flat result, so a chunk that mixes blocks
@@ -752,6 +763,68 @@ class TerrainGame : public Tyra::Game {
     short instance;  // prefab instance handle, -1 = a volume's own geometry
   };
   std::vector<StaticBox> procColliders;
+  // Distant-version switch groups of runtime volumes: the reference point of
+  // each (volume, cell), fixed by the first instance that claimed the cell.
+  // The cell grid starts at multiples of the cell size, a scattered lattice
+  // usually CENTRES its instances there - a cell-centre reference would sit
+  // on an instance's edge and skew every distance by half a cell.
+  struct ProcLodRef {
+    int owner;
+    int cx, cy, cz;
+    float p[3];
+  };
+  std::vector<ProcLodRef> procLodRefs;
+  // --- Instanced scatter (docs/procedural-generation.md, "Instanced") -------
+  // A volume whose Output says "Draw as: Instanced" keeps ONE copy of each
+  // model and ~40 bytes per instance instead of merging world-space copies.
+  // The geometry is model-local and unscaled; its colours are baked once per
+  // yaw bucket (the directional light depends on how the copy is turned), and
+  // the copies are drawn by StaPipCore::renderInstances - one ordinary submit
+  // per (model, bucket) and an MVP + one REF for every further copy.
+  static constexpr int kInstYawBuckets = 4;
+  struct ProcInstGeo {
+    int model = -1;
+    // One position/ST array PER BUCKET, not one shared: the baked-stream cache
+    // keeps one entry per vertex array, so four buckets over one array evicted
+    // each other every frame and every copy group re-baked (measured: 88
+    // ordinary submits a frame for 28 groups, 0 of them clip crossings).
+    BagArray<Tyra::Vec4> vertices[kInstYawBuckets];
+    BagArray<Tyra::Vec4> sts[kInstYawBuckets];
+    BagArray<Tyra::Color> colors[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipBag> bag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag[kInstYawBuckets];
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    Tyra::M4x4 identity;
+    float radius = 0.0F;  // bounding sphere of the model, unscaled
+  };
+  std::vector<std::unique_ptr<ProcInstGeo>> procInstGeo;
+  struct ProcInst {
+    float axes[9];  // rotated(X/Y/Z axis) x scale - the matrix columns
+    float x, y, z;
+    short model, lodModel;  // gameModels indices; lodModel -1 = none
+    float lodDist2;         // switch distance squared (0 = never)
+    unsigned char bucket;   // shading bucket of the yaw
+  };
+  struct ProcInstCell {
+    int owner;  // procrt volume, -4 = a baked instanced volume
+    float mn[3], mx[3];
+    float drawDist;
+    int first, count;  // range in procInsts
+  };
+  std::vector<ProcInst> procInsts;
+  std::vector<ProcInstCell> procInstCells;
+  // Per frame: the matrices of the visible copies, grouped by (geo, bucket).
+  std::vector<std::vector<Tyra::M4x4>> procInstMats;
+  // One geo per texture a model's parts use (untextured parts share one: Kd
+  // is folded into the colours), built on first use per scene.
+  std::vector<int> procInstGeoFirst, procInstGeoCount;  // by gameModels index
+  int procInstGeoRange(int model, int* count);
+  void procAddInstance(int owner, const SceneObjectData& d, int lodModel,
+                       float lodDist, bool collide);
+  void procFinishInstances(int owner, float cell, float drawDist, int from);
+  void procClearInstances(int owner);
+  void renderProcInstances();
   // Live prefab instances, so Despawn Prefab can find what it made.
   struct PrefabInstance {
     int prefab = -1;              // PREFAB_NAMES index, -1 = free slot
@@ -787,9 +860,14 @@ class TerrainGame : public Tyra::Game {
   // volume, a prefab instance) differ only in where the transforms come from.
   // blockAo is the table procBlockVertexAo filled, and passing it is what
   // makes an instance a self-occluding block rather than a scattered model.
+  // lodAnchor (world origin of the scattered point) picks the chunk cell -
+  // the instance's, with height - instead of the object's own position;
+  // lodTier >= 0 also puts the object in that cell's distant-version group.
   void procAddMergedObject(int owner, int instance, const SceneObjectData& d,
                            unsigned char faces,
-                           const unsigned char* blockAo = nullptr);
+                           const unsigned char* blockAo = nullptr,
+                           int lodTier = -1, float lodDist = 0.0F,
+                           const float* lodAnchor = nullptr);
   void procFinishChunks();
   // Baked static lamps (docs/dynamic-light-receivers.md, "Baked lamp light").
   void applyBakedLampsToChunk(ProcChunk& c, bool force);
@@ -829,14 +907,14 @@ class TerrainGame : public Tyra::Game {
   // Exact mode/geometry fields: no packed-key collisions or frame-address key.
   struct InterleaveMode {
     u32 video, display, color, buffers;
-    bool field, blss, limiter, yield, widescreen, dither, network;
+    bool field, blss, limiter, yield, widescreen, dither;
     float width, height, renderHeight, rasterWidth, rasterHeight;
     int lowW, lowH, frameWidth, x0, x1, y0, y1;
     bool operator==(const InterleaveMode& o) const {
       return video == o.video && display == o.display && color == o.color &&
              buffers == o.buffers && field == o.field && blss == o.blss &&
              limiter == o.limiter && yield == o.yield && widescreen == o.widescreen &&
-             dither == o.dither && network == o.network && width == o.width &&
+             dither == o.dither && width == o.width &&
              height == o.height && renderHeight == o.renderHeight &&
              rasterWidth == o.rasterWidth && rasterHeight == o.rasterHeight &&
              lowW == o.lowW && lowH == o.lowH && frameWidth == o.frameWidth &&
@@ -1022,6 +1100,7 @@ class TerrainGame : public Tyra::Game {
                   float dvy, float dvz);
   void renderScene();
   void updateAdaptiveResolution();
+  int upscalerMode = 0;  // Set Upscaler: 0 scene, 1 native, 2 reduced, 3 auto
   int adaptiveScene = -1;
   int adaptiveWarmup = 0;
   int adaptiveSlowRun = 0;

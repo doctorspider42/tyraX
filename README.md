@@ -557,7 +557,7 @@ wait for their polish pass.
 | [probe-aim](examples/probe-aim) | A chrome ball that shows what's behind you: probes aimed along the reflected ray |
 | [texture-atlas](examples/texture-atlas) | Thirty crates, thirty tiny textures, one shared GS page - and 65 KB of VRAM back, measured both ways |
 | [texture-feeds](examples/texture-feeds) | Two monitors on a wall — one plays live CCTV, the other a raytraced mirror |
-| [lighting](examples/lighting) | One dusk plaza wearing everything at once: torches, shafts, flare, god rays, shadows, a flashlight |
+| [lighting](examples/lighting) | One night plaza wearing everything at once: flickering torches, a street lamp carving shadow volumes, a moon, fog and a held-off-the-eye flashlight |
 | [glow](examples/glow) | A midnight walk through four stations of things that glow |
 | [global-illumination](examples/global-illumination) | One red wall, one green wall — every other tint in the room is bounce |
 | [gi-showcase](examples/gi-showcase) | The guided GI tour, ending in a room lit by nothing but bounce |
