@@ -1,0 +1,1 @@
+{ "id": "f8343a93c37b42dc", "name": "hum-b", "type": "sound", "position": [0, 1.5, 14], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 0], "physics": false, "layer": "building-b", "sound": { "path": "res/sfx/hum-b-loop.wav", "autoplay": true, "range": 9, "interval": 0, "onPlayer": false, "reverb": true } }

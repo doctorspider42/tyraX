@@ -12614,9 +12614,15 @@ SoundResidency soundResidency(const Project& p) {
                 break;
             }
     };
+    // ...except a sound the author put in a sound bank: it loads with the
+    // bank, which is the reason to put it there (a mission's lines played by
+    // Play Sound must not sit in RAM all scene).
+    std::set<int> banked;
+    for (const Project::SoundBank& b : p.soundBanks)
+        for (const std::string& s : b.sounds) banked.insert(slot(s));
     auto graphSounds = [&](const SceneObject& o, std::set<int>& into) {
         for (const FlowNode& n : o.flowGraph.nodes)
-            if (n.type == "PlaySound") into.insert(slot(n.str));
+            if (n.type == "PlaySound" && !banked.count(slot(n.str))) into.insert(slot(n.str));
     };
     std::set<int> shared;
     for (const std::string& s : p.soundsAlwaysLoaded) shared.insert(slot(s));

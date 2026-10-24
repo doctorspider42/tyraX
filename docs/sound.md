@@ -61,8 +61,9 @@ the project. A sound is loaded while something that uses it is:
   on it in **Project > Audio**.
 - **Scene** sounds load when their scene starts and are freed when it ends:
   the sounds of emitters and vehicles outside any streaming layer, and every
-  sound a *Play Sound* node in the scene plays. (A graph runs whether or not
-  its object's layer is in, so its sounds stay with the scene.)
+  sound a *Play Sound* node in the scene plays, unless that sound is in a
+  sound bank. (A graph runs whether or not its object's layer is in, so its
+  sounds stay with the scene.)
 - **Layer** sounds belong to the emitters and vehicles of one streaming layer
   ([streaming-layers.md](streaming-layers.md)). They load when the layer
   streams in, by its zone or a *Set Layer Loaded* node, and are freed when it
@@ -72,7 +73,15 @@ the project. A sound is loaded while something that uses it is:
   Banks** and load by hand with the **Set Sound Bank Loaded** node (*load* and
   *unload* inputs). They are for sounds nothing else brings with it, such as
   one mission's lines. A loaded bank stays loaded until it is unloaded or the
-  scene ends. Tick a sound into a bank on its row in the Sounds list.
+  scene ends. Tick a sound into a bank on its row in the Sounds list. A sound
+  in a bank that a *Play Sound* node plays loads only with the bank, so load
+  the bank before the node fires.
+
+![Project > Audio with layer sounds and a corridor bank](img/sound-banks.png)
+
+[examples/layer-streaming](../examples/layer-streaming) shows layers and a bank
+together: each building's hum streams with it, and a corridor bank holds a
+chime.
 
 A sound used in several of these places is loaded once and stays as long as
 any of them needs it. A sound nothing references is never loaded. Music is a

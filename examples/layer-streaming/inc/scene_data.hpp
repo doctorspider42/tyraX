@@ -444,8 +444,8 @@ inline constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 // owner by MirrorData/CamFeedData/PortalData::firstCand.
 inline constexpr int CATCH_CANDIDATES[1] = {-1};
 
-inline constexpr int SND_COUNT = 0;
-inline const char* SND_PATHS[1] = {""};
+inline constexpr int SND_COUNT = 3;
+inline const char* SND_PATHS[3] = {"sfx/hum-a-loop.adpcm", "sfx/hum-b-loop.adpcm", "sfx/corridor-chime.adpcm"};
 
 inline constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0};
 inline constexpr int PLAYER_MODES[SCENE_COUNT] = {0};
@@ -586,8 +586,8 @@ inline constexpr int BLOB_SHADOWS = 0;
 inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
 inline constexpr int BLOB_SHADOWS_USED = 0;
 inline constexpr int BLSS_ADAPTIVE = 0;
+inline constexpr int BLSS_PARTICLES = 0;
 #define BLSS_SCENE_ON 0
-#define BLSS_SCENE_NET 0
 inline constexpr int PROJ_SHADOWS_USED = 0;
 inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
 inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};

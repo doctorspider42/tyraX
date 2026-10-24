@@ -1671,6 +1671,7 @@ void TerrainGame::renderScene() {
   // the same deal one step further: the game built these bags itself, so they
   // need no per-object bookkeeping at all, only a distance test and a submit.
   { const u32 ct=costStart(); renderProcChunks(); costEnd("Procedural",-1,ct); }
+  { const u32 ct=costStart(); renderProcInstances(); costEnd("Instances",-1,ct); }
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
   renderCollisionBoxes();
@@ -1963,6 +1964,9 @@ void TerrainGame::renderScene() {
   // Owned object streams remain alive until the next VIF1 synchronization.
   stapip.core.beginSubmissionBatch();
   int impostorSwitchBudget = 4;
+  // Vertices of near-model bake per frame, shared by every object waiting to
+  // leave its impostor (advanceNearStage).
+  int nearBakeBudget = 1024;
   // The game side of the object loop, lap by lap, for the render-cost capture
   // only (docs/profiling.md, "The game side of the object loop"). A lap is a
   // bare COUNT read - no drain - so the sections add up to the loop and sit
@@ -2013,7 +2017,26 @@ void TerrainGame::renderScene() {
         const float threshold = d.impostorDistance * (g.impostor ? .9F : 1.0F);
         far = dx*dx + dy*dy + dz*dz > threshold*threshold;
       }
-      if (far != g.impostor && impostorSwitchBudget > 0) {
+      // Back past the threshold before the full model was ready.
+      if (far == g.impostor && g.nearStaging) {
+        g.nearStage.clear();
+        g.nearStaging = g.nearStageDone = false;
+      }
+      // Far-to-near costs a whole-model bake (~3000 vertices for a grove
+      // tree, ms of EE). Spread it: the card keeps drawing while the arrays
+      // fill a frame's budget at a time, and the switch below waits for them.
+      bool switchNow = far != g.impostor;
+      if (switchNow && !far && nearStageEligible(i)) {
+        if (!g.nearStaging) {
+          g.nearStage.clear();
+          g.nearStagePart = g.nearStageVert = 0;
+          g.nearStaging = true;
+          g.nearStageDone = false;
+        }
+        if (!g.nearStageDone) g.nearStageDone = advanceNearStage(i, nearBakeBudget);
+        switchNow = g.nearStageDone;
+      }
+      if (switchNow && impostorSwitchBudget > 0) {
         --impostorSwitchBudget;
         g.impostor = far;
         if (DEBUG_SHOW_PROFILER)
@@ -2385,9 +2408,25 @@ void TerrainGame::renderScene() {
                                       : Vec4(ux, uy, uz, 0.0F);
     }
   }
+  // BLSS particles only (docs/upscaler.md): every emitter of the MAIN view
+  // draws into the reduced target, depth-tested against a quarter-area copy of
+  // the finished opaque scene, and is composited back where it drew. Not in
+  // split screen - each half is a scissored view of one buffer, so one
+  // full-screen copy cannot serve both. Skipped when nothing would draw: the
+  // two copies and the composite are not free.
+  bool blssParts = false;
+  if (BLSS_PARTICLES && !splitPassActive &&
+      engine->renderer.core.blss.isParticleMode())
+    for (ParticleSystem& ps : particles)
+      if (ps.bag && ps.bag->count > 0) { blssParts = true; break; }
+  if (blssParts) {
+    stapip.core.flushDeferred();  // queued stamps are opaque scene: draw them first
+    engine->renderer.core.blss.beginParticles();
+  }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) renderWorldBag(ps.bag.get());
 
+  if (blssParts) engine->renderer.core.blss.endParticles();
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
   costEnd("Particles",-1,costParticleStart);
   if (costSeq) {
