@@ -390,7 +390,14 @@ is marched instead - the steep edge, so its hit is the footprint's NEAR end
 and the canvas is laid outward from it to the light's reach (1.66.0 laid it
 toward the player, where the gobo is black, and the pool cut off along a
 straight line at that hit as the torch was raised across open ground; fixed
-in 1.66.1). The canvas's own far edge fades over its last quarter, so the
+in 1.66.1). Only a **wall-sized** face takes the second landing (the
+1.4-unit rule that also strips a wall's cone), and only a top at least two
+units across counts as a floor to land on; past a smaller one the axis is
+marched again against the ground alone. A crate is not a wall: until 2.2.0
+the canvas jumped to a crate's foot - or lay flat across the air at its lid's
+height - whenever the beam's centre touched it, and back to the floor behind
+when it slid off an edge, which read as the torch being shaken. The crate
+itself is lit by the receiver pass either way. The canvas's own far edge fades over its last quarter, so the
 fill-rate backstop on its length never shows as a straight edge either. Before 1.66.0 only the axis was marched
 and it ignored walls: aim a pixel above the wall/ground edge and the axis
 landed on the ground *behind* the wall, where the z test hid the canvas - so

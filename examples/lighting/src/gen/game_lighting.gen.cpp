@@ -1534,7 +1534,23 @@ void TerrainGame::updateAndRenderLightPools() {
       // (the axis never reached the floor), the canvas is laid from its far
       // end back toward the player over `backSpan` of ground.
       const float hitAxis = hit;
-      const float wallFoot = onWall && wallT > 0.5F ? wallT - 0.15F : -1.0F;
+      // Only a WALL-SIZED face moves the floor landing to its foot - the
+      // same 1.4-unit rule that strips a wall's cone (updateFlashSpotOff).
+      // A crate is not a wall: the receiver pass lights it per pixel, and
+      // the floor around it is lit by the pool where the axis really lands.
+      // Pulling the canvas to a crate's foot made the pool jump between the
+      // foot and the floor behind every time the beam's centre crossed one
+      // of its edges - read as someone shaking the torch.
+      bool wallSized = false;
+      if (onWall) {
+        float h0 = wallBox.h[0], h1 = wallBox.h[1], h2 = wallBox.h[2];
+        if (h0 < h1) { const float tmp = h0; h0 = h1, h1 = tmp; }
+        if (h1 < h2) { const float tmp = h1; h1 = h2, h2 = tmp; }
+        if (h0 < h1) { const float tmp = h0; h0 = h1, h1 = tmp; }
+        wallSized = sqrtf(h0 * h0 + h1 * h1) > 1.4F;
+      }
+      const float wallFoot =
+          onWall && wallSized && wallT > 0.5F ? wallT - 0.15F : -1.0F;
       float hitLow = -1.0F;
       float ldx = dx, ldy = dy, ldz = dz;  // the ray the landing is on
       float lowDx = dx, lowDy = dy, lowDz = dz;
@@ -1598,16 +1614,60 @@ void TerrainGame::updateAndRenderLightPools() {
         finishVolMask();
         continue;
       }
-      const float gx = torch.x + ldx * hit;
-      const float gz = torch.z + ldz * hit;
+      float gx = torch.x + ldx * hit;
+      float gz = torch.z + ldz * hit;
       // What the patch lies on is decided ONCE, at the landing point, never
       // per vertex: projSurfaceAt answers "the top of any receiver over this
       // point", so a prop standing inside the patch would otherwise punch a
       // cliff into it and the quad between would rasterize as a wall
       // (renderProjShadows pays for that lesson in full). Terrain relief IS
       // followed - it is smooth, and following it keeps the pool grounded.
-      const float baseY = projSurfaceAt(gx, gz);
-      const bool onGeometry = baseY > groundSurfaceAt(gx, gz) + 0.01F;
+      float baseY = projSurfaceAt(gx, gz);
+      bool onGeometry = baseY > groundSurfaceAt(gx, gz) + 0.01F;
+      // ...but only a top big enough to HOLD the canvas is a floor. Landing
+      // on a crate's lid laid the whole several-unit canvas at the lid's
+      // height, a sheet hanging in the air around the crate, and the pool
+      // "lay down" on it the moment the beam's centre touched the lid. Past
+      // a small top the axis is marched again against the ground alone; the
+      // lid itself is lit by the receiver pass.
+      if (onGeometry) {
+        bool smallTop = false;
+        for (const ProjRecv& r : g_projRecv) {
+          if (r.top != baseY) continue;
+          if (gx < r.minX || gx > r.maxX || gz < r.minZ || gz > r.maxZ)
+            continue;
+          const float w = r.maxX - r.minX, d = r.maxZ - r.minZ;
+          smallTop = (w < d ? w : d) < 2.0F;
+          break;
+        }
+        if (smallTop) {
+          float prevG = 0.0F, hitG = -1.0F;
+          for (float t = 0.3F; t <= FLASHLIGHT_RANGE; t += 0.3F) {
+            if (torch.y + ldy * t <=
+                groundSurfaceAt(torch.x + ldx * t, torch.z + ldz * t)) {
+              float lo = prevG, hi2 = t;
+              for (int k2 = 0; k2 < 6; ++k2) {
+                const float mid = (lo + hi2) * 0.5F;
+                if (torch.y + ldy * mid <=
+                    groundSurfaceAt(torch.x + ldx * mid, torch.z + ldz * mid))
+                  hi2 = mid;
+                else
+                  lo = mid;
+              }
+              hitG = hi2;
+              break;
+            }
+            prevG = t;
+          }
+          if (hitG > 0.0F) {
+            hit = hitG;
+            gx = torch.x + ldx * hit;
+            gz = torch.z + ldz * hit;
+            baseY = groundSurfaceAt(gx, gz);
+            onGeometry = false;
+          }
+        }
+      }
 
       // --- and the FLOOR patch, whether or not there was a wall -------------
       // Nothing to stand on where the beam lands (no terrain, no receiver) is
