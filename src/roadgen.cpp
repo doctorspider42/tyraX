@@ -1663,9 +1663,24 @@ std::vector<Crossing> findNodes(const std::vector<CrossingRoad>& roads) {
                 return;
         contacts.push_back({x, z, a, b});
     };
+    // Each centre line's box: a pair whose boxes miss cannot cross, and the
+    // segment-by-segment test below is quadratic in the lines' sample counts
+    // (a 120-road city spent most of its plan time on pairs far apart).
+    std::vector<std::array<float, 4>> lbox((size_t)n, {1e30f, 1e30f, -1e30f, -1e30f});
+    for (int i = 0; i < n; ++i)
+        for (const P& q : lines[(size_t)i].p) {
+            std::array<float, 4>& b = lbox[(size_t)i];
+            b[0] = std::min(b[0], q.x - 0.01f);  // the crossing test's end tolerance
+            b[1] = std::min(b[1], q.z - 0.01f);
+            b[2] = std::max(b[2], q.x + 0.01f);
+            b[3] = std::max(b[3], q.z + 0.01f);
+        }
     for (int a = 0; a < n; ++a)
         for (int b = a + 1; b < n; ++b) {
             if (!usable(a) || !usable(b)) continue;
+            if (lbox[(size_t)a][2] < lbox[(size_t)b][0] || lbox[(size_t)b][2] < lbox[(size_t)a][0] ||
+                lbox[(size_t)a][3] < lbox[(size_t)b][1] || lbox[(size_t)b][3] < lbox[(size_t)a][1])
+                continue;
             const std::vector<P>& A = lines[(size_t)a].p;
             const std::vector<P>& B = lines[(size_t)b].p;
             // Centre lines crossing, at any angle.
@@ -2432,6 +2447,16 @@ struct KerbWorld {
         float mnx = 0, mnz = 0, mxx = 0, mxz = 0;
     };
     std::vector<Patch> patches;
+    // Every road's centre-line segments, binned into kGridCell cells by their
+    // box grown by the road's half width (+1): onAnyRoad tests only the
+    // segments near the point instead of projecting onto every road whose
+    // whole box contains it. A kerb station asks three times and every cut
+    // bisects 14 times, so a 120-road city spent seconds here (2.1.0).
+    static constexpr float kGridCell = 8.0f;
+    float gx0 = 0.0f, gz0 = 0.0f;
+    int gnx = 0, gnz = 0;
+    std::vector<int> cellStart;               // gnx * gnz + 1 offsets into cellSeg
+    std::vector<std::pair<int, int>> cellSeg;  // (road, segment)
 
     KerbWorld(const std::vector<CrossingRoad>& r, const CrossingPlan& plan) : roads(r) {
         lines.resize(roads.size());
@@ -2465,6 +2490,52 @@ struct KerbWorld {
             }
             patches.push_back(std::move(pa));
         }
+        buildGrid();
+    }
+    void buildGrid() {
+        float mn[2] = {1e30f, 1e30f}, mx[2] = {-1e30f, -1e30f};
+        for (size_t i = 0; i < roads.size(); ++i) {
+            if (lines[i].p.size() < 2) continue;
+            mn[0] = std::min(mn[0], box[i][0]);
+            mn[1] = std::min(mn[1], box[i][1]);
+            mx[0] = std::max(mx[0], box[i][2]);
+            mx[1] = std::max(mx[1], box[i][3]);
+        }
+        if (mn[0] > mx[0]) return;
+        gx0 = mn[0];
+        gz0 = mn[1];
+        gnx = std::min(4096, (int)((mx[0] - mn[0]) / kGridCell) + 1);
+        gnz = std::min(4096, (int)((mx[1] - mn[1]) / kGridCell) + 1);
+        auto cellRange = [&](float lo, float hi, float o, int n, int& a, int& b) {
+            a = std::clamp((int)std::floor((lo - o) / kGridCell), 0, n - 1);
+            b = std::clamp((int)std::floor((hi - o) / kGridCell), 0, n - 1);
+        };
+        cellStart.assign((size_t)gnx * (size_t)gnz + 1, 0);
+        for (int pass = 0; pass < 2; ++pass) {
+            std::vector<int> fill;
+            if (pass == 1) {
+                for (size_t c = 1; c < cellStart.size(); ++c) cellStart[c] += cellStart[c - 1];
+                cellSeg.assign((size_t)cellStart.back(), {0, 0});
+                fill.assign(cellStart.begin(), cellStart.end() - 1);
+            }
+            for (size_t r = 0; r < roads.size(); ++r) {
+                const std::vector<P>& p = lines[r].p;
+                const float h = halfW((int)r) + 1.0f;
+                for (size_t s = 0; s + 1 < p.size(); ++s) {
+                    int x0, x1, z0, z1;
+                    cellRange(std::min(p[s].x, p[s + 1].x) - h, std::max(p[s].x, p[s + 1].x) + h,
+                              gx0, gnx, x0, x1);
+                    cellRange(std::min(p[s].z, p[s + 1].z) - h, std::max(p[s].z, p[s + 1].z) + h,
+                              gz0, gnz, z0, z1);
+                    for (int cz = z0; cz <= z1; ++cz)
+                        for (int cx = x0; cx <= x1; ++cx) {
+                            const size_t c = (size_t)cz * (size_t)gnx + (size_t)cx;
+                            if (pass == 0) ++cellStart[c + 1];
+                            else cellSeg[(size_t)fill[c]++] = {(int)r, (int)s};
+                        }
+                }
+            }
+        }
     }
     float halfW(int i) const { return 0.5f * std::max(0.1f, roads[(size_t)i].width); }
     // On road r's surface, `margin` inside its edge.
@@ -2482,11 +2553,35 @@ struct KerbWorld {
     // `except` is the road the kerb belongs to (-1 = a patch, on the ground);
     // a bridge deck passing over it, or a road under the deck, is not "on".
     bool onAnyRoad(float x, float z, int except, float margin) const {
-        const float ref = elevation(except, x, z);
-        for (int r = 0; r < (int)roads.size(); ++r)
-            if (r != except && onRoad(r, x, z, margin) &&
-                std::fabs(elevation(r, x, z) - ref) <= kOverpassClearance)
-                return true;
+        // The same answer as testing onRoad for every road: a point within a
+        // road's half width of its centre line lies inside that segment's grown
+        // box, so the segment is listed in the point's cell.
+        if (gnx <= 0) return false;
+        const int cx = (int)std::floor((x - gx0) / kGridCell);
+        const int cz = (int)std::floor((z - gz0) / kGridCell);
+        if (cx < 0 || cz < 0 || cx >= gnx || cz >= gnz) return false;
+        const size_t c = (size_t)cz * (size_t)gnx + (size_t)cx;
+        float ref = 0.0f;
+        bool haveRef = false;
+        for (int k = cellStart[c]; k < cellStart[c + 1]; ++k) {
+            const int r = cellSeg[(size_t)k].first;
+            if (r == except) continue;
+            const std::vector<P>& p = lines[(size_t)r].p;
+            const int s = cellSeg[(size_t)k].second;
+            const float ax = p[(size_t)s].x, az = p[(size_t)s].z;
+            const float dx = p[(size_t)s + 1].x - ax, dz = p[(size_t)s + 1].z - az;
+            const float l2 = dx * dx + dz * dz;
+            float t = l2 > 1e-12f ? ((x - ax) * dx + (z - az) * dz) / l2 : 0.0f;
+            t = std::clamp(t, 0.0f, 1.0f);
+            const float ex = ax + dx * t - x, ez = az + dz * t - z;
+            const float lim = halfW(r) - margin;
+            if (lim <= 0.0f || ex * ex + ez * ez >= lim * lim) continue;
+            if (!haveRef) {
+                ref = elevation(except, x, z);
+                haveRef = true;
+            }
+            if (std::fabs(elevation(r, x, z) - ref) <= kOverpassClearance) return true;
+        }
         return false;
     }
     bool inPatch(float x, float z, int exceptCrossing) const {

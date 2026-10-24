@@ -1,6 +1,7 @@
 #include "roadrail.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <map>
 #include <utility>
@@ -100,6 +101,7 @@ bool insideOutline(const std::vector<float>& o, float x, float z) {
 struct Footprint {
     Surface roads;
     std::vector<const std::vector<float>*> patches;
+    std::vector<std::array<float, 4>> patchBox;  // min x, min z, max x, max z
     bool empty = true;
 
     Footprint(const std::vector<CrossingRoad>& rs, const CrossingPlan& plan, bool want) {
@@ -117,13 +119,25 @@ struct Footprint {
             if (c.shape.outline.size() < 6) continue;
             bool road = false;
             for (int ri : c.roads) road |= rs[(size_t)ri].kind != kRail;
-            if (road) patches.push_back(&c.shape.outline);
+            if (!road) continue;
+            patches.push_back(&c.shape.outline);
+            std::array<float, 4> b = {1e30f, 1e30f, -1e30f, -1e30f};
+            for (size_t k = 0; k + 1 < c.shape.outline.size(); k += 2) {
+                b[0] = std::min(b[0], c.shape.outline[k]);
+                b[1] = std::min(b[1], c.shape.outline[k + 1]);
+                b[2] = std::max(b[2], c.shape.outline[k]);
+                b[3] = std::max(b[3], c.shape.outline[k + 1]);
+            }
+            patchBox.push_back(b);
         }
     }
     bool at(float x, float z) const {
         if (!empty && roads.at(x, z) != Surface::kNone) return true;
-        for (const std::vector<float>* o : patches)
-            if (insideOutline(*o, x, z)) return true;
+        for (size_t i = 0; i < patches.size(); ++i) {
+            const std::array<float, 4>& b = patchBox[i];
+            if (x < b[0] || z < b[1] || x > b[2] || z > b[3]) continue;  // cheap reject
+            if (insideOutline(*patches[i], x, z)) return true;
+        }
         return false;
     }
 };

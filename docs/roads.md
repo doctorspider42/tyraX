@@ -2116,6 +2116,22 @@ BOTH** — a road that previews half a metre off its console self is a road
 nobody can author. Whole-repeat V offsets are texture-equivalent, so the oracle
 canonicalizes only that integer part; positions and fractional UVs remain exact.
 
+## The editor's preview cost
+
+The viewport builds the same plan, patches, paint, kerbs, rails, details and
+furniture the codegen bakes, and prints where the time went on every rebuild:
+`[editor] road preview rebuilt: 120 roads, ..., ms: plan 1708 patches 232
+paint 10 kerbs 226 rails 1052 details 875 furniture 0, total 4103` (Big City,
+2.1.0). Opening that city used to take ~22 s: the preview was built twice (a
+bake finishing after the load cleared it to re-resolve one texture name; it
+now re-resolves the names and keeps the geometry, and `setTerrain` bumps the
+terrain revision only when the heights change), and the kerb planner asked
+every road "is this point on you?" by projecting onto its whole centre line
+(4.6 s; `KerbWorld` now bins the centre-line segments in 8-unit cells, same
+answers - every example regenerates byte-identical). `findNodes` skips road
+pairs whose boxes miss. The plan (1.7 s) and the rails (1 s) are what is
+left.
+
 ## Cost on a real PS2 (2026-10-04)
 
 ![The real PS2 (not PCSX2), arm A: rain, wet asphalt, lamp halos and streaks, traffic and tram rails - HUD 30 FPS, SCENE 13.6 ms](img/road-ps2-console-rain.png)

@@ -1932,12 +1932,17 @@ void Viewport::setTerrain(const TerrainConfig& terrain, int maxCells,
                           const std::vector<float>& heights, int hmW, int hmD) {
     const bool sameTerrain = terrain_.width == terrain.width &&
                              terrain_.depth == terrain.depth && maxCells_ == maxCells;
+    // The roads re-plan on a new revision (seconds in a big city), so it only
+    // moves when what terrainHeight() answers can: opening a project set the
+    // same terrain twice and built every road preview twice.
+    const bool sameGround = sameTerrain && terrain_.enabled == terrain.enabled &&
+                            hmW_ == hmW && hmD_ == hmD && heights_ == heights;
     terrain_ = terrain;
     maxCells_ = maxCells < 1 ? 1 : maxCells;
     heights_ = heights;
     hmW_ = hmW;
     hmD_ = hmD;
-    ++roadTerrainRevision_;
+    if (!sameGround) ++roadTerrainRevision_;
     if (!sameTerrain) {
         float diag =
             (float)(terrain_.width > terrain_.depth ? terrain_.width : terrain_.depth);
@@ -4102,8 +4107,21 @@ void Viewport::invalidateAssets() {
     clearModelCache();  // also drops materialCache_
     clearTexCache();
     clearThumbCache();  // browser thumbnails are baked from those caches
-    clearRoadDraws();   // a road material may now point at a different map_Kd
+    // A road material may now point at a different map_Kd: re-resolve the
+    // textures, keep the geometry. Clearing the road draws here re-planned
+    // every crossing, kerb and detail - a second ~9 s build while a big city
+    // opened (a finished bake lands right after the load).
+    refreshRoadTextures();
     emisGlowCache_.clear();  // .mtl emission re-read on the next frame
+}
+
+void Viewport::refreshRoadTextures() {
+    for (auto& [id, road] : roadDraws_)
+        if (!road.material.empty())
+            road.texture = project::resolveRoadTexture(projectDir_, road.material);
+    for (RoadCrossDraw& c : roadCross_)
+        if (!c.material.empty())
+            c.texture = project::resolveRoadTexture(projectDir_, c.material);
 }
 
 void Viewport::invalidateMaterial(const std::string& relPath) {
@@ -4402,10 +4420,24 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     roadLampPools_.clear();
     roadPuddleVerts_.clear();
     if (cr.empty()) return;
+    // Where a rebuild's time goes, one stdout line per rebuild (a big city
+    // took seconds to open and nothing said which stage).
+    auto rpLast = std::chrono::steady_clock::now();
+    const auto rpStart = rpLast;
+    std::string rpLog;
+    auto rpLap = [&](const char* stage) {
+        const auto now = std::chrono::steady_clock::now();
+        char b[48];
+        std::snprintf(b, sizeof b, " %s %.0f", stage,
+                      std::chrono::duration<double, std::milli>(now - rpLast).count());
+        rpLog += b;
+        rpLast = now;
+    };
     // One road has no crossings, but it may still have kerbs.
     const roadgen::CrossingPlan plan = cr.size() >= 2
                                            ? roadgen::planCrossings(cr, roadJunctions_)
                                            : roadgen::CrossingPlan{};
+    rpLap("plan");
     bool anyKerb = false;
     for (const roadgen::CrossingRoad& r : cr) anyKerb |= r.kerb;
     // Rails stand on the same drawn surface the kerbs do.
@@ -4443,6 +4475,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         roadCross_.push_back(std::move(d));
         paintOnTris.insert(paintOnTris.end(), triangles.begin(), triangles.end());
     }
+    rpLap("patches");
     // Node markings (docs/roads.md "Markings"): the codegen's bakeMarkings over
     // the same roads and patches, untextured paint drawn with the first patch's
     // road.
@@ -4506,6 +4539,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         d.blended = true;
         roadCross_.push_back(std::move(d));
     }
+    rpLap("paint");
     // Kerbs: the codegen's own roadgen::planKerbs over the same plan, drawn as
     // triangle lists with their baked shade (the console uploads the same
     // lines as strips). One opaque mesh per owning road, untextured.
@@ -4532,6 +4566,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                 roadgen::kerbTriangles(kp, tris);
                 put(kp.road);
             }
+        rpLap("kerbs");
         // Rails and tram tracks: roadrail::planRails, the codegen's own.
         if (anyRail)
             for (const roadrail::RailPiece& rp :
@@ -4594,6 +4629,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         d.owner = keyOf((int)k);
         roadCross_.push_back(std::move(d));
     }
+    rpLap("rails");
     // Road details (docs/roads.md "Road details"): the codegen's own
     // roaddetail::build over the same roads, patches and paint - the decals the
     // console uploads - drawn blended with the details atlas, one mesh per
@@ -4632,6 +4668,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             roadCross_.push_back(std::move(d));
         }
     }
+    rpLap("details");
     // Street furniture (docs/roads.md "Street furniture"): the codegen's own
     // roadfurn::build over the same roads, plan, patches, paint and pavements
     // - the merged vertex-colour triangles the console uploads - one opaque
@@ -4687,6 +4724,11 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             }
         }
     }
+    rpLap("furniture");
+    std::printf("[editor] road preview rebuilt: %zu roads, terrain rev %llu, vp %p, ms:%s, total %.0f\n", cr.size(),
+                (unsigned long long)roadTerrainRevision_, (const void*)this, rpLog.c_str(),
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - rpStart)
+                    .count());
 }
 
 // Road spills (1.143.0): after the whole scene, so the higher road they lie

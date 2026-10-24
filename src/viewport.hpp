@@ -1303,6 +1303,7 @@ private:
         bool blended = false;
     };
     std::vector<RoadCrossDraw> roadCross_;
+    void refreshRoadTextures();  // material -> texture again, geometry kept
     // Lit street lamps (docs/weather.md): the codegen's lamps and pools (x y z
     // u v per pool vertex), rebuilt with the crossings; drawn by drawRoadLamps.
     std::vector<roadlight::Lamp> roadLamps_;
