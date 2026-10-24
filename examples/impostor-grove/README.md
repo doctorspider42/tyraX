@@ -16,7 +16,9 @@ a non-tree, two-material OBJ using the universal capture path. Select it and cli
 - 108 canopy trees and 30 shrubs share four generated assets. Near trees have
   897/1016/1016 triangles and shrubs have 740; each distant model draws **2**, selected from 4 shrub / 8 canopy captures.
 - Trees switch at 30 world units, shrubs at 16, the waystone at 18. Returning within 90% restores
-  full geometry. Four transitions per scene render bound the rebuilding work.
+  full geometry. Four transitions per scene render bound the rebuilding work, and the
+  full model is baked ahead over a few frames so walking does not drop frames
+  ([why](../../docs/impostors.md#switching-back-to-the-full-model)).
 - The original model remains the collision identity. Foliage in this example has
   collision disabled so the experiment isolates rendering; the ruined gate and
   paving remain ordinary solid primitives.

@@ -36,6 +36,14 @@
 #include "probe_data.gen.hpp"  // baked GI light probes (host-baked, L1 SH)
 #include "prefab_data.gen.hpp"   // reusable object groups (docs/prefabs.md)
 #include "procedural.gen.hpp"    // runtime procedural volumes
+// Baked instanced scatter (docs/procedural-generation.md, "Instanced"): only
+// generated while some baked volume draws as Instanced.
+#if __has_include("proc_instances.gen.hpp")
+#include "proc_instances.gen.hpp"
+#define TYRAX_PROC_INSTANCES 1
+#else
+#define TYRAX_PROC_INSTANCES 0
+#endif
 #include "scripts/sequences.gen.hpp"  // cutscene bars/fade overlay
 #include "scripts/credits.gen.hpp"    // credits roll player (Credits Editor)
 #include "scripts/screen_fx.gen.hpp"  // custom full-screen effects
@@ -1619,6 +1627,64 @@ inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
                                         : Vec4(n.x, n.y, n.z, 0.0F));
 }
 
+// True when pushVert, with the globals as they are staged right now, would
+// shade with the directional light alone: no GI route, no AO, no point light,
+// no emissive pool, no baked lamp, no capture array to fill. A placed model
+// in a sun-only scene (the common case) qualifies, and pushModelPartRange
+// then bakes it without pushVert's per-vertex overhead.
+inline bool directionalOnlyBake() {
+  return !g_litNormals && !g_prelitTex && !g_giLightmap && !g_giProbeShade &&
+         !g_aoAtlas && !(SCENE_AO_ENABLED && !g_aoOff) &&
+         g_scenePointLights.empty() && (g_emisAtlas || g_emisLocal.empty()) &&
+         !(g_lampBakeHere && !g_bakedLamps.empty()) && !g_envNormals &&
+         !g_bakeLocal;
+}
+
+// pushVert for vertices [first, last) of a model part's 8-float stream, valid
+// only under directionalOnlyBake(). Same arithmetic in the same order - the
+// rotation through rotatedBy() is bit-identical to rotated() - with the
+// trigonometry, the fallbacks and the growth hoisted out of the loop. pushVert
+// took 12 sinf/cosf per vertex (two rotated() calls), which made a 3000-vertex
+// tree a 13 ms frame on the EE (docs/impostors.md, "Switching back to the
+// full model").
+inline void pushModelPartRange(BagArray<Vec4>& verts, BagArray<Color>& cols,
+                               BagArray<Vec4>& sts, const SceneObjectData& o,
+                               const std::vector<float>& geo, size_t first,
+                               size_t last, const float* kd, bool textured,
+                               const float* ke) {
+  if (!kd) kd = g_primKd;
+  if (!ke) ke = g_primKe;
+  textured = textured || g_primTextured;
+  const RotTrig t = rotTrigOf(o.rotation);
+  verts.reserve(verts.size() + (last - first));
+  cols.reserve(cols.size() + (last - first));
+  sts.reserve(sts.size() + (last - first));
+  const float scale = textured ? 128.0F : 255.0F;
+  auto c255 = [](float v) { return v > 255.0F ? 255.0F : v; };
+  for (size_t i = first; i < last; ++i) {
+    const float* v = &geo[i * 8];
+    V3 p = {v[0], v[1], v[2]};
+    p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
+    p = rotatedBy(p, t);
+    V3 shade = shadeOf(rotatedBy(V3{v[3], v[4], v[5]}, t));
+    if (shade.x > 1.0F) shade.x = 1.0F;
+    if (shade.y > 1.0F) shade.y = 1.0F;
+    if (shade.z > 1.0F) shade.z = 1.0F;
+    if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
+    if (ke) {
+      if (shade.x < ke[0]) shade.x = ke[0];
+      if (shade.y < ke[1]) shade.y = ke[1];
+      if (shade.z < ke[2]) shade.z = ke[2];
+    }
+    verts.push_back(Vec4(p.x + o.position[0], p.y + o.position[1],
+                         p.z + o.position[2], 1.0F));
+    cols.push_back(Color(c255(o.color[0] * scale * shade.x),
+                         c255(o.color[1] * scale * shade.y),
+                         c255(o.color[2] * scale * shade.z), 128.0F));
+    sts.push_back(Vec4(v[6], v[7], 1.0F, 0.0F));
+  }
+}
+
 inline void pushQuad(BagArray<Vec4>& verts, BagArray<Color>& cols,
               BagArray<Vec4>& sts, const SceneObjectData& o, V3 a, V3 b, V3 c,
               V3 d, V3 n) {
@@ -2643,6 +2709,13 @@ inline void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) 
       snprintf(l1, sizeof(l1), "FRAME %.2f SCENE %.2f", frameAcc * k,
                sScene * k);
       snprintf(l2, sizeof(l2), "HL %.2f PART %.2f", sHl * k, sPart * k);
+      // The same window in the log, so a console run over ps2link (or a
+      // headless emulator) can be read without a picture of the HUD - with
+      // the EE memory in use, which a dense scene runs out of first.
+      char mem[24];
+      snprintf(mem, sizeof(mem), "MEM %.1f/32",
+               32.0F - engine->info.getAvailableRAM());
+      TYRA_LOG("PROFILE ", l1, " ", l2, " ", mem);
       frames = frameAcc = sScene = sHl = sPart = 0;
     }
     drawHudText(engine, l1, 16.0F, y);

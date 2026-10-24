@@ -56,6 +56,9 @@ void TerrainGame::setupAnimObject(int index) {
   g.animMat.identity();
   g.animLightMat.identity();
   g.animInfoBag = std::make_unique<StaPipInfoBag>();
+  // Skinned: the torch's receiver pass never re-renders it (see
+  // PipelineInfoBag::torchPerPixel).
+  g.animInfoBag->torchPerPixel = false;
   g.animInfoBag->model = &g.animMat;
   g.animInfoBag->shadingType = TyraShadingGouraud;  // per-vertex lighting
   g.animInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
@@ -1231,6 +1234,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   // this scene's models and its block field is this scene's ground).
   procChunks.clear();
   procColliders.clear();
+  procLodRefs.clear();
+  procInsts.clear();
+  procInstCells.clear();
+  procInstGeo.clear();
+  procInstGeoFirst.clear();
+  procInstGeoCount.clear();
   prefabInstances.clear();
   procBlocks.active = false;
   procBlocks.col.clear();
@@ -1245,6 +1254,26 @@ void TerrainGame::loadScene(int sceneIndex) {
       lsPump(8);
     }
   }
+#if TYRAX_PROC_INSTANCES
+  // Baked instanced volumes: the copies come from a table, not a graph.
+  for (int v = 0; v < PROC_INST_VOLUME_COUNT; ++v) {
+    const ProcInstVolumeRow& V = PROC_INST_VOLUMES[v];
+    if (V.scene != currentScene) continue;
+    const int from = (int)procInsts.size();
+    SceneObjectData d{};
+    d.type = 5;
+    for (int i = V.first; i < V.first + V.count; ++i) {
+      const ProcInstRow& r = PROC_INST_ROWS[i];
+      d.model = r.model;
+      d.position[0] = r.x, d.position[1] = r.y, d.position[2] = r.z;
+      d.rotation[0] = r.rx, d.rotation[1] = r.ry, d.rotation[2] = r.rz;
+      d.scale[0] = d.scale[1] = d.scale[2] = r.scale;
+      procAddInstance(-4, d, r.lodModel, r.lodDist, V.collide != 0);
+    }
+    procFinishInstances(-4, V.cell, V.drawDist, from);
+    lsPump(8);
+  }
+#endif
 
   // Roads AFTER the procedural build: that block clears procChunks (nothing
   // generated survives a scene switch), and the first placement of this call
@@ -4255,7 +4284,6 @@ void TerrainGame::buildStarField() {
     sb.info->fullClipChecks = false;
     sb.info->fogDisabled = true;    // past the fog end, like the dome
     sb.info->dynLightPick = false;  // a torch must not tint the sky
-    sb.info->blssProxy = false;     // a camera-centred shell, like the dome
     sb.info->additiveBlendFix = 128;
     sb.colorBag = std::make_unique<StaPipColorBag>();
     sb.colors.bind(sb.colorBag);
@@ -4412,10 +4440,6 @@ void TerrainGame::setupSkyBodies() {
     b.info->fogDisabled = true;
     // Centred on the camera like the dome: a nearby torch must not tint the sun.
     b.info->dynLightPick = false;
-    // ...and it rides the dome, so it is a shell fragment too - see the dome's
-    // blssProxy. A disc at 94% of the dome radius has a w range the upscaler
-    // would read as "the far plane, everywhere it covers".
-    b.info->blssProxy = false;
     b.info->fullClipChecks = true;  // crosses the screen edge constantly
     if (additive) b.info->additiveBlendFix = 128;
     else b.info->blendingEnabled = true;

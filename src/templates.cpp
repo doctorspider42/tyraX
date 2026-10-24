@@ -1508,6 +1508,13 @@ class TerrainGame : public Tyra::Game {
     bool impostor = false; // visual representation only; data.model owns collision
     bool impostorInitialized = false;
     int impostorView = 0;
+    // The full model's vertex arrays, baked a slice per frame while the card
+    // still draws; the far-to-near switch waits until they are complete
+    // (docs/impostors.md, "Switching back to the full model"). Any rebuild
+    // consumes or drops them.
+    std::vector<GeoPart> nearStage;
+    size_t nearStagePart = 0, nearStageVert = 0;
+    bool nearStaging = false, nearStageDone = false;
     // Physics fast path (awake bodies): parts hold LOCAL-space vertices
     // (scale baked in, shading frozen at the wake pose) and every
     // part.infoBag->model points at objMat, rebuilt from position/rotation
@@ -2178,6 +2185,8 @@ class TerrainGame : public Tyra::Game {
   unsigned int minPackageSize();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  bool nearStageEligible(int index) const;
+  bool advanceNearStage(int index, int& vertBudget);
   // Cheap whole-object reject for multi-part static geometry. The normal
   // pipeline still owns precise per-part/package clipping for anything that
   // touches the view.
@@ -3581,6 +3590,13 @@ class TerrainGame : public Tyra::Game {
     bool impostor = false; // visual representation only; data.model owns collision
     bool impostorInitialized = false;
     int impostorView = 0;
+    // The full model's vertex arrays, baked a slice per frame while the card
+    // still draws; the far-to-near switch waits until they are complete
+    // (docs/impostors.md, "Switching back to the full model"). Any rebuild
+    // consumes or drops them.
+    std::vector<GeoPart> nearStage;
+    size_t nearStagePart = 0, nearStageVert = 0;
+    bool nearStaging = false, nearStageDone = false;
     // Physics fast path (awake bodies): parts hold LOCAL-space vertices
     // (scale baked in, shading frozen at the wake pose) and every
     // part.infoBag->model points at objMat, rebuilt from position/rotation
@@ -4251,6 +4267,8 @@ class TerrainGame : public Tyra::Game {
   unsigned int minPackageSize();
   // localSpace = bake for the physics fast path (ObjectGeometry::objMat).
   void rebuildObjectGeometry(int index, bool localSpace = false);
+  bool nearStageEligible(int index) const;
+  bool advanceNearStage(int index, int& vertBudget);
   // Cheap whole-object reject for multi-part static geometry. The normal
   // pipeline still owns precise per-part/package clipping for anything that
   // touches the view.

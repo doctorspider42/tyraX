@@ -1631,6 +1631,64 @@ inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
                                         : Vec4(n.x, n.y, n.z, 0.0F));
 }
 
+// True when pushVert, with the globals as they are staged right now, would
+// shade with the directional light alone: no GI route, no AO, no point light,
+// no emissive pool, no baked lamp, no capture array to fill. A placed model
+// in a sun-only scene (the common case) qualifies, and pushModelPartRange
+// then bakes it without pushVert's per-vertex overhead.
+inline bool directionalOnlyBake() {
+  return !g_litNormals && !g_prelitTex && !g_giLightmap && !g_giProbeShade &&
+         !g_aoAtlas && !(SCENE_AO_ENABLED && !g_aoOff) &&
+         g_scenePointLights.empty() && (g_emisAtlas || g_emisLocal.empty()) &&
+         !(g_lampBakeHere && !g_bakedLamps.empty()) && !g_envNormals &&
+         !g_bakeLocal;
+}
+
+// pushVert for vertices [first, last) of a model part's 8-float stream, valid
+// only under directionalOnlyBake(). Same arithmetic in the same order - the
+// rotation through rotatedBy() is bit-identical to rotated() - with the
+// trigonometry, the fallbacks and the growth hoisted out of the loop. pushVert
+// took 12 sinf/cosf per vertex (two rotated() calls), which made a 3000-vertex
+// tree a 13 ms frame on the EE (docs/impostors.md, "Switching back to the
+// full model").
+inline void pushModelPartRange(BagArray<Vec4>& verts, BagArray<Color>& cols,
+                               BagArray<Vec4>& sts, const SceneObjectData& o,
+                               const std::vector<float>& geo, size_t first,
+                               size_t last, const float* kd, bool textured,
+                               const float* ke) {
+  if (!kd) kd = g_primKd;
+  if (!ke) ke = g_primKe;
+  textured = textured || g_primTextured;
+  const RotTrig t = rotTrigOf(o.rotation);
+  verts.reserve(verts.size() + (last - first));
+  cols.reserve(cols.size() + (last - first));
+  sts.reserve(sts.size() + (last - first));
+  const float scale = textured ? 128.0F : 255.0F;
+  auto c255 = [](float v) { return v > 255.0F ? 255.0F : v; };
+  for (size_t i = first; i < last; ++i) {
+    const float* v = &geo[i * 8];
+    V3 p = {v[0], v[1], v[2]};
+    p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
+    p = rotatedBy(p, t);
+    V3 shade = shadeOf(rotatedBy(V3{v[3], v[4], v[5]}, t));
+    if (shade.x > 1.0F) shade.x = 1.0F;
+    if (shade.y > 1.0F) shade.y = 1.0F;
+    if (shade.z > 1.0F) shade.z = 1.0F;
+    if (kd) shade.x *= kd[0], shade.y *= kd[1], shade.z *= kd[2];
+    if (ke) {
+      if (shade.x < ke[0]) shade.x = ke[0];
+      if (shade.y < ke[1]) shade.y = ke[1];
+      if (shade.z < ke[2]) shade.z = ke[2];
+    }
+    verts.push_back(Vec4(p.x + o.position[0], p.y + o.position[1],
+                         p.z + o.position[2], 1.0F));
+    cols.push_back(Color(c255(o.color[0] * scale * shade.x),
+                         c255(o.color[1] * scale * shade.y),
+                         c255(o.color[2] * scale * shade.z), 128.0F));
+    sts.push_back(Vec4(v[6], v[7], 1.0F, 0.0F));
+  }
+}
+
 inline void pushQuad(BagArray<Vec4>& verts, BagArray<Color>& cols,
               BagArray<Vec4>& sts, const SceneObjectData& o, V3 a, V3 b, V3 c,
               V3 d, V3 n) {
@@ -20512,14 +20570,32 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       const bool hasAo = geoAo.size() * 8 == geo.size();
       g_litNormals = dynLit ? &part.litNormals : nullptr;
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
-      for (size_t i = 0; i + 7 < geo.size(); i += 8) {
-        const float* v = &geo[i];
-        pushVert(part.vertices, part.colors, part.sts, visualData,
-                 {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
-                 textured, hasAo ? geoAo[i / 8] : (unsigned char)255,
-                 src.ke);
+      // The far-to-near switch baked these arrays over the last few frames
+      // (advanceNearStage) with the same function and inputs as the branch
+      // below - take them instead of baking the part again here.
+      const bool fast = !billboard && directionalOnlyBake();
+      if (fast && g.nearStageDone && pi < (int)g.nearStage.size() &&
+          g.nearStage[pi].vertices.size() * 8 == geo.size() / 8 * 8) {
+        part.vertices.swap(g.nearStage[pi].vertices);
+        part.colors.swap(g.nearStage[pi].colors);
+        part.sts.swap(g.nearStage[pi].sts);
+      } else if (fast) {
+        pushModelPartRange(part.vertices, part.colors, part.sts, visualData,
+                           geo, 0, geo.size() / 8, src.kd, textured, src.ke);
+      } else {
+        for (size_t i = 0; i + 7 < geo.size(); i += 8) {
+          const float* v = &geo[i];
+          pushVert(part.vertices, part.colors, part.sts, visualData,
+                   {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
+                   textured, hasAo ? geoAo[i / 8] : (unsigned char)255,
+                   src.ke);
+        }
       }
     }
+    // Consumed above, or stale: this bake is the object's truth either way.
+    g.nearStage.clear();
+    g.nearStaging = g.nearStageDone = false;
+    g.nearStagePart = g.nearStageVert = 0;
     g_envNormals = nullptr;
   } else {
     // Primitives, decals and every other builder emit triangle lists.
@@ -21027,6 +21103,65 @@ void TerrainGame::renderReflectionProxy(int index) {
     g.reflectionProxy = std::move(p);
   }
   if (g.reflectionProxy->bag) renderObjectBag(index, g.reflectionProxy->bag.get());
+}
+
+
+
+// Whether this object's full model can be baked ahead of its far-to-near
+// switch (advanceNearStage). Conservative on purpose: only when every part is
+// sure to take directionalOnlyBake() inside rebuildObjectGeometry - no probe
+// grid, point light, emissive or baked lamp in the scene, no prelit, lit or
+// reflective part. Anything else switches the old way, in one frame.
+bool TerrainGame::nearStageEligible(int index) const {
+  const SceneObjectData& d = runtimeObjects[index].data;
+  if (d.type != 5 || d.model < 0 || d.model >= (int)gameModels.size() ||
+      d.collision == 3 || d.prelit != 0 || d.dynLit != 0)
+    return false;
+  if (SCENE_PROBES != nullptr || !g_scenePointLights.empty() ||
+      (SCENE_EMIS != nullptr && SCENE_EMIS_COUNT > 0) ||
+      (BAKE_STATIC_LAMPS && !g_bakedLamps.empty()))
+    return false;
+  for (const GameModelPart& p : gameModels[d.model].parts)
+    if (p.reflTexture) return false;
+  return true;
+}
+
+
+
+// Bakes up to `vertBudget` more vertices of the full model into the object's
+// near stage, part by part, and spends them from the budget. True once every
+// part is complete; rebuildObjectGeometry then swaps the arrays in.
+bool TerrainGame::advanceNearStage(int index, int& vertBudget) {
+  ObjectGeometry& g = objectGeometry[index];
+  const SceneObjectData& d = runtimeObjects[index].data;
+  const GameModel& gm = gameModels[d.model];
+  if (g.nearStage.size() != gm.parts.size()) g.nearStage.resize(gm.parts.size());
+  while (vertBudget > 0 && g.nearStagePart < gm.parts.size()) {
+    const GameModelPart& src = gm.parts[g.nearStagePart];
+    // The same list/strip choice as rebuildObjectGeometry.
+    const bool useStrip = src.stripRun != 0 && !src.stripVerts.empty() &&
+                          src.stripRun <= minPackageSize();
+    const std::vector<float>& geo = useStrip ? src.stripVerts : src.verts;
+    const size_t total = geo.size() / 8;
+    GeoPart& part = g.nearStage[g.nearStagePart];
+    if (g.nearStageVert == 0) {
+      part.vertices.reserve(total);
+      part.colors.reserve(total);
+      part.sts.reserve(total);
+    }
+    size_t last = g.nearStageVert + (size_t)vertBudget;
+    if (last > total) last = total;
+    pushModelPartRange(part.vertices, part.colors, part.sts, d, geo,
+                       g.nearStageVert, last, src.kd, src.texture != nullptr,
+                       src.ke);
+    vertBudget -= (int)(last - g.nearStageVert);
+    g.nearStageVert = last;
+    if (last >= total) {
+      ++g.nearStagePart;
+      g.nearStageVert = 0;
+    }
+  }
+  return g.nearStagePart >= gm.parts.size();
 }
 
 
@@ -25881,6 +26016,9 @@ void TerrainGame::renderScene() {
   // Owned object streams remain alive until the next VIF1 synchronization.
   stapip.core.beginSubmissionBatch();
   int impostorSwitchBudget = 4;
+  // Vertices of near-model bake per frame, shared by every object waiting to
+  // leave its impostor (advanceNearStage).
+  int nearBakeBudget = 1024;
   // The game side of the object loop, lap by lap, for the render-cost capture
   // only (docs/profiling.md, "The game side of the object loop"). A lap is a
   // bare COUNT read - no drain - so the sections add up to the loop and sit
@@ -25931,7 +26069,26 @@ void TerrainGame::renderScene() {
         const float threshold = d.impostorDistance * (g.impostor ? .9F : 1.0F);
         far = dx*dx + dy*dy + dz*dz > threshold*threshold;
       }
-      if (far != g.impostor && impostorSwitchBudget > 0) {
+      // Back past the threshold before the full model was ready.
+      if (far == g.impostor && g.nearStaging) {
+        g.nearStage.clear();
+        g.nearStaging = g.nearStageDone = false;
+      }
+      // Far-to-near costs a whole-model bake (~3000 vertices for a grove
+      // tree, ms of EE). Spread it: the card keeps drawing while the arrays
+      // fill a frame's budget at a time, and the switch below waits for them.
+      bool switchNow = far != g.impostor;
+      if (switchNow && !far && nearStageEligible(i)) {
+        if (!g.nearStaging) {
+          g.nearStage.clear();
+          g.nearStagePart = g.nearStageVert = 0;
+          g.nearStaging = true;
+          g.nearStageDone = false;
+        }
+        if (!g.nearStageDone) g.nearStageDone = advanceNearStage(i, nearBakeBudget);
+        switchNow = g.nearStageDone;
+      }
+      if (switchNow && impostorSwitchBudget > 0) {
         --impostorSwitchBudget;
         g.impostor = far;
         if (DEBUG_SHOW_PROFILER)
