@@ -634,6 +634,29 @@ private:
     bool drawRoadPresetControls(SceneObject& o);
     std::string roadPresetPick_;            // Properties' chosen preset key
     char roadPresetName_[64] = "My street";  // Save preset
+    // The Road's Properties (src/roaddraw_ui.cpp, docs/roads.md "Properties"):
+    // header subtitle, preset card, then four tabs - Road | Edges | Furniture
+    // | Junctions (Track | Edges | Furniture | Crossings on a railway). Editor
+    // state only; every field it edits is an existing SceneObject road field.
+    bool drawRoadProperties(SceneObject& o);
+    std::string roadSubtitle(const SceneObject& o);
+    bool drawRoadTabRoad(SceneObject& o);
+    bool drawRoadTabEdges(SceneObject& o);
+    bool drawRoadTabJunctions(SceneObject& o);
+    // A material as a thumbnail tile; a click opens the picker popup (the
+    // drawRoadSurfaceCombo lists). True = the path changed.
+    bool roadMaterialTile(const char* label, const char* title, std::string& path, const char* noneLabel,
+                          float width);
+    // Lanes painted by a GENERATED road texture (its .roadtex recipe): -1 when
+    // the material has no recipe. Cached per path.
+    int roadTextureLanes(const std::string& mtlRel);
+    std::map<std::string, int> roadLanesCache_;
+    int roadTab_ = 0;          // 0 Road/Track, 1 Edges, 2 Furniture, 3 Junctions/Crossings
+    int roadTabFrame_ = -1;    // last frame the road tab bar was drawn
+    int roadBreakSel_ = 0;     // the breakable kind whose chip is being edited
+    // A line / pavement switched off keeps what it was, so switching it back
+    // on in the same session restores it (key: object id + field).
+    std::map<std::string, float> roadOffMemo_;
     // Junction overrides (docs/roads.md, "Junction overrides"). A junction is
     // not an object: it is selected by its identity - the road-id pair and
     // where it was - and re-found in the plan every frame, so a road edit

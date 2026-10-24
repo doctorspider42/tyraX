@@ -1415,8 +1415,8 @@ void roadNodes() {
 // merge a straight edge to a few points, and pack into valid strip runs.
 // Road textures (docs/road-textures.md): the weathering knobs are additive, so
 // wear = grime = cracks = 0 must still be the clean texture BIT FOR BIT - the
-// golden hashes are the pixels of every preset before weathering existed
-// (FNV-1a 64 of generate()). No libm call reaches a pixel on that path except
+// golden hashes are the pixels of every clean preset (FNV-1a 64 of
+// generate(); retaken in 2.1.0 when paint became 78% opaque). No libm call reaches a pixel on that path except
 // through a factor of exactly 0, so the hashes are the same at -O1 and -O3.
 void roadTextures() {
     std::printf("-- road textures --\n");
@@ -1424,8 +1424,8 @@ void roadTextures() {
         const char* name;
         unsigned long long hash;
     };
-    const Golden golden[] = {{"road-2lane", 0x9036849f596a4a86ull},
-                             {"road-4lane", 0x378e108cdafceafeull},
+    const Golden golden[] = {{"road-2lane", 0xe71cef52a5fe493dull},
+                             {"road-4lane", 0x1a4629e2f8bd14a6ull},
                              {"road-dirt", 0xaa4a5058e2cf2ef0ull},
                              {"road-cobble", 0xa4d8fb81c69f1013ull},
                              {"road-junction", 0xec01f4be25364863ull},
@@ -1441,8 +1441,12 @@ void roadTextures() {
         roadtex::RoadTexParams clean = pr.params;
         clean.wear = clean.grime = clean.cracks = 0.0f;
         const unsigned long long h = fnv(roadtex::generate(clean));
+        bool hit = false;
         for (const Golden& g : golden)
-            if (std::string(g.name) == pr.name && g.hash == h) ++matched;
+            if (std::string(g.name) == pr.name && g.hash == h) hit = true;
+        matched += hit ? 1 : 0;
+        // A miss names the new hash, so a deliberate look change is one paste.
+        if (!hit) std::printf("  %s clean hash 0x%016llxull\n", pr.name, h);
         if (roadtex::fromText(roadtex::toText(pr.params)) == pr.params) ++roundTrips;
         if (roadtex::generate(pr.params) == roadtex::generate(pr.params)) ++stable;
     }

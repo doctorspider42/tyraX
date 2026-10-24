@@ -127,7 +127,7 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   road ([docs/weather.md](../../docs/weather.md)).
 
   **Road traffic** ([docs/traffic.md](../../docs/traffic.md)) drives the
-  streets: six AI cars (Ravager, Pica, Strix in turn) spawned out of view
+  streets: three AI cars (Ravager, Pica, Strix) spawned out of view
   around the player, stopping at the stop lines, giving way, and obeying the
   five signalised nodes on Garage boulevard, whose heads show their phase (the
   two T's run three phases, one arm at a time). At night (pause menu > TIME OF

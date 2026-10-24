@@ -10426,29 +10426,12 @@ void App::drawAddObjectMenu() {
                 project_.objects().back().vehicleDef = project_.vehicles.front().name;
             commitChange();
         }
-        // A spline road (docs/roads.md): points in, terrain-hugging textured
-        // chunks at boot. A fresh one gets three points around the placement
-        // spot so there is something to see and grab immediately.
-        if (menuact::MenuItem("Road")) {
-            addObject(PrimitiveType::Road, /*commit=*/false);
-            SceneObject& r = project_.objects().back();
-            r.roadPoints = {r.position[0] - 12.0f, r.position[2],
-                            r.position[0],         r.position[2],
-                            r.position[0] + 12.0f, r.position[2]};
-            // A new project is seeded with generated road materials
-            // (docs/road-textures.md); a road dropped into one is textured
-            // and junction-ready at once instead of untextured grey.
-            std::error_code ec;
-            const std::filesystem::path dir(project_.dir);
-            if (std::filesystem::exists(dir / roadtex::kDefaultSurface, ec))
-                r.roadTexture = roadtex::kDefaultSurface;
-            if (std::filesystem::exists(dir / roadtex::kDefaultJunction, ec))
-                r.roadIntersectionTexture = roadtex::kDefaultJunction;
-            commitChange();
-        }
-        // The Draw road tool (docs/roads.md "Drawing roads"): click the road
-        // out on the ground, snapped to the roads already there.
-        if (menuact::MenuItem("Draw road...", "8")) startRoadDraw();
+        // A spline road (docs/roads.md): a new road is DRAWN - the Draw road
+        // tool (docs/roads.md "Drawing roads") starts at once, snapped to the
+        // roads already there, with the preset picked in its panel. A road
+        // that appeared as a short straight stub only to be redrawn point by
+        // point was the old way, and the slower one.
+        if (menuact::MenuItem("Road", "8")) startRoadDraw();
         // Linked pair of surfaces: a live view through to the target portal
         // plus a walk-through teleport that carries speed and view angle.
         if (menuact::MenuItem("Portal")) addPortal();

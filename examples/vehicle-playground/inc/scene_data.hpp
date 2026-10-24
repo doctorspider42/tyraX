@@ -66530,7 +66530,7 @@ inline constexpr float ROAD_LAMPS[500] = {
 // scene 0: 90 lanes, 188 connections, 18 signal heads, 1 dead end(s)
 // scene 1: 56 lanes, 132 connections, 0 signal heads, 0 dead end(s)
 // scene 2: 56 lanes, 132 connections, 0 signal heads, 0 dead end(s)
-inline constexpr int TRAFFIC_CARS = 6;
+inline constexpr int TRAFFIC_CARS = 3;
 inline constexpr float TRAFFIC_RADIUS = 110.0F;
 inline constexpr float TRAFFIC_DENSITY = 1.5F;
 inline constexpr float TRAFFIC_SPEED = 11.0F;
@@ -71620,33 +71620,24 @@ inline constexpr VehicleSmokeLook VEHICLE_SMOKE_LOOKS[3] = {
     {0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 1.0F, 1.0F, 0, 1, 0.0F, {""}},  // Pica Turbo
     {0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 1.0F, 1.0F, 0, 1, 0.0F, {""}},  // Strix V12
 };
-inline constexpr int VEHICLE_COUNT = 25;
-inline constexpr VehicleInstData VEHICLES[25] = {
+inline constexpr int VEHICLE_COUNT = 16;
+inline constexpr VehicleInstData VEHICLES[16] = {
     {0, 131, 0, 1, -1, 0},
     {0, 132, 1, 1, -1, 0},
     {0, 133, 2, 1, -1, 0},
     {0, 143, 0, 0, -2, 0},
     {0, 144, 1, 0, -2, 0},
     {0, 145, 2, 0, -2, 0},
-    {0, 146, 0, 0, -2, 0},
-    {0, 147, 1, 0, -2, 0},
-    {0, 148, 2, 0, -2, 0},
     {1, 132, 0, 1, -1, 0},
     {1, 240, 0, 0, -2, 0},
     {1, 241, 1, 0, -2, 0},
     {1, 242, 2, 0, -2, 0},
-    {1, 243, 0, 0, -2, 0},
-    {1, 244, 1, 0, -2, 0},
-    {1, 245, 2, 0, -2, 0},
     {2, 8, 0, 1, -1, 0},
     {2, 9, 1, 1, -1, 0},
     {2, 10, 2, 1, -1, 0},
     {2, 114, 0, 0, -2, 0},
     {2, 115, 1, 0, -2, 0},
-    {2, 116, 2, 0, -2, 0},
-    {2, 117, 0, 0, -2, 0},
-    {2, 118, 1, 0, -2, 0},
-    {2, 119, 2, 0, -2, 0}
+    {2, 116, 2, 0, -2, 0}
 };
 inline constexpr float VEH_WAYPOINTS[3] = {0.0F, 0.0F, 0.0F};
 

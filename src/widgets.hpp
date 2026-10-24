@@ -401,4 +401,75 @@ bool OverrideRow(const char* label, bool* on, const char* unsetText, F&& field) 
 }
 // --- end node inspector kit ---
 
+// --- picture inspector kit ---------------------------------------------------
+// Pieces of an inspector that shows the thing instead of listing its numbers
+// (the Road's Properties, docs/roads.md "Properties"): option tiles with a
+// drawing, a segmented choice that --ui-script can assert, thumbnail tiles for
+// assets, inset cards, switchable card headers, chips that carry a value and
+// a dashed "add" row. Same label=ID contract as above.
+
+/** A segmented choice (2-5 options) like toolkit's Segmented, but every option
+ * reports itself to --ui-script as checkable with its state, and the whole
+ * control can be disabled (`enabled` false: dimmed, clicks ignored). Option
+ * labels are their IDs inside PushID(id). `width` 0 = fit, < 0 = fill. Returns
+ * true when *cur changed. */
+bool Choice(const char* id, const char* const* labels, int count, int* cur, float width = 0.0f,
+            bool enabled = true);
+/** Choice as a caption-left inspector row (`label` = caption and ID scope). */
+bool ChoiceRow(const char* label, const char* const* labels, int count, int* cur, bool enabled = true);
+
+/** What an option tile draws in its picture area: `mn`..`mx`, `ink` the
+ * tile's current text colour (accent when selected). */
+using TileDrawFn = void (*)(ImDrawList* dl, ImVec2 mn, ImVec2 mx, ImU32 ink, bool selected);
+/** A big option tile: a picture (drawn by `draw`) over `text`. `label` is the
+ * ID and --ui-script name (reported checkable with `selected`), `text` what
+ * it shows. `approx` outlines it in the accent without the fill (the value is
+ * only close to this option). Returns clicked. */
+bool OptionTile(const char* label, const char* text, TileDrawFn draw, bool selected, float width, float height,
+                bool approx = false, bool enabled = true);
+
+/** An asset tile: a square thumbnail on the left (`tex`, or a field-coloured
+ * placeholder with `fallback`), `title` over a dim `sub` on the right, the
+ * whole tile `width` x `height` (0 = fill / two lines). `flipY` for
+ * framebuffer-rendered thumbnails. Returns clicked. */
+bool AssetTile(const char* label, ImTextureID tex, Glyph fallback, const char* title, const char* sub,
+               float width = 0.0f, float height = 0.0f, bool flipY = false);
+
+/** An inset card: a rounded, raised block behind everything drawn until
+ * EndInsetCard, with `pad` px inside it (0 = the default). Not a child window
+ * - the contents keep their window's ID scope, inspector rows and
+ * --ui-script names. Nesting is not supported. */
+void BeginInsetCard(const char* id, float pad = 0.0f);
+void EndInsetCard();
+
+/** The header row of a switchable card: a chevron when `open` is non-null
+ * (clicking the row toggles it; the hit box is named "Fold <label>"), a
+ * coloured dot when `dot` is non-zero, `label` in the heading cut over a dim
+ * `sub`, and a switch at the right end named `label` (reported checkable).
+ * `onEnabled` false greys the switch (it then ignores clicks). Returns true
+ * when the switch toggled *on. */
+bool CardHeader(const char* label, const char* sub, bool* on, bool* open = nullptr, ImU32 dot = 0,
+                bool onEnabled = true);
+
+/** A dashed full-width row with a "+" and `label` (ID, script name, text), a
+ * dim `hint` at its far end. Returns clicked. */
+bool AddRow(const char* label, const char* hint = nullptr);
+
+/** A chip that carries a value: `label`, then `detail` in the mono face.
+ * `on` tints it in the accent (reported checkable with `on`), `focused`
+ * draws a stronger ring (the one being edited). Returns clicked. */
+bool DetailChip(const char* label, const char* detail, bool on, bool focused);
+float DetailChipWidth(const char* label, const char* detail);
+
+/** A dimension line drawn into a picture: arrowheads at `a` and `b`
+ * (horizontal or vertical), and `text` on a small pill at its middle (null =
+ * none). */
+void DimensionLine(ImDrawList* dl, ImVec2 a, ImVec2 b, const char* text, ImU32 col);
+
+/** A round drag handle centred on `c` (an InvisibleButton named `label`,
+ * `r` px radius): ring in the accent, filled while hot. Returns true while it
+ * is being dragged; the drag delta is ImGui's io.MouseDelta. */
+bool DragHandle(const char* label, ImVec2 c, float r, ImGuiMouseCursor cursor = ImGuiMouseCursor_ResizeEW);
+// --- end picture inspector kit -----------------------------------------------
+
 }  // namespace ui

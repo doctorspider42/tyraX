@@ -704,7 +704,11 @@ std::vector<unsigned char> generate(const RoadTexParams& p) {
                         cov *= along;
                     }
                     if (cov <= 0.0f) continue;
-                    c = lerp(c, scale(ln.colour, 0.92f + 0.16f * grain), cov * keep);
+                    // kPaintOpacity: road paint is a thin film, the asphalt's
+                    // grain and tone show through it (2.1.0 - solid lines read
+                    // as cartoon decals).
+                    c = lerp(c, scale(ln.colour, 0.92f + 0.16f * grain),
+                             cov * keep * kPaintOpacity);
                 }
             }
 
@@ -1008,6 +1012,7 @@ std::vector<unsigned char> paintWear(int size, unsigned seed) {
             float a = 1.0f - 0.45f * thin;
             a *= 1.0f - smoothstep(0.60f, 0.70f, chip * 0.55f + patch * 0.55f);
             a *= 0.90f + 0.10f * grain;
+            a *= kPaintOpacity;  // the asphalt shows through (2.1.0)
             const float dirt = 0.80f + 0.14f * grain + 0.10f * (1.0f - patch);
             const float k = std::min(1.0f, dirt);
             unsigned char* p = &px[((size_t)y * (size_t)n + (size_t)x) * 4];

@@ -116,6 +116,11 @@ at 0 is the clean texture of before they existed, bit for bit
 (`--vehicle-check` "road textures" holds golden hashes of every preset). The
 defaults (wear 0.35, grime 0.3, cracks 0.3) are a mildly weathered road.
 
+Paint is never a solid decal: sound paint covers the asphalt at
+`roadtex::kPaintOpacity` (0.78, 2.1.0), so the surface's grain and tone show
+through every line - the lane lines here and the worn node paint
+(`road-paint.png`) alike. The golden hashes moved with it.
+
 - **Wear** - on the surface: stains, large tone blotches, rectangular repairs
   of newer, darker tar (asphalt), the wheel paths. On the paint: low-frequency
   noise fades it in patches and breaks it off in places, it chips, the

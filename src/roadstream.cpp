@@ -1086,8 +1086,13 @@ unsigned char* TerrainGame::roadStreamReadNow(int fi) {
     return nullptr;
   }
   const u32 t0 = profTicks();
-  const bool read = rsReadRange(rsFd_, d.at, d.bytes, buf);
-  const bool good = read && RsFile::sum(buf, d.bytes, RsFile::kSeed) == d.sum;
+  // Up to three tries, as the reader thread gets: a host: read over ps2link
+  // can come back damaged once (a concurrent asset load) and clean the next.
+  bool read = false, good = false;
+  for (int attempt = 0; attempt < 3 && !good; ++attempt) {
+    read = rsReadRange(rsFd_, d.at, d.bytes, buf);
+    good = read && RsFile::sum(buf, d.bytes, RsFile::kSeed) == d.sum;
+  }
   rsNowTicks_ += profTicks() - t0;
   ++rsNowReads_;
   rsNowBytes_ += d.bytes;
@@ -1155,7 +1160,10 @@ void TerrainGame::roadStreamIoCollect() {
         TYRA_LOG("ROADFILE ERROR item ", item, " at ", (int)s.at, " bytes ", (int)s.bytes,
                  state == 4 ? ": read failed" : ": checksum mismatch",
                  valid && rsBad_[(size_t)item] >= 3 ? " (given up)" : " (will retry)");
-      snprintf(rsFileMsg_, sizeof(rsFileMsg_), "%s", "ROAD DATA READ ERROR - SEE LOG");
+      // On screen only once an item is given up: a damaged read that the
+      // retry fixes is a log line, not something the player has to see.
+      if (!valid || rsBad_[(size_t)item] >= 3)
+        snprintf(rsFileMsg_, sizeof(rsFileMsg_), "%s", "ROAD DATA READ ERROR - SEE LOG");
     }
     if (!kept) free(s.buf);
     if (valid) rsQueued_[(size_t)item] = 0;

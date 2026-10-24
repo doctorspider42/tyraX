@@ -9863,12 +9863,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
     }
 
     // Static colliders (docs/vehicles.md, "The static collider grid"): 1 =
-    // nothing the build can see moves, hides or streams this object at
-    // runtime (project::objectRuntimeMovable is false), so the vehicle code
-    // places its collision box ONCE into a cell grid instead of re-deriving
-    // it every frame. The game still checks these objects' transform and
-    // shown state each frame and demotes one that changes anyway (a global
-    // script, Live Link), so the flag is a cost hint, never a behaviour.
+    // nothing the build can see moves this object at runtime
+    // (project::objectRuntimeMovable is false, its streaming layer aside), so
+    // the vehicle code places its collision box ONCE into a cell grid instead
+    // of re-deriving it every frame. The game still checks these objects'
+    // transform and shown state each frame - a layer load or unload re-places
+    // the static half, a mover is demoted (a global script, Live Link) - so
+    // the flag is a cost hint, never a behaviour.
     // Baked scroller clones are repositioned every frame: always 0.
     {
         for (int si = 0; si < sceneCount; ++si) {
@@ -9884,9 +9885,21 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             if (total == 0) {
                 objects << "0";
             } else {
-                for (size_t i = 0; i < objs.size(); ++i)
-                    objects << (i ? "," : "")
-                            << (project::objectRuntimeMovable(objs[i], movableRefs) ? 0 : 1);
+                // A streaming layer does not make a collider dynamic: the
+                // layer only decides whether the object is SHOWN, and a shown
+                // flip re-places the static half (reflscenery.cpp's rule). A
+                // city on auto-streamed districts otherwise had no static
+                // collider at all - every object re-derived every frame and
+                // scanned whole by every car (big-city: 2 334 objects, 2 ms).
+                for (size_t i = 0; i < objs.size(); ++i) {
+                    bool movable = project::objectRuntimeMovable(objs[i], movableRefs);
+                    if (movable && !objs[i].layer.empty()) {
+                        SceneObject c = objs[i];
+                        c.layer.clear();
+                        movable = project::objectRuntimeMovable(c, movableRefs);
+                    }
+                    objects << (i ? "," : "") << (movable ? 0 : 1);
+                }
                 for (size_t i = 0; i < sceneClones[si].size(); ++i)
                     objects << (objs.empty() && i == 0 ? "" : ",") << "0";
             }

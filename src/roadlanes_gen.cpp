@@ -656,7 +656,20 @@ bool TerrainGame::trafficKinematic(int vi, float dt, float throttle, float brake
   v.pos[0] = p[0];
   v.pos[1] = p[1] + s.rideHeight * SC;
   v.pos[2] = p[2];
-  if (spd > 0.05F) v.yaw = atan2f(p[3], p[4]) * 57.29578F;
+  // The lane is a polyline, so its heading turns in steps at every vertex:
+  // taken as is, a car on this path snapped a few degrees at each one through
+  // a bend. Eased toward it instead (about a tenth of a second), the wrap
+  // through +-180 handled.
+  if (spd > 0.05F) {
+    const float want = atan2f(p[3], p[4]) * 57.29578F;
+    float d = want - v.yaw;
+    while (d > 180.0F) d -= 360.0F;
+    while (d < -180.0F) d += 360.0F;
+    const float k = 1.0F - expf(-12.0F * dt);
+    v.yaw += (d > 45.0F || d < -45.0F) ? d : d * k;  // a U-turn re-spawn: snap
+    if (v.yaw > 180.0F) v.yaw -= 360.0F;
+    if (v.yaw < -180.0F) v.yaw += 360.0F;
+  }
   v.speed = spd;
   v.lateral = 0.0F;
   v.velY = 0.0F;

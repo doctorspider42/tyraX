@@ -72,6 +72,9 @@ struct LinePaint {
 };
 
 inline constexpr float kWhite[3] = {0.88f, 0.88f, 0.84f};
+// How much of the asphalt a painted line covers where it is sound: lines
+// and node paint are a thin film, not a decal (2.1.0; it was 1).
+inline constexpr float kPaintOpacity = 0.78f;
 inline constexpr float kYellow[3] = {0.93f, 0.70f, 0.13f};
 
 // The pattern actually drawn: dash + gap is snapped so a whole number of

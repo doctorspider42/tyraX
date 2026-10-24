@@ -200,7 +200,10 @@ check generates a project both ways).
   their definition's traffic tier distance (45 at least) a traffic car skips
   the vehicle sim - tyres, suspension, walls - and slides along its lane at the
   speed the core's pedals ask for, glued to the lane's height. The far tier is
-  drawing it by then. The full sim takes over as it comes near.
+  drawing it by then. The full sim takes over as it comes near. Its heading
+  eases toward the lane's (about 0.1 s): the lane is a polyline, and taking
+  its direction as is made the car snap a few degrees at every vertex of a
+  bend (2.1.0).
 - **Traffic lights.** The built-in signal head's three lenses are baked unlit
   when the project runs traffic, and the console draws the lit one over them:
   one quad (both windings) per head within 95 units, in one untextured bag,

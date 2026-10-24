@@ -9,7 +9,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `main.cpp` | 5.1k | Entry point: GUI by default, plus every headless CLI verb (`--new`, `--build [--run\|--run-ps2] [--rebuild]`, `--resave`, `--refresh-gen`, `--migrate`, `--dump`, `--list-nodes`, `--dump-graph`, `--apply-graph`, `--ai-graph`, `--add-ai-support`, `--chat-prompt`, `--search-docs`, `--import-model`, `--bake-*`, `--bake-status`, `--gi-gpu-check`, `--batch-report`, `--atlas-report`, `--audit-release`, `--pad`, `--replay`, `--ui-script`, `--profile-frame`, `--capture-frame`, `--debug-state`, `--vehicle-check`, `--vu-*`, `--dump-vucap`...). docs/ai-tools.md | tyra-testing |
 | `app.cpp` / `app.hpp` | 17.2k / 3.9k | ImGui shell; `app.hpp` declares the WHOLE `App` class | editor-ui-and-conventions |
 | `app_internal.hpp` | 300 | Helpers shared by >1 App TU | editor-ui-and-conventions |
-| `props_ui.cpp` | 3.7k | Properties inspector (sections for solid objects) | editor-ui-and-conventions |
+| `props_ui.cpp` | 3.7k | Properties inspector (sections for solid objects; a Road hands off to `drawRoadProperties`) | editor-ui-and-conventions |
 | `flowgraph_ui.cpp` | 2.3k | Flow Graph editor window | flow-graph-input-player |
 | `hud_ui.cpp` | 5.8k | UI Editor, Loading Screen, Splash, Font Manager, icons, Input Map, Animation Editor, GI/prelit/model-AO sections, Tree generator window | game-screens-menus-text |
 | `procui.cpp` | 1.9k | Procedural window, preview, bake verbs, seed simulator | procedural-and-prefabs |
@@ -26,8 +26,8 @@ Read when you need to find which file owns something, or before adding a file. L
 | `atlas_ui.cpp` | 400 | Tools > Texture Atlas | runtime-rendering-and-meshes |
 | `junction_ui.cpp` | 370 | Road junction overrides UI | vehicles-and-roads |
 | `roadtex_ui.cpp` | 320 | Tools > Road Texture Generator (window key `roadtex`) | vehicles-and-roads |
-| `roaddraw_ui.cpp` | 540 | Draw road viewport tool (`App::roadDrawViewport`), preset buttons, bridge height handles | vehicles-and-roads |
-| `roadfurniture_ui.cpp` | 180 | Street furniture Properties section (`App::drawRoadFurniture`) | vehicles-and-roads |
+| `roaddraw_ui.cpp` | 1.75k | Draw road viewport tool (`App::roadDrawViewport`), bridge height handles, the Road's Properties page (preset card, tabs, Road/Edges/Junctions) | vehicles-and-roads |
+| `roadfurniture_ui.cpp` | 470 | The Road's Properties Furniture tab (`App::drawRoadFurniture`): plan, line cards, junction signs, Breakable | vehicles-and-roads |
 | `traffic_ui.cpp` | 140 | View > Lanes overlay | vehicles-and-roads |
 | `vehicle_ui.cpp` | 1.7k | Tools > Vehicle Editor | vehicles-and-roads |
 | `vu_ui.cpp` | 1.3k | Tools > VU Programs | vu-framework |
@@ -62,7 +62,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `palette_ui.cpp` | 450 | Command palette (Ctrl/Cmd+K; Ctrl+Enter hands the query to the AI Assistant): commands, objects, scenes, windows (`windowTitle` table over `chatWindowKeys`), layouts, docs (`aichat::docIndex`) | editor-ui-and-conventions |
 | `toolkit.cpp/.hpp` | 330 | Tool-window kit (`ui::`): PrimaryButton/DangerButton/GhostButton, VSplitter/HSplitter, BeginCard, Caption, ListRow, ThumbTile+TileFlow, EmptyState, ProgressInline, StatusLine, Badge, UsedBy, Segmented | editor-ui-and-conventions |
 | `pad_widget.cpp` | 1.2k | The toolkit's `pad` section: `ui::PadDiagram` (the one DualShock 2 - geometry table, Interactive/Annotated/Compact, callout slots), `PadButtonGlyph`, `PadButtonCombo`, `PadPortSegmented` | editor-ui-and-conventions |
-| `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3, Keycap, ShortcutChord) + heading/mono faces | editor-ui-and-conventions |
+| `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3, Keycap, ShortcutChord, the picture inspector kit) + heading/mono faces | editor-ui-and-conventions |
 | `uiscript.cpp/.hpp` | 740 | `--ui-script` item registry + script | editor-ui-and-conventions |
 | `viewport.cpp/.hpp` | 8.8k / 1.6k | Offscreen GL 3.3 preview | viewport |
 | `gl_loader.h/.cpp` | 215 | Hand-rolled GL loader, `glUploadTexRgba` | viewport |

@@ -1,6 +1,6 @@
 # Roads — spline streets glued to the terrain
 
-A **Road** object (Insert > Gameplay > Road) is a polyline of world-space XZ
+A **Road** object (Scene > Add > Gameplay > Road, which starts the Draw road tool) is a polyline of world-space XZ
 points, a width and one texture. Everything else is derived: a Catmull-Rom
 spline threads the points, and the surface is tessellated **at boot** — a row
 every ~1 unit along the spline and a vertex every ~0.5 unit across it, each glued
@@ -17,7 +17,7 @@ in VRAM.** There is no baked geometry to store, ship or stream.
 
 The fastest way to lay out a street network is the **Draw road** tool: the
 viewport tool palette's **Draw road (8)** button, the `8` key, Scene > Add >
-Gameplay > **Draw road...**, or **Draw road...** in a road's Properties.
+Gameplay > **Road**, or **Draw road...** in a road's Properties.
 
 ![The editor's Draw road tool: the preset panel top left, a City street being drawn from the grass toward the alley - the width ghost, the snap marker on the alley and the label "T / crossing on alley-1 -90 deg 6.7 u"](img/road-drawing-editor.png)
 
@@ -144,21 +144,100 @@ spills, a level crossing). The railway's gauge is the standard 1.435 m in the
 project's units per metre, and its bed scales with it (the Kind = Railway
 rule, which now lives in `roadpresets::applyRailway`).
 
-**In Properties** (a road's **Preset** section): the combo marks the preset the
-road already is; **Apply preset** applies the chosen one to every selected road
-(one undo step); **Save preset** captures this road's look under a
-name. Project presets are saved in the `.tyra` (`settings.roadPresets`, format
-105, written only when there are any) and listed after the built-ins in
-Properties, the Draw road tool, `--draw-road` and the AI tool; one of the same
-name is replaced, and **Delete preset** removes the one this road matches.
+**In Properties** (the preset card at the top of a road's page, see
+"Properties" below): the combo shows the preset the road is closest to, and
+picking one applies it to every selected road (one undo step). The chip beside
+it counts the fields that differ from that preset (its hover lists them;
+"matches" when there are none) and **Revert** applies it again. **Save as
+preset...** captures this road's look under a name. Project presets are saved in
+the `.tyra` (`settings.roadPresets`, format 105, written only when there are
+any) and listed after the built-ins in Properties, the Draw road tool,
+`--draw-road` and the AI tool; one of the same name is replaced, and **Delete
+preset** (in the same popup) removes the project preset this road matches. Which
+preset a road "is" is not stored anywhere: it is worked out from the road's own
+fields every time, so a road made before presets existed gets one too.
+
+## Properties
+
+A selected road's Properties panel is a picture of the road with its numbers
+beside it, on four tabs (2.1.0). The header names the road and says what it is:
+kind, points, length in metres, junctions. Under it sits the preset card. The
+tab choice is kept for the session. Every control edits the same road field,
+with the same `.tyra` key, that the single long column it replaced did; nothing
+about the format changed.
+
+| Road | Edges | Furniture | Railway |
+|---|---|---|---|
+| ![Road tab: Kind tiles, a cross-section with the 13 m width between two edge handles, Tracks and Gauge, Width and Grip, the surface and junction materials as thumbnails, Priority and Markings, the Shape card](img/road-properties-road.png) | ![Edges tab: the edge drawing with the 2.5 m pavement, the kerb's top width and 0.15 height, the Kerbs and Pavement cards, the four wear tiles with Lived-in picked, Density, Detail seed and Shuffle, Soft edge](img/road-properties-edges.png) | ![Furniture tab: the plan of the first 60 m with lamps on alternating sides and trees on both, the Street lamps card open, Trees folded, Add bollards, Signs and Traffic lights, the Breakable card with one chip per kind](img/road-properties-furniture.png) | ![A railway's Track tab: the ballast bed with two tracks and the 1.435 gauge, Tracks One / Two, Gauge Standard / Metre / Narrow, the bed and crossing materials, Priority Track and the greyed Markings](img/road-properties-railway.png) |
+
+- **Road** (*Track* on a railway). **Kind** is three tiles: Road, Railway, Tram
+  street (picking Railway applies the railway bed as before). The
+  **cross-section** draws the road at the panel's scale: asphalt, kerbs (their
+  height drawn three times larger, or a 15 cm step would be one pixel),
+  pavements with their width, rails on a tram street, and the lane lines the
+  surface texture paints. Drag either **edge handle** to change the width; both
+  edges move, because a road is symmetric about its spline. **Width** and
+  **Grip** are typed under it; **Lanes** is read from the texture's generator
+  recipe (`.roadtex`) and shown only for a generated texture. A railway or tram
+  street adds **Tracks** (One / Two) and **Gauge** (Standard 1.435 m, Metre
+  1.0 m, Narrow 0.762 m, each in the project's units per metre, with the exact
+  value beside them). The **Surface** and **Junction** materials are thumbnail
+  tiles of their texture; a click opens the same picker as before (materials,
+  legacy PNGs, import, *Edit in Material Editor*), and *Generate texture...*
+  opens the Road Texture Generator. **Priority** (Track / Local / Main; the
+  stored rank) and **Markings** (None / Stop lines / + Zebras) are one-click
+  choices, with a line saying what the chosen priority does at a crossing; a
+  railway's Markings are greyed because the planner never paints one. The
+  **Shape** card holds the points (*Edit in viewport*, the folded *Point list*
+  with the exact x/z, heights and +/-), **Bridge** with the deck profile (one
+  handle per point, dragged up and down, the same `roadHeights` as the viewport
+  handles), **Closed loop**, *Draw road...* and *Align terrain to road*.
+  **Advanced** (folded) has the longitudinal spacing, the spill onto higher
+  roads and the object's cosmetic Position.
+- **Edges** (greyed on a railway, which has none). The **edge drawing** shows
+  pavement, kerb and road at true scale (the kerb's height doubled) with their
+  sizes; drag the pavement's outer edge to set its width and the kerb's top to
+  set its height. **Kerbs** is a card with its switch, **Height** as Low /
+  Standard / High (10, 15, 20 cm) plus the exact value, and **Top width**.
+  **Pavement** is a card too: its switch (greyed without kerbs, because a
+  pavement needs one), the material tile and the width. Switching it off and on
+  again in the same session brings the old width back. **Wear & details** is
+  four tiles - None, Light, Lived-in, Worn out (density 0, 0.3, 0.6, 1.0) - with
+  the exact **Density**, the **Detail seed** and **Shuffle** (the next seed). A
+  density between the tiles outlines the nearest one. **Soft edge** (the edge
+  fade) is greyed on a bridge, with the reason under it.
+- **Furniture**. A **plan** of the road's first 60 m from above, with every
+  lamp, tree and bollard station where the settings put it (sides, spacing,
+  start) and the lamp spacing measured. Each line is a card with a switch and a
+  one-line summary; open, it has the **model** tile (built-in or a project
+  `.obj`), **Side** (Left / Both / Right / Alternate), the spacing and the
+  offset from the kerb, and behind *Adjust...* the start (phase), scale, yaw and,
+  for trees, the furniture seed. A line that is off is a dashed *Add ...* row.
+  *At this road's junctions*: **Signs** (None / Give way / Stop, with a warning
+  when Markings is None) and **Traffic lights**, each with its model. The
+  **Breakable** card has a chip per kind with its break speed in km/h (1 unit
+  read as 1 m); a click picks the kind whose switch, break speed (units/s) and
+  speed lost are edited under it, then the hit sound.
+- **Junctions** (*Crossings* on a railway): every node this road is part of,
+  with the other roads there, how many arms and what the plan decided (patch,
+  runs through, covered, width change, level crossing, override). A click
+  selects that junction, as its viewport diamond does.
+
+The page is built from the editor's widget kit (`src/widgets.hpp`, "picture
+inspector kit"): `ui::Choice` / `ChoiceRow`, `OptionTile`, `AssetTile`,
+`BeginInsetCard`, `CardHeader`, `AddRow`, `DetailChip`, `DimensionLine` and
+`DragHandle`. A script names the controls by their labels: `Properties/Edges`,
+`Properties/Railway kind`, `Properties/Road edge right` (drag it),
+`Properties/Wear worn out`, `Properties/Add bollards`, `Properties/Fold Street
+lamps`, `Properties/Main`, `Properties/Height point 3`.
 
 ## Authoring
 
 ![Road surface and intersection material pickers](img/road-material-picker.png)
 
-- **Points** and **Crossings** are collapsible Properties sections.
-  Points opens by default; Crossings starts folded to keep long streets compact.
-- **Points** live in the Properties panel: a table of XZ pairs with insert
+- The points are in the **Shape** card of the Road tab and a road's crossings
+  on the **Junctions** tab ("Properties" above).
+- **Points** live in the Properties panel (*Point list*): a table of XZ pairs with insert
   (`+`, midway to the next point) and remove (`-`). The selected road draws
   editing edges and point markers over the road in the viewport. The surface
   underneath is real textured, depth-tested geometry — the exact strip the
@@ -176,7 +255,7 @@ name is replaced, and **Delete preset** removes the one this road matches.
   the picker, but new authoring should use a material so a texture replacement
   has one owner. Road UV scale remains fixed at one repeat per four world units;
   the other MTL properties are not applied to this boot-generated surface.
-  **Tools > Road Texture Generator** (the **Generate...** button beside the
+  **Tools > Road Texture Generator** (the **Generate texture...** link over the
   picker) bakes asphalt, setts, gravel or dirt with lane markings into
   `res/materials/roads/` ([road-textures.md](road-textures.md)). A new project
   is seeded with five of them, and a Road inserted into it starts on
@@ -213,7 +292,7 @@ name is replaced, and **Delete preset** removes the one this road matches.
   Catmull-Rom neighbours wrap across the join so both road shoulders meet
   smoothly. At least three remaining controls are required. **Ctrl+Z** restores
   the point before the drag, including its original position. **Closed loop**
-  in Points also closes a road without moving existing controls; uncheck it to
+  in the Shape card also closes a road without moving existing controls; uncheck it to
   reopen the road at its seam. Move the shared handle to move both endpoints.
   Insert on the closing segment just like any other segment; a closed road
   ignores empty-ground appends until reopened.
@@ -993,8 +1072,8 @@ the kerbs, and the structure is untextured: no VRAM.
 - **Kerbs.** A kerb is not cut by a road more than the clearance above or below
   it (`KerbWorld::onAnyRoad`), and a kerb never climbs onto a deck overhead: the
   surface lookup falls back to the glued height when it answers more than the
-  clearance above it. A bridge has parapets, not kerbs (`Kerbs` and `Edge fade`
-  are greyed for a bridge).
+  clearance above it. A bridge has parapets, not kerbs (`Kerbs`, `Pavement` and
+  `Soft edge` are greyed for a bridge, each saying why).
 - **Node patches** are fitted to the GLUED roads - a bridge's ground-level self -
   so a junction under a bridge is not pulled up to the deck.
 - **Wheels.** `roadSurfaceAt` and `groundSurfaceAt` take a `maxY`: the highest
@@ -1883,7 +1962,11 @@ in a file and reads each item's rows when the ring wants it.
   log; the HUD line stays). The strips still stream; the baked rows are not
   built. Never a crash (verified in PCSX2: a missing file and another build's
   file both boot to a driveable city with the message). A failed read is
-  retried twice, then the item is given up.
+  retried twice, then the item is given up; only a given-up item (or a
+  plan-time read that failed all three tries) puts READ ERROR on screen. On
+  the console a read occasionally comes back with a bad checksum once and
+  clean on the retry (2.1.0, big city) - most likely another `host:` load
+  running at the same time - and that stays a log line.
 - **Off.** `roadStreamEmbedTables` (Project > Preferences > World > *Keep road
   tables in the ELF*, saved only when on) restores the embedded tables, no
   file and no thread. A project with streaming off (radius 0) never had a file
@@ -2085,16 +2168,16 @@ power cycle.
 | `src/roadrail.hpp/.cpp` | Rails and tram tracks: `planRails`, the strip emitter and the palette ("Rails and tram tracks"). |
 | `src/roadbridge.hpp/.cpp` | Bridges: the deck profile and tessellation, the structure, the console tables and upload block, `--vehicle-check` "road bridges". |
 | `src/templates.cpp` (`roadsImpl`) | The runtime twin + data tables + the scene-load hook. |
-| `src/props_ui.cpp` | The Road properties panel + `App::alignTerrainToRoad`. |
+| `src/props_ui.cpp` | The Properties header (the road glyph and subtitle), the call into the road page + `App::alignTerrainToRoad`. |
 | `src/junction_ui.cpp` | Junction markers, selection and the Junction section (overrides). |
 | `src/roadtex.cpp/.hpp`, `src/roadtex_ui.cpp` | The Road Texture Generator ([road-textures.md](road-textures.md)). |
 | `src/roaddetail.cpp/.hpp` | Road details: placement, the surface-following decal bake and the details atlas ("Road details"). |
 | `src/roadstream.cpp/.hpp`, `src/roadstream_core.inl` | Road streaming: the codegen that cuts the streaming runtime out of the non-streaming source, the template hooks, the core (item boxes, cell grid, per-chunk height index, ring) compiled into the editor AND pasted into the game, `--vehicle-check` "road streaming" ("Road streaming"). |
 | `src/roadfile.cpp/.hpp` | Tables on disk: the `roads.bin` builder, the `ROAD_FILE_ITEMS` directory and `--vehicle-check` "road tables on disk"; the reader runtime is the `kDisk*` text in `roadstream.cpp`, the header/checksum `RsFile` in the core ("Tables on disk"). |
 | `src/roaddraw.cpp/.hpp` | The Draw road tool's decisions: `Snapper` (end, centre-line, angle and grid snaps), `finish` (a new road or one carried on), `commit`, the bridge handle arithmetic, `--vehicle-check` "road drawing" ("Drawing roads"). |
-| `src/roaddraw_ui.cpp` | The tool in the viewport (panel, preview, clicks), the bridge height handles and Properties' Preset section. |
+| `src/roaddraw_ui.cpp` | The tool in the viewport (panel, preview, clicks), the bridge height handles, and the road's Properties page: preset card, tabs, the Road, Edges and Junctions tabs ("Properties"). |
 | `src/roadpresets.cpp/.hpp` | The preset table, the on-demand materials, `apply` / `fromRoad`, the project presets' JSON ("Road presets"). |
-| `src/roadfurniture.cpp/.hpp`, `src/roadfurniture_ui.cpp` | Street furniture: placement, the built-in models, `.obj` instancing, the console tables and upload, `--vehicle-check` "road furniture", and the Properties section ("Street furniture"). |
+| `src/roadfurniture.cpp/.hpp`, `src/roadfurniture_ui.cpp` | Street furniture: placement, the built-in models, `.obj` instancing, the console tables and upload, `--vehicle-check` "road furniture", and the Properties Furniture tab ("Street furniture", "Properties"). |
 | `src/roadfurnbreak.cpp/.hpp` | Breakable furniture: the generated break runtime (a template patch applied after the lamp patch), the host twins of its two rules and `--vehicle-check` "breakable furniture" ("Breakable furniture"). |
 | `src/roadlight.cpp/.hpp`, `src/weather_core.inl` | Lit street lamps and weather ([weather.md](weather.md)): the lamp pools' bake, `ROAD_LAMPS`, the generated lamp/rain/wet-tint runtime and its template hooks, the weather state machine shared with the game, `--vehicle-check` "wet roads and lamps". |
 
@@ -2202,7 +2285,7 @@ add 138 vertices in both scenes together.
 
 ## Soft edges (1.144)
 
-**Edge fade** (`roadEdgeFade`, 0-4 units, omitted at 0) makes the road's
+**Soft edge** (Properties > Edges; `roadEdgeFade`, 0-4 units, omitted at 0; it was called Edge fade) makes the road's
 outer band on each side fade into the terrain instead of ending in a hard
 line, as a dirt track does.
 

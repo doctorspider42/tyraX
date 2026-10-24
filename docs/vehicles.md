@@ -222,8 +222,14 @@ scene's colliders (`buildVehicleColliders`). It used to be rebuilt from every
 runtime object each frame and then scanned whole by every car, although almost
 nothing in it moves. Now the build flags the objects nothing can move
 (`SCENE_STATIC_COLLIDER_TABLES`, the inverse of `project::objectRuntimeMovable`:
-no physics, no flow-graph or script reference, no layer, no pickup, no save
-state), and the game places those **once** into a cell grid. Each frame only the
+no physics, no flow-graph or script reference, no pickup, no save state; a
+streaming layer does not count - loading or unloading one only flips shown
+flags, which re-place the static half), and the game places those **once**
+into a cell grid. (Until 2.1.0 a layer made an object dynamic, so the Big
+City - every building on an auto-streamed district - had no static collider
+at all: 2 334 objects re-derived every frame and scanned whole by every
+car, 3.8-7 ms of vehicle update on the PS2. With them static: 2.4 ms, and
+the frame holds 60.) Each frame only the
 rest - vehicles, physics bodies, scripted props, the spawn pool - are derived
 again, and a car walks just the grid cells its reach can touch plus that short
 dynamic list.

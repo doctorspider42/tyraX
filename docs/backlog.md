@@ -85,9 +85,13 @@ acceptance, working traffic lights on the furniture's signal heads, spawning
 and recycling around the player, a kinematic far-car path, View > Lanes,
 `--road-lanes`, the host simulation in `--vehicle-check`. Left:
 
-- **A traffic car costs ~0.37 MB of EE RAM** (its own vehicle geometry: dents
+- **A traffic car costs ~0.37-0.5 MB of EE RAM** (its own vehicle geometry: dents
   and paint are per car). Sharing one mesh between undamaged traffic cars of a
   definition (copy on first dent) would make 10+ cars affordable in Big City.
+  Measured on the PS2 (2.1.0): six cars took the Motor District from 26.3 to
+  29.4 MB (2.4 MB left) and cost 1.4 ms of EE update a frame; the example now
+  runs three. The game crashing after a few minutes on the console is most
+  likely this headroom running out - not yet reproduced.
 - ~~**Lane changes**~~ (overtaking a slow or stopped car, picking the turn
   lane by the intended exit): done (format 136 branch, docs/traffic.md "Lane
   changes"; gap check, smooth blend, host-simulated on a 2+2 crossing with a

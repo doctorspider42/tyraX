@@ -50,7 +50,7 @@
     "terrainDetail": 80,
     "terrainViewDistance": 150,
     "terrainLodDistance": 70,
-    "traffic": {"cars": 6},
+    "traffic": {"cars": 3},
     "reflectionReuseBudget": 4,
     "reflectionGroundRadius": 20,
     "reflectionPanorama": true,
