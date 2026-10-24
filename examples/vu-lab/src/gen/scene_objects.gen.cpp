@@ -16,6 +16,7 @@ const SceneObjectData SCENE_0_OBJECTS[7] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {7};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[7] = {0xc47970d74b2dc250ULL, 0xa4fede5c47620779ULL, 0x789b272e64c8d053ULL, 0xb1ac6c791407e2bdULL, 0x21995347c6583232ULL, 0x48c7ba9ec8a2a22bULL, 0xdfd73614969417f8ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[7] = {1,1,1,1,1,0,1};
 
 }  // namespace Vu_lab
 

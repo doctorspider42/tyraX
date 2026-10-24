@@ -56,6 +56,10 @@ std::filesystem::path homeDir();
 // Display name proposed for collaboration sessions.
 std::string userName();
 
+// What hosting a session may trigger on THIS OS's firewall, in one sentence
+// (the Host page used to warn about Windows Firewall on every platform).
+const char* firewallNote();
+
 // ".exe" on Windows, "" elsewhere. For building executable names and the
 // file-dialog pattern that matches them.
 const char* exeSuffix();
@@ -248,8 +252,9 @@ void openUrl(const std::string& url);
 void revealInFileManager(const std::string& path);
 
 // Put an RGBA image on the native clipboard so it pastes as pixels, not as a
-// file path. `pngPath` is the already-saved equivalent used by Linux clipboard
-// helpers; Windows publishes a CF_DIBV5 directly from `rgba`. Returns false
+// file path. `pngPath` is the already-saved equivalent: Linux/macOS hand it to
+// the clipboard as is; Windows publishes its bytes as "PNG" next to a CF_DIB
+// built from `rgba` (what Electron apps and Paint both read). Returns false
 // when the platform clipboard is busy or no image-capable helper is installed.
 bool copyImageToClipboard(const unsigned char* rgba, int width, int height,
                           const std::string& pngPath);
@@ -311,7 +316,24 @@ const char* defaultFontLabel();
 // with none of them keeps the built-in font. Proportional UI faces only - a
 // bold display face would be wrong here for the same reason the bake list is
 // all bold: small text at regular weight is what an interface wants.
-const std::vector<SystemFont>& uiFontFiles();
+//
+// Each family carries its own heavier cut for panel titles and section
+// headings (Medium/Semibold where the OS ships one): the bold face is only
+// used when it comes from the SAME family as the regular one that loaded, so a
+// heading never switches typeface mid-panel. `face` is the index inside a
+// .ttc collection (0 for a plain .ttf).
+struct UiFontFamily {
+    const char* label;     // "Segoe UI"
+    const char* file;      // regular weight
+    const char* boldFile;  // heavier cut of the same family; may not exist
+    int boldFace = 0;
+};
+const std::vector<UiFontFamily>& uiFontFiles();
+
+// Monospace face for numbers, logs and code (fields that must not jitter
+// as digits change). Best first; none resolving = the proportional UI font.
+// Same rule as above: fixed-weight files only, never a variable font.
+const std::vector<SystemFont>& monoFontFiles();
 
 // --- native file dialogs ---------------------------------------------------
 
@@ -331,5 +353,71 @@ std::string pickFolder(const std::string& title);
 // it interacts with the non-pumping app (grayed Open button). No-op where the
 // platform's dialogs are separate processes.
 void setDialogOwner(GLFWwindow* window);
+
+// --- the window's title bar, merged into the editor's top bar ---------------
+// VS Code / Figma style: the OS caption row goes and the editor's own top bar
+// (App::drawMenuBar) becomes the window's top edge (docs/editor-theme.md,
+// "Title bar"). Opt-out: Edit > Preferences > "Use the native title bar"
+// (editor.ini nativeTitleBar), read at startup only.
+//
+//   macOS   (platform_mac.mm) the NSWindow gets a transparent, hidden title
+//           over a full-size content view; the traffic lights stay where they
+//           are drawn by AppKit, re-centred vertically on our bar, and the bar
+//           keeps titleBarInsetLeft() free for them.
+//   Windows the GLFW HWND is subclassed: WM_NCCALCSIZE drops the caption but
+//           keeps the sizing frame (and with it the DWM shadow), and App draws
+//           minimize / maximize / close at the bar's right end
+//           (titleBarHasCaptionButtons). UNVERIFIED on a real Windows box.
+//   Linux   not merged: the desktop's own decorations stay (client-side
+//           decorations on Wayland / X11 are a separate project).
+//
+// Dragging: both merged halves intercept the REAL mouse-down synchronously
+// (an NSEvent local monitor / the subclassed WndProc) when the last frame said
+// the pointer is over a bare part of the bar, start the system's own window
+// move from it, and swallow it - so ImGui never sees half a click. A double
+// click there zooms / maximizes (macOS honours AppleActionOnDoubleClick).
+
+// What App reports every frame while the title bar is merged. Window
+// coordinates (= ImGui's coordinates: points on macOS, pixels on Windows).
+struct TitleBarFrame {
+    float height = 0.0f;     // the top bar's height
+    bool overEmpty = false;  // pointer over the bar with no widget under it
+};
+
+// Merge the title bar into the client area. Call once, after the window
+// exists. true = merged (macOS, Windows); false = unsupported here (Linux) or
+// the native handle was unavailable - the window keeps its OS title bar.
+bool mergeTitleBar(GLFWwindow* window);
+// Whether mergeTitleBar can do anything on this platform (the Preferences
+// switch is greyed out where it cannot).
+bool titleBarMergeSupported();
+// Per frame, while merged. Cheap; no-op when not merged.
+void updateTitleBar(GLFWwindow* window, const TitleBarFrame& frame);
+// Width at the bar's LEFT end that belongs to the OS (the macOS traffic
+// lights, plus a gap). 0 when not merged, in full screen, and on Windows/Linux.
+float titleBarInsetLeft(GLFWwindow* window);
+// true where a merged title bar leaves no system caption buttons, so App must
+// draw minimize / maximize / close itself (Windows).
+bool titleBarHasCaptionButtons();
+
+// --- windows that leave the main window (Dear ImGui multi-viewports) --------
+// A docked panel dragged out of the editor becomes its own OS window
+// (Edit > Preferences > Appearance > "Windows can leave the main window",
+// editor.ini multiViewports; docs/editor-theme.md "Windows outside the main
+// window"). ImGui's GLFW backend creates those windows; these two cover what
+// it leaves to the application.
+
+// The preference's default on this machine: on for Windows, macOS and Linux
+// X11, off in a Wayland session (WAYLAND_DISPLAY set or XDG_SESSION_TYPE
+// "wayland") - Wayland gives a client no say over where its windows go, and
+// ImGui's GLFW backend refuses multi-viewports there anyway.
+bool multiViewportsByDefault();
+// Keep a panel's OS window above the main window, the way a tool palette
+// stays above its document: an owned HWND on Windows (also minimized with the
+// owner), an NSWindow child on macOS (ordered above, moves with the main
+// window). No-op on Linux, where the backend already types the window
+// _NET_WM_WINDOW_TYPE_DIALOG. Called once per window, right after the backend
+// created it.
+void ownToolWindow(GLFWwindow* owner, GLFWwindow* tool);
 
 }  // namespace platform

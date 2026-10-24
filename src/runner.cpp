@@ -172,8 +172,83 @@ std::string describe(const Ps2Client& c) {
 }  // namespace
 
 Runner::~Runner() {
+    {
+        std::lock_guard<std::mutex> lock(watchMutex_);
+        watchStop_ = true;
+    }
+    watchWake_.notify_all();
+    if (watchThread_.joinable()) watchThread_.join();
     join();
     killPs2Client();
+}
+
+void Runner::watchGame(const Project* p) {
+    std::string elf, hint;
+    if (p && !p->dir.empty()) {
+        elf = absoluteNativePath(p->elfPath());
+        hint = p->emulatorPath;
+    }
+    std::lock_guard<std::mutex> lock(watchMutex_);
+    if (elf != watchElf_) {
+        watchElf_ = elf;
+        emuRunning_ = false;  // a different project: forget the last answer
+        watchWake_.notify_all();
+    }
+    watchEmuHint_ = hint;
+    if (!watchThread_.joinable() && !watchStop_)
+        watchThread_ = std::thread([this] { watchLoop(); });
+}
+
+// One scan a second. Only processes under the emulator's names are opened, and
+// only their command lines decide (killEmulatorsFor's rule): an instance whose
+// line cannot be read is not ours, so it never shows as "Running".
+void Runner::watchLoop() {
+    std::unique_lock<std::mutex> lock(watchMutex_);
+    while (!watchStop_) {
+        const std::string elf = watchElf_;
+        const std::string exe = !watchLastEmu_.empty() ? watchLastEmu_ : watchEmuHint_;
+        lock.unlock();
+        bool found = false;
+        if (!elf.empty())
+            for (const std::string& name : emulatorProcessNames(exe)) {
+                for (const platform::RunningProcess& proc : platform::processesNamed(name))
+                    if (platform::commandLineNamesPath(proc.commandLine, elf)) {
+                        found = true;
+                        break;
+                    }
+                if (found) break;
+            }
+        lock.lock();
+        if (elf == watchElf_) {
+            if (found && !emuRunning_) {
+                // The clock starts at our own launch when this is it (the
+                // process takes a moment to appear), else when first seen.
+                const auto now = SteadyClock::now();
+                emuSince_ = (launchElf_ == elf && now - launchAt_ < std::chrono::minutes(2))
+                                ? launchAt_ : now;
+            }
+            emuRunning_ = found;
+        }
+        watchWake_.wait_for(lock, std::chrono::seconds(1));
+    }
+}
+
+Runner::GameStatus Runner::gameStatus() const {
+    GameStatus g;
+    const auto now = SteadyClock::now();
+    if (ps2ClientAlive()) {
+        std::lock_guard<std::mutex> lock(watchMutex_);
+        g.running = true;
+        g.onPs2 = true;
+        g.seconds = std::chrono::duration<double>(now - deployAt_).count();
+        return g;
+    }
+    std::lock_guard<std::mutex> lock(watchMutex_);
+    if (emuRunning_ && !watchElf_.empty()) {
+        g.running = true;
+        g.seconds = std::chrono::duration<double>(now - emuSince_).count();
+    }
+    return g;
 }
 
 void Runner::join() {
@@ -495,6 +570,8 @@ static std::string findPCSX2() {
     return "";
 }
 
+std::string detectEmulatorPath() { return findPCSX2(); }
+
 // The PCSX2 executable to launch: the project's configured path when set (and
 // it exists), otherwise the Program Files auto-detect. Empty when neither is
 // available (a configured-but-missing path resolves to empty, not the default).
@@ -699,6 +776,14 @@ bool Runner::launchPCSX2(const Project& p) {
         appendLine("[editor] Failed to launch PCSX2.");
         return false;
     }
+    {
+        std::lock_guard<std::mutex> lock(watchMutex_);
+        watchLastEmu_ = exe;
+        launchElf_ = elfPath;
+        launchAt_ = SteadyClock::now();
+        emuRunning_ = false;  // the killed predecessor is not this run
+    }
+    watchWake_.notify_all();
     return true;
 }
 
@@ -1109,6 +1194,10 @@ bool Runner::deployToPs2(const Project& p) {
         std::lock_guard<std::mutex> lock(ps2ClientMutex_);
         ps2Client_ = proc;
     }
+    {
+        std::lock_guard<std::mutex> lock(watchMutex_);
+        deployAt_ = SteadyClock::now();
+    }
     ps2Lines_ = 0;
 
     // The session log (sessionlog.hpp): the same lines, on disk, bounded, so a
@@ -1304,7 +1393,7 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild,
                 appendLine("[editor] Native toolchain files are missing. Run the editor "
                            "from a complete TyraX checkout/package (tools/toolchain and "
                            "vendor/tyra are required), or select Docker fallback in "
-                           "Edit > Preferences > Build toolchain.");
+                           "Edit > Preferences > Build.");
                 ok = false;
             } else {
                 const fs::path cache = config / "native-build" /

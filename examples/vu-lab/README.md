@@ -1,5 +1,7 @@
 # vu-lab example
 
+![vu-lab example in PCSX2](preview.png)
+
 A small scene whose job is to be **inspected**, not played. It is the fixture
 for the VU framework ([docs/vu-framework.md](../../docs/vu-framework.md)) and
 for authoring ([docs/vu-authoring.md](../../docs/vu-authoring.md)).
@@ -117,7 +119,7 @@ which is why the budget bar in the panel is per look. Measured on the console
 (PAL, frozen camera) back when the three looks were the active set: 50 FPS in
 Toon at EE 38%, 49.4 in Underwater at EE 41%, 50 in Power down at EE 43%.
 
-The scene is on the **EE clipper** (*Preferences > Rendering*) rather than the
+The scene is on the **EE clipper** (*Preferences > Graphics*) rather than the
 default VU1 clipping, and that is the point of the setting here rather than an
 oversight: a material class is a *pair* of resident programs, the second of which
 draws whatever the frustum cuts. A look replaces both halves — but the VU1
@@ -303,14 +305,14 @@ somewhere else.
 colour program does not build: VCL runs out of VF registers and dies with `no
 opt table`, because a cull-family program already keeps ~23 of the 31 live and
 the sine costs about five more. The measured cliff is exact - 35 allocated, 36
-did not - and the *Micro memory* tab prints the estimate next to the slot bar
+did not - and the VU Programs budget strip prints the estimate on the slot bar
 for this reason. The fix when you hit it is to split the effect across two
 material classes, which is what this example does: the wobble is on the colour
 program and the UV scroll is on the textured one, each with its own 31.
 
 ## The loop this example exists for
 
-**1. Run it, and capture one draw.** *Debugger > VU > "Capture next VU1 packet"*.
+**1. Run it, and capture one draw.** *Debugger > VU memory > "Capture VU1 packet"*.
 A frame sends one DMA chain per bag flush, and the flush picker chooses which
 draw you get. The file lands in `bin/vucap.bin`.
 
@@ -381,7 +383,7 @@ is there to keep the devkit layer alive.
 ## It is also the A/B fixture for adopting generated microcode
 
 The five `as_is` programs in `vendor/tyra` are generated (docs/vu-framework.md),
-and this scene is how that was proven: with *Preferences > Rendering* set to the
+and this scene is how that was proven: with *Preferences > Graphics* set to the
 **EE clipper** (`precise`) the `as_is` family is what draws, so a frame here
 exercises the generated code. Handwritten build against generated build, frozen
 camera, PCSX2: **0 differing pixels of 1 258 400**. The same build was then run
@@ -419,3 +421,16 @@ Generated game methods are split between `src/terrain_game.cpp` and the
 `src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
 `inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
 The main file remains user-ownable; generated subsystem files refresh on build.
+
+
+Hardware timeline instrumentation matches the 1.170 coarse/detail emitter.
+Use the [capture and observer-control guide](../../docs/hardware-profiler.md)
+when comparing performance; traces add measurable work.
+
+This example explicitly requests `framePipeline: true` (TyraX2). Its authored interlaced output preserves the existing scan mode and quality; ordinary interlaced output is eligible, unlike true field rendering. True field rendering, BLSS, unlimited triple buffering and unavailable queue memory fall back safely. This request does not guarantee 60 FPS. See [TyraX2](../../docs/tyrax2.md).
+
+Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dynamic-light-receivers.md). This example retains the default **All objects** policy; Players and driven vehicle is an optional project or scene setting.
+
+TyraX 2.0 integration: generated sources have been refreshed with the combined
+TyraX2 renderer and mainline collision broad phase; authored settings and
+user-owned source files retain their existing ownership rules.

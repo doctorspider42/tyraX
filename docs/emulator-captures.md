@@ -29,7 +29,12 @@ python .claude/skills/tyra-testing/scripts/pcsx2-capture.py state <state.p2s>  [
 
 `run` writes `state<N>.p2s`, `frame.gs.zst` and `report.txt` into
 `%TEMP%\tyra-editor-test\pcsx2-capture-<slot>\out-<time>\`, or into `--out`.
-It stops only the process it started, by PID.
+It stops only the process it started, by PID. Unless `--show-window` is given
+it hides the emulator's GS display window (Windows only), so an unattended run
+does not throw a game window over the screen. `--gsdump` keeps the window
+visible: the dump is PCSX2's F12 hotkey, posted to the process's visible
+windows, and a hidden one would receive nothing (no dump, "0 windows
+messaged").
 
 **Useful flags:**
 
@@ -42,6 +47,8 @@ It stops only the process it started, by PID.
   this run's channel files (`livepad.bin`, `log.txt`) apart from an editor that
   is running the same project. Staging happens automatically for paths over
   100 characters.
+- `--show-window`: leave the emulator's GS display window visible. Without it
+  the window is hidden (see above); `-nogui` only hides PCSX2's main window.
 
 ## How it works
 
@@ -50,7 +57,16 @@ It stops only the process it started, by PID.
 
 - The run directory gets a copy of the user's `PCSX2.ini` and BIOS, with PINE
   enabled on the chosen slot, HostFs on, and `GSDumpSingleFrame` rebound to a
-  bare `F12`.
+  bare `F12`. `PauseOnFocusLoss` is forced off: an unattended run must not
+  freeze the moment another window takes focus. Renderer, MTVU, VSync and SDL
+  are left exactly as the user set them - the script captures what the user's
+  emulator would run, it does not change emulation behaviour.
+- Every `[Folders]` key PCSX2 knows (13 of them: Bios, Snapshots, SaveStates,
+  MemoryCards, Logs, Cheats, Patches, UserResources, Cache, Textures,
+  InputProfiles, Videos, Covers) is rewritten to an absolute path under the
+  private root, matching key names case-insensitively and deleting keys rather
+  than blanking them. After the write, a leak guard re-reads the ini and aborts
+  if any folder still points outside the private root.
 - The user's global `PCSX2.ini` is never written. The editor rewrites that file
   on every Run, and the user's own emulator reads it.
 
@@ -92,6 +108,10 @@ tag chains that end in `END`. For each chain it reports:
 
 - **`-datapath DIR` reads `DIR\PCSX2\inis\PCSX2.ini` and `DIR\PCSX2\bios`**, not
   `DIR\inis`. A missing ini opens the setup wizard on the user's screen.
+- **`-datapath` only exists since Apr 2026 (nightly / stable >= 2.8.2).** On an
+  older build it pops a modal "Unknown parameter" dialog and sits there
+  unattended. The script probes `-help` first (PCSX2 prints its usage to stderr)
+  and exits with an install hint instead of launching.
 - **Write the ini without a BOM.**
 - **PINE answers before the game exists.** The GUI's socket is up first. The
   title command fails until a VM runs, so the script uses that as its readiness

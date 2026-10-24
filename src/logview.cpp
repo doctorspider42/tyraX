@@ -94,7 +94,8 @@ bool isBlockBanner(std::string_view m) {
 void classifyLine(std::string_view raw, State& st, Line& ln) {
     std::string_view l = raw;
     if (!l.empty() && l.back() == '\r') l.remove_suffix(1);
-    const std::string_view m = l.substr(stampLen(l));
+    ln.stamp = (unsigned char)stampLen(l);
+    const std::string_view m = l.substr(ln.stamp);
 
     ln.level = Level::Error;
     if (isBlockBanner(m)) {

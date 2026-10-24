@@ -37,3 +37,13 @@ Read when: you touch `audio/` (`AudioSong`, `AudioAdpcm`, `AudioReverb`), `vendo
 - `wavconvert::soundIssue` requires canonical mono PCM16/22050; import and Project > Sounds > Convert downmix too. Runner calls `wavconvert::bakeSounds` AFTER texbake and BEFORE either backend, preparing `.res-baked/sfx` without modifying `res/sfx`. Both encoders read this mirror, check cached APCM byte 5 (mono) and byte 6 (loop intent), keep the source path for role matching. A conversion error fails the build. Music stays stereo unless its own mono option is chosen.
 - Test stereo PCM16, PCM24, float, extended headers, odd metadata chunk; verify duration, source hashes, incremental mtime stability, ADPCM mono/loop headers in BOTH backends. **Decode the actual ADPCM and compare waveforms** — header checks missed adpenc's corrupt stereo reader (`fread(wave+i, 2, ...)` advances one byte).
 - Vehicle loops: project WAVs assigned to idle/high revs/squeal listed in optional generated `inc/vehicle_sound_loops.gen.txt`; `tools/toolchain/native-build.sh` (Windows via `native-build.ps1`) and the Runner's Docker fragment encode them with `-L`, plus legacy `*-loop.wav`. Header byte 6 must match the desired mode both directions (mtime alone misses assigning/removing a continuous role). Loop flags affect every use of a sample → separate file for a one-shot version. Seam preparation stays authored.
+- **An EE thread that must answer the IOP has to outrank the game thread
+  (0x40)**, because the game thread never blocks: `graph_wait_vsync` is a busy
+  poll and the frame yield is off unless the Live Debugger is attached. audsrv's
+  EE callback server ran at 0x60. The IOP playback thread waits for each
+  fill-buffer callback to complete, so it stalled for good once loading ended,
+  and the SPU2 looped its last 1024-sample block (21 ms) as a buzz a few seconds
+  into every song, in PCSX2 and on hardware alike. Fixed in the fork (0x8, its
+  README change 4; docs/sound.md, "Music turns into a buzz"). The tell is a
+  capture whose autocorrelation at lag 1024 (48 kHz) is 1.000. An EE that is
+  only late with data loops the ~107 ms ring instead.

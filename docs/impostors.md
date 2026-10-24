@@ -5,13 +5,13 @@ original object's collision and gameplay identity.
 
 ![Properties > Distance and LOD > Distant version: a baked 8-view billboard and its switch distance](img/impostor-model.png)
 
-In **Tools > Tree Generator**, enable **Bake distant impostor** before **Add to
-scene**. The generator writes the ordinary tree plus an `-impostor.obj`, matching
+In **Tools > Tree Generator**, turn on **Distant impostor** before **Add to
+scene** (or **Save to project**); its **Impostor** preview shows the card first. The generator writes the ordinary tree plus an `-impostor.obj`, matching
 material and a PNG atlas: 4, 8 or 16 orthographic 128x128 views in four columns.
 For a placed model, open **Properties > Distance and LOD > Distant version**:
 pick **Far away: Billboard (captured views)**, choose **Views**, and click
-**Bake**; in the Tree Generator pick **Tree capture views** before adding a
-tree. The choice takes effect only when baking succeeds; existing assets retain
+**Bake**; in the Tree Generator pick 4, 8 or 16 **views** beside the switch before
+saving a tree. The choice takes effect only when baking succeeds; existing assets retain
 their old count until rebaked (the status next to the button says so). Capture
 runs on the GPU and falls back to the CPU on its own.
 Only one OBJ part is drawn at a time, on a vertical camera-facing card: **two
@@ -153,7 +153,9 @@ uploads geometry/textures once per asset, dilates RGB borders in four GPU
 passes (without spreading alpha), and reads back once for all views.
 `bakegl.hpp` shares hidden-window creation and scoped context restoration with
 GI. The capture context is separate from GI and the viewport; it requires
-OpenGL 3.3, whereas GI compute requires 4.3. Failed GPU capture automatically
+OpenGL 3.3, whereas GI compute requires 4.3 (Metal on a Mac). In the editor it
+follows *Edit > Preferences > Build > Use the GPU for bakes*, the one switch for
+every GPU bake; off, the capture runs on the CPU. Failed GPU capture automatically
 retries on CPU, and the result message identifies the backend or fallback reason.
 Both paths use the same projected bounds, binary alpha and per-capture RGB
 padding. Silhouette edge coverage may differ slightly between GL rasterization

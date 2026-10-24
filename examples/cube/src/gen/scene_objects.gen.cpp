@@ -12,6 +12,7 @@ const SceneObjectData SCENE_0_OBJECTS[3] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {3};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[3] = {0x1cc32e3bb4d3f565ULL, 0x5c93abae1f067ce0ULL, 0x5c97abae1f0a65b7ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[3] = {1,0,0};
 
 }  // namespace Cube
 

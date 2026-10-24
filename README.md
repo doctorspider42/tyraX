@@ -7,7 +7,7 @@
   <a href="https://github.com/doctorspider42/tyraX/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/doctorspider42/tyraX/release.yml?branch=main&style=for-the-badge&label=release%20build&labelColor=0b1220" alt="Release build status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/doctorspider42/tyraX?style=for-the-badge&color=26d9ff&labelColor=0b1220" alt="Apache-2.0 license"></a>
   <br>
-  <img src="https://img.shields.io/badge/target-PlayStation%202-003791?style=for-the-badge&logo=playstation&logoColor=white&labelColor=0b1220" alt="Target: PlayStation 2">
+  <img src="https://img.shields.io/badge/target-PlayStation%202-003791?style=for-the-badge&labelColor=0b1220" alt="Target: PlayStation 2">
   <img src="https://img.shields.io/badge/editor-Windows%20%7C%20Linux%20%7C%20macOS-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Editor: Windows, Linux and macOS">
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white&labelColor=0b1220" alt="C++20">
   <img src="https://img.shields.io/badge/runs%20on-PCSX2%20%2B%20real%20hardware-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Runs on PCSX2 and real hardware">
@@ -38,6 +38,9 @@
 **TyraX is a 3D editor that makes real PlayStation 2 games, engine included** —
 based on [Tyra](https://github.com/h4570/tyra).
 
+**TyraX 2.0** combines the redesigned editor, the TyraX2 frame pipeline and
+the latest mainline collision improvements. See the [2.0 integration notes](docs/tyrax-2.0.md).
+
 Sculpt terrain, drop in models and lights, wire the gameplay in a visual flow
 graph — then press **one key** and a PS2 runs your world. PCSX2, or a real
 console over ethernet.
@@ -58,12 +61,15 @@ audit.
 
 And the ceiling is nowhere near 2002: baked global illumination with light
 probes, portals you walk through, reflections **ray-traced per pixel on VU0**,
-a neural upscaler measured **1.63× faster on a real console**, driveable cars on
+an upscaler that draws only the smoke and haze at a quarter of the pixels (**2.5× on a real console**), driveable cars on
 terrain-following roads, split-screen co-op, NPCs that find their way around
 walls.
 
 The editor is C++20 + Dear ImGui (docking) + GLFW + OpenGL 3.3, one source tree
 for **Windows, Linux and macOS**.
+
+> [!NOTE]
+> *PlayStation* and the PlayStation button symbols are trademarks of Sony Interactive Entertainment. TyraX is an independent project, not affiliated with or endorsed by Sony.
 
 > [!TIP]
 > This file is the map. Every feature has a guide in **[docs/](docs/README.md)** —
@@ -151,7 +157,7 @@ other three are the game's own `--capture-frame`. All are stretched to 4:3.
     </td>
     <td width="33%" valign="top">
       <b>✨ Past the 2002 ceiling</b><br>
-      <sub><a href="docs/global-illumination.md">Baked GI + probes</a>, <a href="docs/raytraced-reflections.md">VU0 ray-traced mirrors</a>, <a href="docs/portals.md">portals</a>, the <a href="docs/neural-upscaler.md">BLSS upscaler</a>.</sub>
+      <sub><a href="docs/global-illumination.md">Baked GI + probes</a>, <a href="docs/raytraced-reflections.md">VU0 ray-traced mirrors</a>, <a href="docs/portals.md">portals</a>, the <a href="docs/upscaler.md">BLSS upscaler</a>.</sub>
     </td>
   </tr>
   <tr>
@@ -252,9 +258,11 @@ settings at the scoop MinGW kit, or just use `build.ps1`.
 
 Then, in the editor:
 
-1. **`File > New Project`** (`Ctrl+N`) — name, location, world scale, terrain
-   size and one of three presets (FPP / third person / empty). The preset is
-   fixed for the project's life; everything else is editable later.
+1. **New project** on the [start page](docs/start-page.md) (or `File > New
+   Project`, `Ctrl+N`) — what it starts as (first person / third person /
+   empty), name, location, ground, size and world scale. The start type is
+   fixed for the project's life; everything else is editable later. Or open a
+   copy of one of the bundled examples from the same page.
 2. The *Viewport* shows the terrain (drag to orbit, scroll to zoom).
 3. **Build & Run** (`F5`) — the first build downloads the pinned official
    PS2DEV archive, compiles the in-tree OpenVCL tools and then the whole
@@ -329,6 +337,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   that lands on a textured wall or an imported model, which a lightmap cannot.
   A scene's spot lights can carve per-pixel shadow volumes of their own, so a
   street lamp stops lighting the alley behind the wall it hangs on.
+  Small ground-shadow sets stay resident within a bounded scene-load budget.
 - **[A torch you hold](docs/flashlight.md)** - a per-pixel projected pool that
   lands on walls and props, an offset that takes the light out of the
   player's eye, where it could only ever cast shadows nobody can see, and
@@ -353,7 +362,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [raytraced map bakes](docs/material-baking.md) with smart masks.
 - **Generators** — [procedural scatter graphs](docs/procedural-generation.md) with road avoidance or path scattering, material footprints and model overlap checks,
   baked to chunk meshes with a reversible freeze or [run on the EE](docs/procedural-runtime.md),
-  [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md),
+  [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md) with Blender-baked forest and hero foliage,
   [GPU/CPU impostors with 4/8/16 views plus one-material hull proxies](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
@@ -368,7 +377,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   automatic per-model self-AO multiplied into each model's own texture, for no
   extra VRAM — [pre-lit models](docs/prelit-models.md) for per-pixel static
   light on a textured surface, and a [day/night cycle](docs/day-night-cycle.md)
-  the whole bake follows, under a [painted sky](docs/sky-texture.md) if you want one.
+  the whole bake follows, under a [painted sky](docs/sky-texture.md) if you want one,
+  graded with full-screen [colour looks](docs/color-grading.md).
 - **Surfaces** — [emissive materials](docs/emissive-materials.md),
   [sphere-mapped chrome](docs/reflective-materials.md) that mirrors the whole town
   as [boxes](docs/reflective-materials.md#static-scenery-in-the-probe-11610) over a
@@ -381,14 +391,15 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **Screen** — sky, fog, bloom, film grain, [motion blur](docs/motion-blur.md)
   and your own [`.screenfx` effects](docs/custom-screen-effects.md), plus
   [TV safe areas](docs/safe-areas.md) to frame against.
-- **Frame delivery** — the [neural upscaler (BLSS)](docs/neural-upscaler.md),
+- **Frame delivery** — the [upscaler (BLSS)](docs/upscaler.md) - the whole
+  scene or only its particles at a reduced raster, switchable from a flow graph,
   including automatic native/reduced resolution recovery from missed fields,
   [frame extrapolation](docs/frame-extrapolation.md) and
   [triple-buffered pacing](docs/frame-pacing.md).
 
 **Gameplay & logic**
 
-- **Flow graph** — visual logic (triggers → actions), extensible with your own
+- **[Flow graph](docs/flow-graph.md)** — visual logic (triggers → actions), extensible with your own
   [`.flownode` nodes](docs/custom-flow-nodes.md).
 - **[Object scripts](docs/object-scripts.md)** — Unity-style C++ components in
   `src/scripts/`, a directory the editor never touches.
@@ -435,6 +446,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - [Interleaved passes](docs/interleaved-passes.md) - batches and roads are
   drawn in between the objects, so the EE works while VU1 draws (-0.5 ms a
   frame in a dense scene); Auto times both orders and keeps the faster.
+- [Dynamic light receivers](docs/dynamic-light-receivers.md) — optionally light
+  only player models and the driven vehicle, with independent scene overrides.
 - [Conservative occlusion culling](docs/occlusion-culling.md) — build-time
   inner proxies and a tiny CPU visibility buffer reject whole draw units behind
   solid walls, with per-object occluder and receiver opt-outs.
@@ -461,7 +474,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - [Renderer work, checked on a second map](docs/engine-performance-on-a-second-map.md): the control that says it is the engine and not the showcase.
 - [Attributing render submission](docs/render-submission-attribution.md): opt-in counters that account for the whole `beginFrame`..`endFrame` block, not just the static pipeline, down to a zero residual.
 - [Not re-baking wheels that did not move](docs/wheel-rebake-skip.md): the vehicle wheel batch skips a rig whose inputs did not change, and keeps its `bboxVersion` when the vertices are byte-identical.
-- A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with EE scopes, DMA waits and pipeline-state snapshots.
+- A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with hierarchical EE scopes, actual render jobs and explicit observer-cost controls.
+- [Frame pipeline flow nodes](docs/frame-pipeline-flow-nodes.md): deferred runtime switching and a requested-state getter, with repeated requests preserving overlap.
+- [TyraX2 frame pipeline](docs/tyrax2.md): ordered frame recording and EE/GPU overlap, enabled for new projects with explicit legacy opt-out, [partial geometry reuse](docs/tyrax2-full-throttle.md), [terrain strip refinement](docs/tyrax2-strip-subranges.md) and reproducible hardware controls; [private SPR/CALL trials](docs/tyrax2-spr-call-runtime-2026-10-04.md) preserve measured results and exact prototype sources.
 - [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, sortable by name, cost or delta, with baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —
@@ -506,6 +521,7 @@ polling/report intervals, and a release build that provably carries none of it
 | `Ctrl+N` / `Ctrl+O` / `Ctrl+S` | New / open / save project |
 | `F5` / `F6` | Build & run in PCSX2 / on a real PS2 |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `Ctrl+B` / `Ctrl+Alt+B` | Hide / show the Project panel / the Properties panel |
 | `Ctrl+C` / `Ctrl+V` | Copy / paste the selected object (the paste follows the cursor; `Esc` cancels) |
 | `1` / `2` / `3` | Move / rotate / scale tool (viewport) |
 | `Delete` / `End` | Delete the selection / drop it to the floor (viewport) |
@@ -527,7 +543,7 @@ wait for their polish pass.
 | [showcase](examples/showcase) | **Aster — The Tide Observatory**: a playable coastal garden with precision-built arcades, a moving planetarium, CC0 props, cinematics, skeletal animation, a portal-linked vaulted cellar, optical experiments and collectible lenses |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style |
 | [large-terrain](examples/large-terrain) | A 2048×2048 world that could never fit in 32 MB of RAM. It doesn't have to |
-| [deep-forest](examples/deep-forest) | The same 2048×2048 in daylight with 2800 spruces — terrain detail distance, mesh LOD and draw distance carrying it at 50 FPS |
+| [deep-forest](examples/deep-forest) | A 2048×2048 daylight map with 7,000 instanced broadleaf trees and Blender rocks, cheap far models and a reproducible physical-PS2 density/LOD sweep |
 | [night-walk](examples/night-walk) | A dark backlot and a torch that projects, lands on real walls, and carves shadows — every flashlight feature in one yard |
 | [cutscene-demo](examples/cutscene-demo) | 14 seconds of dolly, hard cut, shake, FOV ramp and cinema bars. Skippable, of course |
 | [nav-ai](examples/nav-ai) | A guard that patrols, spots you, and chases you around the wall instead of into it. The rabbit just runs |
@@ -541,7 +557,7 @@ wait for their polish pass.
 | [probe-aim](examples/probe-aim) | A chrome ball that shows what's behind you: probes aimed along the reflected ray |
 | [texture-atlas](examples/texture-atlas) | Thirty crates, thirty tiny textures, one shared GS page - and 65 KB of VRAM back, measured both ways |
 | [texture-feeds](examples/texture-feeds) | Two monitors on a wall — one plays live CCTV, the other a raytraced mirror |
-| [lighting](examples/lighting) | One dusk plaza wearing everything at once: torches, shafts, flare, god rays, shadows, a flashlight |
+| [lighting](examples/lighting) | One night plaza wearing everything at once: flickering torches, a street lamp carving shadow volumes, a moon, fog and a held-off-the-eye flashlight |
 | [glow](examples/glow) | A midnight walk through four stations of things that glow |
 | [global-illumination](examples/global-illumination) | One red wall, one green wall — every other tint in the room is bounce |
 | [gi-showcase](examples/gi-showcase) | The guided GI tour, ending in a room lit by nothing but bounce |
@@ -552,7 +568,7 @@ wait for their polish pass.
 | [ambient-occlusion](examples/ambient-occlusion) | A village on sculpted ground: contact shadows, a ravine that darkens and a bare bank that does not |
 | [baked-shadows](examples/baked-shadows) | A late-afternoon yard where ten casters throw long shadows for ONE draw call — onto a textured brick wall, which is the one thing a lightmap cannot do |
 | [blocks-terrain](examples/blocks-terrain) | A cube world the EE invents at boot. Press TRIANGLE for a new one. Still 50 FPS |
-| [cube](examples/cube) | A 3×3×3 lattice of rooms — prefabs times runtime generation, in ~4 draw calls |
+| [cube](examples/cube) | A 3×3×3 lattice of Blender-authored industrial rooms — tinted prefabs, shared atlas and runtime reshuffling |
 | [world-facts](examples/world-facts) | Every fact type and all four persistence tiers, exercised across a two-scene level |
 | [save-points](examples/save-points) | Both halves of saving: in-RAM checkpoints, and a 3-slot memory-card shrine with a 3D icon |
 | [hud-animation](examples/hud-animation) | Health, stamina and segmented progress bars, plus looped motion, transitions and one-shot HUD effects |
@@ -562,7 +578,7 @@ wait for their polish pass.
 | [custom-nodes](examples/custom-nodes) | Roll your own flow nodes: one backed by C++, one written inline |
 | [endless-scroller](examples/endless-scroller) | An infinite tunnel, tiled from a single authored chunk |
 | [endless-runner](examples/endless-runner) | An endless track that never repeats — variant groups, per-chunk odds, ever-rising speed |
-| [upscaler-lab](examples/upscaler-lab) | The fill-bound scene built to make the neural upscaler sweat. It wins: 1.63× on real hardware |
+| [upscaler-lab](examples/upscaler-lab) | A fill-bound haze yard with a shadow-volume lamp: particles drawn at a quarter of the pixels, 2.5× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
 | [vehicle-playground](examples/vehicle-playground) | Motor District: seven roads, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
@@ -614,9 +630,9 @@ image with Sony's unlicensed `vcl` remains only for compiler A/B work. See
 licensing, and [the toolchain research](docs/toolchain-image.md) for the measured
 OpenVCL migration and the seventeen miscompiles it found.
 
-While the build runs, a spinning **BUILDING** chip appears at the end of the menu
-bar, and turns into a red **BUILD FAILED** when a build did not make it. Clicking
-either brings the *Output* panel forward; the toolbar's Stop button (or
+While the build runs, a spinning **BUILDING** chip appears at the left of the
+status bar, and turns into a red **BUILD FAILED** when a build did not make it.
+Clicking either brings the *Output* panel forward; the top bar's Stop button (or
 **Build > Cancel Build**) cancels a build in progress.
 
 ## Run on a real PS2
@@ -626,7 +642,7 @@ PS2** (`F6`) boots the game over ethernet: the ELF and every asset are served fr
 the project's `bin\` on this PC (no ISO, no SMB) and the console's log streams into
 *Output* as `[ps2]` lines, and into a bounded, crash-safe
 [`logs/` file](docs/ps2link-setup.md#the-session-log) per session. Set the IP in
-`Edit > Preferences > Real PS2`.
+`Edit > Preferences > Running games`.
 **Stop on PS2** ends the session and hands the console back to ps2link;
 **Power Off PS2** switches the console itself off, without leaving the desk.
 

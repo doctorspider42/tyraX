@@ -33,6 +33,10 @@ class Audio {
 
   void work();
 
+  /** Modified by TyraX: how long the audio thread sleeps between polls while
+   * no song plays (ms). 0 restores the old 0.5 ms poll. */
+  u32 idleSleepMs = 16;
+
  private:
   ee_thread_t thread;
   int threadId;

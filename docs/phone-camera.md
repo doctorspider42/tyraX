@@ -1,6 +1,6 @@
 # Phone camera: the phone as a live viewfinder
 
-![Phone Camera connection panel](img/phone-camera.png)
+![The Phone Camera window, not linked yet: what the feature does in one line, the Start link button with the port it opens, the three things you need (the app or a browser, the same Wi-Fi, a camera to start from - naming this scene's cameras) and the pairing-code switch.](img/phone-camera.png)
 
 Hold your phone, look at the shot on its screen, and move it — the editor camera
 moves with you. Press **Record** and the move is written into a **Cutscene
@@ -10,8 +10,9 @@ This is the live half of [camera takes](camera-takes.md): same destination
 (camera keys in a sequence), but streamed over Wi-Fi while you work instead of
 imported from a file afterwards.
 
-- Editor side: *Tools > Phone Camera* (the link) and *Tools > Cutscene Director >
-  Phone camera* (the recording).
+- Editor side: *Tools > Phone Camera* — the link, the phone's view and the
+  recorder in one window. The Cutscene Director's header shows the link's state
+  and opens it.
 - Phone side: the companion app lives in **its own public repo**,
   [doctorspider42/tyrax-cam](https://github.com/doctorspider42/tyrax-cam)
   (iOS/ARKit, sideloaded — its README covers the three routes, and its CI builds
@@ -50,8 +51,10 @@ trustworthy:
 
 ## Getting connected
 
-1. *Tools > Phone Camera* → **Start link**. The window lists this machine's LAN
-   addresses (`192.168.1.20:7798`) and a 6-digit **pairing code**.
+1. *Tools > Phone Camera* → **Start link**. Before that the window is only an
+   explanation and the one button (plus the port and the pairing-code switch);
+   after it, it shows this machine's LAN addresses (`192.168.1.20:7798`) and the
+   6-digit **pairing code** large, each with Copy.
 2. Type both into the app (or the browser test client) and connect.
 3. The first pose that arrives **recentres** automatically — onto the selected
    Camera entity's placed pose, or, for free shots, onto the editor camera aimed
@@ -72,19 +75,25 @@ is not a connection, so you can read the page while a phone is live.)
 
 ## Driving the camera
 
-While a phone is streaming and **Drive the viewport camera** is on, the phone is
+Once linked, the window shows the device (name, address, 6DoF or rotation only,
+metres walked), a **Live · N Hz** pill with a stop button, and **the phone's
+view** — the shot the phone is driving, rendered in the window with its pose.
+
+![The Phone Camera window with a phone linked: a Live · 25 Hz pill, the device row (iPhone · tyrax-cam, its address, 6DoF tracking, metres walked), the phone's view of the cutscene-demo scene from cam-wide with its pose, Start from (View from cam-wide, Scale, Recentre, Give the viewport back), and Record into a cutscene (The Reveal, into cam-wide's track, 10 keys a second, the red Record button).](img/phone-camera-live.png)
+
+While a phone is streaming and drives the viewport (the default), the phone is
 the camera — ahead of the Cutscene Director's own preview and the look-through
 camera both, because a playhead flying the same lane would fight the person
-holding the device. Turning the toggle off keeps the link (and the stream) up
-while you take the viewport back.
+holding the device. **Give the viewport back** keeps the link (and the
+stream) up while you take the viewport back; **Drive the viewport** returns it.
 
 | Control | What it does |
 |---|---|
 | **Scale** (u/m) | Game units per real metre. Seeded from the project's **world scale** ([world-scale.md](world-scale.md)) when a phone connects, so a metre walked lands at the size the rest of your content is at. Raise it to cover more map from the same room — a 3 m living room at scale 8 is a 24-unit crane move; the **World scale** button next to it snaps back. |
 | **View from** | The Camera entity the shot starts from *and* records into — see below. *Free shots* = start from the editor's own viewpoint. |
 | **Recentre** | Back to the start: the selected camera's placed pose (position, aim and tilt), or the editor's viewpoint for free shots. Everything the phone does is relative to it. Also on the phone. |
-| **Start point** (XYZ) | The resolved start position, editable directly when a shot wants an exact spot that no camera sits at. *From view* moves it to the editor camera without touching the aim; Recentre discards it. |
-| **Yaw** | Which way the phone's forward points in the scene. Recentre sets it; you can trim it by hand. |
+| **Start point** (XYZ, under *Placement*) | The resolved start position, editable directly when a shot wants an exact spot that no camera sits at. *From view* moves it to the editor camera without touching the aim; Recentre discards it. |
+| **Yaw** (*Placement*) | Which way the phone's forward points in the scene. Recentre sets it; you can trim it by hand. |
 
 For free shots, Recentre reads the **orbit** camera, not the override the phone
 installed — so it means "come back to the vantage point I framed", however far the
@@ -125,30 +134,34 @@ up. **Recentre undoes the offset** and returns to the selected camera.
 ### Devices without world tracking
 
 A browser (and an iPad without ARKit) reports rotation only. The editor notices
-(`Tracking: rotation only` in the window) and the camera turns in place instead
+(the device row says *rotation only*) and the camera turns in place instead
 of walking, because the position it receives never changes. Everything else works.
 
 ## Recording into a cutscene
 
-*Tools > Cutscene Director*, select a sequence, open **Phone camera**:
+In the Phone Camera window, under **Record into a cutscene**:
 
-- **Into** — a **Camera entity** (the recording becomes that entity's transform
+- **Sequence** — which cutscene; the same selection as the Cutscene Director's.
+- **Into** — follows **View from**: a **Camera entity** (the recording becomes that entity's transform
   track, so the game films from a camera that dollies along your path, and a
   bound shot is added to the camera lane) or **Free camera shots** (the camera
   lane is written directly). Exactly the two targets the file importer offers —
   see [camera takes](camera-takes.md) for what each means downstream.
-- **Keyframes** — the density:
-  - *Project frame rate* — one key per rendered game frame (60 NTSC / 50 PAL,
+- **Keys** — the density:
+  - *Every frame* — one key per rendered game frame (60 NTSC / 50 PAL,
     read from the project's video system + display mode). Nothing is
     interpolated; the biggest table.
-  - *Custom rate* — keys per second. The default 10/s is a good starting point.
-  - *Optimize (tolerance)* — no fixed rate at all: keep only the keys the PS2's
+  - *N / s* — keys per second (the *Rate* row). The default 10/s is a good
+    starting point.
+  - *Optimize* — no fixed rate at all: keep only the keys the PS2's
     own linear interpolation cannot reproduce within an error bound in world
     units. The smallest table, and the same decimator a file import uses. The
     bound is a distance, so it is seeded scaled by the world scale as well.
 - **Start at playhead** — recorded keys begin at the playhead rather than at
   t = 0, so a move can be dropped after an existing shot.
-- **Record** / **Stop** — also the phone's own buttons.
+- **Record** / **Stop** — the big red button, with what it costs underneath
+  (~keys a second, the 600-key warning, one undo step). Also the phone's own
+  buttons.
 
 While recording, the dopesheet **fills in live** (re-baked at 15 Hz) and the
 phone shows a REC badge with the elapsed time and key count. The sequence's
@@ -163,7 +176,7 @@ leave the history alone, and the take is committed when you stop.
 Keyframes are compiled into `src/gen/sequences.gen.cpp` and ship inside the ELF.
 A 30-second move at the project frame rate is 1800 keys; the same move at 10/s is
 300, and *Optimize* at the default tolerance typically lands in the low tens. The
-Director warns past 600 keys, and a single bake is hard-capped at
+window warns past 600 keys, and a single bake is hard-capped at
 `kCamTakeMaxKeys` (2048) — a long recording at a high density is coarsened rather
 than allowed to blow the build up.
 
@@ -171,6 +184,10 @@ Practical advice: record at *Custom rate* 10–15/s. Handheld motion is smooth a
 that density, and the PS2 lerps between keys the same way the resampler does.
 
 ## The stream
+
+The stream settings fold away under **Stream & smoothing** at the bottom of
+the window (its header reads `480 · 15 fps · q60 · smooth 1`): machine-wide, set
+once.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -252,12 +269,12 @@ Tilting the phone about its lens axis tilts the shot, and the tilt is recorded.
 The app is landscape-only for this reason: you hold it like a camera and its lean
 is part of the framing.
 
-- **Tilt** (Phone Camera window) scales how much of the measured tilt reaches the
+- **Tilt** (Phone Camera window, *Placement*) scales how much of the measured tilt reaches the
   shot: **1** films the lean as held, **0** pins the horizon level and throws hand
   tremble away. In between damps it.
 - **Recentre** captures the current tilt as the zero, so the grip you are using
   is "level" from then on — the same way it anchors position and yaw.
-- The window shows the live `roll` in degrees next to the slider.
+- The slider shows the live `roll` in degrees.
 
 Where the tilt ends up depends on the recording target, and the two are not the
 same mechanism:
@@ -315,7 +332,7 @@ here would be a misleading reference for the ARKit one.
 | `src/wire.cpp` | `makeWebSocketTransport()` — RFC 6455 server behind `wire::Transport` |
 | `src/camtake.hpp/.cpp` | `mapCamSample` (shared with the live view), the live anchor, fixed-rate resampling |
 | `src/viewport.cpp` | `grabPreviewRgb()` — GPU downscale + readback of the last rendered frame |
-| `src/app.cpp` | `phoneCamTick` / `drawPhoneCamWindow` / `phoneCamPushPreview` / the Director's *Phone camera* section |
+| `src/cutscene_ui.cpp` | `phoneCamTick` / `drawPhoneCamWindow` (link, phone's view via `Viewport::renderShot`, slot `GameViewPhone`, recorder) / `phoneCamPushPreview` |
 
 The iOS app is not in this repo: see
 [doctorspider42/tyrax-cam](https://github.com/doctorspider42/tyrax-cam), whose

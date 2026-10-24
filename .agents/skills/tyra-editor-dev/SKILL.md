@@ -65,7 +65,7 @@ Sibling skills: **tyra-engine-dev** (the PS2 engine fork in `vendor/tyra`), **ty
 | Anything `save()` writes | `version::kFormatVersion++` (+ migration step only for transformations) + editor semver bump (feature MINOR, fix PATCH); prefer additive, written-only-when-set | project-model-and-serialization |
 | New manifest key / section | a `write*Section`/`read*Section` pair; `Section::Count` + bump the `static_assert` (26 now) | project-model-and-serialization |
 | Field storing an asset path | `App::retargetAssetPath` (+ `rebuildAssetUsage` if a real reference); paths the GAME opens are `lexically_normal()` | project-model-and-serialization |
-| Project preference | `ProjectSettings` -> save/load -> Preferences window (5 tabs by question) -> constant in `terrain_config.hpp`/`scene_data.hpp`; new-project defaults go in `project::create`, never the member initializer | project-model-and-serialization, editor-ui-and-conventions |
+| Project preference | `ProjectSettings` -> save/load -> Preferences window (sidebar categories by question) -> constant in `terrain_config.hpp`/`scene_data.hpp`; new-project defaults go in `project::create`, never the member initializer | project-model-and-serialization, editor-ui-and-conventions |
 | Per-scene override | `SceneOverrides` bool + `==` + `resolvedSettings` branch + serialize only when on; consumers read `resolvedSettings` | project-model-and-serialization |
 | Machine-global setting | `EditorConfig` + `loadEditorConfig`/`saveEditorConfig` + App member + `saveGlobalConfig()` | editor-ui-and-conventions |
 | New object type | `PrimitiveType` (0-22 used) + viewport mesh + `pickBounds` case + insert menu + codegen; non-geometry types join every marker skip list; collision only via `objectCollides`/`objectCollisionBox` (+ `placement::collisionBox` twin) | scene-objects-and-gameplay |
@@ -82,11 +82,11 @@ Sibling skills: **tyra-engine-dev** (the PS2 engine fork in `vendor/tyra`), **ty
 
 ### 4. Twins and oracles
 
-The editor and the PS2 game compute many things twice (host C++ for preview/bake, generated C++ for the console). **Change a formula -> find and change its twin in the same commit.** Known twin sets: viewport shading `SHADE_COMMON` vs generated shading; terrain splat + `tintNoise2`; `occShapeAt`/`aoShadeMul`/`shapeBlocksRay` (host, game, viewport FS); `seqCameraUp` (3-way); `ambience::evaluate` vs `daynight.gen.hpp`; `scrollsim` vs `scroller.gen.cpp`; `procgen` vs `procrt` emitted evaluator; `roadgen` (list + strips) vs `buildRoads`; `vehiclesim` vs the vehicle runtime; `staticbatch` vs `buildStaticBatchList`; `menulayout`/`menubake` text vs runtime `drawFontText`/icons; `hudanim.hpp`; `livedbg`/`livetime`/`livepad`/`livereplay` layouts vs generated runtimes; `blss::composite` vs `RendererCoreBlss`; `tmdl` writer vs `TmdlLoader`; `project::tripleBufferingFit` vs `allocateVramBuffers`; `blssClashes()` vs `blssClashesFor`. Mechanical oracles exist for some: `verify-road-twins.py`, `verify-batch-twins.py`, `--gi-gpu-check`, `--vu-check`/`--vu-replay`, `tools/bag-array-enforcement.sh`, `--audit-release`.
+The editor and the PS2 game compute many things twice (host C++ for preview/bake, generated C++ for the console). **Change a formula -> find and change its twin in the same commit.** Known twin sets: viewport shading `SHADE_COMMON` vs generated shading; terrain splat + `tintNoise2`; `occShapeAt`/`aoShadeMul`/`shapeBlocksRay` (host, game, viewport FS); `seqCameraUp` (3-way); `ambience::evaluate` vs `daynight.gen.hpp`; `scrollsim` vs `scroller.gen.cpp`; `procgen` vs `procrt` emitted evaluator; `roadgen` (list + strips) vs `buildRoads`; `vehiclesim` vs the vehicle runtime; `staticbatch` vs `buildStaticBatchList`; `menulayout`/`menubake` text vs runtime `drawFontText`/icons; `hudanim.hpp`; `livedbg`/`livetime`/`livepad`/`livereplay` layouts vs generated runtimes; `tmdl` writer vs `TmdlLoader`; `project::tripleBufferingFit` vs `allocateVramBuffers`; `blssClashes()` vs `blssClashesFor`. Mechanical oracles exist for some: `verify-road-twins.py`, `verify-batch-twins.py`, `--gi-gpu-check`, `--vu-check`/`--vu-replay`, `tools/bag-array-enforcement.sh`, `--audit-release`.
 
 ### 5. Platform parity and paths
 
-- Files existing once per platform are edited as a PAIR in the same commit: `deps.ps1`/`deps.sh` (the ONLY dependency list), `setup.*`, `build.*` (`.cmd` files are thin wrappers - keep them so), `tools/toolchain/prepare-host.*`/`native-build.*`, the installer pair (same package CONTENT), `CMakeLists.txt` `if(WIN32)`/`else()`, `platform.cpp` `#ifdef _WIN32`/`#else`. OS differences live only in `platform.cpp`. macOS is the POSIX half: an `#elif defined(__APPLE__)` inside it where Linux reads `/proc` or shells out to freedesktop tools, `uname -s` = `Darwin` branches in the `.sh` files.
+- Files existing once per platform are edited as a PAIR in the same commit: `deps.ps1`/`deps.sh` (the ONLY dependency list), `setup.*`, `build.*` (`.cmd` files are thin wrappers - keep them so), `tools/toolchain/prepare-host.*`/`native-build.*`, the installer pair (same package CONTENT), `CMakeLists.txt` `if(WIN32)`/`else()`, `platform.cpp` `#ifdef _WIN32`/`#else`. OS differences live only in `platform.cpp` (+ `platform_mac.mm` for the bits that need AppKit, the merged title bar). macOS is the POSIX half: an `#elif defined(__APPLE__)` inside it where Linux reads `/proc` or shells out to freedesktop tools, `uname -s` = `Darwin` branches in the `.sh` files.
 - Code must build with BOTH GCC/libstdc++ and Apple clang/libc++: declare an `operator==` before a type that compares a `vector` of it, `static_cast<long long>` a file-time `count()` (`__int128` in libc++), and `sizeof` asserts over structs holding `std::string` carry both numbers.
 - Never join paths with `"\\"` or by hand: `Project::filePath(rel)` / `templates::nativePath(rel)`; normalize before a path leaves the process. Nested command-line arguments go through `platform::shellArg()`. Never kill processes by name - ownership from the command line (`processesNamed` + `killProcess`); `Process::kill()` kills the tree.
 - Every RGBA texture upload uses `glUploadTexRgba` (one-call `glTexImage2D` with data crashes the AMD driver).
@@ -122,7 +122,16 @@ The editor and the PS2 game compute many things twice (host C++ for preview/bake
 | `devkit-runner-and-network.md` | Zero-cost devkit rule + release audit, Live Link/Logic/Debugger, time machine, Remote Pad, input recorder, texture hot reload, error catcher, hardware timeline, the Runner (incrementality, ps2link ownership, PCSX2 paths), session log, collaboration session and `wire` transports |
 | `assets-import-animation.md` | Asset Browser, model importer, glb/fbx parsing, clip edits, animation import/bone mapping/retargeting, UV unwrap, tree generator |
 | `ai-features.md` | AI flow-graph generation backends, the AI Assistant (prompt, tools, search, compaction, chat store, acting loop), AI support files |
-| `blss.md` | The neural upscaler: window, settings/modes, per-scene override, interlock, shot plan, twin contract, objective, measurement rules, speed model |
+| `blss.md` | The upscaler (BLSS): settings and the two shapes (Whole 3D scene / Particles only), per-scene override, Set Upscaler node + `ctx.upscaler`, `blssUse`, codegen, interlock, VRAM twin, numbers to quote |
 | `audio.md` | Drone Generator synth + window, editor audio output, WAV conversion and the sfx bake |
 | `vu-framework.md` | vuir/vuasm/vusim/vugen/vucap/vushader/vumain, `--vu-check`/`--vu-replay`, VU clip-image aliases |
 | `build-platform-release.md` | Build scripts and CMake, dependencies, platform parity table, `platform.cpp`, paths and shell quoting, packaging/release workflow, update check |
+
+## TyraX 2.0 integration
+
+The editor is 2.0.0; the combined project format is 114. Read
+[TyraX2 integration notes](references/tyrax2-integration.md) before changing
+frame ownership, pipeline recording or the associated acceptance tooling.
+The TyraX2 performance investigation is closed: the notes summarise its
+conclusions and pitfalls, and its lab scripts and raw evidence are only in
+git history.

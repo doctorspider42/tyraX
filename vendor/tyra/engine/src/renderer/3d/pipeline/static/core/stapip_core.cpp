@@ -10,10 +10,12 @@
 */
 
 #include "math/math.hpp"
+#include "math/mmi.hpp"
 
 #include <gs_gp.h>
 #include <math.h>
 #include <string.h>
+#include <new>
 #include "debug/hardware_trace.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
@@ -80,6 +82,15 @@ static const RendererCoreSpotLight kNoSpotLight = [] {
   return l;
 }();
 
+#if TYRA_STAPIP_STAMP
+// Modified by TyraX: identity-model test (stamp diagnostics).
+[[maybe_unused]] static bool isIdentity(const M4x4& m) {
+  for (int i = 0; i < 16; ++i)
+    if (m.data[i] != ((i % 5) == 0 ? 1.0F : 0.0F)) return false;
+  return true;
+}
+#endif
+
 StaPipCore::StaPipCore() {
   maxVertCount = 0;
   setPrim();
@@ -105,6 +116,27 @@ void StaPipCore::setPrim() {
   prim.colorfix = PRIM_UNFIXED;
 }
 
+#if TYRA_STAPIP_PREPARED_STATIC
+bool StaPipCore::prepareStaticGeometry(StaPipBag* bag) {
+  if (Vif1Queue::recordingFrame() || !bag || !bag->info || !bag->vertices ||
+      !bag->count || !bag->color || !bag->color->many || bag->lighting ||
+      bag->billboard || (bag->texture &&
+      (!bag->texture->coordinates || bag->texture->coordinatesAreNormals)))
+    return false;
+  const prim_t savedPrim = prim;
+  const lod_t savedLod = lod;
+  const u32 size = getMaxVertCountByBag(bag);
+  setMaxVertCount(size);
+  prim.fogging = rendererCore->fog.enabled && !bag->info->fogDisabled
+      ? DRAW_ENABLE : DRAW_DISABLE;
+  qbufferRenderer.setInfo(bag->info);
+  const bool ready = qbufferRenderer.prepareStaticGeometry(bag, size, clipPackageSize());
+  prim = savedPrim;
+  lod = savedLod; // preserve the ordinary sendObjectData-before-setInfo contract
+  return ready;
+}
+#endif
+
 void StaPipCore::setLod() {
   lod.calculation = LOD_USE_K;
   lod.max_level = 0;
@@ -116,6 +148,7 @@ void StaPipCore::setLod() {
 }
 
 void StaPipCore::onFrameEnd() {
+  flushDeferred();  // Modified by TyraX: nothing queued crosses a frame
 // Modified by TyraX: OPT-IN, not `!defined(NDEBUG)`. No game build defines
 // NDEBUG - release only drops -g and KEEPSYM (docs/devkit.md) - so this
 // printed in a RELEASE game, once every 300 frames, which lands inside the
@@ -275,6 +308,7 @@ void StaPipCore::setVU1Clipping(const bool& enabled) {
 }
 
 void StaPipCore::setTelemetryEnabled(const bool& enabled) {
+  flushDeferred();
   telemetryEnabled = enabled;
   telemetry = StaPipTelemetry{};
   packager.setCapturePlaneMasks(
@@ -311,11 +345,18 @@ StaPipTelemetry StaPipCore::takeTelemetry() {
   return result;
 }
 
-void StaPipCore::computeClipObjectSpacePlanes(const M4x4& mvp) {
+void StaPipCore::computeClipObjectSpacePlanes(const M4x4& mvp, float band) {
+  computeClipPlanesInto(mvp, clipObjectSpacePlanes, band);
+}
+
+// Modified by TyraX: the same eight planes into any destination (stamps keep
+// a world-space copy per view - docs/stapip-stamps.md).
+void StaPipCore::computeClipPlanesInto(const M4x4& mvp, Plane* dst,
+                                       float band) {
   const float nearZ = rendererCore->getSettings().getNear() -
                       (-PlanesClipAlgorithm::clipMargin);
   const float farZ = -rendererCore->getSettings().getFar();
-  const float b = VU1_CLIP_XY_BAND;
+  const float b = band;
   const float planes[8][5] = {
       {0.0F, 0.0F, -1.0F, 0.0F, nearZ},  // near
       {0.0F, 0.0F, 1.0F, 0.0F, -farZ},   // far
@@ -337,7 +378,7 @@ void StaPipCore::computeClipObjectSpacePlanes(const M4x4& mvp) {
   const float* m = mvp.data;
   for (u8 i = 0; i < 8; ++i) {
     const float* p = planes[i];
-    Plane& out = clipObjectSpacePlanes[i];
+    Plane& out = dst[i];
     out.normal.x = p[0] * m[0] + p[1] * m[1] + p[2] * m[2] + p[3] * m[3];
     out.normal.y = p[0] * m[4] + p[1] * m[5] + p[2] * m[6] + p[3] * m[7];
     out.normal.z = p[0] * m[8] + p[1] * m[9] + p[2] * m[10] + p[3] * m[11];
@@ -505,7 +546,53 @@ void StaPipCore::ensureEnvNormalsUnit(StaPipBag* bag) {
   }
 }
 
-void StaPipCore::render(StaPipBag* bag) {
+// Modified by TyraX: stamp deferral (setStampDeferral, docs/stapip-stamps.md,
+// "Stamps in runs"). Measured on a PS2, a stamp hit cost ~28 us, of which ~87%
+// was cache misses - 58 I-cache and 104 D-cache lines per hit - because the
+// game runs >10 us of its own code between any two bags and evicts the stamp
+// path every time. A queued run replays them back to back.
+void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
+#if TYRA_STAPIP_STAMP
+  if (!flushingDeferred) {
+    if (stampDeferral && bag->count > 0 &&
+        qbufferRenderer.isSubmissionBatchOpen() &&
+        qbufferRenderer.isStampEnabled() &&
+        bag->info->transformationType == TyraMVP && !telemetryEnabled &&
+        qbufferRenderer.hasStamp(bag)) {
+      const M4x4& vp = rendererCore->renderer3D.getViewProj();
+      bool flush = deferredCount != 0 &&
+                   !mmi::equal64(deferredViewProj.data, vp.data);
+      // A bag queued twice would be validated twice against its LAST state.
+      for (u32 i = 0; !flush && i < deferredCount; ++i)
+        flush = deferred[i].bag == bag;
+      if (flush) flushDeferredRun();
+      if (deferredCount == 0) deferredViewProj = vp;
+      deferred[deferredCount++] = {bag, reception};
+      if (deferredCount == kDeferredMax) flushDeferredRun();
+      return;
+    }
+    if (deferredCount != 0) flushDeferredRun();
+  }
+#endif
+  renderNow(bag, reception);
+}
+
+void StaPipCore::flushDeferredRun() {
+#if TYRA_STAPIP_STAMP
+  if (flushingDeferred) return;
+  flushingDeferred = true;
+  const u32 n = deferredCount;
+  deferredCount = 0;
+  for (u32 i = 0; i < n; ++i) {
+    // Start the next bag's lines on their way while this one is replayed.
+    if (i + 1 < n) qbufferRenderer.prefetchStamp(deferred[i + 1].bag);
+    renderNow(deferred[i].bag, deferred[i].reception);
+  }
+  flushingDeferred = false;
+#endif
+}
+
+void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   HardwareTrace::Scope traceBag("Static_bag");
   TYRA_ATTRIB_MARK(attribRenderStart);
   TYRA_ATTRIB_INC(renderCalls);
@@ -513,6 +600,45 @@ void StaPipCore::render(StaPipBag* bag) {
     TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);
     return;
   }
+
+#if TYRA_STAPIP_STAMP
+  // Modified by TyraX: a valid stamp IS this bag's submission - see
+  // StaPipQBufferRenderer::tryStamp (docs/stapip-stamps.md).
+  if (qbufferRenderer.isStampEnabled() && !instancing &&
+      bag->info->transformationType == TyraMVP && !telemetryEnabled) {
+    const M4x4& vp = rendererCore->renderer3D.getViewProj();
+    if (!stampClipValid ||
+        !mmi::equal64(stampClipViewProj.data, vp.data)) {
+      computeClipPlanesInto(vp, stampClipPlanes, VU1_CLIP_XY_BAND);
+      computeClipPlanesInto(vp, stampClipPlanesTight, VU1_CLIP_XY_BAND_TIGHT);
+      stampClipViewProj = vp;
+      stampClipValid = true;
+    }
+    const bool guardBand =
+#if TYRA_STAPIP_GUARD_BAND_BAGS
+        qbufferRenderer.isVU1ClippingEnabled() && bag->info->fullClipChecks;
+#else
+        false;
+#endif
+    if (qbufferRenderer.tryStamp(
+            bag, vp, rendererCore->renderer3D.frustumPlanes.getAll(),
+            guardBand ? (bag->info->tightClipBand ? stampClipPlanesTight
+                                                  : stampClipPlanes)
+                      : nullptr,
+            bag->info->dynamicLightReceive &&
+                reception != StaPipLightReception::Suppress,
+            &kNoSpotLight))
+      return;
+  }
+#endif
+
+#if TYRA_VU1_EXP_PAINT
+  if (bag->texture && bag->texture->paintVu && !supportsPaintVu(bag)) {
+    TYRA_ASSERT(false,
+                "VU paint is unavailable; materialize EE colours before fallback!");
+    return;  // NDEBUG must not submit stale colours or an incompatible ABI.
+  }
+#endif
 
   // Modified by TyraX: GS hardware fog - the PRIM FGE bit follows the
   // renderer-level fog state (see RendererCore::setFog), with a per-bag
@@ -523,6 +649,9 @@ void StaPipCore::render(StaPipBag* bag) {
 
   bool frustumCull =
       bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise;
+  // Modified by TyraX: StaPipBag::immutableStreams - first draw registers.
+  if (bag->immutableStreams && !bag->immutableRegistered)
+    bag->registerImmutableStreams();
 
   TYRA_ASSERT(bag->vertices != nullptr,
               "Vertices are required in 3D render bag!");
@@ -577,7 +706,7 @@ void StaPipCore::render(StaPipBag* bag) {
   TYRA_ASSERT(!(!frustumCull && bag->info->fullClipChecks == true),
               "Full clip checks are not supported with frustum culling = off!");
 
-  const u32 traceBoundsStart = HardwareTrace::active ? HardwareTrace::ticks() : 0;
+  HardwareTrace::Scope traceBounds("Bounds", HardwareTrace::Kind::Span, true);
   const u32 boundsStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
   // The head costs no clock of its own: the bounds bracket's own first read
   // is also the head's last one. Everything above this line - the fog
@@ -602,10 +731,12 @@ void StaPipCore::render(StaPipBag* bag) {
       transformCacheValid &&
       bag->info->transformationType == TyraMVP &&
       transformCacheModelPtr == bag->info->model &&
-      memcmp(transformCacheModel.data, bag->info->model->data,
-             sizeof(transformCacheModel.data)) == 0 &&
-      memcmp(transformCacheViewProj.data, currentViewProj.data,
-             sizeof(transformCacheViewProj.data)) == 0;
+      // Modified by TyraX: the same bit-for-bit test as memcmp(.., 64), in
+      // MMI - ~41 cycles against ~247 a call, twice per bag (the two
+      // memcmps were 0.341 ms of `bounds` on the console;
+      // docs/render-submission-attribution.md, docs/vu0-macro-mode.md).
+      mmi::equal64(transformCacheModel.data, bag->info->model->data) &&
+      mmi::equal64(transformCacheViewProj.data, currentViewProj.data);
   TYRA_ATTRIB_ADD(bdXformTicks, attribXformStart);
 
   StaPipBagPackagesBBox* bbox = nullptr;
@@ -653,14 +784,14 @@ void StaPipCore::render(StaPipBag* bag) {
       if (telemetryEnabled) telemetry.boundsTicks += readCoreTelemetryTicks()-boundsStart;
       TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);
       TYRA_ATTRIB_INC(renderCallsCulled);
-      if (HardwareTrace::active) HardwareTrace::record("Bounds", traceBoundsStart, HardwareTrace::ticks());
+      traceBounds.finish();
       recordOutsideBag(bag);
       return;
     }
   }
 
   if (telemetryEnabled) telemetry.boundsTicks += readCoreTelemetryTicks()-boundsStart;
-  if (HardwareTrace::active) HardwareTrace::record("Bounds", traceBoundsStart, HardwareTrace::ticks());
+  traceBounds.finish();
   const u32 prepareStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
 
   // Modified by TyraX: the per-bag blend equation (additiveBlendFix - the
@@ -702,6 +833,11 @@ void StaPipCore::render(StaPipBag* bag) {
     transformCachePlanesValid = true;
   }
 
+  // Modified by TyraX: the X/Y band this bag is classified against and, for
+  // its crossing packages, cut to (StaPipInfoBag::tightClipBand).
+  const float clipBand = bag->info->tightClipBand ? VU1_CLIP_XY_BAND_TIGHT
+                                                  : VU1_CLIP_XY_BAND;
+
 #if TYRA_STAPIP_GUARD_BAND_BAGS
   // Modified by TyraX: a bag that only straddles the SCREEN edge. Its box
   // crosses the view frustum, but if it is inside all eight VU1 planes (the
@@ -716,7 +852,7 @@ void StaPipCore::render(StaPipBag* bag) {
   // which the guard band guarantees stay inside the raster window.
   if (classifyPackages && qbufferRenderer.isVU1ClippingEnabled() &&
       bag->info->fullClipChecks && bag->billboard == nullptr) {
-    computeClipObjectSpacePlanes(mvp);
+    computeClipObjectSpacePlanes(mvp, clipBand);
     const CoreBBox* mainBox = bbox->getMainBBox();
     if (CoreBBox::activePlaneMaskAABB(clipObjectSpacePlanes, (*mainBox)[0],
                                       (*mainBox)[7], 8) == 0) {
@@ -728,7 +864,7 @@ void StaPipCore::render(StaPipBag* bag) {
   }
 #endif
   if (classifyPackages && qbufferRenderer.isVU1ClippingEnabled()) {
-    computeClipObjectSpacePlanes(mvp);
+    computeClipObjectSpacePlanes(mvp, clipBand);
     packager.setClipObjectSpacePlanes(clipObjectSpacePlanes);
   } else {
     packager.setClipObjectSpacePlanes(nullptr);
@@ -741,9 +877,15 @@ void StaPipCore::render(StaPipBag* bag) {
       (!frustumCull && !bag->info->fullClipChecks);
   const bool batchScope = qbufferRenderer.isSubmissionBatchOpen();
   const bool hasTexture = bag->texture && bag->texture->texture;
+  // Modified by TyraX: setPartialBatch - a crossing bag batches too. Its
+  // package count is not capped: a crossing bag's packet is sent at every
+  // half flush, so the reserve below still bounds what one bag appends.
+  const bool partialCandidate =
+      partialBatch && frustumCull && frustumCheck == PARTIALLY_IN_FRUSTUM &&
+      qbufferRenderer.isVU1ClippingEnabled();
   const bool cheapBatchCandidate =
-      batchScope && directBag && bag->billboard == nullptr &&
-      bag->count <= maxVertCount * 15 &&
+      batchScope && bag->billboard == nullptr &&
+      ((directBag && bag->count <= maxVertCount * 15) || partialCandidate) &&
       !qbufferRenderer.hasProgramOverrides();
   bool residentTexture = true;
   bool repeatTexture = true;
@@ -826,29 +968,17 @@ void StaPipCore::render(StaPipBag* bag) {
   // stands in with radius 0. Bags with dynLightPick = false (terrain
   // chunks, the sky dome) keep the global flashlight state - a per-chunk
   // pick shows a hard seam wherever neighbors pick different lights.
-  //
-  // Modified by TyraX: the SAME world bounding sphere also feeds the BLSS
-  // neural upscaler's per-tile features (docs/neural-upscaler.md), so it is
-  // computed once here and consumed by both. Everything below is inert -
-  // and the sphere is not computed at all - when neither consumer wants it.
-  // Modified by TyraX: a bag may opt OUT of the BLSS grid (blssProxy). A shell
-  // centred on the camera - the sky dome, the star field, the sun and moon
-  // discs - has no describable screen box: it wraps the near plane, so its
-  // proxy is "the whole frame, at the nearest representable depth" and it
-  // flattens every channel it touches. See PipelineInfoBag::blssProxy.
-  // wantsProxies(), NOT isEnabled(): in BLSS' PLAIN mode there is no network
-  // to describe the frame to, so the whole branch below - and the world
-  // bounding sphere it shares with the light pick - must not run at all. The
-  // entry points are inert there anyway, but "inert" still pays two sqrtf and
-  // a texel-area lookup per bag, and `proxy` is 2.34 ms of a 4.60 ms bill.
-  const bool blssOn =
-      rendererCore->blss.wantsProxies() && bag->info->blssProxy;
-  const bool wantsLightPick = !bag->lighting && bag->info->dynLightPick;
+  // Modified by TyraX: resolve shared-info overrides synchronously. No
+  // descriptor mutation or ambient receiver state survives this call.
+  const bool dynamicLightReceive = bag->info->dynamicLightReceive &&
+      reception != StaPipLightReception::Suppress;
+  const bool wantsLightPick = dynamicLightReceive && !bag->lighting &&
+      bag->info->dynLightPick;
 
   const M4x4& m = *bag->info->model;
   Vec4 worldCenter(m.data[12], m.data[13], m.data[14], 1.0F);
   float worldRadius = 0.0F;
-  if ((wantsLightPick || blssOn) && bbox) {
+  if (wantsLightPick && bbox) {
     const auto* mb = bbox->getMainBBox();
     const Vec4& lo = (*mb)[0];
     const Vec4& hi = (*mb)[7];
@@ -865,15 +995,21 @@ void StaPipCore::render(StaPipBag* bag) {
 
   const RendererCoreSpotLight* bagLight = nullptr;
   if (wantsLightPick) {
-    bagLight = rendererCore->pickDynLight(worldCenter, worldRadius,
-                                          bag->info->dynLightSkipSlot);
+    bagLight = rendererCore->pickDynLight(
+        worldCenter, worldRadius, bag->info->dynLightSkipSlot,
+        bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u,
+        bag->info->spotLit, bag->info->torchPerPixel);
   }
   // Modified by TyraX: a bag may opt out of the camera spot as well
   // (PipelineInfoBag::spotLit - the terrain, whose light comes from the
   // flashlight's projected pool instead). A null bagLight means "the global
   // flashlight", so opting out needs a light OBJECT rather than a null: the
   // one below is off and black, which the programs compute with as a no-op.
-  if (!bag->info->spotLit) bagLight = &kNoSpotLight;
+  // A picking bag that opts out still takes the scene's lights: the pick
+  // above left the torch out, and only "nothing in reach" lands here.
+  if (!dynamicLightReceive ||
+      (!bag->info->spotLit && (!wantsLightPick || bagLight == nullptr)))
+    bagLight = &kNoSpotLight;
   // Modified by TyraX: test the selected light in the same local space as
   // its shader, using the existing versioned bounds. Particle descriptors
   // do not enclose their expanded billboard corners, so remain unfiltered.
@@ -881,129 +1017,6 @@ void StaPipCore::render(StaPipBag* bag) {
       bagLight, bbox && !bag->billboard ? bbox->getMainBBox() : nullptr);
   TYRA_ATTRIB_ADD(prepLightTicks, attribLightStart);
 
-  // Modified by TyraX: the BLSS bag feed. Inert when BLSS is off (and when it
-  // is on but we are not inside its beginScene/endScene bracket - the
-  // RendererCoreBlss entry points check). The upscaler never reads the
-  // framebuffer back, so a bag's screen bbox + w range + two material scalars
-  // is ALL the network ever learns about a frame; see
-  // docs/blss-reconstruction.md section 2.
-  //
-  // ONE BAG IS NOT ONE PROXY, and that used to be the feature's biggest lie.
-  // A bag carries one bbox and one w range, so a floor or terrain mesh
-  // reported "fully covered, at my nearest depth" for every tile it touched -
-  // on a still `fpp` scene that came out as depth = grad = cover = 1 in all
-  // 224 tiles, a network output that was the same constant everywhere, and a
-  // sky reconstructed from history. The corpus never had the problem because
-  // it chunks its floors 8x8 and its walls x6.
-  //
-  // The packages this bag is about to be split into already carry their own
-  // axis-aligned boxes - cached, and computed for frustum classification
-  // whether or not BLSS is on - so the grid gets the corpus' granularity for
-  // the cost of walking a vector. Bags with no bbox (frustumCulling != Precise)
-  // fall back to the bounding-sphere proxy, which for them means contributing
-  // nothing at all: without a bbox the sphere is the model translation at
-  // radius 0 and addBag rejects the empty box.
-  //
-  // THAT SILENCE IS NOT HARMLESS FOR ONE BAG SHAPE, and it is the one the
-  // straddle rule and the blssProxy opt-out cannot help with. A particle
-  // emitter runs frustumCulling None deliberately (VU1 culls per quad), so it
-  // has never contributed a proxy - while on the fixtures BLSS is measured on
-  // the emitters are 95-99 % of the frame's fill. The network therefore chose
-  // its kernels over fire, fog and rain entirely from the geometry BEHIND
-  // them. TYRA_BLSS_EMITTER_PROXY is the sixth twin rule that closes it; it
-  // ships at 0, because turning it on moves every label and needs a refit.
-  TYRA_ATTRIB_MARK(attribBlssStart);
-  if (blssOn) {
-#if TYRA_FRAME_PROFILE
-    // Charged to FrameProfile::tBlssProxy, which beginScene clears - so the
-    // "extra scene submission" term is READ rather than inferred by
-    // subtracting everything else from the A/B difference.
-    const u32 fpP0 = FrameProfile::ticks();
-#endif
-    // texDetail is the minification proxy - texels per screen pixel - so BLSS
-    // gets the raw texel area and finishes the ratio once it knows the screen
-    // footprint it just computed. Untextured bags carry no texture aliasing.
-    float texelArea = 0.0F;
-    if (bag->texture && bag->texture->texture) {
-      texelArea =
-          static_cast<float>(bag->texture->texture->getWidth()) *
-          static_cast<float>(bag->texture->texture->getHeight());
-    }
-    // There used to be a `luma` here too - the bag's own brightness, plus
-    // whatever dynamic light was picked for it. It is gone with the channel it
-    // fed, and THIS is the code that killed it: `bag->color->single` is null
-    // for every per-vertex-lit mesh a generated game submits, so the value it
-    // could actually compute was the fallback 0.5 in nearly every frame, while
-    // the corpus trained the network on a real spread. See
-    // RendererCoreBlss::kFeatures.
-
-#if TYRA_BLSS_EMITTER_PROXY
-    // THE SIXTH RULE: an emitter bag describes itself from the centres it is
-    // about to submit. It is the one bag shape that reaches here with no
-    // package bbox BY DESIGN rather than by omission - a billboard bag runs
-    // frustumCulling None because VU1 culls per quad - so without this branch
-    // it falls to the radius-0 sphere below and addBag rejects it. On the
-    // fixtures this feature is measured on that silence is 95-99 % of the
-    // frame's fill. See RendererCoreBlss::addBagBillboard for the box, and the
-    // BLSS header for why it is one box and not one per VU1 package.
-    if (bag->billboard != nullptr) {
-      rendererCore->blss.addBagBillboard(
-          mvp, bag->vertices, bag->count, bag->texture->coordinates,
-          bag->billboard->right, bag->billboard->up, texelArea);
-    } else
-#endif
-    if (bbox != nullptr) {
-      // bbox is non-null only for Precise frustum culling, and the assert
-      // above makes that imply TyraMVP - so `mvp` below really is the
-      // view-projection times this bag's model matrix, which is the space
-      // addBagBox projects from.
-      const std::vector<CoreBBox>& parts = bbox->getParts();
-      const u32 partsCount = static_cast<u32>(parts.size());
-      if (partsCount == 0) {
-        rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea);
-      } else {
-        // At most kMaxProxiesPerBag boxes: merge consecutive parts when a mesh
-        // has more. Merging by vertex range (not by space) can only ENLARGE a
-        // box, never move it, so the worst case degrades toward the whole-bag
-        // proxy instead of lying about where the geometry is.
-#if TYRA_BLSS_PROXY_BUDGET
-        // THE PROXY BUDGET (twin switch - see the BLSS header). The cap is the
-        // number of grid tiles this bag's whole box covers, so a bag the grid
-        // can only resolve into four tiles is described by four boxes instead
-        // of thirty-two. The main bbox is the one the frustum classification
-        // above already fetched.
-        const u32 cap = static_cast<u32>(rendererCore->blss.proxyBudget(
-            mvp, (*bbox->getMainBBox())[0], (*bbox->getMainBBox())[7]));
-#else
-        const u32 cap =
-            static_cast<u32>(RendererCoreBlss::kMaxProxiesPerBag);
-#endif
-        const u32 group = partsCount <= cap ? 1u : (partsCount + cap - 1) / cap;
-        for (u32 i = 0; i < partsCount; i += group) {
-          const u32 end = i + group < partsCount ? i + group : partsCount;
-          Vec4 lo = parts[i].vertices[0];
-          Vec4 hi = parts[i].vertices[7];
-          for (u32 k = i + 1; k < end; k++) {
-            const Vec4& l = parts[k].vertices[0];
-            const Vec4& h = parts[k].vertices[7];
-            if (l.x < lo.x) lo.x = l.x;
-            if (l.y < lo.y) lo.y = l.y;
-            if (l.z < lo.z) lo.z = l.z;
-            if (h.x > hi.x) hi.x = h.x;
-            if (h.y > hi.y) hi.y = h.y;
-            if (h.z > hi.z) hi.z = h.z;
-          }
-          rendererCore->blss.addBagBox(mvp, lo, hi, texelArea);
-        }
-      }
-    } else {
-      rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea);
-    }
-#if TYRA_FRAME_PROFILE
-    FrameProfile::tBlssProxy += FrameProfile::ticks() - fpP0;
-#endif
-  }
-  TYRA_ATTRIB_ADD(prepBlssTicks, attribBlssStart);
 
   // Modified by TyraX: is this bag's fog coefficient the constant 255? True
   // with GS fog off for it, and when its whole box is nearer than the fog
@@ -1012,8 +1025,12 @@ void StaPipCore::render(StaPipBag* bag) {
   // it. Most of a scene's near geometry - every car, the street it is on -
   // is inside the fog start, and the VU1 fog arithmetic is 6 of cull_tc's
   // ~20 upper-pipe operations a vertex.
+  // Instanced copies inherit this bag's options block, so its "nearer than
+  // the fog start" shortcut must not be judged from one copy's box.
   qbufferRenderer.setFogFacts(prim.fogging != DRAW_ENABLE,
-                              bbox != nullptr ? bbox->getMainBBox() : nullptr);
+                              bbox != nullptr && !instancing
+                                  ? bbox->getMainBBox()
+                                  : nullptr);
 
   TYRA_ATTRIB_MARK(attribObjectDataStart);
   // Modified by TyraX: only this partial-frustum route can run a VU1 clip
@@ -1022,11 +1039,36 @@ void StaPipCore::render(StaPipBag* bag) {
                                 (frustumCull &&
                                  frustumCheck == PARTIALLY_IN_FRUSTUM &&
                                  bag->info->fullClipChecks));
+  // TEX1 is serialized by sendObjectData; select this bag's filters first.
+  qbufferRenderer.setInfo(bag->info);
+#if TYRA_STAPIP_STAMP
+  // Modified by TyraX: arm a stamp capture for a bag the whole-baked route is
+  // about to replay, when every input the stamp cannot re-derive is fixed.
+  if (qbufferRenderer.isStampEnabled() && !instancing && frustumCull &&
+      frustumCheck == IN_FRUSTUM && bbox != nullptr &&
+      !telemetryEnabled &&
+      bag->billboard == nullptr && bag->lighting == nullptr &&
+      bag->info->transformationType == TyraMVP &&
+      !qbufferRenderer.hasProgramOverrides()) {
+    // Batch membership is recorded, not required: a replayed stamp is ~20
+    // qwords whatever the bag's size, and joins a batch exactly when this
+    // ordinary submission did (size cap and REPEAT; residency is re-checked).
+    const bool repeat =
+        !hasTexture ||
+        (bag->texture->texture->getWrapSettings()->horizontal == WRAP_REPEAT &&
+         bag->texture->texture->getWrapSettings()->vertical == WRAP_REPEAT);
+    qbufferRenderer.armStampCapture(bag, (*bbox->getMainBBox())[0],
+                                    (*bbox->getMainBBox())[7],
+                                    bag->count <= maxVertCount * 15 && repeat);
+  } else {
+    qbufferRenderer.disarmStampCapture();
+  }
+#endif
+  qbufferRenderer.setClipBandTight(bag->info->tightClipBand);
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);
 
   qbufferRenderer.setClipperMVP(&mvp);
 
-  qbufferRenderer.setInfo(bag->info);
   TYRA_ATTRIB_ADD(prepObjectDataTicks, attribObjectDataStart);
 
   if (telemetryEnabled) telemetry.prepareTicks += readCoreTelemetryTicks()-prepareStart;
@@ -1062,8 +1104,8 @@ void StaPipCore::render(StaPipBag* bag) {
   // Order matters here and is not arbitrary: the baked cache is opened first
   // because if it can replay the bag with one tag there is no package left for
   // the retained cache to hold a block FOR, and `dsRetain` (0.69 ms of
-  // garage-day frame, measured) becomes pure waste. A partial bag reaches
-  // neither of these, exactly as before.
+  // garage-day frame, measured) becomes pure waste. Partial bags can prepare
+  // the same immutable bodies, but regenerate entry state for each live slice.
   const bool directRoute =
       checkYesFrustumInClipYes || checkYesFrustumInClipNo || checkNoClipNo;
   // The bake lookup and the whole-bag replay are charged to `dsDirect`, the
@@ -1072,15 +1114,15 @@ void StaPipCore::render(StaPipBag* bag) {
   // render-submission-attribution.md exists to have closed.
   TYRA_ATTRIB_MARK(attribReplayStart);
   bool replayedWhole = false;
-  if (directRoute) {
-    TYRA_ATTRIB_INC(dsDirectBags);
-    bakeBag = qbufferRenderer.beginBakedBag(bag, maxVertCount);
-    replayedWhole = bakeBag && qbufferRenderer.replayWholeBakedBag();
+  if (directRoute || TYRA_STAPIP_PARTIAL_BAKED) {
+    if (directRoute) { TYRA_ATTRIB_INC(dsDirectBags); }
+    bakeBag = qbufferRenderer.beginBakedBag(bag, maxVertCount, !directRoute);
+    replayedWhole = directRoute && bakeBag && qbufferRenderer.replayWholeBakedBag();
   }
   TYRA_ATTRIB_ADD(dsDirectTicks, attribReplayStart);
   TYRA_ATTRIB_MARK(attribRetainStart);
   const bool retainBag =
-      replayedWhole ? false
+      (replayedWhole || (!directRoute && bakeBag)) ? false
                     : qbufferRenderer.beginRetainedBag(bag, maxVertCount);
   TYRA_ATTRIB_ADD(dsRetainTicks, attribRetainStart);
   retainCurrentBag = retainBag;
@@ -1178,7 +1220,51 @@ void StaPipCore::render(StaPipBag* bag) {
     TYRA_ATTRIB_INC(dsPartialBags);
     u16 packagesCount = 0;
     auto doClip = checkYesFrustumPartialClipYes;
-    if (bag->stripped) {
+    // Modified by TyraX (R5, setPartialReplay): the crossing bag from its
+    // immutable cull and whole-clip blocks - no qbuffers, no per-package
+    // command writing. Mode 2 skips the classification as well.
+    bool replayedPartial = false;
+    if (partialReplay != 0 && doClip && wholeClip() && bakeBag &&
+        bag->billboard == nullptr && !qbufferRenderer.hasProgramOverrides() &&
+        qbufferRenderer.beginPartialReplay(bag, maxVertCount)) {
+      {
+        static u8 routes[512];
+        static u8 masks[512];
+        auto packages = packager.create(&packagesCount, bag, maxVertCount);
+        if (packagesCount <= 512) {
+          for (u16 i = 0; i < packagesCount; ++i) {
+            const StaPipBagPackage& p = packages[i];
+            const bool guardBandOnly = isGuardBandOnly(p);
+            u8 route = 0;
+            if (p.isInFrustum == IN_FRUSTUM || guardBandOnly)
+              route = 1;
+            else if (p.isInFrustum == PARTIALLY_IN_FRUSTUM &&
+                     (!bag->stripped || p.size >= 3))
+              route = 2;
+            routes[i] = route;
+            masks[i] = p.clipPlaneMask;
+          }
+          replayedPartial = qbufferRenderer.emitPartialRuns(
+              routes, packagesCount, partialReplay == 4 ? masks : nullptr);
+          for (u16 i = 0; replayedPartial && telemetryEnabled && i < packagesCount;
+               ++i) {
+            recordPackage(packages[i], routes[i] == 1   ? IN_FRUSTUM
+                                       : routes[i] == 2 ? PARTIALLY_IN_FRUSTUM
+                                                        : OUTSIDE_FRUSTUM);
+            if (isGuardBandOnly(packages[i])) recordGuardBandPackage(packages[i]);
+          }
+        }
+        if (!replayedPartial) {
+          // The runs did not fit the packet: the ordinary loop, same packages.
+          if (bag->stripped) renderStrippedPkgs(packages, doClip, packagesCount);
+          else renderPkgs(packages, doClip, packagesCount);
+          replayedPartial = true;
+        }
+      }
+    }
+    if (replayedPartial) {
+      // done
+    } else if (bag->stripped) {
       // Modified by TyraX: packages ARE the baked strip runs here, so the
       // subpackage branch below (which cuts at clipPackageSize, and merges
       // three cuts back into one buffer) must not be reached - either would
@@ -1190,7 +1276,9 @@ void StaPipCore::render(StaPipBag* bag) {
       TYRA_ATTRIB_MARK(attribRenderStripStart);
       renderStrippedPkgs(packages, doClip, packagesCount);
       TYRA_ATTRIB_ADD(dsRenderTicks, attribRenderStripStart);
-    } else if (!doClip || bag->count >= maxVertCount * 2) {
+    } else if (!doClip || bag->count >= maxVertCount * 2 || wholeClip()) {
+      // Modified by TyraX: with VU1 clipping a crossing package is clipped
+      // whole (renderPkgs), so a small bag takes the same route.
       TYRA_ATTRIB_MARK(attribCreateStart);
       auto packages = packager.create(&packagesCount, bag, maxVertCount);
       TYRA_ATTRIB_ADD(dsCreateTicks, attribCreateStart);
@@ -1198,6 +1286,13 @@ void StaPipCore::render(StaPipBag* bag) {
       TYRA_ATTRIB_MARK(attribRenderPkgsStart);
       renderPkgs(packages, doClip, packagesCount);
       TYRA_ATTRIB_ADD(dsRenderTicks, attribRenderPkgsStart);
+    } else if (sliceClip && qbufferRenderer.isVU1ClippingEnabled() &&
+               !bag->billboard && !qbufferRenderer.hasProgramOverrides()) {
+      // Modified by TyraX: slice clipping for a small crossing bag - the
+      // whole bag in clip-sized slices, all six planes (no package mask).
+      TYRA_ATTRIB_MARK(attribRenderSubStart);
+      renderClipSlices(bag, 0, bag->count, 0x3F);
+      TYRA_ATTRIB_ADD(dsRenderTicks, attribRenderSubStart);
     } else {
       TYRA_ATTRIB_MARK(attribCreateStart);
       auto subpkgs = packager.create(&packagesCount, bag, clipPackageSize());
@@ -1211,6 +1306,9 @@ void StaPipCore::render(StaPipBag* bag) {
 
   TYRA_ATTRIB_MARK(attribFlushStart);
   qbufferRenderer.flushBuffers();
+#if TYRA_STAPIP_STAMP
+  qbufferRenderer.disarmStampCapture();
+#endif
   TYRA_ATTRIB_ADD(dsFlushTicks, attribFlushStart);
   qbufferRenderer.endRetainedBag();  // Modified by TyraX
   if (bakeBag) qbufferRenderer.endBakedBag();  // Modified by TyraX
@@ -1234,6 +1332,133 @@ void StaPipCore::render(StaPipBag* bag) {
 #endif
 }
 
+// Modified by TyraX: instancing - see the header. The point is the per-copy
+// EE price: an ordinary submit is ~28-100 us on a physical PS2 (bounds,
+// prepare, the baked key, the flush), which is why scattered models used to
+// be merged into world-space chunks instead. Here a copy that is wholly
+// inside the guard band costs a frustum test, one matrix product and seven
+// quadwords, while sharing ONE vertex array and ONE baked VIF body with every
+// other copy.
+u32 StaPipCore::renderInstances(StaPipBag* bag, const M4x4* models,
+                                u32 count) {
+  if (count == 0 || bag->count == 0) return 0;
+  flushDeferred();  // keep StaPip's draw order: queued stamps go first
+  M4x4* const savedModel = bag->info->model;
+  const M4x4& vp = rendererCore->renderer3D.getViewProj();
+  const u32 maxVertCount = getMaxVertCountByBag(bag);
+  StaPipBagPackagesBBox* bbox =
+      cacher.getBBoxes(bag->vertices, bag->count,
+                       reinterpret_cast<u32>(bag->vertices), bag->bboxVersion,
+                       maxVertCount);
+  const Vec4 lo = (*bbox->getMainBBox())[0];
+  const Vec4 hi = (*bbox->getMainBBox())[7];
+  const float band = bag->info->tightClipBand ? VU1_CLIP_XY_BAND_TIGHT
+                                              : VU1_CLIP_XY_BAND;
+  const bool textured = bag->texture && bag->texture->texture;
+  // A copy may only REF the body when nothing in its uniforms differs from
+  // the copy that uploaded them: no lighting, billboard or program override,
+  // and the REPEAT wrap every other bag also assumes.
+  const bool canAppend =
+      qbufferRenderer.isVU1ClippingEnabled() && bag->info->fullClipChecks &&
+      bag->info->transformationType == TyraMVP && bag->billboard == nullptr &&
+      bag->lighting == nullptr && !qbufferRenderer.hasProgramOverrides() &&
+      (!textured ||
+       (bag->texture->texture->getWrapSettings()->horizontal == WRAP_REPEAT &&
+        bag->texture->texture->getWrapSettings()->vertical == WRAP_REPEAT));
+  bool armed = false;  // the last copy's body + uniforms may be re-used
+  bool appended = false;
+  u32 drawn = 0;
+  // Per-copy tests on a WORLD bounding sphere against planes normalised once
+  // per call: transforming six frustum and eight clip planes into each copy's
+  // object space was most of a copy's EE price (~20 us a drawn copy on a
+  // PS2, two thirds of the tested copies being off-screen anyway). A sphere is
+  // looser than the box, so the error only ever routes a copy to the ordinary
+  // (clipping) path or keeps one that is barely off-screen - never the reverse.
+  Plane view[6], clip[8];
+  {
+    const Plane* fp = rendererCore->renderer3D.frustumPlanes.getAll();
+    for (u8 k = 0; k < 6; ++k) view[k] = fp[k];
+    computeClipPlanesInto(vp, clip, band);
+    for (Plane* pl : {view + 0, view + 1, view + 2, view + 3, view + 4,
+                      view + 5, clip + 0, clip + 1, clip + 2, clip + 3,
+                      clip + 4, clip + 5, clip + 6, clip + 7}) {
+      const float len = Math::sqrtNonNegative(pl->normal.x * pl->normal.x +
+                                              pl->normal.y * pl->normal.y +
+                                              pl->normal.z * pl->normal.z);
+      const float inv = len > 1e-12F ? 1.0F / len : 0.0F;
+      pl->normal.x *= inv, pl->normal.y *= inv, pl->normal.z *= inv;
+      pl->distance *= inv;
+    }
+  }
+  const float bcx = (lo.x + hi.x) * 0.5F, bcy = (lo.y + hi.y) * 0.5F,
+              bcz = (lo.z + hi.z) * 0.5F;
+  const float bex = hi.x - lo.x, bey = hi.y - lo.y, bez = hi.z - lo.z;
+  const float boxRadius =
+      0.5F * Math::sqrtNonNegative(bex * bex + bey * bey + bez * bez);
+  instancing = true;
+  for (u32 i = 0; i < count; ++i) {
+    const M4x4& m = models[i];
+    const float* d = m.data;
+    ++instancesTested;
+    const float wx = d[0] * bcx + d[4] * bcy + d[8] * bcz + d[12];
+    const float wy = d[1] * bcx + d[5] * bcy + d[9] * bcz + d[13];
+    const float wz = d[2] * bcx + d[6] * bcy + d[10] * bcz + d[14];
+    float s2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    const float s2y = d[4] * d[4] + d[5] * d[5] + d[6] * d[6];
+    const float s2z = d[8] * d[8] + d[9] * d[9] + d[10] * d[10];
+    if (s2y > s2) s2 = s2y;
+    if (s2z > s2) s2 = s2z;
+    const float r = boxRadius * Math::sqrtNonNegative(s2);
+    bool outside = false;
+    for (u8 k = 0; k < 6 && !outside; ++k)
+      outside = view[k].distance + view[k].normal.x * wx +
+                    view[k].normal.y * wy + view[k].normal.z * wz <
+                -r;
+    if (outside) continue;
+    ++drawn;
+    alignas(16) M4x4 mvp = vp * m;
+    bool inside = false;
+    if (canAppend) {
+      // The guard-band rule renderNow uses for a whole bag: inside all six VU1
+      // planes and the exact near/far pair, so the cull program needs no cut.
+      inside = true;
+      for (u8 k = 0; k < 8 && inside; ++k)
+        inside = clip[k].distance + clip[k].normal.x * wx +
+                     clip[k].normal.y * wy + clip[k].normal.z * wz >
+                 r;
+    }
+    if (armed && inside) {
+      qbufferRenderer.appendBakedInstance(mvp, textured);
+      ++instancesAppended;
+      appended = true;
+      continue;
+    }
+    // The ordinary path: uploads this copy's uniforms and replays (or bakes)
+    // the body. Only a whole replay leaves an arena the next copies can REF.
+    // A copy that crossed the guard band does not disarm the run: it uploaded
+    // the same options (same bag, no light, fog box off) plus the clip block,
+    // which the cull program the body kicks never reads - and every append
+    // re-uploads the one thing that differs, the MVP.
+    u32 keptQw = 0;
+    const void* kept = armed ? qbufferRenderer.wholeReplayArena(&keptQw) : nullptr;
+    bag->info->model = const_cast<M4x4*>(&m);
+    qbufferRenderer.forgetWholeReplay();
+    renderNow(bag, StaPipLightReception::Suppress);
+    ++instancesOrdinary;
+    if (!inside) ++instancesCrossing;
+    if (qbufferRenderer.hasWholeReplay()) {
+      armed = inside;
+    } else if (kept != nullptr) {
+      qbufferRenderer.restoreWholeReplay(kept, keptQw);
+    }
+  }
+  if (appended) qbufferRenderer.finishInstances();
+  qbufferRenderer.forgetWholeReplay();
+  instancing = false;
+  bag->info->model = savedModel;
+  return drawn;
+}
+
 void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
                             u16 count) {
   for (u16 i = 0; i < count; i++) {
@@ -1255,7 +1480,28 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       // slices - the packager cuts at i * size - so package i's command block
       // is the same one the wholly-visible route would build for it.
       if (retainCurrentBag) buffer->retainIndex = static_cast<int>(i);
+      buffer->bakeIndex = static_cast<int>(i);
       qbufferRenderer.cull(buffer);
+    } else if (doSubpkgs && wholeClip()) {
+      // Modified by TyraX: the WHOLE package, by pointer. The clip program
+      // streams its output (mid-program XGKICKs), so the fan-out no longer
+      // has to fit one output block and the package is not cut into sixths
+      // (docs/vu1-clipping.md, "A whole package, streamed").
+      recordPackage(packages[i], PARTIALLY_IN_FRUSTUM);
+      auto* buffer = qbufferRenderer.getBuffer();
+      if (!qbufferRenderer.fillCachedPackage(buffer, packages[i]))
+        buffer->fillByPointer(packages[i]);
+      qbufferRenderer.clip(buffer);
+    } else if (doSubpkgs && sliceClip && qbufferRenderer.isVU1ClippingEnabled() &&
+               !packages[i].bag->billboard &&
+               !qbufferRenderer.hasProgramOverrides()) {
+      // Modified by TyraX: slice clipping (setSliceClip). The package's own
+      // plane mask is a superset of every slice's, so it travels with each.
+      recordPackage(packages[i], PARTIALLY_IN_FRUSTUM);
+      renderClipSlices(packages[i].bag,
+                       static_cast<u32>(packages[i].vertices -
+                                        packages[i].bag->vertices),
+                       packages[i].size, packages[i].clipPlaneMask);
     } else if (doSubpkgs) {
       u16 subpkgsSize = 0;
       auto packages1By3 =
@@ -1290,8 +1536,9 @@ void StaPipCore::renderStrippedPkgs(StaPipBagPackage* packages,
       buffer->fillByPointer(packages[i]);
       // Modified by TyraX: a strip RUN is a package, and the runs are baked -
       // so a stripped bag's retained blocks are exactly as stable as a list
-      // bag's. Only the expansion branch below is per-frame.
+      // bag's. The branch below may borrow a versioned expansion as well.
       if (retainCurrentBag) buffer->retainIndex = static_cast<int>(i);
+      buffer->bakeIndex = static_cast<int>(i);
       qbufferRenderer.cull(buffer);
     } else if (packages[i].isInFrustum == PARTIALLY_IN_FRUSTUM) {
       // The package genuinely crosses a VU clip plane. `clip_*` and the EE
@@ -1303,19 +1550,103 @@ void StaPipCore::renderStrippedPkgs(StaPipBagPackage* packages,
       // same triangles: the strip is a saving on the packages that do NOT need
       // cutting, and the guard band means that is nearly all of them.
       recordPackage(packages[i], PARTIALLY_IN_FRUSTUM);
-      if (packages[i].size < 3 || trisPerChunk == 0) continue;
+      if (packages[i].size < 3) continue;
+      if (wholeClip()) {
+        // Modified by TyraX: the clip program reads a strip itself (packed
+        // bit 9) and streams its output, so the package goes whole and by
+        // pointer - no subrange classification, no expansion into a list,
+        // no copy pool. See docs/vu1-clipping.md, "A whole package, streamed".
+        auto* buffer = qbufferRenderer.getBuffer();
+        // An immutable copy, so the frame recorder borrows it instead of
+        // copying the chunk's arrays every frame (fillCachedPackage).
+        if (!qbufferRenderer.fillCachedPackage(buffer, packages[i]))
+          buffer->fillByPointer(packages[i]);
+        qbufferRenderer.clip(buffer);
+        continue;
+      }
+      if (trisPerChunk == 0) continue;
       if (telemetryEnabled) ++telemetry.packagesStripExpanded;
       const u32 triangles = packages[i].size - 2;
+      const auto& pkg = packages[i];
+      if (pkg.bag->refineStrips && qbufferRenderer.isVU1ClippingEnabled() &&
+          !pkg.bag->billboard && !qbufferRenderer.hasProgramOverrides()) {
+        if (!stripSubranges)
+          stripSubranges.reset(new (std::nothrow) StaPipStripSubranges::Cache());
+        bool built = false;
+        const auto* entry = stripSubranges ? stripSubranges->acquire(
+            pkg.vertices, pkg.size, trisPerChunk, pkg.bag->bboxVersion,
+            pkg.bag->contentVersion ? *pkg.bag->contentVersion : 0, 0, built) : nullptr;
+        if (entry) {
+          StaPipStripSubranges::Route routes[32];
+          const u32 blocks = (triangles + trisPerChunk - 1) / trisPerChunk;
+          for (u32 b = 0; b < blocks; ++b) {
+            routes[b] = StaPipStripSubranges::classify(entry->boxes[b],
+                objectSpacePlanes, clipObjectSpacePlanes);
+#if TYRA_STAPIP_SUBRANGES_VERIFY
+            const u32 first = b * trisPerChunk;
+            TYRA_ASSERT(StaPipStripSubranges::verify(pkg.vertices, first,
+                std::min(trisPerChunk, triangles - first), entry->boxes[b],
+                routes[b], objectSpacePlanes, clipObjectSpacePlanes),
+                "Strip subrange witness failed");
+#endif
+          }
+          // Keep primitive order. Only contiguous safe list ranges can merge;
+          // true boundary ranges retain the original worst-case clip capacity.
+          for (u32 b = 0; b < blocks;) {
+            const auto route = routes[b];
+            const u32 first = b * trisPerChunk;
+            u32 n = std::min(trisPerChunk, triangles - first);
+            ++b;
+            if (route == StaPipStripSubranges::Outside) continue;
+            if (route == StaPipStripSubranges::Cull) {
+              while (b < blocks && routes[b] == route) {
+                const u32 next = std::min(trisPerChunk, triangles - b * trisPerChunk);
+                if ((n + next) * 3 > maxVertCount) break;
+                n += next;
+                ++b;
+              }
+            }
+            auto* buffer = qbufferRenderer.getBuffer();
+            if (!(TYRA_STAPIP_EXPANSION_CACHE &&
+                  qbufferRenderer.fillCachedStrip(buffer, pkg, first, n)))
+              buffer->fillByStripExpand(pkg, first, n);
+            if (route == StaPipStripSubranges::Cull) qbufferRenderer.cull(buffer);
+            else qbufferRenderer.clip(buffer);
+          }
+          continue;
+        }
+      }
       for (u32 t = 0; t < triangles; t += trisPerChunk) {
         const u32 remaining = triangles - t;
         const u32 n = remaining < trisPerChunk ? remaining : trisPerChunk;
         auto buffer = qbufferRenderer.getBuffer();
-        buffer->fillByStripExpand(packages[i], t, n);
+        if (!(TYRA_STAPIP_EXPANSION_CACHE &&
+              qbufferRenderer.fillCachedStrip(buffer, packages[i], t, n)))
+          buffer->fillByStripExpand(packages[i], t, n);
         qbufferRenderer.clip(buffer);
       }
     } else {
       recordPackage(packages[i], OUTSIDE_FRUSTUM);
     }
+  }
+}
+
+void StaPipCore::renderClipSlices(StaPipBag* bag, u32 offset, u32 count,
+                                  u8 planeMask) {
+  // No per-slice classification and no copy: the slices are contiguous ranges
+  // of the bag's own arrays, and the VU1 clip program does the per-triangle
+  // inside / outside / cut work the EE used to prepare for it. Slices that the
+  // old route would have culled (inside) or skipped (outside) cost VU1 a clip
+  // judgement per triangle instead - VU1 waits on the EE in these scenes.
+  const u32 step = clipPackageSize();
+  if (step < 3) return;
+  for (u32 at = 0; at < count; at += step) {
+    const u32 n = count - at < step ? count - at : step;
+    if (n < 3) break;
+    auto* buffer = qbufferRenderer.getBuffer();
+    buffer->fillByPointer(bag, offset + at, n);
+    buffer->clipPlaneMask = planeMask;
+    qbufferRenderer.clip(buffer);
   }
 }
 

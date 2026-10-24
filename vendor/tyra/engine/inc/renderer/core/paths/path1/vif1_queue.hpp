@@ -6,6 +6,22 @@
 #pragma once
 
 #include <tamtypes.h>
+#include <packet2.h>
+#include "renderer/core/paths/path1/vif1_chain_check.hpp"
+#include "renderer/core/paths/path1/frame_chain_arena.hpp"
+#include "renderer/core/paths/path1/frame_vif_writer.hpp"
+
+// Experimental native recording of each ordered VIF segment. Foreign-path
+// barriers still flush segments; whole-frame ordering and N/N-1 are later.
+#ifndef TYRA_NATIVE_VIF_RECORD
+#define TYRA_NATIVE_VIF_RECORD 0
+#endif
+#ifndef TYRA_ORDERED_FRAME
+#define TYRA_ORDERED_FRAME 0
+#endif
+#ifndef TYRA_FRAME_PIPELINE
+#define TYRA_FRAME_PIPELINE 0
+#endif
 
 /**
  * TYRA_VIF1_QUEUE: 1 = the static pipeline hands finished packets to Vif1Queue
@@ -59,6 +75,15 @@
 #ifndef TYRA_VIF1_QUEUE_HOLD
 #define TYRA_VIF1_QUEUE_HOLD 0
 #endif
+/** Modified by TyraX: 1 = a producer that asks (StaPipQBufferRenderer) builds
+ * its packet straight in the frame bank (reservePacket/submitOwned), and the
+ * frame's chain REFs the packet's CNT payloads where they lie instead of
+ * copying them into the bank first. Runtime switch setOwnedPackets, default
+ * off until its second PS2 run confirms the -0.06..-0.07 ms. See
+ * docs/tyrax2-arch-audit-ee-submission-2026-10-20.md, "R3". */
+#ifndef TYRA_VIF1_OWNED_PACKETS
+#define TYRA_VIF1_OWNED_PACKETS 1
+#endif
 
 namespace Tyra {
 
@@ -101,16 +126,74 @@ class Vif1Queue {
    * reads (FlushCache, as the stock send does); with it, the queue does that
    * itself before the chain starts. Returns the sequence number for waitFor().
    */
-  static u32 submit(const void* chain);
+  // qwords includes the terminator; mandatory in a chain-check build.
+  // sourceCopied only releases the original EE source. The returned sequence
+  // still fences the DMA and must be used for ordering/GS barriers.
+  static u32 submit(const void* chain, u32 qwords = 0,
+                    bool* sourceCopied = nullptr);
+
+  /**
+   * Modified by TyraX: producer packets written once, into the frame bank.
+   *
+   * reservePacket hands out `bytes` of the current frame bank for a packet
+   * about to be built (nullptr when no frame is being recorded, the switch is
+   * off or the bank is full: build in the producer's own buffer then). One
+   * reservation is open at a time; `current` is the packet's present base,
+   * returned as is while it is still the open, valid reservation (a packet
+   * reset without being sent keeps its space).
+   *
+   * submitOwned submits a chain built in that reservation: the unused tail
+   * goes back to the bank and every CNT payload is recorded as a REF to where
+   * it already lies - no copy. Anything else (a stale reservation after a bank
+   * switch, a full native writer) takes the ordinary submit, which copies.
+   * The packet memory belongs to the bank from then on: the producer must not
+   * write it again, and gets a fresh reservation for its next packet. Bank
+   * reuse already waits for the bank's last chain, so lifetime needs nothing
+   * new; a drain() keeps an open reservation taken across its reset.
+   */
+  static void* reservePacket(u32 bytes, const void* current);
+  static u32 submitOwned(const void* chain, u32 qwords, bool* sourceCopied);
+  static void setOwnedPackets(bool on);
+  static bool ownedPacketsEnabled();
+  /** Owned submits recorded in place / refused (ordinary route), reset. */
+  static void takeOwnedStats(u32* recorded, u32* refused);
 
   /** Blocks until the chain with this sequence number has been transferred. */
   static void waitFor(u32 sequence);
+  /** Read-only ownership predicate for an old native presentation job.
+   * Call from ISR or an interrupt-masked main transition. Does not flush the
+   * current prefix, advance the queue, or establish GS FINISH ownership. */
+  static bool canCopyCompletedNativeFrame(u32 sequence);
 
   /** Blocks until nothing is queued and VIF1 is idle. */
   static void drain();
 
   /** True while a chain submitted here is still owned by the DMAC. */
   static bool busy();
+
+  // Experimental arena accounting after the normal end-of-frame DMA drain.
+  static void arenaFrameEnd();
+  // Engine-owned immutable baked streams only. Unregister fences all readers
+  // before the owner can poison, replace or release the storage.
+  static bool registerImmutableSpan(const void* base, u32 qwords);
+  static void unregisterImmutableSpan(const void* base);
+  static void retireImmutableSpan(const void* base);
+  static bool immutableSpanReady(const void* base);
+  static bool collectRetiredImmutableSpan(const void* base);
+  static void flushRecording();
+  static bool recordingFrame();
+  // Modified by TyraX: actual post-allocation fallback, for observer provenance.
+  static bool recordingPipelined();
+  // Foreign GPU submissions between frames complete the pending presentation.
+  static void synchronizeExternal();
+  static void beginRecordingFrame(bool pipeline = false);
+  static void endRecordingFrame();
+  static void recordBarrier();
+  static bool recordGif(const packet2_t* packet);
+  static u32 lastSequence();
+  static bool pipelineAvailable();
+  static void setRuntimePipeline(bool enabled);
+  static void setBeforeFrameSubmit(void (*callback)(void*), void* user);
 
   /**
    * A chain that is still being BUILT and has to reach VIF1 before anything
@@ -147,6 +230,7 @@ class Vif1Queue {
 
  private:
   static void start(u32 chain, u32 sequence);
+  static void enqueue(const void* chain, u32 sequence);
 };
 
 }  // namespace Tyra

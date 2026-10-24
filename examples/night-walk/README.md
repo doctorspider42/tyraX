@@ -1,5 +1,7 @@
 # night-walk example
 
+![night-walk example in PCSX2](preview.png)
+
 A dark backlot, a torch, and everything the
 [flashlight](../../docs/flashlight.md) can do — this is the example for the
 light itself. Two building facades, a fence, a dumpster, a truck and a couple
@@ -26,7 +28,7 @@ stick, look with the right, and **Circle** switches the torch off and on.
   without blinking.
 
 - **Shadows, both ways.** This project ships with **Flashlight shadow
-  volumes** ON (*Preferences > Rendering*): put the dumpster or the truck in
+  volumes** ON (*Preferences > Graphics*): put the dumpster or the truck in
   the beam and its shadow is CARVED out of the light, per pixel, on the ground
   and on the facade behind — stand behind the truck and the torch genuinely
   does not reach you. Turn the setting off to compare with the silhouette
@@ -56,7 +58,7 @@ stick, look with the right, and **Circle** switches the torch off and on.
 
 ## Things worth trying
 
-- *Preferences > Rendering > Flashlight shadow volumes* — flip it and rebuild;
+- *Preferences > Graphics > Flashlight shadow volumes* — flip it and rebuild;
   same yard, same casters, two philosophies of shadow. In volume mode a model
   caster shadows with its **real mesh** (the street lamp throws a pole-and-arm
   shadow, not a slab), stencil-counted per pixel in a dedicated GS buffer —
@@ -90,3 +92,16 @@ Generated game methods are split between `src/terrain_game.cpp` and the
 `src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
 `inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
 The main file remains user-ownable; generated subsystem files refresh on build.
+
+
+Hardware timeline instrumentation matches the 1.170 coarse/detail emitter.
+Use the [capture and observer-control guide](../../docs/hardware-profiler.md)
+when comparing performance; traces add measurable work.
+
+This example explicitly requests `framePipeline: true` (TyraX2). Its authored interlaced output preserves the existing scan mode and quality; ordinary interlaced output is eligible, unlike true field rendering. True field rendering, BLSS, unlimited triple buffering and unavailable queue memory fall back safely. This request does not guarantee 60 FPS. See [TyraX2](../../docs/tyrax2.md).
+
+Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dynamic-light-receivers.md). This example retains the default **All objects** policy; Players and driven vehicle is an optional project or scene setting.
+
+TyraX 2.0 integration: generated sources have been refreshed with the combined
+TyraX2 renderer and mainline collision broad phase; authored settings and
+user-owned source files retain their existing ownership rules.

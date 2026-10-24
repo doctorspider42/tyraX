@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <mutex>
 
@@ -16,6 +18,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <tlhelp32.h>
+#include <dwmapi.h>
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
@@ -237,6 +240,16 @@ std::string userName() {
     if (const char* u = getenv("USER"); u && *u) return u;
 #endif
     return "";
+}
+
+const char* firewallNote() {
+#ifdef _WIN32
+    return "Windows Firewall asks once to allow TyraX on this network.";
+#elif defined(__APPLE__)
+    return "macOS asks once to allow incoming connections for TyraX.";
+#else
+    return "If a firewall runs here (ufw, firewalld), allow incoming TCP on the session port.";
+#endif
 }
 
 const char* exeSuffix() {
@@ -1046,44 +1059,69 @@ bool copyImageToClipboard(const unsigned char* rgba, int width, int height,
                           const std::string& pngPath) {
     if (!rgba || width <= 0 || height <= 0) return false;
 #ifdef _WIN32
-    const size_t pixels = (size_t)width * (size_t)height * 4;
-    const size_t bytes = sizeof(BITMAPV5HEADER) + pixels;
-    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (!memory) return false;
-    unsigned char* dst = static_cast<unsigned char*>(GlobalLock(memory));
+    // Two formats, the pair Paint and the browsers publish: "PNG" (the saved
+    // file's bytes - what Chromium/Electron apps read first) and a classic
+    // bottom-up BI_RGB CF_DIB for everything older. A lone top-down
+    // BI_BITFIELDS CF_DIBV5 (what this used to publish) pastes into Paint but
+    // Electron apps - Claude among them - read the synthesized DIB as a broken
+    // image and fail the paste, while the same PNG copied from Explorer works.
+    const size_t row = (size_t)width * 4;
+    const size_t pixels = row * (size_t)height;
+    HGLOBAL dib = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + pixels);
+    if (!dib) return false;
+    unsigned char* dst = static_cast<unsigned char*>(GlobalLock(dib));
     if (!dst) {
-        GlobalFree(memory);
+        GlobalFree(dib);
         return false;
     }
-    BITMAPV5HEADER* head = reinterpret_cast<BITMAPV5HEADER*>(dst);
+    BITMAPINFOHEADER* head = reinterpret_cast<BITMAPINFOHEADER*>(dst);
     std::memset(head, 0, sizeof(*head));
-    head->bV5Size = sizeof(*head);
-    head->bV5Width = width;
-    head->bV5Height = -height;  // top-down, like the decoded debugger pixels
-    head->bV5Planes = 1;
-    head->bV5BitCount = 32;
-    head->bV5Compression = BI_BITFIELDS;
-    head->bV5SizeImage = (DWORD)pixels;
-    head->bV5RedMask = 0x00FF0000;
-    head->bV5GreenMask = 0x0000FF00;
-    head->bV5BlueMask = 0x000000FF;
-    head->bV5AlphaMask = 0xFF000000;
-    unsigned char* bgra = dst + sizeof(*head);
-    for (size_t i = 0; i < pixels; i += 4) {
-        bgra[i + 0] = rgba[i + 2];
-        bgra[i + 1] = rgba[i + 1];
-        bgra[i + 2] = rgba[i + 0];
-        bgra[i + 3] = rgba[i + 3];
+    head->biSize = sizeof(*head);
+    head->biWidth = width;
+    head->biHeight = height;  // bottom-up: the layout every reader handles
+    head->biPlanes = 1;
+    head->biBitCount = 32;
+    head->biCompression = BI_RGB;
+    head->biSizeImage = (DWORD)pixels;
+    for (int y = 0; y < height; ++y) {
+        const unsigned char* s = rgba + (size_t)(height - 1 - y) * row;
+        unsigned char* d = dst + sizeof(*head) + (size_t)y * row;
+        for (int x = 0; x < width; ++x, s += 4, d += 4) {
+            d[0] = s[2];
+            d[1] = s[1];
+            d[2] = s[0];
+            d[3] = s[3];
+        }
     }
-    GlobalUnlock(memory);
+    GlobalUnlock(dib);
+
+    HGLOBAL png = nullptr;
+    std::error_code ec;
+    if (!pngPath.empty() && fs::is_regular_file(pngPath, ec)) {
+        std::ifstream f(fs::path(pngPath), std::ios::binary);
+        std::string data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        if (!data.empty() && (png = GlobalAlloc(GMEM_MOVEABLE, data.size()))) {
+            if (void* p = GlobalLock(png)) {
+                std::memcpy(p, data.data(), data.size());
+                GlobalUnlock(png);
+            } else {
+                GlobalFree(png);
+                png = nullptr;
+            }
+        }
+    }
+
     if (!OpenClipboard(g_dialogOwner)) {
-        GlobalFree(memory);
+        GlobalFree(dib);
+        if (png) GlobalFree(png);
         return false;
     }
     EmptyClipboard();
-    const bool ok = SetClipboardData(CF_DIBV5, memory) != nullptr;
+    // Ownership transfers only on success.
+    if (png && !SetClipboardData(RegisterClipboardFormatW(L"PNG"), png)) GlobalFree(png);
+    const bool ok = SetClipboardData(CF_DIB, dib) != nullptr;
     CloseClipboard();
-    if (!ok) GlobalFree(memory);  // ownership transfers only on success
+    if (!ok) GlobalFree(dib);
     return ok;
 #elif defined(__APPLE__)
     if (pngPath.empty()) return false;
@@ -1322,36 +1360,34 @@ const std::vector<std::string>& fallbackFontFiles() {
 }
 
 const char* defaultFontLabel() {
-#ifdef _WIN32
-    return "Consolas Bold";
-#elif defined(__APPLE__)
-    return "Arial Bold";
-#else
-    return "DejaVu Sans Bold";
-#endif
+    // The game's default font is built in (menubake::builtinFont) and the same
+    // on every OS; fallbackFontFiles() above only backs it up.
+    return "Geist Mono SemiBold";
 }
 
-const std::vector<SystemFont>& uiFontFiles() {
+const std::vector<UiFontFamily>& uiFontFiles() {
 #ifdef _WIN32
     // Segoe UI is what the rest of the desktop is drawn in and has shipped
     // since Vista, so the first entry practically always resolves. The
     // variable-weight Segoe UI Variable is deliberately absent: stb_truetype
     // cannot select a weight axis and would rasterize it at the wrong one.
-    static const std::vector<SystemFont> fonts = {
-        {"Segoe UI", "segoeui.ttf"},
-        {"Tahoma", "tahoma.ttf"},
-        {"Verdana", "verdana.ttf"},
-        {"Arial", "arial.ttf"},
+    // Semibold (segoeuisb) rather than Bold for headings - it is what the
+    // desktop itself uses for them.
+    static const std::vector<UiFontFamily> fonts = {
+        {"Segoe UI", "segoeui.ttf", "segoeuisb.ttf"},
+        {"Tahoma", "tahoma.ttf", "tahomabd.ttf"},
+        {"Verdana", "verdana.ttf", "verdanab.ttf"},
+        {"Arial", "arial.ttf", "arialbd.ttf"},
     };
 #elif defined(__APPLE__)
-    // Helvetica Neue is a collection; face 0 is the regular weight. SF Pro
-    // (SFNS.ttf) is deliberately absent - variable weight, like Segoe UI
-    // Variable on Windows.
-    static const std::vector<SystemFont> fonts = {
-        {"Helvetica Neue", "HelveticaNeue.ttc"},
-        {"Verdana", "Verdana.ttf"},
-        {"Arial", "Arial.ttf"},
-        {"Geneva", "Geneva.ttf"},
+    // Helvetica Neue is a collection; face 0 is the regular weight and face
+    // 10 the Medium the headings use. SF Pro (SFNS.ttf) is deliberately
+    // absent - variable weight, like Segoe UI Variable on Windows.
+    static const std::vector<UiFontFamily> fonts = {
+        {"Helvetica Neue", "HelveticaNeue.ttc", "HelveticaNeue.ttc", 10},
+        {"Verdana", "Verdana.ttf", "Verdana Bold.ttf"},
+        {"Arial", "Arial.ttf", "Arial Bold.ttf"},
+        {"Geneva", "Geneva.ttf", ""},
     };
 #else
     // Inter first where the user installed it, then the families the desktops
@@ -1359,13 +1395,40 @@ const std::vector<SystemFont>& uiFontFiles() {
     // sets that are on practically every distribution. Cantarell is an .otf -
     // stb_truetype reads its CFF outlines, which is why it is allowed here at
     // all - and it sits low in the chain for that reason.
+    static const std::vector<UiFontFamily> fonts = {
+        {"Inter", "Inter-Regular.ttf", "Inter-SemiBold.ttf"},
+        {"Noto Sans", "NotoSans-Regular.ttf", "NotoSans-SemiBold.ttf"},
+        {"Ubuntu", "Ubuntu-R.ttf", "Ubuntu-M.ttf"},
+        {"Cantarell", "Cantarell-Regular.otf", "Cantarell-Bold.otf"},
+        {"DejaVu Sans", "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"},
+        {"Liberation Sans", "LiberationSans-Regular.ttf", "LiberationSans-Bold.ttf"},
+    };
+#endif
+    return fonts;
+}
+
+const std::vector<SystemFont>& monoFontFiles() {
+#ifdef _WIN32
+    // Cascadia Mono ships with Windows 11 (and Terminal); Consolas since Vista.
     static const std::vector<SystemFont> fonts = {
-        {"Inter", "Inter-Regular.ttf"},
-        {"Noto Sans", "NotoSans-Regular.ttf"},
-        {"Ubuntu", "Ubuntu-R.ttf"},
-        {"Cantarell", "Cantarell-Regular.otf"},
-        {"DejaVu Sans", "DejaVuSans.ttf"},
-        {"Liberation Sans", "LiberationSans-Regular.ttf"},
+        {"Cascadia Mono", "CascadiaMono.ttf"},
+        {"Consolas", "consola.ttf"},
+        {"Courier New", "cour.ttf"},
+    };
+#elif defined(__APPLE__)
+    // Menlo is a collection whose face 0 is Regular. SF Mono (SFNSMono.ttf)
+    // is a variable font - absent for the same reason SF Pro is.
+    static const std::vector<SystemFont> fonts = {
+        {"Menlo", "Menlo.ttc"},
+        {"Courier New", "Courier New.ttf"},
+    };
+#else
+    static const std::vector<SystemFont> fonts = {
+        {"JetBrains Mono", "JetBrainsMono-Regular.ttf"},
+        {"Noto Sans Mono", "NotoSansMono-Regular.ttf"},
+        {"Ubuntu Mono", "UbuntuMono-R.ttf"},
+        {"DejaVu Sans Mono", "DejaVuSansMono.ttf"},
+        {"Liberation Mono", "LiberationMono-Regular.ttf"},
     };
 #endif
     return fonts;
@@ -1380,6 +1443,235 @@ void setDialogOwner(GLFWwindow* window) {
     g_dialogOwner = window ? glfwGetWin32Window(window) : nullptr;
 #else
     (void)window;  // the pickers below are separate processes
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// Merged title bar (platform.hpp). The macOS half is Objective-C and lives in
+// platform_mac.mm; Windows is below; Linux keeps the desktop's decorations.
+// ---------------------------------------------------------------------------
+
+#ifdef _WIN32
+// UNVERIFIED ON WINDOWS: written and compile-checked on macOS, never run. The
+// approach is the one Windows Terminal and Chromium use - verify drag, Aero
+// Snap, double-click, the resize edges (the top one included), a maximized
+// window's top row and a DPI change between monitors before trusting it.
+namespace {
+
+struct WinTitleBar {
+    HWND hwnd = nullptr;
+    WNDPROC orig = nullptr;
+    float height = 0.0f;     // our bar's height, client pixels (App, per frame)
+    bool overEmpty = false;  // App: the pointer is over a bare part of the bar
+    DWORD lastDownTime = 0;  // our own double-click detection: GLFW's window
+    POINT lastDownPt{};      // class has no CS_DBLCLKS, so no WM_LBUTTONDBLCLK
+};
+WinTitleBar g_titleBar;
+
+// The sizing frame's thickness at this window's DPI. GetDpiForWindow and
+// GetSystemMetricsForDpi are Windows 10 1607+; resolved at runtime so the
+// editor still starts (with system-DPI metrics) on anything older.
+int frameThickness(HWND hwnd, bool vertical) {
+    using DpiForWindowFn = UINT(WINAPI*)(HWND);
+    using MetricsForDpiFn = int(WINAPI*)(int, UINT);
+    static const HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    static const auto dpiForWindow =
+        user32 ? (DpiForWindowFn)(void*)GetProcAddress(user32, "GetDpiForWindow") : nullptr;
+    static const auto metricsForDpi =
+        user32 ? (MetricsForDpiFn)(void*)GetProcAddress(user32, "GetSystemMetricsForDpi")
+               : nullptr;
+    const int frame = vertical ? SM_CYFRAME : SM_CXFRAME;
+    const int padded = 92;  // SM_CXPADDEDBORDER (MinGW hides it below 0x0600)
+    if (dpiForWindow && metricsForDpi) {
+        const UINT dpi = dpiForWindow(hwnd);
+        return metricsForDpi(frame, dpi) + metricsForDpi(padded, dpi);
+    }
+    return GetSystemMetrics(frame) + GetSystemMetrics(padded);
+}
+
+POINT lparamPoint(LPARAM lp) {
+    return POINT{(LONG)(short)LOWORD(lp), (LONG)(short)HIWORD(lp)};
+}
+
+bool onEmptyBar(const WinTitleBar& t, POINT client) {
+    return t.overEmpty && client.y >= 0 && (float)client.y < t.height;
+}
+
+LRESULT CALLBACK titleBarProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    WinTitleBar& t = g_titleBar;
+    switch (msg) {
+        case WM_NCCALCSIZE: {
+            // Let the default proposal shrink the rect by the whole frame, then
+            // give the caption row back to the client: left / right / bottom
+            // keep their (invisible, DWM-drawn) sizing border, so resizing and
+            // the shadow work as before, and the top edge is ours.
+            if (!wp) break;
+            auto* p = reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+            const LONG top = p->rgrc[0].top;
+            const LRESULT r = CallWindowProcW(t.orig, hwnd, msg, wp, lp);
+            if (r != 0) return r;
+            p->rgrc[0].top = top;
+            // A maximized window hangs its frame off every monitor edge; without
+            // this its top frame-width of client would be off-screen.
+            if (IsZoomed(hwnd)) p->rgrc[0].top += frameThickness(hwnd, true);
+            return 0;
+        }
+        case WM_NCHITTEST: {
+            // The default answers the three edges that still have a frame. The
+            // top one is client now, so its resize strip is answered here.
+            const LRESULT hit = CallWindowProcW(t.orig, hwnd, msg, wp, lp);
+            if (hit != HTCLIENT || IsZoomed(hwnd)) return hit;
+            POINT pt = lparamPoint(lp);
+            ScreenToClient(hwnd, &pt);
+            if (pt.y < frameThickness(hwnd, true) / 2) {
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                const int corner = frameThickness(hwnd, false) * 2;
+                if (pt.x < corner) return HTTOPLEFT;
+                if (pt.x >= rc.right - corner) return HTTOPRIGHT;
+                return HTTOP;
+            }
+            return HTCLIENT;
+        }
+        case WM_LBUTTONDOWN: {
+            // A press on a bare part of the bar moves the window: hand it to
+            // the default caption handling (move loop, Aero Snap, shake), and
+            // never pass it on to GLFW - the move loop eats the release, so
+            // ImGui would be left holding a pressed button.
+            const POINT pt = lparamPoint(lp);
+            if (!onEmptyBar(t, pt)) break;
+            const DWORD now = (DWORD)GetMessageTime();
+            const bool dbl =
+                t.lastDownTime != 0 && now - t.lastDownTime <= GetDoubleClickTime() &&
+                std::abs(pt.x - t.lastDownPt.x) <= GetSystemMetrics(SM_CXDOUBLECLK) / 2 &&
+                std::abs(pt.y - t.lastDownPt.y) <= GetSystemMetrics(SM_CYDOUBLECLK) / 2;
+            if (dbl) {
+                t.lastDownTime = 0;
+                ShowWindow(hwnd, IsZoomed(hwnd) ? SW_RESTORE : SW_MAXIMIZE);
+                return 0;
+            }
+            t.lastDownTime = now;
+            t.lastDownPt = pt;
+            POINT screen = pt;
+            ClientToScreen(hwnd, &screen);
+            ReleaseCapture();
+            SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(screen.x, screen.y));
+            return 0;
+        }
+        case WM_RBUTTONUP: {
+            // The caption's right-click menu (Restore / Move / Size / ... / Close).
+            const POINT pt = lparamPoint(lp);
+            if (!onEmptyBar(t, pt)) break;
+            POINT screen = pt;
+            ClientToScreen(hwnd, &screen);
+            const HMENU menu = GetSystemMenu(hwnd, FALSE);
+            if (!menu) break;
+            const UINT cmd = (UINT)TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                                  screen.x, screen.y, 0, hwnd, nullptr);
+            if (cmd) PostMessageW(hwnd, WM_SYSCOMMAND, cmd, 0);
+            return 0;
+        }
+        default:
+            break;
+    }
+    return CallWindowProcW(t.orig, hwnd, msg, wp, lp);
+}
+
+}  // namespace
+#endif
+
+bool titleBarMergeSupported() {
+#if defined(_WIN32) || defined(__APPLE__)
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool titleBarHasCaptionButtons() {
+#ifdef _WIN32
+    return true;
+#else
+    return false;  // macOS keeps AppKit's traffic lights; Linux is not merged
+#endif
+}
+
+#ifndef __APPLE__  // the macOS half of these three is in platform_mac.mm
+bool mergeTitleBar(GLFWwindow* window) {
+#ifdef _WIN32
+    const HWND hwnd = window ? glfwGetWin32Window(window) : nullptr;
+    if (!hwnd) return false;
+    if (g_titleBar.hwnd) return g_titleBar.hwnd == hwnd;  // one main window
+    g_titleBar.hwnd = hwnd;
+    g_titleBar.orig =
+        (WNDPROC)SetWindowLongPtrW(hwnd, GWLP_WNDPROC, (LONG_PTR)&titleBarProc);
+    if (!g_titleBar.orig) {
+        g_titleBar.hwnd = nullptr;
+        return false;
+    }
+    // One pixel of DWM frame into the client keeps the thin top border and
+    // the shadow Windows 10 draws only around a frame it owns.
+    const MARGINS margins{0, 0, 1, 0};
+    DwmExtendFrameIntoClientArea(hwnd, &margins);
+    // Re-run WM_NCCALCSIZE now rather than at the next resize.
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    return true;
+#else
+    // Linux: the native decorations stay. Merging would mean client-side
+    // decorations (libdecor on Wayland, _MOTIF_WM_HINTS + _NET_WM_MOVERESIZE
+    // on X11) - a separate project with its own compositor matrix.
+    (void)window;
+    return false;
+#endif
+}
+
+void updateTitleBar(GLFWwindow* window, const TitleBarFrame& frame) {
+    (void)window;
+#ifdef _WIN32
+    g_titleBar.height = frame.height;
+    g_titleBar.overEmpty = frame.overEmpty;
+#else
+    (void)frame;  // Linux: never merged
+#endif
+}
+
+float titleBarInsetLeft(GLFWwindow* window) {
+    (void)window;  // Windows: the caption buttons are App's, on the RIGHT end
+    return 0.0f;
+}
+
+void ownToolWindow(GLFWwindow* owner, GLFWwindow* tool) {
+#ifdef _WIN32
+    // UNVERIFIED ON WINDOWS. An owned window stays above its owner, hides
+    // when the owner is minimized and gets no Alt+Tab entry of its own.
+    // GWLP_HWNDPARENT sets the OWNER of a top-level window (not a parent).
+    const HWND o = owner ? glfwGetWin32Window(owner) : nullptr;
+    const HWND t = tool ? glfwGetWin32Window(tool) : nullptr;
+    if (o && t) SetWindowLongPtrW(t, GWLP_HWNDPARENT, (LONG_PTR)o);
+#else
+    // Linux: the GLFW backend types the window _NET_WM_WINDOW_TYPE_DIALOG,
+    // which most window managers keep above the application's other windows.
+    // (A transient-for hint would need the X11 headers here.)
+    (void)owner;
+    (void)tool;
+#endif
+}
+#endif  // !__APPLE__
+
+bool multiViewportsByDefault() {
+#ifdef _WIN32
+    return true;
+#else
+#ifdef __APPLE__
+    return true;
+#else
+    const char* display = getenv("WAYLAND_DISPLAY");
+    const char* session = getenv("XDG_SESSION_TYPE");
+    if (display && *display) return false;
+    if (session && std::strcmp(session, "wayland") == 0) return false;
+    return true;  // X11
+#endif
 #endif
 }
 

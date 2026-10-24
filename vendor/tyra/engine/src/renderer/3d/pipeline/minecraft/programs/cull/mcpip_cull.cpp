@@ -11,6 +11,7 @@
 # (renderer/core/paths/path1/vif1_queue.hpp).
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include "renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.hpp"
 #include "renderer/core/paths/path1/vif1_queue.hpp"
 
@@ -107,8 +108,8 @@ void McpipCull::initStaticPacket() {
 }
 
 void McpipCull::sendVU1StaticData() {
-  Vif1Queue::drain();
-  dma_channel_send_packet2(staticPacket, DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
+  frameSendPacket(staticPacket, DMA_CHANNEL_VIF1, true);
 }
 
 void McpipCull::addData(packet2_t* packet, McpipBlock** blockPointerArray,

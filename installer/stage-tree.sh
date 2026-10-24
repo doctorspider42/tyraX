@@ -81,9 +81,16 @@ tyrax_stage_tree() {  # tyrax_stage_tree <repo> <exe|""> <stage> <marker word>
     # per-OS by setup.sh, so this is the build of it for the packaging host.
     # tools/macos is the macOS packager's own output (bundled host tools) and
     # is staged by it, never copied from a checkout.
-    tyrax_copy_tree "$repo/tools" "$stage/tools" \
-        \( -path './ps2link/work' -o -path './macos' -o -name '*.o' -o -name '*.a' \) \
-        -prune -o -type f
+    #
+    # A WHITELIST, not tools/*: the rest of tools/ is developer scripts
+    # (verify-*, hardware probes, measurement rigs) that no installed editor
+    # runs - runner.cpp's findTool only ever asks for ps2client/ and toolchain/,
+    # app.cpp for vscode-tyrax/. Keep installer/tyrax.iss on the same list.
+    for f in ps2client toolchain ps2link vscode-tyrax; do
+        tyrax_copy_tree "$repo/tools/$f" "$stage/tools/$f" \
+            \( -path './work' -o -name '*.o' -o -name '*.a' -o -name __pycache__ \) \
+            -prune -o -type f
+    done
 
     for f in "${TYRAX_VU_FRAMEWORK[@]}"; do
         install -m 0644 "$repo/src/$f" "$stage/src/$f"

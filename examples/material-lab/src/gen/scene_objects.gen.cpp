@@ -17,6 +17,7 @@ const SceneObjectData SCENE_0_OBJECTS[8] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {8};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[8] = {0xf8eadcb08e736f31ULL, 0xefd7b3b089315fd3ULL, 0xefdbb3b0893548aaULL, 0xefd1b3b0892cf425ULL, 0xefd3b3b0892d76fcULL, 0xe6c28ab083eecd9eULL, 0xe6be8ab083eae4c7ULL, 0xddab61b07ea8d569ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[8] = {1,1,1,1,1,1,1,1};
 
 }  // namespace Material_lab
 

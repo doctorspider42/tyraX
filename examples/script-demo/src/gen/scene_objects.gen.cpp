@@ -11,6 +11,7 @@ const SceneObjectData SCENE_0_OBJECTS[2] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {2};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[2] = {0x127799b3c41918dbULL, 0x4fce04227f4f26fbULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[2] = {0,1};
 
 }  // namespace Script_demo
 

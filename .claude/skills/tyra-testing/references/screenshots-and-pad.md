@@ -85,7 +85,7 @@ python3 .claude/skills/tyra-testing/scripts/wayland-control.py watch <scratch>/w
 
 ## Editor self-capture: `TYRAX_SHOT`
 
-`TYRAX_SHOT=<dir>` (+ `TYRAX_SHOT_EVERY=<s>`, default 2) writes `<dir>/shotNN.png` (`App::captureFrameIfRequested`) — what the editor DREW, not what was presented: survives the AMD present quirk. No clicks. Pre-open a panel by adding its key to the active layout's `open` list in `.tyra` (`kLayoutWindowKeys` in app.cpp: `"drone"`, `"tree"`, `"material"`, …; PROGRESS 210/211) — fine for "does it render"; anything with a click/assertion is a UI script.
+`TYRAX_SHOT=<dir>` (+ `TYRAX_SHOT_EVERY=<s>`, default 2) writes `<dir>/shotNN.png` (`App::captureFrameIfRequested`) plus `shotNN-<window>.png` for each panel in an OS window of its own — what the editor DREW, not what was presented: survives the AMD present quirk. No clicks. Pre-open a panel by adding its key to the active layout's `open` list in `.tyra` (`kLayoutWindowKeys` in app.cpp: `"drone"`, `"tree"`, `"material"`, …; PROGRESS 210/211) — fine for "does it render"; anything with a click/assertion is a UI script.
 
 **Editor window renders WHITE** (title bar only, blank capture) on some machines = GL present quirk. Capture the main-repo baseline binary the same way (e.g. `D:\tyra-editor\build\tyrax-editor.exe`); if also blank, GUI visual verification is unavailable this session — say so in the commit/PR, don't claim a visual check.
 

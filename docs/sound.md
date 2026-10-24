@@ -195,6 +195,40 @@ authored with an interval **under its sample length** (a quarter second
 restarts the loop inaudibly), and *Range* is worth setting to where the sound
 is meant to be heard, because an emitter outside it costs nothing at all.
 
+### Music turns into a buzz a few seconds in
+
+Fixed in 1.177.11. The track started cleanly, then after about six seconds it
+became a steady buzz at ~47 Hz and its harmonics, in PCSX2 and on the console
+alike. A capture of Showcase showed exactly what the SPU2 was doing: the same
+1024 samples (21 ms at 48 kHz), repeated forever. That block is audsrv's
+double buffer for the music input, so the IOP's playback thread had stopped
+writing it altogether. Had the EE only been late with data, the stale ~107 ms
+ring would have looped instead.
+
+The cause was a thread priority on the EE. Once a chunk of the ring is free,
+the IOP playback thread asks the EE for more data with a callback RPC. Before
+it sends the next one, it waits for the EE to answer the last. audsrv's EE
+server for those callbacks ran at priority 0x60, below Tyra's game thread
+(0x40). The game thread never sleeps: `graph_wait_vsync` is a busy poll on the
+GS CSR register, and since 2026-10-01 (#253) the frame yield
+(`RendererCore::setFrameYield`) is off unless the Live Debugger is attached. With nothing left to give the server CPU time, the first
+callback after loading never got its answer, and the playback thread waited
+forever. While the game was still loading, its file reads blocked the game
+thread and gave the server its time, which is why the first seconds sounded
+right.
+
+The fix is in the audsrv fork: that server now runs at 0x8 (see the fork's
+README, change 4). That is above the game thread and below the engine's own
+audio threads (0x5, 0x6). It wakes only once per callback. Measured in PCSX2
+on Showcase, the whole 30 s capture follows the WAV (correlation about 0.9 in
+every window, no 1024-sample loop), and the log's "Music ring ran low"
+warnings went from 102 to 0 in the same run.
+
+**The rule this leaves:** any EE thread that has to answer the IOP needs a
+priority number below the game thread's 0x40. On this engine, a lower-priority
+thread runs only when the game thread blocks, and in a normal frame it never
+does.
+
 ### Music stutters over ps2link
 
 Streamed music can play unevenly when the game runs from the PC over ps2link
@@ -245,6 +279,7 @@ image, or keep the PC quiet while the game runs.
 | An emitter near the player is silent while distant ones play | It lost the ranking — check *Priority* on the ones that are playing. |
 | An emitter fires the instant you walk into range | The intended reset of its interval; shorten the interval if you want it sooner. |
 | The scene runs at 25 FPS while music plays and an emitter is in earshot | Fixed 2026-08 — the music stream no longer blocks audsrv for everyone else. If you see it again, you are on an engine build from before that; see *Emitters and streaming music* above. |
+| Music plays right for a few seconds, then turns into a steady buzz | Fixed in 1.177.11: audsrv's EE callback thread was starved by the game thread. See *Music turns into a buzz a few seconds in*. |
 | Music drags, stutters or pops while running over ps2link, and the log says "Music ring ran low" | The music streams from the PC and the IOP is busy with the network. From a disc it plays evenly. See *Music stutters over ps2link*. |
 | A Play Sound node does nothing, sometimes | Its priority is not above anything currently playing, so it is being dropped. Raise it, or pin it a channel. |
 | A pinned sound stopped layering over itself | That is the fix — pinning cuts off, as the parameter always claimed. Use auto if you want copies to overlap. |

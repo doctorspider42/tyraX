@@ -859,6 +859,7 @@ void writeVuCapture(ScriptContext& ctx) {
 // 4 bytes per pixel - and never a return value.
 void writeFrameCapture(ScriptContext& ctx) {
   if (!ctx.engine) return;
+  ctx.engine->renderer.core.synchronizeFrame();
   framebuffer_t* fb = ctx.engine->renderer.core.gs.getPreviousRealFrameBuffer();
   if (!fb || fb->width == 0 || fb->height == 0) return;
   if (fb->width > 1024) {

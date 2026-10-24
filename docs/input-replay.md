@@ -23,7 +23,7 @@ ps2link with no extra hardware and no extra transport.
 
 1. Set the project's build profile to **debug** (*Project > Preferences >
    Build*) — a release build carries none of this.
-2. Tick **Input recorder** (*Project > Preferences > Build*).
+2. Tick **Input recorder** (*Project > Preferences > Build & debug*).
 
 It is the one devkit channel that is **off by default**. The other four cost a
 small fixed file each; this one writes a file that *grows* for as long as the
@@ -32,14 +32,17 @@ somebody's disk.
 
 ## Recording and replaying from the editor
 
-*Tools > Debugger* (**F9**) has a **Replay** tab.
+*Tools > Debugger* (**F9**): **Replay...** on the time strip at the bottom of
+the panel opens the recorder's controls, and a pill on the strip shows its
+state (`REC input 00:41`, `PLAY 312 / 900 · 2 divergences`, `REC armed - next
+run`).
 
 Pick what the **next run** does — *Live*, *Record*, or *Play back* a file — then
 Build & Run (**F5**) or Run. The choice is staged into the launcher, which
 prepares `bin/` before the emulator starts; it is not something you can switch
 mid-run.
 
-While the game runs the tab shows what it is doing, read straight out of the
+While the game runs the popup shows what it is doing, read straight out of the
 status file the game writes:
 
 - `Recording: frame 1234`
@@ -225,7 +228,7 @@ you start the run.
 | `bin/replay.out` | the game | the raw recording, appended chunk by chunk |
 | `bin/replay.in` | the editor | a recording to perform |
 | `bin/replay.stop` | the editor | finish the recording cleanly |
-| `bin/replay.st` | the game | 32 bytes of status for the Replay tab |
+| `bin/replay.st` | the game | 32 bytes of status for the Debugger's recorder pill and Replay... popup |
 | `recordings/*.tyrarep` | the editor | saved recordings — **committed on purpose** |
 
 Everything in `bin/` is gitignored; `recordings/` is not. A recording next to the

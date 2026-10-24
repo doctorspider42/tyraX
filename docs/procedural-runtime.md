@@ -5,7 +5,8 @@
 ![Procedural preview](img/procedural-preview.png)
 
 The other half of [procedural generation](procedural-generation.md): a
-Procedural volume has a **mode**, at the top of the *Tools > Procedural* window:
+Procedural volume has a **mode**, the *Baked at build / Runtime on PS2* switch at
+the top of the *Tools > Procedural* inspector:
 
 | Mode | Where the graph runs | What ships |
 |---|---|---|
@@ -78,7 +79,8 @@ same Halton sequence, same per-point channels. Given the same seed, the preview
 in the viewport and the world on the console are the same world — which is what
 makes a runtime volume authorable at all.
 
-**Seed** in the window is that seed, and the mode next to it decides what
+**Seed** in the inspector is that seed, and the choice in the *Runs on the PS2*
+card decides what
 happens at runtime:
 
 - *Same world every run* — reproducible, and what you want while authoring.
@@ -94,8 +96,8 @@ exactly that (TRIANGLE).
 
 Once a volume rolls its own seed, the number in the *Seed* box stops describing
 what a player will get — the viewport is showing one draw out of many. The
-**Seed simulator** (the collapsed section under the tool row, runtime volumes
-only) answers that: press *Simulate* and the editor evaluates the graph on N
+**Seed simulator** (the collapsed section at the end of the inspector, runtime
+volumes only) answers that: press *Simulate* and the editor evaluates the graph on N
 seeds — the authored one first, then the sequence *Reseed* itself hands out —
 and tabulates what each world costs.
 
@@ -163,6 +165,16 @@ world **chunk** are merged into a single vertex bag the game built itself, and
 the frame draws a handful of bags. Chunk size, per-chunk draw distance and the
 triangle budget on the *Output* node mean exactly what they mean for a bake.
 
+A **prefab** a volume places is merged by the cell of the INSTANCE's origin,
+height included, not by each member's own position: one room of the cube
+example is one set of chunks. Merging by member position put a room's edge
+walls into the neighbour's chunk and built chunks spanning every floor of a
+lattice; they crossed the edge of the view in nearly every frame, and a chunk
+that does is clipped triangle by triangle on the EE. On a physical PS2 the
+cube example went from 25.4 to 8.8 ms of scene time (25 to 50 fps) with this
+alone. The price is more, smaller chunks (25 -> 54 there), so keep the
+Output node's *cell* about one instance wide for a lattice of prefabs.
+
 What generated geometry does NOT get, because it does not exist at build time:
 a lightmap region (it is lit from the light-probe grid instead), a place in the
 static-batch list, and an entry in the scene table. It is not a scene object
@@ -172,6 +184,49 @@ and nothing can address it.
 contribute conservative world AABBs the walker tests (see
 [prefabs](prefabs.md)), and a **Blocks Fill** node publishes its solid field as
 the world's ground.
+
+### Instanced
+
+The Output node's *Draw as: Instanced* ([procedural generation](procedural-generation.md#instanced))
+works here too: an asset point of such a volume becomes a row in the game's
+instance table instead of merged vertices (`procAddInstance`), with its
+collider when the Output asks for one, and the copies are drawn by
+`renderProcInstances`. Prefab and Blocks points keep merging. A regenerated
+volume (Generate Volume) drops and rebuilds its own copies.
+
+### Distant versions
+
+A pool row's **distant version** ([procedural generation](procedural-generation.md#distant-version-per-row))
+ships as one more model and switches per chunk on the console. An instance of
+such a row goes into a **switch group**: its own geometry (for a prefab, every
+merged member) is the near side, the distant model at the instance's origin,
+yaw and scale the far side. Each frame both sides measure the camera distance
+to the same point and exactly one of them draws.
+
+- The group is the instance's chunk cell (see above): cell (x, y, z) of the
+  **instance's origin** at the Output node's *cell* size. A room's edge wall
+  therefore never switches with its neighbour, and a stacked lattice switches
+  floor by floor. A switching scattered model is grouped the same way. The
+  distance is measured to the origin of the first instance in that cell -
+  exact when a cell holds one instance (the cube's rooms), and never the
+  cell's centre, which a lattice centred on multiples of the cell size would
+  put on an instance's edge.
+- The far model gets **no collider**: the near members' boxes stay the
+  collision at every distance. It takes the tint of the prefab's first merged
+  model member (white when it has none) and goes through the same light-probe
+  shading as every merged member.
+- Members with an identity of their own (spawned, e.g. the red room's turning
+  core) do not switch.
+- Cost: both sides are built and stay in RAM, so a switching row costs its
+  near and its far vertices; the frame draws only one side. The switch has no
+  hysteresis.
+- After each generation the log says how the merge came out:
+  `Procedural <volume>: <n> chunks (<m> switching), <v> vertices` - every
+  chunk is one bag (one submit when on screen); switch groups multiply them.
+- The build ships the distant model because the row names it
+  (`procrt::volumeLodNames`); a model the game cannot find logs
+  `Procedural: no model for distant version <path>` and the row keeps its near
+  side only.
 
 ---
 

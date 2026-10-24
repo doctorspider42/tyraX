@@ -14,6 +14,7 @@ const SceneObjectData SCENE_0_OBJECTS[5] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {5};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[5] = {0x0bfc690cc98b9847ULL, 0x8ab00974a4e6c062ULL, 0xfe3242816830cd1bULL, 0x0583381a37407b0fULL, 0xcf3d2a724ae3d0d2ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[5] = {0,1,1,1,1};
 
 }  // namespace Video_modes
 

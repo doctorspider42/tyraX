@@ -70,7 +70,7 @@ menu#pause { panel { width: 256px; } }   /* this menu only */
 normal one - it does not restate it.
 
 **Classes**: `row.myname` styles the rows whose *Class* field says `myname`
-(set per row in the Menu Editor's Content tab). Free text; a class nothing
+(set per row in the Menu Editor's Rows tab, under the row's Style / description fold). Free text; a class nothing
 defines simply styles like any other row.
 
 **Menu scope**: `menu#pause { ... }` applies only to the menu called `pause`.
@@ -160,8 +160,8 @@ will not show.
 - **Menus scale themselves to the display mode.** They are authored in a logical
   512x448 space; in 480p the framebuffer is 448x448 and in 1080i 448x540, and
   the runtime rescales so the panel keeps its physical size. Do not "fix" a
-  1080i complaint by changing sizes - check the Menu Editor's *Preview in* list
-  first, which shows the panel in each supported mode.
+  1080i complaint by changing sizes - check Menu Preview's *Every resolution*
+  view first, which shows the panel in each supported mode with a fit verdict.
 - **Widescreen is handled too, and must not be handled twice.** 16:9 on the PS2
   is anamorphic - the same framebuffer stretched by the TV - and the runtime
   cancels that stretch for menu panels, so a panel keeps its authored

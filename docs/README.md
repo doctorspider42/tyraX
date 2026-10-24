@@ -7,6 +7,14 @@ for people building games with it. Internals live in code comments, the git log
 (commit messages carry what changed and how it was verified) and the
 `.claude/skills/` developer guides. What's queued is in [Backlog](backlog.md).
 
+A menu path in these guides, like *Tools > Remote Pad*, starts at the TyraX
+logo in the top bar's left corner: it opens the editor's menus (File, Edit,
+View, Layout, Scene, Project, Build, Session, Tools, Help), and so do F10 and
+a lone tap of Alt. The search field in the middle of the bar (Ctrl+K, Cmd+K on
+a Mac) finds any command, object or window by name.
+
+- [TyraX 2.0](tyrax-2.0.md): the combined interface, renderer and mainline integration, source heads, project compatibility and release scope.
+
 **World & objects**
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
@@ -118,19 +126,28 @@ for people building games with it. Internals live in code comments, the git log
   bake follows, sun and moon arcs, the runtime clock.
 - [Painted sky](sky-texture.md) — a 360-degree panorama on the sky dome, tinted
   by the day/night cycle and reflected in car paint.
+- [Color grading](color-grading.md) — full-screen looks the GS applies with a
+  few sprites; the window's before/after preview, quick looks and what the GS
+  can and cannot do.
 - [Motion blur](motion-blur.md) — the previous frame smeared over this one, for
   one full-screen blend and no VRAM; what the amount means, why it belongs under
   the HUD, and the Set Motion Blur node.
 - [Custom screen effects](custom-screen-effects.md) — your own full-screen post
   effects in `.screenfx` text files, no editor rebuild.
-- [The neural upscaler (BLSS)](neural-upscaler.md) — reduce the 3D raster and
-  reconstruct it in plain or neural mode; includes the measured break-even and
-  training workflow.
+- [The upscaler (BLSS)](upscaler.md) — draw part of the frame into a reduced GS
+  target and blow it back up with one bilinear pass, for fill-bound scenes
+  (smoke, haze, fire): *Particles only* (emitters at the reduced raster over a
+  full-resolution scene, combines with everything) or *Whole 3D scene*; the
+  adaptive switch, the Set Upscaler (BLSS) node / `ctx.upscaler`, VRAM cost and
+  why the old neural mode was removed.
 
 **Gameplay & logic**
 
 - [Object scripts (Unity-style components)](object-scripts.md) — C++ scripts on
   objects: lifecycle, ScriptContext reference, globals, performance.
+- [The Flow Graph window](flow-graph.md) — giving an object behaviour: the
+  graph that follows the selection, the add-node search, compact nodes with an
+  inspector, problems, Frame all / Tidy, and the live-debugging view.
 - [Custom flow-graph nodes](custom-flow-nodes.md) — your own action nodes in
   `.flownode` text files: inline C++ or a real function with typed pins.
 - [Streaming layers](streaming-layers.md) — GTA3-style interior streaming:
@@ -156,6 +173,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Player speeds: walk, run and sprint](player-speeds.md) — the three movement
   tiers of a Player object, how the stick's deflection ramps walk into run while
   the sprint button pins the top flat, and what an unset tier inherits.
+- [Font Manager](font-manager.md) — the project's typefaces: a specimen over
+  a scene, on black or drawn from the baked glyph atlas, the atlas itself with
+  its VRAM cost, and the Display Text look (colour, shadow, palette depth).
 - [Text icons (button glyphs in text)](text-icons.md) — `{{cross}}` /
   `{{action:jump}}` placeholders that draw pad glyphs inside any text.
 - [Keyboard & mouse](keyboard-mouse.md) — USB keyboard and mouse on the
@@ -178,7 +198,9 @@ for people building games with it. Internals live in code comments, the git log
   ordinary `.obj` + textures.
 - [Drone Generator (ambient music)](drone-generator.md) — the built-in ambient
   generator: signal chain, gliding chords, timeline automation, seamless loops.
-- [Cutscenes](cutscenes.md) — the Cutscene Director's sequence options: hiding
+- [Cutscenes](cutscenes.md) — the Cutscene Director (a full-height timeline with
+  shots as clips and object tracks that open into channels and axes, per-channel
+  keys, the shot over the key / sequence inspector) and its options: hiding
   the HUD (and the USE prompt with it), widescreen bars and fades, and skipping
   — instantly or through an authored confirmation screen.
 - [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) — importing a
@@ -239,6 +261,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Running and debugging on a real PS2](ps2link-setup.md) — the one-time
   console setup for F6: our patched ps2link, flashing, ports, and a table of
   every failure message.
+- [Disc layout](disc-layout.md) — what goes on the PS2 disc in which order,
+  grouped by load stage, drag-to-reorder, the disc map, whether it fits a CD-R
+  or DVD-5, and Export ISO.
 
 **Team, AI & housekeeping**
 
@@ -254,6 +279,13 @@ for people building games with it. Internals live in code comments, the git log
   installed into generated projects, and their ownership rule.
 - [The VS Code extension](vscode-extension.md) — highlighting, snippets and
   validation for `.flownode` / `.screenfx`.
+- [The start page, New Project and opening a project](start-page.md) — what
+  the editor shows with nothing open: recent projects, the bundled examples
+  opened as a copy, the setup checks, the New Project dialog and the loading
+  card.
+- [Editor Preferences](editor-preferences.md) — the machine-wide settings
+  (theme, projects folder, PCSX2, ps2link IP, build backend, session name, AI
+  backend, updates): seven pages, search, applied as you change them.
 - [The editor's look: themes and the interface font](editor-theme.md) — the
   four themes (three of them PS2 nods), and why the choice is machine-global.
 - [Project format versioning & migrations](format-versioning.md) — what happens
@@ -265,7 +297,7 @@ for people building games with it. Internals live in code comments, the git log
 
 Developer design docs (internals, not user guides):
 
-- [Physical PS2 hardware timeline](hardware-profiler.md) — bounded RAM captures of EE scopes, DMA waits and VIF/GIF state, viewed directly in the editor or exported to interactive HTML and Perfetto JSON.
+- [Physical PS2 hardware timeline](hardware-profiler.md) — bounded RAM captures, hierarchical elapsed-time accounting, actual render jobs and compile-out/runtime observer controls; legacy editor view, HTML/Perfetto export and same-ELF startup ring control.
 - [Hardware profiler findings](hardware-profiler-results.md) — seven full-asset physical PS2 controls separating host I/O, framebuffer depth, raster area and additional-pass costs.
 - [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md) — what a
   VU1 cycle per triangle is worth in frame time on real hardware, why ps2sdk's
@@ -317,6 +349,8 @@ Developer design docs (internals, not user guides):
   wheel batch keeps the vertices of a rig whose inputs did not change and stops
   bumping `bboxVersion` when its buffer is byte-identical, plus the fixture
   hazard that makes a parked benchmark flatter any skip-when-unchanged change.
+  Since 2026-10-13 each batch owns its bag (stamps), and a MOVING car's wheels
+  ride a matrix over an immutable local array (-0.8 ms on the PS2 night drive).
 - [Profiling the generated game](profiling.md) — the built-in frame profiler,
   the COP0 deep-dive technique, and the frame-timing rig.
 - [Emulator captures](emulator-captures.md) — unattended PCSX2 savestates and
@@ -326,6 +360,11 @@ Developer design docs (internals, not user guides):
   as a yardstick.
 - [The VU framework](vu-framework.md) — describe a microprogram in C++,
   generate both sides, run it in the host simulator with no PS2.
+- [VU0 macro mode: the engine's SIMD math](vu0-macro-mode.md) — why GCC never
+  vectorizes for the EE, the operand rules that keep a hand-written COP2 block
+  from being miscompiled once it is inlined, the VU0 register conventions, what
+  inlining `Vec4`/`M4x4` measured, the MMI 128-bit helpers, and a VU0 frustum
+  kernel that was measured and not built.
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
   kernels out of stages, no assembly.
 - [The native PS2 toolchain](native-toolchain.md) — the default Docker-free
@@ -353,8 +392,6 @@ Developer design docs (internals, not user guides):
   present that removes it.
 - [A binary format for static models (.tmdl) + static mesh LODs](static-model-format-plan.md) —
   the design behind the format; the user guide is [model-pipeline.md](model-pipeline.md).
-- [BLSS reconstruction math](blss-reconstruction.md) — the twin contract
-  between the upscaler's host trainer and its PS2 runtime, byte for byte.
 
 ## Object groups
 
@@ -363,3 +400,75 @@ Developer design docs (internals, not user guides):
 ## Editor viewport performance
 
 [Editor viewport performance](editor-performance.md) explains conservative offscreen model rejection and how to compare navigation costs without changing visual quality.
+
+## TyraX2 frame pipeline
+
+[Frame pipeline flow nodes](frame-pipeline-flow-nodes.md) expose a deferred setter and a getter for the engine request. Requests apply before the next frame, repeated values skip the engine setter, and compatibility fallback can keep overlap inactive. Both nodes require a game rebuild.
+
+[TyraX2](tyrax2.md) documents the ordered frame recorder: one native VIF1
+chain per frame, two owned banks so the EE prepares frame N while VU1/GS draw
+frame N-1, the compatibility and overflow fences that fall back to synchronous
+submission, and how projects opt in or out (enabled for new projects since
+1.171.0).
+
+## TyraX2 performance investigation (closed)
+
+From late September to October 2026 a long series of experiments tried to get
+Vehicle Playground and Motor District to a stable 60 fps on a real PS2. The
+investigation is closed. Its main finding is that the frame is EE-bound: the
+cost is per-bag, per-frame preparation on the EE and runtime lighting of
+static content, while VU1 is idle for about half of each frame. The changes
+that paid off are now in the engine and the generated game; the rest were
+measured and rejected. The [backlog](backlog.md#tyrax2-performance-investigation-closed-2026-10-22)
+summarises the outcome and the pitfalls. The raw evidence (fixtures, logs,
+captures, measurement files and the lab scripts) was removed from the
+repository when the investigation closed and is only in git history. The
+write-ups below are kept for reference:
+
+- [Architecture audit (2026-10-20)](tyrax2-architecture-audit-2026-10-20.md) - the best single summary: where the frame worked "the PC way", and what was shipped or rejected for each item.
+- [Architecture audit, EE submission items](tyrax2-arch-audit-ee-submission-2026-10-20.md) - the four audit items about how the EE submits packets.
+- [Investigation register](tyrax2-performance-investigation.md) - the running decision log of questions asked and answered.
+- [Closeout](tyrax2-closeout.md) - final checks of the dynamic-light receiver option, night dressing and motion/portal cadence.
+- [Critical path and VU offload](tyrax2-critical-path.md) - why the daytime drive still misses refreshes, and why no single EE, VU or GS bottleneck explains it.
+- [Offline world compilation](tyrax2-offline-world.md) - exporting terrain geometry and materials before gameplay; too small a gain to adopt.
+- [Offline final VIF geometry](tyrax2-offline-vif.md) - building final terrain packets before gameplay; about 0.05 ms saved for 2.8 MB of tables.
+- [Night EE investigation](tyrax2-night-ee-2026-10-12.md) - where the EE spends the night frame, and the generic per-bag work that was trimmed.
+- [Scene work audit](tyrax2-scene-work-audit.md) - what Vehicle Playground asks the renderer to do per owner, view and pass.
+- [Scene preparation isolation](tyrax2-scene-isolation.md) - a frozen scene's full render path versus its EE packet preparation alone.
+- [EE preparation and VU0](tyrax2-ee-vu0.md) - snapshot, conversion and wait attribution, and what VU0 already does.
+- [EE performance audit (2026-10-05)](tyrax2-ee-performance-audit-2026-10-05.md) - a source audit of EE preparation hot spots.
+- [PCSX2 debugger execution map](tyrax2-pcsx2-debugger.md) - using the emulator's debugger to pick suspects before measuring on a PS2.
+- [Selected physical scopes](tyrax2-minimal-scopes.md) - timing terrain, wheels and Core preparation on a PS2.
+- [Batch, texture and program scopes](tyrax2-batch-texture-scopes-2026-10-04.md) - the cost of per-bag texture and program setup.
+- [Core prefix partition](tyrax2-core-prefix-partition.md) - splitting the static renderer's preparation prefix into parts.
+- [Core preparation experiments](tyrax2-core-preparation-experiments.md) - matrix-key and clip-plane shortcuts; none kept.
+- [Producer attribution](tyrax2-producer-attribution.md) - which scene producer creates the most renderer work (terrain).
+- [Terrain strip subranges](tyrax2-strip-subranges.md) - sending only the visible part of a terrain strip; shipped in 1.173.2.
+- [Coarse native-strip submission](tyrax2-coarse-strip-2026-10-11.md) - coarse routing of partial strips; measured, kept private.
+- [Prepared world stream](tyrax2-world-stream-2026-10-11.md) - precompiled world geometry with live uniforms; correct but not promoted.
+- [Fixed-view static batch plans](tyrax2-static-plan.md) - reusing static batch decisions for a fixed view; hundredths of a millisecond.
+- [Full-throttle vehicle trial](tyrax2-full-throttle.md) - the driving workload behind partial baked replay and the expansion cache (shipped 1.173.1).
+- [Vehicle-free camera rotation census](tyrax2-motion-census.md) - whether camera rotation alone increases EE work.
+- [Parked vehicle reflection turn](tyrax2-reflection-turn.md) - reflection cost while the camera turns around a parked car, and a VU paint prepass.
+- [Road-free reflection isolation](tyrax2-road-free-reflections.md) - reflection capture cost with roads removed.
+- [Road-free hitch](tyrax2-road-free-hitch.md) - the ground-shadow texture loads inside the frame that caused a 40 ms hitch.
+- [Interrupted-PC sampling](tyrax2-pc-sampling-2026-10-11.md) - sampling the EE program counter on a PS2 to see where time goes.
+- [Hybrid double/triple buffering](tyrax2-hybrid-triple-2026-10-11.md) - triple buffering improves cadence but not EE work.
+- [Ready-presentation](tyrax2-ready-present-2026-10-11.md) - publishing a finished frame early; slower, rejected.
+- [Paint offload under triple buffering](tyrax2-paint-triple-2026-10-11.md) - VU paint combined with triple buffering.
+- [Automatic interleave attribution](tyrax2-interleave.md) - how the draw-order selector must sample under the frame pipeline.
+- [Joint night ablation](tyrax2-night-ablation.md) - removing night effect families to see what the night frame costs.
+- [Night producers](tyrax2-night-producers.md) - which night preparation scopes are actually active while driving.
+- [Night-shift follow-ups](tyrax2-night-shift.md) - cycle reuse, object-data attribution and light-result reuse; all too small.
+- [Fixed-hour day/night clock](tyrax2-paused-clock.md) - pausing the clock at a fixed hour instead of overwriting it every frame.
+- [Sky retint](tyrax2-sky-retint.md) - keeping sky geometry when only its colours change (about 0.8 ms at night).
+- [Player-only light receivers](tyrax2-player-light-receivers.md) - the experiment behind the public receiver option.
+- [Far-light gate](tyrax2-far-light-gate.md) - rejecting distant lights early; slower, rejected.
+- [Main-only night batching](tyrax2-main11-batch.md) - batching the eleven night-only boxes; the batches never activated.
+- [Pool2 colour table](tyrax2-pool2-colors.md) and [Pool2 EE producer](tyrax2-pool2-ee-producer.md) - light-pool colour representations; small gains, kept private.
+- [Pool lattice](tyrax2-pool-lattice.md) - shared-grid light pools; slower.
+- [GS SPRITE coronas](tyrax2-gs-sprite-coronas.md) - drawing coronas as GS sprites; within drift.
+- [Unconventional experiments](tyrax2-wild-experiments.md) - a fifteen-idea review, including frustum planes on VU0.
+- [Claude proposal trials](tyrax2-claude-trials.md) - validation bypass and owned TEX1 preparation; not promoted.
+- [Scratchpad staging](tyrax2-spr-staging.md) and [SPR/CALL runtime trials](tyrax2-spr-call-runtime-2026-10-04.md) - scratchpad staging and CALL/RET replay; both slower on hardware.
+- [Lab cleanup (2026-10-12)](tyrax2-lab-cleanup-2026-10-12.md) - what was removed from the separate lab checkout.

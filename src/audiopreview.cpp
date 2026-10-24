@@ -4,6 +4,9 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
+#include <atomic>
+#include <mutex>
+#include <thread>
 
 // Raw output for the synthesizer and decoding for vehicle engine audition.
 // No encoders, resource manager, node graph or miniaudio engine are needed.
@@ -98,6 +101,83 @@ void Device::stop() {
 
 bool Device::running() const { return d_->started; }
 int Device::sampleRate() const { return d_->rate; }
+
+struct ClipPlayer::Impl {
+    Device device;
+    std::thread loader;
+    std::vector<float> pcm;  // interleaved stereo at kRate, owned by the device once started
+    std::atomic<size_t> pos{0};
+    std::atomic<bool> loaded{false}, finished{false};
+    std::atomic<int> generation{0};
+    mutable std::mutex m;  // key, error
+    std::string key, error;
+    static constexpr int kRate = 44100;
+};
+ClipPlayer::ClipPlayer() : d_(new Impl) {}
+ClipPlayer::~ClipPlayer() { stop(); }
+void ClipPlayer::stop() {
+    ++d_->generation;
+    if (d_->loader.joinable()) d_->loader.join();
+    d_->device.stop();
+    d_->loaded = false;
+    std::lock_guard<std::mutex> lk(d_->m);
+    d_->key.clear();
+}
+void ClipPlayer::play(const std::string& absPath, const std::string& key) {
+    stop();
+    {
+        std::lock_guard<std::mutex> lk(d_->m);
+        d_->key = key;
+        d_->error.clear();
+    }
+    d_->pos = 0;
+    d_->finished = false;
+    const int gen = d_->generation.load();
+    d_->loader = std::thread([d = d_.get(), absPath, gen] {
+        auto cfg = ma_decoder_config_init(ma_format_f32, 2, Impl::kRate);
+        ma_uint64 frames = 0;
+        void* raw = nullptr;
+        if (ma_decode_file(absPath.c_str(), &cfg, &frames, &raw) != MA_SUCCESS || !frames) {
+            if (raw) ma_free(raw, nullptr);
+            std::lock_guard<std::mutex> lk(d->m);
+            d->error = "Cannot decode " + absPath;
+            d->key.clear();
+            return;
+        }
+        if (d->generation.load() != gen) {
+            ma_free(raw, nullptr);
+            return;
+        }
+        d->pcm.assign((float*)raw, (float*)raw + frames * 2);
+        ma_free(raw, nullptr);
+        d->loaded = true;
+        d->device.start(Impl::kRate, [d](float* out, int count) {
+            const size_t n = d->pcm.size() / 2;
+            size_t p = d->pos.load();
+            for (int i = 0; i < count; ++i, ++p) {
+                const bool in = p < n;
+                out[i * 2] = in ? d->pcm[p * 2] : 0.0f;
+                out[i * 2 + 1] = in ? d->pcm[p * 2 + 1] : 0.0f;
+            }
+            d->pos.store(std::min(p, n));
+            if (p >= n) d->finished = true;
+        });
+    });
+}
+std::string ClipPlayer::current() const {
+    if (d_->finished.load()) return std::string();
+    std::lock_guard<std::mutex> lk(d_->m);
+    return d_->key;
+}
+bool ClipPlayer::loading() const { return !d_->loaded.load() && !current().empty(); }
+double ClipPlayer::position() const { return (double)d_->pos.load() / Impl::kRate; }
+double ClipPlayer::length() const {
+    return d_->loaded.load() ? (double)(d_->pcm.size() / 2) / Impl::kRate : 0.0;
+}
+std::string ClipPlayer::error() const {
+    std::lock_guard<std::mutex> lk(d_->m);
+    return d_->error;
+}
 
 struct EngineLoop::Impl {
     Device device;

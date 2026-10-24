@@ -93,6 +93,7 @@ struct StaPipInfoBag {
   int shadingType = 0;
   int frustumCulling = 0;
   bool fullClipChecks = false;
+  bool dynLightSkipBaked = false;
 };
 }
 using Tyra::Texture;
@@ -108,6 +109,7 @@ struct SceneObjectData {
   int model = -1;
   int material = -1;
   int batchStatic = 0;
+  int reflected = 0;
   float lightRadius = 0.0f;
 };
 
@@ -119,6 +121,7 @@ struct GameMaterial { Texture* texture = nullptr; Texture* reflTexture = nullptr
 
 struct StaticBatchMember { int object; int part; };
 struct StaticBatch {
+  bool reflected = false;
   Texture* texture = nullptr;
   float drawDistance = 0.0f;
   unsigned int stripRun = 0;
@@ -127,13 +130,14 @@ struct StaticBatch {
   std::unique_ptr<int> bag;
 };
 struct RuntimeObjectStub { bool dirty = false; bool wantsMatrixPath = false; };
-struct DynLightRt { int objIndex = 0; };
+struct DynLightRt { int objIndex = 0; bool baked = false; };
 
 // The scene under test, written by the fixture builder below.
 static int SCENE_OBJECT_COUNT = 0;
 static std::vector<SceneObjectData> g_objects;
 #define SCENE_OBJECTS g_objects
 static int STATIC_BATCHING = 1;
+static const bool BAKE_STATIC_LAMPS = false;
 static float TERRAIN_WIDTH = 100.0f, TERRAIN_DEPTH = 100.0f;
 static const char* TEXTURE_ATLAS_INFO = "";
 static std::vector<DynLightRt> g_dynLights;
@@ -550,6 +554,9 @@ with tempfile.TemporaryDirectory() as td:
     cmd = ['g++', '-std=c++20', '-O0', '-static', '-I', str(root / 'src'),
            str(td / 'runtime.cpp'), str(root / 'src/staticbatch.cpp'),
            '-o', str(exe)]
+    # Apple platforms do not ship a static C runtime; MinGW keeps its standalone executable.
+    if sys.platform == 'darwin':
+        cmd.remove('-static')
     build = subprocess.run(cmd, capture_output=True, text=True)
     if build.returncode != 0:
         print(build.stdout)

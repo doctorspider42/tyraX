@@ -185,7 +185,7 @@ locality window live in all three too.
 
 ## Who casts, who receives
 
-- **Casts** (with *Cast shadow* on): boxes, spheres, cylinders, cones,
+- **Casts** (with *Contact shadow (AO)* on): boxes, spheres, cylinders, cones,
   planes (thin slabs — rotated planes make walls), save points, and static
   `.obj` models (their AABB).
 - **Receives**: the terrain (map) and static primitives (atlas). An object

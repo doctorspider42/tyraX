@@ -2,8 +2,12 @@
 
 A **Player** object can carry a torch: *Properties > Flashlight* on the player,
 with a colour, a reach, a cone half-angle and an optional pad button to switch
-it on and off. The `Set Flashlight` flow node is the master switch — a project
+it on and off (*Toggle button*: the controller picker - click the button on
+the small pad or pick its name, `<none>` for no button). The `Set Flashlight` flow node is the master switch — a project
 can start dark and hand the torch over later.
+
+The [dynamic light receiver option](dynamic-light-receivers.md) restricts its
+model-light contribution; the projected ground pool remains visible.
 
 It reaches the world in two ways at once, and the difference between them is
 worth knowing before you tune anything.
@@ -32,6 +36,19 @@ feet — lit nothing whatsoever. The ground's light comes from the pool below
 instead. Running both is the worst of the two, a soft ellipse sitting inside a
 blocky wedge, so a project with a flashlight sets `spotLit = false` on its
 terrain bags and one without is untouched.
+
+**A lamp keeps what it lights.** The colour programs light each mesh with
+ONE dynamic light, so the cone and a placed light compete for that slot. Since
+2.2.0 a placed light that properly reaches a mesh - its falloff at the mesh's
+nearest point above about a third, which is inside roughly two thirds of its
+radius, and for a spot the mesh inside its cone - keeps the slot, and the cone
+takes only meshes no lamp lights. Before, the brighter of the two won, so a
+prop beside a pulsing crystal flipped between blue and torch-white as the
+pulse and the aim moved, and lost the crystal's light outright whenever the
+beam swept onto it. The torch still reaches a lamp-lit prop it is aimed at:
+the nearest solids in the beam take it per pixel (the receivers below), and
+those are the surfaces a player is looking at. The engine's A/B switch is
+`RendererCore::sceneLightsKeepMeshes`.
 
 Two consequences worth knowing:
 
@@ -298,6 +315,24 @@ tighter footprint (instead of 1.5) was worth only another 0.09 ms, so the
 remainder is not mostly fill. It was not shipped: a tilted spot's ellipse
 needs the margin.
 
+### Coronas on VU1
+
+A lamp's corona used to be six EE-built vertices facing the camera, assembled
+into one batch and re-staged on every camera move, then classified and
+clipped per package like any partly visible bag. With `TYRA_BEAM_CORONA_VU1`
+(off by default until it is priced on a physical PS2) the coronas are ONE billboard bag on the program family the
+particles use (`StaPipBillboardBag`): a centre, a 2x2 basis weight and a colour
+per lamp, expanded into the camera-facing quad on VU1 - corner = C +/- R x
+chalf +/- U x chalf with the camera's right and up, exactly the four corners
+the EE quad had. The EE keeps only what depends on the camera per lamp: the
+pull toward the camera and its matching shrink, the sub-pixel cull and the
+sphere-against-frustum test. Billboard bags take no EE frustum or clip work;
+the VU1 program drops a quad whose corner leaves the GS raster window, which
+for a corona means a camera inside the lamp head. The cone shafts are world
+geometry and keep their bag.
+
+Physical-PS2 price: pending (the console was down when this landed).
+
 ## What the pool does
 
 - **Follows the beam.** The patch is laid out along the beam's run across the
@@ -317,6 +352,15 @@ needs the margin.
   slope looking at the flat, the far half dark over a crest. The bulge, not
   the highest ground within a cell: a canvas raised by a slope's own rise
   floated at the lens's height and glowed in the sky over the crest.
+- **Hugs flat ground.** The canvas floats a few centimetres over the
+  ground plus twice the relief measured under it, up to the old size-based
+  lift (0.1 + 7 % of the width + 2 % of the length, at most 1.2 units).
+  Until 2.2.0 it always floated at that full height, and where the canvas ran
+  into a wall the sheet in front of the face covered the wall's foot up to the
+  lift: a box lit by the torch showed a bright band with a dead-straight top
+  across its bottom (about 0.6 units on the flat paving of
+  `examples/lighting`, reported as "the lit blocks have two parts"). On rolling
+  ground the relief term brings the old lift back where it is needed.
 - **Lands on what you built.** Placed floors, platforms, walls and props take the
   pool as well as the terrain, so a torch works in a room made of geometry —
   including in a scene with [no terrain at all](terrain.md), which had no pool
@@ -346,7 +390,14 @@ is marched instead - the steep edge, so its hit is the footprint's NEAR end
 and the canvas is laid outward from it to the light's reach (1.66.0 laid it
 toward the player, where the gobo is black, and the pool cut off along a
 straight line at that hit as the torch was raised across open ground; fixed
-in 1.66.1). The canvas's own far edge fades over its last quarter, so the
+in 1.66.1). Only a **wall-sized** face takes the second landing (the
+1.4-unit rule that also strips a wall's cone), and only a top at least two
+units across counts as a floor to land on; past a smaller one the axis is
+marched again against the ground alone. A crate is not a wall: until 2.2.0
+the canvas jumped to a crate's foot - or lay flat across the air at its lid's
+height - whenever the beam's centre touched it, and back to the floor behind
+when it slid off an edge, which read as the torch being shaken. The crate
+itself is lit by the receiver pass either way. The canvas's own far edge fades over its last quarter, so the
 fill-rate backstop on its length never shows as a straight edge either. Before 1.66.0 only the axis was marched
 and it ignored walls: aim a pixel above the wall/ground edge and the axis
 landed on the ground *behind* the wall, where the z test hid the canvas - so
@@ -425,8 +476,14 @@ Three things worth knowing about how the receivers are found and drawn:
 - The second pass draws at **equal depth** with no bias — same world-space
   floats, same identity matrix — so it never paints over anything standing in
   front of the receiver, and never z-fights it.
-- Animated models and physics bodies are not re-rendered (skinned buffers and
-  local-space vertices respectively); they are small, and the cone covers them.
+- Animated models are not re-rendered (skinned buffers); they are small, and
+  the cone covers them. A **physics body** is (since 2.2.0): its slice holds
+  the body's own LOCAL floats and draws under the body's own matrix, so VU1
+  puts every pixel at exactly the depth the body wrote - an EE transform to
+  world would not be bit-identical, and the equal-depth rule needs it. Only
+  the facing test and the gobo STQ use world positions, and neither touches
+  depth. It used to be skipped, and once a lamp kept a crate's per-vertex
+  slot the torch could not reach a crate under a lamp at all.
 
 One era artifact comes with the era's method: the pass has no shadows of its
 own, so a beam on a hut's outer wall also lights the *inner* face of that wall
@@ -447,6 +504,10 @@ Gouraud-interpolated between them, and both of its terms vary over metres — so
 anything wall-sized it draws a hard diagonal of light across the face, one
 triangle bright and the other not. A wall does not want that term at any time:
 it is lit by the pool when the pool is there, and by the moon when it is not.
+It keeps the scene's own lights all the same: giving up the torch's cone
+(`spotLit = false`) leaves the engine picking the best placed light for it.
+Until 2.2.0 the flag gave such a bag no dynamic light at all, so a torch-lit
+wall lost the lamp beside it the moment the beam reached it.
 
 The rule is a property of the object, not of the aim:
 
@@ -588,10 +649,14 @@ with the silhouette sampled through the light's view-proj, exactly per pixel.
 eye" above). A light on the view axis lands its shadow exactly behind its
 caster on screen: the volume mode leaks a rim, and the silhouette mode - which
 draws the *right* shape - draws it precisely where the caster hides it, so it
-looks like nothing at all while quietly taking the slot the moon had been
-using. Set *Held right* / *Held below eye* first, then judge either mode.
+looks like nothing at all. Set *Held right* / *Held below eye* first, then
+judge either mode. A torch held IN the eye (both offsets under 5 cm) therefore
+never competes for a silhouette slot: it used to win the caster's slot from
+the moon or the lamp over it (the torch bids brightness 2.0) and draw nothing
+visible in its place, so a shadow the player could see vanished as the beam
+reached its caster. Off the eye it competes as before.
 
-**The technique is a project setting** (*Preferences > Rendering > Flashlight
+**The technique is a project setting** (*Preferences > Graphics > Flashlight
 shadow volumes*), because the two answers trade different things:
 
 | | Silhouette slots (default) | Shadow volumes |

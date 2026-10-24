@@ -4,6 +4,177 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Check PS2Link r8 on another console
+
+Startup, game audio, Stop and redeployment passed on an SCPH-70004 booted
+through FreeDVDBoot/uLaunchELF, with no leftover audio. Repeat those checks on
+a console that already worked with r7 to cover regressions on another model.
+
+## TyraX2 performance investigation (closed 2026-10-22)
+
+The long investigation into why Vehicle Playground and Motor District miss
+60 fps on a real PS2 is closed. It covered the frame "critical path", the
+"offline world" and "final VIF" compilation tracks, the numbered A01-A44 and
+P01-P09 experiments and the overnight lab sessions. The write-ups remain in
+`docs/tyrax2-*.md` (listed in [docs/README.md](README.md#tyrax2-performance-investigation-closed)).
+The raw evidence - fixtures, logs, captures, measurement JSON files and the
+`tools/tyrax2-*` and `tools/verify-*` lab scripts - was deleted when the
+investigation closed. It is still in git history, in the commits before the
+one that removed it.
+
+The [architecture audit](tyrax2-architecture-audit-2026-10-20.md) is the
+best single summary. Every item in its Goal table was measured on a PS2 and
+closed as shipped, rejected or not needed.
+
+What the investigation established:
+
+- The VU1/VIF core is already built the way a PS2 title would build it:
+  geometry double-buffered in VU memory, the whole program set resident,
+  clipping on VU1 with a guard band, and one DMA chain per frame with the EE
+  preparing frame N while VU1/GS draw frame N-1. The frame is **EE-bound**.
+  VU1 sits idle for roughly half of each frame, so VU1- and GS-side trims
+  measured at noise level.
+- The missed refreshes have no single cause. The
+  [critical-path census](tyrax2-critical-path.md) found some late frames
+  where the consumer was ready but waiting on VIF, and others where the EE
+  finished preparation late.
+- The cost is per-bag, per-frame preparation on the EE (bounds, light
+  selection, uniforms, packet assembly) and runtime lighting of static
+  content. The wins came from baking what the EE re-derives every frame,
+  not from rewriting packet plumbing.
+- Small isolated scenes hold 59.94 Hz on hardware: one or two cars, a road,
+  a moving point light, even 50 building facades with 80,000 vertices
+  (about 15.5 ms of work). The remaining cost is what a fully populated
+  scene adds. Static batching matters a great deal: the same 80,000
+  vertices ran at 59.94 Hz batched and 29.97 Hz unbatched (4.6 ms apart).
+
+What shipped from it: stable pre-shake terrain focus (1.173.5; camera shake
+crossing a LOD snap boundary had caused 53-55 terrain rebuilds per trip instead
+of six, about 1.5-1.8 ms), partial baked replay and the expansion cache
+(1.173.1, about 0.5 ms), partial-strip terrain refinement (1.173.2, up to
+1 ms while turning), ground-shadow mask preload (1.173.3; two texture loads
+inside `renderScene` had caused a 30-40 ms hitch), the TEX1 filter-order fix
+(1.173.4), colour-only sky retint (about 0.8 ms at night), the fixed-hour
+day/night clock, single-pass chain recording (1.176.1), native-sizing reuse,
+Memo16, the public dynamic-light receiver option and the audit items listed
+in its Outcome section.
+
+What was measured and not promoted, because the gain was too small or the
+frame got slower:
+
+- Offline terrain geometry (0.05 ms for 1.35 MB of tables), offline material
+  composition (0.3 ms, and it changed the picture) and offline final VIF
+  (0.04-0.08 ms for 2.8 MB). The cost is in per-frame per-bag work, not in
+  replacement-time generation.
+- Precomputed terrain normals and effective neighbour-LOD keys (about 0.05 ms
+  each), compact VIF input (smaller payloads, but 0.1 ms slower), early
+  publication of the environment prefix (1 ms slower, 50 Hz).
+- Event-driven idle audio and VU-side moving-wheel meshes (about 0.5 ms
+  each, still 57-59 Hz), prepared road replay (0.13 ms), coarse strip
+  routing (0.7 ms, kept private), direct world cells (1.17 ms, needed a
+  private producer), the independent VBlank Hybrid2 copy, the object-head
+  and early-Core ticket front ends (no gain or slower), whole-road all-clip,
+  scratchpad staging and CALL/RET subchains, ready-present polling, the
+  far-light gate, and every clip-command or key memo cache that was tried.
+- Triple buffering (Hybrid3) improves presentation cadence (to about 58.8 Hz
+  by day and 55 Hz at night in the test drive) without shortening EE work.
+  It is not an EE fix.
+
+Pitfalls it paid for:
+
+- Every observer (profiler scope, PC sampler, extra log) costs between 0.1
+  and 1.5 ms by itself and changes frame cadence. Compare only arms of the
+  same ELF, run both orders, never subtract numbers taken from different
+  ELFs, and never use emulator timings as PS2 prices.
+- Any nonzero `TYRA_FRAME_PROFILE`, including 2, adds a fairness drain in
+  `RendererCore::endFrame`. Ordinary-clock timing needs the profiler and the
+  hardware trace compiled out.
+- Ordinary `TYRA_LOG` output stayed active in derived test fixtures and cost
+  about 1.1 ms. Disabled profiler clocks do not mean disabled logging.
+- A smaller command stream, fewer clip inputs or fewer admitted bags is not
+  a faster frame. Several such trials were slower on hardware.
+- A long hardware run followed by a ps2link reset regularly wedges the
+  console (`freepad: DMA Busy`). It needs a human power cycle; do not retry
+  resets in a loop.
+
+Still open from this work, without a concrete next step: stable full-quality
+60 fps at night and with variable frame time, the Showcase portal cadence,
+and physical button-to-TV latency.
+
+## Main-window redesign: what is left (2026-10-16)
+
+1.173.0 shipped the redesigned main window (docs/editor-theme.md) - built and
+driven on macOS only. Open:
+
+- **Windows and Linux.** Build (`build.ps1` compiles the two in-tree ImGui
+  patches and the new WndProc subclass for the first time) and drive each.
+  Windows merged title bar, by hand: drag, Aero Snap, double-click maximize,
+  every resize edge incl. the top one, a maximized window's top row, a DPI
+  change between monitors, the caption buttons. Also the font picks (Segoe UI
+  Semibold, Inter SemiBold, the mono chains).
+- **macOS title bar by hand**: drag the empty bar, double-click it, click File
+  and the other menus in the top ~28 pt (the enlarged title-bar container must
+  not swallow them) - synthetic events could not test this.
+- **PS2 budget meters** in the status bar need a scene VRAM/RAM estimate first.
+- **Panels in their own OS windows** (multi-viewports, docs/editor-theme.md
+  "Windows outside the main window") - built and script-driven on macOS only:
+  - Windows (owned HWND, the backend's WndProc next to the merged-title-bar
+    subclass, DPI changes between monitors) and Linux X11 (no transient-for
+    hint yet - only the backend's DIALOG type keeps a panel above the editor);
+  - a human dragging tabs out and back between real monitors, the macOS child
+    windows when the editor goes full screen, dropping files from Finder onto a
+    panel in its own window;
+  - Bring all windows back re-docks a panel where it was docked THIS session;
+    a panel restored floating from a saved layout (no home seen yet) comes back
+    floating.
+- **Design check (1.173) - what is still not in the board's state**: Flow
+  Graph live mode, Debugger with a real game, Session peers (needs a second
+  editor), Phone Camera live, Disc Layout populated (needs a PS2 build); the palette's design shows a "did" line on the
+  Stopped-at card that needs fact events from a real game.
+- **Tool windows - what the redesign round left** (each tool's commit says why):
+  - Flow Graph live mode, Debugger + Remote Pad on a real console, the update
+    download/install, a second editor joining a session and the phone camera
+    with a real phone - built from code + docs, not seen end to end here;
+  - Run's "Running" state, session Follow and ps2link *Test connection* were
+    driven with a fake emulator, two editors on loopback and a Python
+    listener - not a real PCSX2 boot, a second machine or a console; cancelling
+    a load while another project is open is untested;
+  - `docs/img/hardware-timeline.png` is still on the old chrome (needs a
+    `bin/hardware-trace.csv` captured on a console); `vehicle-live-preview.png`
+    and `asset-browser.png` predate the Near | Far and orbit controls;
+  - the import preview and the Animation Editor share one anim-preview
+    framebuffer (both visible while a clip plays = the same pose);
+  - Drone Generator Simple view: in a short window the mood tiles' captions
+    clip at the bottom of the left column; the narrow one-column layout was
+    only seen through a temporary threshold build;
+  - Controller widget (`ui::PadDiagram`): the Vehicle Editor's controls-card
+    preview does not use it yet; Remote Pad with no game stays clickable and
+    writes `livepad.bin` (scripts and a game booted later read it) - the design
+    said disabled, decide; the lit LED and a running game's view are unseen.
+  - Properties: the Player's Walk/Run/Sprint rows draw their caption right of
+    the field (clipped); AxisDrag3 tags touch their values in a narrow panel.
+## VU0 macro-mode kernels (2026-10-20)
+
+`Vec4`/`M4x4` are inline and correctly constrained now
+([VU0 macro mode](vu0-macro-mode.md)); what is left is fusing hot loops into one
+asm block each so values stay in VU0 registers. Order by measured cost, and keep
+each one gated on a console A/B (`tools/vu0-bench` for the operator-level
+numbers, one-ELF toggles for the frame):
+
+- **Console timing of the inline operators and `mmi::equal64`** - the guide's
+  numbers are PCSX2 cycles; run `tools/vu0-bench` (both files) over ps2link
+  once, and re-split `bounds` with `TYRA_STAPIP_ATTRIB` to see what the
+  transform cache's 0.341 ms became.
+- ~~**Frustum AABB classification** on VU0~~ - measured, not built: 15-27% on
+  the function in PCSX2, not bit-exact at plane boundaries, and a `Plane*` ->
+  structure-of-arrays API change through the packager (guide, "Measured, not
+  built"). Reopen only with a console run that shows a larger gap.
+- **Bbox merge constructors** (`core_bbox.cpp`) onto the existing `vmini`/`vmax`
+  loop; **static-pipeline packet emission** (one float at a time through
+  `packet2_add_float`) onto prebuilt qwords and `sq`.
+- **Game-side loops** (particles, flashlight receivers, rigid bodies): the
+  generated `RbV` is 12 bytes and unaligned, which blocks `lqc2` - align it first.
+
 ## Separate remaining runtime settings from compilation decisions
 
 Game methods now compile in six parallel units with shared inline helpers/state.
@@ -248,9 +419,14 @@ a success metric of fewer submissions/MSCAL boundaries plus lower hardware
   packets in flight measured -0.50..-0.72 ms of hardware `work`. So the EE was
   waiting, and some of that wait was recoverable.
 - **Scratchpad staging** is already covered by S1 in
-  [ee-submission-rearchitecture.md](ee-submission-rearchitecture.md). Do not
-  create a duplicate project before the corrupt no-flush arm identifies every
-  EE-written buffer and the required ordering barrier.
+  [ee-submission-rearchitecture.md](ee-submission-rearchitecture.md).
+  [The post-TyraX2 audit](tyrax2-spr-staging.md) retains its host finalized-prefix
+  byte-preservation control. The [October 4 private runtime experiments](tyrax2-spr-call-runtime-2026-10-04.md)
+  now close direct SPR construction and CALL/RET trials: both physical orders
+  regress, by +0.178–0.389 ms for SPR and +3.332–3.532 ms for corrected CALL.
+  Preserve the prototypes as source snapshots; do not promote these policies.
+  Finalized-prefix copy-only staging has no physical price from these trials.
+  Cache-flush removal remains gated by dirty-source inventory and barrier proof.
 
 Do not re-add the article's already-done or already-refuted suggestions as new
 tasks: primitive state already rides GIFtag PRE; VU1 clip programs already patch
@@ -290,17 +466,75 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   EE-heavy bags with it, or deferring the pool run, before a deeper queue
   (depth 8 measured worse).
 
-- **One chain for the whole scene / a frame-pipelined engine - PARKED
-  2026-09-24.** Measured first: VU1 + GS alone need 5.96 / 7.73 / 3.94 / 4.22
-  ms for the four Motor District poses, against 10-18 ms of EE `work`
-  (docs/ee-submission-rearchitecture.md, "The GPU-only frame"). The frame is
-  EE-bound about two to one. A pipeline would win only the EE's waiting
-  (about 2.5-3.5 ms in the garage), not its work, so the EE's own computation
-  comes first. The design, what it would require, its risks and a staged order
-  are written down in "A frame-pipelined engine (TyraX2)" on the same page.
-  Still true from the capture: the reference title builds that chain in SPR
-  and moves it to RAM by DMA (no write-back), and its per-object cost is about
-  16 qwords plus a `CALL` into a prebaked block.
+- **One chain for the whole scene / a frame-pipelined engine - integrated;
+  new-project default since 1.171.0 (format v95).**
+  [TyraX2](tyrax2.md) records one native VIF1 chain per ordinary frame,
+  including ordered uploads, GS state, auxiliary passes and the final FINISH.
+  Two owned banks let the EE prepare frame N while VU1/GS execute N-1.
+  Preferences > Display holds the saved runtime request; compatibility modes
+  and bounded overflow fall back to real synchronous fences. New projects
+  request the pipeline. A manifest without the field keeps the old path, an
+  explicit boolean always wins, and every save writes the effective value.
+  The engine's compile-time default stays off; the generated game makes the
+  request explicitly. All 44 examples boot with the pipeline requested.
+  On a PS2 (1.169.1) the daytime test view went from about 28.1 ms per frame
+  (35.6 Hz) to about 17.2 ms (58.3 Hz). The night view did not move: about
+  18.1 ms of work still lands on a 33.4 ms period (30 Hz).
+  1.169.1 also fixed a loading race: a new send could overwrite the hybrid
+  presentation copy started by the previous frame's callback, leaving VIF1
+  DMA stuck. The fix waits for the direct DMA channel first.
+  Still open: physical button-to-TV latency (a synthetic measurement showed
+  about one extra 33 ms frame in its configuration) and the Showcase
+  reverse-order check. Reference-title scratchpad staging and a
+  16-qword-plus-CALL object scheme remain separate future work.
+- **TyraX2 authoring integration — audited; PAL fix shipped in 1.169.2.**
+  Standard flow nodes/generated loops already use engine ordering and resource
+  fences; custom DMA/readback guidance is now linked from authoring/AI guides.
+  Legal Set Display Mode 4 now survives codegen; FPP/ORBIT native builds and
+  emulator mode4/timeout rollback pass. Pipeline setter/query nodes
+  are implemented in 1.172.0: deferred boundary application, unchanged-request
+  no-op, and requested-state getter. Both require rebuild; requested state is
+  not active overlap. See [flow nodes](frame-pipeline-flow-nodes.md).
+  See [integration audit](tyrax2.md#authoring-integration-audit-2026-10-02).
+- **Automatic interleave selection under TyraX2 - corrected in 1.171.0.**
+  The old alternating scorer could count the current EE cost plus the
+  previous frame's pending GPU cost as one sample, and split-screen, mode or
+  scene changes could leave stale marks. The current selector uses reversed
+  homogeneous blocks, discards two transition intervals and guards on
+  output, view and recording generation. Pinned trials on the PS2 showed a
+  small interleave benefit (0.2-0.4 ms) with every arm still at about 30 Hz
+  at night; see [the interleave record](tyrax2-interleave.md). The correction
+  does not claim a night FPS gain.
+- **Remaining EE work, VU0 offload, timeline attribution and night light
+  effects - investigated, closed with the TyraX2 investigation.** The
+  conclusions, in plain terms:
+  - Most of a night frame's ~14 ms of renderer work sits inside
+    `StaPipCore` preparation, split roughly evenly between per-bag setup
+    (bounds, matrices, texture/light/object uniforms) and geometry
+    dispatch. See [minimal scopes](tyrax2-minimal-scopes.md) and
+    [Core prefix partition](tyrax2-core-prefix-partition.md).
+  - Night effects are the expensive add-ons. Removing scene light pools
+    saves about 1 ms, beams and coronas about 0.8 ms, registered live
+    lighting about 1.1 ms and the eleven night dressing boxes 0.7-0.9 ms.
+    These single-cut prices do not add up, and every single cut still left
+    the night view at 30 Hz ([night ablation](tyrax2-night-ablation.md)).
+  - Restricting dynamic-light receivers to the player and the driven
+    vehicle saves 1.0-1.5 ms. It shipped as the public
+    [receiver option](dynamic-light-receivers.md); see the
+    [closeout](tyrax2-closeout.md).
+  - VU0 already runs the macro-mode vector, matrix, bounds and skinning
+    work. Four frustum planes through VU0 worked but gave no gain. No large
+    COP2-free arithmetic job was found that a VU0 micro program could take
+    over ([EE and VU0](tyrax2-ee-vu0.md), [wild experiments](tyrax2-wild-experiments.md)).
+  - Pool colour tables, the pool lattice, GS sprite coronas, the far-light
+    gate, eleven-box main-only batching, one-search borrowing and
+    per-render clip reuse were all within drift or slower, and stayed
+    private.
+  - Native-sizing reuse (0.15 ms) and Memo16 (0.3 ms) were integrated.
+  - Hierarchical profiler capture works, but its detailed mode costs about
+    3 ms of work by itself and even the coarse mode 0.2 ms. Treat profiler
+    numbers as relative within one ELF, never as an absolute bill
+    ([hardware profiler](hardware-profiler.md#hierarchy-and-observer-controls-1170)).
 - ~~**The 0.5 ms sleeps in `RendererCore::beginFrame`/`endFrame`**~~ **SHIPPED
   1.128.3 behind a runtime gate** (`RendererCore::setFrameYield`, off; the
   generated game turns it on only while the Live Debugger is attached):
@@ -533,10 +767,14 @@ Two hypotheses, not separated:
 2. `FlushCache(0)` is also supplying an ordering barrier, and removing it lets
    the DMAC start before the EE's stores have landed.
 
-**S1 (the frame chain out of cached memory) cannot be built until this is
-answered**, and it is worth 1.09 ms of garage-day `work` when it is — half the
-2.10 ms the plan predicted. Re-run with `--keep-routes`: a parked fixture cannot
-see a per-frame rebake that writes the same bytes every frame.
+**S1 cache-flush removal stays gated until this is answered.** The 1.09 ms
+measurement belongs to this older architecture, not the current single-chain
+runtime. The 2026-10-02 [SPR audit and host experiment](tyrax2-spr-staging.md)
+allow a narrower finalized-prefix staging control with flush retained. The
+[October 4 private direct-SPR runtime](tyrax2-spr-call-runtime-2026-10-04.md)
+passed its byte guard and visual check but regressed on hardware; no SPR gain
+or production promotion is accepted. Re-run with `--keep-routes`:
+a parked fixture cannot see a per-frame rebake writing the same bytes each frame.
 
 Evidence, arms and recipe:
 [ee-probes-2026-09-16](../examples/vehicle-playground/authoring/ee-probes-2026-09-16/README.md).
@@ -716,9 +954,6 @@ flag, so this cannot be decided where the bag is built. It has to come from the
 bake, which DOES read the pixels: the natural shape is a per-part `opaque` bit
 written by `bakeStaticModels`/`vehbake` and read here, at which point the knob
 can default to 1 and the check becomes per-material rather than per-project.
-Note `blsscorpus.cpp` already has a `cutout` notion for the BLSS bestiary — it is
-the same question asked in a different place, and worth reading before inventing
-a second answer.
 
 Nothing in the Motor District needs it: its only two `shadowMode 3` objects are
 vehicles with opaque palette bakes, which is why the measurement was possible at
@@ -1623,20 +1858,12 @@ fade-from-black. `hidePlayer` has had the identical one-frame lag since it
 existed, so the fix should cover both or neither, and it must not end up with
 two sources of truth for one flag.
 
-### Ship the baked HUD sprites of the nine repaired examples
+### ~~Ship the baked HUD sprites of the nine repaired examples~~ DONE 2.0.0
 
-Nine example projects (`custom-nodes`, `cutscene-demo`, `large-terrain`,
-`layer-streaming`, `mirror-room`, `nav-ai`, `object-spawning`,
-`physics-playground`, `script-demo`) carried a `res/.gitignore` of `*` and so
-tracked no assets at all. The rule is fixed and their authored assets are in,
-but their baked `res/hud/*.png` and `res/fonts/atlas-default.png` are still
-untracked, because the four font-derived ones (`icons.png`, `use-text.png`,
-`pick-text.png`, the atlas) bake from a **system** font and a Windows box
-produces Consolas where the committed copies in the other examples are DejaVu —
-committing them here would disagree with the `font_data.gen.hpp` metrics beside
-them. Add them from a Linux `--refresh-gen`, where the bake matches the rest of
-the tree, and confirm with `git status` on a fresh clone that a built example
-leaves nothing untracked.
+The font-derived sprites used to bake from a system font, so a Windows box
+made Consolas where Linux made DejaVu. 2.0 bakes the default font from the
+built-in Geist Mono SemiBold on every OS, and the nine examples' atlases
+are tracked like the rest.
 
 ### Ignore baked models in nested asset folders
 
@@ -2322,9 +2549,9 @@ byte-identically before measuring the rebuild win.
 ### Preview BLSS in the editor viewport
 
 The viewport already renders at PS2 resolution and presents through a fragment
-shader. Add an honest preview of the selected BLSS mode and debug view; do not
-ship a visual approximation that disagrees with the console. See
-[neural upscaling](neural-upscaler.md).
+shader. Add an honest preview of the selected BLSS shape (*Whole 3D scene* /
+*Particles only*); do not ship a visual approximation that disagrees with the
+console. See [the upscaler](upscaler.md).
 
 ### Drag HUD images in the viewport
 
@@ -2339,13 +2566,40 @@ widescreen. Decide which non-menu elements preserve aspect and which pin to
 screen edges, then apply one coordinate model to the HUD, loading screens and
 credits. See [menu styles](menu-styles.md).
 
-### Finish the BLSS proxy budget twin
+### Shadow-volume count band at the reduced raster - measured, parked
 
-The engine-side proxy cap exists behind `TYRA_BLSS_PROXY_BUDGET` but stays off
-because the host corpus does not apply the identical rule. Implement the same
-whole-box projection, tile count and part stride on the host; enable both twins
-in one change and re-run parity plus performance measurements. See
-[BLSS reconstruction](blss-reconstruction.md).
+The idea: count the torch's shadow volumes at the upscaler's reduced raster
+(the same scene-depth copy *Particles only* makes, the BLSS low-res target as
+the count band - zero extra VRAM, one bracket instead of two bands) and blow
+the mask back up into the display alpha.
+
+**Measured first, on a physical PS2, 2026-10-23**, and the fill is too small a
+share to be worth it yet. `examples/night-walk`, frozen camera at (3.5, 0,
+-1.5) looking at the truck from ~6 units with the torch on it - a heavy
+vantage: the volumes' rect is 512x366 (73 % of the raster, two 256-row bands),
+2 091 front + 309 back volume triangles. One ELF per arm, the torch switched
+off/on every 20 s with Set Flashlight, `TYRA_FRAME_PROFILE 2` FRAMETIME work:
+
+| arm | torch on | torch off | torch costs |
+|---|---|---|---|
+| shadow volumes as shipped | 11.79 ms (78 windows) | 3.95 ms | 7.84 ms |
+| `shadowVolumesDebug 8` (extrusion on the EE, no GS bracket at all) | 10.16 ms (72) | 4.01 ms | 6.15 ms |
+
+So the **whole GS side of the volumes - both bands' clears, the volume fill,
+both resolves and their drains - is 1.63 ms** at that vantage, and a quarter
+raster could save at most part of it (the depth copy and the resolve are not
+free). The other **6.15 ms of the torch is not fill**: the EE extrusion of
+~2 400 volume triangles, the projected pool and the receivers' second light
+pass. That is the target if the torch needs to get cheaper; revisit the
+reduced band only if a scene shows the bracket above ~3 ms.
+
+### Particles only: more blended layers in the reduced bracket
+
+*Particles only* reduces the emitters alone. Other blended, fill-heavy layers -
+light beams, coronas, glow shells - could draw inside the same
+`beginParticles`/`endParticles` bracket and share its two copies and one
+blend. Each needs the FBA mark to survive its own blend mode and to sit after
+the opaque scene in the main view. See [the upscaler](upscaler.md).
 
 ### Attribute hardware pipeline stalls before further micro-optimizations
 
@@ -2503,25 +2757,17 @@ EE clipper (`templates.cpp`), in `vugen`/`vusim` and in `vucap`. Also unsettled:
 whether `PSMZ16` may pair with a `PSMCT32` frame buffer, which decides whether
 the two depths can be chosen independently at all. See [GS VRAM](gs-vram.md).
 
-### Render particle emitters in the BLSS corpus
-
-The corpus counts emitter coverage and can describe emitter proxies, but its
-training images still omit the particles themselves. Render the same billboard
-population, motion and blending as the runtime, then retrain and re-evaluate the
-affected example projects. See [neural upscaling](neural-upscaler.md).
-
 ### Refresh dynamic content on extrapolated frames
 
 Frame extrapolation carries camera motion between rendered world frames, while
 animations, moving objects and HUD updates remain at the world rate. Redraw the
-dynamic layers on the synthetic presentation without feeding that frame into
-BLSS history. See [frame extrapolation](frame-extrapolation.md).
+dynamic layers on the synthetic presentation. See [frame extrapolation](frame-extrapolation.md).
 
 ### Add a frame-extrapolation guard band
 
 Render beyond the visible picture so a camera warp reveals real pixels instead
-of stretching the edge. This changes raster size, frustum math and BLSS
-host/console assumptions, so treat it as a shared rendering design rather than
+of stretching the edge. This changes raster size, frustum math and the
+upscaler's reduced-raster assumptions, so treat it as a shared rendering design rather than
 a larger texture allocation.
 
 ### Grade palettized textures through their CLUT
@@ -2616,3 +2862,9 @@ floor pass, `kSelfPiece`) and drop a piece whose points all have the caster
 BEHIND them along the light (a trace away from the sun hits the caster) and
 none has it toward the sun. Verify on a copy of examples/baked-shadows with
 post-5 back at y = 1.
+
+## TyraX 2.0 integration (2026-10-22)
+
+- [x] Combine latest main, the UI redesign and the TyraX2 foundation on `codex/tyrax-2.0`.
+- [x] Unify additive project fields as format 114 and expose the integrated renderer settings in the redesigned preferences.
+- [ ] Complete Windows/Linux build and UI qualification, physical-console integration checks and installer/update qualification before publishing 2.0.0.

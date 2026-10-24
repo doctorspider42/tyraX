@@ -51,11 +51,13 @@ exist.
 A model whose bounds are much bigger than its solid part - a street lamp
 whose arm reaches over the pavement, a sign, a tree - can have **its own
 collision box**. Select any object made from it, keep *Collision* on
-*Box*, and tick **Own collision box** in Properties. The box starts as the
+*Box*, and tick **Own collision box** on the Properties **Physics** tab. The box starts as the
 mesh bounds; **Box min** / **Box max** edit it in the mesh's own units,
-before the object's scale. **Fit to post** takes the footprint of the
+before the object's scale. **Fit to base** takes the footprint of the
 model's lower 40% and keeps its full height, so the lamp collides as its
 post. **Reset to mesh bounds** puts it back.
+*View > Collision boxes* draws the collider in red; the yellow outline
+around a selected object is the selection, which is always the mesh bounds.
 
 It is a setting of the MODEL, keyed by its asset path
 (`Project::modelCollision`, `"modelCollision"` in the .tyra, format 92): every
@@ -130,7 +132,7 @@ Turn it on to see the boxes the player and camera actually hit:
 
 ![The same scene with collision boxes shown as red wireframes.](img/collision-boxes-on.png)
 
-**In the game** — *Project > Preferences > Build > Show collision boxes*
+**In the game** — *Project > Preferences > Build & debug > Show collision boxes*
 (**debug** build profile only, exactly like *Show areas*). Red wireframes
 drawn in the running game, following anything that moves — a tumbling physics
 body, a prop a flow node slides. It is a **look, not a census**: the nearest

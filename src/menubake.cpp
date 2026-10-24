@@ -17,6 +17,7 @@
 
 #include <filesystem>
 
+#include "geist_mono_semibold_gen.hpp"  // uifonts:: - the built-in game font (SIL OFL 1.1)
 #include "moonmap_gen.hpp"  // NASA LRO colour map, embedded (see CMakeLists.txt)
 #include "platform.hpp"
 
@@ -62,11 +63,29 @@ Font* loadFontFile(const std::string& path) {
     return &f;
 }
 
+// The built-in game font, Geist Mono SemiBold, embedded in the editor. It is
+// the default because it is the same bytes on every machine: the OS default
+// chain it replaced (Consolas Bold / Arial Bold / DejaVu Sans Bold) baked a
+// different atlas, glyph table and text sprites on each platform, so a project
+// regenerated on a Mac rewrote every font file a Windows checkout had.
+Font* builtinFont() {
+    static Font f;
+    static bool tried = false;
+    if (!tried) {
+        tried = true;
+        f.data.assign(uifonts::kGeistMonoSemiBold,
+                      uifonts::kGeistMonoSemiBold + uifonts::kGeistMonoSemiBoldSize);
+        f.ok = stbtt_InitFont(&f.info, f.data.data(),
+                              stbtt_GetFontOffsetForIndex(f.data.data(), 0)) != 0;
+    }
+    return f.ok ? &f : nullptr;
+}
+
 // A font by path: project-relative when the path has a separator
 // ("res/fonts/x.ttf"), a system font by bare file name ("impact.ttf"), falling
-// back to the platform's default chain when unset or unreadable. A project
-// authored on another OS therefore keeps working: its bare name simply does
-// not resolve here and the fallback takes over, rather than the bake failing.
+// back to the built-in font when unset or unreadable. A project authored on
+// another OS therefore keeps working: its bare name simply does not resolve
+// here and the built-in font takes over, rather than the bake failing.
 Font* resolveFontPath(const std::string& fontPath, const std::string& projectDir) {
     if (!fontPath.empty()) {
         const bool projectRelative =
@@ -78,6 +97,7 @@ Font* resolveFontPath(const std::string& fontPath, const std::string& projectDir
                 : platform::systemFontPath(fontPath);
         if (Font* f = loadFontFile(full)) return f;
     }
+    if (Font* f = builtinFont()) return f;
     for (const std::string& name : platform::fallbackFontFiles())
         if (Font* f = loadFontFile(platform::systemFontPath(name))) return f;
     return nullptr;

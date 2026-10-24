@@ -365,7 +365,7 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "press and the hold."},
         {.key = "OnKey", .title = "On Key", .category = "Triggers",
          .trigger = true, .strKind = FlowParamKind::KeyName,
-         .strTip = "A USB keyboard key by label. Needs Preferences > Build > "
+         .strTip = "A USB keyboard key by label. Needs Preferences > Build & debug > "
                    "Keyboard & mouse; without it the trigger never fires.",
          .boolOut = true,
          .desc = "Fires the frame a keyboard key goes down. It bypasses the "
@@ -1320,6 +1320,24 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "back on its own. 0 = switch blind, which strands the "
                      "player on a black screen if the TV cannot show the mode."},
          .desc = "Switches the console's video mode at runtime."},
+        {.key = "SetFramePipeline", .title = "Set Frame Pipeline",
+         .category = "Scene", .numCount = 1, .numLabels = {"On"},
+         .numTips = {"Off or On. The request is applied before the next frame "
+                     "begins; the last request in that interval wins."},
+         .numChoices = {"Off|On"},
+         .execThrough = true,
+         .desc = "Requests frame pipeline overlap between CPU preparation and "
+                 "GPU rendering. Applied between frames, never during "
+                 "recording. Compatibility fallback can keep overlap inactive "
+                 "while the request is On. Requires a game rebuild; Live Logic "
+                 "cannot patch this node."},
+        {.key = "GetFramePipeline", .title = "Get Frame Pipeline (Requested)",
+         .category = "Scene", .pure = true, .boolOut = true,
+         .desc = "Reads the engine's current frame pipeline request as a bool. "
+                 "A pending Set Frame Pipeline request is visible only after "
+                 "it is applied before the next frame. True does not guarantee "
+                 "active overlap: compatibility fallback may disable it. "
+                 "Requires a game rebuild; Live Logic cannot patch this node."},
         {.key = "SetFrameExtrapolation", .title = "Set Frame Extrapolation",
          .category = "Scene", .numCount = 1, .numLabels = {"Mode"},
          .numTips = {"0 = off, 1 = on but only while it pays for itself, "
@@ -1335,6 +1353,24 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "extrapolation preference on - that is what compiles the "
                  "feature in; this only steers it. Fire it at the start of a "
                  "cutscene and again at the end."},
+        {.key = "SetUpscaler", .title = "Set Upscaler (BLSS)",
+         .category = "Scene", .numCount = 1, .numLabels = {"Mode"},
+         .numTips = {"Scene default = what Scene Preferences says for this "
+                     "scene. Off = native resolution. On = the reduced "
+                     "raster (the whole 3D scene, or only the particles - "
+                     "Project Preferences decides which). Automatic = the "
+                     "frame-budget switch: native until frames start missing "
+                     "fields, then reduced. A scene load goes back to Scene "
+                     "default."},
+         .numChoices = {"Scene default|Off (native)|On (reduced)|Automatic"},
+         .desc = "Switches the upscaler while the game runs "
+                 "(docs/upscaler.md, \"At runtime\") - e.g. On when the "
+                 "player walks into the smoke and fire, Off again on the way "
+                 "out. Free: having this node anywhere makes the build "
+                 "reserve both rasters at boot, so a switch moves no VRAM. "
+                 "Whole-scene mode still cannot be combined with depth of "
+                 "field, portals or split screen; use Particles only there. "
+                 "Requires a game rebuild; Live Logic cannot patch this node."},
         {.key = "SetWidescreen", .title = "Set Widescreen", .category = "Scene",
          .numCount = 1, .numLabels = {"On"},
          .numTips = {"On = fit the projection for 16:9, off = 4:3. This "

@@ -37,7 +37,7 @@ Detail lives in `references/` — see the index at the bottom. `PROGRESS 123` / 
 | layer | what | cost |
 |---|---|---|
 | 0 | build the editor (`build.ps1` / `build.sh`) — also the warning-clean compile check of `src/` | seconds–1.5 min |
-| 1 | headless CLI: `--new`, `--refresh-gen`, bakes, `--dump`, `--vu-check`, `--vehicle-check`, `--blss-*` | seconds |
+| 1 | headless CLI: `--new`, `--refresh-gen`, bakes, `--dump`, `--vu-check`, `--vehicle-check` | seconds |
 | 2 | codegen inspection without a game build (`--new`/`--refresh-gen` + grep, host harnesses) | seconds |
 | 3 | native (or `--docker`) game build + PCSX2 boot, `--pad`, `--capture-frame`, logs | 5 s–5 min + boot |
 
@@ -67,7 +67,6 @@ Never benchmark a Dev build or verify a bake with it (bakes take minutes at -O1)
 | `--import-model <dir> <model> [--split none\|top\|mesh] [--pivot ..] [--keep f] [--max-texture px] [--animated] [--no-static] [--textures dir] [--name stem] [--dry-run]` | the importer, headless |
 | `--vu-check [engineDir]`, `--vu-list`, `--vu-emit`, `--vu-replay <dir>`, `--dump-vucap <dir> [--full] [--peek qw[,n]]` | VU1 host simulator / capture decode |
 | `--vehicle-check` | drive-model property tests, exit 0 = pass |
-| `--blss-train`, `--blss-eval`, `--blss-emit`, `--blss-coverage` | neural upscaler, headless |
 | `--chat-prompt [dir]`, `--search-docs "<q>" [page]` | AI Assistant prompt / doc search (exit 1 = no match) |
 | `--pad <dir> "<script>"` (or `--file`/`--stdin`) | drive the RUNNING game's pad, no focus |
 | `--ui-script [dir] "<script>"` (or `--file`/`--stdin`) | drive the EDITOR's UI by widget name, no focus |
@@ -103,7 +102,7 @@ Refresh → provision PS2DEV/VU tools → sync engine, rebuild `libtyra` if chan
 ## Driving and capturing (no human)
 
 - **Game pad**: `TYRAX --pad <dir> "stick r 110 0; wait 1.5; neutral"` — steps `press cross [s]`, `hold up`, `release up|all`, `stick l|r x y`, `wait s`, `neutral`, `pad 1|2`. Debug build, *Remote Pad* on. The game reads only analog sticks. On Windows read the driver's stderr + exit code; `Start-Process -ArgumentList` mangles `;` scripts. → `references/screenshots-and-pad.md`.
-- **Editor UI**: `TYRAX --ui-script <dir> "frames 20; dump"` first, then `click 'Window/Label'`, `expect-checked`, `drag <target> dx dy [left|right|middle]`, `wheel`, `text`, `key`, `shot`. Pair state-changing clicks with an `expect`; select tabs before their contents; `frames 60`–`90` after `wheel`. PowerShell: script in double quotes, targets in single. → `references/ui-script.md`.
+- **Editor UI**: `TYRAX --ui-script <dir> "frames 20; dump"` first, then `click 'Window/Label'`, `expect-checked`, `drag <target> dx dy [left|right|middle]`, `wheel`, `text`, `key`, `shot`. Menus: `click 'TyraX menu'; click Tools; click 'Remote Pad'` (the logo button; a step naming a menu opens it itself). Pair state-changing clicks with an `expect`; select tabs before their contents; `frames 60`–`90` after `wheel`. PowerShell: script in double quotes, targets in single. → `references/ui-script.md`.
 - **Screenshots from outside**: Windows `scripts/screenshot-window.ps1 -ProcessId <pid> -PrintWindow -Auto [-Trim]` (`-PrintWindow` whenever anything may cover the window — GDI reads the SCREEN and once captured the owner's browser); `-Watch DIR` = contact sheet + changed-pixel table. Linux/Wayland `scripts/wayland-control.py shot|script|watch` (mutter D-Bus; no per-window capture → `--area`). Editor self-capture: `TYRAX_SHOT=<dir>`.
 - **Synthetic keys into PCSX2** (only for PCSX2's own hotkeys): wayland-control.py `key`/`keydown`/`keyup` on Linux; ALT-tap + `AttachThreadInput` + verified foreground on Windows.
 
@@ -136,7 +135,7 @@ idle shot → wait 3 s → idle shot (**control**, ~600 px status-bar noise) →
 | `editor-build.md` | editor build failures, deps/pinned SHAs, platform parity, build timing, native incremental-build regressions, scene-object iteration |
 | `cli-and-codegen.md` | `--new` fixtures, `--refresh-gen` vs `--build` (texbake!), GI / bake-status / model AO / pre-lit bakes, vehicle + procedural bakes in refresh, far vehicle tier, codegen inspection, format versioning & migrations |
 | `host-harnesses.md` | link lines for scratch `main()` harnesses: pure modules, `App` privates, offscreen GL viewport, menu styles + Classic pixel identity, collaboration sessions, log panels, Live Logic, editor audio |
-| `vu-and-blss.md` | `--vu-check` (falsify it), 2x2 skew rule, `--vu-replay`, VU1 packet capture (`arm-vucap.py`, `--dump-vucap --full/--peek`), BLSS train/eval/coverage, `--threads` determinism, interlock |
+| `vu-and-blss.md` | `--vu-check` (falsify it), 2x2 skew rule, `--vu-replay`, VU1 packet capture (`arm-vucap.py`, `--dump-vucap --full/--peek`), verifying the upscaler (codegen greps, frozen-camera `upscaler-lab` A/B), interlock |
 | `e2e-pcsx2.md` | Layer 3 pipeline, host prep, ADPCM loop byte, toolchain image, incremental-build evidence, PCSX2.ini/path traps, emulog vs log.txt, `--capture-frame` details, rendering-correctness rules, settle tests, savestates/GS dumps (`pcsx2-capture.py`), crashes |
 | `screenshots-and-pad.md` | `--pad` (and its Windows traps), synthetic input, `screenshot-window.ps1` (GDI vs PrintWindow, `-Watch`), `wayland-control.py` (shot/script/watch), `TYRAX_SHOT`, unattended input test, record/replay, two-player |
 | `ui-script.md` | `--ui-script` steps, targets, tabs/combos, Project Preferences, clipped items, trickle/wheel timing, quoting, node canvases |
@@ -150,3 +149,12 @@ idle shot → wait 3 s → idle shot (**control**, ~600 px status-bar noise) →
 | `ai-and-packages.md` | AI Assistant (prompt, harness, fake backend, traps), update check, Windows installer, Linux packages, self-update |
 
 Bundled scripts (`.agents/skills/tyra-testing/scripts/`): `screenshot-window.ps1`, `wayland-control.py`, `arm-vucap.py`, `pcsx2-capture.py`, `motion-gate.ps1` + `motion-gate.py` + `routecam.cpp`, `make-shadow-fixture.ps1` + `shadow-ab.ps1` (+ `shadow-ab.lib.ps1`).
+
+## TyraX 2.0 integration
+
+The editor is 2.0.0; the combined project format is 114. Read
+[TyraX2 integration notes](references/tyrax2-integration.md) before changing
+frame ownership, pipeline recording or the associated acceptance tooling.
+The TyraX2 performance investigation is closed: the notes summarise its
+conclusions and pitfalls, and its lab scripts and raw evidence are only in
+git history.

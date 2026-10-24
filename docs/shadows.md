@@ -1,10 +1,10 @@
 # Shadows
 
 Three shadows an OBJECT can cast, chosen **per object** in *Properties >
-Dynamic shadow* — plus a fourth thing further down this page, which is about a
+Shadow* (**Auto · Off · Blob · Live · Baked**) — plus a fourth thing further down this page, which is about a
 LIGHT rather than an object ("Spot-light shadow volumes"):
 
-| | Blob | Projected silhouette | Baked (decal) |
+| | Blob | Live (projected silhouette) | Baked (decal) |
 | --- | --- | --- | --- |
 | What it is | one soft dark quad that follows the ground under the object | the object rendered a second time (64×64, from the sun) and projected under itself | the shadow traced once on your machine and projected onto whatever is under it |
 | Shape | a baked/picked top-down mask per object; round fallback when none is assigned | the real silhouette, animation included | the real silhouette, with a real penumbra |
@@ -12,7 +12,8 @@ LIGHT rather than an object ("Spot-light shadow volumes"):
 | Cost | one 18-triangle / one-package patch | a second render per frame, **four casters at a time** (the nearest to the camera win) | one submit per atlas page, whatever the shadow count |
 | Good for | crowds, small props, anything you want grounded | hero objects | static scenery, and anything standing on a textured floor or against a wall |
 
-They are not the same thing as **"Cast shadow"** further down that panel, which
+They are not the same thing as **Contact shadow (AO)** further down that panel
+(it was called "Cast shadow" before 2.0 and was taken for this choice), which
 is the *baked* ambient occlusion ([ambient-occlusion.md](ambient-occlusion.md)):
 that one is painted into the lighting at build time and never moves. Nor is it
 the flashlight's own shadow machinery, which is a separate system with its own
@@ -22,37 +23,60 @@ gives it: a torch held at the eye hides its own shadows behind whatever casts
 them, by geometry rather than by any bug (flashlight.md, "How much of a volume
 shadow you will actually SEE").
 
-## The choice, and what "Default" means
+## The choice, and what "Auto" means
 
-*Properties > Dynamic shadow* offers **Default / None / Blob / Projected
-silhouette / Baked (decal)**, and Default is what every project did before the
-choice existed:
+*Properties > Shadow* is one segmented row, **Auto / Off / Blob / Live /
+Baked**, with a line under it saying what the picked one costs (a vehicle gets
+the first four: a baked shadow cannot follow it). Auto is what every project did
+before the choice existed:
 
 - a **blob** under the things that MOVE — the third-person avatar, animated
-  models and physics bodies — while *Preferences > Rendering > Blob shadows
+  models and physics bodies — while *Preferences > Graphics > Blob shadows
   under moving objects* is on;
-- a **projected silhouette** where the object's *Projected shadow (live)*
-  checkbox is ticked (that checkbox is still there, and still what an existing
-  `.tyra` carries).
+- a **projected silhouette** where the object's *Also a live silhouette*
+  switch is on (shown under Auto; it is the old *Projected shadow (live)*
+  checkbox, and still what an existing `.tyra` carries).
 
 Picking anything else overrides both, in both directions:
 
 - **Blob** works on a **static** prop too, and with the project preference
   **off** — the moving-things rule only gates the default. This is the answer
   to "I want this model grounded, but not at the price of a silhouette render".
-- **None** keeps an object out of both systems even when the preference is on
+- **Off** keeps an object out of both systems even when the preference is on
   and the checkbox is ticked.
-- **Projected silhouette** casts one whether or not the old checkbox is set.
-- **Baked (decal)** leaves both runtime systems and takes the static route
+- **Live** casts the projected silhouette whether or not the old switch is on.
+- **Baked** leaves both runtime systems and takes the static route
   below instead. It needs a bake and it needs the caster to stand still.
 
 Lights and markers never cast either kind, whatever the mode says.
 
+### A blob on a model floor
+
+Since 1.177.13, a blob lies on whatever is under its caster. That can be
+the terrain or a road, as before, or the top of a solid scene object such as a
+model floor, a terrace or a crate. It uses the same receivers as the
+projected patch (`projCollectReceivers`, objects with collision whose top is
+at or below the caster's base). Before that, the blob asked only the terrain
+and the roads. In a scene built from model floors with the terrain off, such
+as Showcase, the ground came back as the void. Every caster then stood
+miles above it, and the height fade hid the blob on its first frame. Showcase's
+keeper set to Blob drew nothing at all.
+
+The blob still fades with height. It is at full strength on the ground, gone
+3 units up, and linear in between. A hovering caster gets a faint one: the
+keeper floats ~1.45 units over the promenade and gets about half. Over an
+object's top the road-step lift is skipped, because it measures each corner
+against the terrain and would pull the neighbouring ground corners up to the
+object's height.
+
 ## Baked blob shapes
 
-Choose **Blob**, then use **Blob shape** in the same Rendering section. Every
-renderable scene object can pick an existing project PNG or press **Bake blob
-shape**. The bake rasterises the object's top-down triangles into a soft
+Choose **Blob**, then pick the **Blob shape** right under it: **Round** (a
+vehicle shows **Automatic**, the silhouette its import baked), **From mesh** or
+**Image**. From mesh bakes at once (and offers **Re-bake from mesh** after a
+model edit); Image opens a picker over `res/textures` with a filter field and
+**Import image...**, which copies a PNG from anywhere into
+`res/textures/blob-shadows/`. The bake rasterises the object's top-down triangles into a soft
 128x128 alpha mask under `res/textures/blob-shadows/`; static OBJ models and
 primitives use their authored mesh, while animated GLB/FBX models use frame
 zero. The stored X/Z footprint keeps rectangular objects rectangular after the
@@ -111,6 +135,20 @@ units into the terrain (the usual way to plant one) drew a full shadow on
 both sides of itself. The silhouette render lifts every vertex below the
 floor up to it, for that render only: a box loses exactly its underground
 part, a model's underground part flattens to a sliver at floor level.
+
+**The clamp buffer is per caster (1.177.8).** The lifted copy used to be one
+buffer shared by every part of every caster, so rewriting it waited for every
+reader with `Vif1Queue::drain()` - with the VIF1 queue and the frame pipeline,
+the whole frame so far. Showcase's patrolling keeper (one ~1 000-triangle part,
+below its floor every frame) paid that drain every frame: on a physical PS2 the
+silhouette took 21.3 ms of a 35 ms frame while the GPU sat idle 42% of the time.
+Each caster bag now keeps its own copy (`projClampCache`), rewritten in place
+with no wait - a bag draws it once per frame, and the previous frame no longer
+reads it (the pipelined frame snapshots mutable REF payloads at submit; without
+the pipeline the frame ends on a GS finish). Only a size change, which
+reallocates, still drains; a still caster keeps its bytes and bbox stamp too.
+Same ELF, Showcase entrance, lean rig: silhouette 21.3 -> 2.7 ms, frame period
+35.1 -> 21.0 ms (28.5 -> 47.7 fps); the frame is now GPU-bound (idle 42% -> 3%).
 
 ## What it costs
 
@@ -269,7 +307,14 @@ one, lowering it keeps the slots for what is near. The `.tyra` carries
 
 **Which four win** within that reach (1.71.1): only casters inside the
 camera's view cone are candidates - a radius and a half of margin, so a
-caster at the frame's edge still counts - and they
+caster at the frame's edge still counts - or casters whose **shadow** lies in
+the view cone (2.2.0): the footprint each light would lay, the same ray down to
+the ground and the same capped patch the slot draws, for the sun or moon and
+for every lamp in reach. Before that, walking past an obelisk turned it out of
+the frame while the shadow a low lamp threw from it still lay across the
+screen, and the shadow switched off mid-picture. A caster behind the player
+whose shadows lie behind the player too still qualifies for nothing. The
+candidates
 are ranked by how big they are on screen, distance over bounding radius, so
 the shed twelve units off outranks a crate at ten. Raw camera distance used
 to decide it, and the slot's own log showed the yard's four slots held by
@@ -324,6 +369,9 @@ docs/backlog.md. What is known: it is not EE work. What the EE still does for a
 parked blob is one frustum test and one submit. The 0.35 ms is `vif_wait`
 (VU1/GS), and drawing it with the shared generic 64x64 texture changed nothing
 (docs/vehicles.md, "Per-car EE cuts").
+Since 1.177.13 a rebuild of the patch also makes one pass over the scene objects,
+to find the solid tops under it ("A blob on a model floor"). A still caster
+skips that pass along with the ground queries.
 
 ## Baked (decal)
 
@@ -355,7 +403,7 @@ Two things follow from that, and they are the whole reason to reach for it:
 
 1. Turn the feature on in *Ambience Editor > Baked lighting > **Baked
    shadows***.
-2. Set *Properties > Dynamic shadow* to **Baked (decal)** on the objects that
+2. Set *Properties > Shadow* to **Baked** on the objects that
    should cast one.
 3. Press **Bake this scene** (or **Bake all scenes**) in that same section.
 
@@ -494,7 +542,12 @@ something.
 - **Follow the clock.** The bake is at one hour, the same
   `ambience::bakedHour` the GI bake uses ([day-night-cycle.md](day-night-cycle.md)).
   With the day/night cycle running, the sun sweeps and a baked shadow does not.
-  Use the projected silhouette there.
+  Use the projected silhouette there. While the cycle runs and the sun is
+  below the horizon (the moon owns the light), the game draws neither the
+  baked decals nor the ground maps below: a night ground darkened by a sun
+  that is not up is wrong, and on a PS2 night drive the ground maps alone
+  were ~1.7 ms of EE time a frame (2026-10-13). Without the cycle they always
+  draw, as before.
 - **Double up with a lightmap.** Where a scene has a fresh GI bake, the sun's
   shadow is already in the terrain map and in every untextured primitive's
   atlas region. The projection **skips those receivers** — automatically, in
@@ -621,6 +674,21 @@ On Motor District's main scene that is 932 decal triangles instead of 713,
 
 ### Ground shadow maps
 
+Since 1.173.3, generated games preload and retain a scene's complete ground-mask
+set during scene loading when it fits a 512 KiB accounted EE-memory budget.
+The estimate includes Indexed4 pixels, the palette and 1 KiB per mask for
+ownership/alignment overhead; this is not a VRAM reservation or a bound on
+temporary PNG-loader allocations. Each chunk still owns its ordinary texture
+reference, and the scene's extra references are released on terrain reset,
+including transitions to terrain-disabled scenes. This prevents small scenes
+from synchronously opening/decoding PNGs when driving reveals another chunk.
+Over-budget scenes retain the existing streaming behavior, with no missing
+shadows or changed rendering. Unexpected replacement texture formats abort
+the preload and release its pins. No project-format or setting change is needed;
+rebuild the game from the updated editor. See the
+[physical hitch investigation](tyrax2-road-free-hitch.md).
+
+
 *Ambience Editor > Baked lighting > Ground shadows* (1.163.0). Off by default.
 At 64 or 128 px, the **terrain** stops being a decal receiver. It gets one
 4-bit shadow map per terrain chunk instead (16×16 heightmap cells, the chunk
@@ -722,6 +790,52 @@ older cache still reads. texbake writes them to `.res-baked/gshadow/` as
 `s<scene>_<cx>_<cz>.png`. Codegen emits `GROUND_SHADOWS_ON` and a per-scene
 chunk flag table in `shadow_data.gen.hpp`, but only when some scene has a map,
 so other projects regenerate byte for byte.
+
+#### Folded into the vertex colour (1.177.0, opt-in)
+
+Measured on the physical PS2 by day (Motor District, one ELF cycling pass /
+fold / no pass, rig DG13): the fold saves 0.24 ms parked and 1.03-1.13 ms
+driving, the same as removing the pass. The parked shot differs in 1542
+pixels ([pass | fold | diff](img/ground-shadow-fold-ps2.png)). Shadows right
+beside buildings soften - check those views on a TV before relying on the fold.
+
+The Motor District shipped it on for a day and it was turned OFF again in
+1.177.6: on a TV the folded building shadows read as "extremely poor" (soft
+blobs on a 4-unit grid, thin ones gone). Re-measured on the PS2 with the
+example's own input recording replayed (`recordings/record.tyrarep`, one ELF
+per arm, fold / pass / fold / pass): mean frame work 6.51 / 6.90 / 6.50 /
+6.91 ms driving, 8.85 / 9.60 / 8.85 / 9.60 ms parked, missed vsyncs 16-18 in
+every arm - the pass costs 0.4-0.75 ms and the district still holds 60 fps.
+
+*Ambience Editor > Baked lighting > Ground shadows > Fold into the terrain
+colour* (`bakedShadowGroundFold`, format v97, written only when on) keeps the
+maps as the source and drops the pass: while the terrain chunk is built, each
+heightmap node takes the masks' mean over the cell-sized box around it, and that
+share of its shade falls to the ambient-only level (`brightness x ambient`).
+Base and splat layers both shade through it. The shade cache stays
+sun-independent, so a sunset (the same `daynight` gate the pass has) only
+re-colours the chunks, inside the streaming budget; at night the chunks build
+without the fold and the pass stays gated off as before. Codegen emits
+`GROUND_SHADOW_FOLD`; `g_groundShadowFold` is the runtime switch the test rig
+flips before a scene rebuild.
+
+What the pass costs, measured on a physical PS2 (2026-10-20, Motor District,
+day, lean rig, same ELF, pass / no pass alternating per cycle): parked work
+9.57 -> 9.33 ms, **driving work 10.59 -> 9.46 ms**. A folded chunk draws exactly
+what the no-pass arm drew, so that is also the fold's price. At night every
+terrain pass is already free (the sun's pass is gated, the AO and emissive
+terrain passes cost nothing measurable there: 10.36 / 10.50 / 10.32 ms driving).
+
+What it costs in the picture is resolution: the district's heightmap is 81x81
+over 320 units, **4 units a node**, against the masks' 0.5-unit texels, and
+LOD chunks take every 2nd or 4th node. Building shadows become soft blobs
+with ~4-unit edges; a lamp post's shadow disappears. Over the most shaded
+chunk the folded alpha is off by more than a quarter on 2.6% of the texels
+(mean error 0.04). At the rig's parked spawn view the frame differs in 0.8% of
+the pixels, much like leaving the shadows out entirely (0.7%) - that view
+holds almost no ground shadow, so it cannot judge the trade. The district
+keeps the pass; the fold is the option for a scene whose terrain grid is fine
+enough for its shadows, or one that needs the millisecond more than the edges.
 
 ### A caster that is too big
 
@@ -832,10 +946,10 @@ its own occlusion per pixel, exactly the way the player's torch does
 the wall and the alley behind it equally — the cone is a lighting term and
 nothing stops it.
 
-Switch it on project-wide in *Preferences > Rendering > **Spot light shadow
+Switch it on project-wide in *Preferences > Graphics > **Spot light shadow
 volumes***, and override it on any one light in *Properties > Point light >
 **Shadow volumes*** — **Default (follow the project) / Off / On**, the same
-tri-state idiom as *Dynamic shadow* above. The override only means anything
+tri-state idiom as *Shadow* above. The override only means anything
 while *Spot (cone)* is on; a point light has no cone to carve.
 
 **What gets carved is the lamp's ground pool and its light on the solids in
@@ -903,7 +1017,7 @@ one you get depend on where the camera happens to be.
   and a lamp's receiver is one patch, so there is nothing to interleave.)
 - **Casters follow the same rules as the torch's**: everything solid inside the
   cone, nearest first, at most four, nothing bigger than a grouping cell, and
-  nothing whose *Dynamic shadow* is **None** — that setting now keeps an object
+  nothing whose *Shadow* is **Off** — that setting now keeps an object
   out of the volumes too, for both lights.
 
 ### In the editor
@@ -912,8 +1026,8 @@ The viewport previews the carve in **Solid** shading (the default): the spot
 that would hold the slot in the game — the nearest to the editor camera among
 the dynamic spots that resolve to "on" — shadows through the same casters the
 game's `pickVolCasters` would pick (everything solid in its cone, nearest four
-to the light, nothing grouping-cell sized, nothing whose *Dynamic shadow* is
-None), while every other dynamic light keeps the older preview rule (its
+to the light, nothing grouping-cell sized, nothing whose *Shadow* is
+Off), while every other dynamic light keeps the older preview rule (its
 nearest four *Cast shadow (projected)* objects). Two honest differences: the
 preview's shadow is the analytic box or sphere the AO occluders use, where the
 console extrudes a model's real triangles, so a tree throws a box; and there
@@ -957,6 +1071,30 @@ is **resolved**, not read off the project switch, because the two disagree in
 both directions: a light overridden to On in a project with the setting off
 still needs the band, and a project with the setting on but no spot light
 anywhere must not allocate one.
+
+### A still lamp keeps its volumes
+
+A scene spot's shadow volumes are a function of the light, its reach and its
+casters' placement - none of which moves for a street lamp over parked props -
+plus one camera test per triangle that sorts it into the front or the back
+count list (the GS has no face culling). So the carving lamp's world-space
+volume triangles, each with its outward normal and centroid (`VolTri`), are
+captured once (`g_volCapture`) and replayed against every frame's camera
+(`classifyVolTris`), in emission order and with the same 3997-vertex backstop.
+The key is the light position, its range, the picks and each pick's box,
+object index, type, position, scale and model; any change captures afresh. The
+count bracket, its scissor rect and the receiver pass are unchanged - they are
+the GS's work and the camera's. The torch moves with the eye every frame and
+keeps the old path.
+
+`TYRA_SPOT_VOLUME_KEEP` (0 = re-extrude every frame) is the A/B knob and
+`TYRA_SPOT_VOLUME_KEEP_VERIFY` the oracle: the emitters run again and both
+lists are compared to the byte (`SPOTVOLKEEP`). On the night-walk fixture (the
+yard's street light switched to *Shadow volumes: On*, cone 60 degrees, the
+torch off, 250 volume triangles) it compared 0 mismatches in PCSX2.
+On the physical PS2 (same fixture, one ELF alternating the keep per cycle,
+17 cycles, PAL) keeping the volumes saves 0.20-0.22 ms of frame work in every
+window (parked 7.557 -> 7.341 ms, walking 7.727 -> 7.515 ms).
 
 ## On disk
 

@@ -8,19 +8,9 @@
 
 // Baking a procedural graph down to something a PlayStation 2 can afford.
 //
-// The console never sees instances. Every StaPip submit costs ~0.7-1.5 ms of
-// fixed EE overhead on real hardware regardless of vertex count (see the
-// static-batching notes in templates.cpp), so "draw one tree 500 times" is not
-// a rendering strategy on this machine - 500 submits is 500 ms. The bake
-// therefore MERGES the instances of one asset inside one world chunk into a
-// single static mesh and writes it as an ordinary .obj under res/models. From
-// there the existing pipeline does everything: texbake quantizes the textures,
-// bakeStaticModels turns it into a .tmdl with distance LOD tiers, codegen emits
-// it in the scene table, the engine frustum-culls it per chunk.
-//
-// That is the whole trick: the output of a procedural graph is indistinguishable
-// from hand-placed static geometry, which is why nothing downstream of this
-// module knows the feature exists.
+// Merged output writes ordinary chunk meshes. Instanced output shares source
+// geometry and stores placements separately; its total placement triangle sum
+// is neither resident geometry nor a per-frame GPU measurement.
 namespace procbake {
 
 // What one bake produced (or would produce - see estimate()).
@@ -28,8 +18,13 @@ struct Report {
     int volumes = 0;      // scatter volumes baked
     int chunks = 0;       // chunk objects written
     int instances = 0;
-    int triangles = 0;
+    int triangles = 0;  // all placements at near detail
+    int sharedTriangles = 0;  // instanced: unique near + authored far meshes
     size_t vertexBytes = 0;  // rough PS2 RAM for the merged geometry
+    // Output "Draw as: Instanced": no chunks; `models` distinct source models,
+    // vertexBytes = one shared copy of each + the per-instance table.
+    bool instanced = false;
+    int models = 0;
     bool overBudget = false;
     std::vector<std::string> warnings;
     std::string error;  // non-empty = nothing was written

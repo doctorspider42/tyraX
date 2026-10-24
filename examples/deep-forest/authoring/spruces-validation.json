@@ -1,0 +1,110 @@
+{
+  "spruce-a.obj": {
+    "triangles": 58,
+    "minimum": [
+      -0.4788,
+      0.0,
+      -0.493634
+    ],
+    "maximum": [
+      0.57,
+      3.0,
+      0.493634
+    ],
+    "materials": [
+      "bark",
+      "needles"
+    ],
+    "closed_components": 6
+  },
+  "spruce-a-lod.obj": {
+    "triangles": 12,
+    "minimum": [
+      -0.4788,
+      0.0,
+      -0.493634
+    ],
+    "maximum": [
+      0.57,
+      3.0,
+      0.493634
+    ],
+    "materials": [
+      "bark",
+      "needles"
+    ],
+    "closed_components": 2
+  },
+  "spruce-b.obj": {
+    "triangles": 56,
+    "minimum": [
+      -0.422183,
+      0.0,
+      -0.395921
+    ],
+    "maximum": [
+      0.448913,
+      3.34,
+      0.384688
+    ],
+    "materials": [
+      "bark",
+      "needles"
+    ],
+    "closed_components": 7
+  },
+  "spruce-b-lod.obj": {
+    "triangles": 12,
+    "minimum": [
+      -0.422183,
+      0.0,
+      -0.395921
+    ],
+    "maximum": [
+      0.448913,
+      3.34,
+      0.384688
+    ],
+    "materials": [
+      "bark",
+      "needles"
+    ],
+    "closed_components": 2
+  },
+  "spruce-c.obj": {
+    "triangles": 56,
+    "minimum": [
+      -0.503981,
+      0.0,
+      -0.492331
+    ],
+    "maximum": [
+      0.542851,
+      2.72,
+      0.490358
+    ],
+    "materials": [
+      "bark",
+      "needles"
+    ],
+    "closed_components": 5
+  },
+  "spruce-c-lod.obj": {
+    "triangles": 12,
+    "minimum": [
+      -0.503981,
+      0.0,
+      -0.492331
+    ],
+    "maximum": [
+      0.542851,
+      2.72,
+      0.490358
+    ],
+    "materials": [
+      "bark",
+      "needles"
+    ],
+    "closed_components": 2
+  }
+}

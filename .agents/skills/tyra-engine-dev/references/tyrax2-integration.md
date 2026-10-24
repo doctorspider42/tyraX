@@ -1,0 +1,3615 @@
+# TyraX2 integration reference
+
+Preserved TyraX2 branch engineering and acceptance notes. The current SKILL.md
+and its focused references govern editor UI, platform and build conventions;
+version numbers below describe historical branch snapshots.
+
+# Working on the in-tree Tyra engine fork
+
+## The TyraX2 performance investigation (closed)
+
+The investigation into why Vehicle Playground and Motor District miss 60 fps
+on a real PS2 is closed. Its write-ups are the `docs/tyrax2-*.md` pages (start
+with `docs/tyrax2-architecture-audit-2026-10-20.md`; `docs/backlog.md` has the
+summary). Its fixtures, logs, captures, measurement JSON files and the
+`tools/tyrax2-*` / `tools/verify-*` lab scripts were removed from the
+repository when it closed; they are only in git history. Older notes below
+that name one of those scripts or an evidence directory describe how a
+result was obtained, not something you can run today.
+
+What an engine developer should take from it:
+
+- **The frame is EE-bound.** VU1 idles for about half of a frame. The cost
+  is per-bag, per-frame preparation on the EE (bounds, light selection,
+  uniforms, snapshot copies, packet assembly) and runtime lighting of static
+  content. Trimming VU1 or GS work measures at noise. Baking what the EE
+  re-derives every frame is what paid off.
+- **No single bottleneck.** The critical-path census found some missed
+  refreshes where VU1/GS were ready but waiting on VIF (the VIF end-wait can
+  include XGKICK backpressure), and others where the EE simply finished
+  late.
+- **The resident VU1 program set is full.** The selected main set uses 2034
+  of 2048 instruction words plus 6 for FINISH, leaving 8. Do not add a large
+  VU job or evict program classes without proving the new set fits and is
+  actually admitted at runtime.
+- **A smaller stream is not a faster frame.** Compact VIF input (V3_32 with
+  constant W and masks) cut payload by about 8% but was 0.1 ms slower,
+  because the cold rebuild got more expensive. Fewer clip inputs (sky
+  bounds), fewer admitted bags (reflection target gate) and fewer transforms
+  (pool lattice) were also slower or flat on hardware.
+- **Rejected or not promoted, with the reason:**
+  - Early publication of the environment prefix: correct, but 1 ms slower
+    and down to about 50 Hz.
+  - Precomputed terrain normals and effective neighbour-LOD keys: correct,
+    about 0.05 ms each.
+  - Event-driven idle audio, moving-wheel local VU meshes, prepared road
+    replay: each correct, 0.1-0.5 ms, still 56-59 Hz.
+  - Object-head compiler (A33), hot head bypass (A34), early-Core world
+    tickets (A35): correct, but flat or 0.5 ms slower.
+  - Direct world cells (A44): 1.17 ms faster, but only with a private
+    producer; kept private.
+  - Coarse partial-strip routing (A30): 0.7 ms, kept private. Bounded VU
+    clip output ring (A29): 0.04-0.67 ms depending on coverage, kept private.
+  - Independent VBlank Hybrid2 copy (A41) and ready-present polling (A39):
+    no net gain.
+  - Triple buffering (Hybrid3, A38/A40): better presentation cadence, same
+    EE work. Not an EE fix.
+  - Header micro-fixes (A26), clip-consumer bypass (A25), clip grouping
+    (A24), clip-command and clip-plane memos (P03, P08): within drift or
+    slower.
+- **Shipped from it:** partial baked replay and the expansion cache
+  (1.173.1), partial-strip terrain refinement (1.173.2), ground-mask
+  preload (1.173.3), the TEX1 filter-order fix (1.173.4: `setInfo` must run
+  before `sendObjectData`, so TEX1 encodes the current bag's filter, not the
+  previous one), stable pre-shake terrain focus (1.173.5), single-pass chain
+  recording (1.176.1), native-sizing reuse and Memo16.
+
+Engine pitfalls the investigation paid for:
+
+- TTE `packet2_chain_open_cnt` leaves the next write at tag+8, not tag+16.
+  Fill its two VIF slots (two NOPs for a flattened VIF prefix) before raw
+  qword payload copies, or `close_tag` traps on alignment.
+  `packet2_add_data` counts **qwords**, not bytes.
+- PS2SDK leaves DMA tag padding bits 16-25 untouched. Replay and byte
+  comparisons must preserve them; checks must mask only real control bits.
+- The GS `IMR` is write-only: a direct MMIO read returns the CSR mirror.
+  Never read-modify-write it; use `GsGetIMR`/`GsPutIMR` on the main thread
+  and never call a kernel syscall inside an interrupt handler. A latched
+  VSINT is not the current blank, and acknowledging CSR by OR clears other
+  pending event bits too, including another owner's FINISH.
+- `Vif1Queue`'s `nativeInFlight` is reset by the next `beginRecordingFrame`.
+  Anything that must identify the previous presentation needs its own
+  sequence; the "submitted" id can already name the next, unsubmitted
+  prefix.
+- Never realloc or move an owned DMA chain without relocating its embedded
+  addresses. Never queue borrowed producer arrays to DMA; borrow them only
+  synchronously while building final owned bytes.
+- A snapshot fallback may submit a raw REF with `sourceCopied=false`, even in
+  a recorded frame. Keep the actual sequence fence; bank leases alone do not
+  protect that source.
+- Ownership attached to a `StaPipBag` must not travel through ordinary bag
+  copies (portal caches assign bags). Reset it on copy and retire the old
+  owner explicitly.
+- Objects drawn between road chunks overwrite absolute VU uniforms. Restore
+  the live view, clip and fog state before each road, not once per road pass.
+- `align3D` while recording only records a barrier. Release textures or
+  sources outside recording, after a real Core/FINISH drain.
+- The visual camera shake must not reach terrain LOD focus: a millimetre of
+  shake across a snap boundary caused 53-55 terrain rebuilds per trip.
+- Ordinary `TYRA_LOG` output can stay active in a fixture whose profiler is
+  off (it cost about 1.1 ms). Audit the active non-NDEBUG branch, not the
+  first macro definition.
+- Any generated paint, clip or VU image file is regenerated by its tool;
+  never patch generated `.vclpp` output by hand. Rebuild engine and game with
+  the same build flags when a flag changes a struct layout.
+- Comparing the same thing across two different ELFs is not a measurement.
+  Price a change with same-ELF arms in both orders on the console; emulator
+  timings and counters (bbox rebuilds, clip counts) differ from hardware.
+- `freepad: DMA Busy` after a scene reload, or a hang after a ps2link reset
+  that follows a long run, needs a human power cycle. It is not, by itself,
+  evidence about the change under test.
+
+## StaPip switches and traps that came out of the investigation
+
+Ground-shadow streaming can load PNGs INSIDE `renderScene`: `buildTerrainChunk`
+calls `acquireTexture`, despite that helper's outside-frame upload comment.
+On the road-free fixture two such acquisitions cost 29.6 ms in one frame (see
+`docs/tyrax2-road-free-hitch.md`; the time includes file, decode and first
+use, not just the network). Do not blame VU dispatch or remove
+synchronization for this event. Since 1.173.3 the generated game preloads
+whole mask sets up to a 512 KiB accounted EE budget while the scene loads;
+larger sets keep the old path. These are scene texture references, not VRAM
+pins; keep chunk ownership independent.
+
+Terrain partial strips: `StaPipBag::refineStrips` defaults false; generated
+terrain opts in on all five bag construction paths (ground shadows remain
+triangle lists, so their path is unchanged). The Core-owned lazy ~198 KiB
+cache holds only local bounds (pointer/count/step/bbox/content version), never
+view decisions or DMA data. Owners must advance a version on position edits
+AND storage reuse. Keep identical package sizes and the same opt-in across
+coplanar strip passes. Only ordinary VU clipping is supported; billboard or
+program overrides and allocation failure fall back. See
+`docs/tyrax2-strip-subranges.md`; do not increase clip capacity to merge
+boundary chunks.
+
+Producer attribution must follow `submitHeavy`/`dripHeavy`: deferred roads and
+batches execute inside the object loop, so tagging only the surrounding loop
+mislabels their Core time. Keep both producer and view on the queued item.
+Snapshot arena copies can mix several bags; leave them unassigned unless
+ownership is proven. Count actual `cull`/`clip` dispatches separately from
+created package descriptors. Terrain was the largest timed producer (about
+3.5 ms of Core time while the camera rotates, 70% of clip chunks at about 11
+input vertices each), even though 98% of expanded strip vertices were already
+reused - more payload caching does not remove dispatches. See
+`docs/tyrax2-producer-attribution.md`.
+
+`renderStaticBatches` is not all static geometry. Reusing descriptors or
+exact-view decisions for a fixed view saved only hundredths of a millisecond
+and was not promoted (`docs/tyrax2-static-plan.md`). Identify the actual
+expensive moving producer before another cache or cluster implementation.
+
+`TYRA_STAPIP_PREPARED_STATIC` is a default-off trial that is not promoted.
+Outside frame recording it prepares static-batch ordinary bodies and strip
+arrays and pins them within the same 4 MiB budget. Release pins before scene
+reload; a version mismatch still invalidates payloads and retired readers stay
+leased. PRIM/LOD state is restored, especially the previous-filter TEX1
+contract. On six PS2 routes it saved nothing (another 0.04-0.06 ms), raised
+peak residency from about 2.8 MB to 4.1 MB and did not reduce bake misses. It
+has no production caller.
+
+Since 1.173.1, `TYRA_STAPIP_PARTIAL_BAKED` and `TYRA_STAPIP_EXPANSION_CACHE`
+default on together. On the PS2 they save about 0.5 ms with counters off,
+copy about half as many snapshot bytes and peak at 2.8 MB of residency. See
+`docs/tyrax2-full-throttle.md`.
+
+`TYRA_STAPIP_EXPANSION_CACHE` borrows versioned strip-to-list arrays from the
+existing 4 MiB baked budget and its retirement leases, using tagged package
+sizes to tell them apart from VIF streams. Preserve triangle parity and the
+fresh clip mask. Cache whole strip runs: the first per-chunk prototype
+overflowed the 512-span registry. Reject a failed registration; never publish
+a permanently copy-only entry. `TYRA_ENVMAP_COALESCE_BARRIER` (which omits only
+the recording-mode env `align3D` duplicated by `recordGif`) had no useful gain
+and stays off.
+
+Partial baked reuse (`TYRA_STAPIP_PARTIAL_BAKED`, default on) keeps
+classification and clipping, prebuilds the original fixed slices with the
+actual writers, and borrows geometry bodies from the existing versioned,
+leased arenas. Regenerate the standard header and MSCAL/MSCNT for the current
+program: cached whole-block entry state is not valid for arbitrary partial
+subsets. `TYRA_STAPIP_PARTIAL_BAKED_VERIFY` compares actual-writer bytes per
+replay; its timings are never performance evidence.
+
+Submission: fused snapshot fixup plus native emission lost in both measured
+orders, and single-lookup immutable borrowing was mixed; neither default
+remains. 1.176.1 shipped a different shape instead: `recordSinglePass` drops
+the preflight AND the tag copy (payloads go into the arena, REFs straight into
+the native writer, with rewind and snapshot fallback on any failure) and won a
+same-ELF A/B (driving 11.07 -> 10.75 ms; `docs/tyrax2-night-ee-2026-10-12.md`).
+Burnout's debugger captures show reusable CALL/RET subchains and compact
+UNPACK formats, not an EE timing comparison. Do not mistake idle TADR or PINE
+MMIO zeroes for a frame chain.
+
+Ordinary timing trap: any nonzero `TYRA_FRAME_PROFILE`, including 2, enables
+the fairness `sync.align3D()` drain in `RendererCore::endFrame`. Level 2 drops
+the packet walker but still serializes completion, so a matching HUD SCENE
+number does not prove production overlap or cadence. Ordinary-clock timing
+needs FrameProfile and HardwareTrace compiled out. Devkit-off does not
+suppress authored VEH/VEHCONTACT scans or the `Vif1Queue` arena report and
+RAM probe. Emulator elapsed numbers never price the PS2. See
+`docs/tyrax2-closeout.md`.
+
+Trial boundaries from `docs/tyrax2-claude-trials.md`: Core has twelve
+original assertions (the inherited comment says thirteen). Capture
+`clipPackageSize()` only after the original max-vertex setter, and compare
+semantic plane fields, not Vec4 padding. A PMU counter overflow is an
+unmaskable exception: refuse unknown active owners, bound the enabled
+lifetime, and remember that D-side events include uncached loads; PMU bits
+4/14 select USER mode. A start with no log and no loadelf is a deployment
+failure, not a renderer failure. Owned TEX1 preparation must preserve the
+`sendObjectData`-before-`setInfo` filter semantics and the generic mutable
+LOD fallback. Hardware bbox/rebuild counts differ from PCSX2; never carry
+emulator counts into an EE cost claim. Night main-only batching would have to
+preserve solo reflection carriers and reconcile dirty members before
+secondary views clear the dirty flag; forcing `batchStatic` alone is unsafe.
+
+> **A note on `PROGRESS 123` citations.** They point at numbered entries of
+> `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
+> is in git history, and `docs/backlog.md` has the recipe. New work records
+> itself in its commit message and PR body instead.
+
+## Fork policy
+
+`vendor/tyra/engine` is a **versioned fork** of [h4570/tyra](https://github.com/h4570/tyra)
+(Apache 2.0, forked at upstream commit `9273416`), maintained directly in this
+repo. Edit it like normal project code — no patch machinery, no submodule.
+Rules:
+
+- Mark every departure from upstream with a `Modified by TyraX` comment
+  near the top of the file (grep for existing examples:
+  `audio_song.cpp`, `stapip_clipper.cpp`, `planes_clip_algorithm.cpp`,
+  `stapip_qbuffer.cpp`, `render_bbox.cpp`, `vcl_sml.i`).
+- **LF line endings only** under `vendor/tyra/**` — enforced by
+  `.gitattributes`; the `vclpp` VU1 preprocessor chokes on CRLF. Don't fight it.
+  It only fails on files that contain a `#macro`, and the message names a line
+  that is fine (`Preprocessor directive inside macro block: '#endmacro'`), so it
+  reads like a source error rather than an encoding one. Editing tools respect
+  this; a **script** that rewrites these files may not — Python's
+  `Path.write_text()` turns every `\n` back into CRLF on Windows. Write bytes, or
+  check `grep -c $'\r'` afterwards.
+- The rest of `vendor/` (imgui, glfw, imguizmo, imnodes, stb, and tyra's
+  non-engine parts) is git-ignored and cloned by `setup.ps1` / `setup.sh` — never edit those.
+
+## How an engine change reaches the game
+
+You don't rebuild the engine by hand. The editor's Runner (`src/runner.cpp`)
+does it on every game build (F5 or `tyrax-editor.exe --build <projectDir>`):
+
+The native default syncs `vendor/tyra/engine` into a user cache and rebuilds it
+with pinned PS2DEV/OpenVCL; its toolchain stamp invalidates stale objects. The
+Docker fallback retains the previous sequence:
+
+1. `vendor/tyra` is bind-mounted **read-only** at `/engine-src` in the
+   project's container (service `compiler`, container `<name>-compiler-1`).
+2. The Runner checksum-rsyncs `/engine-src` into the shared volume
+   `tyra-engine-<hash of the engine source path>` (mounted at `/tyra`), shared
+   by every project built from the same checkout — parallel worktrees get their
+   own, or they would rsync diverging engines over each other forever. Because
+   it is shared it is declared **`external: true`** in the generated
+   `docker-compose.yml` and created by the Runner (`docker volume create`,
+   idempotent) rather than by compose: a volume compose creates is labelled with
+   whichever project got there first, and every other project then warns on
+   every `up` that it "already exists but was created for project X".
+3. If anything changed, `libtyra` is rebuilt once and the game ELF is dropped so
+   it relinks.
+4. Unchanged engine → the rsync is a no-op and builds take seconds.
+
+**The VU1 microprograms are the expensive special case.** They sit outside
+make's dependency tracking (a `.vclpp` `#include`s `.i`/`.h` files nothing
+declares), so the Runner force-rebuilds them — but only when the rsync reports a
+changed `.vclpp`/`.vcl`/`.vsm`/`.i`/`.h`. Rebuilding the set costs **109 s**
+(measured, `-j6`; `vcl` is slow enough that its optimizer times out on some
+programs and says so). It used to run on *any* engine change, so a one-line
+comment in a `.cpp` paid it in full; now that same edit is a ~7 s build. If you
+ever change what a VU source may include, widen that extension list in
+`runner.cpp` — a missed extension means stale microprograms, which is the kind
+of bug that looks like a renderer bug.
+
+So the loop is: edit a file under `vendor/tyra/engine`, run a game build, and
+the change is in the ELF. No container restarts needed. If the shared volume
+gets into a weird state, `git checkout` inside `/tyra` restores originals (it's
+a git checkout of the fork) — and **Build > Rebuild** (`--build --rebuild`)
+throws away the whole compiled engine, VU1 objects included, and builds it
+again from source.
+
+Native incremental builds track `bin/libtyra.a` and `bin/<name>.elf`, not missing
+root-level files. The native backend always runs engine make (retries included),
+preserves unchanged Makefile timestamps, and tracks Makefiles as object
+prerequisites. Games depend on the archive, including rebuilds by other projects.
+The shared rule archives `.a` targets; do not add an overriding engine recipe.
+Embedded IRX data is assembled with `-call_nonpic` to match PS2DEV v2 EE CPIC
+objects. Binary payloads remain unchanged; ABI mismatch warnings are not silenced.
+
+`vendor/tyra/Makefile.base` is shared by the engine build and every generated
+game, so an edit there moves both. TyraX changes in it: **`-G0`** (see below),
+single-pass dependency
+generation (`-MMD -MP`; it used to run the compiler a second time per file just
+to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
+reach an absent `bin/`, `rsync -ru` for the resource copy **minus `RESDIR_SKIP`**,
+and **`src/vu/` and
+`src/vu0/` excluded from `SOURCES`** - those are HOST C++ (a project's own VU1
+programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
+by the container's g++, and handing them to the PS2 compiler fails on the very
+first include. A new host-code directory has to be added to that `find`
+exclusion or its first file breaks every build that has one.
+
+**`-G0`, and the link error that names the wrong thing.** Without it the engine
+and the generated game are the only things putting data in `.sdata`/`.sbss`,
+addressed GP-relative through a 16-bit offset (+/-32 KB), and the engine has
+outgrown that window. The failure is not a size error - it is dozens of
+`relocation truncated to fit: R_MIPS_GPREL16 against Tyra::Info::writeLogsToFile`,
+naming a one-byte bool instead of the section that overflowed, so it reads as a
+missing symbol rather than as "too much small data". The DEBUG profile hits it
+first (more inlined logging, more references to that bool), which is why
+**enabling `showFps` on a current project stopped linking at all** and took the
+perf-benchmark recipe with it. ps2sdk compiles its own libraries with `-G0`
+(`Defs.make`), so this is Tyra matching the SDK it links against.
+Historical traps: **the Docker backend requires a rebuild after compiler-flag changes**
+(its Runner only rebuilds the engine when engine SOURCES changed), so a flag
+change needs `--build --rebuild` or you get objects compiled both ways and the
+same error from the stale half. Engine volumes are shared per source checkout,
+so another checkout has an independent cache and needs its own rebuild.
+A third, fixed in 1.81.1 but worth knowing the shape of: **a failed engine
+`make` used to leave the PREVIOUS `libtyra.a` in the volume** with the new
+sources already synced beside it, so the next build's rsync saw nothing to do,
+skipped make, linked the game against the stale library and printed
+`Build OK` - a compile error in the engine read as "the fix changed nothing"
+for four console runs in a row. The Runner now deletes `libtyra.a` when make
+fails; if a Docker build ever says `Build OK` without an `ar rcs bin/libtyra.a`
+line after you changed engine sources, that is the symptom.
+
+Verified
+byte-identical: the same project built with the old and new rules produced the
+same `md5` for its stripped ELF.
+
+**`RESDIR_SKIP` is the resource copy's exclusion list, and it exists because
+`bin/` IS the game's filesystem.** `.res-baked` holds two directories no
+console can read - `gi/` (the global-illumination solve) and `shadow/` (the
+baked shadow decals); what ships is the PIXELS they produce, already beside
+them in `aomap/`, `aoatlas/` and `shadowatlas/`. Copying the caches wasted disk
+on every build and, worse, put them in front of `isoexport`, which walks all of
+`bin/` and would burn a multi-megabyte GI cache onto the disc. A new host-only
+cache under `.res-baked` joins that list AND the matching skip in
+`src/isoexport.cpp` - the second one covers a `bin/` an older build already
+polluted.
+
+## Engine layout
+
+`vendor/tyra/engine/{inc,src}/` mirror each other by subsystem:
+`audio` (audsrv music + ADPCM sfx), `debug`, `file`, `info`, `irx`, `loaders`
+(PNG, obj/md2), `math`, `pad`, `physics`, `renderer` (the big one — 2D, 3D
+static/dynamic pipelines, core GS/VU1 code), `thread`, `time`; plus
+`engine.hpp` / `game.hpp` and the VCL/VU1 sources under the renderer
+(`*.i`, `*.vcl` — preprocessed by vclpp inside the container).
+
+Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
+clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman,
+**the default** clipping mode for new projects since M4; the EE clipper stays
+selectable as "Precise clipping on EE (legacy)" and remains the load-time
+default for pre-M4 `.tyra` files without a `clipping` key — the routing, the
+guard band and the measured numbers are in `docs/vu1-clipping.md`), static
+pools in `stapip_clipper.cpp` /
+`stapip_qbuffer.cpp`,
+`RendererCorePostFx` (bloom + film grain + depth of field + god rays via GS
+blits — god rays (`PassGodRays`, `setGodRays` strength + per-frame
+`setGodRaysSun` screen position/visibility fed by the game) bright-pass the
+frame on the quarter-res buffers (subtract flat threshold 150, double back
+up - 96 washed the whole frame white, the sky IS bright) and iteratively
+zoom it toward the sun (2 ping-pong passes, s=0.72) before compositing
+additively at half the requested strength; bloom
+takes an optional **bright-pass threshold** (`setBloomThreshold`), one extra
+quarter-res sprite subtracting a flat grey from the downsampled frame through
+`(0 - Cs)*128/128 + Cd`; the GS clamps at zero, so sub-threshold pixels drop
+out of the blur and the halo collapses onto emissive materials instead of
+veiling the frame (`docs/emissive-materials.md`), plus a **spread**
+(`setBloomSpread`, 1..4 soften rounds with doubled tap offsets each, buffers
+ping-ponging) that grows the halo into a corona for 4 sprites a round. NOTE the
+postfx `packet2_create` size (512 qwords) is sized for the WORST case of every
+pass at once — a blit is 12 qwords, a flat quad 7; an undersized packet
+corrupts the GIF stream, so grow it whenever a pass gains primitives — DoF
+(`PassDof`, authored in the UI Editor / overridden by the Set Depth Of Field
+flow node) reuses the bloom blur chain and composites the blur back through
+full-screen sprites drawn at real GS depths under the pass's GEQUAL z-test,
+world distance → GS z solved from the shared perspective matrix; it must run
+right after the 3D scene, before ANY 2D — sprites stamp z = max across their
+whole rect and punch sharp rectangles into a later z-tested pass; plus
+`applyCustom()` +
+`RendererCore::applyCustomPostFx()` for user-authored full-screen effects — see
+the editor's custom screen effects, `docs/custom-screen-effects.md`; the effect
+body appends GS primitives through the now-public `blit()`/`flatQuad()` and the
+framebuffer/noise/scratch-buffer accessors, and the engine wraps the state
+setup/teardown + DMA kick), WAV-header-aware song
+player, `bboxVersion` on `StaPipBag` for moving geometry and
+`contentVersion` beside it for arrays REWRITTEN IN PLACE (the baked
+VIF stream inlines the payload, so a re-shade goes stale where a move
+does not - docs/bag-content-version.md; the generated game owns it
+structurally with `BagArray<T>`, whose `data()` is const),
+`StaPipBag::packageSize` (0 = derive) pinning coplanar passes over one vertex
+array to identical package boundaries — see the pitfall below, `Pad::setActuators` (act-direct DualShock rumble —
+the on/off buzz motor + 0-255 heavy motor — behind the Vibrate Pad flow node /
+`padVibrate()` script helper), `LeanObjLoader`
+(OBJ+MTL, host:/cdrom0:-safe; parsing semantics mirror the editor's
+`src/objparser.cpp` — keep the two in sync; parses the `refl` sphere-map
+statement for reflective materials incl. the TyraX `-rounded` flag:
+centroid-radial env normals for flat surfaces; parses `Ke` as the emission
+floor of emissive materials (`docs/emissive-materials.md` - the
+`# tyra-glow*` hint lines are editor-side only, the baked tables carry
+everything the game needs); parses the TyraX
+`# tyra-uvrect u0 v0 du dv` hint the texture-atlas bake writes into baked
+.mtl files (docs/texture-atlasing.md) - model vertex UVs multiply through
+it at load and `LeanMtlMaterial::uvRect` exposes it for the generated
+game's primitive builders; quietly picks up the TyraX
+`<model>.aov` baked-ambient-occlusion sidecar — "TXAO" + u32 count + one
+visibility byte per obj `v` entry, docs/ambient-occlusion.md — into
+per-vertex `vertexAo` bytes the generated game folds into its shade bake),
+**`TmdlLoader`** (`loaders/3d/tmdl_loader/`, docs/model-pipeline.md — the
+binary static-model format the generated game actually loads; the ASCII
+`LeanObjLoader` above is now only the fallback path. Reads the whole file
+sequentially and memcpys each part, because the stored layout IS
+`LeanObjMaterial::vertices` — everything else (triangulation, flat normals,
+material assignment, atlas UV rects, texture paths, LOD tiers) was resolved
+by the editor's `templates::bakeStaticModels`; the layout lives in the
+editor's `src/tmdl.hpp`, **keep the two in sync**. It returns the same
+`LeanObjMesh` so the game keeps one geometry path, with two differences the
+caller must know: texture names are already **cwd-relative** — do NOT prepend
+a directory — and `LeanObjMaterial::lods` may carry decimated tiers, which an
+`.obj` never has (and `LeanObjMesh::shadowVertices`, v3, a positions-only
+shadow proxy the flashlight's volumes extrude when the real mesh is over
+budget). Loading a 9216-vertex model went 286 ms -> 39 ms), per-bag additive blending for the
+reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
+makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
+global GS `ALPHA` register to `Cs*FIX/128 + Cd` through
+`RendererCoreGS::setAlpha`, restoring alpha-over after the bag's own drain;
+superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
+`StoreTyraGifTags*Alpha` — every StaPip mesh's tag block carries its blend
+equation, no barriers; dynpip keeps the original 7/5-qword macros), the
+StaPip `TCE` env program family (matcap ST from normals in the ST slot +
+`StaPipTextureBag::coordinatesAreNormals` + the camera basis at
+`VU1_ENV_BASIS_ADDR`; the EE uploads it transposed and pre-scaled as three
+qwords so VU1 evaluates right/up together in one accumulator chain),
+`RendererCoreShadowMap` (projected silhouette
+shadows: 4 lazy-allocated 64×64 VRAM slots + one shared cleared z, the env
+map's raster-redirect bracket per caster - begin(slot) per caster, ONE end();
+the game re-submits the caster's existing bags under a `pushEnvView` "light
+camera" and draws a terrain patch sampling the slot's VRAM-resident texture
+by light-space UVs; `allocate()` is called by generated games only when a
+project has "Cast shadow" objects, and init() re-places the buffers after a
+display-mode VRAM reset), `RendererCoreAlphaMask` (the shadow
+volumes' destination-alpha mask - the torch's and, since 1.67.0, the frame's
+one carving spot light's, docs/flashlight.md "The shadow" +
+docs/shadows.md "Spot-light shadow volumes"; ONE band and ONE bracket per
+LIGHT per frame, so each user clears, counts, draws its own passes and
+repaints before the next one starts: begin/
+beginKeep/end bracket FBMSK to the alpha bits for the convex 1-bit set/clear,
+repaintAlpha() is MANDATORY after the last DATE pass because the SDTV flicker
+filter displays per-pixel framebuffer alpha - and the COUNTING half for true
+mesh-shaped volumes: allocateCount() claims a raster-sized PSMCT16 count
+target (permanent-region discipline, refusal graceful via countReady()),
+countBegin() redirects FRAME there while ZBUF stays the scene's z (one pixel
+grid, two independent addresses), volume bags count with
+`PipelineInfoBag::additiveBlendFix`/`subtractiveBlendFix` (+N front faces /
+-N back faces, TestOnly z), and countResolve() converts count>0 into the
+alpha MSB with ONE textured sprite - TEXA.AEM=1 makes an all-zero texel
+alpha 0 and anything else TA0=0x80, ATEST!=0 makes the write an OR, and the
+packet restores CLAMP to REPEAT itself because emitRasterRestore does not
+know texture state. The GS cannot count in alpha - blending never writes A -
+which is why the count lives in color channels of a target that is never
+displayed; N=32 clears the 16-bit channel's 8-step quantization plus
+dithering's +-4, so DTHE needs no save/restore. COUNTING RUNS AT BOTH COLOUR
+DEPTHS (the band follows the frame's PSM: PSMCT32/512 KB, PSMCT16/256 KB). It
+was refused at 16-bit for one release over "dashed green marks down two fixed
+screen columns", blamed on the masked write at a PSMCT16 destination; BOTH
+halves of that were then measured on a console and it is neither. A four-mask
+FBMSK probe (flat sprite + a DATE-revealed alpha strip per mask) reads
+IDENTICALLY on hardware and in PCSX2 - 0x00FFFFFF is colour-neutral and its
+alpha half works - and a paired 8-vantage sweep one knob apart put the marks
+on countResolve's TEX0 base: the SLID band base scores 8/8, the band's own
+base 0/8, flipping back 8/8 (A-B-A). The write side slides FRAME by bandY0
+page rows, so the read must NOT slide as well as subtracting bandY0 from V.
+Still open: why texels sampled by an alpha-only masked pass tint the picture
+at all, and why the marks also appear above the band boundary,
+docs/flashlight.md),
+`RendererCoreEnvMap` (128×128 VRAM render target for
+`VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
+(`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot
+one qword of 2×2 basis weights per particle, colors one per particle; VU1
+expands each center into a camera-facing quad — 6 GS vertices — from the
+camera right/up basis at `VU1_BILLBOARD_BASIS_ADDR` transformed by the MVP
+once per mesh, and culls per QUAD with one `clipw` judgement per corner.
+The two programs are RESIDENT whenever they fit (since 2026-09-26, the VU1
+audit): `setProgramsCache` sizes the class set the way `createProgramsCache`
+will pack it (`programSetWords` - even-rounded, a shared image counted once) and
+appends the billboard pair when the total stays under
+`Path1::getDrawFinishAddr()`; `ensureProgramSet` is then a no-op. With clip TD
+on the TC image the all-class VU1-clipping set is ~1740 of 2042 words and the
+pair is 206, so every built-in configuration fits. Only a set a project's own
+programs have grown past that falls back to the old separate packet, swapped in
+on demand and lazily restored by the next non-billboard bag - two VIF1 drains
+plus a ~15.5 KB MPG upload per transition, which the district paid several
+times a frame. The boot log says which case it is (`StaPip VU1 program set: N
+programs, billboards resident|swapped on demand`). Opt-in `StaPipTelemetry`
+records the transition count (`programSetSwaps`, also the frame-cost CSV's
+`Program_swaps_count` row) and full wait/upload ticks, plus cull/clip/outside routes,
+active-plane population, qbuffer flushes, and VIF1/VU1 wait ticks; disabled
+telemetry keeps the AABB early-out and performs no COP0 reads. **Its three
+timing brackets do not cover the whole of `StaPipCore::render`** — the head
+(the fog decision and the thirteen `TYRA_ASSERT`s, which a release game really
+does execute, because no game build defines NDEBUG) and the tail sit outside
+all of them. `TYRA_STAPIP_ATTRIB` in `stapip_attrib.hpp` (default **0**, and it
+must stay 0 in anything shipped) adds a `renderTicks` bracket around the whole
+function plus a six-way split of `prepare`, a five-way split of `bounds` (with
+the bbox cacher's own hit/recalculate/fresh counters, and the per-frame expiry
+scan, which lives OUTSIDE render() and therefore lands in `finish` rather than
+in submission) and a split of the package-creation box inside `dispatch`, so
+"inside render, inside no bracket" is a subtraction rather than a guess —
+docs/render-submission-attribution.md. Unlike the first round's, THESE hooks
+are measurable: +0.122 ms on `bounds` and +0.062 on `dispatch`, so the children
+over-report by 6.3% and 1.1% and one COP0 read prices at ~11 cycles. What the
+split found: the bbox cacher is NOT the cost (226.5 lookups = 0.118 ms, 1.44
+probes each, zero allocations) — 0.618 ms is 10.5 `recalculate()` calls forced
+by a caller that bumps `bboxVersion` every frame; and 22% of `bounds` was
+`StaPipQBufferRenderer::setMaxVertCount` fanning one u32 out to all 32 qbuffers
+once per bag, which now returns early when the value has not moved (−0.34 ms,
+picture byte-identical).
+The C++ side
+must keep the prim giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
+NLOOP stalls the GIF. Billboard bags require multi-color, no lighting,
+frustum culling `None` + no clip checks (the one legitimate `None` — the
+program's per-quad ADC replaces the wrap protection), and a texture bag whose image may
+be null — it carries the params channel; swapping `right`/`up` on the bag
+and re-rendering draws the same centers for another view, which is what a
+portal through-view pass needs), `RendererCore::camFeed` (a second `RendererCoreEnvMap`
+instance for the camera texture feeds — CCTV monitors, docs/
+texture-feeds.md; permanently allocated below every texture like the env
+map, +128 KB VRAM, Clamp wrap because feeds sample through plain surface
+UVs — which also read the raster target UPSIDE DOWN unless the surface V
+flips: GS rows run top-down, texture V grows down from row 0),
+`RendererCoreEnvMap` (128×128 VRAM render target for
+GT3-style dynamic reflections: FRAME/SCISSOR/XYOFFSET/ZBUF redirect bracket
+with a dedicated 128×128 z-buffer — "reflected" scene objects submitted
+inside the bracket occlude correctly — + `RendererCore3D::pushEnvView/
+popEnvView`; exposed as a VRAM-resident `Texture::vramResident` that
+`useTexture` binds without a PATH3 upload — see
+`docs/reflective-materials.md`), `Sprite::additive` (2D sprites can opt into the additive blend equation
+Cs*As + Cd - lens-flare ghosts, glows; Renderer2D pins alpha-over per sprite
+otherwise), **`Sprite::drawSize`** (a per-axis destination size, 0 = the stock
+`size * scale`; it exists because the framebuffer is a different SHAPE per scan
+mode - 512x448 interlaced, 448x448 in 480p, 448x540 in 1080i, 512x512 in full
+PAL - so UI authored in one logical space must be drawn into a differently
+proportioned rect per mode. Neither existing field could express that: `scale`
+is one float, and in `MODE_REPEAT` `size` is the SOURCE rect, so changing it
+would sample different texels. Used by the generated menu compositor -
+docs/menu-styles.md "Resolutions"), **`RendererSettings::getWindowAspect()`**
+(the PHYSICAL shape of the display window on the TV - 4:3, 16:9 when widescreen
+is on, the pillarboxed 1792/1920 window in widescreen 1080i. `updateGeometry`
+already computed it to derive the projection aspect; it is exposed because 2D
+needs it too. Widescreen is ANAMORPHIC, so a sprite gets stretched a third wider
+with nothing to widen it back - anything that must keep its authored proportions
+divides its horizontal scale by this over 4:3, which is what the generated menu
+compositor and the cutscene letterbox masks do), the **scene dynamic lights** registry
+(`RendererCore::dynLights[8]` + `clearDynLights`/`addDynPointLight`/
+`pickDynLight`; the color VU1 programs have ONE spot-light slot per mesh, so
+`StaPipCore::render` picks the strongest contributor - flashlight or point
+light - per bag on its world bounding sphere and routes it through
+`StaPipQBufferRenderer::setBagLight`; a *point* light is expressed through
+the SAME spot-cone constants - zero direction, `cosCut2 = -1`, saturated
+`invSoft` - so no VU1 program changed and no micro memory was spent;
+`PipelineInfoBag::dynLightPick = false` opts a bag out of the pick - the
+generated games set it on TERRAIN CHUNKS (neighboring chunks picking
+different lights truncate a pool in a hard rectangle at the chunk border;
+the lights' ground pools draw as smooth additive patches instead) and on
+the sky dome (camera-centered - a nearby light would tint the whole sky)),
+`docs/reflective-materials.md`), the TyraX portal through-view machinery
+(`RendererCore3D::pushPortalView` — view-matrix-only swap, main projection
+kept, exact frustum planes at the virtual camera — plus
+`RendererCore::portalViewBegin/End` → `RendererCorePostFx::portalMask*`:
+the destination scene renders IN-PLACE into the real framebuffer right
+after the frame clear, scissored to the quad's screen bbox, and the shaped
+opening is carved with reversed-z ops since the GS has no stencil: re-far
+the bbox z, cap the quad interior with a z-only ALWAYS fan at the surface
+depth, repaint the still-far ring via a GEQUAL sprite at z=0 that hits
+exactly the reset pixels; both wrappers drain PATH1 unconditionally and do
+NOT latch the post-fx drain gate; maskEnd's NLOOP is 13 + fan verts; see
+`docs/portals.md`), the **VU0 micromode ray tracer**
+(`renderer/rt/vu0_raytracer.{hpp,cpp}` + `vu0_rt_kernel.vclpp`, exported by
+the `<tyra>` umbrella header — raytraced mirror reflections,
+`docs/raytraced-reflections.md`): the ONLY VU0 microprogram in the codebase —
+built through the same vclpp/vcl/dvp-as pipeline as the VU1 programs but
+uploaded by the EE to VU0 micro memory (0x11000000) and kicked with
+`vcallms 0` per image row, params/results through VU0 data memory
+(0x11004000), sync by polling VPU STAT bit 0 (`cfc2 $29`). VU0-honest
+kernel: no XGKICK/EFU/xtop; branchless nearest-hit via saturation step
+masks (`clamp(x*1e38,0,1)` — VU floats saturate, no inf/nan). Runs
+synchronously: macro-mode COP2 (Vec4/M4x4) shares VU0's register file, so
+the tracer never overlaps engine math, and clobbering VF01+ between kicks
+is safe because every macro op reloads its operands,
+`Texture::sourcePath` (the full load path, set by
+`TextureRepository::add` - `name` keeps only the basename; the generated
+texture hot-reload poller `live_tex.gen.cpp` matches repainted files against
+it and re-uploads via `RendererCoreTexture::updateTextureInfo` to the SAME
+VRAM address - see docs/live-link.md; NOTE the engine always constructs the
+clut `TextureData`, a non-paletted texture just has `clut->data == nullptr` -
+test data presence, not the object pointer),
+`physics/CollisionMesh` (XZ-grid
+triangle collider; `raycast(..., outNormal)` also returns the hit triangle's
+mesh-local normal, which the rigid-body solver's per-corner contacts need -
+docs/physics.md; both queries test the mesh's own box FIRST, because the grid
+clamps an outside query onto its edge cells and would otherwise pay for every
+border triangle - keep that early-out exact: the sphere's reach is radius plus
+the 0.6 crossing band) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
+TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
+`renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
+`rand() % 1000000` object ids (see the pitfall below), **USB keyboard/mouse
+input** (`pad/kbd_mouse.*` — `Engine::kbdMouse` polls the PS2SDK `ps2kbd`
+(raw mode, 256-bit HID-code bitmap) and `ps2mouse` (DIFF mode: per-frame
+deltas + button mask) drivers, loaded by the IrxLoader behind
+`EngineOptions::loadUsbKbdMouse`; `Pad::injectVirtual` overlays a virtual
+pad — held buttons OR into the polled state, click edges derived from the
+previous overlay, stick offsets clamped — which is how generated games map
+keys onto the pad. It takes an overlay **slot** (`Pad::VIRT_SLOTS`, one
+`virtPrev` per slot): 0 is this keyboard/mouse fold, 1 is the editor's Remote
+Pad (docs/remote-pad.md). A second source must never reuse slot 0 — the two
+would each read as the other releasing everything, so every held button
+re-clicks every frame. **`Pad::setState` and `KbdMouse::setState` are the
+OTHER shape and exist for the input recorder** (docs/input-replay.md): they
+REPLACE the polled state instead of merging into it, because a recording has to
+win over whatever a physical controller is doing — a hand resting on a stick
+must not change the run being reproduced. Two details are load-bearing.
+`Pad::setState` re-seeds **every** `virtPrev` slot from the state it wrote, or
+the first frame after a replay ends fabricates click edges out of the
+difference. And `KbdMouse` grew a `forced` flag that `isEnabled()` ORs in,
+because every reader in a generated game gates on it — without it a replayed
+keystroke is silently dropped on any machine with no USB keyboard attached,
+which is most of them; **skipped under ps2link**: ps2kbd/ps2mouse import usbd's
+symbols and drivers added to an already-running ps2link's un-reset IOP never
+come up cleanly (PS2MouseInit then spins forever on an RPC server that never
+registered — a boot freeze on the Tyra logo). The
+`loadUsbKbdMouseUnderPs2Link` option instead targets the **TyraX ps2link**
+(`tools/ps2link` — bakes usbd+ps2kbd+ps2mouse into ps2link's OWN boot; it is
+the ONLY ps2link the editor deploys to, so the option is on by default —
+docs/ps2link-setup.md): the engine then loads NO USB modules and reuses that
+resident stack. `KbdMouse::init(underPs2Link)` guards PS2MouseInit on the
+keyboard device having opened, so running it against a stock ps2link logs
+instead of hanging. Two real-hardware traps found the hard way: PS2MouseData must be
+zero-initialised (a real mouse sends no packet on a still frame, so garbage
+read as a constant delta spins the camera — PCSX2 never shows it) and the
+read mode is set to DIFF explicitly; the IrxLoader gives HID a fixed settle
+delay after load since USB enumeration is async on real hardware but instant
+in PCSX2. **Hardware-unconfirmed** beyond "drivers ready" — the test devices
+didn't speak USB HID boot protocol), **two-player support**
+(docs/multiplayer.md): `Pad::initOptional(port, slot)` (padInit is now
+once-global; an optional pad never blocks or asserts on a missing controller —
+upstream `update()` busy-waited forever on DISCONN — and keeps polling for a
+hot-join; sticks are centered while disconnected) plus
+`RendererCoreSplitView` (`renderer/core/splitview/`, public
+`RendererCore::splitView`): the split-screen raster bracket modeled on the
+env-map redirect — per half it drains PATH1 and shifts XYOFFSET so the
+CENTRAL h/2 rows of the *unchanged* full-screen projection land on that half
+(a vertical crop; no projection change, proportions stay exact), scissored to
+the half. Deliberately NO per-half clear: beginFrame's full-screen clear
+covers both halves and the scissor clips every raster write (z included) —
+the first version copied the env map's clear sprite and paid two half-screen
+GS fills + FINISH stalls per frame for nothing. The game swaps cameras
+between halves with `renderer3D.update(cam2)` (the pipelines read
+view/frustum lazily per mesh) and must run animation advance/skinning only
+in the FIRST half (see the generated game's `splitSecondPass`). Mind the
+interplay: any bracket that restores a full-screen raster (env map!) must
+not run inside a split half. And a **quiet-halt
+assert** (`debug/debug.hpp` `TyraDebug::trap`): a failed `TYRA_ASSERT` /
+`TYRA_TRAP` no longer runs upstream's `init_scr()` + infinite `scr_printf` loop
+that seized the whole screen; it still prints the dump to the console / host
+`log.txt` (with the stable `======= TYRA =======` … `================`
+delimiters the editor parses), then `for(;;) SleepThread()` so the last frame
+stays up and the editor's error dialog surfaces it. The full-screen dump is
+gated behind `Tyra::Info::drawAssertScreen` (default **off**, `info.{hpp,cpp}`)
+for standalone hardware debugging — nothing wires it on in generated games.
+Paired with that, a **`TYRA_SOFT_ERROR`** macro (also `debug/debug.hpp`) logs
+the *same* delimited `====== TYRA ======` block a fatal assert does — so the
+editor surfaces it identically — but with a `Non-fatal error (game keeps
+running)!` header and **no halt**, for recoverable asset failures. The asset
+loaders use it: `png_loader.cpp` returns an 8x8 magenta placeholder
+(`makePlaceholderTexture`) on a missing/empty texture instead of trapping, and
+`audio_song.cpp` skips a missing music WAV (`load()` returns early, `play()`
+no-ops when unloaded). The fork's other loaders were already non-fatal —
+`LeanObjLoader`/`TanmLoader`/`TskLoader` return `nullptr` on a bad file (callers
+null-check) and `AudioAdpcm::load` returns `nullptr` + `tryPlay` guards — so a
+missing model/anim/sfx already skips cleanly. **When adding a new asset loader,
+follow this pattern** (soft-error + safe fallback), don't `TYRA_ASSERT` on a
+missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still assert
+— fine, generated games don't use them.
+
+## `RendererCoreBlss` — the upscaler
+
+Current design, API, traps and numbers: references/blss.md (docs/upscaler.md for users). This section used to document the neural reconstruction (per-tile MLP, bag proxies, the host twin and its measurement history); that half was deleted in 2.1.0 and git history keeps the account. Still-valid lessons it paid for live in blss.md: the raster-redirect state machine, `zBuffer.mask` owned by the allocator (the z-mask/CLUT disaster), `emitRasterRestore` writing ZBUF last, `nativeScenes` pinning, the 76x PCSX2 fill under-report and "`drain` is not the EE-bound discriminator".
+
+## Before you hand-edit a `.vclpp`: run it on the host first
+
+The editor carries a **VU1 simulator and a microprogram generator**
+(`src/vuir|vuasm|vusim|vugen`, `docs/vu-framework.md`). It changes the loop for
+any VU work: instead of a Docker build plus a PCSX2 boot to find out what a
+program does, run it here.
+
+```bash
+tyrax-editor --vu-list <file.vclpp>   # expand the vclpp layer + disassemble
+tyrax-editor --vu-check               # parse ALL of them, simulate, diff, budget
+```
+
+- **All 25 `.vclpp` files the engine ships parse and run**, including the clip
+  family and the VU0 raytracer kernel. `--vu-list` shows what the program looks
+  like AFTER macro expansion, which is the first thing to check when it does
+  something you did not write.
+- The simulator reports two things `vcl` and `dvp-as` will not: a **Q clobber**
+  (a `div`/`rsqrt` whose result is overwritten before anything read it - the
+  gotcha `CalculateTyraEnvStq` documents) and a **quadword address outside VU1
+  data memory**, which the hardware silently wraps.
+- What it does NOT model, deliberately: cycle timing, dual-issue pairing, branch
+  delay slots (all `vcl`'s job, applied after this level) and the MAC/STATUS flag
+  registers (`fsand`/`fmand` yield 0 and warn - a program that BRANCHES on them
+  is not authoritatively simulated).
+- **All fifteen StaPip programs** (five `as_is` + five `cull` + the five
+  Sutherland-Hodgman `clip`) also have C++ descriptions that generate them; a
+  generated program is proven **bit-identical** to the handwritten one by
+  simulating both on randomized input, and each emits the same instruction COUNT
+  as its handwritten file. If you change one of those fifteen by hand,
+  `--vu-check` starts failing - update the description in `vugen.cpp` too, or the
+  two have genuinely diverged and you should say which is right. (The `as_is`
+  five and the two clip IMAGES, `clip_c` and `clip_tc`, are *adopted*: the files
+  in `vendor/tyra` ARE the generated ones, plus a few hand-kept comment blocks -
+  re-adopt by patching the emitter's diff onto them, not by overwriting. The
+  `cull` family and the three unlinked clip references - `clip_d`, `clip_td`,
+  `clip_tce` - are still the handwritten originals.) **To prove a microcode edit
+  is output-preserving**, change the description first and run `--vu-check`
+  against the OLD handwritten file (`git checkout` it back for the run): IDENTICAL
+  there, then IDENTICAL again after the hand edit, is old = new. That caught the
+  one trap of the 2026-09-26 trims: the cull loops built a single-colour corner
+  as `vf00 + singleColor`, which adds vf00.w = 1.0 to the ALPHA, so a copy of the
+  raw colour was one alpha step off - the replicated copies keep the `+ vf00`.
+- **`--vu-replay <projectDir>` re-runs a REAL console capture on the host** and
+  diffs it against what the hardware produced (`examples/vu-lab` is the fixture;
+  36/36 GS vertices bit-identical). Two limits: only the LAST mesh of a chain can
+  be replayed, so you need the Debugger's flush picker to get a single-mesh
+  flush, and a project with no flow-graph node compiles the devkit layer away
+  entirely - the capture button then does nothing.
+- **The simulator rounds toward zero, because VU1 does.** An x86 rounds to
+  nearest-even; that difference is invisible on screen X/Y and shows up as one or
+  two units in the last place of the 24-bit Z (the coordinate scaled by
+  8388607.5). It was found by replaying a console capture, not reasoned about. If
+  you add arithmetic to `vusim`, do not compute outside `run()`'s rounding scope.
+- **Nothing in `vendor/tyra` is generated yet.** `--vu-emit` writes to a
+  directory you name on purpose: adopting generated microcode needs the full
+  Docker + hardware pass, not a host check.
+
+## The VU1 packet tap (`src/renderer/3d/pipeline/static/core/stapip_vu_tap.*`)
+
+TyraX addition: the editor can ask for one VU1 DMA chain and decode it
+(docs/devkit.md, PROGRESS 195). The engine side is deliberately tiny — a **null
+function pointer** (`Tyra::g_vuPacketHook`) and the branch that tests it in
+`StaPipQBufferRenderer::sendPacket()`, i.e. once per bag flush, never per vertex.
+The capture itself lives in the generated game's devkit TU, so a release build
+links none of it.
+
+**The second hook** (`g_vuMemHook`) is called after the send, once VIF1 and the
+microprogram are idle, with all of VU1 data memory — that is how the editor reads
+what the program PRODUCED (the GIF packets it staged for XGKICK). It costs a
+pipeline stall, so the devkit installs it for one frame and uninstalls itself from
+inside the callback. Two things to know before using it for verification: VU1
+memory holds only the **last** MVP uploaded, and **one flush carries several
+meshes in one chain** — so pairing an input block with an output packet needs a
+single-bag flush plus the object-data chain, which is not done yet (PROGRESS 196).
+
+**The rule that bites**: the pipeline sends vertex arrays **by reference** — a
+`ref`/`refs`/`refe` DMA tag whose `qwc` counts quadwords at *another* address,
+with the tag itself being ONE quadword. So (1) any chain walker advances by 1 for
+those tags and `1 + qwc` only for inline `cnt`/`next`, or it decodes data as tags;
+and (2) anything that wants the geometry must dereference **on the EE**, while
+those addresses are live — the hook copies each referenced block along.
+
+## The EE crash handler (`src/debug/crash_handler.cpp`) — and its vector traps
+
+TyraX addition (docs/devkit.md in the editor repo): turns a real CPU exception
+into a report instead of a silent freeze. Built on ps2sdk's **libeedebug**
+(`ee_dbg_install` + `ee_dbg_set_level1/2_handler`), which hands a C handler the
+whole `EE_RegFrame` — so there is no hand-written exception stub to maintain.
+Three properties to preserve if you touch it:
+
+- **It lives in its own TU and is only linked when someone calls
+  `CrashHandler::install()`.** `libtyra.a` is an archive, so a game that never
+  installs it (any release build — the editor's devkit layer is what installs)
+  carries zero bytes. Do not add a global constructor or a reference from other
+  engine code, or that property dies quietly.
+- **The handler does the minimum and gets OUT of exception context**: copy the
+  frame, scan the stack for plausible return addresses, then set `frame->epc` to
+  a trampoline and return. The report is written from the trampoline, where stdio
+  and the IOP-served host: filesystem work again. File I/O inside the exception
+  context is the classic way to turn a crash into a hang.
+- **Install LEVEL 1 ONLY.** `ee_dbg_install(2)` never returns: it drops
+  interrupts and rewrites the error-level vector at 0x80000100 under the running
+  machine. That froze every debug build that turned the feature on, on hardware
+  and in PCSX2 alike, with nothing in the log. `ee_dbg_install(1)` returns fine
+  on the same boot. Level 2 is only NMI / cache error, so nothing is lost.
+- **What the install hooks is not up to your handler table**, and a hooked cause
+  with no handler is an infinite exception loop. From disassembling
+  `libeedebug.a` (the image ships no sources): `ee_dbg_install(1)` routes causes
+  **1..3** through `SetVTLBRefillHandler` and **4..7 + 10..13** through
+  `SetVCommonHandler` regardless of what you register, and its vector **always
+  ERETs** — it never chains to the kernel handler it saved (that copy is only for
+  `ee_dbg_remove`). So an unhandled hooked cause returns to the faulting
+  instruction with nothing serviced; fatal for a TLB refill, which is how a
+  mapped access is *completed*. The handler therefore hands causes 1..3 straight
+  back with `SetVTLBRefillHandler` after installing. Causes 0 (Interrupt), 8
+  (Syscall), 9, 14 and 15 are never routed by the install at all — which is why
+  narrowing the registered list alone never fixed anything.
+  (`ee_dbg_set_level2_handler` also bounds-checks `cause < 4`.)
+- **A crash takes the screen** (`init_scr`/`scr_printf`) before idling. An
+  assertion may halt quietly and let the editor surface it; an exception may not,
+  because a frozen last frame is indistinguishable from a hang.
+
+**Verified on hardware** (2026-07-29): a forced signed-overflow `add` produced
+`CRASH: Arithmetic overflow`, `bin/crash.txt` and a `--symbolize` hit on the
+exact source line. **PCSX2 cannot *produce* an EE exception at all** — a forced
+overflow, an illegal opcode, a write to address 0 (main RAM starts there) and a
+misaligned load all pass through unharmed — so catching is a hardware-only test,
+even though the old install hang reproduced in both.
+
+Related: the engine's error blocks now print `==============  TYRAX  =============`
+(`inc/debug/debug.hpp`, two places); the editor parses that and the old TYRA
+banner both, so a previously built ELF still reports.
+
+## Debugging a GS pass you cannot see: one probe, one question
+
+Written up because it found three separate faults in one evening (the 16-bit
+FBA regression, the green count-band marks, and a torch that lit no walls), and
+because every wrong turn in that evening came from a probe that answered a
+DIFFERENT question than the one being asked.
+
+The pattern: a multi-stage GS pipeline (build a mask -> resolve it -> gate a
+later pass on it) fails silently, and reasoning about which stage is at fault
+is what costs the days. So make each stage VISIBLE, one build at a time, and
+make each probe answer exactly one question:
+
+1. **Is the CONSUMER gated at all?** Force the mask to its extreme - have the
+   resolve paint the "shadow" value over its whole rect. If the gated pass
+   disappears, the gate works and the fault is upstream. (Do not force the
+   ALPHA TEST instead: that changes which fragments are written, not what
+   value they write, so it proves nothing about the mask's contents.)
+2. **What does the intermediate buffer actually hold?** Drop the write mask
+   for one build (`FBMSK = 0`) so the resolve paints the buffer's texels into
+   the visible frame as COLOUR. A count buffer written with N = 32 shows up as
+   (32,32,32) - a screenshot plus a five-line histogram then tells you both
+   the VALUE and its SHAPE on screen, which is what says "the counts are
+   there, they just hug the caster".
+3. **Which inputs reached the stage?** One `TYRA_LOG` per frame-group in the
+   generated game (take ownership of `src/terrain_game.cpp` by deleting its
+   marker line first) beats any amount of reading: `recvN=2, recv[0] obj=1
+   sliceVerts=3999, recv[1] obj=4 sliceVerts=0` named a shared-budget bug in
+   one line, after two hours of theories about z-tests and page geometry.
+4. **A/B the whole feature.** Build the same scene with the feature's switch
+   off and diff the frames: "0 pixels changed" is the fastest proof that a
+   pass contributes nothing, and it needs no theory about why.
+
+Rules the same evening paid for:
+
+- **A probe that skips a pass also skips whatever that pass restores** - the
+  raster restore rides in the same packet, so the rest of the frame then draws
+  somewhere else and the result means nothing.
+- **Forcing a test to pass is not forcing a value to be written.** With
+  `TFX = DECAL` the fragment's alpha comes from the TEXEL (through `TEXA`), so
+  an all-zero texel still writes zero however permissive the test is.
+- **Instrument OUTSIDE the loop you are perturbing**, and log once every N
+  frames - a `TYRA_LOG` per frame over `host:` is network I/O that changes the
+  timing you are measuring.
+- **Revert the engine probes before anything else** when you are done: they
+  live in `vendor/tyra`, which is shared by every project on the machine, and
+  a forgotten `FBMSK = 0` looks exactly like a new rendering bug to whoever
+  builds next (it was reported back as "jakieś pojebane rzeczy się dzieją").
+
+## Hard-won pitfalls (dead ends already explored — don't repeat them)
+
+**VU0 macro-mode (COP2) asm names its memory.** `"m"`/`"=m"`/`"+m"` operands for a
+quadword, an `"r"` base plus an unprinted dummy `"m"(*(const float(*)[16])p)` for a
+matrix (never `0x10+%1` - GAS rejects `0x10+%lo(sym)`), scalars through `"r"` +
+`qmtc2`/`qmfc2`, no hardcoded GPRs, always `volatile`, no global labels inline. A
+bare `"r"` pointer works only out of line: inlined, GCC dropped the stores feeding
+it (a `Vec4`/`M4x4` result that is garbage only once inlined, or only at another
+`-O` level). Scratch is `$vf1-$vf9`; skinning owns `$vf20/$vf21` across its blocks.
+See docs/vu0-macro-mode.md.
+
+**Inactive outputs are not a bitwise oracle.** `buildSpotForBag` returns after
+setting only `enabled` when the input light is disabled; Tyra's `Vec4` default
+constructor leaves its components uninitialized. Compare only the inactive
+flag, then all semantic fields when active. A host stub that initializes Vec4
+can falsely validate a target comparator. The first whole-result memo trial
+failed even in controls and was rejected; see `docs/tyrax2-night-shift.md`.
+Its corrected exact-key candidate saves only about 0.02 ms in both physical
+orders and is private. Cycle output reuse is also private: gradeOff preserves
+the prior mixColor, so generic restoration must respect assigned-field semantics.
+
+**Inline asm in `src/math` declares everything it touches (1.175.2).** The VU0
+helpers (`Vec4`, `M4x4`, `Math::atan2`) read and write through pointer operands
+(`lqc2`/`sqc2`) and used hard-coded GPRs (`$2`, `$8`) without saying so: no
+`"memory"` clobber, no register clobber, and `atan2` rewrote its two `"f"`
+inputs. GCC may then sink a pending store past the asm, keep a stale copy of
+what it wrote, or (IPA-RA, same TU) keep a live value in a register the callee
+"does not touch". Every block now lists `"memory"` and the GPRs it writes, and
+`atan2` takes `x`/`y` as `"+f"`. New asm here follows the same rule - the
+`clobber audit` in the night notes is one regex away.
+Related, still open: building `src/math` with `-Os` (alone or with the rest of
+the engine) makes the vehicle-playground rig die ~240 frames into its first
+drive with an IOP jump to a float-valued PC (0x3f800000 etc.) - every time, and
+NOT fixed by the clobbers above. Trajectories match the `-O3` build to a few
+cm, no host file I/O and no unusual audio call precedes it; the EE-side SIF RPC
+client structs stay intact. Everything else in the engine at `-Os` (renderer,
+loaders, physics, audio, debug...) ran 240 s clean, so a size build keeps
+`src/math` at `-O3` (`$(filter obj/math/%,$(OBJECTS)): CFLAGS += -O3`).
+
+**Devkit and measurement**
+- **Producer bypasses can hide ownership, even with no foreign roots.** A
+  census that notes qbuffer streams in the ordinary program writer misses
+  retained command hits, which append cached bytes and bypass that hook. Add
+  notes at the actual replay seam; broad range scans cannot recover missing
+  notes, and "unknown" copied bytes remain a lower bound, not an assignment.
+  Reset root tables only after real producer closure and a drain. A
+  pointer/count storage match is not an allocation lease: preserve pending
+  readers through rebuild, LOD changes and scene teardown before proposing
+  borrowing. Public MeshMaterialFrame aliases and VU0 skinning output remain
+  writable. Allocation inventory is not copy traffic either: the roads owned
+  1.3 MB of ranges but contributed zero copied bytes, so road borrowing was
+  not worth implementing. Each of these censuses cost about 0.85-1.5 ms of
+  observer work by itself.
+- **Renaming a private trial header affects generated translation units.**
+  Check all local includes before freeze; scanning only API names misses stale
+  include directives. Keep the failed build immutable and qualify a new fixture
+  with actual source/mirror/ELF proof rather than editing the frozen experiment.
+- **SDK TTE DMA tags advance by 8 bytes, and close does not pad.** Opening a
+  `packet2` chain tag with TTE enabled reserves its 64-bit DMA half; the next
+  two words are transferred VIF commands. Sixteen following state words leave
+  the writer at 8 modulo 16 and `packet2_chain_close_tag` asserts. Two trailing
+  NOP words make that record 80 bytes, QWC 4. Check the actual SDK writer and
+  serialized target bytes, not just command counts or a modeled packet.
+  The private terminal replay also validates its entire 2.4 MB closure per
+  native replay, plus a separate small helper; that EE scan is inside its
+  measured interval. Protocol FINISH
+  and VU-state equality do not establish framebuffer equality. Conflicting
+  PrintWindow images require actual GS raster readback before interpreting
+  replay timing. V6 qualifies exact ordinary/replay framebuffer pairs on PS2
+  and PCSX2 with off-clock readback. V7 prices Full/Sealed/Full and its reverse
+  in the same ELF on PS2: about 23.33 versus 10.73 ms, with matching raster
+  pairs. The difference includes validation policy and cache effects; sealed
+  replay still contains helper/reset/submission/completion work. It is not pure
+  VU/GS time, an additive frame budget or an ordinary FPS gain. Private seals
+  rely on controlled immutability and do not detect arbitrary later mutation.
+  See `docs/tyrax2-scene-isolation.md` and its dated replay/pricing records.
+- **SDK DMA padding can survive packet reuse.** `packet2_chain_set_dma_tag`
+  assigns named fields but leaves reserved tag bits16..25 untouched. With
+  `packet2_reset(...,false)`, a legal REF can contain leftover PAD bits. A
+  private producer ledger failed on raw `30050096` versus `30000096`, despite
+  identical address and TTE words. Match capture admissibility to the semantic
+  checker by ignoring only `0x03ff0000`; keep IRQ/PCE/SPR/address checks and
+  store all four actual words for exact later mutation detection. Do not clear
+  source packets or turn a divergent ledger into transparent fallback. Host
+  controls must seed dirty tags through the actual SDK setter and check later
+  PAD mutations, not just freshly zeroed modeled tags. The corrected private
+  activation passes PS2/PCSX2. Its later fixed raster trial passes exact GS
+  readbacks in both orders, but On regresses inclusive nonpacing by about 0.83 ms;
+  this candidate is not an accepted speed gain.
+- **Phase-wide activation counters are not perchunk encoding counts.** The
+  private direct-producer ordinary overlap trial records 1800-loop ledgers but
+  only 320 clocked loops perphase. Hold sampler 0 in all arms and use six
+  existing-style boundary Count reads for five 64-loop chunks; keep drains and
+  exports outside them. Live dt/state is provenance, not exact workload parity.
+  Both orders regress nonpacing about 0.68–0.78 ms; the gate remains private/Off.
+- **Muting renderer reports does not silence generated-game observers.** A
+  private raster timing trial still performed 16 host log opens after freeze:
+  contact telemetry ran every 50 driven frames, and healthy SIF guard reports
+  remained. Suppress the whole observer work identically in all arms, preserve
+  warnings/fatal semantics, and reject actual host-log IO inside the frozen
+  interval. Keep protocol/raster success separate from rejected timing.
+- **VU memory snapshot labels must be checked against addresses.** The installed
+  SDK `vif_registers.h` names `VU1_MEM1_START` as 0x11008000 and
+  `VU1_MICROMEM1_START` as 0x1100c000, opposite the actual program/data map.
+  Program memory is 0x11008000; data memory is 0x1100c000. A private capture
+  therefore initially mislabeled changing data as a changing program. Preserve
+  raw snapshots and add an explicit address-based interpretation, rather than
+  rewriting evidence. Read only after real VIF/GIF/VU completion; see
+  `docs/tyrax2-scene-isolation.md` and the primary PCSX2 `memMapVUmicro` map.
+- **The draw-finish microprogram is not a bare double-buffer toggle.** It
+  XGKICKs TOP+10. `Path1::addDrawFinishTag` supplies the valid SET/FINISH/zero-PRIM
+  payload before MSCAL; omitting that payload can send stale VU data as GIF
+  commands. Any diagnostic startup capsule must use the approved payload,
+  consume its actual FINISH, retain owned REF data and account for reset cost.
+  An owned captured chain alone does not qualify standalone replay.
+- **Frozen replay must freeze the outer diagnostic lifecycle too.** A18's
+  game-loop early return did not stop Engine's inherited MotionProbe begin/end;
+  it resumed sampling, wrote its CSV and advanced phases during the frozen
+  experiment. V4 suspends both hooks, not just their flags on the first frame.
+  Its current capsule checks resident images and actual VIF prestate; DBF=0
+  needs two prepared draw-finish handshakes, DBF=1 one. Hybrid presentation
+  remains live GIF work after synchronizeFrame, so all priced routes also
+  fence presentation completion. Never convert serialized frozen totals into
+  live-game FPS or transplant old hardcoded microprogram addresses.
+- **A same-ELF observer switch is a net routing test, not a pure hook bill.**
+  Reverse the arm order and retain rejected controls. The dispatch calibration
+  first rejected camera drift with live physics, then reversed its work delta
+  sign under fixed game dt: the middle phase was heavier in both orders.
+  Keep a continuous scene and one sample-buffer address when isolating routing;
+  verify actual dt, exact camera/state fields, accessible addresses and export
+  before buffer reuse. Existing waits remain inside work time. Do not explain
+  a sign reversal as cache behavior without a separate measurement, or subtract
+  a private routing delta from another ELF's compiled-out gap. Evidence and
+  limitations: `docs/hardware-profiler.md`.
+- **The free-RAM probe is a measurement, not a sensor - and it used to lie.**
+  `Info::getFreeRAMSize` is the only way to ask this allocator what is left:
+  claim every free block until malloc refuses, sum, free the chain. The block
+  search used to start at the TOP BIT of `size_t` (malloc(2 GB) on the EE:
+  eight refusals before the first success), free the block that worked, refine
+  the size upward and then allocate the refined size AGAIN - and when that last
+  allocation failed, its recovery cleared the LOWEST SET BIT of the size, which
+  for a single-bit size is ZERO, not "a bit less". The probe then reported "no
+  block", the sum stopped at the first one, and the game's HUD printed
+  `MEM 32.0/32 MB` on a console with 13.6 MB free while the Debugger's
+  *Measure now* silently showed nothing. It starts at the console's 32 MB now
+  and keeps the block that worked instead of re-allocating it (1.85.1). Two
+  lessons that outlive the fix: a probe built out of failing allocations is
+  sensitive to the allocator's mood, so PROVE it against a plain
+  `malloc`/`free` ladder logged at the same instant before believing either
+  number - and a measurement that comes back 0 must be reported as a failure,
+  or it reads as "the button does nothing".
+
+**Rendering**
+- **One light per bag, and now one light a bag may REFUSE.** The colour
+  programs carry a single dynamic-light slot; `RendererCore::pickDynLight`
+  chooses it by score, and `PipelineInfoBag::dynLightSkipSlot` names a
+  `dynLights` index the pick must skip (the generated game's spot receiver
+  pass draws that lamp projected instead). `dynLightPick = false` still means
+  "no scene light at all", `spotLit = false` "no torch" - three different
+  levers, do not conflate them. A fourth: `RendererCore::markDynLightBaked`
+  sets bits in `dynBakedMask` (cleared with the registry), and a bag with
+  `PipelineInfoBag::dynLightSkipBaked` skips every such slot - its vertex
+  colours already carry those lamps (the generated game's baked static lamps,
+  docs/dynamic-light-receivers.md "Baked lamp light"). Both pick sites take
+  the mask: `StaPipCore::render` and the stamp replay in
+  `stapip_qbuffer_renderer.cpp`.
+- **A selected light need not contribute to its bag.** Since 1.150.2,
+  `stapip_spot_bounds.hpp` checks the existing local AABB against the exact
+  `StaPipClipperSpot` constants, after selection/transform. Conservative
+  interval expansion retains boundary cases; unknown bounds, billboards and
+  custom overrides remain lit as before. `setBagLight(light, bounds)` borrows
+  bounds only for immediate uniform preparation, never for DMA. Do not use
+  the picker's approximate world sphere to switch off a shader: the shader's
+  object-space range, especially with nonuniform models, is the relevant one.
+  A full transformed-light cache was rejected in the same chase view:
+  65/65 warm hits still increased work 21.196 -> 21.436 ms and held 24 KiB.
+  A hit rate proves reuse, not an EE saving. Measurements and the falsified
+  rejection oracle: examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/lighting/README.md.
+- **DIMX entries are SIGNED 3-bit; keep them non-negative.** A dither
+  offset below zero makes the 16-bit blender store `v - 1` when a pass adds
+  zero to a pixel (`(v << 3 + dimx) >> 3`), so every additive quad - corona,
+  pool canvas, wall pass, particle - darkens its whole footprint by half a
+  step on a console. PCSX2 does not dither and shows nothing. Bayer >> 2
+  (0..3) since 1.70.4. When a console shows a rectangle the size of a sprite,
+  suspect the sprite before the pass that happens to share its frame.
+- **The interlaced flicker filter reads the frame's ALPHA unless told not
+  to.** ps2sdk's `graph_set_framebuffer_filtered` leaves `PMODE.MMOD = 0`:
+  the two read circuits blend by the displayed buffer's per-pixel alpha - a
+  working channel in this engine (shadow mask, HUD, shadow patches). On a
+  console that is moire and rectangles in the shapes of whatever wrote alpha
+  last; PCSX2 does not model it and no RGB capture shows it - only
+  `--capture-frame --alpha` and the television do. `presentFrameBuffer`
+  forces `MMOD = 1, ALP = 0x80` (1.70.3); keep it that way.
+- **A screen rect from projected vertices must be clamped on BOTH sides.**
+  The count rect clamped only its top-left; a vertex off the bottom of the
+  screen made a rect to row 3792, fifteen brackets a frame and FRAME.FBP slid
+  below zero for every band past the raster (1.70.5). Anything that walks a
+  rect in bands or slides a base by it: clamp to the raster first and skip
+  the empty rect.
+- **A slid FRAME.FBP is not a trick PCSX2 can vouch for.** The count band
+  addressed its lower half by pointing FRAME below its own base (into the z
+  buffer at 16-bit) so page rows landed back in the band; the arithmetic is
+  right and the console still drew marks along straight lines. Prefer a
+  full-height target whenever VRAM allows (`allocateCount` does at 16-bit);
+  treat any remaining slide as suspect on hardware until measured there.
+- **The GS dithers render-to-texture COUNTS; PCSX2 never will.** `DTHE` is
+  global GS state and the project leaves it on for the 16-bit picture. On a
+  console it also applied to the shadow-volume count band (`+N` / `-N` per
+  face, each with its own `DIMX` offset), so the pair stopped cancelling and
+  the mask came back with residues - green slivers along silhouettes and a
+  dark halo at 16-bit, a one-pixel checkerboard in the pool at 32-bit - while
+  PCSX2 drew the band exactly. Any arithmetic render target must bracket
+  itself with `DTHE = 0` (`countBegin` does; `emitRasterRestore` does NOT
+  carry DTHE, so restore it yourself). Bisect a console-only GS symptom with
+  the hidden `shadowVolumesDebug` key (1/2/3, docs/flashlight.md) and
+  `--capture-frame` - a PCSX2 screenshot cannot see this class at all.
+- **3D texture wrap is REPEAT, asserted once per frame - it used to be
+  whatever the last unrelated draw left behind.** `GS_REG_CLAMP` is global GS
+  state and NOTHING in the static or dynamic 3D pipeline emits it per mesh
+  (there is not enough micro memory left to carry it in-band the way the ALPHA
+  qword is - the clip program set sits at 1676/2042). What nobody had noticed is
+  that ps2sdk's `draw_setup_environment()` ends with *"Setup whole texture
+  clamping"* and programs CLAMP/CLAMP at init, so **every 3D mesh in every
+  generated game sampled clamped**. Harmless for a model whose STs are 0..1;
+  ruinous for the terrain, whose STs are world position x tile factor and run
+  far outside it - the ground texture drew ONCE around the world origin and
+  the texture's edge texels were stretched along the world axes everywhere
+  else. On screen that is long continuous streaks converging on the vanishing
+  point with flat washed ground between them, worst at grazing angles, and it
+  reads exactly like a mipmapping or upscaler problem (it was reported as
+  one). `Path3::clearScreen` now writes REPEAT into the one PATH3 packet that
+  always precedes the frame's 3D pass, so REPEAT is a contract 3D can rely on
+  and no extra transfer is paid for it; `initDrawingEnvironment` writes it too,
+  right after the `draw_setup_environment` call that caused this.
+  **The diagnostic that settles this class of question in one boot**: swap the
+  ground texture for four saturated quadrant colours with a black border. A
+  correct REPEAT tiles them across the map; a clamped one shows a single tile
+  at the origin and the border colour everywhere else. Do not try to reason it
+  out from a photograph of soft ground texture - both failure modes look like
+  "the ground is smeared".
+- **A texture that needs clamping in 3D gets it per bag, and it costs a PATH1
+  drain - a LAZY one since 1.123.1.** `StaPipCore::render` programs the wrap a
+  bag wants only when it differs from what `RendererCoreGS::currentTextureWrap`
+  last sent, and it no longer restores REPEAT per bag, so a RUN of bags
+  sampling one clamped render target costs a single barrier instead of two
+  each (physical PS2, Motor District night: `Light_pools` 1.605 -> 1.342 ms).
+  **The REPEAT contract is then closed in exactly three places, and anything
+  new that draws after the 3D pass must be added to that list**: the next bag
+  wanting a different wrap, `Renderer2D`'s first sprite (inside the existing
+  once-a-frame `drained3DFor2D` barrier, so it is free), and
+  `RendererCore::endFrame` immediately before `applyPostFx` - which is also
+  before `RendererCoreAlphaMask`, the one subsystem whose comments say it
+  relies on the contract. The cached value is legal only because the other
+  writers of `GS_REG_CLAMP` (post-fx, warp, BLSS, the alpha mask, the frame
+  profiler) all run after the last 3D bag of a frame and `Path3::clearScreen`
+  re-asserts REPEAT before the next one.
+  It was the same drain-write-restore shape `additiveBlendFix`
+  used before the blend equation moved in-band. Only the render targets ask
+  (the camera feeds and the raytraced mirror, whose edge rows must not
+  bilinear-wrap into the opposite side), so an ordinary mesh pays one pointer
+  comparison. Do NOT reach for it per mesh at scale: the drain is exactly the
+  barrier the pipeline exists to avoid. **The older advice still applies to
+  STs that leave 0..1 for geometric reasons** - clamp them where you BUILD
+  them, on the EE. (Found via the projected shadows: the receiver patch's STs
+  come out of a light projection and ran -0.38..1.39, so the silhouette was
+  sampled a second time and left thin dark streaks at the patch edges. Writing
+  `GS_SET_CLAMP` from the shadow pass changed nothing measurable - now known to
+  be because the pass never drained PATH1 first; clamping the STs fixed it
+  exactly, and remains the cheaper answer.)
+- **A console-only texture SWIM on big flat triangles is the guard band, not
+  the geometry** (1.177.1, docs/vu1-clipping.md "A tight band for big flat
+  triangles"). The X/Y clip band at 0.9 w lets a triangle keep a vertex ~1590 px
+  off screen, and the PS2's GS interpolates S/T/Q from it with too little
+  precision: the road bands' centre line stepped up to 6 px a frame on a
+  console, 0.00 px in PCSX2. `StaPipInfoBag::tightClipBand` cuts one bag to
+  0.25 w; classification, the stamp test and the uploaded plane table all
+  follow the bag (two retained clip blocks). Do not tighten the band for the
+  whole scene - that measured +0.9 ms of EE. Find this class with a fixed-step
+  camera walk and VRAM grabs on the console, measuring a feature that must not
+  move (the centre dash under a straight walk), at the REPORTED spot.
+- **A texture UPLOAD wrote CLAMP_1 behind the wrap cache** (fixed 1.177.4,
+  docs/gs-vram.md "Rules for engine work"). Upstream `Path3::sendTexture`
+  wrote the texture's own wrap; with per-bag wrap writes checked against
+  `RendererCoreGS::currentTextureWrap`, a mid-frame upload of a REPEAT x CLAMP
+  texture left V clamped for every later 3D bag - roads smeared into streaks
+  for ONE frame, PS2 and PCSX2 alike. Anything that writes CLAMP_1 must go
+  through the bag wrap path or `noteTextureWrap`. The recipe that found it, for
+  any rare one-frame glitch: an input recording replayed at 60 Hz (in-game
+  grabs slow the game and hid it), PCSX2's own video capture toggled by a
+  hotkey posted to the private instance, a frame-outlier detector, then a
+  GSDumpMultiFrame dump diffed per vsync (TEX0/CLAMP/TEX1 of the glitched
+  draws).
+- **Never submit bags with `frustumCulling = None`.** Off-screen geometry wraps
+  the GS 4096-px raster window → "objects render twice / giant smeared
+  polygons". PCSX2's HW renderer often *masks* this; the SW renderer and real
+  hardware show it. This was the root cause of a long-standing corruption bug —
+  not the clipper patches (all were bisected; even pure upstream reproduced it).
+- **Nothing backface-culls — never emit two exactly coplanar faces.** Neither
+  the StaPip VU1 programs nor the GS reject back faces (the "cull" program
+  family is about the frustum, not winding), so a double-sided surface whose
+  front and back share one plane dither-fights itself across the whole surface
+  (dashed dark/light bands, worse with distance). The Plane primitive hit this
+  (its darker underside vs the lit top); the fix is a small offset between the
+  two faces (see `addPlane` in templates.cpp / `unitPlane` in primmesh.cpp,
+  0.01 local units). Same rule for any hand-built double-sided geometry.
+- **Coplanar passes over ONE vertex array must be pinned to ONE package
+  size.** `StaPipVU1Program::getMaxVertCount` derives the package size from
+  the bag's PROGRAM CLASS — how many verts of (position [+ ST] [+ normal] +
+  color) fit in half a VU1 double buffer. With the shipping buffer that is
+  **111** for untextured + per-vertex colors, **75** for textured, **90** for
+  textured + a single color, **150** for untextured + a single color. So an
+  object whose base pass is untextured and whose companion pass is textured
+  (a reflective sphere with no `map_Kd`, anything under the baked lightmap,
+  an untextured terrain chunk under its layer passes) splits the SAME array at
+  different boundaries. `StaPipCore::render` then classifies each package
+  against the frustum, and with `fullClipChecks` a fully-inside package takes
+  the perspective divide on VU1 while a straddling one is clipped on the EE
+  and drawn `as_is` — two routes over one triangle, differing in the last bits
+  of z and, at the frustum edge, in coverage. Coplanar passes then dither-fight
+  exactly like the double-sided case above: grey wedges bleeding from under a
+  reflective object, baked shadows fighting z-index with the ground. The fix is
+  `StaPipBag::packageSize` (0 = derive), which the generated game sets to the
+  **MINIMUM** over an object's passes (`pinPackageSize` in templates.cpp).
+  The minimum is not a preference — pinning a class above its own derived size
+  overflows its VU1 buffer. Two things this also settles: the frustum-bbox
+  cache is keyed by `(maxVertCount, vertex pointer)`, so differing sizes made
+  each pass recompute the boxes the previous one had just built — pinning
+  measured **+4–6 %** frame rate (126 → 133 FPS, vsync-off PCSX2) rather than
+  the slowdown smaller packages suggest; and `67e2893f`'s switch of the env
+  pass to `PipelineZTest_Standard` was a mask for this defect, not its fix
+  (keep it, it is still correct).
+- **AND 75 IS ESSENTIALLY THE CEILING, not just the minimum — so "make the
+  package bigger to cut the per-package cost" is nearly closed.** Almost
+  everything left in `dispatch` scales with the package count, static geometry
+  ships as 75-vertex strip runs that ARE the packages, and the obvious next
+  move is to lengthen the run. `setDoubleBuffer` splits 22..944 in two
+  for **460 quadwords** a half, `getMaxVertCount` takes 9 for the GIF tag block
+  and divides the remaining **451** by `elementsPerVertex + reglistCount` — what
+  the EE uploads plus what the program writes — so the textured classes get
+  451/6 = **75**. That used to round down to 72 on a multiple-of-9 step, which
+  was relaxed to a multiple of 3 (round four) and is the whole of the slack
+  available at this memory layout. **The whole of
+  VU1 data memory caps a six-quadword-per-vertex package at 81** (the clipping
+  scratch would have to go entirely: `DBUFFER_END` ≥ 1014 against 80 quadwords
+  of scratch), and **144 wants 1 770 of 1 024 quadwords** — the double buffer is
+  exactly the factor of two that makes a doubling impossible. Three corollaries.
+  Moving the clip plane table DOWN into the per-mesh constants buys **exactly
+  zero** (the buffer pays twice below it and gains twice above it). The
+  per-class pin costs the Motor District frame nothing — every class in it
+  derives 75, by two independent routes (`cull_tc`/`cull_tce` with per-vertex
+  colours, and `cull_td` with a single colour; `cull_td` with per-vertex colours
+  would derive 63 and is unreachable, `StaPipCore::render` asserts against it).
+  And the only lever left is the six quadwords per vertex, where the claim to
+  measure is the PACKAGE COUNT and not the payload: the probe that added 16
+  bytes per vertex moved garage-day VIF1 wait by 0.067 ms. Derivation, sweep,
+  measured baseline and the remaining way to reach 81 (−8.0% of packages):
+  docs/render-submission-attribution.md, "Round three" and "Round four".
+- **RAISING `maxVertCount` MOVES THE CLIP BUFFER TOO, and nothing clamps the
+  fan-out at runtime.** `clipPackageSize()` is derived from `maxVertCount`, so
+  a bigger package means a bigger clip package, and a clip package plus its
+  entire Sutherland–Hodgman fan-out has to fit one 460-quadword double-buffer
+  half. An overrun is silent corruption that PCSX2 cannot show you. Two traps
+  in doing that arithmetic. The worst case is **7 output triangles per input
+  triangle** and that is exact — a convex polygon gains at most one vertex per
+  plane and the plane loop runs exactly six times — so do not discount it. And
+  the constructor's `elementsPerVertex` / `reglistCount` pair is the SIZING
+  BUDGET, not the layout: `clip_d` is budgeted `2 + 3` but really uploads two
+  streams and stores two quadwords per emitted vertex, so using that pair for
+  the footprint reports false overruns on classes that ship today and work.
+  Read the layout off the `.vclpp`. This is what took `clipDivisor` from 5 to
+  6 when the ceiling moved to 75: at 5 the untextured single-colour class
+  landed on 459 of 460 quadwords. Runnable per class, and the check to re-run
+  after touching any of it:
+  `examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16`.
+- **Inside a submission batch, `StaPipCore::render` may not draw the bag at
+  the call** (1.174.1, docs/stapip-stamps.md, "Stamps in runs"): a bag with a
+  stamp is queued and replayed later in a run. A bag mutated and rendered again
+  in the same batch flushes the queue first, as do the view changing, an
+  ordinary-path bag, program overrides, VU params and the batch end - but a
+  NEW renderer-state setter that a stamp or the ordinary path reads must call
+  `flushDeferred()` too, or queued bags replay against the new state.
+- **Since 1.174.0 the VU1 clip programs STREAM their output and take a whole
+  package, list or strip** (docs/vu1-clipping.md, "A whole package, streamed").
+  Two chunks of `1 + 30 * regs` quadwords sit behind the input; a fan that
+  would not fit closes the open chunk with an `XGKICK`. So the fixed-block
+  fan-out rule above now binds only `setStreamClip(false)` and the EE clipper;
+  the streamed route's bound is "input of a cull-sized package + 8 tag
+  quadwords + two chunks fits the 461-quadword half" (textured: 417). The
+  stream state is spilled to `VU1_CLIP_STREAM_ADDR` (1019) because the textured
+  clipper has no free integer register, and bit 9 of the packed count is the
+  strip flag, so the count mask is 0x1FF for clip buffers. A clip program must
+  emit a LIST prim tag even for a stripped buffer. Prove any change with the
+  "clip stream" section of `--vu-check` (and `TYRAX_CLIP_REF_DIR` against the
+  previous programs); the shipping images are the `_fold` variants, derived by
+  `tools/derive-fold-images.py`.
+- **Widening the cull programs' ADC test is retired; real VU1 clipping is a
+  separate program family.** Three attempts at a guard band inside
+  `PerformClipCheck` all corrupted ADC bits (documented in `vcl_sml.i`); the
+  working approach is the StaPip `clip` programs (the default `"clipping":
+  "vu1"` mode), which never derive ADC from clip flags. VU1 microcode traps already
+  paid for there: `fcand` sets VI01 to 0/1 (any-bit), NOT the masked bit
+  pattern; a vertex clipped to exactly |x| = w scales to GS coordinate 4096.0
+  and wraps the 12.4 XYZ2 field (clip the sides at 0.9w, let the scissor
+  finish); every VU1 vertex-loop count must be a multiple of 3 or the loop
+  runs off into memory; overflowing the 2048-instruction micro memory is
+  SILENT in release builds (the assert is compiled out) - check program sizes
+  with nm on the .o files when adding VU1 code. Two vclpp preprocessor traps
+  (each cost a debugging session): a `;` comment line INSIDE a `#macro` body
+  makes vclpp SILENTLY swallow the whole macro — every call site expands to
+  nothing, the program builds fine and just misses your code (document above
+  the `#macro` line instead); and vclpp does not expand nested macro calls —
+  a macro invoking another macro leaves mangled text that `vcl` rejects with
+  "can't find instruction" (inline the callee by hand); and vclpp expands
+  `#define`s only ONE level — an alias define (`#define A B` where B is
+  another define) reaches dvp-as unresolved ("unresolved expression"), so
+  VU1-side defines must be literals. When VU1 output looks
+  wrong, `docker exec <proj>-compiler-1 cat /tyra/engine/obj/.../<prog>.o.vcl`
+  shows exactly what vclpp produced — check the expansion before suspecting
+  your math. Three VCL-proper traps (paid for by the VU0 rt kernel):
+  symbolic register names that collide with VU special registers OR
+  instruction mnemonics (case-insensitively) are rejected — don't name a
+  register `r`, `q`, `i`, `p`, `acc`, or anything like `mAx`/`sub` ("can't
+  use r as a name" / "invalid name for register"); a broadcast field
+  selector is only legal on the SECOND source operand — `max.x m, vf00,
+  v[y]` works, `max.x m, v[y], vf00[x]` fails with a misleading "used
+  before set" on the bracketed register; and `ERROR: no opt table ..
+  something failed making table .. for <label>` means the REGISTER
+  ALLOCATOR ran out — too many symbolic registers live across that loop
+  (31 VF ceiling), not a syntax problem. Fix by shrinking the live set:
+  reload fixed-address parameters at their use sites instead of pinning
+  them in registers for the whole program (`lq` is cheap), and lane-pack
+  related scalar fold state into one register's x/y/z fields (assemble
+  candidates with `add.x/y/z reg, vf00, src[x]`, fold once as a vector).
+- **The spot-light cone term's magnitude scales with distance²** — only its
+  SIGN is the (exact, distance-independent) angular cutoff. Size `invSoft`
+  in `buildSpotForBag` off a FRACTION of the range, never the full range:
+  the original `softness / (objRange2 * (1 - cosCut2))` made the flashlight
+  ramp up over its whole reach — black on anything close, full brightness
+  only near the far end, i.e. "it doesn't light what I'm aiming at".
+- **A microcode experiment is a compile-time toggle that selects a whole IMAGE**
+  (`stapip_vu1_experiments.hpp`; folded lights and normalized env normals ship
+  enabled after the 2026-09-27 physical-PS2 A/B). vclpp has no `#if`, so the
+  alternative program is its own `.vclpp` (`*_fold`, `*_envn`, derived
+  from the shipping file - re-derive after editing it), always assembled, and the
+  wrapper picks symbols under `#if TYRA_VU1_EXP_...` / `#else`. `--vu-check`'s
+  wrapper check reads the original branch, and its experiment section bounds
+  colour/ST differences for the winning folded-light and normalized-env images.
+  The k255/ADC-table image was bit-identical but slower in all four physical
+  console poses (+0.11..+0.20 ms); its program and switch were removed. The
+  winners saved 0.23..0.25 and 0.14..0.16 ms in the augmented garage poses.
+  See docs/vu1-clipping.md, "Measured VU1 follow-ups".
+- **Three output-preserving trims (2026-09-26), and the rules they rely on.**
+  (1) `CalculateTyraFog` is ONE `mul.x` now: `LoadTyraFogParams` copies the fog
+  scale into the REGISTER's x lane (the single-colour flag in that lane is only
+  ever read with `ilw` from memory, the dynpip lerp reads only y), so a new
+  caller of `CalculateTyraFog` must take its params from `LoadTyraFogParams`.
+  (2) A lit program's colour is not clamped twice: the light macro clamps to
+  0..255 and FixColor is reduced to its `ftoi0` (cull_d/cull_td, as_is_d/as_is_td),
+  and clip_c's emitter drops its ceiling because every path into C's scratch
+  polygon already capped at 255 (TC's image keeps it: its env path carries raw
+  stream colours). (3) The cull colour loops no longer branch on single colour:
+  the batch header writes three copies (`+ vf00`, see above) to
+  `VU1_SINGLE_COLOR_COPIES_ADDR` = 1016 (free data memory above polygon B) and
+  the loop walks the colour pointer with a stride register, 0 or 3. A stage list
+  or script keeps the old shapes. Net, with clip TD on the TC image: VU1-clipping
+  set 1944 -> 1698 words, EE-clipper set 1602 -> 1508, both leaving room for
+  the 206-word billboard pair (per-program table in docs/vu1-clipping.md).
+- **Clamp vertex colors BEFORE the VU1 clipper interpolates them.** The cull
+  programs run `FixColor` (mini 255 / max 0) per vertex right after the spot
+  light; the clip programs feed Sutherland-Hodgman and only clamp in the
+  emitter — after the lerp. An unclamped saturated color (a bright dynamic
+  light easily pushes past 255) then interpolates from its raw value, so a
+  lit surface visibly BRIGHTENS the moment it touches a screen edge and
+  starts being clipped. `stapip_clip_{c,tc}_vu1.vclpp` now clamp before
+  storing into the scratch polygon (float clamp only — `ftoi0` belongs in
+  the emitter). **Budget note:** the ceiling alone (`loi 255` + `mini.xyz`
+  per vertex, 6 instructions) is all that fits — adding the matching
+  `max.xyz … vf00[x]` floor too (9 per program) tripped the real
+  `VU1 pipeline programs overflow into the draw-finish program` assert
+  (path1.cpp:145) on the boot logo. After the 2026-08-11 shared-image work the
+  all-class set has 366 slots of micro-memory headroom;
+  measure with
+  `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
+  after ANY edit there. **And the clip family now has a C++ description**
+  (`buildClipBody` in `src/vugen.cpp`), so an edit to one of those five files
+  has to be made in BOTH places or `--vu-check` fails — which is the point:
+  the ceiling above is exactly the kind of change that used to be applied to
+  `clip_c` and forgotten on `clip_tc`.
+- **The five logical clip programs occupy TWO resident images.** `C/D` share
+  the C image (same two-stream input and stride-2 scratch ABI) and `TC/TCE/TD`
+  share TC (same three-stream/stride-3 ABI - TD's normals sit where TC's colours
+  do, which is why the old "TD has an ABI of its own" was wrong; merging it
+  saved 230 words). `VU1_OPTIONS_ADDR.y > 0` selects D in C's image and TCE in
+  TC's; TD is `.y > 0` AND `.x < 0` (`sendObjectData` writes -1 into the
+  single-colour lane for a resident TD bag - every reader of that lane tests
+  `> 0` only, and TD is never single-colour). The TD test sits INSIDE the env
+  branch, so the TC colour path pays nothing; TD and TCE pay two instructions.
+  The TD path reuses the env-basis and spot registers the preamble already
+  loaded from the same addresses (the light matrix and directions) and loads
+  only the light colours + ambient per triangle. That still left 33 VF live in
+  `sharedDirMode` - Sony's `vcl` refused it ("no opt table") and only openvcl's
+  load sinking fitted it - so the TC image loads its five GIF-tag-block
+  constants once per buffer at the tag block (`tagsPerBuffer` in vugen) instead
+  of pinning them; see the "Sony's vcl is a build target too" pitfall. The wrapper
+  objects deliberately point at the same CodeStart/CodeEnd range and
+  `Path1::createProgramsCache` must alias that range to one destination instead
+  of uploading it twice. If a generated override replaces one peer, it gets its
+  own image while the built-in image remains for the other. `--vu-check` has a
+  separate peer-path section because normal description parity only exercises
+  variant zero, and an `-- EE wrappers --` section that reads the `extern u32
+  ..._CodeStart` out of the wrapper in THIS tree and fails if it is not the
+  image the description names. `stapip_clip_d_vu1.vclpp`,
+  `..._tce_vu1.vclpp` and `..._td_vu1.vclpp` are still compiled but never
+  LINKED - nothing references their symbols, so the archive member stays out of
+  the ELF; they exist as the reference the peer-path check runs against (TC/TD
+  runs with `runtimeColorLane = -1`). Do not "fix" them by pointing a wrapper
+  back at them.
+- **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
+  GIF forever** — the stray qword parses as a new giftag with a garbage
+  NLOOP. Symptom: the game hangs on the loading screen (spinning in
+  `draw_wait_finish()` / a FINISH handshake that never arrives), no assert,
+  clean log. Count the qwords after every PACK_GIFTAG edit.
+- **Do not treat REGLIST as a generic replacement for PACKED A+D state.** Its
+  register selectors are four bits wide; TEST, TEX1 and ALPHA are not directly
+  selectable (TEX0 is). A 2026-09-21 `cull_tc` spike instead combined four
+  unchanged A+D payloads behind one four-loop PACKED tag, shrinking the header
+  from 9 to 6 QW and the VU program from 345 to 342 instructions. PCSX2 rendered
+  it correctly, but physical hardware stalled on the first gameplay frame and
+  never completed the benchmark, so the change was reverted. Any retry starts
+  with a minimal hardware-first FINISH harness; emulator acceptance is not
+  evidence here. Also resize the static `packet2_t` when adding uploads: two
+  CNT/data pairs plus END need 5 QW, not the original 3.
+- **Reuse complete GS state; do not compact its tag syntax.** The accepted
+  hardware path keeps all state GIFtags one-loop, emits TEST/TEX1/TEX0/ALPHA on
+  package zero of a material bag, and lets later cull/as-is TC/TD packages emit
+  only PRIM. Bit 15 of their non-clip count word carries the explicit choice;
+  clip programs cannot use it because bits 10..15 are the active-plane mask.
+  Reset the decision at every bag/material boundary. The physical garage saved
+  1,864-1,984 GS QW/frame but only 0.04-0.20 ms, so this is safe cleanup rather
+  than evidence that GS state writes were the frame bottleneck.
+- **ps2sdk's `ATEST_KEEP_*` constants name what is PRESERVED, not what is
+  written** (`ps2sdk/ee/include/draw_tests.h`): `ATEST_KEEP_ZBUFFER` = 1 =
+  GS FB_ONLY (colour written, z untouched), `ATEST_KEEP_FRAMEBUFFER` = 2 =
+  ZB_ONLY (z written, colour untouched), `ATEST_KEEP_ALL` = 0 = write
+  nothing. Reading them the other way round is easy and expensive: upstream's
+  alpha test passed `ATEST_KEEP_FRAMEBUFFER` on the standard path, so every
+  fully transparent texel of a cutout texture stamped the z buffer while
+  drawing no colour — foliage, grates and decals silently occluded whatever
+  was drawn behind them later, which looks like a sorting or texture bug
+  rather than an AFAIL one. Cutout wants `ATEST_KEEP_ALL` (both pipelines
+  now use it; `PipelineZTest_TestOnly` deliberately keeps FB_ONLY for its
+  depth-tested-no-z-write trick). Symptom to recognise: transparency itself
+  works, but geometry behind a transparent area is missing, cut along the
+  straight edges of the quad in front of it.
+- The engine bbox cache is keyed by the **vertex-buffer pointer**, not the bag
+  pointer (`StapipBagBBoxesCacher`'s `id` is
+  `reinterpret_cast<u32>(bag->vertices)`) — so two bags sharing one vertex
+  array share an entry, and one bag swapped between two arrays gets two.
+  Geometry that changes at runtime must bump `bboxVersion` on its `StaPipBag`,
+  or culling uses stale boxes.
+- **The converse is a real cost, not a safe default: do NOT bump `bboxVersion`
+  when the vertex buffer did not actually change.** The stamp is a claim about
+  contents, and bumping it unconditionally disables two caches at once — the
+  package boxes are recomputed in `bounds`, and the retained command blocks are
+  thrown away and rebuilt in `dispatch`, because `bboxVersion` is part of that
+  key too. A per-frame rebuilder that produces an identical buffer pays both
+  for nothing; see `docs/wheel-rebake-skip.md`. Two constraints on keeping a
+  stamp sticky: the cacher stores **no count**, so a reused stamp is only valid
+  while the buffer's ADDRESS and LENGTH are also unchanged, and the retained
+  key has no bag pointer in it, so sharing one bag across several buffers is
+  fine but sharing one buffer across several contents is not.
+- Upstream's default `PlanesClipAlgorithm::clipMargin` pushes the near plane
+  ~10 units from the camera; generated games override it.
+- **Do not derive the VU1 active-plane mask from `FrustumPlanes`.** The clipper
+  uses the actual MVP plus `clipMargin`, while environment-map passes widen the
+  view frustum on purpose. `StaPipBagPackager` therefore transforms the six VU
+  clip half-spaces into object space once per mesh and tests partial package
+  AABBs against those exact planes. The six bits travel through qbuffer ORs in
+  bits 10..15 of the clip-only 16-bit count header; bits 0..9 remain the vertex
+  count. A zero mask must fail safe to all six planes for manually built clip
+  qbuffers. The VU program reverses the bits so each `ibltz` consumes the next
+  plane from the VI sign bit without keeping another live integer register.
+- Judge rendering correctness on **PCSX2's software renderer** — it is the
+  honest one. See tyra-testing for how.
+- **Object ids must be unique, not random.** `Sprite`/`Mesh`/`MeshFrame`/
+  `MeshMaterial`/`MeshMaterialFrame` share ONE lookup namespace in
+  `TextureRepository`: `addLink(id)` binds a texture to a sprite/material and
+  `getBySpriteId`/`getByMeshMaterialId` return the FIRST texture whose links
+  contain that id. Upstream drew ids from `rand() % 1000000` (never seeded), so
+  a collision bound the wrong texture to a sprite → garbled/black HUD sprites,
+  worst right after opening a menu (a burst of new sprites raises the collision
+  odds against the always-present debug-HUD glyph). Fixed with
+  `renderer/models/unique_id.hpp` `generateUniqueId()`. Use it for any new
+  id-bearing render object; don't reintroduce `rand()` ids. (`audio_song.cpp`
+  intentionally keeps `rand()` — separate namespace, assigned off-thread.)
+- **DTV display modes (480p/1080i)**: ps2sdk's `graph_set_screen` always
+  programs the mode's full VCK width into DISPLAY.DW, and no 64-aligned
+  framebuffer width divides the 1440/1920-VCK DTV rasters — the GS scans
+  garbage past the buffer's right edge. `RendererCoreGS::setDtvDisplay`
+  programs DISPLAY1/2 directly instead. Also: the gsKit/OPL 1080i recipe
+  (interlaced FRAME mode + MagV--) **hard-crashes PCSX2 v2.3.205** (the
+  process dies seconds after SetGsCrt, no crash dialog); 1080i in FIELD
+  mode with MAGV=2x is visually equivalent (both fields step through every
+  buffer line) and works. That crash is 1080i-specific: SDTV interlaced
+  FRAME (the `InterlacedField` half-height mode below) is fine.
+- **The 2D origin follows the framebuffer, and it did not used to**
+  (`RendererCore2D::render`, `SPRITE_SPACE_HEIGHT`). Sprite coordinates are
+  framebuffer pixels with the origin at the top-left of the picture — every 2D
+  consumer assumes it (`drawHudText` at 16,16; the generated menu compositor
+  scaling its authored layout by `height/448`; `Renderer2D::note2dRect` handing
+  the rect to the frame warp as image coordinates). Upstream pinned the
+  vertical `XYOFFSET` for the sprite draw to a bare `SCREEN_CENTER`, which is
+  only the top of the picture while the buffer is the stock 448 rows — every
+  taller mode this fork added moves it. Measured in PCSX2 on `HiDef1080i`
+  (448x540): the whole HUD sat `(540 - 448) / 2 = 46` rows too high, the FPS
+  line was entirely above the visible picture and the MEM line below it was cut
+  in half ("the fps counter in HD is drawn above the screen"). `Pal576i`
+  (512x512) has the same fault, 32 rows. The fix centres the authored 448-row
+  space in `getRenderHeightF()`, so the term is exactly **zero** in the 448-row
+  modes and nothing that worked moved. **The trap inside the fix**: the space
+  must be HALVED for `InterlacedField`, because its sprites are already
+  squeezed into the 224-row buffer by the `v0.y *= 0.5` below — take the
+  unhalved 448 there and every sprite jumps 112 rows up. The X axis keeps the
+  raw constant on purpose: measured correct at both 512 and 448 wide, 2D is not
+  re-centred horizontally, and "fixing" it symmetrically pushes the HUD off the
+  left edge of a 448-wide raster. Verify a change here by BOOTING each mode and
+  looking — the modes differ only in two numbers and reasoning about GS
+  `XYOFFSET` from the source is how this survived so long.
+- **True field rendering (`DisplayMode::InterlacedField`)**: 480i/576i with
+  half-height 512x224 frame/z buffers scanned at SMODE2.FFMD=FRAME — a
+  fresh image per field, half the fill/VRAM of stock interlaced. The
+  DISPLAY window must stay IDENTICAL to the stock FIELD mode (full 448
+  frame-line window; ps2sdk's `graph_set_screen` mis-programs DY/DH for
+  the interlaced+FRAME case — `programDisplay` writes the registers via
+  `setDtvDisplay` instead), no flicker filter. The game-facing coordinate
+  space stays 512x448: the projection is built at
+  `RendererSettings::getRenderHeightF()` (raster scale only — frustum
+  planes come from fov+aspect and are untouched), `RendererCore2D` halves
+  sprite y, and clears / post-fx / env-map restores all use the render
+  height. Anything that sizes or addresses the PHYSICAL framebuffer must
+  use `getRenderHeightF()`, game-facing layout keeps `getHeight()` — miss
+  that split and one mode or the other draws half-off-screen. Per-field
+  half-line alignment lives in `flipBuffers` (CSR.FIELD read after vsync,
+  inverted — the frame being rendered displays one field later — then an
+  XYOFFSET +8 on odd fields appended to the flip packet).
+- **Full-height PAL (`DisplayMode::Pal576i`)**: the "true PAL" 512-line
+  frame - a 512x512 framebuffer scanned through the SAME stock interlaced
+  FIELD path (`programDisplay`'s default case with the signal pinned to
+  GRAPH_MODE_PAL, flicker filter kept); 512 lines is ps2sdk's own full PAL
+  frame height, so `graph_set_screen` handles the window - no setDtvDisplay
+  needed. Always 50 Hz regardless of VideoMode/region (getRefreshRate
+  special-cases it, like the DTV modes' 60). Costs ~380 KB more GS VRAM
+  (three 512-line buffers), leaving ~1 MB for textures.
+- **Runtime display switching**: `RendererCore::setDisplayOutput(mode, ws)`
+  (TyraX fork) switches the scan mode / widescreen between frames.
+  A mode change resets the whole VRAM allocator (`vram.reset()`),
+  rebuilds frame/z buffers + post fx, and `texture.evictAll()` drops every
+  texture allocation (they lazily re-upload) — never call it mid-frame.
+  It is also the ONLY caller allowed to `allocateBuffer()` after init.
+  The projection aspect lives in `RendererSettings::updateGeometry`
+  (fixed 4:3-baseline look; widescreen scales it anamorphically).
+  **That table has a host twin**: `App::ps2ViewportOutput` (app.cpp) resolves
+  the same per-mode framebuffer size + aspect for the editor's PS2 output
+  viewport, and the flicker-filter choice in `presentFrameBuffer` with it
+  (docs/ps2-viewport.md). Adding or resizing a `DisplayMode` means editing
+  both, or the editor draws a picture the console does not.
+- **GS VRAM is two regions, and `free()` is order-independent** (TyraX fork —
+  full write-up in [docs/gs-vram.md](../../../docs/gs-vram.md)).
+  `allocateBuffer()` (page-aligned) fills a **permanent** bump region at the
+  bottom — both frame buffers, z, post-fx scratch, noise, the env-map and
+  camera-feed targets — that is never released; `allocate()` (block-aligned)
+  serves textures from a **coalescing best-fit free list** above it. `free()`
+  ignores addresses the heap never handed out, which is what protects the
+  permanent region — do not "fix" that into an assert. Upstream's `free()` was
+  `pointer = address` (a stack pop), so freeing anything but the newest
+  allocation handed out the memory of still-live textures: streaming-layer
+  unloads reproduced it as surviving objects rendering another object's
+  texture. Budget after the init buffers is **~1.08 MB at 32-bit colour and
+  ~1.95 MB at 16-bit** (see the colour-depth bullet below), plus 256 KB more
+  when a project reserves neither optional render target — a 256×256 32bpp
+  texture is 23% of the 32-bit heap, a 512×512 is 93%. **`getSize()` computes
+  the real swizzled GS footprint** — whole pages above one page, whole blocks
+  inside one, via the PSM's Morton block order (the Z formats' orders are
+  permuted variants for which that shortcut is invalid, so they round to
+  pages). It used to add a flat `1024 * 2` words to every allocation with the
+  comment *"without this hack, textures are overlapping ourselves"*, which
+  charged a 16-entry CLUT **8.25 KB** for 64 bytes of data AND still
+  UNDER-allocated extreme aspect ratios (a 512×32 PSMCT16 strip reaches word
+  15 360 and was handed 10 240 — the overlap the hack was named after was
+  never actually fixed by it). `menulayout.cpp`'s `gsWords` is the editor's
+  host-side mirror of this; the two must agree.
+  When a texture does not fit, `RendererCoreTexture::makeRoomFor()` evicts
+  coldest-first (`pickVictim`: stale entries by LRU; when the whole resident
+  set is in this frame's working set, the MOST recently bound one — plain LRU
+  makes a per-frame texture scan cycle its entire set). Textures that must
+  never be evicted are not "pinned" — they are not in the list at all: give
+  them their own `texbuffer_t` through `Texture::vramResident`, the way
+  `RendererCoreEnvMap` does. To see what a scene actually does, build with the
+  **debug** profile and grep the game's `bin/log.txt` for `VRAMSTAT`
+  (binds/hits/uploads/**re-uploads**/evictions/resident/free MB/largest free
+  block, per frame); `reup` per frame is the number that matters, each one is
+  a full PATH3 transfer. `examples/showcase` sits at 6 allocations and
+  1.15 MB free (2.04 MB at 16-bit colour) and never evicts anything — if you
+  are chasing a VRAM problem in a palettized project, measure before assuming
+  there is one.
+  **`VRAMSTAT` counts; `VRAMRES`/`VRAMEVICT` NAME.** The same debug build also
+  prints one line per resident allocation with its texture name and words, plus
+  the eviction victims since the last summary and what each was given up for.
+  Reach for those first: "12.17 re-uploads per frame" is not actionable and
+  "one car's body texture is a third of the heap" is, and an asset listing
+  cannot substitute — only a fraction of what a project ships is bound in any
+  one view. The census is debug-only in an **anonymous namespace inside the
+  .cpp** under `#ifndef NDEBUG`, deliberately not a header field: a debug-only
+  member would be an ODR hazard the moment one TU disagreed about `NDEBUG`.
+  Its victim list is cleared when PRINTED, not per frame — clearing per frame
+  made it miss the one eviction it existed for.
+  **Attribute a thrash before touching the policy.** On the Motor District
+  garage (docs/gs-vram.md) the answer was neither the eviction policy nor a
+  per-frame allocation — the run did 28 uploads and zero re-uploads in 4 440
+  frames — but a working set 84% of a 0.75 MB heap, half of it three vehicle
+  textures that had bypassed the project's palettization. A scene that close to
+  its ceiling thrashes on the next thing that binds: opening the pause menu
+  took it from 0.119 MB free / 121 KB largest block to 0.052 / 25, which is the
+  state a console reported as four evictions and four re-uploads per frame.
+- **Motion blur gets ONE 16-bit conversion, then an explicit history break.**
+  `RendererCorePostFx` lerps the previous real frame over the fresh destination
+  in one sprite. Its 1:1 UVs are biased by +0.5 texel at both ends; splitting
+  the blend into two passes feeds PSMCT16 rounding back as brightness loss.
+  The generated game emits one clean frame after the camera settles, then
+  restores the authored amount. See `docs/motion-blur.md`.
+- **Never arm DTHE for PSMCT32/24.** The GS calls that unspecified and PCSX2
+  can hide the resulting physical-hardware checker. Use
+  `RendererSettings::isDitherActive()` at every DTHE restore site, including
+  alpha-mask brackets; `getDither()` is only the authored preference.
+The BLSS colour-target reserve uses `RendererCoreGS::setLowResTargetScale`,
+separately from pinned Z and active scene raster. `configure()` sets it before
+`needsBufferRealloc()`: a mixed project must recheck triple-buffer headroom
+even when Z never shrinks. Preserve the reserve across native-scene video-mode
+switches; `setScene()` must not change it.
+
+Before `RendererCore::setDisplayOutput` resets the GS, drain PATH1 and PATH3.
+Hybrid double-buffer presentation can still have an asynchronous copy in
+flight. Game scripts should set `ScriptContext::requestDisplayMode` so video
+changes apply at the normal boundary before `beginFrame`.
+
+GS headroom uses whole page rows: 64x32 at 32 bits, 64x64 at 16 bits,
+including the Z format. A 512x224 CT16 target costs 256 KiB, not 224 KiB;
+rounding a total pixel count to 2048 words is not the allocator's layout.
+
+- **`ColorDepth::Hybrid`: draw 32, show 16** (1.126.0, docs/gs-vram.md
+  "Hybrid"). `frameBuffers[0]` is the only draw buffer (PSMCT32 over a 32-bit
+  z) and `frameBuffers[1]` a display buffer (PSMCT16). With triple
+  buffering, `frameBuffers[2]` is another PSMCT16 display target; only slots
+  1/2 rotate, slot 0 stays the draw target, including after layout rebuilds.
+  `emitHybridPresent(target)` copies with DTHE armed only for the copy and
+  restores through `emitRasterRestore`. Keep three things:
+  - **no unwaited FINISH**: the double-buffer blit has no `draw_finish`;
+    triple buffering follows the blit with `emitDrawTargetSwitch(0)` and
+    consumes its FINISH before publishing the display target to the vblank
+    handler. Never queue a copy still in progress. The final DTHE restore
+    tag must have EOP=1: otherwise PATH3 stays open and starves a between-
+    frame PATH1 FINISH, freezing video-mode changes after a double-buffer
+    hybrid fallback;
+  - **anything that reads VRAM between frames must `sync.align2D()` first**,
+    because the double-buffer flip does not wait for the copy. The frame
+    capture hung on it;
+  - **`hasRealFrame()` stays false**, so motion blur and the warp
+    have no 32-bit previous frame and stay off.
+  `getFrameBufferPsm()` is the DRAW format (32) and `isDitherActive()` is false.
+  Charge/allocate the third buffer using slot 1's PSMCT16 format, not the
+  draw format. With the limiter off, withdraw the pending copy under interrupt
+  masking before reusing its target. No handler may latch that target during
+  the copy. Code that wants the display format asks `isHybridOutput()`. The
+  original two-buffer mode on physical PS2 was EE-neutral (`work` within 0.02 ms), the frame intact.
+- **The framebuffer PSM is a setting, not a constant** (TyraX fork,
+  docs/gs-vram.md). `RendererSettings::getFrameBufferPsm()` returns PSMCT32 or
+  PSMCT16 per the project's colour depth, and **everything that writes a
+  `FRAME` register for the screen must use it**: `draw_setup_environment`, all
+  of `RendererCorePostFx` (`fbPsm` / `psmFor` — the low-res work buffers are
+  allocated in the frame format so the blur chain never converts, while the
+  film-grain noise stays PSMCT32 because it is uploaded rather than rendered),
+  and the env-map / shadow-map brackets' restores. A hardcoded `GS_PSM_32`
+  there decodes a 16-bit frame as 32-bit garbage. The **z buffer FOLLOWS the
+  colour depth** (`RendererCoreDepth`): a colour buffer and the z it is tested
+  against must share page geometry on real hardware (64x32 pages at 32 bits,
+  64x64 at 16), so 16-bit colour runs a `PSMZ16` z with a 16-bit Z scale - and
+  pays for it in depth precision at distance (docs/gs-vram.md has the table).
+  Three traps paid for here: **ps2sdk's `draw_setup_environment` programs
+  `FBA = 1` for a 16-bit frame PSM** (disassembled from `libdraw.a`: the
+  register at `0x4A + context` gets `(psm & ~8) == 2`), which forces the MSB of
+  every written alpha to 1 and silently kills anything that reads destination
+  alpha - the flashlight's `TEST.DATE` shadow mask read SHADOW over the whole
+  raster and no DATE-gated torch pass drew; `initDrawingEnvironment` writes
+  `FBA = 0` straight after that call (the same shape as the CLAMP re-assert),
+  and `RendererCoreAlphaMask::begin()`/`maskClear()` re-assert it per frame; **ps2sdk's `GS_SET_DIMX` masks each entry
+  with `0x03`** while a DIMX entry is 3-bit SIGNED (-4..3), so the negative
+  half of the standard dither matrix (encoded 4..7) collapses to 0..3 and the
+  dither comes out one-sided — `renderer_core_gs.cpp` packs the qword by hand;
+  and the GS only dithers **16-bit destinations**, so `DTHE` is inert at 32bpp
+  and the switch cannot be tested there.
+- **The env-map and camera-feed targets are opt-in** (TyraX fork). Two
+  128×128 targets plus their z buffers, 128 KB each, were reserved for every
+  project whether or not anything sampled them — a quarter of the 32-bit
+  texture heap. `RendererCoreEnvMap::setEnabled` (driven by
+  `EngineOptions::envMapTarget` / `camFeedTarget`, decided by the editor's
+  `projectNeedsEnvMap` / `projectNeedsCamFeed`) turns them off, and then
+  `getTexture()` returns **nullptr** and `begin()`/`end()` are no-ops. Any new
+  caller must null-check rather than assume a texture; the generated game
+  drops the reflection pass instead. If you add a third such target, make it
+  opt-in from the start.
+  0.87 MB free and never evicts anything — if you are chasing a VRAM problem
+  in a palettized project, measure before assuming there is one.
+- **"Restoring" a GS register nothing else writes is a GUESS, not a restore.**
+  `TEXA` and `COLCLAMP` are written by exactly one place in this engine (the
+  BLSS passes, which put TEXA back to the drawing-environment value) - so a second pass that sets them has no previous value to put
+  back and can only assert what it believes the GS reset value to be. The frame
+  warp did that and got it wrong: every blend AFTER the pass inherited it, and
+  `examples/showcase` (bloom + film grain) came back with the whole picture
+  hue-shifted - orange sky olive, green grass orange, a cyan crate magenta -
+  while the geometry stayed perfect. It passed every earlier test because those
+  fixtures had **no post fx**, and with nothing blending a broken blend state is
+  invisible. The cure is not a better value: a pass that does not blend must not
+  write those registers at all. **Whenever a full-screen pass looks right on a
+  bare fixture and wrong in a real scene, diff the two on POST FX before
+  suspecting anything else** - and check what global state the pass leaves
+  behind, not just what it draws.
+- **Frame extrapolation: the IDENTITY warp is the test** (`renderer/core/warp/`,
+  `docs/frame-extrapolation.md`). `RendererCoreWarp` re-draws the last finished
+  frame under a newer camera as a textured grid, so a game can render its world
+  at half the field rate. When `from == to` the result must reproduce its source
+  EXACTLY, which is what makes the whole GS side falsifiable in one screenshot:
+  a wrong TEX0 binding, region clamp, UV encoding or strip vertex order all show
+  as tearing or garbage instead of a clean picture. Check that before checking
+  anything else. Two traps paid for here: **an overcounting NLOOP is as fatal as
+  an undercounting one** (the restore block claimed 4 registers and wrote 3, so
+  the GS read the next giftag as a register write and the game hung in
+  `draw_wait_finish` with no assert and a clean log); and **a degenerate camera
+  basis silently becomes an identity copy**, because every corner takes the
+  `wPrev < 1e-3` fallback - so "the warp does nothing" and "the caller passed a
+  bad basis" look identical. Note also what the tooling could NOT do: real and
+  warped frames alternate every field, and a Wayland compositor screencast is
+  not frame-accurate enough to isolate one of two images at 50 Hz - ten captures
+  of a deliberately marked warp frame came back byte-identical. If you need to
+  see a synthesised frame, build a game-side A/B rather than trusting a
+  screenshot.
+- **Triple buffering: "does it fit" is the WRONG question, and asking it that
+  way is a boot crash** (TyraX fork, `docs/frame-pacing.md`). The third display
+  buffer is a full one - 229 376 words at 512x448x32, 262 144 in `Pal576i` - and
+  at 512x512 three buffers plus z are **exactly** the whole 4 MB: the allocation
+  succeeds and the NEXT one fails, which is a live `Out of VRAM for post fx
+  buffers` assertion before the first frame (measured, that is how the guard was
+  written). What must survive the third buffer is everything `RendererCore::init`
+  still allocates AFTER `gs.init` - post fx ~12 288 words, the env-map target +
+  its z 32 768, the camera feed + its z 32 768, the projected-shadow slots a game
+  may claim later ~20 480 - plus a texture heap worth having, so
+  `allocateVramBuffers` checks for headroom (`kThirdBufferReserveWords +
+  kThirdBufferMinTextureWords`) and REFUSES rather than warns. The same
+  arithmetic is why the feature is in practice an `InterlacedField` one: the
+  full-height 32bpp modes have no room at all. **Any future permanent
+  allocation added to renderer init has to be added to that reserve**, or it
+  becomes the one that gets -1. **The upscaler's low-res target was exactly
+  that miss**: `blss.allocate()` runs LATER than this check (configure -> the
+  VRAM rebuild -> allocate), so it is in neither `getHeapWords()` nor the
+  reserve, and the guard was handing out the third buffer against 114 688 words
+  the scene was about to claim - a 128 KB texture heap instead of 576 KB at
+  512x448 1x2. It is subtracted explicitly now, from the live raster scale, and
+  so is its host twin `project::tripleBufferingFit`. **The rule generalises:
+  the reserve is a list of what is allocated after this line, and anything
+  allocated after it in a REBUILD counts too.**
+- **A present without a render needs TWO history guards** (`docs/frame-extrapolation.md`). Guard one is
+  `getPreviousRealFrameBuffer()`: `flipBuffers` records `lastRealBuffer` and a
+  `synthetic` flip does not claim it, so a history reader (the warp, motion blur) asks for the last
+  frame the SCENE drew. Guard two is easy to miss: with **two**
+  display buffers, two flips per loop return `context` to where it started, so
+  the history IS the render target - sampling it is feedback. With three buffers the
+  indices are distinct by construction. The neural BLSS temporal pass used to be the reader that
+  needed both (it is gone); Whole-3D-scene BLSS x extrapolation stays refused at build because the real
+  failure was in MOTION (doubled camera delta), never the buffer bookkeeping - verified by LOGGING the
+  rotation. **Any future feature that adds a present without a render inherits both guards.**
+- **The vblank handler owns `DISPFB`, and the queue is lock-free ON PURPOSE.**
+  `RendererCoreGS::onVblank` runs in interrupt context and everything it touches
+  must stay interrupt-safe - `presentFrameBuffer` is GS privileged-register
+  stores and nothing else, so do not grow it into anything that allocates, DMAs
+  or logs. The three-slot queue needs no `DIntr()` because the handler only acts
+  when `pendingBuffer >= 0`: while the main thread has waited for -1 the handler
+  is inert and `displayedBuffer` cannot move under it, which is why
+  `flipBuffers` writes `context` FIRST and `pendingBuffer` LAST. The other
+  ordering rule is the `draw_finish` handshake before queueing - the GIF is
+  in-order, so FINISH is what proves the frame is fully rasterised; queueing
+  first puts a half-drawn frame on screen. And any path that moves buffer
+  addresses (`reinit`, `reallocateBuffers`) must `resetDisplayQueue()` first, or
+  a queued frame reaches DISPFB naming the old layout.
+- **`endFrame` only throttles when it renders.** It calls `graph_wait_vsync()`
+  (gated by `isFrameLimitOn`, default true) then flips buffers — so a loop that
+  presents a frame each iteration is paced to 50/60 Hz, but a loop that draws
+  *nothing* (no `beginFrame`/`endFrame`) is not, and PCSX2 races the EE ahead of
+  the display. Consequence for timed holds: a COP0-`Count`-based wait (294.912
+  MHz) measures wall time correctly **only while frames are being drawn**; a
+  no-draw busy-wait finishes in a fraction of the intended time. This is why the
+  boot Tyra splash (`info/banner.cpp`) holds ~2s by re-rendering the logo in a
+  COP0-timed loop rather than sleeping — re-drawing is also required because
+  `beginFrame` clears the framebuffer, so you cannot "hold" a previous frame by
+  doing nothing. The generated games' boot sequence relies on the same fact:
+  the first `loadScene` runs from the loop (not `init()`) so its loading-screen
+  progress is vsync-paced (see the editor's loading-screen feature).
+
+- **`Color`'s default constructor does not initialise anything** ("Initialize
+  Color without setting default values" - it is a vector type used in hot
+  paths), so any `Color` MEMBER is garbage until something assigns it. That is
+  fine for a value that is always written before it is read, and it was not:
+  `RendererCore::bgColor` is the clear colour, and `Engine::init` calls
+  `banner.show()` immediately after `renderer.init()` - the logo hold clears the
+  framebuffer with it, every frame, for two seconds, long before any game code
+  can call `setClearScreenColor`. The boot logo therefore came up on whatever
+  was in that memory: black on one build, BLUE on the next, with nothing in the
+  game changed to explain it (reported from the console exactly that way, and
+  any change to the binary or heap layout can move it). Initialised in the
+  constructor now. The general rule this leaves: anything read before the first
+  game frame - a clear colour, a mode, a flag - must be initialised where it is
+  DECLARED or in its owner's constructor, because "the game sets it at startup"
+  is not true of the engine's own boot screens.
+
+**Audio**
+- audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and an
+  ADPCM voice cannot be STOPPED - only started, or started over.
+  **The channel budget of a generated game**, per bus (every new sound goes to
+  the CURRENT room's bus, so this is what is available at once): 0-15 for Play
+  Sound, 16-23 for the sound emitters. The auto cycle runs 16, not 24 — it used
+  to run the full 24 and walked into the emitters' slots, so one auto play in
+  three stole an emitter's channel or bounced off it as "busy". Who gets one
+  when they are all busy is **docs/sound.md** (priority, then loudness); the
+  engine's part of it is `forcePlay` and `endedMask` below.
+- **`AudioAdpcm::forcePlay` plays over a busy channel** - `AUDSRV_ADPCM_FORCE`,
+  a flag bit ORed into the channel number, which the fork masks off and uses to
+  skip its own ENDX busy check. The refusal was always a software check in
+  `audsrv_ch_play_adpcm`, not a hardware limit: KON on a sounding voice
+  restarts it. The bit rides in the channel because that number already travels
+  EE -> RPC -> IOP untouched, so this cost no new export and no signature
+  change (adding an IRX export means touching the import list of everything
+  that links it). **Whether a forced restart CLICKS is a hardware question and
+  is not settled** - it depends where in the waveform the victim was, and PCSX2
+  is not a witness worth trusting on the SPU2. If it turns out to click, the
+  fixes in order are: drop the victim's volume and play on the next frame, or
+  KOFF first and let the ADSR release run (both cost a frame of latency).
+- **`AudioAdpcm::endedMask(core)` is how to ask what is still playing** - the
+  SPU2's own ENDX register, one bit per voice, one IOP RPC. Ask it per PLAY
+  REQUEST, never per frame (a play already costs two or three RPCs; a per-frame
+  poll is what the emitter loop's whole quantization exists to avoid).
+- **Never let a blocking audsrv RPC be the thing you wait on: it stops the
+  WHOLE library, not just the caller.** audsrv has one RPC server thread on the
+  IOP and one completion semaphore on the EE (`audsrv_rpc.c`), so a call that
+  blocks IOP-side holds both, and every other audsrv call in the program -
+  from any thread - queues behind it. `audsrv_wait_audio(n)` is exactly such a
+  call: its handler sits in `WaitSema(queue_sema)` until the ring has `n` bytes
+  free. `AudioSong::work()` used it once per music chunk, which put the game
+  thread's emitter calls behind a wait that lasts as long as it takes the ring
+  to drain: **measured ~10 ms per frame in PCSX2 on `examples/showcase` -
+  FRAME 20 -> 30 ms, a solid 25 FPS for as long as the track's first pass**,
+  while `SCENE`/`PART` never moved (the hunt is written up in
+  docs/profiling.md). It is now a poll on `audsrv_available()`, which answers
+  from the ring pointers and returns at once, with `Threading::sleep(1)`
+  between tries: same condition, same order, but the lock is taken in short
+  bursts. Four emitters retriggering every frame plus streaming music went from
+  28-30 ms to 20.0 ms. Two rules follow. **Prefer the non-blocking query plus a
+  sleep to any "wait" entry point** - `audsrv_available` / `audsrv_queued` over
+  `audsrv_wait_audio` - and remember the symptom shape: an audio-caused frame
+  drop shows up in whatever code happens to call audsrv, not in the audio code,
+  so the profiler blames the sound emitters for the music's lock.
+- **Streamed music over ps2link stutters, and it is the network, not the
+  engine** (docs/sound.md, "Music stutters over ps2link"): the song's host:
+  freads run TCP on the IOP beside audsrv, whose ring (10 feeds of 512
+  samples, ~107 ms, in INPUT bytes) then gets its refill late. With the song
+  in RAM the ring stays ~90% full. Do not "fix" it with smaller chunks -
+  more audsrv RPCs on a starved IOP played in slow motion - and
+  `audsrv_play_audio` TRUNCATES what does not fit. A debug build warns
+  "Music ring ran low" when a refill finds the ring over 70% empty.
+- **An EE buffer handed to a SIF DMA must be written back to main memory
+  first** (`SifWriteBackDCache(ptr, size)`), and `audsrv_load_adpcm` did not do
+  it. The EE's data cache is write-back, the DMA reads RAM, so a sample just
+  read with `fread()` reaches the IOP as *whatever was in that memory before* —
+  for whichever loads happen to still be cached, which in practice is never the
+  first one. **PCSX2 emulates no EE cache, so every load looks perfect there**;
+  on a console the second sound of a project was silent (the SPU2 dutifully
+  played the garbage, which is usually zeros) while the first worked. Fixed
+  2026-08-06 in the vendored fork. Two things to take from it: the same rule
+  applies to ANY EE→IOP transfer you add, and the tell is cheap — audsrv
+  reports the sample's header back, so a **nonsense `pitch` for a file whose
+  earlier load reported a sane one** identifies a corrupt upload in one log
+  line (1881 vs 0x41C00000 was the actual pair).
+- **`AudioAdpcm` logs why a sound did not play** (debug builds): once per
+  channel per reason - no sample, channel busy, audsrv error - plus a one-line
+  SPU2 dump (per-voice volume/ADSR/start address, the core's VMIX masks, MMIX,
+  master and reverb volume) at each channel's first successful play. That dump
+  is the instrument for "it plays but I hear nothing": diff a channel that
+  works against one that does not.
+- **`audsrv_ch_play_adpcm` reports "I do not know this sample" as a POSITIVE
+  `AUDSRV_ERR_ARGS` (5)**, which no sign test can tell from a channel number.
+  `tryPlay` now demands that an explicit channel comes back as itself; before
+  that, playing a freed/never-loaded sample looked like success and simply made
+  no sound.
+- WAV files: 8-bit PCM is unsigned (0x80 = silence) but audsrv mixes signed —
+  convert (XOR 0x80) or it wraps at every zero crossing (loud crackle at
+  correct pitch — that exact symptom happened).
+- Mono/low-rate streams need smaller chunk size + fill threshold or audsrv's
+  ring buffer starves.
+- **The SPU2's hardware reverb is reachable, and only through a second RPC
+  server** (`AudioReverb`, `audio/audio_reverb.*`, docs/reverb.md). audsrv
+  exposes playback and nothing else, so the registers come from PS2SDK's
+  **`ps2snd.irx` + `libps2snd`** - an EE-side RPC client over the `libsd` the
+  engine already embeds. Both are stock PS2SDK (AFL 2.0, unlike audsrv itself,
+  which is LGPL v2 per every file header), so this cost one `.irx-em`, one
+  loader call and `-lps2snd` in `Makefile.base`. audsrv keeps talking to libsd
+  directly on the IOP; the two are ordinary co-clients of one driver.
+- **audsrv is a SOURCE fork, not a blob** (`vendor/tyra/audsrv/`): the IOP and
+  EE sources are in-tree at ps2sdk `e78a9cb2`, and `build.sh`/`build.ps1`
+  rebuild the three artifacts in `bin/` that `src/runner.cpp` overlays into the
+  build container. Change the sources and you must re-run that script and commit
+  `bin/` in the same commit - nothing in the game build compiles audsrv.
+  **Except on the from-source image**, which compiles the EE half itself
+  (`docker/Dockerfile.fromsource`) because the committed `libaudsrv.a` carries
+  GCC 11.3 LTO bytecode a newer GCC refuses, and skips the Runner's overlay -
+  so a source change reaches THAT image only after the image is rebuilt. The
+  same edit therefore lands in two places with different latencies, and the
+  crossing is `ee/src/sif-compat.h`: upstream renamed ten EE-side SIF RPC
+  entry points to `sce`-prefixed ones and the two SDKs export disjoint sets, so
+  the header aliases them under `TYRAX_PS2SDK_SCE_SIF`, which only the image can
+  set (the compile always sees the old pinned headers - `__has_include` cannot
+  tell them apart). It is included FIRST, before any ps2sdk header, because the
+  aliases must rewrite the declarations too. See the fork's README, change 3.
+  `./build.sh --check` diffs a fresh build against the committed artifacts;
+  `audsrv.irx` is byte-identical while `libaudsrv.a` never is (ar stamps its
+  members, gcc's LTO section names carry a random per-compilation id), so the
+  member SIZES are what that check compares.
+  The ps2sdk that script fetches (a build TREE - these Makefiles include
+  `$(PS2SDKSRC)/Defs.make`) has a **mirror** fallback like every entry in
+  `deps.sh`: `doctorspider42/tyrax-vendor-ps2sdk`. Losing upstream costs the
+  ability to REBUILD the module, not the module (its sources are in-tree) and
+  not game builds (those use the SDK installed in the `h4570/tyra` image).
+- **`sceSdInit()` clears libsd's transfer callbacks - the ones audsrv's
+  streaming ring installs.** So the reverb's RPC bind runs BEFORE
+  `audsrv_init()` and the effect-enable bit AFTER it (audsrv's own
+  `sceSdInit(COLD)` resets the core attributes). Get that order wrong and the
+  MUSIC goes silent with no error anywhere while the sfx keep working - which
+  points the investigation at completely the wrong subsystem.
+- **libsd's defaults send EVERYTHING to the effect bus**, music included:
+  `VMIXEL`/`VMIXER` come up with all 24 voices set, and `MMIX` bits 4/5 route
+  the core input (the streamed song) into the reverb. So a per-voice send
+  normally REMOVES a voice, and keeping the music dry is an explicit write.
+  (Those bit meanings were confirmed against libsd's own block-transfer
+  handler, which clears bits 6/7 - the dry pair - when a stream ends.)
+- **`sceSdSetEffectAttr` only zeroes the work area if effects were ALREADY
+  enabled** (`effects_disabled && clearram` in libsd's effect.c). A first
+  preset set with the core's effect bit still off leaves whatever was in SPU2
+  RAM circulating as noise. Enable, then set.
+- **Reverb RPCs cost what audsrv's do**: synchronous SIF calls sharing the bus
+  with the music stream, so the generated game quantizes the wet depth to 64
+  steps and sends only real changes - the discipline `updateSoundEmitters`
+  already follows for volume/pan. A per-frame RPC is measurable in frame rate.
+- Reverb presets occupy 8-96 KB of SPU2 RAM at the TOP of the 2 MB while audsrv
+  loads ADPCM samples from 0x5010 upward, so they collide only past ~1.9 MB of
+  effects. Changing preset zeroes that area, which is why the game only does it
+  at zero wet level and never per frame.
+- **The audsrv fork plays voices on BOTH cores**: channels 0-23 are core 1
+  (unchanged, so old callers cannot tell), 24-47 are core 0. Upstream muted
+  core 0's master outright, which is what made the SECOND reverb unit
+  unreachable - a reverb is per core and only that core's voices feed it.
+  Unmuting is the whole routing change: core 1's `AVOL` (the core-0-into-core-1
+  volume) was already pinned at 0x7fff, and `cdrom.c` had always raised core 0's
+  master for CDDA. `AudioReverb` exposes the two units as `BusA` (core 1) /
+  `BusB` (core 0), and the generated game cross-fades rooms across them - a
+  room owns a bus, the incoming one takes the free unit while it is silent, and
+  the depths ramp past each other. **The consequence to keep in mind when
+  touching anything that PLAYS a sound: a voice is committed to a bus when it
+  starts**, so every play site must offset its channel by
+  `ScriptContext::reverbBusBase` (0 or 24) or the sound lands in the room the
+  listener has left.
+
+**Files / assets**
+- `fseek`/`ftell` are unreliable over the PS2 host filesystem — the WAV parser
+  walks RIFF chunks in memory for this reason. Prefer read-into-memory parsing.
+- Textures must be power-of-two sized; PNG 32/24bpp or palletized 8/4bpp
+  (palletized is fastest on PS2).
+- `cdrom0:` paths differ from `host:` paths — ISO9660 uses `\`, upper-case and
+  a `;1` version suffix; `FileUtils::fromCwd` and the extension helpers handle
+  the conversion. Test asset-loading changes on BOTH boot paths (host: via
+  normal Build & Run, cdrom0: via Export PS2 ISO).
+- **Whether `getcwd()` ends with a separator is not a guarantee, and the failure
+  does not look like a path bug.** `fromCwd` used to be a plain `cwd + file`,
+  which is correct only while the SDK returns `host:/dir/bin/`; a current ps2sdk
+  returns it without the slash, so every path became `.../binlivepad.bin` and
+  PCSX2 answered *"IopHLE: Denying access to path outside of ELF directory"* —
+  which reads as the emulator's host: sandbox refusing you, not as a missing
+  character. The game then opens NOTHING, its own log included, so there is no
+  in-game diagnostic either. `fromCwd` inserts the separator itself now, and
+  leaves a trailing `:` alone (`host:` + `file` is a valid path). Any new path
+  builder owes the same care.
+
+**Build environment**
+- PS2SDK's `math3d.h` `#define`s names like `LIGHT_AMBIENT` — prefix your
+  constants (the codebase uses `SCENE_*`).
+- The compiler is `mips64r5900el-ps2-elf-g++` inside the `h4570/tyra` image;
+  there is no way to compile engine code on the host. Even a syntax check
+  requires a game build (see tyra-testing).
+- **NEVER put anything between a `#macro` line and its first instruction — not
+  even a comment.** `vclpp` then expands that macro to **nothing**: no error, no
+  warning, exit 0, and every caller compiles green with the instructions simply
+  absent. This is not theoretical and not cheap: a note added inside
+  `PerformClipCheck` (`vcl_sml.i`) in `93a7657` (2026-07-14) silently removed
+  the frustum clip check from `mcpip_cull` — the blocks pipeline shipped without
+  it until it was found on 2026-08-04. Put notes ABOVE the `#macro` line, in the
+  `;//` block that is already there for exactly this purpose.
+
+  How to check a macro actually expanded, in one command (no build needed):
+
+  ```bash
+  docker run --rm -v "<repo>/vendor/tyra:/e:ro" tyrax-toolchain:local sh -c \
+    'cd /e/engine && vclpp src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.vclpp /tmp/o.vcl && grep -c clipw /tmp/o.vcl'
+  ```
+
+  Do this whenever you touch a `.i` macro. Instruction counts in the generated
+  `.vsm` are the other tell: a program that suddenly got ~27 instructions
+  shorter did not get optimised, it lost a macro body.
+- Related, same file: `[..]` is vclpp's **register-array index**
+  (`t_lightMatrix[0]`), so a field suffix like `[w]` on a macro parameter is not
+  a spelling choice, it breaks expansion the same silent way.
+- **`begin:` in every pipeline program is a LOOP** (`b begin` at the bottom, one
+  iteration per batch), so anything loaded above it must stay live through the
+  whole body — and one of the two assemblers does not honour that. openvcl reuses
+  those registers per vertex, and every
+  batch after the first stored garbage GIF tags: 50 FPS of missing terrain, no
+  assertion. **Load per-batch values next to the store that reads them, inside the
+  loop** — the nine `*_c` / `*_tc` / `*_tce` / `*_td` programs now do, and it cuts
+  register pressure as well. The check that finds this class (per register
+  *component*: written in the preamble, read in the body before the body writes it,
+  written in the body) is described in `docs/toolchain-image.md`, "A miscompile this
+  uncovered"; it also names the per-input-file `vcl` dispatch wrapper, which is how
+  you attribute a bad frame to ONE microprogram instead of to a whole build.
+- **A project's clipping mode decides whether the `clip_*` programs run at all**, so
+  check it before concluding anything from a green frame. `"clipping": "vu1"` in the
+  `.tyra` generates `CLIP_VU1S[...] = {true}` in `inc/scene_data.hpp` and makes
+  `StaPipQBufferRenderer` upload the five `clip_*` programs; `"precise"` and `"fast"`
+  leave them off VU1 and use the EE clipper's `as_is_*` instead. A `vclab` copy sitting
+  on `"precise"` produced a pixel-identical openvcl frame that was read as "the VU1
+  clipper works" - it was the EE clipper, and with `"vu1"` set the same build differs in
+  506784 of 514600 pixels. Grep the generated header, not the intent:
+  ```bash
+  grep -n "CLIP_VU1S" <project>/inc/scene_data.hpp
+  ```
+- **The CLIP flag is a shift window, not a value** — 24 bits, six pushed in by every
+  `CLIP`, so a mask names a POSITION in it. Reading it too soon after its `clipw` does
+  not give a half-settled answer, it gives the previous vertex's answer, and a clipper
+  then keeps and drops the wrong edges (data-dependent: correct in one scene, a blank
+  frame in another). SCE keeps positional tests 3-4 rows behind their `clipw` and reaches
+  the source's semantics by issuing the NEXT `clipw` before the read, which is safe for
+  exactly the same reason. When you touch flag scheduling, measure the window depth per
+  read (`clipflags.py` in the working notes: how many `clipw`s precede each `fcand`), not
+  just the row gap. And measure it in EMITTED ROWS: a scheduler counting cycles is
+  counting a different thing, because a wait the hardware interlocks is a cycle that
+  costs no instruction word, so four cycles of separation can come out as two rows.
+- **A microprogram too big for the resident set can still be booted — shrink the SET.**
+  `StaPipQBufferRenderer::setProgramsCache` uploads ten programs from address 0, and the
+  packet tap names the program each mesh actually runs (`program @<addr>`, matched against
+  the cache order). `vclab`'s twelve meshes all run `programs[1]`, so passing 2 instead of
+  `count` frees ~1600 words and the scene still boots. Prove the harness first by running
+  SCE's build under it — if SCE stages the same triangle count as under the full set, the
+  harness is measuring the clipper and not itself.
+- **Count VU words with `nm`, not by counting rows in the `.vsm`.** The uploader sizes
+  each program from `<name>_CodeEnd - <name>_CodeStart` (`VU1Program::calculateProgramSize`,
+  rounded up to even — MPG uploads 64-bit pairs), and row counts run 2-6 high per program
+  because they pick up what sits outside those symbols. On the resident ten that is a
+  ~7-word error — enough to call a build an overflow when it fits, or the reverse. `nm`
+  currently says **SCE 2028, openvcl 1996** against a 2042 ceiling; row counting says
+  neither. And words are NOT the perf metric: openvcl is smaller than Sony's `vcl` on all
+  three corpora, and the ~20% gap this note used to report on a VU1-bound scene was a
+  miscompile of ours rather than the price of the assembler — with it fixed the two are
+  at parity on every scene that can register a difference at all. The cost that words do
+  not show is FMAC read-after-write stalls, and a stall is not a word
+  (docs/toolchain-image.md, "Measured on the console", and "It was a miscompile of ours,
+  not the price of the assembler"). Ask the built object:
+  ```bash
+  docker run --rm -v "tyra-engine-<hash>:/tyra:ro" tyrax-toolchain:local sh -c 'mips64r5900el-ps2-elf-nm /tyra/engine/obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o | grep -i Code'
+  ```
+  The volume name is in the project's `docker-compose.yml`.
+- **A microprogram that does not fit can still be tested — pay for it with one that
+  is smaller.** The ceiling is on the SET (2042 instructions), not on the program,
+  so put the oversized candidate on openvcl together with the programs where openvcl
+  beats SCE (`cull_d` -4, `cull_td` -8) and the set fits again. That is what let
+  `stapip_clip_c` be booted at all, and it is how its miscompile was found back when the
+  VU1-clipper set as a whole was still 28 words over. The whole set fits on either
+  assembler now, so this trick is for a *new* oversized candidate, not for the ten.
+- **Two VU1 assemblers exist now, and which one built your microcode matters.**
+  `vcl` in the stock image is Sony's prebuilt VCL 1.4beta7 (32-bit x86, no
+  source, no license). The from-source `openvcl` compiles all 25 programs since
+  2026-08-04 (one patch to it, plus moving the GIF-tag loads inside the batch loop
+  in `stapip_clip_d` / `clip_td` / `cull_td`), and since 2026-08-05 a game built
+  with it **runs, pixel-identical to Sony's output** - on the EE clipper, and on the
+  VU1 clipper for all ten resident programs (`stapip_clip_c`, the last one to blank
+  `blocks-terrain` and `raytraced-mirror`, was fixed by the register-liveness work).
+  The resident ten fit with room to spare: **2026 against SCE's 2028**, ceiling 2042,
+  at no measurable frame cost. openvcl schedules
+  *differently* though, so **any VU1
+  timing you measure belongs to one assembler, not to the engine**. Say which one
+  in the commit message, and A/B with the same one. `VCL_IMPL=legacy|openvcl`
+  picks it when building the image; the image records its choice in
+  `/usr/local/share/tyrax/vcl-impl`. Numbers, patch and repro:
+  `docs/toolchain-image.md`.
+- **Sony's vcl is a build target too - a VU edit is not done until BOTH
+  assemblers take it.** The default build is native openvcl, so the Docker
+  fallback (Sony's `vcl`) is exercised by nobody, and 51396a98 broke it for five
+  days: TC's clip image with the TD path on it had 33 VF live in `sharedDirMode`,
+  openvcl's `--sink-loads*` silently moved five preamble loads into the buffer
+  header and fitted, Sony's allocator said `no opt table .. for sharedDirMode`
+  and every `--docker` build died in the engine. `--vu-check`'s pressure line
+  read 30 and did not warn: it is a linear scan, so a constant loaded in the
+  preamble and last read in the per-buffer header looks dead inside the batch
+  loop that branches back to it - it can UNDER-state, not only over-state. The
+  fix that works for both: load per-buffer constants where they are used (the tag
+  block), not in the preamble; it costs a few lower-pipe `lq`s a BUFFER and is
+  output-identical because the EE writes those addresses only behind
+  sendObjectData's FLUSHE. Check after any `.vclpp` edit: `vclpp`+`vcl`+`dvp-as`
+  over every engine `.vclpp` in `tyrax-toolchain:local` (cwd = engine dir), the
+  same through the native toolchain's `vcl` wrapper in WSL, or one small project
+  built with and without `--docker` (docs/toolchain-image.md, "Sony's vcl is a
+  build target too").
+- **Swapping the toolchain image rebuilds NO microcode.** The engine's make keys
+  off `.vclpp` timestamps, and an image swap touches neither them nor their
+  checksums, so the previous build's VU objects are relinked and the change looks
+  like it did nothing (this produced three identical "bisection" screenshots
+  before anyone noticed). Build with `--rebuild`, and confirm the log shows 25
+  `vcl` invocations.
+
+## Performance context
+
+The 98k-vertex benchmark scene went 12 → 50 FPS through: outcode early-out in
+the EE clipper, static pools (no per-call heap), and finally exact per-package
+frustum classification. The StaPip packager's per-submit `new[]`/`delete[]`
+package arrays are pooled too (grow-only vectors in `StaPipBagPackager`;
+callers must not free the result) — measured worth only ~2% of the partial
+branch in PCSX2: the real cost of PARTIALLY_IN_FRUSTUM geometry is the
+per-package bbox classification + EE clipping, which scale with vertex count
+(see PROGRESS entry 79: a single detail-16 box near the camera = 9.2k verts =
+~36 ms of EE; the fix was authoring-side detail, not the allocator).
+**Classification itself was then rebuilt (PROGRESS entry 100)**: the frustum
+planes are transformed into the bag's object space once per bag
+(`CoreBBox::computeObjectSpacePlanes`) and every package/subpackage is
+classified with the p-vertex/n-vertex AABB test on min/max corners
+(`CoreBBox::frustumCheckAABB`) — no per-package corner transforms, no merged
+8-corner boxes, and `clipFrustumCheck`'s duplicate zero-guard-band re-check
+is gone. Plus a VU0 `vmini`/`vmax` min/max scan in
+`CoreBBox(const Vec4*, count)` and `memcpy` fills in
+`StaPipQBuffer::fillByCopy*`. Net: 47 → 73 FPS on the vsync-off 98k
+benchmark, pixel-identical; the hidden `"clipping": "vu1"` mode hits 120 FPS
+on the same scene now that classification is cheap. When touching
+classification, mind the AABB invariant: every CoreBBox the packager sees is
+axis-aligned with `vertices[0]`/`vertices[7]` as min/max — only the
+matrix-transform constructor breaks that, and it must never feed the AABB
+test. VU1 clipping is now the default; the EE clipper remains available as the
+legacy compatibility mode. See docs/vu1-clipping.md.
+- **`PARTIALLY_IN_FRUSTUM` does NOT mean "needs clipping", and treating it that
+  way was worth 2.2 ms a frame** (docs/vu1-clipping.md). A package is classified
+  against the VIEW frustum — the screen edge — while VU1 cuts against the near/far
+  pair and an X/Y band at `VU1_CLIP_XY_BAND` (0.9) of w. The projection divides
+  by `projectionScale` 4096, so the screen edge is at `width/4096` of w — **0.125**
+  at 512 px (so **any EE-side world→screen projection is `px = W/2 + x/w·2048`,
+  `py = H/2 + y/w·2048`, never `(x/w·0.5+0.5)·W` and never with a second y flip** —
+  the matrix already carries the GS's downward y in its `data[5] = -h`, which is why
+  `Renderer3DUtility::convertVertices` and the
+  shadow-map STs all just ADD `2048·y/w`. **This mistake has now been made twice, so
+  suspect it wherever the EE places something from a world position**: the
+  flashlight's count-rect scissor had the NDC form and sliced every mesh shadow flat
+  at its rows until 1.65.0, and the god-rays / lens-flare sun (`updateSunFx` in the
+  generated game) had the NDC form *and* the extra flip until 1.65.1 — measured on
+  the dawn plaza of `examples/day-night`, a sun disc the 3D pipeline drew at
+  (410, 127) of a 512×512 raster was reported at (275, 272), i.e. 8× closer to the
+  screen centre and mirrored across it. Note also that a 2D SPRITE is not in that
+  space at all: `RendererCore2D` authors sprites in the stock 512×448 layout and
+  letterboxes it into the raster, so anything world-anchored drawn as a sprite must
+  subtract `(getHeight() − 448) / 2` — 0 in the stock modes, 32 in Pal576i, 46 in
+  HiDef1080i) — and the band is about SEVEN times that: a triangle may hang ~1590 px
+  past either edge before anything is cut, and the GS scissor crops the raster
+  (it acts during DDA, so unseen pixels cost no fill). So a package straddling the
+  screen border typically crosses no VU clip plane at all, and it used to be split
+  into thirds, `memcpy`-ed stream by stream and run through Sutherland-Hodgman with
+  an empty plane mask. `StaPipBagPackage::guardBandOnly` (set by the packager,
+  read by `StaPipCore::isGuardBandOnly`) routes it to **cull**, whole and by
+  pointer. Measured on `examples/large-terrain`, 2922 paired frames: clip-routed
+  packages 11 164 -> 2 127 per 50-frame window, qbuffer flushes 1 287 -> 756, work
+  6.887 -> 4.670 ms (**1.475x**, CI [-2.258, -2.175]); the picture is unchanged
+  (an A-arm and a B-arm boot came back byte-identical over four parked poses,
+  while two boots of the SAME build did not — this fixture's chunk streaming is
+  the noise floor, so ALWAYS capture a same-build control here).
+  **The trap inside it, and the reason the mask is tested over EIGHT planes:** the
+  cull programs' `fcand 0x3FFFF` covers all six clip flags of all three vertices,
+  `z` against `+/-w` included, while the guard band's near constant is
+  deliberately looser (`PlanesClipAlgorithm::clipMargin`). That leaves a thin
+  shell in front of the near plane where the clipper draws a triangle the cull
+  program would ADC away — a hole at point-blank range.
+  `computeClipObjectSpacePlanes` therefore builds the six VU planes PLUS the exact
+  near (`z <= w`) and far (`z >= -w`) pair at indices 6..7; those two are EE-only,
+  never uploaded, and `clipPlaneMask` is masked back to six bits before VU1 sees
+  it. If you add a plane here, decide first which side of that line it is on.
+  Note the trade: the whole package is now submitted where the split would have
+  dropped some thirds as OUTSIDE — ~7 % more triangles in 54 % fewer packages,
+  because the cost on this pipeline is per PACKAGE (a DMA chain, a kick, a copy),
+  not per triangle.
+- **`StaPipTelemetry` finally has a reader: the `FTCLIP` line.** The counter block
+  existed for a year with nothing calling `takeTelemetry()`. Under
+  `TYRA_FRAME_PROFILE` the generated game now enables it and prints
+  `cull=P/T clip=P/T guard=P/T out=... flush=... vuwait=...` once a second beside
+  `FRAMETIME` (docs/profiling.md). Drain it EVERY frame — `takeTelemetry` clears
+  as it reads, so a skipped frame is a lost frame.
+- **The static packet structure walker is the safe first step before changing
+  the packet language.** `TYRA_FRAME_PROFILE` enables
+  `TYRA_STAPIP_PACKET_PROFILE`, which walks the completed DMA/VIF chain in
+  `sendPacket` and prints per-producer `FTPKT` totals every 50 frames. A row is
+  admissible only with `bad=0`; GIF/GS totals are derived from the selected VU1
+  program and package count. Both counters and parser compile out by default.
+  The 2026-09-22 physical capture found 765–826 A+D writes and 197–213 XGKICKs
+  per garage frame. Aligning only each `BagArray` base to 128 bytes is a measured
+  dead end: the 1,200-byte package stride loses alignment again and hardware
+  work regressed 0.09–0.18 ms. Do not restore it without a package-owned packed
+  stream. See docs/profiling.md and the Motor District packet-structure evidence.
+- **`Info::getFps()` is NOT a clock you may add a constant to, and it was one
+  for years.** It divided a hardcoded `15625.0` into a single frame's delta of
+  **EE Timer 3**, which the kernel clocks from **H-BLNK** - i.e. it counts
+  SCANLINES, so its rate is a property of the VIDEO MODE while the constant is
+  PAL 576i's line rate. Measured on one fixture, one build, only `displayMode`
+  moving: PAL 576i reads **15 626 Hz** and the formula was exact; progressive
+  480p reads **31 470 Hz** and it printed **29.76 against a true 59.94**. Every
+  progressive project read half its frame rate. It reads **COP0 `Count`** now
+  (294.912 MHz, the rig's clock, mode-independent) over a stated 0.5 s window,
+  returns a float, and has a twin - `getPresentedFps()`, counting buffer flips
+  via `Info::countPresentedFrame()` in `RendererCoreGS::flipBuffers` - because
+  frame extrapolation presents twice per loop and every counter in the engine
+  was reporting only rendered frames. **The general rule: anything derived from
+  T3 inherits the video mode; anything derived from COP0 does not.**
+  docs/profiling.md, "The three frame rate counters".
+- **`context ^ 1` IS A TWO-BUFFER EXPRESSION, and it presented BLACK frames**
+  (FIXED 1.20.1; docs/frame-pacing.md, "The black-frame defect").
+  `RendererCoreGS::allocateVramBuffers()` armed the display queue with
+  `displayedBuffer = context ^ 1`, and that function runs a SECOND time in any
+  game that re-lays the permanent region after boot - which today means every
+  upscaler game, because `blss.configure()` sizes the z buffer from the
+  raster and goes through `RendererCore::rebuildPermanentBuffers()`. By then the
+  ~2 s boot banner has flipped ~120 times, so `context` is wherever the
+  three-buffer rotation left it; at 2, `context ^ 1` is **3** - one past
+  `frameBuffers[]` - and `flipBuffers`' `3 - shown - finished` wraps in its `u8`
+  cast, so the rotation drew and PRESENTED through `framebuffer_t`s read past
+  the array. Symptom: one presented frame in three was a display buffer nothing
+  ever drew (fully black, **no HUD either**, which is what rules out every
+  theory about the composite - the HUD draws at full resolution after it).
+  Needed BOTH features by construction: triple buffering to make 2 reachable,
+  the upscaler to re-arm the queue after boot. Two lessons that outlive the fix:
+  **any expression of the form "the other buffer" is a two-buffer expression**
+  (a rebuild can also come back with FEWER buffers, leaving `context` naming one
+  that is gone - clamped now), and `reallocateBuffers()` must re-present, since
+  skipping `programDisplay()` skips the only write to `DISPFB` while the third
+  buffer's address moves under it. **The instrument is the boot line**: `GS
+  buffers: … x3, z …, drawing into N, showing M`, printed once per layout - a
+  game that re-lays prints it twice and the second is the one that matters.
+
+- **Before trimming VU1 cycles, prove VU1 is on the critical path (2026-10-20).**
+  The Motor District night frame was called VU1-bound until road bands and the
+  single-pass submission; on 1.176.3 the EE waits **8 us a frame** for the GPU
+  (`Vif1Queue::waitFor` + the GS tail in `completePipelineFrame`) and the GPU
+  idles ~44-51% of the period. A same-ELF PS2 arm with NO per-bag FLUSHE at all
+  moved work by less than the controls' 0.03 ms spread, which retired S2, the
+  clip strip sliding window, V4-8 colours and larger packages for that frame
+  (docs/tyrax2-night-ee-2026-10-12.md, "VU1 has slack now"). Time the two
+  waits first; only a frame where they are large can gain from VU1 work.
+
+Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
+and after; pixel-compare screenshots to prove output is unchanged.
+
+`StaPipCore` has a frame-local last-transform cache for consecutive TyraMVP
+material bags. It reuses the MVP and object-space frustum planes only when the
+model pointer, model-matrix contents and view-projection contents all match;
+this content key is required because physics mutates matrices in place and
+portal/split-screen passes switch cameras. `onFrameEnd()` invalidates it and
+TyraMP bypasses it. The portal/mirror-free Aster PCSX2 fixture measured median
+serialized Total 21.322 -> 19.172 ms and Objects 14.102 -> 12.425 ms over six
+alternating boots, but the directly attributed Prepare counter moved only
+1.375 -> 1.341 ms: treat the aggregate emulator delta as directional until the
+same ELF pair is measured on a physical PS2.
+
+Do not fuse already-finished uniform and geometry chains. Removing one chain's
+END and byte-appending it with `packet2_add` stalled at the first gameplay frame
+in PCSX2 because packet2's chain/TTE contract was not preserved. Rewriting the
+aligned empty END as a real zero-QWC DMA NEXT to the intact geometry chain ran
+and measured faster in PCSX2, but froze a physical PS2 on the first gameplay
+frame in three fresh boots. The safe 1.86.4 route is to construct ONE native
+packet from the beginning: leading FLUSHE, uniform unpacks, geometry commands,
+then one END. Never jump between the separately allocated chains. This ran past
+2100 hardware frames and returned a correct GS capture.
+
+## Static submission on physical PS2 (1.78)
+
+The 2026-09-27 per-bag A/B kept two small `sendObjectData` cuts: omit the
+three spot quads when the light is inactive, and omit the shared clip block
+unless the bag can enter a VU1 clip program. A project program override keeps
+both uploads; direct calls to `sendObjectData` default to the old clip upload.
+Mode 24 saved 0.04..0.13 ms of `work` over two hardware boots. Retaining copies
+of each bag's uniform groups instead added 0.30..0.80 ms and was rejected;
+do not transplant its DMA lifetime machinery into production for this fixture.
+See docs/ee-submission-rearchitecture.md, "Round six".
+
+`StaPipQBufferRenderer::sendObjectData` prepares uniforms without waiting for
+the previous mesh, at the head of the current double-buffered geometry packet.
+The first buffer flush appends to that packet instead of resetting it, writes
+one END and submits once after the ordinary VIF1 wait. A wholly culled mesh may
+replace the unsent packet. Never let a draw escape `render()` with pending
+geometry that references stack MVP/light data, and keep the packet capacity at
+least the worst-case uniform chain plus one 16-group qbuffer half. The 1.93
+explicit scope additionally copies transient uniforms inline and requires
+retained external streams; see the bounded batching contract below.
+
+Every submitted combined or geometry-only packet uses the SDK's full D-cache
+writeback because its REF streams may point outside packet storage. A trial
+walking every REF with `SyncDCache` regressed a hardware render-cost capture
+from about 58 to 79 ms; it was discarded. Measure cache policies on EE.
+
+VU1 clipping references immutable source streams, like culling; legacy EE
+clipping still copies into writable qbuffers. Coarse AABBs cover eight full
+packages (24 one-third bounds), follow bboxVersion rebuilds, and only inherit
+whole-IN/OUT decisions; partial groups keep exact child/guard-band tests.
+The package-bbox cache uses a fixed 256-bucket hash index over buffer id and VU
+package capacity. Buckets and per-entry collision links store vector indices,
+not pointers: vector relocation stays safe, hits allocate nothing, and the
+index is rebuilt only when expiry compacts storage. Keep `bboxVersion`, vertex
+count, capacity and the 250-frame unused lifetime checks intact; together they
+protect rewritten buffers, capacity variants and recycled addresses. The index
+costs 1,024 bytes plus four bytes per retained entry on the 32-bit EE.
+Wholly visible bags skip redundant package classification and, since 1.86.3,
+point each qbuffer directly at the bag's contiguous source range instead of
+constructing unused pooled package descriptors. Partial and EE-clip paths still
+use packages and writable copy pools. Spatially coherent triangle order makes
+the coarse level useful without altering triangle data. On portal/mirror-free
+Aster this direct path was hardware-neutral across five settled captures
+(Total 34.349 -> 34.342 ms, Objects 25.051 -> 24.951 ms) and ran beyond 3360
+frames; describe it as removed work, not a proven FPS gain.
+
+Since 1.86.4 the native combined first packet removes one VIF1 kick and one EE
+wait per visible bag. Five settled physical Aster captures moved median DMA
+submit 3.034 -> 2.029 ms, Dispatch 16.827 -> 15.544 ms and VU1 wait 5.847 ->
+5.130 ms; Total stayed fill-bound near 34.3 ms. PCSX2 alone is not acceptance
+for this path: the rejected NEXT variant was faster there and failed hardware.
+
+`Math::sqrtNonNegative` uses EE `sqrt.s` only for known nonnegative squared
+lengths. Do not substitute it for a general sqrt API with errno/domain behavior.
+Render-cost telemetry includes both uniform and geometry VIF waits; counting
+only the latter under-reports synchronization. The counters overlap stages.
+See [profiling](../../../docs/profiling.md) and the Aster example for measurements.
+
+
+### Bounded cross-bag submission batching (1.93)
+
+`StaPipCore::beginSubmissionBatch()` / `endSubmissionBatch()` are an explicit
+ownership scope. Generated callers may use them only around direct static bags
+whose vertex, texture-coordinate, colour and normal streams remain alive and
+unchanged through the next VIF1 synchronization. End submits asynchronously; it
+is not a completion fence. Close the scope before view changes, GS operations,
+render-cost drains or pipeline switches.
+
+The packet stays one native contiguous chain. Every new bag retains
+`FLUSHE -> inline uniforms -> geometry`; never join separately allocated packets
+with DMA `NEXT`/`CALL`. MVP, light matrices/directions and single colours are
+inline only for retained bags. Partial-frustum classification, VU1/EE clipping,
+qbuffer copies, billboards and game-supplied program overrides are excluded.
+Overrides have no bounded qbuffer writer ABI, so the built-in eight-qword
+command bound cannot be assumed. Treat any installed override as a global
+batching exclusion. `setOverride(slot, program)` does not require the program's
+self-reported name to match `slot`, so querying the resolved program name can
+miss the override; use the repository's cached any-override state.
+
+Resident textures may batch only when both wrap axes are REPEAT. A texture miss,
+upload, update, free or eviction invokes the active StaPip mutation barrier:
+submit pending geometry and `align3D()` before VRAM contents or addresses
+change. Track already-submitted textured batches too; `objectDataPending == false`
+does not mean the GS finished sampling. Register this hook in `allocateOnUse`,
+clear it only for the owning pipeline in `deallocateOnUse`, and drain readers
+before clearing it.
+
+Keep batching bounded to four direct bags of at most 15 VU packages each.
+The physical-PS2 large-bag experiment reduced submissions but regressed garage
+render-submission time from 37.286/43.546 ms to 38.264/44.580 ms. Packet build
+added about 0.2 ms and the garage VIF1 DMA wait rose about 0.6 ms, with no capacity
+split observed. Do not restore geometry-only packet continuations without a new
+hardware hypothesis and gate. The final cached override flag and early eligibility gate passed the physical
+four-pose gate: submission saved 0.95/1.14/0.37/0.34 ms. This is not evidence
+of a whole-game FPS jump. See the report for the 240-eviction/12-switch stress
+test and the full-asset image checks.
+
+### The VIF1 submission queue (1.125.3)
+
+`Vif1Queue` (`renderer/core/paths/path1/vif1_queue.{hpp,cpp}`,
+`TYRA_VIF1_QUEUE`, on by default) lets StaPip keep up to four packets in flight
+instead of waiting for the previous transfer before every send. Each packet is
+still its own complete chain ending in END, and the EE starts the next one at
+its next submit or wait. Physical PS2: `work` -0.50..-0.72 ms in the four
+Motor District poses (docs/ee-submission-rearchitecture.md). Four rules any edit
+must keep:
+
+- **Every VIF1 user calls `Vif1Queue::drain()` before touching the channel**,
+  and no longer calls `dma_channel_wait(DMA_CHANNEL_VIF1, 0)`. A plain channel
+  wait can return between two queued chains and then start a chain under the
+  queue. Every engine site and the generated game's `projClamp` barrier were
+  converted, and a new sender must be too. In the 0 arm `drain()` IS the old
+  wait, so code is written once.
+- **"The other buffer" is gone, so stop writing `side ^ 1`, `sides 0 and 1`
+  or `!context`.** Packet buffers and qbuffer copy-pool sides now number
+  `kPacketCount` / `kPoolSides`. The one place that still said "0 or 1"
+  (`deallocateDynamicData`'s pooled test) freed arrays the pool still owned,
+  and the retained cache that reused that heap then fed VIF1 vertex floats as
+  tags (`Unknown VifCmd 3f` in PCSX2). A chain validator walked in `sendPacket`
+  (every CNT/REF payload against the UNPACK/DIRECT size its VIFcodes consume)
+  found it in one boot. Build that validator again before debugging a VIF1
+  error by reading code.
+- **Anything a chain REFs must stay unchanged until that chain has run, which
+  is now up to three packets later.** That is why `sendObjectData` copies the
+  MVP, the light matrix and directions, and the single colour inline in queue
+  mode (`kInlineUniforms`) instead of REF'ing renderer storage the next bag
+  rewrites. It costs +0.23 ms of `prepare` at night. The copy pools are covered
+  by the per-context sides and baked arenas by their two-frame graveyard. A new
+  REF target needs the same answer.
+- **The write-back is lazy** (`TYRA_VIF1_QUEUE_LAZY_FLUSH`, on, -0.26..-0.51 ms):
+  `Vif1Queue::start` calls `FlushCache(0)` only for a chain submitted after the
+  last write-back, which then covers everything queued behind it. So nothing
+  may write a SUBMITTED chain or anything it references, which was already the
+  rule. `start` must never run in an interrupt (FlushCache is a syscall), and a
+  static_assert ties the two flags together. **Depth 8 measured worse than 4**
+  (+0.19..+0.41 ms, all in `prepare`: more buffers and pool sides are more
+  memory the EE touches), so do not deepen it without a new reason.
+- **2D sprites ride VIF1 too** (`TYRA_2D_VIF1_DIRECT`, on, 1.126.1): once
+  VU1 is up `RendererCore2D` appends each sprite's GIF packet to a VIF1 chain as
+  `NOP` + `DIRECT`, opened by `FLUSHA`, and submits it through the queue instead
+  of draining PATH1 and sending over PATH3 (work -0.37..-0.50 ms on a PS2). So
+  **every GIF-channel send calls `path3Fence()` first**
+  (`paths/path3/path3_fence.hpp`); it is free when no 2D is pending. A new PATH3
+  sender that skips it can overtake queued sprites: an upload overwrites a
+  texture they sample, or a CLAMP/ALPHA write changes their state. An OPEN 2D
+  chain is submitted by the next `Vif1Queue::submit()`/`drain()` from anyone
+  (`setOpenChainCloser`), and `endFrame` fences before the vsync wait, because
+  with no interrupt nothing starts a queued chain while the EE sleeps there.
+- **`endFrame` drains the 3D queue too, not only the 2D fence** (1.166.1).
+  `path3Fence()` drains only in a frame that drew a sprite, so a scene with NO
+  2D at all (no HUD, prompt or menu) left up to `kPacketCount - 1` chains
+  queued and unstarted. The next frame's first submit started them - after
+  the present, the draw-target switch and the clear had gone out on PATH3 - so
+  the frame's last bags drew into the NEXT back buffer, under its sky and
+  terrain. The backlog sustains itself (a submit starts at most one queued
+  chain and adds one), so one GS-heavy frame - the terrain lightmap pass - set
+  it for good. Opaque z-tested bags survive that (they win the z test against
+  the terrain that follows); blended no-z-write ones vanish: **baked shadow
+  decals and blob shadows invisible in examples/baked-shadows**, with every
+  byte the decal bag sent and every VU1 memory word it left identical to a good
+  frame. What found it was a PCSX2 GS dump walked per draw (pcsx2-capture.py's
+  `GsWalker`): the decal's 858 kicks sat right after the next frame's
+  `FRAME_1` write. **"Every byte matches but nothing shows" means look at WHEN
+  the GS gets it, not what.** A new frame-boundary PATH3 sender must come after
+  this drain.
+- **`TYRA_VIF1_QUEUE_HOLD` is a measurement probe, never a mode** (0): the
+  queue only collects chains until the EE first waits, and `endFrame` logs the
+  frame's VU1+GS time alone (`GPUHOLD us`). Run it with
+  `TYRA_VIF1_QUEUE_DEPTH 80`. At 128 the extra packet buffers and pool sides
+  threw `std::bad_alloc` on a console. Its `work` is meaningless (the frame is
+  serialised on purpose). It measured the GPU at ~40% of the EE's time
+  (docs/ee-submission-rearchitecture.md, "The GPU-only frame").
+- **`TextureRepository` answers id -> texture from a cache**
+  (`findLinked`, 1.126.2): 256 direct-mapped entries, valid for one
+  `Texture::linkGeneration`. Every link and list change bumps that counter, so
+  **change `Texture::links` only through `addLink`/`removeLink*`**. The vector
+  is public, and a direct `push_back` would leave the cache answering from the
+  old links. The uncached walk (every texture x its links, per sprite) was
+  0.97 ms of an 85-sprite HUD on a PS2.
+- **A bag's texture wrap is written in its own chain, never by draining**
+  (`StaPipQBufferRenderer::setBagWrap`, 1.126.3): `FLUSH` plus `DIRECT` A+D
+  `CLAMP_1` ahead of the bag's uniforms. The GS wrap cache
+  (`currentTextureWrap`) follows when the packet is SUBMITTED, not when it is
+  built, because an unsent packet (a culled bag) is thrown away with its write.
+  Anything drawing over PATH3 that relies on the wrap must `align3D()` first,
+  as every current consumer does. A queued write then lands before it. The old
+  lazy drain cost the EE 1.28 ms in Motor District's garage night.
+- **`Texture::residentHint`** remembers where the texture's entry sits in the
+  resident list; `RendererCoreTexture::findAllocation`/`isResident` trust it
+  only after checking the entry's id. Any new resident-list lookup should go
+  through them, not through a fresh scan.
+- **A retained block must not carry anything that depends on its POSITION in
+  the packet** (1.127.1). The buffer header's `VU1_STAPIP_EMIT_STATE_FLAG`
+  ("send the GS state again", set only when the program changed) does, so the
+  replay re-flags it (`StaPipVU1Program::emitsStateFlag`, `kPackedCountWord`).
+  Replaying a strip block captured mid-run right after an expanded clip LIST
+  drew the strip as a triangle list: holes in roads, per camera, in PCSX2
+  too. A new header word that depends on the previous buffer needs the same
+  treatment. Symptom and bisection recipe: docs/roads.md, "Holes in the road".
+- **`popEnvView` restores the frustum planes its push saved**; it no longer
+  rebuilds them from the caller's camera (the shadow pass passed no `up`).
+- **Object data is written by a fast path, not by packet2 calls**
+  (1.127.2, `emitUnpack` in stapip_qbuffer_renderer.cpp). Per packet2
+  open/close the cost was ~1.4 us a bag, the data itself little. Headers are
+  produced once by packet2 into a scratch packet and cached per (VU address,
+  length), so the bytes stay packet2's. Change a uniform block's address or
+  length and a new header is made by itself; change packet2's layout
+  conventions and the VIF-hash gate (docs/baked-stream-acceptance-gate.md) is
+  how you prove identity. The cache holds 32 headers and asserts when full.
+- **Code layout between two builds moves `bounds`/`prepare` by up to ~0.17 ms
+  on the console.** The repeatability floor (two boots of one ELF) does not
+  cover it. Read a change's delta in the brackets it touches.
+- **A/B a game-code change with ONE ELF toggled at boot**, not two builds.
+  Code layout moved `work` by ~0.4 ms between two builds of the generated game
+  (docs/ee-submission-rearchitecture.md, "How to A/B a change to GAME code").
+- **Light beams are two batched submissions per view** (1.127.4, generated
+  game): coronas in one bag, cones in another, brightness in the vertex
+  colours at FIX 128, one slot per call per frame (the chain REFs the arrays),
+  and an EE frustum test per lamp so offscreen lamps do not turn the batch's
+  packages into clip work.
+- **Do NOT start chains from a DMAC interrupt on this engine**
+  (`TYRA_VIF1_QUEUE_ISR`, default 0). PCSX2 ran it clean. A physical PS2 under
+  ps2link took an EE exception twice, both times at the instruction right after
+  `EIntr()`. First, `ExitHandler()` (`ei` inside the handler) let a nested
+  interrupt corrupt the interrupted thread's `s0`. Then, without it, it was an
+  instruction fetch at address 0 with `Status.EXL` set, i.e. inside the
+  kernel's interrupt dispatch. **Read an EE exception taken with EXL set as "in
+  an interrupt"**: EPC is not updated while EXL is set, so it names the
+  interrupted main-thread instruction, not the fault. `symbolize EPC` then
+  points at innocent code.
+
+### What a VU1 cycle and a DMA cache flush actually cost (2026-09-15)
+
+Two physical-PS2 experiments, both reverted, priced the next two candidate
+directions. Full numbers and the reproduction recipe are in
+[docs/vu1-and-dma-cache-cost.md](../../../docs/vu1-and-dma-cache-cost.md).
+
+**VU1 arithmetic is worth 0.0768 ms of frame time per cycle per triangle** in the
+Motor District garage view, and 97% of it surfaces as VIF1 DMA wait: adding twelve
+measured cycles per triangle moved render submission 40.830 -> 41.752 ms and the
+wait bucket 6.794 -> 7.688 ms. There is no slack, so arithmetic removed from a
+program comes straight off the frame at the same rate. Read a program's real cost
+out of the generated assembler - the lines between the loop label and the loop
+branch in the native cache's `.o.vsm` are **cycles per triangle**, because every
+static-pipeline loop processes three vertices per iteration. Under the shipped
+`openvcl`: `cull_tc` 133, `cull_c` 130, `cull_tce` 109, `cull_td` 107,
+`clip_tc` 269.
+
+**AIM A VU1 EXPERIMENT AT THE PROGRAM THE SCENE ACTUALLY RUNS.** The first arm
+instrumented `cull_td` and measured exactly zero, which reads as "VU1 is free"
+and is nothing of the kind: a generated game attaches a lighting bag only to
+dynamically lit objects, so ordinary static geometry has `lighting == nullptr`
+and selects the COLOUR programs. `getCullProgramByParams(isLightingEnabled,
+isTextureEnabled)` is the whole decision; check it before instrumenting anything.
+
+
+### The spot-light gate, and the two facts it cost (1.94.0)
+
+`CalculateTyraSpotLight` is 21 upper-pipe operations a vertex - 63 a triangle -
+and it ran in every colour program on every mesh, lit or not. It is gated now on
+the SIGN of `VU1_OPTIONS_ADDR.y`, which the EE sets from
+`StaPipClipperSpot::enabled` (the same predicate `addSpotToColor` uses, so both
+halves of the formula hang off one fact). Measured on `.o.vsm`, cycles per
+triangle, unlit -> lit: `cull_c` 130 -> **72** / 130, `cull_tc` 133 -> **73** /
+133, `clip_c` 230 -> **173** / 232, `clip_tc` 241 -> **184** / 243 (the clip rows
+are the COLOUR path). Micro memory 1684 -> 1862 of 2042 (and ~1950 since
+1.134.3's fog gate: `cull_tc` carries a third, fog-free unlit loop, entered when
+VU1_OPTIONS_ADDR.z - the fog SCALE - reads 0 in its low 16 bits; the EE keeps a
+real scale's low half non-zero, docs/vu1-and-dma-cache-cost.md "The fog gate"). Details in docs/flashlight.md, "The cone costs nothing
+when nothing is lit". Four things generalise:
+
+- **`VU1_OPTIONS_ADDR.y` IS THREE-STATE NOW** - `> 0` the shared clip image's
+  peer path, `0` base, `< 0` base plus a live dynamic light. That was free
+  because every reader of the lane only ever tested `> 0` against `<= 0`. Any
+  new reader must keep that discipline, and anything that wants a THIRD fact in
+  that lane has to widen the tests first.
+- **A BRANCH IS A SCHEDULING BARRIER, AND THE CONSOLE PRICED IT.** The first
+  shipped shape gated the spot INSIDE the loop. Four parked Motor District
+  poses: garage day **-1.059 ms**, outer day -0.620, outer night -0.701 - and
+  **garage night, the HEAVIEST pose, +1.264 ms**. At night the lamps are on, so
+  nearly every mesh picks a dynamic light and takes the LIT path, where the
+  branch cost 11 cycles a triangle of lost pairing (`cull_tc` 133 -> 144).
+  25 090 triangles x 11 cycles predicts 0.93 ms against 1.26 measured, so the
+  0.0768 ms rate converts well - what was missing was asking WHICH PATH the
+  scene takes (~39% unlit in garage day, ~0% at night). Three shapes, `cull_tc`
+  lit/unlit: gate per corner **154/91**, one gate before the first
+  `MatrixMultiplyVertex` **144/81**, **two whole loops picked once per batch
+  133/73**. The cull pair ships as two loops with the lit one byte-for-byte the
+  original body - the strongest available guarantee that it cannot regress -
+  and the clip pair keeps a branch but DUPLICATES the colour clamp instead of
+  jumping into the middle of the lit block, which is +2 rather than +7.
+  **Price the path that does NOT take your new branch, on the pose where it is
+  the common one.** (A program carrying a project's own stage list keeps one
+  loop and a per-corner gate: its body is far larger, and its stage slots must
+  still see the vertex in the order they always did.)
+- **THE RESIDENT SET IS NOT NEAR THE CEILING ANY MORE, whatever
+  docs/toolchain-image.md still says - but it is tighter than it was.** (Update
+  2026-09-26: 1944 words measured with nm before the VU1 audit, 1698 after - see
+  docs/vu1-clipping.md "The resident set after the VU1 audit"; the billboard pair now
+  rides in the headroom.) The
+  shared clip images left real room: MEASURED at 1684 of 2042 words before this
+  change (8 distinct images - 5 cull + 3 clip, since clip C/D and TC/TCE alias)
+  and **1862 after**, 180 spare, nearly all of the growth being the two
+  duplicated cull loops. The ~1988 figure on that page predates the shared-image
+  work. Two rules: measure with `nm` on the built objects before designing
+  around a headroom number, and do NOT trust `--vu-check`'s budget line for
+  this - its upper bound is pessimistic by construction (it cannot know how VCL
+  will pair instructions) and now reads `1102..2201 of 2042`, above a ceiling
+  the real build clears by 180.
+- **`--vu-check` COULD NOT SEE THE SPOT LIGHT AT ALL, and still passed.**
+  `stageInput` filled the lights-direction block with random xyz and left every
+  W at zero - and all three of `invRange2`, `cosCut2` and `invSoft` are Ws, so
+  the macro's colour addend was exactly 0 in every trial and a program that ran
+  it agreed with one that did not. Fixed (plausible constants plus a per-trial
+  alternation of the gate lane), and the fix was FALSIFIED before being trusted:
+  flipping one `ibgez` to `ibltz` in the handwritten `cull_c` now fails the
+  check within three trials, where before it passed. **If you add a gate to a
+  microprogram, prove the harness fails when the gate is inverted** - otherwise
+  a green `--vu-check` says nothing about the branch you just wrote.
+
+**`dma_channel_send_packet2(p, ch, true)` is `FlushCache(0)` - syscall 100, a
+write-back invalidate of the entire 8 KiB data cache - then
+`dma_channel_send_chain`.** At 131.65 submissions per garage-day frame the whole
+bracket is 2.358 ms, 17.9 us per call, which bounds what removing it can save
+(plus an unmeasured refill tax on the bag preparation that follows). Adding
+redundant flushes is correctness-neutral and measures the marginal cost: 0.61 ms
+for the first, 0.437 ms for each further one on an already-clean cache.
+
+**Suppressing the flush hangs the console.** An arm passing `flush_cache = false`
+wedged ps2link until a physical Reset. The memory the DMA must see coherently is
+**the packet itself**, written by the EE into cached memory microseconds before
+the send; static vertex arrays reached by `REF` tags were written at load time
+and are long evicted. So an explicit-ownership redesign must give the packet
+buffers - and the qbuffer copy pools, written between sends - an owner
+(`P2_TYPE_UNCACHED` / `P2_TYPE_UNCACHED_ACCL`, or a hit-based write-back by
+address), not simply drop the call.
+
+**ps2sdk offers no cheap range write-back, and that is still not a reason to fork
+it.** It is AFL-2.0, so a fork is permitted (this repo already vendors AFL-2.0
+PS2SDK code in `tools/toolchain/bin2s`). But `SyncDCache` is not the range
+operation its signature suggests: `_SyncDCache` loops over **all 128 cache
+indices in both ways**, issuing `sync` before and after every `cache`
+instruction, and only then compares tags against the range - which is exactly why
+the earlier experiment that synchronised each DMA `REF` range separately came out
+slower than the baseline. What the pipeline wants is about ten instructions and
+exists in neither function. It remains the wrong lever anyway: the cost is
+proportional to the NUMBER of submissions, so a retained-command redesign removes
+most of it for free.
+
+### The EE-submission bounding probes (2026-09-16) — two directions CAPPED
+
+`TYRA_STAPIP_PROBE_*` in `stapip_probes.hpp`, all default **0** and none of it
+ships (same zero-cost gate as `TYRA_STAPIP_ATTRIB` - `#ifndef NDEBUG` is NOT the
+gate in this engine). Physical PS2, six hashed ELFs, 0.135 ms repeatability
+floor. Full account:
+`examples/vehicle-playground/authoring/ee-probes-2026-09-16/README.md` and
+docs/ee-submission-rearchitecture.md.
+
+- **Per-package frustum rejection PAYS FOR ITSELF: it buys 2.60 ms and the whole
+  `checkFrustum` bracket costs 1.79 ms** (garage day, `work`). So any redesign of
+  the static pipeline has to keep an equivalent visibility test, and 1.79 ms is
+  the hard ceiling on anything that only makes classification cheaper. Most of
+  what rejection buys is VU1, not EE: 1.09 of the 2.60 ms is VIF1 wait.
+- **CLASSIFYING MORE COARSELY IS A NET LOSS - do not re-open it.** One
+  classification per existing eight-package coarse group, reused by all eight
+  with rejection and clip routing intact, measured **+4.59 ms** while adding
+  FEWER triangles than the accept-all arm. A coarser box crosses more clip
+  planes, so whole groups of eight take the CLIP route where one package would
+  have, and clipping is the expensive one (`packet` +1.08 ms, flushes +26).
+- **A "1/3-bbox part" is one third of a PACKAGE.** `StaPipBagPackagesBBox` splits
+  a bag into `maxVertCount / 3`-vertex parts and a full package spans exactly
+  three of them, so "classify per part instead of per package" is three tests
+  where there is one, and parts are not shared between packages so nothing
+  amortises. The coarse level that DOES amortise already exists: one box per 24
+  parts = 8 packages, short-circuiting wholly-in and wholly-out groups.
+- **An arm that forces `IN_FRUSTUM` without running the test is CORRUPT, not a
+  probe.** It routes near-plane-crossing geometry to the cull programs, which do
+  not clip. Map only the `OUTSIDE_FRUSTUM` verdict and leave
+  `PARTIALLY_IN_FRUSTUM` alone - and cover the coarse test too, or most of the
+  frame's rejections survive and the arm measures nothing.
+- **`FlushCache` is worth 0.84 ms of the send bracket / 1.09 ms of work, half
+  what was predicted** - and **dropping it CORRUPTS THE PICTURE even with the
+  packet allocated `P2_TYPE_UNCACHED`** and the qbuffer copy pools still on the
+  flushing path. 1 271 of 262 144 pixels, a 14-row band at the horizon. The
+  same build that stays uncached and still calls `FlushCache` is BYTE-IDENTICAL
+  to the control, which is what localises it to the flush and not to the
+  allocation. So the packet is not the only thing being written back, or
+  `FlushCache(0)` is also supplying an ordering barrier. **Unresolved - answer
+  it before building anything that removes the flush.**
+- **Uncached packets are SLOW: +7.55 ms.** `packet2` writes floats one at a time
+  and an uncached store does not gather, so the chain costs seven times more to
+  build than not flushing it saves.
+- **`P2_TYPE_UNCACHED_ACCL` IS UNSAFE WITH THE STOCK ps2sdk BUILDER.**
+  `packet2_vif_close_unpack_auto` does an `lbu` of byte 3 and an `sb` into byte 2
+  of the open unpack VIFcode (disassembled from `ps2sdk/ee/lib/libpacket2.a`),
+  and the chain helpers back-patch a DMA tag's QWC the same way. Under UCAB those
+  go through the EE's 128-byte write-gather buffer - the read can see memory the
+  buffer has not flushed, and a sub-word back-patch of an already-gathered block
+  is undefined. That is a corrupt VIFcode, i.e. a hung VIF1, i.e. the wedge.
+  `P2_TYPE_UNCACHED` has no write-gather buffer and is the safe arm.
+- **`packet2_create` asserts `qwords % 4 == 0` for EITHER uncached type**, which
+  no header says. `packetSize` is 784 today; keep `kWorstBagPacketSize *
+  kSubmissionBatchSize` a multiple of 4 or an uncached packet traps at
+  allocation.
+- **A parked fixture cannot see one whole class of flush-removal bug**: a
+  per-frame rebake that writes the SAME bytes every frame leaves stale lines
+  indistinguishable from fresh ones. Re-run any flush experiment with
+  `--keep-routes` before calling it correct.
+
+### Retained static command data (1.96.0)
+
+The static pipeline stops rebuilding, every frame, the DMA/VIF commands that did
+not change. Full account: docs/retained-static-commands.md. Five things any edit
+here must keep.
+
+- **The block is CAPTURED, not re-derived.** `addBuffersDataToPacket` runs the
+  ordinary builders on a miss and then memcpys the bytes they just wrote **out of
+  the packet** into the entry. That is what makes the replay byte-identical by
+  construction - for every program class, for strips and lists, and for a
+  game-supplied program the engine knows nothing about. Do NOT "simplify" it into
+  a struct that describes the packet format: that is a second description to keep
+  in sync, and the reason this one cannot drift.
+- **Copying finished DMA tags is legal because none of them names its own
+  position.** A `CNT` tag counts the quadwords that follow it, a `REF` names an
+  absolute address outside the packet, and with TTE the VIF codes ride in the
+  tag's upper half. `NEXT` and `CALL` are the exception and the pipeline writes
+  neither (see docs/static-submission-batching.md for what happened when one was
+  tried).
+- **The retained storage is EE-private and is NEVER referenced by DMA.** Its REF
+  tags name the bag's own arrays exactly as before, so this adds no new
+  DMA-lifetime exposure at all and the double-buffered qbuffer slot pool is
+  untouched. Only the CULL route is retained: a clip buffer's count word carries
+  a camera-dependent plane mask, and a copied/merged/strip-expanded buffer points
+  into that pool, whose address is not a property of the bag.
+- **The key is every input the block encodes** - stream pointers, count, package
+  size, `bboxVersion`, the resolved VU1 program pointer, the prim state, the Z
+  scale (`RendererCoreDepth::scale`, which a display-mode switch moves) and the
+  single-colour/strip flags. If you add anything to what a package's commands
+  contain, add it to the key in `beginRetainedBag` in the same edit. Two
+  invalidations are unconditional because a pointer compare cannot see them: a
+  pipeline teardown (`deallocateOnUse`) and a VU1 clipping-mode switch both clear
+  the cache outright. Note what the key does not need: a recycled heap address
+  with the same layout produces the same block, because the block carries
+  addresses and counts and no vertex data.
+- **The same capture-and-replay covers the clipping chain.** `addClipChain`'s
+  fifteen quadwords - 52 float stores **per mesh** - depend only on the
+  renderer's near/far pair and the guard band, so they are captured once.
+  `init()` and `setVU1Clipping()` are the only places those inputs move and both
+  drop the capture. Since 1.127.5 the capture is ALSO kept as a plain VIF
+  stream (`clipBlockVif`: its CNT tags' DMA halves zeroed into VIF NOPs) and
+  every bag REFs that one copy instead of copying it. It is rewritten only
+  after `Vif1Queue::drain()`, because chains still in flight REF it - any new
+  shared REF'd block must obey the same rule (docs/ee-submission-rearchitecture.md,
+  "Round five").
+- **`beginFrame`/`endFrame` sleep 0.5 ms each only while
+  `RendererCore::setFrameYield(true)`** - the generated game sets it from
+  `livedbg::attached()`. Off it is -1.05 ms a frame; a sleepless loop with the
+  Live Debugger attached hung the console (SIF stuck) and nobody knows why yet
+  (docs/backlog.md). Anything else that talks to host: every frame may need the
+  same yield - test it attached, on hardware, for minutes.
+- **2D sprites in the VIF1 chain cache GS state** (`TYRA_2D_CHAIN_FAST`,
+  `RendererCore2D::renderIntoChain`): a sprite writes XYOFFSET/TEX1/ALPHA/
+  TEX0 only when they differ from what the open chain last set, and
+  `closeChain` restores the 3D XYOFFSET. Anything new that writes those GS
+  registers mid-frame must close the chain first (path3Fence does) or the
+  next sprite inherits the wrong state.
+- **`RendererCore::getStallTotal()`** is a never-reset running total of the
+  renderer's stall time (vsync / display buffer) beside `takeStallTicks()`,
+  which resets. The frame-extrapolation gate and the profiling rig both take
+  the resetting one, so a third reader (the interleaved-passes tuner,
+  docs/interleaved-passes.md) takes differences of the total instead.
+
+Counts: `StaPipCore::takeRetainedCommandHits/Builds/getRetainedCommandBytes`,
+and a debug engine logs `STAPIPRET` every 300 frames (which makes a debug build
+the only in-engine consumer of those counters - they reset on read).
+`TYRA_STAPIP_RETAINED_COMMANDS = 0` restores the previous construction exactly
+and is the A/B control arm. Measured in PCSX2 on the Motor District benchmark
+fixture, three boots per arm: **18 `--capture-frame` images hash to one value**,
+and garage day - the only pose not pinned to a vsync division - goes
+27.889 -> 30.769 median FPS (35.86 -> 32.50 ms, **-3.36 ms**) against a 0.222 FPS
+control spread and a **0.001 FPS same-build repeatability**; 76 % of the frame's
+package command blocks replay (`retained=772 rebuilt=246, cache=106 KB`). Two
+tuning facts came out of that run and are the reason the constants are what they
+are: the first shape reserved 8 quadwords per package and never evicted, the cap
+bound, the cache held geometry the camera had left, and it measured **1.35 FPS
+slower** than the shipped 7-quadword + bounded-LRU one. **PCSX2 cannot price
+this change fully**: it emulates no EE data cache, and the change trades
+computing bytes for reading them out of a cold 128 KB arena, so an emulator
+delta is an upper bound on the hardware saving and nothing more.
+
+### The baked VIF stream (TYRA_STAPIP_BAKED_STREAM, default 1 since 1.117.1)
+
+A wholly visible static bag's whole per-frame VIF1 command stream emitted once
+and replayed by ONE DMA `REF` tag. Format, arithmetic and what verified:
+docs/baked-vif-stream.md. It ships **on**; 0 is the control arm, and five things
+any edit must keep.
+
+- **A `REF` payload may contain NO DMA tags.** The DMAC does not interpret tags
+  inside referenced data - it feeds every word of it to VIF1 as a VIFcode - so
+  the baked block is a pure VIFcode stream: `STCYCL` + `UNPACK` followed
+  **inline** by the data that unpack transfers, repeated, then `FLUSH` +
+  `MSCAL`/`MSCNT`. That is not a new thing to ask of VIF1: with TTE a chain tag
+  is 8 bytes of DMA tag plus 8 bytes of VIFcodes, so VIF1 already receives an
+  unbroken WORD stream in which codes and data alternate with no relation to
+  quadword boundaries - `packet2_utils_vu_open_unpack` + `packet2_add_float`
+  (the `submissionBatchCandidate` branch of `sendObjectData`) is the shipping
+  existence proof.
+- **The block is TRANSCODED, never re-derived.** `bakeBlock` walks the chain
+  fragment the ordinary writers just produced and turns each tag into ONE header
+  quadword carrying that tag's own two VIFcodes **verbatim**, preceded by two
+  VIF `NOP`s, followed by the quadwords the tag transferred. The NOPs go in
+  FRONT - an `UNPACK` eats the words that immediately follow it, so trailing
+  padding would be read as unpack data - and they keep every payload quadword
+  aligned, which is what makes the payload a copy rather than a shift. Anything
+  that is not `CNT` or `REF` refuses the bake. Same reasoning as
+  StaPipRetainedCommands: no second description of the packet format to drift.
+- **THE PROGRAM KICK IS A BAKE-TIME FACT, and that is what makes one `REF` per
+  MESH possible.** `addBuffersDataToPacket` picks `MSCAL` or `MSCNT` off
+  `lastProgramName`, which looks per-frame - but `StaPipCore::render` calls
+  `clearLastProgramName()` **once per bag**, so package 0 always produced
+  `MSCAL <program address>` and every later package `MSCNT`. The kick therefore
+  lives inside the block and the program's micro-memory destination joins the
+  key. If you ever stop clearing that per bag, this breaks silently.
+- **A baked block IS live DMA memory**, unlike a retained one. It is written
+  once, when built, and only read afterwards - never patched in place - and
+  eviction may not free what the last submitted packet still names, so every
+  free goes through a two-frame graveyard. And the arena is hand-aligned to 16
+  bytes: a DMA tag's address field drops its low four bits, so a misaligned
+  arena transfers from somewhere else, silently.
+- **Only the DIRECT, wholly-visible cull route bakes**, and the run a single
+  `REF` covers stops at the 16-group packet flush boundary. Both are deliberate:
+  the direct route is the one whose packages are a fixed slice of the bag, and
+  changing the flush cadence would move `packetFlushes`, which is one of the
+  counters the acceptance gate pins. **That second reason is the spike's
+  self-imposed limit, and it is where the prize is** - a longer run is a bigger
+  saving and only a moved cadence lengthens runs. Lifting it requires a gate that
+  is not built on counters: docs/baked-stream-acceptance-gate.md, which checks a
+  canonical hash of the word stream VIF1 actually receives instead.
+  `StaPipQBuffer::bakeIndex` is reset by
+  `getBuffer()` for the same reason `retainIndex` is - a half flush covers
+  buffers of SEVERAL bags, so a stale index would be read against another bag's
+  arena.
+
+- **IT IS WORTH 1.287 ms OF GARAGE-DAY `work` ON HARDWARE, against a 0.012 ms
+  floor - a fifth of the 5.5-6.5 ms the plan budgeted.** Measured with NO
+  instrument in either arm (no gate hash, no verify, no poison, no periodic
+  report): a gate arm and a verify arm are correctness arms and neither may
+  produce a millisecond. `total_ms` does not move in garage day at all - the
+  saving goes into `present`, because the vsync rung is 10.42 ms away - but
+  garage night stops juddering (43.9 ms averaged over a two/three-field
+  alternation becomes a flat 39.959). Two reasons it is not bigger: only half the
+  bags take the direct route (`dsDirectBags` 53.5 against `dsPartialBags` 59), and
+  `prepare` RISES 0.315 ms, the same term that refuted mesh LOD 64.
+- **THE EE PAYS PER PACKAGE, and the arithmetic closes twice.** Packet
+  construction is 1.898 ms over 803.5 packages = **2.362 us a package**; replaying
+  360 of them predicts 0.850 ms and 0.808 was measured. That is why badly packed
+  geometry costs out of proportion - projected shadows and wheels run 22-25
+  triangles a VU1 package against a strip's ~70, taking 16% of the frame's
+  packages for 7.6% of its triangles.
+- **THE OLD KEY DID NOT COVER WHAT THE BLOCK CONTAINS; `BagArray` is the fix.**
+  It holds each array's POINTER plus `bboxVersion`, and `bboxVersion` is a
+  statement about the bounding box, i.e. about POSITIONS. A caller that re-shades
+  per-vertex COLOURS in place - which the Motor District does for its dynamic
+  lights - changes what the block must contain without touching anything the key
+  can see, and the baked stream then replays stale lighting. Measured:
+  `TYRA_STAPIP_BAKED_VERIFY` mismatches 1438 times, all of them the colour-only
+  class, all of them with the first differing quadword landing on the first
+  COLOUR quadword. The RETAINED cache is immune because it stores the chain and
+  its `REF`s still name the bag's own arrays, so a re-shade is followed at DMA
+  time - the exposure belongs to the baked stream BECAUSE it inlines the payload.
+  No gate leg could see this on a frozen fixture: once the camera stopped, the
+  colours stopped. Generated mutable arrays now use `BagArray`, whose enforced
+  mutation API stamps `contentVersion`; the baked key includes that stamp.
+  The moving-route verifier checked 169,843 blocks with zero failures. See
+  docs/bag-content-version.md and docs/baked-stream-acceptance-gate.md.
+- **The two adversarial modes are how you find that class at all**, and they are
+  not optional before turning this on. `TYRA_STAPIP_BAKED_VERIFY` never replays -
+  it rebuilds every block with the ordinary writers and compares - so it needs no
+  control arm and runs under `--keep-routes` with the traffic MOVING.
+  `TYRA_STAPIP_BAKED_POISON` overwrites an evicted arena immediately instead of
+  letting the two-frame graveyard hide it; paired with
+  `TYRA_STAPIP_BAKED_BUDGET_QW` cut far below what the scene wants, it thrashes
+  eviction and proves the DMA lifetime. Poison PASSES at 16 384 quadwords against
+  1 541 KB wanted, with a byte-identical picture.
+
+The cost is the part the plan page (docs/ee-submission-rearchitecture.md) did
+not mention: inlining the payload stores every static vertex twice, ~49 bytes
+per vertex for the textured per-vertex-colour class, and **nothing can free the
+originals** - the bbox cacher, the clip route and the generated game all still
+read them. `STAPIPBAKE` (behind `TYRA_STAPIP_BAKED_REPORT`, default 0) prints
+the arena size and the per-frame DMA chain quadword count; that last counter is
+compiled into BOTH arms, which is what makes the A/B readable.
+
+The shipping flip was measured on a physical PAL PS2 on 2026-09-20, after the
+content-version contract existed: in an 83-road-chunk carless district, three
+synchronized captures per arm measured 18.776 -> 17.012 ms median total and
+8.856 -> 7.769 ms procedural; EE memory rose 14.3 -> 15.7 MB, and 187,904
+non-HUD capture pixels were identical. That is the hardware price that the old
+"park at 0" commit was waiting for, not an emulator extrapolation.
+
+**`STAPIPMISS` beside it answers WHY a bag rebuilt, and that question is the one
+worth instrumenting.** A cache that never converges contaminates whatever is
+measured next, and "it churns" is not actionable - the field that moved is. It
+tallies one reason per invalidation (`bbox`, `prim`, `streams`, `program`,
+`size`, `new`, `incomplete`) and records the largest bag that moved, by vertex
+and package count, so a mesh can be named by its size rather than by a heap
+address. Measured on the Motor District garage, held pose: **one**
+`bboxVersion` bump and **two** prim-state collisions per frame, zero everywhere
+else, costing 64 rebuilt packages because those three bags are 31 and 51
+packages each - and at the outer-road pose, zero of everything with every drawn
+direct bag replayed. Both mechanisms are known shapes: `bboxVersion` bumped
+unconditionally is the defect docs/wheel-rebake-skip.md records, and a second
+pass over one vertex array thrashes the single entry the cache holds per
+(array, package size). Keep this counter when you touch the key; it is how the
+next round avoids pricing a cache that is not working.
+
+### Bag stamps (TYRA_STAPIP_STAMP, 2026-10-13)
+
+A static, wholly visible, baked bag can skip the whole `StaPipCore::render`
+frontend: `StaPipQBufferRenderer::tryStamp` re-emits the head + REF bytes its
+last ordinary submission produced and patches only MVP, fog, TEX0, spot and the
+single colour (docs/stapip-stamps.md). On the night drive this was the lever
+(18.3 -> 13.5 ms parked): the generic path cost ~10k instructions and ~640 cache
+misses per bag. Traps: any block `sendObjectData` emits that the replay cannot
+patch MUST clear `stampOk`; info fields mutated IN PLACE (star twinkle, probe
+z-test) are why the info bag is byte-compared; and destroying a baked entry
+must go through `noteDestroyed` or a stamp replays a freed arena.
+
+Also from that night: `Audio::work` sleeps `idleSleepMs` (16) when no song plays
+instead of polling every 0.5 ms at priority 5, and `RendererCoreEnvMap` can hold
+a second (back) colour target for the two-frame reflection capture
+(`begin(.., clear, intoBack)` / `swap()`, `EngineOptions::envMapDoubleBuffered`).
+
+### Audit 2026-10-20 EE items: owned packets, chain stamps, partial replay
+
+Runtime switches, each A/B'd on the PS2 with one ELF; results and which ship
+are in docs/tyrax2-arch-audit-ee-submission-2026-10-20.md. Traps any edit must
+keep:
+
+- **Owned packets (`Vif1Queue::reservePacket` / `submitOwned`, R3).** A StaPip
+  packet is re-pointed into the frame bank ONLY while empty (`startPacket`);
+  everything that remembers a packet position is set after that. Commit the
+  reservation (`FrameChainArena::shrink`) BEFORE `closeOpenChain()`, or the 2D
+  chain copies over the packet. A `drain()` keeps an open reservation taken
+  (`keepUntil`); a bank switch invalidates it, and a stale packet takes the
+  copying submit. `deallocateOnUse` must restore `packetOrigin` before
+  `packet2_free`.
+- **Chain stamps (R1) and the whole-bag clip replay (R5 modes 2/3) were
+  measured and removed.** A stamp replay that REFs its head from DMA
+  memory instead of copying ~14 qwords changed nothing (the cost is the
+  memory the replay reads, not what it writes); a crossing bag sent whole
+  into the clip program cost +0.6 ms parked / +2.5 ms driving of VU1.
+- **Partial replay (`setPartialReplay`, R5).** The baked cache tells passes
+  apart by PROGRAM now (`samePass`), so a bag's cull and whole-clip variants
+  coexist; without it the clip acquire replaced the cull entry in place. A run
+  that follows the other program must regenerate its first block's header
+  (GS-state flag at `kPackedCountWord`) and kick (MSCAL); continuing blocks are
+  baked as MSCNT without the flag. The whole-clip variant bakes the plane mask
+  baked at 0x3F - the only camera-dependent word of a clip block; mode 4
+  patches each clip block's own mask into a regenerated header.
+- PCSX2 parked frame grabs at one frame of the cycle fall into clusters (the
+  three-phase reflection probe): compare an arm against the nearest baseline
+  cycle, never against one other cycle.
+
+### Triangle strips for static geometry (1.95.0)
+
+`StaPipBag::stripped` says the bag's `vertices` are a TRIANGLE STRIP. The whole
+feature is **zero VU1 instructions** - no microprogram changed, micro memory is
+still 1862 of 2042 words - because the per-vertex ADC judgement the cull
+programs already write (`fcand 0x3FFFF` over the last three `clipw` results) is
+exactly the triangle a strip vertex kicks. Numbers, format and the picture
+comparison: docs/model-pipeline.md, "Triangle strips".
+
+Five things any edit here must keep.
+
+- **The GS primitive is per BUFFER, not per pipeline.** `StaPipQBuffer::stripped`
+  is what `StaPipVU1Program::addStandardBufferDataToPacket` turns into
+  `PRIM_TRIANGLE_STRIP`, on a COPY of the shared `prim_t`. It has to be
+  per-buffer because a stripped bag's clip-routed packages are expanded back to
+  lists and travel in the same flush as its stripped ones.
+- **The runs ARE the packages.** A VU1 package is a contiguous slice of the
+  bag's array, so the bake chops the strip into independent runs of exactly
+  `packageSize` vertices (`meshstrip::kRun` = 72, the smallest size any static
+  program class derives) and the submitter pins `packageSize` to that. Nothing
+  at runtime repeats a two-vertex overlap; a package boundary simply cannot fall
+  inside a strip. Every run length is a multiple of 3 (the vertex loops step by
+  three), padded with a repeat of the last vertex - a degenerate triangle.
+- **`renderStrippedPkgs` is a separate route and must stay one.** A stripped bag
+  never reaches `renderSubpkgs`: its 1/3 subpackages would not be strips, and
+  `fillByCopyMax`/`fillByCopy1By2` would fuse two of them into one buffer.
+- **A package that genuinely crosses a clip plane is expanded to a LIST on the
+  EE** (`StaPipQBuffer::fillByStripExpand`, into the double-buffered copy pool)
+  and odd primitives MUST swap their first two vertices to preserve the strip's
+  alternating winding. Without that swap the clipper receives inside-out odd
+  triangles and near-plane geometry grows into giant textured wedges.
+  and clipped exactly as before - `clip_*` and the EE clipper are both
+  per-triangle over a list, and neither was touched. Chunked at the same
+  triangle budget a list subpackage carries. At the garage-day pose this fired
+  ZERO times; from inside a building, 29.5 packages a frame.
+- **Anything that walks a bag's TRIANGLES has to read the run length.** In the
+  fork that is nothing, because the microprograms do not; in the generated game
+  it is `GeoPart::stripRun`, and the three flashlight receiver passes plus the
+  portal exit clipper each step by ONE vertex inside a run and skip the triple
+  that would span two runs. The portal clipper's OUTPUT is a list, so it clears
+  `stripped` and the pin on its cached bag. Anything that walks VERTICES - the
+  shading bake, env normals, `renderAtFloor`'s y-clamp copy, the coarse AABB -
+  needs no change at all, which is most of the reason this was affordable.
+
+Telemetry gained `packagesStrip`, `packagesStripExpanded` and
+`verticesSubmitted` (counted where a buffer is packetised). **Triangle counts
+are NOT comparable across the change**: a strip run of 72 reports 70 triangles
+including its degenerate joins and padding, against a list package's 24 real
+ones. Compare `verticesSubmitted`.
+
+The `triangles*` fields are **GS primitives**, and that is the whole of what
+they are. One surface reports 25 650 as a list and 38 427 as strips on the
+garage-day pose - a **measured 1.498x, not a miscount**: the frame submits
+11.3% fewer vertices and asks for about half as many more primitives, nearly
+all zero-area. The runtime cannot recover the surface count (the degenerate
+total depends on how the bake packed the runs and no package records it), so
+the PRODUCERS log theirs instead - `ROADSTRIP`/`TERRAINSTRIP` in `bin/log.txt`,
+degenerates dropped - and that is what an A/B across representations compares.
+Two counters in `StaPipCore` are outright wrong for a strip and are **still
+unfixed** (left alone because the submission path was being edited in
+parallel): `recordGuardBandPackage` charges `package.size / 3` with no strip
+branch, so `guard=` uses a different rule from the `cull=` it is a subset of;
+and `recordOutsideBag` charges a whole bag `count - 2` when the bag is sliced
+into `ceil(count / maxVertCount)` runs that are each their own strip,
+over-counting by `2 * (packages - 1)`.
+
+### The generated game's own grids (1.96.0)
+
+Roads and terrain are stripped too, and they are where the geometry is - 93 150
+road vertices against 13 176 in all the district's models. Neither goes through
+`meshstrip`: a ribbon's and a heightfield's rows ARE the strip, and `buildRoads`
+tessellates on the **EE at scene load**, where a weld hash plus a
+six-orientation greedy walk is not affordable at all. Both keep the run
+contract above exactly (72, multiples of 3, padded tails, two-vertex joins,
+`stripped` + `packageSize` pinned - roads in `procFinishChunks`, terrain through
+`pinPackageSize(pins, stripRun)`, which already had the parameter). Three
+things to keep:
+
+- **The strip must follow the grid's LONG axis, and for roads that axis
+  changes.** A dense span is a row of lateral cells and strips ACROSS the road;
+  a span the planar reduction COLLAPSED is one full-width quad, so a street of
+  them is a grid one cell wide and many stations long and must strip ALONG the
+  road. Taken laterally a collapsed span is 4 vertices plus a 2-vertex join
+  against the list's 6 - exactly break-even, and three times the GS primitives
+  with two thirds of them degenerate. That was measured, not guessed.
+- **Which interleaving you pick decides which DIAGONAL splits each quad.** Both
+  orders are legal strips; only one reproduces the list stitch's own cut. The
+  wrong one is invisible in a vertex count and obvious on a crest.
+- **Terrain strips only with a terrain MATERIAL.** The untextured fallback is a
+  two-green checker and that colour belongs to the QUAD, while a strip vertex
+  belongs to two - stripping it flattens the checker. With a material both
+  colours are the same tint. Everything else on a terrain vertex (height,
+  shade, ST, splat weight, the geomipmap edge snap) is a function of the grid
+  coordinate and shares correctly; `emisCols` reads the same per-quad base, so
+  it rides the same gate.
+
+## Signed RGB SH and exact skin reuse (1.74.0)
+
+`PipelineDirLightsBag::signedSH` defaults false. Both packet writers always
+set ambient.w to 0 (classic) or -1 (SH); output alpha is unchanged. The macro
+loads ambient.xyzw, uses w as the dot-product floor, then clamps the RGB sum
+before clipping. SH uses identity directions and signed RGB axis coefficients.
+Keep vugen.cpp, expanded shared clip C and generated as-is D/TD in sync; run
+`--vu-check`, including its RGB numeric oracle, then rebuild the PS2 engine.
+No extra packet qwords or probe bytes are used.
+
+`SkelInstance::PartLod::skinSource` points to the first corner with bit-identical
+position, normal, joints and weights. UV differences can share skinning; hard
+normals cannot. Skin the first corner and copy its output with VU0 loads/stores,
+without calling helpers that might clobber the running VU0 AABB. All render
+vertices remain, with a four-byte index per corner. The temporary hash table
+exists only during loading. Set `TYRA_SKEL_PROFILE` in skel_instance.hpp to 1
+for per-instance COP0 pose/skin timings every 100 skins; keep it 0 when shipping.
+
+
+### The slot pool is double-buffered (1.81.1) — the console-only sliver
+
+The REF rule above has a second half that took a real PS2 to find: the
+renderer's OWN copies are referenced too. `StaPipQBuffer::fillByCopyMax` /
+`fillByCopy1By2` merge small in-frustum packages by copying them into a
+per-slot pool (both clipping modes), `fillByCopy1By3` / `writeChunk` copy for
+the EE clipper, the packet's REF tags point at the pool, and
+`flushBuffers()` resets the slot indices the moment the packet is *sent*. The
+next bag copied into slot 0 while slot 0 was still being read, and the DMA
+picked up a vertex of the next object: a lamp's corona drew as a sliver to the
+screen corner in 4 of 24 frames with Sony's `vcl` and up to 19 of 30 with
+openvcl (its schedule only moves the window), and the EE clipper - which
+copies everything - drew screen-sized slabs. PCSX2 completes a DMA before the
+EE runs on and shows none of it. The pool now has two sides and
+`StaPipQBufferRenderer::sendPacket()` flips the side with `context`
+(`StaPipQBuffer::flipPoolSide`); the wait before that send is what makes the
+side being written the finished one. **Do not "fix" this class with an
+EE-side `dma_channel_wait` per bag: measured at -4 FPS.** Two cheap barriers
+came with it: a `FLUSHE` at the head of the StaPip and DynPip uniform chains
+(absolute-address unpacks of MVP/OPTIONS/clip planes while the previous batch
+may still be running), and a VIF1 wait before the projected-shadow pass
+rewrites its shared `projClamp` buffer. Story, fixture and bisection table:
+docs/vu1-clipping.md, "Real hardware: the slot-pool race". Two lessons that
+generalise: a hardware-only defect wants a **failure rate on a parked pose**,
+never a single frame; and **bisect with barriers** (GS FINISH per bag, VIF
+FLUSH per bag, VIF-stream-only FLUSH, EE wait at one site) before reading a
+line of microcode - two days went into the clipper's assembler first, and it
+was innocent.
+
+### DMA REF lifetime (1.74.1)
+
+`packet2_utils_vu_add_unpack_data` does NOT copy: ps2sdk emits a DMA REF to
+the supplied pointer. Never pass a temporary/local array to asynchronous
+submission. SH initially did this for mode-adjusted colours, causing lighting
+flashes despite passing VU arithmetic tests. Both lighting senders now use
+CNT/UNPACK with inline colour floats (four extra packet-storage qwords; the
+same VU layout). DynPip waits before resetting its reusable packet; StaPip
+keeps inline values in its double-buffered combined packet and does not reuse
+that side until the intervening submission has completed. Before 1.93, StaPip allocated 185
+qwords per side (57 for uniforms/barrier plus 128 for one 16-group half);
+1.93 uses 784 qwords per side for bounded cross-bag submission; DynPip's uniform packet capacity is 24 qwords.
+
+The 1.80 merge retains inline SH colour storage with deferred StaPip uniforms.
+Since 1.86.4 that data shares the first geometry packet. It is safe to reset
+because sendPacket waits for the prior VIF1 DMA before flipping contexts and
+the other packet is used while the submitted one drains; DynPip retains its
+own wait-before-reset contract.
+
+### Missing resources can invalidate a performance comparison
+
+Native compilation alone does not populate a missing .res-baked mirror.
+PNG soft-error placeholders and skipped missing TMDLs can leave a game running
+with much less work than the intended scene. Validate deployed asset hashes
+and actual GS images, not just successful ELF linking or equal triangle counts
+between two broken fixtures. The full-asset gate and September 14 correction
+are recorded in docs/performance-hardware-recheck.md.
+
+## Hardware timeline capture
+
+### Native sizing reuse (1.171)
+
+Successful native-eligible snapshots use `copyCounted()` metadata instead of a
+second sizing scan. Keep public `Snapshot`/`copy()` unchanged (12-byte EE ABI);
+the separate counted result is 16 bytes and the ordinary specialization has no
+per-tag counter. Retry after a drain must reevaluate native eligibility and
+clear failed-count metadata. Retain the final owned-source predicate, fallback
+scan, capacity, emission, rollback and real completion fences. A detailed
+`NativeSizing` span exists only when the scan actually runs. The private paired
+physical result is 0.147–0.158 ms less observed work, still approximately 30 Hz;
+it does not price the final uninstrumented engine. See docs/tyrax2-ee-vu0.md.
+Run tools/verify-frame-arena.cpp for tag-count/byte/rollback cases along with
+the native writer and ownership controls; host parity does not establish FPS.
+
+Use tools/hardware-trace.py arm PROJECT before a boot, then export the complete
+bin/hardware-trace.csv to HTML/Perfetto. The engine captures bounded RAM events
+without new drains and writes after sampling. Scope totals overlap; VIF1 DMA
+wait is not VU1 execution, and VIF/GIF snapshots are not utilization. Compare
+unarmed/armed controls and reject dropped or stale events. See
+docs/hardware-profiler.md for start-frame semantics and capture limits.
+
+### Bounded hierarchy and observer controls (1.170)
+
+The default `TYRA_HARDWARE_TRACE=1` retains the opt-in boot feature. A missing
+config leaves compiled runtime guards; it is not the same as a build with
+`TYRA_HARDWARE_TRACE=0` consistently defined in engine AND generated game.
+Compiled-out APIs are inline no-ops with `constexpr active=false`: there must be
+no trace clocks, register reads, file access, allocation or implementation calls
+in the optimized path. Host symbol/disassembly checks support this contract;
+check the target build too before claiming target dispatch cost.
+
+`hardware-trace.cfg` accepts `first frames states [detail=0] [capacity=8192]`;
+first is an absolute zero-based engine-loop index, frames is 1..32, capacity is
+128..32768, and the remaining input must be whitespace only. Coarse capture
+reserves Frame/Pad/Game/Info, refreshed generated Update/Scene, submission,
+existing completion waits and pacing. Detailed capture adds object/package,
+snapshot/preflight/chain-copy/fixup/mutable-copy, native sizing/emission and
+cache-writeback scopes. Register snapshots remain an independent option.
+Refresh generated sources: an Update recorded only AFTER its children does not
+establish their parent hierarchy. Do not insert additional fences for tracing.
+
+`Scope(name, Kind::Span, false)` is explicitly coarse; the default third argument
+is true (detailed-only). `Scope::finish()` is idempotent and destructors close
+early returns. Labels must have static lifetime. The recorder is main-EE-thread
+only. `reserveCapture(capacity)` retains storage across runtime controls;
+`configureCapture(first,frames,states=false,detail=false,capacity=8192)` arms a
+future window, `disable()` preserves storage, and `release()` frees it. Use these
+outside active capture. `loopIndex()` identifies the current engine loop; when
+arming from game code, beginFrame has already run, so use loopIndex()+1 or later.
+Inactive `context()` returns unknown job/context fields, not stale metadata.
+
+The editor keeps the exact five-column `hardware-trace.csv`. Use
+`hardware-trace-v2.csv` or the per-window `hardware-trace-v2-<first>.csv` sidecar
+for explicit event/parent IDs, kinds, source jobs, sequence, context,
+requested/effective decision and clock epoch. END carries drops and invalid
+hierarchy/clock counts. Reject incomplete, dropped, invalid, stale or
+source-mismatched captures. Scope parents are reserved on entry; compatibility
+raw-duration records have kind=legacy and unknown parent, so they remain
+inclusive-only and cannot enter the exclusive ledger. The default 8192 slots use
+about 480 KiB on EE; log the actual allocation size. Event density depends on
+detail and scene: a 32-frame detailed capture overflowed 8192 slots, so
+detailed calibration used 8 frames and 32768 slots.
+
+Job0 and contextUINT32_MAX explicitly mean unknown, including a pending source
+from before capture. A capture-generation stamp prevents prior-window job IDs
+from aliasing new ones. `record_job` follows the current EE recorder;
+`present_job` identifies the ACTUAL CPU presentation source and may differ while
+previous-job waits nest inside the current recording scope. Never infer N-1
+from frame numbers. The source is not universally the display latch: triple
+buffers may queue for a later existing ISR; no ISR or TV photons are measured.
+Requested pipeline mode differs from effective queue recording after fallback.
+Scope self-time is elapsed EE time, including preemption and unclassified waits,
+not useful CPU instructions or EE/VU/GS utilization. Snapshot points are not
+continuous hardware occupancy. Some bank-reclaim waits remain inside enclosing
+work; unlabelled time is not proof of scalar math.
+
+Price the observer with matching off/coarse/off/detail/off/detail+states/off
+arms in ONE instrumented ELF, storage reserved in ALL arms, identical warmed
+scene/camera/replay/clock/order/window identities, and common independent clock
+samples. Export runs after capture and can delay its enclosing/following loop:
+exclude the export-bearing sample in every arm (an 8-sample run keeps 7
+comparable samples). Small single-boot windows are
+exploratory; repeat boots and use both adjacent controls. Independent sampling
+and FrameProfile also cost work. A separate compiled-out ELF changes layout and
+held heap, so its delta is not pure dispatch cost. Unchanged paced wall time is
+not free instrumentation; never subtract a universal overhead constant.
+The physical calibration measured about 0.2 ms (coarse) and 3.1-3.6 ms
+(detailed, with or without register states) of extra work against runtime-off
+controls. Those numbers belong to that scene; never subtract them as a
+universal constant.
+
+See [the timeline hierarchy/observer protocol](../../../docs/hardware-profiler.md#hierarchy-and-observer-controls-1170)
+and `tools/hardware-trace-analysis.md`. Export V2 with
+`python tools/hardware-trace.py export PROJECT/bin/hardware-trace-v2.csv -o REPORT`;
+`controls MANIFEST.json -o REPORT.json` validates declared matching controls.
+
+### Native hardware timeline (1.92)
+
+`src/hardware_timeline.cpp` reads the same bounded CSV as the offline exporter.
+Debugger > Hardware timeline arms the next boot and loads completed captures on
+demand, with frame selection, zoom, raw marker tooltips and inclusive totals.
+No browser, Python or extra debugger polling is required. Engine detail scopes
+separate package creation/classification, qbuffer copies and packet construction.
+See `docs/hardware-profiler.md`; use unarmed controls to rank performance.
+
+### Full geometry and reflective prefixes can thrash bbox counts
+
+The 2026-09-28 stationary night-entry probes found four fresh package-bbox
+replacements per frame in Ravager/Pica, about 2.9 ms of EE recomputation.
+Their base and coat bags share a vertex pointer and VU package size but use
+different counts. The pointer/package-size cache key merges them; its count
+validation then rebuilds the entry twice per car, every frame. This differs
+from the older parked-view result with zero fresh allocations. A bounded
+two-count-variant cache now preserves the coat in production. Keep
+version-in-place invalidation and bound variants (dynamic particle counts
+must not produce 250 frames of growing entries). A third count replaces
+the least recently touched variant; expiry stays 250 frames. Canonical bounds,
+changing counts, recycled-buffer versions and full/partial expiry passed on
+physical PS2: 52,273 comparisons, zero mismatches. Deep-counter-off same-ELF
+work drops 23.933–23.995 → 21.372 ms, still above the PAL budget. Raster and
+dynamic-light suppression are diagnostic probes, not shipped quality cuts.
+See `examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/fix/README.md`.
+
+### Current chase view versus the older TyraX2 overlap estimate
+
+The older GPU-hold sweep's 2.5–3.5 ms overlap estimate does not bound the
+stationary night entry chase view: its camera doubles StaPip calls and submits
+46,096 primitives including strip joins. Reprice GPU-hold/segments in that
+view before promising a frame-pipeline gain. Dynamic scene-light and raster
+suppression probes identify material costs without isolating exact VU1/GS
+utilization. See `docs/ee-submission-rearchitecture.md`, "Stationary night
+vehicle entry: what TyraX2 would and would not solve". The generated vehicle
+HUD font prewarm uses existing normal evictable texture residency; it changes
+no engine allocator or texture pinning rule.
+
+Vehicle loop encoding: arbitrary project WAVs assigned to idle, high revs or
+squeal are listed in optional `inc/vehicle_sound_loops.gen.txt`. Both shared
+native-build.sh (Windows bridges through native-build.ps1) and the Docker
+fragment in Runner encode these with -L, plus legacy *-loop.wav. Header byte 6
+must match desired mode in both directions; mtime alone misses assigning or
+removing a continuous role. Loop flags affect every use of a sample, so use a
+separate file for a one-shot version. Source seam preparation remains authored.
+
+
+Sound effect conversion (1.157.0): `wavconvert::soundIssue` requires canonical
+mono PCM16/22050; import and Project > Sounds > Convert downmix too. Runner calls
+`wavconvert::bakeSounds` AFTER texbake and BEFORE either build backend, preparing
+`.res-baked/sfx` without modifying `res/sfx`. Both encoders read this mirror,
+check cached APCM byte 5 for mono as well as byte 6 for loop intent, and preserve
+the source path for role matching. A conversion error must fail the build.
+Test stereo PCM16, PCM24, float, extended headers and an odd metadata chunk;
+verify duration, source hashes, incremental mtime stability and ADPCM mono/loop
+headers in BOTH backends. Decode the actual ADPCM and compare the waveform to
+the converted WAV: header checks alone missed adpenc's corrupt stereo reader
+(`fread(wave+i, 2, ...)` advances by one byte). Music conversion stays stereo
+unless its own mono option is chosen.
+
+
+## TyraX2 foundations (2026-10-01)
+
+See docs/tyrax2.md before changing cross-frame submission ownership.
+TYRA_VIF1_CHAIN_CHECK is an opt-in correctness guard in Vif1Queue::submit;
+StaPip and HUD callers pass full chain extents including END. It validates
+linear TTE chains and VIF lengths before submission, with bounded EE RAM
+reference resolution. It does not prove allocation lifetime, cache coherency,
+GIF semantics or pixels. NEXT/CALL/RET, REFS and scratchpad references are
+unsupported. Non-default inherited STCYCL state needs an explicit decoder
+contract. Keep the guard OFF for timing; accepted/rejected VIFCHECK output is
+correctness evidence only. The host test for malformed chains
+(`tools/verify-vif1-chain.cpp`) and the Motor District day/night fixture
+generator (`tools/tyrax2-fixture.py`) were removed when the TyraX2
+investigation closed; they are in git history. When timing a fixture, keep the
+authored video mode: NTSC's 16.667 ms budget is not FRAMETIME's fixed
+over-20 ms threshold.
+Frame arenas and N/N-1 now have an experimental runtime path; see the later section.
+
+
+DMA chain checks must ignore reserved tag bits 16-25: ps2sdk's
+packet2_chain_set_dma_tag assigns QWC/PCE/ID/IRQ/ADDR/SPR bitfields but leaves
+padding untouched (packet2_reset(false) retains it). The initial TyraX2 IRQ
+check also rejected those padding bits and falsely parked the night fixture
+on loading with audio still running. Mask only real controls (0x8c000000 for
+IRQ/PCE); the host regression harness keeps a valid END with dirty padding.
+
+
+Historical initial TyraX2 chain-arena stage (2026-10-02): the diagnostic
+TYRA_FRAME_CHAIN_ARENA switch remained OFF by default. The integrated runtime
+request and current new-project defaults are described below. It snapshots packet bytes and REF arrays into a bounded 1 MiB
+allocation, preserving independent chains. Queue metadata grows without growing
+producer buffers/copy pools. sourceCopied frees only the original source; retain
+the actual DMA sequence for ordered fences (especially the HUD PATH3 fence).
+Reclaim only on completed drain. Overflow drains/retries once; oversized or
+unsupported input and allocation failure retain ordinary source waits. Test
+with tools/verify-frame-arena.cpp and separate arena-check/arena-timing fixtures;
+FRAMEARENA reports allocation/high-water/fallbacks. It is not cross-frame
+execution or an accepted performance improvement yet.
+
+R5900 arena copy uses aligned LQ/SQ quads under TYRA_FRAME_ARENA_QUAD_COPY;
+with TYRA_VIF1_CHAIN_CHECK each copied span is memcmp-verified on hardware
+before publication. Host tests exercise the memcpy fallback, not EE assembly.
+The initial 1 MiB/libc-copy night arm regressed work from ~19.92 to ~34.02 ms;
+do not ship it or infer a pipeline gain. Larger banks need explicit RAM and
+full-frame-byte accounting before choosing two-frame storage.
+
+Immutable baked VIF spans may be registered with the experimental arena to
+avoid redundant frame copies. StaPipBakedStreams::retire unregisters and waits
+for actual DMA readers before poison/destruction; two frame ticks alone are
+not a fence. A full 512-entry registry and all unregistered/mutable arrays use
+copy fallback. Validate eviction/replacement/scene teardown as well as a parked
+view before accepting pinning for cross-frame recording.
+
+Keep immutable span lookup logarithmic: the initial linear 512-slot scan
+negated pinning's avoided ~2.15 MiB/frame and measured ~33.96 ms; sorted disjoint
+ranges reached ~20.88 ms in the same warmed night window. The ~19.92 ms control
+still wins, so ownership alone is not an accepted optimization.
+
+frame_vif_writer.hpp is a native CNT/REF recorder with one END at finish,
+bounded capacity and unsubmitted rollback. tools/verify-frame-writer.cpp
+compares ordered VIF words/data with an independent oracle. It is integrated experimentally; hardware ordering and N/N-1 acceptance
+is recorded in docs/tyrax2.md. Broader scene/mode coverage remains required.
+
+Experimental TYRA_NATIVE_VIF_RECORD records owned sources as native CNT/REF
+operations with one END per ordered segment. Foreign-path barriers still
+flush. This historical prototype preceded the integrated full-frame/N/N-1
+runtime; use the current acceptance records below. Completion retires the
+batch's last logical source sequence, zero is reserved across wrap, and prefix
+reuse waits actual DMA. Reconstruct operations, never splice END/NEXT buffers.
+Both lazy and eager paths must write back AFTER final prefix/snapshot writes.
+
+TyraX2 ordered frame runtime: 1.171.0 / format v95 defaults new projects to
+framePipeline=true and always serializes the explicit bool. Missing v94-or-older
+requests remain false; missing v95 requests default true. Explicit false/true wins.
+Settings are read before formatVersionOnDisk is assigned, so the default policy
+reads the root format stamp directly. Format-less legacy section blobs default
+false; current wire writers always include the request. Codegen emits explicit
+setFramePipeline(true/false); the engine compile-time default stays zero.
+Engine support is compiled but disabled projects do not allocate frame banks.
+Ordering-only GIF/VIF waits use frame_submission.hpp; actual resource destruction,
+readback and presentation retain real completion fences. Intermediate FINISH
+commands become EOP-only while recording. Two banks each own a 1 MiB snapshot
+arena and 128 KiB native prefix; snapshot inline data becomes REF, avoiding a
+second copy. Keep logical recording target separate from the pending GPU job's
+context. Complete/present the previous job before the new prefix starts, including
+overflow, and protect the unsubmitted bank against that handshake's drain/reset.
+Field mode and active BLSS use synchronous compatibility. Warp, mode changes and
+permanent VRAM rebuilds complete pending jobs first. FRAMEPIPELINE busy-starts
+prove actual overlap; ORDEREDFRAME split counts must stop increasing in an ordinary
+warmed fixture before claiming one-chain frames. See docs/tyrax2.md for acceptance
+and honest timing limits; early work counters included presentation pacing.
+
+TyraX2 retirement leases (2026-10-02): baked spans mark retired immediately,
+but keep storage until both actual bank readers finish. The two graveyard slots
+are collection queues, not lifetime proof; collectRetiredImmutableSpan must pass
+before freeing. Debug poisoning and immediate unregister retain real drains.
+An unsupported first transfer must complete the previous presentation even if
+there is no native prefix to flush. Protect the unsubmitted bank during callback
+fences, then wait any borrowed direct DMA before returning to its producer.
+Unlimited triple buffering joins field rendering and BLSS in synchronous
+compatibility. Between-frame GPU readbacks call synchronizeFrame().
+
+Presentation callbacks must suspend and restore path3FencePending for the
+UNSUBMITTED new HUD as well as protecting the new bank. A mid-HUD overflow
+otherwise self-deadlocks in the old job's flip, waiting on the new prefix that
+the callback is preventing from starting. The 9,000-qword DIRECT fallback
+fixture caught this even though ordinary parked frames and driving passed.
+Refused first pipeline allocation releases all partial banks transactionally.
+Minecraft's program cache requires a bound RendererCore: initialize it in
+BlockizerProgramsManager::init, not in the constructor.
+
+The runtime frame's sole final FINISH is recorded as FLUSHA/DIRECT in the native
+chain; completePipelineFrame waits its event and clears it, without issuing a
+second VIF1 helper chain. Clear the old FINISH bit only after the previous
+callback consumed it and before starting a new prefix. Overflow prefixes do
+not carry a final FINISH. Foreign transfers outside recording complete a pending
+job first (skip reentrancy while protecting the presentation callback). Borrowed
+direct fallbacks record FLUSHA, drain actual DMA AND the VIF FIFO, then send and
+wait their own DMA before allowing producer reuse.
+
+When ordinary RendererCoreSync::clear starts a new FINISH handshake outside
+recording, complete the pending pipeline job BEFORE clearing its FINISH event.
+Clearing first and only synchronizing in the later physical send loses a
+completed event and wedges loading on hardware. While recording, clear is an
+ordering-only no-op: intermediate FINISH packets are suppressed, and the old
+job still owns that bit. Test explicit foreign align2D/align3D between frames,
+not only parked draws, alongside the frame-end marker.
+
+
+Direct-send ordering after pipeline presentation: frameSendPacket must wait the
+actual DMA channel AFTER synchronizeExternal, immediately before sending. The
+producer may already have pre-waited GIF, but completing the prior hybrid frame
+can start a new GIF DMA copy inside that callback. A pre-wait alone therefore
+allows the direct sender to overwrite an active transfer. This also applies to
+unsupported recording fallbacks after their drain/presentation callback. The
+physical quiet loading control reproduced a stuck VIF1 DMA (CHCR 300001c5,
+VIF STAT 0e0000ca, GIF STAT 00000e00) during procedural loading before this
+ordering correction. Loading-stage stdout hid the race in a 12,000-frame run;
+keep stage tracking in RAM and print only on timeout when diagnosing timing
+races. Preserve the failed log and ELF alongside successful controls.
+
+Scratchpad (SPR) staging, `docs/tyrax2-spr-staging.md`: before `fromSPR`
+writes owned RAM, establish ownership of the destination's cached alias - a
+later flush of stale dirty cache lines can overwrite the DMA result. Keep
+snapshot and immutable REF publication and bank-reader leases; SPR transfer
+completion is not VIF1-reader completion. Direct SPR construction and
+CALL/RET replay were both slower on hardware and are not promoted
+(`docs/tyrax2-spr-call-runtime-2026-10-04.md`).
+
+Night EE attribution under the ordered frame (`docs/tyrax2-ee-vu0.md`):
+snapshot and native conversion are nested inside submit; existing waits total
+about 0.003 ms and the cache flush about 0.009 ms, so the old 1.09 ms flush
+estimate no longer applies. VU0 already runs macro-mode vector, matrix, bounds
+and skinning work. The small EE candidates measured here - one-search
+immutable borrowing, same-call clip-plane reuse, an affine-inverse key cache -
+were all within control spread or slower, and none was promoted. Never add
+nested scope children to their parent, and never treat a scope's elapsed time
+as what deleting that code would save.
+
+Automatic interleave (`docs/tyrax2-interleave.md`): under N/N-1 the old
+selector could mix the current EE cost with the previous frame's GPU cost in
+one sample. Pinned trials showed a 0.2-0.4 ms benefit with every arm still at
+about 30 Hz at night. Public mutable lights rule out setters-only epochs and
+once-per-frame frozen light-picker signatures.
+
+Latency: Pad/Game/Present scopes do not associate an input edge with the
+buffer that displays it - active presentation completes the previous job and a
+triple-buffer flip queues for a later vblank. Track edge, job and buffer
+identity, not sequence differences. A synthetic event-to-display-register
+measurement showed about one extra 33 ms frame with the pipeline on in its
+night two-buffer configuration; display-register delay is not
+button-to-TV latency, which remains unmeasured.
+
+Automatic interleave's `recordingGeneration` is always-valid ordinary state,
+independent of trace capture. Increment it at every renderer 2D/3D recording
+start; an unsigned adjacent difference of one handles wrap. The settled-block
+proof relies on ONE pending presentation frame and on its completion before a
+new native prefix starts. Changing that depth or ownership requires revisiting
+selector settling. `recordingPipelined()` is a memory-only accessor, not
+hardware polling.
+
+Adaptive observation epochs also increment on successful warp render starts
+after early returns (warp deliberately skips `beginFrame`). Failed warp
+attempts do not increment. This counter is not a job ID; recurring
+synthetic/helper gaps keep the prior choice without clocks and discard partial
+probe evidence.
+
+The engine-known snapshot REF memo requires a pure, stable RAM resolver and
+idempotent same-bank immutable reader marking, with no registry or source
+mutation during the copy. Generic `copy`/`copyCounted` callback behaviour must
+stay unchanged; beyond the first 16 non-empty refs the memo spills normally.
+
+Hardware observers: the producer-origin census and every dense scope set cost
+1.4-1.8 ms of work by themselves. The PCSX2 debugger execution map
+(`docs/tyrax2-pcsx2-debugger.md`) only ranks suspects - SaveState drains VU and
+GS - so its cycle intervals are never hardware milliseconds.
+
+## Pool2 input representation qualification (2026-10-05)
+
+The private Pool2 experiment (`docs/tyrax2-pool2-colors.md`) passed actual native
+assembly/link checks and fixed-case VU packet comparisons but did not establish
+a repeatable physical benefit. Original EE expanded-color work still runs.
+Initialize VU integer registers on every branch and qualify register lifetimes
+with the actual OpenVCL allocator. Count resident VU microinstructions including
+billboards: accepted totals were 1908/1708 below draw-finish at 2042. Preserve
+legacy uniform alpha conversion (129) separately from direct table alpha (128);
+host source expansion equality alone does not prove packed VU output equality.
+Package-local descriptors must survive Core pointer filling and DMA consumption.
+Do not enlarge a retained capacity to hide an oversized candidate block: preserve
+the safe miss and include its cost in the experiment.
+
+
+## Lazy Pool2 producers and asset/raster gates (2026-10-05)
+
+The private EE producer continuation in `docs/tyrax2-pool2-ee-producer.md`
+uses owner-local lazy color generations. A shared global stamp can collide
+with another owner's saved readiness after wrap; test local wrap explicitly.
+Materialization must run outside assertion expressions: release builds may
+remove assertions and their side effects. Source diagnostics that read lazy
+arrays require explicit materialization or a documented restricted scope.
+
+A source-only restored game needs authored `res` metadata as well as
+`.res-baked` before native building, otherwise WAV-to-ADPCM discovery may be
+skipped. Check expected runtime filenames/conversions against a qualified
+asset set, not merely a self-consistent manifest of whatever was published.
+
+Counter-based cold packet comparators can materialize eligible lazy colors
+and defeat the observer's purpose. A separate diagnostic disables that oracle,
+poisons backing and verifies source readiness plus actual final VU output.
+Change colors each iteration and decode the requested epoch; identical final
+banks alone do not establish fresh execution. Epoch changes force replay
+misses and therefore do not qualify stable warm hits. Clip output needs its
+own route/layout decoder, not an inside TC decoder with relaxed assertions.
+
+An owned SDL host audio error modal can occlude the render window while the
+guest protocol completes. Preserve the negative raster attempt and prove the
+window owner/geometry before diagnosing shader corruption. A fresh Null host
+audio profile is a correctness control, with unchanged guest ELF/resources;
+it provides no hardware audio or timing acceptance.
+
+The private Pool-lattice trial (`docs/tyrax2-pool-lattice.md`) demonstrates why
+source admission and native budget are separate runtime gates. Its no-fog
+prototype passed fixed probes but admitted nothing in the ordinary fog-enabled
+night. Restoring original per-corner fog required actual varying-fog output
+pairs before pricing. Protected qbuffer arrays do not alone protect a pending
+multi-bag DMA chain: owner reuse needs a lease or a submission fence before
+uniforms. Price that fence and input preparation with the candidate. Preserve
+failed compiler artifacts before a shared native mirror changes; compute full
+residency including billboards and draw-finish, rather than the main set alone.
+Sparse cold counters prove their sampled frames, not every timed frame. The
+same-ELF physical candidate was slower despite fewer transforms; no promotion
+or pure VU timing follows from a reduced operation count.
+The private GS SPRITE corona trial (`docs/tyrax2-gs-sprite-coronas.md`) failed
+ordinary admission at Hybrid/24-bit depth and positive Bits16 output despite
+valid completed quads. Count requests separately from final GIF primitive tags.
+An assembled SUB followed immediately by FMAND is not a flag-dependency proof:
+the preserved PCSX2 model exposes MAC results at four cycles without FMAND VF
+interlocks. Preserve actual schedule/output; the exact rejection branch remains
+an inference without a trace. Audit flag scheduling and full resident capacity
+before any repair. Native V6 had only two spare instructions with billboards.
+Validate actual signed spotlight gate and uploaded uniforms, not a nonzero word.
+A black diagnostic screenshot cannot qualify visible raster. Parser controls
+must include real emulator timestamp prefixes; preserve rejected analysis and
+attach a separately pinned reanalysis without rewriting launch authority.
+
+The subsequent private 24-bit corona follow-up proves only its reachable
+FTOI4-to-ITOF0 domain, isolated completed SPRITE endpoints and identical textured
+PSMCT32 drawing pixels. It pairs each FMAND with an upper ABS read of the SUB
+scratch result, preserving MAC flags while creating a VF interlock without
+adding words (TC506; full residency2040/2042). A strict source-bound TC-only
+postprocessor rejects changed schedules. Do not widen an arbitrary integer
+domain or patch shared compiler output/cache by hand. The window/Hybrid scanout
+remained black in both isolated arms; readback qualified drawing VRAM only.
+Ordinary activation, presentation and physical pricing still require their own
+evidence. Preserve the original failed trial and both new observer revisions.
+
+### Private receiver-restriction experiments
+
+Live light receivers have two routes: StaPip's per-bag light selection/VU slot,
+and generated `dynLightAt` ambient pickup for normal-lit/animated models.
+Gate both without deleting the light registry or baked/probe/sun terms. A null
+bag light selects the global flashlight; supply an explicitly disabled light
+when rejecting a receiver. Shared wheel bags can contain several vehicles,
+so receiver identity requires separate geometry groups. Vehicle glass and
+deferred body passes also need the owning model's identity. Scene light pools
+are a separate effect family; price their removal separately from receiver
+restriction and label the appearance tradeoff. The private fixed-fixture
+trial and promotion limits are in `docs/tyrax2-player-light-receivers.md`.
+
+### EE audit and far-light gate checkpoint
+
+The private conservative far-light predicate rejected only 61 of 912 cold
+selection candidates and regressed +0.239/+0.230 ms in both physical orders;
+do not promote it or claim an eliminated picker bill from its invocation count.
+See `docs/tyrax2-far-light-gate.md`. Source `sqrtf` spelling does not establish
+software math: the qualified V31 linked beam/pool functions already use
+`sqrt.s`. Inspect actual target instructions before replacing libm calls.
+The detailed EE audit is `docs/tyrax2-ee-performance-audit-2026-10-05.md`.
+VU0 already serves macro-mode vector/bounds/skinning work and a micro ray tracer;
+asynchronous jobs require ownership and COP2-free intervals. Projected-light
+STQ/color production is a VU1 proposal, with activation and resident-budget
+qualification still required; the audit is not a measured optimization.
+
+The subsequent `docs/tyrax2-night-producers.md` physical trial finds those
+projected flashlight/hull scopes inactive in all 960 observed driving loops.
+Disjoint beam scratch and corona/cone commits total about 0.235 ms, with
+enabled observer tax unresolved against drift. Do not rank inactive source
+loops as this fixed night bottleneck or promise that deleting a scoped producer
+recovers its instrumented elapsed time. Vehicle/headlight and other projected
+routes are separate; walking/moving/showcase activation remains open.
+
+The Core prefix partition is documented in `docs/tyrax2-core-prefix-partition.md`. Its brackets end before texture preparation, object-data preparation and replay lookup; early empty or outside-frustum returns belong only to the first bracket, and existing waits are included. It is an observation, not an optimization or a pure EE price.
+
+The five-part follow-up splits head, bounds and package preparation. Compare its numbers only within its own ELF. Two lessons for any shortcut there: a matrix-equality key must compare all 64 bytes (including signed zero and NaN payloads), and clip-plane specialization must keep the exact far plane z+w and the original distance/add order.
+
+Compile-time clip-plane coefficients passed 8 million host comparisons and the emulator, but the PS2 reported 451 cold mismatches; forcing `mul.s` restored agreement and was slower. Do not assume that strength-reducing products by 0, 1 or -1 preserves hardware bits, and never promote from host or emulator results alone. See `docs/tyrax2-core-preparation-experiments.md`.
+
+## Public dynamic light receivers (1.173)
+
+The default-true PipelineInfoBag receiver gate must suppress both dynamic light
+selection and the global camera flashlight fallback; null means flashlight.
+Resolve live player/driven vehicle ownership at each draw/sample, keep secondary
+view source ownership, and partition mixed wheel geometry only in restricted mode.
+Shared info bags must not acquire temporary owner state retained by queued consumers.
+Scalar normal-lit/animated pickup uses the same policy, preserving probes and sun.
+Projected pools/beams/headlights are separate effects. Historical private prices
+do not measure the public implementation. See docs/dynamic-light-receivers.md.
+
+The main11 private batching attempts both completed in PCSX2 but never admitted
+a group. Original per-member light picks/effective light differed; lamp flicker
+changes an exact light key every frame. Zero activation is not a measured speedup.
+See docs/tyrax2-main11-batch.md.
+
+Public receiver ABI: actual R5900 PipelineInfoBag grows from 40 to 44 bytes
+(+4 per bag, alignment 4). Rebuild engine and game together through the normal
+Runner; old objects are not binary compatible. Production VU source stays
+unchanged. The archived private main11 TC image includes an unpromoted corona
+SPRITE prototype and is not a production receiver-image identity baseline.
+
+Render and queue audits (2026-10-06, evidence removed with the investigation):
+`flipBuffers` can issue GIF leaf waits inside the existing pacing interval.
+Mark pacing active before the flip and exclude that interval exactly once, or
+the wait is counted twice. Dense scope clocks cost 1.4-1.75 ms and change which
+frames miss their deadline. Stage and work type are alternative partitions,
+never additive. Submission/recording elapsed time includes queue preparation,
+not just DMA launch. In the queue, snapshot ownership and copy was the largest
+scope (about 2.6 ms while driving); it covers preflight, lease lookup and
+fixup, not memcpy alone. A single-lookup borrow must keep all range,
+retirement and bank-reader semantics; never remove lifetime checks because a
+copy span is large.

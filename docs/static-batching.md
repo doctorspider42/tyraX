@@ -39,12 +39,38 @@ totals those 22; the panel names them** — on this scene all 22 are singleton
 groups, and a further 24 shapes never became eligible at all (18 marked *Show
 in reflections*, 6 physics bodies).
 
+*Show in reflections* no longer keeps an object solo (1.175.5). The flag is
+part of the group key instead, so a reflected object batches only with other
+reflected objects, and the environment-map passes submit those batches whole
+(a probe eye inside a batch's box skips it, the per-object self-skip's batch
+form). Before, every reflected object paid its own submit in the main pass:
+on the Vehicle Playground garage that was 13 of the 36 solo objects drawn in
+the parked view - eight night windows and five garage trims. Only an object
+shown through a *reflection proxy* stays solo, because the map draws a box
+where the screen draws the model.
+
 ## Reading the panel
 
-**Batches** lists one row per batch: its texture, how many members, its
-grouping cell, its merged box, and its VU1 packages against what those members
-would cost solo. Selecting a row focuses the overlay on that batch alone,
-which is the only practical way to read a dense scene.
+Four tiles across the top answer "is batching doing its job": **Objects
+batched** (of the eligible ones, with a meter), **Batches**, **Drawn solo**
+(amber when any) and **VU1 packages saved** — the total of every batch's
+saving against its members drawn alone. The fifth tile holds the two view
+switches, *Colour batches in viewport* (the overlay below) and *Show the
+grouping cell*. The window's top line says where the numbers come from and
+how old they are ("from baked .tmdl · updated 12 s ago") beside *Recompute*.
+
+Below them the window is a list and a detail side by side. The list switches
+between **Batches** and **Drawn solo** and filters by texture or object name.
+**Batches** has one row per batch: its overlay colour (the same colour the
+viewport uses), a texture swatch and file name, members, grouping cell, VU1
+packages with the saving as a green delta, and draw distance. Selecting a row
+(scripts: `click 'Static Batches/Batch 7'`) fills the detail and focuses the
+overlay on that batch alone, which is the only practical way to read a dense
+scene.
+
+A project that was never built has no baked `.tmdl`s and therefore nothing to
+group: the window says so and offers **Build** instead of an empty table.
+With batching switched off it offers *Open Project Preferences*.
 
 Packages are the unit to think in, because packages are what the EE pays for:
 about **19.5 µs each** in the Motor District's garage pose, measured on
@@ -55,19 +81,34 @@ per-package model (see
 It is the right order of magnitude for deciding whether a merge is worth
 having, and nothing more.
 
-A batch that saves no packages is not a broken batch. The saving a merge
-always makes is in **submits** — one bag instead of many, and a static submit
-costs roughly a millisecond of fixed EE time whatever it holds. Packages fall
-too when members pack together, but a list-mode bag whose members each already
-filled whole packages will show the same count either way.
+A batch that saves no packages is not a broken batch. Combining members
+reduces **submits** — one bag instead of many. Packages can fall too when
+members pack together, but a list-mode bag whose members each already filled
+whole packages can show the same count either way. There is no universal fixed
+EE price per submit: geometry, bounds, state, packing and existing waits all
+affect the net result. The controlled 80k physical contrast
+measures about 4.60 ms for changing 37 accepted carriers to 313 at identical
+accepted input geometry. That is the whole representation difference on that
+fixture, not a pure EE or per-bag constant, and the production map already
+uses static batching.
 
-**Members** lists the selected batch's objects, with the part index for a
-multi-part model (one model can legitimately span several batches — each
-material part joins the batch for its own texture).
+**The detail** of the selected batch shows its packages against the solo
+figure, its cell, merged box and draw distance, strip or list and the lamp that
+lights it, then its **members** — with the part index for a multi-part model
+(one model can legitimately span several batches — each material part joins
+the batch for its own texture) and an *in batch* switch per member, the
+author's opt-out. *Frame* selects the members and moves the camera pivot onto
+the merged box. Last comes **Same cell, drawn solo**: the shapes in this
+batch's cell that did not join any batch, each with its reason, and a one-click
+fix where the reason is a flag you set (*Turn off reflections*, *Include in
+batches*); gameplay reasons (physics body, pickable, a flow graph...) read
+*expected*.
 
-**Not batched** is the tab that earns the feature its keep. Every shape that
-is not in a batch gets a row with the stage that decided it and the reason,
-with the full explanation on hover.
+**Drawn solo** is the list that earns the feature its keep. Every shape that
+is not in a batch is listed under its reason and stage, with what the reason
+means; a reason that is an author's flag gets a fix for the whole group
+(*Turn off reflections for all 19* — one undo step), "alone in its group" a
+shortcut to the grouping cell. Clicking a row selects the object.
 
 ## The reasons, and what they mean
 
@@ -86,7 +127,7 @@ Build-time (`staticBatchEligible` in `templates.cpp` — these decide the
 | usable | the USE highlight re-submits the body itself |
 | pickable | carried and thrown, so it moves |
 | save state | a loaded save repositions it |
-| reflected | re-submitted into the environment-map pass |
+| reflection proxy | *Show in reflections* through a proxy box: a different shape in the map than on screen |
 | dynamic lighting | wants its own VU1-lit bag, refilled per frame |
 | texture feed | a live feed rebinds its texture, and a batch groups *by* texture |
 | VU parameters | per-mesh VU numbers are uploaded once per bag |
@@ -101,7 +142,7 @@ Runtime (`buildStaticBatchList`, among the objects that passed the above):
 
 | reason | why |
 | --- | --- |
-| batching off | the project-wide switch in *Project Preferences > Rendering* |
+| batching off | the project-wide switch in *Project Preferences > Graphics* |
 | model not baked | no `.tmdl` yet — build, or *Build > Refresh generated files* |
 | model has no parts | nothing to draw |
 | reflective material | draws a second additive pass per bag |
@@ -110,7 +151,7 @@ Runtime (`buildStaticBatchList`, among the objects that passed the above):
 | a part is alone | one part of a multi-part model has no batch partner; a model is batched all-or-nothing (the solo path skips it as one object), so the whole model draws solo |
 
 **"Alone in its group" is the common one, and it is usually a near miss.**
-Turn on *Show cell* with a batch selected: two objects that look like they
+Turn on *Show the grouping cell* with a batch selected: two objects that look like they
 should have merged are normally in different cells, or disagree about one key
 — a draw distance, which lamp reaches them, or whether their model baked a
 triangle strip.
@@ -248,3 +289,18 @@ about a scene with a broken asset path. Fixture E pins it.
 - Package counts are derived from vertex counts and the package size the
   static programs use (75 vertices, `meshstrip::kRun`). They are what the bag
   submits, not a measurement of a frame.
+
+## Members at the world origin (fixed 1.176.3)
+
+A batch bakes its members in WORLD space through the same `pushVert` the solo
+path uses, and `pushVert` reads the global `g_bakeLocal` to decide between
+world and local (matrix-path) vertices. Two bakes left that global set: a
+matrix-path object's LOD tier (`applyGeoLod`) and a matrix-path invisible wall
+(`rebuildObjectGeometry`'s early return). The next batch rebuild then baked
+every member without its position, and the batch drew them all at (0, 0, 0).
+On the Motor District this showed at night, on foot: the district mood script
+shows the night windows and neon blades, the batch holding them rebuilds, and
+a pink pole with yellow window panes stood in the middle of the central
+crossing. Both bakes now clear the flag, and `rebuildStaticBatch` clears it on
+entry, since a batch is world space by definition. Reproduced in PCSX2 by
+forcing the flag before the mood flip; gone with the fix.

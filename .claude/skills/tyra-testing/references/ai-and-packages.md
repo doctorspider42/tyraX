@@ -20,8 +20,8 @@ esac
 ```
 ```bash
 STATE=/tmp/fake PATH=/tmp/fakebin:$PATH TYRAX --ui-script <proj> "
-frames 20; click Tools; click 'AI Assistant'
-click 'AI Assistant/Allow project edits'
+frames 30; wait 1; click 'TyraX menu'; click Tools; click 'AI Assistant'
+click 'AI Assistant/Edit project'
 click 'AI Assistant/##chatinput'; text 'add a lever'; frames 5; click 'AI Assistant/Send'
 wait 12; key ctrl+s; shot /tmp/chat.png"
 TYRAX --dump <proj>          # is the lever there?
@@ -46,7 +46,7 @@ Traps:
 - **Pure half**: `update::compareVersions`, `update::parseRelease` (no ImGui/GL/Project) — harness link line in host-harnesses.md. Feed `parseRelease` a REAL payload (`curl -sL https://api.github.com/repos/<any>/releases/latest`). `fetchLatest()` against a repo with no releases → *no releases have been published yet* (a state, not a failure).
 - **UI half**: a failed check opens the modal too:
 ```bash
-./build/tyrax-editor --ui-script "frames 10; click Help; click 'Check for updates'; wait 3; shot upd.png; dump"
+./build/tyrax-editor --ui-script "frames 30; wait 1; click 'TyraX menu'; click Help; click 'Check for updates'; wait 3; shot upd.png; dump"
 ```
   Automatic startup check is skipped while a UI script runs (`uiScriptActive_`).
 - **Windows installer — verify by installing** (the LAYOUT is what breaks). A silent install from a console-attached shell hangs → `Start-Process -Wait`:

@@ -37,7 +37,7 @@ Read when you add/change a field on `SceneObject`, `SceneData`, `ProjectSettings
 - `load()` refuses newer formats and anything below `kMinFormatVersion` (v0 = pre-versioning; refused by name rather than opening empty). Older files open silently unless `migrations::stepsFor` returns steps: then the GUI (`App::openProjectAt`, the single funnel for every LOCAL open) prompts, backs up format-bearing files into `_backup/` and migrates in memory (save only on success); headless `--build`/`--resave`/`--refresh-gen`/`--apply-graph`/`--ai-graph` refuse (use `--migrate`).
 - `migrations::backup` must copy everything the post-migration save writes (`save` + `saveHeights` + `saveSplat`) or the skipped file is unrecoverable. `App::openRemoteProject` (collaboration client) REFUSES rather than migrates (the project is the host's). `migrations::validate()` guards the registry (ascending, unique, in range), called by `run`.
 - **Retiring a flow node type DELETES every graph that used it** (`readFlowGraph` drops unknown types; no rename table). Surviving a retirement needs a real migration step + format bump.
-- **Additive-and-written-only-when-set** keeps `--resave` byte-identical for untouched projects; prefer it (the per-scene upscaler override, player speed tiers, a default BLSS shot plan all write nothing at default).
+- **Additive-and-written-only-when-set** keeps `--resave` byte-identical for untouched projects; prefer it (the per-scene upscaler override, player speed tiers, `blssParticles` all write nothing at default).
 
 ## A member initializer is NOT the new-project default
 
