@@ -2,7 +2,7 @@
 
 Read when: you touch `renderer/core/blss/`, the raster redirect (`RasterTarget`, `redirectRasterTo`, `emitRasterRestore`), z-buffer sizing/`zBuffer.mask`, `GS_SET_ZBUF` anywhere, a pass that copies the z buffer, or quote a BLSS number. User doc: docs/upscaler.md; measurements: docs/profiling.md ("Timing a frame that BLSS is in").
 
-BLSS draws part of the frame into a reduced GS target and blows it back up with ONE bilinear pass. `engine->renderer.core.blss`. Inert, zero VRAM when not configured. The neural half (per-tile MLP, bag proxies, jitter, sharpen, temporal history, debug views, the host twin) was DELETED in 2.1.0: +0.29..+0.42 dB over bilinear for ~5 ms EE, break-even 13 coverages vs 2.6 plain. There is no host twin any more - nothing on the editor side models the composite.
+BLSS draws part of the frame into a reduced GS target and blows it back up with ONE bilinear pass. `engine->renderer.core.blss`. Inert, zero VRAM when not configured. The neural half (per-tile MLP, bag proxies, jitter, sharpen, temporal history, debug views, the host twin) was DELETED in 2.0.0: +0.29..+0.42 dB over bilinear for ~5 ms EE, break-even 13 coverages vs 2.6 plain. There is no host twin any more - nothing on the editor side models the composite.
 
 ## API
 - `configure(scaleX, scaleY, nativeScenes, particles)` — init-only, top of the generated `init()`, before any texture. Re-lays the permanent VRAM region when `needsBufferRealloc()` (z size follows the raster) via the `setVramRebuild` hook = `RendererCore::rebuildPermanentBuffers()` (`setDisplayOutput`'s mode-change branch minus the mode; deliberately no `gs.reinit()` - `graph_set_mode` would reset the GS mid-init). `particles` reserves the low-res z target too.

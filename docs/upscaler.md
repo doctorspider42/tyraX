@@ -114,7 +114,7 @@ this feature is admissible - judge pictures there and frame times on hardware.
 
 ## The neural reconstruction that used to be here
 
-Until 2.1.0 BLSS also had a *Neural* mode: a 6-12-3 network chose, per 32x32
+Until 2.0.0 BLSS also had a *Neural* mode: a 6-12-3 network chose, per 32x32
 tile, how much nearest, temporal and sharpen reconstruction to blend in, fed by
 screen boxes the EE described every submitted bag with. It was removed. On
 held-out scenes it scored +0.29 to +0.42 dB over plain bilinear (within one

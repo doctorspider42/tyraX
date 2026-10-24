@@ -226,7 +226,7 @@ is enormous, `1/w` collapses to ~0 and the warp degrades to rotation only —
 which is the right answer when there is no floor.
 
 Precedence: the ground plane, then the fixed distance, then rotation only.
-(Until 2.1.0 the neural upscaler's per-tile `1/w` came first; it went with the
+(Until 2.0.0 the neural upscaler's per-tile `1/w` came first; it went with the
 network.)
 
 ## The fixed plane is no longer a control

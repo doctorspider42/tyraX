@@ -1,6 +1,7 @@
 #pragma once
 
-// 2.2.0: sound effects load per scene (docs/sound.md, "SPU2 sample RAM") - shared ones at boot,
+// 2.0.0 (the first 2.x release; everything below up to 1.177.14 ships in it):
+// Sound effects load per scene (docs/sound.md, "SPU2 sample RAM") - shared ones at boot,
 // a scene's own on entry, freed newest first on leaving; Project > Audio meters shared + heaviest
 // scene and gains Always loaded (format 121). audsrv's sample RAM is first fit, so a sound freed
 // anywhere gives its RAM back (vendor/tyra/audsrv README, change 5). Layer sounds and named sound
@@ -8,7 +9,7 @@
 // the voices playing the freed sample; the meter estimates each scene's worst moment. The Audio
 // page groups sounds by what loads them (Always / Scene / Layer / Bank / Other scenes / Never),
 // with an inspector for the selected one and a Sound RAM card per scene.
-// 2.2.0: the Project and Properties panels slide away (rail icon, status bar, Ctrl+B / Ctrl+Alt+B);
+// The Project and Properties panels slide away (rail icon, status bar, Ctrl+B / Ctrl+Alt+B);
 // each window layout remembers which are collapsed (format 119); the workspace switcher's "..."
 // lists the other layouts; built-in layouts cannot be deleted and are restored on load.
 // Output/Debug text selects with the mouse over the coloured lines (no Select text switch);
@@ -17,11 +18,10 @@
 // The procedural node inspector is a laid-out form per node (widgets.hpp "node inspector kit").
 // Cutscene Director: full-height timeline with an expandable track tree (track > channel >
 // axis) and per-channel keys (format 120); the shot and the inspector share a side column.
-// 2.1.2: object settings live in Output; clarify instanced detail.
-// 2.1.1: dense procedural previews use authored LOD and visibility culling.
-
-// 2.1.0: Blender-baked broadleaf sprays and forest/hero tree presets.
-// 2.0.0: integrates main, the redesigned editor and the TyraX2 frame pipeline.
+// Object settings live in Output; clarify instanced detail.
+// Dense procedural previews use authored LOD and visibility culling.
+// Blender-baked broadleaf sprays and forest/hero tree presets.
+// It integrates main, the redesigned editor and the TyraX2 frame pipeline.
 // Combined project format v114 preserves additive fields from all branches.
 
 // 1.176.3 (docs/static-batching.md, "Members at the world origin"): two bakes left the
@@ -5612,7 +5612,7 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 2
+#define TYRAX_VERSION_MINOR 0
 #define TYRAX_VERSION_PATCH 0
 // 1.173.0: the first step of the main-window redesign (docs/editor-theme.md).
 // Face buttons gets a new palette; Palette/Semantics gain ground, field,

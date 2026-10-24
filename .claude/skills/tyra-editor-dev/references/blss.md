@@ -2,7 +2,7 @@
 
 Read when you touch `blss_ui.cpp`, the BLSS settings/per-scene override, the Set Upscaler (BLSS) node or `ctx.upscaler`, BLSS codegen/interlock, `project::blssUse`, or quote any BLSS number. User doc: docs/upscaler.md. Engine half: tyra-engine-dev references/blss.md. Measurements: docs/profiling.md ("Timing a frame that BLSS is in").
 
-BLSS = a reduced raster + ONE bilinear pass, nothing else. The neural reconstruction (6-12-3 MLP, `src/blss.cpp`/`blsscorpus`/`blssscene`/`blss_window.cpp`, `--blss-train/-eval/-emit/-coverage`, Tools > Neural Upscaler, `resources/blss-default.net`, its CI workflow, `inc/blss_net.gen.hpp`, bag proxies, jitter/sharpen/temporal/debug views, the host twin) was deleted in 2.1.0: +0.29..+0.42 dB over bilinear, ~5 ms EE, break-even 13 coverages vs 2.6 plain. Do not resurrect a twin: nothing on the host models the composite any more.
+BLSS = a reduced raster + ONE bilinear pass, nothing else. The neural reconstruction (6-12-3 MLP, `src/blss.cpp`/`blsscorpus`/`blssscene`/`blss_window.cpp`, `--blss-train/-eval/-emit/-coverage`, Tools > Neural Upscaler, `resources/blss-default.net`, its CI workflow, `inc/blss_net.gen.hpp`, bag proxies, jitter/sharpen/temporal/debug views, the host twin) was deleted in 2.0.0: +0.29..+0.42 dB over bilinear, ~5 ms EE, break-even 13 coverages vs 2.6 plain. Do not resurrect a twin: nothing on the host models the composite any more.
 
 ## Files
 - `blss_ui.cpp` (~580): `App::drawBlssSettings` (the block in *Project > Preferences > Graphics > Advanced*), `blssVramLine` (exact VRAM cost for this project's display mode), `blssClashesFor` / `drawBlssClashWarning` / `blssSelectClash` (the live mirror of the build interlock). App methods declared in app.hpp, own TU.

@@ -39,7 +39,7 @@ terrain bags and one without is untouched.
 
 **A lamp keeps what it lights.** The colour programs light each mesh with
 ONE dynamic light, so the cone and a placed light compete for that slot. Since
-2.2.0 a placed light that properly reaches a mesh - its falloff at the mesh's
+2.0.0 a placed light that properly reaches a mesh - its falloff at the mesh's
 nearest point above about a third, which is inside roughly two thirds of its
 radius, and for a spot the mesh inside its cone - keeps the slot, and the cone
 takes only meshes no lamp lights. Before, the brighter of the two won, so a
@@ -355,7 +355,7 @@ Physical-PS2 price: pending (the console was down when this landed).
 - **Hugs flat ground.** The canvas floats a few centimetres over the
   ground plus twice the relief measured under it, up to the old size-based
   lift (0.1 + 7 % of the width + 2 % of the length, at most 1.2 units).
-  Until 2.2.0 it always floated at that full height, and where the canvas ran
+  Until 2.0.0 it always floated at that full height, and where the canvas ran
   into a wall the sheet in front of the face covered the wall's foot up to the
   lift: a box lit by the torch showed a bright band with a dead-straight top
   across its bottom (about 0.6 units on the flat paving of
@@ -393,7 +393,7 @@ straight line at that hit as the torch was raised across open ground; fixed
 in 1.66.1). Only a **wall-sized** face takes the second landing (the
 1.4-unit rule that also strips a wall's cone), and only a top at least two
 units across counts as a floor to land on; past a smaller one the axis is
-marched again against the ground alone. A crate is not a wall: until 2.2.0
+marched again against the ground alone. A crate is not a wall: until 2.0.0
 the canvas jumped to a crate's foot - or lay flat across the air at its lid's
 height - whenever the beam's centre touched it, and back to the floor behind
 when it slid off an edge, which read as the torch being shaken. The crate
@@ -477,7 +477,7 @@ Three things worth knowing about how the receivers are found and drawn:
   floats, same identity matrix — so it never paints over anything standing in
   front of the receiver, and never z-fights it.
 - Animated models are not re-rendered (skinned buffers); they are small, and
-  the cone covers them. A **physics body** is (since 2.2.0): its slice holds
+  the cone covers them. A **physics body** is (since 2.0.0): its slice holds
   the body's own LOCAL floats and draws under the body's own matrix, so VU1
   puts every pixel at exactly the depth the body wrote - an EE transform to
   world would not be bit-identical, and the equal-depth rule needs it. Only
@@ -506,7 +506,7 @@ triangle bright and the other not. A wall does not want that term at any time:
 it is lit by the pool when the pool is there, and by the moon when it is not.
 It keeps the scene's own lights all the same: giving up the torch's cone
 (`spotLit = false`) leaves the engine picking the best placed light for it.
-Until 2.2.0 the flag gave such a bag no dynamic light at all, so a torch-lit
+Until 2.0.0 the flag gave such a bag no dynamic light at all, so a torch-lit
 wall lost the lamp beside it the moment the beam reached it.
 
 The rule is a property of the object, not of the aim:

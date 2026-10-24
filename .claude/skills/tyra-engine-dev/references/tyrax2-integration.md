@@ -689,7 +689,7 @@ missing file. Note: legacy `md2_loader` / TinyObjLoader `obj_loader` still asser
 
 ## `RendererCoreBlss` — the upscaler
 
-Current design, API, traps and numbers: references/blss.md (docs/upscaler.md for users). This section used to document the neural reconstruction (per-tile MLP, bag proxies, the host twin and its measurement history); that half was deleted in 2.1.0 and git history keeps the account. Still-valid lessons it paid for live in blss.md: the raster-redirect state machine, `zBuffer.mask` owned by the allocator (the z-mask/CLUT disaster), `emitRasterRestore` writing ZBUF last, `nativeScenes` pinning, the 76x PCSX2 fill under-report and "`drain` is not the EE-bound discriminator".
+Current design, API, traps and numbers: references/blss.md (docs/upscaler.md for users). This section used to document the neural reconstruction (per-tile MLP, bag proxies, the host twin and its measurement history); that half was deleted in 2.0.0 and git history keeps the account. Still-valid lessons it paid for live in blss.md: the raster-redirect state machine, `zBuffer.mask` owned by the allocator (the z-mask/CLUT disaster), `emitRasterRestore` writing ZBUF last, `nativeScenes` pinning, the 76x PCSX2 fill under-report and "`drain` is not the EE-bound discriminator".
 
 ## Before you hand-edit a `.vclpp`: run it on the host first
 

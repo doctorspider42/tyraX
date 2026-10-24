@@ -5,7 +5,7 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
-## 2.2.0 - Unreleased
+## 2.0.0 - Unreleased
 
 - **Project > Audio** is laid out by what loads each sound. Sounds are grouped into Always loaded, the scene, each streaming layer, each sound bank, other scenes and never loaded. Selecting one opens an inspector with what loads it, what plays it, its banks and the Always loaded switch. A card on top shows the most sound RAM a scene can need at once, split by group, with a scene picker. Music has its own tab.
 - Sound effects follow streaming layers, and you can make sound banks. The emitters and vehicles of a streaming layer bring their sounds with them, so an open-world scene keeps only the sounds of the districts you are in. Named banks (**Project > Audio > Banks**) group sounds a mission or cutscene needs, and the new **Set Sound Bank Loaded** node loads and unloads them. Sounds still playing when their layer or bank goes away are cut off cleanly, and anything else keeps playing, including through a scene switch. The *SPU2 sample RAM* meter now shows the worst moment it can find: zones close enough to be in together, layers your graphs load, and the banks they load.
@@ -24,7 +24,6 @@ history.
 - The start page's *Open folder...* button is now just *Open*.
 - The Cutscene Director is easier to find your way around. The timeline takes the whole height of the window, and the shot preview (which can be folded away) sits above the inspector in a column on the right, so the inspector no longer scrolls in a small box. Object tracks open like a tree: a track into its channels (Position, Rotation, Scale, Color, Visibility), and Position, Rotation and Scale into X, Y and Z. Each row shows its value at the playhead and has a diamond that keys that row at the playhead or removes the key there. The time ruler stays at the top however far you scroll the rows, so you can always scrub. The Cinema workspace starts with the Project and Properties panels hidden, so the viewport and the Director get the full width (Ctrl+B and Ctrl+Alt+B bring them back; *Layout > Reset to built-in arrangement* applies this to an existing project). Keys are per channel now: dragging or deleting a key on the Position X row moves or removes position X only, and each axis interpolates between its own keys. Older projects open unchanged. Projects are saved as format 120.
 - The procedural node inspector is a form instead of a long list of fields. Each node has a header with its icon, inputs and outputs, and buttons to preview the node, bypass it and show its help. Values that belong together share a row, min..max pairs are one range with draggable ends (with the falloff drawn on it), short choices are segments and on/off settings are chips. Safety caps sit in a collapsed *Advanced* row. Settings that do nothing in the current mode are hidden. Noise and Terrain masks show their result, Remap Mask shows its curve and Filter by Attribute shows a histogram of the incoming values. Pool rows are cards that show each model's share of the points. Output lists every property it can set on the generated objects as a tick list.
-
 - The side panels slide away to give the viewport the room. Click the open page's icon on the left rail again (or press `Ctrl+B`) to hide the Project panel, and click any rail icon to bring it back. `Ctrl+Alt+B` hides the Properties panel. The two panel switches at the right end of the status bar and the View menu do the same. A hidden panel returns to the same place and size.
 - Each window layout remembers which side panels it has hidden, so the Procedural layout can keep the Project panel out of the way while Default keeps both. New projects get Procedural with the Project panel hidden. In existing projects, *Layout > Reset to built-in arrangement* applies the new default. Projects are saved as format 119.
 - The workspace switcher on the top bar ends in a **...** button that lists the other layouts (Material Designer, Procedural and your own) and *New layout...*.
@@ -32,23 +31,12 @@ history.
 - The Debugger's **Build & Run** follows the PCSX2 | PS2 switch like the top bar's Run. With PS2 selected it used to launch PCSX2 anyway.
 - **Copy image** in *Debugger > Screen* now pastes into Claude and other Electron apps on Windows; it used to fail there unless the PNG was copied from Explorer.
 - The built-in layouts can no longer be deleted. They can still be renamed or reset. A project that lost one in an earlier version gets it back on open.
-
-## 2.1.2 - Unreleased
-
 - Instanced scatter budgets count shared near/far geometry instead of flagging the sum of every placement as an over-budget mesh. The full placement sum remains informational, and the memory label identifies geometry-only estimates.
-
 - Shared procedural object settings now live in the Output inspector instead of a disconnected graph card. Existing settings are preserved. Instance detail clearly shows that it is unused in Instanced mode, and its help explains the visual cost of simplification.
-
-## 2.1.1 - Unreleased
-
 - Dense procedural previews keep their models above 4,000 instances instead of replacing the entire layout with green crosses. Pick Asset previews use the pool's distant models, Output draw distance and camera-frustum culling. Unassigned graph points retain their markers.
-
-## 2.1.0 - Unreleased
-
 - The upscaler (BLSS) can draw **only the particle emitters** at the reduced resolution (*Draw reduced: Particles only*): smoke, haze, fire and rain lose three quarters of their fill while the rest of the scene, the HUD and every texture stay sharp, and depth of field, portals, split screen and frame extrapolation keep working beside it. On a physical PS2, upscaler-lab's haze yard went from 34.8 ms to 13.8 ms of frame work. See docs/upscaler.md.
 - New **Set Upscaler (BLSS)** flow node (and `ctx.upscaler` for scripts) switches the upscaler while the game runs - Scene default, Off, On or Automatic - so a level can run native and drop to the reduced raster only in the zone where the smoke and sparks are. The switch moves no VRAM.
 - BLSS's neural reconstruction is removed - the network, its trainer, the Neural Upscaler window and the `--blss-*` commands. It measured +0.3 dB over plain bilinear for ~5 ms of EE a frame. Projects keep the plain upscaler; the old settings are dropped on the next save (format 118).
-
 - Tree Generator adds Forest oak and Hero oak presets with Blender-baked broadleaf sprays for fuller, muted foliage. Existing tree recipes keep their original appearance.
 - deep-forest uses three fuller broadleaf oak variants and a textured Blender fieldstone (56 triangles near / 12 far). Includes editable assets and a reproducible physical-PS2 density/LOD benchmark; 7,000 trees and rocks hold 50 FPS on the sampled hardware route with oak LOD at 25 units and finer spatial culling.
 
@@ -56,8 +44,6 @@ history.
 
 - PS2Link r8 fixes a startup hang observed on an SCPH-70004 booted through FreeDVDBoot/uLaunchELF by configuring the sound hardware's bus mapping and timing before muting leftover audio.
 - `tools/ps2link/build.*` builds with the editor's native toolchain when it is installed (Docker stays the fallback, or `-Docker` / `--docker`), and the revision the boot banner shows is set in one place, `TYRAX_REV` in the patch. `build.sh` no longer ignores `--no-usb` and `--packed`.
-
-## 2.0.0 - Unreleased
 
 ### Examples
 
@@ -197,6 +183,7 @@ Every tool and the main window were opened next to their approved designs; what 
 - **Procedural**: pin and link colours follow the theme and the legend (points blue, masks pink, curves green); a *Procedural layout* button switches to the docked layout. **Neural Upscaler**: the *Project settings* tab is now a link to Project Preferences > Display > Frame delivery, which also holds the network's tuning. **Project Preferences**: sections are cards, every row shows a one-line meaning under its label, and Devkit channels are one table with each channel's polling interval in an *Every* column.
 - **VU Programs** and the **Particle Editor**: nothing overlaps in a narrow window any more (legends wrap, long notes end in "...", rows rearrange).
 - **Opening a project** shows which step is running and counts object files as they load. **Start page**: the Recent filter shows from two projects; New project / Open folder show their shortcuts. **New Project**: Claude Code starts selected; the start-type cards have new pictures - a crosshair view, the player from behind, an empty floor. **Sculpt / Paint**: the brush settings moved from a loose row at the top of the viewport to a card at the bottom centre, with a line saying what a drag does. **Drone Generator**: Detailed shows the Simple | Detailed switch at the top right too, not at the tab row. **Particle Editor**: with no effects yet it shows all six presets as cards (Fire, Smoke, Fog, Sparks, Rain, Custom) instead of an empty library and a "New fire effect" button. **Texture Atlas**: *Turn it on in Rendering prefs* (and *Rendering prefs*) opens Project Preferences on top of the Texture Atlas, scrolled to the *Texture atlasing* switch and ringed for a moment - before, the Preferences opened as a tab hidden behind it. **Project Preferences, reorganised**: five pages by what you are doing - *Game*, *Picture*, *World*, *Graphics*, *Build & debug* - each with its essentials up front and an **Advanced** fold for the rest; the line of explanation under every setting is gone (hover the caption), captions are plain words (*TV region*, *Picture mode*, *Colours*, *Torch shadows*), and a setting changed from what a new project starts with gets a blue dot - click it to reset - with a count per page and **Show what I changed**. Search also finds the old names. Walk, Run and Sprint speed (Preferences and a Player's Properties) and the animation frame rate are caption-left rows like the rest, with the metres in the field. **Trackpad navigation**: two-finger scroll pans the viewport (on by default on macOS; *View > Navigation controls > Two-finger scroll pans*), Cmd+scroll zooms, Option+scroll orbits, and Shift+right-drag pans in every scheme - no middle button needed. **GPU GI bake on a Mac**: *Bake on the GPU* (Ambience Editor > Global illumination) and `--bake-gi --gpu` now work on macOS through Metal - about 3x faster than all CPU cores on gi-showcase, and within 0.003% of the CPU bake. **One GPU switch**: *Edit > Preferences > Build > Use the GPU for bakes* (on by default) now decides for every bake that can use the GPU - global illumination and impostor captures; the Ambience Editor shows which engine it will use and links there. [Editor preferences](https://github.com/doctorspider42/tyraX/blob/main/docs/editor-preferences.md) **AI Assistant**: pad-script and build rows say how they ended. **Update dialog**: names the package in words with its size.
+
 ## 1.172.2 - 2026-10-16
 
 ### Releases

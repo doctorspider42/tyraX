@@ -1,7 +1,7 @@
 {
   "name": "deep-forest",
   "formatVersion": 117,
-  "editorVersion": "2.1.0",
+  "editorVersion": "2.0.0",
   "template": "fpp",
   "projectId": "df02ee57a1c94b30",
   "settings": {

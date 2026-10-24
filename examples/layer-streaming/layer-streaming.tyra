@@ -1,7 +1,7 @@
 {
   "name": "layer-streaming",
   "formatVersion": 122,
-  "editorVersion": "2.2.0",
+  "editorVersion": "2.0.0",
   "template": "fpp",
   "projectId": "8932db255705074c",
   "settings": {

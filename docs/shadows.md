@@ -308,7 +308,7 @@ one, lowering it keeps the slots for what is near. The `.tyra` carries
 **Which four win** within that reach (1.71.1): only casters inside the
 camera's view cone are candidates - a radius and a half of margin, so a
 caster at the frame's edge still counts - or casters whose **shadow** lies in
-the view cone (2.2.0): the footprint each light would lay, the same ray down to
+the view cone (2.0.0): the footprint each light would lay, the same ray down to
 the ground and the same capped patch the slot draws, for the sun or moon and
 for every lamp in reach. Before that, walking past an obelisk turned it out of
 the frame while the shadow a low lamp threw from it still lay across the

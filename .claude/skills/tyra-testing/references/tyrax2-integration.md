@@ -313,7 +313,7 @@ TYRAX <projectDir|project.tyra>      # open GUI on a project
 
 The upscaler (BLSS) has no headless layer of its own any more: the neural
 half and its `--blss-train` / `--blss-eval` / `--blss-emit` / `--blss-coverage`
-verbs were removed in 2.1.0 (docs/upscaler.md). Verify it by codegen greps,
+verbs were removed in 2.0.0 (docs/upscaler.md). Verify it by codegen greps,
 PCSX2 pictures and console frame times (vu-and-blss.md).
 
 VU1 microprogram work has its own layer, faster than everything below
