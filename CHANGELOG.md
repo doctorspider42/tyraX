@@ -5,7 +5,11 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
-## 2.0.0 - Unreleased
+## 2.0.1 - 2026-10-25
+
+- The Assets header and selected asset's **Open in Asset Browser** buttons no longer share an ImGui ID. UI scripts now fail on duplicate widget IDs without requiring a hover, and the Linux release job exercises the Assets actions before packaging.
+
+## 2.0.0 - 2026-10-24
 
 - **Project > Audio** is laid out by what loads each sound. Sounds are grouped into Always loaded, the scene, each streaming layer, each sound bank, other scenes and never loaded. Selecting one opens an inspector with what loads it, what plays it, its banks and the Always loaded switch. A card on top shows the most sound RAM a scene can need at once, split by group, with a scene picker. Music has its own tab.
 - Sound effects follow streaming layers, and you can make sound banks. The emitters and vehicles of a streaming layer bring their sounds with them, so an open-world scene keeps only the sounds of the districts you are in. Named banks (**Project > Audio > Banks**) group sounds a mission or cutscene needs, and the new **Set Sound Bank Loaded** node loads and unloads them. Sounds still playing when their layer or bank goes away are cut off cleanly, and anything else keeps playing, including through a scene switch. The *SPU2 sample RAM* meter now shows the worst moment it can find: zones close enough to be in together, layers your graphs load, and the banks they load.

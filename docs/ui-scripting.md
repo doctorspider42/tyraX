@@ -42,6 +42,24 @@ What follows from that is the whole value:
 
 ## The script
 
+Every scripted frame checks submitted widget IDs, without needing to hover them.
+A duplicate ID fails the run with exit code 1 and prints the window, label (when
+available), ID and both positions. The check includes clipped items, ignores
+window bookkeeping and honors ImGui's explicit `ImGuiItemFlags_AllowDuplicateId`.
+Use `##suffix` or `PushID` to fix accidental duplicates; C++ block scope alone
+does not change an ImGui ID. Normal interactive sessions keep ImGui's own diagnostics.
+
+Run `cmake --build build --target check-ui` after compiling to exercise the Assets
+page with a selected model and open the Asset Browser. The target creates a fresh
+project and isolated editor settings under `build/ui-check/`, retaining its fixture
+and screenshot for inspection. It needs a graphical desktop; on headless Linux use
+`xvfb-run -a cmake --build build --target check-ui` (requires Xvfb and xauth).
+The Linux release job runs this gate before packaging and blocks release publication on failure. Only widgets
+submitted by visited screens are covered: add UI script scenarios for other panels
+and states as they change. Compilation alone cannot detect runtime ID conflicts.
+
+![The Assets header and selected-model drawer checked by the UI gate](img/ui-id-check.png)
+
 Commands are separated by newlines or `;`, `#` starts a comment, and a target
 with spaces is quoted — `"like this"` or `'like this'`, whichever your shell
 leaves alone. A target is `"Window/Label"` or a bare `"Label"`; matching is

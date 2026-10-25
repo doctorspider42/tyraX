@@ -290,7 +290,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y -qq dpkg-dev rpm ccache
+          sudo apt-get install -y -qq dpkg-dev rpm ccache xvfb xauth
           ./setup.sh --deps
 
       - name: ccache store
@@ -302,6 +302,18 @@ jobs:
 
       - name: Build the editor
         run: ./build.sh
+
+      - name: Check UI IDs before packaging
+        run: xvfb-run -a cmake --build build --target check-ui
+
+      - name: UI failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-check-linux
+          path: build/ui-check/
+          if-no-files-found: ignore
+          retention-days: 7
 
       # --all is the tarball + the .deb + the .rpm, all staged from ONE tree, so
       # the three cannot disagree about what is inside them. The tarball is the

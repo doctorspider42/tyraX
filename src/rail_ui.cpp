@@ -396,7 +396,7 @@ void App::drawAssetsSection() {
         if (model && ui::PrimaryButton("Add to scene")) activateAsset(sel->rel);
         else if (sel->kind == AssetKind::Material && ui::PrimaryButton("Edit material")) openMaterialEditor(sel->rel);
         ImGui::SameLine();
-        if (ui::SecondaryButton("Open in Asset Browser")) {
+        if (ui::SecondaryButton("Open in Asset Browser##selection")) {
             showAssetBrowser_ = true;
             assetFolder_ = sel->rel.substr(0, sel->rel.rfind('/'));
             assetSelection_ = {sel->rel};

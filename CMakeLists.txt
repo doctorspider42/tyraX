@@ -378,6 +378,18 @@ add_dependencies(tyrax-editor tyrax-generated)
 find_package(OpenGL REQUIRED)
 target_link_libraries(tyrax-editor PRIVATE imgui glfw OpenGL::GL)
 
+# Explicit GUI gate: requires a display (xvfb-run on headless Linux). Release
+# packaging runs this after compilation; regular headless builds remain usable.
+add_custom_target(check-ui
+    COMMAND ${CMAKE_COMMAND}
+        "-DEDITOR=$<TARGET_FILE:tyrax-editor>"
+        "-DCHECK_DIR=${CMAKE_BINARY_DIR}/ui-check"
+        -P "${CMAKE_SOURCE_DIR}/cmake/check_ui.cmake"
+    DEPENDS tyrax-editor
+    USES_TERMINAL
+    VERBATIM
+    COMMENT "Checking UI widget IDs and Assets actions")
+
 if(WIN32)
     # shell32/ole32/uuid: the native file pickers and "Reveal in Explorer"
     # (src/platform.cpp). ws2_32: the socket transport (src/wire.cpp).

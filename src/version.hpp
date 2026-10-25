@@ -1,5 +1,8 @@
 #pragma once
 
+// 2.0.1: fix the Assets browser-action ID collision; scripted frames reject duplicate widget IDs,
+// and the check-ui build target gates Linux release packaging.
+
 // 2.0.0 (the first 2.x release; everything below up to 1.177.14 ships in it):
 // Sound effects load per scene (docs/sound.md, "SPU2 sample RAM") - shared ones at boot,
 // a scene's own on entry, freed newest first on leaving; Project > Audio meters shared + heaviest
@@ -5613,7 +5616,7 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 0
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 // 1.173.0: the first step of the main-window redesign (docs/editor-theme.md).
 // Face buttons gets a new palette; Palette/Semantics gain ground, field,
 // special and the axis triple; the dockspace host and its splitters draw in the

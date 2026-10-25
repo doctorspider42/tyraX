@@ -69,6 +69,10 @@ void beginFrame();
 
 const std::vector<Item>& items();
 
+/** Duplicate submitted widget IDs in this frame, independent of cursor position.
+ * Empty on success. Window bookkeeping and explicit AllowDuplicateId are excluded. */
+std::string idConflictText();
+
 /** Finds a widget by `"Window/Label"` or by bare `"Label"` (first match, in
  * submission order). Both halves match case-insensitively, the label may be
  * given without a trailing "..." and the window may be a prefix ("Remote"
