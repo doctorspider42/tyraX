@@ -27,6 +27,14 @@ namespace {
 
 std::vector<uiscript::Item> g_items;
 std::unordered_map<uint32_t, size_t> g_byId;
+// Separate from the name registry: that intentionally replaces re-submissions.
+// Retain the first submission so a second widget cannot hide an ID collision.
+struct IdSubmission {
+    uiscript::Item item;
+    ImGuiItemFlags flags;
+};
+std::unordered_map<uint32_t, IdSubmission> g_idSubmissions;
+std::string g_idConflicts;
 // Labels that arrived BEFORE their bounding box. ImGui usually calls ItemAdd
 // first, but a TAB ITEM is the other way round (imgui_widgets.cpp: TabItemEx
 // reports its label up front, then adds the box further down), so a tab used to
@@ -68,7 +76,6 @@ bool startsWithCI(const std::string& hay, const std::string& needle) {
 void ImGuiTestEngineHook_ItemAdd(ImGuiContext* ctx, ImGuiID id, const ImRect& bb,
                                  const ImGuiLastItemData* item_data) {
     if (!g_enabled || id == 0) return;
-    (void)item_data;
     uiscript::Item it;
     it.id = (uint32_t)id;
     it.x0 = bb.Min.x;
@@ -82,6 +89,20 @@ void ImGuiTestEngineHook_ItemAdd(ImGuiContext* ctx, ImGuiID id, const ImRect& bb
         if (alias != g_windowAlias.end()) it.window = alias->second;
         // ImGui registers each window as an item under the window's own id.
         it.isWindow = ctx->CurrentWindow->ID == id;
+    }
+    // Begin registers windows too (null item_data); those are bookkeeping, not
+    // widgets. ItemAdd runs before clipping, so offscreen widgets count as well.
+    if (item_data) {
+        auto [first, inserted] = g_idSubmissions.emplace(id, IdSubmission{it, item_data->ItemFlags});
+        if (!inserted && ((first->second.flags | item_data->ItemFlags) & ImGuiItemFlags_AllowDuplicateId) == 0) {
+            const auto& a = first->second.item;
+            const auto named = g_byId.find(id);
+            const std::string label = named == g_byId.end() ? "" : g_items[named->second].label;
+            char detail[256];
+            std::snprintf(detail, sizeof detail, "ID 0x%08X at (%.0f,%.0f) and (%.0f,%.0f)",
+                          id, a.x0, a.y0, it.x0, it.y0);
+            g_idConflicts += a.window + "/" + label + ": " + detail + " (second window: " + it.window + ")\n";
+        }
     }
     // A label reported ahead of the box (tab items - see g_pending).
     auto pend = g_pending.find(it.id);
@@ -150,6 +171,8 @@ void setEnabled(bool on) {
         g_items.clear();
         g_byId.clear();
         g_pending.clear();
+        g_idSubmissions.clear();
+        g_idConflicts.clear();
     }
 }
 
@@ -159,9 +182,13 @@ void beginFrame() {
     g_items.clear();
     g_byId.clear();
     g_pending.clear();
+    g_idSubmissions.clear();
+    g_idConflicts.clear();
 }
 
 const std::vector<Item>& items() { return g_items; }
+
+std::string idConflictText() { return g_idConflicts; }
 
 void markLastItemChecked(bool checked) {
     if (!g_enabled) return;

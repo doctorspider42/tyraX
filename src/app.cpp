@@ -838,6 +838,17 @@ int App::run(const std::string& initialProjectDir) {
         publishDevSession();  // "this editor has that project open" (throttled)
 
         ImGui::Render();
+        if (uiscript::enabled()) {
+            const std::string conflicts = uiscript::idConflictText();
+            if (!conflicts.empty()) {
+                std::printf("[ui] FAILED: conflicting ImGui IDs\n%s", conflicts.c_str());
+                std::fflush(stdout);
+                uiScriptFailed_ = true;
+                uiScriptActive_ = false;
+                exitConfirmed_ = true;
+                glfwSetWindowShouldClose(window_, GLFW_TRUE);
+            }
+        }
         int w, h;
         glfwGetFramebufferSize(window_, &w, &h);
         glViewport(0, 0, w, h);

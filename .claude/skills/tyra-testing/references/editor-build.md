@@ -19,6 +19,7 @@ Read when: the editor build fails, you touch build scripts / deps / CMake / plat
 - Clean Release ≈ 1–1.5 min on 16 cores; one UI file ≈ seconds. ccache/sccache on `PATH` is used automatically (cheap worktree switching).
 - **Dev (`-O1`, own `build-dev/`)** is for the edit-compile-look loop (`-O3` is ~2/3 of compile time). Never benchmark/ship it, **never verify a bake with it** — gibake/matbake/aobake/pngquant at -O1 take minutes and look hung. Verify bakes with Release.
 - Build must be warning-clean; this is the compile check for all of `src/`.
+- `cmake --build build --target check-ui` adds the GUI ID/Assets regression gate (fresh fixture/settings, artifacts in `build/ui-check/`). Requires a desktop; headless Linux: `xvfb-run -a` with Xvfb/xauth installed. The Linux release job runs it before packaging; compilation alone cannot cover runtime widget IDs.
 - Prereqs: Windows `scoop install mingw cmake ninja`; Linux `./setup.sh --deps` (apt/dnf/pacman/zypper lists in `deps.sh`). build.sh checks tools + pkg-config headers first, prints the distro's install command, refuses to configure otherwise.
 
 ## Traps

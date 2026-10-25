@@ -24,6 +24,8 @@ Read when you touch build/setup/deps scripts, `CMakeLists.txt`, `platform.cpp`, 
 
 ## CMake
 
+- `check-ui` is an explicit GUI smoke target depending on `tyrax-editor`; `cmake/check_ui.cmake` creates an isolated project/config and drives the Assets drawer/browser, retaining its screenshot under the build directory. Every scripted frame rejects duplicate widget IDs. The Linux release job runs it before packaging (Linux under Xvfb + xauth). Regular compile-only builds need no display.
+
 - Single target `tyrax-editor`. **A new source file must be added to `CMakeLists.txt`'s source list - there is no glob** (only `docs/*.md` and `ai-support/*` are globbed for embedding). Windows: static MinGW (`-static`), console subsystem on purpose (logs visible), links shell32/ole32/uuid/ws2_32/dwmapi. Elsewhere: `OpenGL::GL` + Threads + `${CMAKE_DL_LIBS}`, app icon `.rc` skipped. Apple only: `enable_language(OBJC OBJCXX)` + `src/platform_mac.mm` (via `TYRAX_EDITOR_MAC_SOURCES`) + `-framework Cocoa`. **Enable OBJC together with OBJCXX**: with OBJCXX alone CMake compiles GLFW's own `.m` files as Objective-C++ and they fail (`cannot initialize a variable of type 'char **' with an rvalue of type 'void *'`).
 - Generated headers (`docs_gen.hpp`, `ai_support_gen.hpp`, embedded binaries) live in their own `tyrax-generated` custom target: a generated header in the executable's source list attaches its `add_custom_command` to the target and inherits order-only deps on everything it LINKS (two 0.1 s generators waited for `libimgui.a`, and every editor `.obj` with them: 17 s of every clean build). Keep new generators there.
 - Keep TUs splittable (editor-ui-and-conventions.md).

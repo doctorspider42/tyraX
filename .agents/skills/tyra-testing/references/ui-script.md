@@ -8,6 +8,15 @@ TYRAX --ui-script [projectDir] --file <script.ui>    # or --stdin
 ```
 The editor runs for real and holds its own mouse/keyboard, naming WIDGETS. No focus on either OS. Exit 0 only if every step passed.
 
+Every scripted frame also fails on duplicate submitted widget IDs (no hover
+required), including clipped items. The log reports window/label/ID/positions;
+window bookkeeping and explicit `ImGuiItemFlags_AllowDuplicateId` are excluded.
+`cmake --build build --target check-ui` runs the Assets selected-model regression
+with fresh settings and a fixture/screenshot under `build/ui-check/`. On headless
+Linux wrap it in `xvfb-run -a` (Xvfb + xauth). Linux release packaging is
+gated on it. This covers submitted widgets only; other panels need their own
+scripts. `##suffix`/`PushID` fix collisions; C++ braces do not isolate ImGui IDs.
+
 ## Steps (src/uiscript.cpp)
 
 | step | form |

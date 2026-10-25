@@ -246,6 +246,8 @@ checking the toolchain, configuring CMake. The one thing it cannot do is
 install *system* packages as root — that is what the first line above is for —
 and when something is missing, it stops and names the exact command to run.
 
+Run `cmake --build build --target check-ui` to check the Assets actions and fail on duplicate ImGui IDs; see [UI scripting](docs/ui-scripting.md).
+
 Flags: `-Run`/`--run`, `-Clean`/`--clean` (from scratch), `-Dev`/`--dev` (a
 fast-to-rebuild `-O1` build in its own `build-dev/` — too slow for host bakes
 or benchmarks). ccache/sccache is picked up automatically if it is on `PATH`.
