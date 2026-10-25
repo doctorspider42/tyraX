@@ -10635,6 +10635,17 @@ alignas(16) static unsigned char rsIoStack[16 * 1024];
 // pattern on the PS2 host filesystem (audio_song.cpp), and a short chunk
 // keeps a main-thread file call (a log line, a texture) from waiting behind a
 // whole item. A short read is a failure, never a partial item.
+// A read buffer is WHOLE 64-byte cache lines: the host: read lands by DMA,
+// and the EE invalidates the destination lines around it. A buffer that ended
+// mid-line shared its last line with whatever the allocator put next, so a
+// read could drop the neighbour's fresh writes and a neighbour's write-back
+// could land over the read's tail - a checksum mismatch on the console every
+// minute or so of driving, and corrupt game memory that crashed Big City
+// after a few minutes (2.1.0).
+static inline unsigned int rsIoBytes(unsigned int bytes) {
+  return bytes > 0 ? (bytes + 63U) & ~63U : 64U;
+}
+
 static bool rsReadRange(int fd, unsigned int at, unsigned int bytes, unsigned char* buf) {
   if (fd < 0) return false;
   if (lseek(fd, (off_t)at, SEEK_SET) != (off_t)at) return false;
@@ -12183,7 +12194,7 @@ bool TerrainGame::roadStreamOpenFile() {
     roadStreamFileError(-1, "ROAD DATA MISSING - SEE LOG", detail);
     return false;
   }
-  unsigned char h[RsFile::kHeader];
+  alignas(64) static unsigned char h[(RsFile::kHeader + 63U) & ~63U];  // whole cache lines (rsIoBytes)
   unsigned int items = 0, payload = 0, hash = 0;
   if (!rsReadRange(rsFd_, 0, RsFile::kHeader, h)) {
     snprintf(detail, sizeof(detail), "cannot read the header of %s", path.c_str());
@@ -12263,7 +12274,7 @@ void TerrainGame::roadStreamIoMain(void* self) {
 unsigned char* TerrainGame::roadStreamReadNow(int fi) {
   if (rsFileState_ != 1 || fi < 0 || fi >= ROAD_FILE_ITEM_COUNT) return nullptr;
   const RoadFileItem& d = ROAD_FILE_ITEMS[fi];
-  unsigned char* buf = static_cast<unsigned char*>(memalign(64, d.bytes > 0 ? d.bytes : 64U));
+  unsigned char* buf = static_cast<unsigned char*>(memalign(64, rsIoBytes(d.bytes)));
   if (!buf) {
     TYRA_LOG("ROADFILE out of memory reading item ", fi, " (", (int)d.bytes, " bytes)");
     return nullptr;
@@ -12303,7 +12314,7 @@ bool TerrainGame::roadStreamIoRequest(int item) {
     }
   if (!s) return false;
   const RoadFileItem& d = ROAD_FILE_ITEMS[it.file];
-  unsigned char* buf = static_cast<unsigned char*>(memalign(64, d.bytes > 0 ? d.bytes : 64U));
+  unsigned char* buf = static_cast<unsigned char*>(memalign(64, rsIoBytes(d.bytes)));
   if (!buf) return false;
   s->item = item;
   s->at = d.at;

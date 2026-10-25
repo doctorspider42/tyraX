@@ -1966,7 +1966,13 @@ in a file and reads each item's rows when the ring wants it.
   plan-time read that failed all three tries) puts READ ERROR on screen. On
   the console a read occasionally comes back with a bad checksum once and
   clean on the retry (2.1.0, big city) - most likely another `host:` load
-  running at the same time - and that stays a log line.
+  running at the same time - and that stays a log line. The real cause
+  was the buffers: they ended mid cache line, and a host: read lands by DMA
+  with the EE invalidating the lines around it, so the last line was shared
+  with whatever the allocator put next - the read's tail could be overwritten
+  (the mismatch) and the neighbour's data lost (Big City crashing after a few
+  minutes of driving). Every read buffer is now whole 64-byte lines
+  (`rsIoBytes`).
 - **Off.** `roadStreamEmbedTables` (Project > Preferences > World > *Keep road
   tables in the ELF*, saved only when on) restores the embedded tables, no
   file and no thread. A project with streaming off (radius 0) never had a file

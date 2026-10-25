@@ -24,6 +24,7 @@ The road network: roads that meet, grow kerbs, pavements and furniture, carry tr
 - **Faster on the PS2.** Buildings on a streaming layer now count as static colliders for the cars, so Big City's vehicle update dropped from 3.8-7 ms to 1.8 ms a frame and the city holds 60 FPS where it ran at 30. The Motor District now runs three traffic cars instead of six: six cost 1.4 ms of EE time a frame and 3.1 MB of the console's 32 MB.
 - Big City opens in the editor about four times faster: its roads were planned twice on open, and the kerb planner checked every road for every point.
 - Traffic cars far from the camera turn smoothly through bends instead of snapping a few degrees at a time.
+- Big City no longer corrupts memory while you drive: the road-table read buffers ended mid cache line, so a read could overwrite its neighbour (the likely cause of the crash after a few minutes of driving) and come back with a bad checksum.
 - "ROAD DATA READ ERROR" no longer shows for a road-table read that a retry fixes; it shows only when an item is given up.
 - *Scene > Add > Gameplay > Road* starts the Draw road tool instead of dropping a short straight road.
 - Road paint is less cartoonish: lane lines and junction paint cover the asphalt at 78%, so its grain and tone show through. Regenerate a road texture (Tools > Road Texture Generator) to get it on an existing one; junction paint updates on the next build.
