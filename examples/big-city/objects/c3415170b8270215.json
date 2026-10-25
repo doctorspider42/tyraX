@@ -1,0 +1,1 @@
+{ "id": "c3415170b8270215", "name": "Building 747", "type": "model", "position": [14.1206, 0, 160.249], "rotation": [0, 0, 0], "scale": [2.1314, 1.5956, 2.7253], "color": [1, 1, 1], "physics": false, "layer": "district-4-5", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

@@ -1,0 +1,1 @@
+{ "id": "dc4d2ff04b5202c5", "name": "Building 422", "type": "model", "position": [-282.807, 0, 342.834], "rotation": [0, 0, 0], "scale": [1.6261, 1.561, 1.7601], "color": [1, 1, 1], "physics": false, "layer": "district-2-6", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

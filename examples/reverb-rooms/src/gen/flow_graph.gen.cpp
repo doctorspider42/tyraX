@@ -7,6 +7,7 @@
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
 #include "facts.gen.hpp"  // World Facts store + save walks
+#include "sound_bank.gen.hpp"  // Play Sound, sound banks
 #include "scripts/live_debug.gen.hpp"  // Live Debugger hits / halt / force-fire
 #include "scripts/live_logic.gen.hpp"  // Live Logic: a patched graph runs on the interpreter
 
@@ -148,41 +149,41 @@ class FlowGraphScript_0_0 : public Script {
     if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
       livedbg::hit(0);
       livedbg::hit(1);
-      {
+      if (audsrv_adpcm_t* const sfx = soundbank::sample(0)) {
         const s8 ch = (s8)flowPinSfxChannel(ctx, 2, 0);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, true);
-        ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
+        ctx.engine->audio.adpcm.forcePlay(sfx, ch);
       }
     }
     if (ctx.engine->pad.getClicked().Cross) {
       livedbg::hit(0);
       livedbg::hit(1);
-      {
+      if (audsrv_adpcm_t* const sfx = soundbank::sample(0)) {
         const s8 ch = (s8)flowPinSfxChannel(ctx, 2, 0);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, true);
-        ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
+        ctx.engine->audio.adpcm.forcePlay(sfx, ch);
       }
     }
     if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
       livedbg::hit(2);
       livedbg::hit(3);
-      {
+      if (audsrv_adpcm_t* const sfx = soundbank::sample(0)) {
         const s8 ch = (s8)flowPinSfxChannel(ctx, 3, 0);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, false);
-        ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
+        ctx.engine->audio.adpcm.forcePlay(sfx, ch);
       }
     }
     if (ctx.engine->pad.getClicked().Circle) {
       livedbg::hit(2);
       livedbg::hit(3);
-      {
+      if (audsrv_adpcm_t* const sfx = soundbank::sample(0)) {
         const s8 ch = (s8)flowPinSfxChannel(ctx, 3, 0);
         ctx.engine->audio.adpcm.setVolume(95 * ctx.sfxVolume / 100, ch);
         ctx.engine->audio.reverb.setChannelSend(ch, false);
-        ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
+        ctx.engine->audio.adpcm.forcePlay(sfx, ch);
       }
     }
     if (livedbg::forced(4)) {  // Live Debugger: fired from the editor
@@ -224,8 +225,10 @@ class FlowGraphScript_0_0 : public Script {
   }
 
   void init(ScriptContext& ctx) override {
-    sfx0 = ctx.engine->audio.adpcm.load(
-        Tyra::FileUtils::fromCwd("sfx/knock.adpcm"));
+    if (soundbank::g_bank) return;
+    if (!soundbank::own[0])
+      soundbank::own[0] = ctx.engine->audio.adpcm.load(
+          Tyra::FileUtils::fromCwd("sfx/knock.adpcm"));
   }
 
  public:
@@ -246,7 +249,6 @@ class FlowGraphScript_0_0 : public Script {
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
-  audsrv_adpcm_t* sfx0 = nullptr;
 };
 
 // Live Debugger watch table (docs/live-debugger.md): the flow variables

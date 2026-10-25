@@ -212,3 +212,11 @@ unpaused state, even for a scene with its cycle disabled, and an active scene
 starts at its authored hour. A script can reapply its pause policy after loading.
 Calling `setPaused(false)` resumes advancement from the current hour. These
 controls do not freeze the whole game or replace separate GI bakes.
+
+## Street lamps follow the cycle
+
+The road furniture's street lamps light themselves from the same sun: their
+pools, halos and wet reflections come on in the dusk (fully lit 3 degrees
+below the horizon, off at 6 above) and go off at dawn, through the running
+clock or a paused hour like the district's. A cycle that does not run lights
+them at its baked hour. See [weather.md](weather.md).

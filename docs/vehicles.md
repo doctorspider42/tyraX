@@ -204,6 +204,12 @@ Assign a vehicle a waypoint route to make it drive itself. AI uses the same
 handling, surface grip and collision model as the player, with steering and
 speed planning for bends and other cars.
 
+For cars that drive the ROAD NETWORK by themselves - lanes, stop lines, give
+way, traffic lights, spawned around the player and recycled - turn on
+[road traffic](traffic.md) instead: one project setting, no route to place.
+Its cars are vehicle instances of these same definitions, and its driver fills
+the same throttle, brake and steer.
+
 The Player flow nodes **Enter Vehicle**, **Exit Vehicle** and **Repair Vehicle**
 seat, release or repair the player without a pad press. Enter Vehicle can seat
 the player from anywhere, including at scene start. Repair Vehicle restores
@@ -216,8 +222,20 @@ scene's colliders (`buildVehicleColliders`). It used to be rebuilt from every
 runtime object each frame and then scanned whole by every car, although almost
 nothing in it moves. Now the build flags the objects nothing can move
 (`SCENE_STATIC_COLLIDER_TABLES`, the inverse of `project::objectRuntimeMovable`:
-no physics, no flow-graph or script reference, no layer, no pickup, no save
-state), and the game places those **once** into a cell grid. Each frame only the
+no physics, no flow-graph or script reference, no pickup, no save state; a
+streaming layer does not count - loading or unloading one only flips shown
+flags, which re-place the static half), and the game places those **once**
+into a cell grid. (Until 2.1.0 a layer made an object dynamic, so the Big
+City - every building on an auto-streamed district - had no static collider
+at all: 2 334 objects re-derived every frame and scanned whole by every
+car, 3.8-7 ms of vehicle update on the PS2. With them static: 2.4 ms, and
+the frame holds 60.) The guard below walks a QUARTER of the statics a
+frame (2.1.0): on the console it cost ~2.5 us an object, one miss per
+scattered `RuntimeObject`, so the city's 458 statics took 1.15 ms of every
+frame (now 0.41 ms of `buildVehicleColliders`, vehicle update 1.8 ms).
+A rebuild is still seen at once (`g_colStaticRebuilt`); a spin, the matrix
+path or a shown flip up to three frames late, which the VERIFY oracle
+below reports as a mismatch for those frames. Each frame only the
 rest - vehicles, physics bodies, scripted props, the spawn pool - are derived
 again, and a car walks just the grid cells its reach can touch plus that short
 dynamic list.
@@ -296,6 +314,14 @@ With performance damage enabled, a fully wrecked car cannot drive until
 repaired. The HUD shows damage when relevant.
 
 ![Vehicle damage controls](img/vehicle-damage-dents.png)
+
+**Street furniture can break too.** On a road whose Street furniture is
+Breakable, a car at its kind's break speed knocks a lamp post, a sign, a
+bollard or a traffic light over instead of stopping at it. It keeps most of its
+speed, and the prop flies off as one of the debris pieces lost panels use (the
+same 8-slot pool, physics and batch). The speed the hit takes counts as an
+impact like any other, so a hard one can dent. See
+[roads.md, "Breakable furniture"](roads.md#breakable-furniture-format-137).
 
 ## Effects and display
 

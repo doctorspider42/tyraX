@@ -1,0 +1,1 @@
+{ "id": "45133573a3a665a3", "name": "Plinth 11-6 142", "type": "box", "position": [347.442, 0.135, -86.8947], "rotation": [0, 0, 0], "scale": [25.8886, 0.27, 71.9965], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-6-3", "drawDistance": 140, "castShadow": false }

@@ -210,6 +210,9 @@ const char* const pAssetNames_0[] = {0};
 const char* const pPrefabNames_0[] = {"room-steel", "room-amber", "room-jade", "room-red"};
 short pAssets_0[1] = {0};
 short pPrefabs_0[4] = {0};
+const char* const pLodNames_0[] = {"res/models/cube-room-lod.obj", "res/models/cube-room-lod.obj", "res/models/cube-room-lod.obj", "res/models/cube-room-lod.obj"};
+const float pLodDist_0[] = {30.0f, 30.0f, 30.0f, 30.0f};
+short pLodSlots_0[4] = {0};
 }  // namespace
 
 namespace procrt {
@@ -234,8 +237,23 @@ short* volumePrefabSlots(int v) {
   return 0;
 }
 
+const char* const* volumeLodNames(int v) {
+  if (v == 0) return pLodNames_0;
+  return 0;
+}
+
+const float* volumeLodDist(int v) {
+  if (v == 0) return pLodDist_0;
+  return 0;
+}
+
+short* volumeLodSlots(int v) {
+  if (v == 0) return pLodSlots_0;
+  return 0;
+}
+
 const VolumeDef VOLUMES[] = {
-  { 0, 1, "the-cube", 14.0f, 0.0f, 0, 1, 1, 2365144877u, 256, 0, pAssets_0, 0, pPrefabs_0, 4 },
+  { 0, 1, "the-cube", 14.0f, 0.0f, 0, 1, 1, 2365144877u, 256, 0, pAssets_0, 0, pPrefabs_0, 4, 0 },
 };
 
 int generate(int volume, Ctx& c) {

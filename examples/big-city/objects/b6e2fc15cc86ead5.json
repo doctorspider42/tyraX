@@ -1,0 +1,1 @@
+{ "id": "b6e2fc15cc86ead5", "name": "Building 751", "type": "model", "position": [-24.1174, 0, 267.655], "rotation": [0, 0, 0], "scale": [1.9913, 1.4612, 1.9957], "color": [1, 1, 1], "physics": false, "layer": "district-4-5", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

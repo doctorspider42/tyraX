@@ -18,7 +18,7 @@ Generated files refresh → verified PS2DEV + vendored VU tools provisioned if n
 - Every `*-loop.wav`: byte 6 of the generated `.adpcm` must be `1` (`od -An -tu1 -j6 -N1`); a newer output with `0` must be re-encoded with `adpenc -L`, not skipped (native/Docker parity).
 - Relative project paths work now (`Project::elfPath` and the Runner's native-build args are absolutised). Keep ONE regression run relative (`--build ./examples/foo --run`): native-build `cd`s into the project, so forwarding `./examples/foo` verbatim becomes `examples/foo/examples/foo`; before the fix PCSX2 also derived `host:` from a relative ELF → untextured scene, no baked shadows, no log.
 - Editor Play: select a non-startup scene, launch from toolbar/F5; Runner log shows `Play scene:`, game loads that scene, `bin/launch.scene` consumed. Build-only and CLI launches use the saved startup scene; the marker must never enter an exported ISO.
-- ISO/cdrom0 path: *Project > Export PS2 ISO*, mount on host, boot in PCSX2 (covers path conversion host: boots skip).
+- ISO/cdrom0 path: *Project > Export PS2 ISO* (headless: `--export-iso <dir>` packs a built `bin/` into `<name>.iso`), mount on host, boot in PCSX2 (`-- <iso>` instead of `-elf`; covers path conversion host: boots skip).
 
 ## Incremental build: measure what it RECOMPILED
 

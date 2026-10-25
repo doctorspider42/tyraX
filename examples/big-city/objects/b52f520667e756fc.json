@@ -1,0 +1,1 @@
+{ "id": "b52f520667e756fc", "name": "Building 586", "type": "model", "position": [-67.8344, 0, -451.484], "rotation": [0, 0, 0], "scale": [2.1397, 1.6053, 1.7858], "color": [1, 1, 1], "physics": false, "layer": "district-4-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

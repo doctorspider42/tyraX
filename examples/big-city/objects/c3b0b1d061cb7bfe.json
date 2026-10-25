@@ -1,0 +1,1 @@
+{ "id": "c3b0b1d061cb7bfe", "name": "Building 1055", "type": "model", "position": [248.674, 0, -60.4231], "rotation": [0, 0, 0], "scale": [1.9738, 1.7385, 1.9737], "color": [1, 1, 1], "physics": false, "layer": "district-5-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

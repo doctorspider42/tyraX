@@ -1,0 +1,1 @@
+{ "id": "a8730be9bb2f7222", "name": "Building 902", "type": "model", "position": [212.24, 0, -536.186], "rotation": [0, 0, 0], "scale": [1.3325, 1.9468, 1.9112], "color": [1, 1, 1], "physics": false, "layer": "district-5-1", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

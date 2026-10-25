@@ -7,6 +7,7 @@
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
 #include "facts.gen.hpp"  // World Facts store + save walks
+#include "sound_bank.gen.hpp"  // Play Sound, sound banks
 #include "scripts/navigation.gen.hpp"  // AI nodes (Patrol/Chase/Flee/On Player Seen)
 #include "scripts/live_debug.gen.hpp"  // Live Debugger hits / halt / force-fire
 
@@ -407,11 +408,11 @@ class FlowGraphScript_0_32 : public Script {
         livedbg::hit(21);
         ctx.objects[32].visible = false;
         livedbg::hit(22);
-        {
+        if (audsrv_adpcm_t* const sfx = soundbank::sample(0)) {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
           ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
           ctx.engine->audio.reverb.setChannelSend(ch, true);
-          ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
+          ctx.engine->audio.adpcm.forcePlay(sfx, ch);
         }
       }
     }
@@ -429,26 +430,27 @@ class FlowGraphScript_0_32 : public Script {
         livedbg::hit(21);
         ctx.objects[32].visible = false;
         livedbg::hit(22);
-        {
+        if (audsrv_adpcm_t* const sfx = soundbank::sample(0)) {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
           ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
           ctx.engine->audio.reverb.setChannelSend(ch, true);
-          ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
+          ctx.engine->audio.adpcm.forcePlay(sfx, ch);
         }
       }
     }
   }
 
   void init(ScriptContext& ctx) override {
-    sfx0 = ctx.engine->audio.adpcm.load(
-        Tyra::FileUtils::fromCwd("sfx/lens.adpcm"));
+    if (soundbank::g_bank) return;
+    if (!soundbank::own[0])
+      soundbank::own[0] = ctx.engine->audio.adpcm.load(
+          Tyra::FileUtils::fromCwd("sfx/lens.adpcm"));
   }
 
  private:
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
-  audsrv_adpcm_t* sfx0 = nullptr;
   bool once2 = false;
 };
 
@@ -484,11 +486,11 @@ class FlowGraphScript_0_33 : public Script {
         livedbg::hit(27);
         ctx.objects[33].visible = false;
         livedbg::hit(28);
-        {
+        if (audsrv_adpcm_t* const sfx = soundbank::sample(0)) {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
           ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
           ctx.engine->audio.reverb.setChannelSend(ch, true);
-          ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
+          ctx.engine->audio.adpcm.forcePlay(sfx, ch);
         }
       }
     }
@@ -506,26 +508,27 @@ class FlowGraphScript_0_33 : public Script {
         livedbg::hit(27);
         ctx.objects[33].visible = false;
         livedbg::hit(28);
-        {
+        if (audsrv_adpcm_t* const sfx = soundbank::sample(0)) {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
           ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
           ctx.engine->audio.reverb.setChannelSend(ch, true);
-          ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
+          ctx.engine->audio.adpcm.forcePlay(sfx, ch);
         }
       }
     }
   }
 
   void init(ScriptContext& ctx) override {
-    sfx0 = ctx.engine->audio.adpcm.load(
-        Tyra::FileUtils::fromCwd("sfx/lens.adpcm"));
+    if (soundbank::g_bank) return;
+    if (!soundbank::own[0])
+      soundbank::own[0] = ctx.engine->audio.adpcm.load(
+          Tyra::FileUtils::fromCwd("sfx/lens.adpcm"));
   }
 
  private:
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
-  audsrv_adpcm_t* sfx0 = nullptr;
   bool once2 = false;
 };
 
@@ -561,11 +564,11 @@ class FlowGraphScript_0_34 : public Script {
         livedbg::hit(33);
         ctx.objects[34].visible = false;
         livedbg::hit(34);
-        {
+        if (audsrv_adpcm_t* const sfx = soundbank::sample(0)) {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
           ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
           ctx.engine->audio.reverb.setChannelSend(ch, true);
-          ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
+          ctx.engine->audio.adpcm.forcePlay(sfx, ch);
         }
       }
     }
@@ -583,26 +586,27 @@ class FlowGraphScript_0_34 : public Script {
         livedbg::hit(33);
         ctx.objects[34].visible = false;
         livedbg::hit(34);
-        {
+        if (audsrv_adpcm_t* const sfx = soundbank::sample(0)) {
           const s8 ch = (s8)flowPinSfxChannel(ctx, 1, 0);
           ctx.engine->audio.adpcm.setVolume(65 * ctx.sfxVolume / 100, ch);
           ctx.engine->audio.reverb.setChannelSend(ch, true);
-          ctx.engine->audio.adpcm.forcePlay(sfx0, ch);
+          ctx.engine->audio.adpcm.forcePlay(sfx, ch);
         }
       }
     }
   }
 
   void init(ScriptContext& ctx) override {
-    sfx0 = ctx.engine->audio.adpcm.load(
-        Tyra::FileUtils::fromCwd("sfx/lens.adpcm"));
+    if (soundbank::g_bank) return;
+    if (!soundbank::own[0])
+      soundbank::own[0] = ctx.engine->audio.adpcm.load(
+          Tyra::FileUtils::fromCwd("sfx/lens.adpcm"));
   }
 
  private:
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
-  audsrv_adpcm_t* sfx0 = nullptr;
   bool once2 = false;
 };
 

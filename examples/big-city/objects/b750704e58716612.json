@@ -1,0 +1,1 @@
+{ "id": "b750704e58716612", "name": "Building 813", "type": "model", "position": [88.9426, 0, -379.031], "rotation": [0, 0, 0], "scale": [1.6961, 1.6442, 2.1807], "color": [1, 1, 1], "physics": false, "layer": "district-4-2", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

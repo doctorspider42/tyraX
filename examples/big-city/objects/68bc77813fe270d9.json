@@ -1,0 +1,1 @@
+{ "id": "68bc77813fe270d9", "name": "Building 862", "type": "model", "position": [72.8743, 0, 175.324], "rotation": [0, 0, 0], "scale": [1.7525, 1.5676, 1.861], "color": [1, 1, 1], "physics": false, "layer": "district-4-5", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

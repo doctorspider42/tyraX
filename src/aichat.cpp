@@ -393,6 +393,22 @@ const std::vector<Tool>& tools() {
           {"position", "object", false, "[x, y, z] world units; omitted = origin"},
           {"model", "string", false,
            "for type \"model\": the res/models/... asset path"}}},
+        {"draw_road", ToolKind::Edit,
+         "Draw a road through world XZ points the way the editor's Draw road tool "
+         "does (docs/roads.md \"Drawing roads\"): each point snaps to an existing "
+         "road's END (a corner, or that road carried on when it continues in line "
+         "with the same look) or onto its CENTRE LINE (a T when the drawing ends "
+         "there, a crossing when it carries on), so the junction nodes form by "
+         "themselves. A preset sets the whole look (width, materials, kerbs, "
+         "pavements, furniture, markings). One undo step; the road is selected.",
+         {{"points", "object", true,
+           "[[x, z], [x, z], ...] world units, at least two; a third number "
+           "[x, z, h] is a bridge deck height above the ground at that point"},
+          {"preset", "string", false,
+           "city-street (default), avenue-tram, boulevard, country-road, "
+           "dirt-track, railway, highway, alley, or a project preset's name"},
+          {"angle_snap", "bool", false, "snap each segment to 15-degree steps"},
+          {"scene", "string", false, "scene name; omitted = the active scene"}}},
         {"set_object", ToolKind::Edit,
          "Change properties of one object, or of several at once. Only the "
          "properties you pass are touched.",

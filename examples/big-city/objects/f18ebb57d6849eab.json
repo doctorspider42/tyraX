@@ -1,0 +1,1 @@
+{ "id": "f18ebb57d6849eab", "name": "Parked car 4", "type": "model", "position": [49.9189, 0.12, -395.708], "rotation": [0, 179.103, 0], "scale": [1, 1, 1], "color": [0.25, 0.5, 0.3], "physics": false, "layer": "district-4-2", "drawDistance": 80, "castShadow": false, "model": "res/models/urban/city-car.obj" }

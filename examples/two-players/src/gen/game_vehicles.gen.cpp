@@ -147,8 +147,8 @@ bool TerrainGame::interleaveBegin(bool serializedCost) {
   const InterleaveMode mode{
       (u32)settings.getVideoMode(), (u32)settings.getDisplayMode(),
       (u32)settings.getColorDepth(), core.gs.getFrameBufferCount(),
-      settings.isFieldRendering(), core.blss.isEnabled(), core.getFrameLimit(), core.getFrameYield(),
-      settings.getWidescreen(), settings.getDither(), core.blss.usesNetwork(),
+      settings.isFieldRendering(), core.blss.isActive(), core.getFrameLimit(), core.getFrameYield(),
+      settings.getWidescreen(), settings.getDither(),
       settings.getWidth(), settings.getHeight(), settings.getRenderHeightF(),
       settings.getRasterWidthF(), settings.getRasterHeightF(),
       core.blss.getLowResW(), core.blss.getLowResH(), target.frameWidth,
@@ -312,7 +312,7 @@ float TerrainGame::roadSurfaceScan(float x, float z) const {
     if (y > best) best = y;
   };
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     if (x < c.aabbMin[0] || x > c.aabbMax[0] ||
         z < c.aabbMin[2] || z > c.aabbMax[2])
       continue;
@@ -342,7 +342,7 @@ void TerrainGame::buildRoadHeightIndex() const {
   float mnx = 1.0e30F, mxx = -1.0e30F, mnz = 1.0e30F, mxz = -1.0e30F;
   bool any = false;
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     any = true;
     if (c.aabbMin[0] < mnx) mnx = c.aabbMin[0];
     if (c.aabbMax[0] > mxx) mxx = c.aabbMax[0];
@@ -364,14 +364,24 @@ void TerrainGame::buildRoadHeightIndex() const {
   // the triangles exactly the way roadSurfaceAt used to, so every triangle
   // that was reachable before is reachable now.
   std::vector<unsigned int> cursor;
+  // An entry packs 13 bits of chunk index and 19 of vertex index. It was 10/22
+  // until examples/big-city: a city has more than 1024 proc chunks (roads,
+  // kerbs, rails, details), and every road chunk past the 1024th was silently
+  // missing from the index - wheels and walkers fell through to the terrain.
+  // No chunk comes near 2^19 vertices (road, kerb and patch chunks are capped
+  // at ~1800). Anything still out of range is COUNTED and logged, not lost
+  // silently.
+  int skipped = 0;
   for (int pass = 0; pass < 2; ++pass) {
     unsigned int ci = 0;
     for (const ProcChunk& c : procChunks) {
       const unsigned int chunk = ci++;
-      if (c.owner != -3 || c.vertices.size() < 3) continue;
-      if (chunk >= 1024U) continue;  // the entry packs 10 bits of chunk index
+      if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
       const size_t count = c.vertices.size();
-      if (count >= (size_t)(1U << 22)) continue;  // ...and 22 of vertex index
+      if (chunk >= (1U << 13) || count >= (size_t)(1U << 19)) {
+        if (pass == 0) ++skipped;
+        continue;
+      }
       const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : count;
       const size_t step = c.stripRun > 0 ? (size_t)1 : (size_t)3;
       for (size_t first = 0; first < count; first += run) {
@@ -397,7 +407,7 @@ void TerrainGame::buildRoadHeightIndex() const {
           if (ix1 > n - 1) ix1 = n - 1;
           if (iz1 > n - 1) iz1 = n - 1;
           if (ix1 < ix0 || iz1 < iz0) continue;
-          const unsigned int entry = (chunk << 22) | (unsigned int)i;
+          const unsigned int entry = (chunk << 19) | (unsigned int)i;
           for (int iz = iz0; iz <= iz1; ++iz)
             for (int ix = ix0; ix <= ix1; ++ix) {
               const size_t k = (size_t)iz * (size_t)n + (size_t)ix;
@@ -418,12 +428,15 @@ void TerrainGame::buildRoadHeightIndex() const {
   }
   TYRA_LOG("ROADINDEX cells ", roadIdxN, "x", roadIdxN, " entries ",
            (int)roadIdxItems.size());
+  if (skipped > 0)
+    TYRA_LOG("ROADINDEX skipped ", skipped,
+             " chunk(s) past the 8192-chunk / 2^19-vertex packing");
 }
 
 
 
 float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
-                                 float* cover) const {
+                                 float* cover, float maxY) const {
   float best = -1.0e30F;
   if (grip) *grip = 1.0F;
   if (cover) *cover = 1.0F;
@@ -456,7 +469,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
     // crack to a six-vertex light/shadow patch on their shared edge.
     if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
     const float y = wa * a.y + wb * b.y + wc * c.y;
-    if (y > best) {
+    if (y > best && y <= maxY) {
       best = y;
       if (grip) *grip = wa * ga + wb * gb + wc * gc;
       if (cover) *cover = wa * ca + wb * cb + wc * cc;
@@ -472,8 +485,8 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
   const size_t k = (size_t)iz * (size_t)roadIdxN + (size_t)ix;
   for (unsigned int e = roadIdxStart[k]; e < roadIdxStart[k + 1]; ++e) {
     const unsigned int item = roadIdxItems[e];
-    const ProcChunk& c = procChunks[(size_t)(item >> 22)];
-    const size_t i = (size_t)(item & 0x3FFFFFU);
+    const ProcChunk& c = procChunks[(size_t)(item >> 19)];
+    const size_t i = (size_t)(item & 0x7FFFFU);
     float ga = c.roadGrip, gb = ga, gc = ga;
     if (c.roadBlend) {
       // The spill's fade blends its grip over the road under it.
@@ -492,7 +505,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
                  ca, cb, cc);
   }
 #if TYRA_ROAD_INDEX_VERIFY
-  {
+  if (maxY > 1.0e29F) {  // the scan oracle answers the uncapped question
     static unsigned int checked = 0, bad = 0;
     static float worst = 0.0F;
     const float ref = roadSurfaceScan(x, z);
@@ -552,13 +565,28 @@ float TerrainGame::terrainGripAt(float x, float z) const {
 
 
 
-float TerrainGame::groundSurfaceAt(float x, float z) const {
+// `maxY` (docs/roads.md "Bridges"): only a road surface at or below it - the
+// one a caster, a wheel or a mark is actually on, never a deck overhead.
+float TerrainGame::groundSurfaceAt(float x, float z, float maxY) const {
   const float terrain = terrainHeightAt(x, z);
-  const float road = roadSurfaceAt(x, z);
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, maxY);
   return road > terrain ? road : terrain;
 }
 
 
+
+// The walker's floor (docs/roads.md "Kerbs"): the terrain, or a road, kerb or
+// pavement top under the feet - but only one within a step up of them, so a
+// road on a ramp or a bridge overhead never teleports a walker onto it. The
+// same 0.5-unit step collidePlayer allows onto objects.
+float TerrainGame::walkGroundAt(float x, float z, float feetY) const {
+  const float terrain = terrainHeightAt(x, z);
+  // The highest road surface within the step - so a walker under a bridge
+  // keeps the road it is on, not the terrain beneath both.
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, feetY + 0.5F);
+  if (road > terrain) return road;
+  return terrain;
+}
 
 // A ground-conforming lattice (headlight beam, light pool, blob shadow) takes
 // its corner heights from groundSurfaceAt. A road is a decal 0.12 over the
@@ -668,6 +696,10 @@ void TerrainGame::procClearVolume(int volume) {
   for (int i = (int)procColliders.size() - 1; i >= 0; --i)
     if (procColliders[i].owner == volume)
       procColliders.erase(procColliders.begin() + i);
+  for (int i = (int)procLodRefs.size() - 1; i >= 0; --i)
+    if (procLodRefs[i].owner == volume)
+      procLodRefs.erase(procLodRefs.begin() + i);
+  procClearInstances(volume);
   // Prefab instances this volume spawned go with it - their merged geometry
   // lives in the volume's own chunks, and their spawned members would
   // otherwise leak a pool slot per regeneration.
@@ -707,6 +739,7 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
       if (slots[i] < 0)
         TYRA_LOG("Procedural: no model for asset ", names[i]);
     }
+    const int assetCount = n;
     names = procrt::volumePrefabNames(volume, &n);
     slots = procrt::volumePrefabSlots(volume);
     for (int i = 0; i < n && slots; ++i) {
@@ -716,6 +749,20 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
           slots[i] = (short)k;
           break;
         }
+    }
+    // Each slot's distant version (asset slots, then prefab slots).
+    names = procrt::volumeLodNames(volume);
+    slots = procrt::volumeLodSlots(volume);
+    for (int i = 0; names && slots && i < assetCount + n; ++i) {
+      slots[i] = -1;
+      if (!names[i]) continue;
+      for (int m = 0; m < MODEL_COUNT; ++m)
+        if (modelSourceMatches(m, names[i])) {
+          slots[i] = (short)m;
+          break;
+        }
+      if (slots[i] < 0)
+        TYRA_LOG("Procedural: no model for distant version ", names[i]);
     }
   }
 
@@ -800,6 +847,19 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
 
   const short* assetSlots = procrt::volumeAssetSlots(volume);
   const short* prefabSlots = procrt::volumePrefabSlots(volume);
+  const short* lodSlots = procrt::volumeLodSlots(volume);
+  const float* lodDists = procrt::volumeLodDist(volume);
+  int lodPrefabBase = 0;
+  procrt::volumeAssetNames(volume, &lodPrefabBase);
+  const int instFrom = (int)procInsts.size();
+  // The slot's far model and distance, or -1 when it has none.
+  auto lodOf = [&](int slot, float* dist) -> int {
+    *dist = 0.0F;
+    if (!lodSlots || !lodDists || slot < 0) return -1;
+    if (lodSlots[slot] < 0 || lodDists[slot] <= 0.0F) return -1;
+    *dist = lodDists[slot];
+    return lodSlots[slot];
+  };
   SceneObjectData d = SCENE_OBJECTS[V.objectIndex];
   d.type = 5;
   d.layer = -1;
@@ -817,12 +877,17 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     const procrt::Pt& P = c.buf[i];
     if (P.prefab >= 0) {
       const int pf = prefabSlots ? prefabSlots[P.prefab] : -1;
-      if (pf >= 0) spawnPrefabAt(pf, P.x, P.y, P.z, P.ry, P.sc, volume);
+      float lodDist = 0.0F;
+      const int lodModel = lodOf(lodPrefabBase + P.prefab, &lodDist);
+      if (pf >= 0)
+        spawnPrefabAt(pf, P.x, P.y, P.z, P.ry, P.sc, volume, lodModel, lodDist);
       continue;
     }
     if (P.asset < 0 || !assetSlots) continue;
     const int model = assetSlots[P.asset];
     if (model < 0) continue;
+    float lodDist = 0.0F;
+    const int lodModel = lodOf(P.asset, &lodDist);
     d.model = model;
     d.position[0] = P.x;
     d.position[1] = P.y;
@@ -831,18 +896,53 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     d.rotation[1] = P.ry;
     d.rotation[2] = P.rz;
     d.scale[0] = d.scale[1] = d.scale[2] = P.sc;
+    if (V.drawMode == 1 && P.block == 0) {
+      // Instanced (docs/procedural-generation.md): one shared copy of the
+      // model, this point is a matrix. Blocks keep merging - their faces and
+      // corner occlusion are per copy.
+      procAddInstance(volume, d, lodModel, lodDist, V.collide == 1);
+      continue;
+    }
     const bool isBlock = aoBlocks && P.block != 0;
     if (isBlock) procBlockVertexAo(P.x, P.y, P.z, P.faces, blockAo);
-    procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr);
+    if (lodModel < 0) {
+      procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr);
+      continue;
+    }
+    // A switching row: its own geometry is the near side of the group, the
+    // distant version the far side - with no collider of its own, so the
+    // near object's box is what the player walks into at any distance.
+    procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr, 0,
+                        lodDist, d.position);
+    SceneObjectData farObj = d;
+    farObj.model = lodModel;
+    farObj.collision = 2;
+    procAddMergedObject(volume, -1, farObj, 63, nullptr, 1, lodDist, d.position);
   }
   procFinishChunks();
+  if (V.drawMode == 1)
+    procFinishInstances(volume, V.cell, V.drawDist, instFrom);
+  {
+    // How the merge came out: every chunk with geometry is one bag (one
+    // submit when on screen), and switch groups multiply them.
+    int chunks = 0, lodChunks = 0, verts = 0;
+    for (const ProcChunk& pc : procChunks) {
+      if (pc.owner != volume || pc.vertices.empty()) continue;
+      ++chunks;
+      if (pc.lodTier >= 0) ++lodChunks;
+      verts += (int)pc.vertices.size();
+    }
+    TYRA_LOG("Procedural ", V.name, ": ", chunks, " chunks (", lodChunks,
+             " switching), ", verts, " vertices");
+  }
 }
 
 
 
 // --- prefab instances -------------------------------------------------------
 int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
-                               float yaw, float scale, int mergeOwner) {
+                               float yaw, float scale, int mergeOwner,
+                               int lodModel, float lodDist) {
   if (PREFAB_COUNT <= 0) return -1;
   if (prefabIndex < 0 || prefabIndex >= PREFAB_COUNT) return -1;
   const float s = scale > 0.0001F ? scale : 1.0F;
@@ -870,6 +970,13 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
   const int first = PREFAB_FIRST[prefabIndex];
   const int n = PREFAB_COUNTS[prefabIndex];
   bool merged = false;
+  // Distant version of a volume's pool row: the merged members are the near
+  // side of one switch group, the far model (at the instance's origin, yaw
+  // and scale) the far side. Only a volume merges into a shared grid, so only
+  // a volume spawn switches.
+  const bool lod = mergeOwner >= 0 && lodModel >= 0 && lodDist > 0.0F;
+  const float anchor[3] = {x, y, z};
+  int tintFrom = -1;  // the far model takes the first merged model's tint
   for (int k = 0; k < n; ++k) {
     SceneObjectData d = PREFAB_MEMBERS[first + k];
     const float lx = d.position[0] * s, ly = d.position[1] * s,
@@ -880,7 +987,14 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
     d.rotation[1] += yaw;
     for (int a = 0; a < 3; ++a) d.scale[a] *= s;
     if (PREFAB_MERGE[first + k]) {
-      procAddMergedObject(mergeOwner, mergeOwner >= 0 ? -1 : handle, d, 63);
+      if (lod) {
+        procAddMergedObject(mergeOwner, -1, d, 63, nullptr, 0, lodDist, anchor);
+        if (tintFrom < 0 && d.type == 5) tintFrom = first + k;
+      } else if (mergeOwner >= 0) {
+        procAddMergedObject(mergeOwner, -1, d, 63, nullptr, -1, 0.0F, anchor);
+      } else {
+        procAddMergedObject(mergeOwner, handle, d, 63);  // one bag per instance
+      }
       merged = true;
       continue;
     }
@@ -907,6 +1021,22 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
     setupAnimObject(slot);
     if (d.type == 7) buildParticles();
     inst.spawned[inst.spawnCount++] = slot;
+  }
+  if (lod && merged) {
+    SceneObjectData farObj = tintFrom >= 0 ? PREFAB_MEMBERS[tintFrom]
+                                           : PREFAB_MEMBERS[first];
+    if (tintFrom < 0) farObj.color[0] = farObj.color[1] = farObj.color[2] = 1.0F;
+    farObj.type = 5;
+    farObj.model = lodModel;
+    farObj.material = -1;
+    farObj.collision = 2;  // the members' boxes stay the collision
+    farObj.position[0] = x;
+    farObj.position[1] = y;
+    farObj.position[2] = z;
+    farObj.rotation[0] = farObj.rotation[2] = 0.0F;
+    farObj.rotation[1] = yaw;
+    farObj.scale[0] = farObj.scale[1] = farObj.scale[2] = s;
+    procAddMergedObject(mergeOwner, -1, farObj, 63, nullptr, 1, lodDist, anchor);
   }
   if (merged) procFinishChunks();
   applyLayerResidency();

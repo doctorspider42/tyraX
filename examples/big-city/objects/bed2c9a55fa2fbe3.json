@@ -1,0 +1,1 @@
+{ "id": "bed2c9a55fa2fbe3", "name": "Plinth 11-5 141", "type": "box", "position": [371.113, 0.135, -158.1], "rotation": [0, 0, 0], "scale": [73.2307, 0.27, 27.0485], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-6-3", "drawDistance": 140, "castShadow": false }

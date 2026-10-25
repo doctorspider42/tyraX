@@ -1,0 +1,1 @@
+{ "id": "17d6e60f5dc37c89", "name": "Plinth 4-8 52", "type": "box", "position": [-277.006, 0.135, 92.9935], "rotation": [0, 0, 0], "scale": [67.6696, 0.27, 69.9585], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-2-4", "drawDistance": 140, "castShadow": false }

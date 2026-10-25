@@ -1,0 +1,1 @@
+{ "id": "a157a71c2bb1a4c6", "name": "Building 760", "type": "model", "position": [31.2622, 0, 285.94], "rotation": [0, 0, 0], "scale": [2.009, 1.7114, 1.9955], "color": [1, 1, 1], "physics": false, "layer": "district-4-5", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

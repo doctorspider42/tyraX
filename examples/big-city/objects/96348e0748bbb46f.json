@@ -1,0 +1,1 @@
+{ "id": "96348e0748bbb46f", "name": "Lamp 64", "type": "model", "position": [-359.129, 0, -32.9464], "rotation": [0, 180, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "layer": "district-2-4", "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }

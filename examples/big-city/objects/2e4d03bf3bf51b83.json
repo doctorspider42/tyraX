@@ -1,0 +1,1 @@
+{ "id": "2e4d03bf3bf51b83", "name": "Building 960", "type": "model", "position": [210.312, 0, -18.6047], "rotation": [0, 0, 0], "scale": [2.0054, 1.5914, 2.7247], "color": [1, 1, 1], "physics": false, "layer": "district-5-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

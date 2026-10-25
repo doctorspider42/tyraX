@@ -1,0 +1,1 @@
+{ "id": "f9af2d18f00ec2b2", "name": "Building 691", "type": "model", "position": [30.2746, 0, -474.338], "rotation": [0, 0, 0], "scale": [1.8907, 1.7934, 3.5483], "color": [1, 1, 1], "physics": false, "layer": "district-4-1", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

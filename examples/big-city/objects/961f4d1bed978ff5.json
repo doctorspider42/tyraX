@@ -1,0 +1,1 @@
+{ "id": "961f4d1bed978ff5", "name": "Building 737", "type": "model", "position": [-5.1128, 0, 64.7014], "rotation": [0, 0, 0], "scale": [2.024, 1.6179, 2.1147], "color": [1, 1, 1], "physics": false, "layer": "district-4-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

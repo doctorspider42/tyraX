@@ -108,6 +108,7 @@ EE clipper with Cohen–Sutherland outcodes and static pools; StaPip `clip` VU1 
 - `VU1 pipeline programs overflow into the draw-finish program` / silent overflow in release → micro-memory set over 2042 → vu1-microprograms.md
 - `std::bad_alloc` with `TYRA_VIF1_QUEUE_HOLD` → depth 128; use 80 → submission-dma.md
 - Console hangs with Live Debugger attached → sleepless loop (`setFrameYield`) → display-framebuffers.md
+- Game "hangs": `bin/log.txt` + Live Debugger silent, textures magenta, PCSX2 still drawing → EE kernel semaphores exhausted by `std::shared_ptr` control blocks, `host:` I/O dead → build-and-toolchain.md
 
 **Build**
 - `relocation truncated to fit: R_MIPS_GPREL16 against Tyra::Info::writeLogsToFile` → small-data overflow, needs `-G0` → build-and-toolchain.md

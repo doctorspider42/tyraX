@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include "project.hpp"
+#include "templates.hpp"  // projectUsesWeather: the built list's weather line
 
 namespace livelogic {
 namespace {
@@ -92,6 +93,7 @@ const std::vector<ActionMap>& actionMap() {
         {"SetRotation", OP_SetRotation},
         {"SpinObject", OP_SpinObject},
         {"SetMotionBlur", OP_SetMotionBlur},
+        {"SetWeather", OP_SetWeather},
     };
     return v;
 }
@@ -805,6 +807,10 @@ std::string builtListText(const Project& p) {
          "# hot-patches a graph only when the live one differs (see\n"
          "# docs/live-logic.md). Generated - do not edit.\n"
          "1\n";
+    // The build carries the weather runtime (docs/weather.md), so Set Weather
+    // can be hot-patched. Written only then: a build without it lists what it
+    // always listed.
+    if (templates::projectUsesWeather(p)) o << "weather\n";
     for (size_t si = 0; si < p.scenes.size(); ++si)
         for (const SceneObject& o2 : p.scenes[si].objects) {
             if (o2.flowGraph.empty()) continue;
@@ -832,6 +838,10 @@ bool loadBuiltList(const std::string& path, BuiltList& out) {
         if (!versionSeen) {
             if (tag != "1") return false;
             versionSeen = true;
+            continue;
+        }
+        if (tag == "weather") {
+            list.weather = true;
             continue;
         }
         if (tag != "g") return false;

@@ -1,0 +1,1 @@
+{ "id": "47c886af04494773", "name": "Building 638", "type": "model", "position": [-98.4196, 0, 64.717], "rotation": [0, 0, 0], "scale": [1.9913, 1.5192, 1.9098], "color": [1, 1, 1], "physics": false, "layer": "district-3-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

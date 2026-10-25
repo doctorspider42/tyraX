@@ -1,0 +1,1 @@
+{ "id": "68dd9e6fdb57b3da", "name": "Building 771", "type": "model", "position": [26.7218, 0, 396.547], "rotation": [0, 0, 0], "scale": [2.661, 1.352, 1.9229], "color": [1, 1, 1], "physics": false, "layer": "district-4-6", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

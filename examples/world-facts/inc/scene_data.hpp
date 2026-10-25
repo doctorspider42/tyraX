@@ -589,8 +589,8 @@ inline constexpr int BLOB_SHADOWS = 0;
 inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
 inline constexpr int BLOB_SHADOWS_USED = 0;
 inline constexpr int BLSS_ADAPTIVE = 0;
+inline constexpr int BLSS_PARTICLES = 0;
 #define BLSS_SCENE_ON 0
-#define BLSS_SCENE_NET 0
 inline constexpr int PROJ_SHADOWS_USED = 0;
 inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
 inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {0, 0};

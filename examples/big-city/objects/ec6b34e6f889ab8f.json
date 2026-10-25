@@ -1,0 +1,1 @@
+{ "id": "ec6b34e6f889ab8f", "name": "Building 932", "type": "model", "position": [211.018, 0, -298.813], "rotation": [0, 0, 0], "scale": [2.0556, 1.6317, 2.6883], "color": [1, 1, 1], "physics": false, "layer": "district-5-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

@@ -1,0 +1,1 @@
+{ "id": "dd6904bf8652bca8", "name": "Building 873", "type": "model", "position": [117.123, 0, 268.045], "rotation": [0, 0, 0], "scale": [2.3514, 1.3034, 2.0759], "color": [1, 1, 1], "physics": false, "layer": "district-4-5", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

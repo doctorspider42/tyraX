@@ -1,0 +1,1 @@
+{ "id": "90fcef437b1721c2", "name": "Building 617", "type": "model", "position": [-79.7941, 0, -152.446], "rotation": [0, 0, 0], "scale": [1.7836, 1.6662, 2.2826], "color": [1, 1, 1], "physics": false, "layer": "district-3-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

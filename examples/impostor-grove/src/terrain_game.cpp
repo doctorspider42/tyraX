@@ -213,10 +213,8 @@ void TerrainGame::init() {
   // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
   // first present (loadingscreen::renderFrame), so nothing to set up here.
 
-  // Sound emitter samples (adpenc output next to the ELF)
-  for (int i = 0; i < SND_COUNT; ++i)
-    sndSamples.push_back(
-        engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[i])));
+  // Sound effect samples load with their scene and layers
+  // (applySoundResidency, called from loadScene), not here.
 }
 
 
@@ -1873,7 +1871,10 @@ void TerrainGame::loadModelAsset(int i) {
 
 // Frees a model's geometry, collider and texture references. Only called
 // when no object of a resident layer uses the model - every GeoPart drawing
-// it was dropped by deactivateObject() beforehand.
+// it was dropped by deactivateObject() beforehand. The shared instance bakes
+// (gm.sharedParts) do not rely on that ordering: each instance part holds its
+// own reference, so an array outlives every bag aimed at it whichever side
+// lets go first (docs/instance-sharing.md).
 void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
@@ -2384,6 +2385,9 @@ void TerrainGame::updateLayerStreaming() {
     for (int l = 0; l < lc; ++l)
       if (layerTarget[l] == 0) layerState[l] = 0;
     applyLayerResidency();
+    // The streamed-out instances let go of their pooled colours; free the
+    // arrays only the pool still holds now rather than at its next sweep.
+    if (anyOut) pruneColorPool();
     if (anyOut) buildParticles();  // drop the streamed-out emitters' pools
   }
 
@@ -2488,7 +2492,7 @@ void TerrainGame::updatePlayer() {
   // Collision with scene objects (collidePlayer: box/mesh/none per object)
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
-  float ground = terrainHeightAt(nextX, nextZ);
+  float ground = walkGroundAt(nextX, nextZ, playerY);
   // a linked floor portal underfoot swallows the walker (see
   // portalSwallowsPlayer) - the terrain stops being the floor there
   if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, playerY, nextZ))

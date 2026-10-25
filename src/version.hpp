@@ -5612,8 +5612,71 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 0
+#define TYRAX_VERSION_MINOR 1
 #define TYRAX_VERSION_PATCH 0
+// 2.1.0: THE ROAD NETWORK, merged onto 2.0. The road branch's work - built
+// beside main as 1.170..1.176, never released there - lands as one minor;
+// its notes follow, newest first. Formats v123..v137 (see below). Ported
+// onto 2.0 in the merge: road streaming replays a chunk from its recorded
+// slice of the 1.176 band plan (and carries the planner block, which a
+// streaming build has no other copy of); the street lamps' ProcChunk fields
+// patch in at the struct's end; the rail planner reads its stations from
+// tessellateDense; Draw road is a button in the viewport's tool palette
+// (ui::Glyph::Road), the road settings live in Preferences > World > Roads
+// and traffic, weather in Scene Preferences.
+// - BREAKABLE STREET FURNITURE (v137). A car over a per-kind speed
+// knocks a lamp, sign, bollard or signal pole over, Need for Speed style: the
+// prop's vertices collapse in its merged chunk (one write), a copy tumbles
+// off through the debris pool, the car keeps most of its speed, dust, sparks
+// and a clank, the lamp's light goes out. On Prop Broken flow node.
+// - TRAFFIC AND WEATHER, FINISHED. An On Red Light Run flow node, AI
+// lane changes (to the turn's lane, past a stopped car), signals at T nodes
+// and a per-junction control override (v136), traffic headlights at night;
+// puddles that come with the rain, wet-road streaks under every lit car, Set
+// Weather in Live Logic. Editor UI review fixes: road Properties labels stay
+// on screen (propFieldWidth), the lane overlay clips to the picture, the Road
+// Texture Generator preview tiles again, Draw road re-snaps after an undo.
+// - ROADS THAT LIVE. The Draw road tool (snap to ends and centre
+// lines, 15-degree steps, live width ghost) with road presets and bridge
+// height handles (v133, --draw-road); road traffic - a lane graph from the
+// network, ambient AI cars that stop at the lines, give way and obey working
+// traffic lights (v134, --road-lanes); lamps that light the street at night
+// and rain with wet roads (v135, Set Weather); road streaming by distance
+// (v130) with the baked road tables read from bin/roadfile/roads.bin per
+// item (v132). The project launcher scripts close only this project's PCSX2.
+// - SHARED MODEL GEOMETRY. A static imported-model instance draws ONE
+// model-space bake of its parts (positions + STs, owned by the model) under
+// its own matrix, scale included; only its lit colours are its own, and
+// those are pooled by content (docs/instance-sharing.md). Preferences >
+// Rendering > Share model geometry between instances (format v131, on by
+// default). A debug build logs MEMSTAT (what object geometry holds) ~4 s
+// after a scene load. Also: static batches trim their growth slack, LOD
+// tiers bake under their own object's lights and keep their Ke floor.
+// - THE ROAD NETWORK GROWS A CITY. Kerb tops are solid (the road
+// height index reads owner -4; walkers use walkGroundAt, a 0.5 step cap);
+// pavements behind the kerbs (v125, textured ROAD_JUNCTIONS rows wrapping the
+// fillet corners); railways and tram streets with level crossings (v126,
+// rails in the kerb tables by palette shade); road details - manholes,
+// gullies, patches, cracks, oil (v127, owner -6 decals); bridges and
+// overpasses (v128, host-baked deck + structure, capped ground queries,
+// oriented parapet/pier walls in procColliders). The Road Texture Generator
+// gains paving slabs, pavers, rail ballast and weathering (wear, grime,
+// cracks), and node paint is a worn texture blended into the asphalt.
+// Street furniture (v129): lamps, trees, bollards, signs at stop lines and
+// traffic lights generated from roads, merged owner -7 chunks + pole boxes.
+// - ROAD MARKINGS AND TRANSITIONS. Every patch node is painted
+// (roadgen::bakeMarkings): the road's edge line carried round the fillets,
+// stop lines where a road gives way, optional zebras - untextured paint in one
+// ROAD_JUNCTIONS row per scene (new rgb column). Two roads joined in line with
+// different widths make a transition node whose patch is the taper. Fixes a
+// sliver in a grid-cut patch lifting the whole patch to 1e30. Format v124.
+// - ROAD NODES. Every place roads meet - a crossing at any angle, an
+// open end resting on another road (a T or a fork), two ends sharing a spot
+// (a corner), several roads through one point - is ONE node with a filleted
+// outline built from its arms (roadgen::findNodes), and the patch is cut
+// along the terrain's own grid where a fan cannot follow the ground. The
+// 14-degree crossing refusal is gone. Host-only: the console still uploads
+// baked XYZUV. No format change.
 // 1.173.0: the first step of the main-window redesign (docs/editor-theme.md).
 // Face buttons gets a new palette; Palette/Semantics gain ground, field,
 // special and the axis triple; the dockspace host and its splitters draw in the
@@ -6445,7 +6508,67 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v122 (docs/sound.md, "SPU2 sample RAM"): Project::soundBanks, "soundBanks"
 // in the audio keys ({ "name", "sounds" }), written only when there is one.
 // Missing = no banks. Additive; no migration.
-inline constexpr int kFormatVersion = 122;
+// v123..v137: the road network branch's formats, numbered v95..v109 there and
+// renumbered past main's v122 when it merged onto 2.0 (the arrive-second
+// rule). Every one of them is additive and read without a version gate, so
+// a file the branch saved under its old numbers loads the same.
+// v123 (docs/roads.md, "Kerbs"): road object keys roadKerb (written only when
+// true), roadKerbHeight and roadKerbWidth (written only when not 0.15 / 0.25).
+// Missing = no kerbs, as before. Additive; no migration step.
+// v124 (docs/roads.md, "Markings"): a road's "roadMarkings" (0 none, 1 stop
+// lines, 2 + zebras), written only when not 1. Missing = stop lines. Additive;
+// no migration step.
+// v125 (docs/roads.md, "Pavements"): road object keys roadPavement (width, written
+// only when not 0) and roadPavementMaterial (a .mtl, written only when set).
+// Missing = no pavement, as before. Additive; no migration step.
+// v126 (docs/roads.md, "Rails and tram tracks"): road object keys roadKind (0
+// road, 1 railway, 2 tram street; written only when not 0), roadRailGauge
+// (only when not 1.435) and roadTracks (only when not 1). Missing = a plain
+// road, as before. Additive; no migration step.
+// v127 (docs/roads.md, "Road details"): road object keys roadDetails (density
+// 0..1, written only when non-zero) and roadDetailSeed (written only when not
+// 0). Missing = no details, as before. Additive; no migration step.
+// v128 (docs/roads.md, "Bridges"): a road's "roadBridge" (written only when
+// true), which makes the existing per-point "roadHeights" mean deck heights.
+// Missing = an ordinary glued road, as before (heights still ignored).
+// Additive; no migration step.
+// v129 (docs/roads.md, "Street furniture"): a road's "roadFurniture" object -
+// lamps / trees / bollards lines (model, spacing, side, offset, phase, scale,
+// yaw), seed, signs (1 give way, 2 stop), signals, signModel, signalModel -
+// holding only its non-default keys, and written only when any is set.
+// Missing = no furniture, as before. Additive; no migration step.
+// v130 (docs/roads.md, "Road streaming"): the project setting
+// "roadStreamRadius" (world units, written only when > 0). Missing = 0 = every
+// road chunk resident, as before. Additive; no migration step.
+// v131 (docs/instance-sharing.md): settings.instanceSharing, written only
+// when false. Missing = on (the 1.173 default); a project that switched it
+// off says so. Additive; no migration step.
+// v132 (docs/roads.md, "Tables on disk"): the project setting
+// "roadStreamEmbedTables" (written only when true). Missing = false = a
+// streamed project's baked road tables go to bin/roadfile/roads.bin, read per item;
+// true keeps them in the ELF as v130 did. Additive; no migration step.
+// v133 (docs/roads.md, "Road presets"): settings.roadPresets, the project's own
+// road presets saved from a road (every road field a preset owns, each key only
+// off its default), written only when there are any. Missing = none, as
+// before. Additive; no migration step.
+// v134 (docs/traffic.md): settings.traffic - ambient cars per scene, the
+// definitions they are drawn from, spawn radius, density, lane speed, signal
+// timing and left-hand traffic - an object of only the keys that differ from
+// the defaults, written only when any does. Missing = no traffic, as before.
+// Additive; no migration step.
+// v135 (docs/weather.md): a scene's "weather" (1 = rain, written only when
+// not 0), "weatherIntensity" (only when not 1) and "streetLamps" (1 always
+// on, 2 off; only when not 0 = auto). Missing = dry, lamps by the day/night
+// cycle. Additive; no migration step.
+// v136 (docs/traffic.md, "Signals"): a junction override's "control" (1 no
+// lights or signs, 2 traffic lights, 3 stop signs; written only when not 0 =
+// auto, the roads' street furniture decides). Additive; no migration step.
+// v137 (docs/roads.md, "Breakable furniture"): a road's roadFurniture gains a
+// "breakable" object - "on", "sound" and per kind (lamps, trees, bollards,
+// signs, signals) "on" / "speed" / "loss" - holding only what differs from
+// the defaults and written only when any does. Missing = nothing breaks, as
+// before. Additive; no migration step.
+inline constexpr int kFormatVersion = 137;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

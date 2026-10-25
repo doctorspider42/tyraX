@@ -1,0 +1,1 @@
+{ "id": "7593bc801825b087", "name": "Building 938", "type": "model", "position": [175.058, 0, -155.144], "rotation": [0, 0, 0], "scale": [1.8668, 1.7362, 2.1744], "color": [1, 1, 1], "physics": false, "layer": "district-5-3", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

@@ -1,0 +1,1 @@
+{ "id": "8536f7a46f7b47e6", "name": "Building 194", "type": "model", "position": [-458.383, 0, 70.6917], "rotation": [0, 0, 0], "scale": [1.7695, 2.1045, 2.5862], "color": [1, 1, 1], "physics": false, "layer": "district-2-4", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

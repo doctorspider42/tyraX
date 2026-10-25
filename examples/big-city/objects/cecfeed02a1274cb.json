@@ -1,0 +1,1 @@
+{ "id": "cecfeed02a1274cb", "name": "Building 1228", "type": "model", "position": [434.238, 0, -459.745], "rotation": [0, 0, 0], "scale": [2.0752, 1.5132, 2.3052], "color": [1, 1, 1], "physics": false, "layer": "district-6-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }
