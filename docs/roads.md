@@ -1958,8 +1958,9 @@ in a file and reads each item's rows when the ring wants it.
   `ROAD_FILE_HASH`), an unreadable one or an item whose checksum does not
   match: a `ROADFILE ERROR ...` line in `bin/log.txt` naming the file and the
   fix, and `ROAD DATA MISSING|STALE - REBUILD|READ ERROR - SEE LOG` drawn over
-  every frame in the debug font every build ships (release builds have no
-  log; the HUD line stays). The strips still stream; the baked rows are not
+  every frame in the debug font - in a debug build only (`DEBUG_BUILD`,
+  2.1.0); a release build keeps the log lines and shows the player nothing.
+  The strips still stream; the baked rows are not
   built. Never a crash (verified in PCSX2: a missing file and another build's
   file both boot to a driveable city with the message). A failed read is
   retried twice, then the item is given up; only a given-up item (or a

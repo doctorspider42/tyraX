@@ -1223,6 +1223,9 @@ constexpr bool ENV_PROBE_REFLECTED = {{ENV_PROBE_REFLECTED}};
 
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
+// DEBUG_BUILD: the profile itself - developer-facing messages drawn over the
+// game (a road data error) appear only in a debug build.
+constexpr bool DEBUG_BUILD = {{DEBUG_BUILD}};
 constexpr bool DEBUG_SHOW_FPS = {{DEBUG_SHOW_FPS}};
 constexpr bool DEBUG_SHOW_MEM = {{DEBUG_SHOW_MEM}};
 // Per-phase EE-time breakdown (scene / usable-highlight / particles / whole
@@ -22002,6 +22005,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    st.keyboardMousePs2Link ? "true" : "false");
     s = replaceAll(s, "{{SHOW_ENGINE_LOGO}}", st.showEngineLogo ? "true" : "false");
     const bool debugProfile = st.buildProfile == "debug";
+    s = replaceAll(s, "{{DEBUG_BUILD}}", debugProfile ? "true" : "false");
     s = replaceAll(s, "{{DEBUG_SHOW_FPS}}",
                    debugProfile && st.showFps ? "true" : "false");
     s = replaceAll(s, "{{DEBUG_SHOW_MEM}}",

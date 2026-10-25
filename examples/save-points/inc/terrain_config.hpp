@@ -188,6 +188,9 @@ constexpr bool ENV_PROBE_REFLECTED = false;
 
 // Debug-profile HUD (Project > Preferences > Build). All forced false in a
 // release-profile build, which folds the overlay + instrumentation away.
+// DEBUG_BUILD: the profile itself - developer-facing messages drawn over the
+// game (a road data error) appear only in a debug build.
+constexpr bool DEBUG_BUILD = true;
 constexpr bool DEBUG_SHOW_FPS = false;
 constexpr bool DEBUG_SHOW_MEM = false;
 // Per-phase EE-time breakdown (scene / usable-highlight / particles / whole

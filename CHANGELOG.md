@@ -25,7 +25,7 @@ The road network: roads that meet, grow kerbs, pavements and furniture, carry tr
 - Big City opens in the editor about four times faster: its roads were planned twice on open, and the kerb planner checked every road for every point.
 - Traffic cars far from the camera turn smoothly through bends instead of snapping a few degrees at a time.
 - Big City no longer corrupts memory while you drive: the road-table read buffers ended mid cache line, so a read could overwrite its neighbour (the likely cause of the crash after a few minutes of driving) and come back with a bad checksum.
-- "ROAD DATA READ ERROR" no longer shows for a road-table read that a retry fixes; it shows only when an item is given up.
+- "ROAD DATA READ ERROR" no longer shows for a road-table read that a retry fixes; it shows only when an item is given up, and only in a debug build (a release build logs it).
 - *Scene > Add > Gameplay > Road* starts the Draw road tool instead of dropping a short straight road.
 - Road paint is less cartoonish: lane lines and junction paint cover the asphalt at 78%, so its grain and tone show through. Regenerate a road texture (Tools > Road Texture Generator) to get it on an existing one; junction paint updates on the next build.
 - **Road Texture Generator** (*Tools*): asphalt, setts, gravel, dirt, paving slabs, pavers, rail ballast and lane markings, with wear, grime and cracks, baked into `res/materials/roads`. A new road in a new project starts textured.

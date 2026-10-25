@@ -12408,9 +12408,11 @@ void TerrainGame::roadStreamAddFileItem(int fi, int verts) {
 }
 
 // The loud half of a bad road file: an out-of-memory load is a black screen,
-// this must not be one. Drawn every frame over the scene, in the debug font
-// every build ships.
+// this must not be one. Drawn every frame over the scene in a DEBUG build
+// only; a release build says it in the log (the ROADFILE lines) and nowhere
+// a player looks.
 void TerrainGame::roadStreamDrawError() {
+  if (!DEBUG_BUILD) return;
   if (rsFileState_ >= 0 && rsReadErrors_ == 0) return;
   const float h = (float)engine->renderer.core.getSettings().getHeight();
   drawHudText(engine, rsFileMsg_, 16.0F, h * 0.5F);
