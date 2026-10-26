@@ -20813,6 +20813,7 @@ void App::drawPreferencesWindow() {
             const std::string id = std::string("##") + label;
             ImGui::InputTextWithHint(id.c_str(), hint, v->data(), v->capacity() + 1,
                                      ImGuiInputTextFlags_CallbackResize, growString, v);
+            uiscript::nameItem(ImGui::GetItemID(), label);  // hidden label: name it for UI scripts
             ui::NoteRow(p, ImVec2(p.x + cw, p.y + ImGui::GetFrameHeight()), ImGui::CalcTextSize(label).x);
         };
         flagsRow("Extra compiler flags", &prefSettings_.extraCompilerFlags, "e.g. -O2 -Wextra");
