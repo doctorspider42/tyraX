@@ -6492,7 +6492,7 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
 #define TYRA_SCRIPT_CONCAT(a, b) TYRA_SCRIPT_CONCAT_INNER(a, b)
 #define TYRA_SCRIPT(ClassName)                                             \
   static const bool TYRA_SCRIPT_CONCAT(_tyraScript_, __COUNTER__) = []() { \
-    {{NAME_UPPER_NS}}::getScripts().push_back(new ClassName());            \
+    ::{{NAME_UPPER_NS}}::getScripts().push_back(new ClassName());            \
     return true;                                                           \
   }()
 
@@ -6501,8 +6501,8 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
  * TYRA_OBJECT_SCRIPT(MyScript); at file scope INSIDE your namespace. */
 #define TYRA_OBJECT_SCRIPT(ClassName)                                         \
   static const bool TYRA_SCRIPT_CONCAT(_tyraObjScript_, __COUNTER__) = []() { \
-    {{NAME_UPPER_NS}}::getObjectScriptFactories().push_back(                  \
-        {#ClassName, []() -> {{NAME_UPPER_NS}}::ObjectScript* {               \
+    ::{{NAME_UPPER_NS}}::getObjectScriptFactories().push_back(                  \
+        {#ClassName, []() -> ::{{NAME_UPPER_NS}}::ObjectScript* {               \
           return new ClassName();                                             \
         }});                                                                  \
     return true;                                                              \
