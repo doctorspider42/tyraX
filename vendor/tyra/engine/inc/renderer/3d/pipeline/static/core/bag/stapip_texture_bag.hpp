@@ -66,6 +66,16 @@ class StaPipTextureBag {
    * per-bag TFX safe on a shared texture.
    */
   u8 textureFunction;
+
+  /**
+   * Added by TyraX: texture filtering for this bag, overriding the info bag's
+   * textureMappingType. 0 = follow the info bag (the default, and what every
+   * bag drew before the field existed), 1 = nearest (point sampled),
+   * 2 = nearest when magnified + bilinear when minified ("pixel close-up").
+   * TEX1 is emitted per bag in the object data, so like textureFunction it is
+   * safe on a texture other bags sample smooth - an atlas page included.
+   */
+  u8 filter;
 };
 
 }  // namespace Tyra

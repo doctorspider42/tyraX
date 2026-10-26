@@ -94,6 +94,7 @@ Inputs diskInputs(const Project& p, std::vector<std::string>* warnings) {
                 // which is what acquireTexture is keyed by - so an empty one
                 // is the shared null-texture class and must stay empty.
                 mp.texture = pi.texture.empty() ? kNoTexture : pi.texture;
+                mp.textureFilter = pi.texture.empty() ? 0 : pi.textureFilter;
                 mp.reflective = !pi.reflTexture.empty();
                 mp.stripRun = pi.stripRun;
                 mp.vertexCount = pi.vertexCount;
@@ -110,7 +111,15 @@ Inputs diskInputs(const Project& p, std::vector<std::string>* warnings) {
         return mi;
     };
 
-    in.material = [mats, dir, warnings](
+    // Project::textureFilterCode, captured by value: the Inputs outlive no
+    // project, but they must not hold a reference into one.
+    auto filterCode = [filters = p.textureFilters,
+                       def = p.settings.textureFilter](const std::string& t) {
+        auto it = filters.find(t);
+        const std::string& f = it != filters.end() ? it->second : def;
+        return f == "pixel" ? 1 : f == "closeup" ? 2 : 0;
+    };
+    in.material = [mats, dir, warnings, filterCode](
                       const std::string& matPath) -> MaterialInfo {
         auto it = mats->find(matPath);
         if (it != mats->end()) return it->second;
@@ -140,6 +149,8 @@ Inputs diskInputs(const Project& p, std::vector<std::string>* warnings) {
                     (std::filesystem::path(dir) / texRel).make_preferred().string();
                 if (std::filesystem::exists(texAbs)) {
                     mi.texture = texRel;
+                    // The same resolve texbake writes "# tyra-filter" from.
+                    mi.textureFilter = filterCode(texRel);
                 } else {
                     // THE TRAP, reproduced on purpose. acquireTexture hands
                     // back a null pointer for a file that is not there, and a

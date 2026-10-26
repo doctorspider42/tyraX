@@ -1829,6 +1829,14 @@ struct ProjectSettings {
     // overrides live in Project::textureQuality. "none" = full color,
     // "8bit" = 256 colors, "4bit" = 16 colors (default - era-correct).
     std::string textureQuant = "4bit";
+    // Texture filtering (docs/texture-filtering.md): how the GS samples
+    // colour textures - "smooth" (bilinear, the PS2 look), "pixel" (nearest,
+    // point sampled) or "closeup" (nearest when magnified, bilinear when
+    // minified - crisp up close, less shimmer far away; there are no
+    // mipmaps). Next to textureQuant so the struct grows by exactly one
+    // std::string on both standard libraries. Per-texture overrides live in
+    // Project::textureFilters.
+    std::string textureFilter = "smooth";
     // Texture atlasing at build (docs/texture-atlasing.md): small clamp-safe
     // map_Kd textures pack into shared 256x256 pages - one GS allocation
     // (+~8 KB overhead) per page instead of per texture. Conservative
@@ -2490,9 +2498,9 @@ struct ProjectSettings {
 // std::string against libstdc++'s 32, so both are listed - update BOTH when a
 // field lands (a Mac build prints the libc++ one in the same message).
 #if defined(_LIBCPP_VERSION)
-static_assert(sizeof(ProjectSettings) == 792,
+static_assert(sizeof(ProjectSettings) == 816,
 #else
-static_assert(sizeof(ProjectSettings) == 880,
+static_assert(sizeof(ProjectSettings) == 912,
 #endif
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
@@ -2521,6 +2529,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
            a.textureQuant == b.textureQuant &&
            a.textureAtlas == b.textureAtlas &&
+           a.textureFilter == b.textureFilter &&
            a.displayMode == b.displayMode &&
            a.palFullHeight == b.palFullHeight &&
            a.colorDepth == b.colorDepth && a.dither == b.dither &&
@@ -4098,6 +4107,26 @@ struct Project {
     // HIGHEST requested quality - e.g. everything 4-bit, but the hero model
     // pinned to "none" keeps its textures full color.
     std::map<std::string, std::string> textureQuality;
+    // Per-TEXTURE filtering overrides of ProjectSettings::textureFilter,
+    // keyed by the texture's res-relative path like atlasControl
+    // ("res/models/dungeon/Textures/wall.png"): "smooth" / "pixel" /
+    // "closeup". Absent = the project default. A bake-time property: texbake
+    // writes "# tyra-filter" into the baked .mtl and the model bake into the
+    // .tmdl part flags, so an atlas page can mix filters (TEX1 is per bag).
+    // Stored in the TexQuality section beside textureQuality.
+    std::map<std::string, std::string> textureFilters;
+    // The filter a texture is drawn with - the override, else the project
+    // default. Every consumer (bakes, viewport, panels) resolves through it.
+    std::string textureFilterOf(const std::string& texRel) const {
+        auto it = textureFilters.find(texRel);
+        return it != textureFilters.end() ? it->second : settings.textureFilter;
+    }
+    // 0 smooth, 1 pixel, 2 closeup - the code the .tmdl part flags, the
+    // "# tyra-filter" hint and StaPipTextureBag::filter carry.
+    int textureFilterCode(const std::string& texRel) const {
+        const std::string f = textureFilterOf(texRel);
+        return f == "pixel" ? 1 : f == "closeup" ? 2 : 0;
+    }
     // Artist-authored mesh LOD variants of a static model, keyed by the
     // model's asset path ("res/models/tree.obj") -> the tier files in order,
     // nearest first ("res/models/tree_lod1.obj", ...). No entry (the default)

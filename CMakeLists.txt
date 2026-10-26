@@ -255,6 +255,7 @@ add_executable(tyrax-editor
     src/prefab_ui.cpp
     src/particle_ui.cpp
     src/atlas_ui.cpp
+    src/texfilter_ui.cpp
     src/batch_ui.cpp
     src/procui.cpp
     src/vu_ui.cpp

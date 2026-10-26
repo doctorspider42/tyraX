@@ -1587,8 +1587,16 @@ void StaPipQBufferRenderer::sendObjectData(
     }
     {
       qword_t& q = opt[optQw++];
-      q.dw[0] = GS_SET_TEX1(lod->calculation, lod->max_level, lod->mag_filter,
-                            lod->min_filter, lod->mipmap_select, lod->l,
+      // Modified by TyraX: a texture bag's own filter wins over the info
+      // bag's (StaPipTextureBag::filter) - per bag, so one info bag can
+      // carry smooth and point-sampled textures side by side.
+      int magFilter = lod->mag_filter, minFilter = lod->min_filter;
+      if (bag->texture && bag->texture->filter != 0) {
+        magFilter = LOD_MAG_NEAREST;
+        minFilter = bag->texture->filter == 2 ? LOD_MIN_LINEAR : LOD_MIN_NEAREST;
+      }
+      q.dw[0] = GS_SET_TEX1(lod->calculation, lod->max_level, magFilter,
+                            minFilter, lod->mipmap_select, lod->l,
                             (int)(lod->k * 16.0F));
       q.dw[1] = GS_REG_TEX1;
     }

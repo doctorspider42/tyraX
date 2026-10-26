@@ -86,6 +86,9 @@ a Mac) finds any command, object or window by name.
   baker (AO, bent normals, thickness, curvature...) and the high-poly cage.
 - [Texture atlasing](texture-atlasing.md) — packing small textures into shared
   256x256 pages and what that reclaims in GS VRAM.
+- [Texture filtering](texture-filtering.md) — Smooth, Pixel (point sampled) and
+  Pixel close-up per project and per texture, what stays smooth, and why atlas
+  pages can mix filters at no cost.
 - [Emissive materials (glow)](emissive-materials.md) — self-lit materials, the
   white-hot core, bloom threshold and spread, and baked emissive light.
 - [Pre-lit models (light baked into the texture)](prelit-models.md) — per-pixel

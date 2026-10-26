@@ -195,7 +195,7 @@ fails it.
 
 The ceiling is 2042. openvcl's output differs only in register numbering (it had
 already sunk the loads), so the native build's frame cannot move; a Docker build and
-a native build of `examples/texture-atlas` (crates cut by the top and side edges,
+a native build of `examples/texture-atlas` (now `texture-atlas-filtering`; crates cut by the top and side edges,
 the clip TC/TD paths) captured with `--capture-frame` are pixel-identical outside
 the MEM/VRAM overlay.
 

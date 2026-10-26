@@ -67,12 +67,15 @@ int nearestValidDim(int v) {
 // nothing could be written (then the caller copies verbatim).
 // Rewrites a .mtl into the bake with atlased map_Kd references redirected
 // to their page + a "# tyra-uvrect u0 v0 du dv" hint line right after (the
-// engine's LeanObjLoader applies it per material - see texatlas.hpp).
-// Returns false when the file references no atlas member (caller copies
-// verbatim). dirRel = res-relative directory of the .mtl.
-bool rewriteMtlForAtlas(const fs::path& src, const fs::path& dst,
-                        const std::string& dirRel,
-                        const texatlas::Plan& plan) {
+// engine's LeanObjLoader applies it per material - see texatlas.hpp), and a
+// "# tyra-filter pixel|closeup" line after every map_Kd whose texture is not
+// drawn smooth (docs/texture-filtering.md). The filter follows the SOURCE
+// texture, not the page, so one page can carry both kinds of member.
+// Returns false when the file needs neither (caller copies verbatim).
+// dirRel = res-relative directory of the .mtl.
+bool rewriteMtl(const fs::path& src, const fs::path& dst,
+                const std::string& dirRel, const texatlas::Plan& plan,
+                const Project& p) {
     std::ifstream in(src);
     if (!in) return false;
     std::ostringstream out;
@@ -96,6 +99,10 @@ bool rewriteMtlForAtlas(const fs::path& src, const fs::path& dst,
             if (!tex.empty()) {
                 const std::string rel =
                     (fs::path(dirRel) / tex).lexically_normal().generic_string();
+                const int filter = p.textureFilterCode(rel);
+                const char* filterHint = filter == 1   ? "# tyra-filter pixel\n"
+                                         : filter == 2 ? "# tyra-filter closeup\n"
+                                                       : "";
                 if (const texatlas::Entry* en = plan.find(rel)) {
                     // eligibility rejected tiling/options, so the line can
                     // be regenerated plain
@@ -105,7 +112,12 @@ bool rewriteMtlForAtlas(const fs::path& src, const fs::path& dst,
                     std::snprintf(buf, sizeof(buf),
                                   "# tyra-uvrect %.6g %.6g %.6g %.6g", en->u0,
                                   en->v0, en->du, en->dv);
-                    out << buf << "\n";
+                    out << buf << "\n" << filterHint;
+                    any = true;
+                    continue;
+                }
+                if (filter != 0) {
+                    out << line << "\n" << filterHint;
                     any = true;
                     continue;
                 }
@@ -120,15 +132,17 @@ bool rewriteMtlForAtlas(const fs::path& src, const fs::path& dst,
     return true;
 }
 
-// A previously baked .mtl carrying atlas rewrites - must be re-copied
-// verbatim when the plan no longer covers it (the timestamp gate alone
+// A previously baked .mtl carrying atlas or filter rewrites - must be
+// re-copied verbatim when neither applies any more (the timestamp gate alone
 // would keep the stale rewrite).
 bool bakedMtlWasRewritten(const fs::path& dst) {
     std::ifstream in(dst);
     if (!in) return false;
     std::string line;
     while (std::getline(in, line))
-        if (line.rfind("# tyra-uvrect", 0) == 0) return true;
+        if (line.rfind("# tyra-uvrect", 0) == 0 ||
+            line.rfind("# tyra-filter", 0) == 0)
+            return true;
     return false;
 }
 
@@ -409,8 +423,7 @@ std::string bake(const Project& p,
             (top == "models" || top == "materials" || top == "textures")) {
             const std::string dirRel =
                 "res/" + rel.parent_path().generic_string();
-            if (!atlasPlan.empty() &&
-                rewriteMtlForAtlas(e.path(), dst, dirRel, atlasPlan)) {
+            if (rewriteMtl(e.path(), dst, dirRel, atlasPlan, p)) {
                 ++quantized;
                 continue;
             }

@@ -1630,6 +1630,10 @@ class TerrainGame : public Tyra::Game {
     float reflStrength = 0.0F;
     bool reflDynamic = false;
     bool reflRounded = false;
+    // Texture filtering ("# tyra-filter" / .tmdl part flags,
+    // docs/texture-filtering.md): 0 smooth, 1 pixel, 2 pixel close-up. Copied
+    // into every StaPipTextureBag drawn from this part.
+    unsigned char textureFilter = 0;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -1728,6 +1732,8 @@ class TerrainGame : public Tyra::Game {
     // builders map their generated 0..1 UVs onto this sub-rectangle of the
     // (shared page) texture. {0,0,1,1} = no atlas.
     float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};
+    // Texture filtering ("# tyra-filter"), see GameModelPart.
+    unsigned char textureFilter = 0;
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);
@@ -1787,6 +1793,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct StaticBatch {
     Tyra::Texture* texture = nullptr;  // group key; colors already carry Kd
+    // Group key too: one bag has one TEX1, and with atlasing a smooth and a
+    // point-sampled member can share a page (docs/texture-filtering.md).
+    unsigned char textureFilter = 0;
     // Group key too: every member is "Show in reflections", so the
     // environment-map passes submit this batch whole (and a reflected batch
     // never drags a non-reflected object into the map).
@@ -3712,6 +3721,10 @@ class TerrainGame : public Tyra::Game {
     float reflStrength = 0.0F;
     bool reflDynamic = false;
     bool reflRounded = false;
+    // Texture filtering ("# tyra-filter" / .tmdl part flags,
+    // docs/texture-filtering.md): 0 smooth, 1 pixel, 2 pixel close-up. Copied
+    // into every StaPipTextureBag drawn from this part.
+    unsigned char textureFilter = 0;
   };
   struct GameModel {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
@@ -3810,6 +3823,8 @@ class TerrainGame : public Tyra::Game {
     // builders map their generated 0..1 UVs onto this sub-rectangle of the
     // (shared page) texture. {0,0,1,1} = no atlas.
     float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};
+    // Texture filtering ("# tyra-filter"), see GameModelPart.
+    unsigned char textureFilter = 0;
   };
   std::vector<GameMaterial> gameMaterials;
   void loadMaterialAsset(int index);
@@ -3869,6 +3884,9 @@ class TerrainGame : public Tyra::Game {
   };
   struct StaticBatch {
     Tyra::Texture* texture = nullptr;  // group key; colors already carry Kd
+    // Group key too: one bag has one TEX1, and with atlasing a smooth and a
+    // point-sampled member can share a page (docs/texture-filtering.md).
+    unsigned char textureFilter = 0;
     // Group key too: every member is "Show in reflections", so the
     // environment-map passes submit this batch whole (and a reflected batch
     // never drags a non-reflected object into the map).
@@ -31527,7 +31545,14 @@ static std::string modelDataHeader(const Project& p) {
     out << "};\n\n"
         << "// texture atlas summary, logged at scene boot (\"\" = no atlas)\n"
         << "constexpr const char* TEXTURE_ATLAS_INFO = \""
-        << texatlas::info(texatlas::plan(p)) << "\";\n";
+        << texatlas::info(texatlas::plan(p)) << "\";\n"
+        << "// project texture filter (0 smooth, 1 pixel, 2 close-up) for the\n"
+        << "// textures no bake hint reaches - animated models' extracted images\n"
+        << "constexpr unsigned char TEXTURE_FILTER_DEFAULT = "
+        << (p.settings.textureFilter == "pixel"     ? 1
+            : p.settings.textureFilter == "closeup" ? 2
+                                                    : 0)
+        << ";\n";
     out << "\n" << physHullBlock(p, keys, vehPaths.size());
     out << "\n}  // namespace " << ns << "\n";
     return out.str();
@@ -35681,6 +35706,10 @@ std::vector<File> bakeStaticModels(const Project& p,
 
             float u0 = 0.0f, v0 = 0.0f, du = 1.0f, dv = 1.0f;
             if (!s.texture.empty()) {
+                // The filter follows the SOURCE texture (an atlas page can
+                // mix them) - docs/texture-filtering.md.
+                part.textureFilter =
+                    p.textureFilterCode(resolveTexRel(definingRel, s.texture));
                 if (const texatlas::Entry* en = findAtlas(s.texture)) {
                     part.texture = resToBin(en->pageRel);
                     u0 = en->u0;
@@ -35726,6 +35755,7 @@ std::vector<File> bakeStaticModels(const Project& p,
                 if (a.texture != b.texture || a.reflTexture != b.reflTexture ||
                     a.reflStrength != b.reflStrength ||
                     a.reflRounded != b.reflRounded ||
+                    a.textureFilter != b.textureFilter ||
                     a.lods.size() != b.lods.size()) return false;
                 for (int c=0;c<3;++c)
                     if (a.kd[c] != b.kd[c] || a.ke[c] != b.ke[c]) return false;

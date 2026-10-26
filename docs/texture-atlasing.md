@@ -99,7 +99,7 @@ padding. `RendererCoreVram::getSize` computes the real swizzled footprint now,
 so the saving has to come from sharing pages — not from an overhead that no
 longer exists.)
 
-`examples/texture-atlas` is the scene where it pays: thirty 32×32 crate
+`examples/texture-atlas-filtering` is the scene where it pays: thirty 32×32 crate
 textures on one page, **65 KB** back, measured from the game's own `VRAMSTAT`
 (0.2349 MB free with atlasing off, 0.2986 with it on) against the 65 KB the
 report predicted. Its README explains why small palettized textures are so
@@ -189,6 +189,11 @@ can never disagree within a build:
   `.mtl`**: `map_Kd` points at the page and a `# tyra-uvrect u0 v0 du dv`
   hint line follows. Sources in `res/` are never touched — the editor
   viewport keeps reading the originals.
+- Texture filtering ([texture-filtering.md](texture-filtering.md)) rides the
+  same rewrite: a `# tyra-filter pixel|closeup` line after the `map_Kd` of a
+  member (or of any texture) that is not smooth. It follows the SOURCE
+  texture, so one page can carry pixel and smooth members - TEX1 is per draw,
+  not per VRAM image, and pages are never split by filter.
 - For **static models** the rect never reaches the console: the model bake
   multiplies it into the vertex UVs it writes to the `.tmdl`, per LOD level
   as well (see [model-pipeline.md](model-pipeline.md)). The hint line still

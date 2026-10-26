@@ -1823,6 +1823,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"textureQuant\": \"" << p.settings.textureQuant << "\",\n"
          << "    \"textureAtlas\": " << (p.settings.textureAtlas ? "true" : "false")
          << ",\n"
+         << (p.settings.textureFilter != "smooth"
+                 ? "    \"textureFilter\": \"" + p.settings.textureFilter + "\",\n"
+                 : std::string())
          << "    \"showFps\": " << (p.settings.showFps ? "true" : "false") << ",\n"
          << "    \"showMemory\": " << (p.settings.showMemory ? "true" : "false")
          << ",\n"
@@ -2364,17 +2367,32 @@ static void writeAudioSection(std::ostream& json, const Project& p) {
 }
 
 // Empty (no keys) when there are no overrides - the composers skip it then,
-// matching the manifest's historical conditional emission.
+// matching the manifest's historical conditional emission. Holds the two
+// per-texture maps: quality (keyed by asset) and filtering (keyed by texture,
+// docs/texture-filtering.md); each key is written only when it has entries.
 static void writeTexQualitySection(std::ostream& json, const Project& p) {
-    if (p.textureQuality.empty()) return;
-    json << "\"textureQuality\": {";
-    bool first = true;
-    for (const auto& [asset, q] : p.textureQuality) {
-        json << (first ? " " : ", ") << "\"" << jsonEscape(asset) << "\": \"" << q
-             << "\"";
-        first = false;
+    bool keyed = false;
+    if (!p.textureQuality.empty()) {
+        json << "\"textureQuality\": {";
+        bool first = true;
+        for (const auto& [asset, q] : p.textureQuality) {
+            json << (first ? " " : ", ") << "\"" << jsonEscape(asset)
+                 << "\": \"" << q << "\"";
+            first = false;
+        }
+        json << " }";
+        keyed = true;
     }
-    json << " }";
+    if (!p.textureFilters.empty()) {
+        json << (keyed ? ",\n  " : "") << "\"textureFilter\": {";
+        bool first = true;
+        for (const auto& [tex, f] : p.textureFilters) {
+            json << (first ? " " : ", ") << "\"" << jsonEscape(tex)
+                 << "\": \"" << f << "\"";
+            first = false;
+        }
+        json << " }";
+    }
 }
 
 // Per-texture atlas control: keep-out and author-declared groups
@@ -6279,6 +6297,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("textureAtlas"))
             st.textureAtlas = v->boolOr(false);
+        if (const auto* v = s->find("textureFilter")) {
+            const std::string f = v->stringOr("smooth");
+            st.textureFilter = (f == "pixel" || f == "closeup") ? f : "smooth";
+        }
         if (const auto* v = s->find("showFps")) st.showFps = v->boolOr(false);
         if (const auto* v = s->find("showMemory")) st.showMemory = v->boolOr(false);
         if (const auto* v = s->find("showProfiler"))
@@ -6953,6 +6975,15 @@ static void readTexQualitySection(const json::Value& root, Project& out) {
             const std::string q = v.stringOr("");
             if (q == "none" || q == "8bit" || q == "4bit")
                 out.textureQuality[asset] = q;
+        }
+    }
+    out.textureFilters.clear();
+    if (const auto* tf = root.find("textureFilter");
+        tf && tf->type == json::Value::Type::Object) {
+        for (const auto& [tex, v] : tf->obj) {
+            const std::string f = v.stringOr("");
+            if (f == "smooth" || f == "pixel" || f == "closeup")
+                out.textureFilters[tex] = f;
         }
     }
 }

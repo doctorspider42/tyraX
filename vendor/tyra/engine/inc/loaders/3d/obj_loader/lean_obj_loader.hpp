@@ -56,6 +56,11 @@ struct LeanObjMaterial {
   // emitted vertex UVs through it; exposed for diagnostics. {0,0,1,1} = the
   // whole texture (no atlas).
   float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};
+  // Modified by TyraX: "# tyra-filter pixel|closeup" (texture filtering) - how
+  // the GS samples this material's texture. 0 = smooth (bilinear, the
+  // default), 1 = pixel (nearest), 2 = pixel close-up (nearest when
+  // magnified, bilinear when minified). Copied into StaPipTextureBag::filter.
+  u8 textureFilter = 0;
   std::vector<float> vertices;
   // Baked ambient-occlusion visibility per emitted vertex (255 = open sky),
   // parallel to vertices (one byte per 8 floats). Filled only when a
@@ -120,6 +125,8 @@ struct LeanMtlMaterial {
   // generate their own UVs (the game's primitive builders) multiply through
   // it. {0,0,1,1} = the whole texture (no atlas).
   float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};
+  // Modified by TyraX: "# tyra-filter" (see LeanObjMaterial::textureFilter).
+  u8 textureFilter = 0;
 };
 
 /**

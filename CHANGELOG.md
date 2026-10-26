@@ -5,6 +5,12 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
+## 2.1.0 - unreleased
+
+- **Point-sampled textures.** *Preferences > Graphics > Texture filtering* chooses how the PS2 samples your textures: **Smooth** (the PS2 look), **Pixel** (crisp texels, the PS1 look) or **Pixel close-up** (crisp up close, smooth in the distance, so far walls do not shimmer). Any texture can override it in the Asset Browser, and every model and material using that texture follows. The viewport shows the same look; its view menu can also show everything smooth or everything pixel without touching the project. Texture atlas pages can mix pixel and smooth textures, so it costs no VRAM. Lightmaps, terrain, the sky and particles stay smooth. Projects are saved as format 123.
+- The `texture-atlas` example is now **texture-atlas-filtering**: the same thirty crates on one shared page, now in three bands - Smooth, Pixel and Pixel close-up - and their numbers stand upright again.
+- *Properties > Material* can open the Material Editor again: the *Edit...* button sat past the panel's right edge, out of reach. It now shares the Material row with a narrower picker.
+
 ## 2.0.1 - 2026-10-25
 
 - The Assets header and selected asset's **Open in Asset Browser** buttons no longer share an ImGui ID. UI scripts now fail on duplicate widget IDs without requiring a hover, and the Linux release job exercises the Assets actions before packaging.
