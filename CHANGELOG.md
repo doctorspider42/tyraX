@@ -8,6 +8,12 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.5.0
+
+- **More object-script callbacks.** `onEvent` (any script's `tyrax::sendEvent` or a graph's *Send Event*), `onPlayerEnter` and `onPlayerExit` on Area objects, `onAnimationFinished`, `onActivated` and `onDeactivated` when a streaming layer unloads or loads the object, `onLateUpdate` after every script's update, and `onSceneEnd` before the scene is left.
+- **Scripts can find each other.** `tyrax::getScript<Door>(object)`, `tyrax::findScript<GameManager>()` and `tyrax::findScripts<Enemy>(...)`. `onStart` now runs once every script of the scene exists, so these work there too.
+- **Flow graphs can call scripts.** Register a method with `TYRA_SCRIPT_METHOD(Door, open);` and the new **Call Script** node (under *Events*) lists `Door.open` and runs it on the target object's script.
+
 ## 2.4.0
 
 - **Public script fields.** Mark a member of an object script with `[[tyra::prop]]` and it appears under the script in *Properties > Scripts*. Every object the script is attached to can set its own value: numbers with sliders, checkboxes, choices, vectors, colours, text, another object of the scene, or a sound, event, scene, input action, save value, prefab, HUD item, sequence or menu from your project. The values are written in before `onStart`, and a field you leave alone keeps the default from your code. Options: `min`, `max`, `tooltip`, `header`, `options = "A|B|C"` and `color`. See `docs/script-api.md`. Projects are saved as format 125.

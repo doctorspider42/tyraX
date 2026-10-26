@@ -61,6 +61,9 @@ struct ClassInfo {
     std::string name;
     std::string file;  // path relative to the project
     std::vector<Field> fields;
+    // Methods registered with TYRA_SCRIPT_METHOD(Class, method) in the same
+    // file - what the Call Script node offers.
+    std::vector<std::string> methods;
 };
 
 // Every [[tyra::prop]] field of every TYRA_OBJECT_SCRIPT class in `source`.

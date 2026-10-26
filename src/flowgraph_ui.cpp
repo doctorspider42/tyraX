@@ -170,6 +170,9 @@ static const char* flowNodeProblem(const Project& p, const FlowNode& n) {
         case FlowParamKind::EventName:
             if (n.str.empty()) return "Unnamed event - the node compiles out";
             break;
+        case FlowParamKind::ScriptMethod:
+            if (n.str.find('.') == std::string::npos) return "No script method picked";
+            break;
         case FlowParamKind::InputActionName:
             if (!p.input.findAction(n.str)) return "Unknown input action - it never fires";
             break;
@@ -1425,6 +1428,24 @@ void App::drawFlowGraphWindow() {
                 }
                 if (project_.ambiencePresets.empty())
                     ImGui::TextDisabled("Add presets in\nTools > Ambience Editor.");
+                endCombo();
+            }
+        } else if (t->strKind == FlowParamKind::ScriptMethod) {
+            if (beginCombo("Method", n.str.empty() ? "<none>" : n.str.c_str(), t->strTip)) {
+                objectScriptNames();  // refreshes the per-file scan the list reads
+                bool any = false;
+                for (const auto& [file, scan] : scriptScanCache_)
+                    for (const scriptprops::ClassInfo& c : scan.classes)
+                        for (const std::string& m : c.methods) {
+                            const std::string full = c.name + "." + m;
+                            any = true;
+                            if (ImGui::Selectable(full.c_str(), full == n.str)) {
+                                n.str = full;
+                                changed = true;
+                            }
+                        }
+                if (!any)
+                    ImGui::TextDisabled("No TYRA_SCRIPT_METHOD(Class, method)\nin src/scripts yet.");
                 endCombo();
             }
         } else if (t->strKind == FlowParamKind::SequenceName) {

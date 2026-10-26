@@ -116,9 +116,29 @@ layer that the library is built on.
 
 | Override | Called |
 |---|---|
-| `onStart(ScriptContext&)` | Once per scene (re)load, before the first `onUpdate`. `self` is already valid. |
+| `onStart(ScriptContext&)` | Once per scene (re)load, before the first `onUpdate`. `self` is already valid, and **every** instance of the scene already exists, so `tyrax::getScript` / `findScript` work here. |
 | `onUpdate(ScriptContext&)` | Every frame while the owning scene is active (paused while a pausing menu is open, like all scripts). |
+| `onLateUpdate(ScriptContext&)` | Every frame, after every object script's `onUpdate`: follow-cameras, and anything that reads what the others just did. |
 | `onUsed(ScriptContext&)` | The frame the player pressed USE on `self` (objects with **Usable** checked - same dispatch as the flow graph's *On Used* trigger). |
+| `onEvent(ScriptContext&, tyrax::EventId, float value)` | An event is delivered: `tyrax::sendEvent` from any script, or a graph's *Send Event*. Compare `e.index` with `tyrax::Events::X.index`. |
+| `onPlayerEnter` / `onPlayerExit(ScriptContext&)` | `self` is an **Area** object and a player stepped into / out of it (also on the first frame, when the player starts inside). |
+| `onAnimationFinished(ScriptContext&)` | `self`'s clip reached its last frame (looping clips: every wrap). |
+| `onDeactivated` / `onActivated(ScriptContext&)` | `self`'s streaming layer unloaded / loaded again. The instance lives on. |
+| `onSceneEnd(ScriptContext&)` | The scene is being left or reloaded and the instance is about to be deleted. `self` and `object` are already empty: write what must survive to a save value or a `static`. |
+
+### Scripts talking to each other and to graphs
+
+- `tyrax::getScript<Door>(someObjectRef)` returns the `Door` attached to that
+  object, or null. `tyrax::findScript<GameManager>()` returns the first live
+  instance of a class, and `tyrax::findScripts<Enemy>(out, max)` returns all
+  of them. These lookups need no RTTI.
+- **Graph to script:** register a method with
+  `TYRA_SCRIPT_METHOD(Door, open);` (signature `void open(ScriptContext&)`,
+  public, placed after the class). The flow graph's **Call Script** node,
+  under *Events*, then lists `Door.open` and runs it on the `Door` attached to
+  its target object (a wired object, or the graph's own).
+- **Script to graph:** `tyrax::sendEvent(tyrax::Events::Opened)` fires every
+  *On Event* "Opened". A graph's *Send Event* reaches `onEvent`.
 
 Instances are created at scene load and deleted when the scene is left -
 member variables reset on every scene switch or reload. State that must

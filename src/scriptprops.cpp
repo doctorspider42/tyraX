@@ -372,6 +372,21 @@ std::vector<ClassInfo> scanSource(const std::string& source, const std::string& 
         for (const ClassInfo& e : out) seen |= (e.name == ci.name);
         if (!seen) out.push_back(ci);
     }
+    // TYRA_SCRIPT_METHOD(Class, method) -> that class's method list.
+    static const std::string kMethod = "TYRA_SCRIPT_METHOD(";
+    for (size_t pos = s.find(kMethod); pos != std::string::npos;
+         pos = s.find(kMethod, pos + kMethod.size())) {
+        if (pos > 0 && identChar(s[pos - 1])) continue;
+        const size_t shut = s.find(')', pos + kMethod.size());
+        if (shut == std::string::npos) break;
+        const std::vector<std::string> args =
+            splitTop(s.substr(pos + kMethod.size(), shut - pos - kMethod.size()));
+        if (args.size() != 2 || args[0] == "ClassName") continue;
+        for (ClassInfo& c : out)
+            if (c.name == args[0] &&
+                std::find(c.methods.begin(), c.methods.end(), args[1]) == c.methods.end())
+                c.methods.push_back(args[1]);
+    }
     return out;
 }
 

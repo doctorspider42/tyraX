@@ -71,7 +71,12 @@ their actual readers complete.
   Values a designer should tune per object are members marked
   `[[tyra::prop]]` (options `min`, `max`, `tooltip`, `header`,
   `options = "A|B"`, `color`): they appear in Properties > Scripts and are
-  stored per object as `"scriptProps"` in its JSON.
+  stored per object as `"scriptProps"` in its JSON. Callbacks beyond
+  onStart/onUpdate/onUsed: onLateUpdate, onEvent, onPlayerEnter/Exit (Area
+  objects), onAnimationFinished, onActivated/Deactivated, onSceneEnd.
+  `tyrax::getScript<T>(obj)` / `findScript<T>()` reach other scripts;
+  `TYRA_SCRIPT_METHOD(Class, method);` makes a method callable from the flow
+  graph's *Call Script* node (str "Class.method").
 - **Custom flow nodes**: `flow-nodes/*.flownode` (header + `---` + C++ body;
   `call = fn` bodies live in `inc/scripts/flow_nodes.hpp`).
 - **Custom screen effects**: `screen-effects/*.screenfx`.

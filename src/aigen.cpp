@@ -106,6 +106,9 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::ScreenFxName:
             return "custom screen-effect key, \"custom:<file-stem>\" (only "
                    "effects PLACED in the screen stack can be driven)";
+        case FlowParamKind::ScriptMethod:
+            return "\"Class.method\" of an object script method registered with "
+                   "TYRA_SCRIPT_METHOD(Class, method) in src/scripts";
         default: return "";
     }
 }

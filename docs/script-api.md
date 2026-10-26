@@ -272,6 +272,18 @@ dead zone.
 An event sent from `onStart` in the frame a scene loads is delivered to that
 scene: the scene reset drops only mail sent before the switch.
 
+### Other scripts and graphs
+
+| Function | Does |
+|---|---|
+| `getScript<T>(objectRef)` | the `T` attached to that object, or null |
+| `findScript<T>()`, `findScripts<T>(out, max)` | the first, or every, live instance of `T` in the scene |
+| `callScriptMethod(ctx, objectIndex, "Class", "method")` | what the *Call Script* node runs: a `TYRA_SCRIPT_METHOD` on the instance attached to an object |
+
+The lifecycle callbacks that go with these (`onEvent`, `onPlayerEnter`,
+`onLateUpdate`, `onSceneEnd`, …) are listed in
+[object scripts](object-scripts.md#lifecycle).
+
 ### Scenes and the rest
 
 `switchScene(ctx, Scenes::X)`, `restartScene`, `setLayerLoaded`,

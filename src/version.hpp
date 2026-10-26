@@ -5615,8 +5615,11 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 4
+#define TYRAX_VERSION_MINOR 5
 #define TYRAX_VERSION_PATCH 0
+// 2.5.0: object-script lifecycle callbacks (onEvent, onPlayerEnter/Exit,
+// onAnimationFinished, onActivated/Deactivated, onLateUpdate, onSceneEnd),
+// tyrax::getScript/findScript(s), TYRA_SCRIPT_METHOD + the Call Script node.
 // 2.4.0: [[tyra::prop]] public script fields, set per attachment in
 // Properties > Scripts (src/scriptprops.cpp, docs/script-api.md).
 // 2.3.0: the tyrax:: script API (docs/script-api.md) - inc/tyrax/tyrax.hpp +
