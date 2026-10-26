@@ -4,7 +4,7 @@
 #include "scripts/script.hpp"
 #include "terrain_config.hpp"
 
-namespace Texture_atlas {
+namespace Texture_atlas_filtering {
 
 class ExampleInteraction : public Script {
  public:
@@ -34,6 +34,6 @@ class ExampleInteraction : public Script {
   }
 };
 
-}  // namespace Texture_atlas
+}  // namespace Texture_atlas_filtering
 
-TYRA_SCRIPT(Texture_atlas::ExampleInteraction);
+TYRA_SCRIPT(Texture_atlas_filtering::ExampleInteraction);

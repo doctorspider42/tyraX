@@ -2562,7 +2562,7 @@ const ExampleTag kExampleTags[] = {
     {"probe-lighting", "Rendering"},
     {"raytraced-mirror", "Rendering"},
     {"reflections", "Rendering"},
-    {"texture-atlas", "Rendering"},
+    {"texture-atlas-filtering", "Rendering"},
     {"texture-feeds", "Rendering"},
     {"upscaler-lab", "Rendering"},
     {"video-modes", "Rendering"},

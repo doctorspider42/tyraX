@@ -99,7 +99,7 @@ padding. `RendererCoreVram::getSize` computes the real swizzled footprint now,
 so the saving has to come from sharing pages — not from an overhead that no
 longer exists.)
 
-`examples/texture-atlas` is the scene where it pays: thirty 32×32 crate
+`examples/texture-atlas-filtering` is the scene where it pays: thirty 32×32 crate
 textures on one page, **65 KB** back, measured from the game's own `VRAMSTAT`
 (0.2349 MB free with atlasing off, 0.2986 with it on) against the 65 KB the
 report predicted. Its README explains why small palettized textures are so

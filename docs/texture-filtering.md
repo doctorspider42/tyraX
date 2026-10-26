@@ -17,6 +17,10 @@ per pixel flickers ("shimmers") as the camera moves with plain Pixel. Close-up
 keeps the crisp look where you see it and lets the GS blend where texels are
 smaller than a pixel. It costs exactly the same: the GS samples either way.
 
+[`examples/texture-atlas-filtering`](../examples/texture-atlas-filtering) shows
+all three on one atlas page: crates 00-09 Smooth, 10-19 Pixel, 20-29 Pixel
+close-up.
+
 ## Where it is set
 
 - **Project default** - *Project > Preferences > Graphics > Texture filtering*
