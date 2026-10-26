@@ -1410,8 +1410,9 @@ void App::drawExtensionsSection() {
         ImGui::PushID(e.folder.c_str());
         std::string sub = e.problem.empty()
                               ? (e.version.empty() ? "" : "v" + e.version + " - ") +
-                                    std::to_string(e.objectScripts.size()) + " object scripts, " +
-                                    std::to_string(e.flowNodes) + " flow nodes"
+                                    std::to_string(e.objectScripts.size()) +
+                                    (e.objectScripts.size() == 1 ? " object script, " : " object scripts, ") +
+                                    std::to_string(e.flowNodes) + (e.flowNodes == 1 ? " flow node" : " flow nodes")
                               : e.problem;
         const std::string label = e.name + "##ext";
         if (ui::ListRow(label.c_str(), sub.c_str(), false, e.problem.empty() ? ui::Glyph::Code : ui::Glyph::Flag))
@@ -1421,14 +1422,24 @@ void App::drawExtensionsSection() {
                               e.description.c_str(), e.description.empty() ? "" : "\n",
                               e.folder.c_str());
         ImGui::Indent(scaled(30));
-        for (const std::string& c : e.objectScripts) {
-            tag(c.c_str(), theme::semantics().accent);
-            ImGui::SameLine();
+        // The class tags wrap at the panel edge - one line of nine pushed the
+        // Remove button past it, out of reach.
+        for (size_t k = 0; k < e.objectScripts.size(); ++k) {
+            const float w = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize() * 0.78f, FLT_MAX, 0,
+                                                            e.objectScripts[k].c_str()).x +
+                            ImGui::GetFontSize() * 0.78f;
+            if (k > 0) {
+                ImGui::SameLine();
+                if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+            }
+            tag(e.objectScripts[k].c_str(), theme::semantics().accent);
         }
         if (extensionRemovePending_ == e.folder) {
             ImGui::TextColored(theme::semantics().danger, "Delete the folder?");
             ImGui::SameLine();
-            if (ImGui::SmallButton("Delete")) {
+            const bool del = ImGui::SmallButton("Delete");
+            uiscript::nameItem(ImGui::GetItemID(), ("Delete " + e.folder).c_str());
+            if (del) {
                 const std::string err = extension::remove(project_.dir, e.folder);
                 statusMessage_ = err.empty() ? "Removed extension " + e.name : err;
                 extensionRemovePending_.clear();
@@ -1437,8 +1448,10 @@ void App::drawExtensionsSection() {
             }
             ImGui::SameLine();
             if (ImGui::SmallButton("Keep")) extensionRemovePending_.clear();
-        } else if (ImGui::SmallButton("Remove")) {
-            extensionRemovePending_ = e.folder;
+        } else {
+            const bool rm = ImGui::SmallButton("Remove");
+            uiscript::nameItem(ImGui::GetItemID(), ("Remove " + e.folder).c_str());
+            if (rm) extensionRemovePending_ = e.folder;
         }
         ImGui::Unindent(scaled(30));
         ImGui::PopID();
@@ -1448,6 +1461,7 @@ void App::drawExtensionsSection() {
 
     ImGui::SetNextItemWidth(scaled(140));
     ImGui::InputText("##newextname", newExtensionName_, sizeof newExtensionName_);
+    uiscript::nameItem(ImGui::GetItemID(), "New extension name");
     ImGui::SameLine();
     if (ImGui::SmallButton("New extension")) {
         const std::string err = extension::scaffold(project_.dir, newExtensionName_);
