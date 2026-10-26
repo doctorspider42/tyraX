@@ -1,0 +1,1 @@
+{"id": "5f00000000000004", "name": "bobber-3", "type": "sphere", "position": [2.4000000000000004, 1.2, 6], "rotation": [0, 0, 0], "scale": [0.7, 0.7, 0.7], "color": [0.3, 0.7, 1.0], "physics": false, "scripts": ["Bobber"], "scriptProps": {"Bobber": {"height": "0.35", "period": "2", "phase": "0.67"}}}

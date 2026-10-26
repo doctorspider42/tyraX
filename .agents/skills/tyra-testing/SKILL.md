@@ -64,6 +64,7 @@ Never benchmark a Dev build or verify a bake with it (bakes take minutes at -O1)
 | `--bake-model-ao <dir> [--texbake]`, `--bake-prelit <dir> [scene]`, `--bake-object-light <dir> <object> [size] [rays]`, `--bake-shadows <dir>`, `--bake-particles <dir>`, `--bake-impostor <dir> <model.obj> <stem> 4\|8\|16 [--gpu]` | per-feature bakes |
 | `--dump <dir>`, `--list-nodes`, `--dump-graph <dir> <obj> [scene]`, `--apply-graph <dir> <obj> <g.json> [scene] [--append]`, `--ai-graph ...`, `--add-ai-support <dir> [claude] [codex] [copilot]` | project / graph I/O, AI tooling |
 | `--atlas-report <dir>`, `--batch-report <dir> [scene]`, `--road-crossings <dir> [scene]` | what atlasing/batching did and why; road crossings (exit 1 = orphaned junction override) |
+| `--list-extensions <dir>`, `--new-extension <dir> <name>`, `--install-extension <dir> <folder>` | script extensions in `src/extensions` (docs/script-extensions.md); install = the fixture route for `extensions/essentials` |
 | `--import-model <dir> <model> [--split none\|top\|mesh] [--pivot ..] [--keep f] [--max-texture px] [--animated] [--no-static] [--textures dir] [--name stem] [--dry-run]` | the importer, headless |
 | `--vu-check [engineDir]`, `--vu-list`, `--vu-emit`, `--vu-replay <dir>`, `--dump-vucap <dir> [--full] [--peek qw[,n]]` | VU1 host simulator / capture decode |
 | `--vehicle-check` | drive-model property tests, exit 0 = pass |

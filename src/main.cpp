@@ -21,6 +21,7 @@
 #include "devsession.hpp"
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
+#include "extension.hpp"
 #include "gibake.hpp"
 #include "gigpu.hpp"
 #include "impostorgpu.hpp"
@@ -700,6 +701,52 @@ static int atlasReportFromCli(int argc, char** argv) {
     std::printf("[atlas] pages=%zu members=%zu excluded=%zu savedKb=%d\n",
                 plan.pages.size(), plan.entries.size(), plan.excluded.size(),
                 v.savedKb);
+    return 0;
+}
+
+// tyrax-editor.exe --list-extensions <projectDir>
+//                  --new-extension <projectDir> <name>
+//                  --install-extension <projectDir> <folder>
+// Script extensions (docs/script-extensions.md), headless: what is installed,
+// a new skeleton, or a folder copied in - the same calls as Project > Scripts
+// > Extensions. Exit 1 on any refusal.
+static int extensionsFromCli(int argc, char** argv) {
+    const std::string verb = argv[1];
+    if (argc < 3 || (verb != "--list-extensions" && argc < 4)) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --list-extensions <projectDir>\n"
+                     "       tyrax-editor --new-extension <projectDir> <name>\n"
+                     "       tyrax-editor --install-extension <projectDir> <folder>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::string err;
+    if (verb == "--new-extension") {
+        err = extension::scaffold(p.dir, argv[3]);
+        if (err.empty())
+            std::printf("created src/extensions/%s\n", extension::folderFor(argv[3]).c_str());
+    } else if (verb == "--install-extension") {
+        std::string folder;
+        err = extension::install(p.dir, argv[3], &folder);
+        if (err.empty()) std::printf("installed src/extensions/%s\n", folder.c_str());
+    }
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    for (const extension::Info& e : extension::list(p.dir)) {
+        std::printf("%s  %s%s%s  sources=%d flowNodes=%d scripts=", e.folder.c_str(),
+                    e.name.c_str(), e.version.empty() ? "" : " v", e.version.c_str(),
+                    e.sources, e.flowNodes);
+        for (size_t i = 0; i < e.objectScripts.size(); ++i)
+            std::printf("%s%s", i ? "," : "", e.objectScripts[i].c_str());
+        if (!e.problem.empty()) std::printf("  PROBLEM: %s", e.problem.c_str());
+        std::printf("\n");
+    }
     return 0;
 }
 
@@ -4793,6 +4840,10 @@ int main(int argc, char** argv) {
         return batchReportFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--road-crossings") == 0)
         return roadCrossingsFromCli(argc, argv);
+    if (argc > 1 && (std::strcmp(argv[1], "--list-extensions") == 0 ||
+                     std::strcmp(argv[1], "--new-extension") == 0 ||
+                     std::strcmp(argv[1], "--install-extension") == 0))
+        return extensionsFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)
@@ -4882,6 +4933,13 @@ int main(int argc, char** argv) {
             "decals (docs/shadows.md)\n"
             "  --bake-particles <projectDir>           re-bake the particle "
             "library's textures (docs/particles.md)\n"
+            "  --list-extensions <projectDir>          the installed script "
+            "extensions\n"
+            "  --new-extension <projectDir> <name>     a new extension skeleton in "
+            "src/extensions\n"
+            "  --install-extension <projectDir> <folder>\n"
+            "                                          copy an extension folder in "
+            "(docs/script-extensions.md)\n"
             "  --road-crossings <projectDir> [sceneIndex]\n"
             "                                          every road crossing and what "
             "it does; exit 1 on an\n"

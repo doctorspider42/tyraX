@@ -8,6 +8,12 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.6.0
+
+- **Script extensions.** A folder under `src/extensions/` holding scripts, helpers and custom flow nodes, with an `extension.json`, moves between projects as a copy and builds with no setup. *Project > Scripts > Extensions* lists them and can create a new one, install one from a folder, or remove one; the CLI has `--new-extension`, `--install-extension` and `--list-extensions`. Portable code writes `TYRAX_NAMESPACE_BEGIN` / `TYRAX_NAMESPACE_END` instead of the project's namespace, and a custom node can name its own C++ header with `include =`. See `docs/script-extensions.md`.
+- **Essentials**, the first extension, ships in `extensions/essentials`: Rotator, Bobber, Follower, LookAtPlayer, ProximityTrigger, AreaRelay, Collectible, SwingDoor and Spawner, each configured through public fields, plus a *Player Near* flow node.
+- New example **script-framework**: Essentials on a small course, configured per object, with a door that a flow graph opens through *Call Script*.
+
 ## 2.5.0
 
 - **More object-script callbacks.** `onEvent` (any script's `tyrax::sendEvent` or a graph's *Send Event*), `onPlayerEnter` and `onPlayerExit` on Area objects, `onAnimationFinished`, `onActivated` and `onDeactivated` when a streaming layer unloads or loads the object, `onLateUpdate` after every script's update, and `onSceneEnd` before the scene is left.

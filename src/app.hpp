@@ -3696,6 +3696,13 @@ private:
     // stopped being a bool the moment the VU0 half became authorable.
     int newScriptKind_ = 0;
 
+    // Project panel > Scripts > Extensions (docs/script-extensions.md): the
+    // "New extension" name field, and the folder a Remove click is waiting
+    // for its confirmation on.
+    char newExtensionName_[64] = "my-extension";
+    std::string extensionRemovePending_;
+    void drawExtensionsSection();
+
     // Object script classes registered in src/scripts/*.cpp with
     // TYRA_OBJECT_SCRIPT(Name), for the Properties attach UI. Per-file cache
     // keyed by write time - directories are cheap to walk every frame, file

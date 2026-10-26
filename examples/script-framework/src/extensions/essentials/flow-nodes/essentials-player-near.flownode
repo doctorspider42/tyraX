@@ -1,0 +1,12 @@
+# Player Near - part of the Essentials script extension.
+title = Player Near
+category = Essentials
+desc = Checks whether the player is within Radius units of the target object (wired, or this graph's own object) and puts the answer on the bool output - feed a Branch, or an AND gate.
+string = object
+num0 = Radius
+tip0 = Units from the object's origin.
+call = essentialsPlayerNear
+include = essentials_nodes.hpp
+out = bool
+exec_out = true
+---

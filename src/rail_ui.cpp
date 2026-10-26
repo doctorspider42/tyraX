@@ -22,6 +22,7 @@
 #include "app.hpp"
 #include "app_internal.hpp"
 #include "audiopreview.hpp"
+#include "extension.hpp"
 #include "flowgraph.hpp"
 #include "logview.hpp"
 #include "templates.hpp"
@@ -1162,19 +1163,25 @@ void App::drawScriptsSection() {
     std::vector<CppFile> cpp;
     std::set<std::string> registered;
     {
-        const fs::path dir = fs::path(project_.dir) / "src" / "scripts";
-        std::error_code ec;
-        if (fs::exists(dir, ec))
+        // src/scripts and every installed extension; rel is from src/, so an
+        // extension's file reads extensions/<name>/x.cpp.
+        const fs::path srcDir = fs::path(project_.dir) / "src";
+        for (const std::string& d : extension::scriptDirs(project_.dir)) {
+            const fs::path dir(d);
+            std::error_code ec;
+            if (!fs::exists(dir, ec)) continue;
             for (fs::recursive_directory_iterator it(dir, ec), end; it != end && !ec; it.increment(ec)) {
                 if (!it->is_regular_file(ec) || it->path().extension() != ".cpp") continue;
                 const std::string fn = it->path().filename().string();
                 if (fn.size() > 8 && fn.compare(fn.size() - 8, 8, ".gen.cpp") == 0) continue;
                 CppFile f;
-                f.rel = fs::relative(it->path(), dir, ec).generic_string();
+                f.rel = fs::relative(it->path(), srcDir, ec).generic_string();
+                if (f.rel.rfind("scripts/", 0) == 0) f.rel = f.rel.substr(8);  // the usual case reads short
                 f.info = scanScriptFile(it->path());
                 for (const std::string& c : f.info.objectClasses) registered.insert(c);
                 cpp.push_back(std::move(f));
             }
+        }
         std::sort(cpp.begin(), cpp.end(), [](const CppFile& a, const CppFile& b) { return a.rel < b.rel; });
     }
     std::vector<std::string> vu;
@@ -1285,7 +1292,8 @@ void App::drawScriptsSection() {
             const char* sub = f.info.objectClasses.empty() && f.info.globalClasses.empty() ? "no script class"
                               : !f.info.globalClasses.empty() ? "global - runs every frame"
                                                               : "object script";
-            if (ui::ListRow(label.c_str(), sub, false, ui::Glyph::Code)) openInVSCode("src/scripts/" + f.rel);
+            if (ui::ListRow(label.c_str(), sub, false, ui::Glyph::Code))
+                openInVSCode(f.rel.rfind("extensions/", 0) == 0 ? "src/" + f.rel : "src/scripts/" + f.rel);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Open in VS Code");
             ImGui::Indent(scaled(30));
             for (const std::string& g : f.info.globalClasses) {
@@ -1359,6 +1367,8 @@ void App::drawScriptsSection() {
         }
     }
 
+    if (showCpp) drawExtensionsSection();
+
     if (showVu && !vu.empty()) {
         ImGui::Dummy(ImVec2(0, scaled(4)));
         ui::Caption("VU programs", std::to_string(vu.size()).c_str());
@@ -1375,4 +1385,93 @@ void App::drawScriptsSection() {
     }
     ImGui::EndChild();
     ImGui::TextDisabled("A C++ row opens VS Code; a graph row opens the Flow Graph.");
+}
+
+// Script extensions (docs/script-extensions.md): folders under src/extensions
+// that carry scripts and flow nodes from project to project. Listed with their
+// manifest; New writes a skeleton, Install copies a folder in, Remove deletes
+// one after a confirmation.
+void App::drawExtensionsSection() {
+    // The list reads every file of every extension: once every two seconds
+    // and after any action here, not every frame.
+    static std::vector<extension::Info> cached;
+    static double scannedAt = -1.0;
+    static std::string scannedFor;
+    auto rescan = [&] { scannedAt = -1.0; };
+    if (scannedAt < 0.0 || scannedFor != project_.dir || ImGui::GetTime() - scannedAt > 2.0) {
+        cached = extension::list(project_.dir);
+        scannedAt = ImGui::GetTime();
+        scannedFor = project_.dir;
+    }
+
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    ui::Caption("Extensions", std::to_string(cached.size()).c_str());
+    for (const extension::Info& e : cached) {
+        ImGui::PushID(e.folder.c_str());
+        std::string sub = e.problem.empty()
+                              ? (e.version.empty() ? "" : "v" + e.version + " - ") +
+                                    std::to_string(e.objectScripts.size()) + " object scripts, " +
+                                    std::to_string(e.flowNodes) + " flow nodes"
+                              : e.problem;
+        const std::string label = e.name + "##ext";
+        if (ui::ListRow(label.c_str(), sub.c_str(), false, e.problem.empty() ? ui::Glyph::Code : ui::Glyph::Flag))
+            openInVSCode("src/extensions/" + e.folder + "/extension.json");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("%s%sOpens its manifest in VS Code. Folder: src/extensions/%s",
+                              e.description.c_str(), e.description.empty() ? "" : "\n",
+                              e.folder.c_str());
+        ImGui::Indent(scaled(30));
+        for (const std::string& c : e.objectScripts) {
+            tag(c.c_str(), theme::semantics().accent);
+            ImGui::SameLine();
+        }
+        if (extensionRemovePending_ == e.folder) {
+            ImGui::TextColored(theme::semantics().danger, "Delete the folder?");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Delete")) {
+                const std::string err = extension::remove(project_.dir, e.folder);
+                statusMessage_ = err.empty() ? "Removed extension " + e.name : err;
+                extensionRemovePending_.clear();
+                flownode::loadForProject(project_.dir);
+                rescan();
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Keep")) extensionRemovePending_.clear();
+        } else if (ImGui::SmallButton("Remove")) {
+            extensionRemovePending_ = e.folder;
+        }
+        ImGui::Unindent(scaled(30));
+        ImGui::PopID();
+    }
+    if (cached.empty())
+        ImGui::TextDisabled("Reusable scripts and nodes, shared between projects as a folder.");
+
+    ImGui::SetNextItemWidth(scaled(140));
+    ImGui::InputText("##newextname", newExtensionName_, sizeof newExtensionName_);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("New extension")) {
+        const std::string err = extension::scaffold(project_.dir, newExtensionName_);
+        const std::string folder = extension::folderFor(newExtensionName_);
+        statusMessage_ = err.empty() ? "Created src/extensions/" + folder : err;
+        if (err.empty()) {
+            flownode::loadForProject(project_.dir);
+            openInVSCode("src/extensions/" + folder + "/" + folder + ".cpp");
+        }
+        rescan();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("A skeleton: manifest, one object script, one flow node.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Install from folder...")) {
+        const std::string picked = pickFolder();
+        if (!picked.empty()) {
+            std::string folder;
+            const std::string err = extension::install(project_.dir, picked, &folder);
+            statusMessage_ = err.empty() ? "Installed extension " + folder : err;
+            if (err.empty()) flownode::loadForProject(project_.dir);
+            rescan();
+        }
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("Copies a folder holding extension.json into src/extensions.");
 }

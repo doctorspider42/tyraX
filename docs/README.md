@@ -154,6 +154,10 @@ a Mac) finds any command, object or window by name.
   vectors, easing, random numbers and timers, with the project's names as
   typed constants (`tyrax::Sounds::Door`); `[[tyra::prop]]` public fields
   set per object in Properties.
+- [Script extensions](script-extensions.md) — folders of reusable scripts and
+  flow nodes under `src/extensions/` that move between projects as a copy:
+  manifest, portable `TYRAX_NAMESPACE_BEGIN` code, `include =` for a node's
+  C++, the Extensions page and CLI, and the shipped *Essentials* library.
 - [The Flow Graph window](flow-graph.md) — giving an object behaviour: the
   graph that follows the selection, the add-node search, compact nodes with an
   inspector, problems, Frame all / Tidy, and the live-debugging view.

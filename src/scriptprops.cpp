@@ -1,5 +1,7 @@
 #include "scriptprops.hpp"
 
+#include "extension.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -394,13 +396,17 @@ std::vector<ClassInfo> scanProject(const std::string& projectDir) {
     namespace fs = std::filesystem;
     std::vector<ClassInfo> out;
     std::error_code ec;
-    const fs::path dir = fs::path(projectDir) / "src" / "scripts";
-    if (projectDir.empty() || !fs::is_directory(dir, ec)) return out;
+    if (projectDir.empty()) return out;
     std::vector<fs::path> files;
-    for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
-        if (!it->is_regular_file(ec)) continue;
-        const std::string ext = it->path().extension().string();
-        if (ext == ".cpp" || ext == ".hpp" || ext == ".h") files.push_back(it->path());
+    // src/scripts and every installed extension (src/extensions/<name>).
+    for (const std::string& d : extension::scriptDirs(projectDir)) {
+        ec.clear();
+        if (!fs::is_directory(d, ec)) continue;
+        for (fs::recursive_directory_iterator it(d, ec), end; !ec && it != end; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            const std::string ext = it->path().extension().string();
+            if (ext == ".cpp" || ext == ".hpp" || ext == ".h") files.push_back(it->path());
+        }
     }
     std::sort(files.begin(), files.end());  // stable order across file systems
     for (const fs::path& f : files) {

@@ -2580,6 +2580,12 @@ struct CustomFlowNode {
     std::string numTipStore[4];
     std::string strTipStore;
     std::string sourceFile;  // absolute path of the .flownode file (diagnostics)
+    // `include = file.hpp`: a header beside the .flownode's folder (an
+    // extension's own C++, docs/script-extensions.md) that the generated
+    // flow graph includes - where a `call = fn` node's function lives when it
+    // is not in inc/scripts/flow_nodes.hpp. Absolute path, "" = none.
+    std::string includeFile;
+    std::string extension;  // the extension folder that shipped it, "" = the project's own
     FlowNodeType type{};     // char* fields point into the strings above
 };
 

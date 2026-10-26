@@ -70,6 +70,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `templates.cpp/.hpp` | 34.9k / 230 | All code generation, model/anim bakes | codegen-and-generated-files |
 | `game_templates.inc` | 27.6k | Game runtime templates (`TPL_GAME_*`) | codegen-and-generated-files |
 | `script_api.inc` | 1.0k | `TPL_TYRAX_HPP`: the `tyrax::` script API library (docs/script-api.md) | codegen-and-generated-files |
+| `extension.cpp/.hpp` | 0.3k | Script extensions (`src/extensions/<name>`): `scriptDirs` (every scan of src/scripts goes through it), list/install/scaffold/remove; UI in rail_ui.cpp `drawExtensionsSection`, CLI `--*-extension` | codegen-and-generated-files |
 | `scriptprops.cpp/.hpp` | 0.6k | Textual `[[tyra::prop]]` scanner (classes registered with TYRA_OBJECT_SCRIPT -> fields, kinds, defaults, attribute options); shared by Properties > Scripts (`App::drawScriptFields`) and codegen | codegen-and-generated-files |
 | `texbake.cpp/.hpp` | 1.0k | `res/` -> `.res-baked/` texture bake | runtime-rendering-and-meshes |
 | `pngquant.cpp/.hpp` | 610 | Palette quantization | runtime-rendering-and-meshes |

@@ -407,7 +407,10 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   `src/scripts/`, a directory the editor never touches, with a
   [script API](docs/script-api.md) that does everything a flow node does
   (raycasts, sounds, events shared with graphs, save data, HUD) and names your
-  project's sounds, scenes and objects as typed constants.
+  project's sounds, scenes and objects as typed constants. Members marked
+  `[[tyra::prop]]` are set per object in Properties, and reusable code travels
+  between projects as [script extensions](docs/script-extensions.md) (one
+  ships: *Essentials*).
 - **Player and physics** — FPP / third-person / noclip player entities with
   [walk, run and sprint speeds](docs/player-speeds.md),
   [rigid bodies that collide as their mesh's convex hull](docs/physics.md), [collision boxes and invisible walls](docs/collision-boxes.md), pickable and usable
@@ -547,6 +550,7 @@ wait for their polish pass.
 | --- | --- |
 | [impostor-grove](examples/impostor-grove) | A walkable wooded ruin with generated trees and configurable 4/8/16-view, two-triangle distant impostors and a universal-baked waystone |
 | [script-demo](examples/script-demo) | Start here. Walk to the box, press X, and the sky obeys — one object script, and you've touched the whole pipeline |
+| [script-framework](examples/script-framework) | The C++ scripting framework at full stretch: the **Essentials** extension's spinners, bobbers, follower, coins and a door opened by a flow graph's *Call Script* — all configured as per-object `[[tyra::prop]]` fields |
 | [showcase](examples/showcase) | **Aster — The Tide Observatory**: a playable coastal garden with precision-built arcades, a moving planetarium, CC0 props, cinematics, skeletal animation, a portal-linked vaulted cellar, optical experiments and collectible lenses |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style; its ambience and a corridor sound bank stream with it |
 | [large-terrain](examples/large-terrain) | A 2048×2048 world that could never fit in 32 MB of RAM. It doesn't have to |

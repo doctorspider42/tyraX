@@ -90,6 +90,11 @@ std::string parseFile(const fs::path& path, CustomFlowNode& out) {
                 strKind = FlowParamKind::None;
         } else if (key == "call") {
             out.callFn = val;
+        } else if (key == "include") {
+            // Relative to the folder holding flow-nodes/ (an extension's root,
+            // or the project), so `include = nodes.hpp` names a header beside it.
+            if (!val.empty())
+                out.includeFile = (path.parent_path().parent_path() / val).lexically_normal().string();
         } else if (key == "in") {
             inList = val;
         } else if (key == "out") {
@@ -206,21 +211,37 @@ std::string loadForProject(const std::string& projectDir) {
     auto& reg = customFlowNodes();
     reg.clear();
 
-    const fs::path dir = dirForProject(projectDir);
     std::error_code ec;
-    if (!fs::is_directory(dir, ec)) return "";  // no folder = no custom nodes
-
     int loaded = 0;
     std::vector<std::string> errors;
-    std::vector<fs::path> files;
-    for (const auto& e : fs::directory_iterator(dir, ec)) {
-        if (!e.is_regular_file()) continue;
-        if (e.path().extension() == ".flownode") files.push_back(e.path());
+    // The project's flow-nodes/ first, then each extension's own
+    // (src/extensions/<name>/flow-nodes, docs/script-extensions.md) - so on a
+    // duplicate id the project's node wins and the extension's is reported.
+    std::vector<std::pair<fs::path, std::string>> files;  // file, extension folder
+    auto collect = [&](const fs::path& dir, const std::string& ext) {
+        std::vector<fs::path> here;
+        if (!fs::is_directory(dir, ec)) return;
+        for (const auto& e : fs::directory_iterator(dir, ec)) {
+            if (!e.is_regular_file()) continue;
+            if (e.path().extension() == ".flownode") here.push_back(e.path());
+        }
+        std::sort(here.begin(), here.end());  // stable add-menu order
+        for (const fs::path& f : here) files.push_back({f, ext});
+    };
+    collect(dirForProject(projectDir), "");
+    const fs::path extRoot = fs::path(projectDir) / "src" / "extensions";
+    if (fs::is_directory(extRoot, ec)) {
+        std::vector<fs::path> exts;
+        for (const auto& e : fs::directory_iterator(extRoot, ec))
+            if (e.is_directory()) exts.push_back(e.path());
+        std::sort(exts.begin(), exts.end());
+        for (const fs::path& e : exts) collect(e / "flow-nodes", e.filename().string());
     }
-    std::sort(files.begin(), files.end());  // stable add-menu order
+    if (files.empty()) return "";  // no folder = no custom nodes
 
-    for (const fs::path& path : files) {
+    for (const auto& [path, ext] : files) {
         auto node = std::make_unique<CustomFlowNode>();
+        node->extension = ext;
         const std::string err = parseFile(path, *node);
         if (!err.empty()) {
             errors.push_back(path.filename().string() + ": " + err);

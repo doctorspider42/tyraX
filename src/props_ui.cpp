@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "extension.hpp"
 #include "roadgen.hpp"
 #include "theme.hpp"
 #include "toolkit.hpp"
@@ -3653,10 +3654,12 @@ bool App::drawDistantVersion(SceneObject& o) {
 // cached by write time so files are only re-read after edits.
 std::vector<std::string> App::objectScriptNames() {
     std::vector<std::string> names;
-    const std::filesystem::path dir =
-        std::filesystem::path(project_.dir) / "src" / "scripts";
     std::error_code ec;
-    if (!std::filesystem::exists(dir, ec)) return names;
+    // src/scripts and every installed extension (docs/script-extensions.md).
+    for (const std::string& dirStr : extension::scriptDirs(project_.dir)) {
+    const std::filesystem::path dir(dirStr);
+    ec.clear();
+    if (!std::filesystem::exists(dir, ec)) continue;
     for (std::filesystem::recursive_directory_iterator walk(dir, ec), end;
          walk != end && !ec; walk.increment(ec)) {
         const auto& entry = *walk;
@@ -3692,6 +3695,7 @@ std::vector<std::string> App::objectScriptNames() {
             for (const std::string& e : names) seen |= (e == n);
             if (!seen) names.push_back(n);
         }
+    }
     }
     std::sort(names.begin(), names.end());
     return names;

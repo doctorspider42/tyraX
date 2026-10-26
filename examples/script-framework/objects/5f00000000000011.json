@@ -1,0 +1,1 @@
+{"id": "5f00000000000011", "name": "follower", "type": "sphere", "position": [-5, 0.5, 1], "rotation": [0, 0, 0], "scale": [0.8, 0.8, 0.8], "color": [0.4, 0.9, 0.4], "physics": false, "scripts": ["Follower"], "scriptProps": {"Follower": {"distance": "2.5", "speed": "3"}}}

@@ -49,6 +49,7 @@
 #include "reflscenery.hpp"  // which static objects the reflection probe boxes
 #include "reflpano.hpp"     // the probe's baked background
 #include "savebake.hpp"
+#include "extension.hpp"    // src/extensions/<name> script packages
 #include "scriptprops.hpp"  // [[tyra::prop]] public script fields
 #include "scrollsim.hpp"
 #include "shadowbake.hpp"  // the baked shadow-decal cache (docs/shadows.md)
@@ -6434,7 +6435,15 @@ inline bool animationFinished(const ScriptContext& ctx, int objectIndex) {
 // so a project that owns an older copy of this file still builds).
 // 2: tyrax::, ObjectScript::object. 3: [[tyra::prop]] public fields.
 // 4: lifecycle callbacks, getScript<T>, TYRA_SCRIPT_METHOD.
-#define TYRAX_SCRIPT_API 4
+// 5: TYRAX_NAMESPACE_BEGIN / _END (portable extension code).
+#define TYRAX_SCRIPT_API 5
+
+/** The project's namespace, for code that must not name it: a script
+ * extension (docs/script-extensions.md) moves between projects as a folder,
+ * so it writes TYRAX_NAMESPACE_BEGIN ... TYRAX_NAMESPACE_END instead of
+ * `namespace Mygame { ... }`. */
+#define TYRAX_NAMESPACE_BEGIN namespace {{NAME_UPPER_NS}} {
+#define TYRAX_NAMESPACE_END }
 
 namespace {{NAME_UPPER_NS}} {
 
@@ -22413,10 +22422,12 @@ std::vector<std::pair<std::string, int>> soundApiIdents(const Project& p) {
 std::vector<std::string> scriptApiRefs(const Project& p, const std::string& ns) {
     std::set<std::string> found;
     std::error_code ec;
-    const std::filesystem::path dir = std::filesystem::path(p.dir) / "src" / "scripts";
-    if (p.dir.empty() || !std::filesystem::is_directory(dir, ec)) return {};
+    if (p.dir.empty()) return {};
     const std::string key = ns + "::";
-    for (std::filesystem::recursive_directory_iterator it(dir, ec), end; !ec && it != end;
+    // src/scripts and every installed extension (docs/script-extensions.md).
+    for (const std::string& dir : extension::scriptDirs(p.dir))
+    for (std::filesystem::recursive_directory_iterator it(dir, (ec = std::error_code(), ec)), end;
+         !ec && it != end;
          it.increment(ec)) {
         if (!it->is_regular_file(ec) || it->path().extension() != ".cpp") continue;
         std::ifstream f(it->path(), std::ios::binary);
@@ -23360,6 +23371,21 @@ std::string flowGraphScript(const Project& p) {
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n"
            "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n"
            "#include \"facts.gen.hpp\"  // World Facts store + save walks\n";
+    {
+        // Headers the custom nodes in use ask for (`include =`, an extension's
+        // own C++ - docs/script-extensions.md), relative to src/gen so the
+        // include works wherever the project is built.
+        std::set<std::string> extIncludes;
+        for (const std::string& k : used)
+            if (const CustomFlowNode* cn = flowCustomNode(k); cn && !cn->includeFile.empty()) {
+                std::error_code ec;
+                const std::filesystem::path rel = std::filesystem::relative(
+                    cn->includeFile, std::filesystem::path(p.dir) / "src" / "gen", ec);
+                if (!ec && !rel.empty()) extIncludes.insert(rel.generic_string());
+            }
+        for (const std::string& inc : extIncludes)
+            out << "#include \"" << inc << "\"  // a custom node's C++ (include =)\n";
+    }
     if (uses("PlaySound") || uses("SetSoundBankLoaded"))
         out << "#include \"sound_bank.gen.hpp\"  // Play Sound, sound banks\n";
     if (anyRaycast || anyTerrainQuery)

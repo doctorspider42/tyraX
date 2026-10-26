@@ -77,6 +77,10 @@ their actual readers complete.
   `tyrax::getScript<T>(obj)` / `findScript<T>()` reach other scripts;
   `TYRA_SCRIPT_METHOD(Class, method);` makes a method callable from the flow
   graph's *Call Script* node (str "Class.method").
+- **Script extensions**: `src/extensions/<name>/` (`extension.json`, scripts
+  wrapped in `TYRAX_NAMESPACE_BEGIN`/`TYRAX_NAMESPACE_END`, `flow-nodes/`
+  with `include =` for a node's C++). Compiled like src/scripts; install with
+  `tyrax-editor --install-extension <projectDir> <folder>`.
 - **Custom flow nodes**: `flow-nodes/*.flownode` (header + `---` + C++ body;
   `call = fn` bodies live in `inc/scripts/flow_nodes.hpp`).
 - **Custom screen effects**: `screen-effects/*.screenfx`.
@@ -127,6 +131,9 @@ The editor executable on this machine: `{TYRAX_EXE}`
 - `--build <projectDir> [--run | --run-ps2 [ip]] [--rebuild] [--docker]` -
   full native build (+ PCSX2 launch / real-PS2 deploy); `--docker` selects the
   fallback
+- `--list-extensions <projectDir>`, `--new-extension <projectDir> <name>`,
+  `--install-extension <projectDir> <folder>` - script extensions in
+  `src/extensions`
 - `--new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] [unitsPerMeter] [--no-terrain]` - create a project
 - `--resave <projectDir>` - load + save with validation
 - `--migrate <projectDir>` - back up into `_backup/` and apply pending format

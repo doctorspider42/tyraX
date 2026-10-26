@@ -1,0 +1,1 @@
+{"id": "5f00000000000006", "name": "door-sensor", "type": "empty", "position": [0, 0.5, 8], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.8, 0.8, 0.8], "physics": false, "scripts": ["ProximityTrigger"], "scriptProps": {"ProximityTrigger": {"radius": "3.5", "enterEvent": "NearDoor", "once": "true"}}}
