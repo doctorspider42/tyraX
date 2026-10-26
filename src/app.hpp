@@ -42,6 +42,7 @@
 #include "livetime.hpp"
 #include "livelogic.hpp"
 #include "placement.hpp"
+#include "scriptprops.hpp"  // [[tyra::prop]] fields shown in Properties > Scripts
 #include "roadgen.hpp"  // roadgen::Surface - the test drive stands on roads
 #include "prefab.hpp"
 #include "vehbake.hpp"  // the import bake cached per vehicle definition
@@ -3702,9 +3703,16 @@ private:
     struct ScriptFileScan {
         std::filesystem::file_time_type mtime;
         std::vector<std::string> names;
+        // The [[tyra::prop]] fields of the classes it registers.
+        std::vector<scriptprops::ClassInfo> classes;
     };
     std::map<std::string, ScriptFileScan> scriptScanCache_;
     std::vector<std::string> objectScriptNames();
+    // A registered class's public fields, from the cache objectScriptNames()
+    // keeps (call that first in the frame); null when no file registers it.
+    const scriptprops::ClassInfo* scriptClassInfo(const std::string& name) const;
+    // Properties > Scripts: one attachment's public fields. True = edited.
+    bool drawScriptFields(SceneObject& o, const std::string& cls);
 
     // Layer rename-in-place: the name captured when the field gained focus,
     // so object and flow-node references remap from it when editing ends.

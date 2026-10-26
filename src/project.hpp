@@ -969,6 +969,13 @@ struct SceneObject {
     // instance in the game (Unity-style components); the same class can be
     // attached to any number of objects across scenes.
     std::vector<std::string> scripts;
+    // Values for the attached scripts' public fields ([[tyra::prop]],
+    // docs/script-api.md): class -> field -> value text (scriptprops.hpp says
+    // the form per kind). Only fields set away from the script's default are
+    // here; a class can be attached once per object, so the class is the key.
+    // Entries outlive a detach or a renamed field on purpose - the value comes
+    // back when the script does - and the editor offers to clear them.
+    std::map<std::string, std::map<std::string, std::string>> scriptProps;
 
     // The four numbers this mesh hands to the project's own VU1 microprogram
     // (docs/vu-authoring.md). A custom program replaces a whole MATERIAL CLASS
@@ -1690,6 +1697,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.meshLodOverride == b.meshLodOverride &&
            a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
+           a.scriptProps == b.scriptProps &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
            a.roadPoints == b.roadPoints && a.roadHeights == b.roadHeights &&
            a.roadWidth == b.roadWidth && a.roadSampleStep == b.roadSampleStep &&

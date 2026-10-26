@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.4.0
+
+- **Public script fields.** Mark a member of an object script with `[[tyra::prop]]` and it appears under the script in *Properties > Scripts*. Every object the script is attached to can set its own value: numbers with sliders, checkboxes, choices, vectors, colours, text, another object of the scene, or a sound, event, scene, input action, save value, prefab, HUD item, sequence or menu from your project. The values are written in before `onStart`, and a field you leave alone keeps the default from your code. Options: `min`, `max`, `tooltip`, `header`, `options = "A|B|C"` and `color`. See `docs/script-api.md`. Projects are saved as format 125.
+
 ## 2.3.0
 
 - **Script API.** Scripts get a C++ library, `tyrax::`, that does everything the flow-graph nodes do, plus the helpers a programmer expects. An object script's own object is now `object`, so `object.moveBy(...)`, `object.lookAt(...)` and `object.playAnimation(...)` set the rebuild and wake-up flags for you. Also included: raycasts against the real, rotated collision boxes (`tyrax::raycast`) and the Raycast node's "what am I looking at" (`tyrax::raycastFromPlayer`), `findNearest`, `overlapSphere`, `lineOfSight`, sounds and music, camera shake and fades, the HUD, save values, World Facts, scene switching, layers, sequences and prefabs, input through the Input Map's actions, vectors, easing curves, random numbers, timers and cooldowns. See `docs/script-api.md`.

@@ -37,8 +37,8 @@ it on every build. Two kinds of files coexist here:
 | `flow-nodes/*.flownode` | Custom flow-graph nodes | Yes - tyra-scripting skill |
 | `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - tyra-scripting skill |
 | `menu-styles/*.menustyle` | Menu stylesheets (CSS-shaped) | Yes - tyra-menustyle skill |
-| `src/scripts/**/*.cpp` | Your C++ scripts (`TYRA_OBJECT_SCRIPT` / `TYRA_SCRIPT`). Use the `tyrax::` script API (`object.moveBy`, `tyrax::raycast`, `tyrax::playSound(ctx, tyrax::Sounds::X)`, `tyrax::sendEvent` ...) rather than raw `ScriptContext` fields | Yes - this is where game code goes |
-| `inc/tyrax/tyrax.hpp`, `inc/tyrax/names.gen.hpp` | The script API library (what every flow node does, plus vectors/easing/random/timers) and this project's names as typed constants | **Never** - regenerated on every build |
+| `src/scripts/**/*.cpp` | Your C++ scripts (`TYRA_OBJECT_SCRIPT` / `TYRA_SCRIPT`). Use the `tyrax::` script API (`object.moveBy`, `tyrax::raycast`, `tyrax::playSound(ctx, tyrax::Sounds::X)`, `tyrax::sendEvent` ...) rather than raw `ScriptContext` fields; per-object tunables are members marked `[[tyra::prop]]` (shown in Properties > Scripts, stored as `"scriptProps"` in the object's JSON) | Yes - this is where game code goes |
+| `inc/tyrax/tyrax.hpp`, `inc/tyrax/names.gen.hpp`, `inc/tyrax/script_props.gen.hpp` | The script API library (what every flow node does, plus vectors/easing/random/timers) and this project's names as typed constants | **Never** - regenerated on every build |
 | `src/vu/*.cpp`, `src/vu0/*.cpp` | Your VU1 programs (`vu::Program`) and VU0 kernels (`vu::Kernel`). **Host C++**: compiled and run at build time on the build machine (host `g++`; inside the container with `--docker`), leaving a microprogram in the ELF; excluded from the PS2 compile | Yes - `New script...` writes a working stub for each |
 | `vugen/` | Copy of the editor's VU framework, present only while `src/vu*` has sources | **Never** |
 | `src/terrain_game.cpp` | Startup, frame loop, camera, exported globals | Only after deleting the ownership marker (keep its `#include "game_runtime.gen.hpp"`) |

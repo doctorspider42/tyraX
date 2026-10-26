@@ -102,6 +102,72 @@ loaded only in scenes that play it. A sound your scripts name
 [sound bank](sound.md), which then decides when it loads. *Project > Audio*
 lists these sounds under *Always loaded*.
 
+## Public fields
+
+Mark a member of an object script with `[[tyra::prop]]` and the editor shows
+it under the script in *Properties > Scripts*, on every object the script is
+attached to. Each attachment sets its own value, and the game writes the
+values in before `onStart`. A field you leave alone keeps the member's own
+initializer, so changing a default in code reaches every object that did not
+override it.
+
+```cpp
+class Turret : public ObjectScript {
+ public:
+  [[tyra::prop(min = 0, max = 720, tooltip = "Degrees per second")]]
+  float turnSpeed = 90.0F;
+  [[tyra::prop(header = "Targeting")]] tyrax::ObjectRef target;
+  [[tyra::prop]] float range = 20.0F;
+  [[tyra::prop(options = "Idle|Track|Sweep")]] int mode = 1;
+  [[tyra::prop(color)]] tyrax::Vec3 laserColor{1.0F, 0.2F, 0.1F};
+  [[tyra::prop]] tyrax::SoundId fireSound = {-1};
+  [[tyra::prop]] const char* callsign = "T-1";
+  ...
+};
+```
+
+| Member type | Editor widget | Stored as |
+|---|---|---|
+| `bool` | checkbox | `true` / `false` |
+| `int` | drag (slider with `min` and `max`) | the number |
+| `int` + `options = "A\|B\|C"` | drop-down | the option's index |
+| `float` | drag (slider with `min` and `max`) | the number |
+| `tyrax::Vec3` | three drags | `x y z` |
+| `tyrax::Vec3` + `color` | colour picker | `r g b`, 0..1 |
+| `const char*` | text field | the text |
+| `tyrax::ObjectRef` | an object of the same scene | the object's id, so a rename keeps the link |
+| `tyrax::SoundId`, `MusicId` | the project's sounds / tracks | the file path |
+| `tyrax::EventId`, `SceneId`, `SaveValueId`, `PrefabId`, `ActionId`, `HudTextId`, `HudBarId`, `SequenceId`, `MenuId` | the project's items | the item's name |
+
+Attribute options are `min = <number>`, `max = <number>`,
+`tooltip = "..."`, `header = "..."` (a caption above the field),
+`options = "A|B|C"` and `color`. Options go in parentheses and are separated
+by commas: `[[tyra::prop(min = 0, tooltip = "Metres")]]`.
+
+How it works: the editor reads the attribute **textually**, the same way it
+finds `TYRA_OBJECT_SCRIPT`. The build writes `inc/tyrax/script_props.gen.hpp`,
+which holds a `TYRAX_PROPS_<Class>` macro with one assignment per field, and
+`TYRA_OBJECT_SCRIPT` pastes that macro into your class's own file. The
+assignments are therefore compiled against your real declaration: a field the
+editor misread is a compile error, never a silently wrong value. The values
+are a small table per attachment in `src/gen/object_scripts.gen.cpp`, and an
+attachment with every field at its default costs nothing.
+
+- **A field's colour** in *Properties* tells you whether it is set: blue is
+  set on this object, plain is the script's default. Hover the name for the
+  type, the tooltip and the default. `x` returns the field to the default.
+- **Values are kept when a field disappears.** If you rename a field, remove
+  it or detach the script, the stored value stays in the object's file and
+  comes back when the name does. A reference that no longer resolves, such as
+  a deleted sound or an object in another scene, falls back to the default.
+- **A field the editor cannot offer** shows why: an unsupported type, or a
+  `static` member, which belongs to the class and not to one attachment.
+- **Changes apply on the next build.** Fields are compiled into the game, so
+  Live Link does not stream them.
+- **Compiler warnings.** GCC does not know the `tyra::` attribute namespace.
+  The generated `Makefile` passes `-Wno-attributes=tyra::`, or plain
+  `-Wno-attributes` on the GCC 11 of the default Docker image.
+
 ## Reference
 
 ### Vectors and math

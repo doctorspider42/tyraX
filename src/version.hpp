@@ -5615,8 +5615,10 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 3
+#define TYRAX_VERSION_MINOR 4
 #define TYRAX_VERSION_PATCH 0
+// 2.4.0: [[tyra::prop]] public script fields, set per attachment in
+// Properties > Scripts (src/scriptprops.cpp, docs/script-api.md).
 // 2.3.0: the tyrax:: script API (docs/script-api.md) - inc/tyrax/tyrax.hpp +
 // typed project names in inc/tyrax/names.gen.hpp; graphs and scripts share the
 // event bus, the random sequence, the SFX voice table and the Raycast node.
@@ -6471,7 +6473,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // "c++20"), extraCompilerFlags and extraLinkerFlags (written only when set).
 // Missing = C++20 and no extra flags; a project that predates them compiled
 // as gnu++17 and builds unchanged as C++20. Additive; no migration.
-inline constexpr int kFormatVersion = 124;
+// v125 (docs/script-api.md, "Public fields"): SceneObject::scriptProps,
+// "scriptProps" { class: { field: "value text" } } on an object, written only
+// when a field is set away from its script's default. Missing = every field at
+// its default, which is all an older project could mean. Additive; no
+// migration.
+inline constexpr int kFormatVersion = 125;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

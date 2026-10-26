@@ -2988,6 +2988,7 @@ void App::drawPropertiesWindow() {
             ImGui::SameLine();
             if (isRegistered(o.scripts[i])) {
                 ImGui::TextUnformatted(o.scripts[i].c_str());
+                if (drawScriptFields(o, o.scripts[i])) committed = true;
             } else {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s - not found",
                                    o.scripts[i].c_str());
@@ -3671,6 +3672,8 @@ std::vector<std::string> App::objectScriptNames() {
             std::stringstream ss;
             ss << f.rdbuf();
             const std::string src = ss.str();
+            scan.classes = scriptprops::scanSource(
+                src, std::filesystem::relative(entry.path(), project_.dir, ec).generic_string());
             static const std::string kMacro = "TYRA_OBJECT_SCRIPT(";
             for (size_t pos = src.find(kMacro); pos != std::string::npos;
                  pos = src.find(kMacro, pos + kMacro.size())) {
@@ -3692,6 +3695,192 @@ std::vector<std::string> App::objectScriptNames() {
     }
     std::sort(names.begin(), names.end());
     return names;
+}
+
+const scriptprops::ClassInfo* App::scriptClassInfo(const std::string& name) const {
+    for (const auto& [file, scan] : scriptScanCache_)
+        if (const scriptprops::ClassInfo* c = scriptprops::findClass(scan.classes, name)) return c;
+    return nullptr;
+}
+
+// One attachment's [[tyra::prop]] fields (docs/script-api.md, "Public fields").
+// A field shows its override when o.scriptProps has one, else the script's
+// own default; any edit stores an override, the reset button drops it. The
+// return value is "commit now": a click, or the end of a drag or a typed edit.
+bool App::drawScriptFields(SceneObject& o, const std::string& cls) {
+    using scriptprops::Kind;
+    const scriptprops::ClassInfo* ci = scriptClassInfo(cls);
+    if (!ci || ci->fields.empty()) return false;
+    bool commit = false;
+    auto& overrides = o.scriptProps[cls];
+    const float labelW = scaled(96.0f);
+    ImGui::Indent(scaled(18.0f));
+    for (const scriptprops::Field& f : ci->fields) {
+        ImGui::PushID(f.name.c_str());
+        if (!f.header.empty()) ImGui::SeparatorText(f.header.c_str());
+        const auto it = overrides.find(f.name);
+        const bool set = it != overrides.end();
+        std::string value = set ? it->second : f.defaultValue;
+        bool changed = false, done = false;
+
+        ImGui::AlignTextToFramePadding();
+        if (set)
+            ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f), "%s", f.name.c_str());
+        else
+            ImGui::TextUnformatted(f.name.c_str());
+        if (ImGui::IsItemHovered()) {
+            std::string tip = f.tooltip.empty() ? "" : f.tooltip + "\n";
+            tip += std::string(scriptprops::kindLabel(f.kind)) + " " + f.type;
+            if (!set) tip += f.defaultValue.empty() ? "\nDefault: set in code" : "\nDefault: " + f.defaultValue;
+            if (!f.problem.empty()) tip = f.problem;
+            ImGui::SetTooltip("%s", tip.c_str());
+        }
+        ImGui::SameLine(labelW);
+        const float resetW = set ? ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0f +
+                                       ImGui::GetStyle().ItemSpacing.x
+                                 : 0.0f;
+        ImGui::SetNextItemWidth(ImMax(scaled(60.0f), ImGui::GetContentRegionAvail().x - resetW));
+
+        // A combo over a list of names; "" = none (keeps the code's default).
+        auto nameCombo = [&](const std::vector<std::string>& names,
+                             const std::vector<std::string>& labels) {
+            std::string shown = value.empty() ? "(default)" : value;
+            for (size_t i = 0; i < names.size(); ++i)
+                if (names[i] == value) shown = labels[i];
+            if (ui::BeginCombo("##v", shown.c_str())) {
+                for (size_t i = 0; i < names.size(); ++i)
+                    if (ImGui::Selectable(labels[i].c_str(), names[i] == value)) {
+                        value = names[i];
+                        changed = done = true;
+                    }
+                ImGui::EndCombo();
+            }
+        };
+        auto namesOf = [](const auto& list) {
+            std::vector<std::string> v;
+            for (const auto& e : list) v.push_back(e.name);
+            return v;
+        };
+
+        if (!f.problem.empty()) {
+            ImGui::TextDisabled("(%s)", f.problem.c_str());
+        } else {
+            switch (f.kind) {
+                case Kind::Bool: {
+                    bool b = value == "true";
+                    if (ImGui::Checkbox("##v", &b)) {
+                        value = b ? "true" : "false";
+                        changed = done = true;
+                    }
+                    break;
+                }
+                case Kind::Int: {
+                    int v = std::atoi(value.c_str());
+                    if (f.hasMin && f.hasMax)
+                        changed = ImGui::SliderInt("##v", &v, (int)f.min, (int)f.max);
+                    else
+                        changed = ImGui::DragInt("##v", &v, 0.2f, f.hasMin ? (int)f.min : 0,
+                                                 f.hasMax ? (int)f.max : 0);
+                    done = ImGui::IsItemDeactivatedAfterEdit();
+                    if (changed) value = std::to_string(v);
+                    break;
+                }
+                case Kind::Enum: {
+                    std::vector<std::string> ids, labels;
+                    for (size_t i = 0; i < f.options.size(); ++i) {
+                        ids.push_back(std::to_string(i));
+                        labels.push_back(f.options[i]);
+                    }
+                    nameCombo(ids, labels);
+                    break;
+                }
+                case Kind::Float: {
+                    float v = (float)std::atof(value.c_str());
+                    if (f.hasMin && f.hasMax)
+                        changed = ImGui::SliderFloat("##v", &v, f.min, f.max, "%.3g");
+                    else
+                        changed = ImGui::DragFloat("##v", &v, 0.05f, f.hasMin ? f.min : 0.0f,
+                                                   f.hasMax ? f.max : 0.0f, "%.3g");
+                    done = ImGui::IsItemDeactivatedAfterEdit();
+                    if (changed) value = scriptprops::formatFloat(v);
+                    break;
+                }
+                case Kind::Vec3:
+                case Kind::Color: {
+                    float v[3] = {0.0f, 0.0f, 0.0f};
+                    scriptprops::parseVec3(value, v);
+                    changed = f.kind == Kind::Color
+                                  ? ImGui::ColorEdit3("##v", v, ImGuiColorEditFlags_Float)
+                                  : ImGui::DragFloat3("##v", v, 0.05f, 0.0f, 0.0f, "%.3g");
+                    done = ImGui::IsItemDeactivatedAfterEdit();
+                    if (changed)
+                        value = scriptprops::formatFloat(v[0]) + " " + scriptprops::formatFloat(v[1]) +
+                                " " + scriptprops::formatFloat(v[2]);
+                    break;
+                }
+                case Kind::Text: {
+                    ImGui::InputText("##v", value.data(), value.capacity() + 1,
+                                     ImGuiInputTextFlags_CallbackResize, growString, &value);
+                    changed = ImGui::IsItemEdited();
+                    done = ImGui::IsItemDeactivatedAfterEdit();
+                    break;
+                }
+                case Kind::Object: {
+                    // Objects of the same scene, by id - a rename keeps the link.
+                    std::vector<std::string> ids, labels;
+                    for (const SceneObject& so : project_.objects()) {
+                        if (&so == &o) continue;
+                        ids.push_back(so.id);
+                        labels.push_back(so.name);
+                    }
+                    nameCombo(ids, labels);
+                    break;
+                }
+                case Kind::Sound:
+                case Kind::Music: {
+                    const std::vector<std::string>& list =
+                        f.kind == Kind::Sound ? project_.sounds : project_.music;
+                    std::vector<std::string> labels;
+                    for (const std::string& s : list)
+                        labels.push_back(std::filesystem::path(s).filename().string());
+                    nameCombo(list, labels);
+                    break;
+                }
+                case Kind::Event: {
+                    std::vector<std::string> ev = flowVarNames("SendEvent");
+                    nameCombo(ev, ev);
+                    break;
+                }
+                case Kind::Scene: {
+                    const auto v = namesOf(project_.scenes);
+                    nameCombo(v, v);
+                    break;
+                }
+                case Kind::SaveValue: { const auto v = namesOf(project_.saveValues); nameCombo(v, v); break; }
+                case Kind::Prefab: { const auto v = namesOf(project_.prefabs); nameCombo(v, v); break; }
+                case Kind::Action: { const auto v = namesOf(project_.input.actions); nameCombo(v, v); break; }
+                case Kind::HudText: { const auto v = namesOf(project_.hudTexts); nameCombo(v, v); break; }
+                case Kind::HudBar: { const auto v = namesOf(project_.hudBars); nameCombo(v, v); break; }
+                case Kind::Sequence: { const auto v = namesOf(project_.sequences); nameCombo(v, v); break; }
+                case Kind::Menu: { const auto v = namesOf(project_.menus); nameCombo(v, v); break; }
+                default: ImGui::TextDisabled("(not editable)"); break;
+            }
+        }
+        if (changed) overrides[f.name] = value;
+        commit |= done;
+        if (set) {
+            ImGui::SameLine();
+            if (ImGui::SmallButton("x")) {
+                overrides.erase(f.name);
+                commit = true;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to the script's default");
+        }
+        ImGui::PopID();
+    }
+    ImGui::Unindent(scaled(18.0f));
+    if (overrides.empty()) o.scriptProps.erase(cls);
+    return commit;
 }
 
 std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {

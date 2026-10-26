@@ -68,6 +68,10 @@ their actual readers complete.
   project's names as typed constants (`inc/tyrax/names.gen.hpp`:
   `tyrax::Sounds::X`, `tyrax::Objects::<Scene>::X`). Prefer it over raw
   `ScriptContext` fields; an object script's own object is `object`.
+  Values a designer should tune per object are members marked
+  `[[tyra::prop]]` (options `min`, `max`, `tooltip`, `header`,
+  `options = "A|B"`, `color`): they appear in Properties > Scripts and are
+  stored per object as `"scriptProps"` in its JSON.
 - **Custom flow nodes**: `flow-nodes/*.flownode` (header + `---` + C++ body;
   `call = fn` bodies live in `inc/scripts/flow_nodes.hpp`).
 - **Custom screen effects**: `screen-effects/*.screenfx`.

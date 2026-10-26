@@ -49,6 +49,7 @@
 #include "reflscenery.hpp"  // which static objects the reflection probe boxes
 #include "reflpano.hpp"     // the probe's baked background
 #include "savebake.hpp"
+#include "scriptprops.hpp"  // [[tyra::prop]] public script fields
 #include "scrollsim.hpp"
 #include "shadowbake.hpp"  // the baked shadow-decal cache (docs/shadows.md)
 #include "skytex.hpp"      // the painted sky crop (docs/sky-texture.md)
@@ -544,6 +545,12 @@ INC         := -I$(INCDIR) -I$(ENGINEDIR)/inc
 INCDEP      := -I$(INCDIR) -I$(ENGINEDIR)/inc
 
 include $(TYRA_MAKEFILE)
+
+# [[tyra::prop]] marks a script's public fields for the editor (docs/script-
+# api.md); the compiler has nothing to do with it. GCC 13+ can ignore just that
+# namespace, the GCC 11 of the default Docker image only every unknown one.
+TYRAX_ATTR_FLAG := $(if $(shell $(CXX) -Wno-attributes=tyra:: -x c++ -fsyntax-only /dev/null 2>/dev/null && echo y),-Wno-attributes=tyra::,-Wno-attributes)
+CFLAGS      += $(TYRAX_ATTR_FLAG)
 
 # Extra flags (same Preferences page) go AFTER the engine's own -O3 -Wall, so
 # an -O2 or a -Wno-... typed there wins. They reach this game's sources only;
@@ -6417,10 +6424,14 @@ inline bool animationFinished(const ScriptContext& ctx, int objectIndex) {
 // The script API: math, objects, raycasts, input, audio, HUD, save data,
 // events ... as tyrax::... (docs/script-api.md). Always regenerated.
 #include "tyrax/tyrax.hpp"
+// Per class, the code that writes its editor-set public fields
+// (TYRAX_PROPS_<Class>, used by TYRA_OBJECT_SCRIPT below).
+#include "tyrax/script_props.gen.hpp"
 
 // Script API generation this header carries (the generated driver checks it,
 // so a project that owns an older copy of this file still builds).
-#define TYRAX_SCRIPT_API 2
+// 2: tyrax::, ObjectScript::object. 3: [[tyra::prop]] public fields.
+#define TYRAX_SCRIPT_API 3
 
 namespace {{NAME_UPPER_NS}} {
 
@@ -6478,6 +6489,10 @@ class ObjectScript {
 struct ObjectScriptFactory {
   const char* name;
   ObjectScript* (*create)();
+  /** Writes the editor-set public fields ([[tyra::prop]]) of one attachment
+   * into a fresh instance, before onStart. Generated per class (tyrax/
+   * script_props.gen.hpp) and filled in by TYRA_OBJECT_SCRIPT. */
+  void (*applyProps)(ObjectScript*, const tyrax::detail::PropValue*, ScriptContext&) = nullptr;
 };
 
 inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
@@ -6502,9 +6517,17 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
 #define TYRA_OBJECT_SCRIPT(ClassName)                                         \
   static const bool TYRA_SCRIPT_CONCAT(_tyraObjScript_, __COUNTER__) = []() { \
     {{NAME_UPPER_NS}}::getObjectScriptFactories().push_back(                  \
-        {#ClassName, []() -> {{NAME_UPPER_NS}}::ObjectScript* {               \
-          return new ClassName();                                             \
-        }});                                                                  \
+        {#ClassName,                                                          \
+         []() -> {{NAME_UPPER_NS}}::ObjectScript* { return new ClassName(); }, \
+         [](::{{NAME_UPPER_NS}}::ObjectScript* o,                             \
+            const ::{{NAME_UPPER_NS}}::tyrax::detail::PropValue* v,           \
+            ::{{NAME_UPPER_NS}}::ScriptContext& ctx) {                        \
+           ClassName& s = *static_cast<ClassName*>(o);                        \
+           (void)s;                                                           \
+           (void)v;                                                           \
+           (void)ctx;                                                         \
+           TYRA_SCRIPT_CONCAT(TYRAX_PROPS_, ClassName)(s, v, ctx)             \
+         }});                                                                 \
     return true;                                                              \
   }()
 )";
@@ -6656,6 +6679,11 @@ namespace {{NAME_UPPER_NS}} {
 // is that object. The whole script API is tyrax::... (docs/script-api.md).
 class {{SCRIPT_CLASS}} : public ObjectScript {
  public:
+  // Public fields: set per object in Properties > Scripts, written in before
+  // onStart. Leave one alone and it keeps the value below.
+  [[tyra::prop(min = 0, max = 10, tooltip = "Units per second")]]
+  float speed = 1.0F;
+
   void onStart(ScriptContext& ctx) override {
     // Scene (re)loaded - object is valid, one call before the first onUpdate.
   }
@@ -36297,6 +36325,99 @@ std::vector<std::string> animTextureAliases(const Project& p,
     return out;
 }
 
+// inc/tyrax/script_props.gen.hpp: per object-script class, the statements that
+// write its [[tyra::prop]] fields from an attachment's PropValue array, in the
+// scanner's field order (the same order objectScriptsSource lays the values
+// out in). TYRA_OBJECT_SCRIPT pastes TYRAX_PROPS_<Class> into the class's own
+// TU, where the members are visible - so the assignment is compiled against
+// the real declaration, and a field the scanner misread is a compile error
+// here rather than a silently wrong value.
+static std::string scriptPropsHeader(const Project& p,
+                                     const std::vector<scriptprops::ClassInfo>& classes) {
+    (void)p;
+    std::ostringstream o;
+    o << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+         "// Public script fields ([[tyra::prop]], docs/script-api.md): one macro per\n"
+         "// TYRA_OBJECT_SCRIPT class in src/scripts, used by that macro.\n"
+         "#pragma once\n";
+    for (const scriptprops::ClassInfo& c : classes) {
+        o << "\n// " << c.name << " (" << c.file << ")\n#define TYRAX_PROPS_" << c.name
+          << "(s, v, ctx)";
+        int k = 0;
+        for (const scriptprops::Field& f : c.fields) {
+            if (!f.problem.empty()) continue;
+            o << " \\\n  tyrax::detail::assignProp((s)." << f.name << ", (v)[" << k++
+              << "], (ctx));";
+        }
+        o << "\n";
+    }
+    return o.str();
+}
+
+// One attachment's value for one field, as a PropValue initializer. An unset
+// field, or a reference the project no longer resolves (a deleted sound, an
+// object of another scene), keeps the member's own initializer.
+static std::string propValueInit(const Project& p, int scene, const scriptprops::Field& f,
+                                 const std::string* value) {
+    using scriptprops::Kind;
+    const std::string unset = "{0, {0.0F, 0.0F, 0.0F}, 0, \"\"}";
+    if (!value) return unset;
+    const std::string& v = *value;
+    auto num = [&](float x, float y, float z, int i, const std::string& s) {
+        return "{1, {" + floatLit(x) + ", " + floatLit(y) + ", " + floatLit(z) + "}, " +
+               std::to_string(i) + ", \"" + escapeCString(s) + "\"}";
+    };
+    auto indexOf = [&](const auto& list, auto nameOf) {
+        for (size_t i = 0; i < list.size(); ++i)
+            if (nameOf(list[i]) == v) return (int)i;
+        return -1;
+    };
+    auto ref = [&](int i) { return i < 0 ? unset : num(0, 0, 0, i, ""); };
+    switch (f.kind) {
+        case Kind::Bool: return num(0, 0, 0, v == "true" ? 1 : 0, "");
+        case Kind::Int:
+        case Kind::Enum: return num(0, 0, 0, std::atoi(v.c_str()), "");
+        case Kind::Float: return num((float)std::atof(v.c_str()), 0, 0, 0, "");
+        case Kind::Vec3:
+        case Kind::Color: {
+            float a[3];
+            return scriptprops::parseVec3(v, a) ? num(a[0], a[1], a[2], 0, "") : unset;
+        }
+        case Kind::Text: return num(0, 0, 0, 0, v);
+        case Kind::Object: {
+            if (scene < 0 || scene >= (int)p.scenes.size()) return unset;
+            const auto& objs = p.scenes[(size_t)scene].objects;
+            for (size_t i = 0; i < objs.size(); ++i)
+                if (objs[i].id == v) return num(0, 0, 0, (int)i, "");
+            return unset;
+        }
+        case Kind::Sound: return ref(indexOf(p.sounds, [](const std::string& s) { return s; }));
+        case Kind::Music: {
+            if (indexOf(p.music, [](const std::string& s) { return s; }) < 0) return unset;
+            std::string bin = v;
+            if (bin.rfind("res/", 0) == 0) bin = bin.substr(4);
+            return num(0, 0, 0, 0, bin);
+        }
+        case Kind::Event: {
+            std::vector<std::string> events;
+            collectFlowEvents(p, events);
+            return ref(indexOf(events, [](const std::string& s) { return s; }));
+        }
+        case Kind::Scene: return ref(indexOf(p.scenes, [](const SceneData& s) { return s.name; }));
+        case Kind::SaveValue:
+            return ref(indexOf(p.saveValues, [](const auto& s) { return s.name; }));
+        case Kind::Prefab: return ref(indexOf(p.prefabs, [](const auto& s) { return s.name; }));
+        case Kind::Action:
+            return ref(indexOf(p.input.actions, [](const auto& s) { return s.name; }));
+        case Kind::HudText: return ref(indexOf(p.hudTexts, [](const auto& s) { return s.name; }));
+        case Kind::HudBar: return ref(indexOf(p.hudBars, [](const auto& s) { return s.name; }));
+        case Kind::Sequence:
+            return ref(indexOf(p.sequences, [](const auto& s) { return s.name; }));
+        case Kind::Menu: return ref(indexOf(p.menus, [](const auto& s) { return s.name; }));
+        default: return unset;
+    }
+}
+
 // src/gen/object_scripts.gen.cpp - the object-script runtime: attachment
 // table (scene index, object index, class name - straight from the editor's
 // Properties > Scripts) plus a driver that owns the instances. The driver is
@@ -36347,6 +36468,54 @@ static std::string objectScriptsSource(const Project& p) {
         out << "    {" << a.scene << ", " << a.object << ", \""
             << escapeCString(a.script) << "\"},  // " << a.comment << "\n";
     out << "};\n"
+           "\n";
+
+    // Public fields ([[tyra::prop]]): one PropValue per field of the class, in
+    // the scanner's order, for every attachment of a class that has any. The
+    // array is null for the rest, and the whole block compiles away against a
+    // script.hpp owned from before fields existed.
+    const std::vector<scriptprops::ClassInfo> classes = scriptprops::scanProject(p.dir);
+    std::vector<std::string> propArray(attaches.size());
+    std::ostringstream props;
+    for (size_t ai = 0; ai < attaches.size(); ++ai) {
+        const Attach& a = attaches[ai];
+        const scriptprops::ClassInfo* ci = scriptprops::findClass(classes, a.script);
+        if (!ci) continue;
+        const SceneObject& owner = p.scenes[(size_t)a.scene].objects[(size_t)a.object];
+        const auto setIt = owner.scriptProps.find(a.script);
+        std::vector<std::string> inits;
+        bool any = false;
+        for (const scriptprops::Field& f : ci->fields) {
+            if (!f.problem.empty()) continue;
+            const std::string* v = nullptr;
+            if (setIt != owner.scriptProps.end()) {
+                const auto fv = setIt->second.find(f.name);
+                if (fv != setIt->second.end()) v = &fv->second;
+            }
+            inits.push_back(propValueInit(p, a.scene, f, v));
+            any |= v != nullptr;
+        }
+        if (!any) continue;  // every field at its default: nothing to write
+        const std::string name = "kProps" + std::to_string(ai);
+        propArray[ai] = name;
+        props << "static const tyrax::detail::PropValue " << name << "[" << inits.size()
+              << "] = {  // " << a.comment << " / " << a.script << "\n";
+        size_t k = 0;
+        for (const scriptprops::Field& f : ci->fields) {
+            if (!f.problem.empty()) continue;
+            props << "    " << inits[k++] << ",  // " << f.name << "\n";
+        }
+        props << "};\n";
+    }
+    out << "#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 3\n"
+        << props.str()
+        << "static const tyrax::detail::PropValue* const OBJECT_SCRIPT_PROPS["
+        << std::max<size_t>(1, attaches.size()) << "] = {";
+    if (attaches.empty()) out << "nullptr";
+    for (size_t ai = 0; ai < attaches.size(); ++ai)
+        out << (ai ? ", " : "") << (propArray[ai].empty() ? "nullptr" : propArray[ai]);
+    out << "};\n"
+           "#endif\n"
            "\n"
            "/** Owns the live ObjectScript instances (one per attachment of the\n"
            " * active scene). Rebuilds them when the scene generation changes;\n"
@@ -36388,9 +36557,11 @@ static std::string objectScriptsSource(const Project& p) {
            "      if (a.scene != ctx.scene) continue;\n"
            "      if (a.object < 0 || a.object >= ctx.objectCount) continue;\n"
            "      ObjectScript* s = nullptr;\n"
+           "      const ObjectScriptFactory* made = nullptr;\n"
            "      for (const ObjectScriptFactory& f : getObjectScriptFactories())\n"
            "        if (strcmp(f.name, a.script) == 0) {\n"
            "          s = f.create();\n"
+           "          made = &f;\n"
            "          break;\n"
            "        }\n"
            "      if (!s) {\n"
@@ -36399,6 +36570,13 @@ static std::string objectScriptsSource(const Project& p) {
            "      }\n"
            "      s->selfIndex = a.object;\n"
            "      bind(s, ctx);\n"
+           "#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 3\n"
+           "      // The editor-set public fields, before the script sees itself.\n"
+           "      if (made->applyProps && OBJECT_SCRIPT_PROPS[i])\n"
+           "        made->applyProps(s, OBJECT_SCRIPT_PROPS[i], ctx);\n"
+           "#else\n"
+           "      (void)made;\n"
+           "#endif\n"
            "      instances.push_back(s);\n"
            "      s->onStart(ctx);\n"
            "    }\n"
@@ -37077,6 +37255,8 @@ std::vector<File> generate(const Project& source) {
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
         {"inc\\tyrax\\tyrax.hpp", fill(TPL_TYRAX_HPP)},
         {"inc\\tyrax\\names.gen.hpp", tyraxNamesHeader(p)},
+        {"inc\\tyrax\\script_props.gen.hpp",
+         scriptPropsHeader(p, scriptprops::scanProject(p.dir))},
         {"inc\\scripts\\sequences.gen.hpp", sequencesHeader(p)},
         {"src\\gen\\sequences.gen.cpp", sequencesScript(p)},
         {"inc\\scripts\\scroller.gen.hpp", scrollerHeader(p)},

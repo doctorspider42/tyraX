@@ -1080,6 +1080,25 @@ std::string objectJson(const SceneObject& o) {
             json += (i ? ", \"" : "\"") + jsonEscape(o.scripts[i]) + "\"";
         json += "]";
     }
+    if (!o.scriptProps.empty()) {
+        // {"Spinner": {"speed": "120", "target": "a0b1..."}} - values are value
+        // text (scriptprops.hpp), strings whatever their kind.
+        json += ", \"scriptProps\": {";
+        bool firstClass = true;
+        for (const auto& [cls, fields] : o.scriptProps) {
+            if (fields.empty()) continue;
+            json += std::string(firstClass ? "" : ", ") + "\"" + jsonEscape(cls) + "\": {";
+            firstClass = false;
+            bool firstField = true;
+            for (const auto& [name, value] : fields) {
+                json += std::string(firstField ? "" : ", ") + "\"" + jsonEscape(name) +
+                        "\": \"" + jsonEscape(value) + "\"";
+                firstField = false;
+            }
+            json += "}";
+        }
+        json += "}";
+    }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     if (!o.procGraph.empty() || o.procGraph.frozen || o.procGraph.bakedHash)
         json += ", \"procGraph\": " + procGraphJson(o.procGraph);
@@ -6123,6 +6142,15 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 if (s.type == json::Value::Type::String && !s.str.empty())
                     o.scripts.push_back(s.str);
         }
+        if (const auto* sp = jo.find("scriptProps");
+            sp && sp->type == json::Value::Type::Object) {
+            for (const auto& [cls, fields] : sp->obj) {
+                if (fields.type != json::Value::Type::Object) continue;
+                for (const auto& [name, value] : fields.obj)
+                    if (value.type == json::Value::Type::String)
+                        o.scriptProps[cls][name] = value.str;
+            }
+        }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         if (const auto* pg = jo.find("procGraph")) readProcGraph(*pg, o.procGraph);
         if (const auto* rp = jo.find("roadPoints")) {
@@ -9002,6 +9030,7 @@ std::string refreshGenerated(const Project& p) {
             // generated TU leans on both.
             f.relativePath == "inc\\tyrax\\tyrax.hpp" ||
             f.relativePath == "inc\\tyrax\\names.gen.hpp" ||
+            f.relativePath == "inc\\tyrax\\script_props.gen.hpp" ||
             // Object table definitions accompany the declarations even in
             // projects created before the data was moved out of the header.
             f.relativePath == "src\\gen\\scene_objects.gen.cpp" ||

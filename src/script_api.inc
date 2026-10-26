@@ -1051,6 +1051,46 @@ inline void despawnPrefabs(ScriptContext& ctx, PrefabId p) {
   if (p.index >= 0 && ctx.despawnPrefabs) ctx.despawnPrefabs(p.index);
 }
 
+// ---- public fields ([[tyra::prop]]) -------------------------------------------------
+
+namespace detail {
+/** One editor-set value of an attachment's public field. `set` = false keeps
+ * the member's own initializer. Which part is meaningful depends on the
+ * member's type: f for float/Vec3, i for int/bool/ids/objects, s for text. */
+struct PropValue {
+  unsigned char set;
+  float f[3];
+  int i;
+  const char* s;
+};
+inline void assignProp(bool& m, const PropValue& v, ScriptContext&) {
+  if (v.set) m = v.i != 0;
+}
+inline void assignProp(int& m, const PropValue& v, ScriptContext&) {
+  if (v.set) m = v.i;
+}
+inline void assignProp(float& m, const PropValue& v, ScriptContext&) {
+  if (v.set) m = v.f[0];
+}
+inline void assignProp(Vec3& m, const PropValue& v, ScriptContext&) {
+  if (v.set) m = Vec3(v.f[0], v.f[1], v.f[2]);
+}
+inline void assignProp(const char*& m, const PropValue& v, ScriptContext&) {
+  if (v.set) m = v.s;
+}
+inline void assignProp(ObjectRef& m, const PropValue& v, ScriptContext& ctx) {
+  if (v.set) m = ObjectRef(&ctx, v.i);
+}
+inline void assignProp(MusicId& m, const PropValue& v, ScriptContext&) {
+  if (v.set) m.path = v.s;
+}
+/** SoundId, EventId, SceneId ... - every id with an `index`. */
+template <typename T>
+inline auto assignProp(T& m, const PropValue& v, ScriptContext&) -> decltype((void)(m.index = 0)) {
+  if (v.set) m.index = v.i;
+}
+}  // namespace detail
+
 // ---- debug ------------------------------------------------------------------------
 
 /** A line in bin/log.txt (debug builds also show it in the Output panel). */

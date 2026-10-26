@@ -325,6 +325,7 @@ add_executable(tyrax-editor
     src/project.cpp
     src/savebake.cpp
     src/scrollsim.cpp
+    src/scriptprops.cpp
     src/shadowbake.cpp
     src/skytex.cpp
     src/screenfx.cpp

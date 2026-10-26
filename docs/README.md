@@ -152,7 +152,8 @@ a Mac) finds any command, object or window by name.
   call: what the flow nodes do (objects, raycasts against the real collision
   boxes, sounds, events shared with graphs, save data, HUD, scenes) plus
   vectors, easing, random numbers and timers, with the project's names as
-  typed constants (`tyrax::Sounds::Door`).
+  typed constants (`tyrax::Sounds::Door`); `[[tyra::prop]]` public fields
+  set per object in Properties.
 - [The Flow Graph window](flow-graph.md) — giving an object behaviour: the
   graph that follows the selection, the add-node search, compact nodes with an
   inspector, problems, Frame all / Tidy, and the live-debugging view.

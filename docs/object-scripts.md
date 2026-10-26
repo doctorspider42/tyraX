@@ -96,6 +96,11 @@ TYRA_OBJECT_SCRIPT(Bobber);
 
 4. Attach the class to more objects with the **Attach script...** combo -
    each gets an independent instance. **Build & Run** (`F5`).
+5. To make a value settable per object, mark the member
+   `[[tyra::prop]]`, for example `[[tyra::prop(min = 0, max = 2)]] float
+   height = 0.5F;`. It then shows up under the script in Properties, with a
+   value of its own on each object. See
+   [public fields](script-api.md#public-fields).
 
 ## The API
 
