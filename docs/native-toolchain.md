@@ -185,6 +185,8 @@ because the engine and PS2SDK headers use GNU extensions. The same choice goes
 into `.vscode/c_cpp_properties.json`, so IntelliSense flags exactly what the
 compiler would.
 
+![Project Preferences > Build & debug > Advanced > Compiler: C++23 picked, with extra compiler and linker flags](img/compiler-preferences.png)
+
 | Backend | Compiler | C++20 | C++23 |
 |---|---|---|---|
 | Native (default) | GCC 15.2 | full | nearly full (`std::expected`, `std::print`, deducing `this`) |
