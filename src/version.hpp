@@ -5615,8 +5615,11 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 1
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 2
+#define TYRAX_VERSION_PATCH 0
+// 2.2.0: the game's C++ standard (17/20/23, default 20) and extra compiler /
+// linker flags are project preferences, and the generated Makefile includes an
+// optional user-owned user.mk (docs/native-toolchain.md).
 // 2.1.1: the release workflow publishes CHANGELOG.md's "## <version>" section
 // as the release notes (generated notes when the changelog names no such
 // version); changelog headings carry no date (docs/updates.md).
@@ -6460,7 +6463,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Project::textureFilters ("textureFilter" { texture: mode } beside
 // "textureQuality", written only when there is one). Missing = smooth, which
 // is what every older project drew. Additive; no migration.
-inline constexpr int kFormatVersion = 123;
+// v124 (docs/native-toolchain.md, "C++ standard and compiler flags"):
+// ProjectSettings::cppStandard ("cppStandard", written only when not
+// "c++20"), extraCompilerFlags and extraLinkerFlags (written only when set).
+// Missing = C++20 and no extra flags; a project that predates them compiled
+// as gnu++17 and builds unchanged as C++20. Additive; no migration.
+inline constexpr int kFormatVersion = 124;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

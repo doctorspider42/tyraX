@@ -1719,6 +1719,22 @@ struct ProjectSettings {
     std::string videoSystem = "auto";      // "auto" | "ntsc" | "pal"
     std::string buildProfile = "release";  // "release" | "debug"
 
+    // The C++ dialect the game's OWN sources compile in (the generated
+    // Makefile's -std=gnu++NN; the prebuilt engine keeps its own). "c++17" |
+    // "c++20" | "c++23". C++20 is also what every project that predates the
+    // key gets: until it existed nothing passed -std, so games compiled as the
+    // compiler's default gnu++17, and they all build unchanged as C++20.
+    // C++23 needs GCC 15 (the native toolchain, or the from-source Docker
+    // image); the default h4570/tyra image is GCC 11.3 and knows only C++2b.
+    std::string cppStandard = "c++20";
+    // Free-form flags appended to the game's compiler (CFLAGS) and linker
+    // (LINKFLAGS) command lines, both profiles. Only the game's sources see
+    // them - the engine library is shared by every project of a checkout.
+    // Profile-specific or structural additions belong in the project's own
+    // user.mk, which the generated Makefile includes when it exists.
+    std::string extraCompilerFlags;
+    std::string extraLinkerFlags;
+
     // Output scan mode. "interlaced" is the stock 480i/576i signal (follows
     // videoSystem). "interlaced-field" is the same signal with true field
     // rendering: half-height buffers, a fresh image every field (50/60
@@ -2498,9 +2514,9 @@ struct ProjectSettings {
 // std::string against libstdc++'s 32, so both are listed - update BOTH when a
 // field lands (a Mac build prints the libc++ one in the same message).
 #if defined(_LIBCPP_VERSION)
-static_assert(sizeof(ProjectSettings) == 816,
+static_assert(sizeof(ProjectSettings) == 888,
 #else
-static_assert(sizeof(ProjectSettings) == 912,
+static_assert(sizeof(ProjectSettings) == 1008,
 #endif
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
@@ -2527,6 +2543,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
+           a.cppStandard == b.cppStandard &&
+           a.extraCompilerFlags == b.extraCompilerFlags &&
+           a.extraLinkerFlags == b.extraLinkerFlags &&
            a.textureQuant == b.textureQuant &&
            a.textureAtlas == b.textureAtlas &&
            a.textureFilter == b.textureFilter &&

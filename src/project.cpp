@@ -1820,6 +1820,17 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
+         << (p.settings.cppStandard != "c++20"
+                 ? "    \"cppStandard\": \"" + p.settings.cppStandard + "\",\n"
+                 : std::string())
+         << (!p.settings.extraCompilerFlags.empty()
+                 ? "    \"extraCompilerFlags\": \"" +
+                       jsonEscape(p.settings.extraCompilerFlags) + "\",\n"
+                 : std::string())
+         << (!p.settings.extraLinkerFlags.empty()
+                 ? "    \"extraLinkerFlags\": \"" +
+                       jsonEscape(p.settings.extraLinkerFlags) + "\",\n"
+                 : std::string())
          << "    \"textureQuant\": \"" << p.settings.textureQuant << "\",\n"
          << "    \"textureAtlas\": " << (p.settings.textureAtlas ? "true" : "false")
          << ",\n"
@@ -6289,6 +6300,14 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))
             st.buildProfile = v->stringOr("release") == "debug" ? "debug" : "release";
+        if (const auto* v = s->find("cppStandard")) {
+            const std::string c = v->stringOr("c++20");
+            st.cppStandard = (c == "c++17" || c == "c++23") ? c : "c++20";
+        }
+        if (const auto* v = s->find("extraCompilerFlags"))
+            st.extraCompilerFlags = v->stringOr("");
+        if (const auto* v = s->find("extraLinkerFlags"))
+            st.extraLinkerFlags = v->stringOr("");
         // pre-quantization projects keep their full-color output
         st.textureQuant = "none";
         if (const auto* v = s->find("textureQuant")) {

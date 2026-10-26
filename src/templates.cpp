@@ -534,14 +534,27 @@ OBJEXT      := o
 # ps2sdk's libeedebug, which the engine's crash handler uses to hook the EE
 # exception vectors. Release builds carry neither, and KEEPSYM off means no
 # unstripped copy of the ELF is kept - see docs/devkit.md.
+# The C++ standard comes from Project > Preferences > Build & debug.
 CFLAGS      := {{BUILD_CFLAGS}}
 KEEPSYM     := {{KEEPSYM}}
+TYRAX_PROFILE := {{BUILD_PROFILE}}
 LIB         := -ltyra{{BUILD_LIBS}}
 LIBDIRS     := -L$(ENGINEDIR)/bin
 INC         := -I$(INCDIR) -I$(ENGINEDIR)/inc
 INCDEP      := -I$(INCDIR) -I$(ENGINEDIR)/inc
 
 include $(TYRA_MAKEFILE)
+
+# Extra flags (same Preferences page) go AFTER the engine's own -O3 -Wall, so
+# an -O2 or a -Wno-... typed there wins. They reach this game's sources only;
+# the engine library is shared by every project of the checkout.
+{{EXTRA_FLAGS}}
+# user.mk is yours: never generated, never overwritten. It is read last, so it
+# can append to CFLAGS / LINKFLAGS / LIB / INC (branch on $(TYRAX_PROFILE) =
+# debug | release) and add rules. Editing it rebuilds the game, like a flag
+# change does.
+-include user.mk
+$(OBJECTS) $(OUTPUT): $(wildcard user.mk)
 )";
 
 // Per-project container (no fixed container_name - avoids conflicts between
@@ -20562,7 +20575,33 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     const ProjectSettings& st = p.settings;
     // Build-profile flags for the generated Makefile (see TPL_MAKEFILE).
     const bool dbgProfile = st.buildProfile == "debug";
-    s = replaceAll(s, "{{BUILD_CFLAGS}}", dbgProfile ? "-g" : "");
+    {
+        // gnu++, not c++: the engine and PS2SDK headers lean on GNU
+        // extensions, and gnu++17 is what every game compiled as before the
+        // setting existed (no -std at all = the compiler's default). C++23 is
+        // spelled 2b because GCC 11.3 (the default Docker image) predates the
+        // c++23 name; GCC 15 still accepts it.
+        const std::string& cs = st.cppStandard;
+        std::string cflags = cs == "c++17"   ? "-std=gnu++17"
+                             : cs == "c++23" ? "-std=gnu++2b"
+                                             : "-std=gnu++20";
+        if (dbgProfile) cflags += " -g";
+        s = replaceAll(s, "{{BUILD_CFLAGS}}", cflags);
+        // Newlines would end the make assignment and run the rest as make
+        // syntax; a flag string is one line.
+        auto oneLine = [](std::string f) {
+            for (char& ch : f)
+                if (ch == '\n' || ch == '\r') ch = ' ';
+            return f;
+        };
+        std::string extra;
+        if (!st.extraCompilerFlags.empty())
+            extra += "CFLAGS      += " + oneLine(st.extraCompilerFlags) + "\n";
+        if (!st.extraLinkerFlags.empty())
+            extra += "LINKFLAGS   += " + oneLine(st.extraLinkerFlags) + "\n";
+        s = replaceAll(s, "{{EXTRA_FLAGS}}\n", extra);
+    }
+    s = replaceAll(s, "{{BUILD_PROFILE}}", dbgProfile ? "debug" : "release");
     s = replaceAll(s, "{{KEEPSYM}}", dbgProfile ? "1" : "0");
     s = replaceAll(s, "{{BUILD_LIBS}}", dbgProfile ? " -leedebug" : "");
     s = replaceAll(s, "{{DETAIL}}", std::to_string(st.terrainDetail));
@@ -35473,8 +35512,14 @@ static std::string vscodeCppProperties(const Project& p) {
            "      \"defines\": [\"_EE\"],\n";
     if (!compiler.empty())
         out << "      \"compilerPath\": \"" << compiler << "\",\n";
+    // The dialect the Makefile compiles in (Preferences > Build & debug), so
+    // IntelliSense flags exactly what the compiler would.
     out << "      \"cStandard\": \"c11\",\n"
-           "      \"cppStandard\": \"c++20\",\n"
+           "      \"cppStandard\": \"gnu++"
+        << (p.settings.cppStandard == "c++17"   ? "17"
+            : p.settings.cppStandard == "c++23" ? "23"
+                                                : "20")
+        << "\",\n"
            "      \"intelliSenseMode\": \""
         << mode
         << "\"\n"

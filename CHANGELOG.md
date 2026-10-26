@@ -8,6 +8,11 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.2.0
+
+- **Choose your game's C++ standard.** *Project > Preferences > Build & debug > Advanced > Compiler* switches between C++17, C++20 and C++23. C++20 is the default, also for existing projects, which used to compile as C++17. VS Code IntelliSense follows the same choice. C++23 needs the native toolchain or the from-source Docker image.
+- **Extra compiler and linker flags.** The same page takes flags appended to your game's compile and link commands, after the engine's own, so `-O2` or `-Wextra` take effect. For anything more, such as per-profile flags, extra libraries or your own rules, add a `user.mk` to the project root: the editor never touches it and the build includes it. Changing either rebuilds the game. Projects are saved as format 124.
+
 ## 2.1.1
 
 - The release notes on GitHub, and in the editor's update dialog, are now this changelog's entry for the version instead of a bare "Full Changelog" link.

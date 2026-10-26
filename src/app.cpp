@@ -18831,6 +18831,9 @@ static const PrefIndexEntry kPrefIndex[] = {
      "liveLinkPollFrames,liveDebugPollFrames,liveDebugSnapshotFrames,liveLogicPollFrames,timeMachineFrames", true,
      "devkit poll intervals every"},
     {"EE crash handler", "Build & debug", "Crash reports", "eeCrashHandler", true, "devkit"},
+    {"C++ standard", "Build & debug", "Compiler", "cppStandard", true, "cpp c++17 c++20 c++23 std gnu++ language"},
+    {"Extra compiler flags", "Build & debug", "Compiler", "extraCompilerFlags", true, "CFLAGS gcc g++ optimization user.mk"},
+    {"Extra linker flags", "Build & debug", "Compiler", "extraLinkerFlags", true, "LINKFLAGS ld user.mk"},
 };
 
 static const PrefIndexEntry* findPrefEntry(const std::string& label) {
@@ -20670,7 +20673,7 @@ void App::drawPreferencesWindow() {
                                 haveCopilot ? " Copilot" : "");
     }
     prefRow("AI support");
-    if (advanced("bakes before a build, how often live tools check in, crash handler, ps2link")) {
+    if (advanced("bakes before a build, how often live tools check in, crash handler, ps2link, C++ standard, compiler flags")) {
     prefGroup("Keyboard & mouse");
     ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
     ui::Switch("Keyboard & mouse over ps2link", &prefSettings_.keyboardMousePs2Link);
@@ -20783,6 +20786,46 @@ void App::drawPreferencesWindow() {
         "See docs/devkit.md.");
 
     prefRow("EE crash handler");
+
+    prefGroup("Compiler");
+    {
+        int cs = prefSettings_.cppStandard == "c++17" ? 0 : prefSettings_.cppStandard == "c++23" ? 2 : 1;
+        const char* csNames[] = {"C++17", "C++20", "C++23"};
+        if (segRow("C++ standard", csNames, 3, &cs))
+            prefSettings_.cppStandard = cs == 0 ? "c++17" : cs == 2 ? "c++23" : "c++20";
+        prefHelp(
+            "The language your scripts and the generated game compile in\n"
+            "(-std=gnu++NN). C++23 needs GCC 15: the native toolchain or the\n"
+            "from-source Docker image - the default h4570/tyra image is GCC 11.\n"
+            "See docs/native-toolchain.md.");
+        prefRow("C++ standard");
+
+        // A label-left one-line field on a std::string (growString resizes).
+        auto flagsRow = [&](const char* label, std::string* v, const char* hint) {
+            const float avail = ImGui::GetContentRegionAvail().x;
+            const float cw = IM_TRUNC(ImClamp(avail * 0.34f, scaled(140), scaled(260)));
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(sem.textDim, "%s", label);
+            ImGui::SameLine();
+            ImGui::SetCursorScreenPos(ImVec2(p.x + cw, p.y));
+            ImGui::SetNextItemWidth(avail - cw);
+            const std::string id = std::string("##") + label;
+            ImGui::InputTextWithHint(id.c_str(), hint, v->data(), v->capacity() + 1,
+                                     ImGuiInputTextFlags_CallbackResize, growString, v);
+            ui::NoteRow(p, ImVec2(p.x + cw, p.y + ImGui::GetFrameHeight()), ImGui::CalcTextSize(label).x);
+        };
+        flagsRow("Extra compiler flags", &prefSettings_.extraCompilerFlags, "e.g. -O2 -Wextra");
+        prefHelp(
+            "Appended to the game's compiler command after the engine's own\n"
+            "-O3 -Wall, so they win. Your game's sources only - the engine\n"
+            "library is shared. Both profiles; per-profile flags and anything\n"
+            "structural go in the project's user.mk.");
+        prefRow("Extra compiler flags");
+        flagsRow("Extra linker flags", &prefSettings_.extraLinkerFlags, "e.g. -Wl,--print-memory-usage");
+        prefHelp("Appended to the game's link command. Libraries go in user.mk (LIB += ...).");
+        prefRow("Extra linker flags");
+    }
     }
     closeCard();
     }

@@ -371,7 +371,8 @@ Developer design docs (internals, not user guides):
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
   kernels out of stages, no assembly.
 - [The native PS2 toolchain](native-toolchain.md) — the default Docker-free
-  build, first-run setup, caches, vendored sources, licences and Docker fallback.
+  build, first-run setup, caches, vendored sources, licences and Docker fallback,
+  plus the game's C++ standard, extra compiler/linker flags and `user.mk`.
 - [The toolchain image](toolchain-image.md) — where the optional Docker image is
   compiled in comes from, and the long measured account of replacing Sony's
   unlicensed `vcl` with `openvcl` so the image can be published at all:
