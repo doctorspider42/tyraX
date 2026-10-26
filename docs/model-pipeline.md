@@ -63,8 +63,8 @@ torch extrudes the model's shadow from (docs/flashlight.md, "The shadow").
 
 OBJ `usemtl` groups are preserved while parsing, but the `.tmdl` baker now
 coalesces groups whose **final render state** is identical: resolved atlas page
-or texture, `Kd`, `Ke`, reflection map/strength/mode, and the same LOD tier
-count. Their vertex arrays are appended before triangle-strip generation, so
+or texture, [texture filter](texture-filtering.md) (part flags bits 1-2), `Kd`,
+`Ke`, reflection map/strength/mode, and the same LOD tier count. Their vertex arrays are appended before triangle-strip generation, so
 the game receives one bag instead of several and the stripifier may continue
 across what used to be an authoring-only boundary.
 

@@ -106,7 +106,8 @@ static const char* windowTitle(const std::string& key) {
         {"chat", "AI Assistant"},
         {"atlas", "Texture Atlas"},        {"batches", "Static Batches"},
         {"projectprefs", "Project Preferences"},
-        {"vehicles", "Vehicle Editor"},    {"particles", "Particle Editor"}};
+        {"vehicles", "Vehicle Editor"},    {"particles", "Particle Editor"},
+        {"texfilter", "Texture Filtering"}};
     for (const auto& [k, n] : kNames)
         if (key == k) return n;
     return nullptr;

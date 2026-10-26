@@ -114,15 +114,17 @@ struct SceneObjectData {
 };
 
 struct GameModelPart { Texture* texture = nullptr; Texture* reflTexture = nullptr;
-                       unsigned int stripRun = 0; };
+                       unsigned int stripRun = 0; unsigned char textureFilter = 0; };
 struct GameModel { float mn[3] = {0,0,0}, mx[3] = {0,0,0};
                    std::vector<GameModelPart> parts; };
-struct GameMaterial { Texture* texture = nullptr; Texture* reflTexture = nullptr; };
+struct GameMaterial { Texture* texture = nullptr; Texture* reflTexture = nullptr;
+                      unsigned char textureFilter = 0; };
 
 struct StaticBatchMember { int object; int part; };
 struct StaticBatch {
   bool reflected = false;
   Texture* texture = nullptr;
+  unsigned char textureFilter = 0;
   float drawDistance = 0.0f;
   unsigned int stripRun = 0;
   std::vector<StaticBatchMember> members;
@@ -184,7 +186,7 @@ MAIN = r'''
 // A fixture, described once and handed to BOTH sides.
 // ---------------------------------------------------------------------------
 struct FxPart { std::string texture; bool reflective = false;
-                unsigned stripRun = 0; unsigned verts = 75; };
+                unsigned stripRun = 0; unsigned verts = 75; int filter = 0; };
 struct FxModel { std::string path; float mn[3]; float mx[3];
                  std::vector<FxPart> parts; };
 struct FxObject {
@@ -199,7 +201,7 @@ struct FxObject {
   float lightRadius = 0.0f;
 };
 struct FxMaterial { std::string path; std::string texture; bool reflective = false;
-                    bool known = true; };
+                    bool known = true; int filter = 0; };
 struct Fixture {
   std::string name;
   float terrainW = 100.0f, terrainD = 100.0f;
@@ -259,6 +261,7 @@ static Picture runRuntime(const Fixture& fx, std::vector<char>& batchedOut) {
       gp.texture = texFor(p.texture);
       gp.reflTexture = p.reflective ? texFor(m.path + "@refl") : nullptr;
       gp.stripRun = p.stripRun;
+      gp.textureFilter = gp.texture ? (unsigned char)p.filter : 0;
       gm.parts.push_back(gp);
     }
     modelIndex[m.path] = (int)g.gameModels.size();
@@ -269,6 +272,7 @@ static Picture runRuntime(const Fixture& fx, std::vector<char>& batchedOut) {
     GameMaterial gm;
     gm.texture = texFor(m.texture);
     gm.reflTexture = m.reflective ? texFor(m.path + "@refl") : nullptr;
+    gm.textureFilter = gm.texture ? (unsigned char)m.filter : 0;
     matIndex[m.path] = (int)g.gameMaterials.size();
     g.gameMaterials.push_back(gm);
   }
@@ -349,6 +353,7 @@ static Picture runHost(const Fixture& fx, std::vector<char>& batchedOut) {
     for (const FxPart& p : it->second->parts) {
       staticbatch::ModelPart mp;
       mp.texture = p.texture;
+      mp.textureFilter = p.texture.empty() ? 0 : p.filter;
       mp.reflective = p.reflective;
       mp.stripRun = p.stripRun;
       mp.vertexCount = p.verts;
@@ -363,6 +368,7 @@ static Picture runHost(const Fixture& fx, std::vector<char>& batchedOut) {
     if (it == mats.end()) return mi;
     mi.known = it->second->known;
     mi.texture = it->second->texture;
+    mi.textureFilter = it->second->filter;
     mi.reflective = it->second->reflective;
     return mi;
   };
@@ -526,6 +532,28 @@ int main() {
     fx.batching = false;
     fx.materials = {{"m/j.mtl","j.png"}};
     fx.objects = {box(0,0,"m/j.mtl"), box(2,0,"m/j.mtl")};
+    check(fx);
+  }
+  // L: texture filtering is part of the key. With atlasing on, a smooth and a
+  // point-sampled member share one page (one texture), but a bag has one
+  // TEX1 - two batches, never one (docs/texture-filtering.md).
+  {
+    Fixture fx; fx.name = "L filter splits a shared texture";
+    fx.materials = {{"m/px.mtl", "page.png", false, true, 1},
+                    {"m/sm.mtl", "page.png"}};
+    fx.objects = {box(0,0,"m/px.mtl"), box(2,0,"m/px.mtl"),
+                  box(4,0,"m/sm.mtl"), box(6,0,"m/sm.mtl")};
+    check(fx);
+  }
+  // M: the same for model parts - two models on one page, one pixel and one
+  // close-up, plus a pixel copy that does merge.
+  {
+    Fixture fx; fx.name = "M filter splits model parts";
+    FxModel a{"a.obj", {-1,-1,-1}, {1,1,1}, {{"page.png", false, 0, 90, 1}}};
+    FxModel b{"b.obj", {-1,-1,-1}, {1,1,1}, {{"page.png", false, 0, 90, 2}}};
+    fx.models = {a, b};
+    fx.objects = {mdl(0,0,"a.obj"), mdl(2,0,"a.obj"),
+                  mdl(4,0,"b.obj"), mdl(6,0,"b.obj")};
     check(fx);
   }
   // K: an ineligible object never reaches the grouping, and its absence must

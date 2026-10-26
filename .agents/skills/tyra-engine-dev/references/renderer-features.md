@@ -14,6 +14,7 @@ Read when: you touch `RendererCorePostFx`, `RendererCoreShadowMap`, `RendererCor
 
 ## Per-bag blend / env family
 - `PipelineInfoBag::additiveBlendFix` (original reflective env pass): non-zero → `StaPipCore::render` drains PATH1 (`sync.align3D()`), sets global `ALPHA` to `Cs*FIX/128 + Cd` via `RendererCoreGS::setAlpha`, restores alpha-over after. **Superseded** by the in-band per-mesh ALPHA qword (`VU1_ALPHA_ADDR` + `StoreTyraGifTags*Alpha`): every StaPip mesh's tag block carries its blend, no barriers; dynpip keeps the original 7/5-qword macros. `subtractiveBlendFix` exists for volume counting.
+- Texture filtering per bag (docs/texture-filtering.md): `StaPipTextureBag::filter` (0 = follow the info bag, 1 = nearest, 2 = nearest mag + linear min) overrides `lod` MMAG/MMIN where `sendObjectData` writes the bag's TEX1 qword - the ONLY StaPip TEX1 write, so stamps/retained/baked routes inherit it. Loaders: `# tyra-filter` in `parseMtl`, `.tmdl` part flags bits 1-2 -> `LeanObjMaterial`/`LeanMtlMaterial::textureFilter`. DynPip has no field (the game draws nothing through it).
 - StaPip `TCE` env programs: matcap ST from normals in the ST slot + `StaPipTextureBag::coordinatesAreNormals` + camera basis at `VU1_ENV_BASIS_ADDR` (EE uploads it transposed and pre-scaled as three qwords so VU1 does right/up in one accumulator chain).
 
 ## Render targets: `RendererCoreEnvMap` and `camFeed`

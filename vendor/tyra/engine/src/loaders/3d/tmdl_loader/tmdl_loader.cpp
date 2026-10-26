@@ -164,6 +164,9 @@ std::unique_ptr<LeanObjMesh> TmdlLoader::load(const std::string& relativePath) {
       return nullptr;
     }
     mat.reflRounded = (flags & 1) != 0;
+    // Modified by TyraX: bits 1-2 = texture filter (0 smooth, 1 pixel,
+    // 2 pixel close-up). Older files leave them 0, which is what they were.
+    mat.textureFilter = (u8)((flags >> 1) & 3);
     // uvRect stays {0,0,1,1}: an atlas rect is already folded into the baked
     // UVs, so nothing downstream may multiply through it a second time.
     mat.lods.resize(lodCount);

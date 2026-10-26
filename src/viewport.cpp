@@ -4066,6 +4066,7 @@ void Viewport::setUsableHighlight(bool enabled, const float* rgb) {
 }
 
 void Viewport::clearTexCache() {
+    filteredTex_.clear();
     for (auto& [path, tex] : texCache_)
         if (tex) glDeleteTextures(1, &tex);
     texCache_.clear();
@@ -4133,6 +4134,53 @@ void Viewport::invalidateMaterial(const std::string& relPath) {
     if (std::getenv("TYRAX_MATERIAL_PROFILE"))
         std::fprintf(stderr, "[material-refresh] models=%zu animated=%zu roads=%zu preserved-models=%zu preserved-roads=%zu\n",
                      models, animated, roads, modelCache_.size(), roadDraws_.size());
+}
+
+void Viewport::setTextureFilters(
+    const std::map<std::string, std::string>& overrides,
+    const std::string& projectDefault, int preview) {
+    if (overrides == texFilterOverrides_ && projectDefault == texFilterDefault_ &&
+        preview == texFilterPreview_)
+        return;
+    texFilterOverrides_ = overrides;
+    texFilterDefault_ = projectDefault;
+    texFilterPreview_ = preview;
+    for (const std::string& rel : filteredTex_)
+        if (auto it = texCache_.find(rel); it != texCache_.end() && it->second)
+            applyTexFilter(rel, it->second);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+// MAG/MIN as the GS gets them (StaPipTextureBag::filter): close-up is nearest
+// only when magnified. Leaves the texture bound.
+void Viewport::applyTexFilter(const std::string& relPath, uint32_t tex) const {
+    std::string f = texFilterPreview_ == 1   ? "smooth"
+                    : texFilterPreview_ == 2 ? "pixel"
+                                             : texFilterDefault_;
+    if (texFilterPreview_ == 0) {
+        const std::string key =
+            std::filesystem::path(relPath).lexically_normal().generic_string();
+        if (auto it = texFilterOverrides_.find(key);
+            it != texFilterOverrides_.end())
+            f = it->second;
+    }
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                    f == "smooth" ? GL_LINEAR : GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                    f == "pixel" ? GL_NEAREST : GL_LINEAR);
+}
+
+uint32_t Viewport::colorTexture(const std::string& relPath) {
+    // Fresh = (re)loaded now, so its filter is the upload's linear default -
+    // also after a per-path cache drop that left it in filteredTex_.
+    const bool fresh = !texCache_.count(relPath);
+    const uint32_t tex = glTexture(relPath);
+    if (tex && (filteredTex_.insert(relPath).second || fresh)) {
+        applyTexFilter(relPath, tex);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    return tex;
 }
 
 uint32_t Viewport::glTexture(const std::string& relPath) {
@@ -4642,6 +4690,7 @@ void Viewport::updateTexturePixels(const std::string& relPath, int w, int h,
     }
     glBindTexture(GL_TEXTURE_2D, tex);
     glUploadTexRgba(w, h, rgba);
+    if (filteredTex_.count(relPath)) applyTexFilter(relPath, tex);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
@@ -4661,9 +4710,9 @@ const Viewport::MaterialDraw* Viewport::materialDraw(const std::string& relPath)
         draw.kd[2] = m.kd[2];
         for (int i = 0; i < 3; ++i) draw.ke[i] = m.ke[i];
         if (!m.texture.empty())
-            draw.tex = glTexture((std::filesystem::path(relPath).parent_path() /
-                                  m.texture)
-                                     .generic_string());
+            draw.tex = colorTexture((std::filesystem::path(relPath).parent_path() /
+                                     m.texture)
+                                        .generic_string());
         if (!m.refl.empty()) {
             if (m.refl == "@sky")
                 draw.reflSky = true;
@@ -4768,7 +4817,7 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
             for (int k = 0; k < 3; ++k) part.kd[k] = sub.kd[k];
             if (!sub.texture.empty()) {
                 const std::string texRel = (modelDir / sub.texture).generic_string();
-                part.tex = glTexture(texRel);
+                part.tex = colorTexture(texRel);
                 part.alpha = part.tex && texHasAlpha(texRel);
             }
             if (!sub.refl.empty()) {

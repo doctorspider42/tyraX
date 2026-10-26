@@ -436,6 +436,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 
 **Performance**
 
+- [Point-sampled textures](docs/texture-filtering.md) — Smooth, Pixel or Pixel
+  close-up per project and per texture, previewed in the viewport.
 - [Static batching for primitives and compact repeated models](docs/model-pipeline.md#compact-static-model-batching),
   [texture atlasing](docs/texture-atlasing.md), mesh LOD, draw distances and an
   adaptive overdraw budget for distant optional effects. A

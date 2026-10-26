@@ -6642,6 +6642,7 @@ void TerrainGame::loadModelAsset(int i) {
       const std::string path = dir + mat.textureName;
       part.texture = acquireTexture(path);
       gm.texPaths.push_back(path);
+      part.textureFilter = part.texture ? mat.textureFilter : 0;
     }
     if (mat.reflTextureName == "@sky") {
       // Dynamic env map: the engine-owned VRAM target, re-rendered from the
@@ -6710,6 +6711,7 @@ void TerrainGame::loadMaterialAsset(int i) {
     gmat.texPath = dir + mat.textureName;
     gmat.texture = acquireTexture(gmat.texPath);
     for (int k = 0; k < 4; ++k) gmat.uvRect[k] = mat.uvRect[k];
+    gmat.textureFilter = gmat.texture ? mat.textureFilter : 0;
   }
   if (mat.reflTextureName == "@sky") {
     // Dynamic env map (see loadModelAsset), null when unreserved.
@@ -9072,6 +9074,7 @@ void TerrainGame::loadModelAsset(int i) {
       const std::string path = dir + mat.textureName;
       part.texture = acquireTexture(path);
       gm.texPaths.push_back(path);
+      part.textureFilter = part.texture ? mat.textureFilter : 0;
     }
     if (mat.reflTextureName == "@sky") {
       // Dynamic env map: the engine-owned VRAM target, re-rendered from the
@@ -9140,6 +9143,7 @@ void TerrainGame::loadMaterialAsset(int i) {
     gmat.texPath = dir + mat.textureName;
     gmat.texture = acquireTexture(gmat.texPath);
     for (int k = 0; k < 4; ++k) gmat.uvRect[k] = mat.uvRect[k];
+    gmat.textureFilter = gmat.texture ? mat.textureFilter : 0;
   }
   if (mat.reflTextureName == "@sky") {
     // Dynamic env map (see loadModelAsset), null when unreserved.
@@ -9874,6 +9878,7 @@ void TerrainGame::setupAnimObject(int index) {
     if (m < gam.textures.size() && gam.textures[m] && frame->textureCoords) {
       ap.texBag = std::make_unique<StaPipTextureBag>();
       ap.texBag->texture = gam.textures[m];
+      ap.texBag->filter = TEXTURE_FILTER_DEFAULT;
       ap.texBag->coordinates = frame->textureCoords;
       ap.bag->texture = ap.texBag.get();
     }
@@ -20836,6 +20841,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
         o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].texture : (gmat ? gmat->texture : nullptr);
+    const Texture* const surfaceTex = tex;  // a feed below replaces it
+    const unsigned char texFilter =
+        o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].textureFilter
+                         : (gmat ? gmat->textureFilter : 0);
     // Raytraced mirror: the glass samples the VU0-traced reflection image
     // (created by buildRtMirrors before this rebuild ever runs).
     if (o.data.type == 15)
@@ -20879,6 +20888,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
+      // Mirror and camera feeds are render targets, never point sampled.
+      part.texBag->filter = tex == surfaceTex ? texFilter : 0;
       part.sts.bind(part.texBag);
       part.bag->texture = part.texBag.get();
     } else {
@@ -21605,12 +21616,13 @@ void TerrainGame::buildStaticBatchList() {
   // members that disagree about the distance must not share one - otherwise
   // the nearest member's number would silently extend every other member's.
   // Objects that leave it at 0 group exactly as they did before.
-  auto addMember = [&](int object, int part, Texture* texture, int cx, int cz,
-                       float dd, int lamp, unsigned int stripRun,
-                       bool reflected) {
+  auto addMember = [&](int object, int part, Texture* texture,
+                       unsigned char filter, int cx, int cz, float dd,
+                       int lamp, unsigned int stripRun, bool reflected) {
     int bi = -1;
     for (int b = 0; b < (int)staticBatches.size(); ++b)
-      if (staticBatches[b].texture == texture && keyX[b] == cx &&
+      if (staticBatches[b].texture == texture &&
+          staticBatches[b].textureFilter == filter && keyX[b] == cx &&
           keyZ[b] == cz && staticBatches[b].drawDistance == dd &&
           keyL[b] == lamp && staticBatches[b].stripRun == stripRun &&
           staticBatches[b].reflected == reflected) {
@@ -21620,6 +21632,7 @@ void TerrainGame::buildStaticBatchList() {
     if (bi < 0) {
       staticBatches.emplace_back();
       staticBatches.back().texture = texture;
+      staticBatches.back().textureFilter = filter;
       staticBatches.back().reflected = reflected;
       staticBatches.back().drawDistance = dd;
       staticBatches.back().stripRun = stripRun;
@@ -21665,8 +21678,9 @@ void TerrainGame::buildStaticBatchList() {
         if (p.reflTexture) { reflective = true; break; }
       if (reflective || gm.parts.empty()) continue;
       for (int pi = 0; pi < (int)gm.parts.size(); ++pi)
-        addMember(i, pi, gm.parts[pi].texture, cx, cz, d.drawDistance, lamp,
-                  gm.parts[pi].stripRun, d.reflected != 0);
+        addMember(i, pi, gm.parts[pi].texture, gm.parts[pi].textureFilter, cx,
+                  cz, d.drawDistance, lamp, gm.parts[pi].stripRun,
+                  d.reflected != 0);
     } else {
       if (d.material >= 0 &&
           (d.material >= (int)gameMaterials.size() ||
@@ -21674,7 +21688,9 @@ void TerrainGame::buildStaticBatchList() {
         continue;
       Texture* texture =
           d.material >= 0 ? gameMaterials[d.material].texture : nullptr;
-      addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u,
+      const unsigned char filter =
+          d.material >= 0 ? gameMaterials[d.material].textureFilter : 0;
+      addMember(i, -1, texture, filter, cx, cz, d.drawDistance, lamp, 0u,
                 d.reflected != 0);
     }
   }
@@ -21955,6 +21971,7 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   if (b.texture) {
     if (!b.texBag) b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = b.texture;
+    b.texBag->filter = b.textureFilter;
     b.sts.bind(b.texBag);
     b.bag->texture = b.texBag.get();
   } else {
@@ -22490,11 +22507,16 @@ int TerrainGame::procInstGeoRange(int model, int* count) {
     return procInstGeoFirst[(size_t)model];
   }
   const GameModel& gm = gameModels[(size_t)model];
-  std::vector<Tyra::Texture*> textures;
-  for (const GameModelPart& p : gm.parts)
+  // One draw group per texture AND filter: an atlas page may carry a smooth
+  // and a point-sampled part, and a bag has one TEX1.
+  std::vector<std::pair<Tyra::Texture*, unsigned char>> textures;
+  for (const GameModelPart& p : gm.parts) {
+    const std::pair<Tyra::Texture*, unsigned char> key(p.texture,
+                                                       p.textureFilter);
     if (!p.verts.empty() &&
-        std::find(textures.begin(), textures.end(), p.texture) == textures.end())
-      textures.push_back(p.texture);
+        std::find(textures.begin(), textures.end(), key) == textures.end())
+      textures.push_back(key);
+  }
   const int first = (int)procInstGeo.size();
   // The bake's pose: far above everything, so no point light, emissive pool
   // or AO occluder reaches it, and local-space output (g_bakeLocal).
@@ -22514,13 +22536,16 @@ int TerrainGame::procInstGeoRange(int model, int* count) {
   d.model = model;
   d.position[1] = 1.0e6F;
   for (int a = 0; a < 3; ++a) d.scale[a] = d.color[a] = 1.0F;
-  for (Tyra::Texture* tex : textures) {
+  for (const auto& texKey : textures) {
+    Tyra::Texture* tex = texKey.first;
     auto g = std::make_unique<ProcInstGeo>();
     g->model = model;
     for (int b = 0; b < kInstYawBuckets; ++b) {
       d.rotation[1] = 360.0F * (float)b / (float)kInstYawBuckets;
       for (const GameModelPart& src : gm.parts) {
-        if (src.texture != tex || src.verts.empty()) continue;
+        if (src.texture != tex || src.textureFilter != texKey.second ||
+            src.verts.empty())
+          continue;
         const bool textured = src.texture != nullptr;
         for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
           const float* v = &src.verts[i];
@@ -22546,6 +22571,7 @@ int TerrainGame::procInstGeoRange(int model, int* count) {
       if (tex) {
         g->texBag[b] = std::make_unique<StaPipTextureBag>();
         g->texBag[b]->texture = tex;
+        g->texBag[b]->filter = texKey.second;
         g->sts[b].bind(g->texBag[b]);
       }
       g->colorBag[b] = std::make_unique<StaPipColorBag>();
@@ -22846,15 +22872,20 @@ void TerrainGame::procFinishChunks() {
     c.bag->packageSize = c.stripRun > 0 ? static_cast<u32>(c.stripRun) : 0U;
     c.bag->bboxVersion = ++g_bboxStamp;
     const Tyra::Texture* tex = c.roadTex;
+    unsigned char texFilter = 0;  // roads stay smooth
     if (tex) {
     } else if (c.model >= 0 && c.model < (int)gameModels.size() &&
-        c.part < (int)gameModels[c.model].parts.size())
+        c.part < (int)gameModels[c.model].parts.size()) {
       tex = gameModels[c.model].parts[c.part].texture;
-    else if (c.material >= 0 && c.material < (int)gameMaterials.size())
+      texFilter = gameModels[c.model].parts[c.part].textureFilter;
+    } else if (c.material >= 0 && c.material < (int)gameMaterials.size()) {
       tex = gameMaterials[c.material].texture;
+      texFilter = gameMaterials[c.material].textureFilter;
+    }
     if (tex) {
       if (!c.texBag) c.texBag = std::make_unique<StaPipTextureBag>();
       c.texBag->texture = const_cast<Tyra::Texture*>(tex);
+      c.texBag->filter = texFilter;
       c.sts.bind(c.texBag);
       c.bag->texture = c.texBag.get();
     } else {
@@ -26233,6 +26264,7 @@ void TerrainGame::renderScene() {
           part.sts[k] = Vec4(v[6],v[7],1.0F,0.0F);
         }
         part.texBag->texture = src.texture;
+        part.texBag->filter = src.textureFilter;
         part.baseStamp = ++g_bboxStamp;
         part.bag->bboxVersion = part.baseStamp;
         if (DEBUG_SHOW_PROFILER && g.impostorView != view)

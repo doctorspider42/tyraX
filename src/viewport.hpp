@@ -7,6 +7,7 @@
 #include <thread>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -306,6 +307,15 @@ public:
 
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);
+
+    // Texture filtering (docs/texture-filtering.md): the project default, the
+    // per-texture overrides, and the viewport's own preview choice (0 = match
+    // the PS2, 1 = everything smooth, 2 = everything pixel). Applies to the
+    // colour textures of materials and models only - terrain, sky and
+    // lighting maps stay smooth, as they do on the console. Cheap to call
+    // every apply: GL state is touched only when something changed.
+    void setTextureFilters(const std::map<std::string, std::string>& overrides,
+                           const std::string& projectDefault, int preview);
 
     // Terrain material, pre-resolved by the caller: the first material's
     // map_Kd texture (empty = flat color), its Kd tint, whether a material is
@@ -1474,6 +1484,15 @@ private:
     aobake::GlowCache emisGlowCache_;
 
     std::map<std::string, uint32_t> texCache_;  // GL textures by relative path
+    // Texture filtering state (setTextureFilters) and the colour textures it
+    // governs - the subset of texCache_ that material and model draws bound.
+    std::map<std::string, std::string> texFilterOverrides_;
+    std::string texFilterDefault_ = "smooth";
+    int texFilterPreview_ = 0;
+    std::set<std::string> filteredTex_;
+    // Marks a colour texture as filter-governed and applies its filter.
+    uint32_t colorTexture(const std::string& relPath);
+    void applyTexFilter(const std::string& relPath, uint32_t tex) const;
     // Which of those images actually carry transparency (any texel below
     // fully opaque), filled as they load - the cutout/blend decision, so a
     // draw site never has to re-read the file.

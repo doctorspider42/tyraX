@@ -239,6 +239,10 @@ struct EditorConfig {
     // multiviewport.hpp): a panel dragged out of the editor becomes its own OS
     // window. Off by default only in a Wayland session.
     bool multiViewports = platform::multiViewportsByDefault();
+    // Viewport texture filtering preview (docs/texture-filtering.md): 0 =
+    // match the PS2 (the project's filters), 1 = everything smooth, 2 =
+    // everything pixel. A way of looking, like viewportPs2Shade.
+    int viewportTexFilter = 0;
 };
 
 // How many entries the recent-projects list keeps. Ten fills the welcome
@@ -350,6 +354,11 @@ static EditorConfig loadEditorConfig() {
         else if (match("ambienceDetailed", v)) cfg.ambienceDetailed = toI(v, 0) != 0;
         else if (match("droneDetailed", v)) cfg.droneDetailed = toI(v, 0) != 0;
         else if (match("multiViewports", v)) cfg.multiViewports = toI(v, 1) != 0;
+        else if (match("viewportTexFilter", v)) {
+            cfg.viewportTexFilter = toI(v, 0);
+            if (cfg.viewportTexFilter < 0 || cfg.viewportTexFilter > 2)
+                cfg.viewportTexFilter = 0;
+        }
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -433,7 +442,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "nativeTitleBar=" << (cfg.nativeTitleBar ? 1 : 0) << "\n"
       << "ambienceDetailed=" << (cfg.ambienceDetailed ? 1 : 0) << "\n"
       << "droneDetailed=" << (cfg.droneDetailed ? 1 : 0) << "\n"
-      << "multiViewports=" << (cfg.multiViewports ? 1 : 0) << "\n";
+      << "multiViewports=" << (cfg.multiViewports ? 1 : 0) << "\n"
+      << "viewportTexFilter=" << cfg.viewportTexFilter << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -693,6 +703,7 @@ int App::run(const std::string& initialProjectDir) {
         viewportPs2_ = cfg.viewportPs2;
         viewportPs2Shade_ = cfg.viewportPs2Shade;
         viewportGsColor_ = cfg.viewportGsColor;
+        viewportTexFilter_ = cfg.viewportTexFilter;
         runOnPs2_ = cfg.runOnPs2;
         timeBudgetMb_ = cfg.timeMachineBudgetMb;
         logOut_.mask = cfg.logMaskOutput;
@@ -1115,6 +1126,7 @@ void App::drawUI() {
     vehicleDriveTick();
     drawVehicleWindow();
     drawTextureAtlasWindow();
+    drawTextureFilterWindow();
     drawStaticBatchesWindow();
     drawWorldFactsWindow();
     drawVuProgramsWindow();
@@ -1318,7 +1330,7 @@ void App::saveGlobalConfig() {
                       gpuBakes_, globalUpdateCheck_, globalUpdateSkip_,
                       globalConsoleLogLines_, globalConsoleLogFiles_,
                       nativeTitleBar_, ambienceDetailed_, droneDetailed_,
-                      std::move(recent), multiViewports_});
+                      std::move(recent), multiViewports_, viewportTexFilter_});
 }
 
 void App::setUiScale(float userScale) {
@@ -1630,6 +1642,24 @@ void App::drawMainMenus() {
                     "Shade the way the console does: lights, occlusion and\n"
                     "fog per VERTEX, most surfaces flat-shaded - one colour\n"
                     "per triangle. Off = the editor's smooth per-pixel look.");
+            if (menuact::BeginMenu("Texture filtering", hasProject_)) {
+                static const char* kTexFilterNames[] = {
+                    "Match PS2", "All smooth", "All pixel"};
+                for (int i = 0; i < 3; ++i) {
+                    if (menuact::MenuItem(kTexFilterNames[i], nullptr,
+                                        viewportTexFilter_ == i) &&
+                        viewportTexFilter_ != i) {
+                        viewportTexFilter_ = i;
+                        saveGlobalConfig();
+                    }
+                }
+                menuact::EndMenu();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Match PS2 = each texture as the game samples it (Preferences >\n"
+                    "Graphics > Texture filtering, overrides in the Asset Browser).\n"
+                    "The other two only change this view.");
             if (menuact::BeginMenu("GS colour", hasProject_)) {
                 static const char* kGsColorNames[] = {
                     "Match project", "Full 32-bit", "16-bit",
@@ -2010,6 +2040,15 @@ void App::drawMainMenus() {
                 "per-texture keep-out and grouping controls. A page is ONE\n"
                 "allocation and ONE palette, so what shares one is worth\n"
                 "looking at.");
+        if (menuact::MenuItem("Texture Filtering...")) {
+            showTextureFilters_ = true;
+            texFilterScanDirty_ = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Every material texture with the filter the PS2 samples it\n"
+                "with - Smooth, Pixel or Pixel close-up - and the per-texture\n"
+                "overrides, set one at a time or in bulk.");
         if (menuact::MenuItem("Tree Generator...")) {
             showTreeGenerator_ = true;
             treePreviewDirty_ = true;
@@ -3661,6 +3700,12 @@ void App::drawViewportWindow() {
         // under us, and resolving it is a handful of comparisons.
         viewport_.setPs2Output(ps2ViewportOutput());
         viewport_.setPs2Shading(viewportPs2Shade_);
+        // Texture filtering: the project's own filters (an Asset Browser or
+        // Preferences edit shows at once) or the preview's override. The
+        // viewport compares and touches GL only on a change.
+        viewport_.setTextureFilters(project_.textureFilters,
+                                    project_.settings.textureFilter,
+                                    viewportTexFilter_);
         // GS colour: resolve "match project" against the project's own
         // Preferences here, so the viewport stays settings-blind and a
         // colour-depth edit shows the moment it is made.
@@ -5568,6 +5613,20 @@ bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
                               "one colour per triangle. Off = the editor's\n"
                               "smooth per-pixel look.");
         {
+            static const char* kTexFilterNames[] = {"Match PS2", "All smooth",
+                                                    "All pixel"};
+            ImGui::SetNextItemWidth(scaled(150.0f));
+            int tf = viewportTexFilter_;
+            if (ImGui::Combo("Texture filtering", &tf, kTexFilterNames, 3) &&
+                tf != viewportTexFilter_) {
+                viewportTexFilter_ = tf;
+                saveGlobalConfig();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Match PS2 = each texture as the game samples it.\n"
+                                  "The other two only change this view.");
+        }
+        {
             static const char* kGsColorNames[] = {"Match project", "Full 32-bit",
                                                   "16-bit", "16-bit + dithering"};
             ImGui::SetNextItemWidth(scaled(150.0f));
@@ -6216,6 +6275,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "assets") return &showAssetBrowser_;
     if (key == "chat") return &showAiChat_;
     if (key == "atlas") return &showTextureAtlas_;
+    if (key == "texfilter") return &showTextureFilters_;
     if (key == "batches") return &showStaticBatches_;
     if (key == "projectprefs") return &showProjectPrefs_;
     return nullptr;
@@ -6248,7 +6308,9 @@ static const char* const kLayoutWindowKeys[] = {
     // Tools > Vehicle Editor (docs/vehicles.md).
     "vehicles",
     // Tools > Particle Editor (docs/particles.md).
-    "particles"};
+    "particles",
+    // Tools > Texture Filtering (docs/texture-filtering.md).
+    "texfilter"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -7383,6 +7445,9 @@ void App::requestCloseProject() {
 // and the disk-derived caches a DIFFERENT project must not inherit.
 void App::closeProject() {
     if (!hasProject_) return;
+    // Tools > Texture Filtering lists the project's own files.
+    texFilterScanDirty_ = true;
+    texFilterSelected_.clear();
 
     // Stopping the link also stops a recording in progress, which bakes its
     // keys into the sequence first - so a close never silently eats a take.
@@ -18710,6 +18775,8 @@ static const PrefIndexEntry kPrefIndex[] = {
      "nav cell size walkable slope agent radius NPC"},
 
     {"Texture colours", "Graphics", "Look", "textureQuant", false, "textures quality palette 4-bit 8-bit"},
+    {"Texture filtering", "Graphics", "Look", "textureFilter", false,
+     "point sampled nearest pixel bilinear smooth close-up"},
     {"Shadows under moving objects", "Graphics", "Look", "blobShadows", false, "blob shadows"},
     {"Torch shadows", "Graphics", "Look", "flashShadowVolumes", false, "flashlight shadow volumes"},
     {"Spot light shadows", "Graphics", "Look", "spotShadowVolumes", false, "shadow volumes"},
@@ -20025,6 +20092,33 @@ void App::drawPreferencesWindow() {
 
     prefHint("16 is the PS2 look and the lightest on memory.");
     prefRow("Texture colours");
+
+    // Texture filtering (docs/texture-filtering.md): how the GS samples
+    // colour textures. Per-texture overrides live in the Asset Browser.
+    {
+        int filterMode = prefSettings_.textureFilter == "pixel"     ? 1
+                         : prefSettings_.textureFilter == "closeup" ? 2
+                                                                    : 0;
+        const char* filterNames[] = {"Smooth", "Pixel", "Close-up"};
+        if (segRow("Texture filtering", filterNames, 3, &filterMode))
+            prefSettings_.textureFilter =
+                filterMode == 1 ? "pixel" : filterMode == 2 ? "closeup" : "smooth";
+        prefHelp(
+            "Smooth - bilinear, texels blend (the PS2 look).\n"
+            "Pixel - nearest, every texel a crisp square (PS1 style).\n"
+            "Close-up - crisp up close, smooth in the distance: less\n"
+            "shimmer on far walls (the PS2 has no mipmaps here).\n"
+            "Override any texture in the Asset Browser. Lightmaps, AO,\n"
+            "terrain, sky and particles stay smooth.");
+        if (!project_.textureFilters.empty()) {
+            char note[64];
+            std::snprintf(note, sizeof note, "%d texture%s override this.",
+                          (int)project_.textureFilters.size(),
+                          project_.textureFilters.size() == 1 ? "" : "s");
+            prefHint(note);
+        }
+        prefRow("Texture filtering");
+    }
     ui::Switch("Shadows under moving objects", &prefSettings_.blobShadows);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(

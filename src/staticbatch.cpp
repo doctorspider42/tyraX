@@ -341,12 +341,14 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
     // --- stage 2: grouping --------------------------------------------------
     std::vector<int> keyX, keyZ;
     auto addMember = [&](int object, int part, const std::string& texture,
-                         int cx, int cz, float cellW, float dd, int lamp,
-                         unsigned int stripRun, unsigned int verts,
+                         int filter, int cx, int cz, float cellW, float dd,
+                         int lamp, unsigned int stripRun, unsigned int verts,
                          bool reflected) {
         int bi = -1;
         for (int b = 0; b < (int)res.batches.size(); ++b)
-            if (res.batches[(size_t)b].texture == texture && keyX[(size_t)b] == cx &&
+            if (res.batches[(size_t)b].texture == texture &&
+                res.batches[(size_t)b].textureFilter == filter &&
+                keyX[(size_t)b] == cx &&
                 keyZ[(size_t)b] == cz && res.batches[(size_t)b].drawDistance == dd &&
                 res.batches[(size_t)b].lamp == lamp &&
                 res.batches[(size_t)b].stripRun == stripRun &&
@@ -357,6 +359,7 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
         if (bi < 0) {
             Batch nb;
             nb.texture = texture;
+            nb.textureFilter = filter;
             nb.cellX = cx;
             nb.cellZ = cz;
             nb.cellW = cellW;
@@ -424,7 +427,8 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
                 // stripRun key, so an unstripped part groups with other
                 // unstripped parts and never with a stripped one.
                 const bool stripped = mp.stripVertexCount > 0 && mp.stripRun > 0;
-                addMember(i, pi, mp.texture, cx, cz, cellW, d.drawDistance,
+                addMember(i, pi, mp.texture, mp.textureFilter, cx, cz, cellW,
+                          d.drawDistance,
                           lamp, stripped ? mp.stripRun : 0u,
                           stripped ? mp.stripVertexCount : mp.vertexCount,
                           d.reflected);
@@ -444,10 +448,12 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
             // path and hands back nullptr for a file that is not there.
             const std::string texture =
                 (!d.materialPath.empty() && mat.known) ? mat.texture : kNoTexture;
+            const int filter =
+                texture == kNoTexture ? 0 : mat.textureFilter;
             const unsigned int verts =
                 in.primVertices ? in.primVertices(d) : 0u;
-            addMember(i, -1, texture, cx, cz, cellW, d.drawDistance, lamp, 0u,
-                      verts, d.reflected);
+            addMember(i, -1, texture, filter, cx, cz, cellW, d.drawDistance,
+                      lamp, 0u, verts, d.reflected);
         }
     }
 

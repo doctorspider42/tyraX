@@ -120,6 +120,10 @@ extern const char* const kNoTexture;
 // them is the drift the oracle exists to catch.
 struct ModelPart {
     std::string texture;      // resolved, or kNoTexture
+    // Texture filter (0 smooth, 1 pixel, 2 close-up), 0 for kNoTexture. Part
+    // of the key: an atlas page shared by a smooth and a point-sampled member
+    // is one texture but two TEX1 states (docs/texture-filtering.md).
+    int textureFilter = 0;
     bool reflective = false;  // any refl map -> the whole model stays solo
     unsigned int stripRun = 0;
     unsigned int vertexCount = 0;       // tier-0 triangle list
@@ -141,6 +145,7 @@ using ModelInfoFn = std::function<ModelInfo(const std::string& modelPath)>;
 struct MaterialInfo {
     bool known = false;
     std::string texture;      // resolved, or kNoTexture
+    int textureFilter = 0;    // as ModelPart::textureFilter
     bool reflective = false;
 };
 
@@ -179,6 +184,7 @@ struct Batch {
     // "Show in reflections" (a reflected batch is submitted whole into the
     // environment map, so it may hold only reflected objects).
     std::string texture;  // kNoTexture for the untextured/missing class
+    int textureFilter = 0;  // 0 smooth, 1 pixel, 2 close-up
     int cellX = 0;
     int cellZ = 0;
     float cellW = 0.0f;       // this group's own cell, capped by drawDistance

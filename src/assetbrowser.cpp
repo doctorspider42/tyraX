@@ -815,6 +815,13 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         if (!to.empty()) project_.textureQuality[to] = value;
         ++hits;
     }
+    if (auto it = project_.textureFilters.find(from);
+        it != project_.textureFilters.end()) {
+        const std::string value = it->second;
+        project_.textureFilters.erase(it);
+        if (!to.empty()) project_.textureFilters[to] = value;
+        ++hits;
+    }
     if (auto it = project_.musicBuild.find(from); it != project_.musicBuild.end()) {
         const Project::MusicBuildOpt value = it->second;
         project_.musicBuild.erase(it);
@@ -1237,6 +1244,7 @@ void App::deleteAssetFile(const std::string& rel) {
     }
     fs::remove(assetAbs(rel), ec);
     project_.textureQuality.erase(rel);
+    project_.textureFilters.erase(rel);
     // A font whose TTF is gone falls back to the built-in Consolas chain, so
     // clearing the path keeps every text drawable (see menubake::resolveFontPath).
     for (GameFont& f : project_.fonts)
@@ -2227,13 +2235,15 @@ void App::drawAssetInspector(const std::string& rel) {
         }
 
         // Build settings: what the PS2 build does with this file, labelled.
-        const bool hasSettings = model || item->kind == AssetKind::Material;
+        const bool hasSettings = model || item->kind == AssetKind::Material ||
+                                 item->kind == AssetKind::Texture;
         if (hasSettings) {
             ImGui::Spacing();
             ui::Caption("Build settings");
             ui::InspectorRows rows(scaled(80), scaled(96));
             if (model) drawAssetSizeButton(rel);
-            if (item->kind != AssetKind::AnimModel) drawAssetTexturesRow(rel);
+            if (item->kind == AssetKind::Texture) drawAssetFilterRow(rel);
+            else if (item->kind != AssetKind::AnimModel) drawAssetTexturesRow(rel);
             if (item->kind == AssetKind::Model) drawAssetLodButton(rel);
         }
 
@@ -2453,6 +2463,35 @@ void App::drawAssetTexturesRow(const std::string& assetRel) {
         ImGui::SetTooltip("How this asset's textures are quantized for the PS2 - an override of\n"
                           "Preferences > Textures. A texture shared by several assets takes\n"
                           "the highest quality any of them asks for.");
+}
+
+// Texture filtering of this one texture: an override of Preferences >
+// Graphics > Texture filtering (docs/texture-filtering.md). Keyed by the
+// texture itself, so every model and material using it follows.
+void App::drawAssetFilterRow(const std::string& textureRel) {
+    auto it = project_.textureFilters.find(textureRel);
+    int cur = it == project_.textureFilters.end() ? 0
+              : it->second == "smooth"            ? 1
+              : it->second == "pixel"             ? 2
+                                                  : 3;
+    const std::string& d = project_.settings.textureFilter;
+    const std::string def =
+        "Project default (" +
+        std::string(d == "pixel" ? "pixel" : d == "closeup" ? "close-up" : "smooth") + ")";
+    const char* labels[] = {def.c_str(), "Smooth", "Pixel", "Pixel close-up"};
+    if (ui::Combo("Filtering", &cur, labels, 4)) {
+        if (cur == 0)
+            project_.textureFilters.erase(textureRel);
+        else
+            project_.textureFilters[textureRel] =
+                cur == 1 ? "smooth" : cur == 2 ? "pixel" : "closeup";
+        commitChange();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("How the PS2 samples this texture - an override of Preferences >\n"
+                          "Graphics > Texture filtering. Pixel = crisp texels; close-up =\n"
+                          "crisp near, smooth far. Every model and material using it follows;\n"
+                          "an atlas page can mix filters. Needs a rebuild to reach the game.");
 }
 
 // Artist-authored mesh LOD tiers of one model: each level is another .obj

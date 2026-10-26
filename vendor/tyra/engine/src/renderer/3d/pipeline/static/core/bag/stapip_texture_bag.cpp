@@ -18,6 +18,7 @@ StaPipTextureBag::StaPipTextureBag() {
   texture = nullptr;
   coordinatesAreNormals = false;  // Modified by TyraX: env (matcap) mode
   textureFunction = 0;            // Added by TyraX: TEXTURE_FUNCTION_MODULATE
+  filter = 0;                     // Added by TyraX: follow the info bag
 }
 
 StaPipTextureBag::~StaPipTextureBag() {}

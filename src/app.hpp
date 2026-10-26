@@ -321,6 +321,9 @@ private:
     // viewport each frame next to setPs2Output.
     bool viewportPs2Shade_ = false;
     int viewportGsColor_ = 0;
+    // Texture filtering preview: 0 = match PS2, 1 = all smooth, 2 = all pixel
+    // (docs/texture-filtering.md). Machine-global, pushed every frame.
+    int viewportTexFilter_ = 0;
     Viewport::Ps2Output ps2ViewportOutput() const;
     // Draws the overlay over the viewport image. `pos`/`size` are the image rect.
     void drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size);
@@ -707,6 +710,8 @@ private:
     // quality with its meaning spelled out, and a caption + field-like value
     // button (Real size, LOD).
     void drawAssetTexturesRow(const std::string& assetRel);
+    // Per-texture filtering override (docs/texture-filtering.md).
+    void drawAssetFilterRow(const std::string& textureRel);
     void assetSettingRow(const char* caption, const char* value, const std::string& assetRel,
                          const std::function<void()>& onClick, const char* tip);
     // Rebuild assetItems_/assetDirs_ from disk. Cheap enough for a res/ tree
@@ -2548,6 +2553,17 @@ private:
     void drawBatchSoloRow(int objectIndex, bool compact);
 
     bool showTextureAtlas_ = false;
+    // Tools > Texture Filtering (docs/texture-filtering.md,
+    // src/texfilter_ui.cpp): every material texture with its filter, and the
+    // per-texture overrides set in bulk. The list is a folder scan, cached.
+    bool showTextureFilters_ = false;
+    bool texFilterScanDirty_ = true;
+    std::vector<std::string> texFilterList_;  // res-relative PNG paths, sorted
+    std::set<std::string> texFilterSelected_;
+    char texFilterSearch_[96] = {};
+    int texFilterShow_ = 0;  // 0 all, 1 overrides, 2 not smooth
+    void scanTextureFilterList();
+    void drawTextureFilterWindow();
     bool atlasPlanDirty_ = true;
     texatlas::Plan atlasPlan_;
     texatlas::VramEstimate atlasVram_;
