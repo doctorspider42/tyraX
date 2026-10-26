@@ -17,7 +17,7 @@ One feature = one commit = code + docs. Walk this list before calling a change d
 | What | When | Rule |
 |---|---|---|
 | **Commit message + PR body** | always | What changed, why, how it was verified (which test layer you actually reached - tyra-testing), dead ends, measured numbers, what a human still owes. This replaced `PROGRESS.md` (retired at ~15 800 lines; git history, recipe in `docs/backlog.md`). A fact worth re-reading later also goes into a `docs/` page or skill. |
-| **`CHANGELOG.md`** | every user-facing change (anything bumping MINOR/PATCH) | Bullet under the shipping version, newest on top, written for the USER. Same text goes into the GitHub release notes (`gh release edit v<x.y.z> --notes-file`), which the workflow leaves as a bare "Full Changelog" link (tyra-pr). Starts at 1.170.0. |
+| **`CHANGELOG.md`** | every user-facing change (anything bumping MINOR/PATCH) | Bullet under `## <x.y.z>` (the version in `src/version.hpp`, NO date - the release page carries it), newest on top, written for the USER. The release workflow publishes that section as the release notes and the editor's update dialog renders it - no manual `gh release edit`. A version with no section gets generated notes. Starts at 1.170.0. |
 | **`docs/backlog.md`** | work finished, added or reshaped | Tick off done items, add newly necessary ones. The only living part of the old log. |
 | **`README.md`** | user-visible feature added/removed, new example, repo structure | A map, not a manual: one line per feature linking its `docs/` page, one table row per example. Needing more than a line = the `docs/` page is missing. |
 | **`docs/README.md`** | new `docs/` page | A page is not done until indexed there with a one-paragraph summary. |

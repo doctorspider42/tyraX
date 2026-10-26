@@ -5,17 +5,24 @@ What changed in each TyraX release, newest first. Every release is also on
 installers; releases before 1.170.0 are described only there and in the git
 history.
 
-## 2.1.0 - unreleased
+A heading names the version only: the release workflow publishes the section
+under it as that release's notes, and the release's own page carries the date.
+
+## 2.1.1
+
+- The release notes on GitHub, and in the editor's update dialog, are now this changelog's entry for the version instead of a bare "Full Changelog" link.
+
+## 2.1.0
 
 - **Point-sampled textures.** *Preferences > Graphics > Texture filtering* chooses how the PS2 samples your textures: **Smooth** (the PS2 look), **Pixel** (crisp texels, the PS1 look) or **Pixel close-up** (crisp up close, smooth in the distance, so far walls do not shimmer). Any texture can override it in the Asset Browser, and every model and material using that texture follows. The viewport shows the same look; its view menu can also show everything smooth or everything pixel without touching the project. Texture atlas pages can mix pixel and smooth textures, so it costs no VRAM. Lightmaps, terrain, the sky and particles stay smooth. Projects are saved as format 123.
 - The `texture-atlas` example is now **texture-atlas-filtering**: the same thirty crates on one shared page, now in three bands - Smooth, Pixel and Pixel close-up - and their numbers stand upright again.
 - *Properties > Material* can open the Material Editor again: the *Edit...* button sat past the panel's right edge, out of reach. It now shares the Material row with a narrower picker.
 
-## 2.0.1 - 2026-10-25
+## 2.0.1
 
 - The Assets header and selected asset's **Open in Asset Browser** buttons no longer share an ImGui ID. UI scripts now fail on duplicate widget IDs without requiring a hover, and the Linux release job exercises the Assets actions before packaging.
 
-## 2.0.0 - 2026-10-24
+## 2.0.0
 
 - **Project > Audio** is laid out by what loads each sound. Sounds are grouped into Always loaded, the scene, each streaming layer, each sound bank, other scenes and never loaded. Selecting one opens an inspector with what loads it, what plays it, its banks and the Always loaded switch. A card on top shows the most sound RAM a scene can need at once, split by group, with a scene picker. Music has its own tab.
 - Sound effects follow streaming layers, and you can make sound banks. The emitters and vehicles of a streaming layer bring their sounds with them, so an open-world scene keeps only the sounds of the districts you are in. Named banks (**Project > Audio > Banks**) group sounds a mission or cutscene needs, and the new **Set Sound Bank Loaded** node loads and unloads them. Sounds still playing when their layer or bank goes away are cut off cleanly, and anything else keeps playing, including through a scene switch. The *SPU2 sample RAM* meter now shows the worst moment it can find: zones close enough to be in together, layers your graphs load, and the banks they load.
@@ -195,20 +202,20 @@ Every tool and the main window were opened next to their approved designs; what 
 - **VU Programs** and the **Particle Editor**: nothing overlaps in a narrow window any more (legends wrap, long notes end in "...", rows rearrange).
 - **Opening a project** shows which step is running and counts object files as they load. **Start page**: the Recent filter shows from two projects; New project / Open folder show their shortcuts. **New Project**: Claude Code starts selected; the start-type cards have new pictures - a crosshair view, the player from behind, an empty floor. **Sculpt / Paint**: the brush settings moved from a loose row at the top of the viewport to a card at the bottom centre, with a line saying what a drag does. **Drone Generator**: Detailed shows the Simple | Detailed switch at the top right too, not at the tab row. **Particle Editor**: with no effects yet it shows all six presets as cards (Fire, Smoke, Fog, Sparks, Rain, Custom) instead of an empty library and a "New fire effect" button. **Texture Atlas**: *Turn it on in Rendering prefs* (and *Rendering prefs*) opens Project Preferences on top of the Texture Atlas, scrolled to the *Texture atlasing* switch and ringed for a moment - before, the Preferences opened as a tab hidden behind it. **Project Preferences, reorganised**: five pages by what you are doing - *Game*, *Picture*, *World*, *Graphics*, *Build & debug* - each with its essentials up front and an **Advanced** fold for the rest; the line of explanation under every setting is gone (hover the caption), captions are plain words (*TV region*, *Picture mode*, *Colours*, *Torch shadows*), and a setting changed from what a new project starts with gets a blue dot - click it to reset - with a count per page and **Show what I changed**. Search also finds the old names. Walk, Run and Sprint speed (Preferences and a Player's Properties) and the animation frame rate are caption-left rows like the rest, with the metres in the field. **Trackpad navigation**: two-finger scroll pans the viewport (on by default on macOS; *View > Navigation controls > Two-finger scroll pans*), Cmd+scroll zooms, Option+scroll orbits, and Shift+right-drag pans in every scheme - no middle button needed. **GPU GI bake on a Mac**: *Bake on the GPU* (Ambience Editor > Global illumination) and `--bake-gi --gpu` now work on macOS through Metal - about 3x faster than all CPU cores on gi-showcase, and within 0.003% of the CPU bake. **One GPU switch**: *Edit > Preferences > Build > Use the GPU for bakes* (on by default) now decides for every bake that can use the GPU - global illumination and impostor captures; the Ambience Editor shows which engine it will use and links there. [Editor preferences](https://github.com/doctorspider42/tyraX/blob/main/docs/editor-preferences.md) **AI Assistant**: pad-script and build rows say how they ended. **Update dialog**: names the package in words with its size.
 
-## 1.172.2 - 2026-10-16
+## 1.172.2
 
 ### Releases
 
 - A brief network drop at Apple while the macOS image is finished (stapling the notarization ticket) no longer costs a release its `.dmg`: the step retries for a few minutes, an image whose ticket still cannot be attached ships anyway (it is notarized, and the app inside carries its ticket), and re-running a failed macOS job now adds its image to the release that already went out.
 
-## 1.172.1 - 2026-10-16
+## 1.172.1
 
 ### macOS
 
 - **The macOS download is here**: 1.172.0 went out without its `.dmg` (the packaging step missed a source file); this release carries both `tyrax-1.172.1-macos-arm64.dmg` and `-macos-x86_64.dmg`.
 - From source on a Mac, the first Build & Run no longer stops at the toolchain setup with `machorelink.c: No such file or directory`.
 
-## 1.172.0 - 2026-10-12
+## 1.172.0
 
 ### The macOS app
 
@@ -218,7 +225,7 @@ Every tool and the main window were opened next to their approved designs; what 
 - Started from Finder, TyraX now also finds tools in `/usr/local/bin` and `/opt/homebrew/bin` (VS Code's `code`, Docker, a Homebrew PCSX2).
 - From source, the PS2 toolchain no longer breaks when Homebrew upgrades `libmpc` and friends: it keeps its own copies.
 
-## 1.171.0 - 2026-10-12
+## 1.171.0
 
 ### macOS
 
@@ -227,7 +234,7 @@ Every tool and the main window were opened next to their approved designs; what 
 - PCSX2 is found as `PCSX2.app` in `/Applications` or `~/Applications`, and the generated `run.sh` launcher looks there too.
 - No macOS release package yet - see [Installing and updating](https://github.com/doctorspider42/tyraX/blob/main/docs/updates.md).
 
-## 1.170.2 - 2026-10-12
+## 1.170.2
 
 ### AI support in game projects
 
@@ -237,7 +244,7 @@ Every tool and the main window were opened next to their approved designs; what 
 - `--list-nodes` (and so the AI flow-graph generator and assistant) names the three outputs of **On Fact Changed** (changed / became true / became false) - it used to show one - and describes the wired number of Clamp, Lerp and similar nodes as the value they operate on rather than as overriding the first parameter.
 - `docs/vu-authoring.md`: project VU code is compiled by the build machine's own `g++` in the default native build, in the container only with `--docker`.
 
-## 1.170.0 - 2026-10-11
+## 1.170.0
 
 ### One model importer
 

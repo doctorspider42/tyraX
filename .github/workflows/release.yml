@@ -438,6 +438,14 @@ jobs:
     if: ${{ !cancelled() && needs.build.result == 'success' && needs.build-linux.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
+      # CHANGELOG.md of the commit being released - its "## <version>" section
+      # becomes the release notes (and so what the editor's update dialog shows).
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+
       - uses: actions/download-artifact@v8
         with:
           name: installer
@@ -471,17 +479,39 @@ jobs:
             dist/tyrax-$v-1.x86_64.rpm
             "${dmgs[@]}"
           )
+          # The notes are CHANGELOG.md's "## <version>" section (a heading
+          # carries the version only - the date is this release's own). A
+          # version the changelog does not name - the automatic PATCH of a
+          # docs-only merge - falls back to GitHub's generated notes.
+          awk -v v="$v" '
+            /^## / { if (found) exit
+                     h = substr($0, 4); sub(/[ \t].*/, "", h)
+                     if (h == v) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md | sed '/./,$!d' > notes.md
+          if [ -s notes.md ]; then
+            printf '\n[Full changelog](https://github.com/%s/blob/v%s/CHANGELOG.md)\n' \
+              "${{ github.repository }}" "$v" >> notes.md
+            notes=(--notes-file notes.md)
+            echo "release notes: CHANGELOG.md section $v ($(wc -l < notes.md) lines)"
+          else
+            notes=(--generate-notes)
+            echo "release notes: CHANGELOG.md has no '## $v' section - generated notes"
+          fi
           # A re-run of a failed job (`gh run rerun --failed`, e.g. one macOS
           # image that missed the release) re-runs this job too, and the tag
           # already exists then: add what is missing instead of failing.
           if gh release view "v$v" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "v$v is already released - uploading its packages again (--clobber)"
             gh release upload "v$v" --repo "${{ github.repository }}" --clobber "${assets[@]}"
+            if [ -s notes.md ]; then
+              gh release edit "v$v" --repo "${{ github.repository }}" --notes-file notes.md
+            fi
           else
             gh release create "v$v" \
               --repo "${{ github.repository }}" \
               --title "TyraX $v" \
-              --generate-notes \
+              "${notes[@]}" \
               --target "${{ needs.version.outputs.sha }}" \
               "${assets[@]}"
           fi
