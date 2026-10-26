@@ -10124,8 +10124,13 @@ bool App::drawMaterialCombo(SceneObject& o) {
     bool changed = false;
     // A model can always be edited: its override, else its own library.
     const bool canEdit = !o.materialPath.empty() || (isModel && !o.modelPath.empty());
-    // Full item width, like every field under it, so the labels line up; the
-    // Edit... button goes after the label instead of eating into the combo.
+    // The row's field leaves room for the Edit... button on its right
+    // (ui::SetNextRowFieldTrim). A full-width combo pushed the button past the
+    // panel's edge, where nothing could reach it - Properties had no way into
+    // the Material Editor at all.
+    const float editW = ImGui::CalcTextSize("Edit...").x +
+                        ImGui::GetStyle().FramePadding.x * 2.0f;
+    if (canEdit) ui::SetNextRowFieldTrim(editW + ImGui::GetStyle().ItemSpacing.x);
     if (ui::BeginCombo("Material", current.c_str())) {
         if (ImGui::Selectable(noneLabel, o.materialPath.empty()) &&
             !o.materialPath.empty()) {
@@ -10159,13 +10164,17 @@ bool App::drawMaterialCombo(SceneObject& o) {
     }
 
     if (canEdit) {
+        // Pinned to the row's right edge rather than after the combo: the
+        // combo's item box still counts its (hidden) caption, so a plain
+        // SameLine lands a caption's width past the field - off the panel.
         ImGui::SameLine();
+        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - editW);
         // modelOwnMaterial reads the .obj, so only on a click or a hover
         auto own = [&]() {
             return o.materialPath.empty() && isModel ? modelOwnMaterial(o.modelPath)
                                                      : std::string();
         };
-        if (ImGui::SmallButton("Edit...##material")) {
+        if (ImGui::Button("Edit...##material", ImVec2(editW, 0.0f))) {
             const std::string ownMtl = own();
             if (!o.materialPath.empty())
                 openMaterialEditor(o.materialPath, isModel ? o.modelPath : "");
