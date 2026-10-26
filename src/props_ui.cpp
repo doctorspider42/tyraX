@@ -3713,7 +3713,16 @@ bool App::drawScriptFields(SceneObject& o, const std::string& cls) {
     if (!ci || ci->fields.empty()) return false;
     bool commit = false;
     auto& overrides = o.scriptProps[cls];
-    const float labelW = scaled(96.0f);
+    // The name column fits the longest name (a fixed width cut 'openedEvent'
+    // off under its own combo), capped so the widgets keep most of the row.
+    // SameLine(labelW) counts from the window's edge: the cursor's own x and
+    // the indent below come first.
+    const float nameX = ImGui::GetCursorPosX() + scaled(18.0f);
+    float labelW = scaled(96.0f);
+    for (const scriptprops::Field& f : ci->fields)
+        labelW = ImMax(labelW, nameX + ImGui::CalcTextSize(f.name.c_str()).x +
+                                   ImGui::GetStyle().ItemSpacing.x * 2.0f);
+    labelW = ImMin(labelW, nameX + ImGui::GetContentRegionAvail().x * 0.45f);
     ImGui::Indent(scaled(18.0f));
     for (const scriptprops::Field& f : ci->fields) {
         ImGui::PushID(f.name.c_str());
