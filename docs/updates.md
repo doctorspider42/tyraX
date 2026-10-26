@@ -260,13 +260,19 @@ a machine without it loses the update check and nothing else.
 4. **build-macos** — two macOS runners (Apple silicon, Intel): the same stamp,
    then `installer/build-macos.sh`, which signs and notarizes the `.dmg`
    ([Releasing for macOS](#releasing-for-macos)).
-5. **release** — publishes the tag with generated notes and every package
-   attached. It waits for the macOS job but does not need it to succeed: a
+5. **release** — publishes the tag with every package attached. Its notes
+   are `CHANGELOG.md`'s `## <version>` section, read from the released commit,
+   plus a link to the whole changelog - which is also what the editor's update
+   dialog renders. A version the changelog does not name (the automatic PATCH
+   of a docs-only merge) gets GitHub's generated notes instead. Changelog
+   headings therefore carry the version only: a date written into a PR is a
+   guess at when it will be merged, and the release page has the real one. It waits for the macOS job but does not need it to succeed: a
    notarization outage costs that release its `.dmg`, not its Windows and
    Linux packages. Re-running only the failed jobs (`gh run rerun <run-id>
    --failed`) re-runs this one too, and on a tag that is already released it
-   uploads the packages into the existing release (`--clobber`) instead of
-   creating it - so the missing `.dmg` lands where it belongs.
+   uploads the packages into the existing release (`--clobber`) and rewrites
+   its notes from the changelog, instead of creating it - so the missing
+   `.dmg` lands where it belongs.
 
 **`src/version.hpp` is where the version is authored** — in CI and on a
 developer's machine alike (`installer/build-installer.ps1` and

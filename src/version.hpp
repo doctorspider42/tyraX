@@ -5616,7 +5616,10 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 1
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
+// 2.1.1: the release workflow publishes CHANGELOG.md's "## <version>" section
+// as the release notes (generated notes when the changelog names no such
+// version); changelog headings carry no date (docs/updates.md).
 // 2.1.0: texture filtering (docs/texture-filtering.md) - Smooth / Pixel /
 // Pixel close-up per project and per texture. The filter is a property of the
 // draw (TEX1 per bag), carried by "# tyra-filter" in the baked .mtl and the

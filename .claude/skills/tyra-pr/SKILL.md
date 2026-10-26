@@ -42,10 +42,11 @@ gh pr view <num> --json mergeable,mergeStateStatus
 
 Every push to main runs `.github/workflows/release.yml`: it tags and publishes
 `v<version.hpp>` if untagged, else the next PATCH (docs/updates.md). So a merged
-PR ships within the hour, and even a docs-only merge cuts a patch release. The
-workflow's release notes are only a "Full Changelog" link - put the user-facing
-text in `CHANGELOG.md` (tyra-docs) and onto the release with
-`gh release edit v<x.y.z> --notes-file notes.md` once it is published.
+PR ships within the hour, and even a docs-only merge cuts a patch release. Put
+the user-facing text in `CHANGELOG.md` under `## <x.y.z>` (tyra-docs) and the
+release job publishes that section as the notes - the editor's update dialog
+shows it. A merge that bumps nothing gets the next PATCH and generated notes,
+unless the changelog has a section for that PATCH.
 
 ## Conflict hot spots
 
