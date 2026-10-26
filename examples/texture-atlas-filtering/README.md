@@ -12,8 +12,6 @@ The same page also carries three [texture filters](../../docs/texture-filtering.
 at once: the bottom two rows are **Smooth**, the middle two **Pixel** and the
 top two **Pixel close-up** - and it is still one page.
 
-![the yard](screenshots/yard.png)
-
 ## The number
 
 Measured on this project, PCSX2, from the game's own `VRAMSTAT` line
@@ -49,7 +47,7 @@ it pays, pack a few 128×128 ones and it cannot (see the docs' table).
 
 ## Three filters, one page
 
-![crate 00 (Smooth) next to crate 10 (Pixel), from the game's own frame](screenshots/filtering.png)
+![crate 00 (Smooth) next to crate 10 (Pixel), from the game's own frame](../../docs/img/texture-atlas-filtering-bands.png)
 
 | Crates | Filtering | Set where |
 | --- | --- | --- |
