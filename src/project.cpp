@@ -8997,6 +8997,11 @@ std::string refreshGenerated(const Project& p) {
             // directory". Exactly the live_pad.gen.cpp mistake noted below.
             f.relativePath == "inc\\bag_array.gen.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
+            // The script API (docs/script-api.md): the library and the
+            // project's typed names. script.hpp includes the first and every
+            // generated TU leans on both.
+            f.relativePath == "inc\\tyrax\\tyrax.hpp" ||
+            f.relativePath == "inc\\tyrax\\names.gen.hpp" ||
             // Object table definitions accompany the declarations even in
             // projects created before the data was moved out of the header.
             f.relativePath == "src\\gen\\scene_objects.gen.cpp" ||

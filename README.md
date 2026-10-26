@@ -404,7 +404,10 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[Flow graph](docs/flow-graph.md)** — visual logic (triggers → actions), extensible with your own
   [`.flownode` nodes](docs/custom-flow-nodes.md).
 - **[Object scripts](docs/object-scripts.md)** — Unity-style C++ components in
-  `src/scripts/`, a directory the editor never touches.
+  `src/scripts/`, a directory the editor never touches, with a
+  [script API](docs/script-api.md) that does everything a flow node does
+  (raycasts, sounds, events shared with graphs, save data, HUD) and names your
+  project's sounds, scenes and objects as typed constants.
 - **Player and physics** — FPP / third-person / noclip player entities with
   [walk, run and sprint speeds](docs/player-speeds.md),
   [rigid bodies that collide as their mesh's convex hull](docs/physics.md), [collision boxes and invisible walls](docs/collision-boxes.md), pickable and usable

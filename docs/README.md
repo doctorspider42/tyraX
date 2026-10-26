@@ -148,6 +148,11 @@ a Mac) finds any command, object or window by name.
 
 - [Object scripts (Unity-style components)](object-scripts.md) — C++ scripts on
   objects: lifecycle, ScriptContext reference, globals, performance.
+- [Script API (`tyrax::`)](script-api.md) — the C++ library every script can
+  call: what the flow nodes do (objects, raycasts against the real collision
+  boxes, sounds, events shared with graphs, save data, HUD, scenes) plus
+  vectors, easing, random numbers and timers, with the project's names as
+  typed constants (`tyrax::Sounds::Door`).
 - [The Flow Graph window](flow-graph.md) — giving an object behaviour: the
   graph that follows the selection, the add-node search, compact nodes with an
   inspector, problems, Frame all / Tidy, and the live-debugging view.

@@ -77,18 +77,16 @@ namespace Mygame {
 class Bobber : public ObjectScript {
  public:
   void onStart(ScriptContext& ctx) override {
-    baseY = self->data.position[1];      // remember where we were placed
+    base = object.position();            // remember where we were placed
   }
 
   void onUpdate(ScriptContext& ctx) override {
-    t += g_frameDt;                      // wall-clock seconds, PAL == NTSC
-    self->data.position[1] = baseY + 0.5F * sinf(t * 2.0F);
-    self->dirty = true;                  // geometry changed - rebuild
+    const float t = tyrax::sceneTime();  // seconds, PAL == NTSC
+    object.setPosition(base + tyrax::Vec3(0.0F, 0.5F * sinf(t * 2.0F), 0.0F));
   }
 
  private:
-  float baseY = 0.0F;
-  float t = 0.0F;
+  tyrax::Vec3 base;
 };
 
 TYRA_OBJECT_SCRIPT(Bobber);
@@ -103,6 +101,11 @@ TYRA_OBJECT_SCRIPT(Bobber);
 
 Everything lives in the generated `inc/scripts/script.hpp` (regenerated
 while its ownership-marker line is intact, so the API tracks the editor).
+It includes the **[script API](script-api.md)**, the `tyrax::` library
+that does what the flow nodes do (moving objects, raycasts, sounds, events
+shared with graphs, save data, HUD, scenes) and names your project's sounds,
+scenes and objects as typed constants. The sections below describe the raw
+layer that the library is built on.
 
 ### Lifecycle
 
@@ -119,10 +122,12 @@ the Project panel).
 
 ### `self` - the attached object
 
-`self` is a `RuntimeObject*` for the object this instance is attached to
-(`selfIndex` is its index in `ctx.objects`), refreshed by the driver every
-frame. Mutate the object through it, then set `self->dirty = true` so the
-geometry rebuilds:
+`object` is the attached object as a [`tyrax::ObjectRef`](script-api.md#objects-objectref):
+`object.moveBy(...)`, `object.lookAt(...)`, `object.playAnimation(...)` set
+the rebuild and wake-up flags for you. `self` is the same object as a raw
+`RuntimeObject*` (`selfIndex` is its index in `ctx.objects`); both are
+refreshed by the driver every frame. When you mutate it through `self`, set
+`self->dirty = true` so the geometry rebuilds:
 
 | Field | Meaning |
 |---|---|

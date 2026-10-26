@@ -2602,6 +2602,19 @@ class TerrainGame : public Tyra::Game {
                     float best) const;
   float sweepTerrain(const SweepSeg& s, float best) const;
 
+ public:
+  // The script API's world raycast (tyrax::raycast, docs/script-api.md):
+  // sweepSphere that also reports WHICH object stopped it (-1 = terrain or
+  // nothing). The collision runtime defines it and registers it with the
+  // script API only when this marker is here, so a project that owns an older
+  // copy of this header still builds (its scripts fall back to the Raycast
+  // node's bounding spheres).
+#define TYRAX_HAS_WORLD_SWEEP 1
+  float worldSweep(float px, float py, float pz, float dx, float dy, float dz,
+                   float maxDist, float radius, int skipIndex, int* hitObj) const;
+
+ private:
+
   // --- the collision box (docs/collision-boxes.md) --------------------------
   // What an object reduces to for the walker, the camera boom and the
   // split-screen cull. ONE builder: these three used to size the box
@@ -4693,6 +4706,19 @@ class TerrainGame : public Tyra::Game {
                     float best) const;
   float sweepTerrain(const SweepSeg& s, float best) const;
 
+ public:
+  // The script API's world raycast (tyrax::raycast, docs/script-api.md):
+  // sweepSphere that also reports WHICH object stopped it (-1 = terrain or
+  // nothing). The collision runtime defines it and registers it with the
+  // script API only when this marker is here, so a project that owns an older
+  // copy of this header still builds (its scripts fall back to the Raycast
+  // node's bounding spheres).
+#define TYRAX_HAS_WORLD_SWEEP 1
+  float worldSweep(float px, float py, float pz, float dx, float dy, float dz,
+                   float maxDist, float radius, int skipIndex, int* hitObj) const;
+
+ private:
+
   // --- the collision box (docs/collision-boxes.md) --------------------------
   // What an object reduces to for the walker, the camera boom and the
   // split-screen cull. ONE builder: these three used to size the box
@@ -5351,6 +5377,7 @@ class TerrainGame : public Tyra::Game {
 
 
 #include "game_templates.inc"
+#include "script_api.inc"
 // Orbit template: the camera slowly circles the terrain center.
 
 
@@ -6385,6 +6412,18 @@ inline bool animationFinished(const ScriptContext& ctx, int objectIndex) {
   return ctx.objects[objectIndex].animFinished;
 }
 
+}  // namespace {{NAME_UPPER_NS}}
+
+// The script API: math, objects, raycasts, input, audio, HUD, save data,
+// events ... as tyrax::... (docs/script-api.md). Always regenerated.
+#include "tyrax/tyrax.hpp"
+
+// Script API generation this header carries (the generated driver checks it,
+// so a project that owns an older copy of this file still builds).
+#define TYRAX_SCRIPT_API 2
+
+namespace {{NAME_UPPER_NS}} {
+
 /** Base class for GLOBAL game scripts: registered with TYRA_SCRIPT, one
  * instance for the whole game, update() runs every frame in every scene.
  * For per-object behavior prefer ObjectScript below. */
@@ -6420,6 +6459,10 @@ class ObjectScript {
    * game every frame before onUpdate. */
   RuntimeObject* self = nullptr;
   int selfIndex = -1;
+  /** The same object as a tyrax::ObjectRef - object.moveBy(...),
+   * object.lookAt(...), object.distanceTo(...) - which also sets the flags
+   * (dirty, wake-up) for you. Refreshed with self. */
+  tyrax::ObjectRef object;
 
   /** Scene (re)loaded: self is valid, runs before the first onUpdate. */
   virtual void onStart(ScriptContext&) {}
@@ -6609,20 +6652,22 @@ static const char* TPL_SCRIPT_STUB =
 namespace {{NAME_UPPER_NS}} {
 
 // Attach me to objects in the editor: Properties > Scripts. Every attached
-// object runs its own instance of this class - `self` is that object.
+// object runs its own instance of this class - `object` (and the raw `self`)
+// is that object. The whole script API is tyrax::... (docs/script-api.md).
 class {{SCRIPT_CLASS}} : public ObjectScript {
  public:
   void onStart(ScriptContext& ctx) override {
-    // Scene (re)loaded - self is valid, one call before the first onUpdate.
+    // Scene (re)loaded - object is valid, one call before the first onUpdate.
   }
 
   void onUpdate(ScriptContext& ctx) override {
     // Called every frame. Examples:
-    //   self->data.rotation[1] += 60.0F * g_frameDt;  // spin self
-    //   self->dirty = true;                           // geometry changed
-    //   ctx.engine->pad.getClicked().Cross  - X pressed this frame
-    //   ctx.playerPosition                  - camera/player position
-    //   ctx.playerLook                      - normalized view direction
+    //   object.rotateBy(tyrax::Vec3(0.0F, 60.0F * tyrax::dt(), 0.0F));
+    //   if (tyrax::actionPressed(ctx, tyrax::Actions::Jump)) ...
+    //   if (object.distanceTo(tyrax::playerPosition(ctx)) < 3.0F) ...
+    //   tyrax::RayHit hit = tyrax::raycastFromPlayer(ctx, 20.0F);
+    //   tyrax::playSound(ctx, tyrax::Sounds::YourSound);
+    //   tyrax::sendEvent(tyrax::Events::YourEvent);  // On Event in graphs
   }
 
   void onUsed(ScriptContext& ctx) override {
@@ -12619,6 +12664,13 @@ static bool projectHasVehicles(const Project& p) {
     return false;
 }
 
+// The script API's name scan (defined with tyraxNamesHeader below, in this
+// file's unnamed namespace).
+namespace {
+std::vector<std::string> scriptApiRefs(const Project& p, const std::string& ns);
+std::vector<std::pair<std::string, int>> soundApiIdents(const Project& p);
+}  // namespace
+
 SoundResidency soundResidency(const Project& p) {
     SoundResidency r;
     r.scene.resize(p.scenes.size());
@@ -12657,6 +12709,15 @@ SoundResidency soundResidency(const Project& p) {
     };
     std::set<int> shared;
     for (const std::string& s : p.soundsAlwaysLoaded) shared.insert(slot(s));
+    // A sound a script plays (tyrax::Sounds::X in src/scripts): scripts are
+    // not tied to a scene the way a graph is, so it stays loaded for the whole
+    // game - unless it is banked, the author's way of saying when.
+    {
+        const std::vector<std::string> refs = scriptApiRefs(p, "Sounds");
+        for (const auto& [id, s] : soundApiIdents(p))
+            if (std::binary_search(refs.begin(), refs.end(), id) && !banked.count(s))
+                shared.insert(s);
+    }
     // A prefab member can be spawned into any scene, so its sounds cannot
     // belong to one.
     for (const Prefab& pf : p.prefabs)
@@ -22136,6 +22197,119 @@ uint32_t factSaveKey(const facts::Fact& f) {
 // named on either node, and the slot index has to be the same answer for
 // codegen and for the time machine's capture - which sizes its buffer from this
 // list without being able to see the generated arrays.
+// --- script API names (tyrax/names.gen.hpp, docs/script-api.md) -------------
+// An editor name as a C++ identifier: PascalCase words, everything that is not
+// a letter or digit dropped ("door-left" -> DoorLeft). PascalCase rather than
+// the name verbatim because the generated headers are full of ALL_CAPS macros
+// (SKY_R, BTN_USE): an object named after one would not compile. A leading
+// digit gets an underscore, a C++ keyword or a common libc macro a trailing
+// one. Empty = nothing usable in the name.
+std::string apiIdent(const std::string& name) {
+    std::string out;
+    bool up = true;
+    for (char ch : name) {
+        const unsigned char u = (unsigned char)ch;
+        if (std::isalnum(u)) {
+            out += up ? (char)std::toupper(u) : ch;
+            up = false;
+        } else {
+            up = true;
+        }
+    }
+    if (out.empty()) return out;
+    if (std::isdigit((unsigned char)out[0])) out = "_" + out;
+    static const std::set<std::string> reserved = {
+        "Alignas", "Alignof", "Asm", "Auto", "Bool", "Break", "Case", "Catch",
+        "Char", "Class", "Const", "Continue", "Default", "Delete", "Do",
+        "Double", "Else", "Enum", "Explicit", "Export", "Extern", "False",
+        "Float", "For", "Friend", "Goto", "If", "Inline", "Int", "Long",
+        "Mutable", "Namespace", "New", "Noexcept", "Nullptr", "Operator",
+        "Private", "Protected", "Public", "Register", "Return", "Short",
+        "Signed", "Sizeof", "Static", "Struct", "Switch", "Template", "This",
+        "Throw", "True", "Try", "Typedef", "Typeid", "Typename", "Union",
+        "Unsigned", "Using", "Virtual", "Void", "Volatile", "While", "NULL",
+        "EOF", "TRUE", "FALSE", "Count"};
+    if (reserved.count(out)) out += "_";
+    return out;
+}
+
+// The identifiers names.gen.hpp gives a list of names, with the index each
+// one stands for: empty identifiers skipped, repeats numbered (Crate, Crate2).
+// tyraxNamesHeader's `block` applies the same rule in the same order.
+std::vector<std::pair<std::string, int>> apiIdentRows(const std::vector<std::string>& names) {
+    std::vector<std::pair<std::string, int>> rows;
+    std::set<std::string> used;
+    for (size_t i = 0; i < names.size(); ++i) {
+        std::string id = apiIdent(names[i]);
+        if (id.empty()) continue;
+        if (used.count(id)) {
+            int k = 2;
+            while (used.count(id + std::to_string(k))) ++k;
+            id += std::to_string(k);
+        }
+        used.insert(id);
+        rows.push_back({id, (int)i});
+    }
+    return rows;
+}
+
+// tyrax::Sounds::<Id> -> Project::sounds slot (the file's stem).
+std::vector<std::pair<std::string, int>> soundApiIdents(const Project& p) {
+    std::vector<std::string> stems;
+    for (const std::string& s : p.sounds)
+        stems.push_back(std::filesystem::path(s).stem().string());
+    return apiIdentRows(stems);
+}
+
+// Identifiers a project's own scripts name as `<ns>::X` (textually, the way
+// the Scripts list finds TYRA_OBJECT_SCRIPT): today only Events, so a script
+// can send and receive an event no graph mentions. Sorted, unique.
+std::vector<std::string> scriptApiRefs(const Project& p, const std::string& ns) {
+    std::set<std::string> found;
+    std::error_code ec;
+    const std::filesystem::path dir = std::filesystem::path(p.dir) / "src" / "scripts";
+    if (p.dir.empty() || !std::filesystem::is_directory(dir, ec)) return {};
+    const std::string key = ns + "::";
+    for (std::filesystem::recursive_directory_iterator it(dir, ec), end; !ec && it != end;
+         it.increment(ec)) {
+        if (!it->is_regular_file(ec) || it->path().extension() != ".cpp") continue;
+        std::ifstream f(it->path(), std::ios::binary);
+        const std::string raw((std::istreambuf_iterator<char>(f)),
+                              std::istreambuf_iterator<char>());
+        // Comments and string literals out (blanked), so an example in a
+        // comment - the New script stub has one - names no event.
+        std::string text = raw;
+        for (size_t i = 0; i < text.size(); ++i) {
+            if (text[i] == '/' && i + 1 < text.size() && text[i + 1] == '/') {
+                while (i < text.size() && text[i] != '\n') text[i++] = ' ';
+            } else if (text[i] == '/' && i + 1 < text.size() && text[i + 1] == '*') {
+                while (i < text.size() && !(text[i] == '*' && i + 1 < text.size() &&
+                                            text[i + 1] == '/'))
+                    text[i++] = ' ';
+                if (i + 1 < text.size()) text[i] = text[i + 1] = ' ';
+                ++i;
+            } else if (text[i] == '"') {
+                for (++i; i < text.size() && text[i] != '"' && text[i] != '\n'; ++i) {
+                    if (text[i] == '\\' && i + 1 < text.size()) text[i++] = ' ';
+                    text[i] = ' ';
+                }
+            }
+        }
+        for (size_t at = text.find(key); at != std::string::npos;
+             at = text.find(key, at + 1)) {
+            if (at > 0 && (std::isalnum((unsigned char)text[at - 1]) ||
+                           text[at - 1] == '_'))
+                continue;  // MyEvents::X is not Events::X
+            size_t e = at + key.size();
+            while (e < text.size() &&
+                   (std::isalnum((unsigned char)text[e]) || text[e] == '_'))
+                ++e;
+            if (e > at + key.size()) found.insert(text.substr(at + key.size(), e - at - key.size()));
+        }
+    }
+    return {found.begin(), found.end()};
+}
+
 void collectFlowEvents(const Project& p, std::vector<std::string>& events) {
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
@@ -22146,6 +22320,219 @@ void collectFlowEvents(const Project& p, std::vector<std::string>& events) {
                 for (const std::string& e : events) seen |= (e == n.str);
                 if (!seen) events.push_back(n.str);
             }
+    // Events only scripts use (tyrax::Events::X), after every graph event so
+    // a graph's indices do not move when a script starts using one. A script
+    // naming a graph event spells its identifier, so it matches by apiIdent.
+    for (const std::string& id : scriptApiRefs(p, "Events")) {
+        bool seen = false;
+        for (const std::string& e : events) seen |= (apiIdent(e) == id);
+        if (!seen) events.push_back(id);
+    }
+}
+
+FactPlan factPlanOf(const Project& p);
+
+// inc/tyrax/names.gen.hpp: every name a script can refer to, as a typed
+// constant (the id structs live in tyrax.hpp, which includes this file in the
+// middle of itself). Each kind is the SAME index space the matching flow node
+// resolves its name into, so a script and a graph address the same sound,
+// event or HUD bar. Duplicate identifiers get a number (Crate, Crate2).
+std::string tyraxNamesHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    std::ostringstream o;
+    o << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+         "// Typed names for the script API (tyrax/tyrax.hpp, docs/script-api.md):\n"
+         "// one constant per scene, object, sound, event, ... of this project.\n"
+         "#pragma once\n\n"
+         "namespace "
+      << ns << " {\nnamespace tyrax {\n";
+
+    // One `namespace Kind { inline constexpr Type Ident = {...}; }` block.
+    auto block = [&](const char* kind, const char* type,
+                     const std::vector<std::pair<std::string, std::string>>& rows,
+                     const std::string& indent = "") {
+        o << "\n" << indent << "namespace " << kind << " {\n";
+        std::set<std::string> used;
+        for (const auto& r : rows) {
+            std::string id = apiIdent(r.first);
+            if (id.empty()) continue;
+            if (used.count(id)) {
+                int k = 2;
+                while (used.count(id + std::to_string(k))) ++k;
+                id += std::to_string(k);
+            }
+            used.insert(id);
+            o << indent << "inline constexpr " << type << " " << id << " = {" << r.second
+              << "};  // " << escapeCString(r.first) << "\n";
+        }
+        o << indent << "}  // namespace " << kind << "\n";
+    };
+    auto indexed = [](const std::vector<std::string>& names) {
+        std::vector<std::pair<std::string, std::string>> rows;
+        for (size_t i = 0; i < names.size(); ++i)
+            rows.push_back({names[i], std::to_string(i)});
+        return rows;
+    };
+    auto stemOf = [](const std::string& path) {
+        return std::filesystem::path(path).stem().string();
+    };
+
+    {
+        std::vector<std::string> v;
+        for (const SceneData& s : p.scenes) v.push_back(s.name);
+        block("Scenes", "SceneId", indexed(v));
+    }
+    // Objects and layers are per scene: Objects::<Scene>::<Object>.
+    o << "\nnamespace Objects {\n";
+    {
+        std::set<std::string> usedScene;
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            std::string sid = apiIdent(p.scenes[si].name);
+            if (sid.empty()) sid = "Scene" + std::to_string(si);
+            while (usedScene.count(sid)) sid += "_";
+            usedScene.insert(sid);
+            std::vector<std::pair<std::string, std::string>> rows;
+            const auto& objs = p.scenes[si].objects;
+            for (size_t i = 0; i < objs.size(); ++i)
+                rows.push_back({objs[i].name, std::to_string(si) + ", " + std::to_string(i)});
+            block(sid.c_str(), "ObjectId", rows, "");
+        }
+    }
+    o << "}  // namespace Objects\n";
+    o << "\nnamespace Layers {\n";
+    {
+        std::set<std::string> usedScene;
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            std::string sid = apiIdent(p.scenes[si].name);
+            if (sid.empty()) sid = "Scene" + std::to_string(si);
+            while (usedScene.count(sid)) sid += "_";
+            usedScene.insert(sid);
+            std::vector<std::pair<std::string, std::string>> rows;
+            const auto& layers = p.scenes[si].layers;
+            for (size_t i = 0; i < layers.size(); ++i)
+                rows.push_back({layers[i].name, std::to_string(si) + ", " + std::to_string(i)});
+            block(sid.c_str(), "LayerId", rows, "");
+        }
+    }
+    o << "}  // namespace Layers\n";
+    {
+        std::vector<std::pair<std::string, std::string>> rows;
+        for (size_t i = 0; i < p.sounds.size(); ++i)
+            rows.push_back({stemOf(p.sounds[i]), std::to_string(i)});
+        block("Sounds", "SoundId", rows);
+    }
+    {
+        // Music streams from bin/: res/audio/x.wav ships as audio/x.wav.
+        std::vector<std::pair<std::string, std::string>> rows;
+        for (const std::string& m : p.music) {
+            std::string bin = m;
+            if (bin.rfind("res/", 0) == 0) bin = bin.substr(4);
+            rows.push_back({stemOf(m), "\"" + escapeCString(bin) + "\""});
+        }
+        block("Music", "MusicId", rows);
+    }
+    {
+        std::vector<std::string> v;
+        for (const auto& b : p.soundBanks) v.push_back(b.name);
+        block("SoundBanks", "SoundBankId", indexed(v));
+    }
+    std::vector<std::string> events;
+    collectFlowEvents(p, events);
+    block("Events", "EventId", indexed(events));
+    {
+        std::vector<std::string> v;
+        for (const auto& s : p.saveValues) v.push_back(s.name);
+        block("SaveValues", "SaveValueId", indexed(v));
+        v.clear();
+        for (const auto& s : p.saveTexts) v.push_back(s.name);
+        block("SaveTexts", "SaveTextId", indexed(v));
+        v.clear();
+        for (const auto& m : p.menus) v.push_back(m.name);
+        block("Menus", "MenuId", indexed(v));
+        v.clear();
+        for (const auto& t : p.hudTexts) v.push_back(t.name);
+        block("HudTexts", "HudTextId", indexed(v));
+        v.clear();
+        for (const auto& b : p.hudBars) v.push_back(b.name);
+        block("HudBars", "HudBarId", indexed(v));
+        // Images, then texts, then bars - the HUD_ELEM index space.
+        v.clear();
+        for (const auto& h : p.hud) v.push_back(h.name);
+        for (const auto& t : p.hudTexts) v.push_back(t.name);
+        for (const auto& b : p.hudBars) v.push_back(b.name);
+        block("HudElements", "HudElementId", indexed(v));
+        v.clear();
+        for (const auto& s : p.sequences) v.push_back(s.name);
+        block("Sequences", "SequenceId", indexed(v));
+        v.clear();
+        for (const auto& c : p.credits) v.push_back(c.name);
+        block("Credits", "CreditsId", indexed(v));
+        v.clear();
+        for (const auto& pf : p.prefabs) v.push_back(pf.name);
+        block("Prefabs", "PrefabId", indexed(v));
+        v.clear();
+        for (const auto& a : p.input.actions) v.push_back(a.name);
+        block("Actions", "ActionId", indexed(v));
+    }
+    {
+        const FactPlan plan = factPlanOf(p);
+        std::vector<std::pair<std::string, std::string>> num, pos;
+        for (size_t i = 0; i < p.facts.size(); ++i) {
+            if (plan.layout.numOf[i] >= 0)
+                num.push_back({p.facts[i].name, std::to_string(plan.layout.numOf[i])});
+            if (plan.layout.posOf[i] >= 0)
+                pos.push_back({p.facts[i].name, std::to_string(plan.layout.posOf[i])});
+        }
+        block("Facts", "FactId", num);
+        block("FactPositions", "FactPosId", pos);
+    }
+
+    o << "\ninline constexpr int EVENT_COUNT = " << events.size() << ";\n";
+    // Set HUD Bar also writes the save value a bar is bound to.
+    o << "inline constexpr int HUD_BAR_SAVE_VALUE[" << std::max<size_t>(1, p.hudBars.size())
+      << "] = {";
+    if (p.hudBars.empty()) o << "-1";
+    for (size_t b = 0; b < p.hudBars.size(); ++b) {
+        int vi = -1;
+        for (size_t i = 0; i < p.saveValues.size(); ++i)
+            if (p.saveValues[i].name == p.hudBars[b].source) vi = (int)i;
+        o << (b ? ", " : "") << vi;
+    }
+    o << "};\n";
+
+    // findObject(): FNV-1a of each authored object's name, per scene. Four
+    // bytes an object instead of the strings, so a big open-world scene does
+    // not pay for names it may never look up.
+    auto fnv = [](const std::string& s) {
+        uint32_t h = 2166136261U;
+        for (unsigned char ch : s) {
+            h ^= ch;
+            h *= 16777619U;
+        }
+        return h;
+    };
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const auto& objs = p.scenes[si].objects;
+        o << "inline constexpr uint32_t OBJECT_NAME_HASH_" << si << "["
+          << std::max<size_t>(1, objs.size()) << "] = {";
+        if (objs.empty()) o << "0U";
+        for (size_t i = 0; i < objs.size(); ++i)
+            o << (i ? ", " : "") << (i % 8 == 0 ? "\n    " : "") << fnv(objs[i].name) << "U";
+        o << "};\n";
+    }
+    o << "inline const uint32_t* const OBJECT_NAME_HASHES[" << std::max<size_t>(1, p.scenes.size())
+      << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        o << (si ? ", " : "") << "OBJECT_NAME_HASH_" << si;
+    if (p.scenes.empty()) o << "nullptr";
+    o << "};\n"
+         "inline constexpr int OBJECT_NAME_COUNTS["
+      << std::max<size_t>(1, p.scenes.size()) << "] = {";
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        o << (si ? ", " : "") << p.scenes[si].objects.size();
+    if (p.scenes.empty()) o << "0";
+    o << "};\n\n}  // namespace tyrax\n}  // namespace " << ns << "\n";
+    return o.str();
 }
 
 // A node is instrumented when it can "run": triggers (they fire) and actions
@@ -22857,143 +23244,34 @@ std::string flowGraphScript(const Project& p) {
         << ns << " {\n";
 
     if (uses("PlaySound")) {
-        out << R"(
-// Which channel a Play Sound gets, and who loses one when they are all busy
-// (docs/sound.md). The flow graphs share the sixteen channels of the CURRENT
-// room's reverb bus - 16-23 belong to the sound emitters - so the choice is
-// made here once for every graph in the game rather than per script.
-//
-// Order: a voice that has FINISHED is free and needs no victim; otherwise the
-// lowest priority STRICTLY below the incoming one is cut off; otherwise the
-// new sound is dropped. That last case is the design working, not a failure -
-// it is what "priority" means - so nothing logs it.
-//
-// The ENDX read is one IOP RPC and it happens per PLAY REQUEST, never per
-// frame. A play already costs two or three RPCs (volume, reverb send, the
-// play itself), and it is the only way to know what is still sounding.
-namespace {
-int sfxPrio[16] = {0};  // priority of what was last started on each channel
-int sfxPrioBus = -1;    // which bus those priorities describe
-
-inline void sfxSyncBus(int base) {
-  if (sfxPrioBus == base) return;
-  // The room moved to the other SPU2 core. Whatever is still finishing on the
-  // bus we left must not be stolen from - it belongs to the room the player
-  // just walked out of - and this bus's own table describes voices that have
-  // long since ended, so it starts empty.
-  for (int i = 0; i < 16; ++i) sfxPrio[i] = 0;
-  sfxPrioBus = base;
-}
-)";
+        // Which channel a Play Sound gets, and who loses one when they are all
+        // busy (docs/sound.md), is the script API's (tyrax::detail::
+        // pickSfxChannel): graphs and scripts share the sixteen voices of the
+        // current room's bus, so they must share ONE priority table too.
         if (anyAutoSfx)
-            out << R"(
-inline int flowPickSfxChannel(ScriptContext& ctx, int prio) {
-  static int next = 0;  // round-robin start, so voices spread out
-  const int base = ctx.reverbBusBase;
-  sfxSyncBus(base);
-  const u32 ended = ctx.engine->audio.adpcm.endedMask(base ? 0 : 1);
-  for (int k = 0; k < 16; ++k) {
-    const int c = (next + k) % 16;
-    if (ended & (1u << c)) {
-      next = (c + 1) % 16;
-      sfxPrio[c] = prio;
-      return base + c;
-    }
-  }
-  int victim = -1, low = prio;  // strictly below: equals keep their voice
-  for (int c = 0; c < 16; ++c)
-    if (sfxPrio[c] < low) { low = sfxPrio[c]; victim = c; }
-  if (victim < 0) return -1;    // everything playing matters at least as much
-  sfxPrio[victim] = prio;
-  return base + victim;
-}
-)";
+            out << "\nstatic inline int flowPickSfxChannel(ScriptContext& ctx, int prio) {\n"
+                   "  return tyrax::detail::pickSfxChannel(ctx, prio);\n"
+                   "}\n";
         if (anyPinnedSfx)
-            out << R"(
-// A pinned channel is the author saying "this sound owns this voice", so it
-// always gets it - but its priority still goes in the table, or an auto play
-// would steal the voice out from under it.
-inline int flowPinSfxChannel(ScriptContext& ctx, int ch, int prio) {
-  const int base = ctx.reverbBusBase;
-  sfxSyncBus(base);
-  if (ch >= 0 && ch < 16) sfxPrio[ch] = prio;
-  return base + ch;
-}
-)";
-        out << "}  // namespace\n";
+            out << "\nstatic inline int flowPinSfxChannel(ScriptContext& ctx, int ch,\n"
+                   "                                    int prio) {\n"
+                   "  return tyrax::detail::pinSfxChannel(ctx, ch, prio);\n"
+                   "}\n";
     }
 
     if (anyRaycast) {
+        // The script API owns the implementation (tyrax::raycastFromPlayer),
+        // so a graph and a script asking "what am I looking at" agree.
         out << R"(
 // Raycast node: the nearest thing the player's view ray hits within maxDist -
-// object bounding spheres (same marker-type skip list as the USE picker) and
-// the terrain heightmap. hitObj = the hit object index (-1 = none/terrain);
-// hitPos = the hit point (the ray's end when nothing was hit).
+// visible objects' bounding spheres and the terrain (tyrax::raycastFromPlayer).
+// hitObj = the hit object index (-1 = none/terrain); hitPos = the hit point
+// (the ray's end when nothing was hit).
 static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                         float* hitPos) {
-  const float ox = ctx.playerPosition.x;
-  const float oy = ctx.playerPosition.y;
-  const float oz = ctx.playerPosition.z;
-  float dx = ctx.playerLook.x, dy = ctx.playerLook.y, dz = ctx.playerLook.z;
-  const float dl = sqrtf(dx * dx + dy * dy + dz * dz);
-  *hitObj = -1;
-  if (dl < 0.0001F) {
-    hitPos[0] = ox; hitPos[1] = oy; hitPos[2] = oz;
-    return;
-  }
-  dx /= dl; dy /= dl; dz /= dl;
-  float best = maxDist;
-  const int player = PLAYER_INDEXES[ctx.scene];
-  for (int i = 0; i < ctx.objectCount; ++i) {
-    const RuntimeObject& o = ctx.objects[i];
-    if (!o.active || !o.visible || i == player) continue;
-    const int ty = o.data.type;
-    if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 14 || ty == 17 || ty == 18 || ty == 20)
-      continue;  // markers/emitters/areas/notes, not geometry
-    // bounding sphere: half the largest scale axis (matches the USE picker)
-    float half = o.data.scale[0];
-    if (o.data.scale[1] > half) half = o.data.scale[1];
-    if (o.data.scale[2] > half) half = o.data.scale[2];
-    half *= 0.5F;
-    const float cx = o.data.position[0] - ox;
-    const float cy = o.data.position[1] - oy;
-    const float cz = o.data.position[2] - oz;
-    const float tca = cx * dx + cy * dy + cz * dz;  // closest approach
-    if (tca < 0.0F || tca - half > best) continue;
-    const float d2 = cx * cx + cy * cy + cz * cz - tca * tca;
-    if (d2 > half * half) continue;
-    float t = tca - sqrtf(half * half - d2);
-    if (t < 0.0F) t = 0.0F;  // ray starts inside the sphere
-    if (t < best) {
-      best = t;
-      *hitObj = i;
-    }
-  }
-  // Terrain: fixed-step march, then a short bisection to tighten the hit.
-  // Only a terrain hit closer than the best object hit wins the ray.
-  float prev = 0.0F;
-  for (float t = 0.5F; t <= best; t += 0.5F) {
-    if (oy + dy * t <=
-        terrainHeightAtScene(ctx.scene, ox + dx * t, oz + dz * t)) {
-      float lo = prev, hi = t;
-      for (int k = 0; k < 8; ++k) {
-        const float mid = (lo + hi) * 0.5F;
-        if (oy + dy * mid <=
-            terrainHeightAtScene(ctx.scene, ox + dx * mid, oz + dz * mid))
-          hi = mid;
-        else
-          lo = mid;
-      }
-      best = hi;
-      *hitObj = -1;  // the terrain stopped the ray first
-      break;
-    }
-    prev = t;
-  }
-  hitPos[0] = ox + dx * best;
-  hitPos[1] = oy + dy * best;
-  hitPos[2] = oz + dz * best;
+  const tyrax::RayHit h = tyrax::raycastFromPlayer(ctx, maxDist);
+  *hitObj = h.object.index();
+  h.point.store(hitPos);
 }
 )";
     }
@@ -23043,15 +23321,9 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         // each session can stir it from a save value.
         out << "\n// Random Branch: xorshift32, shared by every graph in the "
                "project.\n"
-               "static unsigned int g_flowRandState = 0x1234567U;\n"
-               "static inline unsigned int flowRand() {\n"
-               "  unsigned int x = g_flowRandState;\n"
-               "  x ^= x << 13;\n"
-               "  x ^= x >> 17;\n"
-               "  x ^= x << 5;\n"
-               "  g_flowRandState = x;\n"
-               "  return x;\n"
-               "}\n";
+               "// The state is the script API's (tyrax::randomU32), so graphs and\n"
+               "// scripts draw from - and tyrax::seedRandom stirs - one sequence.\n"
+               "static inline unsigned int flowRand() { return tyrax::randomU32(); }\n";
         if (uses("RollRandom"))
             out << "\n// Roll Random node. `whole` rounds to an integer, and\n"
                    "// then both ends are inclusive - a 1..6 die really can\n"
@@ -23392,14 +23664,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "namespace:\n// "
             << names()
             << "\n"
-               "static unsigned char flowEvtCur["
-            << n << "] = {};\n"
-               "static float flowEvtCurVal["
-            << n << "] = {};\n"
-               "static unsigned char flowEvtNext["
-            << n << "] = {};\n"
-               "static float flowEvtNextVal["
-            << n << "] = {};\n"
+               "// The arrays are the script API's (tyrax.hpp), so tyrax::sendEvent\n"
+               "// and an On Event node meet on the same bus.\n"
+               "static unsigned char* const flowEvtCur = tyrax::detail::g_evtCur;\n"
+               "static float* const flowEvtCurVal = tyrax::detail::g_evtCurVal;\n"
+               "static unsigned char* const flowEvtNext = tyrax::detail::g_evtNext;\n"
+               "static float* const flowEvtNextVal = tyrax::detail::g_evtNextVal;\n"
+               "static_assert(tyrax::EVENT_COUNT == "
+            << n << ", \"tyrax/names.gen.hpp is stale\");\n"
                "\n"
                "// The bus. Registered before every graph script, so `cur` is\n"
                "// already this frame's mail by the time any receiver looks.\n"
@@ -23412,13 +23684,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                    "    // while the author was looking at it.\n"
                    "    if (livedbg::halted()) return;\n";
         out << "    if (ctx.sceneGeneration != generation_) {\n"
-               "      // A scene (re)load must not deliver the old scene's mail.\n"
+               "      // A scene (re)load must not deliver the old scene's mail -\n"
+               "      // but a script's onStart may already have sent this scene's\n"
+               "      // (tyrax::sendEvent stamps the generation): that is kept for\n"
+               "      // the next frame.\n"
                "      generation_ = ctx.sceneGeneration;\n"
                "      for (int i = 0; i < "
             << n
             << "; ++i) {\n"
-               "        flowEvtCur[i] = flowEvtNext[i] = 0;\n"
-               "        flowEvtCurVal[i] = flowEvtNextVal[i] = 0.0F;\n"
+               "        flowEvtCur[i] = 0;\n"
+               "        flowEvtCurVal[i] = 0.0F;\n"
+               "        if (tyrax::detail::g_evtNextGen[i] != ctx.sceneGeneration) {\n"
+               "          flowEvtNext[i] = 0;\n"
+               "          flowEvtNextVal[i] = 0.0F;\n"
+               "        }\n"
                "      }\n"
                "      return;\n"
                "    }\n"
@@ -23529,6 +23808,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         out << "  factPos[slot][0] = x;\n"
                "  factPos[slot][1] = y;\n"
                "  factPos[slot][2] = z;\n"
+               "}\n";
+
+        // The script API's door into the same store (tyrax::setFact,
+        // docs/script-api.md), declared in facts.gen.hpp. src -1000 = "a
+        // script": the debugger shows the write without a node to point at.
+        out << "void factStore(int slot, float v) { factWrite(slot, v, -1000); }\n"
+               "void factStorePos(int slot, float x, float y, float z) {\n"
+               "  factWritePos(slot, x, y, z, -1000);\n"
                "}\n";
 
         // Enum labels, for Get Fact As Text. Emitted only when something
@@ -31993,6 +32280,9 @@ static std::string factsDataHeader(const Project& p) {
            "void factResetAll();\n"
            "// The same, for scene-scoped facts only - run on every scene load.\n"
            "void factResetScene();\n"
+           "// Script writes (tyrax::setFact): the same door the graphs use.\n"
+           "void factStore(int slot, float v);\n"
+           "void factStorePos(int slot, float x, float y, float z);\n"
            "\n"
            "// One row of the save payload. Keyed by the fact's own stable id\n"
            "// and NOT by its position, which is what lets the catalog be\n"
@@ -36064,6 +36354,9 @@ static std::string objectScriptsSource(const Project& p) {
            "class ObjectScriptDriver : public Script {\n"
            " public:\n"
            "  void update(ScriptContext& ctx) override {\n"
+           "#if defined(TYRAX_SCRIPT_API)\n"
+           "    tyrax::detail::tick(ctx);  // tyrax::sceneTime(), Timer, Cooldown\n"
+           "#endif\n"
            "    if (first || ctx.sceneGeneration != generation) {\n"
            "      first = false;\n"
            "      generation = ctx.sceneGeneration;\n"
@@ -36071,7 +36364,7 @@ static std::string objectScriptsSource(const Project& p) {
            "    }\n"
            "    for (ObjectScript* s : instances) {\n"
            "      // runtimeObjects is rebuilt per scene - re-resolve every frame\n"
-           "      s->self = &ctx.objects[s->selfIndex];\n"
+           "      bind(s, ctx);\n"
            "      s->onUpdate(ctx);\n"
            "    }\n"
            "    if (ctx.usedObject >= 0)\n"
@@ -36080,6 +36373,13 @@ static std::string objectScriptsSource(const Project& p) {
            "  }\n"
            "\n"
            " private:\n"
+           "  static void bind(ObjectScript* s, ScriptContext& ctx) {\n"
+           "    s->self = &ctx.objects[s->selfIndex];\n"
+           "#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 2\n"
+           "    s->object = tyrax::ObjectRef(&ctx, s->selfIndex);\n"
+           "#endif\n"
+           "  }\n"
+           "\n"
            "  void rebuild(ScriptContext& ctx) {\n"
            "    for (ObjectScript* s : instances) delete s;\n"
            "    instances.clear();\n"
@@ -36098,7 +36398,7 @@ static std::string objectScriptsSource(const Project& p) {
            "        continue;\n"
            "      }\n"
            "      s->selfIndex = a.object;\n"
-           "      s->self = &ctx.objects[a.object];\n"
+           "      bind(s, ctx);\n"
            "      instances.push_back(s);\n"
            "      s->onStart(ctx);\n"
            "    }\n"
@@ -36775,6 +37075,8 @@ std::vector<File> generate(const Project& source) {
         {"src\\save_system.gen.cpp", saveSystemSource(p)},
         {"inc\\menu_data.gen.hpp", menuDataHeader(p)},
         {"inc\\scripts\\script.hpp", fill(TPL_SCRIPT_HPP)},
+        {"inc\\tyrax\\tyrax.hpp", fill(TPL_TYRAX_HPP)},
+        {"inc\\tyrax\\names.gen.hpp", tyraxNamesHeader(p)},
         {"inc\\scripts\\sequences.gen.hpp", sequencesHeader(p)},
         {"src\\gen\\sequences.gen.cpp", sequencesScript(p)},
         {"inc\\scripts\\scroller.gen.hpp", scrollerHeader(p)},

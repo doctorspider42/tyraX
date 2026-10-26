@@ -8,6 +8,13 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.3.0
+
+- **Script API.** Scripts get a C++ library, `tyrax::`, that does everything the flow-graph nodes do, plus the helpers a programmer expects. An object script's own object is now `object`, so `object.moveBy(...)`, `object.lookAt(...)` and `object.playAnimation(...)` set the rebuild and wake-up flags for you. Also included: raycasts against the real, rotated collision boxes (`tyrax::raycast`) and the Raycast node's "what am I looking at" (`tyrax::raycastFromPlayer`), `findNearest`, `overlapSphere`, `lineOfSight`, sounds and music, camera shake and fades, the HUD, save values, World Facts, scene switching, layers, sequences and prefabs, input through the Input Map's actions, vectors, easing curves, random numbers, timers and cooldowns. See `docs/script-api.md`.
+- **Your project's names as typed constants.** `tyrax::Sounds::Door`, `tyrax::Scenes::Level2`, `tyrax::Objects::Main::Gate`, `tyrax::Actions::Jump` and so on are generated from the project: a typo is a compile error and VS Code lists what exists.
+- **Scripts and flow graphs share events, voices and randomness.** `tyrax::sendEvent(tyrax::Events::Alarm)` fires a graph's *On Event*, and a graph's *Send Event* reaches scripts. Naming an event in a script creates it. Scripts and graphs also share one sound priority table and one random sequence, so they no longer compete for voices. Sound effects a script plays stay loaded.
+- New scripts start from a stub that shows the API.
+
 ## 2.2.0
 
 - **Choose your game's C++ standard.** *Project > Preferences > Build & debug > Advanced > Compiler* switches between C++17, C++20 and C++23. C++20 is the default, also for existing projects, which used to compile as C++17. VS Code IntelliSense follows the same choice. C++23 needs the native toolchain or the from-source Docker image.

@@ -61,7 +61,13 @@ their actual readers complete.
   `TYRA_OBJECT_SCRIPT(Name);` inside the project namespace and attached in
   Properties > Scripts; global scripts derive from `Script` (`init`/`update`)
   and register with `TYRA_SCRIPT(Ns::Name);` (see
-  `src/scripts/example_interaction.cpp`). API: `inc/scripts/script.hpp`.
+  `src/scripts/example_interaction.cpp`). API: `inc/scripts/script.hpp`,
+  which includes the `tyrax::` script API (`inc/tyrax/tyrax.hpp`: what every
+  flow node does - `object.moveBy`, `tyrax::raycast`, `tyrax::playSound`,
+  `tyrax::sendEvent` ... - plus vectors, easing, random, timers) and the
+  project's names as typed constants (`inc/tyrax/names.gen.hpp`:
+  `tyrax::Sounds::X`, `tyrax::Objects::<Scene>::X`). Prefer it over raw
+  `ScriptContext` fields; an object script's own object is `object`.
 - **Custom flow nodes**: `flow-nodes/*.flownode` (header + `---` + C++ body;
   `call = fn` bodies live in `inc/scripts/flow_nodes.hpp`).
 - **Custom screen effects**: `screen-effects/*.screenfx`.

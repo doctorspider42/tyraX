@@ -5615,8 +5615,11 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 2
+#define TYRAX_VERSION_MINOR 3
 #define TYRAX_VERSION_PATCH 0
+// 2.3.0: the tyrax:: script API (docs/script-api.md) - inc/tyrax/tyrax.hpp +
+// typed project names in inc/tyrax/names.gen.hpp; graphs and scripts share the
+// event bus, the random sequence, the SFX voice table and the Raycast node.
 // 2.2.0: the game's C++ standard (17/20/23, default 20) and extra compiler /
 // linker flags are project preferences, and the generated Makefile includes an
 // optional user-owned user.mk (docs/native-toolchain.md).
