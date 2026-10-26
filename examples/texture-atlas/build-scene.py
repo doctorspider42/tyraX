@@ -135,11 +135,13 @@ def make_prop(index):
             for gxx, bit in enumerate(row):
                 if bit == "1":
                     px[(13 + gy) * 32 + gx + gxx] = ink
-    # The box primitive samples V from the bottom, so a label drawn the obvious
-    # way arrives UPSIDE DOWN on the crate - and an upside-down "5" is a
-    # convincing "2", which is exactly the sort of thing this fixture exists to
-    # make obvious rather than subtle. Flip the tile vertically.
-    return [px[(31 - y) * 32 + x] for y in range(32) for x in range(32)]
+    # Drawn the obvious way: the box's front and back faces put V=0 at the top
+    # of the PNG (addBox / primmesh::unitBox, "Front/back V=0 at the top"), so
+    # the label reads upright on the crate. This used to flip the tile
+    # vertically for an older box that sampled V from the bottom - after that
+    # was fixed every number stood upside down. An upside-down "5" is a
+    # convincing "2", which is exactly what this fixture exists to catch.
+    return px
 
 
 PROP_COUNT = 30
