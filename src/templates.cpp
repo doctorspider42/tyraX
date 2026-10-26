@@ -6640,7 +6640,7 @@ inline std::vector<ObjectScriptFactory>& getObjectScriptFactories() {
  * inside your namespace. */
 #define TYRA_SCRIPT_METHOD(ClassName, Method)                                 \
   static const bool TYRA_SCRIPT_CONCAT(_tyraScriptMethod_, __COUNTER__) = []() { \
-    {{NAME_UPPER_NS}}::getScriptMethods().push_back(                          \
+    ::{{NAME_UPPER_NS}}::getScriptMethods().push_back(                          \
         {#ClassName, #Method,                                                 \
          [](::{{NAME_UPPER_NS}}::ObjectScript* o,                             \
             ::{{NAME_UPPER_NS}}::ScriptContext& ctx) {                        \
