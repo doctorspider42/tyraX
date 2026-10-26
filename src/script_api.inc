@@ -503,13 +503,13 @@ class ObjectRef {
   // -- animated models
   void playAnimation(const char* clip = "", bool loop = true, float speed = 1.0F,
                      float fade = 0.0F) const {
-    if (valid()) {{NAME_UPPER_NS}}::playAnimation(*ctx_, index_, clip, loop, speed, fade);
+    if (valid()) ::{{NAME_UPPER_NS}}::playAnimation(*ctx_, index_, clip, loop, speed, fade);
   }
   void stopAnimation() const {
-    if (valid()) {{NAME_UPPER_NS}}::stopAnimation(*ctx_, index_);
+    if (valid()) ::{{NAME_UPPER_NS}}::stopAnimation(*ctx_, index_);
   }
   bool animationFinished() const {
-    return valid() && {{NAME_UPPER_NS}}::animationFinished(*ctx_, index_);
+    return valid() && ::{{NAME_UPPER_NS}}::animationFinished(*ctx_, index_);
   }
 
   // -- questions
