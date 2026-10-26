@@ -22545,7 +22545,7 @@ std::string tyraxNamesHeader(const Project& p) {
           << std::max<size_t>(1, objs.size()) << "] = {";
         if (objs.empty()) o << "0U";
         for (size_t i = 0; i < objs.size(); ++i)
-            o << (i ? ", " : "") << (i % 8 == 0 ? "\n    " : "") << fnv(objs[i].name) << "U";
+            o << (i ? "," : "") << (i % 8 == 0 ? "\n    " : " ") << fnv(objs[i].name) << "U";
         o << "};\n";
     }
     o << "inline const uint32_t* const OBJECT_NAME_HASHES[" << std::max<size_t>(1, p.scenes.size())
