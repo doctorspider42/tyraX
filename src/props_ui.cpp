@@ -3865,6 +3865,9 @@ bool App::drawScriptFields(SceneObject& o, const std::string& cls) {
                 case Kind::Menu: { const auto v = namesOf(project_.menus); nameCombo(v, v); break; }
                 default: ImGui::TextDisabled("(not editable)"); break;
             }
+            // The widget's label is hidden (##v); give UI scripts a name:
+            // "<Class>.<field>" (docs/ui-scripting.md).
+            uiscript::nameItem(ImGui::GetID("##v"), (cls + "." + f.name).c_str());
         }
         if (changed) overrides[f.name] = value;
         commit |= done;
@@ -3874,6 +3877,7 @@ bool App::drawScriptFields(SceneObject& o, const std::string& cls) {
                 overrides.erase(f.name);
                 commit = true;
             }
+            uiscript::nameItem(ImGui::GetItemID(), ("Reset " + cls + "." + f.name).c_str());
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to the script's default");
         }
         ImGui::PopID();
