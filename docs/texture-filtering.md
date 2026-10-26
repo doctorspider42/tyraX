@@ -31,6 +31,13 @@ close-up.
   The setting belongs to the **texture**, not to a material or an object, so
   every model and material using that image follows. Renaming or moving the
   texture in the Asset Browser carries its setting along.
+- **In bulk** - *Tools > Texture Filtering* lists every PNG under
+  `res/models`, `res/materials` and `res/textures` with the filter it is drawn
+  with. Filter the list to *Overrides* or *Not smooth*, tick several textures
+  and set them together (*Default* clears the override).
+
+  ![Tools > Texture Filtering](img/texture-filtering-tool.png)
+
 - **Viewport preview** - the viewport's view menu (and the gear popup) has
   *Texture filtering*: *Match PS2* shows each texture as the game will sample
   it; *All smooth* and *All pixel* only change the editor's view (handy for
