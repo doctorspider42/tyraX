@@ -18762,8 +18762,11 @@ void TerrainGame::updateVehicleTutorial(float dt) {
   if (drv < 0 || drv != vehTutCar_) vehTutLeft_ = 0.0F;
   if (entered) {
     const int def = vehicles_[drv].def;
+    // assign, not resize: the size is a compile-time constant, so this only
+    // ever runs on the empty vector - and GCC 15 at -std=gnu++20 inlines a
+    // resize of it into a false -Wstringop-overflow (seven lines of noise).
     if ((int)vehTutSeen_.size() < VEHICLE_DEF_COUNT)
-      vehTutSeen_.resize((size_t)VEHICLE_DEF_COUNT, 0);
+      vehTutSeen_.assign((size_t)VEHICLE_DEF_COUNT, 0);
     if (def >= 0 && VEHICLE_DEFS[def].tutorialFont >= 0 &&
         VEHICLE_DEFS[def].tutorialSecs > 0.0F && !vehTutSeen_[(size_t)def]) {
       vehTutSeen_[(size_t)def] = 1;
