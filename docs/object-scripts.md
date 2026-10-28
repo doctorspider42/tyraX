@@ -59,11 +59,13 @@ alive until their actual readers finish.
 
 ## Quick start
 
-1. Select an object and click **New script...** in **Properties > Scripts**
-   (also on the Project panel's *Scripts* page, the `</>` icon on the left rail). The editor writes
-   `src/scripts/<name>.cpp` from an attachable stub and attaches the class
-   to the selected object.
-2. Click **Open in VS Code** (Project panel > Scripts) - the generated
+1. Select an object, click **Add script** in **Properties > Scripts** and
+   pick **New script...** at the bottom of the list (also on the Project
+   panel's *Scripts* page, the `</>` icon on the left rail). The editor
+   writes `src/scripts/<name>.cpp` from an attachable stub and attaches the
+   class to the selected object.
+2. Click the `</>` button on the script's card (or **Open in VS Code** on
+   the Project panel's *Scripts* page) - VS Code opens at the class. The generated
    `.vscode/c_cpp_properties.json` gives working IntelliSense against the
    engine and PS2SDK headers.
 3. Edit the class:
@@ -94,8 +96,36 @@ TYRA_OBJECT_SCRIPT(Bobber);
 }  // namespace Mygame
 ```
 
-4. Attach the class to more objects with the **Attach script...** combo -
-   each gets an independent instance. **Build & Run** (`F5`).
+4. Attach the class to more objects with **Add script** (`Ctrl+Shift+A`
+   in Properties) - each gets an independent instance. **Build & Run** (`F5`).
+
+### Scripts in the editor
+
+![The Add script picker: a search field with a match count, filter chips, classes grouped by folder with their description and use count, and the highlighted class's fields](img/script-picker.png)
+
+- **Properties > Scripts** shows one card per attached class: the class
+  name over its `file:line`, an *N set* tag when this object overrides
+  fields, and three buttons - open the file in VS Code at the class, show
+  the class on the Project panel's *Scripts* page, and a menu with *Reset
+  all fields*, *Copy class name* and *Detach*. Click the header to fold the
+  card. The body is the first sentence of the comment above the class and
+  its [public fields](script-api.md#public-fields). A class that no file
+  registers gets an amber card with *Create*.
+- **Add script** opens a searchable picker: type to filter by name,
+  description or file; the chips narrow it to the classes used in this
+  scene, to `src/scripts` or to one extension. Classes are grouped by
+  folder (recently attached first) and show their field count and how many
+  objects use them; the highlighted class's fields and defaults show below
+  the list. `Up`/`Down` move, `Enter` attaches, `Ctrl+Enter` opens the
+  class in VS Code, `Esc` closes.
+- **Project panel > Scripts** lists everything that runs code in foldable
+  sections: *Object scripts* (one group per file, an extension being one
+  group), *Global scripts*, *Flow graphs*, *VU programs* and *Extensions*,
+  with chips for each and for *Unused* classes. Each class shows how many
+  objects use it; click an object to select it and frame it in the
+  viewport (switching scene first if it lives in another one), click the
+  class name to open its file at the class. An unused class has *Attach to
+  selected*.
 5. To make a value settable per object, mark the member
    `[[tyra::prop]]`, for example `[[tyra::prop(min = 0, max = 2)]] float
    height = 0.5F;`. It then shows up under the script in Properties, with a
@@ -241,7 +271,7 @@ object-script driver are themselves global scripts under the hood.
 
 | Symptom | Cause / fix |
 |---|---|
-| Class missing from the **Attach script...** combo | No `TYRA_OBJECT_SCRIPT(Name);` in a `src/scripts/*.cpp` file (the scan is textual and per-file - check spelling and that the file is saved). |
+| Class missing from the **Add script** picker | No `TYRA_OBJECT_SCRIPT(Name);` in a `src/scripts/*.cpp` file (the scan is textual and per-file - check spelling and that the file is saved). |
 | Attached entry shows red *"not found"* | The registration disappeared (file deleted, class renamed). The game skips it with a log line; remove the entry or restore the class. |
 | `Object script not registered: X` in the game log (Debug panel, `bin/log.txt`) | Same as above, seen at runtime - the scene loads fine, that attachment is skipped. |
 | Script does nothing | Is it attached to an object *in the active scene*? Attachments are per object per scene. |

@@ -113,7 +113,7 @@ values in before `onStart`. A field you leave alone keeps the member's own
 initializer, so changing a default in code reaches every object that did not
 override it.
 
-![Properties > Scripts on the script-framework example's door: SwingDoor's fields - the two set on this object in blue with their reset buttons, the rest at the script's defaults](img/script-fields.png)
+![Properties > Scripts on the script-framework example's door: the SwingDoor card with its fields - the two set on this object marked with a dot and a reset arrow, the rest dimmed at the script's defaults](img/script-fields.png)
 
 ```cpp
 class Turret : public ObjectScript {

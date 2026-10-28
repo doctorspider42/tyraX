@@ -2977,65 +2977,7 @@ void App::drawPropertiesWindow() {
     // anything to, and the game never sees the object at all.
     if (!isComment && section("Scripts", true)) {
         if (!isSolid) ImGui::SeparatorText("Scripts");
-        const std::vector<std::string> registered = objectScriptNames();
-        auto isRegistered = [&](const std::string& n) {
-            for (const std::string& r : registered)
-                if (r == n) return true;
-            return false;
-        };
-        for (int i = 0; i < (int)o.scripts.size();) {
-            ImGui::PushID(i);
-            const bool removed = ImGui::SmallButton("x");
-            ImGui::SameLine();
-            if (isRegistered(o.scripts[i])) {
-                ImGui::TextUnformatted(o.scripts[i].c_str());
-                if (drawScriptFields(o, o.scripts[i])) committed = true;
-            } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s - not found",
-                                   o.scripts[i].c_str());
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("No TYRA_OBJECT_SCRIPT(%s) in src/scripts/*.cpp\n"
-                                      "- the game skips it (with a log line).",
-                                      o.scripts[i].c_str());
-            }
-            ImGui::PopID();
-            if (removed) {
-                o.scripts.erase(o.scripts.begin() + i);
-                committed = true;
-            } else {
-                ++i;
-            }
-        }
-        // The combo takes what the "New script..." button leaves of the row
-        // (a fixed item width pushed the button past the panel's edge).
-        const float newScriptW = ImGui::CalcTextSize("New script...").x +
-                                 ImGui::GetStyle().FramePadding.x * 2.0f;
-        ImGui::SetNextItemWidth(ImMax(scaled(80.0f), ImGui::GetContentRegionAvail().x - newScriptW -
-                                                         ImGui::GetStyle().ItemSpacing.x));
-        if (ui::BeginCombo("##attach_script", "Attach script...")) {
-            bool any = false;
-            for (const std::string& r : registered) {
-                bool attached = false;
-                for (const std::string& s : o.scripts) attached |= (s == r);
-                if (attached) continue;
-                any = true;
-                if (ImGui::Selectable(r.c_str(), false)) {
-                    o.scripts.push_back(r);
-                    committed = true;
-                }
-            }
-            if (!any)
-                ImGui::TextDisabled(registered.empty()
-                                        ? "No object scripts in src/scripts yet."
-                                        : "Every script is already attached.");
-            ImGui::EndCombo();
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("New script...")) {
-            openNewScriptPopup_ = true;
-            newScriptError_.clear();
-            newScriptAttachTo_ = selectedObject_;
-        }
+        if (drawScriptCards(o)) committed = true;
     }
 
     if (committed) commitChange();  // flush any field edit before an action
@@ -3736,11 +3678,18 @@ bool App::drawScriptFields(SceneObject& o, const std::string& cls) {
         std::string value = set ? it->second : f.defaultValue;
         bool changed = false, done = false;
 
+        // Set fields: an accent dot in the indent and full-strength text;
+        // fields on the script's default read dim.
         ImGui::AlignTextToFramePadding();
-        if (set)
-            ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f), "%s", f.name.c_str());
-        else
+        if (set) {
+            const ImVec2 cp = ImGui::GetCursorScreenPos();
+            ImGui::GetWindowDrawList()->AddCircleFilled(
+                ImVec2(cp.x - scaled(9.0f), cp.y + ImGui::GetFrameHeight() * 0.5f), scaled(3.0f),
+                ImGui::GetColorU32(theme::semantics().accent));
             ImGui::TextUnformatted(f.name.c_str());
+        } else {
+            ImGui::TextColored(theme::semantics().textDim, "%s", f.name.c_str());
+        }
         if (ImGui::IsItemHovered()) {
             std::string tip = f.tooltip.empty() ? "" : f.tooltip + "\n";
             tip += std::string(scriptprops::kindLabel(f.kind)) + " " + f.type;
@@ -3749,9 +3698,7 @@ bool App::drawScriptFields(SceneObject& o, const std::string& cls) {
             ImGui::SetTooltip("%s", tip.c_str());
         }
         ImGui::SameLine(labelW);
-        const float resetW = set ? ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0f +
-                                       ImGui::GetStyle().ItemSpacing.x
-                                 : 0.0f;
+        const float resetW = set ? ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x : 0.0f;
         ImGui::SetNextItemWidth(ImMax(scaled(60.0f), ImGui::GetContentRegionAvail().x - resetW));
 
         // A combo over a list of names; "" = none (keeps the code's default).
@@ -3906,18 +3853,588 @@ bool App::drawScriptFields(SceneObject& o, const std::string& cls) {
         commit |= done;
         if (set) {
             ImGui::SameLine();
-            if (ImGui::SmallButton("x")) {
+            if (ui::IconButton(("Reset " + cls + "." + f.name).c_str(), ui::RtIcon::Undo, 0.0f,
+                               "Back to the script's default")) {
                 overrides.erase(f.name);
                 commit = true;
             }
-            uiscript::nameItem(ImGui::GetItemID(), ("Reset " + cls + "." + f.name).c_str());
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Back to the script's default");
         }
         ImGui::PopID();
     }
     ImGui::Unindent(scaled(18.0f));
     if (overrides.empty()) o.scriptProps.erase(cls);
     return commit;
+}
+
+namespace {
+
+ImU32 colU32(const ImVec4& c, float alpha = 1.0f) {
+    return ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, c.w * alpha));
+}
+
+std::string lowerCopy(std::string s) {
+    for (char& c : s) c = (char)std::tolower((unsigned char)c);
+    return s;
+}
+
+// Where a script class lives, as the picker groups and filters it:
+// "src/scripts/cookbook" for project scripts, the extension's name for
+// src/extensions/<name>/... (docs/script-extensions.md).
+struct ScriptSource {
+    std::string group;   // the group caption: folder, or "<ext> · extension"
+    std::string chip;    // the filter chip: "src/scripts" or the extension name
+};
+ScriptSource scriptSourceOf(const std::string& file) {
+    static const std::string kExt = "src/extensions/";
+    if (file.rfind(kExt, 0) == 0) {
+        const size_t slash = file.find('/', kExt.size());
+        const std::string name = file.substr(kExt.size(), slash == std::string::npos
+                                                              ? std::string::npos
+                                                              : slash - kExt.size());
+        std::string pretty = name;
+        if (!pretty.empty()) pretty[0] = (char)std::toupper((unsigned char)pretty[0]);
+        return {pretty + " \xC2\xB7 extension", pretty};
+    }
+    const size_t slash = file.rfind('/');
+    return {slash == std::string::npos ? file : file.substr(0, slash), "src/scripts"};
+}
+
+std::string fileName(const std::string& file) {
+    const size_t slash = file.rfind('/');
+    return slash == std::string::npos ? file : file.substr(slash + 1);
+}
+
+std::string countNoun(size_t n, const char* one, const char* many) {
+    return std::to_string(n) + " " + (n == 1 ? one : many);
+}
+
+// The dashed full-width "Add script" button. Returns clicked.
+bool DashedAddButton(const char* label, const char* text, const char* hint) {
+    const theme::Semantics& sem = theme::semantics();
+    const float h = ImGui::GetFrameHeight() * 1.35f;
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const float w = ImGui::GetContentRegionAvail().x;
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(w, h));
+    const bool hov = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImU32 line = hov ? colU32(sem.accent, 0.8f) : colU32(sem.textDim, 0.45f);
+    if (hov) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), colU32(sem.accent, 0.07f),
+                               ImGui::GetStyle().FrameRounding);
+    // Dashes by hand: ImDrawList has no stroke pattern.
+    const float dash = 5.0f, gap = 4.0f;
+    auto hline = [&](float y) {
+        for (float x = p.x + 3.0f; x < p.x + w - 3.0f; x += dash + gap)
+            dl->AddLine(ImVec2(x, y), ImVec2(ImMin(x + dash, p.x + w - 3.0f), y), line);
+    };
+    auto vline = [&](float x) {
+        for (float y = p.y + 3.0f; y < p.y + h - 3.0f; y += dash + gap)
+            dl->AddLine(ImVec2(x, y), ImVec2(x, ImMin(y + dash, p.y + h - 3.0f)), line);
+    };
+    hline(p.y + 0.5f);
+    hline(p.y + h - 0.5f);
+    vline(p.x + 0.5f);
+    vline(p.x + w - 0.5f);
+    const ImVec2 ts = ImGui::CalcTextSize(text);
+    const float glyph = ImGui::GetFontSize() * 0.8f;
+    const float tx = p.x + (w - ts.x - glyph - 6.0f) * 0.5f;
+    const float ty = p.y + (h - ts.y) * 0.5f;
+    const ImU32 ink = hov ? colU32(sem.accent) : colU32(sem.text, 0.85f);
+    ui::DrawGlyph(dl, ui::Glyph::Plus, ImVec2(tx + glyph * 0.5f, p.y + h * 0.5f), glyph, ink);
+    dl->AddText(ImVec2(tx + glyph + 6.0f, ty), ink, text);
+    if (hint && w > ts.x + ImGui::CalcTextSize(hint).x * 2.2f) {
+        const ImVec2 hs = ImGui::CalcTextSize(hint);
+        dl->AddText(ImVec2(p.x + w - hs.x - 10.0f, ty), colU32(sem.textDim, 0.8f), hint);
+    }
+    return pressed;
+}
+
+// A small rounded count tag drawn at `at` (right-aligned to at.x); returns
+// its width. kind: 0 accent, 1 warn.
+float TagAt(ImDrawList* dl, ImVec2 at, const char* text, int kind) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize() * 0.82f;
+    const ImVec2 ts = ImGui::GetFont()->CalcTextSizeA(fs, FLT_MAX, 0.0f, text);
+    const float padX = fs * 0.55f, h = fs + 5.0f;
+    const ImVec4 base = kind == 1 ? sem.warn : sem.accent;
+    const ImVec2 a(at.x - ts.x - padX * 2.0f, at.y - h * 0.5f);
+    dl->AddRectFilled(a, ImVec2(at.x, a.y + h), colU32(base, 0.16f), h * 0.5f);
+    dl->AddText(ImGui::GetFont(), fs, ImVec2(a.x + padX, a.y + 2.5f), colU32(base), text);
+    return ts.x + padX * 2.0f;
+}
+
+}  // namespace
+
+// Select object i alone, frame it and hand the keyboard to the viewport - what
+// a click on an object chip in Project > Scripts does (it used to open the
+// object's flow graph, which for a scripted object is usually empty).
+void App::focusObject(int i) {
+    if (i < 0 || i >= (int)project_.objects().size()) return;
+    selectOnly(i, false);
+    viewport_.setTarget(project_.objects()[i].position);
+    navFocusedIndex_ = i;
+    pendingFocusWindow_ = "Viewport";
+    statusMessage_ = "Selected " + project_.objects()[i].name;
+}
+
+// Properties > Scripts (ScriptsInspector design, docs/object-scripts.md): one
+// card per attached class - fold chevron, class name, file:line, "N set",
+// Open in VS Code, Show in Scripts page, and a menu with Reset all / Detach.
+// The card body is the one-line description (the comment above the class)
+// and the [[tyra::prop]] fields. A class no file registers gets an amber card
+// that offers to create it.
+bool App::drawScriptCards(SceneObject& o) {
+    const theme::Semantics& sem = theme::semantics();
+    bool committed = false;
+    const std::vector<std::string> registered = objectScriptNames();
+    auto isRegistered = [&](const std::string& n) {
+        return std::find(registered.begin(), registered.end(), n) != registered.end();
+    };
+    const float fh = ImGui::GetFrameHeight();
+    const float sp = ImGui::GetStyle().ItemSpacing.x;
+    for (int i = 0; i < (int)o.scripts.size();) {
+        const std::string cls = o.scripts[i];
+        ImGui::PushID(cls.c_str());
+        const bool known = isRegistered(cls);
+        const scriptprops::ClassInfo* ci = known ? scriptClassInfo(cls) : nullptr;
+        int nSet = 0;
+        if (const auto it = o.scriptProps.find(cls); it != o.scriptProps.end() && ci)
+            for (const scriptprops::Field& f : ci->fields) nSet += it->second.count(f.name) ? 1 : 0;
+        bool detach = false;
+
+        ui::BeginCard("##card");
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImGuiStorage* st = ImGui::GetStateStorage();
+        const ImGuiID openKey = ImGui::GetID("open");
+        bool open = st->GetBool(openKey, true);
+
+        // Header, two lines: the class name over its file:line (a missing
+        // class: over why the game skips it). The fold target takes the row,
+        // the buttons its end, centred on both lines.
+        const float fs = ImGui::GetFontSize();
+        const float hh = fs * 2.35f;
+        const std::string createLabel = "Create " + cls;
+        const float createW = known ? 0.0f
+                                    : ImGui::CalcTextSize(createLabel.c_str()).x +
+                                          ImGui::GetStyle().FramePadding.x * 2.0f + sp;
+        const int buttons = known ? 3 : 1;
+        const float btnW = buttons * fh + (buttons - 1) * sp + createW;
+        const ImVec2 hp = ImGui::GetCursorScreenPos();
+        const float rowW = ImGui::GetContentRegionAvail().x;
+        const float foldW = ImMax(fh, rowW - btnW - sp);
+        const float headY = ImGui::GetCursorPosY();
+        if (ImGui::InvisibleButton("##fold", ImVec2(foldW, hh)) && known) st->SetBool(openKey, open = !open);
+        uiscript::nameItem(ImGui::GetItemID(), ("Fold " + cls).c_str());
+        const bool foldHov = ImGui::IsItemHovered();
+        if (foldHov && ci)
+            ImGui::SetTooltip("%s:%d\n%s", ci->file.c_str(), ci->line,
+                              open ? "Click to fold" : "Click to unfold");
+        const float cy = hp.y + hh * 0.5f;
+        float x = hp.x;
+        if (known) {
+            ui::DrawRtIcon(dl, open ? ui::RtIcon::ChevronDown : ui::RtIcon::ChevronRight,
+                           ImVec2(x + fh * 0.3f, cy), fh * 0.45f,
+                           colU32(foldHov ? sem.text : sem.textDim));
+            x += fh * 0.65f;
+            ui::DrawGlyph(dl, ui::Glyph::Code, ImVec2(x + fh * 0.4f, cy), fh * 0.6f, colU32(sem.accent));
+        } else {  // a warning triangle: the glyph set has none
+            const float r = fh * 0.32f;
+            const ImVec2 c(x + fh * 0.4f, cy);
+            const ImU32 w = colU32(sem.warn);
+            dl->AddTriangle(ImVec2(c.x, c.y - r), ImVec2(c.x + r * 1.1f, c.y + r * 0.8f),
+                            ImVec2(c.x - r * 1.1f, c.y + r * 0.8f), w, 1.5f);
+            dl->AddLine(ImVec2(c.x, c.y - r * 0.3f), ImVec2(c.x, c.y + r * 0.25f), w, 1.5f);
+            dl->AddCircleFilled(ImVec2(c.x, c.y + r * 0.55f), 1.2f, w);
+        }
+        x += fh * 0.85f;
+        const float right = hp.x + foldW - 4.0f;
+        // Right end: "N set" when fields are overridden here, else the field
+        // count (dim); then the name and the second line in what is left.
+        float tagW = 0.0f;
+        if (known && nSet > 0) {
+            tagW = TagAt(dl, ImVec2(right, cy), (std::to_string(nSet) + " set").c_str(), 0);
+        } else if (ci) {
+            const std::string n = countNoun(ci->fields.size(), "field", "fields");
+            const float sfs = fs * 0.85f;
+            const ImVec2 ns = ImGui::GetFont()->CalcTextSizeA(sfs, FLT_MAX, 0.0f, n.c_str());
+            dl->AddText(ImGui::GetFont(), sfs, ImVec2(right - ns.x, cy - ns.y * 0.5f), colU32(sem.textDim),
+                        n.c_str());
+            tagW = ns.x;
+        }
+        const float textMax = right - (tagW > 0.0f ? tagW + 8.0f : 0.0f);
+        {
+            ImFont* bold = ui::boldFont() ? ui::boldFont() : ImGui::GetFont();
+            const ImVec2 ns = bold->CalcTextSizeA(fs, FLT_MAX, 0.0f, cls.c_str());
+            const float ty = hp.y + hh * 0.5f - fs * 1.02f;
+            ImGui::PushFont(bold, 0.0f);
+            ImGui::RenderTextEllipsis(dl, ImVec2(x, ty), ImVec2(textMax, ty + ns.y + 1.0f), textMax,
+                                      cls.c_str(), nullptr, &ns);
+            ImGui::PopFont();
+            std::string shortFile = ci ? ci->file : std::string();  // src/scripts/ goes without saying
+            if (shortFile.rfind("src/scripts/", 0) == 0) shortFile = shortFile.substr(12);
+            else if (shortFile.rfind("src/", 0) == 0) shortFile = shortFile.substr(4);
+            const std::string second = ci ? shortFile + ":" + std::to_string(ci->line)
+                                          : std::string("No TYRA_OBJECT_SCRIPT registers it - the game skips it.");
+            ImFont* f2 = ci && ui::monoFont() ? ui::monoFont() : ImGui::GetFont();
+            const float sfs = fs * 0.8f;
+            const ImVec2 ws = f2->CalcTextSizeA(sfs, FLT_MAX, 0.0f, second.c_str());
+            const float sy = ty + fs + 2.0f;
+            ImGui::PushFont(f2, sfs);
+            ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+            ImGui::RenderTextEllipsis(dl, ImVec2(x, sy), ImVec2(textMax, sy + ws.y + 1.0f), textMax,
+                                      second.c_str(), nullptr, &ws);
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+        }
+        ImGui::SameLine(0.0f, sp);
+        ImGui::SetCursorPosY(headY + (hh - fh) * 0.5f);
+        if (known) {
+            if (ui::GlyphButton(("Open " + cls + " in VS Code").c_str(), ui::Glyph::Code, fh,
+                                "Open in VS Code (at the class)") && ci)
+                openInVSCode(ci->file, ci->line);
+            ImGui::SameLine(0.0f, sp);
+            if (ui::GlyphButton(("Show " + cls + " in Scripts page").c_str(), ui::Glyph::List, fh,
+                                "Show in Project > Scripts")) {
+                leftPage_ = 4;
+                scriptsPageFocus_ = cls;
+                pendingFocusWindow_ = "Project";
+            }
+        } else if (ui::SecondaryButton(createLabel.c_str())) {
+            std::snprintf(newScriptName_, sizeof(newScriptName_), "%s", cls.c_str());
+            newScriptKind_ = 0;
+            newScriptError_.clear();
+            newScriptAttachTo_ = selectedObject_;
+            openNewScriptPopup_ = true;
+        }
+        ImGui::SameLine(0.0f, sp);
+        if (ui::IconButton(("More " + cls).c_str(), ui::RtIcon::More, fh, "More"))
+            ImGui::OpenPopup("##more");
+        if (ImGui::BeginPopup("##more")) {
+            if (known && ImGui::MenuItem(("Reset all " + cls + " fields").c_str(), nullptr, false, nSet > 0)) {
+                o.scriptProps.erase(cls);
+                committed = true;
+            }
+            if (ci && ImGui::MenuItem("Copy class name")) ImGui::SetClipboardText(cls.c_str());
+            if (known) ImGui::Separator();
+            if (ImGui::MenuItem(("Detach " + cls).c_str())) detach = true;
+            ImGui::EndPopup();
+        }
+
+        if (known && open) {
+            ImGui::Separator();
+            if (ci && !ci->description.empty()) {
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextColored(sem.textDim, "%s", ci->description.c_str());
+                ImGui::PopTextWrapPos();
+            }
+            if (ci && !ci->fields.empty()) {
+                ImGui::Dummy(ImVec2(0.0f, 2.0f));
+                if (drawScriptFields(o, cls)) committed = true;
+            } else {
+                ImGui::TextDisabled("No public fields - mark a member [[tyra::prop]] to edit it here.");
+            }
+        }
+        ui::EndCard();
+        if (!known) {  // amber outline on the parent: the card is a child window
+            const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+            ImGui::GetWindowDrawList()->AddRect(a, b, colU32(sem.warn, 0.7f),
+                                                ImGui::GetStyle().FrameRounding + 3.0f);
+        }
+        ImGui::PopID();
+        if (detach) {
+            o.scripts.erase(o.scripts.begin() + i);
+            o.scriptProps.erase(cls);
+            committed = true;
+        } else {
+            ++i;
+        }
+    }
+
+    // Add script: the dashed button opens the searchable picker under it.
+    // Ctrl+Shift+A does the same while Properties has the keyboard.
+    const bool hotkey = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+                        !ImGui::GetIO().WantTextInput &&
+                        ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_A);
+    if (DashedAddButton("Add script", "Add script", "Ctrl+Shift+A") || hotkey || openScriptPicker_) {
+        openScriptPicker_ = false;
+        scriptPickerSearch_[0] = '\0';
+        scriptPickerCursor_ = 0;
+        ImGui::OpenPopup("Add script##picker");
+    }
+    if (drawAddScriptPicker(o)) committed = true;
+    return committed;
+}
+
+// The Add script picker (AddScript design): a search field with a match count,
+// source chips (All, Used in this scene, src/scripts, each extension), rows
+// grouped Recent / by folder / by extension with the class's description,
+// field count and use count, and a preview of the highlighted class's fields.
+// Up/Down move, Enter attaches, Ctrl+Enter opens the file, Esc closes.
+bool App::drawAddScriptPicker(SceneObject& o) {
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    // Under the Add script button (the last item), or over it when the panel
+    // has no room below - and inside the editor window either way: a popup
+    // past its edge becomes an OS window of its own.
+    {
+        const ImVec2 bMin = ImGui::GetItemRectMin(), bMax = ImGui::GetItemRectMax();
+        const ImGuiViewport* vp = ImGui::GetWindowViewport();
+        const float w = ImMax(fs * 26.0f, bMax.x - bMin.x);
+        const float h = fs * 33.0f;  // the picker at its tallest
+        const float x = ImMax(vp->WorkPos.x, ImMin(bMin.x, vp->WorkPos.x + vp->WorkSize.x - w - 4.0f));
+        const bool below = bMax.y + 4.0f + h <= vp->WorkPos.y + vp->WorkSize.y;
+        ImGui::SetNextWindowPos(below ? ImVec2(x, bMax.y + 4.0f) : ImVec2(x, bMin.y - 4.0f), ImGuiCond_Always,
+                                below ? ImVec2(0.0f, 0.0f) : ImVec2(0.0f, 1.0f));
+        ImGui::SetNextWindowSize(ImVec2(w, 0.0f));
+    }
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(fs * 0.6f, fs * 0.6f));
+    // NoNavInputs: Up/Down move the picker's own cursor, not ImGui's focus.
+    const bool shown = ImGui::BeginPopup("Add script##picker", ImGuiWindowFlags_NoNavInputs);
+    ImGui::PopStyleVar();
+    if (!shown) return false;
+    bool attached = false;
+
+    const std::vector<std::string> registered = objectScriptNames();
+    // Use counts over the active scene: "on 3" / "unused".
+    std::map<std::string, int> uses;
+    for (const SceneObject& so : project_.objects())
+        for (const std::string& s : so.scripts) ++uses[s];
+
+    struct Row {
+        std::string cls;
+        const scriptprops::ClassInfo* ci;
+        ScriptSource src;
+        bool attachedHere;
+    };
+    std::vector<Row> all;
+    std::vector<std::string> chips{"All", "Used in this scene"};
+    for (const std::string& n : registered) {
+        const scriptprops::ClassInfo* ci = scriptClassInfo(n);
+        Row r{n, ci, scriptSourceOf(ci ? ci->file : std::string("src/scripts/?")), false};
+        r.attachedHere = std::find(o.scripts.begin(), o.scripts.end(), n) != o.scripts.end();
+        if (std::find(chips.begin(), chips.end(), r.src.chip) == chips.end()) chips.push_back(r.src.chip);
+        all.push_back(std::move(r));
+    }
+    if (scriptPickerFilter_ >= (int)chips.size()) scriptPickerFilter_ = 0;
+
+    // Search: the field takes the keyboard when the popup opens.
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    const float countW = ImGui::CalcTextSize("000 of 000").x;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - countW - ImGui::GetStyle().ItemSpacing.x);
+    if (ImGui::InputTextWithHint("##scriptsearch", "Search scripts", scriptPickerSearch_,
+                                 sizeof(scriptPickerSearch_)))
+        scriptPickerCursor_ = 0;
+    uiscript::nameItem(ImGui::GetItemID(), "Search scripts");
+    const std::string query = lowerCopy(scriptPickerSearch_);
+
+    std::vector<const Row*> rows;  // filtered, in display order
+    auto matches = [&](const Row& r) {
+        if (scriptPickerFilter_ == 1 && !uses.count(r.cls)) return false;
+        if (scriptPickerFilter_ >= 2 && r.src.chip != chips[scriptPickerFilter_]) return false;
+        if (query.empty()) return true;
+        return lowerCopy(r.cls).find(query) != std::string::npos ||
+               (r.ci && lowerCopy(r.ci->description).find(query) != std::string::npos) ||
+               (r.ci && lowerCopy(r.ci->file).find(query) != std::string::npos);
+    };
+    // Groups: Recent (no query only), then each source group in name order.
+    std::vector<std::pair<std::string, std::vector<const Row*>>> groups;
+    if (query.empty()) {
+        std::vector<const Row*> recent;
+        for (const std::string& n : recentScripts_)
+            for (const Row& r : all)
+                if (r.cls == n && matches(r) && recent.size() < 3) recent.push_back(&r);
+        if (!recent.empty()) groups.push_back({"RECENT", recent});
+    }
+    {
+        std::map<std::string, std::vector<const Row*>> bySource;
+        for (const Row& r : all)
+            if (matches(r)) bySource[r.src.group].push_back(&r);
+        for (auto& [g, v] : bySource) {
+            std::string cap = g;
+            for (char& c : cap) c = (char)std::toupper((unsigned char)c);
+            groups.push_back({cap, v});
+        }
+    }
+    size_t matched = 0;
+    for (const Row& r : all) matched += matches(r) ? 1 : 0;
+    for (auto& g : groups)
+        for (const Row* r : g.second) rows.push_back(r);
+
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(sem.textDim, "%zu of %zu", matched, all.size());
+
+    // Filter chips, wrapping.
+    for (int c = 0; c < (int)chips.size(); ++c) {
+        const float w = ui::ChipButtonWidth(chips[c].c_str());
+        if (c > 0) {
+            ImGui::SameLine();
+            if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+        }
+        if (ui::ChipButton(chips[c].c_str(), scriptPickerFilter_ == c)) {
+            scriptPickerFilter_ = c;
+            scriptPickerCursor_ = 0;
+        }
+    }
+    ImGui::Separator();
+
+    // Keyboard: the cursor walks the attachable rows only.
+    std::vector<int> pickable;
+    for (int k = 0; k < (int)rows.size(); ++k)
+        if (!rows[k]->attachedHere) pickable.push_back(k);
+    if (!pickable.empty()) {
+        scriptPickerCursor_ = std::clamp(scriptPickerCursor_, 0, (int)pickable.size() - 1);
+        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) scriptPickerCursor_ = std::min(scriptPickerCursor_ + 1, (int)pickable.size() - 1);
+        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) scriptPickerCursor_ = std::max(scriptPickerCursor_ - 1, 0);
+    }
+    const int cursorRow = pickable.empty() ? -1 : pickable[scriptPickerCursor_];
+    bool scrollToCursor = ImGui::IsKeyPressed(ImGuiKey_DownArrow) || ImGui::IsKeyPressed(ImGuiKey_UpArrow);
+
+    auto attach = [&](const std::string& cls) {
+        o.scripts.push_back(cls);
+        recentScripts_.erase(std::remove(recentScripts_.begin(), recentScripts_.end(), cls),
+                             recentScripts_.end());
+        recentScripts_.insert(recentScripts_.begin(), cls);
+        statusMessage_ = "Attached " + cls + " to " + o.name;
+        attached = true;
+        ImGui::CloseCurrentPopup();
+    };
+
+    const float rowH = fs * 2.6f;
+    const float listH = ImMin(fs * 22.0f, ImMax(rowH * 2.0f, (float)rows.size() * rowH + groups.size() * fs * 1.6f));
+    ImGui::BeginChild("##scriptlist", ImVec2(0.0f, listH), ImGuiChildFlags_None, ImGuiWindowFlags_NoNav);
+    int k = 0;
+    for (auto& [caption, list] : groups) {
+        ImGui::Dummy(ImVec2(0.0f, 2.0f));
+        ImGui::PushFont(nullptr, fs * 0.78f);
+        ImGui::TextColored(sem.textDim, "%s", caption.c_str());
+        ImGui::PopFont();
+        for (const Row* r : list) {
+            ImGui::PushID(k);
+            const bool hi = k == cursorRow;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            ImGui::BeginDisabled(r->attachedHere);
+            const bool clicked = ImGui::InvisibleButton(r->cls.c_str(), ImVec2(w, rowH));
+            ImGui::EndDisabled();
+            const bool hov = ImGui::IsItemHovered();
+            if (hov && !r->attachedHere && ImGui::GetIO().MouseDelta.x * ImGui::GetIO().MouseDelta.x +
+                                                   ImGui::GetIO().MouseDelta.y * ImGui::GetIO().MouseDelta.y > 0.0f) {
+                for (int q = 0; q < (int)pickable.size(); ++q)
+                    if (pickable[q] == k) scriptPickerCursor_ = q;
+            }
+            if (hi && scrollToCursor) ImGui::SetScrollHereY(0.5f);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float alpha = r->attachedHere ? 0.5f : 1.0f;
+            if (hi) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), colU32(sem.accent, 0.13f),
+                                      ImGui::GetStyle().FrameRounding);
+            const float pad = fs * 0.45f;
+            ui::DrawGlyph(dl, ui::Glyph::Code, ImVec2(p.x + pad + fs * 0.45f, p.y + rowH * 0.5f), fs * 0.85f,
+                          colU32(hi ? sem.accent : sem.textDim, alpha));
+            const float tx = p.x + pad + fs * 1.4f;
+            // Right column: source tag on Recent rows, then "N fields · on M".
+            const size_t nFields = r->ci ? r->ci->fields.size() : 0;
+            const int on = uses.count(r->cls) ? uses[r->cls] : 0;
+            const std::string meta = r->attachedHere
+                                         ? std::string("attached")
+                                         : countNoun(nFields, "field", "fields") + " \xC2\xB7 " +
+                                               (on ? "on " + std::to_string(on) : std::string("unused"));
+            const ImVec2 ms = ImGui::CalcTextSize(meta.c_str());
+            const float metaX = p.x + w - pad - ms.x * 0.85f;
+            ImGui::PushFont(nullptr, fs * 0.85f);
+            dl->AddText(ImVec2(metaX, p.y + rowH * 0.5f - fs * 0.42f), colU32(sem.textDim, alpha), meta.c_str());
+            ImGui::PopFont();
+            // Name with the matched part in bold accent.
+            const float lineMax = metaX - pad;
+            float nx = tx;
+            const float ny = p.y + rowH * 0.5f - fs * 1.0f;
+            const std::string& n = r->cls;
+            const size_t at = query.empty() ? std::string::npos : lowerCopy(n).find(query);
+            auto put = [&](const std::string& s, bool strong) {
+                if (s.empty()) return;
+                ImFont* f = strong && ui::boldFont() ? ui::boldFont() : ImGui::GetFont();
+                dl->AddText(f, fs, ImVec2(nx, ny), strong ? colU32(sem.accent, alpha) : colU32(sem.text, alpha),
+                            s.c_str());
+                nx += f->CalcTextSizeA(fs, FLT_MAX, 0.0f, s.c_str()).x;
+            };
+            if (at == std::string::npos) {
+                put(n, false);
+            } else {
+                put(n.substr(0, at), false);
+                put(n.substr(at, query.size()), true);
+                put(n.substr(at + query.size()), false);
+            }
+            std::string sub;
+            if (r->attachedHere) sub = "already on this object";
+            else if (r->ci) sub = fileName(r->ci->file) + (r->ci->description.empty() ? "" : " \xC2\xB7 " + r->ci->description);
+            if (!sub.empty()) {
+                const float sfs = fs * 0.85f;
+                const ImVec2 ss = ImGui::GetFont()->CalcTextSizeA(sfs, FLT_MAX, 0.0f, sub.c_str());
+                const ImVec2 sp(tx, ny + fs + 1.0f);
+                ImGui::PushFont(nullptr, sfs);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(sem.textDim.x, sem.textDim.y, sem.textDim.z, alpha));
+                ImGui::RenderTextEllipsis(dl, sp, ImVec2(lineMax, sp.y + ss.y + 1.0f), lineMax, sub.c_str(), nullptr, &ss);
+                ImGui::PopStyleColor();
+                ImGui::PopFont();
+            }
+            if (clicked && !r->attachedHere) attach(r->cls);
+            ImGui::PopID();
+            ++k;
+        }
+    }
+    if (rows.empty())
+        ImGui::TextDisabled(registered.empty() ? "No object scripts yet - New script... makes one."
+                                               : "Nothing matches.");
+    ImGui::EndChild();
+
+    // Preview: the highlighted class's fields with their defaults.
+    if (cursorRow >= 0) {
+        const Row* r = rows[cursorRow];
+        ImGui::Separator();
+        ImGui::TextColored(sem.textDim, "%s's fields", r->cls.c_str());
+        std::string fields;
+        if (r->ci)
+            for (const scriptprops::Field& f : r->ci->fields) {
+                if (!fields.empty()) fields += " \xC2\xB7 ";
+                fields += f.name + (f.defaultValue.empty() ? "" : " " + f.defaultValue);
+            }
+        ImGui::PushFont(ui::monoFont(), fs * 0.85f);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(fields.empty() ? "(none)" : fields.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::PopFont();
+
+        if (!attached && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+            if (ImGui::GetIO().KeyCtrl) {
+                if (r->ci) openInVSCode(r->ci->file, r->ci->line);
+                ImGui::CloseCurrentPopup();
+            } else {
+                attach(r->cls);
+            }
+        }
+    }
+    ImGui::Separator();
+    if (ui::SecondaryButton("New script...")) {
+        openNewScriptPopup_ = true;
+        newScriptKind_ = 0;
+        newScriptError_.clear();
+        newScriptAttachTo_ = selectedObject_;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    // The key hint at the row's end, or on a line of its own when narrow.
+    const char* hint = "Enter attaches \xC2\xB7 Ctrl+Enter opens in VS Code";
+    const float hw = ImGui::CalcTextSize(hint).x * 0.85f;
+    if (ImGui::GetContentRegionAvail().x < hw) ImGui::NewLine();
+    else ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - hw);
+    ImGui::PushFont(nullptr, fs * 0.85f);
+    ImGui::TextColored(sem.textDim, "%s", hint);
+    ImGui::PopFont();
+    // Esc: the search field takes the first press (it reverts the text), so
+    // close on the key itself rather than wait for a second one.
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    return attached;
 }
 
 std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {

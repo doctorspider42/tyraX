@@ -19,16 +19,18 @@ The game's Makefile compiles every `.cpp` under `src/`, so an installed
 extension builds with no extra step. The editor reads `src/extensions/*`
 everywhere it reads `src/scripts`:
 
-- the *Attach script…* list,
+- the *Add script* picker (with a chip per extension),
 - the `[[tyra::prop]]` fields in *Properties*,
 - events and sounds that scripts name (`tyrax::Events::X`, `tyrax::Sounds::X`),
 - the *Project > Scripts* page.
 
 ## Managing extensions
 
-![Project panel > Scripts: the extension's files among the C++ scripts with what they are attached to, and the Extensions list with Essentials and its classes](img/script-extensions-page.png)
+![Project panel > Scripts: Essentials as one group of object scripts with its version, each class with the objects that use it, and the Global scripts, Flow graphs and Extensions sections](img/script-extensions-page.png)
 
-*Project panel > Scripts* lists the installed extensions under **Extensions**,
+On *Project panel > Scripts* each extension's classes form one group under
+*Object scripts*, with the manifest's version. The installed extensions are
+listed in the **Extensions** section,
 with each one's version, object scripts and flow-node count. Clicking a row
 opens its manifest.
 

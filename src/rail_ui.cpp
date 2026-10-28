@@ -64,6 +64,10 @@ void tag(const char* text, const ImVec4& c, bool filled = true) {
     ImGui::Dummy(ImVec2(w, ImGui::GetTextLineHeight()));
 }
 
+std::string countNoun(size_t n, const char* one, const char* many) {
+    return std::to_string(n) + " " + (n == 1 ? one : many);
+}
+
 std::string bytesText(uintmax_t b) {
     char buf[32];
     if (b >= 1024ull * 1024ull) std::snprintf(buf, sizeof buf, "%.1f MB", b / (1024.0 * 1024.0));
@@ -1147,11 +1151,18 @@ void App::drawAudioPage() {
 // Scripts
 // ============================================================================
 
+// Project > Scripts (ScriptsPage design): everything that runs code, as
+// collapsible sections - Object scripts (grouped by file, an extension being
+// one group), Global scripts, Flow graphs, VU programs, Extensions - under a
+// search field and filter chips. An object chip selects that object and
+// frames it in the viewport; a class name opens its file at the class.
 void App::drawScriptsSection() {
     const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
     ImGui::SetNextItemWidth(-FLT_MIN);
-    ImGui::InputTextWithHint("##railscriptsearch", "Search scripts, classes, objects", railScriptSearch_,
+    ImGui::InputTextWithHint("##railscriptsearch", "Search classes, files, objects", railScriptSearch_,
                              sizeof railScriptSearch_);
+    uiscript::nameItem(ImGui::GetItemID(), "Search classes, files, objects");
 
     // --- gather -------------------------------------------------------------------
     const SceneData& scene = project_.active();
@@ -1159,30 +1170,65 @@ void App::drawScriptsSection() {
     for (int i = 0; i < (int)scene.objects.size(); ++i)
         if (!scene.objects[i].flowGraph.nodes.empty()) graphs.push_back(i);
 
-    struct CppFile { std::string rel; ScriptFileInfo info; };
-    std::vector<CppFile> cpp;
+    // One group per src/scripts file, one per extension (all its files).
+    struct ClassRow { std::string cls, file; };
+    struct Group {
+        std::string title;    // "cookbook/motion_math.cpp" or "extensions/essentials"
+        std::string open;     // what the group's VS Code button opens
+        std::string version;  // extension manifest version
+        bool extension = false;
+        std::vector<ClassRow> classes;
+    };
+    std::vector<Group> groups;
+    struct GlobalRow { std::string cls, file; };
+    std::vector<GlobalRow> globals;
     std::set<std::string> registered;
+    std::map<std::string, std::string> extVersion;
+    for (const extension::Info& e : extension::list(project_.dir)) extVersion[e.folder] = e.version;
     {
-        // src/scripts and every installed extension; rel is from src/, so an
-        // extension's file reads extensions/<name>/x.cpp.
-        const fs::path srcDir = fs::path(project_.dir) / "src";
+        const fs::path root(project_.dir);
         for (const std::string& d : extension::scriptDirs(project_.dir)) {
             const fs::path dir(d);
             std::error_code ec;
             if (!fs::exists(dir, ec)) continue;
+            std::vector<fs::path> files;
             for (fs::recursive_directory_iterator it(dir, ec), end; it != end && !ec; it.increment(ec)) {
                 if (!it->is_regular_file(ec) || it->path().extension() != ".cpp") continue;
                 const std::string fn = it->path().filename().string();
                 if (fn.size() > 8 && fn.compare(fn.size() - 8, 8, ".gen.cpp") == 0) continue;
-                CppFile f;
-                f.rel = fs::relative(it->path(), srcDir, ec).generic_string();
-                if (f.rel.rfind("scripts/", 0) == 0) f.rel = f.rel.substr(8);  // the usual case reads short
-                f.info = scanScriptFile(it->path());
-                for (const std::string& c : f.info.objectClasses) registered.insert(c);
-                cpp.push_back(std::move(f));
+                files.push_back(it->path());
+            }
+            std::sort(files.begin(), files.end());
+            for (const fs::path& p : files) {
+                const std::string rel = fs::relative(p, root, ec).generic_string();  // src/...
+                const ScriptFileInfo& info = scanScriptFile(p);
+                for (const std::string& c : info.objectClasses) registered.insert(c);
+                for (const std::string& g : info.globalClasses) globals.push_back({g, rel});
+                static const std::string kExt = "src/extensions/";
+                Group* g = nullptr;
+                if (rel.rfind(kExt, 0) == 0) {
+                    const std::string folder = rel.substr(kExt.size(), rel.find('/', kExt.size()) - kExt.size());
+                    const std::string title = "extensions/" + folder;
+                    for (Group& e : groups) if (e.title == title) g = &e;
+                    if (!g) {
+                        groups.push_back({title, kExt + folder + "/extension.json", extVersion[folder], true, {}});
+                        g = &groups.back();
+                    }
+                } else {
+                    const std::string title = rel.rfind("src/scripts/", 0) == 0 ? rel.substr(12) : rel;
+                    groups.push_back({title, rel, "", false, {}});
+                    g = &groups.back();
+                }
+                for (const std::string& c : info.objectClasses) g->classes.push_back({c, rel});
             }
         }
-        std::sort(cpp.begin(), cpp.end(), [](const CppFile& a, const CppFile& b) { return a.rel < b.rel; });
+        // Project files first, extensions after; each block by name.
+        std::stable_sort(groups.begin(), groups.end(), [](const Group& a, const Group& b) {
+            return a.extension != b.extension ? !a.extension : a.title < b.title;
+        });
+        groups.erase(std::remove_if(groups.begin(), groups.end(),
+                                    [](const Group& g) { return g.classes.empty() && g.extension; }),
+                     groups.end());
     }
     std::vector<std::string> vu;
     {
@@ -1202,13 +1248,34 @@ void App::drawScriptsSection() {
     std::vector<std::string> missing;
     for (const auto& [c, refs] : attached)
         if (!registered.count(c)) missing.push_back(c);
+    int nClasses = 0, nUnused = 0;
+    for (const Group& g : groups)
+        for (const ClassRow& r : g.classes) {
+            ++nClasses;
+            nUnused += attached.count(r.cls) ? 0 : 1;
+        }
+    objectScriptNames();  // fills the class cache (fields, lines) scriptClassInfo reads
 
+    // --- filter chips -----------------------------------------------------------------
+    // 0 All, 1 Object scripts, 2 Global, 3 Graphs, 4 VU, 5 Unused.
     {
-        std::string flowL = "Flow graphs " + std::to_string(graphs.size()) + "##sf";
-        std::string cppL = "C++ " + std::to_string(cpp.size()) + "##sf";
-        std::string vuL = "VU " + std::to_string(vu.size()) + "##sf";
-        const char* filters[] = {"All##sf", flowL.c_str(), cppL.c_str(), vuL.c_str()};
-        ui::Segmented("##scriptfilter", filters, 4, &railScriptFilter_);
+        const std::string labels[] = {"All", "Object scripts " + std::to_string(nClasses),
+                                      "Global " + std::to_string(globals.size()),
+                                      "Graphs " + std::to_string(graphs.size()),
+                                      "VU " + std::to_string(vu.size()), "Unused " + std::to_string(nUnused)};
+        if (railScriptFilter_ < 0 || railScriptFilter_ > 5) railScriptFilter_ = 0;
+        bool first = true;
+        for (int c = 0; c < 6; ++c) {
+            if (c == 4 && vu.empty()) continue;
+            if (c == 5 && nUnused == 0) continue;
+            const float w = ui::ChipButtonWidth(labels[c].c_str());
+            if (!first) {
+                ImGui::SameLine();
+                if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+            }
+            first = false;
+            if (ui::ChipButton(labels[c].c_str(), railScriptFilter_ == c)) railScriptFilter_ = c;
+        }
     }
 
     // The last build's first error in a script, where you look for it.
@@ -1241,150 +1308,370 @@ void App::drawScriptsSection() {
         }
     }
 
-    const bool showFlow = railScriptFilter_ == 0 || railScriptFilter_ == 1;
-    const bool showCpp = railScriptFilter_ == 0 || railScriptFilter_ == 2;
-    const bool showVu = railScriptFilter_ == 0 || railScriptFilter_ == 3;
-    ImGui::BeginChild("##railscripts", ImVec2(0, ImMax(scaled(120), ImGui::GetContentRegionAvail().y - ImGui::GetTextLineHeightWithSpacing() - scaled(4))));
-    auto objChip = [&](int si, int oi) {
+    const int filter = railScriptFilter_;
+    const bool showCpp = filter == 0 || filter == 1 || filter == 5;
+    const bool showGlobal = filter == 0 || filter == 2;
+    const bool showFlow = filter == 0 || filter == 3;
+    const bool showVu = filter == 0 || filter == 4;
+    const bool searching = railScriptSearch_[0] != '\0';
+    // Show in Scripts page (Properties): open the way to that class once.
+    const std::string focus = scriptsPageFocus_;
+    if (!focus.empty() && (filter == 2 || filter == 3 || filter == 4)) railScriptFilter_ = 0;
+    static std::string flashClass;
+    static double flashUntil = 0.0;
+
+    ImGui::BeginChild("##railscripts", ImVec2(0, ImMax(scaled(120), ImGui::GetContentRegionAvail().y -
+                                                                     ImGui::GetTextLineHeightWithSpacing() * 2.2f)));
+    ImGuiStorage* st = ImGui::GetStateStorage();
+    // A fold row: chevron, title (bold for a section, mono for a file group),
+    // a dim summary at the right end. `label` is the --ui-script name.
+    auto foldRow = [&](const std::string& label, const std::string& title, const std::string& summary,
+                       bool section, bool defOpen, bool forceOpen, float rightReserve,
+                       const char* pill = nullptr) {
+        const ImGuiID key = ImGui::GetID((label + "#open").c_str());
+        bool open = st->GetBool(key, defOpen);
+        if (forceOpen && !open) st->SetBool(key, open = true);
+        if (section) {
+            ImGui::Dummy(ImVec2(0, scaled(2)));
+            const ImVec2 a = ImGui::GetCursorScreenPos();
+            ImGui::GetWindowDrawList()->AddLine(a, ImVec2(a.x + ImGui::GetContentRegionAvail().x, a.y),
+                                                col(sem.border));
+            ImGui::Dummy(ImVec2(0, scaled(3)));
+        }
+        const float h = ImGui::GetFrameHeight();
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = ImMax(h, ImGui::GetContentRegionAvail().x - rightReserve);
+        if (ImGui::InvisibleButton(label.c_str(), ImVec2(w, h))) st->SetBool(key, open = !open);
+        const bool hov = ImGui::IsItemHovered();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        if (!section && (hov || open))
+            dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), col(sem.surface, hov ? 1.0f : 0.6f),
+                              ImGui::GetStyle().FrameRounding);
+        const float cy = p.y + h * 0.5f;
+        ui::DrawRtIcon(dl, open ? ui::RtIcon::ChevronDown : ui::RtIcon::ChevronRight, ImVec2(p.x + h * 0.4f, cy),
+                       h * 0.42f, col(hov ? sem.text : sem.textDim));
+        float x = p.x + h * 0.8f;
+        // Right end: summary, then (extensions) the version pill left of it.
+        const float sfs = fs * 0.85f;
+        const ImVec2 ss = ImGui::GetFont()->CalcTextSizeA(sfs, FLT_MAX, 0.0f, summary.c_str());
+        float rx = p.x + w - scaled(6);
+        dl->AddText(ImGui::GetFont(), sfs, ImVec2(rx - ss.x, cy - ss.y * 0.5f), col(sem.textDim), summary.c_str());
+        rx -= ss.x + scaled(8);
+        if (pill && pill[0]) {
+            const ImVec2 ps = ImGui::GetFont()->CalcTextSizeA(sfs * 0.95f, FLT_MAX, 0.0f, pill);
+            const float ph = sfs + 4.0f;
+            dl->AddRectFilled(ImVec2(rx - ps.x - sfs, cy - ph * 0.5f), ImVec2(rx, cy + ph * 0.5f), col(sem.field),
+                              ph * 0.5f);
+            dl->AddText(ImGui::GetFont(), sfs * 0.95f, ImVec2(rx - ps.x - sfs * 0.5f, cy - ps.y * 0.5f),
+                        col(sem.textDim), pill);
+            rx -= ps.x + sfs + scaled(6);
+        }
+        ImFont* f = section ? (ui::boldFont() ? ui::boldFont() : ImGui::GetFont())
+                            : (ui::monoFont() ? ui::monoFont() : ImGui::GetFont());
+        const float tfs = section ? fs : fs * 0.9f;
+        const ImVec2 ts = f->CalcTextSizeA(tfs, FLT_MAX, 0.0f, title.c_str());
+        ImGui::PushFont(f, tfs);
+        ImGui::RenderTextEllipsis(dl, ImVec2(x, cy - ts.y * 0.5f), ImVec2(rx, cy + ts.y * 0.5f + 1.0f), rx,
+                                  title.c_str(), nullptr, &ts);
+        ImGui::PopFont();
+        return open;
+    };
+    // An object chip: select + frame (switching scene first when it lives in
+    // another one).
+    auto objChip = [&](int si, int oi, bool* first) {
         const SceneObject& o = project_.scenes[si].objects[oi];
         const std::string l = o.name + "##chip" + std::to_string(si) + "_" + std::to_string(oi);
-        if (ImGui::SmallButton(l.c_str())) {
-            if (si == project_.activeScene) selectOnly(oi);
-            openGraphOf(si, oi);
+        const float w = ui::ChipButtonWidth(o.name.c_str());
+        if (!*first) {
+            ImGui::SameLine();
+            if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
         }
-        ImGui::SameLine();
+        *first = false;
+        const bool sel = si == project_.activeScene && isSelected(oi);
+        if (ui::ChipButton(l.c_str(), sel)) {
+            if (si != project_.activeScene) selectScene(si);
+            focusObject(oi);
+        }
+        uiscript::nameItem(ImGui::GetItemID(), o.name.c_str());
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip(si == project_.activeScene ? "Select %s and frame it in the viewport"
+                                                         : "Switch to %s's scene, select it and frame it",
+                              o.name.c_str());
     };
+    auto onCount = [&](const std::string& cls) {
+        const auto it = attached.find(cls);
+        return it == attached.end() ? 0 : (int)it->second.size();
+    };
+    const float rowIndent = scaled(22);
 
-    if (showFlow) {
-        ui::Caption("Flow graphs", std::to_string(graphs.size()).c_str());
-        for (int oi : graphs) {
-            const SceneObject& o = scene.objects[oi];
-            std::string events;
-            for (const FlowNode& n : o.flowGraph.nodes)
-                if (const FlowNodeType* t = flowNodeType(n.type); t && std::strcmp(t->category, "Triggers") == 0) {
-                    if (events.find(t->title) != std::string::npos) continue;
-                    if (!events.empty()) events += ", ";
-                    events += t->title;
-                }
-            if (!matches(o.name, railScriptSearch_) && !matches(events, railScriptSearch_)) continue;
-            char sub[256];
-            std::snprintf(sub, sizeof sub, "%d nodes%s%s", (int)o.flowGraph.nodes.size(), events.empty() ? "" : " - ",
-                          events.c_str());
-            const std::string label = o.name + "##graph" + std::to_string(oi);
-            if (ui::ListRow(label.c_str(), sub, false, ui::Glyph::Nodes)) {
-                selectOnly(oi);
-                openGraphOf(project_.activeScene, oi);
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Open in the Flow Graph");
-        }
-        if (graphs.empty()) ImGui::TextDisabled("No object in this scene has a flow graph yet.");
-    }
-
+    // --- Object scripts -------------------------------------------------------------
     if (showCpp) {
-        ImGui::Dummy(ImVec2(0, scaled(4)));
-        ui::Caption("C++ scripts", std::to_string(cpp.size()).c_str());
-        for (const CppFile& f : cpp) {
-            bool hit = matches(f.rel, railScriptSearch_);
-            for (const std::string& c : f.info.objectClasses) hit |= matches(c, railScriptSearch_);
-            if (!hit) continue;
-            ImGui::PushID(f.rel.c_str());
-            const std::string label = f.rel + "##cpp";
-            const char* sub = f.info.objectClasses.empty() && f.info.globalClasses.empty() ? "no script class"
-                              : !f.info.globalClasses.empty() ? "global - runs every frame"
-                                                              : "object script";
-            if (ui::ListRow(label.c_str(), sub, false, ui::Glyph::Code))
-                openInVSCode(f.rel.rfind("extensions/", 0) == 0 ? "src/" + f.rel : "src/scripts/" + f.rel);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Open in VS Code");
-            ImGui::Indent(scaled(30));
-            for (const std::string& g : f.info.globalClasses) {
-                tag(g.c_str(), ImVec4(0.95f, 0.56f, 0.88f, 1.0f));
-                ImGui::SameLine();
-                tag("global", ImVec4(0.95f, 0.56f, 0.88f, 1.0f), false);
-            }
-            for (const std::string& c : f.info.objectClasses) {
-                tag(c.c_str(), sem.accent);
-                ImGui::SameLine();
-                auto it = attached.find(c);
-                if (it == attached.end()) {
-                    ImGui::TextDisabled("not attached to any object");
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton(("Attach...##" + c).c_str())) {
-                        if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size()) {
-                            project_.objects()[selectedObject_].scripts.push_back(c);
-                            commitChange();
-                            statusMessage_ = "Attached " + c + " to " + project_.objects()[selectedObject_].name;
-                        } else {
-                            statusMessage_ = "Select an object first, then Attach";
-                        }
-                    }
-                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                        ImGui::SetTooltip("Attaches it to the selected object.");
-                    ImGui::NewLine();
-                } else {
-                    ImGui::TextDisabled("on");
-                    ImGui::SameLine();
-                    int n = 0;
-                    for (const auto& [si, oi] : it->second) {
-                        if (n++ >= 4) break;
-                        objChip(si, oi);
-                    }
-                    if ((int)it->second.size() > 4) ImGui::TextDisabled("+%d", (int)it->second.size() - 4);
-                    else ImGui::NewLine();
+        std::string sum = countNoun(nClasses, "class", "classes") + " \xC2\xB7 " +
+                          countNoun((size_t)std::count_if(groups.begin(), groups.end(),
+                                                          [](const Group& g) { return !g.classes.empty(); }),
+                                    "file", "files");
+        if (foldRow("Object scripts section", "Object scripts", sum, true, true, !focus.empty(), 0.0f)) {
+            for (const Group& g : groups) {
+                // Search hits a group through its path, a class or an object name.
+                std::vector<const ClassRow*> rows;
+                for (const ClassRow& r : g.classes) {
+                    if (filter == 5 && onCount(r.cls) > 0) continue;
+                    bool hit = !searching || matches(g.title, railScriptSearch_) || matches(r.cls, railScriptSearch_);
+                    if (!hit)
+                        if (auto it = attached.find(r.cls); it != attached.end())
+                            for (const auto& [si, oi] : it->second)
+                                hit |= matches(project_.scenes[si].objects[oi].name, railScriptSearch_);
+                    if (hit) rows.push_back(&r);
                 }
+                if (rows.empty()) continue;
+                // (a file with no object class: its globals list under Global scripts)
+                int on = 0;
+                for (const ClassRow& r : g.classes) on += onCount(r.cls);
+                std::string gsum = g.classes.empty() ? std::string("no object script")
+                                   : countNoun(g.classes.size(), "class", "classes") + " \xC2\xB7 " +
+                                         (on ? "on " + std::to_string(on) : std::string("unused"));
+                bool hasFocus = false;
+                for (const ClassRow* r : rows) hasFocus |= r->cls == focus;
+                ImGui::PushID(g.title.c_str());
+                const float btn = ImGui::GetFrameHeight();
+                const bool open = foldRow(g.title, g.title, gsum, false, groups.size() <= 2 || searching,
+                                          hasFocus || (searching && !rows.empty()), btn + scaled(4),
+                                          g.version.empty() ? nullptr : ("v" + g.version).c_str());
+                ImGui::SameLine(0.0f, scaled(4));
+                if (ui::GlyphButton(("Open " + g.title + " in VS Code").c_str(), ui::Glyph::Code, btn,
+                                    g.extension ? "Open the extension's manifest in VS Code" : "Open in VS Code"))
+                    openInVSCode(g.open);
+                if (open) {
+                    for (const ClassRow* r : rows) {
+                        ImGui::PushID(r->cls.c_str());
+                        const scriptprops::ClassInfo* ci = scriptClassInfo(r->cls);
+                        const int n = onCount(r->cls);
+                        ImGui::Indent(rowIndent);
+                        const ImVec2 rowStart = ImGui::GetCursorScreenPos();
+                        if (r->cls == focus) {
+                            ImGui::SetScrollHereY(0.3f);
+                            flashClass = focus;
+                            flashUntil = ImGui::GetTime() + 1.6;
+                            scriptsPageFocus_.clear();
+                        }
+                        // Name: opens the file at the class.
+                        ImGui::AlignTextToFramePadding();
+                        {
+                            ui::FontScope bold(ui::boldFont() ? ui::boldFont() : ImGui::GetFont());
+                            ImGui::PushStyleColor(ImGuiCol_Text, n ? sem.text : sem.textDim);
+                            ImGui::TextUnformatted(r->cls.c_str());
+                            ImGui::PopStyleColor();
+                        }
+                        const bool nameHov = ImGui::IsItemHovered();
+                        if (nameHov) {
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                            const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+                            ImGui::GetWindowDrawList()->AddLine(ImVec2(a.x, b.y), b, col(sem.textDim));
+                            ImGui::SetTooltip("Open %s:%d in VS Code", ci ? ci->file.c_str() : r->file.c_str(),
+                                              ci ? ci->line : 0);
+                        }
+                        if (nameHov && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                            openInVSCode(ci ? ci->file : r->file, ci ? ci->line : 0);
+                        if (ci) {
+                            ImGui::SameLine();
+                            ImGui::TextColored(sem.textDim, "%s", countNoun(ci->fields.size(), "field", "fields").c_str());
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && !ci->description.empty())
+                                ImGui::SetTooltip("%s", ci->description.c_str());
+                        }
+                        // Right end: "on N objects" / "unused" (+ Attach to selected).
+                        const std::string pill = n ? "on " + countNoun(n, "object", "objects") : std::string("unused");
+                        const char* attachL = "Attach to selected";
+                        const float attachW = n ? 0.0f : ImGui::CalcTextSize(attachL).x +
+                                                             ImGui::GetStyle().FramePadding.x * 2.0f + scaled(6);
+                        const float pw = ui::PillWidth(pill.c_str());
+                        const float avail = ImGui::GetContentRegionMax().x;
+                        ImGui::SameLine(ImMax(ImGui::GetCursorPosX() + scaled(6), avail - pw - attachW));
+                        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + ImGui::GetStyle().FramePadding.y);  // centre on the row
+                        ui::Pill(pill.c_str(), n ? 0 : 1);
+                        if (!n) {
+                            ImGui::SameLine();
+                            const bool canAttach = selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size();
+                            if (ui::SecondaryButton((std::string(attachL) + "##" + r->cls).c_str(), 0.0f, canAttach)) {
+                                project_.objects()[selectedObject_].scripts.push_back(r->cls);
+                                commitChange();
+                                statusMessage_ = "Attached " + r->cls + " to " + project_.objects()[selectedObject_].name;
+                            }
+                            uiscript::nameItem(ImGui::GetItemID(), ("Attach " + r->cls + " to selected").c_str());
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+                                ImGui::SetTooltip(canAttach ? "Attach to %s" : "Select an object first",
+                                                  canAttach ? project_.objects()[selectedObject_].name.c_str() : "");
+                        }
+                        // Object chips, wrapping; the first 8, then "+N more".
+                        if (n) {
+                            const ImGuiID moreKey = ImGui::GetID("more");
+                            const bool all = st->GetBool(moreKey, false);
+                            bool first = true;
+                            int shown = 0;
+                            for (const auto& [si, oi] : attached[r->cls]) {
+                                if (!all && shown >= 8) break;
+                                objChip(si, oi, &first);
+                                ++shown;
+                            }
+                            if (n > 8) {
+                                const std::string m = all ? "Fewer" : "+" + std::to_string(n - 8) + " more";
+                                ImGui::SameLine();
+                                if (ImGui::GetContentRegionAvail().x < ui::ChipButtonWidth(m.c_str())) ImGui::NewLine();
+                                if (ui::ChipButton(m.c_str())) st->SetBool(moreKey, !all);
+                            }
+                        }
+                        if (flashClass == r->cls && ImGui::GetTime() < flashUntil) {
+                            const float a = (float)(flashUntil - ImGui::GetTime()) / 1.6f;
+                            ImGui::GetWindowDrawList()->AddRectFilled(
+                                ImVec2(rowStart.x - scaled(6), rowStart.y - scaled(2)),
+                                ImVec2(rowStart.x + ImGui::GetContentRegionAvail().x, ImGui::GetCursorScreenPos().y),
+                                col(sem.accent, 0.18f * a), ImGui::GetStyle().FrameRounding);
+                        }
+                        ImGui::Unindent(rowIndent);
+                        ImGui::Dummy(ImVec2(0, scaled(3)));
+                        ImGui::PopID();
+                    }
+                }
+                ImGui::PopID();
             }
-            ImGui::Unindent(scaled(30));
-            ImGui::PopID();
-        }
-        // Attached classes nobody registers: the object would get no script.
-        for (const std::string& c : missing) {
-            if (!matches(c, railScriptSearch_)) continue;
-            ImGui::PushID(c.c_str());
-            const std::string label = c + " (missing class)##miss";
-            ui::ListRow(label.c_str(), "attached, but no TYRA_OBJECT_SCRIPT registers it", false, ui::Glyph::Flag);
-            ImGui::Indent(scaled(30));
-            int n = 0;
-            for (const auto& [si, oi] : attached[c]) {
-                if (n++ >= 4) break;
-                objChip(si, oi);
+            // Attached classes nobody registers: the object would get no script.
+            for (const std::string& c : missing) {
+                if (filter == 5 || !matches(c, railScriptSearch_)) continue;
+                ImGui::PushID(c.c_str());
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(sem.warn, "%s", c.c_str());
+                ImGui::SameLine();
+                ImGui::TextColored(sem.textDim, "attached, but no class registers it");
+                const float cw = ImGui::CalcTextSize("Create").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+                ImGui::SameLine(ImMax(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - cw));
+                if (ui::SecondaryButton("Create")) {
+                    openNewScriptPopup_ = true;
+                    newScriptKind_ = 0;
+                    newScriptError_.clear();
+                    newScriptAttachTo_ = -1;
+                    std::snprintf(newScriptName_, sizeof newScriptName_, "%s", c.c_str());
+                }
+                ImGui::Indent(rowIndent);
+                bool first = true;
+                int shown = 0;
+                for (const auto& [si, oi] : attached[c])
+                    if (shown++ < 8) objChip(si, oi, &first);
+                ImGui::Unindent(rowIndent);
+                ImGui::PopID();
             }
-            if (ImGui::SmallButton("Create")) {
-                openNewScriptPopup_ = true;
-                newScriptError_.clear();
-                newScriptAttachTo_ = -1;
-                std::snprintf(newScriptName_, sizeof newScriptName_, "%s", c.c_str());
-            }
-            ImGui::Unindent(scaled(30));
-            ImGui::PopID();
-        }
-        if (cpp.empty() && missing.empty()) {
-            if (ui::EmptyState(ui::Glyph::Code, "No C++ scripts",
-                               "Object scripts run on the objects they are attached to; a global script runs every frame.",
-                               "New script...##railempty")) {
-                openNewScriptPopup_ = true;
-                newScriptError_.clear();
-                newScriptAttachTo_ = -1;
+            if (groups.empty() && missing.empty()) {
+                if (ui::EmptyState(ui::Glyph::Code, "No object scripts",
+                                   "An object script runs on every object it is attached to (Properties > Scripts).",
+                                   "New script...##railempty")) {
+                    openNewScriptPopup_ = true;
+                    newScriptKind_ = 0;
+                    newScriptError_.clear();
+                    newScriptAttachTo_ = -1;
+                }
             }
         }
     }
 
-    if (showCpp) drawExtensionsSection();
-
-    if (showVu && !vu.empty()) {
-        ImGui::Dummy(ImVec2(0, scaled(4)));
-        ui::Caption("VU programs", std::to_string(vu.size()).c_str());
-        for (const std::string& f : vu) {
-            if (!matches(f, railScriptSearch_)) continue;
-            const std::string label = f + "##vu";
-            if (ui::ListRow(label.c_str(), "host - build time: leaves a VU1 microprogram", false, ui::Glyph::Code))
-                openInVSCode("src/vu/" + f);
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-                ImGui::SetTooltip("C++ compiled and RUN on the host at build time; it replaces the\n"
-                                  "engine's program for the material classes it claims\n"
-                                  "(docs/vu-authoring.md). Click to open in VS Code.");
+    // --- Global scripts -------------------------------------------------------------
+    if (showGlobal && (!globals.empty() || filter == 2)) {
+        if (foldRow("Global scripts section", "Global scripts", "run every frame, every scene", true, true, false, 0.0f)) {
+            for (const GlobalRow& g : globals) {
+                if (!matches(g.cls, railScriptSearch_) && !matches(g.file, railScriptSearch_)) continue;
+                ImGui::PushID(g.cls.c_str());
+                ImGui::Indent(rowIndent);
+                ImGui::AlignTextToFramePadding();
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + scaled(4), p.y + ImGui::GetFrameHeight() * 0.5f),
+                                                            scaled(3.5f), col(ImVec4(0.95f, 0.56f, 0.88f, 1.0f)));
+                ImGui::Dummy(ImVec2(scaled(10), 0));
+                ImGui::SameLine();
+                // The name without its namespace (the tooltip has it all);
+                // the file only where it fits before the button.
+                const size_t ns = g.cls.rfind("::");
+                const std::string shortName = ns == std::string::npos ? g.cls : g.cls.substr(ns + 2);
+                const float btnX = ImGui::GetContentRegionMax().x - ImGui::GetFrameHeight();
+                {
+                    ui::FontScope bold(ui::boldFont() ? ui::boldFont() : ImGui::GetFont());
+                    ImGui::TextUnformatted(shortName.c_str());
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("%s\n%s", g.cls.c_str(), g.file.c_str());
+                const std::string file = fs::path(g.file).filename().string();
+                ImGui::SameLine();
+                {
+                    ui::FontScope mono(ui::monoFont());
+                    if (ImGui::GetCursorPosX() + ImGui::CalcTextSize(file.c_str()).x < btnX - scaled(6))
+                        ImGui::TextColored(sem.textDim, "%s", file.c_str());
+                    else
+                        ImGui::NewLine();
+                }
+                ImGui::SameLine(btnX);
+                if (ui::GlyphButton(("Open " + g.cls + " in VS Code").c_str(), ui::Glyph::Code, 0.0f, "Open in VS Code"))
+                    openInVSCode(g.file);
+                ImGui::Unindent(rowIndent);
+                ImGui::PopID();
+            }
+            if (globals.empty()) ImGui::TextDisabled("No TYRA_GLOBAL_SCRIPT class yet.");
         }
+    }
+
+    // --- Flow graphs ----------------------------------------------------------------
+    if (showFlow) {
+        std::string sum = std::to_string(graphs.size());
+        if (graphs.size() == 1) sum += " \xC2\xB7 " + scene.objects[graphs[0]].name;
+        if (foldRow("Flow graphs section", "Flow graphs", sum, true, filter == 3, false, 0.0f)) {
+            for (int oi : graphs) {
+                const SceneObject& o = scene.objects[oi];
+                std::string events;
+                for (const FlowNode& n : o.flowGraph.nodes)
+                    if (const FlowNodeType* t = flowNodeType(n.type); t && std::strcmp(t->category, "Triggers") == 0) {
+                        if (events.find(t->title) != std::string::npos) continue;
+                        if (!events.empty()) events += ", ";
+                        events += t->title;
+                    }
+                if (!matches(o.name, railScriptSearch_) && !matches(events, railScriptSearch_)) continue;
+                char sub[256];
+                std::snprintf(sub, sizeof sub, "%d nodes%s%s", (int)o.flowGraph.nodes.size(), events.empty() ? "" : " - ",
+                              events.c_str());
+                const std::string label = o.name + "##graph" + std::to_string(oi);
+                if (ui::ListRow(label.c_str(), sub, false, ui::Glyph::Nodes)) {
+                    selectOnly(oi);
+                    openGraphOf(project_.activeScene, oi);
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("Open in the Flow Graph");
+            }
+            if (graphs.empty()) ImGui::TextDisabled("No object in this scene has a flow graph yet.");
+        }
+    }
+
+    // --- VU programs ----------------------------------------------------------------
+    if (showVu && !vu.empty()) {
+        if (foldRow("VU programs section", "VU programs", std::to_string(vu.size()) + " \xC2\xB7 build time", true,
+                    filter == 4, false, 0.0f)) {
+            for (const std::string& f : vu) {
+                if (!matches(f, railScriptSearch_)) continue;
+                const std::string label = f + "##vu";
+                if (ui::ListRow(label.c_str(), "host - build time: leaves a VU1 microprogram", false, ui::Glyph::Code))
+                    openInVSCode("src/vu/" + f);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("C++ compiled and RUN on the host at build time; it replaces the\n"
+                                      "engine's program for the material classes it claims\n"
+                                      "(docs/vu-authoring.md). Click to open in VS Code.");
+            }
+        }
+    }
+
+    // --- Extensions -----------------------------------------------------------------
+    if (filter == 0 || filter == 1) {
+        const size_t nExt = extVersion.size();
+        if (foldRow("Extensions section", "Extensions", nExt ? std::to_string(nExt) + " installed" : "none installed",
+                    true, nExt == 0, false, 0.0f))
+            drawExtensionsSection();
     }
     ImGui::EndChild();
-    ImGui::TextDisabled("A C++ row opens VS Code; a graph row opens the Flow Graph.");
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled("Click an object to select it and frame it in the viewport. A class name opens its file "
+                        "in VS Code at the class.");
+    ImGui::PopTextWrapPos();
 }
 
 // Script extensions (docs/script-extensions.md): folders under src/extensions
@@ -1404,8 +1691,7 @@ void App::drawExtensionsSection() {
         scannedFor = project_.dir;
     }
 
-    ImGui::Dummy(ImVec2(0, scaled(4)));
-    ui::Caption("Extensions", std::to_string(cached.size()).c_str());
+    // (The page's Extensions section header carries the title and count.)
     for (const extension::Info& e : cached) {
         ImGui::PushID(e.folder.c_str());
         std::string sub = e.problem.empty()

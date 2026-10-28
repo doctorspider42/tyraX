@@ -383,7 +383,7 @@ private:
     // Open the project in VS Code. A non-empty `file` (project-relative or
     // absolute) is also opened in that window - jump straight to a script /
     // custom node while keeping the whole project in context.
-    void openInVSCode(const std::string& file = "");
+    void openInVSCode(const std::string& file = "", int line = 0);
     // Install/refresh the bundled TyraX VS Code extension (syntax highlighting +
     // validation for .flownode/.screenfx) into the user's ~/.vscode/extensions.
     // Best-effort and idempotent; called before openInVSCode and from the
@@ -3720,6 +3720,22 @@ private:
     const scriptprops::ClassInfo* scriptClassInfo(const std::string& name) const;
     // Properties > Scripts: one attachment's public fields. True = edited.
     bool drawScriptFields(SceneObject& o, const std::string& cls);
+    // Properties > Scripts: one card per attachment (fold, VS Code, Show in
+    // Scripts page, Detach / Reset all) + the Add script button. True = edited.
+    bool drawScriptCards(SceneObject& o);
+    // The searchable Add script picker under that button. True = attached.
+    bool drawAddScriptPicker(SceneObject& o);
+    // Attached most recently first (this session) - the picker's Recent group.
+    std::vector<std::string> recentScripts_;
+    char scriptPickerSearch_[96] = "";
+    int scriptPickerFilter_ = 0;  // 0 All, 1 Used in this scene, 2+ a source (folder/extension)
+    int scriptPickerCursor_ = 0;  // highlighted row (keyboard)
+    bool openScriptPicker_ = false;
+    // Show in Scripts page: the class the page scrolls to and highlights once.
+    std::string scriptsPageFocus_;
+    // Select object i (switching to the scene holding it is not possible: the
+    // index is the active scene's), frame it in the viewport, focus the viewport.
+    void focusObject(int i);
 
     // Layer rename-in-place: the name captured when the field gained focus,
     // so object and flow-node references remap from it when editing ends.

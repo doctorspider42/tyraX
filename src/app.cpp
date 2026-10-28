@@ -11271,7 +11271,7 @@ std::string App::installVsCodeExtension() {
            "was already open";
 }
 
-void App::openInVSCode(const std::string& file) {
+void App::openInVSCode(const std::string& file, int line) {
     // Ensure our .flownode/.screenfx extension is installed (once per session;
     // the install runs `code --install-extension`, a couple of seconds). Surface
     // its result so a failure isn't silent the way the old copy-install was.
@@ -11285,6 +11285,7 @@ void App::openInVSCode(const std::string& file) {
         std::filesystem::path fp(file);
         abs = fp.is_absolute() ? fp.string()
                                : (std::filesystem::path(project_.dir) / fp).string();
+        if (line > 0) abs += ":" + std::to_string(line);  // -g path:line
     }
     if (const std::string err = platform::openInVSCode(project_.dir, abs); !err.empty()) {
         statusMessage_ = err;
@@ -16042,8 +16043,10 @@ void App::drawNewScriptModal() {
                     // to the object right away.
                     if (newScriptAttachTo_ >= 0 &&
                         newScriptAttachTo_ < (int)project_.objects().size()) {
-                        project_.objects()[newScriptAttachTo_].scripts.push_back(
-                            className);
+                        // (Create on a missing-class card: the name is attached already.)
+                        auto& attached = project_.objects()[newScriptAttachTo_].scripts;
+                        if (std::find(attached.begin(), attached.end(), className) == attached.end())
+                            attached.push_back(className);
                         commitChange();
                         statusMessage_ = "Created " + name + ".cpp and attached " +
                                          className;

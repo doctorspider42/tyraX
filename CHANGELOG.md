@@ -13,6 +13,10 @@ under it as that release's notes, and the release's own page carries the date.
 - **Script cookbook.** `docs/script-cookbook.md` has a short working example for every script API helper, every kind of public field and every callback. The new **script-cookbook** example is the same material as a level you can walk through, one station per topic, each configured through public fields in Properties.
 - Scripts that move objects every frame are fast now. Moving an object from a script puts it on the cheap per-object matrix path instead of rebuilding its mesh every frame: the cookbook level went from 12.5 to 50 FPS in PCSX2. Setting the colour or scale an object already has costs nothing.
 - An event typed into a script's event field in Properties now exists like one a graph names, and a sound picked in a sound field loads with the object's scene.
+- **Redesigned script panels.** *Properties > Scripts* shows each attached script as a card that folds, with the class's file and line, its description (the comment above the class), how many fields this object sets, and buttons to open the class in VS Code, show it on the *Scripts* page, reset all fields or detach it. A set field is marked with a dot and a reset arrow.
+- **Add script** (`Ctrl+Shift+A`) replaces the attach combo with a searchable picker: filter by name, description or file, narrow to one extension or to the scripts this scene uses, see each class's fields before attaching, and attach with `Enter`.
+- The **Scripts** page folds into Object scripts, Global scripts, Flow graphs, VU programs and Extensions, with filter chips and an *Unused* filter. Clicking an object under a class now selects it and frames it in the viewport instead of opening its (usually empty) flow graph, and a class name opens its file at the class.
+- Fixed a debug-build assert when the Debugger's watch table hid its Kind column in a narrow dock.
 
 ## 2.6.0
 

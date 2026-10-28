@@ -2381,7 +2381,7 @@ void App::dbgDrawWatchPage() {
     const bool showKind = ImGui::GetContentRegionAvail().x >= scaled(460);
     if (ImGui::BeginTable("##watch", 4,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY |
-                              ImGuiTableFlags_BordersInnerH)) {
+                              ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_Hideable)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.52f);
         ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthStretch, 0.13f);

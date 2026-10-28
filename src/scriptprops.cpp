@@ -317,6 +317,72 @@ std::vector<Field> scanBody(const std::string& body) {
     return fields;
 }
 
+// The first sentence of the comment block ending right above source[at] -
+// `/** ... */` or a run of `//` lines (ruler lines of dashes are skipped). A
+// leading "B2. Name - " label is dropped: the class name is shown beside it.
+std::string commentAbove(const std::string& source, size_t at, const std::string& name) {
+    // The lines above the one holding `at`, nearest first.
+    std::vector<std::string> above;
+    {
+        std::istringstream in(source.substr(0, std::min(at, source.size())));
+        std::string ln;
+        while (std::getline(in, ln)) above.push_back(ln);
+        if (!above.empty()) above.pop_back();  // the class line itself
+        std::reverse(above.begin(), above.end());
+    }
+    std::vector<std::string> lines;  // bottom-up
+    for (const std::string& raw : above) {
+        const std::string ln = trim(raw);
+        const bool comment = ln.rfind("//", 0) == 0 || ln.rfind("/*", 0) == 0 ||
+                             ln.rfind("*", 0) == 0 ||
+                             (ln.size() >= 2 && ln.compare(ln.size() - 2, 2, "*/") == 0);
+        if (!comment) break;
+        lines.push_back(ln);
+    }
+    std::string text;
+    for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
+        std::string ln = *it;
+        size_t k = 0;
+        while (k < ln.size() && (ln[k] == '/' || ln[k] == '*')) ++k;
+        ln = ln.substr(k);
+        while (!ln.empty() && (ln.back() == '/' || ln.back() == '*')) ln.pop_back();
+        ln = trim(ln);
+        if (ln.find_first_not_of("-=_ ") == std::string::npos) continue;  // ruler
+        if (!text.empty()) text += ' ';
+        text += ln;
+    }
+    // "B2. " - a section label in front.
+    {
+        size_t k = 0;
+        if (k < text.size() && std::isupper((unsigned char)text[k])) ++k;
+        const size_t digits = k;
+        while (k < text.size() && std::isdigit((unsigned char)text[k])) ++k;
+        if (k > digits && k + 1 < text.size() && text[k] == '.' && text[k + 1] == ' ') text = trim(text.substr(k + 1));
+    }
+    // "Name - " / "Name + Other - ": the class name is shown beside it.
+    const size_t dash = text.find(" - ");
+    if (dash != std::string::npos && dash < 48 && text.substr(0, dash).find(name) != std::string::npos)
+        text = text.substr(dash + 3);
+    size_t stop = std::string::npos;
+    for (size_t i = 0; i + 1 < text.size(); ++i)
+        if ((text[i] == '.' || text[i] == '!' || text[i] == '?') && text[i + 1] == ' ') {
+            stop = i + 1;
+            break;
+        }
+    if (stop != std::string::npos) text = text.substr(0, stop);
+    // Capitalise a plain first word ("press USE"), never an identifier
+    // ("tyrax::Timer", "onStart").
+    {
+        size_t k = 0;
+        while (k < text.size() && std::islower((unsigned char)text[k])) ++k;
+        if (k > 0 && (k == text.size() || text[k] == ' ' || text[k] == ',' || text[k] == ':'))
+            if (!(k + 1 < text.size() && text[k] == ':' && text[k + 1] == ':'))
+                text[0] = (char)std::toupper((unsigned char)text[0]);
+    }
+    if (text.size() > 140) text = text.substr(0, 137) + "...";
+    return text;
+}
+
 }  // namespace
 
 std::string formatFloat(float v) {
@@ -366,6 +432,8 @@ std::vector<ClassInfo> scanSource(const std::string& source, const std::string& 
                 const size_t endBody = matchBracket(s, brace);
                 if (endBody == std::string::npos) continue;
                 ci.fields = scanBody(s.substr(brace + 1, endBody - brace - 1));
+                ci.line = 1 + (int)std::count(s.begin(), s.begin() + (long)c, '\n');
+                ci.description = commentAbove(source, c, name);
                 break;
             }
             if (!ci.fields.empty()) break;

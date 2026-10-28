@@ -60,6 +60,10 @@ struct Field {
 struct ClassInfo {
     std::string name;
     std::string file;  // path relative to the project
+    int line = 0;      // 1-based line of `class Name` (0 = not found)
+    // First sentence of the comment right above the class ("" = none) - the
+    // one-line summary the Add script picker and the script cards show.
+    std::string description;
     std::vector<Field> fields;
     // Methods registered with TYRA_SCRIPT_METHOD(Class, method) in the same
     // file - what the Call Script node offers.
