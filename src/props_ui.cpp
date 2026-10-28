@@ -3965,7 +3965,13 @@ bool CardIconButton(const char* label, int icon, float size, const char* tooltip
     const float s = size * 0.22f;  // half the icon's extent
     const float th = ImMax(1.3f, size * 0.06f);
     if (icon == 0) {
-        ui::DrawGlyph(dl, ui::Glyph::Code, c, size * 0.55f, ink);
+        // </> drawn here too: the toolkit's Code glyph sits below the middle.
+        const float h = s * 0.8f, w = s * 0.55f;
+        const ImVec2 l[3] = {{c.x - s * 0.45f, c.y - h}, {c.x - s * 0.45f - w, c.y}, {c.x - s * 0.45f, c.y + h}};
+        const ImVec2 r[3] = {{c.x + s * 0.45f, c.y - h}, {c.x + s * 0.45f + w, c.y}, {c.x + s * 0.45f, c.y + h}};
+        dl->AddPolyline(l, 3, ink, ImDrawFlags_None, th);
+        dl->AddPolyline(r, 3, ink, ImDrawFlags_None, th);
+        dl->AddLine(ImVec2(c.x + s * 0.2f, c.y - h * 1.1f), ImVec2(c.x - s * 0.2f, c.y + h * 1.1f), ink, th);
     } else if (icon == 1) {
         for (int k = -1; k <= 1; ++k) {
             const float y = c.y + k * s * 0.75f;
@@ -4122,6 +4128,7 @@ bool App::drawScriptCards(SceneObject& o) {
                 ci)
                 openInVSCode(ci->file, ci->line);
             ImGui::SameLine(0.0f, sp);
+            ImGui::SetCursorPosY(headY + (hh - fh) * 0.5f);
             if (CardIconButton(("Show " + cls + " in Scripts page").c_str(), 1, fh, "Show in Project > Scripts")) {
                 leftPage_ = 4;
                 scriptsPageFocus_ = cls;
@@ -4135,6 +4142,7 @@ bool App::drawScriptCards(SceneObject& o) {
             openNewScriptPopup_ = true;
         }
         ImGui::SameLine(0.0f, sp);
+        ImGui::SetCursorPosY(headY + (hh - fh) * 0.5f);  // SameLine goes back to the row top
         if (CardIconButton(("More " + cls).c_str(), 2, fh, "Reset all fields, copy the name, detach"))
             ImGui::OpenPopup("##more");
         if (ImGui::BeginPopup("##more")) {
