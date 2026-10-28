@@ -398,7 +398,10 @@ class ObjectRef {
   Vec3 scale() const { return valid() ? Vec3::from(get()->data.scale) : Vec3(); }
   /** Scale is baked into the vertices, so it always rebuilds the object. */
   void setScale(const Vec3& s) const {
-    if (RuntimeObject* o = get()) { s.store(o->data.scale); o->dirty = true; }
+    RuntimeObject* o = get();
+    if (!o || same3(o->data.scale, s)) return;
+    s.store(o->data.scale);
+    o->dirty = true;
   }
   void setScale(float s) const { setScale(Vec3(s, s, s)); }
   /** The Look At node: yaw toward `target` (0 = +Z); tilt also pitches. A
@@ -423,8 +426,14 @@ class ObjectRef {
   // -- look
   Vec3 color() const { return valid() ? Vec3::from(get()->data.color) : Vec3(); }
   /** RGB 0..1: mesh tint, particle tint, a free parameter on an Empty. */
+  /** A colour change re-bakes the mesh (the colour lives in its vertices):
+   * the same colour again is free, so calling this every frame with a value
+   * that rarely changes costs nothing. */
   void setColor(const Vec3& rgb) const {
-    if (RuntimeObject* o = get()) { rgb.store(o->data.color); o->dirty = true; }
+    RuntimeObject* o = get();
+    if (!o || same3(o->data.color, rgb)) return;
+    rgb.store(o->data.color);
+    o->dirty = true;
   }
   bool visible() const { return valid() && get()->visible; }
   /** Set Object Visible: also mutes sound emitters and stops particle
@@ -505,12 +514,19 @@ class ObjectRef {
   }
 
  private:
-  // Position and rotation: wake a sleeping body, and rebuild the geometry -
-  // unless the object rides the per-object matrix path, where the new
-  // transform is enough and `dirty` would demote it (script.hpp).
+  // Position and rotation: wake a sleeping body, and ask for the per-object
+  // matrix path. A script that moves something usually moves it EVERY frame,
+  // and `dirty` re-bakes the whole mesh in world space on the EE each time -
+  // nine bobbing spheres took a level from 50 to 12.5 FPS. Promoted, the new
+  // transform is a matrix refresh VU1 applies for free; until the game has
+  // promoted it (the next frame) the move still needs the re-bake.
   static void moved(RuntimeObject& o) {
     o.restFrames = 0;
+    o.wantsMatrixPath = true;
     if (!o.onMatrixPath) o.dirty = true;
+  }
+  static bool same3(const float* a, const Vec3& b) {
+    return a[0] == b.x && a[1] == b.y && a[2] == b.z;
   }
 
   ScriptContext* ctx_ = nullptr;

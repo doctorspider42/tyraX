@@ -1,0 +1,1 @@
+{"id": "c0b0000000000025", "name": "c-launch-pad", "type": "box", "position": [0, 0.05, 22], "rotation": [0, 0, 0], "scale": [4, 0.1, 4], "color": [0.2, 0.6, 1.0], "physics": false, "scripts": ["LaunchPad"], "scriptProps": {"LaunchPad": {"launchAction": "jump", "power": "9", "radius": "2.5"}}}

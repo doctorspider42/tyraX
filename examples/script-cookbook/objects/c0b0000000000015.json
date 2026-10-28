@@ -1,0 +1,1 @@
+{"id": "c0b0000000000015", "name": "b-laser-turret", "type": "cylinder", "position": [4, 0.6, 13], "rotation": [0, 0, 0], "scale": [0.8, 1.2, 0.8], "color": [0.5, 0.5, 0.55], "physics": false, "scripts": ["LaserTurret"], "scriptProps": {"LaserTurret": {"laserDot": "c0b0000000000014", "range": "30", "sweep": "50"}}}

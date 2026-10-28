@@ -8,6 +8,12 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.7.0
+
+- **Script cookbook.** `docs/script-cookbook.md` has a short working example for every script API helper, every kind of public field and every callback. The new **script-cookbook** example is the same material as a level you can walk through, one station per topic, each configured through public fields in Properties.
+- Scripts that move objects every frame are fast now. Moving an object from a script puts it on the cheap per-object matrix path instead of rebuilding its mesh every frame: the cookbook level went from 12.5 to 50 FPS in PCSX2. Setting the colour or scale an object already has costs nothing.
+- An event typed into a script's event field in Properties now exists like one a graph names, and a sound picked in a sound field loads with the object's scene.
+
 ## 2.6.0
 
 - **Script extensions.** A folder under `src/extensions/` holding scripts, helpers and custom flow nodes, with an `extension.json`, moves between projects as a copy and builds with no setup. *Project > Scripts > Extensions* lists them and can create a new one, install one from a folder, or remove one; the CLI has `--new-extension`, `--install-extension` and `--list-extensions`. Portable code writes `TYRAX_NAMESPACE_BEGIN` / `TYRAX_NAMESPACE_END` instead of the project's namespace, and a custom node can name its own C++ header with `include =`. See `docs/script-extensions.md`.

@@ -154,6 +154,9 @@ a Mac) finds any command, object or window by name.
   vectors, easing, random numbers and timers, with the project's names as
   typed constants (`tyrax::Sounds::Door`); `[[tyra::prop]]` public fields
   set per object in Properties.
+- [Script cookbook](script-cookbook.md) - a working snippet for every
+  script API helper, every kind of public field and every callback, section
+  by section, each one a station of the playable script-cookbook example.
 - [Script extensions](script-extensions.md) — folders of reusable scripts and
   flow nodes under `src/extensions/` that move between projects as a copy:
   manifest, portable `TYRAX_NAMESPACE_BEGIN` code, `include =` for a node's

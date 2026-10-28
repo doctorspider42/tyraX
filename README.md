@@ -550,6 +550,7 @@ wait for their polish pass.
 | --- | --- |
 | [impostor-grove](examples/impostor-grove) | A walkable wooded ruin with generated trees and configurable 4/8/16-view, two-triangle distant impostors and a universal-baked waystone |
 | [script-demo](examples/script-demo) | Start here. Walk to the box, press X, and the sky obeys — one object script, and you've touched the whole pipeline |
+| [script-cookbook](examples/script-cookbook) | Every corner of the C++ script API as a walkable level: easing, raycasts, physics, spawning, input, sound, saves, HUD, World Facts, events to and from graphs, callbacks - one station per topic, each configured through public fields, with [the cookbook](docs/script-cookbook.md) beside it |
 | [script-framework](examples/script-framework) | The C++ scripting framework at full stretch: the **Essentials** extension's spinners, bobbers, follower, coins and a door opened by a flow graph's *Call Script* — all configured as per-object `[[tyra::prop]]` fields |
 | [showcase](examples/showcase) | **Aster — The Tide Observatory**: a playable coastal garden with precision-built arcades, a moving planetarium, CC0 props, cinematics, skeletal animation, a portal-linked vaulted cellar, optical experiments and collectible lenses |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style; its ambience and a corridor sound bank stream with it |

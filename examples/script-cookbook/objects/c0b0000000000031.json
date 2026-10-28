@@ -1,0 +1,1 @@
+{"id": "c0b0000000000031", "name": "d-tilt-plank", "type": "box", "position": [-8, 1, 30], "rotation": [0, 0, 0], "scale": [3, 0.2, 1.5], "color": [0.8, 0.6, 0.3], "physics": false, "scripts": ["StickTilt"], "scriptProps": {"StickTilt": {"maxTilt": "25", "boostAction": "sprint"}}}

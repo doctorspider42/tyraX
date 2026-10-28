@@ -5615,8 +5615,11 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 6
+#define TYRAX_VERSION_MINOR 7
 #define TYRAX_VERSION_PATCH 0
+// 2.7.0: docs/script-cookbook.md + examples/script-cookbook; ObjectRef moves
+// take the matrix path (12.5 -> 50 FPS on the cookbook level), same-value
+// setColor/setScale are free, field-picked events and sounds count.
 // 2.6.0: script extensions (src/extensions/<name>, docs/script-extensions.md),
 // TYRAX_NAMESPACE_BEGIN/_END, `include =` for custom nodes, the Essentials
 // library (extensions/essentials) and examples/script-framework.

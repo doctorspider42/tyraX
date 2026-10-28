@@ -1,0 +1,1 @@
+{"id": "c0b0000000000011", "name": "b-blinker", "type": "sphere", "position": [-6, 1, 13], "rotation": [0, 0, 0], "scale": [0.8, 0.8, 0.8], "color": [1, 0.8, 0.2], "physics": false, "scripts": ["Blinker"], "scriptProps": {"Blinker": {"interval": "0.6"}}}
