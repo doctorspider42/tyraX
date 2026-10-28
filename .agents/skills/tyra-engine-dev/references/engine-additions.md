@@ -39,7 +39,7 @@ Layout: `vendor/tyra/engine/{inc,src}/` mirror each other: `audio`, `debug`, `fi
 `Sprite`/`Mesh`/`MeshFrame`/`MeshMaterial`/`MeshMaterialFrame` share ONE lookup namespace in `TextureRepository` (`addLink(id)`; `getBySpriteId`/`getByMeshMaterialId` return the FIRST texture whose links contain the id). Upstream `rand() % 1000000` (never seeded) collided → wrong texture on a sprite → garbled/black HUD sprites, worst right after opening a menu. Use `renderer/models/unique_id.hpp` `generateUniqueId()` for any id-bearing render object. (`audio_song.cpp` deliberately keeps `rand()` — separate namespace, off-thread.) Id lookup cache: textures-vram.md.
 
 ## Physics
-`physics/CollisionMesh` (XZ-grid triangle collider): `raycast(..., outNormal)` returns the hit triangle's mesh-local normal (rigid-body per-corner contacts, docs/physics.md). Both queries test the mesh's own box FIRST (the grid clamps outside queries onto edge cells, else every border triangle is paid) — keep the early-out exact: sphere reach = radius + the 0.6 crossing band. Plus `Ray::intersectTriangle`.
+`physics/CollisionMesh` (host-baked 3D triangle BVH): `raycast(..., outNormal)` returns the hit triangle's mesh-local normal (rigid-body per-corner contacts, docs/physics.md). Both queries test the mesh's own box FIRST (the grid clamps outside queries onto edge cells, else every border triangle is paid) — keep the early-out exact: sphere reach = radius + the 0.6 crossing band. Plus `Ray::intersectTriangle`.
 
 `physics/BroadPhase` (`broad_phase.{hpp,cpp}`, docs/collision-boxes.md "The broad phase"): which objects may touch an area or a segment, two backends behind one interface - a height-aware XZ grid (rebuilt per commit) and a loose octree (split past 8 objects, per-node content bounds, kept across commits). Caller hands boxes `begin`/`set(i, box, moving)`/`commit`; `queryBox`/`querySegment` return a SUPERSET, ascending. Host-compilable (only `<vector>`): fuzz it against brute force from a scratch harness before changing it - keep it never-fewer and ascending (the walker's pushes depend on order).
 
@@ -54,3 +54,14 @@ Layout: `vendor/tyra/engine/{inc,src}/` mirror each other: `audio`, `debug`, `fi
 
 ## Optional boot logo (2.0)
 `EngineOptions::showBanner` (default true): `Engine::init` calls `banner.show()` only when set. Generated `main.cpp` writes it from `ProjectSettings::showEngineLogo` (Loading Screens > First power-on, format 115). Off = the game's first picture is its own splash or loading screen; nothing else about init moves.
+
+Moving broad-phase objects are spatially indexed (the moving flag no longer means always-candidate). Callers own refresh/invalidation and conservative bounds. Rigid-body pairs use a separate predicted-pose index, including sleeping COM bounds.
+
+Collision kernels: `triangle_bvh.hpp` is portable and shared with the host bake
+(`.tmdl.tcol`, exact triangles, no automatic decimation). `convex_collision.hpp`
+and `collision_sweep.hpp` cover SAT, closest features and selective linear CCD.
+`collision_math.hpp` batches hull transforms on VU0 macro mode; enable with
+`TYRA_COLLISION_VU0=1` and compare to the default scalar path on physical hardware, including staging cost. Host oracles
+are `tools/verify-collision-{broad-phase,bvh,geometry}.cpp`. No rotational CCD.
+
+Measured PS2 dead end: packed-to-quadword VU0 collision transforms including staging/copy were 43.6% slower at 8 points and 12.2% slower at 24. Scalar remains default; do not re-enable by assuming vector arithmetic wins. See docs/physics.md for the gate.

@@ -835,3 +835,11 @@ per material, so material borders never move.
 **An exported ISO still contains the .obj.** `bin/` accumulates - the build
 deletes a superseded `.obj` from it, but if you see stale files, a
 *Project > Clean* followed by a build gives you an exact `bin/`.
+
+## Mesh collision bake
+
+Models used with mesh collision also produce `<model>.tmdl.tcol`: packed exact
+triangles and a flat three-dimensional BVH, built on the host. The sidecar is
+regenerated with the model and is build output, not authored geometry. Missing
+or invalid sidecars fall back to runtime construction. Box-only models skip it.
+The collision geometry remains separate from render LOD and strip topology.

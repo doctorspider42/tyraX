@@ -79,3 +79,5 @@ Generated files refresh → verified PS2DEV + vendored VU tools provisioned if n
 - **PCSX2 cannot raise an EE exception** (main RAM starts at 0; signed-overflow `add`, illegal opcode, write to 0, misaligned load all pass) — catching one is HARDWARE-ONLY (entry 246). Console trigger in a user-owned script: `volatile int a = 0x7FFFFFFF, b = 1; asm volatile("add %0, %1, %2" : "=r"(r) : "r"(a), "r"(b));` → cause 12, real `bin/crash.txt`, `--symbolize` names the line. (Installing the handler no longer wedges anything — that was `ee_dbg_install(2)`, fixed in 246.)
 - Emulator-testable: the report format (write a synthetic `bin/crash.txt`, let the editor parse + symbolize), the TYRAX error block (a `.flownode` calling `TYRA_SOFT_ERROR`), the heartbeat post-mortem (kill the game, watch the Debugger notice).
 - Zero-length `BagArray` / null `data()`: PCSX2 hides writes through null (RAM at 0); hardware reports cause 3 `BadAddr 0` right after loading.
+
+Agent captures pass `--work-root <primary-checkout>/.tmp/tests/<task>/pcsx2-<slot>` and `--out <primary-checkout>/.tmp/artifacts/<task>` so settings, staged resources and captures obey the shared scratch-root rule.

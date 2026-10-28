@@ -370,7 +370,7 @@ def stable_new_file(folder, pattern, since, timeout):
 def cmd_run(a):
     exe = find_pcsx2(a.pcsx2)
     assert_datapath_support(exe)
-    work = pathlib.Path(os.environ.get('TEMP', '/tmp')) / 'tyra-editor-test' / ('pcsx2-capture-%d' % a.slot)
+    work = pathlib.Path(a.work_root).resolve() if a.work_root else pathlib.Path(os.environ.get('TEMP', '/tmp')) / 'tyra-editor-test' / ('pcsx2-capture-%d' % a.slot)
     work.mkdir(parents=True, exist_ok=True)
     root = prepare_datapath(work, find_user_ini(exe), a.slot)
     elf = stage_elf(a.elf, work, a.stage)
@@ -911,6 +911,7 @@ def main():
                    help='also take one single-frame GS dump (Windows; keeps the GS window visible)')
     r.add_argument('--boot-wait', type=float, default=40, help='seconds to wait after PINE answers (default 40)')
     r.add_argument('--wait-log', help='regex to wait for in emulog.txt instead of a fixed boot wait')
+    r.add_argument('--work-root', help='private settings and staged ELF root (agents: checkout .tmp/tests/)')
     r.add_argument('--slot', type=int, default=28190, help='PINE slot/port; one per parallel run')
     r.add_argument('--pcsx2', help='path to pcsx2-qt')
     r.add_argument('--out', help='output directory (default under the run directory)')

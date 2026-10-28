@@ -75,3 +75,8 @@ Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dy
 TyraX 2.0 integration: generated sources have been refreshed with the combined
 TyraX2 renderer and mainline collision broad phase; authored settings and
 user-owned source files retain their existing ownership rules.
+
+Collision runtime refreshed for the spatial dynamic-body broad phase, cached
+hull transforms, edge-aware SAT contacts and selective linear sweeps. The
+portable collision regression probes live in `tools/verify-collision-*.cpp`;
+performance comparisons must include a physical PS2 run.

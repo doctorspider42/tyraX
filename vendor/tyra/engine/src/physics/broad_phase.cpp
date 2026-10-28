@@ -143,24 +143,20 @@ void BroadPhase::commit() {
     rootBuilt_ = true;
     for (int i = 0; i < count_; ++i) {
       if (!present_[(size_t)i]) continue;
-      if (moving_[(size_t)i] || !octreeInsert(i)) always_.push_back(i);
+      if (!octreeInsert(i)) always_.push_back(i);
     }
     return;
   }
   // Kept across commits: only what appeared, left, moved or settled changes.
   for (int i = 0; i < count_; ++i) {
     const size_t k = (size_t)i;
-    const bool wantStatic = nextPresent_[k] && !nextMoving_[k];
+    const bool wantStatic = nextPresent_[k];
     if (objNode_[k] >= 0 && (!wantStatic || !sameBox(box_[k], next_[k])))
       octreeRemove(i);
     box_[k] = next_[k];
     present_[k] = nextPresent_[k];
     moving_[k] = nextMoving_[k];
     if (!present_[k]) continue;
-    if (moving_[k]) {
-      always_.push_back(i);
-      continue;
-    }
     if (objNode_[k] < 0 && !octreeInsert(i)) always_.push_back(i);
   }
 }
@@ -172,10 +168,6 @@ void BroadPhase::rebuildGrid() {
   for (int i = 0; i < count_; ++i) {
     const size_t k = (size_t)i;
     if (!present_[k]) continue;
-    if (moving_[k]) {
-      always_.push_back(i);
-      continue;
-    }
     const BroadBox& b = box_[k];
     if (b.mn[0] < mnX) mnX = b.mn[0];
     if (b.mn[2] < mnZ) mnZ = b.mn[2];
@@ -208,7 +200,7 @@ void BroadPhase::rebuildGrid() {
   for (int pass = 0; pass < 2; ++pass) {
     for (int i = 0; i < count_; ++i) {
       const size_t k = (size_t)i;
-      if (!present_[k] || moving_[k]) continue;
+      if (!present_[k]) continue;
       const BroadBox& b = box_[k];
       const int x0 = cx(b.mn[0]), x1 = cx(b.mx[0]);
       const int z0 = cz(b.mn[2]), z1 = cz(b.mx[2]);
@@ -294,7 +286,7 @@ void BroadPhase::buildOctreeRoot() {
   float mn[3] = {1e30F, 1e30F, 1e30F}, mx[3] = {-1e30F, -1e30F, -1e30F};
   for (int i = 0; i < count_; ++i) {
     const size_t k = (size_t)i;
-    if (!present_[k] || moving_[k]) continue;
+    if (!present_[k]) continue;
     for (int a = 0; a < 3; ++a) {
       mn[a] = std::min(mn[a], box_[k].mn[a]);
       mx[a] = std::max(mx[a], box_[k].mx[a]);

@@ -166,3 +166,32 @@ goes, and what keeps it bounded:
   over-reports contact near a hull's edges by a few percent of the radius.
 - A shape is convex (see above), and an animated model is its AABB box.
 - There is no editor-side simulation: the viewport shows the authored pose.
+
+## Collision pipeline
+
+The EE controls broad-phase queries and the impulse solver. Moving and sleeping
+colliders are spatially indexed. A separate per-step grid uses swept
+centre-of-mass sphere bounds to select body pairs, preserving ascending object
+order and including sleeping partners only when needed.
+
+Existing vertex contacts still provide stable multi-point manifolds. When
+those contacts are empty, full convex SAT tests both face normals and edge
+cross-products, catching crossed beams with no contained vertex. Unique hull
+edge directions are cached when a shape is built. Sphere/hull contacts use
+closest face, edge or vertex distance rather than inflated face planes alone.
+Selective linear CCD is described in [Collision boxes](collision-boxes.md).
+
+Hull vertex transforms have an optional batched VU0 macro-mode path: one
+matrix load for up to 24 aligned points. `TYRA_COLLISION_VU0=1` enables it;
+the faster scalar path is the default after physical-console measurement. This does not move the branch-heavy solver to VU0 or
+use VU1's rendering time. It is not an asynchronous microprogram/DMA pipeline;
+transfer and staging overhead must be included in performance comparisons.
+
+Physical PS2 acceptance (2026-10-28, same ELF, four alternating samples of
+1,000 batches including staging/copy): median COP0 ticks per batch were
+545.2 VU0 / 379.8 scalar for 8 points, and 1113.7 / 992.5 for 24 points.
+This implementation was 43.6% / 12.2% slower and is therefore disabled by
+default. The kernel probe's 1,000 randomized comparisons had zero failures,
+maximum summed component error 0.00000095. These are transform-kernel costs,
+not whole-frame or collision-system speedups. Reproduce with
+`tools/verify-collision-ps2.cpp`, called once from a scratch game's script init.

@@ -407,7 +407,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   `src/scripts/`, a directory the editor never touches.
 - **Player and physics** — FPP / third-person / noclip player entities with
   [walk, run and sprint speeds](docs/player-speeds.md),
-  [rigid bodies that collide as their mesh's convex hull](docs/physics.md), [collision boxes and invisible walls](docs/collision-boxes.md), pickable and usable
+  [rigid bodies that collide as their mesh's convex hull](docs/physics.md), [spatial collision filtering, baked mesh BVHs and continuous sphere sweeps](docs/collision-boxes.md), pickable and usable
   objects, and [two-player shared or split screen](docs/multiplayer.md).
 - **World state** — [areas](docs/areas.md),
   [streaming layers](docs/streaming-layers.md),

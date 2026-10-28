@@ -6,9 +6,8 @@ it comes from, and how to look at it, in the editor and in the running game.
 
 Mesh-accurate collision exists and is opt-in per object (*Collision: mesh*, a
 static `.obj` feature — see [Rigid-body physics](physics.md)). The player and,
-since 1.83.0, rigid bodies collide with such a model's triangles; the camera
-boom and the carried/thrown-arc sweep still use the box described here, and so
-does everything without the option.
+since 1.83.0, rigid bodies collide with such a model's triangles; camera boom and carried/thrown-arc sphere sweeps also query those triangles.
+Everything without mesh mode uses the box described here.
 
 ## Which box
 
@@ -76,16 +75,22 @@ collision mesh several queries (see below).
 
 ## What mesh mode costs
 
-A collision mesh is a triangle soup in an XZ grid of up to 32 x 32 cells.
-The walker asks it three things a frame - a sphere push-out and two vertical
-rays - so a query costs the triangles under the player, not the whole mesh.
-Two rejects keep objects far from the player at nearly zero (1.166.0):
-`collidePlayer` skips a mesh whose bounding sphere about its origin, plus the
-player's reach, cannot reach the player horizontally, and `CollisionMesh`
-itself tests its own box before the grid. Before that, every mesh-mode object
-in the scene paid the full queries every frame, and the grid CLAMPED a far
-query onto its edge cells, so they cost a closest-point test per border
-triangle. Memory is 48 bytes a triangle plus the grid, once per model.
+A collision mesh stores packed triangle positions and normals plus a flat 3D
+AABB BVH. The build writes a versioned little-endian `<model>.tmdl.tcol`
+sidecar, copied with the model resources; loading reads that ready-made
+structure. Missing or invalid sidecars fall back to runtime construction.
+Only models needed by mesh-mode scene objects or prefabs get a sidecar.
+The render triangle list supplies exact geometry; it is not automatically
+simplified because decimation can open walls or remove thin obstacles.
+
+BVH traversal prunes in all three dimensions, including stacked floors.
+Raycasts shrink the remaining distance after each hit. Sphere resolution
+preserves triangle order for deterministic sequential pushes. Camera/carry
+sphere sweeps test triangle faces, edges and vertices along the entire segment,
+instead of treating the whole building as one solid box. Nonuniform model
+scale uses a conservative local sphere for sweeps; it may stop early.
+The walker retains its chest sphere and floor/ceiling rays, with a continuous
+wall sweep before push-out. It is not a full capsule controller.
 
 Box mode has the same far reject: a box whose footprint (half-diagonal plus
 the walker's radius, plus the box centre's offset from the object origin)
@@ -206,14 +211,13 @@ of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
   placeholder bounds). A refresh that changes nothing in the structure (no
   object came, went, started or stopped moving, or got a new box) skips the
   rebuild: a boundary after a quiet stage costs one walk over the objects.
-- **Moving objects** - physics bodies, and anything that moved this frame or
-  the last - are candidates of every query rather than placed in the
-  structure, and every box is padded by 0.5 m for an object that only starts
-  moving after a refresh, within the same stage. So is an object too large to
-  place (more than 64 grid cells, or outside the octree's root). Counting
-  "moving" by frame rather than by refresh keeps something that moves every
-  frame in a late stage (a vehicle) a candidate everywhere, instead of
-  settling it at an early boundary and leaving its box behind.
+- **Moving objects** are spatially indexed alongside static objects. Their
+  transformed bounds refresh when their pose changes; sleeping rigid bodies
+  remain indexed. Only oversized grid objects and objects outside the octree
+  root are unconditional candidates. The physics body's predicted-pose pair
+  index is built separately once per step, so awake bodies query nearby bodies
+  rather than walking the whole physics population. Boxes retain the 0.5 m
+  padding for small movements within a stage.
 - **Moving a collider yourself.** Scripts and flow graphs need nothing: they
   write `ctx.objects` during the script stage, nothing queries the broad phase
   inside it, and the boundary after it picks every change up. Game-side C++
@@ -264,3 +268,16 @@ The two builders are a twin pair: change one and the other must follow, or
 the editor starts drawing a box the console does not collide with.
 `src/placement.cpp` is host-only and links on its own, so the box is
 checkable from a ~40-line harness rather than by eye.
+
+## Continuous tests and current limits
+
+The walker sweeps its horizontal footprint when a move crosses a box without
+ending inside it. Rigid-body sphere/mesh sweeps include triangle edges and
+vertices; sphere/box sweeps use an expanded box (conservative at rounded
+corners). Hull pairs and hull/box pairs have linear swept SAT at the predicted
+orientation. Sphere/sphere pairs use analytic relative-motion time of impact.
+These contacts feed the existing impulse solver; they prevent crossings
+conservatively rather than running a full event-driven time-of-impact solver.
+Exact rotational CCD and sphere/hull CCD are not provided. Fast angular motion
+or a sphere crossing an entire moving convex hull can still require smaller
+simulation steps. Terrain sweeps retain their existing sampled heightfield path.

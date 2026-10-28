@@ -8,6 +8,12 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.2.0
+
+- Moving and sleeping colliders participate in spatial filtering, and rigid-body pairs use swept bounds instead of scanning the entire physics population.
+- Mesh collision uses a host-baked 3D BVH, including camera and carry sphere sweeps through actual mesh openings. Legacy projects without a collision sidecar retain runtime construction.
+- Convex rigid bodies detect crossed-edge contacts, spheres use exact hull corner distances, and selective linear sweeps catch fast crossings of thin obstacles. Hull transforms have a batched VU0 implementation with a scalar comparison path.
+
 ## 2.1.1
 
 - The release notes on GitHub, and in the editor's update dialog, are now this changelog's entry for the version instead of a bare "Full Changelog" link.

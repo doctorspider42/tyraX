@@ -40,3 +40,17 @@ ls <proj>/objects | wc -l      # one object per imported model
 ## Game audio
 
 EE-side logs are invisible for audio — meter the PCSX2 process: Windows WASAPI session peak (`AudioMeterInformation`); Linux `pactl list sink-inputs` (PCSX2 sink input volume/peak) or a short `parec` of the monitor source. Silence vs bursts at expected times; by-ear checks stay with the human. Loop/mono ADPCM header bytes: acceptance-vehicles-roads.md "Sounds" and e2e-pcsx2.md. Editor-side audition/DSP: host-harnesses.md.
+
+## Collision pipeline regression gates
+
+Compile `tools/verify-collision-broad-phase.cpp` with engine
+`src/physics/broad_phase.cpp`, and the standalone `verify-collision-bvh.cpp`
+and `verify-collision-geometry.cpp`, using `-I vendor/tyra/engine/inc`.
+Use a scratch executable under the primary checkout's `.tmp/tests/` (Windows
+MinGW: `-static` avoids resolving another toolchain's runtime DLL).
+The gates cover moving-object rejection, randomized conservative queries,
+stacked floors, baked-data roundtrips/corruption, crossed hulls, hull edge
+extraction, sphere/corner distances and face/edge/vertex continuous sweeps.
+Then regenerate both FPP and orbit projects, build and boot the physics
+playground copy, drive its controller, and compare VU0/scalar transforms on the
+physical console before reporting timing gains.

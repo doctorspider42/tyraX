@@ -38,9 +38,10 @@ struct BroadBox {
  *   commits - only objects whose box changed are moved. Splits in height too,
  *   and adapts to uneven density (a dense block next to open ground).
  *
- * A `moving` object is never placed in the structure: it is a candidate of
- * every query (a box from the last commit would lag it) until it settles.
- * There are few of them; physics bodies and anything that moved last frame.
+ * Moving objects are indexed too. The caller must submit current (or
+ * conservative swept) boxes at simulation boundaries and invalidate after
+ * changing a collider before another query in the same stage. `moving` is
+ * retained as caller metadata; it does not bypass spatial rejection.
  */
 class BroadPhase {
  public:

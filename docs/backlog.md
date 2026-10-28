@@ -2868,3 +2868,10 @@ post-5 back at y = 1.
 - [x] Combine latest main, the UI redesign and the TyraX2 foundation on `codex/tyrax-2.0`.
 - [x] Unify additive project fields as format 114 and expose the integrated renderer settings in the redesigned preferences.
 - [ ] Complete Windows/Linux build and UI qualification, physical-console integration checks and installer/update qualification before publishing 2.0.0.
+
+## Collision follow-ups
+
+- Exact rotational CCD and continuous sphere-versus-moving-hull contacts need
+  a bounded substep/TOI design and a rotating-thin-obstacle console fixture.
+- A separately authored collision-mesh asset would allow deliberate geometry
+  reduction; do not automatically decimate the render mesh into a collider.
