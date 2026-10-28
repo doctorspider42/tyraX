@@ -50,7 +50,7 @@ TYRA_OBJECT_SCRIPT(Door);
   a script never fight over it: the event bus, the random sequence, the
   priority table that decides which sound gets a voice, and what the Raycast
   node returns. A script's `sendEvent` fires a graph's *On Event*, and a
-  graph's *Send Event* shows up in a script's `eventReceived`.
+  graph's *Send Event* reaches a script's `onEvent` and `eventReceived`.
 - Everything works with the `ScriptContext` your callbacks receive, either as
   the first argument or carried by an `ObjectRef`. In an object script,
   `object` is your own object as an `ObjectRef`.
@@ -157,9 +157,9 @@ editor misread is a compile error, never a silently wrong value. The values
 are a small table per attachment in `src/gen/object_scripts.gen.cpp`, and an
 attachment with every field at its default costs nothing.
 
-- **A field's colour** in *Properties* tells you whether it is set: blue is
-  set on this object, plain is the script's default. Hover the name for the
-  type, the tooltip and the default. `x` returns the field to the default.
+- **A set field** has a dot before its name and a reset arrow after its
+  widget; a dim name is the script's default. Hover the name for the type,
+  the tooltip and the default. The card's menu resets every field at once.
 - **Values are kept when a field disappears.** If you rename a field, remove
   it or detach the script, the stored value stays in the object's file and
   comes back when the name does. A reference that no longer resolves, such as
@@ -177,8 +177,9 @@ attachment with every field at its default costs nothing.
 ### Vectors and math
 
 `tyrax::Vec3` is a small `{x, y, z}` with `+ - * /`. It converts from the
-engine's `Tyra::Vec4`, so `Vec3 p = ctx.playerPosition;` works. `Vec3::from(float*)`
-reads an object's `data.position`, and `.store(float*)` writes one back.
+engine's `Tyra::Vec4`, so `Vec3 p = ctx.playerPosition;` works, and
+`.vec4()` converts back. `Vec3::from(float*)` reads an object's
+`data.position`, and `.store(float*)` writes one back.
 
 | Function | Does |
 |---|---|
@@ -232,7 +233,8 @@ does nothing. Change a colour only when it actually changes.
 Searches: `findNearest(ctx, point, maxDist, filter)` and
 `overlapSphere(ctx, point, radius, out, max, filter)`, where an
 `ObjectFilter` can restrict the object type, keep only visible objects, skip
-one index, or run your own test. `spawn(ctx, template, point, yaw)` clones an
+one index, or run your own test (`filterAccepts(filter, obj, index)` applies
+one in your own loop). `spawn(ctx, template, point, yaw)` clones an
 object, as the *Spawn Object* node does.
 
 ### Raycasts
@@ -270,7 +272,7 @@ dead zone.
 | `playMusic`, `stopMusic`, `setSoundBankLoaded`, `setReverb` | the matching nodes |
 | `cameraShake`, `setFade`, `setCamera(eye, target)`, `releaseCamera`, `setSkyColor` | *Camera Shake*, *Set Screen Fade*, *Set Camera* |
 | `setFog`, `setParticles`, `setBloom`, `setGrain`, `setLensFlare`, `setGodRays` | the *Set …* graphics nodes; amounts are 0..1 (bloom up to 2) |
-| `setHudVisible`, `showText(text, seconds)`, `hideText`, `setHudBar(bar, value, instant)`, `setHudElementVisible` | the HUD nodes; a bar bound to a save value gets the value written too |
+| `setHudVisible`, `showText(text, seconds)`, `hideText`, `setHudBar(bar, value, instant)`, `setHudElementVisible(ctx, HudElements::X, on)` | the HUD nodes; a bar bound to a save value gets the value written too |
 
 ### Save data, facts and events
 

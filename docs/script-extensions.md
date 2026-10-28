@@ -33,10 +33,9 @@ everywhere it reads `src/scripts`:
 ![Project panel > Scripts: Essentials as one group of object scripts with its version, each class with the objects that use it, and the Global scripts, Flow graphs and Extensions sections](img/script-extensions-page.png)
 
 On *Project panel > Scripts* each extension's classes form one group under
-*Object scripts*, with the manifest's version. The installed extensions are
-listed in the **Extensions** section,
-with each one's version, object scripts and flow-node count. Clicking a row
-opens its manifest.
+*Object scripts*, with the manifest's version. The **Extensions** section
+lists the installed extensions with each one's version, object scripts and
+flow-node count; clicking a row opens its manifest.
 
 - **New extension** writes a skeleton under the name you type: a manifest, an
   object script with a public field, and a custom flow node. It then opens the
