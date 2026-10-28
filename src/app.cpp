@@ -15969,6 +15969,19 @@ void App::drawNewScriptModal() {
         newScriptKind_ = 2;
     ImGui::EndDisabled();
 
+    // A game script is either attached to objects (one instance per object,
+    // TYRA_OBJECT_SCRIPT) or global (one instance for the whole game, every
+    // frame in every scene, TYRA_SCRIPT). From Properties it can only be the
+    // first: that flow attaches what it creates.
+    if (newScriptKind_ == 0) {
+        if (newScriptAttachTo_ >= 0) newScriptGlobal_ = false;
+        ImGui::BeginDisabled(newScriptAttachTo_ >= 0);
+        if (ImGui::RadioButton("Object script (attach to objects)", !newScriptGlobal_)) newScriptGlobal_ = false;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Global script (runs every frame)", newScriptGlobal_)) newScriptGlobal_ = true;
+        ImGui::EndDisabled();
+    }
+
     if (newScriptKind_ == 1)
         ImGui::TextDisabled(
             "Creates src/vu/%s.cpp - C++ compiled and run on the host at build\n"
@@ -15980,9 +15993,17 @@ void App::drawNewScriptModal() {
             "quadwords in, quadwords out, and a driver class your game calls.\n"
             "Costs nothing out of the VU1 drawing budget.",
             newScriptName_);
+    else if (newScriptGlobal_)
+        ImGui::TextDisabled(
+            "Creates src/scripts/%s.cpp (subfolders allowed: ai/guard) - one instance\n"
+            "for the whole game, not attached to anything: score, rules, music,\n"
+            "anything that is not about one object.",
+            newScriptName_);
     else
-        ImGui::TextDisabled("Creates src/scripts/%s.cpp (subfolders allowed: ai/guard)",
-                            newScriptName_);
+        ImGui::TextDisabled(
+            "Creates src/scripts/%s.cpp (subfolders allowed: ai/guard) - attach it\n"
+            "in Properties > Scripts; every object runs its own instance.",
+            newScriptName_);
     if (newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size())
         ImGui::TextDisabled("Attaches it to \"%s\".",
                             project_.objects()[newScriptAttachTo_].name.c_str());
@@ -16032,6 +16053,8 @@ void App::drawNewScriptModal() {
                     f << (newScriptKind_ == 1 ? templates::vuScriptStub(className)
                           : newScriptKind_ == 2
                               ? templates::vuKernelStub(className)
+                          : newScriptGlobal_
+                              ? templates::globalScriptStub(project_, className, name + ".cpp")
                               : templates::scriptStub(project_, className,
                                                       name + ".cpp"));
                     f.close();
@@ -16051,9 +16074,11 @@ void App::drawNewScriptModal() {
                         statusMessage_ = "Created " + name + ".cpp and attached " +
                                          className;
                     } else {
-                        statusMessage_ = "Created " + name + ".cpp";
+                        statusMessage_ = "Created " + name + ".cpp" +
+                                         (newScriptKind_ == 0 && newScriptGlobal_ ? " (global script)" : "");
                     }
                     newScriptAttachTo_ = -1;
+                    newScriptGlobal_ = false;
                     ImGui::CloseCurrentPopup();
                 } else {
                     newScriptError_ = "Cannot write " + path.string();

@@ -1572,7 +1572,7 @@ void App::drawScriptsSection() {
     }
 
     // --- Global scripts -------------------------------------------------------------
-    if (showGlobal && (!globals.empty() || filter == 2)) {
+    if (showGlobal) {
         if (foldRow("Global scripts section", "Global scripts", "run every frame, every scene", true, true, false, 0.0f)) {
             for (const GlobalRow& g : globals) {
                 if (!matches(g.cls, railScriptSearch_) && !matches(g.file, railScriptSearch_)) continue;
@@ -1610,7 +1610,17 @@ void App::drawScriptsSection() {
                 ImGui::Unindent(rowIndent);
                 ImGui::PopID();
             }
-            if (globals.empty()) ImGui::TextDisabled("No TYRA_GLOBAL_SCRIPT class yet.");
+            if (globals.empty())
+                ImGui::TextDisabled("None yet - a class registered with TYRA_SCRIPT, attached to nothing.");
+            // The New Script modal with Global picked (the header's New script
+            // opens it as an object script).
+            if (ui::GhostButton("New global script...")) {
+                openNewScriptPopup_ = true;
+                newScriptKind_ = 0;
+                newScriptGlobal_ = true;
+                newScriptError_.clear();
+                newScriptAttachTo_ = -1;
+            }
         }
     }
 
@@ -1745,11 +1755,15 @@ void App::drawExtensionsSection() {
     if (cached.empty())
         ImGui::TextDisabled("Reusable scripts and nodes, shared between projects as a folder.");
 
-    ImGui::SetNextItemWidth(scaled(140));
-    ImGui::InputText("##newextname", newExtensionName_, sizeof newExtensionName_);
+    // The name field takes what the button leaves of the row; Install gets a
+    // row of its own. Frame-height buttons, so the three line up.
+    const float newW = ImGui::CalcTextSize("New extension").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    ImGui::SetNextItemWidth(ImMax(scaled(80), ImGui::GetContentRegionAvail().x - newW -
+                                                  ImGui::GetStyle().ItemSpacing.x));
+    ImGui::InputTextWithHint("##newextname", "Extension name", newExtensionName_, sizeof newExtensionName_);
     uiscript::nameItem(ImGui::GetItemID(), "New extension name");
     ImGui::SameLine();
-    if (ImGui::SmallButton("New extension")) {
+    if (ui::SecondaryButton("New extension", newW)) {
         const std::string err = extension::scaffold(project_.dir, newExtensionName_);
         const std::string folder = extension::folderFor(newExtensionName_);
         statusMessage_ = err.empty() ? "Created src/extensions/" + folder : err;
@@ -1761,8 +1775,7 @@ void App::drawExtensionsSection() {
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         ImGui::SetTooltip("A skeleton: manifest, one object script, one flow node.");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Install from folder...")) {
+    if (ui::SecondaryButton("Install from folder...", ImGui::GetContentRegionAvail().x)) {
         const std::string picked = pickFolder();
         if (!picked.empty()) {
             std::string folder;

@@ -146,6 +146,9 @@ std::string projectNamespace(const Project& p);
 // Content of a new user script created from the "New script..." action.
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);
+// The same for a global script (TYRA_SCRIPT: one instance, every frame).
+std::string globalScriptStub(const Project& p, const std::string& className,
+                             const std::string& fileName);
 
 // The Docker volume holding the COMPILED engine, named after a hash of the
 // engine source path so projects built from one checkout share it and parallel

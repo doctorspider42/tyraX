@@ -251,6 +251,13 @@ isn't about one object: derive from `Script`, override `init`/`update`,
 register with `TYRA_SCRIPT(MyScript);` (at file scope, *outside* the
 namespace or inside it with a qualified name - see the FPP example script).
 One instance for the whole game, `update` runs every frame in every scene.
+What makes a script global is only that: the `Script` base class and the
+`TYRA_SCRIPT` registration (an object script derives from `ObjectScript` and
+registers with `TYRA_OBJECT_SCRIPT`). **New Script** asks which one you want:
+*Object script* or *Global script*, and writes the matching stub (from
+Properties it is always an object script, because it gets attached). The
+Project panel's *Scripts* page lists global scripts in their own section,
+with *New global script...* under them.
 Existing projects keep compiling unchanged; the flow-graph compiler and the
 object-script driver are themselves global scripts under the hood.
 

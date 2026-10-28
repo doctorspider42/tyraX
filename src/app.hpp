@@ -3688,6 +3688,9 @@ private:
     char newScriptName_[64] = "my_script";
     std::string newScriptError_;
     int newScriptAttachTo_ = -1;
+    // A game script that is global (TYRA_SCRIPT, one instance, every frame)
+    // instead of attachable (TYRA_OBJECT_SCRIPT). Off when attaching.
+    bool newScriptGlobal_ = false;
     // A VU program instead of an EE script: src/vu/<name>.cpp, compiled and
     // run on the HOST at build time (docs/vu-authoring.md). Cannot be attached
     // to an object - it replaces a material class, not a behaviour.

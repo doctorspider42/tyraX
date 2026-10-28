@@ -3948,6 +3948,36 @@ bool DashedAddButton(const char* label, const char* text, const char* hint) {
     return pressed;
 }
 
+// The script card's header buttons, drawn here so all three share one box
+// and one centre: the toolkit's List glyph and More icon sit above the
+// middle of their boxes, which read as a ragged row next to </>.
+// icon: 0 code, 1 list, 2 more. Returns clicked.
+bool CardIconButton(const char* label, int icon, float size, const char* tooltip) {
+    const theme::Semantics& sem = theme::semantics();
+    const ImVec2 p = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton(label, ImVec2(size, size));
+    const bool hov = ImGui::IsItemHovered();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    if (hov) dl->AddRectFilled(p, ImVec2(p.x + size, p.y + size), colU32(sem.surface, 0.9f),
+                               ImGui::GetStyle().FrameRounding);
+    const ImU32 ink = colU32(hov ? sem.text : sem.textDim);
+    const ImVec2 c(std::floor(p.x + size * 0.5f) + 0.5f, std::floor(p.y + size * 0.5f) + 0.5f);
+    const float s = size * 0.22f;  // half the icon's extent
+    const float th = ImMax(1.3f, size * 0.06f);
+    if (icon == 0) {
+        ui::DrawGlyph(dl, ui::Glyph::Code, c, size * 0.55f, ink);
+    } else if (icon == 1) {
+        for (int k = -1; k <= 1; ++k) {
+            const float y = c.y + k * s * 0.75f;
+            dl->AddLine(ImVec2(c.x - s, y), ImVec2(c.x + (k == 1 ? s * 0.3f : s), y), ink, th);
+        }
+    } else {
+        for (int k = -1; k <= 1; ++k) dl->AddCircleFilled(ImVec2(c.x + k * s * 0.85f, c.y), th * 0.95f, ink);
+    }
+    if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) ImGui::SetTooltip("%s", tooltip);
+    return pressed;
+}
+
 // A small rounded count tag drawn at `at` (right-aligned to at.x); returns
 // its width. kind: 0 accent, 1 warn.
 float TagAt(ImDrawList* dl, ImVec2 at, const char* text, int kind) {
@@ -4088,12 +4118,11 @@ bool App::drawScriptCards(SceneObject& o) {
         ImGui::SameLine(0.0f, sp);
         ImGui::SetCursorPosY(headY + (hh - fh) * 0.5f);
         if (known) {
-            if (ui::GlyphButton(("Open " + cls + " in VS Code").c_str(), ui::Glyph::Code, fh,
-                                "Open in VS Code (at the class)") && ci)
+            if (CardIconButton(("Open " + cls + " in VS Code").c_str(), 0, fh, "Open in VS Code (at the class)") &&
+                ci)
                 openInVSCode(ci->file, ci->line);
             ImGui::SameLine(0.0f, sp);
-            if (ui::GlyphButton(("Show " + cls + " in Scripts page").c_str(), ui::Glyph::List, fh,
-                                "Show in Project > Scripts")) {
+            if (CardIconButton(("Show " + cls + " in Scripts page").c_str(), 1, fh, "Show in Project > Scripts")) {
                 leftPage_ = 4;
                 scriptsPageFocus_ = cls;
                 pendingFocusWindow_ = "Project";
@@ -4106,7 +4135,7 @@ bool App::drawScriptCards(SceneObject& o) {
             openNewScriptPopup_ = true;
         }
         ImGui::SameLine(0.0f, sp);
-        if (ui::IconButton(("More " + cls).c_str(), ui::RtIcon::More, fh, "More"))
+        if (CardIconButton(("More " + cls).c_str(), 2, fh, "Reset all fields, copy the name, detach"))
             ImGui::OpenPopup("##more");
         if (ImGui::BeginPopup("##more")) {
             if (known && ImGui::MenuItem(("Reset all " + cls + " fields").c_str(), nullptr, false, nSet > 0)) {

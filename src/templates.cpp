@@ -6835,6 +6835,38 @@ TYRA_OBJECT_SCRIPT({{SCRIPT_CLASS}});
 }  // namespace {{NAME_UPPER_NS}}
 )";
 
+static const char* TPL_GLOBAL_SCRIPT_STUB =
+    R"(// {{SCRIPT_FILE}} - created by TyraX. This file is yours.
+#include "scripts/script.hpp"
+
+namespace {{NAME_UPPER_NS}} {
+
+// A GLOBAL script: one instance for the whole game, attached to nothing.
+// update() runs every frame in every scene - the place for score, rules,
+// music and anything else that is not about one object. (A script that
+// belongs to objects derives from ObjectScript and uses TYRA_OBJECT_SCRIPT.)
+// The whole script API is tyrax::... (docs/script-api.md).
+class {{SCRIPT_CLASS}} : public Script {
+ public:
+  void init(ScriptContext& ctx) override {
+    // Once, when the game starts.
+  }
+
+  void update(ScriptContext& ctx) override {
+    // Every frame, in every scene. Examples:
+    //   if (tyrax::actionPressed(ctx, tyrax::Actions::Jump)) ...
+    //   tyrax::ObjectRef boss = tyrax::findObject(ctx, "boss");
+    //   tyrax::sendEvent(tyrax::Events::YourEvent);  // On Event in graphs
+    //   if (auto* gm = tyrax::findScript<GameManager>()) ...  // an object script
+  }
+};
+
+}  // namespace {{NAME_UPPER_NS}}
+
+// Global scripts register at file scope, OUTSIDE the namespace.
+TYRA_SCRIPT({{NAME_UPPER_NS}}::{{SCRIPT_CLASS}});
+)";
+
 static const char* TPL_RUN_PS1 = R"($ConfigFile = Join-Path $PSScriptRoot './windows-pcsx2.ps1'
 . $ConfigFile
 
@@ -35933,6 +35965,14 @@ std::string vuKernelStub(const std::string& className) {
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName) {
     std::string s = fillTemplate(p, TPL_SCRIPT_STUB);
+    s = replaceAll(s, "{{SCRIPT_CLASS}}", className);
+    s = replaceAll(s, "{{SCRIPT_FILE}}", fileName);
+    return s;
+}
+
+std::string globalScriptStub(const Project& p, const std::string& className,
+                             const std::string& fileName) {
+    std::string s = fillTemplate(p, TPL_GLOBAL_SCRIPT_STUB);
     s = replaceAll(s, "{{SCRIPT_CLASS}}", className);
     s = replaceAll(s, "{{SCRIPT_FILE}}", fileName);
     return s;
