@@ -15937,112 +15937,296 @@ void App::drawMenuLayoutTab(GameMenu& m, bool& changed) {
 
 // drawScriptsSection: rail_ui.cpp (the Project panel's Scripts page).
 
+// New Script (NewScript design, docs/object-scripts.md "Scripts in the
+// editor"): a name with the file and class it makes, then WHAT the script is,
+// as cards - Object script or Global script for game logic, and behind a fold
+// the two vector-unit kinds, which are not game logic at all (C++ run on the
+// host at build time that leaves a microprogram). A preview shows the lines
+// the stub starts with. Opened from Properties it can only make an object
+// script, which it attaches.
 void App::drawNewScriptModal() {
     if (openNewScriptPopup_) {
         ImGui::OpenPopup("New Script");
         openNewScriptPopup_ = false;
+        newScriptVuOpen_ = newScriptKind_ != 0;
     }
+    const theme::Semantics& sem = theme::semantics();
+    const float fs = ImGui::GetFontSize();
+    auto u32 = [](const ImVec4& c, float a = 1.0f) { return ImGui::GetColorU32(ImVec4(c.x, c.y, c.z, c.w * a)); };
 
-    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0.0f), ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(scaled(18), scaled(16)));
+    const bool open = ImGui::BeginPopupModal("New Script", nullptr,
+                                             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                                                 ImGuiWindowFlags_NoSavedSettings);
+    ImGui::PopStyleVar();
+    if (!open) return;
 
-    if (!ImGui::BeginPopupModal("New Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-        return;
-
-    ImGui::InputText("File name", newScriptName_, sizeof(newScriptName_));
-
-    // The three kinds are not variants of one thing and the wording says so:
-    // one runs on the EE every frame, the other two run on the HOST at build
-    // time and leave a microprogram behind - one that draws, one that computes.
-    // Attaching either of those to an object is meaningless (a VU1 program
-    // replaces a material class, a VU0 kernel is a function your game calls) so
-    // the choice is disabled when the modal was opened from
-    // Properties > Scripts.
-    ImGui::BeginDisabled(newScriptAttachTo_ >= 0);
-    if (ImGui::RadioButton("Game script (runs on the EE)", newScriptKind_ == 0))
+    const bool attaching = newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size();
+    if (attaching) {  // from Properties: only what can be attached
         newScriptKind_ = 0;
-    ImGui::SameLine();
-    if (ImGui::RadioButton("VU program (runs on VU1)", newScriptKind_ == 1))
-        newScriptKind_ = 1;
-    ImGui::SameLine();
-    if (ImGui::RadioButton("VU0 kernel (computes)", newScriptKind_ == 2))
-        newScriptKind_ = 2;
-    ImGui::EndDisabled();
+        newScriptGlobal_ = false;
+    }
+    bool close = false;
 
-    // A game script is either attached to objects (one instance per object,
-    // TYRA_OBJECT_SCRIPT) or global (one instance for the whole game, every
-    // frame in every scene, TYRA_SCRIPT). From Properties it can only be the
-    // first: that flow attaches what it creates.
-    if (newScriptKind_ == 0) {
-        if (newScriptAttachTo_ >= 0) newScriptGlobal_ = false;
-        ImGui::BeginDisabled(newScriptAttachTo_ >= 0);
-        if (ImGui::RadioButton("Object script (attach to objects)", !newScriptGlobal_)) newScriptGlobal_ = false;
-        ImGui::SameLine();
-        if (ImGui::RadioButton("Global script (runs every frame)", newScriptGlobal_)) newScriptGlobal_ = true;
+    // --- header: icon, title, what this is for, close ---------------------------
+    {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float box = scaled(36);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        dl->AddRectFilled(p, ImVec2(p.x + box, p.y + box), u32(sem.accent, 0.14f), scaled(8));
+        ui::DrawGlyph(dl, ui::Glyph::Code, ImVec2(p.x + box * 0.5f, p.y + box * 0.5f), box * 0.5f, u32(sem.accent));
+        ImGui::Dummy(ImVec2(box, box));
+        ImGui::SameLine(0.0f, scaled(12));
+        ImGui::BeginGroup();
+        {
+            ui::FontScope bold(ui::boldFont() ? ui::boldFont() : ImGui::GetFont());
+            ImGui::TextUnformatted("New script");
+        }
+        ImGui::PushFont(nullptr, fs * 0.82f);
+        if (attaching)
+            ImGui::TextColored(sem.textDim, "For %s - created and attached in one step.",
+                               project_.objects()[newScriptAttachTo_].name.c_str());
+        else
+            ImGui::TextColored(sem.textDim, "C++ in your project. Yours to edit - never regenerated.");
+        ImGui::PopFont();
+        ImGui::EndGroup();
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetFrameHeight());
+        if (ui::IconButton("Close##newscript", ui::RtIcon::Close, 0.0f, "Cancel")) close = true;
+    }
+    ImGui::Dummy(ImVec2(0, scaled(6)));
+
+    // --- name: the file and the class it makes ---------------------------------
+    std::string name = newScriptName_;
+    for (char& c : name)
+        if (c == '\\') c = '/';  // one separator form for path + display
+    std::string base = name;
+    if (const size_t slash = base.find_last_of('/'); slash != std::string::npos) base = base.substr(slash + 1);
+    // File name -> C++ class name (ai/my-script -> My_script)
+    std::string className;
+    for (char c : base) className += (isalnum((unsigned char)c) ? c : '_');
+    if (!className.empty() && isdigit((unsigned char)className[0])) className = "Script" + className;
+    if (!className.empty()) className[0] = (char)toupper((unsigned char)className[0]);
+    const char* const kDirs[3] = {"src/scripts", "src/vu", "src/vu0"};
+
+    ImGui::PushFont(nullptr, fs * 0.82f);
+    ImGui::TextColored(sem.textDim, "Name");
+    ImGui::PopFont();
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    ImGui::InputTextWithHint("##newscriptname", "my_script (subfolders: ai/guard)", newScriptName_,
+                             sizeof(newScriptName_));
+    uiscript::nameItem(ImGui::GetItemID(), "File name");
+    {
+        ui::FontScope mono(ui::monoFont());
+        ImGui::PushFont(nullptr, fs * 0.8f);
+        ImGui::TextColored(sem.textDim, "%s/%s.cpp  \xC2\xB7  class %s", kDirs[newScriptKind_],
+                           name.empty() ? "?" : name.c_str(), className.empty() ? "?" : className.c_str());
+        ImGui::PopFont();
+    }
+    ImGui::Dummy(ImVec2(0, scaled(6)));
+
+    // A kind card: icon, title, a check when picked, one line on what it is and
+    // one on what it is for. Returns clicked.
+    auto kindCard = [&](const char* id, int icon, const char* title, const char* what, const char* forWhat,
+                        bool selected, bool enabled, float w, float h) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ImGui::BeginDisabled(!enabled);
+        const bool clicked = ImGui::InvisibleButton(id, ImVec2(w, h));
         ImGui::EndDisabled();
+        uiscript::markLastItemChecked(selected);
+        const bool hov = enabled && ImGui::IsItemHovered();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float r = scaled(8);
+        const ImVec2 q(p.x + w, p.y + h);
+        if (selected) {
+            dl->AddRectFilled(p, q, u32(sem.accent, 0.10f), r);
+            dl->AddRect(p, q, u32(sem.accent), r);
+        } else if (enabled) {
+            dl->AddRectFilled(p, q, u32(sem.surface, hov ? 0.9f : 0.45f), r);
+            dl->AddRect(p, q, u32(sem.border), r);
+        } else {  // dashed: not available here
+            const ImU32 c = u32(sem.border);
+            for (float x = p.x + r; x < q.x - r; x += 9.0f) {
+                dl->AddLine(ImVec2(x, p.y), ImVec2(ImMin(x + 5.0f, q.x - r), p.y), c);
+                dl->AddLine(ImVec2(x, q.y), ImVec2(ImMin(x + 5.0f, q.x - r), q.y), c);
+            }
+            for (float y = p.y + r; y < q.y - r; y += 9.0f) {
+                dl->AddLine(ImVec2(p.x, y), ImVec2(p.x, ImMin(y + 5.0f, q.y - r)), c);
+                dl->AddLine(ImVec2(q.x, y), ImVec2(q.x, ImMin(y + 5.0f, q.y - r)), c);
+            }
+        }
+        const float pad = scaled(12);
+        const ImU32 ink = !enabled ? u32(sem.textDim) : selected ? u32(sem.accent) : u32(sem.textDim);
+        const ImVec2 ic(p.x + pad + scaled(9), p.y + pad + fs * 0.5f);
+        if (icon == 0) ui::DrawGlyph(dl, ui::Glyph::Box, ic, scaled(18), ink);
+        else if (icon == 1) {  // a globe
+            dl->AddCircle(ic, scaled(8), ink, 0, 1.5f);
+            dl->AddLine(ImVec2(ic.x - scaled(8), ic.y), ImVec2(ic.x + scaled(8), ic.y), ink, 1.2f);
+            dl->AddEllipse(ic, ImVec2(scaled(3.5f), scaled(8)), ink, 0.0f, 0, 1.2f);
+        } else ui::DrawRtIcon(dl, ui::RtIcon::Chip, ic, scaled(18), ink);
+        ImFont* bf = ui::boldFont() ? ui::boldFont() : ImGui::GetFont();
+        dl->AddText(bf, fs, ImVec2(p.x + pad + scaled(26), p.y + pad), enabled ? u32(sem.text) : u32(sem.textDim), title);
+        if (selected) {
+            const ImVec2 cc(q.x - pad - scaled(8), p.y + pad + fs * 0.5f);
+            dl->AddCircleFilled(cc, scaled(8), u32(sem.accent));
+            ui::CheckMark(dl, cc, scaled(9), u32(sem.ground));
+        }
+        const float sfs = fs * 0.8f;
+        const float wrap = w - pad * 2.0f;
+        ImFont* f = ImGui::GetFont();
+        const ImVec2 wp(p.x + pad, p.y + pad + fs + scaled(8));
+        dl->AddText(f, sfs, wp, enabled ? u32(sem.text, 0.75f) : u32(sem.textDim), what, nullptr, wrap);
+        const float wh = f->CalcTextSizeA(sfs, FLT_MAX, wrap, what).y;
+        dl->AddText(f, sfs * 0.95f, ImVec2(wp.x, wp.y + wh + scaled(5)), u32(sem.textDim), forWhat, nullptr, wrap);
+        return clicked && enabled;
+    };
+
+    // --- game logic --------------------------------------------------------------
+    ImGui::PushFont(nullptr, fs * 0.75f);
+    ImGui::TextColored(sem.textDim, "GAME LOGIC  \xC2\xB7  runs in the game, every frame");
+    ImGui::PopFont();
+    const float gap = scaled(8);
+    const float cardW = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+    const float cardH = fs * 6.4f;
+    if (kindCard("Object script", 0, "Object script",
+                 "Attach it to objects. Each one runs its own copy, with fields you set per object.",
+                 "a door, a pickup, an enemy", newScriptKind_ == 0 && !newScriptGlobal_, true, cardW, cardH)) {
+        newScriptKind_ = 0;
+        newScriptGlobal_ = false;
+    }
+    ImGui::SameLine(0.0f, gap);
+    if (kindCard("Global script", 1, "Global script",
+                 attaching ? "One for the whole game, attached to nothing."
+                           : "One for the whole game, attached to nothing. Runs in every scene.",
+                 attaching ? "Not attachable - make one from Project > Scripts" : "score, rules, music, a pause menu",
+                 newScriptKind_ == 0 && newScriptGlobal_, !attaching, cardW, cardH)) {
+        newScriptKind_ = 0;
+        newScriptGlobal_ = true;
+    }
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+
+    // --- what the stub starts with -----------------------------------------------
+    {
+        const char* preview =
+            newScriptKind_ == 1 ? "vugen program  - claims material classes, writes VU1 code\n"
+                                  "  run on your PC at build time; the game gets the microprogram"
+            : newScriptKind_ == 2 ? "VU0 kernel  - quadwords in, quadwords out\n"
+                                    "  VU_KERNEL(...)  plus a driver class your game calls"
+            : nullptr;
+        std::string code;
+        if (!preview) {
+            code = newScriptGlobal_
+                       ? "class " + className + " : public Script {\n"
+                             "  void init(...)     // once, when the game starts\n"
+                             "  void update(...)   // every frame, every scene\n"
+                             "};\nTYRA_SCRIPT(Ns::" + className + ");   // outside the namespace"
+                       : "class " + className + " : public ObjectScript {\n"
+                             "  [[tyra::prop]] float speed = 1.0F;   // set per object\n"
+                             "  void onStart(...)  void onUpdate(...)  void onUsed(...)\n"
+                             "};\nTYRA_OBJECT_SCRIPT(" + className + ");";
+            preview = code.c_str();
+        }
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, sem.field);
+        ImGui::PushStyleColor(ImGuiCol_Border, sem.border);
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, scaled(8));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(scaled(12), scaled(10)));
+        ImGui::BeginChild("##newscriptpreview", ImVec2(0, 0),
+                          ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding);
+        ImGui::PushFont(nullptr, fs * 0.82f);
+        ImGui::TextColored(sem.textDim, "You get");
+        ImGui::PopFont();
+        {
+            ui::FontScope mono(ui::monoFont());
+            ImGui::PushFont(nullptr, fs * 0.8f);
+            ImGui::TextUnformatted(preview);
+            ImGui::PopFont();
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
     }
 
-    if (newScriptKind_ == 1)
-        ImGui::TextDisabled(
-            "Creates src/vu/%s.cpp - C++ compiled and run on the host at build\n"
-            "time, replacing the engine's VU1 program for the classes it claims.",
-            newScriptName_);
-    else if (newScriptKind_ == 2)
-        ImGui::TextDisabled(
-            "Creates src/vu0/%s.cpp - the same C++, on the other vector unit:\n"
-            "quadwords in, quadwords out, and a driver class your game calls.\n"
-            "Costs nothing out of the VU1 drawing budget.",
-            newScriptName_);
-    else if (newScriptGlobal_)
-        ImGui::TextDisabled(
-            "Creates src/scripts/%s.cpp (subfolders allowed: ai/guard) - one instance\n"
-            "for the whole game, not attached to anything: score, rules, music,\n"
-            "anything that is not about one object.",
-            newScriptName_);
-    else
-        ImGui::TextDisabled(
-            "Creates src/scripts/%s.cpp (subfolders allowed: ai/guard) - attach it\n"
-            "in Properties > Scripts; every object runs its own instance.",
-            newScriptName_);
-    if (newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size())
-        ImGui::TextDisabled("Attaches it to \"%s\".",
-                            project_.objects()[newScriptAttachTo_].name.c_str());
+    // --- vector units: not game logic, behind a fold ------------------------------
+    if (!attaching) {
+        ImGui::Dummy(ImVec2(0, scaled(2)));
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        if (ImGui::InvisibleButton("Vector unit programs", ImVec2(ImGui::GetContentRegionAvail().x, fs * 1.4f)))
+            newScriptVuOpen_ = !newScriptVuOpen_;
+        const bool hov = ImGui::IsItemHovered();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ui::DrawRtIcon(dl, newScriptVuOpen_ ? ui::RtIcon::ChevronDown : ui::RtIcon::ChevronRight,
+                       ImVec2(p.x + fs * 0.4f, p.y + fs * 0.7f), fs * 0.6f, u32(hov ? sem.text : sem.textDim));
+        dl->AddText(ImVec2(p.x + fs * 1.1f, p.y + fs * 0.2f), u32(hov ? sem.text : sem.textDim), "Vector unit programs");
+        const float tw = ImGui::CalcTextSize("Vector unit programs").x;
+        dl->AddText(ImGui::GetFont(), fs * 0.8f, ImVec2(p.x + fs * 1.1f + tw + fs * 0.5f, p.y + fs * 0.33f),
+                    u32(sem.textDim, 0.8f), "\xC2\xB7 built on your PC, advanced");
+        if (newScriptVuOpen_) {
+            if (kindCard("VU1 program", 2, "VU1 program",
+                         "Replaces how a material class draws. C++ run on your PC at build time.",
+                         "src/vu - docs/vu-authoring.md", newScriptKind_ == 1, true, cardW, cardH)) {
+                newScriptKind_ = 1;
+            }
+            ImGui::SameLine(0.0f, gap);
+            if (kindCard("VU0 kernel", 2, "VU0 kernel",
+                         "Number crunching on the other vector unit. Your game calls it.",
+                         "src/vu0 - free of the VU1 drawing budget", newScriptKind_ == 2, true, cardW, cardH)) {
+                newScriptKind_ = 2;
+            }
+        }
+    } else {
+        ImGui::Dummy(ImVec2(0, scaled(2)));
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        ui::CheckMark(ImGui::GetWindowDrawList(), ImVec2(p.x + fs * 0.45f, p.y + fs * 0.6f), fs * 0.7f, u32(sem.ok));
+        ImGui::Dummy(ImVec2(fs * 1.0f, 0));
+        ImGui::SameLine();
+        ImGui::TextColored(sem.text, "Attaches to %s; its card opens in Properties.",
+                           project_.objects()[newScriptAttachTo_].name.c_str());
+    }
 
-    if (!newScriptError_.empty())
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", newScriptError_.c_str());
+    if (!newScriptError_.empty()) {
+        ImGui::Dummy(ImVec2(0, scaled(2)));
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(sem.danger, "%s", newScriptError_.c_str());
+        ImGui::PopTextWrapPos();
+    }
 
+    // --- footer: VS Code, Cancel, the one action named by what it makes --------
+    ImGui::Dummy(ImVec2(0, scaled(6)));
     ImGui::Separator();
-    if (ImGui::Button("Create", ImVec2(scaled(120), 0))) {
-        std::string name = newScriptName_;
-        for (char& c : name)
-            if (c == '\\') c = '/';  // one separator form for path + display
+    ImGui::Dummy(ImVec2(0, scaled(4)));
+    ImGui::AlignTextToFramePadding();
+    ImGui::Checkbox("Open in VS Code", &newScriptOpenCode_);
+    const char* action = attaching             ? "Create and attach"
+                         : newScriptKind_ == 1 ? "Create VU1 program"
+                         : newScriptKind_ == 2 ? "Create VU0 kernel"
+                         : newScriptGlobal_    ? "Create global script"
+                                               : "Create object script";
+    const float aw = ImGui::CalcTextSize(action).x + ImGui::GetStyle().FramePadding.x * 2.0f + scaled(8);
+    const float cw = ImGui::CalcTextSize("Cancel").x + ImGui::GetStyle().FramePadding.x * 2.0f + scaled(8);
+    ImGui::SameLine(ImGui::GetContentRegionMax().x - aw - cw - ImGui::GetStyle().ItemSpacing.x);
+    if (ui::SecondaryButton("Cancel", cw)) close = true;
+    ImGui::SameLine();
+    const bool create = ui::PrimaryButtonText("Create", action, aw) ||
+                        (ImGui::IsKeyPressed(ImGuiKey_Enter, false) && !ImGui::IsAnyItemActive()) ||
+                        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) close = true;
+
+    if (create) {
         // Segments of letters/digits/_/- split by '/': "ai/guard" makes the
         // subfolder. Empty segments (leading//trailing slash) are invalid;
         // ".." is impossible since '.' is rejected.
         bool valid = !name.empty() && name.front() != '/' && name.back() != '/';
         for (char c : name)
-            if (!isalnum((unsigned char)c) && c != '_' && c != '-' && c != '/')
-                valid = false;
+            if (!isalnum((unsigned char)c) && c != '_' && c != '-' && c != '/') valid = false;
         if (name.find("//") != std::string::npos) valid = false;
 
         if (!valid) {
-            newScriptError_ =
-                "Name may contain only letters, digits, '_', '-' and '/'";
+            newScriptError_ = "Name may contain only letters, digits, '_', '-' and '/'";
         } else {
-            // File name -> C++ class name (ai/my-script -> My_script)
-            std::string base = name;
-            if (const size_t slash = base.find_last_of('/');
-                slash != std::string::npos)
-                base = base.substr(slash + 1);
-            std::string className;
-            for (char c : base) className += (isalnum((unsigned char)c) ? c : '_');
-            if (isdigit((unsigned char)className[0])) className = "Script" + className;
-            className[0] = (char)toupper((unsigned char)className[0]);
-
-            const char* const kDirs[3] = {"src/scripts", "src/vu", "src/vu0"};
-            const std::filesystem::path path =
-                std::filesystem::path(project_.dir) / kDirs[newScriptKind_] /
-                (name + ".cpp");
+            const std::string rel = std::string(kDirs[newScriptKind_]) + "/" + name + ".cpp";
+            const std::filesystem::path path = std::filesystem::path(project_.dir) / rel;
             std::error_code ec;
             if (std::filesystem::exists(path, ec)) {
                 newScriptError_ = "Script already exists: " + name + ".cpp";
@@ -16050,13 +16234,10 @@ void App::drawNewScriptModal() {
                 std::filesystem::create_directories(path.parent_path(), ec);
                 std::ofstream f(path, std::ios::binary);
                 if (f) {
-                    f << (newScriptKind_ == 1 ? templates::vuScriptStub(className)
-                          : newScriptKind_ == 2
-                              ? templates::vuKernelStub(className)
-                          : newScriptGlobal_
-                              ? templates::globalScriptStub(project_, className, name + ".cpp")
-                              : templates::scriptStub(project_, className,
-                                                      name + ".cpp"));
+                    f << (newScriptKind_ == 1   ? templates::vuScriptStub(className)
+                          : newScriptKind_ == 2 ? templates::vuKernelStub(className)
+                          : newScriptGlobal_    ? templates::globalScriptStub(project_, className, name + ".cpp")
+                                                : templates::scriptStub(project_, className, name + ".cpp"));
                     f.close();
                     // The framework has to be next to it before the file is
                     // opened, or the include the stub carries is red in the
@@ -16064,31 +16245,32 @@ void App::drawNewScriptModal() {
                     if (newScriptKind_ != 0) project::refreshGenerated(project_);
                     // Invoked from Properties > Scripts: attach the new class
                     // to the object right away.
-                    if (newScriptAttachTo_ >= 0 &&
-                        newScriptAttachTo_ < (int)project_.objects().size()) {
+                    if (attaching) {
                         // (Create on a missing-class card: the name is attached already.)
                         auto& attached = project_.objects()[newScriptAttachTo_].scripts;
                         if (std::find(attached.begin(), attached.end(), className) == attached.end())
                             attached.push_back(className);
                         commitChange();
-                        statusMessage_ = "Created " + name + ".cpp and attached " +
-                                         className;
+                        statusMessage_ = "Created " + name + ".cpp and attached " + className;
                     } else {
                         statusMessage_ = "Created " + name + ".cpp" +
                                          (newScriptKind_ == 0 && newScriptGlobal_ ? " (global script)" : "");
                     }
-                    newScriptAttachTo_ = -1;
-                    newScriptGlobal_ = false;
-                    ImGui::CloseCurrentPopup();
+                    if (newScriptOpenCode_) {
+                        const std::string msg = statusMessage_;
+                        openInVSCode(rel);
+                        statusMessage_ = msg + " - opening in VS Code";
+                    }
+                    close = true;
                 } else {
                     newScriptError_ = "Cannot write " + path.string();
                 }
             }
         }
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) {
+    if (close) {
         newScriptAttachTo_ = -1;
+        newScriptGlobal_ = false;
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();

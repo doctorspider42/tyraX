@@ -253,10 +253,21 @@ namespace or inside it with a qualified name - see the FPP example script).
 One instance for the whole game, `update` runs every frame in every scene.
 What makes a script global is only that: the `Script` base class and the
 `TYRA_SCRIPT` registration (an object script derives from `ObjectScript` and
-registers with `TYRA_OBJECT_SCRIPT`). **New Script** asks which one you want:
-*Object script* or *Global script*, and writes the matching stub (from
-Properties it is always an object script, because it gets attached). The
-Project panel's *Scripts* page lists global scripts in their own section,
+registers with `TYRA_OBJECT_SCRIPT`). **New Script** asks which one you want
+and writes the matching stub:
+
+![New Script: the name with the file and class it makes, the Object script and Global script cards, the first lines of the stub, the Vector unit programs fold, and Open in VS Code next to Create object script](img/new-script.png)
+
+- *Object script* and *Global script* are the two kinds of game logic: code
+  that runs in the game every frame. The name field shows the file and the
+  class it will make; *You get* shows the stub's first lines.
+- *Vector unit programs* (folded) holds the two kinds that are not game
+  logic: a **VU1 program** and a **VU0 kernel** are C++ run on your PC at
+  build time that leave a microprogram behind ([VU authoring](vu-authoring.md)).
+- Opened from Properties it only makes an object script, and attaches it
+  (*Create and attach*). *Open in VS Code* opens the new file.
+
+The Project panel's *Scripts* page lists global scripts in their own section,
 with *New global script...* under them.
 Existing projects keep compiling unchanged; the flow-graph compiler and the
 object-script driver are themselves global scripts under the hood.

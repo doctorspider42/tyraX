@@ -3691,6 +3691,10 @@ private:
     // A game script that is global (TYRA_SCRIPT, one instance, every frame)
     // instead of attachable (TYRA_OBJECT_SCRIPT). Off when attaching.
     bool newScriptGlobal_ = false;
+    // The New Script modal's "Vector unit programs" fold, and "Open in VS Code"
+    // (kept for the session: whoever wants it once wants it every time).
+    bool newScriptVuOpen_ = false;
+    bool newScriptOpenCode_ = true;
     // A VU program instead of an EE script: src/vu/<name>.cpp, compiled and
     // run on the HOST at build time (docs/vu-authoring.md). Cannot be attached
     // to an object - it replaces a material class, not a behaviour.
