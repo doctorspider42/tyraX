@@ -16164,14 +16164,14 @@ void App::drawNewScriptModal() {
                     u32(sem.textDim, 0.8f), "\xC2\xB7 built on your PC, advanced");
         if (newScriptVuOpen_) {
             if (kindCard("VU1 program", 2, "VU1 program",
-                         "Replaces how a material class draws. C++ run on your PC at build time.",
-                         "src/vu - docs/vu-authoring.md", newScriptKind_ == 1, true, cardW, cardH)) {
+                         "Custom VU1 microprogram, written in C++.",
+                         "cel shading, PS1 wobble, water waves", newScriptKind_ == 1, true, cardW, cardH)) {
                 newScriptKind_ = 1;
             }
             ImGui::SameLine(0.0f, gap);
             if (kindCard("VU0 kernel", 2, "VU0 kernel",
-                         "Number crunching on the other vector unit. Your game calls it.",
-                         "src/vu0 - free of the VU1 drawing budget", newScriptKind_ == 2, true, cardW, cardH)) {
+                         "Custom VU0 microprogram, written in C++.",
+                         "batch maths your game calls", newScriptKind_ == 2, true, cardW, cardH)) {
                 newScriptKind_ = 2;
             }
         }
