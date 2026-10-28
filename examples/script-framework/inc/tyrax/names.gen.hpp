@@ -25,6 +25,10 @@ inline constexpr ObjectId Coin1 = {0, 8};  // coin-1
 inline constexpr ObjectId Coin2 = {0, 9};  // coin-2
 inline constexpr ObjectId Coin3 = {0, 10};  // coin-3
 inline constexpr ObjectId Follower = {0, 11};  // follower
+inline constexpr ObjectId Checkpoint1 = {0, 12};  // checkpoint-1
+inline constexpr ObjectId Checkpoint2 = {0, 13};  // checkpoint-2
+inline constexpr ObjectId Checkpoint3 = {0, 14};  // checkpoint-3
+inline constexpr ObjectId Finish = {0, 15};  // finish
 }  // namespace Main
 }  // namespace Objects
 
@@ -45,6 +49,7 @@ namespace SoundBanks {
 
 namespace Events {
 inline constexpr EventId NearDoor = {0};  // NearDoor
+inline constexpr EventId Checkpoint = {1};  // Checkpoint
 }  // namespace Events
 
 namespace SaveValues {
@@ -109,13 +114,13 @@ namespace Facts {
 namespace FactPositions {
 }  // namespace FactPositions
 
-inline constexpr int EVENT_COUNT = 1;
+inline constexpr int EVENT_COUNT = 2;
 inline constexpr int HUD_BAR_SAVE_VALUE[1] = {-1};
-inline constexpr uint32_t OBJECT_NAME_HASH_0[12] = {
+inline constexpr uint32_t OBJECT_NAME_HASH_0[16] = {
     3580794642U, 1560637382U, 668285499U, 685063118U, 701840737U, 2917853599U, 949625762U, 569751337U,
-    3083137126U, 3066359507U, 3049581888U, 1195843271U};
+    3083137126U, 3066359507U, 3049581888U, 1195843271U, 724893029U, 674560172U, 691337791U, 1494643858U};
 inline const uint32_t* const OBJECT_NAME_HASHES[1] = {OBJECT_NAME_HASH_0};
-inline constexpr int OBJECT_NAME_COUNTS[1] = {12};
+inline constexpr int OBJECT_NAME_COUNTS[1] = {16};
 
 }  // namespace tyrax
 }  // namespace Script_framework

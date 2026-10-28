@@ -17,6 +17,7 @@ under it as that release's notes, and the release's own page carries the date.
 - **Add script** (`Ctrl+Shift+A`) replaces the attach combo with a searchable picker: filter by name, description or file, narrow to one extension or to the scripts this scene uses, see each class's fields before attaching, and attach with `Enter`.
 - The **Scripts** page folds into Object scripts, Global scripts, Flow graphs, VU programs and Extensions, with filter chips and an *Unused* filter. Clicking an object under a class now selects it and frames it in the viewport instead of opening its (usually empty) flow graph, and a class name opens its file at the class.
 - Fixed a debug-build assert when the Debugger's watch table hid its Kind column in a narrow dock.
+- The **script-framework** example now also shows how to write an extension: **Checkpoints**, made inside the project, has a `Checkpoint` script configured through fields and a *Checkpoints Done* flow node whose C++ reads the script's state. The level has three pads to reach in order and a finish box that lights up, and the example's README walks through how the extension was built.
 
 ## 2.6.0
 

@@ -3,6 +3,15 @@
 // TYRA_OBJECT_SCRIPT class in src/scripts, used by that macro.
 #pragma once
 
+// Checkpoint (src/extensions/checkpoints/checkpoints.cpp)
+#define TYRAX_PROPS_Checkpoint(s, v, ctx) \
+  tyrax::detail::assignProp((s).order, (v)[0], (ctx)); \
+  tyrax::detail::assignProp((s).radius, (v)[1], (ctx)); \
+  tyrax::detail::assignProp((s).idleColor, (v)[2], (ctx)); \
+  tyrax::detail::assignProp((s).reachedColor, (v)[3], (ctx)); \
+  tyrax::detail::assignProp((s).spinWhenReached, (v)[4], (ctx)); \
+  tyrax::detail::assignProp((s).reachedEvent, (v)[5], (ctx));
+
 // SwingDoor (src/extensions/essentials/door.cpp)
 #define TYRAX_PROPS_SwingDoor(s, v, ctx) \
   tyrax::detail::assignProp((s).openAngle, (v)[0], (ctx)); \

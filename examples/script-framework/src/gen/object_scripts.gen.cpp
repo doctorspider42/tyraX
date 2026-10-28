@@ -15,8 +15,8 @@ struct ObjectScriptAttach {
   const char* script;   // TYRA_OBJECT_SCRIPT registration name
 };
 
-constexpr int OBJECT_SCRIPT_ATTACH_COUNT = 11;
-constexpr ObjectScriptAttach OBJECT_SCRIPT_ATTACHES[11] = {
+constexpr int OBJECT_SCRIPT_ATTACH_COUNT = 14;
+constexpr ObjectScriptAttach OBJECT_SCRIPT_ATTACHES[14] = {
     {0, 1, "Rotator"},  // main / spinner
     {0, 2, "Bobber"},  // main / bobber-1
     {0, 3, "Bobber"},  // main / bobber-2
@@ -28,6 +28,9 @@ constexpr ObjectScriptAttach OBJECT_SCRIPT_ATTACHES[11] = {
     {0, 9, "Collectible"},  // main / coin-2
     {0, 10, "Collectible"},  // main / coin-3
     {0, 11, "Follower"},  // main / follower
+    {0, 12, "Checkpoint"},  // main / checkpoint-1
+    {0, 13, "Checkpoint"},  // main / checkpoint-2
+    {0, 14, "Checkpoint"},  // main / checkpoint-3
 };
 
 #if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 3
@@ -98,7 +101,31 @@ static const tyrax::detail::PropValue kProps10[5] = {  // main / follower / Foll
     {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // face
     {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // keepHeight
 };
-static const tyrax::detail::PropValue* const OBJECT_SCRIPT_PROPS[11] = {kProps0, kProps1, kProps2, kProps3, kProps4, kProps5, kProps6, kProps7, kProps8, kProps9, kProps10};
+static const tyrax::detail::PropValue kProps11[6] = {  // main / checkpoint-1 / Checkpoint
+    {1, {0.0F, 0.0F, 0.0F}, 1, ""},  // order
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // radius
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // idleColor
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // reachedColor
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // spinWhenReached
+    {1, {0.0F, 0.0F, 0.0F}, 1, ""},  // reachedEvent
+};
+static const tyrax::detail::PropValue kProps12[6] = {  // main / checkpoint-2 / Checkpoint
+    {1, {0.0F, 0.0F, 0.0F}, 2, ""},  // order
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // radius
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // idleColor
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // reachedColor
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // spinWhenReached
+    {1, {0.0F, 0.0F, 0.0F}, 1, ""},  // reachedEvent
+};
+static const tyrax::detail::PropValue kProps13[6] = {  // main / checkpoint-3 / Checkpoint
+    {1, {0.0F, 0.0F, 0.0F}, 3, ""},  // order
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // radius
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // idleColor
+    {1, {1.0F, 0.8F, 0.1F}, 0, ""},  // reachedColor
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // spinWhenReached
+    {1, {0.0F, 0.0F, 0.0F}, 1, ""},  // reachedEvent
+};
+static const tyrax::detail::PropValue* const OBJECT_SCRIPT_PROPS[14] = {kProps0, kProps1, kProps2, kProps3, kProps4, kProps5, kProps6, kProps7, kProps8, kProps9, kProps10, kProps11, kProps12, kProps13};
 #endif
 
 /** Owns the live ObjectScript instances (one per attachment of the

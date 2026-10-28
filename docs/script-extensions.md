@@ -4,7 +4,11 @@ A script extension is a folder of reusable game code: object scripts, global
 scripts, helpers and custom flow nodes. It moves from one project to another
 as a plain copy and needs no build changes. TyraX ships one, **Essentials**
 ([`extensions/essentials`](../extensions/essentials)), and the
-[script-framework example](../examples/script-framework) uses it.
+[script-framework example](../examples/script-framework) uses it. The same
+example also contains **Checkpoints**, a small extension written inside the
+project, with a [step-by-step walkthrough](../examples/script-framework/README.md#write-your-own-extension)
+of how it was made: an object script with fields, a flow node whose C++
+reads the script's state, and the level that uses both.
 
 ```
 <project>/src/extensions/<name>/

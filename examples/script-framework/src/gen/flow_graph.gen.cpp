@@ -7,6 +7,7 @@
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
 #include "facts.gen.hpp"  // World Facts store + save walks
+#include "../extensions/checkpoints/checkpoints_nodes.hpp"  // a custom node's C++ (include =)
 #include "scripts/live_debug.gen.hpp"  // Live Debugger hits / halt / force-fire
 #include "scripts/live_logic.gen.hpp"  // Live Logic: a patched graph runs on the interpreter
 
@@ -18,14 +19,14 @@
 namespace Script_framework {
 
 // Graph events (Send Event / On Event), one game-global namespace:
-// NearDoor
+// NearDoor, Checkpoint
 // The arrays are the script API's (tyrax.hpp), so tyrax::sendEvent
 // and an On Event node meet on the same bus.
 static unsigned char* const flowEvtCur = tyrax::detail::g_evtCur;
 static float* const flowEvtCurVal = tyrax::detail::g_evtCurVal;
 static unsigned char* const flowEvtNext = tyrax::detail::g_evtNext;
 static float* const flowEvtNextVal = tyrax::detail::g_evtNextVal;
-static_assert(tyrax::EVENT_COUNT == 1, "tyrax/names.gen.hpp is stale");
+static_assert(tyrax::EVENT_COUNT == 2, "tyrax/names.gen.hpp is stale");
 
 // The bus. Registered before every graph script, so `cur` is
 // already this frame's mail by the time any receiver looks.
@@ -42,7 +43,7 @@ class FlowEventBus : public Script {
       // (tyrax::sendEvent stamps the generation): that is kept for
       // the next frame.
       generation_ = ctx.sceneGeneration;
-      for (int i = 0; i < 1; ++i) {
+      for (int i = 0; i < 2; ++i) {
         flowEvtCur[i] = 0;
         flowEvtCurVal[i] = 0.0F;
         if (tyrax::detail::g_evtNextGen[i] != ctx.sceneGeneration) {
@@ -52,7 +53,7 @@ class FlowEventBus : public Script {
       }
       return;
     }
-    for (int i = 0; i < 1; ++i) {
+    for (int i = 0; i < 2; ++i) {
       flowEvtCur[i] = flowEvtNext[i];
       flowEvtCurVal[i] = flowEvtNextVal[i];
       flowEvtNext[i] = 0;
@@ -188,6 +189,98 @@ class FlowGraphScript_0_7 : public Script {
   int frame = 0;
   bool started = false;
 };
+class FlowGraphScript_0_15;
+FlowGraphScript_0_15* g_time_FlowGraphScript_0_15 = nullptr;
+
+// Scene "main": graph of "finish" (object 15)
+class FlowGraphScript_0_15 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 15)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      boolOut2 = false;
+    }
+    frame++;
+    if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
+      livedbg::hit(2);
+      livedbg::hit(3);
+      // node 2 (custom:checkpoints-done)
+      {
+        const float num[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+        FlowNodeIO io;
+        io.self = 15;
+        io.object = 15;
+        io.num = num;
+        io.str = "";
+        checkpointsDone(ctx, io);
+        boolOut2 = io.boolOut;
+      }
+      livedbg::hit(4);
+      if ((boolOut2)) {
+        livedbg::hit(5);
+        ctx.objects[15].data.color[0] = 0.2F;
+        ctx.objects[15].data.color[1] = 1.0F;
+        ctx.objects[15].data.color[2] = 0.45F;
+        ctx.objects[15].dirty = true;
+      }
+    }
+    if (flowEvtCur[1]) {  // "Checkpoint"
+      livedbg::hit(2);
+      livedbg::hit(3);
+      // node 2 (custom:checkpoints-done)
+      {
+        const float num[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+        FlowNodeIO io;
+        io.self = 15;
+        io.object = 15;
+        io.num = num;
+        io.str = "";
+        checkpointsDone(ctx, io);
+        boolOut2 = io.boolOut;
+      }
+      livedbg::hit(4);
+      if ((boolOut2)) {
+        livedbg::hit(5);
+        ctx.objects[15].data.color[0] = 0.2F;
+        ctx.objects[15].data.color[1] = 1.0F;
+        ctx.objects[15].data.color[2] = 0.45F;
+        ctx.objects[15].dirty = true;
+      }
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_15() { g_time_FlowGraphScript_0_15 = this; }
+  static const unsigned int kTimeBytes = 6;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    p[5] = boolOut2 ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    boolOut2 = p[5] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  bool boolOut2 = false;
+};
 
 // Live Debugger watch table (docs/live-debugger.md): the flow variables
 // in one shared order - ints, then bools, then positions.
@@ -199,19 +292,24 @@ void flowDbgReadVar(int index, float* out3) {
 
 // Time machine (docs/time-machine.md): every graph's own state.
 unsigned int flowTimeScriptBytes() {
-  return FlowGraphScript_0_7::kTimeBytes;
+  return FlowGraphScript_0_7::kTimeBytes +
+         FlowGraphScript_0_15::kTimeBytes;
 }
 void flowTimeScriptCapture(unsigned char* p) {
   if (g_time_FlowGraphScript_0_7) g_time_FlowGraphScript_0_7->timeCapture(p);
   p += FlowGraphScript_0_7::kTimeBytes;
+  if (g_time_FlowGraphScript_0_15) g_time_FlowGraphScript_0_15->timeCapture(p);
+  p += FlowGraphScript_0_15::kTimeBytes;
 }
 void flowTimeScriptRestore(const unsigned char* p) {
   if (g_time_FlowGraphScript_0_7) g_time_FlowGraphScript_0_7->timeRestore(p);
   p += FlowGraphScript_0_7::kTimeBytes;
+  if (g_time_FlowGraphScript_0_15) g_time_FlowGraphScript_0_15->timeRestore(p);
+  p += FlowGraphScript_0_15::kTimeBytes;
 }
 
 // Time machine (docs/time-machine.md): the flow variables and the event bus, both directions.
-int flowTimeVarCount() { return 2; }
+int flowTimeVarCount() { return 4; }
 void flowTimeRead(int index, float* out3) {
   out3[0] = out3[1] = out3[2] = 0.0F;
   switch (index) {
@@ -221,6 +319,12 @@ void flowTimeRead(int index, float* out3) {
     case 1:
       out3[0] = flowEvtNext[0] ? 1.0F : 0.0F; out3[1] = flowEvtNextVal[0];
       break;  // event "NearDoor" (in flight)
+    case 2:
+      out3[0] = flowEvtCur[1] ? 1.0F : 0.0F; out3[1] = flowEvtCurVal[1];
+      break;  // event "Checkpoint" (delivered)
+    case 3:
+      out3[0] = flowEvtNext[1] ? 1.0F : 0.0F; out3[1] = flowEvtNextVal[1];
+      break;  // event "Checkpoint" (in flight)
     default: break;
   }
 }
@@ -232,6 +336,12 @@ void flowTimeWrite(int index, const float* in3) {
     case 1:
       flowEvtNext[0] = in3[0] != 0.0F ? 1 : 0; flowEvtNextVal[0] = in3[1];
       break;  // event "NearDoor" (in flight)
+    case 2:
+      flowEvtCur[1] = in3[0] != 0.0F ? 1 : 0; flowEvtCurVal[1] = in3[1];
+      break;  // event "Checkpoint" (delivered)
+    case 3:
+      flowEvtNext[1] = in3[0] != 0.0F ? 1 : 0; flowEvtNextVal[1] = in3[1];
+      break;  // event "Checkpoint" (in flight)
     default: break;
   }
 }
@@ -264,3 +374,4 @@ void flowLiveGetVarPos(int index, float* out3) {
 
 TYRA_SCRIPT(Script_framework::FlowEventBus);
 TYRA_SCRIPT(Script_framework::FlowGraphScript_0_7);
+TYRA_SCRIPT(Script_framework::FlowGraphScript_0_15);

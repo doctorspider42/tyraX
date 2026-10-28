@@ -4,7 +4,7 @@
 namespace Script_framework {
 
 // scene "main"
-const SceneObjectData SCENE_0_OBJECTS[12] = {
+const SceneObjectData SCENE_0_OBJECTS[16] = {
     {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // player-1
     {0, {-3.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.95F, 0.55F, 0.15F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // spinner
     {1, {-0.8F, 1.2F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.7F, 0.7F, 0.7F}, {0.3F, 0.7F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // bobber-1
@@ -17,11 +17,15 @@ const SceneObjectData SCENE_0_OBJECTS[12] = {
     {2, {0.0F, 0.6F, 3.0F}, {90.0F, 0.0F, 0.0F}, {0.6F, 0.1F, 0.6F}, {1.0F, 0.85F, 0.1F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // coin-2
     {2, {2.5F, 0.6F, 3.0F}, {90.0F, 0.0F, 0.0F}, {0.6F, 0.1F, 0.6F}, {1.0F, 0.85F, 0.1F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // coin-3
     {1, {-5.0F, 0.5F, 1.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 0.8F, 0.8F}, {0.4F, 0.9F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // follower
+    {2, {5.0F, 0.05F, 2.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 0.1F, 1.6F}, {0.35F, 0.35F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // checkpoint-1
+    {2, {-6.0F, 0.05F, 8.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 0.1F, 1.6F}, {0.35F, 0.35F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // checkpoint-2
+    {2, {0.0F, 0.05F, 14.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 0.1F, 1.6F}, {0.35F, 0.35F, 0.4F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // checkpoint-3
+    {0, {0.0F, 0.75F, 17.5F}, {0.0F, 0.0F, 0.0F}, {1.5F, 1.5F, 1.5F}, {0.5F, 0.5F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // finish
 };
 
-const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {12};
-const unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0x92fda3c8f97aecf6ULL, 0x34cc32f0bab85ee0ULL, 0x34d032f0babc47b7ULL, 0x34d232f0babcca8eULL, 0x34ba32f0baa838adULL, 0x34be32f0baac2184ULL, 0x34c232f0bab00a5bULL, 0x34c432f0bab08d32ULL, 0x34e432f0baccf0c1ULL, 0x34e632f0bacd7398ULL, 0x3ddf5bf0bffa6e3eULL, 0x3ddb5bf0bff68567ULL};
-const unsigned char SCENE_0_STATIC_COLLIDERS[12] = {1,0,0,0,0,0,0,0,0,0,0,0};
+const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {16};
+const unsigned long long SCENE_0_OBJECT_ID_HASHES[16] = {0x92fda3c8f97aecf6ULL, 0x34cc32f0bab85ee0ULL, 0x34d032f0babc47b7ULL, 0x34d232f0babcca8eULL, 0x34ba32f0baa838adULL, 0x34be32f0baac2184ULL, 0x34c232f0bab00a5bULL, 0x34c432f0bab08d32ULL, 0x34e432f0baccf0c1ULL, 0x34e632f0bacd7398ULL, 0x3ddf5bf0bffa6e3eULL, 0x3ddb5bf0bff68567ULL, 0x3dd75bf0bff29c90ULL, 0x3dd55bf0bff219b9ULL, 0x3dd15bf0bfee30e2ULL, 0x3dcd5bf0bfea480bULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[16] = {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 }  // namespace Script_framework
 
@@ -35,7 +39,7 @@ const OcclusionProxyObject OCCLUSION_OBJECTS[] = {
   {-1,-1,0,0},
 };
 const int OCCLUSION_OBJECT_COUNT = 0;
-const int OCCLUSION_SCENE_OFFSETS[] = {0,12};
-const unsigned char OCCLUSION_CAN_CULL[] = {1,1,1,1,1,1,1,1,1,1,1,1};
-const unsigned char OCCLUSION_IS_OCCLUDER[] = {0,0,0,0,0,0,0,0,0,0,0,0};
+const int OCCLUSION_SCENE_OFFSETS[] = {0,16};
+const unsigned char OCCLUSION_CAN_CULL[] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
+const unsigned char OCCLUSION_IS_OCCLUDER[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 }  // namespace Script_framework
