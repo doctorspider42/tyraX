@@ -2,6 +2,7 @@
 // including moving objects, after insert/move/remove and across scene changes.
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstdio>
 #include <random>
 #include <vector>
@@ -35,6 +36,7 @@ int main() {
         std::vector<int> out;
         bp.queryBox(area, out);
         assert(std::is_sorted(out.begin(), out.end()));
+        assert(std::adjacent_find(out.begin(), out.end()) == out.end());
         for (int i = 0; i < 400; ++i)
           if (present[i]) {
             bool hit = true;
@@ -43,6 +45,47 @@ int main() {
                   boxes[i].mn[k] <= area.mx[k] && boxes[i].mx[k] >= area.mn[k];
             if (hit) assert(std::binary_search(out.begin(), out.end(), i));
           }
+      }
+    }
+    for (int frame = 0; frame < 20; ++frame) {
+      bp.begin(400);
+      for (int i = 0; i < 400; ++i) {
+        if (i < 20)
+          for (int k = 0; k < 3; ++k) {
+            boxes[i].mn[k] = pos(rng);
+            boxes[i].mx[k] = boxes[i].mn[k] + 2;
+          }
+        bp.set(i, boxes[i], i < 20);
+      }
+      bp.commit();
+      for (int q = 0; q < 50; ++q) {
+        float a[3], b[3];
+        for (int k = 0; k < 3; ++k) {
+          a[k] = pos(rng);
+          b[k] = pos(rng);
+        }
+        std::vector<int> out;
+        bp.querySegment(a, b, .2f, out);
+        assert(std::is_sorted(out.begin(), out.end()));
+        assert(std::adjacent_find(out.begin(), out.end()) == out.end());
+        for (int i = 0; i < 400; ++i) {
+          float enter = 0, exit = 1;
+          bool hit = true;
+          for (int k = 0; k < 3; ++k) {
+            float d = b[k] - a[k], lo = boxes[i].mn[k] - .2f,
+                  hi = boxes[i].mx[k] + .2f;
+            if (std::fabs(d) < 1e-9f) {
+              if (a[k] < lo || a[k] > hi) hit = false;
+            } else {
+              float t0 = (lo - a[k]) / d, t1 = (hi - a[k]) / d;
+              if (t0 > t1) std::swap(t0, t1);
+              enter = std::max(enter, t0);
+              exit = std::min(exit, t1);
+            }
+          }
+          if (hit && enter <= exit)
+            assert(std::binary_search(out.begin(), out.end(), i));
+        }
       }
     }
     // Moving objects far away must not all leak into local queries.
@@ -61,6 +104,5 @@ int main() {
     assert(out.size() == 1 && out[0] == 0);
   }
   puts(
-      "broad phase: 10,000 randomized queries + moving-population rejection "
-      "passed");
+      "broad phase: 10,000 box + 2,000 segment queries, moving rejection passed");
 }

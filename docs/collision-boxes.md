@@ -185,7 +185,7 @@ carry a per-scene table (`SCENE_BROADPHASES`). The two backends:
 
 | Backend | What it is | Choose it for |
 |---|---|---|
-| **Grid** (default) | A uniform grid over X and Z, rebuilt every frame in one counting pass; every box keeps its height, so a query's height range filters the candidates | Flat worlds of similar-sized props (most scenes): the cheapest query and rebuild |
+| **Grid** (default) | A uniform grid over X and Z, rebuilt when static membership/bounds change; a separate compact grid tracks movers; every box keeps its height, so a query's height range filters the candidates | Flat worlds of similar-sized props (most scenes): the cheapest query and rebuild |
 | **Octree** | A loose octree (each node's bounds twice its cell) whose nodes split only past 8 objects and remember the bounds of what they hold; kept across frames - only objects that moved, appeared or left are moved | Scenes that stack in height (multi-floor interiors, bridges over roads, things in the air) or mix dense blocks with open ground |
 
 Both return the same objects for the same scene, in ascending object order
@@ -198,12 +198,14 @@ of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
 11-18 us between runs - proportions, not EE timings).
 
 - **When it updates.** On the first query of each frame (`g_frameStamp`,
-  bumped by `updateFrameClock`), at two **refresh boundaries** in the frame
+  bumped by `updateFrameClock`), at **stage refresh boundaries** in the frame
   loop, and at once after a spawn, despawn or layer (de)activation. The first
   boundary follows the script stage (scripts, the flow graph, a scene switch,
   layer streaming, teleports) and comes before the physics step; the second
   follows the spinners and comes before the vehicles, the portals and the
-  carry sweep. So whatever a stage moves, turns, rescales or switches on or off
+  carry sweep. A further boundary after vehicles exposes their final poses,
+  and a portal teleport invalidates immediately. So whatever a stage moves,
+  turns, rescales or switches on or off
   is where it really is for every stage after it. An object's box is cached
   and recomputed only when its position, rotation, scale, model or collision
   mode changed - or when the model it uses streams in after it was spawned (a
@@ -212,7 +214,9 @@ of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
   object came, went, started or stopped moving, or got a new box) skips the
   rebuild: a boundary after a quiet stage costs one walk over the objects.
 - **Moving objects** are spatially indexed alongside static objects. Their
-  transformed bounds refresh when their pose changes; sleeping rigid bodies
+  transformed bounds refresh when their pose changes. Moving entries have a
+  compact grid separate from stable scenery, so moving them does not rebuild
+  the static grid. Sleeping rigid bodies
   remain indexed. Only oversized grid objects and objects outside the octree
   root are unconditional candidates. The physics body's predicted-pose pair
   index is built separately once per step, so awake bodies query nearby bodies
@@ -226,11 +230,12 @@ of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
   is covered only for motion within the 0.5 m padding; for a teleport, a
   large step, a rotation or a scale change, call `broadPhaseInvalidate()`
   between the change and the next query. It is cheap: the next query
-  refreshes, and rebuilds only if the structure changed. The two boundaries
+  refreshes, and rebuilds only if the structure changed. The stage boundaries
   live in the generated frame loop (`src/terrain_game.cpp`); a project that
   owns that file (its marker line removed) keeps its own loop and adds them
   itself - `broadPhaseInvalidate();` before `updateObjectPhysics()` and after
-  `updateSpinners()`.
+  `updateSpinners()`, plus after vehicle updates; teleporting a collider
+  invalidates before another contact query.
 - **Two shapes per object.** The sweep and the physics statics test an
   object's box in its full rotation; the walker's box mode stands the same box
   upright and turns it by yaw alone (a pitched or rolled box collides

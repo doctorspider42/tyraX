@@ -171,7 +171,9 @@ goes, and what keeps it bounded:
 
 The EE controls broad-phase queries and the impulse solver. Moving and sleeping
 colliders are spatially indexed. A separate per-step grid uses swept
-centre-of-mass sphere bounds to select body pairs, preserving ascending object
+centre-of-mass sphere bounds to select body pairs. Its slots are compact body
+indices, so building it scales with the body population rather than every
+render-only scene object. It preserves ascending object
 order and including sleeping partners only when needed.
 
 Existing vertex contacts still provide stable multi-point manifolds. When
@@ -195,3 +197,18 @@ default. The kernel probe's 1,000 randomized comparisons had zero failures,
 maximum summed component error 0.00000095. These are transform-kernel costs,
 not whole-frame or collision-system speedups. Reproduce with
 `tools/verify-collision-ps2.cpp`, called once from a scratch game's script init.
+
+Acceptance also includes warning-clean native FPP and orbit builds, the
+physics playground booting in an isolated PCSX2 software renderer, and
+Remote Pad turn/walk/release captures. The image below is that runtime
+check; its uncapped emulator FPS is not a physical-console performance claim.
+
+![Physics playground collision runtime acceptance](img/collision-physics-runtime.png)
+
+`tools/verify-collision-codegen.py --editor <editor> --scratch <checkout>/.tmp/tests`
+checks sidecar creation, byte/mtime-stable regeneration, ignore migration and
+removal after switching mesh collision off, then cleans its scratch fixture.
+
+Vehicle-stage completion and individual portal teleports invalidate the shared
+scene broad phase before subsequent camera/carry/world queries; moving
+colliders no longer rely on being unconditional candidates for freshness.

@@ -5351,6 +5351,8 @@ void TerrainGame::loop() {
   // and the vehicles, portals and carry sweep below query them.
   broadPhaseInvalidate();
 {{VEHICLE_UPDATE}}
+  // Vehicle poses may have moved beyond broad-phase padding in this stage.
+  broadPhaseInvalidate();
   // Portal surfaces: carry the player / physics objects that crossed a
   // linked portal through to its target. After the physics step so object
   // crossings see this frame's motion; on a player hop the camera is
@@ -7770,6 +7772,8 @@ void TerrainGame::loop() {
   broadPhaseInvalidate();
   UPD_LAP(4);
 {{VEHICLE_UPDATE}}
+  // Vehicle poses may have moved beyond broad-phase padding in this stage.
+  broadPhaseInvalidate();
   UPD_LAP(5);
   // Portal surfaces: carry the player / physics objects that crossed a
   // linked portal through to its target. After the physics step so object
@@ -24940,8 +24944,9 @@ void TerrainGame::updateObjectPhysics() {
   // awake body. Sleeping COMs use their orientation, not the object origin.
   static Tyra::BroadPhase bodyPairs;
   static std::vector<int> nearBodies;
-  bodyPairs.begin(count);
-  for (int j : bodies) {
+  bodyPairs.begin((int)bodies.size());
+  for (size_t pairIndex=0; pairIndex<bodies.size(); ++pairIndex) {
+    const int j=bodies[pairIndex];
     const PhysBody& B = physBodies[physSlotOf[j]];
     RbV c, previous;
     if (stepOf[j] >= 0) { c = steps[stepOf[j]].x1; previous = steps[stepOf[j]].x0; }
@@ -24959,7 +24964,7 @@ void TerrainGame::updateObjectPhysics() {
       box.mn[k] = std::min(v[k],prev[k]) - B.radius;
       box.mx[k] = std::max(v[k],prev[k]) + B.radius;
     }
-    bodyPairs.set(j, box, false);
+    bodyPairs.set((int)pairIndex, box, false);
   }
   bodyPairs.commit();
   for (int si = 0; si < awakeCount; ++si) {
@@ -24975,7 +24980,8 @@ void TerrainGame::updateObjectPhysics() {
       pairArea.mx[k] = std::max(queryCentre[k],queryPrev[k]) + queryRadius;
     }
     bodyPairs.queryBox(pairArea, nearBodies);
-    for (int j : nearBodies) {
+    for (int candidate : nearBodies) {
+      const int j=bodies[(size_t)candidate];
       if (j == i) continue;
       RuntimeObject& ob = runtimeObjects[j];
       if (!physObstacle(ob.data)) continue;
@@ -28694,6 +28700,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         ro.data.position[0] = nx2;
         ro.data.position[1] = ny2;
         ro.data.position[2] = nz2;
+        broadPhaseInvalidate();  // a teleported collider must be visible immediately
         float nvx, nvy, nvz;
         mapDir(ro.velocityX, vy, ro.velocityZ, &nvx, &nvy, &nvz);
         ro.velocityX = nvx;

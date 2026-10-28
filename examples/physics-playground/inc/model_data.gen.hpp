@@ -43,6 +43,9 @@ inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
 inline constexpr const char* TEXTURE_ATLAS_INFO = "";
+// project texture filter (0 smooth, 1 pixel, 2 close-up) for the
+// textures no bake hint reaches - animated models' extracted images
+inline constexpr unsigned char TEXTURE_FILTER_DEFAULT = 0;
 
 // Rigid-body shapes (docs/physics.md): convex hulls in mesh-local
 // units with their solid mass properties at unit density - volume,

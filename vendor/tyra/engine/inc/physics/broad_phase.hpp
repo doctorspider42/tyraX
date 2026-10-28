@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <memory>
 #include <vector>
 
 namespace Tyra {
@@ -31,7 +32,7 @@ struct BroadBox {
  * the objects would visit them, which keeps order-dependent callers exact).
  *
  * Two backends, chosen per project:
- * - kGrid: a uniform grid over X and Z, rebuilt each commit; every box still
+ * - kGrid: a uniform grid over X and Z, rebuilt on static changes; every box still
  *   carries its height, so a query's Y range filters the candidates. Fastest
  *   for flat worlds of similar-sized props (one counting pass to rebuild).
  * - kOctree: a loose octree (each node's bounds twice its cell), kept across
@@ -41,7 +42,8 @@ struct BroadBox {
  * Moving objects are indexed too. The caller must submit current (or
  * conservative swept) boxes at simulation boundaries and invalidate after
  * changing a collider before another query in the same stage. `moving` is
- * retained as caller metadata; it does not bypass spatial rejection.
+ * used to split a compact dynamic grid from stable scenery. Moving alone
+ * does not rebuild the static grid or bypass spatial rejection.
  */
 class BroadPhase {
  public:
@@ -55,7 +57,8 @@ class BroadPhase {
   void begin(int count);
   /** Object `index` takes part, with world box `box`. */
   void set(int index, const BroadBox& box, bool moving);
-  /** Apply the refresh: the grid rebuilds, the octree moves only what changed. */
+  /** Apply the refresh: the grid rebuilds, the octree moves only what changed.
+   */
   void commit();
   /** Forget everything (a new scene). The next commit builds from scratch. */
   void clear();
@@ -69,7 +72,10 @@ class BroadPhase {
 
   /** Telemetry: candidates of every query (moving or out of bounds), and the
    *  octree's node count (0 for the grid). */
-  int alwaysCount() const { return (int)always_.size(); }
+  int alwaysCount() const {
+    return (int)always_.size() +
+           (movingIndex_ ? movingIndex_->alwaysCount() : 0);
+  }
   int nodeCount() const { return (int)nodes_.size(); }
 
  private:
@@ -78,9 +84,9 @@ class BroadPhase {
     float h = 0.0F;                   // tight half size (loose = 2h)
     int child[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
     int parent = -1;
-    int head = -1;   // first object stored here
-    int count = 0;   // objects stored here
-    int total = 0;   // objects in this whole subtree (0 = skip it)
+    int head = -1;  // first object stored here
+    int count = 0;  // objects stored here
+    int total = 0;  // objects in this whole subtree (0 = skip it)
     // The union of every box in the subtree: what a query tests, tighter
     // than the loose cube. Grows on insert; a removal leaves it (still a
     // bound, only looser) until the subtree empties and it resets.
@@ -101,6 +107,14 @@ class BroadPhase {
   void octreeQuery(const BroadBox& area, const float* segA, const float* segD,
                    float radius, std::vector<int>& out);
   void finishQuery(std::vector<int>& out);
+  void refreshMoving();
+  void queryMoving(const BroadBox* area, const float* a, const float* b,
+                   float radius, std::vector<int>& out);
+
+  // A compact moving-object grid, independent of the stable scenery index.
+  // Its entries are submitted as static, so this cannot recurse further.
+  std::unique_ptr<BroadPhase> movingIndex_;
+  std::vector<int> movingObjects_, movingHits_;
 
   Kind kind_;
   int count_ = 0;

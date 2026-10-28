@@ -54,3 +54,5 @@ extraction, sphere/corner distances and face/edge/vertex continuous sweeps.
 Then regenerate both FPP and orbit projects, build and boot the physics
 playground copy, drive its controller, and compare VU0/scalar transforms on the
 physical console before reporting timing gains.
+
+Run `tools/verify-collision-codegen.py --editor <editor> --scratch <primary-checkout>/.tmp/tests` for collision-sidecar lifecycle/incrementality; it owns and cleans its temporary project.
