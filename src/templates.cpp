@@ -12877,6 +12877,23 @@ SoundResidency soundResidency(const Project& p) {
     // belong to one.
     for (const Prefab& pf : p.prefabs)
         for (const SceneObject& o : pf.objects) ownSounds(o, shared), graphSounds(o, shared);
+    // A sound picked in a script's public field ([[tyra::prop]] tyrax::SoundId)
+    // loads with the object's scene, like a graph's Play Sound - the script
+    // runs there and nowhere else. Scanned only when some object sets a field.
+    std::vector<scriptprops::ClassInfo> propClasses;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (!o.scriptProps.empty() && propClasses.empty())
+                propClasses = scriptprops::scanProject(p.dir);
+    auto fieldSounds = [&](const SceneObject& o, std::set<int>& into) {
+        for (const auto& [cls, fields] : o.scriptProps)
+            if (const scriptprops::ClassInfo* ci = scriptprops::findClass(propClasses, cls))
+                for (const scriptprops::Field& f : ci->fields) {
+                    if (f.kind != scriptprops::Kind::Sound) continue;
+                    const auto v = fields.find(f.name);
+                    if (v != fields.end() && !banked.count(slot(v->second))) into.insert(slot(v->second));
+                }
+    };
     std::vector<std::set<int>> base(p.scenes.size());
     std::vector<std::vector<std::set<int>>> layered(p.scenes.size());
     for (size_t si = 0; si < p.scenes.size(); ++si) {
@@ -12888,6 +12905,7 @@ SoundResidency soundResidency(const Project& p) {
                 if (sc.layers[l].name == o.layer) li = (int)l;
             ownSounds(o, li < 0 ? base[si] : layered[si][li]);
             graphSounds(o, base[si]);
+            fieldSounds(o, base[si]);
         }
     }
     // A sound every scene loads with itself would only be freed to be loaded
@@ -22488,6 +22506,28 @@ void collectFlowEvents(const Project& p, std::vector<std::string>& events) {
         for (const std::string& e : events) seen |= (apiIdent(e) == id);
         if (!seen) events.push_back(id);
     }
+    // ...and events picked in a script's public field ([[tyra::prop]]
+    // tyrax::EventId): naming an event in Properties creates it too, so a
+    // ProximityTrigger can send one that no graph or code mentions yet.
+    bool anyProps = false;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) anyProps |= !o.scriptProps.empty();
+    if (!anyProps) return;
+    const std::vector<scriptprops::ClassInfo> classes = scriptprops::scanProject(p.dir);
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            for (const auto& [cls, fields] : o.scriptProps) {
+                const scriptprops::ClassInfo* ci = scriptprops::findClass(classes, cls);
+                if (!ci) continue;
+                for (const scriptprops::Field& f : ci->fields) {
+                    if (f.kind != scriptprops::Kind::Event) continue;
+                    const auto v = fields.find(f.name);
+                    if (v == fields.end() || v->second.empty()) continue;
+                    bool seen = false;
+                    for (const std::string& e : events) seen |= (e == v->second);
+                    if (!seen) events.push_back(v->second);
+                }
+            }
 }
 
 FactPlan factPlanOf(const Project& p);

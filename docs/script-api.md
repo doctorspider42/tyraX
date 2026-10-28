@@ -82,7 +82,7 @@ id from another scene gives an empty `ObjectRef`.
 | `Sounds` | `SoundId` | *Project > Audio* sound effects |
 | `Music` | `MusicId` | music tracks |
 | `SoundBanks` | `SoundBankId` | sound banks |
-| `Events` | `EventId` | graph events, **and** any `Events::X` your scripts name |
+| `Events` | `EventId` | graph events, any `Events::X` your scripts name, **and** any event typed into a script's `tyrax::EventId` field in Properties |
 | `SaveValues`, `SaveTexts` | `SaveValueId`, `SaveTextId` | *Save data* |
 | `Menus` | `MenuId` | game menus |
 | `HudTexts`, `HudBars`, `HudElements` | … | the HUD (elements: images, then texts, then bars) |
@@ -100,7 +100,9 @@ not count.
 loaded only in scenes that play it. A sound your scripts name
 (`tyrax::Sounds::X`) is loaded for the whole game, unless it is in a
 [sound bank](sound.md), which then decides when it loads. *Project > Audio*
-lists these sounds under *Always loaded*.
+lists these sounds under *Always loaded*. A sound picked in a script's
+`tyrax::SoundId` field in Properties loads with that object's scene, like a
+graph's *Play Sound*.
 
 ## Public fields
 
@@ -206,8 +208,17 @@ reads an object's `data.position`, and `.store(float*)` writes one back.
 script all give an `ObjectRef`. It is cheap to copy, and every call checks the
 index first, so an empty or stale reference does nothing instead of crashing.
 Writes set the flags the game reads, the way the flow nodes do: `dirty` to
-rebuild the mesh, `restFrames = 0` to wake a physics body. A moving object on
-the per-object matrix path is not demoted.
+rebuild the mesh, and `restFrames = 0` to wake a physics body.
+
+**Moving every frame is cheap; recolouring every frame is not.**
+`setPosition`, `moveBy`, `setRotation`, `rotateBy`, `setYaw` and `lookAt`
+put the object on the per-object matrix path (`wantsMatrixPath`). From the
+next frame on, a move only refreshes a matrix that VU1 applies for free. A
+mesh rebuilt on every move costs the EE its whole vertex array each frame:
+the cookbook level ran at 12.5 FPS in PCSX2 that way, and runs at 50 now. A
+colour or a scale is baked into the vertices, so `setColor` and `setScale`
+always rebuild the mesh, except that passing the value the object already has
+does nothing. Change a colour only when it actually changes.
 
 | Group | Members |
 |---|---|

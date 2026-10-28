@@ -3860,8 +3860,28 @@ bool App::drawScriptFields(SceneObject& o, const std::string& cls) {
                     break;
                 }
                 case Kind::Event: {
-                    std::vector<std::string> ev = flowVarNames("SendEvent");
-                    nameCombo(ev, ev);
+                    // Free text - an event exists by being named, here as in
+                    // a graph - with the graphs' events one click away.
+                    const float arrow = ImGui::GetFrameHeight();
+                    ImGui::SetNextItemWidth(ImMax(scaled(60.0f), ImGui::GetContentRegionAvail().x -
+                                                                     resetW - arrow -
+                                                                     ImGui::GetStyle().ItemSpacing.x));
+                    ImGui::InputTextWithHint("##v", "(none)", value.data(), value.capacity() + 1,
+                                             ImGuiInputTextFlags_CallbackResize, growString, &value);
+                    changed = ImGui::IsItemEdited();
+                    done = ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x);
+                    if (ImGui::ArrowButton("##evpick", ImGuiDir_Down)) ImGui::OpenPopup("##evlist");
+                    if (ImGui::BeginPopup("##evlist")) {
+                        const std::vector<std::string> ev = flowVarNames("SendEvent");
+                        for (const std::string& e : ev)
+                            if (ImGui::Selectable(e.c_str(), e == value)) {
+                                value = e;
+                                changed = done = true;
+                            }
+                        if (ev.empty()) ImGui::TextDisabled("No graph events yet - type a name.");
+                        ImGui::EndPopup();
+                    }
                     break;
                 }
                 case Kind::Scene: {
