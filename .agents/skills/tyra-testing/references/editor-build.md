@@ -46,3 +46,9 @@ Only one platform's compiler runs at a time → a cross-platform change is half-
 - IRX ABI changes: compare objcopy binary payloads; link must have no abicalls-mismatch warnings. Toolchain identities must match for byte-identical trees at different absolute paths. Exclude setup/cold builds from timings.
 - Generated-game split: build FPP + orbit fixtures native, boot in a private PCSX2, inspect scene/menu/vehicle state; syntax-check historical example subsystems with the PS2 compiler; mutable helper symbols/cache guards must have one final linked instance; check marker-owned upgrade, owned legacy preservation, owned split refresh. Time active ambience keys and a real project preference separately from object moves/additions and no-op builds. Jobs use host-visible logical CPU counts — never describe the measured `-j24` as a project setting.
 - Scene object data (value-only move): after warming, move one object + refresh → `scene_objects.gen.cpp` should be the only compiled source (other bakes unchanged). Additions/removals keep the header stable; also test scene-count changes, colour edits, empty scenes, baked scroller clones, both camera templates, a custom script reading `SCENE_OBJECT_TABLES`. Old/new initializer rows must be exactly equivalent; boot the game. Culling on and off: static-box additions update proxy data without changing the declaration header. Feature/derived-table edits may rebuild more. Profile a large remaining compile with GCC `-ftime-report` before blaming parsing/I/O.
+
+For disposable WSL game builds set `TYRAX_NATIVE_BUILD_ROOT` to the primary
+checkout's `.tmp/builds/<task>/native` before running `--build`. The Windows
+bridge translates that directory and forwards it to WSL; engine and project
+mirrors then stay under it while the compiler mirror remains a persistent
+shared toolchain cache. Remove the task's build root when testing ends.

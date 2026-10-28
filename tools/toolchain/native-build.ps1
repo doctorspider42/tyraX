@@ -51,5 +51,10 @@ $argsForBash = @(
     (WslPath $Project), (WslPath $Engine), (WslPath $Cache),
     (WslPath $Toolchain), $(if ($Rebuild) { '1' } else { '0' })
 )
-wsl.exe --exec bash @argsForBash
+if ($env:TYRAX_NATIVE_BUILD_ROOT) {
+    $scratchRoot = WslPath $env:TYRAX_NATIVE_BUILD_ROOT
+    wsl.exe --exec env "TYRAX_NATIVE_BUILD_ROOT=$scratchRoot" bash @argsForBash
+} else {
+    wsl.exe --exec bash @argsForBash
+}
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -45,8 +45,18 @@ if command -v wslpath >/dev/null 2>&1 && [[ "$PROJECT" == /mnt/* ]] \
   stage_root="$HOME/.cache/tyrax/native"
   path_key() { printf '%s' "$1" | sha256sum | cut -c1-24; }
   PS2DEV_ROOT="$stage_root/toolchains/$(path_key "$host_toolchain")"
-  CACHE_ROOT="$stage_root/engines/$(path_key "$CACHE_ROOT")"
-  PROJECT="$stage_root/projects/$(path_key "$PROJECT_HOST")"
+  # Agent/CI scratch builds can keep project and engine mirrors in a checkout's
+  # ignored scratch root while reusing the persistent compiler installation.
+  build_stage="${TYRAX_NATIVE_BUILD_ROOT:-$stage_root}"
+  case "$build_stage" in
+    /*) ;;
+    *) echo "[editor] TYRAX_NATIVE_BUILD_ROOT must be absolute" >&2; exit 2 ;;
+  esac
+  if [ "$build_stage" = / ] || [ "$build_stage" = "$HOME" ]; then
+    echo "[editor] refusing unsafe native build root: $build_stage" >&2; exit 2
+  fi
+  CACHE_ROOT="$build_stage/engines/$(path_key "$CACHE_ROOT")"
+  PROJECT="$build_stage/projects/$(path_key "$PROJECT_HOST")"
   mkdir -p "$PS2DEV_ROOT" "$CACHE_ROOT" "$PROJECT"
   if ! cmp -s "$host_toolchain/.tyrax-toolchain" "$PS2DEV_ROOT/.tyrax-toolchain"; then
     echo "[editor] Mirroring the toolchain into the WSL filesystem (once per toolchain update)..."

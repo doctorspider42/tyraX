@@ -407,3 +407,9 @@ bases and the modification status. The downloaded PS2DEV archive is not
 redistributed by TyraX; it comes directly from the official PS2DEV release and
 its upstream licences and source links travel inside that distribution. No Sony `vcl` binary
 is installed by the native path.
+
+For disposable builds on Windows/WSL, `TYRAX_NATIVE_BUILD_ROOT` selects an
+absolute directory for project and engine build mirrors. The PowerShell
+bridge accepts a Windows path and translates it for WSL. The compiler cache
+remains shared. Agents use the primary checkout's ignored `.tmp/builds/` root
+and remove those auxiliary build directories after testing.
