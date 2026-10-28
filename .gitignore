@@ -410,3 +410,6 @@ installer/macos/__pycache__/
 !tools/tyrax2-hybrid-copy-archive.py
 !tools/tyrax2-hybrid-copy-irq-audit.py
 !tools/bake-tree-foliage.py
+
+# Shared scratch root for agents, worktrees and auxiliary builds.
+/.tmp/
