@@ -565,7 +565,7 @@ without building:
 - To test a specific graph/scene shape, edit the project's `<name>.tyra` file
   directly (it is the source of truth; the editor tolerates external edits and
   discards the stale undo history in `<name>.history`), then refresh and inspect.
-- `examples/script-demo/` is a checked-in generated project — a useful diff
+- Every `examples/*/` (e.g. `examples/cube/`) is a checked-in generated project — a useful diff
   baseline, but only as fresh as its last regeneration. If codegen changed
   since, regenerate the sample first (its files drift silently); don't treat a
   stale copy as ground truth.

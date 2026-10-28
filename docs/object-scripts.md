@@ -158,7 +158,7 @@ layer that the library is built on.
 
 ### Scripts talking to each other and to graphs
 
-![The script-framework example's door: its graph runs On Event "NearDoor" -> Call Script "SwingDoor.open", and Properties shows the SwingDoor script's fields](img/call-script-node.png)
+![The script-cookbook example's door (row G): its graph runs On Event "NearDoor" -> Call Script "SwingDoor.open", and Properties shows the SwingDoor script's fields](img/call-script-node.png)
 
 - `tyrax::getScript<Door>(someObjectRef)` returns the `Door` attached to that
   object, or null. `tyrax::findScript<GameManager>()` returns the first live

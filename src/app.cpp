@@ -2579,7 +2579,7 @@ const ExampleTag kExampleTags[] = {
     {"procedural", "Gameplay"},
     {"reverb-rooms", "Gameplay"},
     {"save-points", "Gameplay"},
-    {"script-demo", "Gameplay"},
+    {"script-cookbook", "Gameplay"},
     {"two-players", "Gameplay"},
     {"credits", "Cinema & UI"},
     {"hud-animation", "Cinema & UI"},

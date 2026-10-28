@@ -1,1 +1,0 @@
-{"id": "5f00000000000005", "name": "watcher", "type": "cone", "position": [3.5, 1, 5], "rotation": [0, 0, 0], "scale": [0.8, 1.6, 0.8], "color": [0.9, 0.3, 0.6], "physics": false, "scripts": ["LookAtPlayer"], "scriptProps": {"LookAtPlayer": {"turnSpeed": "240"}}}

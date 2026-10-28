@@ -56,6 +56,21 @@ inline constexpr ObjectId ELifecycleZone = {0, 39};  // e-lifecycle-zone
 inline constexpr ObjectId FGalleryBuddy = {0, 40};  // f-gallery-buddy
 inline constexpr ObjectId FPropsGallery = {0, 41};  // f-props-gallery
 inline constexpr ObjectId Manager = {0, 42};  // manager
+inline constexpr ObjectId GSpinner = {0, 43};  // g-spinner
+inline constexpr ObjectId GBobber1 = {0, 44};  // g-bobber-1
+inline constexpr ObjectId GBobber2 = {0, 45};  // g-bobber-2
+inline constexpr ObjectId GBobber3 = {0, 46};  // g-bobber-3
+inline constexpr ObjectId GWatcher = {0, 47};  // g-watcher
+inline constexpr ObjectId GFollower = {0, 48};  // g-follower
+inline constexpr ObjectId GCoin1 = {0, 49};  // g-coin-1
+inline constexpr ObjectId GCoin2 = {0, 50};  // g-coin-2
+inline constexpr ObjectId GCoin3 = {0, 51};  // g-coin-3
+inline constexpr ObjectId GDoorSensor = {0, 52};  // g-door-sensor
+inline constexpr ObjectId GDoor = {0, 53};  // g-door
+inline constexpr ObjectId GCheckpoint1 = {0, 54};  // g-checkpoint-1
+inline constexpr ObjectId GCheckpoint2 = {0, 55};  // g-checkpoint-2
+inline constexpr ObjectId GCheckpoint3 = {0, 56};  // g-checkpoint-3
+inline constexpr ObjectId GFinish = {0, 57};  // g-finish
 }  // namespace Main
 }  // namespace Objects
 
@@ -77,11 +92,14 @@ namespace SoundBanks {
 
 namespace Events {
 inline constexpr EventId CookbookPing = {0};  // CookbookPing
+inline constexpr EventId NearDoor = {1};  // NearDoor
+inline constexpr EventId Checkpoint = {2};  // Checkpoint
 }  // namespace Events
 
 namespace SaveValues {
 inline constexpr SaveValueId Rolls = {0};  // rolls
 inline constexpr SaveValueId Presses = {1};  // presses
+inline constexpr SaveValueId Coins = {2};  // coins
 }  // namespace SaveValues
 
 namespace SaveTexts {
@@ -148,17 +166,19 @@ inline constexpr FactId CookbookPresses = {0};  // cookbook.presses
 namespace FactPositions {
 }  // namespace FactPositions
 
-inline constexpr int EVENT_COUNT = 1;
+inline constexpr int EVENT_COUNT = 3;
 inline constexpr int HUD_BAR_SAVE_VALUE[1] = {1};
-inline constexpr uint32_t OBJECT_NAME_HASH_0[43] = {
+inline constexpr uint32_t OBJECT_NAME_HASH_0[58] = {
     3580794642U, 3919864293U, 4062037659U, 881535304U, 2000988066U, 4136584563U, 2588866670U, 61610797U,
     18226483U, 2367801440U, 1920725835U, 797687057U, 3050802072U, 1237309153U, 1361319545U, 1842280732U,
     1199669455U, 1216447074U, 3081547711U, 2124452742U, 3578697927U, 2517328026U, 2500550407U, 2483772788U,
     2466995169U, 844029662U, 2656153030U, 2639375411U, 2622597792U, 1560825172U, 2626245207U, 121711892U,
     3356062269U, 1297242254U, 1999280053U, 3300255287U, 496056293U, 3929412807U, 1244145853U, 3433743322U,
-    940335867U, 904153109U, 991397836U};
+    940335867U, 904153109U, 991397836U, 376528338U, 1453509519U, 1470287138U, 1487064757U, 238354779U,
+    3152807147U, 3710390826U, 3693613207U, 3676835588U, 2191648446U, 989444413U, 2637849417U, 2587516560U,
+    2604294179U, 181474750U};
 inline const uint32_t* const OBJECT_NAME_HASHES[1] = {OBJECT_NAME_HASH_0};
-inline constexpr int OBJECT_NAME_COUNTS[1] = {43};
+inline constexpr int OBJECT_NAME_COUNTS[1] = {58};
 
 }  // namespace tyrax
 }  // namespace Script_cookbook

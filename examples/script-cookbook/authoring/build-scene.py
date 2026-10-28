@@ -115,6 +115,44 @@ add("f-props-gallery", "box", (0, 1, 44), (1.2, 1.2, 1.2), (1, 1, 1), usable=Tru
              action="alt", hudText="pressed", hudBar="presses", menu="save"))
 add("manager", "empty", (0, 0.5, 2), **script("GameManager", reportEvery="10"))
 
+# --- Row G (z = 50..64): script extensions ---------------------------------------
+# Essentials (installed from extensions/essentials) used as it comes, then
+# Checkpoints, an extension written in this project (README "Write your own
+# extension"). Nothing here has code of its own: fields, and two graphs.
+add("g-spinner", "box", (-8, 1, 50), color=(1, 0.5, 0.1), **script("Rotator", speed="0 90 30"))
+for i, x in enumerate((-5.5, -4, -2.5)):
+    add("g-bobber-%d" % (i + 1), "sphere", (x, 1.2, 50), (0.7, 0.7, 0.7), (0.3, 0.5, 1.0),
+        **script("Bobber", height="0.35", period="2", phase="%g" % (i / 3.0)))
+add("g-watcher", "cone", (0, 1, 50), (0.8, 1.6, 0.8), (1, 0.4, 0.7), **script("LookAtPlayer", turnSpeed="240"))
+add("g-follower", "sphere", (-9, 0.5, 47), (0.8, 0.8, 0.8), (0.4, 0.9, 0.4),
+    **script("Follower", distance="2.5", speed="3"))
+for i, x in enumerate((3, 5, 7)):
+    add("g-coin-%d" % (i + 1), "cylinder", (x, 0.6, 50), (0.6, 0.1, 0.6), (1, 0.85, 0.1), rot=(90, 0, 0),
+        **script("Collectible", counter="coins", radius="1.2"))
+add("g-door-sensor", "empty", (0, 0.5, 53), **script("ProximityTrigger", radius="3.5", enterEvent="NearDoor",
+                                                     once="true"))
+door_graph = graph([("OnEvent", "NearDoor"), ("CallScript", "SwingDoor.open")], [(1, 2)])
+add("g-door", "box", (0, 1.5, 56), (3, 3, 0.3), (0.55, 0.4, 0.3), flowGraph=door_graph,
+    **script("SwingDoor", openAngle="100", speed="90"))
+for i, (x, z) in enumerate(((-6, 53), (6, 53), (0, 60))):
+    props = {"order": str(i + 1), "reachedEvent": "Checkpoint"}
+    if i == 2:
+        props["reachedColor"] = "1 0.8 0.1"  # the last one gold: a field set on one object only
+    add("g-checkpoint-%d" % (i + 1), "cylinder", (x, 0.05, z), (1.6, 0.1, 1.6), (0.35, 0.35, 0.4),
+        scripts=["Checkpoint"], scriptProps={"Checkpoint": props})
+# The finish: On Event -> Checkpoints Done (the extension's node) -> Branch ->
+# Set Object Color -> Spin Object. Two rows so the graph reads at a glance.
+finish_graph = {"nextId": 6, "nodes": [
+    {"id": 1, "type": "OnEvent", "pos": [0, 0], "str": "Checkpoint", "num": [0, 0, 0, 0]},
+    {"id": 2, "type": "custom:checkpoints-done", "pos": [230, 0], "str": "", "num": [0, 0, 0, 0]},
+    {"id": 3, "type": "Branch", "pos": [460, 0], "str": "", "num": [0, 0, 0, 0]},
+    {"id": 4, "type": "SetObjectColor", "pos": [230, 170], "str": "", "num": [0.2, 1, 0.45, 0]},
+    {"id": 5, "type": "SpinObject", "pos": [460, 170], "str": "", "num": [0, 90, 0, 0]}],
+    "links": [{"id": 1, "from": 1, "to": 2}, {"id": 2, "from": 2, "to": 3},
+              {"id": 3, "from": 2, "to": 3, "bool": True},
+              {"id": 4, "from": 3, "to": 4}, {"id": 5, "from": 4, "to": 5}]}
+add("g-finish", "box", (0, 0.75, 64), (1.5, 1.5, 1.5), (0.5, 0.5, 0.55), flowGraph=finish_graph)
+
 for o in objs:
     with open(os.path.join(objdir, o["id"] + ".json"), "w", newline="\n") as f:
         f.write(json.dumps(o) + "\n")
@@ -125,6 +163,9 @@ m = re.search(r'"objects": \[([^\]]*)\]', t)
 keep = [i.strip() for i in m.group(1).split(",") if i.strip() and not i.strip().startswith('"c0b0')]
 ids = keep + ['"%s"' % o["id"] for o in objs]
 t = t[:m.start()] + '"objects": [' + ", ".join(ids) + "]" + t[m.end():]
+# The terrain is centred on the start: 80 deep ended at z 40, short of rows F
+# and G. 160 deep reaches z 80.
+t = re.sub(r'"terrain": \{ "width": 80, "depth": \d+ \}', '"terrain": { "width": 80, "depth": 160 }', t, count=1)
 
 
 def set_array(text, key, body):
@@ -139,7 +180,8 @@ def set_array(text, key, body):
 
 
 t = set_array(t, "sounds", '    "res/sfx/knock.wav"')
-t = set_array(t, "saveValues", '    { "name": "rolls", "default": 0 },\n    { "name": "presses", "default": 0 }')
+t = set_array(t, "saveValues", '    { "name": "rolls", "default": 0 },\n    { "name": "presses", "default": 0 },\n'
+              '    { "name": "coins", "default": 0 }')
 t = set_array(t, "saveTexts", '    { "name": "last-press", "default": "" }')
 t = set_array(t, "hudTexts", '    { "name": "pressed", "text": "COUNTER PRESSED", "pos": [0.5, 0.15], '
               '"size": 18, "color": [1, 0.85, 0.4], "shadow": true, "visibleAtStart": false }')

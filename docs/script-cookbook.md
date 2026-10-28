@@ -37,6 +37,7 @@ and so on: `inc/tyrax/names.gen.hpp` lists what your project has.
 - [Camera and screen](#camera-and-screen) (E2)
 - [Scenes and layers](#scenes-and-layers) (E3)
 - [Global scripts](#global-scripts) (PlayerWatch)
+- [Script extensions](#script-extensions) (row G)
 - [Performance rules](#performance-rules)
 
 ## Public fields, every kind
@@ -423,6 +424,30 @@ class PlayerWatch : public Script {
 };
 TYRA_SCRIPT(PlayerWatch);   // inside the namespace block, plain name
 ```
+
+## Script extensions
+
+Row G uses two [script extensions](script-extensions.md) and no code of its
+own. **Essentials** (installed from `extensions/essentials`) gives the
+spinner, the bobbers, the follower, the coins, the door sensor and the door;
+the door's graph opens it with *Call Script* `SwingDoor.open`. **Checkpoints**
+was written in this project: a `Checkpoint` script for the three pads and a
+*Checkpoints Done* flow node for the finish box's graph. Its C++ reads the
+script's state through two functions the extension's `.cpp` defines:
+
+```cpp
+// checkpoints_nodes.hpp - the node's body, named by `call =` in the .flownode
+TYRAX_NAMESPACE_BEGIN
+int checkpointsReached();
+int checkpointsTotal();
+inline void checkpointsDone(ScriptContext&, FlowNodeIO& io) {
+  const int need = io.num[0] > 0.0F ? (int)io.num[0] : checkpointsTotal();
+  io.boolOut = need > 0 && checkpointsReached() >= need;
+}
+TYRAX_NAMESPACE_END
+```
+
+The example's README walks through making it, step by step.
 
 ## Performance rules
 

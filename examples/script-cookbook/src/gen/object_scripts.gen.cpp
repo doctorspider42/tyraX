@@ -15,8 +15,8 @@ struct ObjectScriptAttach {
   const char* script;   // TYRA_OBJECT_SCRIPT registration name
 };
 
-constexpr int OBJECT_SCRIPT_ATTACH_COUNT = 29;
-constexpr ObjectScriptAttach OBJECT_SCRIPT_ATTACHES[29] = {
+constexpr int OBJECT_SCRIPT_ATTACH_COUNT = 43;
+constexpr ObjectScriptAttach OBJECT_SCRIPT_ATTACHES[43] = {
     {0, 1, "EaseShowcase"},  // main / a-ease-linear
     {0, 2, "EaseShowcase"},  // main / a-ease-in
     {0, 3, "EaseShowcase"},  // main / a-ease-out
@@ -46,6 +46,20 @@ constexpr ObjectScriptAttach OBJECT_SCRIPT_ATTACHES[29] = {
     {0, 39, "LifecycleLogger"},  // main / e-lifecycle-zone
     {0, 41, "PropsGallery"},  // main / f-props-gallery
     {0, 42, "GameManager"},  // main / manager
+    {0, 43, "Rotator"},  // main / g-spinner
+    {0, 44, "Bobber"},  // main / g-bobber-1
+    {0, 45, "Bobber"},  // main / g-bobber-2
+    {0, 46, "Bobber"},  // main / g-bobber-3
+    {0, 47, "LookAtPlayer"},  // main / g-watcher
+    {0, 48, "Follower"},  // main / g-follower
+    {0, 49, "Collectible"},  // main / g-coin-1
+    {0, 50, "Collectible"},  // main / g-coin-2
+    {0, 51, "Collectible"},  // main / g-coin-3
+    {0, 52, "ProximityTrigger"},  // main / g-door-sensor
+    {0, 53, "SwingDoor"},  // main / g-door
+    {0, 54, "Checkpoint"},  // main / g-checkpoint-1
+    {0, 55, "Checkpoint"},  // main / g-checkpoint-2
+    {0, 56, "Checkpoint"},  // main / g-checkpoint-3
 };
 
 #if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 3
@@ -181,7 +195,98 @@ static const tyrax::detail::PropValue kProps27[17] = {  // main / f-props-galler
 static const tyrax::detail::PropValue kProps28[1] = {  // main / manager / GameManager
     {1, {10.0F, 0.0F, 0.0F}, 0, ""},  // reportEvery
 };
-static const tyrax::detail::PropValue* const OBJECT_SCRIPT_PROPS[29] = {kProps0, kProps1, kProps2, kProps3, kProps4, kProps5, kProps6, kProps7, kProps8, kProps9, kProps10, kProps11, kProps12, kProps13, kProps14, kProps15, kProps16, kProps17, kProps18, kProps19, kProps20, kProps21, kProps22, nullptr, kProps24, nullptr, nullptr, kProps27, kProps28};
+static const tyrax::detail::PropValue kProps29[1] = {  // main / g-spinner / Rotator
+    {1, {0.0F, 90.0F, 30.0F}, 0, ""},  // speed
+};
+static const tyrax::detail::PropValue kProps30[3] = {  // main / g-bobber-1 / Bobber
+    {1, {0.35F, 0.0F, 0.0F}, 0, ""},  // height
+    {1, {2.0F, 0.0F, 0.0F}, 0, ""},  // period
+    {1, {0.0F, 0.0F, 0.0F}, 0, ""},  // phase
+};
+static const tyrax::detail::PropValue kProps31[3] = {  // main / g-bobber-2 / Bobber
+    {1, {0.35F, 0.0F, 0.0F}, 0, ""},  // height
+    {1, {2.0F, 0.0F, 0.0F}, 0, ""},  // period
+    {1, {0.333333F, 0.0F, 0.0F}, 0, ""},  // phase
+};
+static const tyrax::detail::PropValue kProps32[3] = {  // main / g-bobber-3 / Bobber
+    {1, {0.35F, 0.0F, 0.0F}, 0, ""},  // height
+    {1, {2.0F, 0.0F, 0.0F}, 0, ""},  // period
+    {1, {0.666667F, 0.0F, 0.0F}, 0, ""},  // phase
+};
+static const tyrax::detail::PropValue kProps33[2] = {  // main / g-watcher / LookAtPlayer
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // tilt
+    {1, {240.0F, 0.0F, 0.0F}, 0, ""},  // turnSpeed
+};
+static const tyrax::detail::PropValue kProps34[5] = {  // main / g-follower / Follower
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // target
+    {1, {2.5F, 0.0F, 0.0F}, 0, ""},  // distance
+    {1, {3.0F, 0.0F, 0.0F}, 0, ""},  // speed
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // face
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // keepHeight
+};
+static const tyrax::detail::PropValue kProps35[6] = {  // main / g-coin-1 / Collectible
+    {1, {1.2F, 0.0F, 0.0F}, 0, ""},  // radius
+    {1, {0.0F, 0.0F, 0.0F}, 2, ""},  // counter
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // amount
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // sound
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // pickedEvent
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // respawn
+};
+static const tyrax::detail::PropValue kProps36[6] = {  // main / g-coin-2 / Collectible
+    {1, {1.2F, 0.0F, 0.0F}, 0, ""},  // radius
+    {1, {0.0F, 0.0F, 0.0F}, 2, ""},  // counter
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // amount
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // sound
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // pickedEvent
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // respawn
+};
+static const tyrax::detail::PropValue kProps37[6] = {  // main / g-coin-3 / Collectible
+    {1, {1.2F, 0.0F, 0.0F}, 0, ""},  // radius
+    {1, {0.0F, 0.0F, 0.0F}, 2, ""},  // counter
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // amount
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // sound
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // pickedEvent
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // respawn
+};
+static const tyrax::detail::PropValue kProps38[4] = {  // main / g-door-sensor / ProximityTrigger
+    {1, {3.5F, 0.0F, 0.0F}, 0, ""},  // radius
+    {1, {0.0F, 0.0F, 0.0F}, 1, ""},  // enterEvent
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // exitEvent
+    {1, {0.0F, 0.0F, 0.0F}, 1, ""},  // once
+};
+static const tyrax::detail::PropValue kProps39[6] = {  // main / g-door / SwingDoor
+    {1, {100.0F, 0.0F, 0.0F}, 0, ""},  // openAngle
+    {1, {90.0F, 0.0F, 0.0F}, 0, ""},  // speed
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // sound
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // toggleOn
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // openedEvent
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // startOpen
+};
+static const tyrax::detail::PropValue kProps40[6] = {  // main / g-checkpoint-1 / Checkpoint
+    {1, {0.0F, 0.0F, 0.0F}, 1, ""},  // order
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // radius
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // idleColor
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // reachedColor
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // spinWhenReached
+    {1, {0.0F, 0.0F, 0.0F}, 2, ""},  // reachedEvent
+};
+static const tyrax::detail::PropValue kProps41[6] = {  // main / g-checkpoint-2 / Checkpoint
+    {1, {0.0F, 0.0F, 0.0F}, 2, ""},  // order
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // radius
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // idleColor
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // reachedColor
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // spinWhenReached
+    {1, {0.0F, 0.0F, 0.0F}, 2, ""},  // reachedEvent
+};
+static const tyrax::detail::PropValue kProps42[6] = {  // main / g-checkpoint-3 / Checkpoint
+    {1, {0.0F, 0.0F, 0.0F}, 3, ""},  // order
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // radius
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // idleColor
+    {1, {1.0F, 0.8F, 0.1F}, 0, ""},  // reachedColor
+    {0, {0.0F, 0.0F, 0.0F}, 0, ""},  // spinWhenReached
+    {1, {0.0F, 0.0F, 0.0F}, 2, ""},  // reachedEvent
+};
+static const tyrax::detail::PropValue* const OBJECT_SCRIPT_PROPS[43] = {kProps0, kProps1, kProps2, kProps3, kProps4, kProps5, kProps6, kProps7, kProps8, kProps9, kProps10, kProps11, kProps12, kProps13, kProps14, kProps15, kProps16, kProps17, kProps18, kProps19, kProps20, kProps21, kProps22, nullptr, kProps24, nullptr, nullptr, kProps27, kProps28, kProps29, kProps30, kProps31, kProps32, kProps33, kProps34, kProps35, kProps36, kProps37, kProps38, kProps39, kProps40, kProps41, kProps42};
 #endif
 
 /** Owns the live ObjectScript instances (one per attachment of the

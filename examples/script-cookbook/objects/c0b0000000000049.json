@@ -1,0 +1,1 @@
+{"id": "c0b0000000000049", "name": "g-coin-1", "type": "cylinder", "position": [3, 0.6, 50], "rotation": [90, 0, 0], "scale": [0.6, 0.1, 0.6], "color": [1, 0.85, 0.1], "physics": false, "scripts": ["Collectible"], "scriptProps": {"Collectible": {"counter": "coins", "radius": "1.2"}}}

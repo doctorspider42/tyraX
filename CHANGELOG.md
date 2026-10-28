@@ -18,7 +18,8 @@ under it as that release's notes, and the release's own page carries the date.
 - The **Scripts** page folds into Object scripts, Global scripts, Flow graphs, VU programs and Extensions, with filter chips and an *Unused* filter. Clicking an object under a class now selects it and frames it in the viewport instead of opening its (usually empty) flow graph, and a class name opens its file at the class.
 - Fixed a debug-build assert when the Debugger's watch table hid its Kind column in a narrow dock.
 - **New Script** asks whether the game script is an *Object script* (attached to objects) or a *Global script* (one instance, every frame, every scene) and writes the matching stub. The *Scripts* page has *New global script...* under its Global scripts section.
-- The **script-framework** example now also shows how to write an extension: **Checkpoints**, made inside the project, has a `Checkpoint` script configured through fields and a *Checkpoints Done* flow node whose C++ reads the script's state. The level has three pads to reach in order and a finish box that lights up, and the example's README walks through how the extension was built.
+- **One scripting example.** **script-framework** is merged into **script-cookbook** as row G, "Script extensions": the Essentials extension (spinner, bobbers, follower, coins, a door that a graph opens with *Call Script*) and **Checkpoints**, an extension written in the project as a how-to: a `Checkpoint` script configured through fields and a *Checkpoints Done* flow node whose C++ reads the script's state. The README walks through building it. The cookbook's ground is now 80 x 160, so rows F and G stand on it.
+- The **script-demo** example is removed; the README and the start page point to **showcase** to start, and to **script-cookbook** for scripts.
 
 ## 2.6.0
 

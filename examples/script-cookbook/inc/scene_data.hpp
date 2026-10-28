@@ -503,7 +503,7 @@ inline constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
 inline constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
 
 inline constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {80.0F};
-inline constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {80.0F};
+inline constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {160.0F};
 inline constexpr float TERRAIN_VOID_Y = -1000000.0F;
 inline constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true};
 inline constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.369465F};
@@ -641,9 +641,9 @@ inline void applySceneGrading(TEngine* engine, int index) {
 inline constexpr int SAVE_COMMIT_AUTOSAVE = -2;
 inline constexpr int SAVE_COMMIT_NEXT = -3;
 
-inline constexpr int SAVE_VALUE_COUNT = 2;
-inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {"rolls", "presses"};
-inline constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F, 0.0F};
+inline constexpr int SAVE_VALUE_COUNT = 3;
+inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {"rolls", "presses", "coins"};
+inline constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F, 0.0F, 0.0F};
 inline constexpr int SAVE_TEXT_COUNT = 1;
 inline constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {"last-press"};
