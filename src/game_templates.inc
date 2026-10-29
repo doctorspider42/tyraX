@@ -25161,9 +25161,24 @@ void TerrainGame::updateObjectPhysics() {
       if(Tyra::vu0SatVerify) {
       Tyra::ConvexContact reference{};
       const bool referenceHit=Tyra::convexMotionContact(av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),reference,&a.obb,&b.obb);
-      if(hit!=referenceHit || (hit && (fabsf(c.depth-reference.depth)>1e-5F ||
-          rbDot(rbSub(c.normal,reference.normal),rbSub(c.normal,reference.normal))>1e-10F ||
-          rbDot(rbSub(c.point,reference.point),rbSub(c.point,reference.point))>1e-8F))) {
+      const float validationScale=std::max(1e-6F,std::min(ba.radius,bb.radius));
+      const auto comparison=Tyra::compareVu0Sat(hit,c,referenceHit,reference,validationScale);
+      auto& validation=Tyra::vu0SatValidation;
+      validation.misses+=comparison.missed;
+      validation.extraTouches+=comparison.accepted && comparison.extraTouch;
+      validation.numerical+=comparison.accepted && comparison.different;
+      if(comparison.extraTouch)validation.extraDepthRatio=std::max(validation.extraDepthRatio,comparison.depth/validationScale);
+      else if(hit && referenceHit) {
+        validation.depthRatio=std::max(validation.depthRatio,comparison.depth/validationScale);
+        validation.pointRatio=std::max(validation.pointRatio,comparison.point/validationScale);
+        validation.normalError=std::max(validation.normalError,comparison.normal);
+      }
+      if(!comparison.accepted) {
+        if(Tyra::vu0SatValidationErrors<8)printf("VUSATDIFF a=%d b=%d hit=%d ref=%d flags=%g,%g,%g,%g axes=%g,%g depth=%g,%g normal=%g,%g,%g/%g,%g,%g point=%g,%g,%g/%g,%g,%g\n",
+            a.obj,b.obj,hit,referenceHit,results[k].flags[0],results[k].flags[1],results[k].flags[2],results[k].flags[3],results[k].indices[0],results[k].indices[1],
+            hit?c.depth:0,referenceHit?reference.depth:0,
+            hit?c.normal.x:0,hit?c.normal.y:0,hit?c.normal.z:0,referenceHit?reference.normal.x:0,referenceHit?reference.normal.y:0,referenceHit?reference.normal.z:0,
+            hit?c.point.x:0,hit?c.point.y:0,hit?c.point.z:0,referenceHit?reference.point.x:0,referenceHit?reference.point.y:0,referenceHit?reference.point.z:0);
         ++Tyra::vu0SatValidationErrors;hit=referenceHit;c=reference;
       }
       }

@@ -10,6 +10,15 @@
 using namespace Tyra;
 int main(int argc,char** argv) {
   assert(argc==2); vuir::Program program; std::string error;
+  { // Numerical tolerance must never turn into permission to drop a hit.
+    ConvexContact reference{{0,1,0},{0,0,0},.01f},actual=reference;
+    assert(!compareVu0Sat(false,actual,true,reference,1).accepted);
+    actual.depth=4e-6f;assert(compareVu0Sat(true,actual,false,reference,1).accepted);
+    actual.depth=.001f;assert(!compareVu0Sat(true,actual,false,reference,1).accepted);
+    actual=reference;actual.point.x=.0035f;assert(compareVu0Sat(true,actual,true,reference,1).accepted);
+    actual.point.x=1.94f;assert(!compareVu0Sat(true,actual,true,reference,1).accepted);
+    actual=reference;actual.normal.y=-1;assert(!compareVu0Sat(true,actual,true,reference,1).accepted);
+  }
   if(!vuasm::parseFile(argv[1],{},program,error)){std::fprintf(stderr,"%s\n",error.c_str());return 1;}
   std::mt19937 rng(0x534154);std::uniform_real_distribution<float> pos(-4,4),size(.05f,2),angle(-3,3);
   int hits=0,misses=0;float maxDepth=0,maxNormal=0,maxPoint=0;

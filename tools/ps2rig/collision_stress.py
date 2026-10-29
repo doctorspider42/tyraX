@@ -257,16 +257,17 @@ if args.micro_comparison:
  p=proj/'src/gen/game_physics.gen.cpp';p.write_bytes(b'#define TYRA_PHYSICS_MICRO_VERIFY 1\n'+p.read_bytes())
  p=eng/'src/physics/vu0_sat.cpp';p.write_bytes(b'#define TYRA_VU0_SAT_PROFILE 1\n'+p.read_bytes())
  p=extra;s=p.read_text(encoding='utf8');s='#include "debug/vu0_sat_probe.hpp"\n'+s
- s=s.replace('checked=true;if(!TyraSolverProbe::run())','checked=true;FILE* verify=fopen("sat-verify.cfg","r");Tyra::vu0SatVerify=verify!=nullptr;if(verify)fclose(verify);if(Tyra::vu0SatVerify)CB::phase=12;printf("VUSAT mode=%s\\n",Tyra::vu0SatVerify?"verify":"timing");if(!TyraSolverProbe::run() || !Vu0SatProbe::run())')
- s=s.replace('CB::phase>=CB::phases','CB::phase>=(Tyra::vu0SatVerify?14:CB::phases)')
- s=s.replace('  CB::configure();int found=0;','  CB::configure();Tyra::vu0SatMetrics={};Tyra::vu0SatValidationErrors=0;int found=0;')
+ s=s.replace('checked=true;if(!TyraSolverProbe::run())','checked=true;FILE* verify=fopen("sat-verify.cfg","r");Tyra::vu0SatVerify=verify!=nullptr;if(verify)fclose(verify);if(Tyra::vu0SatVerify && !TYRA_TEMPORAL_SETTLE)CB::phase=12;printf("VUSAT mode=%s\\n",Tyra::vu0SatVerify?"verify":"timing");if(!TyraSolverProbe::run() || !Vu0SatProbe::run())')
+ s=s.replace('CB::phase>=CB::phases','CB::phase>=((Tyra::vu0SatVerify && !TYRA_TEMPORAL_SETTLE)?14:CB::phases)')
+ s=s.replace('  CB::configure();int found=0;','  CB::configure();Tyra::vu0SatMetrics={};Tyra::vu0SatValidationErrors=0;Tyra::vu0SatValidation={};int found=0;')
  p.write_bytes(s.encode())
  p=eng/'inc/debug/collision_bench.hpp';s='#include "physics/vu0_sat.hpp"\n'+p.read_text(encoding='utf8')
  code='''  char microName[64];snprintf(microName,sizeof(microName),"vu0-phase-%02d.csv",phase);
   if(FILE* m=fopen(microName,"w")) {
     const auto& v=Tyra::vu0SatMetrics;
-    fprintf(m,"phase,jobs,batches,busy_finish,busy_ee_query,wait_ticks,validation_errors\\n%d,%u,%u,%u,%u,%u,%u\\n",phase,v.jobs,v.batches,v.busyAtFinish,v.busyWhileQuerying,v.waitTicks,Tyra::vu0SatValidationErrors);fclose(m);
-    printf("VUSAT phase=%d jobs=%u batches=%u busy_ee=%u errors=%u\\n",phase,v.jobs,v.batches,v.busyWhileQuerying,Tyra::vu0SatValidationErrors);fflush(stdout);
+    const auto& d=Tyra::vu0SatValidation;
+    fprintf(m,"phase,jobs,batches,busy_finish,busy_ee_query,wait_ticks,validation_errors,numerical_differences,extra_touches,missed_reference_hits,max_depth_ratio,max_point_ratio,max_normal_error,max_extra_depth_ratio\\n%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%.9g,%.9g,%.9g,%.9g\\n",phase,v.jobs,v.batches,v.busyAtFinish,v.busyWhileQuerying,v.waitTicks,Tyra::vu0SatValidationErrors,d.numerical,d.extraTouches,d.misses,d.depthRatio,d.pointRatio,d.normalError,d.extraDepthRatio);fclose(m);
+    printf("VUSAT phase=%d jobs=%u batches=%u busy_ee=%u benign=%u extra_touch=%u missed=%u errors=%u\\n",phase,v.jobs,v.batches,v.busyWhileQuerying,d.numerical,d.extraTouches,d.misses,Tyra::vu0SatValidationErrors);fflush(stdout);
   }
 '''
  assert '  used = 0;\n}' in s;s=s.replace('  used = 0;\n}',code+'  used = 0;\n}')

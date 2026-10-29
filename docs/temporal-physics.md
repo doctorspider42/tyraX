@@ -64,6 +64,28 @@ SAT/CCD rejection; it never drops an axis or replaces a collider. These
 confirmations are included in the backend's eventual performance cost.
 Physical startup and full-scene shadow validation must pass before timing.
 
+### Physical equivalence, rather than bit identity
+
+The practical shadow gate permits depth error and additional shallow touches
+up to **0.01% of the smaller body's radius**, contact-point displacement up
+to **1% of that radius**, and normal-vector error up to **0.01** (about 0.57
+degrees for unit normals). Every lost reference hit remains a hard failure.
+For a 0.9-unit cube these are roughly 0.00008 units of depth and 0.008 units
+of point displacement. The existing solver's penetration slop is 0.005 units.
+These are diagnostic acceptance thresholds; they do not change colliders,
+SAT axes, solver slop, iteration counts or the collision algorithm.
+
+Small accepted differences remain in the simulation, and are counted separately
+from hard failures. This avoids testing a scalar-repaired trajectory while
+timing another one. Large CCD support-feature changes still use the original
+scalar confirmation. Near-equal discrete minimum axes may differ within the
+physical tolerances; no extra per-axis tie detector is required for bit identity.
+The sidecar records numerical differences, extra shallow touches, missed
+reference hits and maximum normalized errors. `vu0_sat_analyze.py` validates
+those bounds along with every-contact accounting, complete phases, finite
+state, parent/child scopes and sampled EE/VU0 overlap. A ray-tracer/SAT/ray-tracer
+micro-image round trip also checks ownership reloads at startup.
+
 
 ## Selected defaults and final PS2 result
 

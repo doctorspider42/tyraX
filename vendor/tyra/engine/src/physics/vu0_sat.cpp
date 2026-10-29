@@ -47,9 +47,13 @@ bool finishVu0Sat(const Vu0SatResult& r, const Vu0SatJob& job, const ConvexView&
   // Linear CCD's strict support-vertex tie policy is sensitive even to one
   // VU/FPU rounding bit. Confirm positive sweeps on EE; micro still rejects
   // separated pairs over the complete interval and retains every SAT axis.
-  const bool sweepHit=r.flags[1]==0 && r.flags[2]!=0 && r.flags[3]!=0 &&
+  const bool found=(int(r.flags[3])&1)!=0;
+  const bool sweepHit=r.flags[1]==0 && r.flags[2]!=0 && found &&
       r.sweepEnter[3]<=1 && r.flags[0]>=0;
-  if(r.flags[3]>=2 || sweepHit) {
+  const bool tiedHit=r.flags[3]>=2 && r.flags[1]!=0 && r.normalDepth[3]<1e30f;
+  // A tied minimum cannot invalidate a separating-axis proof. Confirm ties
+  // only when they would choose a contact, not for already separated pairs.
+  if(vu0SatScalarPreferred(job) || tiedHit || sweepHit) {
     CollisionObb boxes[2];
     for(int k=0;k<2;++k) {
       const float* c=job.q[k*4];boxes[k].centre={c[0],c[1],c[2]};
@@ -88,7 +92,7 @@ bool finishVu0Sat(const Vu0SatResult& r, const Vu0SatJob& job, const ConvexView&
     return true;
   }
   float enter=r.sweepEnter[3];
-  if(r.flags[2]==0 || r.flags[3]==0 || enter>1 || r.flags[0]<0) return false;
+  if(r.flags[2]==0 || !found || enter>1 || r.flags[0]<0) return false;
   n=exactAxis(int(r.indices[1]));
   float alo,ahi,blo,bhi;project(0,n,alo,ahi);project(1,n,blo,bhi);
   const float da=cvDot(n,motionA),db=cvDot(n,motionB),d=da-db;

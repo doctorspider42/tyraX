@@ -14,6 +14,34 @@ struct Vu0SatMetrics {
 inline Vu0SatMetrics vu0SatMetrics;
 inline unsigned vu0SatValidationErrors=0;
 inline bool vu0SatVerify=false; // diagnostic-only shadow oracle, never a shipped poll
+// Practical validation tolerances, relative to the smaller body's radius.
+// A reference hit may never disappear. Only shallow EXTRA contacts are allowed.
+inline constexpr float Vu0SatDepthRatio=1e-4f,Vu0SatPointRatio=.01f,Vu0SatNormalError=.01f;
+struct Vu0SatComparison {
+  bool accepted=true,different=false,extraTouch=false,missed=false;
+  float depth=0,normal=0,point=0;
+};
+inline Vu0SatComparison compareVu0Sat(bool hit,const ConvexContact& actual,
+                                     bool referenceHit,const ConvexContact& reference,
+                                     float scale) {
+  Vu0SatComparison r;scale=std::max(scale,1e-6f);
+  if(referenceHit && !hit){r.accepted=false;r.missed=true;return r;}
+  if(hit && !referenceHit){r.extraTouch=true;r.different=true;r.depth=actual.depth;
+    r.accepted=std::isfinite(actual.depth) && actual.depth>=0 && actual.depth<=Vu0SatDepthRatio*scale;return r;}
+  if(!hit)return r;
+  r.depth=std::fabs(actual.depth-reference.depth);
+  const auto nd=cvSub(actual.normal,reference.normal),pd=cvSub(actual.point,reference.point);
+  r.normal=std::sqrt(cvDot(nd,nd));r.point=std::sqrt(cvDot(pd,pd));
+  r.different=r.depth!=0 || r.normal!=0 || r.point!=0;
+  r.accepted=std::isfinite(r.depth+r.normal+r.point) && r.depth<=Vu0SatDepthRatio*scale &&
+      r.normal<=Vu0SatNormalError && r.point<=Vu0SatPointRatio*scale;
+  return r;
+}
+struct Vu0SatValidationDetails {
+  unsigned numerical=0,extraTouches=0,misses=0;
+  float depthRatio=0,pointRatio=0,normalError=0,extraDepthRatio=0;
+};
+inline Vu0SatValidationDetails vu0SatValidation;
 // Only plain scalar data crosses the asynchronous boundary. No Vec4/COP2
 // helpers may execute between start() and finish(), including indirect calls.
 struct alignas(16) Vu0SatJob {
