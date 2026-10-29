@@ -45,16 +45,29 @@ FILES = [
 # module missing from the package is an extension that fails to activate.
 JS = sorted(p.name for p in HERE.glob("*.js"))
 
-CONTENT_TYPES = (
-    '<?xml version="1.0" encoding="utf-8"?>\n'
-    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-    '<Default Extension=".js" ContentType="application/javascript"/>'
-    '<Default Extension=".json" ContentType="application/json"/>'
-    '<Default Extension=".md" ContentType="text/markdown"/>'
-    '<Default Extension=".png" ContentType="image/png"/>'
-    '<Default Extension=".vsixmanifest" ContentType="text/xml"/>'
-    "</Types>"
-)
+# [Content_Types].xml is built from the files actually packaged: a .vsix is an
+# OPC package, and a part whose extension has no content type does not EXIST to
+# the Marketplace - 0.5.0's first upload was refused because LICENSE.txt was in
+# the zip but ".txt" was not in a hand-written list.
+MIME = {
+    ".js": "application/javascript",
+    ".json": "application/json",
+    ".md": "text/markdown",
+    ".png": "image/png",
+    ".txt": "text/plain",
+    ".vsixmanifest": "text/xml",
+}
+
+
+def content_types(names):
+    exts = sorted({pathlib.PurePosixPath(n).suffix.lower() for n in names})
+    unknown = [e or "(none)" for e in exts if e not in MIME]
+    if unknown:
+        sys.exit("no content type for: " + ", ".join(unknown) + " - add it to MIME")
+    return ('<?xml version="1.0" encoding="utf-8"?>\n'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            + "".join(f'<Default Extension="{e}" ContentType="{MIME[e]}"/>' for e in exts)
+            + "</Types>")
 
 REPO = "https://github.com/doctorspider42/tyraX"
 
@@ -143,7 +156,8 @@ def main():
 
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("extension.vsixmanifest", manifest(pkg))
-        z.writestr("[Content_Types].xml", CONTENT_TYPES)
+        z.writestr("[Content_Types].xml",
+                   content_types(["extension.vsixmanifest"] + [d for _, d in entries]))
         for src, dst in entries:
             z.write(HERE / src, dst)
             print(f"  + {dst}")
