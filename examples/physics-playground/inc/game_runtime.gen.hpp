@@ -4787,6 +4787,8 @@ struct RbStep {
   RbV wv0[PHYS_MAX_HULL_VERTS];  // hull corners at the start pose
   RbV wv[PHYS_MAX_HULL_VERTS];   // ... and at the predicted pose
   Tyra::CollisionBounds bounds; // conservative current/linear-sweep envelope
+  bool box;
+  Tyra::CollisionObb obb;
 };
 
 struct RbContact {

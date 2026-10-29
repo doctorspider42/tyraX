@@ -84,3 +84,6 @@ performance comparisons must include a physical PS2 run.
 Dense-prop collision follow-up: generated runtime uses conservative swept-hull
 envelopes and growing contact/car-prop lists. The old 384-contact/eight-prop
 caps no longer discard entries. See [physics](../../docs/physics.md) for scope.
+
+The convex fallback shares discrete/continuous projections; primitive boxes
+use cached oriented half-axes while retaining the full SAT axis set.

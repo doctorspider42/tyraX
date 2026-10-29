@@ -191,6 +191,10 @@ fixed-orientation linear sweep. Disjoint envelopes skip vertex planes and
 SAT/CCD. The hull envelope includes its predicted vertices translated back by
 the COM displacement, retaining pass-through hits even when the endpoint poses
 are separate. This is conservative rejection, not a limit on pairs or contacts.
+The fallback shares one set of axis projections between discrete SAT and
+linear CCD. Primitive boxes also cache their oriented half-axes: their range
+on each axis is computed from the centre and half-axes instead of all eight
+vertices. The same face/edge axes remain; projection rounding is outward.
 
 Hull vertex transforms have an optional batched VU0 macro-mode path: one
 matrix load for up to 24 aligned points. `TYRA_COLLISION_VU0=1` enables it;

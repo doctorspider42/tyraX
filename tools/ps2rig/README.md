@@ -112,3 +112,6 @@ share the current unbounded car-prop candidate list. New CSV columns compare
 `generated_contacts` with solver `contacts` and `push_candidates` with
 `push_tested`; `--complete` rejects candidate omissions. Historical CSVs without
 these columns remain readable. Do not present this as a stock-old-branch A/B.
+
+When analyzing a `cc1f8895b --uncapped-baseline` run, pass
+`--baseline-label prior-uncapped` so the summary does not call that arm main.

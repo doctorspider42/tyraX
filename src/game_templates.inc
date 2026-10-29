@@ -4791,6 +4791,8 @@ struct RbStep {
   RbV wv0[PHYS_MAX_HULL_VERTS];  // hull corners at the start pose
   RbV wv[PHYS_MAX_HULL_VERTS];   // ... and at the predicted pose
   Tyra::CollisionBounds bounds; // conservative current/linear-sweep envelope
+  bool box;
+  Tyra::CollisionObb obb;
 };
 
 struct RbContact {
@@ -24571,6 +24573,17 @@ void TerrainGame::updateObjectPhysics() {
     } else {
       s.bounds = Tyra::convexMotionBounds(s.wv, s.nv, rbSub(s.x1, s.x0));
     }
+    s.box = o.data.type == 0 && b.verts == 8;
+    if (s.box) {
+      float lo[3]={1e30F,1e30F,1e30F}, hi[3]={-1e30F,-1e30F,-1e30F};
+      for (int v=0;v<b.verts;++v) for(int k=0;k<3;++k) {
+        lo[k]=std::min(lo[k],b.lv[v*3+k]);hi[k]=std::max(hi[k],b.lv[v*3+k]);
+      }
+      s.obb.centre=rbAdd(s.x1,rbMat(s.R1,rbV((lo[0]+hi[0])*.5F,
+          (lo[1]+hi[1])*.5F,(lo[2]+hi[2])*.5F)));
+      for(int k=0;k<3;++k) s.obb.halfAxes[k]=rbMul(
+          rbV(s.R1[k],s.R1[k+3],s.R1[k+6]),(hi[k]-lo[k])*.5F);
+    }
     steps.push_back(s);
     stepOf[i] = (short)(steps.size() - 1);
     return (int)steps.size() - 1;
@@ -24582,7 +24595,8 @@ void TerrainGame::updateObjectPhysics() {
 
   auto satContact = [&](const RbStep& A, const PhysBody& Ba,
                          const RbV* bv, int bnv, const RbV* bn, int bnn,
-                         const RbV* be, int bne, RbCand& result, RbV motionB) {
+                         const RbV* be, int bne, RbCand& result, RbV motionB,
+                         const Tyra::CollisionObb* boxB = nullptr) {
     if (!Tyra::collisionBoundsOverlap(A.bounds,
         Tyra::convexMotionBounds(bv, bnv, motionB))) return false;
     RbV normals[44], edges[66];
@@ -24593,8 +24607,9 @@ void TerrainGame::updateObjectPhysics() {
     Tyra::ConvexContact c;
     const Tyra::ConvexView av = {A.wv,A.nv,normals,Ba.planes,edges,Ba.edges};
     const Tyra::ConvexView bvView = {bv,bnv,bn,bnn,be,bne};
-    if (!Tyra::convexContact(av,bvView,c) &&
-        !Tyra::convexSweepContact(av,bvView,rbSub(A.x1,A.x0),motionB,c)) return false;
+    if (!Tyra::convexMotionContact(av, bvView, rbSub(A.x1, A.x0), motionB, c,
+        A.box ? &A.obb : nullptr, boxB))
+      return false;
     result.n = c.normal; result.p = c.point; result.depth = c.depth;
     return true;
   };
@@ -24946,7 +24961,9 @@ void TerrainGame::updateObjectPhysics() {
         for (int c = 0; c < 8; ++c)
           verts[c] = rbAdd(bc, rbMat(Bm, rbV((c&1)?h[0]:-h[0],
               (c&2)?h[1]:-h[1], (c&4)?h[2]:-h[2])));
-        if (satContact(S, B, verts, 8, axes, 3, axes, 3, cand[0], rbV(0,0,0))) n = 1;
+        const Tyra::CollisionObb box={bc,{rbMul(axes[0],h[0]),
+            rbMul(axes[1],h[1]),rbMul(axes[2],h[2])}};
+        if (satContact(S, B, verts, 8, axes, 3, axes, 3, cand[0], rbV(0,0,0), &box)) n = 1;
       }
       if (doorway) {  // through a wall portal only the floor answers
         int m = 0;
@@ -25085,7 +25102,8 @@ void TerrainGame::updateObjectPhysics() {
         for (int k = 0; k < Bj.edges; ++k)
           edges[k] = rbMat(Bs.R1, rbV(Bj.le[k*3], Bj.le[k*3+1], Bj.le[k*3+2]));
         if (satContact(A, Ba, Bs.wv, Bs.nv, normals, Bj.planes,
-                       edges, Bj.edges, cand[0], rbSub(Bs.x1,Bs.x0))) n = 1;
+                       edges, Bj.edges, cand[0], rbSub(Bs.x1,Bs.x0),
+                       Bs.box ? &Bs.obb : nullptr)) n = 1;
       }
       if (!n) continue;
       if (Bs.asleep) {

@@ -11,6 +11,7 @@ under it as that release's notes, and the release's own page carries the date.
 ## 2.2.1
 
 - Dense physics scenes reject disjoint swept hull bounds before expensive contact tests. Rigid-body contact storage and vehicle prop candidates grow as needed instead of silently truncating at 384 contacts or eight props.
+- Convex SAT and linear CCD share axis projections; primitive boxes use analytic oriented-box projection while retaining the face and edge tests.
 
 ## 2.2.0
 

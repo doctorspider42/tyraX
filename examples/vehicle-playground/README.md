@@ -167,3 +167,6 @@ warnings or assertions. See the [integration record](../../docs/tyrax-2.0.md#sho
 Dense-prop collision follow-up: generated runtime uses conservative swept-hull
 envelopes and growing contact/car-prop lists. The old 384-contact/eight-prop
 caps no longer discard entries. See [physics](../../docs/physics.md) for scope.
+
+The convex fallback shares discrete/continuous projections; primitive boxes
+use cached oriented half-axes while retaining the full SAT axis set.

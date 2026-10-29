@@ -63,3 +63,8 @@ conservative bounds test, including separated-endpoint pass-throughs. The
 collision stress rig's new completeness columns also require all generated
 contacts to reach the solver and all car-prop candidates to be tested. Use
 `--uncapped-baseline` for equal-completeness performance comparisons.
+
+The envelope oracle also compares the shared-projection SAT/CCD routine with
+the independent discrete-then-sweep reference (hit, depth, normal, point), and
+requires analytic OBB projection to retain every reference hit. OBB projection
+rounds outward; it keeps all face/edge axes and is enabled only for known boxes.

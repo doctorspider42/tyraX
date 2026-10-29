@@ -135,3 +135,30 @@ SAT/CCD hit, including separated-endpoint pass-throughs. New runtime counters
 check that every generated manifold point reaches the solver and every car
 candidate reaches its exact test. Hardware qualification of the fix is separate
 from these pre-fix diagnostic numbers.
+
+## First fix: complete contact handling and swept bounds
+
+The `b0d798cb5` physical-console run completed all 28 phases and 16,800 frames.
+Unlike the original capped test, **both** arms used a growing car-prop list and
+an uncapped solver. The reference was `cc1f8895b` physics/broad-phase code with
+the contact cap removed, sharing candidate runtime layouts and rendering.
+This is an equal-completeness algorithm comparison, not stock-main performance.
+
+| Added pile boxes | Prior algorithms, uncapped | Swept-bounds fix | Physics p95, prior → fix |
+| --- | ---: | ---: | ---: |
+| 32 | 49.5 FPS | 50.3 FPS | 11.34 → 9.66 ms |
+| 64 | 29.5 FPS | 32.1 FPS | 30.94 → 23.75 ms |
+| 128 | 15.8 FPS | 16.8 FPS | 69.52 → 59.16 ms |
+
+Every frame in both arms had `generated_contacts == contacts` and
+`push_candidates == push_tested`, with no contact truncation. The candidate
+reached 929 contacts in a driving frame; the reference reached 962. This is
+real extra work compared with the old cap, and car trajectories differ too.
+The bounds change alone does not recover 60 FPS for piles. Scattered +32/+64
+still hold 59.94 FPS; +128 averages 59.3 FPS in the candidate.
+
+The [first-fix summary](../tools/ps2rig/results/collision-bounds-2026-10-29.json)
+and [raw frames](../tools/ps2rig/results/collision-bounds-2026-10-29.csv.gz)
+retain both repeats, accounting columns and source/ELF hashes. The subsequent
+projection optimization shares the SAT/CCD projection pass and uses analytic
+OBB ranges for primitive boxes; its console qualification is separate.
