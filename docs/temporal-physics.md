@@ -90,8 +90,10 @@ contacts. The two input buffers remain immutable until their result consumption
 finishes; the outer pair loop can reuse a buffer only afterwards. Reconstruction
 and scalar positive-CCD confirmations use no COP2 instructions while the next
 packet runs. Contact insertion/compaction and solver order remain unchanged.
-This is an experimental scheduling change pending its own console qualification;
-the timing results above describe the preceding implementation.
+The chained schedule and near-minimum guard passed a subsequent physical
+1,200-frame shadow run with 95,798 jobs, no missed hits, hard errors or capacity
+omissions. The whole-scene timing table above still describes the preceding
+implementation; shadow-mode frame times are not a performance comparison.
 
 The fixed-input `--micro-stream` probe separates scalar SAT/CCD, the preceding
 micro schedule, chained micro scheduling, packing alone and chained prepacked
@@ -156,7 +158,11 @@ Small accepted differences remain in the simulation, and are counted separately
 from hard failures. This avoids testing a scalar-repaired trajectory while
 timing another one. Large CCD support-feature changes still use the original
 scalar confirmation. Near-equal discrete minimum axes may differ within the
-physical tolerances; no extra per-axis tie detector is required for bit identity.
+physical tolerances. A subsequent chained-schedule shadow run exposed a rare
+contact-point difference of 1.54% of radius, exceeding the 1% gate despite a
+normal difference of only 0.00142. Distinct near-minimum axes now request the
+canonical scalar feature selection. This guard preserves the existing tolerances
+instead of widening them; its dedicated host case fails without the guard.
 The sidecar records numerical differences, extra shallow touches, missed
 reference hits and maximum normalized errors. `vu0_sat_analyze.py` validates
 those bounds along with every-contact accounting, complete phases, finite
@@ -418,3 +424,36 @@ the capture rendered correctly. The [default smoke metadata](../tools/ps2rig/res
 records working-source/function hashes and the ELF; this gate includes the final
 lazy-allocation control flow, rather than claiming that an unmeasured stock ELF
 has exactly the benchmark's frame rate. The console was returned to ps2link.
+
+The first fixed-input scheduling probe at `704637a51` measured mixed-pair
+medians of 28.755 us (preceding micro) versus 19.197 us (chained), and coincident
+centres of 56.461 versus 34.076 us. Scalar was 16.744/27.390 us. The associated
+full-scene shadow had one point-tolerance failure and is rejected; these backend
+costs alone do not qualify the new runtime. Profiling now distinguishes scalar
+CCD, tied-axis/sign and near-parallel confirmations so duplicated EE work can
+be attributed before another kernel redesign.
+
+The qualified fixed-input follow-up uses the same ELF for each schedule, with
+the near-minimum guard and confirmation counters enabled:
+
+| Corpus | Scalar us/pair | Previous schedule | Chained | Chained, prepacked |
+|---|---:|---:|---:|---:|
+| Mixed | 16.805 | 32.500 | 21.547 | 20.604 |
+| Coincident centres | 27.456 | 60.186 | 34.846 | 33.280 |
+
+These are medians across eight alternating-order repeats, including contact
+reconstruction and integer result hashing. Packing-only costs 3.42 us/pair;
+prepacking saves much less on the chained critical path, so packet preparation
+alone does not explain the gap. The chained schedule is 34%/42% faster than the
+previous micro schedule in these corpora, but still slower than scalar.
+
+Confirmation counters reveal duplicated work: mixed inputs confirm 12.95% of
+jobs for positive CCD and 32.14% for ambiguous/tied axes; coincident centres
+confirm **100%** for ambiguity. The latter intentionally stresses an adverse
+case and must not be generalized to all pile contacts. Further work should avoid
+micro dispatch when scalar confirmation is inevitable, track uncertainty only
+for the final winning/competing axes, and measure ordinary offset overlaps.
+The backend remains default-off. The [stream report](../tools/ps2rig/results/vu0-chain-2026-10-29.json)
+and [shadow report](../tools/ps2rig/results/vu0-chain-shadow-2026-10-29.json)
+retain exact source/ELF hashes. The [initial report](../tools/ps2rig/results/vu0-chain-initial-2026-10-29.json)
+explicitly records the rejected runtime gate.

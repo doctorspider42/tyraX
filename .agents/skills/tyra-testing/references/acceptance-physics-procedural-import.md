@@ -18,6 +18,9 @@ scalar, previous/chained micro, packing-only and prepacked chained paths.
 `vu0_stream_analyze.py` requires all 80 rows and equal hashes across micro
 schedules. Interpret this as backend cost, not whole-scene FPS. Preserve a
 separate full-scene shadow pass for buffer lifetime/contact-order changes.
+The distinct near-minimum-axis startup case must set the scalar confirmation
+flag; removing its guard must fail the host oracle. Record confirmation counters
+(CCD/tie/parallel) when attributing stream throughput.
 No Vec4/COP2 calls may run while another micro packet is active, including
 inside EE result reconstruction or canonical positive-CCD confirmation.
 

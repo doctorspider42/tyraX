@@ -11,6 +11,11 @@ def main():
     assert {(int(r['workload']),int(r['repeat']),int(r['mode']))for r in rows}=={
         (w,r,m)for w in range(2)for r in range(8)for m in range(5)}
     assert all(int(r['ticks'])>0 and int(r['jobs'])==1792 for r in rows)
+    for r in rows:
+        if 'confirmed_ccd' in r:
+            confirmations=[int(r[k])for k in ['confirmed_ccd','confirmed_tie','confirmed_parallel']]
+            assert all(n>=0 for n in confirmations) and sum(confirmations)<=int(r['jobs'])
+            if int(r['mode'])in [0,3]:assert sum(confirmations)==0
     log=a.log.read_text(encoding='utf8',errors='replace')
     assert 'VUSTREAM cases=224 repeats=8 failures=0 file=1' in log
     for w in range(2):
@@ -27,6 +32,9 @@ def main():
             entry['modes'].append(dict(mode=name,median_us_per_pair=statistics.median(us),
                 min_us_per_pair=min(us),max_us_per_pair=max(us),samples_us_per_pair=us,
                 mean_wait_us_per_pair=statistics.mean(int(r['wait_ticks'])/294.912/int(r['jobs'])for r in selected)))
+            if 'confirmed_ccd' in selected[0]:
+                entry['modes'][-1]['mean_confirmation_fraction']={k:statistics.mean(int(r[k])/int(r['jobs'])for r in selected)
+                    for k in ['confirmed_ccd','confirmed_tie','confirmed_parallel']}
         result.append(entry)
     out=dict(summary=result,rows=rows,csv_sha256=hashlib.sha256(a.csv.read_bytes()).hexdigest(),
              log_sha256=hashlib.sha256(a.log.read_bytes()).hexdigest(),

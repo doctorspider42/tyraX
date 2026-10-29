@@ -119,6 +119,38 @@ ibeq overlapping, vi00, sweepAxis
 sub.x plusDepth, bhi, alo[x]
 sub.x minusDepth, ahi, blo[x]
 mini.x axisDepth, plusDepth, minusDepth[x]
+; Near-equal distinct axes can exchange rank on EE and move support points.
+sub.x margin, axisDepth, bestDepth[x]
+abs.x margin, margin
+abs.x tolerance, axisDepth
+add.x tolerance, tolerance, vf00[w]
+loi 0.00001
+muli.x tolerance, tolerance, i
+sub.x comparison, tolerance, margin[x]
+clipw.xyz comparison, zero
+fcand VI01, 0x1
+ibeq VI01, vi00, depthTieDone
+mul.xyz temp, direction, bestNormal
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+sub.x comparison, zero, projection[x]
+clipw.xyz comparison, zero
+fcand VI01, 0x1
+ibne VI01, vi00, depthTieFlipped
+sub.xyz temp, direction, bestNormal
+b depthTieDifference
+depthTieFlipped:
+add.xyz temp, direction, bestNormal
+depthTieDifference:
+mul.xyz temp, temp, temp
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+sub.x comparison, projection, constants[y]
+clipw.xyz comparison, zero
+fcand VI01, 0x1
+ibeq VI01, vi00, depthTieDone
+iaddiu uncertain, vi00, 1
+depthTieDone:
 sub.x margin, plusDepth, minusDepth[x]
 abs.x margin, margin
 loi 0.00001

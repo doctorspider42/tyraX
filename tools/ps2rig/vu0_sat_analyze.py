@@ -45,6 +45,8 @@ def main():
  assert sum(m['jobs']for m in metrics)>0
  assert sum(m['busy_ee_query']for m in metrics)>0,'No sampled EE/VU0 overlap'
  log=a.log.read_text(encoding='utf8',errors='replace')
+ metadata=json.loads(a.metadata.read_text(encoding='utf8'))
+ if metadata.get('min_axis_guard'):assert 'VUSATTIE cases=1 failures=0' in log
  assert f'VUSAT mode={a.mode}' in log
  assert 'VUSATCHECK cases=2048 failures=0 ' in log
  assert 'VU0OWNERCHECK switches=3 failures=0' in log
@@ -59,7 +61,7 @@ def main():
   return 'vu0-micro' if value=='cache-only' else value
  summary=labels(summary)
  out=dict(mode=a.mode,settle_check=a.settle_check,measured_frames=rows_total,startup_oracle_cases=2048,
-          metadata=json.loads(a.metadata.read_text(encoding='utf8')),summary=summary,
+          metadata=metadata,summary=summary,
           micro_metrics=metrics,raw_sha256=hashes,log_sha256=hashlib.sha256(a.log.read_bytes()).hexdigest(),
           accounting='All arms: generated=stored contacts, car candidates=tested, no capacity omissions; finite and scope gates pass. Reference geometry is compared only in verify mode.',
           reference_comparison_performed=a.mode=='verify',

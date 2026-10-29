@@ -10,6 +10,7 @@ under it as that release's notes, and the release's own page carries the date.
 
 ## 2.4.0
 
+- Experimental asynchronous VU0 SAT/CCD overlaps packet execution with EE contact reconstruction. Full collision coverage is preserved, with canonical scalar selection for ambiguous contacts. The backend remains disabled by default; physical-console reports distinguish isolated backend throughput from whole-scene FPS.
 - Rigid-body collision queries use conservative swept hull bounds and cached transforms/axes without reducing contact coverage or solver passes. The cache is enabled; warm starting and coordinated island sleeping remain experimental opt-ins after physical-console comparison. Collider caches initialize only when active physics needs them.
 
 ## 2.3.0

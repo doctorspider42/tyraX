@@ -54,6 +54,11 @@ bool finishVu0Sat(const Vu0SatResult& r, const Vu0SatJob& job, const ConvexView&
   // A tied minimum cannot invalidate a separating-axis proof. Confirm ties
   // only when they would choose a contact, not for already separated pairs.
   if(vu0SatScalarPreferred(job) || tiedHit || sweepHit) {
+#if TYRA_VU0_SAT_PROFILE
+    vu0SatMetrics.confirmedCcd+=sweepHit;
+    vu0SatMetrics.confirmedTie+=tiedHit;
+    vu0SatMetrics.confirmedParallel+=vu0SatScalarPreferred(job);
+#endif
     CollisionObb boxes[2];
     for(int k=0;k<2;++k) {
       const float* c=job.q[k*4];boxes[k].centre={c[0],c[1],c[2]};

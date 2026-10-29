@@ -243,3 +243,11 @@ sample processes 1792 pairs, eight repeats in alternating order. Micro modes
 oracle but need not have bit-identical contacts. No file I/O, solver or reference
 comparison runs inside timed samples. This isolates backend costs; it does not
 predict whole-scene FPS or replace the full-scene shadow qualification.
+
+Stream CSV confirmation counters identify canonical EE work repeated after VU0:
+confirmed_ccd, confirmed_tie and confirmed_parallel. The distinct near-minimum
+startup case must print VUSATTIE failures=0; its guard-disabled host falsifier
+must fail. Both assemblers fit the guarded kernel in 4KB (openvcl2416B/Sony2480B).
+See results/vu0-chain-2026-10-29.json and its separate full-scene shadow report.
+The initial scheduling run has an explicitly rejected point-tolerance gate;
+never silently relax tolerances or count repaired results as a passing trial.

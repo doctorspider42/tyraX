@@ -49,11 +49,26 @@ inline bool compare(const Case& c,const Tyra::Vu0SatJob& job,const Tyra::Vu0SatR
   maxDepth=std::max(maxDepth,d);maxNormal=std::max(maxNormal,n);maxPoint=std::max(maxPoint,p);
   return comparison.accepted;
 }
+inline Case nearTie() {
+  using namespace Tyra;Case c{};
+  for(int k=0;k<2;++k){const float yaw=k*.0014f,cy=std::cos(yaw),sy=std::sin(yaw);
+    c.edges[k][0]={cy,0,-sy};c.edges[k][1]={0,1,0};c.edges[k][2]={sy,0,cy};
+    c.box[k].centre=k?CollisionV3{.003f,.1f,.2f}:CollisionV3{};
+    for(int a=0;a<3;++a){c.normals[k][a*2]=c.edges[k][a];c.normals[k][a*2+1]=cvMul(c.edges[k][a],-1);c.box[k].halfAxes[a]=cvMul(c.edges[k][a],.5f);}
+    for(int v=0;v<8;++v){c.vertices[k][v]=c.box[k].centre;for(int a=0;a<3;++a)c.vertices[k][v]=cvAdd(c.vertices[k][v],cvMul(c.box[k].halfAxes[a],v&(1<<a)?1.f:-1.f));}
+  }
+  return c;
+}
 #ifdef _EE
 inline bool run() {
   using namespace Tyra;Vu0SatBatch batch;if(!batch.begin())return false;
   Case cases[Vu0SatBatch::Capacity];Vu0SatJob jobs[Vu0SatBatch::Capacity];Vu0SatResult results[Vu0SatBatch::Capacity];
   unsigned seed=0x534154,failures=0;float depth=0,normal=0,point=0;
+  {auto c=nearTie();Vu0SatJob job;Vu0SatResult result;
+    if(!packVu0Sat(job,c.view(0),c.view(1),c.box[0],c.box[1],c.motion[0],c.motion[1]) || vu0SatScalarPreferred(job))return false;
+    batch.start(&job,1);batch.finish(&result);
+    const bool ok=result.flags[3]>=2 && compare(c,job,result,depth,normal,point);
+    printf("VUSATTIE cases=1 failures=%u\n",ok?0u:1u);fflush(stdout);if(!ok)return false;}
   for(int first=0;first<2048;first+=Vu0SatBatch::Capacity) {
     const int count=std::min(Vu0SatBatch::Capacity,2048-first);
     for(int i=0;i<count;++i){make(cases[i],seed,first+i);if(!packVu0Sat(jobs[i],cases[i].view(0),cases[i].view(1),cases[i].box[0],cases[i].box[1],cases[i].motion[0],cases[i].motion[1]))return false;}

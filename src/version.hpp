@@ -5621,6 +5621,7 @@
 // 2.2.1: conservative swept-hull rejection and untruncated physics/vehicle props.
 // 2.3.0: prepared contact response matrices and compact scalar/VU0 solver buffers.
 // 2.4.0: temporal geometry/contact caches and dynamic contact islands.
+// Experimental default-off asynchronous VU0 SAT/CCD, chained packets and canonical ambiguous-contact selection.
 #define TYRAX_VERSION_PATCH 0
 // 2.1.1: the release workflow publishes CHANGELOG.md's "## <version>" section
 // as the release notes (generated notes when the changelog names no such
