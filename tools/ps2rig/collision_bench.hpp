@@ -5,6 +5,12 @@
 #ifndef TYRA_SOLVER_COMPARISON
 #define TYRA_SOLVER_COMPARISON 0
 #endif
+#ifndef TYRA_TEMPORAL_COMPARISON
+#define TYRA_TEMPORAL_COMPARISON 0
+#endif
+#ifndef TYRA_TEMPORAL_ARMS
+#define TYRA_TEMPORAL_ARMS 4
+#endif
 #ifndef TYRA_TEMPORAL_SETTLE
 #define TYRA_TEMPORAL_SETTLE 0
 #endif
@@ -23,7 +29,7 @@ inline int solverArm = 0;
 inline int added = 0, layout = 0, repeat = 0;
 constexpr int warm = 150, park = TYRA_TEMPORAL_SETTLE?600:120, drive = TYRA_TEMPORAL_SETTLE?60:360, settle = TYRA_TEMPORAL_SETTLE?600:120,
               total = warm + park + drive + settle,
-              phases = TYRA_TEMPORAL_SETTLE ? 6 : TYRA_SOLVER_COMPARISON ? 42 : 28;
+              phases = TYRA_TEMPORAL_SETTLE ? TYRA_TEMPORAL_ARMS*2 : TYRA_TEMPORAL_COMPARISON ? TYRA_TEMPORAL_ARMS*14 : TYRA_SOLVER_COMPARISON ? 42 : 28;
 constexpr int maxRows=TYRA_TEMPORAL_SETTLE?2048:1024;
 inline U phys = 0, awake = 0, contacts = 0, drops = 0, pushDrops = 0,
          pushes = 0;
@@ -55,12 +61,13 @@ inline const char *state(int f) {
 }
 inline void configure() {
 #if TYRA_TEMPORAL_SETTLE
-  repeat=phase/3;solverArm=repeat?2-phase%3:phase%3;baseline=solverArm==0;added=64;layout=1;return;
+  repeat=phase/TYRA_TEMPORAL_ARMS;solverArm=repeat?TYRA_TEMPORAL_ARMS-1-phase%TYRA_TEMPORAL_ARMS:phase%TYRA_TEMPORAL_ARMS;baseline=solverArm==0;added=64;layout=1;return;
 #endif
 #if TYRA_SOLVER_COMPARISON
-  repeat = phase / 21;
-  const int variant = (phase / 3) % 7;
-  solverArm = repeat ? 2 - phase % 3 : phase % 3;
+  constexpr int arms=TYRA_TEMPORAL_COMPARISON?TYRA_TEMPORAL_ARMS:3;
+  repeat = phase / (7*arms);
+  const int variant = (phase / arms) % 7;
+  solverArm = repeat ? arms-1-phase%arms : phase%arms;
   baseline = solverArm == 0;
   added = variant == 0                   ? 0
           : variant == 1 || variant == 4 ? 32

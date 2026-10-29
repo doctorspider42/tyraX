@@ -154,7 +154,7 @@ three times. The final lazy/direct response report is linked from
 
 Use --temporal-comparison --baseline ef9597bda --uncapped-baseline instead of
 the prepared-solver comparison. This keeps the previous scalar solver and
-compares prior / geometry cache / cache + warm starting + islands, 42 phases
+compares prior / geometry cache / cache + warm starting / added islands, 56 phases
 with reversed order on repeat. Analyze with --temporal-comparison --complete.
 The CSV adds prediction/world/body/write-back stages, nested grid/query/SAT,
 warm match/island counts, summed squared velocities and maximum contact depth.
@@ -162,8 +162,10 @@ Energy and penetration are stability diagnostics; driven scenes inject energy,
 and per-frame velocity units change with measured dt. Do not call them a
 mass-weighted energy conservation proof or add nested scopes to their parents.
 
-The additional --settle-check mode records six 64-box stationary phases
-(three arms in both orders), 1,260 rows each: park 600, known base impulse,
+The additional --settle-check mode records eight 64-box stationary phases
+(four arms in both orders), 1,260 rows each: park 600, known base impulse,
 wake 60, recover 600 after 150 warm frames. Analyze with --settle-check
 --complete. Copy all baked resources including reflpano/*.bin; a generic
 *.bin exclusion silently replaces reflections and invalidates performance.
+
+Use --temporal-arms 3 to analyze/replay the first three-arm prototype.

@@ -15,6 +15,7 @@ parser.add_argument('--baseline',default='e4acb7379',help='Baseline commit for e
 parser.add_argument('--uncapped-baseline',action='store_true',help='Remove the reference solver cap for an equal-completeness comparison')
 parser.add_argument('--solver-comparison',action='store_true',help='42 phases: prior solver, prepared scalar, prepared VU0; reverse order on repeat')
 parser.add_argument('--temporal-comparison',action='store_true',help='42 phases: reference, geometry cache, cache + warm starting + islands')
+parser.add_argument('--temporal-arms',type=int,choices=[3,4],default=4,help='Four arms separate warm starting from islands; three replays the initial prototype')
 parser.add_argument('--settle-check',action='store_true',help='Six stationary 64-box pile phases: settle, known base impulse, recover')
 args=parser.parse_args()
 if args.settle_check:args.temporal_comparison=True
@@ -49,7 +50,7 @@ if not (proj/'src/gen/game_physics.gen.cpp').is_file():raise SystemExit('Generat
 if 'updateObjectPhysicsCandidate' in (proj/'inc/terrain_game.hpp').read_text(encoding='utf8'):raise SystemExit('Fixture is already instrumented')
 
 # Strip BOMs and preserve LF for every injected engine source.
-(eng/'inc/debug/collision_bench.hpp').write_bytes((('#define TYRA_TEMPORAL_SETTLE 1\n' if args.settle_check else '')+('#define TYRA_SOLVER_COMPARISON 1\n#define TYRA_TEMPORAL_COMPARISON 1\n' if args.temporal_comparison else '#define TYRA_SOLVER_COMPARISON 1\n' if args.solver_comparison else '')+(rig/'collision_bench.hpp').read_text(encoding='utf-8-sig')).encode())
+(eng/'inc/debug/collision_bench.hpp').write_bytes((('#define TYRA_TEMPORAL_SETTLE 1\n' if args.settle_check else '')+(f'#define TYRA_TEMPORAL_ARMS {args.temporal_arms}\n' if args.temporal_comparison else '')+('#define TYRA_SOLVER_COMPARISON 1\n#define TYRA_TEMPORAL_COMPARISON 1\n' if args.temporal_comparison else '#define TYRA_SOLVER_COMPARISON 1\n' if args.solver_comparison else '')+(rig/'collision_bench.hpp').read_text(encoding='utf-8-sig')).encode())
 for rel in ['inc/physics/broad_phase.hpp','src/physics/broad_phase.cpp']:
  text=subprocess.check_output(['git','-C',str(repo),'show',f'{base}:vendor/tyra/engine/{rel}']).decode('utf8')
  text=text.replace('namespace Tyra {','namespace BaselineTyra {').replace('namespace Tyra','namespace BaselineTyra')
@@ -171,7 +172,7 @@ for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
   s=s.replace('TYRA_PHYSICS_SOLVER_VU0 != 0','CB::solverArm == 2')
   s=('#define TYRA_PHYSICS_PREPARED 0\n' if args.temporal_comparison else '#define TYRA_PHYSICS_PREPARED 1\n')+s
   if args.temporal_comparison:
-   for flag,value in [('COHERENCE','CB::solverArm >= 1'),('WARM_START','CB::solverArm == 2'),('ISLANDS','CB::solverArm == 2')]:
+   for flag,value in [('COHERENCE','CB::solverArm >= 1'),('WARM_START','CB::solverArm >= 2'),('ISLANDS',f'CB::solverArm == {args.temporal_arms-1}')]:
     token='TYRA_PHYSICS_'+flag+' != 0';assert s.count(token)==1;s=s.replace(token,value)
    assert s.index('  // --- 4.') < s.index('  // Independent dynamic components:')
  if args.solver_comparison:
@@ -224,9 +225,10 @@ meta={'baseline':subprocess.check_output(['git','-C',str(repo),'rev-parse',base]
 meta['uncapped_baseline']=args.uncapped_baseline
 meta['solver_comparison']=args.solver_comparison
 meta['temporal_comparison']=args.temporal_comparison
-if args.solver_comparison:meta['phases']=42
+if args.temporal_comparison:meta.update(phases=args.temporal_arms*14,temporal_arms=args.temporal_arms)
+if args.solver_comparison and not args.temporal_comparison:meta['phases']=42
 meta['settle_check']=args.settle_check
-if args.settle_check:meta['phases']=6
+if args.settle_check:meta['phases']=args.temporal_arms*2
 (root/'metadata.json').write_text(json.dumps(meta,indent=2),encoding='utf8')
 print('Instrumented same-ELF baseline/candidate arms:',meta)
 
@@ -234,5 +236,5 @@ shot=(repo/'tools/ps2rig/cld_shot.hpp').read_text(encoding='utf8').replace('#inc
 shot=shot[:shot.index('inline void maybe(')]+'}\n'
 (eng/'inc/debug/collision_shot.hpp').write_bytes(shot.encode())
 p=proj/'src/terrain_game.cpp';text=p.read_text(encoding='utf8');text='#include "debug/collision_shot.hpp"\n'+text
-text=text.replace('  engine->renderer.endFrame();','  engine->renderer.endFrame();\n  if(CB::ready && CB::frame==120 && (CB::phase==0 || CB::phase==1 || (!TYRA_SOLVER_COMPARISON && (CB::phase==12 || CB::phase==13)) || (TYRA_SOLVER_COMPARISON && (CB::phase==2 || CB::phase==18 || CB::phase==19 || CB::phase==20)))) {char name[64];snprintf(name,sizeof(name),"collision-photo-%02d.tga",CB::phase);CldShot::grab(engine,name);g_frameClockLast=0;}',1)
+text=text.replace('  engine->renderer.endFrame();','  engine->renderer.endFrame();\n  if(CB::ready && CB::frame==120 && ((TYRA_TEMPORAL_COMPARISON && (CB::phase<TYRA_TEMPORAL_ARMS || (!TYRA_TEMPORAL_SETTLE && CB::phase>=6*TYRA_TEMPORAL_ARMS && CB::phase<7*TYRA_TEMPORAL_ARMS))) || (!TYRA_TEMPORAL_COMPARISON && (CB::phase==0 || CB::phase==1 || (!TYRA_SOLVER_COMPARISON && (CB::phase==12 || CB::phase==13)) || (TYRA_SOLVER_COMPARISON && (CB::phase==2 || CB::phase==18 || CB::phase==19 || CB::phase==20)))))) {char name[64];snprintf(name,sizeof(name),"collision-photo-%02d.tga",CB::phase);CldShot::grab(engine,name);g_frameClockLast=0;}',1)
 p.write_text(text,encoding='utf8',newline='\n')

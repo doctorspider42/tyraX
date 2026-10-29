@@ -90,9 +90,12 @@ FPS alongside solver cost: +128 VU0 had cheaper solves but lower FPS.
 
 Temporal physics acceptance: build/run tools/verify-contact-history.cpp and the
 cached-axis extension of verify-collision-envelope.cpp. The temporal rig uses
---temporal-comparison --baseline ef9597bda --uncapped-baseline for 42 phases:
-prior scalar, geometry cache only, cache + warm starting + islands. Analyze
+--temporal-comparison --baseline ef9597bda --uncapped-baseline for 56 phases:
+prior scalar, geometry cache only, cache + warm starting, then added islands. Analyze
 with --temporal-comparison --complete. All arms keep six velocity/three split
 passes and full contacts. Stage scopes for grid/query/SAT are nested; do not
 sum them again into world/body parents. Track velocity-energy, penetration,
 awake populations and warm matches, and check waking after a car impact.
+
+The stationary --settle-check gate uses eight four-arm phases, 1260 rows each.
+Use --temporal-arms 3 only for the archived initial six-phase prototype.

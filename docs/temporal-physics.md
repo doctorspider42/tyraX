@@ -3,9 +3,9 @@
 This experiment measures geometry coherence, persistent contact impulses and
 independent dynamic islands without reducing collision coverage or solver passes.
 
-The previous scalar integration is the reference. A same-ELF three-arm rig
-compares reference, geometry/axis caches alone, and caches plus warm starting
-and islands, with reversed arm order in a second repeat. Stage timings include
+The previous scalar integration is the reference. A same-ELF four-arm rig
+compares reference, geometry/axis caches alone, caches plus warm starting, and
+caches plus warm starting and islands, with reversed arm order in a second repeat. Stage timings include
 prediction, world contacts, body-grid construction, body contacts, solver and
 write-back; nested query/SAT scopes must not be added twice to their parents.
 Host gates cover cached-axis CCD conservatism, contact identity/invalidation,
@@ -43,11 +43,11 @@ diagnostic occurred. Physical-console qualification follows separately.
 
 ## Stationary settle and wake gate
 
-`collision_stress.py --settle-check` uses the same three arms and reversed
+`collision_stress.py --settle-check` uses the same four arms and reversed
 repeat order, with 64 piled boxes and no driving. After 150 warm frames it
 records 600 park frames, applies one horizontal 0.12 per-frame velocity impulse
 to a base box, records a 60-frame wake interval and 600 recovery frames.
-All six phases must have 1,260 rows. The test checks late-park/late-recovery
+All eight phases must have 1,260 rows. The test checks late-park/late-recovery
 motion and the first frames after the impulse, in addition to complete contacts
 and finite disjoint/nested timing scopes. It does not replace representative
 non-box or moving-support qualification.
@@ -66,3 +66,14 @@ bodies, versus 2 and 1 in the prior-solver repeats: whole-component waking is
 functionally conservative but can increase transient workload substantially.
 This motivates measuring warm starting separately from coordinated islands.
 Emulator timings are not physical PS2 performance evidence.
+
+## Separate warm starting from island wake cost
+
+The initial three-arm stationary probe is preserved as
+[stability summary](../tools/ps2rig/results/temporal-settle-emulator-2026-10-29.json)
+and [raw rows](../tools/ps2rig/results/temporal-settle-emulator-2026-10-29.csv.gz).
+It is explicitly emulator-only, not a performance qualification. The revised
+rig uses four arms by default: reference, cache, cache + warm starting, and
+cache + warm starting + islands. The full driving matrix is 56 phases and
+33,600 measured frames; the stationary matrix is eight phases and 10,080 rows.
+Use `--temporal-arms 3` only to replay/analyze the initial prototype.
