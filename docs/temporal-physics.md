@@ -30,6 +30,23 @@ first openvcl image is 2,048 bytes. These gates do not qualify assembled-code
 execution or establish a console speedup; console validation and same-ELF
 timing remain required.
 
+The extended gate adds 2,048 mixed seven-job batches with six face normals,
+touching faces, near-parallel orientations, large coordinates and separated
+CCD endpoints. The data-memory sentinel survives. A deliberately inverted
+axis gate fails immediately, proving the oracle observes the tested path.
+Near-parallel jobs use the original scalar tie policy; the runtime does not
+queue those jobs. Rejected micro jobs also restore separating-axis history.
+The default-off runtime compiles out batch storage and VU0 calls.
+
+`collision_stress.py --micro-comparison --baseline 0647f5596` prepares the
+same-ELF 28-phase console comparison. It runs an assembled-kernel 2,048-case
+oracle before measurements. A boot-time `bin/sat-verify.cfg` enables shadow
+comparison of runtime micro jobs with the full scalar result; remove the file
+for timing the same ELF. Per-phase `vu0-phase-*.csv` records actual jobs,
+batches, busy observations during EE queries, completion waits and validation
+errors. Busy observations prove overlap at those sample points, not overall
+VU utilization. Shadow-enabled runs are correctness evidence, not performance.
+
 
 ## Selected defaults and final PS2 result
 

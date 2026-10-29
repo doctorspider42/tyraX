@@ -2,6 +2,7 @@
 #include "vuasm.hpp"
 #include "vusim.hpp"
 #include "physics/vu0_sat.hpp"
+#include "ps2rig/vu0_sat_probe.hpp"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -44,4 +45,19 @@ int main(int argc,char** argv) {
     }else ++misses;
   }
   std::printf("10000 VCL SAT/CCD pairs: %d hits, %d misses; max errors depth=%g normal=%g point=%g\n",hits,misses,maxDepth,maxNormal,maxPoint);
+  unsigned seed=0x534154;
+  for(int first=0;first<2048;first+=Vu0SatBatch::Capacity) {
+    const int count=std::min(Vu0SatBatch::Capacity,2048-first);
+    Vu0SatProbe::Case cases[Vu0SatBatch::Capacity];Vu0SatJob jobs[Vu0SatBatch::Capacity];
+    for(int i=0;i<count;++i){Vu0SatProbe::make(cases[i],seed,first+i);assert(packVu0Sat(jobs[i],cases[i].view(0),cases[i].view(1),cases[i].box[0],cases[i].box[1],cases[i].motion[0],cases[i].motion[1]));}
+    std::vector<unsigned> mem(1024,0);mem[0]=count;float constants[4]={1e30f,1e-10f,1e-9f,1e-6f};
+    std::memcpy(mem.data()+4,constants,16);std::memcpy(mem.data()+8,jobs,sizeof(Vu0SatJob)*count);
+    mem[1023]=0x12345678;
+    vusim::Config config;config.target=vusim::Target::VU0;auto run=vusim::run(program,mem,config);
+    assert(run.ok && run.warnings.empty() && !run.divByZero && !run.qClobbers && run.mem[1023]==0x12345678);
+    for(int i=0;i<count;++i){Vu0SatResult result;std::memcpy(&result,run.mem.data()+226*4+i*16,sizeof(result));
+      if(!Vu0SatProbe::compare(cases[i],jobs[i],result,maxDepth,maxNormal,maxPoint)){std::fprintf(stderr,"adversarial case=%d flags=%g,%g,%g,%g errors=%g,%g,%g\n",first+i,result.flags[0],result.flags[1],result.flags[2],result.flags[3],maxDepth,maxNormal,maxPoint);return 1;}
+    }
+  }
+  std::printf("2048 mixed seven-job batches: touching/parallel/CCD/large-coordinate cases pass, data sentinel intact\n");
 }

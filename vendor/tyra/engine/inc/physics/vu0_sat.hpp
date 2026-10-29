@@ -13,6 +13,7 @@ struct Vu0SatMetrics {
 };
 inline Vu0SatMetrics vu0SatMetrics;
 inline unsigned vu0SatValidationErrors=0;
+inline bool vu0SatVerify=false; // diagnostic-only shadow oracle, never a shipped poll
 // Only plain scalar data crosses the asynchronous boundary. No Vec4/COP2
 // helpers may execute between start() and finish(), including indirect calls.
 struct alignas(16) Vu0SatJob {
@@ -25,6 +26,10 @@ struct alignas(16) Vu0SatResult {
 bool packVu0Sat(Vu0SatJob& job, const ConvexView& a, const ConvexView& b,
                const CollisionObb& boxA, const CollisionObb& boxB,
                CollisionV3 motionA, CollisionV3 motionB);
+inline bool vu0SatScalarPreferred(const Vu0SatJob& job) {
+  // The flag is stored as integer bits for ILW, not a float value.
+  unsigned value;__builtin_memcpy(&value,&job.q[31][1],sizeof(value));return value!=0;
+}
 bool finishVu0Sat(const Vu0SatResult& result, const Vu0SatJob& job, const ConvexView& a,
                  const ConvexView& b, CollisionV3 motionA, CollisionV3 motionB,
                  ConvexContact& contact);

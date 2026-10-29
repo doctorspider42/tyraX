@@ -189,3 +189,8 @@ Use collision_stress.py with --micro-comparison --baseline 0647f5596.
 This selects two arms and 28 phases, comparing the current scalar pipeline
 with asynchronous dynamic OBB SAT/CCD, retaining cache defaults and synthetic
 pad isolation. This is an experimental backend, disabled in production.
+
+The micro fixture runs tools/ps2rig/vu0_sat_probe.hpp before sampling.
+Create bin/sat-verify.cfg for shadow validation; remove it for timing the
+SAME ELF. Preserve vu0-phase-*.csv with collision-phase-*.csv. Busy query
+samples are overlap witnesses, not VU utilization percentages.

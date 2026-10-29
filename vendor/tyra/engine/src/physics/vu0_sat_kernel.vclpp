@@ -21,7 +21,7 @@ ilw.x axesLeft, 31(jobAddr)
 iaddiu overlapping, vi00, 1
 iaddiu possible, vi00, 1
 iadd found, vi00, vi00
-iadd uncertain, vi00, vi00
+ilw.y uncertain, 31(jobAddr)
 iaddi depthIndex, vi00, -1
 iaddi sweepIndex, vi00, -1
 add.x bestDepth, vf00, constants[x]
@@ -31,6 +31,8 @@ sub.xyz sweepNormal, vf00, vf00
 sub.x enterTime, vf00, vf00
 add.x leaveTime, vf00, vf00[w]
 axisLoop:
+isub lastIndex, axisAddr, jobAddr
+iaddi lastIndex, lastIndex, -10
 lq direction, 0(axisAddr)
 mul.xyz temp, direction, direction
 add.x lengthSquared, temp, temp[y]
@@ -240,7 +242,8 @@ sq resultFlags, 2(outAddr)
 sub.xyzw indices, vf00, vf00
 mfir.x indices, depthIndex
 mfir.y indices, sweepIndex
-itof0.xy indices, indices
+mfir.z indices, lastIndex
+itof0.xyz indices, indices
 sq indices, 3(outAddr)
 iaddiu jobAddr, jobAddr, 32
 iaddiu outAddr, outAddr, 4

@@ -251,6 +251,26 @@ if args.settle_check:meta['phases']=args.temporal_arms*2
 (root/'metadata.json').write_text(json.dumps(meta,indent=2),encoding='utf8')
 print('Instrumented same-ELF baseline/candidate arms:',meta)
 
+if args.micro_comparison:
+ # Same image for shadow validation and timing; only a boot-time file changes.
+ (eng/'inc/debug/vu0_sat_probe.hpp').write_bytes((rig/'vu0_sat_probe.hpp').read_bytes())
+ p=proj/'src/gen/game_physics.gen.cpp';p.write_bytes(b'#define TYRA_PHYSICS_MICRO_VERIFY 1\n'+p.read_bytes())
+ p=eng/'src/physics/vu0_sat.cpp';p.write_bytes(b'#define TYRA_VU0_SAT_PROFILE 1\n'+p.read_bytes())
+ p=extra;s=p.read_text(encoding='utf8');s='#include "debug/vu0_sat_probe.hpp"\n'+s
+ s=s.replace('checked=true;if(!TyraSolverProbe::run())','checked=true;FILE* verify=fopen("sat-verify.cfg","r");Tyra::vu0SatVerify=verify!=nullptr;if(verify)fclose(verify);printf("VUSAT mode=%s\\n",Tyra::vu0SatVerify?"verify":"timing");if(!TyraSolverProbe::run() || !Vu0SatProbe::run())')
+ s=s.replace('  CB::configure();int found=0;','  CB::configure();Tyra::vu0SatMetrics={};Tyra::vu0SatValidationErrors=0;int found=0;')
+ p.write_bytes(s.encode())
+ p=eng/'inc/debug/collision_bench.hpp';s='#include "physics/vu0_sat.hpp"\n'+p.read_text(encoding='utf8')
+ code='''  char microName[64];snprintf(microName,sizeof(microName),"vu0-phase-%02d.csv",phase);
+  if(FILE* m=fopen(microName,"w")) {
+    const auto& v=Tyra::vu0SatMetrics;
+    fprintf(m,"phase,jobs,batches,busy_finish,busy_ee_query,wait_ticks,validation_errors\\n%d,%u,%u,%u,%u,%u,%u\\n",phase,v.jobs,v.batches,v.busyAtFinish,v.busyWhileQuerying,v.waitTicks,Tyra::vu0SatValidationErrors);fclose(m);
+    printf("VUSAT phase=%d jobs=%u batches=%u busy_ee=%u errors=%u\\n",phase,v.jobs,v.batches,v.busyWhileQuerying,Tyra::vu0SatValidationErrors);fflush(stdout);
+  }
+'''
+ assert '  used = 0;\n}' in s;s=s.replace('  used = 0;\n}',code+'  used = 0;\n}')
+ p.write_bytes(s.encode())
+
 shot=(repo/'tools/ps2rig/cld_shot.hpp').read_text(encoding='utf8').replace('#include "debug/cld_probe.hpp"','#include "debug/collision_bench.hpp"')
 shot=shot[:shot.index('inline void maybe(')]+'}\n'
 (eng/'inc/debug/collision_shot.hpp').write_bytes(shot.encode())

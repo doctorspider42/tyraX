@@ -25137,6 +25137,7 @@ void TerrainGame::updateObjectPhysics() {
   };
   // This entire interval uses scalar RbV helpers and the scalar broad phase.
   // No Vec4/Matrix4, renderer, callback, or VU0 transform may run until drained.
+#if TYRA_PHYSICS_MICRO
   Tyra::Vu0SatBatch microBatch;
   const bool useMicro = TYRA_PHYSICS_MICRO != 0 && !TYRA_COLLISION_VU0 && microBatch.begin();
   struct PendingSat {int a,b;size_t contact;};
@@ -25157,6 +25158,7 @@ void TerrainGame::updateObjectPhysics() {
       Tyra::ConvexContact c;
       bool hit=Tyra::finishVu0Sat(results[k],microJobs[inflight][k],av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),c);
 #if TYRA_PHYSICS_MICRO_VERIFY
+      if(Tyra::vu0SatVerify) {
       Tyra::ConvexContact reference;
       const bool referenceHit=Tyra::convexMotionContact(av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),reference,&a.obb,&b.obb);
       if(hit!=referenceHit || (hit && (fabsf(c.depth-reference.depth)>1e-5F ||
@@ -25164,12 +25166,19 @@ void TerrainGame::updateObjectPhysics() {
           rbDot(rbSub(c.point,reference.point),rbSub(c.point,reference.point))>1e-8F))) {
         ++Tyra::vu0SatValidationErrors;hit=referenceHit;c=reference;
       }
+      }
 #endif
       if(hit) {
+        axisHistory.acquire(a.obj,b.obj)={};
         const RbCand one={c.normal,c.point,c.depth};
         wakePartner(pending.a,pending.b,&one,1);
         emit(pending.a,pending.b,&one,1);
         contacts[pending.contact]=contacts.back();contacts.pop_back();
+      } else if(results[k].flags[1]==0 && results[k].flags[2]==0) {
+        const int index=int(results[k].indices[2]);
+        const auto* v=microJobs[inflight][k].q[10+index];
+        const RbV axis={v[0],v[1],v[2]};
+        axisHistory.acquire(a.obj,b.obj)=rbMul(axis,1/sqrtf(rbDot(axis,axis)));
       }
     }
     inflight=-1;
@@ -25180,6 +25189,7 @@ void TerrainGame::updateObjectPhysics() {
     microBatch.start(microJobs[filling],queued);
     inflight=filling;launched=queued;filling^=1;queued=0;
   };
+#endif
   for (int si = 0; si < awakeCount; ++si) {
     const int i = steps[si].obj;
     if (!physObstacle(runtimeObjects[i].data)) continue;
@@ -25197,7 +25207,9 @@ void TerrainGame::updateObjectPhysics() {
       pairArea.mx[k] = std::max(queryCentre[k],queryPrev[k]) + queryRadius;
     }
     bodyPairs.queryBox(pairArea, nearBodies);
+#if TYRA_PHYSICS_MICRO
     if(useMicro)microBatch.observeOverlap();
+#endif
     for (int candidate : nearBodies) {
       const int j=bodies[(size_t)candidate];
       if (j == i) continue;
@@ -25275,6 +25287,7 @@ void TerrainGame::updateObjectPhysics() {
           cand[0].n=c.normal; cand[0].p=c.point; cand[0].depth=c.depth; n=1;
         }
       }
+#if TYRA_PHYSICS_MICRO
       if (!n && useMicro && coherence && A.box && Bs.box) {
         const auto& ga=transformedShape(A,Ba);const auto& gb=transformedShape(Bs,Bj);
         const Tyra::ConvexView av={A.wv,A.nv,ga.normals,Ba.planes,ga.edges,Ba.edges};
@@ -25283,13 +25296,15 @@ void TerrainGame::updateObjectPhysics() {
         // The existing hint remains a current-geometry/full-sweep test.
         auto& hint=axisHistory.acquire(A.obj,Bs.obj);
         if(Tyra::convexSeparatedOnAxis(av,bv,ma,mb,hint,&A.obb,&Bs.obb))continue;
-        if(Tyra::packVu0Sat(microJobs[filling][queued],av,bv,A.obb,Bs.obb,ma,mb)) {
+        if(Tyra::packVu0Sat(microJobs[filling][queued],av,bv,A.obb,Bs.obb,ma,mb) &&
+            !Tyra::vu0SatScalarPreferred(microJobs[filling][queued])) {
           microPending[filling][queued++]={si,sj,contacts.size()};
           RbContact placeholder{};placeholder.a=-1;contacts.push_back(placeholder);
           if(queued==Tyra::Vu0SatBatch::Capacity)launchMicro();
           continue;
         }
       }
+#endif
       if (!n && !A.sphere && !Bs.sphere) {
         RbV normals[44], edges[66];
         for (int k=0; !coherence && k<Bj.planes; ++k)
@@ -25307,6 +25322,7 @@ void TerrainGame::updateObjectPhysics() {
     }
   }
 
+#if TYRA_PHYSICS_MICRO
   if(useMicro) {
     launchMicro();finishMicro();
     // Stable compaction preserves the exact scalar pair/contact order.
@@ -25314,6 +25330,7 @@ void TerrainGame::updateObjectPhysics() {
     for(size_t k=0;k<contacts.size();++k)if(contacts[k].a>=0)contacts[kept++]=contacts[k];
     contacts.resize(kept);
   }
+#endif
 
   // --- 4. sequential impulses (prepared backend is opt-in) ------------------
   // Independent dynamic components: static/world partners never join them.

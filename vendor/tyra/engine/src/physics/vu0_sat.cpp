@@ -28,9 +28,17 @@ bool packVu0Sat(Vu0SatJob& job, const ConvexView& a, const ConvexView& b,
   int index = 10;
   for (int i = 0; i < a.nn; ++i) put(index++, a.normals[i]);
   for (int i = 0; i < b.nn; ++i) put(index++, b.normals[i]);
+  int uncertain=0;
   for (int i = 0; i < a.ne; ++i)
-    for (int j = 0; j < b.ne; ++j) put(index++, cvCross(a.edges[i], b.edges[j]));
+    for (int j = 0; j < b.ne; ++j) {
+      const auto cross=cvCross(a.edges[i],b.edges[j]);put(index++,cross);
+      const float l2=cvDot(cross,cross);
+      if(l2>1e-20f && l2<1e-8f)uncertain=1;
+    }
   std::memcpy(&job.q[31][0], &count, sizeof(count));
+  // Almost parallel axes can exchange rank after VU normalization rounding.
+  // Their support vertices need not be close. Preserve the scalar tie policy.
+  std::memcpy(&job.q[31][1],&uncertain,sizeof(uncertain));
   return true;
 }
 bool finishVu0Sat(const Vu0SatResult& r, const Vu0SatJob& job, const ConvexView& a,
