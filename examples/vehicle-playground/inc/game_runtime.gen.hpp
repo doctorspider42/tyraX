@@ -5,6 +5,7 @@
 #include "physics/contact_solver.hpp"
 #include "physics/contact_history.hpp"
 #include "physics/collision_math.hpp"
+#include "physics/vu0_sat.hpp"
 #include "debug/hardware_trace.hpp"
 #include "terrain_config.hpp"
 #include "input_map.gen.hpp"  // configurable buttons/keys (Tools > Input Map)

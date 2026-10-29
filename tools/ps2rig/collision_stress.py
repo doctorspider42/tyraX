@@ -257,7 +257,8 @@ if args.micro_comparison:
  p=proj/'src/gen/game_physics.gen.cpp';p.write_bytes(b'#define TYRA_PHYSICS_MICRO_VERIFY 1\n'+p.read_bytes())
  p=eng/'src/physics/vu0_sat.cpp';p.write_bytes(b'#define TYRA_VU0_SAT_PROFILE 1\n'+p.read_bytes())
  p=extra;s=p.read_text(encoding='utf8');s='#include "debug/vu0_sat_probe.hpp"\n'+s
- s=s.replace('checked=true;if(!TyraSolverProbe::run())','checked=true;FILE* verify=fopen("sat-verify.cfg","r");Tyra::vu0SatVerify=verify!=nullptr;if(verify)fclose(verify);printf("VUSAT mode=%s\\n",Tyra::vu0SatVerify?"verify":"timing");if(!TyraSolverProbe::run() || !Vu0SatProbe::run())')
+ s=s.replace('checked=true;if(!TyraSolverProbe::run())','checked=true;FILE* verify=fopen("sat-verify.cfg","r");Tyra::vu0SatVerify=verify!=nullptr;if(verify)fclose(verify);if(Tyra::vu0SatVerify)CB::phase=12;printf("VUSAT mode=%s\\n",Tyra::vu0SatVerify?"verify":"timing");if(!TyraSolverProbe::run() || !Vu0SatProbe::run())')
+ s=s.replace('CB::phase>=CB::phases','CB::phase>=(Tyra::vu0SatVerify?14:CB::phases)')
  s=s.replace('  CB::configure();int found=0;','  CB::configure();Tyra::vu0SatMetrics={};Tyra::vu0SatValidationErrors=0;int found=0;')
  p.write_bytes(s.encode())
  p=eng/'inc/debug/collision_bench.hpp';s='#include "physics/vu0_sat.hpp"\n'+p.read_text(encoding='utf8')

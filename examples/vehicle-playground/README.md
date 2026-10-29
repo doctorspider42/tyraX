@@ -185,3 +185,7 @@ The conservative cache path is enabled by default. Warm starting and island
 sleep/wake remain opt-in after the PS2 comparison; all paths retain the original
 contact coverage and 6+3 passes. Gains vary by workload, and dense piles still
 do not hold 60 FPS.
+
+Experimental asynchronous OBB SAT/CCD is available behind
+`TYRA_PHYSICS_MICRO=1` (default off). It retains scalar feature reconstruction,
+full collision coverage and the existing solver; see the temporal report.

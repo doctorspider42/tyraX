@@ -30,7 +30,7 @@ first openvcl image is 2,048 bytes. These gates do not qualify assembled-code
 execution or establish a console speedup; console validation and same-ELF
 timing remain required.
 
-The extended gate adds 2,048 mixed seven-job batches with six face normals,
+The extended gate adds 2,048 cases in batches of up to seven, with six face normals,
 touching faces, near-parallel orientations, large coordinates and separated
 CCD endpoints. The data-memory sentinel survives. A deliberately inverted
 axis gate fails immediately, proving the oracle observes the tested path.
@@ -46,6 +46,15 @@ for timing the same ELF. Per-phase `vu0-phase-*.csv` records actual jobs,
 batches, busy observations during EE queries, completion waits and validation
 errors. Busy observations prove overlap at those sample points, not overall
 VU utilization. Shadow-enabled runs are correctness evidence, not performance.
+Shadow mode runs the +128 pile pair (phases 12 and 13); timing runs all 28 phases.
+
+The initial assembled image was rejected in PCSX2: openvcl paired an upper
+`addx.x` with lower `mfir.y` to the same VF register, and the overlap flag
+retained old bits despite the disjoint component masks. The source-level
+oracle cannot model this scheduling fault. An explicit scheduling barrier
+fixes it: the next assembled startup oracle passes all 2,048 cases with zero
+depth/normal/point error. Explicit CLIP initialization and exit directives
+also let Sony VCL assemble the kernel (2,144 bytes, within 4 KB).
 
 
 ## Selected defaults and final PS2 result

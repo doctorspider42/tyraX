@@ -875,6 +875,76 @@ void TerrainGame::updateObjectPhysics() {
     bodyPairs.set((int)pairIndex, box, false);
   }
   bodyPairs.commit();
+  auto wakePartner = [&](int si,int sj,const RbCand* cand,int n) {
+      if (steps[sj].asleep) {
+        // Wake the sleeper on a real hit, or when it rides on this body and
+        // this body is moving out from under it.
+        bool wake = false;
+        for (int k = 0; k < n && !wake; ++k) {
+          const RbV ra = rbSub(cand[k].p, steps[si].x1);
+          const float vn = rbDot(rbAdd(steps[si].v, rbCross(steps[si].w, ra)), cand[k].n);
+          if (-vn > wakeSpeed) wake = true;
+          if (cand[k].n.y < -0.5F && steps[si].v.x * steps[si].v.x + steps[si].v.z * steps[si].v.z > PHYS_REST_SPEED2)
+            wake = true;
+        }
+        if (wake) runtimeObjects[steps[sj].obj].restFrames = 0;
+      }
+  };
+  // This entire interval uses scalar RbV helpers and the scalar broad phase.
+  // No Vec4/Matrix4, renderer, callback, or VU0 transform may run until drained.
+#if TYRA_PHYSICS_MICRO
+  Tyra::Vu0SatBatch microBatch;
+  const bool useMicro = TYRA_PHYSICS_MICRO != 0 && !TYRA_COLLISION_VU0 && microBatch.begin();
+  struct PendingSat {int a,b;size_t contact;};
+  static Tyra::Vu0SatJob microJobs[2][Tyra::Vu0SatBatch::Capacity];
+  static PendingSat microPending[2][Tyra::Vu0SatBatch::Capacity];
+  int filling=0,queued=0,inflight=-1,launched=0;
+  auto finishMicro = [&]() {
+    if(inflight<0)return;
+    Tyra::Vu0SatResult results[Tyra::Vu0SatBatch::Capacity];
+    microBatch.finish(results);
+    for(int k=0;k<launched;++k) {
+      const auto& pending=microPending[inflight][k];
+      const auto& a=steps[pending.a];const auto& b=steps[pending.b];
+      const auto& ba=physBodies[a.slot];const auto& bb=physBodies[b.slot];
+      const auto& ga=transformedShape(a,ba);const auto& gb=transformedShape(b,bb);
+      const Tyra::ConvexView av={a.wv,a.nv,ga.normals,ba.planes,ga.edges,ba.edges};
+      const Tyra::ConvexView bv={b.wv,b.nv,gb.normals,bb.planes,gb.edges,bb.edges};
+      Tyra::ConvexContact c;
+      bool hit=Tyra::finishVu0Sat(results[k],microJobs[inflight][k],av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),c);
+#if TYRA_PHYSICS_MICRO_VERIFY
+      if(Tyra::vu0SatVerify) {
+      Tyra::ConvexContact reference;
+      const bool referenceHit=Tyra::convexMotionContact(av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),reference,&a.obb,&b.obb);
+      if(hit!=referenceHit || (hit && (fabsf(c.depth-reference.depth)>1e-5F ||
+          rbDot(rbSub(c.normal,reference.normal),rbSub(c.normal,reference.normal))>1e-10F ||
+          rbDot(rbSub(c.point,reference.point),rbSub(c.point,reference.point))>1e-8F))) {
+        ++Tyra::vu0SatValidationErrors;hit=referenceHit;c=reference;
+      }
+      }
+#endif
+      if(hit) {
+        axisHistory.acquire(a.obj,b.obj)={};
+        const RbCand one={c.normal,c.point,c.depth};
+        wakePartner(pending.a,pending.b,&one,1);
+        emit(pending.a,pending.b,&one,1);
+        contacts[pending.contact]=contacts.back();contacts.pop_back();
+      } else if(results[k].flags[1]==0 && results[k].flags[2]==0) {
+        const int index=int(results[k].indices[2]);
+        const auto* v=microJobs[inflight][k].q[10+index];
+        const RbV axis={v[0],v[1],v[2]};
+        axisHistory.acquire(a.obj,b.obj)=rbMul(axis,1/sqrtf(rbDot(axis,axis)));
+      }
+    }
+    inflight=-1;
+  };
+  auto launchMicro = [&]() {
+    finishMicro();
+    if(!queued)return;
+    microBatch.start(microJobs[filling],queued);
+    inflight=filling;launched=queued;filling^=1;queued=0;
+  };
+#endif
   for (int si = 0; si < awakeCount; ++si) {
     const int i = steps[si].obj;
     if (!physObstacle(runtimeObjects[i].data)) continue;
@@ -892,6 +962,9 @@ void TerrainGame::updateObjectPhysics() {
       pairArea.mx[k] = std::max(queryCentre[k],queryPrev[k]) + queryRadius;
     }
     bodyPairs.queryBox(pairArea, nearBodies);
+#if TYRA_PHYSICS_MICRO
+    if(useMicro)microBatch.observeOverlap();
+#endif
     for (int candidate : nearBodies) {
       const int j=bodies[(size_t)candidate];
       if (j == i) continue;
@@ -969,6 +1042,24 @@ void TerrainGame::updateObjectPhysics() {
           cand[0].n=c.normal; cand[0].p=c.point; cand[0].depth=c.depth; n=1;
         }
       }
+#if TYRA_PHYSICS_MICRO
+      if (!n && useMicro && coherence && A.box && Bs.box) {
+        const auto& ga=transformedShape(A,Ba);const auto& gb=transformedShape(Bs,Bj);
+        const Tyra::ConvexView av={A.wv,A.nv,ga.normals,Ba.planes,ga.edges,Ba.edges};
+        const Tyra::ConvexView bv={Bs.wv,Bs.nv,gb.normals,Bj.planes,gb.edges,Bj.edges};
+        const RbV ma=rbSub(A.x1,A.x0),mb=rbSub(Bs.x1,Bs.x0);
+        // The existing hint remains a current-geometry/full-sweep test.
+        auto& hint=axisHistory.acquire(A.obj,Bs.obj);
+        if(Tyra::convexSeparatedOnAxis(av,bv,ma,mb,hint,&A.obb,&Bs.obb))continue;
+        if(Tyra::packVu0Sat(microJobs[filling][queued],av,bv,A.obb,Bs.obb,ma,mb) &&
+            !Tyra::vu0SatScalarPreferred(microJobs[filling][queued])) {
+          microPending[filling][queued++]={si,sj,contacts.size()};
+          RbContact placeholder{};placeholder.a=-1;contacts.push_back(placeholder);
+          if(queued==Tyra::Vu0SatBatch::Capacity)launchMicro();
+          continue;
+        }
+      }
+#endif
       if (!n && !A.sphere && !Bs.sphere) {
         RbV normals[44], edges[66];
         for (int k=0; !coherence && k<Bj.planes; ++k)
@@ -981,22 +1072,20 @@ void TerrainGame::updateObjectPhysics() {
             Bs.box?&Bs.obb:nullptr,Bs.obj)) n=1;
       }
       if (!n) continue;
-      if (Bs.asleep) {
-        // Wake the sleeper on a real hit, or when it rides on this body and
-        // this body is moving out from under it.
-        bool wake = false;
-        for (int k = 0; k < n && !wake; ++k) {
-          const RbV ra = rbSub(cand[k].p, A.x1);
-          const float vn = rbDot(rbAdd(A.v, rbCross(A.w, ra)), cand[k].n);
-          if (-vn > wakeSpeed) wake = true;
-          if (cand[k].n.y < -0.5F && A.v.x * A.v.x + A.v.z * A.v.z > PHYS_REST_SPEED2)
-            wake = true;
-        }
-        if (wake) ob.restFrames = 0;
-      }
+      wakePartner(si,sj,cand,n);
       emit(si, sj, cand, n);
     }
   }
+
+#if TYRA_PHYSICS_MICRO
+  if(useMicro) {
+    launchMicro();finishMicro();
+    // Stable compaction preserves the exact scalar pair/contact order.
+    size_t kept=0;
+    for(size_t k=0;k<contacts.size();++k)if(contacts[k].a>=0)contacts[kept++]=contacts[k];
+    contacts.resize(kept);
+  }
+#endif
 
   // --- 4. sequential impulses (prepared backend is opt-in) ------------------
   // Independent dynamic components: static/world partners never join them.

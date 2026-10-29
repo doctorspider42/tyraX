@@ -3,6 +3,7 @@
 #include <math.h>
 #include "vu0_points.gen.hpp"
 #include "debug/debug.hpp"
+#include "math/vu0_owner.hpp"
 
 extern u32 TyraXKernel_CodeStart __attribute__((section(".vudata")));
 extern u32 TyraXKernel_CodeEnd __attribute__((section(".vudata")));
@@ -37,7 +38,7 @@ inline void loadQ(int qw, float* v) {
 }  // namespace
 
 void TyraXVu0Kernel::init() {
-  if (uploaded) return;
+  if (uploaded && vu0MicroOwner == &TyraXKernel_CodeStart) return;
   waitIdle();
   const u32 words = static_cast<u32>(&TyraXKernel_CodeEnd - &TyraXKernel_CodeStart);
   TYRA_ASSERT(words > 0 && words * 4 <= 4096,
@@ -46,6 +47,7 @@ void TyraXVu0Kernel::init() {
   for (u32 i = 0; i < words; i++) kMicro[i] = src[i];
   asm volatile("sync.l");
   uploaded = true;
+  vu0MicroOwner = &TyraXKernel_CodeStart;
 }
 
 void TyraXVu0Kernel::setParams(float x, float y, float z, float w) {

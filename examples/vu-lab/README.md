@@ -434,3 +434,7 @@ Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dy
 TyraX 2.0 integration: generated sources have been refreshed with the combined
 TyraX2 renderer and mainline collision broad phase; authored settings and
 user-owned source files retain their existing ownership rules.
+
+Generated VU0 wrappers now share a micro-image owner token with the optional
+physics kernel and ray tracer. Rebuild project-authored kernels with the
+refreshed vugen framework before mixing these owners. Calls remain synchronous.

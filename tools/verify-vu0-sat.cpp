@@ -59,5 +59,5 @@ int main(int argc,char** argv) {
       if(!Vu0SatProbe::compare(cases[i],jobs[i],result,maxDepth,maxNormal,maxPoint)){std::fprintf(stderr,"adversarial case=%d flags=%g,%g,%g,%g errors=%g,%g,%g\n",first+i,result.flags[0],result.flags[1],result.flags[2],result.flags[3],maxDepth,maxNormal,maxPoint);return 1;}
     }
   }
-  std::printf("2048 mixed seven-job batches: touching/parallel/CCD/large-coordinate cases pass, data sentinel intact\n");
+  std::printf("2048 cases in mixed batches of up to seven: touching/parallel/CCD/large coordinates pass, data sentinel intact\n");
 }

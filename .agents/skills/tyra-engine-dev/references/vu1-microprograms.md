@@ -85,3 +85,12 @@ Alternative program = its own `.vclpp` (`*_fold`, `*_envn`, derived from the shi
 
 ## Is VU1 clipping even running?
 `"clipping": "vu1"` → `CLIP_VU1S[...] = {true}` in the generated `inc/scene_data.hpp` → `StaPipQBufferRenderer` uploads the `clip_*` programs; `"precise"`/`"fast"` use the EE clipper's `as_is_*`. A `vclab` copy on `"precise"` gave a pixel-identical openvcl frame read as "VU1 clipper works" (with `"vu1"` the build differed in 506 784 of 514 600 pixels). `grep -n "CLIP_VU1S" <project>/inc/scene_data.hpp`.
+
+
+## VU0 split-field upper/lower write hazard
+
+The SAT/CCD assembled oracle rejected openvcl pairing `addx.x VF03` with
+`mfir.y VF03`: the overlap flag retained old float bits. Disjoint destination
+fields did not make the pair safe. Keep the explicit --barrier before the
+MFIR flag pack in vu0_sat_kernel.vclpp. Source-level vusim passes without it;
+only the assembled PCSX2/console probe sees this scheduling fault.

@@ -1,5 +1,5 @@
 ; Added by TyraX: exact OBB SAT and fixed-orientation linear CCD.
-; 0: count, 1: constants; jobs at 2, stride32; results at226, stride3.
+; 0: count, 1: constants; jobs at 2, stride32; results at226, stride4.
 ; The EE only touches VU memory while idle. No VU1-only instructions.
 .syntax new
 .name Vu0SatKernel
@@ -9,6 +9,7 @@
 --enter
 --endenter
 #vuprog Vu0SatKernel
+fcset 0
 sub.xyzw zero, vf00, vf00
 sub.xyz comparison, vf00, vf00
 ilw.x jobsLeft, 0(vi00)
@@ -230,6 +231,8 @@ jobDone:
 add.w bestNormal, zero, bestDepth[x]
 add.w sweepNormal, zero, enterTime[x]
 add.x resultFlags, vf00, leaveTime[x]
+; Separate upper/lower writes to one VF, even for disjoint components.
+--barrier
 mfir.y resultFlags, overlapping
 mfir.z resultFlags, possible
 iadd uncertain, uncertain, uncertain
@@ -250,3 +253,5 @@ iaddiu outAddr, outAddr, 4
 iaddi jobsLeft, jobsLeft, -1
 ibgtz jobsLeft, jobLoop
 #endvuprog
+--exit
+--endexit

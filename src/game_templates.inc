@@ -2659,7 +2659,7 @@ inline void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) 
     // it is not. Those modes refresh at 50 and 60 Hz, and a frame that misses
     // its field halves to 25 or 30 respectively; getRefreshRate() is the
     // engine's own answer (DTV modes 60, Pal576i 50, the rest follow the video
-    // mode). Reported as "coĹ› tu chyba Ĺşle liczy".
+    // mode). Reported as "coś tu chyba źle liczy".
     const float cap = engine->renderer.core.getSettings().getRefreshRate();
     if (engine->info.isPresentingExtraFrames())
       snprintf(line, sizeof(line), "FPS %.1f SHOWN %.1f/%.0f",
@@ -25159,7 +25159,7 @@ void TerrainGame::updateObjectPhysics() {
       bool hit=Tyra::finishVu0Sat(results[k],microJobs[inflight][k],av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),c);
 #if TYRA_PHYSICS_MICRO_VERIFY
       if(Tyra::vu0SatVerify) {
-      Tyra::ConvexContact reference;
+      Tyra::ConvexContact reference{};
       const bool referenceHit=Tyra::convexMotionContact(av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),reference,&a.obb,&b.obb);
       if(hit!=referenceHit || (hit && (fabsf(c.depth-reference.depth)>1e-5F ||
           rbDot(rbSub(c.normal,reference.normal),rbSub(c.normal,reference.normal))>1e-10F ||
