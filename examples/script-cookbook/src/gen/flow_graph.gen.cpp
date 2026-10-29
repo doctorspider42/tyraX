@@ -34,11 +34,23 @@ static inline std::string flowPosText(float x, float y, float z) {
 // CookbookPing, NearDoor, Checkpoint
 // The arrays are the script API's (tyrax.hpp), so tyrax::sendEvent
 // and an On Event node meet on the same bus.
+#if defined(TYRAX_SCRIPT_API)
 static unsigned char* const flowEvtCur = tyrax::detail::g_evtCur;
 static float* const flowEvtCurVal = tyrax::detail::g_evtCurVal;
 static unsigned char* const flowEvtNext = tyrax::detail::g_evtNext;
 static float* const flowEvtNextVal = tyrax::detail::g_evtNextVal;
 static_assert(tyrax::EVENT_COUNT == 3, "tyrax/names.gen.hpp is stale");
+// Mail a script's onStart sent into the scene just loaded.
+static inline bool flowEvtSentThisScene(int i, unsigned int gen) {
+  return tyrax::detail::g_evtNextGen[i] == gen;
+}
+#else  // an owned pre-API script.hpp: the graphs' own arrays
+static unsigned char flowEvtCur[3] = {};
+static float flowEvtCurVal[3] = {};
+static unsigned char flowEvtNext[3] = {};
+static float flowEvtNextVal[3] = {};
+static inline bool flowEvtSentThisScene(int, unsigned int) { return false; }
+#endif
 
 // The bus. Registered before every graph script, so `cur` is
 // already this frame's mail by the time any receiver looks.
@@ -58,7 +70,7 @@ class FlowEventBus : public Script {
       for (int i = 0; i < 3; ++i) {
         flowEvtCur[i] = 0;
         flowEvtCurVal[i] = 0.0F;
-        if (tyrax::detail::g_evtNextGen[i] != ctx.sceneGeneration) {
+        if (!flowEvtSentThisScene(i, ctx.sceneGeneration)) {
           flowEvtNext[i] = 0;
           flowEvtNextVal[i] = 0.0F;
         }
@@ -193,12 +205,16 @@ class FlowGraphScript_0_35 : public Script {
     if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
       livedbg::hit(2);
       livedbg::hit(3);
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 4
       tyrax::callScriptMethod(ctx, 35, "EventLamp", "flash");
+#endif
     }
     if (ctx.engine->pad.getClicked().Square) {
       livedbg::hit(2);
       livedbg::hit(3);
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 4
       tyrax::callScriptMethod(ctx, 35, "EventLamp", "flash");
+#endif
     }
   }
 
@@ -245,12 +261,16 @@ class FlowGraphScript_0_53 : public Script {
     if (livedbg::forced(4)) {  // Live Debugger: fired from the editor
       livedbg::hit(4);
       livedbg::hit(5);
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 4
       tyrax::callScriptMethod(ctx, 53, "SwingDoor", "open");
+#endif
     }
     if (flowEvtCur[1]) {  // "NearDoor"
       livedbg::hit(4);
       livedbg::hit(5);
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 4
       tyrax::callScriptMethod(ctx, 53, "SwingDoor", "open");
+#endif
     }
   }
 

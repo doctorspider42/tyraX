@@ -136,6 +136,8 @@ class Turret : public ObjectScript {
 | `int` | drag (slider with `min` and `max`) | the number |
 | `int` + `options = "A\|B\|C"` | drop-down | the option's index |
 | `float` | drag (slider with `min` and `max`) | the number |
+| `short`, `long`, `unsigned` | as `int` | the number |
+| `double` | as `float` | the number |
 | `tyrax::Vec3` | three drags | `x y z` |
 | `tyrax::Vec3` + `color` | colour picker | `r g b`, 0..1 |
 | `const char*` | text field | the text |
@@ -162,7 +164,7 @@ attachment with every field at its default costs nothing.
   the tooltip and the default. The card's menu resets every field at once.
 - **Values are kept when a field disappears.** If you rename a field, remove
   it or detach the script, the stored value stays in the object's file and
-  comes back when the name does. A reference that no longer resolves, such as
+  comes back when the name does, or when the script is attached again. A reference that no longer resolves, such as
   a deleted sound or an object in another scene, falls back to the default.
 - **A field the editor cannot offer** shows why: an unsupported type, or a
   `static` member, which belongs to the class and not to one attachment.
@@ -319,5 +321,7 @@ runs earlier in the frame sees the clock as of the previous frame.
 If you deleted the ownership line of `inc/scripts/script.hpp` before 2.3.0,
 your copy does not include the API. Add `#include "tyrax/tyrax.hpp"` after the
 `ScriptContext` definition to get it. `ObjectScript::object` exists only in
-copies from 2.3.0 on. The generated driver checks `TYRAX_SCRIPT_API` and
-builds either way.
+copies from 2.3.0 on. The generated driver and the flow graphs check
+`TYRAX_SCRIPT_API` and build either way. Without the API the graphs keep
+their own event bus, random sequence and sound-channel table, so they do not
+share them with scripts, and a *Call Script* node does nothing.

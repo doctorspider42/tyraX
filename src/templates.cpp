@@ -12921,7 +12921,8 @@ SoundResidency soundResidency(const Project& p) {
                 propClasses = scriptprops::scanProject(p.dir);
     auto fieldSounds = [&](const SceneObject& o, std::set<int>& into) {
         for (const auto& [cls, fields] : o.scriptProps)
-            if (const scriptprops::ClassInfo* ci = scriptprops::findClass(propClasses, cls))
+            if (const scriptprops::ClassInfo* ci = scriptprops::findClass(propClasses, cls);
+                ci && std::find(o.scripts.begin(), o.scripts.end(), cls) != o.scripts.end())
                 for (const scriptprops::Field& f : ci->fields) {
                     if (f.kind != scriptprops::Kind::Sound) continue;
                     const auto v = fields.find(f.name);
@@ -22560,8 +22561,10 @@ void collectFlowEvents(const Project& p, std::vector<std::string>& events) {
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
             for (const auto& [cls, fields] : o.scriptProps) {
+                // Values kept from a detached script do not count.
                 const scriptprops::ClassInfo* ci = scriptprops::findClass(classes, cls);
-                if (!ci) continue;
+                if (!ci || std::find(o.scripts.begin(), o.scripts.end(), cls) == o.scripts.end())
+                    continue;
                 for (const scriptprops::Field& f : ci->fields) {
                     if (f.kind != scriptprops::Kind::Event) continue;
                     const auto v = fields.find(f.name);
@@ -23506,15 +23509,84 @@ std::string flowGraphScript(const Project& p) {
         // busy (docs/sound.md), is the script API's (tyrax::detail::
         // pickSfxChannel): graphs and scripts share the sixteen voices of the
         // current room's bus, so they must share ONE priority table too.
+        // A project that owns a script.hpp from before the script API
+        // (TYRAX_SCRIPT_API undefined) keeps the graphs' own table.
+        out << "\n#if defined(TYRAX_SCRIPT_API)\n";
         if (anyAutoSfx)
-            out << "\nstatic inline int flowPickSfxChannel(ScriptContext& ctx, int prio) {\n"
+            out << "static inline int flowPickSfxChannel(ScriptContext& ctx, int prio) {\n"
                    "  return tyrax::detail::pickSfxChannel(ctx, prio);\n"
                    "}\n";
         if (anyPinnedSfx)
-            out << "\nstatic inline int flowPinSfxChannel(ScriptContext& ctx, int ch,\n"
+            out << "static inline int flowPinSfxChannel(ScriptContext& ctx, int ch,\n"
                    "                                    int prio) {\n"
                    "  return tyrax::detail::pinSfxChannel(ctx, ch, prio);\n"
                    "}\n";
+        out << "#else  // an owned pre-API script.hpp\n";
+        out << R"(
+// Which channel a Play Sound gets, and who loses one when they are all busy
+// (docs/sound.md). The flow graphs share the sixteen channels of the CURRENT
+// room's reverb bus - 16-23 belong to the sound emitters - so the choice is
+// made here once for every graph in the game rather than per script.
+//
+// Order: a voice that has FINISHED is free and needs no victim; otherwise the
+// lowest priority STRICTLY below the incoming one is cut off; otherwise the
+// new sound is dropped. That last case is the design working, not a failure -
+// it is what "priority" means - so nothing logs it.
+//
+// The ENDX read is one IOP RPC and it happens per PLAY REQUEST, never per
+// frame. A play already costs two or three RPCs (volume, reverb send, the
+// play itself), and it is the only way to know what is still sounding.
+namespace {
+int sfxPrio[16] = {0};  // priority of what was last started on each channel
+int sfxPrioBus = -1;    // which bus those priorities describe
+
+inline void sfxSyncBus(int base) {
+  if (sfxPrioBus == base) return;
+  // The room moved to the other SPU2 core. Whatever is still finishing on the
+  // bus we left must not be stolen from - it belongs to the room the player
+  // just walked out of - and this bus's own table describes voices that have
+  // long since ended, so it starts empty.
+  for (int i = 0; i < 16; ++i) sfxPrio[i] = 0;
+  sfxPrioBus = base;
+}
+)";
+        if (anyAutoSfx)
+            out << R"(
+inline int flowPickSfxChannel(ScriptContext& ctx, int prio) {
+  static int next = 0;  // round-robin start, so voices spread out
+  const int base = ctx.reverbBusBase;
+  sfxSyncBus(base);
+  const u32 ended = ctx.engine->audio.adpcm.endedMask(base ? 0 : 1);
+  for (int k = 0; k < 16; ++k) {
+    const int c = (next + k) % 16;
+    if (ended & (1u << c)) {
+      next = (c + 1) % 16;
+      sfxPrio[c] = prio;
+      return base + c;
+    }
+  }
+  int victim = -1, low = prio;  // strictly below: equals keep their voice
+  for (int c = 0; c < 16; ++c)
+    if (sfxPrio[c] < low) { low = sfxPrio[c]; victim = c; }
+  if (victim < 0) return -1;    // everything playing matters at least as much
+  sfxPrio[victim] = prio;
+  return base + victim;
+}
+)";
+        if (anyPinnedSfx)
+            out << R"(
+// A pinned channel is the author saying "this sound owns this voice", so it
+// always gets it - but its priority still goes in the table, or an auto play
+// would steal the voice out from under it.
+inline int flowPinSfxChannel(ScriptContext& ctx, int ch, int prio) {
+  const int base = ctx.reverbBusBase;
+  sfxSyncBus(base);
+  if (ch >= 0 && ch < 16) sfxPrio[ch] = prio;
+  return base + ch;
+}
+)";
+        out << "}  // namespace\n";
+        out << "#endif\n";
     }
 
     if (anyRaycast) {
@@ -23525,12 +23597,81 @@ std::string flowGraphScript(const Project& p) {
 // visible objects' bounding spheres and the terrain (tyrax::raycastFromPlayer).
 // hitObj = the hit object index (-1 = none/terrain); hitPos = the hit point
 // (the ray's end when nothing was hit).
+#if defined(TYRAX_SCRIPT_API)
 static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
                         float* hitPos) {
   const tyrax::RayHit h = tyrax::raycastFromPlayer(ctx, maxDist);
   *hitObj = h.object.index();
   h.point.store(hitPos);
 }
+#else  // an owned pre-API script.hpp: bounding spheres + heightmap march
+static void flowRaycast(ScriptContext& ctx, float maxDist, int* hitObj,
+                        float* hitPos) {
+  const float ox = ctx.playerPosition.x;
+  const float oy = ctx.playerPosition.y;
+  const float oz = ctx.playerPosition.z;
+  float dx = ctx.playerLook.x, dy = ctx.playerLook.y, dz = ctx.playerLook.z;
+  const float dl = sqrtf(dx * dx + dy * dy + dz * dz);
+  *hitObj = -1;
+  if (dl < 0.0001F) {
+    hitPos[0] = ox; hitPos[1] = oy; hitPos[2] = oz;
+    return;
+  }
+  dx /= dl; dy /= dl; dz /= dl;
+  float best = maxDist;
+  const int player = PLAYER_INDEXES[ctx.scene];
+  for (int i = 0; i < ctx.objectCount; ++i) {
+    const RuntimeObject& o = ctx.objects[i];
+    if (!o.active || !o.visible || i == player) continue;
+    const int ty = o.data.type;
+    if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
+        ty == 14 || ty == 17 || ty == 18 || ty == 20)
+      continue;  // markers/emitters/areas/notes, not geometry
+    // bounding sphere: half the largest scale axis (matches the USE picker)
+    float half = o.data.scale[0];
+    if (o.data.scale[1] > half) half = o.data.scale[1];
+    if (o.data.scale[2] > half) half = o.data.scale[2];
+    half *= 0.5F;
+    const float cx = o.data.position[0] - ox;
+    const float cy = o.data.position[1] - oy;
+    const float cz = o.data.position[2] - oz;
+    const float tca = cx * dx + cy * dy + cz * dz;  // closest approach
+    if (tca < 0.0F || tca - half > best) continue;
+    const float d2 = cx * cx + cy * cy + cz * cz - tca * tca;
+    if (d2 > half * half) continue;
+    float t = tca - sqrtf(half * half - d2);
+    if (t < 0.0F) t = 0.0F;  // ray starts inside the sphere
+    if (t < best) {
+      best = t;
+      *hitObj = i;
+    }
+  }
+  // Terrain: fixed-step march, then a short bisection to tighten the hit.
+  // Only a terrain hit closer than the best object hit wins the ray.
+  float prev = 0.0F;
+  for (float t = 0.5F; t <= best; t += 0.5F) {
+    if (oy + dy * t <=
+        terrainHeightAtScene(ctx.scene, ox + dx * t, oz + dz * t)) {
+      float lo = prev, hi = t;
+      for (int k = 0; k < 8; ++k) {
+        const float mid = (lo + hi) * 0.5F;
+        if (oy + dy * mid <=
+            terrainHeightAtScene(ctx.scene, ox + dx * mid, oz + dz * mid))
+          hi = mid;
+        else
+          lo = mid;
+      }
+      best = hi;
+      *hitObj = -1;  // the terrain stopped the ray first
+      break;
+    }
+    prev = t;
+  }
+  hitPos[0] = ox + dx * best;
+  hitPos[1] = oy + dy * best;
+  hitPos[2] = oz + dz * best;
+}
+#endif
 )";
     }
 
@@ -23581,7 +23722,19 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "project.\n"
                "// The state is the script API's (tyrax::randomU32), so graphs and\n"
                "// scripts draw from - and tyrax::seedRandom stirs - one sequence.\n"
-               "static inline unsigned int flowRand() { return tyrax::randomU32(); }\n";
+               "#if defined(TYRAX_SCRIPT_API)\n"
+               "static inline unsigned int flowRand() { return tyrax::randomU32(); }\n"
+               "#else  // an owned pre-API script.hpp: the graphs' own state\n"
+               "static unsigned int g_flowRandState = 0x1234567U;\n"
+               "static inline unsigned int flowRand() {\n"
+               "  unsigned int x = g_flowRandState;\n"
+               "  x ^= x << 13;\n"
+               "  x ^= x >> 17;\n"
+               "  x ^= x << 5;\n"
+               "  g_flowRandState = x;\n"
+               "  return x;\n"
+               "}\n"
+               "#endif\n";
         if (uses("RollRandom"))
             out << "\n// Roll Random node. `whole` rounds to an integer, and\n"
                    "// then both ends are inclusive - a 1..6 die really can\n"
@@ -23924,12 +24077,28 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             << "\n"
                "// The arrays are the script API's (tyrax.hpp), so tyrax::sendEvent\n"
                "// and an On Event node meet on the same bus.\n"
+               "#if defined(TYRAX_SCRIPT_API)\n"
                "static unsigned char* const flowEvtCur = tyrax::detail::g_evtCur;\n"
                "static float* const flowEvtCurVal = tyrax::detail::g_evtCurVal;\n"
                "static unsigned char* const flowEvtNext = tyrax::detail::g_evtNext;\n"
                "static float* const flowEvtNextVal = tyrax::detail::g_evtNextVal;\n"
                "static_assert(tyrax::EVENT_COUNT == "
             << n << ", \"tyrax/names.gen.hpp is stale\");\n"
+               "// Mail a script's onStart sent into the scene just loaded.\n"
+               "static inline bool flowEvtSentThisScene(int i, unsigned int gen) {\n"
+               "  return tyrax::detail::g_evtNextGen[i] == gen;\n"
+               "}\n"
+               "#else  // an owned pre-API script.hpp: the graphs' own arrays\n"
+               "static unsigned char flowEvtCur["
+            << n << "] = {};\n"
+               "static float flowEvtCurVal["
+            << n << "] = {};\n"
+               "static unsigned char flowEvtNext["
+            << n << "] = {};\n"
+               "static float flowEvtNextVal["
+            << n << "] = {};\n"
+               "static inline bool flowEvtSentThisScene(int, unsigned int) { return false; }\n"
+               "#endif\n"
                "\n"
                "// The bus. Registered before every graph script, so `cur` is\n"
                "// already this frame's mail by the time any receiver looks.\n"
@@ -23952,7 +24121,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             << "; ++i) {\n"
                "        flowEvtCur[i] = 0;\n"
                "        flowEvtCurVal[i] = 0.0F;\n"
-               "        if (tyrax::detail::g_evtNextGen[i] != ctx.sceneGeneration) {\n"
+               "        if (!flowEvtSentThisScene(i, ctx.sceneGeneration)) {\n"
                "          flowEvtNext[i] = 0;\n"
                "          flowEvtNextVal[i] = 0.0F;\n"
                "        }\n"
@@ -26397,9 +26566,13 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (dot == std::string::npos || dot == 0 || dot + 1 >= n.str.size()) {
                     c << pad << "// node " << n.id << " (CallScript): no method picked\n";
                 } else {
-                    c << pad << "tyrax::callScriptMethod(ctx, " << objIdx << ", \""
+                    // An owned script.hpp older than TYRA_SCRIPT_METHOD has
+                    // no method to call: the node does nothing there.
+                    c << "#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 4\n"
+                      << pad << "tyrax::callScriptMethod(ctx, " << objIdx << ", \""
                       << escapeCString(n.str.substr(0, dot)) << "\", \""
-                      << escapeCString(n.str.substr(dot + 1)) << "\");\n";
+                      << escapeCString(n.str.substr(dot + 1)) << "\");\n"
+                      << "#endif\n";
                 }
             } else if (n.type == "SendEvent") {
                 const int ei = eventIndex(n.str);

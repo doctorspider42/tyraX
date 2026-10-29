@@ -1088,6 +1088,19 @@ inline void assignProp(int& m, const PropValue& v, ScriptContext&) {
 inline void assignProp(float& m, const PropValue& v, ScriptContext&) {
   if (v.set) m = v.f[0];
 }
+/* The other numeric types the editor shows (short, long, unsigned, double). */
+inline void assignProp(short& m, const PropValue& v, ScriptContext&) {
+  if (v.set) m = (short)v.i;
+}
+inline void assignProp(long& m, const PropValue& v, ScriptContext&) {
+  if (v.set) m = v.i;
+}
+inline void assignProp(unsigned& m, const PropValue& v, ScriptContext&) {
+  if (v.set) m = (unsigned)v.i;
+}
+inline void assignProp(double& m, const PropValue& v, ScriptContext&) {
+  if (v.set) m = v.f[0];
+}
 inline void assignProp(Vec3& m, const PropValue& v, ScriptContext&) {
   if (v.set) m = Vec3(v.f[0], v.f[1], v.f[2]);
 }

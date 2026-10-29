@@ -4178,8 +4178,9 @@ bool App::drawScriptCards(SceneObject& o) {
         }
         ImGui::PopID();
         if (detach) {
+            // The field values stay in o.scriptProps: they come back if the
+            // class is attached again (Reset all clears them for good).
             o.scripts.erase(o.scripts.begin() + i);
-            o.scriptProps.erase(cls);
             committed = true;
         } else {
             ++i;
