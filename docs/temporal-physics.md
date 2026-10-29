@@ -501,8 +501,39 @@ A separating axis still proves no hit. No approximate velocity threshold or new
 collision simplification is introduced. Four controlled overlap/separation/
 touching/common-translation cases compare the shortcut against full interval
 arithmetic, and the host oracle requires fewer executed instructions. The prior
-kernel fails that work-reduction check. Physical qualification is pending.
+kernel fails that work-reduction check. The first physical run passed its
+measured window but later lost a 1.90735e-6-depth reference hit; the complete
+run is rejected. The qualification analyzer now rejects any hard runtime
+diagnostic, including after the measured window.
 
 The reference-image fixture also checks the live VU0 instruction memory against
 both selected images outside timing, and reports the fraction of input pairs
 with exactly equal motion. Captured Case data is replayed without regeneration.
+
+A targeted near-touching corpus reproduced an EE/VU0 disagreement at case3455.
+The actual hardware result and geometry were captured after the micro fence;
+the host source simulator reports a hit, so it cannot serve as the sole oracle
+for this arithmetic boundary. Applying the preceding result-consumption logic
+to the **recorded hardware result** loses the hit; the corrected logic recovers it.
+See the [capture manifest](../tools/ps2rig/results/vu0-precision-miss-2026-10-30.json)
+and [binary packet](../tools/ps2rig/results/vu0-precision-miss-2026-10-30.bin).
+
+A VU negative now requires the existing conservative EE full-sweep separating-axis
+proof on the returned axis. If it cannot establish separation, the canonical
+scalar routine decides. This reuses the geometry-cache rejection rule and does
+not widen the collision tolerances or discard shallow hits. Profiling separates
+proved negatives from full negative confirmations. Deferred diagnostic capture
+copies into fixed RAM while micro runs and writes only after all packets drain.
+The 50,000-case precision corpus and saved-hardware replay run before timing.
+Physical requalification passed:50,000 precision cases, both saved-image replays,
+1200 measured scene frames and103,623 micro jobs with zero hard geometry or
+accounting failures, including the post-window log. The fixed-input offset-overlap
+stream measured24.086us/pair against27.568us scalar (12.6% lower time); mixed
+20.344us versus16.804us and coincident34.118us versus27.459us still favor EE.
+These are backend timings, not whole-frame FPS. The scene classified49,481
+conservative negative proofs and29,156 full negative confirmations; this remaining
+duplication motivates further dispatch/work-selection measurements. Replay the
+[qualified input package](../tools/ps2rig/results/vu0-negative-proof-2026-10-30.inputs.zip)
+with the stream and full-scene analyzers. The
+[initial common-motion report](../tools/ps2rig/results/vu0-common-initial-2026-10-30.json)
+is explicitly unqualified despite its promising isolated throughput.

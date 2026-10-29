@@ -13,7 +13,7 @@ constexpr int Modes=6;
 constexpr int Modes=5;
 #endif
 inline unsigned ticks(){unsigned t;asm volatile("mfc0 %0,$9":"=r"(t)::"memory");return t;}
-struct Sample {unsigned ticks,hash,wait,batches,confirmedCcd,confirmedTie,confirmedParallel;};
+struct Sample {unsigned ticks,hash,wait,batches,confirmedCcd,confirmedTie,confirmedParallel,provedNegative,confirmedNegative;};
 inline unsigned digest(unsigned hash,bool hit,const ConvexContact& c) {
   hash=(hash^unsigned(hit))*16777619u;
   if(hit){const float v[]={c.normal.x,c.normal.y,c.normal.z,c.point.x,c.point.y,c.point.z,c.depth};
@@ -63,7 +63,8 @@ inline Sample measure(const Vu0SatProbe::Case* cases,const Vu0SatJob* cached,int
 #endif
   return {elapsed,hash,vu0SatMetrics.waitTicks-before.waitTicks,vu0SatMetrics.batches-before.batches,
     vu0SatMetrics.confirmedCcd-before.confirmedCcd,vu0SatMetrics.confirmedTie-before.confirmedTie,
-    vu0SatMetrics.confirmedParallel-before.confirmedParallel};
+    vu0SatMetrics.confirmedParallel-before.confirmedParallel,
+    vu0SatMetrics.provedNegative-before.provedNegative,vu0SatMetrics.confirmedNegative-before.confirmedNegative};
 }
 inline bool run(){
   static Vu0SatProbe::Case cases[Cases];static Vu0SatJob cached[Cases];
@@ -139,9 +140,9 @@ inline bool run(){
   }
   FILE* f=fopen(FileUtils::fromCwd("vu0-stream.csv").c_str(),"wb");
   if(!f)return false;
-  fprintf(f,"workload,repeat,mode,jobs,ticks,hash,wait_ticks,batches,confirmed_ccd,confirmed_tie,confirmed_parallel,input_hash,common_motion_jobs\n");
+  fprintf(f,"workload,repeat,mode,jobs,ticks,hash,wait_ticks,batches,confirmed_ccd,confirmed_tie,confirmed_parallel,input_hash,common_motion_jobs,proved_negative,confirmed_negative\n");
   for(int w=0;w<Workloads;++w)for(int r=0;r<Repeats;++r)for(int m=0;m<Modes;++m){const auto& s=samples[w][r][m];
-    fprintf(f,"%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",w,r,m,Cases*Loops,s.ticks,s.hash,s.wait,s.batches,s.confirmedCcd,s.confirmedTie,s.confirmedParallel,inputHashes[w],commonMotionJobs[w]);}
+    fprintf(f,"%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",w,r,m,Cases*Loops,s.ticks,s.hash,s.wait,s.batches,s.confirmedCcd,s.confirmedTie,s.confirmedParallel,inputHashes[w],commonMotionJobs[w],s.provedNegative,s.confirmedNegative);}
   fclose(f);
   printf("VUSTREAM cases=%d workloads=%d modes=%d repeats=%d replay=%d failures=%u file=1\n",Cases,Workloads,Modes,Repeats,replay?1:0,ok?0u:1u);fflush(stdout);
   return ok;

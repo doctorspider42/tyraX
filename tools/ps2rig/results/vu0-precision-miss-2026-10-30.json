@@ -1,0 +1,14 @@
+{
+  "hardware": "Physical PS2 EE/VU0",
+  "capture_sha256": "dfed3ca1b72a1d4ffcefbe8b55cc3e726ce3cbd8f51a13abc414fe1772155a03",
+  "capture_format": "Vu0SatCapture::Dump version1,1232bytes, little endian",
+  "case": 3454,
+  "common_motion": true,
+  "reference_hit": true,
+  "reference_depth": 1.90735e-06,
+  "recorded_vu0_hit": false,
+  "host_source_replay_hit": true,
+  "host_recorded_result_before_fix": false,
+  "host_recorded_result_after_fix": true,
+  "scope": "Actual recorded hardware output fails old finish logic and passes certified-negative/canonical fallback. Source simulator itself does not reproduce hardware arithmetic classification."
+}

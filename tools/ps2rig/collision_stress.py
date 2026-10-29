@@ -20,7 +20,9 @@ parser.add_argument('--settle-check',action='store_true',help='Six stationary 64
 parser.add_argument('--micro-comparison',action='store_true',help='28 phases: current scalar physics versus asynchronous VU0 SAT/CCD')
 parser.add_argument('--micro-stream',action='store_true',help='Add fixed-input scalar/legacy/chained/packing throughput probe before the micro comparison')
 parser.add_argument('--micro-kernel-baseline',help='Add this compatible Git SAT kernel to the private same-ELF stream probe')
+parser.add_argument('--micro-precision',action='store_true',help='Add near-touching EE/VU0 precision stress and deferred failure capture')
 args=parser.parse_args()
+if args.micro_precision:args.micro_stream=True
 if args.micro_kernel_baseline:args.micro_stream=True
 if args.micro_stream:args.micro_comparison=True
 if args.micro_comparison:args.temporal_comparison=True;args.temporal_arms=2
@@ -291,3 +293,6 @@ p.write_text(text,encoding='utf8',newline='\n')
 if args.micro_kernel_baseline:
  from vu0_stream_reference import install
  install(repo,root,args.micro_kernel_baseline)
+if args.micro_comparison:
+ from vu0_capture_fixture import install as install_capture
+ install_capture(repo,root,args.micro_precision)

@@ -3,13 +3,14 @@
 #include "vusim.hpp"
 #include "physics/vu0_sat.hpp"
 #include "ps2rig/vu0_sat_probe.hpp"
+#include "ps2rig/vu0_sat_capture.hpp"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
 #include <random>
 using namespace Tyra;
 int main(int argc,char** argv) {
-  assert(argc==2); vuir::Program program; std::string error;
+  assert(argc==2 || argc==3); vuir::Program program; std::string error;
   { // Numerical tolerance must never turn into permission to drop a hit.
     ConvexContact reference{{0,1,0},{0,0,0},.01f},actual=reference;
     assert(!compareVu0Sat(false,actual,true,reference,1).accepted);
@@ -20,6 +21,25 @@ int main(int argc,char** argv) {
     actual=reference;actual.normal.y=-1;assert(!compareVu0Sat(true,actual,true,reference,1).accepted);
   }
   if(!vuasm::parseFile(argv[1],{},program,error)){std::fprintf(stderr,"%s\n",error.c_str());return 1;}
+  if(argc==3){Vu0SatCapture::Dump dump;FILE* f=std::fopen(argv[2],"rb");
+    assert(f && std::fread(&dump,sizeof(dump),1,f)==1);std::fclose(f);assert(Vu0SatCapture::valid(dump));
+    std::vector<unsigned> mem(1024,0);mem[0]=1;float constants[4]={1e30f,1e-10f,1e-9f,1e-6f};
+    std::memcpy(mem.data()+4,constants,16);std::memcpy(mem.data()+8,&dump.job,sizeof(dump.job));
+    vusim::Config config;config.target=vusim::Target::VU0;auto run=vusim::run(program,mem,config);assert(run.ok);
+    Vu0SatResult result;std::memcpy(&result,run.mem.data()+226*4,sizeof(result));
+    const auto& c=dump.c;ConvexContact actual{},hostReference{};
+    const bool hit=finishVu0Sat(result,dump.job,c.view(0),c.view(1),c.motion[0],c.motion[1],actual);
+    const bool hostHit=scalarMotionContactReference(c.view(0),c.view(1),c.motion[0],c.motion[1],hostReference,&c.box[0],&c.box[1]);
+    float radius[2]={};for(int k=0;k<2;++k)for(int i=0;i<3;++i)radius[k]+=cvDot(c.box[k].halfAxes[i],c.box[k].halfAxes[i]);
+    const float scale=std::sqrt(std::min(radius[0],radius[1]));
+    const auto comparison=compareVu0Sat(hit,actual,dump.referenceHit,dump.reference,scale);
+    ConvexContact recorded{};
+    const bool recordedHit=finishVu0Sat(dump.result,dump.job,c.view(0),c.view(1),c.motion[0],c.motion[1],recorded);
+    const auto recordedComparison=compareVu0Sat(recordedHit,recorded,dump.referenceHit,dump.reference,scale);
+    unsigned common;std::memcpy(&common,&dump.job.q[31][2],4);
+    std::printf("capture ids=%d,%d common=%u recorded=%u EE=%u hostReference=%u replay=%u accepted=%u recordedRecovery=%u recoveryAccepted=%u flags=%g,%g,%g,%g\n",dump.a,dump.b,common,dump.hit,dump.referenceHit,hostHit,hit,comparison.accepted,recordedHit,recordedComparison.accepted,result.flags[0],result.flags[1],result.flags[2],result.flags[3]);
+    return comparison.accepted && recordedComparison.accepted?0:1;
+  }
   for(int controlled=0;controlled<2;++controlled){auto c=controlled?Vu0SatProbe::clearWinner():Vu0SatProbe::nearTie();Vu0SatJob job;
     assert(packVu0Sat(job,c.view(0),c.view(1),c.box[0],c.box[1],c.motion[0],c.motion[1]));
     assert(!vu0SatScalarPreferred(job));

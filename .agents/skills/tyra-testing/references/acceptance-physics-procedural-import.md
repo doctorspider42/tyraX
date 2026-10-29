@@ -30,6 +30,11 @@ The common-motion shortcut must pass four overlap/separation/touching/translatio
 controls against the full interval path; the host oracle also requires fewer
 executed source instructions. The preceding kernel must fail that work-reduction
 assertion. Same-ELF reference probes compare live instruction bytes outside timing.
+Always scan the complete hardware log after CB DONE: a late VUSATDIFF rejects
+the trial even when measured sidecars show zero errors. --micro-precision adds
+50000 near-touching cases and replay of saved hardware output; the source
+simulator alone missed the2026-10-30 boundary failure. Preserve the1232-byte
+failure packet; host verification must also consume its recorded GPU result.
 No Vec4/COP2 calls may run while another micro packet is active, including
 inside EE result reconstruction or canonical positive-CCD confirmation.
 

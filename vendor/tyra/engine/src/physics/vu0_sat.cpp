@@ -53,19 +53,38 @@ bool finishVu0Sat(const Vu0SatResult& r, const Vu0SatJob& job, const ConvexView&
   const bool sweepHit=r.flags[1]==0 && r.flags[2]!=0 && found &&
       r.sweepEnter[3]<=1 && r.flags[0]>=0;
   const bool tiedHit=r.flags[3]>=2 && r.flags[1]!=0 && r.normalDepth[3]<1e30f;
+  const bool discreteHit=r.flags[1]!=0 && r.normalDepth[3]<1e30f;
+  const bool negative=!discreteHit && !sweepHit;
   // A tied minimum cannot invalidate a separating-axis proof. Confirm ties
   // only when they would choose a contact, not for already separated pairs.
-  if(vu0SatScalarPreferred(job) || tiedHit || sweepHit) {
-#if TYRA_VU0_SAT_PROFILE
-    vu0SatMetrics.confirmedCcd+=sweepHit;
-    vu0SatMetrics.confirmedTie+=tiedHit;
-    vu0SatMetrics.confirmedParallel+=vu0SatScalarPreferred(job);
-#endif
+  if(vu0SatScalarPreferred(job) || tiedHit || sweepHit || negative) {
     CollisionObb boxes[2];
     for(int k=0;k<2;++k) {
       const float* c=job.q[k*4];boxes[k].centre={c[0],c[1],c[2]};
       for(int h=0;h<3;++h){const float* v=job.q[k*4+h+1];boxes[k].halfAxes[h]={v[0],v[1],v[2]};}
     }
+    // A VU rejection near a touching face can differ from EE by one ULP.
+    // Reuse the existing conservative full-sweep axis proof on EE; otherwise
+    // ask the canonical routine. Do not convert a shallow reference hit into
+    // a miss, even when it would fall below the solver's penetration slop.
+    if(negative && !vu0SatScalarPreferred(job) && std::isfinite(r.indices[2])) {
+      const int index=int(r.indices[2]),axes=a.nn+b.nn+a.ne*b.ne;
+      if(index>=0 && index<axes && index<21) {
+        const auto* v=job.q[10+index];const CollisionV3 axis={v[0],v[1],v[2]};
+        if(convexSeparatedOnAxis(a,b,motionA,motionB,axis,&boxes[0],&boxes[1])) {
+#if TYRA_VU0_SAT_PROFILE
+          ++vu0SatMetrics.provedNegative;
+#endif
+          return false;
+        }
+      }
+    }
+#if TYRA_VU0_SAT_PROFILE
+    if(vu0SatScalarPreferred(job))++vu0SatMetrics.confirmedParallel;
+    else if(sweepHit)++vu0SatMetrics.confirmedCcd;
+    else if(negative)++vu0SatMetrics.confirmedNegative;
+    else ++vu0SatMetrics.confirmedTie;
+#endif
     // The EE compiler otherwise inlines a second copy here while the game
     // calls the out-of-line weak definition. Different FPU contraction and
     // register schedules can then pick opposite strict CCD support vertices.

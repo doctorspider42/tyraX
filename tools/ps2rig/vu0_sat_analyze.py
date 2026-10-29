@@ -1,6 +1,6 @@
 """Validate same-ELF VU0 shadow/timing gates and retain overlap evidence."""
 from pathlib import Path
-import argparse,csv,hashlib,json,math
+import argparse,csv,hashlib,json,math,re
 from collision_analyze import analyze
 
 def main():
@@ -12,6 +12,7 @@ def main():
  if a.settle_check:assert a.mode=='verify','Settle qualification requires full shadow verification'
  expected=list(range(4)) if a.settle_check else [12,13] if a.mode=='verify' else list(range(28))
  frame_end=1410 if a.settle_check else 750
+ metadata=json.loads(a.metadata.read_text(encoding='utf8'))
  files=sorted(a.root.glob('collision-phase-*.csv'))
  assert [int(f.stem.rsplit('-',1)[1]) for f in files]==expected
  rows_total=0;metrics=[];hashes={}
@@ -40,19 +41,31 @@ def main():
   m['simulated_frames']=frame_end+(300 if phase==0 else 0)
   m['includes_warmup']=True
   m['wait_ms_per_simulated_frame']=m['wait_ticks']/294912/m['simulated_frames']
+  if metadata.get('certified_negatives'):
+   classification=a.root/f'vu0-class-{phase}.csv'
+   classes=list(csv.DictReader(classification.open()));assert len(classes)==1,classification
+   counts={k:int(v)for k,v in classes[0].items()}
+   assert counts['phase']==phase and counts['jobs']==m['jobs'],classification
+   reasons=['proved_negative','confirmed_negative','confirmed_ccd','confirmed_tie','confirmed_parallel']
+   assert all(counts[k]>=0 for k in reasons),classification
+   assert sum(counts[k]for k in reasons)<=m['jobs'],classification
+   m['classifications']=counts
+   hashes[classification.name]=hashlib.sha256(classification.read_bytes()).hexdigest()
   metrics.append(m);rows_total+=len(rows)
   for x in [f,side]:hashes[x.name]=hashlib.sha256(x.read_bytes()).hexdigest()
  assert sum(m['jobs']for m in metrics)>0
  assert sum(m['busy_ee_query']for m in metrics)>0,'No sampled EE/VU0 overlap'
  log=a.log.read_text(encoding='utf8',errors='replace')
- metadata=json.loads(a.metadata.read_text(encoding='utf8'))
  if metadata.get('min_axis_guard'):assert 'VUSATTIE cases=1 failures=0' in log
  if metadata.get('winning_axis_uncertainty'):assert 'VUSATCLEAR cases=1 failures=0' in log
  if metadata.get('common_motion_shortcut'):assert 'VUSATCOMMON cases=4 failures=0' in log
+ if metadata.get('micro_precision'):assert 'VUSATPRECISION cases=50000 failures=0' in log
+ if metadata.get('precision_replay'):assert re.search(r'VUSATREPLAY reference=0 .*accepted=1',log)
  assert f'VUSAT mode={a.mode}' in log
  assert 'VUSATCHECK cases=2048 failures=0 ' in log
  assert 'VU0OWNERCHECK switches=3 failures=0' in log
  assert 'VUSATCHECK FAIL' not in log
+ assert 'VUSATDIFF ' not in log,'A hard runtime geometry error, including after the measured window, rejects qualification'
  done=4 if a.settle_check else 14 if a.mode=='verify' else 28
  assert f'CB DONE phases={done}' in log
  summary=analyze(a.root,complete=a.mode=='timing' or a.settle_check,baseline_label='scalar',solver_comparison=True,temporal_comparison=True,settle_check=a.settle_check,temporal_arms=2)

@@ -119,7 +119,7 @@ When analyzing a `cc1f8895b --uncapped-baseline` run, pass
 The diagnostic, first-bounds and final-projection 2026-10-29 follow-ups are in
 `results/collision-{diagnosis,bounds,projection}-2026-10-29.{json,csv.gz}`.
 The final run validates all 16,800 frames in both arms for complete contact/prop
-accounting. It improves pile FPS by 6�25% against uncapped prior algorithms;
+accounting. It improves pile FPS by 6â€“25% against uncapped prior algorithms;
 it does not qualify dense 60 FPS. See the linked results page for frame misses,
 per-repeat spread, shared-layout and trajectory limitations.
 
@@ -278,3 +278,25 @@ and the old-kernel work-reduction falsifier. The stream CSV reports
 common_motion_jobs; mode5 reference probes compare live instruction memory to
 the selected image before validating each corpus. These checks and image uploads
 remain outside timings. Replay the captured Case files to preserve exact inputs.
+
+All private micro fixtures now record the first hard failure into fixed RAM and
+flush vu0-sat-failure.bin only after the micro queue drains. --micro-precision
+adds a50000-case near-touching corpus and replay of a saved packet; install into
+an existing fixture with vu0_capture_fixture.py --precision. The captured
+1232-byte Dump includes exact Case/Job/VU0 output and the EE reference. Run the
+host oracle with a third argument naming this packet: it tests both simulated
+output and the actual recorded GPU result against the saved EE contact.
+
+The2026-10-30 capture demonstrates a hardware/source-simulator disagreement;
+recorded-result regression must fail on the old consumer and pass the certified
+negative bridge. Vu0SatCapture::flush must stay outside active micro execution.
+Qualification rejects VUSATDIFF anywhere in the complete log, even after CB DONE.
+Additional vu0-class-<phase>.csv files count conservative EE negative proofs,
+full negative confirmations and the original confirmation categories.
+
+The certified-negative qualification is archived in results/vu0-negative-proof-2026-10-30.inputs.zip.
+It contains the saved hardware packet, unchanged Case inputs, stream CSV, both
+scene phase families, classification CSVs, metadata and the complete log. With
+metadata.certified_negatives the scene analyzer validates classification totals
+against jobs and hashes the additional sidecars. The precision gate is50,000
+cases plus accepted replay of the recorded hardware failure.

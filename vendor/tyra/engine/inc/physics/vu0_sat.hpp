@@ -11,6 +11,7 @@ namespace Tyra {
 struct Vu0SatMetrics {
   unsigned jobs=0,batches=0,busyAtFinish=0,busyWhileQuerying=0,waitTicks=0;
   unsigned confirmedCcd=0,confirmedTie=0,confirmedParallel=0;
+  unsigned provedNegative=0,confirmedNegative=0;
 };
 inline Vu0SatMetrics vu0SatMetrics;
 inline unsigned vu0SatValidationErrors=0;
