@@ -46,27 +46,26 @@ inline SolverVector sv(CollisionV3 v, float w = 0) {
 }
 inline CollisionV3 xyz(const SolverVector &v) { return {v.x, v.y, v.z}; }
 struct alignas(16) SolverBody {
-  SolverVector v, w, vp, wp;
-  SolverVector invI[3]; // columns, already in VU0 load format
-  SolverVector mass;    // x = inverse mass
+  SolverVector v, w, vp, wp; // v.w = inverse mass; arithmetic uses xyz
+  SolverVector invI[3];      // columns, already in VU0 load format
 };
+struct alignas(16) SolverFriction {
+  float x, y, z;
+  uint16_t a, b;
+};
+inline CollisionV3 xyz(const SolverFriction &f) { return {f.x, f.y, f.z}; }
 struct alignas(16) SolverContact {
   SolverVector normal;   // w = bounce target
   SolverVector ra;       // w = predicted normal velocity
   SolverVector rb;       // w = penetration depth
   SolverVector angularA; // xyz = I^-1 (ra x n), w = normal denominator
   SolverVector angularB; // xyz = I^-1 (rb x n), w = friction coefficient
-  SolverVector
-      k[3]; // contact response columns; k[0/1].w = normal/split impulse
-  SolverVector friction;
-  int a, b;
-  int reserved[2];
+  SolverVector k[2];     // symmetric response: diagonal/off-diagonal; w = jn/jp
+  SolverFriction friction; // body indices occupy the unused fourth lane
 };
-static_assert(sizeof(SolverBody) == 128, "VU0 body offsets");
-static_assert(sizeof(SolverContact) == 160, "VU0 contact offsets");
-static_assert(offsetof(SolverBody, invI) == 64 &&
-                  offsetof(SolverBody, mass) == 112,
-              "VU0 body loads");
+static_assert(sizeof(SolverBody) == 112, "VU0 body offsets");
+static_assert(sizeof(SolverContact) == 128, "VU0 contact offsets");
+static_assert(offsetof(SolverBody, invI) == 64, "VU0 body loads");
 static_assert(offsetof(SolverContact, ra) == 16 &&
                   offsetof(SolverContact, rb) == 32 &&
                   offsetof(SolverContact, angularA) == 48 &&
@@ -87,7 +86,7 @@ inline CollisionV3 solverRelative(const SolverBody &a, const SolverBody &b,
 }
 inline CollisionV3 solverResponse(const SolverBody &b, CollisionV3 r,
                                   CollisionV3 p) {
-  return cvAdd(cvMul(p, b.mass.x),
+  return cvAdd(cvMul(p, b.v.w),
                cvCross(solverMatrix(b.invI, cvCross(r, p)), r));
 }
 inline void prepareSolverContact(SolverContact &c, const SolverBody &a,
@@ -96,17 +95,21 @@ inline void prepareSolverContact(SolverContact &c, const SolverBody &a,
   const CollisionV3 n = xyz(c.normal), ra = xyz(c.ra), rb = xyz(c.rb);
   c.angularA = sv(solverMatrix(a.invI, cvCross(ra, n)));
   c.angularB = sv(solverMatrix(b.invI, cvCross(rb, n)));
-  const float kn = a.mass.x + cvDot(cvCross(xyz(c.angularA), ra), n) +
-                   b.mass.x + cvDot(cvCross(xyz(c.angularB), rb), n);
+  const float kn = a.v.w + cvDot(cvCross(xyz(c.angularA), ra), n) + b.v.w +
+                   cvDot(cvCross(xyz(c.angularB), rb), n);
   c.angularA.w = std::max(kn, 1e-9f);
   c.angularB.w = .05f + .95f * friction;
   c.ra.w = cvDot(solverRelative(a, b, c), n);
   c.normal.w = -c.ra.w > bounceThreshold ? -bounce * c.ra.w : 0;
+  CollisionV3 k[3];
   for (int i = 0; i < 3; ++i) {
     CollisionV3 e = {float(i == 0), float(i == 1), float(i == 2)};
-    c.k[i] = sv(cvAdd(solverResponse(a, ra, e), solverResponse(b, rb, e)));
+    k[i] = cvAdd(solverResponse(a, ra, e), solverResponse(b, rb, e));
   }
-  c.friction = {0, 0, 0, 0};
+  c.k[0] = {k[0].x, k[1].y, k[2].z, 0};
+  c.k[1] = {(k[0].y + k[1].x) * .5f, (k[0].z + k[2].x) * .5f,
+            (k[1].z + k[2].y) * .5f, 0};
+  c.friction.x = c.friction.y = c.friction.z = 0;
 }
 template <bool VU0>
 inline void solverNormal(SolverBody &a, SolverBody &b, const SolverContact &c,
@@ -120,14 +123,14 @@ inline void solverNormal(SolverBody &a, SolverBody &b, const SolverContact &c,
     asm volatile(
         "qmtc2 %[bits], $vf10\n"
         "lqc2 $vf4, 0(%[av])\n lqc2 $vf5, 16(%[av])\n"
-        "lqc2 $vf6, 112(%[a])\n lqc2 $vf7, 0(%[c])\n"
+        "lqc2 $vf6, 0(%[a])\n lqc2 $vf7, 0(%[c])\n"
         "lqc2 $vf8, 48(%[c])\n lqc2 $vf9, 64(%[c])\n"
         "vmulx.xyz $vf11, $vf7, $vf10\n"
-        "vmulx.xyz $vf12, $vf11, $vf6\n vadd.xyz $vf4, $vf4, $vf12\n"
+        "vmulw.xyz $vf12, $vf11, $vf6\n vadd.xyz $vf4, $vf4, $vf12\n"
         "vmulx.xyz $vf12, $vf8, $vf10\n vadd.xyz $vf5, $vf5, $vf12\n"
         "sqc2 $vf4, 0(%[av])\n sqc2 $vf5, 16(%[av])\n"
-        "lqc2 $vf4, 0(%[bv])\n lqc2 $vf5, 16(%[bv])\n lqc2 $vf6, 112(%[b])\n"
-        "vmulx.xyz $vf12, $vf11, $vf6\n vsub.xyz $vf4, $vf4, $vf12\n"
+        "lqc2 $vf4, 0(%[bv])\n lqc2 $vf5, 16(%[bv])\n lqc2 $vf6, 0(%[b])\n"
+        "vmulw.xyz $vf12, $vf11, $vf6\n vsub.xyz $vf4, $vf4, $vf12\n"
         "vmulx.xyz $vf12, $vf9, $vf10\n vsub.xyz $vf5, $vf5, $vf12\n"
         "sqc2 $vf4, 0(%[bv])\n sqc2 $vf5, 16(%[bv])\n"
         : "+m"(a), "+m"(b)
@@ -142,9 +145,9 @@ inline void solverNormal(SolverBody &a, SolverBody &b, const SolverContact &c,
   SolverVector &bv = position ? b.vp : b.v;
   SolverVector &bw = position ? b.wp : b.w;
   const CollisionV3 p = cvMul(xyz(c.normal), delta);
-  av = sv(cvAdd(xyz(av), cvMul(p, a.mass.x)));
+  av = sv(cvAdd(xyz(av), cvMul(p, a.v.w)), av.w);
   aw = sv(cvAdd(xyz(aw), cvMul(xyz(c.angularA), delta)));
-  bv = sv(cvSub(xyz(bv), cvMul(p, b.mass.x)));
+  bv = sv(cvSub(xyz(bv), cvMul(p, b.v.w)), bv.w);
   bw = sv(cvSub(xyz(bw), cvMul(xyz(c.angularB), delta)));
 }
 template <bool VU0>
@@ -158,8 +161,8 @@ inline void solverImpulse(SolverBody &a, SolverBody &b, const SolverContact &c,
         "lqc2 $vf7, 64(%[a])\n lqc2 $vf8, 80(%[a])\n lqc2 $vf9, 96(%[a])\n"
         "vmulax.xyz $ACC, $vf7, $vf6\n vmadday.xyz $ACC, $vf8, $vf6\n "
         "vmaddz.xyz $vf10, $vf9, $vf6\n"
-        "lqc2 $vf11, 0(%[a])\n lqc2 $vf12, 16(%[a])\n lqc2 $vf13, 112(%[a])\n"
-        "vmulx.xyz $vf14, $vf4, $vf13\n vadd.xyz $vf11, $vf11, $vf14\n"
+        "lqc2 $vf11, 0(%[a])\n lqc2 $vf12, 16(%[a])\n lqc2 $vf13, 0(%[a])\n"
+        "vmulw.xyz $vf14, $vf4, $vf13\n vadd.xyz $vf11, $vf11, $vf14\n"
         "vadd.xyz $vf12, $vf12, $vf10\n sqc2 $vf11, 0(%[a])\n sqc2 $vf12, "
         "16(%[a])\n"
         "lqc2 $vf5, 32(%[c])\n"
@@ -167,8 +170,8 @@ inline void solverImpulse(SolverBody &a, SolverBody &b, const SolverContact &c,
         "lqc2 $vf7, 64(%[b])\n lqc2 $vf8, 80(%[b])\n lqc2 $vf9, 96(%[b])\n"
         "vmulax.xyz $ACC, $vf7, $vf6\n vmadday.xyz $ACC, $vf8, $vf6\n "
         "vmaddz.xyz $vf10, $vf9, $vf6\n"
-        "lqc2 $vf11, 0(%[b])\n lqc2 $vf12, 16(%[b])\n lqc2 $vf13, 112(%[b])\n"
-        "vmulx.xyz $vf14, $vf4, $vf13\n vsub.xyz $vf11, $vf11, $vf14\n"
+        "lqc2 $vf11, 0(%[b])\n lqc2 $vf12, 16(%[b])\n lqc2 $vf13, 0(%[b])\n"
+        "vmulw.xyz $vf14, $vf4, $vf13\n vsub.xyz $vf11, $vf11, $vf14\n"
         "vsub.xyz $vf12, $vf12, $vf10\n sqc2 $vf11, 0(%[b])\n sqc2 $vf12, "
         "16(%[b])\n"
         : "+m"(a), "+m"(b)
@@ -177,9 +180,9 @@ inline void solverImpulse(SolverBody &a, SolverBody &b, const SolverContact &c,
     return;
   }
 #endif
-  a.v = sv(cvAdd(xyz(a.v), cvMul(xyz(p), a.mass.x)));
+  a.v = sv(cvAdd(xyz(a.v), cvMul(xyz(p), a.v.w)), a.v.w);
   a.w = sv(cvAdd(xyz(a.w), solverMatrix(a.invI, cvCross(xyz(c.ra), xyz(p)))));
-  b.v = sv(cvSub(xyz(b.v), cvMul(xyz(p), b.mass.x)));
+  b.v = sv(cvSub(xyz(b.v), cvMul(xyz(p), b.v.w)), b.v.w);
   b.w = sv(cvSub(xyz(b.w), solverMatrix(b.invI, cvCross(xyz(c.rb), xyz(p)))));
 }
 template <bool VU0>
@@ -189,8 +192,8 @@ inline void solvePrepared(SolverBody *bodies, SolverContact *contacts,
   for (int it = 0; it < velocityIterations; ++it)
     for (int k = 0; k < count; ++k) {
       SolverContact &c = contacts[k];
-      SolverBody &a = bodies[c.a];
-      SolverBody &b = bodies[c.b];
+      SolverBody &a = bodies[c.friction.a];
+      SolverBody &b = bodies[c.friction.b];
       float j =
           std::max(0.f, c.k[0].w + (c.normal.w - cvDot(solverRelative(a, b, c),
                                                        xyz(c.normal))) /
@@ -206,7 +209,10 @@ inline void solvePrepared(SolverBody *bodies, SolverContact *contacts,
         continue;
       float len = std::sqrt(l2);
       CollisionV3 t = cvMul(vt, 1.f / len);
-      float kt = cvDot(t, solverMatrix(c.k, t));
+      float kt = c.k[0].x * t.x * t.x + c.k[0].y * t.y * t.y +
+                 c.k[0].z * t.z * t.z +
+                 2.f * (c.k[1].x * t.x * t.y + c.k[1].y * t.x * t.z +
+                        c.k[1].z * t.y * t.z);
       if (kt < 1e-9f)
         continue;
       CollisionV3 nf = cvAdd(xyz(c.friction), cvMul(t, -len / kt));
@@ -215,13 +221,15 @@ inline void solvePrepared(SolverBody *bodies, SolverContact *contacts,
         nf = cvMul(nf, limit / std::sqrt(n2));
       SolverVector p = sv(cvSub(nf, xyz(c.friction)));
       solverImpulse<VU0>(a, b, c, p);
-      c.friction = sv(nf);
+      c.friction.x = nf.x;
+      c.friction.y = nf.y;
+      c.friction.z = nf.z;
     }
   for (int it = 0; it < positionIterations; ++it)
     for (int k = 0; k < count; ++k) {
       SolverContact &c = contacts[k];
-      SolverBody &a = bodies[c.a];
-      SolverBody &b = bodies[c.b];
+      SolverBody &a = bodies[c.friction.a];
+      SolverBody &b = bodies[c.friction.b];
       float remaining =
           c.rb.w - (cvDot(solverRelative(a, b, c), xyz(c.normal)) - c.ra.w);
       float target = remaining > slop ? baumgarte * (remaining - slop) : 0;

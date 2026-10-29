@@ -177,11 +177,17 @@ the budget. Current bounds include:
 The impulse solver prepares a 3×3 contact response matrix and normal angular
 responses once per step. Its repeated passes use separate aligned body/contact
 buffers instead of fetching solver state from the larger geometry steps.
+The compact format stores the symmetric response matrix in six coefficients;
+body indices and inverse mass use spare vector lanes. This preserves the
+physical matrix rather than dropping a response component.
 The scalar and experimental VU0 macro-mode paths retain the same dynamic slip
 direction, circular Coulomb-friction bound, contact order and six velocity plus
 three split-impulse passes. There are no collider, inertia or simulation-rate
 simplifications. `TYRA_PHYSICS_SOLVER_VU0` selects the backend; console timing
 and scalar/VU0 numerical qualification determine its shipped default.
+See the [prepared solver experiment](prepared-contact-solver.md) for the
+three-arm console results and the distinction between arithmetic correctness
+and a demonstrated whole-frame gain.
 
 The EE controls broad-phase queries and the impulse solver. Moving and sleeping
 colliders are spatially indexed. A separate per-step grid uses swept

@@ -186,9 +186,8 @@ inline bool run() {
               s.invMass ? (q[r] * q[c] + float(r == c) * positive(rng)) : 0;
       // The diagonal additions above are independent but remain positive.
       auto &b = body[i];
-      b.v = sv(s.v);
+      b.v = sv(s.v, s.invMass);
       b.w = sv(s.w);
-      b.mass = {s.invMass, 0, 0, 0};
       for (int k = 0; k < 3; ++k)
         b.invI[k] = {s.invIw[k], s.invIw[k + 3], s.invIw[k + 6], 0};
     }
@@ -205,12 +204,13 @@ inline bool run() {
       r.n = cvMul(r.n, 1.f / std::sqrt(cvDot(r.n, r.n)));
       r.depth = .02f * positive(rng);
       auto &c = sc[k];
-      c.a = r.a;
-      c.b = r.b < 0 ? nb : r.b;
+      c.friction.a = r.a;
+      c.friction.b = r.b < 0 ? nb : r.b;
       c.normal = sv(r.n);
       c.ra = sv(cvSub(r.p, ref[r.a].x1));
       c.rb = sv(r.b < 0 ? RbV{} : cvSub(r.p, ref[r.b].x1), r.depth);
-      prepareSolverContact(c, body[c.a], body[c.b], .1f, .6f, .01f);
+      prepareSolverContact(c, body[c.friction.a], body[c.friction.b], .1f, .6f,
+                           .01f);
     }
     auto vuBody = body;
     auto vuContacts = sc;

@@ -69,6 +69,9 @@ a Mac) finds any command, object or window by name.
 - [Collision stress results on PS2](collision-stress-results.md) — physical-console
   measurements for 32–128 additional Motor District props: the dense-pile
   regression, complete-contact optimizations and the remaining frame budget.
+- [Prepared contact solver](prepared-contact-solver.md) — cached contact response
+  matrices, compact scalar/VU0 state and physical-console comparisons that preserve
+  the existing collision and friction model.
 - [Particle library](particles.md) — particle effects defined once in the Particle
   Editor and linked from emitters and vehicle tyre smoke, additive fire and
   sparks, and procedural smoke / flame / glow textures.

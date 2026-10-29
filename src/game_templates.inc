@@ -25133,15 +25133,14 @@ void TerrainGame::updateObjectPhysics() {
     solverContacts.resize(contacts.size());
     for (size_t i=0;i<steps.size();++i) {
       const RbStep& s=steps[i];auto& d=solverBodies[i];
-      d.v=Tyra::sv(s.v);d.w=Tyra::sv(s.w);
+      d.v=Tyra::sv(s.v,s.invMass);d.w=Tyra::sv(s.w);
       d.vp=Tyra::sv(s.vp);d.wp=Tyra::sv(s.wp);
-      d.mass={s.invMass,0,0,0};
       for(int k=0;k<3;++k)d.invI[k]={s.invIw[k],s.invIw[k+3],s.invIw[k+6],0};
     }
     solverBodies.back()=Tyra::SolverBody{};
     for(int k=0;k<nc;++k) {
       const RbContact& c=contacts[k];auto& d=solverContacts[k];
-      RbStep& a=steps[c.a];d.a=c.a;d.b=c.b>=0?c.b:(int)steps.size();
+      RbStep& a=steps[c.a];d.friction.a=c.a;d.friction.b=c.b>=0?c.b:(int)steps.size();
       d.normal=Tyra::sv(c.n);d.ra=Tyra::sv(rbSub(c.p,a.x1));
       d.rb=Tyra::sv(c.b>=0?rbSub(c.p,steps[c.b].x1):rbV(0,0,0),c.depth);
       float e=a.bounce,f=a.friction;
@@ -25150,7 +25149,7 @@ void TerrainGame::updateObjectPhysics() {
         if(c.n.y<-.5F)steps[c.b].grounded=true;
       }
       if(c.n.y>.5F)a.grounded=true;
-      Tyra::prepareSolverContact(d,solverBodies[d.a],solverBodies[d.b],e,f,bounceThreshold);
+      Tyra::prepareSolverContact(d,solverBodies[d.friction.a],solverBodies[d.friction.b],e,f,bounceThreshold);
     }
     Tyra::solvePhysics(solverBodies.data(),solverContacts.data(),nc,
         PHYS_ITERATIONS,PHYS_POS_ITERATIONS,PHYS_SLOP,PHYS_BAUMGARTE,

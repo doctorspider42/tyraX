@@ -137,3 +137,9 @@ The solver arm is stored in every CSV row; each of the 42 phases must have
 600 measured frames. Prepared contacts must retain all generated points and
 all vehicle candidates. The prior solver shares scene/step layout and assets;
 its integration order and 6+3 passes are preserved.
+
+The lean comparison additionally records `solver_ticks`: contact preparation,
+packing, all 6+3 passes and copying solved velocities back, excluding detection.
+The analyzer reports solver mean/p95 and aggregate microseconds per contact;
+contact populations/trajectories can still differ between arms. Malformed CSV
+rows or solver scopes exceeding whole physics time are rejected.

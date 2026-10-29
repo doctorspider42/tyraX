@@ -160,6 +160,11 @@ for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
  if args.solver_comparison and p.name=='game_physics.gen.cpp':
   assert s.count('TYRA_PHYSICS_SOLVER_VU0 != 0')==1
   s=s.replace('TYRA_PHYSICS_SOLVER_VU0 != 0','CB::solverArm == 2')
+ if args.solver_comparison:
+  marker='  // --- 4.';pos=s.index(marker,s.index('void TerrainGame::updateObjectPhysics'))
+  s=s[:pos]+'  { CB::SolverScope solverScope;\n'+s[pos:]
+  marker='  // --- 5.';pos=s.index(marker,pos)
+  s=s[:pos]+'  }\n'+s[pos:]
  p.write_text(s,encoding='utf8',newline='\n')
 p=proj/'src/terrain_game.cpp';s=p.read_text(encoding='utf8');s=s.replace('  const bool menuActive =','  benchTick();\n  const bool menuActive =',1);s=s.replace('  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);','  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);\n  {Tyra::PadButtons neutral{};engine->pad.setState(neutral,neutral,128,128,128,128);}',1);p.write_text(s,encoding='utf8',newline='\n')
 p=proj/'src/gen/game_vehicles.gen.cpp';s=p.read_text(encoding='utf8');needle='    } else if (v.wpCount > 0 && (s.damageMechanical <= 0.5F || v.damage < 0.999F)) {';assert s.count(needle)==1

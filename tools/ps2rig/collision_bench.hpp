@@ -24,12 +24,14 @@ constexpr int warm = 150, park = 120, drive = 360, settle = 120,
 inline U phys = 0, awake = 0, contacts = 0, drops = 0, pushDrops = 0,
          pushes = 0;
 inline U generated = 0, pushCandidates = 0, pushTested = 0;
+inline U solverTicks = 0;
 inline float carZ = 0, carSpeed = 0;
 inline int carValid = 0;
 struct Row {
   U frame, period, work, phys, awake, contacts, drops, pushDrops, pushes;
   float z, speed;
   U generated, pushCandidates, pushTested;
+  U solverTicks;
 };
 inline Row rows[1024];
 inline int used = 0;
@@ -73,16 +75,17 @@ inline void begin(U stalls) {
       used < 1024) {
     U period = now - prev, wait = stalls - lastStalls;
     rows[used++] = {
-        (U)frame,       period,    period > wait ? period - wait : 0,
-        phys,           awake,     contacts,
-        drops,          pushDrops, pushes,
-        carZ,           carSpeed,  generated,
-        pushCandidates, pushTested};
+        (U)frame,       period,     period > wait ? period - wait : 0,
+        phys,           awake,      contacts,
+        drops,          pushDrops,  pushes,
+        carZ,           carSpeed,   generated,
+        pushCandidates, pushTested, solverTicks};
   }
   prev = now;
   lastStalls = stalls;
   phys = awake = contacts = drops = pushDrops = pushes = 0;
   generated = pushCandidates = pushTested = 0;
+  solverTicks = 0;
   if (ready && !finished)
     ++frame;
 }
@@ -94,16 +97,16 @@ inline void flush() {
     fprintf(f, "phase,baseline,added,layout,repeat,frame,state,period_ticks,"
                "work_ticks,physics_ticks,awake,contacts,dropped_contacts,push_"
                "overflow,pushes,car_z,car_speed,generated_contacts,push_"
-               "candidates,push_tested,solver_arm\n");
+               "candidates,push_tested,solver_arm,solver_ticks\n");
     for (int i = 0; i < used; ++i) {
       auto &r = rows[i];
       fprintf(f,
               "%d,%d,%d,%d,%d,%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%.5f,%.5f,%u,%u,%u,"
-              "%d\n",
+              "%d,%u\n",
               phase, baseline, added, layout, repeat, r.frame, state(r.frame),
               r.period, r.work, r.phys, r.awake, r.contacts, r.drops,
               r.pushDrops, r.pushes, r.z, r.speed, r.generated,
-              r.pushCandidates, r.pushTested, solverArm);
+              r.pushCandidates, r.pushTested, solverArm, r.solverTicks);
     }
     fclose(f);
   }
@@ -137,6 +140,11 @@ inline void flush() {
   fflush(stdout);
   used = 0;
 }
+struct SolverScope {
+  U start;
+  SolverScope() : start(ticks()) {}
+  ~SolverScope() { solverTicks += ticks() - start; }
+};
 struct PhysicsScope {
   U start;
   PhysicsScope() : start(ticks()) {}
