@@ -122,3 +122,18 @@ The final run validates all 16,800 frames in both arms for complete contact/prop
 accounting. It improves pile FPS by 6–25% against uncapped prior algorithms;
 it does not qualify dense 60 FPS. See the linked results page for frame misses,
 per-repeat spread, shared-layout and trajectory limitations.
+
+## Prepared contact solver A/B/C
+
+Pass `--solver-comparison --baseline 2ed7cb6f7 --uncapped-baseline` to prepare
+and instrument. This selects 42 phases: the previous solver, prepared scalar
+and prepared VU0, seven workloads and reversed order on the second repeat.
+The startup `contact_solver_probe.hpp` compares the three implementations on
+64 coupled contact graphs, writes `solver-check.csv` and aborts timing on an
+error. The fixture includes no warm starting or reduced physics fidelity.
+
+Analyze with `--solver-comparison --complete --baseline-label pre-prepared`.
+The solver arm is stored in every CSV row; each of the 42 phases must have
+600 measured frames. Prepared contacts must retain all generated points and
+all vehicle candidates. The prior solver shares scene/step layout and assets;
+its integration order and 6+3 passes are preserved.

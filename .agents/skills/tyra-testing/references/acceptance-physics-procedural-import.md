@@ -68,3 +68,15 @@ The envelope oracle also compares the shared-projection SAT/CCD routine with
 the independent discrete-then-sweep reference (hit, depth, normal, point), and
 requires analytic OBB projection to retain every reference hit. OBB projection
 rounds outward; it keeps all face/edge axes and is enabled only for known boxes.
+
+
+Prepared-contact solver acceptance: `tools/verify-contact-solver.cpp` embeds
+an independent reference from 2ed7cb6f7 and compares 2000 coupled 48-contact
+graphs with the prepared scalar solver (six velocity / three split passes).
+The `tools/ps2rig/contact_solver_probe.hpp` startup probe compares reference,
+prepared scalar and VU0 on 64 graphs before timing. Solver storage uses an
+explicit quadword-aligned allocator; test host allocation and EE/VU0 load/store
+alignment. Full-game timing uses `collision_stress.py --solver-comparison`
+with baseline 2ed7cb6f7: 42 phases, three arms, reversed order on repeat. Pass
+`--solver-comparison --complete` to the analyzer. No collider/friction/inertia
+or timestep simplifications are allowed in this comparison.

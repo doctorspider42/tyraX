@@ -2,6 +2,7 @@
 #pragma once
 #include "terrain_game.hpp"
 #include "physics/convex_collision.hpp"
+#include "physics/contact_solver.hpp"
 #include "physics/collision_math.hpp"
 #include "debug/hardware_trace.hpp"
 #include "terrain_config.hpp"

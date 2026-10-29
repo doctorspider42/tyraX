@@ -2,6 +2,9 @@
 #include "file/file_utils.hpp"
 #include <algorithm>
 #include <stdio.h>
+#ifndef TYRA_SOLVER_COMPARISON
+#define TYRA_SOLVER_COMPARISON 0
+#endif
 namespace CB {
 using U = unsigned;
 using U64 = unsigned long long;
@@ -13,9 +16,11 @@ inline U ticks() {
 inline int phase = 0, frame = 0;
 inline bool ready = false, setup = true, finished = false;
 inline bool baseline = true;
+inline int solverArm = 0;
 inline int added = 0, layout = 0, repeat = 0;
 constexpr int warm = 150, park = 120, drive = 360, settle = 120,
-              total = warm + park + drive + settle, phases = 28;
+              total = warm + park + drive + settle,
+              phases = TYRA_SOLVER_COMPARISON ? 42 : 28;
 inline U phys = 0, awake = 0, contacts = 0, drops = 0, pushDrops = 0,
          pushes = 0;
 inline U generated = 0, pushCandidates = 0, pushTested = 0;
@@ -39,6 +44,17 @@ inline const char *state(int f) {
                                    : "settle";
 }
 inline void configure() {
+#if TYRA_SOLVER_COMPARISON
+  repeat = phase / 21;
+  const int variant = (phase / 3) % 7;
+  solverArm = repeat ? 2 - phase % 3 : phase % 3;
+  baseline = solverArm == 0;
+  added = variant == 0                   ? 0
+          : variant == 1 || variant == 4 ? 32
+          : variant == 2 || variant == 5 ? 64
+                                         : 128;
+  layout = variant >= 4;
+#else
   int variant = (phase / 2) % 7;
   repeat = phase / 14;
   baseline = (phase % 2) == (repeat % 2);
@@ -47,6 +63,8 @@ inline void configure() {
           : variant == 2 || variant == 5 ? 64
                                          : 128;
   layout = variant >= 4;
+  solverArm = baseline ? 0 : 1;
+#endif
 }
 inline void begin(U stalls) {
   static U prev = 0, lastStalls = 0;
@@ -54,10 +72,12 @@ inline void begin(U stalls) {
   if (prev && ready && !finished && frame >= warm && frame < total &&
       used < 1024) {
     U period = now - prev, wait = stalls - lastStalls;
-    rows[used++] = {(U)frame, period,    period > wait ? period - wait : 0,
-                    phys,     awake,     contacts,
-                    drops,    pushDrops, pushes,
-                    carZ,     carSpeed, generated, pushCandidates, pushTested};
+    rows[used++] = {
+        (U)frame,       period,    period > wait ? period - wait : 0,
+        phys,           awake,     contacts,
+        drops,          pushDrops, pushes,
+        carZ,           carSpeed,  generated,
+        pushCandidates, pushTested};
   }
   prev = now;
   lastStalls = stalls;
@@ -73,13 +93,17 @@ inline void flush() {
   if (f) {
     fprintf(f, "phase,baseline,added,layout,repeat,frame,state,period_ticks,"
                "work_ticks,physics_ticks,awake,contacts,dropped_contacts,push_"
-               "overflow,pushes,car_z,car_speed,generated_contacts,push_candidates,push_tested\n");
+               "overflow,pushes,car_z,car_speed,generated_contacts,push_"
+               "candidates,push_tested,solver_arm\n");
     for (int i = 0; i < used; ++i) {
       auto &r = rows[i];
-      fprintf(f, "%d,%d,%d,%d,%d,%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%.5f,%.5f,%u,%u,%u\n",
+      fprintf(f,
+              "%d,%d,%d,%d,%d,%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%.5f,%.5f,%u,%u,%u,"
+              "%d\n",
               phase, baseline, added, layout, repeat, r.frame, state(r.frame),
               r.period, r.work, r.phys, r.awake, r.contacts, r.drops,
-              r.pushDrops, r.pushes, r.z, r.speed, r.generated, r.pushCandidates, r.pushTested);
+              r.pushDrops, r.pushes, r.z, r.speed, r.generated,
+              r.pushCandidates, r.pushTested, solverArm);
     }
     fclose(f);
   }

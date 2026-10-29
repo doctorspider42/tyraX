@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.3.0
+
+- Rigid-body contacts prepare their response matrix once per step and solve from compact aligned velocity/contact buffers. Scalar and VU0 implementations retain the existing contact order, Coulomb friction and six velocity/three split-impulse iterations.
+
 ## 2.2.1
 
 - Dense physics scenes reject disjoint swept hull bounds before expensive contact tests. Rigid-body contact storage and vehicle prop candidates grow as needed instead of silently truncating at 384 contacts or eight props.

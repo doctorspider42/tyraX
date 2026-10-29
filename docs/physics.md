@@ -174,6 +174,15 @@ the budget. Current bounds include:
 
 ## Collision pipeline
 
+The impulse solver prepares a 3×3 contact response matrix and normal angular
+responses once per step. Its repeated passes use separate aligned body/contact
+buffers instead of fetching solver state from the larger geometry steps.
+The scalar and experimental VU0 macro-mode paths retain the same dynamic slip
+direction, circular Coulomb-friction bound, contact order and six velocity plus
+three split-impulse passes. There are no collider, inertia or simulation-rate
+simplifications. `TYRA_PHYSICS_SOLVER_VU0` selects the backend; console timing
+and scalar/VU0 numerical qualification determine its shipped default.
+
 The EE controls broad-phase queries and the impulse solver. Moving and sleeping
 colliders are spatially indexed. A separate per-step grid uses swept
 centre-of-mass sphere bounds to select body pairs. Its slots are compact body

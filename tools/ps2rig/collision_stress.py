@@ -13,6 +13,7 @@ parser.add_argument('--repo',default=str(Path(__file__).resolve().parents[2]))
 parser.add_argument('--scratch',required=True,help="Primary checkout's ignored .tmp/tests/<task> root")
 parser.add_argument('--baseline',default='e4acb7379',help='Baseline commit for exact physics and broad-phase source')
 parser.add_argument('--uncapped-baseline',action='store_true',help='Remove the reference solver cap for an equal-completeness comparison')
+parser.add_argument('--solver-comparison',action='store_true',help='42 phases: prior solver, prepared scalar, prepared VU0; reverse order on repeat')
 args=parser.parse_args()
 repo=Path(args.repo).resolve();root=Path(args.scratch).resolve();base=args.baseline
 common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
@@ -44,7 +45,7 @@ if not (proj/'src/gen/game_physics.gen.cpp').is_file():raise SystemExit('Generat
 if 'updateObjectPhysicsCandidate' in (proj/'inc/terrain_game.hpp').read_text(encoding='utf8'):raise SystemExit('Fixture is already instrumented')
 
 # Strip BOMs and preserve LF for every injected engine source.
-(eng/'inc/debug/collision_bench.hpp').write_bytes((rig/'collision_bench.hpp').read_text(encoding='utf-8-sig').encode())
+(eng/'inc/debug/collision_bench.hpp').write_bytes((('#define TYRA_SOLVER_COMPARISON 1\n' if args.solver_comparison else '')+(rig/'collision_bench.hpp').read_text(encoding='utf-8-sig')).encode())
 for rel in ['inc/physics/broad_phase.hpp','src/physics/broad_phase.cpp']:
  text=subprocess.check_output(['git','-C',str(repo),'show',f'{base}:vendor/tyra/engine/{rel}']).decode('utf8')
  text=text.replace('namespace Tyra {','namespace BaselineTyra {').replace('namespace Tyra','namespace BaselineTyra')
@@ -114,6 +115,9 @@ void TerrainGame::broadPhaseAlong(const float*a,const float*b,float r,std::vecto
 setup='''
 void TerrainGame::benchTick(){
  if(CB::finished)return;
+#if TYRA_SOLVER_COMPARISON
+ static bool checked=false;if(!checked){checked=true;if(!TyraSolverProbe::run()){CB::finished=true;return;}}
+#endif
  if(CB::ready && CB::frame>=CB::total){CB::flush();++CB::phase;CB::ready=false;
   if(CB::phase>=CB::phases){CB::finished=true;printf("CB DONE phases=%d\\n",CB::phase);fflush(stdout);return;}
   CB::configure();loadScene(0);CB::setup=true;
@@ -140,7 +144,11 @@ rows=re.findall(r'^    \{.*?\},  // (.*)$',(proj/'src/gen/scene_objects.gen.cpp'
 indices=[i for i,name in enumerate(rows)if name.startswith('CB body ')]
 assert len(indices)==128 and indices==list(range(indices[0],indices[0]+128)), 'Unexpected generated body ordering'
 setup=setup.replace('int index=i-135',f'int index=i-{indices[0]}')
-extra=proj/'src/gen/collision_baseline.gen.cpp';extra.write_text('#include "game_runtime.gen.hpp"\n#include <stdlib.h>\nnamespace Vehicle_playground {\n'+ '\n\n'.join(chunks)+wrappers+setup+'\n}\n',encoding='utf8',newline='\n')
+if args.solver_comparison:
+ (eng/'inc/debug/contact_solver_probe.hpp').write_bytes((rig/'contact_solver_probe.hpp').read_text(encoding='utf-8-sig').encode())
+ extra_include='#include "debug/contact_solver_probe.hpp"\n'
+else:extra_include=''
+extra=proj/'src/gen/collision_baseline.gen.cpp';extra.write_text('#include "game_runtime.gen.hpp"\n'+extra_include+'#include <stdlib.h>\nnamespace Vehicle_playground {\n'+ '\n\n'.join(chunks)+wrappers+setup+'\n}\n',encoding='utf8',newline='\n')
 # Instrument both solver bodies identically; report truncation rather than
 # mistaking bounded work for correct collision at arbitrary object counts.
 for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
@@ -149,6 +157,9 @@ for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
  s=s.replace('    const int m = rbReduce(cs, n, red);','    const int m = rbReduce(cs, n, red); CB::generated += m;')
  s=s.replace('if ((int)contacts.size() >= PHYS_MAX_CONTACTS) return;','if ((int)contacts.size() >= PHYS_MAX_CONTACTS) {CB::drops += m-k;return;}')
  s=s.replace('  const int nc = (int)contacts.size();','  const int nc = (int)contacts.size(); CB::contacts += nc;')
+ if args.solver_comparison and p.name=='game_physics.gen.cpp':
+  assert s.count('TYRA_PHYSICS_SOLVER_VU0 != 0')==1
+  s=s.replace('TYRA_PHYSICS_SOLVER_VU0 != 0','CB::solverArm == 2')
  p.write_text(s,encoding='utf8',newline='\n')
 p=proj/'src/terrain_game.cpp';s=p.read_text(encoding='utf8');s=s.replace('  const bool menuActive =','  benchTick();\n  const bool menuActive =',1);s=s.replace('  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);','  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);\n  {Tyra::PadButtons neutral{};engine->pad.setState(neutral,neutral,128,128,128,128);}',1);p.write_text(s,encoding='utf8',newline='\n')
 p=proj/'src/gen/game_vehicles.gen.cpp';s=p.read_text(encoding='utf8');needle='    } else if (v.wpCount > 0 && (s.damageMechanical <= 0.5F || v.damage < 0.999F)) {';assert s.count(needle)==1
@@ -167,6 +178,8 @@ p=eng/'inc/debug/debug.hpp';s=p.read_text(encoding='utf8').replace('#define TYRA
 # Record the exact source heads and comparison scope.
 meta={'baseline':subprocess.check_output(['git','-C',str(repo),'rev-parse',base],text=True).strip(),'candidate':subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip(),'data_layout':'shared candidate PhysBody/RbStep layout; renderer and assets identical','mesh_collision_objects':0,'tick_hz':294912000,'phases':28,'profiles':'release, NTSC progressive vsync on, day, all devkit polling off'}
 meta['uncapped_baseline']=args.uncapped_baseline
+meta['solver_comparison']=args.solver_comparison
+if args.solver_comparison:meta['phases']=42
 (root/'metadata.json').write_text(json.dumps(meta,indent=2),encoding='utf8')
 print('Instrumented same-ELF baseline/candidate arms:',meta)
 
@@ -174,5 +187,5 @@ shot=(repo/'tools/ps2rig/cld_shot.hpp').read_text(encoding='utf8').replace('#inc
 shot=shot[:shot.index('inline void maybe(')]+'}\n'
 (eng/'inc/debug/collision_shot.hpp').write_bytes(shot.encode())
 p=proj/'src/terrain_game.cpp';text=p.read_text(encoding='utf8');text='#include "debug/collision_shot.hpp"\n'+text
-text=text.replace('  engine->renderer.endFrame();','  engine->renderer.endFrame();\n  if(CB::ready && CB::frame==120 && (CB::phase==0 || CB::phase==1 || CB::phase==12 || CB::phase==13)) {char name[64];snprintf(name,sizeof(name),"collision-photo-%02d.tga",CB::phase);CldShot::grab(engine,name);g_frameClockLast=0;}',1)
+text=text.replace('  engine->renderer.endFrame();','  engine->renderer.endFrame();\n  if(CB::ready && CB::frame==120 && (CB::phase==0 || CB::phase==1 || (!TYRA_SOLVER_COMPARISON && (CB::phase==12 || CB::phase==13)) || (TYRA_SOLVER_COMPARISON && (CB::phase==2 || CB::phase==18 || CB::phase==19 || CB::phase==20)))) {char name[64];snprintf(name,sizeof(name),"collision-photo-%02d.tga",CB::phase);CldShot::grab(engine,name);g_frameClockLast=0;}',1)
 p.write_text(text,encoding='utf8',newline='\n')

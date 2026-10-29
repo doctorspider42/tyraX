@@ -5617,9 +5617,10 @@
 // 2.2.0: spatially indexed dynamic collision pairs, host-baked triangle BVHs,
 // edge-aware convex contacts, selective linear CCD and batched VU0 transforms.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 2
+#define TYRAX_VERSION_MINOR 3
 // 2.2.1: conservative swept-hull rejection and untruncated physics/vehicle props.
-#define TYRAX_VERSION_PATCH 1
+// 2.3.0: prepared contact response matrices and compact scalar/VU0 solver buffers.
+#define TYRAX_VERSION_PATCH 0
 // 2.1.1: the release workflow publishes CHANGELOG.md's "## <version>" section
 // as the release notes (generated notes when the changelog names no such
 // version); changelog headings carry no date (docs/updates.md).

@@ -87,3 +87,7 @@ caps no longer discard entries. See [physics](../../docs/physics.md) for scope.
 
 The convex fallback shares discrete/continuous projections; primitive boxes
 use cached oriented half-axes while retaining the full SAT axis set.
+
+Prepared contact solver: aligned compact state, cached response matrices and
+scalar/VU0 implementations preserve the existing 6+3 passes and friction model.
+Hardware qualification is recorded in the collision stress results.
