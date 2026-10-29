@@ -1,12 +1,25 @@
 # Publishes the TyraX VS Code extension (tools/vscode-tyrax) to the Visual
-# Studio Marketplace and Open VSX. Manual on purpose: a store refuses a version
-# it already has, so a release is "bump package.json, repackage, dispatch".
+# Studio Marketplace and Open VSX.
+#
+# Runs as part of every release (release.yml calls it with the released commit)
+# and by hand (workflow_dispatch, the branch it is dispatched on). The version
+# is package.json's, NOT the editor's: a release whose package.json names a
+# version a store already has publishes nothing there (--skip-duplicate), so
+# "bump package.json + CHANGELOG, merge" is the whole extension release.
+#
 # Secrets: VSCE_PAT (Marketplace, publisher `tyrax`), OVSX_PAT (Open VSX,
-# namespace `tyrax`); a step whose secret is missing is skipped.
-# See docs/vscode-extension.md, "Publishing".
+# namespace `tyrax`); a step whose secret is missing is skipped, so a fork
+# without them still releases the editor. See docs/vscode-extension.md,
+# "Publishing".
 name: vscode-extension
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to publish from (the release's SHA).
+        type: string
+        required: true
   workflow_dispatch:
 
 permissions:
@@ -19,10 +32,12 @@ jobs:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
         with:
-          node-version: 20
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
       - name: Offline checks
         run: |
           node tools/vscode-tyrax/test/debug.test.js
@@ -33,14 +48,16 @@ jobs:
         id: pkg
         run: |
           python3 tools/vscode-tyrax/package-vsix.py
-          echo "vsix=$(ls tools/vscode-tyrax/*.vsix)" >> "$GITHUB_OUTPUT"
+          vsix=$(ls tools/vscode-tyrax/*.vsix)
+          echo "vsix=$vsix" >> "$GITHUB_OUTPUT"
+          echo "## TyraX VS Code extension $(basename "$vsix" .vsix)" >> "$GITHUB_STEP_SUMMARY"
       - name: Visual Studio Marketplace
         if: env.VSCE_PAT != ''
-        run: npx --yes @vscode/vsce@3 publish --packagePath "${{ steps.pkg.outputs.vsix }}" -p "$VSCE_PAT"
+        run: npx --yes @vscode/vsce@3 publish --skip-duplicate --packagePath "${{ steps.pkg.outputs.vsix }}" -p "$VSCE_PAT"
       - name: Open VSX
         if: env.OVSX_PAT != ''
-        run: npx --yes ovsx@0 publish "${{ steps.pkg.outputs.vsix }}" -p "$OVSX_PAT"
-      - uses: actions/upload-artifact@v4
+        run: npx --yes ovsx@0 publish --skip-duplicate "${{ steps.pkg.outputs.vsix }}" -p "$OVSX_PAT"
+      - uses: actions/upload-artifact@v7
         with:
           name: vsix
           path: ${{ steps.pkg.outputs.vsix }}

@@ -24,6 +24,9 @@
 #            path tested, but the release simply carries no .dmg - an ad-hoc
 #            signed app downloaded from the web is refused by Gatekeeper as
 #            "damaged", which is worse than no download.
+#   vscode-extension  vscode-extension.yml on the same commit: publishes the
+#            VS Code extension when package.json names a version the stores do
+#            not have yet. Gates nothing.
 #   release  publish the tag as a GitHub release with every package attached.
 #            It waits for the macOS job but does not depend on its success.
 #
@@ -430,6 +433,16 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/tyrax-signing.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+  # The VS Code extension, from the same commit. Its own version (package.json):
+  # a release that did not bump it publishes nothing (--skip-duplicate), and it
+  # gates nothing - a store outage must not hold back the editor's release.
+  vscode-extension:
+    needs: version
+    uses: ./.github/workflows/vscode-extension.yml
+    with:
+      ref: ${{ needs.version.outputs.sha }}
+    secrets: inherit
 
   release:
     needs: [version, build, build-linux, build-macos]

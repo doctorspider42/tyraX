@@ -370,7 +370,18 @@ npx @vscode/vsce publish --packagePath tools/vscode-tyrax/tyrax-<version>.vsix  
 npx ovsx publish tools/vscode-tyrax/tyrax-<version>.vsix                          # OVSX_PAT
 ```
 
-`.github/workflows/vscode-extension.yml` does both from a manual dispatch, with
-the tokens as the repository secrets `VSCE_PAT` and `OVSX_PAT`; each step is
-skipped when its secret is not set. Bump `version` first: a store refuses a
-version it already has.
+Every release does both: `release.yml` calls
+`.github/workflows/vscode-extension.yml` with the released commit (it can also
+be dispatched by hand). It runs the offline tests, packages, and publishes with
+`--skip-duplicate` - the extension has its own version (`package.json`), so a
+release that did not bump it publishes nothing, and a failure there holds back
+nothing of the editor's release. **Releasing the extension = bump `version` in
+`package.json`, add its `CHANGELOG.md` section, repackage, merge.**
+
+Repository secrets (*Settings > Secrets and variables > Actions*); a store
+whose secret is missing is skipped:
+
+| Secret | Where it comes from |
+|---|---|
+| `VSCE_PAT` | An Azure DevOps personal access token: [dev.azure.com](https://dev.azure.com) > *User settings > Personal access tokens*, organization **All accessible organizations**, scope **Marketplace > Manage**. Its account must be a member of the `tyrax` publisher ([marketplace.visualstudio.com/manage](https://marketplace.visualstudio.com/manage) > *Create publisher*, ID `tyrax`). Expires (max. 1 year): renew it. |
+| `OVSX_PAT` | [open-vsx.org](https://open-vsx.org): sign in with GitHub, sign the Eclipse Publisher Agreement (link your eclipse.org account in *Settings*), *Settings > Access Tokens > Generate*. Create the namespace once: `npx ovsx create-namespace tyrax -p <token>`. |
