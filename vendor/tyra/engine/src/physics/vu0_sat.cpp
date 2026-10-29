@@ -114,14 +114,28 @@ bool finishVu0Sat(const Vu0SatResult& r, const Vu0SatJob& job, const ConvexView&
 }
 #ifdef _EE
 namespace {
+void copyQwords(volatile void* destination,const volatile void* source,int count) {
+  auto dst=static_cast<volatile unsigned char*>(destination);
+  auto src=static_cast<const volatile unsigned char*>(source);
+  // EE integer LQ/SQ, not COP2: no VU register or macro instruction is used.
+  // Both endpoints must be 16-byte aligned and VU0 must already be idle.
+  asm volatile(
+      "1:\n lq $8,0(%0)\n sq $8,0(%1)\n"
+      "addiu %0,%0,16\n addiu %1,%1,16\n addiu %2,%2,-1\n"
+      "bnez %2,1b\n nop\n"
+      : "+r"(src),"+r"(dst),"+r"(count) :: "$8","memory");
+}
 void waitIdle() {
   unsigned status;
   do {asm volatile("cfc2 %0, $29" : "=r"(status) :: "memory");} while(status&1);
 }
 void storeWords(int qw,const void* source,int count) {
   auto dst=reinterpret_cast<volatile unsigned*>(0x11004000)+qw*4;
-  auto src=static_cast<const unsigned*>(source);
-  for(int i=0;i<count;++i)dst[i]=src[i];
+  if(count>0 && count%4==0 && !(reinterpret_cast<unsigned long>(source)&15)) {
+    copyQwords(dst,source,count/4);return;
+  }
+  auto src=static_cast<const unsigned char*>(source);
+  for(int i=0;i<count;++i){unsigned word;std::memcpy(&word,src+i*4,4);dst[i]=word;}
 }
 }
 bool Vu0SatBatch::begin() {
@@ -141,7 +155,7 @@ bool Vu0SatBatch::begin() {
 void Vu0SatBatch::start(const Vu0SatJob* jobs,int n) {
   TYRA_ASSERT(!active && n>0 && n<=Capacity,"VU0 SAT: invalid batch");
   waitIdle();
-  const float constants[4]={1e30f,1e-10f,1e-9f,1e-6f};
+  alignas(16) const float constants[4]={1e30f,1e-10f,1e-9f,1e-6f};
   storeWords(0,&n,1);storeWords(1,constants,4);
   storeWords(2,jobs,n*128);
   count=n;active=true;
@@ -163,8 +177,8 @@ void Vu0SatBatch::finish(Vu0SatResult* results) {
   vu0SatMetrics.waitTicks+=stop-start;
 #endif
   auto src=reinterpret_cast<volatile unsigned*>(0x11004000)+226*4;
-  auto dst=reinterpret_cast<unsigned*>(results);
-  for(int i=0;i<count*16;++i)dst[i]=src[i];
+  if(!(reinterpret_cast<unsigned long>(results)&15))copyQwords(results,src,count*4);
+  else for(int i=0;i<count*16;++i){const unsigned word=src[i];std::memcpy(reinterpret_cast<unsigned char*>(results)+i*4,&word,4);}
   active=false;
 }
 Vu0SatBatch::~Vu0SatBatch(){if(active)waitIdle();}

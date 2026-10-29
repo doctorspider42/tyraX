@@ -94,6 +94,13 @@ strict CCD support vertices even without a VU arithmetic error. Calling the
 same compiled scalar body avoids that misleading comparison and stabilizes
 the confirmed feature; ordinary scalar physics keeps its existing algorithm.
 
+Aligned packet uploads and result readback use the EE integer `LQ/SQ` path,
+moving 128 bits at a time without COP2 instructions. The single-word control
+write and any unaligned endpoint retain a scalar copy. These accesses remain
+inside the VU0-idle ownership fences; packet storage is explicitly 16-byte
+aligned. Transfer, packing, launch, completion and scalar confirmations all
+belong to the backend cost measured in the same-ELF comparison.
+
 
 ## Selected defaults and final PS2 result
 
