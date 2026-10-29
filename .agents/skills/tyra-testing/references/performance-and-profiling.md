@@ -53,3 +53,21 @@ Pad + debugger: day frame **26.3 ms, 15/50 missed fields; compiled out 20.4 ms, 
 ## Removed benchmark tooling (historical)
 
 `examples/vehicle-playground/authoring/benchmark-district.py` (sampler reads `bin/district-benchmark-pose.txt` every 30 frames after 1440 measured frames, writes `bin/district-benchmark.csv` = "safe to write bin/ now"; phase 0 garage day; `--keep-routes`, `--profile quiet-debug`), `probe-visibility.ps1`, `motion-sampler.py`, `content-sampler.py`, `verify_scene_identity.py`, `stripcheck-wheels.cpp`, `build-arm.ps1` and the dated result folders were deleted in 3e7b0f67a ("remove archived authoring experiments"). Recover with `git show 3e7b0f67a^:<path>`. The method notes in acceptance-renderer-pipeline.md still apply.
+
+
+## Collision stress acceptance
+
+Use `tools/ps2rig/collision_stress.py` and its README for a 28-phase same-ELF
+main-algorithm/candidate comparison with 0/32/64/128 extra scattered or piled
+vehicle props. `collision_analyze.py --complete` checks all 16,800 measured
+frames and retains per-repeat statistics. Scratch roots must be under the
+primary checkout `.tmp/`; full asset build precedes instrumentation, then use
+the native backend directly so regeneration cannot erase the hooks.
+
+The 2026-10-29 physical PS2 result is in `docs/collision-stress-results.md`:
+64 scattered props hold 59.94 FPS, but dense piles regress (candidate 32/64/128
+averages 50.8/39.4/13.4 FPS). Do not claim a general collision speedup. Distinguish
+placed vs awake counts, shared candidate data layout vs stock-main comparison,
+changed trajectories, omitted contact emissions (384 cap), and loose vehicle
+candidate overflow (eight slots, not proven missed exact collisions). There
+are no mesh-mode colliders in this fixture, so it does not qualify BVH speed.

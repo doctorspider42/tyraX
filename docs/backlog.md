@@ -2871,6 +2871,13 @@ post-5 back at y = 1.
 
 ## Collision follow-ups
 
+- [x] Measure scattered and piled vehicle props on physical PS2 with a same-ELF
+  algorithm A/B; retain raw frames and repeat statistics in the repository.
+  See [collision stress results](collision-stress-results.md).
+- [ ] Resolve the dense-pile regression before claiming a collision speedup:
+  profile narrow phase/solver and awake lifetimes, then repeat the same fixture.
+- [ ] Qualify/replace the eight-candidate vehicle push list and 384-contact
+  truncation; a bounded frame time must not conceal omitted collisions.
 - Exact rotational CCD and continuous sphere-versus-moving-hull contacts need
   a bounded substep/TOI design and a rotating-thin-obstacle console fixture.
 - A separately authored collision-mesh asset would allow deliberate geometry

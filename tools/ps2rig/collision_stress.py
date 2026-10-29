@@ -1,0 +1,170 @@
+"""Same-ELF collision stress fixture. See tools/ps2rig/README.md.
+
+The baseline reuses exact main physics/broad-phase code with the candidate's
+shared data layout and renderer. This is an algorithm A/B, not two stock builds.
+Only box-mode scenery is covered; reject mesh-mode scenes for this comparison.
+"""
+from pathlib import Path
+import subprocess,re,shutil,json
+import argparse
+parser=argparse.ArgumentParser(description="Prepare/instrument a same-ELF Motor District collision stress test.")
+parser.add_argument('command',choices=['prepare','instrument'])
+parser.add_argument('--repo',default=str(Path(__file__).resolve().parents[2]))
+parser.add_argument('--scratch',required=True,help="Primary checkout's ignored .tmp/tests/<task> root")
+parser.add_argument('--baseline',default='e4acb7379',help='Baseline commit for exact physics and broad-phase source')
+args=parser.parse_args()
+repo=Path(args.repo).resolve();root=Path(args.scratch).resolve();base=args.baseline
+common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
+scratch_root=common.parent/'.tmp'
+if not root.is_relative_to(scratch_root.resolve()) or root==scratch_root.resolve():
+ raise SystemExit('Scratch must be a task directory under the primary checkout .tmp/')
+proj=root/'district';eng=root/'engine/engine';rig=Path(__file__).resolve().parent
+if args.command=='prepare':
+ if proj.exists() or eng.parent.exists():raise SystemExit('Use a fresh scratch root: fixture/engine already exists')
+ root.mkdir(parents=True,exist_ok=True)
+ shutil.copytree(repo/'examples/vehicle-playground',proj,ignore=shutil.ignore_patterns('bin','obj','*.history'))
+ mp=next(proj.glob('*.tyra'));d=json.loads(mp.read_text(encoding='utf8'));d['scenes']=d['scenes'][:1];st=d['settings']
+ for objfile in (proj/'objects').glob('*.json'):
+  if json.loads(objfile.read_text(encoding='utf8')).get('collision')=='mesh':
+   raise SystemExit('This algorithm comparison requires a fixture without mesh-mode colliders')
+ for k in ['liveDebug','liveLink','liveLogic','timeMachine','remotePad','inputRecorder','keyboardMouse','keyboardMousePs2Link','showFps','showMemory','showProfiler']:st[k]=False
+ st.update(buildProfile='release',disableVsync=False,displayMode='progressive',videoSystem='ntsc')
+ for i in range(128):
+  oid=f'collisionbench{i:04d}';obj=dict(id=oid,name=f'CB body {i:03d}',type='box',position=[0,.5,-48],rotation=[0,0,0],scale=[.9,.9,.9],color=[.8,.35,.1],physics=True,physMass=.6,physBounce=.1,physFriction=.6,physTumble=True,physSleep=1.5,shadowMode=0)
+  (proj/'objects'/f'{oid}.json').write_text(json.dumps(obj),encoding='utf8');d['scenes'][0]['objects'].append(oid)
+ mp.write_text(json.dumps(d,indent=2),encoding='utf8')
+ eng.parent.mkdir()
+ shutil.copytree(repo/'vendor/tyra/engine',eng,ignore=shutil.ignore_patterns('obj','bin'))
+ for name in ['Makefile.base','LICENSE']:shutil.copyfile(repo/'vendor/tyra'/name,eng.parent/name)
+ shutil.copytree(repo/'vendor/tyra/audsrv',eng.parent/'audsrv',ignore=shutil.ignore_patterns('.work'))
+ print('Prepared',proj,'- run the editor full --build, then instrument; do not refresh generated sources after instrumentation.')
+ raise SystemExit(0)
+if not (proj/'src/gen/game_physics.gen.cpp').is_file():raise SystemExit('Generate/build the prepared project before instrumenting')
+if 'updateObjectPhysicsCandidate' in (proj/'inc/terrain_game.hpp').read_text(encoding='utf8'):raise SystemExit('Fixture is already instrumented')
+
+# Strip BOMs and preserve LF for every injected engine source.
+(eng/'inc/debug/collision_bench.hpp').write_bytes((rig/'collision_bench.hpp').read_text(encoding='utf-8-sig').encode())
+for rel in ['inc/physics/broad_phase.hpp','src/physics/broad_phase.cpp']:
+ text=subprocess.check_output(['git','-C',str(repo),'show',f'{base}:vendor/tyra/engine/{rel}']).decode('utf8')
+ text=text.replace('namespace Tyra {','namespace BaselineTyra {').replace('namespace Tyra','namespace BaselineTyra')
+ if rel.endswith('.hpp'):
+  a=text.index('struct BroadBox {');b=text.index('\n};',a)+3;text=text[:a]+'using BroadBox = Tyra::BroadBox;'+text[b:]
+  text=text.replace('#include <vector>','#include <vector>\n#include "physics/broad_phase.hpp"')
+  target=eng/'inc/physics/baseline_broad_phase.hpp'
+ else:
+  text=text.replace('"physics/broad_phase.hpp"','"physics/baseline_broad_phase.hpp"');target=eng/'src/physics/baseline_broad_phase.cpp'
+ target.write_bytes(text.encode())
+old=subprocess.check_output(['git','-C',str(repo),'show',f'{base}:src/game_templates.inc']).decode('utf8')
+def extract(text,name):
+ match=re.search(r'(?m)^(?:void|bool|float) TerrainGame::'+name+r'\(',text);assert match,name
+ start=match.start();brace=text.index('{',match.end());depth=0;state='code';i=brace
+ while i<len(text):
+  c=text[i];n=text[i+1:i+2]
+  if state=='line':
+   if c=='\n':state='code'
+  elif state=='comment':
+   if c=='*' and n=='/':state='code';i+=1
+  elif state in ['"',"'"]:
+   if c=='\\':i+=1
+   elif c==state:state='code'
+  else:
+   if c=='/' and n=='/':state='line';i+=1
+   elif c=='/' and n=='*':state='comment';i+=1
+   elif c in ['"',"'"]:state=c
+   elif c=='{':depth+=1
+   elif c=='}':
+    depth-=1
+    if depth==0:return text[start:i+1]
+  i+=1
+ raise RuntimeError(name)
+# Exact main physics + refresh/query functions, sharing the candidate's data
+# layout and renderer. There are no mesh-mode colliders in this fixture.
+names=['updateObjectPhysics','broadPhaseRefresh','broadPhaseNear','broadPhaseAlong']
+files=[proj/'src/gen'/n for n in ['game_physics.gen.cpp','game_scene.gen.cpp','game_collision.gen.cpp','game_vehicles.gen.cpp','game_lighting.gen.cpp']]
+chunks=[]
+for name in names:
+ chunk=extract(old,name).replace('TerrainGame::'+name+'(', 'TerrainGame::'+name+'Baseline(')
+ if name!='updateObjectPhysics':chunk=re.sub(r'\bbroadPhase\b','baselineBroadPhase',chunk).replace('Tyra::BroadPhase','BaselineTyra::BroadPhase')
+ chunks.append(chunk)
+ for p in files:
+  text=p.read_text(encoding='utf8')
+  if 'TerrainGame::'+name+'(' in text:
+   text=text.replace('TerrainGame::'+name+'(', 'TerrainGame::'+name+'Candidate(',1);p.write_text(text,encoding='utf8',newline='\n');break
+ else:raise RuntimeError('definition missing '+name)
+header=proj/'inc/terrain_game.hpp';s=header.read_text(encoding='utf8');s=s.replace('#include <tyra>','#include <tyra>\n#include "physics/baseline_broad_phase.hpp"\n#include "debug/collision_bench.hpp"')
+s=s.replace(' private:\n',''' private:
+  mutable BaselineTyra::BroadPhase baselineBroadPhase;
+  void benchTick();
+  void updateObjectPhysicsBaseline(); void updateObjectPhysicsCandidate();
+  void broadPhaseRefreshBaseline() const; void broadPhaseRefreshCandidate() const;
+  void broadPhaseNearBaseline(const Tyra::BroadBox&,std::vector<int>&) const;
+  void broadPhaseNearCandidate(const Tyra::BroadBox&,std::vector<int>&) const;
+  void broadPhaseAlongBaseline(const float*,const float*,float,std::vector<int>&) const;
+  void broadPhaseAlongCandidate(const float*,const float*,float,std::vector<int>&) const;
+''',1);header.write_text(s,encoding='utf8',newline='\n')
+wrappers='''
+void TerrainGame::updateObjectPhysics(){CB::PhysicsScope scope;if(CB::baseline)updateObjectPhysicsBaseline();else updateObjectPhysicsCandidate();}
+void TerrainGame::broadPhaseRefresh() const {if(CB::baseline)broadPhaseRefreshBaseline();else broadPhaseRefreshCandidate();}
+void TerrainGame::broadPhaseNear(const Tyra::BroadBox& b,std::vector<int>& out) const {if(CB::baseline)broadPhaseNearBaseline(b,out);else broadPhaseNearCandidate(b,out);}
+void TerrainGame::broadPhaseAlong(const float*a,const float*b,float r,std::vector<int>& out) const {if(CB::baseline)broadPhaseAlongBaseline(a,b,r,out);else broadPhaseAlongCandidate(a,b,r,out);}
+'''
+setup='''
+void TerrainGame::benchTick(){
+ if(CB::finished)return;
+ if(CB::ready && CB::frame>=CB::total){CB::flush();++CB::phase;CB::ready=false;
+  if(CB::phase>=CB::phases){CB::finished=true;printf("CB DONE phases=%d\\n",CB::phase);fflush(stdout);return;}
+  CB::configure();loadScene(0);CB::setup=true;
+ }
+ if(CB::setup && !runtimeObjects.empty()){
+  CB::configure();int found=0;
+  for(int i=0;i<(int)runtimeObjects.size();++i){auto&o=runtimeObjects[i];
+   int index=i-135;if(index<0 || index>=128)continue;
+  bool enabled=index<CB::added;o.active=enabled;o.visible=enabled;
+   float x,z,y;if(CB::layout){x=-1.5F+float(index%4);z=-48.0F+float((index/4)%4);y=.45F+float(index/16)*.92F;}
+   else{x=-7.0F+float(index%8)*2.0F;z=-50.0F+float(index/8)*7.0F;y=.45F;}
+   o.data.position[0]=x;o.data.position[1]=terrainHeightAt(x,z)+y;o.data.position[2]=z;
+   o.data.rotation[0]=o.data.rotation[1]=o.data.rotation[2]=0;
+   o.velocityX=o.velocityY=o.velocityZ=0;o.restFrames=0;o.dirty=true;++found;
+  }
+  if(found!=128){printf("CB ERROR body_count=%d\\n",found);fflush(stdout);CB::finished=true;return;}
+  physBodies.clear();physSlotOf.clear();physBodiesScene=-1;bpGen=~0u;bpFrame=~0u;broadPhase.clear();baselineBroadPhase.clear();
+  g_frameClockLast=0;CB::frame=CB::phase==0?-300:0;CB::ready=true;CB::setup=false;
+  printf("CB START phase=%d baseline=%d added=%d layout=%d rep=%d objects=%u\\n",CB::phase,CB::baseline,CB::added,CB::layout,CB::repeat,(unsigned)runtimeObjects.size());fflush(stdout);
+ }
+}
+'''
+rows=re.findall(r'^    \{.*?\},  // (.*)$',(proj/'src/gen/scene_objects.gen.cpp').read_text(encoding='utf8'),re.M)
+indices=[i for i,name in enumerate(rows)if name.startswith('CB body ')]
+assert len(indices)==128 and indices==list(range(indices[0],indices[0]+128)), 'Unexpected generated body ordering'
+setup=setup.replace('int index=i-135',f'int index=i-{indices[0]}')
+extra=proj/'src/gen/collision_baseline.gen.cpp';extra.write_text('#include "game_runtime.gen.hpp"\n#include <stdlib.h>\nnamespace Vehicle_playground {\n'+ '\n\n'.join(chunks)+wrappers+setup+'\n}\n',encoding='utf8',newline='\n')
+# Instrument both solver bodies identically; report truncation rather than
+# mistaking bounded work for correct collision at arbitrary object counts.
+for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
+ s=p.read_text(encoding='utf8')
+ s=s.replace('  const int awakeCount = (int)steps.size();','  const int awakeCount = (int)steps.size(); CB::awake += awakeCount;')
+ s=s.replace('if ((int)contacts.size() >= PHYS_MAX_CONTACTS) return;','if ((int)contacts.size() >= PHYS_MAX_CONTACTS) {CB::drops += m-k;return;}')
+ s=s.replace('  const int nc = (int)contacts.size();','  const int nc = (int)contacts.size(); CB::contacts += nc;')
+ p.write_text(s,encoding='utf8',newline='\n')
+p=proj/'src/terrain_game.cpp';s=p.read_text(encoding='utf8');s=s.replace('  const bool menuActive =','  benchTick();\n  const bool menuActive =',1);s=s.replace('  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);','  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);\n  {Tyra::PadButtons neutral{};engine->pad.setState(neutral,neutral,128,128,128,128);}',1);p.write_text(s,encoding='utf8',newline='\n')
+p=proj/'src/gen/game_vehicles.gen.cpp';s=p.read_text(encoding='utf8');needle='    } else if (v.wpCount > 0 && (s.damageMechanical <= 0.5F || v.damage < 0.999F)) {';assert s.count(needle)==1
+s=s.replace(needle,'''      CB::carZ=v.pos[2];CB::carSpeed=v.speed;CB::carValid=1;
+      inThrottle=CB::gas()?1.0F:0.0F;inBrake=0;inSteer=0;inHand=CB::gas()?0:1;inNos=0;
+'''+needle)
+s=s.replace('if (dx * dx + dz * dz < r * r && pushN < 8) pushIdx[pushN++] = oi;','if (dx * dx + dz * dz < r * r) {if(pushN<8)pushIdx[pushN++]=oi;else ++CB::pushDrops;}')
+s=s.replace('        physPushAt(pushIdx[pk],','        ++CB::pushes;\n        physPushAt(pushIdx[pk],');p.write_text(s,encoding='utf8',newline='\n')
+p=proj/'src/scripts/district_mood.cpp';s=p.read_text(encoding='utf8');start=s.index('    const bool night =');end=s.index(';',start)+1;s=s[:start]+'    const bool night = false; // fixed daytime in both arms'+s[end:];p.write_text(s,encoding='utf8',newline='\n')
+p=eng/'src/engine.cpp';s=p.read_text(encoding='utf8').replace('#include "engine.hpp"','#include "engine.hpp"\n#include "debug/collision_bench.hpp"');s=s.replace('void Engine::realLoop() {','void Engine::realLoop() {\n  CB::begin(renderer.core.getStallTotal());');p.write_bytes(s.encode())
+# Silence normal chatter, preserve asserts/missing-resource errors.
+p=eng/'inc/debug/debug.hpp';s=p.read_text(encoding='utf8').replace('#define TYRA_LOG(...) TyraDebug::writeLines("LOG: ", ##__VA_ARGS__, "\\n")','#define TYRA_LOG(...) ((void)0) // measurement: no periodic console IO');p.write_bytes(s.encode())
+# Record the exact source heads and comparison scope.
+meta={'baseline':subprocess.check_output(['git','-C',str(repo),'rev-parse',base],text=True).strip(),'candidate':subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip(),'data_layout':'shared candidate PhysBody/RbStep layout; renderer and assets identical','mesh_collision_objects':0,'tick_hz':294912000,'phases':28,'profiles':'release, NTSC progressive vsync on, day, all devkit polling off'}
+(root/'metadata.json').write_text(json.dumps(meta,indent=2),encoding='utf8')
+print('Instrumented same-ELF baseline/candidate arms:',meta)
+
+shot=(repo/'tools/ps2rig/cld_shot.hpp').read_text(encoding='utf8').replace('#include "debug/cld_probe.hpp"','#include "debug/collision_bench.hpp"')
+shot=shot[:shot.index('inline void maybe(')]+'}\n'
+(eng/'inc/debug/collision_shot.hpp').write_bytes(shot.encode())
+p=proj/'src/terrain_game.cpp';text=p.read_text(encoding='utf8');text='#include "debug/collision_shot.hpp"\n'+text
+text=text.replace('  engine->renderer.endFrame();','  engine->renderer.endFrame();\n  if(CB::ready && CB::frame==120 && (CB::phase==0 || CB::phase==1 || CB::phase==12 || CB::phase==13)) {char name[64];snprintf(name,sizeof(name),"collision-photo-%02d.tga",CB::phase);CldShot::grab(engine,name);g_frameClockLast=0;}',1)
+p.write_text(text,encoding='utf8',newline='\n')

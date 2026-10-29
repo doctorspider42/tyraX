@@ -83,8 +83,9 @@ runs once per frame over the awake bodies:
      path for the frame against the `CollisionMesh`, from a skin behind where
      it was to where it is predicted, so a fast corner cannot cross a thin
      floor and a stool finds its feet inside a building;
-   - **other bodies** - each hull's corners inside the other hull, sphere
-     against the face of largest separation, sphere against sphere.
+   - **other bodies** - each hull's corners inside the other hull, with full
+     convex SAT when neither contains a vertex; sphere against the hull's
+     closest feature, and sphere against sphere.
 3. **Sequential impulses**, 6 passes: normal impulse with restitution (only
    above a resting threshold, so gravity's own frame of fall never buzzes a
    crate), Coulomb friction clamped by the accumulated normal impulse.
@@ -132,7 +133,8 @@ less is unchanged.
 
 ## Cost
 
-Measured in PCSX2 on `examples/physics-playground` (37 bodies), COP0 around
+Historical pre-2.2 measurements in PCSX2 on `examples/physics-playground`
+(37 bodies), COP0 around
 `updateObjectPhysics`, per frame - PCSX2 emulates no EE data cache, so read the
 ratio, not the milliseconds:
 
@@ -141,9 +143,12 @@ ratio, not the milliseconds:
 | raining, ~30 bodies awake | 0.88 - 1.02 ms | 0.85 - 1.00 ms |
 | settled (60 s in) | 0.33 ms, 3 bodies still awake | 0.07 ms, only the kicked ball is awake |
 
-The new solver costs the same per awake body, and its bodies come to rest
-sooner - three of the old one's were still awake a minute in. Where the budget
-goes, and what keeps it bounded:
+That older sleeping change reduced idle cost; the table does not compare the
+current collision branch against main. The [physical PS2 stress results](collision-stress-results.md)
+show no general speedup for the current pipeline: 64 scattered added boxes hold
+59.9 FPS, but 32/64/128 piled boxes average 50.8/39.4/13.4 FPS, worse than the
+earlier algorithms. Contact density and simultaneously awake bodies determine
+the budget. Current bounds include:
 
 - a sleeping scene returns after one pass over its physics objects;
 - the static obstacles are gathered ONCE per frame with a reject radius and
@@ -155,15 +160,12 @@ goes, and what keeps it bounded:
 
 ## Limits
 
-- **Corner contacts only.** Edge-against-edge crossings of two hulls (two
-  beams crossed like an X) are caught only once a corner goes inside. The box
-  corners-in-hull test covers the common case of a body resting across an
-  edge.
 - **No warm starting and no persistent manifolds.** Stable stacks of a few
   bodies are fine because sleeping bodies are immovable partners; tall stacks
   of awake bodies jitter before they sleep.
-- A sphere is tested against a hull by the face of largest separation, which
-  over-reports contact near a hull's edges by a few percent of the radius.
+- The solver has a 384-contact budget, and car pushing collects eight nearby
+  prop candidates per substep. Both saturate in the stress fixture; see the
+  [measured completeness limits](collision-stress-results.md#collision-limits-matter-too).
 - A shape is convex (see above), and an animated model is its AABB box.
 - There is no editor-side simulation: the viewport shows the authored pose.
 

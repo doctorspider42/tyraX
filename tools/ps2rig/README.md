@@ -9,6 +9,59 @@ cycle), so A and B are interleaved on the same binary and boot.
 
 PCSX2 proves correctness only; timing claims come from the console.
 
+## Collision stress fixture
+
+`collision_stress.py` creates the same-ELF collision algorithm comparison used
+in the [physical PS2 results](../../docs/collision-stress-results.md).
+`collision_bench.hpp` records COP0 frame periods, EE work, physics time, awake
+bodies, contact truncation, car-push candidate overflow and actual car motion.
+`collision_analyze.py --complete` validates all 28 phases and reports pooled
+and separate-repeat statistics. The baseline is restored from the recorded
+Git commit into a shared candidate runtime; it is not a stock-main binary.
+
+Use a fresh task directory under the **primary checkout's ignored `.tmp/`**.
+For example, from the collision worktree in PowerShell:
+
+```powershell
+$collisionRoot = 'F:/Projects/tyra-editor/.tmp/tests/collision-stress'
+$collisionBuild = 'F:/Projects/tyra-editor/.tmp/builds/collision-stress'
+$env:TYRAX_NATIVE_BUILD_ROOT = "$collisionBuild/native"
+python tools/ps2rig/collision_stress.py prepare --scratch $collisionRoot
+build/tyrax-editor.exe --build "$collisionRoot/district"
+python tools/ps2rig/collision_stress.py instrument --scratch $collisionRoot
+tools/toolchain/native-build.ps1 -Project "$collisionRoot/district" `
+  -Engine "$collisionRoot/engine" -Cache "$collisionBuild/cache" `
+  -Toolchain "$env:LOCALAPPDATA/tyra-editor/toolchain/ps2dev"
+```
+
+The editor must come from the candidate source head. The full first build
+materializes assets; the second build compiles the instrumented engine and
+game. **Do not regenerate after instrumentation**: it overwrites the hooks.
+Before deploying, verify every deployed baked PNG/TMDL against `.res-baked`,
+record the ELF hash, and inspect an isolated PCSX2 smoke run. On Linux use the
+paired `tools/toolchain/native-build.sh PROJECT ENGINE_SOURCE CACHE_ROOT PS2DEV_ROOT 0`
+instead of the PowerShell bridge (all four paths absolute).
+
+Follow the real-PS2 ownership and first-boot rules in `tyra-testing`. Manual
+deployment must write and verify `ps2link` in the absolute `district/bin/ps2link.run`
+before `execee`. Run the primary checkout's already firewall-qualified
+`tools/ps2client/bin/ps2client.exe -h <ip> execee host:vehicle-playground.elf -ps2link`
+from that `bin/`, serving `host:` until `CB DONE phases=28`. Logs belong under
+the primary `.tmp/artifacts/`. Never interrupt a run with another ps2client.
+Then stop only that owned server, reset once, and summarize:
+
+```powershell
+python tools/ps2rig/collision_analyze.py "$collisionRoot/district/bin" `
+  --complete --out 'F:/Projects/tyra-editor/.tmp/artifacts/collision-stress.json'
+```
+
+Retain the report/raw evidence needed for review, then remove scratch projects,
+builds and captures when no longer used. `results/collision-2026-10-29.csv.gz`
+contains the measured frame CSV; the adjacent JSON includes source/ELF hashes,
+pooled statistics and individual repeats. The zero-box first phase has extra
+boot settling time; dense trajectories differ across arms. No mesh-mode BVH
+performance is measured by this fixture.
+
 ## Files
 
 | File | What it is |
