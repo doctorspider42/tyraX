@@ -77,3 +77,14 @@ rig uses four arms by default: reference, cache, cache + warm starting, and
 cache + warm starting + islands. The full driving matrix is 56 phases and
 33,600 measured frames; the stationary matrix is eight phases and 10,080 rows.
 Use `--temporal-arms 3` only to replay/analyze the initial prototype.
+
+## Physical-pad transport isolation
+
+The first qualified four-arm hardware attempt completed only two control
+phases, then stopped in repeated `freepad: DMA Busy` output during scene
+reload. It is incomplete and provides no performance qualification. Temporal
+fixtures now initialize neutral synthetic pad state and skip physical pad
+polling and rumble RPCs in their private engine copy, identically in every arm.
+Driving already comes from the rig's direct vehicle inputs. Production Pad
+code remains unchanged. This isolates the physics experiment from resident-IOP
+pad transport; it is not a fix or a qualification of that transport.

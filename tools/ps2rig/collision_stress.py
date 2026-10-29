@@ -220,11 +220,22 @@ p=proj/'src/scripts/district_mood.cpp';s=p.read_text(encoding='utf8');start=s.in
 p=eng/'src/engine.cpp';s=p.read_text(encoding='utf8').replace('#include "engine.hpp"','#include "engine.hpp"\n#include "debug/collision_bench.hpp"');s=s.replace('void Engine::realLoop() {','void Engine::realLoop() {\n  CB::begin(renderer.core.getStallTotal());');p.write_bytes(s.encode())
 # Silence normal chatter, preserve asserts/missing-resource errors.
 p=eng/'inc/debug/debug.hpp';s=p.read_text(encoding='utf8').replace('#define TYRA_LOG(...) TyraDebug::writeLines("LOG: ", ##__VA_ARGS__, "\\n")','#define TYRA_LOG(...) ((void)0) // measurement: no periodic console IO');p.write_bytes(s.encode())
+# Automated physics controls do not need padman RPC, DMA polls or rumble.
+# Keep this fixture-only: real games retain the normal physical Pad backend.
+if args.temporal_comparison:
+ p=eng/'src/pad/pad.cpp';s=p.read_text(encoding='utf8')
+ for signature,body in [
+  ('void Pad::init() {','\n  // CB synthetic input: no physical padman port or DMA buffer.\n  actuators=0;port=slot=0;buttons={};reset();resetJoys();return;\n'),
+  ('void Pad::update() {','\n  // CB owns input; physical padman is outside this benchmark.\n  return;\n'),
+  ('void Pad::setActuators(const bool& smallMotor, const u8& bigPower) {','\n  // CB owns input; do not send rumble RPCs.\n  return;\n')]:
+  assert s.count(signature)==1;s=s.replace(signature,signature+body)
+ p.write_bytes(s.encode('utf8'))
 # Record the exact source heads and comparison scope.
 meta={'baseline':subprocess.check_output(['git','-C',str(repo),'rev-parse',base],text=True).strip(),'candidate':subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip(),'data_layout':'shared candidate PhysBody/RbStep layout; renderer and assets identical','mesh_collision_objects':0,'tick_hz':294912000,'phases':28,'profiles':'release, NTSC progressive vsync on, day, all devkit polling off'}
 meta['uncapped_baseline']=args.uncapped_baseline
 meta['solver_comparison']=args.solver_comparison
 meta['temporal_comparison']=args.temporal_comparison
+meta['synthetic_pad']=args.temporal_comparison
 if args.temporal_comparison:meta.update(phases=args.temporal_arms*14,temporal_arms=args.temporal_arms)
 if args.solver_comparison and not args.temporal_comparison:meta['phases']=42
 meta['settle_check']=args.settle_check

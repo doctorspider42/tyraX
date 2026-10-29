@@ -169,3 +169,8 @@ wake 60, recover 600 after 150 warm frames. Analyze with --settle-check
 *.bin exclusion silently replaces reflections and invalidates performance.
 
 Use --temporal-arms 3 to analyze/replay the first three-arm prototype.
+
+Temporal fixtures use synthetic input only: their private Pad init/update/
+rumble paths avoid physical padman DMA/RPC. All arms share this setting. The
+production engine Pad remains unchanged; do not compare these whole-frame
+numbers directly with a differently configured physical-input fixture.
