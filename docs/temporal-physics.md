@@ -101,6 +101,23 @@ input. It uses mixed and coincident-centre corpora with eight reversed-order
 repeats. Geometry validation runs outside timing, and micro schedules must
 produce identical contact hashes. Neither solver work nor host I/O is included.
 
+The follow-up scopes numerical uncertainty to the current winning or competing
+minimum axes. A clearly worse axis cannot mark the contact ambiguous; a clearly
+better minimum clears superseded uncertainty while retaining the independent
+near-parallel input classification. A controlled aligned-box case must keep its
+unambiguous Z contact without scalar confirmation, while the distinct near-minimum
+case must still request canonical selection. The preceding kernel fails the new
+unambiguous-winner check. Console qualification of this follow-up is separate
+from the chained-schedule results above.
+
+`--micro-kernel-baseline <commit>` installs a compatible reference micro image
+only in the private benchmark engine. Both assembled kernels validate the same
+input arrays before measurement; mode 5 times the reference with chained
+scheduling. Micro-image upload happens outside timed samples. The fixture now
+includes ordinary offset overlaps as a third corpus and captures/replays all
+input bytes in `vu0-stream-input-*.bin`, with per-corpus hashes in every CSV row.
+This isolates kernel changes without relying on repeatable pile trajectories.
+
 The first semantic gate runs the actual VCL source through the host VU0
 simulator against `convexMotionContact`: 10,000 rotated/swept pairs, including
 stationary and coincident-centre cases. Classifications agree; measured depth,

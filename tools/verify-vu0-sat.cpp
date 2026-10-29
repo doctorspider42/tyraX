@@ -20,14 +20,15 @@ int main(int argc,char** argv) {
     actual=reference;actual.normal.y=-1;assert(!compareVu0Sat(true,actual,true,reference,1).accepted);
   }
   if(!vuasm::parseFile(argv[1],{},program,error)){std::fprintf(stderr,"%s\n",error.c_str());return 1;}
-  {auto c=Vu0SatProbe::nearTie();Vu0SatJob job;
+  for(int controlled=0;controlled<2;++controlled){auto c=controlled?Vu0SatProbe::clearWinner():Vu0SatProbe::nearTie();Vu0SatJob job;
     assert(packVu0Sat(job,c.view(0),c.view(1),c.box[0],c.box[1],c.motion[0],c.motion[1]));
     assert(!vu0SatScalarPreferred(job));
     std::vector<unsigned> mem(1024,0);mem[0]=1;float constants[4]={1e30f,1e-10f,1e-9f,1e-6f};
     std::memcpy(mem.data()+4,constants,16);std::memcpy(mem.data()+8,&job,sizeof(job));
     vusim::Config config;config.target=vusim::Target::VU0;auto run=vusim::run(program,mem,config);
     assert(run.ok);Vu0SatResult result;std::memcpy(&result,run.mem.data()+226*4,sizeof(result));
-    assert(result.flags[3]>=2 && "Distinct near-minimum axes must use canonical scalar selection");
+    if(controlled)assert(result.flags[3]==0 && "Losing ambiguous axes must not force scalar confirmation");
+    else assert(result.flags[3]>=2 && "Distinct near-minimum axes must use canonical scalar selection");
   }
   std::mt19937 rng(0x534154);std::uniform_real_distribution<float> pos(-4,4),size(.05f,2),angle(-3,3);
   int hits=0,misses=0;float maxDepth=0,maxNormal=0,maxPoint=0;

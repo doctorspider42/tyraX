@@ -111,3 +111,5 @@ tools/verify-* text=auto eol=lf
 
 # Shell scripts run under bash (Git Bash / WSL): LF regardless of autocrlf.
 tools/ps2rig/*.sh text eol=lf
+# Raw measurement CSV hashes must survive Windows/Linux checkouts unchanged.
+tools/ps2rig/results/*.csv text eol=lf

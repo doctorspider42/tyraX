@@ -251,3 +251,17 @@ must fail. Both assemblers fit the guarded kernel in 4KB (openvcl2416B/Sony2480B
 See results/vu0-chain-2026-10-29.json and its separate full-scene shadow report.
 The initial scheduling run has an explicitly rejected point-tolerance gate;
 never silently relax tolerances or count repaired results as a passing trial.
+
+For a same-ELF kernel comparison add `--micro-kernel-baseline <commit>` to
+prepare/instrument (implies --micro-stream), or install it into an existing
+private stream fixture with vu0_stream_reference.py. The helper checks the
+32-qword/seven-job layout and installs the reference image/selection only into
+the private engine. Mode5 is reference-kernel/chained. Program upload precedes
+timing. Both kernels validate all three corpora, including offset overlaps.
+
+The expanded probe writes/replays vu0-stream-input-{0,1,2}.bin with a versioned
+header and all Case bytes. A partial corpus set is rejected. Preserve these
+files beside vu0-stream.csv: the analyzer checks each payload hash against all
+rows and records SHA-256. Without a reference image there are120 rows; with it,
+144. Existing80-row reports remain supported. Measurement CSVs are pinned to LF
+so their SHA-256 stays stable across checkouts.

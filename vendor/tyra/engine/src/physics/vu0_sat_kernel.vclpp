@@ -121,15 +121,21 @@ sub.x minusDepth, ahi, blo[x]
 mini.x axisDepth, plusDepth, minusDepth[x]
 ; Near-equal distinct axes can exchange rank on EE and move support points.
 sub.x margin, axisDepth, bestDepth[x]
-abs.x margin, margin
 abs.x tolerance, axisDepth
 add.x tolerance, tolerance, vf00[w]
 loi 0.00001
 muli.x tolerance, tolerance, i
-sub.x comparison, tolerance, margin[x]
+ ; A clearly worse axis cannot choose the discrete contact. A clearly better
+; minimum supersedes uncertainty from the axes that it displaced.
+sub.x comparison, margin, tolerance[x]
 clipw.xyz comparison, zero
 fcand VI01, 0x1
-ibeq VI01, vi00, depthTieDone
+ibne VI01, vi00, sweepAxis
+sub.x comparison, zero, margin[x]
+sub.x comparison, comparison, tolerance[x]
+clipw.xyz comparison, zero
+fcand VI01, 0x1
+ibne VI01, vi00, clearDepthUncertainty
 mul.xyz temp, direction, bestNormal
 add.x projection, temp, temp[y]
 add.x projection, projection, temp[z]
@@ -150,6 +156,10 @@ clipw.xyz comparison, zero
 fcand VI01, 0x1
 ibeq VI01, vi00, depthTieDone
 iaddiu uncertain, vi00, 1
+b depthTieDone
+clearDepthUncertainty:
+; Retain the input's independent near-parallel safety classification.
+ilw.y uncertain, 31(jobAddr)
 depthTieDone:
 sub.x margin, plusDepth, minusDepth[x]
 abs.x margin, margin

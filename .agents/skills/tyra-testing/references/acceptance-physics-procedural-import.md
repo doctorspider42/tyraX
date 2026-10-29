@@ -21,6 +21,11 @@ separate full-scene shadow pass for buffer lifetime/contact-order changes.
 The distinct near-minimum-axis startup case must set the scalar confirmation
 flag; removing its guard must fail the host oracle. Record confirmation counters
 (CCD/tie/parallel) when attributing stream throughput.
+`--micro-kernel-baseline <commit>` adds a compatible private reference image;
+mode5 compares it on the same in-memory corpora. Preserve all three versioned
+input captures beside the CSV; the analyzer validates payload hashes and SHA-256.
+The clear-winner control must avoid scalar confirmation while the near-tie control
+retains it. Both kernels must pass the corpus geometry gate outside timings.
 No Vec4/COP2 calls may run while another micro packet is active, including
 inside EE result reconstruction or canonical positive-CCD confirmation.
 

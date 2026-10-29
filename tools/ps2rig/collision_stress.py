@@ -19,7 +19,9 @@ parser.add_argument('--temporal-arms',type=int,choices=[2,3,4],default=4,help='F
 parser.add_argument('--settle-check',action='store_true',help='Six stationary 64-box pile phases: settle, known base impulse, recover')
 parser.add_argument('--micro-comparison',action='store_true',help='28 phases: current scalar physics versus asynchronous VU0 SAT/CCD')
 parser.add_argument('--micro-stream',action='store_true',help='Add fixed-input scalar/legacy/chained/packing throughput probe before the micro comparison')
+parser.add_argument('--micro-kernel-baseline',help='Add this compatible Git SAT kernel to the private same-ELF stream probe')
 args=parser.parse_args()
+if args.micro_kernel_baseline:args.micro_stream=True
 if args.micro_stream:args.micro_comparison=True
 if args.micro_comparison:args.temporal_comparison=True;args.temporal_arms=2
 if args.settle_check:args.temporal_comparison=True
@@ -286,3 +288,6 @@ shot=shot[:shot.index('inline void maybe(')]+'}\n'
 p=proj/'src/terrain_game.cpp';text=p.read_text(encoding='utf8');text='#include "debug/collision_shot.hpp"\n'+text
 text=text.replace('  engine->renderer.endFrame();','  engine->renderer.endFrame();\n  if(CB::ready && CB::frame==120 && ((TYRA_TEMPORAL_COMPARISON && (CB::phase<TYRA_TEMPORAL_ARMS || (!TYRA_TEMPORAL_SETTLE && CB::phase>=6*TYRA_TEMPORAL_ARMS && CB::phase<7*TYRA_TEMPORAL_ARMS))) || (!TYRA_TEMPORAL_COMPARISON && (CB::phase==0 || CB::phase==1 || (!TYRA_SOLVER_COMPARISON && (CB::phase==12 || CB::phase==13)) || (TYRA_SOLVER_COMPARISON && (CB::phase==2 || CB::phase==18 || CB::phase==19 || CB::phase==20)))))) {char name[64];snprintf(name,sizeof(name),"collision-photo-%02d.tga",CB::phase);CldShot::grab(engine,name);g_frameClockLast=0;}',1)
 p.write_text(text,encoding='utf8',newline='\n')
+if args.micro_kernel_baseline:
+ from vu0_stream_reference import install
+ install(repo,root,args.micro_kernel_baseline)
