@@ -268,4 +268,5 @@ object-script driver are themselves global scripts.
 | Movement speed differs between PAL and NTSC | Multiply speeds by `tyrax::dt()` (seconds) - never hardcode per-frame steps. |
 | `onUsed` never fires | The object needs **Usable** checked (Properties), the player must be close and press USE; menus swallow input while open. Markers (spawn, player, lights, empties) cannot be usable. |
 | Nothing moves while a menu is open | Menus with *Pause gameplay* checked pause all scripts - that is the pause menu working as intended. |
+| You want to stop on a line and look at the variables | Use the [script debugger](script-debugger.md): *Build > Debug Scripts in VS Code*, then F5 in VS Code. |
 | Editing the `.cpp` does nothing in the running game | Scripts compile at build time - **Build & Run** again (no hot reload on the console). |

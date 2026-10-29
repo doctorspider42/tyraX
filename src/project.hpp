@@ -1941,6 +1941,13 @@ struct ProjectSettings {
     // exception stub) before it can be the default - see docs/devkit.md.
     bool eeCrashHandler = false;
 
+    // Debug profile only, off by default: the script debugger
+    // (docs/script-debugger.md). The game carries a BREAK handler, the
+    // project's own scripts compile at -O0, PCSX2 starts with PINE on and the
+    // editor serves GDB for the running game - so VS Code (or any GDB) can stop
+    // on a line of a script, step and read locals. PCSX2 only.
+    bool scriptDebugger = false;
+
     // USB keyboard & mouse controls: the game loads the usbd/ps2kbd/ps2mouse
     // drivers and maps keys/mouse onto a virtual pad (bindings live in the
     // generated controls.hpp). Works in PCSX2 (the editor configures its
@@ -2581,6 +2588,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.remotePad == b.remotePad &&
            a.inputRecorder == b.inputRecorder &&
            a.eeCrashHandler == b.eeCrashHandler &&
+           a.scriptDebugger == b.scriptDebugger &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
            a.disableVsync == b.disableVsync &&

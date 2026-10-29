@@ -131,6 +131,9 @@ The editor executable on this machine: `{TYRAX_EXE}`
 - `--build <projectDir> [--run | --run-ps2 [ip]] [--rebuild] [--docker]` -
   full native build (+ PCSX2 launch / real-PS2 deploy); `--docker` selects the
   fallback
+- `--debug-run <projectDir> [--no-build] [--rebuild] [--enable]` - script debugger: build,
+  run in PCSX2 and serve GDB (VS Code F5 attaches); `--debug-serve <projectDir>
+  [--pine-slot N]` serves a game launched elsewhere (docs/script-debugger.md)
 - `--list-extensions <projectDir>`, `--new-extension <projectDir> <name>`,
   `--install-extension <projectDir> <folder>` - script extensions in
   `src/extensions`

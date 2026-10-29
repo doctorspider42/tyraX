@@ -147,4 +147,34 @@ std::vector<std::string> localIPv4();
 // would not).
 std::string probeTcp(const std::string& host, uint16_t port, int timeoutMs);
 
+// A plain blocking byte stream - no framing, one owner thread. The script
+// debugger's two links (docs/script-debugger.md): PCSX2's PINE socket and the
+// GDB remote serial protocol.
+class Stream {
+public:
+    virtual ~Stream() = default;
+    // Every byte or false (the peer is gone).
+    virtual bool sendAll(const void* data, size_t n) = 0;
+    // > 0 bytes read, 0 = nothing within timeoutMs, -1 = closed or failed.
+    virtual int recv(void* data, size_t cap, int timeoutMs) = 0;
+};
+
+// TCP connect with a timeout; nullptr + *err on failure.
+std::unique_ptr<Stream> connectStream(const std::string& host, uint16_t port,
+                                      int timeoutMs, std::string* err);
+// A Unix-domain socket (PCSX2's PINE on Linux/macOS). nullptr + *err on
+// failure, and always on Windows.
+std::unique_ptr<Stream> connectUnixStream(const std::string& path, std::string* err);
+
+class StreamListener {
+public:
+    virtual ~StreamListener() = default;
+    // The next client, or nullptr when none arrived within timeoutMs.
+    virtual std::unique_ptr<Stream> accept(int timeoutMs) = 0;
+};
+// Listens on host:port (127.0.0.1 for anything debugger-shaped); nullptr +
+// *err when the port is taken or the stack refuses.
+std::unique_ptr<StreamListener> listenStream(const std::string& host, uint16_t port,
+                                             std::string* err);
+
 }  // namespace wire

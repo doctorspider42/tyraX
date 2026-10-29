@@ -261,6 +261,10 @@ a Mac) finds any command, object or window by name.
   flow-graph interpreter debug builds carry, and what still needs a build.
 - [Live Debugger (step through the running game's logic)](live-debugger.md) —
   breakpoints on flow nodes, pause/step, watches, the execution timeline.
+- [Script debugger (GDB / VS Code in PCSX2)](script-debugger.md) — stop the
+  running game on a line of a C++ script, step, read and change locals and
+  fields, from VS Code's F5 or any GDB; a BREAK handler in the game, the
+  editor's GDB server over PCSX2's PINE socket, no modified emulator.
 - [The time machine (put the running game back)](time-machine.md) — periodic
   captures of everything the game mutates, pushed back on demand.
 - [Remote Pad (hold the running game's controller)](remote-pad.md) — a

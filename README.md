@@ -501,6 +501,8 @@ polling/report intervals, and a release build that provably carries none of it
 - [Live Link](docs/live-link.md) (edit the running game),
   [Live Logic](docs/live-logic.md) (hot-patch a flow graph),
   [the Live Debugger](docs/live-debugger.md) (breakpoints, stepping, watches),
+  [the script debugger](docs/script-debugger.md) (VS Code / GDB breakpoints in
+  your C++ scripts, in PCSX2),
   [the time machine](docs/time-machine.md) (put the game back where it was) and
   [the Remote Pad](docs/remote-pad.md) (hold its controller, no focus needed).
 - [The input recorder](docs/input-replay.md) — record a play session and perform

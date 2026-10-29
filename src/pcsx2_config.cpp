@@ -197,4 +197,63 @@ HostFsResult ensureUsbKbdMouse(const fs::path& ini) {
     return out ? HostFsResult::Enabled : HostFsResult::WriteFailed;
 }
 
+HostFsResult ensurePine(const fs::path& ini, int* slot) {
+    if (slot) *slot = kDefaultPineSlot;
+    std::vector<std::string> lines;
+    {
+        std::ifstream in(ini);
+        if (!in) return HostFsResult::WriteFailed;
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            lines.push_back(line);
+        }
+    }
+    // The value of `key` in [EmuCore], or -1 when absent. A key that merely
+    // starts the same way (EnablePINEFoo) is not it.
+    long emuCoreLine = -1;
+    auto findKey = [&](const std::string& key, std::string* value) -> long {
+        std::string section;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            const std::string t = trim(lines[i]);
+            if (t.size() >= 2 && t.front() == '[' && t.back() == ']') {
+                section = t;
+                if (section == "[EmuCore]") emuCoreLine = (long)i;
+                continue;
+            }
+            if (section != "[EmuCore]" || t.rfind(key, 0) != 0) continue;
+            const std::string rest = trim(t.substr(key.size()));
+            if (rest.empty() || rest.front() != '=') continue;
+            if (value) *value = trim(rest.substr(1));
+            return (long)i;
+        }
+        return -1;
+    };
+    // The slot the user configured is the slot PCSX2 will listen on - read,
+    // never rewritten (it is also the port of anything else they point at it).
+    std::string slotText;
+    if (findKey("PINESlot", &slotText) >= 0 && slot) {
+        try {
+            const int v = std::stoi(slotText);
+            if (v > 0 && v < 65536) *slot = v;
+        } catch (...) {
+        }
+    }
+    std::string enabled;
+    const long at = findKey("EnablePINE", &enabled);
+    if (at >= 0 && enabled == "true") return HostFsResult::AlreadyEnabled;
+    if (at >= 0)
+        lines[(size_t)at] = "EnablePINE = true";
+    else if (emuCoreLine >= 0)
+        lines.insert(lines.begin() + emuCoreLine + 1, "EnablePINE = true");
+    else {
+        lines.push_back("[EmuCore]");
+        lines.push_back("EnablePINE = true");
+    }
+    std::ofstream out(ini, std::ios::trunc);
+    if (!out) return HostFsResult::WriteFailed;
+    for (const auto& l : lines) out << l << '\n';
+    return out ? HostFsResult::Enabled : HostFsResult::WriteFailed;
+}
+
 }  // namespace pcsx2

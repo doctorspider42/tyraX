@@ -266,6 +266,7 @@ add_executable(tyrax-editor
     src/glbparser.cpp
     src/json.cpp
     src/elfsym.cpp
+    src/gdbstub.cpp
     src/livedbg.cpp
     src/livelogic.cpp
     src/livepad.cpp

@@ -116,6 +116,11 @@ cookbook.
 
 ## Try next
 
+- Stop a station's script on a line: *Build > Debug Scripts in VS Code*, then
+  press F5 in VS Code with a breakpoint in, say, `EaseShowcase::onUpdate`
+  (`src/scripts/cookbook/motion_math.cpp`). The game stops in PCSX2, and
+  Variables shows `t`, `y` and the sphere's fields. See the
+  [script debugger](../../docs/script-debugger.md).
 - Change a field (a sphere's `curve`, the turret's `sweep`, the pad's
   `launchAction`) in *Properties > Scripts* and Build & Run.
 - Add your own station: copy a class, change it, attach it, and give it

@@ -79,6 +79,7 @@ tyrax-editor binary lives.)
 | `--apply-graph <projectDir> <object> <graph.json> [scene] [--append]` | Validate a graph JSON and write it into the object |
 | `--ai-graph <projectDir> <object> <prompt\|file> [scene] [--backend claude\|copilot\|openai] [--model m] [--thinking]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
 | `--refresh-gen <projectDir>` | Regenerate the game sources (and bake menus) without building - the fast codegen check |
+| `--debug-run <projectDir> [--no-build] [--rebuild] [--enable]` | Script debugger (docs/script-debugger.md): build, run in PCSX2 and serve GDB until the emulator closes; `--enable` switches the debugger on in the project first. `--debug-serve <projectDir> [--pine-slot N]` serves a game launched elsewhere |
 | `--build <projectDir> [--run \| --run-ps2 [ip]] [--rebuild] [--docker]` | Full native build; `--run` launches PCSX2, `--run-ps2` deploys to a real PS2, `--rebuild` forces a clean build, `--docker` selects the fallback (tyra-building) |
 | `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a project (defaults: `empty` preset - the GUI dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life: it picks the generated game sources. `--no-terrain` starts with no ground at all |
 | `--resave <projectDir>` | Load + save (validates and normalizes the files) |

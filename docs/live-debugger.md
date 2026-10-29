@@ -415,6 +415,8 @@ makes an attached snapshot *late*, never absent.
 
 - [live-link.md](live-link.md) — the opposite direction (edits into the game),
   and the channel this rides on.
+- [script-debugger.md](script-debugger.md) — the same idea for C++ scripts:
+  GDB / VS Code breakpoints, stepping and locals, in PCSX2.
 - [object-scripts.md](object-scripts.md), [custom-flow-nodes.md](custom-flow-nodes.md)
   — the other halves of the scripting story.
 - `examples/script-cookbook` is a good playground: its scripts log every

@@ -95,8 +95,13 @@ Image read(const std::string& elfPath) {
     std::vector<Raw> raws(shnum);
     for (uint16_t i = 0; i < shnum; ++i) {
         const unsigned char* p = &b[shoff + (size_t)i * shentsize];
+        // Elf32_Shdr: name 0, type 4, flags 8, addr 12, offset 16, size 20,
+        // link 24, info 28, addralign 32, entsize 36. (link was read from 40 -
+        // the NEXT header's name - so the symbol names came from whatever
+        // section that happened to index, and no symbol was ever found by
+        // name; the script debugger was the first caller to look one up.)
         raws[i] = {rd32(p),       rd32(p + 4),  rd32(p + 12),
-                   rd32(p + 16), rd32(p + 20), rd32(p + 40), rd32(p + 36)};
+                   rd32(p + 16), rd32(p + 20), rd32(p + 24), rd32(p + 36)};
     }
     const uint32_t strTabOff =
         shstrndx < shnum ? raws[shstrndx].offset : 0;

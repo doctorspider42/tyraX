@@ -1067,6 +1067,7 @@ void App::drawUI() {
     // Read what the running game reports about its flow graphs, and push
     // breakpoint / halt / step commands back to it (throttled).
     livedbgTick();
+    scriptDebugTick();  // the GDB server for the script debugger
     livetimeTick();
     replayTick();     // what the input recorder is doing (docs/input-replay.md)
     remotePadTick();  // the editor holds the controller (docs/remote-pad.md)
@@ -1876,6 +1877,18 @@ void App::drawMainMenus() {
             runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
         if (menuact::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
             runner_.runEmulatorOnly(project_, project_.activeScene);
+        const bool debugProfile = project_.settings.buildProfile == "debug";
+        if (menuact::MenuItem("Debug Scripts in VS Code", nullptr, false,
+                              !busy && debugProfile))
+            debugScriptsInVsCode();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                debugProfile
+                    ? "Turns the script debugger on, builds, runs in PCSX2 and opens "
+                      "the project in VS Code:\npress F5 there to stop on breakpoints "
+                      "in your C++ scripts (docs/script-debugger.md)."
+                    : "Needs the debug build profile (Project > Preferences > Build "
+                      "& debug).");
         ImGui::Separator();
         const bool ps2Ready = !project_.ps2LinkIp.empty();
         if (menuact::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
@@ -1915,6 +1928,16 @@ void App::drawMainMenus() {
                 "the editor (docs/live-debugger.md).\n"
                 "Open the panel with "
                 "Tools > Debugger (F9) or the DBG chip in the toolbar.");
+        if (menuact::MenuItem("Script Debugger", nullptr,
+                              project_.settings.scriptDebugger)) {
+            project_.settings.scriptDebugger = !project_.settings.scriptDebugger;
+            commitChange();
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "GDB / VS Code breakpoints, stepping and locals in your C++ "
+                "scripts, in PCSX2.\nScripts compile at -O0 while it is on; "
+                "toggling it rebuilds the game once\n(docs/script-debugger.md).");
         if (menuact::MenuItem("Live Logic", nullptr,
                             project_.settings.liveLogic)) {
             project_.settings.liveLogic = !project_.settings.liveLogic;
@@ -11256,19 +11279,60 @@ std::string App::installVsCodeExtension() {
     if (vsix.empty())
         return "VS Code extension package not found (tools/vscode-tyrax/*.vsix)";
 
-    // Run it synchronously so we can report the real outcome; --force
-    // reinstalls in place, so this is idempotent. The command goes through the
-    // platform shell, which always starts - so a missing CLI is detected up
-    // front rather than read off a spawn failure that cannot happen.
-    if (!platform::commandExists("code"))
-        return "Could not run VS Code's 'code' CLI - is it on PATH?";
-    auto proc = platform::Process::start("code --install-extension " +
+    // The CLI is found off PATH too (a fresh macOS install has none on PATH).
+    // Everything runs synchronously so the real outcome can be reported.
+    const std::string code = platform::vscodeCli();
+    if (code.empty())
+        return "Could not find VS Code's 'code' CLI - install VS Code, or put "
+               "'code' on PATH (VS Code: Shell Command: Install 'code' in PATH)";
+
+    // What is installed already. The extension is on the Marketplace and
+    // updates itself there, so a NEWER copy must not be downgraded to the one
+    // this editor bundles - and an up-to-date one is not reinstalled on every
+    // session (each install is seconds and a "reload window" prompt).
+    std::string listed;
+    if (auto ls = platform::Process::start(code + " --list-extensions --show-versions",
+                                           {.capture = true}))
+        listed = ls->readAll();
+    auto installedVersion = [&](const std::string& id) -> std::string {
+        const std::string key = id + "@";
+        for (size_t at = listed.find(key); at != std::string::npos;
+             at = listed.find(key, at + 1)) {
+            if (at > 0 && listed[at - 1] != '\n') continue;  // a longer id
+            const size_t end = listed.find_first_of("\r\n", at);
+            return listed.substr(at + key.size(),
+                                 end == std::string::npos ? std::string::npos
+                                                          : end - at - key.size());
+        }
+        return "";
+    };
+    // tyrax-X.Y.Z.vsix -> X.Y.Z
+    std::string bundled = vsix.stem().string();
+    bundled = bundled.substr(bundled.rfind('-') + 1);
+    auto older = [](const std::string& a, const std::string& b) {  // a < b
+        int x[3] = {0, 0, 0}, y[3] = {0, 0, 0};
+        std::sscanf(a.c_str(), "%d.%d.%d", &x[0], &x[1], &x[2]);
+        std::sscanf(b.c_str(), "%d.%d.%d", &y[0], &y[1], &y[2]);
+        return std::lexicographical_compare(x, x + 3, y, y + 3);
+    };
+
+    // The id it had before the Marketplace listing (never published): two
+    // copies would register every language and the debugger twice.
+    if (!installedVersion(templates::kVsCodeLegacyExtensionId).empty())
+        if (auto un = platform::Process::start(
+                code + " --uninstall-extension " + templates::kVsCodeLegacyExtensionId))
+            un->wait();
+
+    const std::string have = installedVersion(templates::kVsCodeExtensionId);
+    if (!have.empty() && !older(have, bundled))
+        return "TyraX VS Code extension " + have + " is installed";
+    auto proc = platform::Process::start(code + " --install-extension " +
                                          platform::shellArg(vsix.string()) + " --force");
     if (!proc || proc->wait() != 0)
-        return "VS Code extension install failed - is the 'code' CLI on PATH? "
-               "(VS Code: Shell Command: Install 'code' in PATH)";
-    return "TyraX VS Code extension installed - reload the VS Code window if it "
-           "was already open";
+        return "VS Code extension install failed - run: code --install-extension " +
+               vsix.string();
+    return "TyraX VS Code extension " + bundled +
+           " installed - reload the VS Code window if it was already open";
 }
 
 void App::openInVSCode(const std::string& file, int line) {
@@ -19029,6 +19093,8 @@ static const PrefIndexEntry kPrefIndex[] = {
     {"Keyboard & mouse", "Build & debug", "Build", "keyboardMouse", false, "USB controls"},
     {"Live Link", "Build & debug", "Live tools in debug builds", "liveLink", false, "devkit channels"},
     {"Live Debugger", "Build & debug", "Live tools in debug builds", "liveDebug", false, "devkit channels"},
+    {"Script debugger", "Build & debug", "Live tools in debug builds", "scriptDebugger", false,
+     "gdb vscode vs code breakpoint step locals pine devkit"},
     {"Live Logic", "Build & debug", "Live tools in debug builds", "liveLogic", false, "devkit channels"},
     {"Time machine", "Build & debug", "Live tools in debug builds", "timeMachine", false, "devkit rewind"},
     {"Remote Pad", "Build & debug", "Live tools in debug builds", "remotePad", false, "devkit controller"},
@@ -20797,6 +20863,18 @@ void App::drawPreferencesWindow() {
                         "frames; release builds carry none of it. Tools > Debugger (F9).");
     prefHint("Watch flow graphs run, set breakpoints");
     prefRow("Live Debugger");
+    ImGui::BeginDisabled(profile == 0);
+    ui::Switch("Script debugger", &prefSettings_.scriptDebugger);
+    ImGui::EndDisabled();
+    prefHelp("Stop the game on a line of a C++ script, step, and read and change\n"
+                        "locals and fields - from VS Code (F5) or any GDB. The game carries a\n"
+                        "breakpoint handler, the project's scripts compile unoptimised (-O0)\n"
+                        "so lines and variables match the source, PCSX2 starts with its PINE\n"
+                        "socket on, and the editor serves GDB while the game runs. F5 in\n"
+                        "VS Code turns this on by itself when it is off. PCSX2 only; turning\n"
+                        "it on or off rebuilds the game once. See docs/script-debugger.md.");
+    prefHint("Breakpoints in C++ scripts, from VS Code");
+    prefRow("Script debugger");
     ImGui::BeginDisabled(profile == 0);
     ui::Switch("Live Logic", &prefSettings_.liveLogic);
     ImGui::EndDisabled();

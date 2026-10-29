@@ -52,6 +52,7 @@
 #include "staticbatch.hpp"
 #include "texatlas.hpp"
 #include "runner.hpp"
+#include "templates.hpp"
 
 // tyrax-editor.exe --debug-state
 //
@@ -500,6 +501,150 @@ static int buildFromCli(int argc, char** argv) {
     }
     flushLog();
     return 0;
+}
+
+// Headless helper: tyrax-editor.exe --debug-run <projectDir> [--no-build] [--rebuild] [--enable]
+// The script debugger without the editor window (docs/script-debugger.md):
+// builds, runs in PCSX2 and serves GDB for the game until the emulator closes.
+// It is what the VS Code extension's F5 starts when no editor is serving the
+// project already. Prints "[gdb] ready on 127.0.0.1:<port>" once GDB can
+// attach. --enable switches the debugger on in the project (and saves it)
+// when it is off - VS Code's F5 asks first, then passes it.
+static int debugRunFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --debug-run <projectDir> [--no-build] [--rebuild] "
+                     "[--enable]\n");
+        return 2;
+    }
+    bool build = true, rebuild = false, enable = false;
+    for (int i = 3; i < argc; i++) {
+        if (std::strcmp(argv[i], "--no-build") == 0) build = false;
+        else if (std::strcmp(argv[i], "--rebuild") == 0) rebuild = true;
+        else if (std::strcmp(argv[i], "--enable") == 0) enable = true;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;
+    if (enable && p.settings.buildProfile == "debug" && !p.settings.scriptDebugger) {
+        p.settings.scriptDebugger = true;
+        if (std::string err = project::save(p); !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        build = true;  // the switch changes the Makefile: the last build has no debugger
+        std::printf("[gdb] turned the script debugger on (the game rebuilds once)\n");
+    }
+    if (!templates::scriptDebugOn(p)) {
+        std::fprintf(stderr,
+                     "error: the script debugger is off for this project - turn on "
+                     "Project > Preferences > Build & debug > Script debugger (debug "
+                     "profile), or Build > Debug Scripts in VS Code in the editor\n");
+        return 1;
+    }
+    Runner runner;
+    if (build) {
+        bakeProcedural(p);
+        bakeStaleGi(p);
+        bakeStaleShadows(p);
+        bakeStalePrelit(p);
+        runner.buildAndRun(p, true, rebuild);
+    } else {
+        runner.runEmulatorOnly(p);
+    }
+    size_t printed = 0;
+    auto flushLog = [&] {
+        std::string log = runner.log();
+        if (log.size() > printed) {
+            std::fwrite(log.data() + printed, 1, log.size() - printed, stdout);
+            std::fflush(stdout);
+            printed = log.size();
+        }
+    };
+    while (runner.busy()) {
+        flushLog();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    flushLog();
+    if (runner.state() != Runner::State::Success) return 1;
+
+    // Serve while the emulator runs; give it a while to show up first.
+    std::unique_ptr<gdbstub::Server> server;
+    gdbstub::State last = gdbstub::State::Failed;
+    std::string lastMsg;
+    bool seen = false;
+    const auto start = std::chrono::steady_clock::now();
+    for (;;) {
+        runner.watchGame(&p);
+        const Runner::GameStatus gs = runner.gameStatus();
+        if (gs.running) seen = true;
+        if (!gs.running && (seen || std::chrono::steady_clock::now() - start >
+                                        std::chrono::seconds(60))) {
+            std::printf("[gdb] the emulator closed - done\n");
+            break;
+        }
+        if (gs.running && !server)
+            server = std::make_unique<gdbstub::Server>(runner.scriptDebugConfig(p));
+        if (server) {
+            const gdbstub::State s = server->state();
+            const std::string msg = server->message();
+            if (s != last || msg != lastMsg) {
+                if (s == gdbstub::State::WaitingForGdb && last != gdbstub::State::Running &&
+                    last != gdbstub::State::Stopped)
+                    std::printf("[gdb] ready on 127.0.0.1:%d\n", server->config().port);
+                std::printf("[gdb] %s: %s\n", gdbstub::stateName(s), msg.c_str());
+                std::fflush(stdout);
+                last = s;
+                lastMsg = msg;
+            }
+            if (s == gdbstub::State::Failed) return 1;
+        }
+        flushLog();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    runner.watchGame(nullptr);
+    return 0;
+}
+
+// Headless helper: tyrax-editor.exe --debug-serve <projectDir> [--pine-slot N]
+// Only the GDB server, for a game somebody else launched (a PCSX2 of your own,
+// a test rig): serves until killed. The game must be a debug build with the
+// script debugger on, and that PCSX2 needs PINE enabled on the given slot.
+static int debugServeFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --debug-serve <projectDir> [--pine-slot N]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    Runner runner;
+    gdbstub::Config cfg = runner.scriptDebugConfig(p);
+    for (int i = 3; i + 1 < argc; i++)
+        if (std::strcmp(argv[i], "--pine-slot") == 0) cfg.pineSlot = std::atoi(argv[i + 1]);
+    gdbstub::Server server(cfg);
+    std::printf("[gdb] serving %s (PINE slot %d, GDB port %d)\n", cfg.elfPath.c_str(),
+                cfg.pineSlot, cfg.port);
+    std::fflush(stdout);
+    gdbstub::State last = gdbstub::State::Failed;
+    std::string lastMsg = "-";
+    for (;;) {
+        const gdbstub::State s = server.state();
+        const std::string msg = server.message();
+        if (s != last || msg != lastMsg) {
+            std::printf("[gdb] %s: %s\n", gdbstub::stateName(s), msg.c_str());
+            std::fflush(stdout);
+            last = s;
+            lastMsg = msg;
+        }
+        if (s == gdbstub::State::Failed) return 1;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 }
 
 // Headless helper: tyrax-editor.exe --resave <projectDir>
@@ -4829,6 +4974,10 @@ int main(int argc, char** argv) {
         return uiScriptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--debug-run") == 0)
+        return debugRunFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--debug-serve") == 0)
+        return debugServeFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--migrate") == 0) return migrateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--list-nodes") == 0)
@@ -4882,6 +5031,14 @@ int main(int argc, char** argv) {
             "  --new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] "
             "[unitsPerMeter] [--no-terrain]\n"
             "  --build <projectDir> [--run | --run-ps2 [ip]] [--rebuild] [--docker]\n"
+            "  --debug-run <projectDir> [--no-build] [--rebuild] [--enable]\n"
+            "                                          build, run in PCSX2 and serve "
+            "GDB for the script\n"
+            "                                          debugger "
+            "(docs/script-debugger.md)\n"
+            "  --debug-serve <projectDir> [--pine-slot N]\n"
+            "                                          only the GDB server, for a "
+            "game launched elsewhere\n"
             "  --audit-release <projectDir>            prove a release ELF "
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "

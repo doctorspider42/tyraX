@@ -25,6 +25,7 @@
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
 #include "livedbg.hpp"  // Live Debugger wire formats - shared with the editor
+#include "scriptdbg.hpp"  // script debugger mailbox - shared with the editor
 #include "starfield.hpp"
 #include "livelogic.hpp"  // Live Logic IR - the interpreter is generated from it
 #include "livepad.hpp"  // Remote Pad wire format - shared with the editor
@@ -7018,6 +7019,7 @@ bin/livetex.bin
 bin/livetime.bin
 bin/livetime.rst
 bin/livepad.bin
+bin/gdbserver.json
 # The input recorder's working files (docs/input-replay.md). These are the
 # CHANNEL, not the recordings: a recording you want to keep is saved into
 # recordings/*.tyrarep, which IS tracked on purpose - the whole point of the
@@ -20864,6 +20866,15 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
             return f;
         };
         std::string extra;
+        // The script debugger (docs/script-debugger.md): at -O3 a line
+        // breakpoint landed in a factory lambda and locals read <optimized
+        // out>, so the project's own scripts compile unoptimised while it is
+        // on. Target-specific, so it comes after every global flag and wins;
+        // the engine and generated code keep their speed.
+        if (scriptDebugOn(p))
+            extra += "TYRAX_SCRIPT_OBJECTS := $(filter $(BUILDDIR)/scripts/% "
+                     "$(BUILDDIR)/extensions/%,$(OBJECTS))\n"
+                     "$(TYRAX_SCRIPT_OBJECTS): CFLAGS += -O0\n";
         if (!st.extraCompilerFlags.empty())
             extra += "CFLAGS      += " + oneLine(st.extraCompilerFlags) + "\n";
         if (!st.extraLinkerFlags.empty())
@@ -36120,7 +36131,7 @@ static std::string vscodeExtensionsJson() {
     return "{\n"
            "  \"recommendations\": [\n"
            "    \"ms-vscode.cpptools\",\n"
-           "    \"tyrax.tyrax-flownode\"\n"
+           "    \"" + std::string(kVsCodeExtensionId) + "\"\n"
            "  ]\n"
            "}\n";
 }
@@ -36135,10 +36146,22 @@ static std::string vscodeExtensionsJson() {
  * nothing to add, so an unchanged file is not rewritten. */
 std::string vscodeExtensionsMerged(const std::string& existing) {
     if (existing.empty()) return vscodeExtensionsJson();
-    static const char* kOurs[] = {"ms-vscode.cpptools", "tyrax.tyrax-flownode"};
+    // The pre-Marketplace id is RENAMED in place: VS Code offers every
+    // recommendation it cannot find in the gallery, and nobody can find that
+    // one. Textual, like the insertion below, so the rest of the file survives.
+    const std::string legacy = std::string("\"") + kVsCodeLegacyExtensionId + "\"";
+    if (const size_t at = existing.find(legacy); at != std::string::npos) {
+        std::string renamed = existing;
+        renamed.replace(at, legacy.size(),
+                        std::string("\"") + kVsCodeExtensionId + "\"");
+        const std::string more = vscodeExtensionsMerged(renamed);
+        return more.empty() ? renamed : more;
+    }
+    static const char* kOurs[] = {"ms-vscode.cpptools", kVsCodeExtensionId};
     std::vector<std::string> missing;
     for (const char* id : kOurs)
-        if (existing.find(id) == std::string::npos) missing.push_back(id);
+        if (existing.find(std::string("\"") + id + "\"") == std::string::npos)
+            missing.push_back(id);
     if (missing.empty()) return "";
     // Textual insertion after the opening bracket of "recommendations", so
     // comments and formatting a person put in the file survive. A file we
@@ -36688,8 +36711,16 @@ static std::string objectScriptsSource(const Project& p) {
            "#include <vector>\n"
            "\n"
            "#include \"scripts/script.hpp\"\n"
-           "\n"
-           "namespace "
+           "\n";
+    // The script debugger's once-a-frame pause point (docs/script-debugger.md).
+    // Emitted only while it is on, so a project without it regenerates
+    // byte-identical.
+    const bool scriptDbg = scriptDebugOn(p);
+    if (scriptDbg)
+        out << "// Script debugger: GDB's pause request lands here once a frame.\n"
+               "extern \"C\" void tyraxScriptDebugPoll();\n"
+               "\n";
+    out << "namespace "
         << ns
         << " {\n"
            "\n"
@@ -36762,7 +36793,8 @@ static std::string objectScriptsSource(const Project& p) {
            "class ObjectScriptDriver : public Script {\n"
            " public:\n"
            "  void update(ScriptContext& ctx) override {\n"
-           "#if defined(TYRAX_SCRIPT_API)\n"
+        << (scriptDbg ? "    tyraxScriptDebugPoll();\n" : "")
+        << "#if defined(TYRAX_SCRIPT_API)\n"
            "    tyrax::detail::tick(ctx);  // tyrax::sceneTime(), Timer, Cooldown\n"
            "#endif\n"
            "    if (first || ctx.sceneGeneration != generation) {\n"
@@ -36875,6 +36907,269 @@ static std::string objectScriptsSource(const Project& p) {
            "TYRA_SCRIPT("
         << ns << "::ObjectScriptDriver);\n";
     return out.str();
+}
+
+// ---------------------------------------------------------------------------
+// The script debugger (docs/script-debugger.md)
+// ---------------------------------------------------------------------------
+
+bool scriptDebugOn(const Project& p) {
+    return p.settings.buildProfile == "debug" && p.settings.scriptDebugger;
+}
+
+// src/gen/script_debug.gen.cpp - the game half of the script debugger. Emitted
+// only while scriptDebugOn; project::refreshGenerated deletes a leftover, so a
+// release build has none of it (and --audit-release looks for the marker).
+//
+// The design is forced by what the host can reach: PCSX2's PINE socket reads
+// and writes guest RAM and nothing else. So the game does everything that
+// needs the CPU itself - takes the BREAK exception, publishes its registers,
+// parks, and applies the host's code patches on the EE thread - and the host
+// only ever writes DATA into the mailbox. Writing code over PINE does take
+// effect, but it races the recompiler's page protection from PINE's thread and
+// killed PCSX2 with an access violation within a few writes (measured, 2.8.0).
+static std::string scriptDebugSource() {
+    using namespace scriptdbg;
+    auto hex = [](uint32_t v) {
+        char b[16];
+        std::snprintf(b, sizeof(b), "0x%X", (unsigned)v);
+        return std::string(b);
+    };
+    std::string s = R"(// Generated by TyraX. Do not edit - regenerated on every build.
+// Script debugger runtime (docs/script-debugger.md): a BREAK handler that parks
+// the game on g_tyraxScriptDbg while GDB, through the editor and PCSX2's PINE
+// socket, reads and writes registers and memory. Debug builds with Project >
+// Preferences > Build & debug > Script debugger on; nothing in release.
+#include <stddef.h>
+#include <kernel.h>
+#include <ee_debug.h>
+#include <tamtypes.h>
+
+namespace {
+// --audit-release looks for "TXDEVKIT-" in a shipped ELF's string data.
+const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-scriptdbg";
+}  // namespace
+
+extern "C" {
+
+struct TyraxScriptDbgPatch {
+  u32 addr;
+  u32 value;
+};
+
+// The layout is the protocol - the editor's src/scriptdbg.hpp is its twin.
+struct TyraxScriptDbg {
+  u32 magic;
+  u32 version;
+  volatile u32 state;       // 0 running, 1 stopped
+  volatile u32 resume;      // the host writes 1: continue
+  u32 frame;                // EE_RegFrame* of the stop
+  volatile u32 stops;       // bumped on every stop
+  u32 fcr31;
+  volatile u32 pauseReq;    // the host writes 1: stop at the next poll
+  volatile u32 installed;   // BREAK is routed here
+  volatile u32 patchCount;  // code patches to apply before resuming
+  u32 reserved[2];
+  u32 fpr[32];
+  TyraxScriptDbgPatch patch[{{MAX_PATCHES}}];
+};
+static_assert(offsetof(TyraxScriptDbg, state) == {{OFF_STATE}}, "scriptdbg.hpp");
+static_assert(offsetof(TyraxScriptDbg, resume) == {{OFF_RESUME}}, "scriptdbg.hpp");
+static_assert(offsetof(TyraxScriptDbg, frame) == {{OFF_FRAME}}, "scriptdbg.hpp");
+static_assert(offsetof(TyraxScriptDbg, stops) == {{OFF_STOPS}}, "scriptdbg.hpp");
+static_assert(offsetof(TyraxScriptDbg, fcr31) == {{OFF_FCR31}}, "scriptdbg.hpp");
+static_assert(offsetof(TyraxScriptDbg, pauseReq) == {{OFF_PAUSE}}, "scriptdbg.hpp");
+static_assert(offsetof(TyraxScriptDbg, installed) == {{OFF_INSTALLED}}, "scriptdbg.hpp");
+static_assert(offsetof(TyraxScriptDbg, patchCount) == {{OFF_PATCH_COUNT}}, "scriptdbg.hpp");
+static_assert(offsetof(TyraxScriptDbg, fpr) == {{OFF_FPR}}, "scriptdbg.hpp");
+static_assert(offsetof(TyraxScriptDbg, patch) == {{OFF_PATCHES}}, "scriptdbg.hpp");
+static_assert(offsetof(EE_RegFrame, epc) == {{FRAME_EPC}}, "scriptdbg.hpp");
+
+__attribute__((used, aligned(64))) TyraxScriptDbg g_tyraxScriptDbg = {
+    {{MAGIC}}, {{VERSION}}, 0, 0, 0, 0, 0, 0, 0, 0, {0, 0}, {0}, {}};
+
+#define TYRAX_FPR_SAVE(n) asm volatile("swc1 $f" #n ", %0" : "=m"(g_tyraxScriptDbg.fpr[n]))
+#define TYRAX_FPR_LOAD(n) asm volatile("lwc1 $f" #n ", %0" : : "m"(g_tyraxScriptDbg.fpr[n]))
+#define TYRAX_FPR_ALL(M)                                                      \
+  M(0); M(1); M(2); M(3); M(4); M(5); M(6); M(7); M(8); M(9); M(10); M(11);   \
+  M(12); M(13); M(14); M(15); M(16); M(17); M(18); M(19); M(20); M(21);       \
+  M(22); M(23); M(24); M(25); M(26); M(27); M(28); M(29); M(30); M(31)
+
+// Runs inside libeedebug's level-1 vector, interrupts off: the whole EE stands
+// still while the host looks around, which is exactly what a debugger wants.
+static int tyraxScriptDbgBreak(EE_RegFrame* f) {
+  TyraxScriptDbg& m = g_tyraxScriptDbg;
+  TYRAX_FPR_ALL(TYRAX_FPR_SAVE);
+  u32 fcr;
+  asm volatile("cfc1 %0, $31" : "=r"(fcr));
+  m.fcr31 = fcr;
+  m.frame = (u32)f;
+  m.patchCount = 0;
+  m.resume = 0;
+  m.stops = m.stops + 1;
+  m.state = 1;
+  while (m.resume == 0) {
+  }
+  // The host rewrote the mailbox (and maybe the frame) behind our back.
+  asm volatile("" ::: "memory");
+  const u32 n = m.patchCount < {{MAX_PATCHES}} ? m.patchCount : {{MAX_PATCHES}};
+  for (u32 i = 0; i < n; ++i) {
+    volatile u32* at = (volatile u32*)m.patch[i].addr;
+    *at = m.patch[i].value;
+    // Write the word back past the data cache, then drop the stale line from
+    // the instruction cache. PCSX2 needs neither; they keep this honest.
+    asm volatile("sync.l\n\tcache 0x18, 0(%0)\n\tsync.l\n\tcache 0x0b, 0(%0)\n\tsync.p"
+                 : : "r"(at) : "memory");
+  }
+  m.patchCount = 0;
+  // The pause poll's own trap stays in the code: step over it, or ERET runs
+  // it again forever.
+  if (*(volatile u32*)f->epc == {{POLL_BREAK}}) f->epc += 4;
+  m.state = 0;
+  fcr = m.fcr31;
+  asm volatile("ctc1 %0, $31" : : "r"(fcr));
+  TYRAX_FPR_ALL(TYRAX_FPR_LOAD);
+  return 0;
+}
+
+void __ee_level1_ex_vector();
+
+// Routes cause 9 (BREAK) and ONLY cause 9 to the handler above. libeedebug's
+// install hooks causes 1..7 and 10..13 too, and its vector never chains to the
+// kernel: a hooked cause with no handler re-runs the faulting instruction
+// forever. So every cause it takes is handed back to the kernel afterwards -
+// unless the EE crash handler installed first, in which case the install is a
+// no-op (-1) and the crash handler's own handlers stay where they are.
+// Lazily, from the first poll: by then the crash handler (live_debug.gen.cpp's
+// init) has had its turn, and installing after it keeps its cause-9 handler
+// from overwriting ours.
+static void tyraxScriptDbgInstall() {
+  static const int kCauses[] = {1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13};
+  void* saved[16] = {};
+  for (int c : kCauses) saved[c] = GetExceptionHandler(c);
+  if (ee_dbg_install(1) != -1) {
+    for (int c = 1; c <= 3; ++c) SetVTLBRefillHandler(c, saved[c]);
+    for (int c : kCauses)
+      if (c >= 4) SetVCommonHandler(c, saved[c]);
+  }
+  SetVCommonHandler(9, (void*)__ee_level1_ex_vector);
+  ee_dbg_set_level1_handler(9, tyraxScriptDbgBreak);
+  FlushCache(0);
+  FlushCache(2);
+  g_tyraxScriptDbg.installed = 1;
+}
+
+// Called once a frame by the object-script driver.
+void tyraxScriptDebugPoll() {
+  if (!g_tyraxScriptDbg.installed) tyraxScriptDbgInstall();
+  if (g_tyraxScriptDbg.pauseReq) {
+    g_tyraxScriptDbg.pauseReq = 0;
+    asm volatile("break 7");
+  }
+}
+
+}  // extern "C"
+)";
+    s = replaceAll(s, "{{MAX_PATCHES}}", std::to_string(kMaxPatches));
+    s = replaceAll(s, "{{OFF_STATE}}", std::to_string(kOffState));
+    s = replaceAll(s, "{{OFF_RESUME}}", std::to_string(kOffResume));
+    s = replaceAll(s, "{{OFF_FRAME}}", std::to_string(kOffFrame));
+    s = replaceAll(s, "{{OFF_STOPS}}", std::to_string(kOffStops));
+    s = replaceAll(s, "{{OFF_FCR31}}", std::to_string(kOffFcr31));
+    s = replaceAll(s, "{{OFF_PAUSE}}", std::to_string(kOffPause));
+    s = replaceAll(s, "{{OFF_INSTALLED}}", std::to_string(kOffInstalled));
+    s = replaceAll(s, "{{OFF_PATCH_COUNT}}", std::to_string(kOffPatchCount));
+    s = replaceAll(s, "{{OFF_FPR}}", std::to_string(kOffFpr));
+    s = replaceAll(s, "{{OFF_PATCHES}}", std::to_string(kOffPatches));
+    s = replaceAll(s, "{{FRAME_EPC}}", std::to_string(kFrameEpc));
+    s = replaceAll(s, "{{MAGIC}}", hex(kMagic));
+    s = replaceAll(s, "{{VERSION}}", std::to_string(kVersion));
+    s = replaceAll(s, "{{POLL_BREAK}}", hex(kPollBreak));
+    return s;
+}
+
+/** The GDB port the editor serves a project on. Two ports in fact - on Windows
+ * GDB runs inside WSL, which cannot reach Windows' localhost, so a relay in WSL
+ * listens on this one for GDB and on +1 for the editor to connect INTO.
+ * Derived from the project path so two projects debugged at once do not
+ * collide, and stable so a launch configuration can name it. */
+int scriptDebugPort(const Project& p) {
+    const std::string key = std::filesystem::path(p.dir).lexically_normal().string();
+    return 23400 + (int)(wire::fnv1a64(key.data(), key.size()) % 500) * 2;
+}
+
+namespace {
+
+std::string debugJsonEscape(const std::string& s) {
+    std::string o;
+    for (char c : s) {
+        if (c == '\\' || c == '"') o += '\\';
+        o += c;
+    }
+    return o;
+}
+
+}  // namespace
+
+// .vscode/tyrax.json - what the VS Code extension needs to start a debug
+// session for this project on this machine: the editor to launch, the ELF with
+// symbols, the GDB to run (inside WSL on Windows), the port and the source
+// path map. Machine-specific like c_cpp_properties.json, so always rewritten,
+// in every project, so F5 there works before the debugger is switched on:
+// `scriptDebugger` and `profile` say whether the extension has to turn it on
+// (or ask for the debug profile) first.
+static std::string vscodeTyraxJson(const Project& p) {
+    std::error_code absEc;
+    const std::filesystem::path dir =
+        std::filesystem::absolute(std::filesystem::path(p.dir), absEc).lexically_normal();
+    const std::filesystem::path elf =
+        dir / "bin" / (p.name + ".elf.sym");
+    std::string gdb;
+    bool wsl = false;
+    std::string sourceMapFrom;
+    if (const std::filesystem::path cfg = platform::configDir(); !cfg.empty()) {
+        const std::filesystem::path tc = cfg / "toolchain" / "ps2dev" / "ee" / "bin" /
+                                         "mips64r5900el-ps2-elf-gdb";
+#ifdef _WIN32
+        // The pinned toolchain is a Linux bundle run through WSL
+        // (tools/toolchain/setup.ps1), so GDB is a Linux binary too.
+        gdb = scriptdbg::wslPath(tc.string());
+        wsl = true;
+        sourceMapFrom = scriptdbg::wslPath(dir.string());
+#else
+        gdb = tc.string();
+#endif
+    }
+    std::ostringstream o;
+    o << "{\n"
+         "  \"version\": 2,\n"
+         "  \"scriptDebugger\": " << (p.settings.scriptDebugger ? "true" : "false") << ",\n"
+         "  \"profile\": \"" << (p.settings.buildProfile == "debug" ? "debug" : "release")
+      << "\",\n"
+         "  \"editor\": \"" << debugJsonEscape(platform::exePath()) << "\",\n"
+         "  \"project\": \"" << debugJsonEscape(dir.string()) << "\",\n"
+         "  \"elf\": \"" << debugJsonEscape(elf.string()) << "\",\n"
+         "  \"gdb\": \"" << debugJsonEscape(gdb) << "\",\n"
+         "  \"wsl\": " << (wsl ? "true" : "false") << ",\n"
+         "  \"port\": " << scriptDebugPort(p) << ",\n"
+         "  \"sourceMapFrom\": \"" << debugJsonEscape(sourceMapFrom) << "\"\n"
+         "}\n";
+    return o.str();
+}
+
+// .vscode/launch.json - written only when missing (the user's file otherwise;
+// the extension also offers the same entry from its "Add Configuration").
+static std::string vscodeLaunchJson() {
+    return "{\n"
+           "  \"version\": \"0.2.0\",\n"
+           "  \"configurations\": [\n"
+           "    {\n"
+           "      \"type\": \"tyrax\",\n"
+           "      \"request\": \"launch\",\n"
+           "      \"name\": \"TyraX: debug game in PCSX2\"\n"
+           "    }\n"
+           "  ]\n"
+           "}\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -37610,6 +37905,17 @@ std::vector<File> generate(const Project& source) {
     // is what it always was. project::refreshGenerated deletes a leftover.
     if (!blssRefusal.empty())
         files.push_back({"src\\gen\\blss_interlock.gen.cpp", blssRefusal});
+    // The script debugger: its runtime and the VS Code side's session file,
+    // only while it is on; refreshGenerated deletes leftovers. launch.json is
+    // the user's once it exists.
+    if (scriptDebugOn(p))
+        files.push_back({"src\\gen\\script_debug.gen.cpp", scriptDebugSource()});
+    // VS Code's half of the debugger, in EVERY project: F5 there must work
+    // before anyone found the switch - the extension reads tyrax.json to find
+    // the editor and turns the debugger on itself. .vscode/ is git-ignored and
+    // machine-specific already (c_cpp_properties.json).
+    files.push_back({".vscode\\tyrax.json", vscodeTyraxJson(p)});
+    files.push_back({".vscode\\launch.json", vscodeLaunchJson()});
     // Baked instanced scatter: only while some volume draws as Instanced (the
     // game includes it through __has_include); refreshGenerated deletes a
     // leftover.

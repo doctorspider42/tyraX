@@ -5615,8 +5615,12 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 7
+#define TYRAX_VERSION_MINOR 8
 #define TYRAX_VERSION_PATCH 0
+// 2.8.0: the script debugger (docs/script-debugger.md) - GDB / VS Code on a
+// line of a C++ script in PCSX2, through a BREAK handler in the game and the
+// editor's GDB server over PINE; the VS Code extension becomes "tyrax.tyrax",
+// ready for the Marketplace, with a `tyrax` debug type.
 // 2.7.0: docs/script-cookbook.md + examples/script-cookbook; ObjectRef moves
 // take the matrix path (12.5 -> 50 FPS on the cookbook level), same-value
 // setColor/setScale are free, field-picked events and sounds count.
@@ -6487,7 +6491,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // when a field is set away from its script's default. Missing = every field at
 // its default, which is all an older project could mean. Additive; no
 // migration.
-inline constexpr int kFormatVersion = 125;
+// v126 (docs/script-debugger.md): ProjectSettings::scriptDebugger
+// ("scriptDebugger" in settings, written only when true). Missing = off, which
+// is what every older project built. Additive; no migration.
+inline constexpr int kFormatVersion = 126;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

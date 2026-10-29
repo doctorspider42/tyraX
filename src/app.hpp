@@ -33,6 +33,7 @@
 #include "menustyle.hpp"  // the staged stylesheet the Style tab edits
 #include "isoexport.hpp"
 #include "elfsym.hpp"
+#include "gdbstub.hpp"  // the script debugger's GDB server
 #include "vucap.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
@@ -4167,6 +4168,23 @@ private:
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
     void livedbgTick();
+    // The script debugger's GDB server (docs/script-debugger.md): alive while
+    // this project's game runs in PCSX2 with the script debugger built in.
+    // scriptDebugTick starts and stops it; the toolbar's GDB chip shows it.
+    void scriptDebugTick();
+    // Build > Debug Scripts in VS Code: switch it on, build, run, open VS Code.
+    void debugScriptsInVsCode();
+    std::unique_ptr<gdbstub::Server> gdbServer_;
+    std::string gdbServerKey_;  // the config it was started with
+    // bin/gdbserver.json, which the VS Code extension reads: written while a
+    // project is open whatever the debugger is doing ("off", "building",
+    // "waiting for GDB", ...), so F5 there knows an editor owns the project and
+    // asks it (bin/gdbserver.request) instead of starting a second one.
+    std::string gdbSessionPath_, gdbSessionLast_;
+    std::string gdbRequestError_;  // why the last request could not be served
+    std::string gdbRequestId_;     // the last request handled, echoed back
+    bool gdbRequestBuilding_ = false;  // a build started for that request
+    double gdbRequestPollAt_ = 0.0;
     void drawDebuggerWindow();
     // The window's parts (devkit_ui.cpp): a status header with the transport,
     // a section rail instead of a tab strip, one page, a right column (where

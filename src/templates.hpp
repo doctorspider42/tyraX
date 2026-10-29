@@ -250,4 +250,19 @@ std::filesystem::path nativePath(const std::string& relativePath);
 // this one file is merged rather than written once.
 std::string vscodeExtensionsMerged(const std::string& existing);
 
+// The script debugger (docs/script-debugger.md): on for a debug build with
+// ProjectSettings::scriptDebugger set. Gates the generated BREAK handler, the
+// unoptimised script objects, PINE on launch and the editor's GDB server.
+bool scriptDebugOn(const Project& p);
+// The TCP port GDB connects to for this project (the WSL relay's on Windows,
+// whose editor side is port + 1). Stable per project directory.
+int scriptDebugPort(const Project& p);
+
+// The VS Code extension's id - one place for codegen (extensions.json) and the
+// editor's install step.
+inline constexpr const char* kVsCodeExtensionId = "tyrax.tyrax";
+// The id it was packaged under before the Marketplace listing. Never published;
+// still installed from the bundled .vsix on machines that ran an older editor.
+inline constexpr const char* kVsCodeLegacyExtensionId = "tyrax.tyrax-flownode";
+
 }  // namespace templates

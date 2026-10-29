@@ -27,6 +27,7 @@
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 using SOCKET = int;
@@ -836,6 +837,174 @@ std::vector<std::string> localIPv4() {
     freeaddrinfo(res);
     return out;
 #endif
+}
+
+// --- Plain byte streams (the script debugger) ------------------------------------
+
+namespace {
+
+class SocketStream : public Stream {
+public:
+    explicit SocketStream(SOCKET s) : sock_(s) {}
+    ~SocketStream() override { closesocket(sock_); }
+
+    bool sendAll(const void* data, size_t n) override {
+        const char* p = static_cast<const char*>(data);
+        while (n > 0) {
+            const int sent = ::send(sock_, p, (int)std::min<size_t>(n, 1 << 20), kSendFlags);
+            if (sent > 0) {
+                p += sent;
+                n -= (size_t)sent;
+                continue;
+            }
+            if (sent < 0 && WSAGetLastError() != WSAEWOULDBLOCK) return false;
+            WSAPOLLFD pfd{};
+            pfd.fd = sock_;
+            pfd.events = POLLOUT;
+            if (WSAPoll(&pfd, 1, 5000) <= 0 || (pfd.revents & (POLLERR | POLLHUP)))
+                return false;
+        }
+        return true;
+    }
+
+    int recv(void* data, size_t cap, int timeoutMs) override {
+        WSAPOLLFD pfd{};
+        pfd.fd = sock_;
+        pfd.events = POLLRDNORM;
+        const int rc = WSAPoll(&pfd, 1, timeoutMs);
+        if (rc == 0) return 0;
+        if (rc < 0) return -1;
+        const int got = ::recv(sock_, static_cast<char*>(data), (int)cap, 0);
+        if (got > 0) return got;
+        if (got < 0 && WSAGetLastError() == WSAEWOULDBLOCK) return 0;
+        return -1;  // orderly close or a real error
+    }
+
+private:
+    SOCKET sock_;
+};
+
+class SocketListener : public StreamListener {
+public:
+    explicit SocketListener(SOCKET s) : sock_(s) {}
+    ~SocketListener() override { closesocket(sock_); }
+
+    std::unique_ptr<Stream> accept(int timeoutMs) override {
+        WSAPOLLFD pfd{};
+        pfd.fd = sock_;
+        pfd.events = POLLRDNORM;
+        if (WSAPoll(&pfd, 1, timeoutMs) <= 0) return nullptr;
+        SOCKET c = ::accept(sock_, nullptr, nullptr);
+        if (c == INVALID_SOCKET) return nullptr;
+        configureSocket(c);
+        return std::make_unique<SocketStream>(c);
+    }
+
+private:
+    SOCKET sock_;
+};
+
+}  // namespace
+
+std::unique_ptr<Stream> connectStream(const std::string& host, uint16_t port,
+                                      int timeoutMs, std::string* err) {
+    ensureWinsock();
+    auto fail = [&](const std::string& why) -> std::unique_ptr<Stream> {
+        if (err) *err = why;
+        return nullptr;
+    };
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    addrinfo* res = nullptr;
+    if (getaddrinfo(host.c_str(), std::to_string(port).c_str(), &hints, &res) != 0 || !res)
+        return fail("cannot resolve host: " + host);
+    SOCKET s = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (s == INVALID_SOCKET) {
+        freeaddrinfo(res);
+        return fail(wsaError("socket"));
+    }
+    configureSocket(s);
+    int rc = ::connect(s, res->ai_addr, (socklen_t)res->ai_addrlen);
+    freeaddrinfo(res);
+    if (rc != 0 && WSAGetLastError() != TX_CONNECT_PENDING) {
+        closesocket(s);
+        return fail(wsaError("connect"));
+    }
+    WSAPOLLFD pfd{};
+    pfd.fd = s;
+    pfd.events = POLLOUT;
+    rc = WSAPoll(&pfd, 1, timeoutMs);
+    int soErr = 0;
+    socklen_t len = sizeof(soErr);
+    if (rc > 0) getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&soErr, &len);
+    if (rc <= 0 || soErr != 0 || (pfd.revents & (POLLERR | POLLHUP))) {
+        closesocket(s);
+        return fail(rc == 0 ? "connection timed out" : "connection refused");
+    }
+    return std::make_unique<SocketStream>(s);
+}
+
+std::unique_ptr<Stream> connectUnixStream(const std::string& path, std::string* err) {
+#ifdef _WIN32
+    (void)path;
+    if (err) *err = "Unix-domain sockets are not used on Windows";
+    return nullptr;
+#else
+    sockaddr_un addr{};
+    if (path.size() >= sizeof(addr.sun_path)) {
+        if (err) *err = "socket path too long: " + path;
+        return nullptr;
+    }
+    SOCKET s = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    if (s == INVALID_SOCKET) {
+        if (err) *err = wsaError("socket");
+        return nullptr;
+    }
+    addr.sun_family = AF_UNIX;
+    std::memcpy(addr.sun_path, path.c_str(), path.size() + 1);
+    if (::connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+        if (err) *err = wsaError("connect") + ": " + path;
+        closesocket(s);
+        return nullptr;
+    }
+    const int flags = ::fcntl(s, F_GETFL, 0);
+    if (flags >= 0) ::fcntl(s, F_SETFL, flags | O_NONBLOCK);
+    return std::make_unique<SocketStream>(s);
+#endif
+}
+
+std::unique_ptr<StreamListener> listenStream(const std::string& host, uint16_t port,
+                                             std::string* err) {
+    ensureWinsock();
+    SOCKET s = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) {
+        if (err) *err = wsaError("socket");
+        return nullptr;
+    }
+#ifndef _WIN32
+    // A debug session restarted within TIME_WAIT must get its port back.
+    const int reuse = 1;
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuse, sizeof(reuse));
+#endif
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1) {
+        closesocket(s);
+        if (err) *err = "not an IPv4 address: " + host;
+        return nullptr;
+    }
+    if (::bind(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 ||
+        ::listen(s, 1) != 0) {
+        if (err)
+            *err = wsaError(("listen on " + host + ":" + std::to_string(port)).c_str());
+        closesocket(s);
+        return nullptr;
+    }
+    configureSocket(s);
+    return std::make_unique<SocketListener>(s);
 }
 
 }  // namespace wire

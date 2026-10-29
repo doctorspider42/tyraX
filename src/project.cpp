@@ -1884,6 +1884,7 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"inputRecorder\": "
          << (p.settings.inputRecorder ? "true" : "false") << ",\n"
+         << (p.settings.scriptDebugger ? "    \"scriptDebugger\": true,\n" : "")
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -6379,6 +6380,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.inputRecorder = v->boolOr(false);
         if (const auto* v = s->find("eeCrashHandler"))
             st.eeCrashHandler = v->boolOr(false);
+        if (const auto* v = s->find("scriptDebugger"))
+            st.scriptDebugger = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
             st.keyboardMouse = v->boolOr(true);
         // (a retired "keyboardMousePs2LinkResident" key is ignored - the
@@ -9103,6 +9106,12 @@ std::string refreshGenerated(const Project& p) {
             // deletes it when it stops, which is the half that matters - a
             // stale refusal would block a build that is fine.
             f.relativePath == "src\\gen\\blss_interlock.gen.cpp" ||
+            // The script debugger (docs/script-debugger.md): its runtime, only
+            // while it is on (the sweep below deletes it when it goes off - a
+            // leftover would keep hooking BREAK in a build that no longer polls
+            // for the host), and VS Code's machine-specific tyrax.json, always.
+            f.relativePath == "src\\gen\\script_debug.gen.cpp" ||
+            f.relativePath == ".vscode\\tyrax.json" ||
             // Baked instanced scatter: only in `generated` while a volume draws
             // as Instanced; the sweep below deletes a leftover, which the game
             // would otherwise still include through __has_include.
@@ -9187,6 +9196,9 @@ std::string refreshGenerated(const Project& p) {
                    // missing.
                    f.relativePath == "run.ps1" ||
                    f.relativePath == "run.sh" ||
+                   // The `tyrax` debug configuration for VS Code's F5; once it
+                   // exists it is the user's launch.json.
+                   f.relativePath == ".vscode\\launch.json" ||
                    f.relativePath == "windows-pcsx2.ps1" ||
                    f.relativePath == ".gitattributes" ||
                    f.relativePath == "COLLABORATION.md" ||
@@ -9382,6 +9394,16 @@ std::string refreshGenerated(const Project& p) {
     {
         std::error_code ec;
         fs::remove(fs::path(p.dir) / "inc" / "blss_net.gen.hpp", ec);
+    }
+    // The script debugger's runtime, when it is off. (.vscode/tyrax.json is in
+    // every project: it is how VS Code's F5 finds the editor to turn it on.)
+    for (const char* rel : {"src\\gen\\script_debug.gen.cpp"}) {
+        bool wanted = false;
+        for (const auto& f : generated) wanted |= f.relativePath == rel;
+        if (!wanted) {
+            std::error_code ec;
+            fs::remove(fs::path(p.dir) / templates::nativePath(rel), ec);
+        }
     }
     {
         bool wanted = false;
