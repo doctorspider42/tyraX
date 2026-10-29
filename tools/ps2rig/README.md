@@ -233,3 +233,13 @@ preparing/instrumenting, retain sat-verify.cfg, and pass `--mode verify
 frames; completion-wait denominators include 1410 simulated frames per phase
 plus the initial 300-frame warm-up. The
 [physical settle report](results/vu0-settle-2026-10-29.json) retains all 5040 rows.
+
+For an isolated fixed-input backend comparison add `--micro-stream` to prepare
+and instrument. Startup validates mixed and coincident-centre corpora outside
+measurement, then writes `vu0-stream.csv`: mode0 scalar,1 previous micro schedule,
+2 chained schedule,3 packing-only,4 chained with prepacked jobs. Each timed
+sample processes 1792 pairs, eight repeats in alternating order. Micro modes
+1/2/4 must produce identical result hashes; scalar uses the same geometry
+oracle but need not have bit-identical contacts. No file I/O, solver or reference
+comparison runs inside timed samples. This isolates backend costs; it does not
+predict whole-scene FPS or replace the full-scene shadow qualification.

@@ -84,6 +84,21 @@ while idle. Macro-mode transforms disable the asynchronous route. Built-in
 ray-tracing and generated compute wrappers share a micro-image owner token
 and reload their programs after an owner switch.
 
+The next scheduling iteration starts an already prepared packet immediately
+after harvesting the previous results, before EE reconstructs those previous
+contacts. The two input buffers remain immutable until their result consumption
+finishes; the outer pair loop can reuse a buffer only afterwards. Reconstruction
+and scalar positive-CCD confirmations use no COP2 instructions while the next
+packet runs. Contact insertion/compaction and solver order remain unchanged.
+This is an experimental scheduling change pending its own console qualification;
+the timing results above describe the preceding implementation.
+
+The fixed-input `--micro-stream` probe separates scalar SAT/CCD, the preceding
+micro schedule, chained micro scheduling, packing alone and chained prepacked
+input. It uses mixed and coincident-centre corpora with eight reversed-order
+repeats. Geometry validation runs outside timing, and micro schedules must
+produce identical contact hashes. Neither solver work nor host I/O is included.
+
 The first semantic gate runs the actual VCL source through the host VU0
 simulator against `convexMotionContact`: 10,000 rotated/swept pairs, including
 stationary and coincident-centre cases. Classifications agree; measured depth,

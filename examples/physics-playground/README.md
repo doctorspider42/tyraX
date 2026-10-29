@@ -113,3 +113,6 @@ physical PS2 qualification: dense piles do not show a consistent speedup. The
 retain full collision coverage and distinguish contact-density stalls from
 arithmetic exceptions. Generated physics includes the current practical shadow
 validator and canonical EE CCD reference.
+
+The experimental micro scheduler now launches the next ready packet before EE
+reconstructs the preceding contacts, preserving contact order and buffer ownership.

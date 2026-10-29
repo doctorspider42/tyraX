@@ -899,19 +899,16 @@ void TerrainGame::updateObjectPhysics() {
   static Tyra::Vu0SatJob microJobs[2][Tyra::Vu0SatBatch::Capacity];
   static PendingSat microPending[2][Tyra::Vu0SatBatch::Capacity];
   int filling=0,queued=0,inflight=-1,launched=0;
-  auto finishMicro = [&]() {
-    if(inflight<0)return;
-    Tyra::Vu0SatResult results[Tyra::Vu0SatBatch::Capacity];
-    microBatch.finish(results);
-    for(int k=0;k<launched;++k) {
-      const auto& pending=microPending[inflight][k];
+  auto consumeMicro = [&](int completed,int completedCount,const Tyra::Vu0SatResult* results) {
+    for(int k=0;k<completedCount;++k) {
+      const auto& pending=microPending[completed][k];
       const auto& a=steps[pending.a];const auto& b=steps[pending.b];
       const auto& ba=physBodies[a.slot];const auto& bb=physBodies[b.slot];
       const auto& ga=transformedShape(a,ba);const auto& gb=transformedShape(b,bb);
       const Tyra::ConvexView av={a.wv,a.nv,ga.normals,ba.planes,ga.edges,ba.edges};
       const Tyra::ConvexView bv={b.wv,b.nv,gb.normals,bb.planes,gb.edges,bb.edges};
       Tyra::ConvexContact c;
-      bool hit=Tyra::finishVu0Sat(results[k],microJobs[inflight][k],av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),c);
+      bool hit=Tyra::finishVu0Sat(results[k],microJobs[completed][k],av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),c);
 #if TYRA_PHYSICS_MICRO_VERIFY
       if(Tyra::vu0SatVerify) {
       Tyra::ConvexContact reference{};
@@ -946,18 +943,31 @@ void TerrainGame::updateObjectPhysics() {
         contacts[pending.contact]=contacts.back();contacts.pop_back();
       } else if(results[k].flags[1]==0 && results[k].flags[2]==0) {
         const int index=int(results[k].indices[2]);
-        const auto* v=microJobs[inflight][k].q[10+index];
+        const auto* v=microJobs[completed][k].q[10+index];
         const RbV axis={v[0],v[1],v[2]};
         axisHistory.acquire(a.obj,b.obj)=rbMul(axis,1/sqrtf(rbDot(axis,axis)));
       }
     }
+  };
+  auto finishMicro = [&]() {
+    if(inflight<0)return;
+    Tyra::Vu0SatResult results[Tyra::Vu0SatBatch::Capacity];
+    microBatch.finish(results);
+    const int completed=inflight,completedCount=launched;
     inflight=-1;
+    consumeMicro(completed,completedCount,results);
   };
   auto launchMicro = [&]() {
-    finishMicro();
-    if(!queued)return;
+    if(!queued){finishMicro();return;}
+    Tyra::Vu0SatResult results[Tyra::Vu0SatBatch::Capacity];
+    const int completed=inflight,completedCount=launched;
+    if(completed>=0)microBatch.finish(results);
+    // Launch the ready packet before reconstructing the preceding contacts.
+    // Its EE input buffer stays intact until consumeMicro returns; only then
+    // may the outer pair loop reuse the buffer for its next packet.
     microBatch.start(microJobs[filling],queued);
     inflight=filling;launched=queued;filling^=1;queued=0;
+    if(completed>=0)consumeMicro(completed,completedCount,results);
   };
 #endif
   for (int si = 0; si < awakeCount; ++si) {

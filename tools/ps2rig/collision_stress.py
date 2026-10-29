@@ -18,7 +18,9 @@ parser.add_argument('--temporal-comparison',action='store_true',help='42 phases:
 parser.add_argument('--temporal-arms',type=int,choices=[2,3,4],default=4,help='Four arms separate warm starting from islands; three replays the initial prototype')
 parser.add_argument('--settle-check',action='store_true',help='Six stationary 64-box pile phases: settle, known base impulse, recover')
 parser.add_argument('--micro-comparison',action='store_true',help='28 phases: current scalar physics versus asynchronous VU0 SAT/CCD')
+parser.add_argument('--micro-stream',action='store_true',help='Add fixed-input scalar/legacy/chained/packing throughput probe before the micro comparison')
 args=parser.parse_args()
+if args.micro_stream:args.micro_comparison=True
 if args.micro_comparison:args.temporal_comparison=True;args.temporal_arms=2
 if args.settle_check:args.temporal_comparison=True
 if args.temporal_comparison:args.solver_comparison=True
@@ -244,6 +246,7 @@ meta['solver_comparison']=args.solver_comparison
 meta['temporal_comparison']=args.temporal_comparison
 meta['synthetic_pad']=args.temporal_comparison
 meta['micro_comparison']=args.micro_comparison
+meta['micro_stream']=args.micro_stream
 if args.temporal_comparison:meta.update(phases=args.temporal_arms*14,temporal_arms=args.temporal_arms)
 if args.solver_comparison and not args.temporal_comparison:meta['phases']=42
 meta['settle_check']=args.settle_check
@@ -259,6 +262,10 @@ if args.micro_comparison:
  p=extra;s=p.read_text(encoding='utf8');s='#include "debug/vu0_sat_probe.hpp"\n'+s
  s=s.replace('checked=true;if(!TyraSolverProbe::run())','checked=true;FILE* verify=fopen("sat-verify.cfg","r");Tyra::vu0SatVerify=verify!=nullptr;if(verify)fclose(verify);if(Tyra::vu0SatVerify && !TYRA_TEMPORAL_SETTLE)CB::phase=12;printf("VUSAT mode=%s\\n",Tyra::vu0SatVerify?"verify":"timing");if(!TyraSolverProbe::run() || !Vu0SatProbe::run())')
  s=s.replace('CB::phase>=CB::phases','CB::phase>=((Tyra::vu0SatVerify && !TYRA_TEMPORAL_SETTLE)?14:CB::phases)')
+ if args.micro_stream:
+  (eng/'inc/debug/vu0_sat_stream.hpp').write_bytes((rig/'vu0_sat_stream.hpp').read_bytes())
+  s='#include "debug/vu0_sat_stream.hpp"\n'+s
+  s=s.replace('!Vu0SatProbe::run()','!Vu0SatProbe::run() || !Vu0SatStream::run()')
  s=s.replace('  CB::configure();int found=0;','  CB::configure();Tyra::vu0SatMetrics={};Tyra::vu0SatValidationErrors=0;Tyra::vu0SatValidation={};int found=0;')
  p.write_bytes(s.encode())
  p=eng/'inc/debug/collision_bench.hpp';s='#include "physics/vu0_sat.hpp"\n'+p.read_text(encoding='utf8')
