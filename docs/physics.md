@@ -144,10 +144,12 @@ ratio, not the milliseconds:
 | settled (60 s in) | 0.33 ms, 3 bodies still awake | 0.07 ms, only the kicked ball is awake |
 
 That older sleeping change reduced idle cost; the table does not compare the
-current collision branch against main. The [physical PS2 stress results](collision-stress-results.md)
-show no general speedup for the current pipeline: 64 scattered added boxes hold
-59.9 FPS, but 32/64/128 piled boxes average 50.8/39.4/13.4 FPS, worse than the
-earlier algorithms. Contact density and simultaneously awake bodies determine
+current collision branch against main. The [physical PS2 stress results](collision-stress-results.md#projection-fix-console-qualification)
+record the original dense-pile regression and its optimizations. With complete
+contact handling in both arms, 32/64/128 piled boxes now average 51.6/37.1/19.1
+FPS versus 48.8/30.0/15.3 for the prior algorithms with caps removed. Scattered
+32/64 added boxes hold 59.9 FPS. This is not a stock-main comparison or a dense
+60 FPS guarantee. Contact density and simultaneously awake bodies determine
 the budget. Current bounds include:
 
 - a sleeping scene returns after one pass over its physics objects;

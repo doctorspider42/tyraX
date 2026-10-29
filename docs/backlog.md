@@ -2874,10 +2874,14 @@ post-5 back at y = 1.
 - [x] Measure scattered and piled vehicle props on physical PS2 with a same-ELF
   algorithm A/B; retain raw frames and repeat statistics in the repository.
   See [collision stress results](collision-stress-results.md).
-- [ ] Resolve the dense-pile regression before claiming a collision speedup:
-  profile narrow phase/solver and awake lifetimes, then repeat the same fixture.
-- [ ] Qualify/replace the eight-candidate vehicle push list and 384-contact
-  truncation; a bounded frame time must not conceal omitted collisions.
+- [x] Attribute and optimize dense-pile contact work: swept hull envelopes,
+  shared SAT/CCD projections and analytic primitive OBB ranges; repeat on PS2.
+  Equal-completeness pile FPS improves 6–25%; this is not a 60 FPS qualification.
+- [x] Replace the eight-candidate vehicle push list and 384-contact truncation;
+  all 16,800 final console frames match generated/solved and collected/tested counts.
+- [ ] Further reduce dense awake-body/contact cost and qualify a 60 FPS workload.
+  The final 32/64/128 piles still average 51.6/37.1/19.1 FPS; persistent manifolds,
+  warm starting and sleep stability need separate measured trials.
 - Exact rotational CCD and continuous sphere-versus-moving-hull contacts need
   a bounded substep/TOI design and a rotating-thin-obstacle console fixture.
 - A separately authored collision-mesh asset would allow deliberate geometry

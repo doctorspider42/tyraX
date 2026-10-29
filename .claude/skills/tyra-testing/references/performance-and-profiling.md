@@ -64,10 +64,17 @@ frames and retains per-repeat statistics. Scratch roots must be under the
 primary checkout `.tmp/`; full asset build precedes instrumentation, then use
 the native backend directly so regeneration cannot erase the hooks.
 
-The 2026-10-29 physical PS2 result is in `docs/collision-stress-results.md`:
+The original capped 2026-10-29 physical PS2 result is in `docs/collision-stress-results.md`:
 64 scattered props hold 59.94 FPS, but dense piles regress (candidate 32/64/128
 averages 50.8/39.4/13.4 FPS). Do not claim a general collision speedup. Distinguish
 placed vs awake counts, shared candidate data layout vs stock-main comparison,
 changed trajectories, omitted contact emissions (384 cap), and loose vehicle
 candidate overflow (eight slots, not proven missed exact collisions). There
 are no mesh-mode colliders in this fixture, so it does not qualify BVH speed.
+
+The 2.2.1 follow-up removes both caps and retains all accounting entries in
+every final console frame. `collision-projection-2026-10-29.*` records the
+shared-projection/analytic-OBB fix against prior algorithms with caps removed:
+pile 32/64/128 averages 51.6/37.1/19.1 vs 48.8/30.0/15.3 FPS, not stock-main
+performance. Gains repeat in reversed order; dense 60 FPS remains unqualified.
+`--baseline-label prior-uncapped` labels these summaries correctly.

@@ -1,9 +1,14 @@
 # Collision stress results on PS2
 
-Physical PS2 measurements show that the collision pipeline keeps 60 FPS with scattered props in Motor District, but regresses against the earlier algorithms when many bodies interact in a pile.
+Physical PS2 measurements document the Motor District dense-pile collision regression, its optimizations and the remaining frame-time limits.
 
 These are measurements from 2026-10-29, not a prediction from emulator speed.
 They qualify the collision branch, not a general 60 FPS guarantee.
+
+The [final projection-fix run](#projection-fix-console-qualification) improves
+the complete-contact pile workloads by 6–25% FPS against the earlier algorithms
+with their caps removed. Dense piles still miss 60 FPS. The original capped
+results are retained below so these different comparisons cannot be confused.
 
 This first run used the 384-contact/eight-prop caps. The 2.2.1 follow-up removes
 those caps and rejects disjoint swept hull envelopes before narrow phase.
@@ -162,3 +167,62 @@ and [raw frames](../tools/ps2rig/results/collision-bounds-2026-10-29.csv.gz)
 retain both repeats, accounting columns and source/ELF hashes. The subsequent
 projection optimization shares the SAT/CCD projection pass and uses analytic
 OBB ranges for primitive boxes; its console qualification is separate.
+
+## Projection fix: console qualification
+
+The final same-ELF run compares candidate `1e063e0b47bcdd2a7c8664a0d9c5ec0ed32f9e58`
+with `cc1f8895b` algorithms with the solver cap removed. Both arms share growing
+car-prop lists, the candidate's step/body layout, renderer and assets. As in the
+first fix, this is an equal-completeness comparison, **not stock main versus
+stock candidate**. The wider candidate step layout also affects the reference.
+
+| Added boxes | Prior algorithms, uncapped FPS | Final FPS | Final FPS change | Physics p95, prior → final |
+| --- | ---: | ---: | ---: | ---: |
+| 0 | 59.9 | 59.9 | — | 0.04 → 0.04 ms |
+| 32 scattered | 59.9 | 59.9 | — | 1.10 → 1.03 ms |
+| 64 scattered | 59.9 | 59.9 | — | 1.88 → 1.91 ms |
+| 128 scattered | 59.2 | 59.3 | +0.1% | 2.63 → 2.49 ms |
+| 32 piled | 48.8 | 51.6 | +5.7% | 11.83 → 8.33 ms |
+| 64 piled | 30.0 | 37.1 | +23.7% | 30.92 → 18.88 ms |
+| 128 piled | 15.3 | 19.1 | +24.9% | 70.93 → 49.68 ms |
+
+Each row again pools two 360-frame driving windows with reversed arm order.
+Candidate pile FPS per repeat: 51.50/51.75 (+32), 37.08/37.08 (+64),
+18.73/19.47 (+128). Reference repeats were 48.06/49.61, 29.32/30.65 and
+14.77/15.85 respectively. Gains repeat in both orders. These are scene outcomes
+under equal input: contact trajectories and awake populations still differ,
+so the scope ratios are not isolated per-instruction speedups.
+
+All **28 phases and 16,800 measured frames** pass the frame/state/finite-clock
+checks. In **every frame of both arms**, generated reduced manifold points equal
+solver contacts, collected car-prop candidates equal tested candidates, and
+both omission counters are zero. Candidate peak contacts are 862, reference
+940. Car candidates reach 384 per frame across substeps (not unique props).
+No solver iterations, SAT axis families or CCD paths were removed. The geometry
+oracle checks 50,000 swept/rotated pairs: generic shared projection matches the
+reference hit/depth/normal/point; analytic OBB and mixed projection retain all
+4420 reference hits. Analytic projection rounds outward for numerical safety.
+
+The performance limit remains visible: candidate EE work p95 is 19.05, 31.79
+and 65.03 ms for the three piles, already above the 16.68 ms NTSC frame budget.
+The candidate misses refresh slots in 116/720, 440/720 and 720/720 driving frames.
+The change reduces dense contact cost; it does **not** qualify dense stacks for
+60 FPS. Scattered +32/+64 hold 59.94 FPS without a missed slot; scattered +128
+misses eight of 720 drive frames. More placed props are not equivalent to more
+simultaneously awake props.
+
+The native instrumented build, isolated PCSX2 boot/autonomous-drive check and
+physical PS2 run passed. All 238 deployed baked PNG/TMDL resources matched the
+qualified fixture, staged and deployed ELF hashes matched, all four VRAM grabs
+completed, and the console log had no resource/assert failures. The two gated
+vehicle-grid/substep oracle branches also compile enabled; that compile check
+is separate from the runtime completeness counters. Quiet-log builds retain
+existing unused-variable warnings. The owned server was stopped and console
+reset returned zero after the run.
+
+![Physical PS2: final 128-box pile during warm-up](img/collision-district-stress-fixed.png)
+
+The [final summary and repeats](../tools/ps2rig/results/collision-projection-2026-10-29.json)
+and [raw frame CSV](../tools/ps2rig/results/collision-projection-2026-10-29.csv.gz)
+retain the accounting columns and source hashes. Measured ELF SHA-256:
+`67f9a2bb425046eb84831701442a636b0aeff527b2b9c35e7a5746cf6851307a`.

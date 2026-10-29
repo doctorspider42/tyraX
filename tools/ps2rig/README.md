@@ -115,3 +115,10 @@ these columns remain readable. Do not present this as a stock-old-branch A/B.
 
 When analyzing a `cc1f8895b --uncapped-baseline` run, pass
 `--baseline-label prior-uncapped` so the summary does not call that arm main.
+
+The diagnostic, first-bounds and final-projection 2026-10-29 follow-ups are in
+`results/collision-{diagnosis,bounds,projection}-2026-10-29.{json,csv.gz}`.
+The final run validates all 16,800 frames in both arms for complete contact/prop
+accounting. It improves pile FPS by 6–25% against uncapped prior algorithms;
+it does not qualify dense 60 FPS. See the linked results page for frame misses,
+per-repeat spread, shared-layout and trajectory limitations.

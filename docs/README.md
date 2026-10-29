@@ -67,8 +67,8 @@ a Mac) finds any command, object or window by name.
   convex hull per mesh, contact points, impulses with friction and restitution,
   and what it costs on the EE.
 - [Collision stress results on PS2](collision-stress-results.md) — physical-console
-  measurements for 32–128 additional Motor District props: scattered props hold
-  the frame budget longer, while dense piles expose regressions and contact limits.
+  measurements for 32–128 additional Motor District props: the dense-pile
+  regression, complete-contact optimizations and the remaining frame budget.
 - [Particle library](particles.md) — particle effects defined once in the Particle
   Editor and linked from emitters and vehicle tyre smoke, additive fire and
   sparks, and procedural smoke / flame / glow textures.
