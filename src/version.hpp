@@ -5619,7 +5619,7 @@
 #define TYRAX_VERSION_PATCH 0
 // 2.8.0: the script debugger (docs/script-debugger.md) - GDB / VS Code on a
 // line of a C++ script in PCSX2, through a BREAK handler in the game and the
-// editor's GDB server over PINE; the VS Code extension becomes "tyrax.tyrax",
+// editor's GDB server over PINE; the VS Code extension becomes "doctorspider.tyrax",
 // ready for the Marketplace, with a `tyrax` debug type.
 // 2.7.0: docs/script-cookbook.md + examples/script-cookbook; ObjectRef moves
 // take the matrix path (12.5 -> 50 FPS on the cookbook level), same-value

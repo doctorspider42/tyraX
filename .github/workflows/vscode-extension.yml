@@ -7,10 +7,12 @@
 # version a store already has publishes nothing there (--skip-duplicate), so
 # "bump package.json + CHANGELOG, merge" is the whole extension release.
 #
-# Secrets: VSCE_PAT (Marketplace, publisher `tyrax`), OVSX_PAT (Open VSX,
-# namespace `tyrax`); a step whose secret is missing is skipped, so a fork
-# without them still releases the editor. See docs/vscode-extension.md,
-# "Publishing".
+# Marketplace: Trusted Publishing (OIDC, no token) - the `doctorspider`
+# publisher has a policy for this repository and BOTH workflow files
+# (release.yml calls this one; vscode-extension.yml for a manual dispatch).
+# Runs in doctorspider42's repository only, so a fork still releases the editor.
+# Open VSX has no OIDC: secret OVSX_PAT (namespace `doctorspider`), skipped
+# when missing. See docs/vscode-extension.md, "Publishing".
 name: vscode-extension
 
 on:
@@ -24,12 +26,12 @@ on:
 
 permissions:
   contents: read
+  id-token: write  # the Marketplace's Trusted Publishing token
 
 jobs:
   publish:
     runs-on: ubuntu-22.04
     env:
-      VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v7
@@ -52,8 +54,8 @@ jobs:
           echo "vsix=$vsix" >> "$GITHUB_OUTPUT"
           echo "## TyraX VS Code extension $(basename "$vsix" .vsix)" >> "$GITHUB_STEP_SUMMARY"
       - name: Visual Studio Marketplace
-        if: env.VSCE_PAT != ''
-        run: npx --yes @vscode/vsce@3 publish --skip-duplicate --packagePath "${{ steps.pkg.outputs.vsix }}" -p "$VSCE_PAT"
+        if: github.repository_owner == 'doctorspider42'
+        run: npx --yes @vscode/vsce@4 publish --oidc --skip-duplicate --packagePath "${{ steps.pkg.outputs.vsix }}"
       - name: Open VSX
         if: env.OVSX_PAT != ''
         run: npx --yes ovsx@0 publish --skip-duplicate "${{ steps.pkg.outputs.vsix }}" -p "$OVSX_PAT"

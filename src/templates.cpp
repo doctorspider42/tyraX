@@ -36146,16 +36146,18 @@ static std::string vscodeExtensionsJson() {
  * nothing to add, so an unchanged file is not rewritten. */
 std::string vscodeExtensionsMerged(const std::string& existing) {
     if (existing.empty()) return vscodeExtensionsJson();
-    // The pre-Marketplace id is RENAMED in place: VS Code offers every
-    // recommendation it cannot find in the gallery, and nobody can find that
-    // one. Textual, like the insertion below, so the rest of the file survives.
-    const std::string legacy = std::string("\"") + kVsCodeLegacyExtensionId + "\"";
-    if (const size_t at = existing.find(legacy); at != std::string::npos) {
-        std::string renamed = existing;
-        renamed.replace(at, legacy.size(),
-                        std::string("\"") + kVsCodeExtensionId + "\"");
-        const std::string more = vscodeExtensionsMerged(renamed);
-        return more.empty() ? renamed : more;
+    // A pre-Marketplace id is RENAMED in place: VS Code offers every
+    // recommendation it cannot find in the gallery, and nobody can find those.
+    // Textual, like the insertion below, so the rest of the file survives.
+    for (const char* old : kVsCodeLegacyExtensionIds) {
+        const std::string legacy = std::string("\"") + old + "\"";
+        if (const size_t at = existing.find(legacy); at != std::string::npos) {
+            std::string renamed = existing;
+            renamed.replace(at, legacy.size(),
+                            std::string("\"") + kVsCodeExtensionId + "\"");
+            const std::string more = vscodeExtensionsMerged(renamed);
+            return more.empty() ? renamed : more;
+        }
     }
     static const char* kOurs[] = {"ms-vscode.cpptools", kVsCodeExtensionId};
     std::vector<std::string> missing;

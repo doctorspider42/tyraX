@@ -52,7 +52,7 @@ with the script's fields. You can edit a value there or with
 Add `"build": false` to the configuration to run the last build instead of
 building first when no editor is open.
 
-The extension is **TyraX** (`tyrax.tyrax`) on the Visual Studio Marketplace and
+The extension is **TyraX** (`doctorspider.tyrax`) on the Visual Studio Marketplace and
 Open VSX. It needs Microsoft's **C/C++** extension (`ms-vscode.cpptools`), which
 drives GDB, and offers to install it if it is missing. See
 [the VS Code extension](vscode-extension.md).

@@ -440,6 +440,11 @@ jobs:
   vscode-extension:
     needs: version
     uses: ./.github/workflows/vscode-extension.yml
+    # A called workflow gets no more than its caller grants: the Marketplace's
+    # Trusted Publishing needs an OIDC token.
+    permissions:
+      contents: read
+      id-token: write
     with:
       ref: ${{ needs.version.outputs.sha }}
     secrets: inherit

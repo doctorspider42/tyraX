@@ -10,8 +10,9 @@ The script debugger (docs/script-debugger.md) is measured end to end on Windows:
 GDB batch and MI, and cpptools' own debug adapter over DAP (breakpoint, locals,
 step, Pause, disconnect, reconnect). Still owed:
 
-- **A hands-on F5 in a real VS Code window**, and publishing `tyrax.tyrax`
-  (publisher + tokens are the maintainer's; `.github/workflows/vscode-extension.yml`).
+- **The first publish of `doctorspider.tyrax`**: every release runs
+  `.github/workflows/vscode-extension.yml`; the Marketplace's Trusted Publishing
+  policies and Open VSX's `OVSX_PAT` are the maintainer's (docs/vscode-extension.md).
 - **Linux and macOS**: the native-GDB path (no relay), PINE over the Unix socket
   (`$XDG_RUNTIME_DIR` / `$TMPDIR`), and the flatpak PCSX2's socket directory are
   written but not run.

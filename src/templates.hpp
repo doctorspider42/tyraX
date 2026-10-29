@@ -260,9 +260,12 @@ int scriptDebugPort(const Project& p);
 
 // The VS Code extension's id - one place for codegen (extensions.json) and the
 // editor's install step.
-inline constexpr const char* kVsCodeExtensionId = "tyrax.tyrax";
-// The id it was packaged under before the Marketplace listing. Never published;
-// still installed from the bundled .vsix on machines that ran an older editor.
-inline constexpr const char* kVsCodeLegacyExtensionId = "tyrax.tyrax-flownode";
+// Published by the DoctorSpider publisher (the `tyrax` publisher ID is taken).
+inline constexpr const char* kVsCodeExtensionId = "doctorspider.tyrax";
+// Ids it was packaged under before the Marketplace listing. Never published;
+// still installed from the bundled .vsix on machines that ran an older editor
+// (tyrax.tyrax-flownode up to 0.4.x, tyrax.tyrax on pre-release 2.8.0 builds).
+inline constexpr const char* kVsCodeLegacyExtensionIds[] = {"tyrax.tyrax-flownode",
+                                                            "tyrax.tyrax"};
 
 }  // namespace templates

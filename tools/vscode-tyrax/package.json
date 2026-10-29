@@ -3,7 +3,7 @@
   "displayName": "TyraX",
   "description": "PS2 game development with the TyraX editor: debug your C++ scripts in PCSX2 (breakpoints, stepping, locals), plus language support for flow nodes (.flownode), screen effects (.screenfx), menu stylesheets (.menustyle) and VU1 microprograms (.vclpp, src/vu/*.cpp).",
   "version": "0.5.0",
-  "publisher": "tyrax",
+  "publisher": "doctorspider",
   "license": "Apache-2.0",
   "icon": "icon.png",
   "homepage": "https://github.com/doctorspider42/tyraX/blob/main/docs/vscode-extension.md",

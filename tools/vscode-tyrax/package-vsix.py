@@ -17,8 +17,8 @@ Visual Studio Marketplace and Open VSX (`vsce publish --packagePath`,
 `ovsx publish`; see README.md, "Publishing").
 
 The extension was packaged as `tyrax.tyrax-flownode` until 0.4.x, which was
-never published anywhere; 0.5.0 is `tyrax.tyrax` and the editor uninstalls the
-old id when it installs this one.
+never published anywhere; 0.5.0 is `doctorspider.tyrax` (pre-release builds
+said `tyrax.tyrax`) and the editor uninstalls the old ids when it installs it.
 """
 
 import argparse

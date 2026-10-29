@@ -253,8 +253,8 @@ restart with rebuild ~28 s, editor open and headless both PASS.
 
 ## Installing it
 
-The extension is **TyraX** (`tyrax.tyrax`) on the Visual Studio Marketplace and
-on Open VSX (for VSCodium and Cursor). Install it from the Extensions view, or
+The extension is **TyraX** (`doctorspider.tyrax`, publisher *Doctor Spider*) on
+the Visual Studio Marketplace and on Open VSX (for VSCodium and Cursor). Install it from the Extensions view, or
 open a TyraX project: its `.vscode/extensions.json` recommends it together with
 `ms-vscode.cpptools`, and VS Code offers both. The C/C++ extension reads the
 `c_cpp_properties.json` the editor writes; without it every C++ completion in
@@ -269,9 +269,9 @@ Custom effects*, the Scripts panel, the GDB chip), the editor:
 1. finds VS Code's `code` CLI, on PATH or in the standard install locations (a
    fresh macOS install has no `code` on PATH);
 2. reads `code --list-extensions --show-versions`;
-3. uninstalls the old id `tyrax.tyrax-flownode` if it is there (the extension's
-   name before the Marketplace listing, never published);
-4. installs the bundled `.vsix` only when `tyrax.tyrax` is missing or older -
+3. uninstalls the old ids `tyrax.tyrax-flownode` and `tyrax.tyrax` if they are
+   there (the extension's names before the Marketplace listing, never published);
+4. installs the bundled `.vsix` only when `doctorspider.tyrax` is missing or older -
    a newer Marketplace update is never downgraded, and an up-to-date copy is
    not reinstalled every session.
 
@@ -360,14 +360,15 @@ exactly what VS Code does, without a window.
 
 ### Publishing
 
-The listing's publisher is `tyrax`; publishing needs that publisher on the
-[Visual Studio Marketplace](https://marketplace.visualstudio.com/manage) and a
-namespace of the same name on [Open VSX](https://open-vsx.org). With the
-package built (`package-vsix.py`):
+The listing's publisher is `doctorspider` (*Doctor Spider*, the maintainer's
+existing [Marketplace publisher](https://marketplace.visualstudio.com/manage/publishers/doctorspider);
+the ID `tyrax` is taken), with a namespace of the same name on
+[Open VSX](https://open-vsx.org). By hand, with the package built
+(`package-vsix.py`):
 
 ```sh
-npx @vscode/vsce publish --packagePath tools/vscode-tyrax/tyrax-<version>.vsix   # VSCE_PAT
-npx ovsx publish tools/vscode-tyrax/tyrax-<version>.vsix                          # OVSX_PAT
+npx @vscode/vsce publish --packagePath tools/vscode-tyrax/tyrax-<version>.vsix   # signs in, or -p <token>
+npx ovsx publish tools/vscode-tyrax/tyrax-<version>.vsix -p <token>
 ```
 
 Every release does both: `release.yml` calls
@@ -378,10 +379,9 @@ release that did not bump it publishes nothing, and a failure there holds back
 nothing of the editor's release. **Releasing the extension = bump `version` in
 `package.json`, add its `CHANGELOG.md` section, repackage, merge.**
 
-Repository secrets (*Settings > Secrets and variables > Actions*); a store
-whose secret is missing is skipped:
+What each store needs, once:
 
-| Secret | Where it comes from |
+| Store | Setup |
 |---|---|
-| `VSCE_PAT` | An Azure DevOps personal access token: [dev.azure.com](https://dev.azure.com) > *User settings > Personal access tokens*, organization **All accessible organizations**, scope **Marketplace > Manage**. Its account must be a member of the `tyrax` publisher ([marketplace.visualstudio.com/manage](https://marketplace.visualstudio.com/manage) > *Create publisher*, ID `tyrax`). Expires (max. 1 year): renew it. |
-| `OVSX_PAT` | [open-vsx.org](https://open-vsx.org): sign in with GitHub, sign the Eclipse Publisher Agreement (link your eclipse.org account in *Settings*), *Settings > Access Tokens > Generate*. Create the namespace once: `npx ovsx create-namespace tyrax -p <token>`. |
+| Visual Studio Marketplace | **Trusted Publishing** (OIDC) - no token, nothing expires. [Publisher page](https://marketplace.visualstudio.com/manage/publishers/doctorspider) > *Trusted Publishing* > *Create*, twice: repository owner `doctorspider42`, repository `tyraX`, workflow `release.yml` (the release calls the publishing workflow; which file the token names is the caller's) and the same with `vscode-extension.yml` (a manual dispatch); no environment. The job has `id-token: write` (and release.yml grants it to the call). Runs only in `doctorspider42`'s repository, so a fork skips it. |
+| Open VSX | Repository secret `OVSX_PAT` (*Settings > Secrets and variables > Actions*); skipped when missing. [open-vsx.org](https://open-vsx.org): sign in with GitHub, sign the Eclipse Publisher Agreement (link an eclipse.org account in *Settings*), *Settings > Access Tokens > Generate*. Create the namespace once: `npx ovsx create-namespace doctorspider -p <token>`. |

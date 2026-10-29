@@ -11316,12 +11316,12 @@ std::string App::installVsCodeExtension() {
         return std::lexicographical_compare(x, x + 3, y, y + 3);
     };
 
-    // The id it had before the Marketplace listing (never published): two
+    // The ids it had before the Marketplace listing (never published): two
     // copies would register every language and the debugger twice.
-    if (!installedVersion(templates::kVsCodeLegacyExtensionId).empty())
-        if (auto un = platform::Process::start(
-                code + " --uninstall-extension " + templates::kVsCodeLegacyExtensionId))
-            un->wait();
+    for (const char* old : templates::kVsCodeLegacyExtensionIds)
+        if (!installedVersion(old).empty())
+            if (auto un = platform::Process::start(code + " --uninstall-extension " + old))
+                un->wait();
 
     const std::string have = installedVersion(templates::kVsCodeExtensionId);
     if (!have.empty() && !older(have, bundled))

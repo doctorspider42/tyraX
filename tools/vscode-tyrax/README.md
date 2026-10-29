@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=tyrax.tyrax"><img alt="Marketplace" src="https://img.shields.io/visual-studio-marketplace/v/tyrax.tyrax?label=Marketplace&color=1b1d2b"></a>
-  <a href="https://open-vsx.org/extension/tyrax/tyrax"><img alt="Open VSX" src="https://img.shields.io/open-vsx/v/tyrax/tyrax?label=Open%20VSX&color=1b1d2b"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=doctorspider.tyrax"><img alt="Marketplace" src="https://img.shields.io/visual-studio-marketplace/v/doctorspider.tyrax?label=Marketplace&color=1b1d2b"></a>
+  <a href="https://open-vsx.org/extension/doctorspider/tyrax"><img alt="Open VSX" src="https://img.shields.io/open-vsx/v/doctorspider/tyrax?label=Open%20VSX&color=1b1d2b"></a>
   <a href="https://github.com/doctorspider42/tyraX/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
   <a href="https://github.com/doctorspider42/tyraX"><img alt="TyraX" src="https://img.shields.io/badge/made%20for-TyraX-ff6a3d"></a>
 </p>
