@@ -189,3 +189,10 @@ do not hold 60 FPS.
 Experimental asynchronous OBB SAT/CCD is available behind
 `TYRA_PHYSICS_MICRO=1` (default off). It retains scalar feature reconstruction,
 full collision coverage and the existing solver; see the temporal report.
+
+The optional asynchronous VU0 SAT/CCD backend remains disabled by default after
+physical PS2 qualification: dense piles do not show a consistent speedup. The
+[measured comparison and overlap diagnosis](../../docs/temporal-physics.md)
+retain full collision coverage and distinguish contact-density stalls from
+arithmetic exceptions. Generated physics includes the current practical shadow
+validator and canonical EE CCD reference.

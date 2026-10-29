@@ -217,3 +217,12 @@ micro arm includes scalar shadow checks; **these FPS/micro costs are not timing
 comparisons**. Preserve both CSV families and the log. The
 [physical report](results/collision-overlap-2026-10-29.json) and
 [full log](results/collision-overlap-2026-10-29.log.gz) cover all 720 calls.
+
+The completed default-off backend qualification retains
+[16,800 timing frames](results/vu0-micro-2026-10-29.json) and a separate
+[101,641-job shadow run](results/vu0-shadow-2026-10-29.json) of the same ELF.
+No hard shadow failures or capacity omissions occurred. The driving-phase
+64-cube pile improves from 33.25 to 37.14 FPS, while the 128-cube pile is
+19.92 versus 19.72 FPS. Different contact populations/variable dt prevent
+attributing all whole-scene changes to kernel speed. Keep micro default-off;
+the full table and limitations are in docs/temporal-physics.md.

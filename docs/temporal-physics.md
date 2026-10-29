@@ -5,6 +5,34 @@ and independent dynamic islands without reducing collision coverage or solver pa
 
 ## Asynchronous VU0 SAT/CCD experiment
 
+The final physical same-ELF timing completed **16,800 measured frames** across
+28 phases. A separate run of that exact ELF shadow-checked **101,641 jobs** with
+zero hard errors or missed reference hits; 13,695 small accepted differences
+remained in the simulation. Timing disabled reference comparisons and recorded
+258,201 jobs plus 27,280 observations of EE query work while VU0 was busy.
+
+Driving-phase FPS, pooling both reversed-order repeats:
+
+| Added cubes | Layout | Scalar | VU0 micro |
+|---|---|---:|---:|
+| 32 | Spread | 59.94 | 59.94 |
+| 64 | Spread | 59.94 | 59.94 |
+| 128 | Spread | 59.20 | 58.88 |
+| 32 | Pile | 49.04 | 50.77 |
+| 64 | Pile | 33.25 | 37.14 |
+| 128 | Pile | 19.92 | 19.72 |
+
+This does **not** establish a general kernel speedup: variable dt and accepted
+numerical differences produce different trajectories and contact populations.
+For 128 piles, micro repeats were 18.67/20.91 FPS versus scalar 19.30/20.57;
+the outcome is mixed. Dense 60 FPS remains unqualified and the backend stays
+**default-off**. All generated contacts and vehicle candidates passed capacity
+accounting; reference geometry was checked in shadow mode, not during timing.
+The [timing report](../tools/ps2rig/results/vu0-micro-2026-10-29.json),
+[timing frames](../tools/ps2rig/results/vu0-micro-2026-10-29.csv.gz) and
+[qualified shadow](../tools/ps2rig/results/vu0-shadow-2026-10-29.json) retain the
+source/ELF/assets and per-phase raw hashes, scopes and both repeats.
+
 The interpenetration diagnostic completed on physical PS2: **720 physics calls**,
 including the first call after spawning 64/128 spread, partially overlapping and
 coincident-centre cubes, with scalar and micro-shadow arms. No EE/VU0 division-by-zero,
