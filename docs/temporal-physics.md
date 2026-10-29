@@ -56,6 +56,14 @@ fixes it: the next assembled startup oracle passes all 2,048 cases with zero
 depth/normal/point error. Explicit CLIP initialization and exit directives
 also let Sony VCL assemble the kernel (2,144 bytes, within 4 KB).
 
+The first physical startup gate rejected four positive CCD cases out of
+2,048: normal differences below 9e-8 still changed strict support-vertex
+selection by up to 1.94 units. The corrected backend confirms positive
+linear sweeps with the original EE algorithm. VU0 still evaluates the full
+SAT/CCD rejection; it never drops an axis or replaces a collider. These
+confirmations are included in the backend's eventual performance cost.
+Physical startup and full-scene shadow validation must pass before timing.
+
 
 ## Selected defaults and final PS2 result
 

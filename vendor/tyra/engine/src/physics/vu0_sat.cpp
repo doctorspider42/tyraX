@@ -44,7 +44,12 @@ bool packVu0Sat(Vu0SatJob& job, const ConvexView& a, const ConvexView& b,
 bool finishVu0Sat(const Vu0SatResult& r, const Vu0SatJob& job, const ConvexView& a,
                  const ConvexView& b, CollisionV3 motionA, CollisionV3 motionB,
                  ConvexContact& out) {
-  if(r.flags[3]>=2) {
+  // Linear CCD's strict support-vertex tie policy is sensitive even to one
+  // VU/FPU rounding bit. Confirm positive sweeps on EE; micro still rejects
+  // separated pairs over the complete interval and retains every SAT axis.
+  const bool sweepHit=r.flags[1]==0 && r.flags[2]!=0 && r.flags[3]!=0 &&
+      r.sweepEnter[3]<=1 && r.flags[0]>=0;
+  if(r.flags[3]>=2 || sweepHit) {
     CollisionObb boxes[2];
     for(int k=0;k<2;++k) {
       const float* c=job.q[k*4];boxes[k].centre={c[0],c[1],c[2]};

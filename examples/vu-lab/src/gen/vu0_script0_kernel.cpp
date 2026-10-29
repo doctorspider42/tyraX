@@ -3,6 +3,7 @@
 #include <math.h>
 #include "scripts/vu0_script0_kernel.hpp"
 #include "debug/debug.hpp"
+#include "math/vu0_owner.hpp"
 
 extern u32 TyraXKernel0_CodeStart __attribute__((section(".vudata")));
 extern u32 TyraXKernel0_CodeEnd __attribute__((section(".vudata")));
@@ -37,7 +38,7 @@ inline void loadQ(int qw, float* v) {
 }  // namespace
 
 void RangesKernel::init() {
-  if (uploaded) return;
+  if (uploaded && vu0MicroOwner == &TyraXKernel0_CodeStart) return;
   waitIdle();
   const u32 words = static_cast<u32>(&TyraXKernel0_CodeEnd - &TyraXKernel0_CodeStart);
   TYRA_ASSERT(words > 0 && words * 4 <= 4096,
@@ -46,6 +47,7 @@ void RangesKernel::init() {
   for (u32 i = 0; i < words; i++) kMicro[i] = src[i];
   asm volatile("sync.l");
   uploaded = true;
+  vu0MicroOwner = &TyraXKernel0_CodeStart;
 }
 
 void RangesKernel::setParams(float x, float y, float z, float w) {
