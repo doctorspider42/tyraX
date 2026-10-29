@@ -265,3 +265,10 @@ files beside vu0-stream.csv: the analyzer checks each payload hash against all
 rows and records SHA-256. Without a reference image there are120 rows; with it,
 144. Existing80-row reports remain supported. Measurement CSVs are pinned to LF
 so their SHA-256 stays stable across checkouts.
+
+The qualified winning-axis experiment is archived in
+results/vu0-minimum-2026-10-29.inputs.zip. Extract under the primary .tmp/ and
+run vu0_stream_analyze.py on vu0-stream.csv with --log hardware.log. The package
+also contains both full-scene phase CSV families and metadata for
+vu0_sat_analyze.py --mode verify. A changed input byte must be rejected by the
+payload-hash gate. This kernel assembles to2496B/openvcl and2560B/Sony VCL.

@@ -107,8 +107,9 @@ better minimum clears superseded uncertainty while retaining the independent
 near-parallel input classification. A controlled aligned-box case must keep its
 unambiguous Z contact without scalar confirmation, while the distinct near-minimum
 case must still request canonical selection. The preceding kernel fails the new
-unambiguous-winner check. Console qualification of this follow-up is separate
-from the chained-schedule results above.
+unambiguous-winner check. The follow-up passed its own physical 1,200-frame shadow gate with 84,712
+jobs and zero hard/missed/accounting errors; the preceding table remains a
+separate implementation measurement.
 
 `--micro-kernel-baseline <commit>` installs a compatible reference micro image
 only in the private benchmark engine. Both assembled kernels validate the same
@@ -474,3 +475,20 @@ The backend remains default-off. The [stream report](../tools/ps2rig/results/vu0
 and [shadow report](../tools/ps2rig/results/vu0-chain-shadow-2026-10-29.json)
 retain exact source/ELF hashes. The [initial report](../tools/ps2rig/results/vu0-chain-initial-2026-10-29.json)
 explicitly records the rejected runtime gate.
+
+The same-ELF winning-axis follow-up compares both assembled kernels on the
+captured input arrays, keeping chained scheduling identical:
+
+| Corpus | Scalar us/pair | Previous kernel | Winning-axis kernel |
+|---|---:|---:|---:|
+| Mixed | 16.761 | 21.407 | 20.086 |
+| Coincident centres | 27.408 | 34.317 | 33.674 |
+| Offset overlaps | 27.514 | 29.918 | 28.883 |
+
+Mixed discrete confirmations fall from 32.14% to 22.32%; the offset corpus
+falls from 0.45% to zero. The near-minimum safeguard remains enabled. The new
+kernel is 6.2%/1.9%/3.5% faster in these corpora but still loses to scalar;
+this does not establish a whole-scene FPS improvement. See the
+[backend report](../tools/ps2rig/results/vu0-minimum-2026-10-29.json),
+[full-scene shadow](../tools/ps2rig/results/vu0-minimum-shadow-2026-10-29.json)
+and [replay inputs and logs](../tools/ps2rig/results/vu0-minimum-2026-10-29.inputs.zip).
