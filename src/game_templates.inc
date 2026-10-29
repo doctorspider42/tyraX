@@ -25160,7 +25160,7 @@ void TerrainGame::updateObjectPhysics() {
 #if TYRA_PHYSICS_MICRO_VERIFY
       if(Tyra::vu0SatVerify) {
       Tyra::ConvexContact reference{};
-      const bool referenceHit=Tyra::convexMotionContact(av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),reference,&a.obb,&b.obb);
+      const bool referenceHit=Tyra::scalarMotionContactReference(av,bv,rbSub(a.x1,a.x0),rbSub(b.x1,b.x0),reference,&a.obb,&b.obb);
       const float validationScale=std::max(1e-6F,std::min(ba.radius,bb.radius));
       const auto comparison=Tyra::compareVu0Sat(hit,c,referenceHit,reference,validationScale);
       auto& validation=Tyra::vu0SatValidation;

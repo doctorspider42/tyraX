@@ -40,7 +40,7 @@ inline void make(Case& c,unsigned& seed,int round) {
 inline bool compare(const Case& c,const Tyra::Vu0SatJob& job,const Tyra::Vu0SatResult& result,
                     float& maxDepth,float& maxNormal,float& maxPoint) {
   using namespace Tyra;ConvexContact expected{},actual{};
-  bool reference=convexMotionContact(c.view(0),c.view(1),c.motion[0],c.motion[1],expected,&c.box[0],&c.box[1]);
+  bool reference=scalarMotionContactReference(c.view(0),c.view(1),c.motion[0],c.motion[1],expected,&c.box[0],&c.box[1]);
   bool hit=finishVu0Sat(result,job,c.view(0),c.view(1),c.motion[0],c.motion[1],actual);
   float scale[2]={};for(int k=0;k<2;++k)for(int j=0;j<3;++j)scale[k]+=cvDot(c.box[k].halfAxes[j],c.box[k].halfAxes[j]);
   const auto comparison=compareVu0Sat(hit,actual,reference,expected,std::sqrt(std::min(scale[0],scale[1])));

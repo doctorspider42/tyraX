@@ -42,6 +42,13 @@ struct Vu0SatValidationDetails {
   float depthRatio=0,pointRatio=0,normalError=0,extraDepthRatio=0;
 };
 inline Vu0SatValidationDetails vu0SatValidation;
+inline bool scalarMotionContactReference(const ConvexView& a,const ConvexView& b,
+    CollisionV3 ma,CollisionV3 mb,ConvexContact& out,const CollisionObb* ba,const CollisionObb* bb) {
+  // One compiled EE routine: an independently inlined copy can contract FPU
+  // operations differently and exchange strict CCD support-vertex ties.
+  static decltype(&convexMotionContact) volatile routine=&convexMotionContact;
+  return routine(a,b,ma,mb,out,ba,bb,nullptr);
+}
 // Only plain scalar data crosses the asynchronous boundary. No Vec4/COP2
 // helpers may execute between start() and finish(), including indirect calls.
 struct alignas(16) Vu0SatJob {

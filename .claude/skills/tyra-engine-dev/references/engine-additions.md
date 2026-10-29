@@ -108,3 +108,11 @@ macro transforms, callbacks or other VU0 owners there. Retain scalar fallback
 for unsupported geometry and ambiguous feature signs. Built-in micro owners
 share `math/vu0_owner.hpp`; update generated wrappers when ownership changes.
 See docs/temporal-physics.md and tools/verify-vu0-sat.cpp.
+
+
+EE scalar-oracle pitfall: independently inlined copies of convexMotionContact
+can contract/schedule FPU arithmetic differently and exchange strict CCD
+support vertices. VU0 confirmations and the probe use scalarMotionContactReference
+to call one compiled scalar body; do not replace that call with another inline
+copy when investigating numerical differences. Physical tolerances are declared
+in physics/vu0_sat.hpp; lost reference hits always fail validation.

@@ -59,7 +59,11 @@ bool finishVu0Sat(const Vu0SatResult& r, const Vu0SatJob& job, const ConvexView&
       const float* c=job.q[k*4];boxes[k].centre={c[0],c[1],c[2]};
       for(int h=0;h<3;++h){const float* v=job.q[k*4+h+1];boxes[k].halfAxes[h]={v[0],v[1],v[2]};}
     }
-    return convexMotionContact(a,b,motionA,motionB,out,&boxes[0],&boxes[1]);
+    // The EE compiler otherwise inlines a second copy here while the game
+    // calls the out-of-line weak definition. Different FPU contraction and
+    // register schedules can then pick opposite strict CCD support vertices.
+    // Use the same compiled scalar routine as the game for confirmations.
+    return scalarMotionContactReference(a,b,motionA,motionB,out,&boxes[0],&boxes[1]);
   }
   auto exactAxis = [&](int index) {
     const float* v=job.q[10+index];CollisionV3 n{v[0],v[1],v[2]};

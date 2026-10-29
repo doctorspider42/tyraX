@@ -86,6 +86,14 @@ those bounds along with every-contact accounting, complete phases, finite
 state, parent/child scopes and sampled EE/VU0 overlap. A ray-tracer/SAT/ray-tracer
 micro-image round trip also checks ownership reloads at startup.
 
+Scalar confirmations and the diagnostic reference use one compiled EE routine.
+Object inspection found that the compiler inlined a separate copy into the
+confirmation path while the game also emitted an out-of-line copy. FPU
+contraction/scheduling differences between those EE copies could exchange
+strict CCD support vertices even without a VU arithmetic error. Calling the
+same compiled scalar body avoids that misleading comparison and stabilizes
+the confirmed feature; ordinary scalar physics keeps its existing algorithm.
+
 
 ## Selected defaults and final PS2 result
 
