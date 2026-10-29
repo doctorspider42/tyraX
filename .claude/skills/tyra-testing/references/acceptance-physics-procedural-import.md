@@ -20,6 +20,8 @@ overflow flags, complete contact accounting and passing scalar shadow checks.
 Finite values alone do not exclude an EE divide-by-zero (finite saturation).
 Logging changes subsequent real dt; do not quote this diagnostic's FPS or compare
 its shadow-enabled micro cost against scalar. Preserve original timing separately.
+For micro settle/recovery qualification, add `--settle-check` to the fixture
+and to `vu0_sat_analyze.py --mode verify`; require all four 1260-row phases.
 See `tools/ps2rig/README.md` and the 2026-10-29 overlap report: 128 coincident
 boxes produced 8156 contacts and a 474 ms scalar physics call without an arithmetic
 exception. Contact-density stalls and permanent hangs are different diagnoses.

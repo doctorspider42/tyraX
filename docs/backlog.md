@@ -2884,6 +2884,14 @@ post-5 back at y = 1.
 - [ ] Further reduce dense awake-body/contact cost and qualify a 60 FPS workload.
   The final 32/64/128 piles still average 51.6/37.1/19.1 FPS; persistent manifolds,
   warm starting and sleep stability need separate measured trials.
+- [x] Prototype asynchronous batched VU0 micro SAT/CCD with complete collision
+  coverage. Physical same-ELF timing and separate shadow/settle gates pass;
+  keep it default-off because dense 128-cube FPS has no consistent gain.
+  See [the experiment](temporal-physics.md).
+- [x] Diagnose interpenetration stalls using EE/VU0 exception flags and
+  first-frame-inclusive coincident-cube tests. All 720 calls complete without
+  divide/invalid/overflow flags; 128 coincident cubes produce 8,156 contacts
+  and a 474 ms scalar physics call. Contact-density work remains the bottleneck.
 - Exact rotational CCD and continuous sphere-versus-moving-hull contacts need
   a bounded substep/TOI design and a rotating-thin-obstacle console fixture.
 - A separately authored collision-mesh asset would allow deliberate geometry

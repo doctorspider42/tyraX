@@ -226,3 +226,10 @@ No hard shadow failures or capacity omissions occurred. The driving-phase
 19.92 versus 19.72 FPS. Different contact populations/variable dt prevent
 attributing all whole-scene changes to kernel speed. Keep micro default-off;
 the full table and limitations are in docs/temporal-physics.md.
+
+For the stationary qualification use `--micro-comparison --settle-check` when
+preparing/instrumenting, retain sat-verify.cfg, and pass `--mode verify
+--settle-check` to vu0_sat_analyze.py. All four phases must have 1260 measured
+frames; completion-wait denominators include 1410 simulated frames per phase
+plus the initial 300-frame warm-up. The
+[physical settle report](results/vu0-settle-2026-10-29.json) retains all 5040 rows.

@@ -7,15 +7,18 @@ def main():
  p=argparse.ArgumentParser(description=__doc__)
  p.add_argument('root',type=Path);p.add_argument('--mode',choices=['verify','timing'],required=True)
  p.add_argument('--log',type=Path,required=True);p.add_argument('--metadata',type=Path,required=True)
+ p.add_argument('--settle-check',action='store_true',help='Four stationary settle/kick/recovery phases')
  p.add_argument('--output',type=Path,required=True);a=p.parse_args()
- expected=[12,13] if a.mode=='verify' else list(range(28))
+ if a.settle_check:assert a.mode=='verify','Settle qualification requires full shadow verification'
+ expected=list(range(4)) if a.settle_check else [12,13] if a.mode=='verify' else list(range(28))
+ frame_end=1410 if a.settle_check else 750
  files=sorted(a.root.glob('collision-phase-*.csv'))
  assert [int(f.stem.rsplit('-',1)[1]) for f in files]==expected
  rows_total=0;metrics=[];hashes={}
  for f in files:
   rows=list(csv.DictReader(f.open()));phase=int(rows[0]['phase'])
-  assert [int(r['frame'])for r in rows]==list(range(150,750)),f
-  assert len(rows)==600
+  assert [int(r['frame'])for r in rows]==list(range(150,frame_end)),f
+  assert len(rows)==frame_end-150
   for r in rows:
    assert int(r['generated_contacts'])==int(r['contacts']),f
    assert int(r['push_candidates'])==int(r['push_tested']),f
@@ -34,7 +37,7 @@ def main():
   assert m['max_point_ratio']<=.0100001 and m['max_normal_error']<=.0100001,side
   assert 0<=m['busy_finish']<=m['batches']<=m['jobs']<=m['batches']*7,side
   if int(rows[0]['baseline']):assert m['jobs']==m['batches']==m['busy_ee_query']==0,side
-  m['simulated_frames']=750+(300 if phase==0 else 0)
+  m['simulated_frames']=frame_end+(300 if phase==0 else 0)
   m['includes_warmup']=True
   m['wait_ms_per_simulated_frame']=m['wait_ticks']/294912/m['simulated_frames']
   metrics.append(m);rows_total+=len(rows)
@@ -46,15 +49,16 @@ def main():
  assert 'VUSATCHECK cases=2048 failures=0 ' in log
  assert 'VU0OWNERCHECK switches=3 failures=0' in log
  assert 'VUSATCHECK FAIL' not in log
- assert 'CB DONE phases=14' in log if a.mode=='verify' else 'CB DONE phases=28' in log
- summary=analyze(a.root,complete=a.mode=='timing',baseline_label='scalar',solver_comparison=True,temporal_comparison=True,temporal_arms=2)
+ done=4 if a.settle_check else 14 if a.mode=='verify' else 28
+ assert f'CB DONE phases={done}' in log
+ summary=analyze(a.root,complete=a.mode=='timing' or a.settle_check,baseline_label='scalar',solver_comparison=True,temporal_comparison=True,settle_check=a.settle_check,temporal_arms=2)
  # The reused temporal analyzer's second label is historical.
  def labels(value):
   if isinstance(value,dict):return {k:labels(v)for k,v in value.items()}
   if isinstance(value,list):return [labels(v)for v in value]
   return 'vu0-micro' if value=='cache-only' else value
  summary=labels(summary)
- out=dict(mode=a.mode,measured_frames=rows_total,startup_oracle_cases=2048,
+ out=dict(mode=a.mode,settle_check=a.settle_check,measured_frames=rows_total,startup_oracle_cases=2048,
           metadata=json.loads(a.metadata.read_text(encoding='utf8')),summary=summary,
           micro_metrics=metrics,raw_sha256=hashes,log_sha256=hashlib.sha256(a.log.read_bytes()).hexdigest(),
           accounting='All arms: generated=stored contacts, car candidates=tested, no capacity omissions; finite and scope gates pass. Reference geometry is compared only in verify mode.',

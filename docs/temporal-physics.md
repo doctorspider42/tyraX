@@ -33,6 +33,22 @@ The [timing report](../tools/ps2rig/results/vu0-micro-2026-10-29.json),
 [qualified shadow](../tools/ps2rig/results/vu0-shadow-2026-10-29.json) retain the
 source/ELF/assets and per-phase raw hashes, scopes and both repeats.
 
+The independent stationary 64-cube gate completed **5,040 measured frames**
+with scalar/micro order reversed on the second repeat. All four arms had zero
+awake bodies and zero squared-velocity sum in the final 120 park and recovery
+frames. The known base impulse woke bodies and both implementations recovered.
+The 26,300 micro jobs passed full scalar shadow checks with no missed hits or
+capacity omissions. This is a bounded settling test, not universal stability or
+performance evidence; see the [settle report](../tools/ps2rig/results/vu0-settle-2026-10-29.json).
+
+Final default-path qualification used a freshly generated Release furniture
+scene with production Pad code and `TYRA_PHYSICS_MICRO=0`: native build plus a
+private PCSX2 software-renderer run, 46 finite-state samples over 37 bodies and
+three captures. The unstripped symbol audit found no SAT backend functions or
+batch storage; its stripped relink matched the tested ELF byte for byte.
+See the [smoke metadata](../tools/ps2rig/results/vu0-default-smoke-2026-10-29.json)
+and [capture](../tools/ps2rig/results/vu0-default-smoke-2026-10-29.png).
+
 The interpenetration diagnostic completed on physical PS2: **720 physics calls**,
 including the first call after spawning 64/128 spread, partially overlapping and
 coincident-centre cubes, with scalar and micro-shadow arms. No EE/VU0 division-by-zero,

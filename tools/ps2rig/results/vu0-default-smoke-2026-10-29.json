@@ -1,0 +1,346 @@
+{
+  "hardware": "PCSX2 software renderer, private instance, production Pad",
+  "performance_qualified": false,
+  "flags": {
+    "coherence": 1,
+    "warm_start": 0,
+    "islands": 0,
+    "prepared": 0,
+    "micro": 0
+  },
+  "source_commit": "bf393e6e6",
+  "source_sha256": {
+    "src\\game_templates.inc": "1709a29b08b1a7f74f1a9236f6e79399b030087c4f6061c47d404abab2528c12",
+    "vendor\\tyra\\engine\\src\\physics\\vu0_sat.cpp": "de264e1090da9be705a6714dd0d62c26cd1cd026926e481df03a7dc5eb3113fd"
+  },
+  "elf_sha256": "f67cca6a0eeb1921dffda1c82ebbf868737f54bf43b9504bef2f556d441cf7e9",
+  "disabled_backend_symbols": [],
+  "symbol_relink_matches_tested_elf": true,
+  "samples": [
+    {
+      "frame": 100,
+      "bodies": 37,
+      "awake": 37,
+      "energy": 0.644510031,
+      "bad": 0
+    },
+    {
+      "frame": 200,
+      "bodies": 37,
+      "awake": 37,
+      "energy": 0.558089256,
+      "bad": 0
+    },
+    {
+      "frame": 300,
+      "bodies": 37,
+      "awake": 31,
+      "energy": 0.565914631,
+      "bad": 0
+    },
+    {
+      "frame": 400,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.741569638,
+      "bad": 0
+    },
+    {
+      "frame": 500,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.452065945,
+      "bad": 0
+    },
+    {
+      "frame": 600,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.376040637,
+      "bad": 0
+    },
+    {
+      "frame": 700,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.300883591,
+      "bad": 0
+    },
+    {
+      "frame": 800,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.298593104,
+      "bad": 0
+    },
+    {
+      "frame": 900,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.14599815,
+      "bad": 0
+    },
+    {
+      "frame": 1000,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0981079787,
+      "bad": 0
+    },
+    {
+      "frame": 1100,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0926184803,
+      "bad": 0
+    },
+    {
+      "frame": 1200,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0596763119,
+      "bad": 0
+    },
+    {
+      "frame": 1300,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0615255907,
+      "bad": 0
+    },
+    {
+      "frame": 1400,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0346240476,
+      "bad": 0
+    },
+    {
+      "frame": 1500,
+      "bodies": 37,
+      "awake": 31,
+      "energy": 0.0287631769,
+      "bad": 0
+    },
+    {
+      "frame": 1600,
+      "bodies": 37,
+      "awake": 31,
+      "energy": 0.0215809271,
+      "bad": 0
+    },
+    {
+      "frame": 1700,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0215806011,
+      "bad": 0
+    },
+    {
+      "frame": 1800,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0396702103,
+      "bad": 0
+    },
+    {
+      "frame": 1900,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0348296948,
+      "bad": 0
+    },
+    {
+      "frame": 2000,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0198013987,
+      "bad": 0
+    },
+    {
+      "frame": 2100,
+      "bodies": 37,
+      "awake": 28,
+      "energy": 0.0142562166,
+      "bad": 0
+    },
+    {
+      "frame": 2200,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.018566845,
+      "bad": 0
+    },
+    {
+      "frame": 2300,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.0166159477,
+      "bad": 0
+    },
+    {
+      "frame": 2400,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.0261416826,
+      "bad": 0
+    },
+    {
+      "frame": 2500,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.0143071283,
+      "bad": 0
+    },
+    {
+      "frame": 2600,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.0139726205,
+      "bad": 0
+    },
+    {
+      "frame": 2700,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.017294351,
+      "bad": 0
+    },
+    {
+      "frame": 2800,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.0112439301,
+      "bad": 0
+    },
+    {
+      "frame": 2900,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.00928815361,
+      "bad": 0
+    },
+    {
+      "frame": 3000,
+      "bodies": 37,
+      "awake": 26,
+      "energy": 0.0078719873,
+      "bad": 0
+    },
+    {
+      "frame": 3100,
+      "bodies": 37,
+      "awake": 25,
+      "energy": 0.00993315782,
+      "bad": 0
+    },
+    {
+      "frame": 3200,
+      "bodies": 37,
+      "awake": 25,
+      "energy": 0.00991125405,
+      "bad": 0
+    },
+    {
+      "frame": 3300,
+      "bodies": 37,
+      "awake": 25,
+      "energy": 0.00880439207,
+      "bad": 0
+    },
+    {
+      "frame": 3400,
+      "bodies": 37,
+      "awake": 25,
+      "energy": 0.00676775491,
+      "bad": 0
+    },
+    {
+      "frame": 3500,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.0123325121,
+      "bad": 0
+    },
+    {
+      "frame": 3600,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.00906722434,
+      "bad": 0
+    },
+    {
+      "frame": 3700,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.00640553609,
+      "bad": 0
+    },
+    {
+      "frame": 3800,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.00754872244,
+      "bad": 0
+    },
+    {
+      "frame": 3900,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.0103629995,
+      "bad": 0
+    },
+    {
+      "frame": 4000,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.0100418478,
+      "bad": 0
+    },
+    {
+      "frame": 4100,
+      "bodies": 37,
+      "awake": 22,
+      "energy": 0.00697392598,
+      "bad": 0
+    },
+    {
+      "frame": 4200,
+      "bodies": 37,
+      "awake": 22,
+      "energy": 0.00796681456,
+      "bad": 0
+    },
+    {
+      "frame": 4300,
+      "bodies": 37,
+      "awake": 22,
+      "energy": 0.0172400624,
+      "bad": 0
+    },
+    {
+      "frame": 4400,
+      "bodies": 37,
+      "awake": 22,
+      "energy": 0.0116585158,
+      "bad": 0
+    },
+    {
+      "frame": 4500,
+      "bodies": 37,
+      "awake": 22,
+      "energy": 0.031535916,
+      "bad": 0
+    },
+    {
+      "frame": 4600,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.0139168007,
+      "bad": 0
+    }
+  ],
+  "captures": 3,
+  "diagnostics": [],
+  "limitations": "37-body furniture/non-box finite-state smoke; periodic authored impulse remains enabled, so energy need not decay monotonically. Not console performance evidence."
+}
