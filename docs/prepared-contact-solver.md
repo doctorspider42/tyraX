@@ -55,3 +55,22 @@ packing/preparation cost that a standalone arithmetic kernel would miss.
 The complete-contact accounting and the three-arm reversed-order comparison
 remain mandatory. Hardware qualification and the default backend decision
 are recorded after the follow-up run.
+
+
+A 20-phase partial compact run exposed that eager matrix preparation did not
+amortize consistently. Its inclusive drive solver cost per contact was about
+16.6/18.3/18.8 microseconds for the prior solver at +32/+64/+128 piles and
+18.9/19.1/19.1 for prepared scalar. Different contacts and trajectories limit
+these ratios; this partial run is not a completed reversed-order comparison.
+It was intentionally stopped before a further implementation change. Its
+[partial summary](../tools/ps2rig/results/solver-eager-partial-2026-10-29.json)
+and [raw rows](../tools/ps2rig/results/solver-eager-partial-2026-10-29.csv.gz)
+are retained as negative evidence.
+
+The final preparation computes the six response coefficients directly from
+inertia/contact offsets, and defers them until friction needs a nonzero update.
+A zero normal impulse plus zero accumulated friction has an exactly zero
+Coulomb-friction update; that arithmetic is skipped while all normal and split
+passes remain. The physical model and nonzero friction updates are unchanged.
+The independent 2,000-graph host reference comparison has maximum component
+difference 0.000000231. The final full console run is qualified separately.

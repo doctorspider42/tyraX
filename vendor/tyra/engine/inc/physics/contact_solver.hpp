@@ -89,6 +89,31 @@ inline CollisionV3 solverResponse(const SolverBody &b, CollisionV3 r,
   return cvAdd(cvMul(p, b.v.w),
                cvCross(solverMatrix(b.invI, cvCross(r, p)), r));
 }
+inline void prepareSolverResponse(SolverContact& c,const SolverBody& a,
+                                   const SolverBody& b) {
+  const float mass=a.v.w+b.v.w;
+  const float jn=c.k[0].w,jp=c.k[1].w;
+  c.k[0]={mass,mass,mass,jn};c.k[1]={0,0,0,jp};
+  // K = (ma^-1 + mb^-1) I + S(ra)^T Ia^-1 S(ra) + S(rb)^T Ib^-1 S(rb).
+  // Evaluate the six independent coefficients directly, without three
+  // unit-impulse matrix/vector/cross-product passes for each body.
+  auto add=[&](const SolverBody& body,CollisionV3 r) {
+    const float A=body.invI[0].x,B=body.invI[1].y,C=body.invI[2].z;
+    const float D=.5f*(body.invI[0].y+body.invI[1].x);
+    const float E=.5f*(body.invI[0].z+body.invI[2].x);
+    const float F=.5f*(body.invI[1].z+body.invI[2].y);
+    if(A==0 && B==0 && C==0 && D==0 && E==0 && F==0)return;
+    const float xx=r.x*r.x,yy=r.y*r.y,zz=r.z*r.z;
+    const float xy=r.x*r.y,xz=r.x*r.z,yz=r.y*r.z;
+    c.k[0].x+=B*zz+C*yy-2.f*F*yz;
+    c.k[0].y+=A*zz+C*xx-2.f*E*xz;
+    c.k[0].z+=A*yy+B*xx-2.f*D*xy;
+    c.k[1].x+=E*yz+F*xz-D*zz-C*xy;
+    c.k[1].y+=D*yz+F*xy-E*yy-B*xz;
+    c.k[1].z+=D*xz+E*xy-F*xx-A*yz;
+  };
+  add(a,xyz(c.ra));add(b,xyz(c.rb));
+}
 inline void prepareSolverContact(SolverContact &c, const SolverBody &a,
                                  const SolverBody &b, float bounce,
                                  float friction, float bounceThreshold) {
@@ -101,14 +126,9 @@ inline void prepareSolverContact(SolverContact &c, const SolverBody &a,
   c.angularB.w = .05f + .95f * friction;
   c.ra.w = cvDot(solverRelative(a, b, c), n);
   c.normal.w = -c.ra.w > bounceThreshold ? -bounce * c.ra.w : 0;
-  CollisionV3 k[3];
-  for (int i = 0; i < 3; ++i) {
-    CollisionV3 e = {float(i == 0), float(i == 1), float(i == 2)};
-    k[i] = cvAdd(solverResponse(a, ra, e), solverResponse(b, rb, e));
-  }
-  c.k[0] = {k[0].x, k[1].y, k[2].z, 0};
-  c.k[1] = {(k[0].y + k[1].x) * .5f, (k[0].z + k[2].x) * .5f,
-            (k[1].z + k[2].y) * .5f, 0};
+  // A response matrix is needed only if tangential slip occurs. Normal
+  // impulses use their cached response and denominator independently.
+  c.k[0]={-1,0,0,0};c.k[1]={0,0,0,0};
   c.friction.x = c.friction.y = c.friction.z = 0;
 }
 template <bool VU0>
@@ -202,6 +222,10 @@ inline void solvePrepared(SolverBody *bodies, SolverContact *contacts,
       c.k[0].w = j;
       if (dj != 0)
         solverNormal<VU0>(a, b, c, dj, false);
+      // With no normal impulse and no accumulated tangential impulse,
+      // the Coulomb disk has radius zero: the exact friction update is zero.
+      if(c.k[0].w==0 && c.friction.x==0 && c.friction.y==0 && c.friction.z==0)
+        continue;
       CollisionV3 v = solverRelative(a, b, c);
       CollisionV3 vt = cvSub(v, cvMul(xyz(c.normal), cvDot(v, xyz(c.normal))));
       float l2 = cvDot(vt, vt);
@@ -209,6 +233,7 @@ inline void solvePrepared(SolverBody *bodies, SolverContact *contacts,
         continue;
       float len = std::sqrt(l2);
       CollisionV3 t = cvMul(vt, 1.f / len);
+      if(c.k[0].x==-1.f)prepareSolverResponse(c,a,b);
       float kt = c.k[0].x * t.x * t.x + c.k[0].y * t.y * t.y +
                  c.k[0].z * t.z * t.z +
                  2.f * (c.k[1].x * t.x * t.y + c.k[1].y * t.x * t.z +

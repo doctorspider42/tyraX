@@ -10,7 +10,7 @@ under it as that release's notes, and the release's own page carries the date.
 
 ## 2.3.0
 
-- Rigid-body contacts prepare their response matrix once per step and solve from compact aligned velocity/contact buffers. Scalar and VU0 implementations retain the existing contact order, Coulomb friction and six velocity/three split-impulse iterations.
+- Rigid-body contacts cache direct response coefficients on first friction use and solve from compact aligned velocity/contact buffers. Scalar and VU0 implementations retain the existing contact order, Coulomb friction and six velocity/three split-impulse iterations.
 
 ## 2.2.1
 
