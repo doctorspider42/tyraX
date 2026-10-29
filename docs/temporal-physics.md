@@ -5,6 +5,24 @@ and independent dynamic islands without reducing collision coverage or solver pa
 
 ## Asynchronous VU0 SAT/CCD experiment
 
+The interpenetration diagnostic completed on physical PS2: **720 physics calls**,
+including the first call after spawning 64/128 spread, partially overlapping and
+coincident-centre cubes, with scalar and micro-shadow arms. No EE/VU0 division-by-zero,
+invalid-operation or overflow flags were observed. Intentional EE `1/0` and `0/0`
+first verified the exception monitor. Every generated contact was retained and
+all runtime shadow comparisons passed the practical tolerances below.
+
+The scalar first call for 128 coincident cubes generated **8,156 contacts** and
+took **474 ms**; partial overlap produced 6,424 contacts and 220 ms. The run
+completed, reproducing an apparent freeze through contact-density cost rather
+than an arithmetic exception. The 128 cubes alone have 8,128 possible unordered
+pairs. This evidence does not exclude unrelated hangs in other scenarios.
+Per-call diagnostic logging changes subsequent real dt, and micro-shadow also
+executes the reference; those timings must not be used as an FPS/backend A/B.
+See the [report](../tools/ps2rig/results/collision-overlap-2026-10-29.json),
+[raw frames](../tools/ps2rig/results/collision-overlap-2026-10-29.csv.gz) and
+[full log](../tools/ps2rig/results/collision-overlap-2026-10-29.log.gz).
+
 `TYRA_PHYSICS_MICRO` is an experimental, default-off backend for dynamic OBB
 pairs that reach SAT after the existing corner tests. Seven jobs fit VU0's
 4 KB data memory. VU0 computes every existing face/edge axis projection,

@@ -1,0 +1,498 @@
+{
+  "frames": 720,
+  "phases": [
+    {
+      "phase": 0,
+      "arm": "scalar",
+      "added": 64,
+      "layout": "spread",
+      "frames": 60,
+      "first_physics_ms": 12.006,
+      "median_physics_ms": 1.8675,
+      "max_physics_ms": 26.654,
+      "max_contacts": 296,
+      "max_depth": 0.112341881,
+      "ee_status_values": [
+        "01000001",
+        "01000009",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "00000003",
+        "00000040"
+      ],
+      "micro": {
+        "phase": "0",
+        "jobs": "0",
+        "batches": "0",
+        "busy_finish": "0",
+        "busy_ee_query": "0",
+        "wait_ticks": "0",
+        "validation_errors": "0",
+        "numerical_differences": "0",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "0",
+        "max_point_ratio": "0",
+        "max_normal_error": "0",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 1,
+      "arm": "micro-shadow",
+      "added": 64,
+      "layout": "spread",
+      "frames": 60,
+      "first_physics_ms": 12.03,
+      "median_physics_ms": 8.124,
+      "max_physics_ms": 25.595,
+      "max_contacts": 296,
+      "max_depth": 0.129297376,
+      "ee_status_values": [
+        "01000001",
+        "01000009",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "00000003",
+        "00000040"
+      ],
+      "micro": {
+        "phase": "1",
+        "jobs": "0",
+        "batches": "0",
+        "busy_finish": "0",
+        "busy_ee_query": "0",
+        "wait_ticks": "0",
+        "validation_errors": "0",
+        "numerical_differences": "0",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "0",
+        "max_point_ratio": "0",
+        "max_normal_error": "0",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 2,
+      "arm": "scalar",
+      "added": 128,
+      "layout": "spread",
+      "frames": 60,
+      "first_physics_ms": 21.579,
+      "median_physics_ms": 14.5245,
+      "max_physics_ms": 47.629,
+      "max_contacts": 552,
+      "max_depth": 0.188722104,
+      "ee_status_values": [
+        "01000001",
+        "01000009",
+        "01800001"
+      ],
+      "vu0_status_values": [
+        "00000003",
+        "00000040"
+      ],
+      "micro": {
+        "phase": "2",
+        "jobs": "0",
+        "batches": "0",
+        "busy_finish": "0",
+        "busy_ee_query": "0",
+        "wait_ticks": "0",
+        "validation_errors": "0",
+        "numerical_differences": "0",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "0",
+        "max_point_ratio": "0",
+        "max_normal_error": "0",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 3,
+      "arm": "micro-shadow",
+      "added": 128,
+      "layout": "spread",
+      "frames": 60,
+      "first_physics_ms": 21.972,
+      "median_physics_ms": 14.7485,
+      "max_physics_ms": 45.898,
+      "max_contacts": 552,
+      "max_depth": 0.106646568,
+      "ee_status_values": [
+        "01000001",
+        "01000009",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "00000003",
+        "00000040"
+      ],
+      "micro": {
+        "phase": "3",
+        "jobs": "0",
+        "batches": "0",
+        "busy_finish": "0",
+        "busy_ee_query": "0",
+        "wait_ticks": "0",
+        "validation_errors": "0",
+        "numerical_differences": "0",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "0",
+        "max_point_ratio": "0",
+        "max_normal_error": "0",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 4,
+      "arm": "scalar",
+      "added": 64,
+      "layout": "spacing_0.4",
+      "frames": 60,
+      "first_physics_ms": 88.18,
+      "median_physics_ms": 27.9385,
+      "max_physics_ms": 88.18,
+      "max_contacts": 2432,
+      "max_depth": 1.08281612,
+      "ee_status_values": [
+        "01000001",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "00000003",
+        "00000040"
+      ],
+      "micro": {
+        "phase": "4",
+        "jobs": "0",
+        "batches": "0",
+        "busy_finish": "0",
+        "busy_ee_query": "0",
+        "wait_ticks": "0",
+        "validation_errors": "0",
+        "numerical_differences": "0",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "0",
+        "max_point_ratio": "0",
+        "max_normal_error": "0",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 5,
+      "arm": "micro-shadow",
+      "added": 64,
+      "layout": "spacing_0.4",
+      "frames": 60,
+      "first_physics_ms": 97.392,
+      "median_physics_ms": 31.0055,
+      "max_physics_ms": 97.392,
+      "max_contacts": 2512,
+      "max_depth": 1.10535669,
+      "ee_status_values": [
+        "01000001",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "000000c0",
+        "000000c1"
+      ],
+      "micro": {
+        "phase": "5",
+        "jobs": "13355",
+        "batches": "1934",
+        "busy_finish": "80",
+        "busy_ee_query": "988",
+        "wait_ticks": "1374418",
+        "validation_errors": "0",
+        "numerical_differences": "1523",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "7.34138894e-06",
+        "max_point_ratio": "3.05891177e-07",
+        "max_normal_error": "1.41364822e-07",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 6,
+      "arm": "scalar",
+      "added": 128,
+      "layout": "spacing_0.4",
+      "frames": 60,
+      "first_physics_ms": 220.339,
+      "median_physics_ms": 75.8295,
+      "max_physics_ms": 220.339,
+      "max_contacts": 6424,
+      "max_depth": 1.11494255,
+      "ee_status_values": [
+        "01000001",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "00000003",
+        "00000040"
+      ],
+      "micro": {
+        "phase": "6",
+        "jobs": "0",
+        "batches": "0",
+        "busy_finish": "0",
+        "busy_ee_query": "0",
+        "wait_ticks": "0",
+        "validation_errors": "0",
+        "numerical_differences": "0",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "0",
+        "max_point_ratio": "0",
+        "max_normal_error": "0",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 7,
+      "arm": "micro-shadow",
+      "added": 128,
+      "layout": "spacing_0.4",
+      "frames": 60,
+      "first_physics_ms": 245.113,
+      "median_physics_ms": 84.426,
+      "max_physics_ms": 245.113,
+      "max_contacts": 6344,
+      "max_depth": 1.08630371,
+      "ee_status_values": [
+        "01000001",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "000000c0",
+        "000000c1"
+      ],
+      "micro": {
+        "phase": "7",
+        "jobs": "37776",
+        "batches": "5420",
+        "busy_finish": "118",
+        "busy_ee_query": "1561",
+        "wait_ticks": "1648123",
+        "validation_errors": "0",
+        "numerical_differences": "3830",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "4.89425884e-06",
+        "max_point_ratio": "3.05891177e-07",
+        "max_normal_error": "8.94069672e-08",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 8,
+      "arm": "scalar",
+      "added": 64,
+      "layout": "identical_centres",
+      "frames": 60,
+      "first_physics_ms": 120.297,
+      "median_physics_ms": 34.4185,
+      "max_physics_ms": 120.297,
+      "max_contacts": 2044,
+      "max_depth": 1.11470366,
+      "ee_status_values": [
+        "01000001",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "00000003",
+        "00000040"
+      ],
+      "micro": {
+        "phase": "8",
+        "jobs": "0",
+        "batches": "0",
+        "busy_finish": "0",
+        "busy_ee_query": "0",
+        "wait_ticks": "0",
+        "validation_errors": "0",
+        "numerical_differences": "0",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "0",
+        "max_point_ratio": "0",
+        "max_normal_error": "0",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 9,
+      "arm": "micro-shadow",
+      "added": 64,
+      "layout": "identical_centres",
+      "frames": 60,
+      "first_physics_ms": 205.166,
+      "median_physics_ms": 34.936,
+      "max_physics_ms": 205.166,
+      "max_contacts": 2044,
+      "max_depth": 1.15257645,
+      "ee_status_values": [
+        "01000001",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "00000003",
+        "00000040",
+        "000000c1"
+      ],
+      "micro": {
+        "phase": "9",
+        "jobs": "9742",
+        "batches": "1412",
+        "busy_finish": "309",
+        "busy_ee_query": "845",
+        "wait_ticks": "5150778",
+        "validation_errors": "0",
+        "numerical_differences": "1573",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "4.89425884e-06",
+        "max_point_ratio": "1.52945589e-07",
+        "max_normal_error": "1.03238271e-07",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 10,
+      "arm": "scalar",
+      "added": 128,
+      "layout": "identical_centres",
+      "frames": 60,
+      "first_physics_ms": 474.346,
+      "median_physics_ms": 101.932,
+      "max_physics_ms": 474.346,
+      "max_contacts": 8156,
+      "max_depth": 1.135746,
+      "ee_status_values": [
+        "01000001",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "00000003",
+        "00000040"
+      ],
+      "micro": {
+        "phase": "10",
+        "jobs": "0",
+        "batches": "0",
+        "busy_finish": "0",
+        "busy_ee_query": "0",
+        "wait_ticks": "0",
+        "validation_errors": "0",
+        "numerical_differences": "0",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "0",
+        "max_point_ratio": "0",
+        "max_normal_error": "0",
+        "max_extra_depth_ratio": "0"
+      }
+    },
+    {
+      "phase": 11,
+      "arm": "micro-shadow",
+      "added": 128,
+      "layout": "identical_centres",
+      "frames": 60,
+      "first_physics_ms": 820.976,
+      "median_physics_ms": 116.5305,
+      "max_physics_ms": 820.976,
+      "max_contacts": 8156,
+      "max_depth": 1.15190125,
+      "ee_status_values": [
+        "01000001",
+        "01800001",
+        "01800009"
+      ],
+      "vu0_status_values": [
+        "00000003",
+        "00000040",
+        "000000c1"
+      ],
+      "micro": {
+        "phase": "11",
+        "jobs": "35150",
+        "batches": "5040",
+        "busy_finish": "1205",
+        "busy_ee_query": "1690",
+        "wait_ticks": "19757469",
+        "validation_errors": "0",
+        "numerical_differences": "5319",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "4.89425884e-06",
+        "max_point_ratio": "0.000182774791",
+        "max_normal_error": "0.00039650104",
+        "max_extra_depth_ratio": "0"
+      }
+    }
+  ],
+  "monitor": [
+    "01010021",
+    "01020041",
+    "1"
+  ],
+  "raw_sha256": {
+    "collision-phase-00.csv": "b3b8171fb3bc4a57023729a657b5fd5d7f03aeb7a86d88b87dcc88f7e2460fc8",
+    "vu0-phase-00.csv": "930de42b9e286cf915c64a63b3dc2bfce98a4d48b8608db865b63edd5ff61f62",
+    "collision-phase-01.csv": "0384cb64c820a54467ae6a0da2e5dab59f2dc9ed1da77af9075380a551b42c12",
+    "vu0-phase-01.csv": "6e18303acbf7488750af2787f380eb1420a8a69d050c02e06a40f917738a4e9e",
+    "collision-phase-02.csv": "3a1f4a6d61e3a8cdb1840211a11c7c50476897d717f68350cc3beff8a30dd5db",
+    "vu0-phase-02.csv": "bdf4788183140ebfd0d1719d91ccef36144693b155e45819b68840af6b5873a4",
+    "collision-phase-03.csv": "0078f48398c4595ef8625429ccff04fad66a43c2bf789c93b5e5c1bda20f3ba3",
+    "vu0-phase-03.csv": "9de4192ed838690ad6bbc364bf049a2063f00b8932ed950fbec5ba4ae4bc1896",
+    "collision-phase-04.csv": "f3330791c468e4963f43bc0e2b7f982111ac651c84dbd1ff3c1fe71c1337dc16",
+    "vu0-phase-04.csv": "16e2befad11226c4216ce489ef9bb14d58eaa6c6f9b6d4e23775c2372bb1cd01",
+    "collision-phase-05.csv": "1b7f9199ab3ffe8a1b65925bf5dd261477a4eb5b8575e881667b7b19fdc4c48a",
+    "vu0-phase-05.csv": "9a44c2d7f2d28cd60c4bdd6871cf074743b3648437abdcb862fc3a560abd5a96",
+    "collision-phase-06.csv": "ee50160626fa2e3cef378c5c6178f4f5fe3fa094a1e809f3fb36aabc35c28ca8",
+    "vu0-phase-06.csv": "5b42a61b7c177fcc0faf247a03bbca61aa255ec0838bf0d21709e279b909401a",
+    "collision-phase-07.csv": "3a5709cd43a88b55647d9d3a5462f8530a459fa6e86bc7175346f90cc1bfc26b",
+    "vu0-phase-07.csv": "d2d397708367c1a8f28ba3ccc790c00378c4badfd1afba9960d95a7ced9c24ad",
+    "collision-phase-08.csv": "7648a0c5615038d8dbb17a5c6f7e1eec388ebf0d2a6e15b592a4ff433cf10d4b",
+    "vu0-phase-08.csv": "11b627767d2f7bdbbd230b043acf30123723d2f79e117c323cceaf1985654140",
+    "collision-phase-09.csv": "412e12fb492ffb25ae78f77d5efb063e962b31756844c763f2d06812c010c9c1",
+    "vu0-phase-09.csv": "eda6d625fb824d8c59cfa838bdba779cdfc5ad0a5e22eb179b9b010a60d891b1",
+    "collision-phase-10.csv": "295eaa48aa5c5a2fcb27b78a383b4e2aad5aad27e71ff44664731937ebc90d9e",
+    "vu0-phase-10.csv": "f2c99121a2769ce8eef9c122d920b83d7a0628e89d1d1359c10012874c636235",
+    "collision-phase-11.csv": "01d7356355e82fc2aef75b055fa41149092eef74484b1cf9d78973a1e89b3330",
+    "vu0-phase-11.csv": "abc2c38afa5c29b61e68f118e7d1f4055e4940398f37433522aa810d6dc2af8c"
+  },
+  "log_sha256": "9d6b92679a107c253e4609d3d00bfa5d160edf53cfdbdfea57ad6a037ed2d8e2",
+  "elf_sha256": "b9cd60780eccdbfac8ab4148ed91b3ef6b64e9481742284bcd2e652e213a1160",
+  "ee_exception_mask": "0x70",
+  "vu0_exception_mask": "0xe00",
+  "conclusion": "No division-by-zero, invalid-operation or overflow flags in physics. All cases completed; no capacity omissions.",
+  "limitations": "Per-call printf affects subsequent real dt. Micro arm includes full scalar shadow validation. Do not compare FPS or micro speed from this diagnostic. Maximum contact depth also includes authored scene props.",
+  "candidate": "e9f0bd84cdffe84985b2cce52716c31fbce1a92e",
+  "baseline": "0647f55967eeb09fa613aea5becc2c6e495c5d37",
+  "hardware": "Physical PS2 at 192.168.100.150, ps2link; release NTSC progressive, synthetic pad",
+  "diagnostic_source_sha256": {
+    "engine\\engine\\inc\\debug\\collision_bench.hpp": "b66f585124a2e777508699b1086957e5634834e8e749ed4197456aef36ec1fd9",
+    "district\\src\\gen\\collision_baseline.gen.cpp": "e76ede8edac9df42c95762a43da827e2b21b2856b5248b0270d8f51c947550f8"
+  }
+}

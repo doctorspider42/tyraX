@@ -57,7 +57,8 @@ def main():
  out=dict(mode=a.mode,measured_frames=rows_total,startup_oracle_cases=2048,
           metadata=json.loads(a.metadata.read_text(encoding='utf8')),summary=summary,
           micro_metrics=metrics,raw_sha256=hashes,log_sha256=hashlib.sha256(a.log.read_bytes()).hexdigest(),
-          accounting='All arms: generated=stored contacts, car candidates=tested, no omissions; finite and scope gates pass.',
+          accounting='All arms: generated=stored contacts, car candidates=tested, no capacity omissions; finite and scope gates pass. Reference geometry is compared only in verify mode.',
+          reference_comparison_performed=a.mode=='verify',
           overlap_scope='Busy observations during EE queries; not a utilization percentage. Sidecars include warmup frames.')
  out['tolerances']=dict(depth_relative_radius=1e-4,extra_touch_relative_radius=1e-4,point_relative_radius=.01,normal_vector_error=.01,missed_reference_hits=0)
  a.output.write_text(json.dumps(out,indent=2),encoding='utf8')

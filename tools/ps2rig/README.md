@@ -194,3 +194,26 @@ The micro fixture runs tools/ps2rig/vu0_sat_probe.hpp before sampling.
 Create bin/sat-verify.cfg for shadow validation; remove it for timing the
 SAME ELF. Preserve vu0-phase-*.csv with collision-phase-*.csv. Busy query
 samples are overlap witnesses, not VU utilization percentages.
+
+### Interpenetration / apparent hang diagnostic
+
+After instrumenting a fresh private `--micro-comparison` fixture, run
+`python tools/ps2rig/overlap_diagnostic.py --scratch <fixture>` before the native
+build. This selects 12 phases: 64/128 cubes, spread / 0.4-unit grid spacing /
+identical centres, scalar and micro shadow, 60 physics calls each starting at
+frame zero. All original contacts and solver passes remain enabled.
+
+The diagnostic clears/samples EE FCR31 and VU0 STATUS around each physics call.
+Intentional EE `1/0` and `0/0` must prove the monitor before interpreting results.
+EE SI/SD/SO bits 6/5/4 and VU0 IS/DS/OS bits 10/11/9 detect invalid operations,
+division by zero and overflow. Underflow of tiny velocities is recorded separately.
+Finite positions alone cannot exclude a PS2 arithmetic error: EE division by
+zero saturates to a finite value. See the [EE manual, chapter 8](https://docs.alexrp.com/mips/ee.pdf)
+and [VU manual](https://www.manuallib.com/download/VU-USER-MANUAL.PDF).
+
+Validate with `overlap_analyze.py <fixture>/district/bin --log <hardware.log>
+--output <report.json>`. Per-call logging affects subsequent measured dt and the
+micro arm includes scalar shadow checks; **these FPS/micro costs are not timing
+comparisons**. Preserve both CSV families and the log. The
+[physical report](results/collision-overlap-2026-10-29.json) and
+[full log](results/collision-overlap-2026-10-29.log.gz) cover all 720 calls.
