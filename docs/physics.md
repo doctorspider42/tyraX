@@ -259,10 +259,16 @@ Dynamic islands preserve contact order within a connected component. World
 and immovable partners do not connect unrelated components. Sleeping uses the
 existing speed thresholds and authored delays, coordinated across the entire
 component; waking any sleeping member wakes its recorded component. All
-contacts still receive six velocity and three split passes. The new warm-start
-and island switches are experimental until physical-console qualification.
+contacts still receive six velocity and three split passes. Warm-start
+and island switches remain experimental opt-ins after physical-console
+comparison: their bookkeeping and complete-component waking can cost more
+than they save at the existing iteration counts.
 See [the temporal physics experiment](temporal-physics.md).
 
 The body-pair cache path indexes conservative swept hull/sphere bounds rather
 than COM spheres. Sleeping hulls use a transformed local-box superset, with
 outward rounding; narrow phase and all contact tests remain authoritative.
+
+The default cache path is physically measured: the +128-pile comparison rose
+from 18.32 to 20.58 FPS, with mean physics time 32.17 to 27.48 ms. The +32 case
+was slightly slower; see the temporal report for both repeats and scope.

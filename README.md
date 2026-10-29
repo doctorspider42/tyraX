@@ -765,4 +765,4 @@ regenerated, so your own credits added to it survive every build.
   <a href="https://github.com/doctorspider42/tyraX/stargazers"><img src="https://img.shields.io/github/stars/doctorspider42/tyraX?style=social" alt="Star TyraX on GitHub"></a>
 </p>
 
-Physics experiments: [temporal caches, warm starting and dynamic islands](docs/temporal-physics.md).
+Physics: [conservative collision caches and optional warm-start/island experiments](docs/temporal-physics.md).

@@ -24484,7 +24484,7 @@ void TerrainGame::updateObjectPhysics() {
   static std::vector<unsigned char> islandQuiet,islandReady;
   static std::vector<int> lastIsland;
   static unsigned temporalGeneration = ~0u;
-  if (temporalGeneration != sceneGeneration || lastIsland.size() != runtimeObjects.size()) {
+  if (useIslands && (temporalGeneration != sceneGeneration || lastIsland.size() != runtimeObjects.size())) {
     lastIsland.assign(runtimeObjects.size(), -1);
     temporalGeneration = sceneGeneration;
   }
@@ -24500,10 +24500,6 @@ void TerrainGame::updateObjectPhysics() {
   };
   static std::vector<WorldGeometry> worldGeometry;
   static unsigned worldGeometryGeneration=~0u;
-  if(worldGeometryGeneration!=sceneGeneration || worldGeometry.size()!=runtimeObjects.size()) {
-    worldGeometry.clear();worldGeometry.resize(runtimeObjects.size());
-    worldGeometryGeneration=sceneGeneration;
-  }
   auto worldShape = [&](int index,const CollisionBox& cb) -> WorldGeometry& {
     auto& g=worldGeometry[index];const auto& d=runtimeObjects[index].data;
     const float key[14]={d.position[0],d.position[1],d.position[2],
@@ -24585,6 +24581,11 @@ void TerrainGame::updateObjectPhysics() {
       break;
     }
   if (!anyAwake) return;  // a settled scene pays one pass over its bodies
+  // No scene-sized collider allocation for empty or wholly sleeping scenes.
+  if(worldGeometryGeneration!=sceneGeneration || worldGeometry.size()!=runtimeObjects.size()) {
+    worldGeometry.clear();worldGeometry.resize(runtimeObjects.size());
+    worldGeometryGeneration=sceneGeneration;
+  }
   // physBodies may grow while slots are handed out - take every slot now,
   // before any reference into the vector is held.
   physBodies.reserve(physBodies.size() + bodies.size());

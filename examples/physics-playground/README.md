@@ -97,3 +97,8 @@ measurements and opt-in flags.
 Temporal physics experiment: generated code supports collider/axis caches,
 persistent impulse matching and independent dynamic islands. See the
 [qualification report](../../docs/temporal-physics.md) for switches and results.
+
+The conservative cache path is enabled by default. Warm starting and island
+sleep/wake remain opt-in after the PS2 comparison; all paths retain the original
+contact coverage and 6+3 passes. Gains vary by workload, and dense piles still
+do not hold 60 FPS.

@@ -105,3 +105,9 @@ engine src/physics/broad_phase.cpp: 200 scenes/128 bodies, all-pairs envelope
 oracle and candidate order. For the focused cache-only hardware follow-up use
 --temporal-comparison --temporal-arms 2 (28 phases); warm/island code is compiled
 out. The raw candidate/rejection counters count work, not omitted contacts.
+
+Completed physical gates: temporal-four56*600, temporal-settle8*1260 and
+refined-cache28*600, total60480 measured frames; all-arm contact/candidate
+accounting and clocks passed. Sources407585452 and3fa710314 are in the result
+JSONs. The refined non-box software probe had34 finite aggregate samples,
+matching the earlier per-frame telemetry. This is not non-box hardware timing.

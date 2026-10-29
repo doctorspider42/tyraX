@@ -90,3 +90,10 @@ exact envelope test; local hull bounds invalidate with shape/external revisions.
 Cached-axis hints use analytic OBB projection for known boxes and retain only
 separating results. verify-body-pair-grid.cpp compares against all-pairs envelope
 admission, including order, sleepers, motion and off-centre hulls.
+
+Qualified defaults: coherence1/warm0/islands0/prepared0. The refined +128 pile
+trial measured18.32->20.58FPS and32.17->27.48ms physics, with fewer candidate
+visits; +32 was slightly slower. Do not enable warm/islands on convergence
+intuition: fixed6+3 dense-pile tests regressed, especially complete-group wake.
+Collider-cache allocation waits for an awake body; disabled islands keep no
+scene-sized membership map. See docs/temporal-physics.md/raw sources and repeats.

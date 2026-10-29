@@ -2189,9 +2189,11 @@ compares compact scalar and VU0 updates without reducing contacts or iterations.
 Warm starting with one-to-one local-anchor matching and dynamic islands is
 implemented as an experiment with geometry/axis caches; see
 [temporal physics](temporal-physics.md) for qualification and defaults.
-Remaining work: representative non-box scenes and moving-support coverage;
-(2) a **baked hull for animated models** from the bind pose instead of the
-AABB box; (3) an **editor simulation preview**. The prepared solver has an
+The refined cache is enabled; warm/island defaults remain off after console
+comparison. Remaining work: broader non-box performance/moving-support coverage,
+separate attribution of world-object versus body-grid queries, a **baked hull
+for animated models** from the bind pose instead of the AABB box, and an
+**editor simulation preview**. The prepared solver has an
 independent host oracle, but the full game integration and contact generation
 would also need host twins before preview could share the complete simulation.
 

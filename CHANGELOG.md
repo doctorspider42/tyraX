@@ -10,7 +10,7 @@ under it as that release's notes, and the release's own page carries the date.
 
 ## 2.4.0
 
-- Rigid-body physics can index conservative swept hull bounds, reuse collider transforms and separating axes, warm-start persistent contacts, and solve/sleep independent dynamic islands without reducing contact coverage or iteration counts.
+- Rigid-body collision queries use conservative swept hull bounds and cached transforms/axes without reducing contact coverage or solver passes. The cache is enabled; warm starting and coordinated island sleeping remain experimental opt-ins after physical-console comparison. Collider caches initialize only when active physics needs them.
 
 ## 2.3.0
 

@@ -1,7 +1,54 @@
 # Temporal physics experiment
 
-This experiment measures geometry coherence, persistent contact impulses and
-independent dynamic islands without reducing collision coverage or solver passes.
+Temporal physics adds conservative collision caches, persistent contact impulses
+and independent dynamic islands without reducing collision coverage or solver passes.
+
+
+## Selected defaults and final PS2 result
+
+The refined geometry/admission cache is enabled by default
+(`TYRA_PHYSICS_COHERENCE=1`). Warm starting and coordinated island sleep/wake
+remain opt-in (`TYRA_PHYSICS_WARM_START=0`, `TYRA_PHYSICS_ISLANDS=0`): their
+fixed-iteration dense-pile results are worse. The prepared-solver experiment
+also remains disabled by default. No collider, contact or iteration is removed.
+Cache storage is allocated when active physics needs it; empty/sleeping scenes
+do not initialize the scene-sized collider cache, and disabled islands do not
+allocate a scene-sized membership map.
+
+The final same-ELF cache-only comparison from `3fa710314` completed 28 phases
+and 16,800 measured frames. Pooled drive FPS (720 frames per cell):
+
+| Additional piled boxes | Prior | Refined cache |
+| --- | ---: | ---: |
+| 32 | 50.89 | 49.89 |
+| 64 | 35.90 | 37.56 |
+| 128 | 18.32 | 20.58 |
+
+At +128 this is about **12.3% higher FPS**, and mean physics time falls from
+32.17 to 27.48 ms. Body-grid candidate visits average 1,623.8 versus 774.1 per
+frame, about **52% fewer**, with every generated contact retained. At +64 visits
+fall from 476.8 to 268.7. These are candidate visits, including the grid's own
+and duplicate-direction entries, rather than discarded collisions.
+
+The gain is workload-dependent: +32 regresses slightly. +128 repeat FPS is
+18.55 -> 19.30 and 18.09 -> 22.04. Frame timing changes the engine's variable
+timestep and subsequent contact trajectories, so this is a whole-game test,
+not identical-input kernel timing. Both repeats and stage/candidate counters
+are retained in the [final summary](../tools/ps2rig/results/temporal-refined-2026-10-29.json)
+and [raw frames](../tools/ps2rig/results/temporal-refined-2026-10-29.csv.gz).
+The ELF SHA-256 is
+`c5417acd86fba2cc1b5a446c91712d62dfe4748ce5bd0e5f55d1e7aacc9a3141`.
+
+The 56-phase exploration, eight-phase stationary gate and 28-phase follow-up
+cover **60,480 measured physical-console frames**. All arms retain every
+generated contact and test every vehicle candidate, with zero omission/overflow
+counters and passing timing/finite-state gates. Assets are complete and shared;
+the private fixture disables physical padman polling/rumble in every arm while
+injecting the same controls. Production Pad code is unchanged.
+
+This does **not** reach 60 FPS in dense active piles: +128 physics alone still
+exceeds the 16.68 ms whole-frame budget. These results do not establish the
+console's hardware limit or a universal speedup across scenes.
 
 The previous scalar integration is the reference. A same-ELF four-arm rig
 compares reference, geometry/axis caches alone, caches plus warm starting, and
@@ -10,7 +57,7 @@ prediction, world contacts, body-grid construction, body contacts, solver and
 write-back; nested query/SAT scopes must not be added twice to their parents.
 Host gates cover cached-axis CCD conservatism, contact identity/invalidation,
 unbounded history storage and stable island partitioning. Full-game and
-physical-console qualification are recorded after the experiment.
+physical-console qualification are recorded below.
 
 ## Implementation and gates
 
@@ -18,7 +65,7 @@ physical-console qualification are recorded after the experiment.
 hull normal/edge transforms, plus a previous-frame separating-axis hint.
 `TYRA_PHYSICS_WARM_START` controls impulse history, and
 `TYRA_PHYSICS_ISLANDS` controls stable component grouping and coordinated
-sleep/wake. The current provisional defaults are 1/0/0 pending console timing.
+sleep/wake. The selected defaults are 1/0/0 after console comparison.
 The prepared scalar/VU0 experiment remains separate and disabled in this rig.
 
 Host gates passed 50,000 swept/rotated box pairs, including arbitrary cached
@@ -39,7 +86,7 @@ The isolated PCSX2 software-renderer run completed six 600-row phases,
 including both full-feature drive trials. Contact/candidate accounting and
 disjoint-stage timing checks passed; history recorded 2,636 and 2,300 matches
 in the two full-feature phases. No assert, exception or missing-resource
-diagnostic occurred. Physical-console qualification follows separately.
+diagnostic occurred. The later physical qualification is recorded below.
 
 ## Stationary settle and wake gate
 
@@ -111,7 +158,7 @@ survive 17,171 awake queries in the same order. Candidate visits fall from
 A focused `--temporal-comparison --temporal-arms 2` run compares prior against
 the refined cache path with warm starting and islands compiled out, across
 28 phases / 16,800 measured frames. It records body-grid candidate and later
-bounds-rejection counts alongside the stage timings. Hardware results follow.
+bounds-rejection counts alongside the stage timings. Results are recorded above.
 
 ## Completed four-arm physical PS2 trial
 
@@ -178,3 +225,21 @@ software-renderer startup; both comparison arms produced complete 600-row CSVs
 including candidate/rejection counters, without assert/exception/missing-resource
 diagnostics. The conservative-bound gate also covers cancellation at large
 off-centre coordinates using a double-precision eight-corner oracle.
+
+The refined bound implementation was also exercised with all three feature
+flags enabled in the 37-body software-renderer furniture scene. All 34 samples
+were finite; sampled awake counts and squared-velocity sums matched the prior
+implementation exactly at the same frame numbers. See the
+[refined non-box smoke evidence](../tools/ps2rig/results/temporal-refined-nonbox-emulator-2026-10-29.json).
+This does not prove full-state identity or qualify physical-console non-box
+performance. The final lazy-allocation integration preserves these admission
+and solver rules.
+
+Final integration gates also passed: a Release editor build, refreshed vehicle
+and physics example snapshots matching the exact template function, and a
+native build/software-renderer smoke run of the selected 1/0/0 defaults with
+production Pad code. All 18 samples over 37 authored bodies were finite and
+the capture rendered correctly. The [default smoke metadata](../tools/ps2rig/results/temporal-default-smoke-2026-10-29.json)
+records working-source/function hashes and the ELF; this gate includes the final
+lazy-allocation control flow, rather than claiming that an unmeasured stock ELF
+has exactly the benchmark's frame rate. The console was returned to ps2link.

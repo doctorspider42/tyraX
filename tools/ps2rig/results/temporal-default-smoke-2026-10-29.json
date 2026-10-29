@@ -1,0 +1,148 @@
+{
+  "hardware": "PCSX2 software renderer",
+  "performance_qualified": false,
+  "flags": {
+    "coherence": 1,
+    "warm_start": 0,
+    "islands": 0,
+    "prepared": 0
+  },
+  "integration": "Exact current generated updateObjectPhysics body, production Pad, final lazy collider-cache allocation",
+  "source_sha256": {
+    "src/game_templates.inc": "c84ecd40208dcc05b934ea855d36d9808346c72860207e880a166e9b4d6a319a",
+    "vendor/tyra/engine/inc/physics/contact_history.hpp": "f28d3876d6946999f5ebaeff8a2e11bad3eb3aecf864599dbaf15f14d4d82755",
+    "vendor/tyra/engine/inc/physics/convex_collision.hpp": "09739519949285e9d4fc65823e3e02717bb761b62509872cec3bafd6b2407694"
+  },
+  "elf_sha256": "1428e5aa909a1c0d7f020e84663d96c683dbefa9146d4d486c3f86cebfe5ab9f",
+  "diagnostics": [],
+  "samples": [
+    {
+      "frame": 100,
+      "bodies": 37,
+      "awake": 37,
+      "energy": 0.644510031,
+      "bad": 0
+    },
+    {
+      "frame": 200,
+      "bodies": 37,
+      "awake": 37,
+      "energy": 0.558089256,
+      "bad": 0
+    },
+    {
+      "frame": 300,
+      "bodies": 37,
+      "awake": 31,
+      "energy": 0.565914631,
+      "bad": 0
+    },
+    {
+      "frame": 400,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.741569638,
+      "bad": 0
+    },
+    {
+      "frame": 500,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.452065945,
+      "bad": 0
+    },
+    {
+      "frame": 600,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.376040637,
+      "bad": 0
+    },
+    {
+      "frame": 700,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.300883591,
+      "bad": 0
+    },
+    {
+      "frame": 800,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.298593104,
+      "bad": 0
+    },
+    {
+      "frame": 900,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.14599815,
+      "bad": 0
+    },
+    {
+      "frame": 1000,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0981079787,
+      "bad": 0
+    },
+    {
+      "frame": 1100,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0926184803,
+      "bad": 0
+    },
+    {
+      "frame": 1200,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0596763119,
+      "bad": 0
+    },
+    {
+      "frame": 1300,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0615255907,
+      "bad": 0
+    },
+    {
+      "frame": 1400,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0346240476,
+      "bad": 0
+    },
+    {
+      "frame": 1500,
+      "bodies": 37,
+      "awake": 31,
+      "energy": 0.0287631769,
+      "bad": 0
+    },
+    {
+      "frame": 1600,
+      "bodies": 37,
+      "awake": 31,
+      "energy": 0.0215809271,
+      "bad": 0
+    },
+    {
+      "frame": 1700,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0215806011,
+      "bad": 0
+    },
+    {
+      "frame": 1800,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0396702103,
+      "bad": 0
+    }
+  ],
+  "update_function_sha256": "d9397942763d480f1aeabe42a40d98e24cd09a6cef63172c9c96c63e657c1da6",
+  "source_hash_note": "source_sha256 hashes working-tree bytes; function hash normalizes line endings via text loading"
+}
