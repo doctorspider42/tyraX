@@ -25124,8 +25124,9 @@ void TerrainGame::updateObjectPhysics() {
     }
   }
 
-  // --- 4. prepared sequential impulses --------------------------------------
+  // --- 4. sequential impulses (prepared backend is opt-in) ------------------
   const int nc = (int)contacts.size();
+#if TYRA_PHYSICS_PREPARED
   static Tyra::SolverBuffer<Tyra::SolverBody> solverBodies;
   static Tyra::SolverBuffer<Tyra::SolverContact> solverContacts;
   if (nc > 0) {
@@ -25160,6 +25161,119 @@ void TerrainGame::updateObjectPhysics() {
       d.vp=Tyra::xyz(s.vp);d.wp=Tyra::xyz(s.wp);
     }
   }
+#else
+  for (int k = 0; k < nc; ++k) {
+    RbContact& c = contacts[k];
+    RbStep& A = steps[c.a];
+    c.ra = rbSub(c.p, A.x1);
+    RbV vrel = rbAdd(A.v, rbCross(A.w, c.ra));
+    const RbV ca = rbCross(c.ra, c.n);
+    float kn = A.invMass + rbDot(rbCross(rbMat(A.invIw, ca), c.ra), c.n);
+    float e = A.bounce, f = A.friction;
+    if (c.b >= 0) {
+      RbStep& Bs = steps[c.b];
+      c.rb = rbSub(c.p, Bs.x1);
+      vrel = rbSub(vrel, rbAdd(Bs.v, rbCross(Bs.w, c.rb)));
+      const RbV cb = rbCross(c.rb, c.n);
+      kn += Bs.invMass + rbDot(rbCross(rbMat(Bs.invIw, cb), c.rb), c.n);
+      if (Bs.bounce > e) e = Bs.bounce;
+      f = 0.5F * (f + Bs.friction);
+    } else {
+      c.rb = rbV(0.0F, 0.0F, 0.0F);
+    }
+    c.kn = kn > 1e-9F ? kn : 1e-9F;
+    c.vnPred = rbDot(vrel, c.n);
+    c.bounceTarget = -c.vnPred > bounceThreshold ? -e * c.vnPred : 0.0F;
+    // Coulomb friction coefficient from the authored 0..1 "Friction".
+    c.mu = 0.05F + 0.95F * f;
+    c.jn = c.jp = 0.0F;
+    c.ft = rbV(0.0F, 0.0F, 0.0F);
+    if (c.n.y > 0.5F) A.grounded = true;
+    if (c.b >= 0 && c.n.y < -0.5F) steps[c.b].grounded = true;
+  }
+  auto applyImpulse = [&](RbContact& c, RbV P) {
+    RbStep& A = steps[c.a];
+    A.v = rbAdd(A.v, rbMul(P, A.invMass));
+    A.w = rbAdd(A.w, rbMat(A.invIw, rbCross(c.ra, P)));
+    if (c.b >= 0) {
+      RbStep& Bs = steps[c.b];
+      Bs.v = rbSub(Bs.v, rbMul(P, Bs.invMass));
+      Bs.w = rbSub(Bs.w, rbMat(Bs.invIw, rbCross(c.rb, P)));
+    }
+  };
+  auto relVel = [&](const RbContact& c) {
+    const RbStep& A = steps[c.a];
+    RbV v = rbAdd(A.v, rbCross(A.w, c.ra));
+    if (c.b >= 0) {
+      const RbStep& Bs = steps[c.b];
+      v = rbSub(v, rbAdd(Bs.v, rbCross(Bs.w, c.rb)));
+    }
+    return v;
+  };
+  for (int it = 0; it < PHYS_ITERATIONS; ++it)
+    for (int k = 0; k < nc; ++k) {
+      RbContact& c = contacts[k];
+      RbV vrel = relVel(c);
+      const float vn = rbDot(vrel, c.n);
+      float nj = c.jn + (c.bounceTarget - vn) / c.kn;
+      if (nj < 0.0F) nj = 0.0F;
+      const float dj = nj - c.jn;
+      c.jn = nj;
+      if (dj != 0.0F) applyImpulse(c, rbMul(c.n, dj));
+      // friction, against whatever tangential slip is left
+      vrel = relVel(c);
+      const RbV vt = rbSub(vrel, rbMul(c.n, rbDot(vrel, c.n)));
+      const float vtl2 = rbDot(vt, vt);
+      if (vtl2 < 1e-14F) continue;
+      const float vtl = sqrtf(vtl2);
+      const RbV t = rbMul(vt, 1.0F / vtl);
+      const RbStep& A = steps[c.a];
+      float kt = A.invMass +
+                 rbDot(rbCross(rbMat(A.invIw, rbCross(c.ra, t)), c.ra), t);
+      if (c.b >= 0) {
+        const RbStep& Bs = steps[c.b];
+        kt += Bs.invMass +
+              rbDot(rbCross(rbMat(Bs.invIw, rbCross(c.rb, t)), c.rb), t);
+      }
+      if (kt < 1e-9F) continue;
+      RbV nf = rbAdd(c.ft, rbMul(t, -vtl / kt));
+      const float lim = c.mu * c.jn;
+      const float nfl2 = rbDot(nf, nf);
+      if (nfl2 > lim * lim) nf = rbMul(nf, lim / sqrtf(nfl2));
+      applyImpulse(c, rbSub(nf, c.ft));
+      c.ft = nf;
+    }
+  // Split impulse: the overlap still left after the velocity solve is
+  // removed through pseudo velocities that move the body and are then
+  // forgotten, so pushing a body out of the ground never launches it.
+  for (int it = 0; it < PHYS_POS_ITERATIONS; ++it)
+    for (int k = 0; k < nc; ++k) {
+      RbContact& c = contacts[k];
+      RbStep& A = steps[c.a];
+      const float vnNow = rbDot(relVel(c), c.n);
+      const float remaining = c.depth - (vnNow - c.vnPred);
+      const float target =
+          remaining > PHYS_SLOP ? PHYS_BAUMGARTE * (remaining - PHYS_SLOP) : 0.0F;
+      RbV vp = rbAdd(A.vp, rbCross(A.wp, c.ra));
+      if (c.b >= 0) {
+        const RbStep& Bs = steps[c.b];
+        vp = rbSub(vp, rbAdd(Bs.vp, rbCross(Bs.wp, c.rb)));
+      }
+      float nj = c.jp + (target - rbDot(vp, c.n)) / c.kn;
+      if (nj < 0.0F) nj = 0.0F;
+      const float dj = nj - c.jp;
+      c.jp = nj;
+      if (dj == 0.0F) continue;
+      const RbV P = rbMul(c.n, dj);
+      A.vp = rbAdd(A.vp, rbMul(P, A.invMass));
+      A.wp = rbAdd(A.wp, rbMat(A.invIw, rbCross(c.ra, P)));
+      if (c.b >= 0) {
+        RbStep& Bs = steps[c.b];
+        Bs.vp = rbSub(Bs.vp, rbMul(P, Bs.invMass));
+        Bs.wp = rbSub(Bs.wp, rbMat(Bs.invIw, rbCross(c.rb, P)));
+      }
+    }
+#endif
 
   // --- 5. integrate and write back ------------------------------------------
   for (int si = 0; si < awakeCount; ++si) {

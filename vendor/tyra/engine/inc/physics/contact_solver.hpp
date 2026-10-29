@@ -6,6 +6,10 @@
 #include <cstring>
 #include <new>
 #include <vector>
+// Keep the qualified prior integration as default; see the console report.
+#ifndef TYRA_PHYSICS_PREPARED
+#define TYRA_PHYSICS_PREPARED 0
+#endif
 #ifndef TYRA_PHYSICS_SOLVER_VU0
 #define TYRA_PHYSICS_SOLVER_VU0 0
 #endif

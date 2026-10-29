@@ -174,8 +174,9 @@ the budget. Current bounds include:
 
 ## Collision pipeline
 
-The impulse solver prepares a 3×3 contact response matrix and normal angular
-responses once per step. Its repeated passes use separate aligned body/contact
+The prepared impulse solver caches normal angular responses once per step
+and computes the six independent coefficients of its 3x3 response matrix
+on first use by a nonzero friction update. Its repeated passes use separate aligned body/contact
 buffers instead of fetching solver state from the larger geometry steps.
 The compact format stores the symmetric response matrix in six coefficients;
 body indices and inverse mass use spare vector lanes. This preserves the
@@ -183,8 +184,9 @@ physical matrix rather than dropping a response component.
 The scalar and experimental VU0 macro-mode paths retain the same dynamic slip
 direction, circular Coulomb-friction bound, contact order and six velocity plus
 three split-impulse passes. There are no collider, inertia or simulation-rate
-simplifications. `TYRA_PHYSICS_SOLVER_VU0` selects the backend; console timing
-and scalar/VU0 numerical qualification determine its shipped default.
+simplifications. The prior solver remains the default after console comparison. Set
+`TYRA_PHYSICS_PREPARED=1` to opt into the prepared solver, and add
+`TYRA_PHYSICS_SOLVER_VU0=1` to use its VU0 backend.
 See the [prepared solver experiment](prepared-contact-solver.md) for the
 three-arm console results and the distinction between arithmetic correctness
 and a demonstrated whole-frame gain.

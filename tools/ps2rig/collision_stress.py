@@ -160,6 +160,7 @@ for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
  if args.solver_comparison and p.name=='game_physics.gen.cpp':
   assert s.count('TYRA_PHYSICS_SOLVER_VU0 != 0')==1
   s=s.replace('TYRA_PHYSICS_SOLVER_VU0 != 0','CB::solverArm == 2')
+  s='#define TYRA_PHYSICS_PREPARED 1\n'+s # qualify both opt-in backends regardless of shipped default
  if args.solver_comparison:
   marker='  // --- 4.';pos=s.index(marker,s.index('void TerrainGame::updateObjectPhysics'))
   s=s[:pos]+'  { CB::SolverScope solverScope;\n'+s[pos:]

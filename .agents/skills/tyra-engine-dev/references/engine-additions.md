@@ -67,3 +67,12 @@ are `tools/verify-collision-{broad-phase,bvh,geometry}.cpp`. No rotational CCD.
 Measured PS2 dead end: packed-to-quadword VU0 collision transforms including staging/copy were 43.6% slower at 8 points and 12.2% slower at 24. Scalar remains default; do not re-enable by assuming vector arithmetic wins. See docs/physics.md for the gate.
 
 `BroadPhase` owns an optional compact moving-object grid; its entries are submitted as static to prevent recursive subdivision into further dynamic indexes. Static grid reconstruction is skipped when only movers changed. Queries merge mapped moving indices and preserve ascending, unique scene-object order.
+
+Prepared solver experiment: `physics/contact_solver.hpp` stores 112-byte bodies
+and 128-byte contacts with explicit quadword-aligned allocation. It caches
+normal angular responses and lazily computes six symmetric response coefficients
+for nonzero friction. `TYRA_PHYSICS_PREPARED=0` preserves the prior default;
+set 1 and optionally `TYRA_PHYSICS_SOLVER_VU0=1` to test the compact paths.
+Physical PS2 data in docs/prepared-contact-solver.md show lower dense-contact
+solver cost but mixed whole-frame FPS. Do not enable it globally on kernel
+arithmetic or per-contact ratios alone; include packing and preparation.

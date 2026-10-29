@@ -143,3 +143,9 @@ packing, all 6+3 passes and copying solved velocities back, excluding detection.
 The analyzer reports solver mean/p95 and aggregate microseconds per contact;
 contact populations/trajectories can still differ between arms. Malformed CSV
 rows or solver scopes exceeding whole physics time are rejected.
+
+The prepared solver is opt-in in stock code generation. The comparison rig
+forces `TYRA_PHYSICS_PREPARED=1` only for its candidate translation unit and
+selects scalar/VU0 per arm; it must not silently benchmark the prior default
+three times. The final lazy/direct response report is linked from
+[the solver experiment](../../docs/prepared-contact-solver.md).

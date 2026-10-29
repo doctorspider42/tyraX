@@ -80,3 +80,10 @@ alignment. Full-game timing uses `collision_stress.py --solver-comparison`
 with baseline 2ed7cb6f7: 42 phases, three arms, reversed order on repeat. Pass
 `--solver-comparison --complete` to the analyzer. No collider/friction/inertia
 or timestep simplifications are allowed in this comparison.
+
+The solver rig forces `TYRA_PHYSICS_PREPARED=1` in its candidate translation
+unit, independently of the shipped prior-solver default. Qualify the default
+integration with a fresh stock code generation/native build too. The final
+lazy-response fixture source is b8bd7f719; its 42-phase report includes the
+entire preparation/copy-back scope. Preserve both repeats and report whole
+FPS alongside solver cost: +128 VU0 had cheaper solves but lower FPS.

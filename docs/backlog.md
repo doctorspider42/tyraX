@@ -2182,18 +2182,16 @@ with many awake bodies inside a large mesh is the case to time first.
 
 ### Rigid bodies: what the 1.123 solver leaves out (docs/physics.md, "Limits")
 
-The hull solver shipped with corner-only contacts, no warm starting and no
-editor preview. In order of what a player would notice: (1) **measure it on a
-physical PS2** - the only numbers are PCSX2's, and the EE data cache changes
-the per-contact cost; (2) **warm-start** the world contacts keyed by hull
-corner (a per-body array of 24 accumulated impulses) so a stack of awake
-bodies stops jittering before it sleeps; (3) **edge-edge contacts** for two
-hulls crossing like an X (a SAT pass on the pair's edge cross products, run
-only when the corner tests found nothing and the bounding spheres overlap);
-(4) a **baked hull for animated models** from the bind pose instead of the
-AABB box; (5) an **editor "simulate" preview** - `physhull` is host-only, the
-solver is not yet, and a host twin would need the oracle treatment the static
-batcher got (`verify-batch-twins.py`).
+Physical-console contact/solver measurements and crossed-edge hull contacts
+are implemented; see [collision stress results](collision-stress-results.md)
+and the [prepared solver experiment](prepared-contact-solver.md). The latter
+compares compact scalar and VU0 updates without reducing contacts or iterations.
+Remaining work: (1) **warm starting with stable contact identities**, including
+world and body-pair contacts, to improve convergence and sleep stability;
+(2) a **baked hull for animated models** from the bind pose instead of the
+AABB box; (3) an **editor simulation preview**. The prepared solver has an
+independent host oracle, but the full game integration and contact generation
+would also need host twins before preview could share the complete simulation.
 
 ### Particle library: what 1.124 / 1.133 leave out (docs/particles.md, "Limits")
 
