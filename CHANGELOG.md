@@ -8,6 +8,56 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.8.0
+
+- **Script debugger.** Stop the game on a line of a C++ script, step through it, read and change its locals and fields, from VS Code (F5) or any GDB. Open the project in VS Code and press F5: an open editor switches the debugger on, builds and runs the game, and with no editor open F5 does it headless (it asks before turning the debugger on). Change a script and press F5 again: it saves, rebuilds and restarts the game before attaching. The run button at the top right of a script does the same, in place of the C/C++ extension's "build and debug active file". Saving changed code while debugging shows that the game runs older code, and Restart rebuilds and starts it again. The editor checks that the game it serves is the build it has: a different game on PCSX2's PINE slot, or an old build still running, is named instead of debugged. *Build > Debug Scripts in VS Code* does the same from the editor, and the switch sits with the other live tools in Preferences. A **GDB** chip in the toolbar shows when it is ready, attached or stopped. It works in a stock PCSX2: the game carries a small breakpoint handler and the editor talks to it through PCSX2's PINE socket. Debug builds only; your scripts compile unoptimised while it is on so lines and variables match the source, and a release build carries none of it. Stepping is fast: a step over a line (F10) takes about a tenth of a second. New CLI: `--debug-run` (build, run, serve) and `--debug-serve` (serve a game you launched). See `docs/script-debugger.md`.
+- **The VS Code extension is now "TyraX"** (`doctorspider.tyrax`, version 0.5.0), published on the Visual Studio Marketplace by every release that bumps its version. It adds the `tyrax` debug type and a *TyraX: Debug Game in PCSX2* command. The editor replaces the old `tyrax.tyrax-flownode` install, no longer reinstalls an up-to-date or newer copy every session, and finds VS Code when `code` is not on PATH (a fresh macOS install). The previous package was missing the menu-stylesheet language; this one has every language.
+- Fixed the editor's ELF reader looking up symbol names in the wrong section, so no symbol was ever found by name.
+- Fixed a project that owns a `script.hpp` from before the script API no longer compiling once a graph used Play Sound, Raycast, Random, events or Call Script. The graphs fall back to their own implementations there.
+- Fixed `double`, `short`, `long` and `unsigned` public fields failing to compile.
+- Detaching a script now keeps its field values; attaching it back restores them. Values kept from a detached script no longer load sounds or create events.
+
+## 2.7.0
+
+- **Script cookbook.** `docs/script-cookbook.md` has a short working example for every script API helper, every kind of public field and every callback. The new **script-cookbook** example is the same material as a level you can walk through, one station per topic, each configured through public fields in Properties.
+- Scripts that move objects every frame are fast now. Moving an object from a script puts it on the cheap per-object matrix path instead of rebuilding its mesh every frame: the cookbook level went from 12.5 to 50 FPS in PCSX2. Setting the colour or scale an object already has costs nothing.
+- An event typed into a script's event field in Properties now exists like one a graph names, and a sound picked in a sound field loads with the object's scene.
+- **Redesigned script panels.** *Properties > Scripts* shows each attached script as a card that folds, with the class's file and line, its description (the comment above the class), how many fields this object sets, and buttons to open the class in VS Code, show it on the *Scripts* page, reset all fields or detach it. A set field is marked with a dot and a reset arrow.
+- **Add script** (`Ctrl+Shift+A`) replaces the attach combo with a searchable picker: filter by name, description or file, narrow to one extension or to the scripts this scene uses, see each class's fields before attaching, and attach with `Enter`.
+- The **Scripts** page folds into Object scripts, Global scripts, Flow graphs, VU programs and Extensions, with filter chips and an *Unused* filter. Clicking an object under a class now selects it and frames it in the viewport instead of opening its (usually empty) flow graph, and a class name opens its file at the class.
+- Fixed a debug-build assert when the Debugger's watch table hid its Kind column in a narrow dock.
+- **Redesigned New Script.** It says what you are making: *Object script* (attached to objects, one copy each) or *Global script* (one for the whole game, every frame, every scene), as cards, with the file and class the name makes and the first lines of the stub. VU1 programs and VU0 kernels sit behind a *Vector unit programs* fold, since they are not game logic. The button names what it makes (*Create object script*, *Create and attach* from Properties), and *Open in VS Code* opens the new file. The *Scripts* page has *New global script...* under its Global scripts section.
+- **One scripting example.** **script-framework** is merged into **script-cookbook** as row G, "Script extensions": the Essentials extension (spinner, bobbers, follower, coins, a door that a graph opens with *Call Script*) and **Checkpoints**, an extension written in the project as a how-to: a `Checkpoint` script configured through fields and a *Checkpoints Done* flow node whose C++ reads the script's state. The README walks through building it. The cookbook's ground is now 80 x 160, so rows F and G stand on it.
+- The **script-demo** example is removed; the README and the start page point to **showcase** to start, and to **script-cookbook** for scripts.
+
+## 2.6.0
+
+- **Script extensions.** A folder under `src/extensions/` holding scripts, helpers and custom flow nodes, with an `extension.json`, moves between projects as a copy and builds with no setup. *Project > Scripts > Extensions* lists them and can create a new one, install one from a folder, or remove one; the CLI has `--new-extension`, `--install-extension` and `--list-extensions`. Portable code writes `TYRAX_NAMESPACE_BEGIN` / `TYRAX_NAMESPACE_END` instead of the project's namespace, and a custom node can name its own C++ header with `include =`. See `docs/script-extensions.md`.
+- **Essentials**, the first extension, ships in `extensions/essentials`: Rotator, Bobber, Follower, LookAtPlayer, ProximityTrigger, AreaRelay, Collectible, SwingDoor and Spawner, each configured through public fields, plus a *Player Near* flow node.
+- New example **script-framework**: Essentials on a small course, configured per object, with a door that a flow graph opens through *Call Script*.
+
+## 2.5.0
+
+- **More object-script callbacks.** `onEvent` (any script's `tyrax::sendEvent` or a graph's *Send Event*), `onPlayerEnter` and `onPlayerExit` on Area objects, `onAnimationFinished`, `onActivated` and `onDeactivated` when a streaming layer unloads or loads the object, `onLateUpdate` after every script's update, and `onSceneEnd` before the scene is left.
+- **Scripts can find each other.** `tyrax::getScript<Door>(object)`, `tyrax::findScript<GameManager>()` and `tyrax::findScripts<Enemy>(...)`. `onStart` now runs once every script of the scene exists, so these work there too.
+- **Flow graphs can call scripts.** Register a method with `TYRA_SCRIPT_METHOD(Door, open);` and the new **Call Script** node (under *Events*) lists `Door.open` and runs it on the target object's script.
+
+## 2.4.0
+
+- **Public script fields.** Mark a member of an object script with `[[tyra::prop]]` and it appears under the script in *Properties > Scripts*. Every object the script is attached to can set its own value: numbers with sliders, checkboxes, choices, vectors, colours, text, another object of the scene, or a sound, event, scene, input action, save value, prefab, HUD item, sequence or menu from your project. The values are written in before `onStart`, and a field you leave alone keeps the default from your code. Options: `min`, `max`, `tooltip`, `header`, `options = "A|B|C"` and `color`. See `docs/script-api.md`. Projects are saved as format 125.
+
+## 2.3.0
+
+- **Script API.** Scripts get a C++ library, `tyrax::`, that does everything the flow-graph nodes do, plus the helpers a programmer expects. An object script's own object is now `object`, so `object.moveBy(...)`, `object.lookAt(...)` and `object.playAnimation(...)` set the rebuild and wake-up flags for you. Also included: raycasts against the real, rotated collision boxes (`tyrax::raycast`) and the Raycast node's "what am I looking at" (`tyrax::raycastFromPlayer`), `findNearest`, `overlapSphere`, `lineOfSight`, sounds and music, camera shake and fades, the HUD, save values, World Facts, scene switching, layers, sequences and prefabs, input through the Input Map's actions, vectors, easing curves, random numbers, timers and cooldowns. See `docs/script-api.md`.
+- **Your project's names as typed constants.** `tyrax::Sounds::Door`, `tyrax::Scenes::Level2`, `tyrax::Objects::Main::Gate`, `tyrax::Actions::Jump` and so on are generated from the project: a typo is a compile error and VS Code lists what exists.
+- **Scripts and flow graphs share events, voices and randomness.** `tyrax::sendEvent(tyrax::Events::Alarm)` fires a graph's *On Event*, and a graph's *Send Event* reaches scripts. Naming an event in a script creates it. Scripts and graphs also share one sound priority table and one random sequence, so they no longer compete for voices. Sound effects a script plays stay loaded.
+- New scripts start from a stub that shows the API.
+
+## 2.2.0
+
+- **Choose your game's C++ standard.** *Project > Preferences > Build & debug > Advanced > Compiler* switches between C++17, C++20 and C++23. C++20 is the default, also for existing projects, which used to compile as C++17. VS Code IntelliSense follows the same choice. C++23 needs the native toolchain or the from-source Docker image.
+- **Extra compiler and linker flags.** The same page takes flags appended to your game's compile and link commands, after the engine's own, so `-O2` or `-Wextra` take effect. For anything more, such as per-profile flags, extra libraries or your own rules, add a `user.mk` to the project root: the editor never touches it and the build includes it. Changing either rebuilds the game. Projects are saved as format 124.
+
 ## 2.1.1
 
 - The release notes on GitHub, and in the editor's update dialog, are now this changelog's entry for the version instead of a bare "Full Changelog" link.

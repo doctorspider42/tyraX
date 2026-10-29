@@ -19709,6 +19709,75 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
   return sweepTerrain(s, best);
 }
 
+#if defined(TYRAX_HAS_WORLD_SWEEP)
+// sweepSphere, remembering the object whose box shortened the sweep last -
+// the nearest one, since each narrow phase only ever brings `best` closer.
+float TerrainGame::worldSweep(float px, float py, float pz, float dx, float dy,
+                              float dz, float maxDist, float radius,
+                              int skipIndex, int* hitObj) const {
+  const SweepSeg s = sweepSegment(px, py, pz, dx, dy, dz, maxDist, radius);
+  float best = maxDist;
+  int hit = -1;
+  const float a[3] = {px, py, pz};
+  const float b[3] = {px + dx * maxDist, py + dy * maxDist, pz + dz * maxDist};
+  broadPhaseAlong(a, b, radius, bpNearSweep);
+  for (int oi : bpNearSweep) {
+    if (oi == skipIndex) continue;
+    const float t = sweepObject(s, oi, best);
+    if (t < best) {
+      best = t;
+      hit = oi;
+    }
+  }
+  // The terrain on a finer march than sweepTerrain's: that one takes eight
+  // steps over the whole boom and keeps the near side of the bracket, which is
+  // what a camera wants and 0.16 u short on a 20 u probe, where a script asks
+  // for the ground's height. 0.5 u steps, then a bisection to ~1 mm.
+  float prev = 0.0F;
+  for (float t = 0.5F; t < best + 0.5F; t += 0.5F) {
+    const float tt = t < best ? t : best;
+    if (py + dy * tt - radius <= terrainHeightAt(px + dx * tt, pz + dz * tt)) {
+      float lo = prev, hi = tt;
+      for (int k = 0; k < 10; ++k) {
+        const float mid = (lo + hi) * 0.5F;
+        if (py + dy * mid - radius <= terrainHeightAt(px + dx * mid, pz + dz * mid))
+          hi = mid;
+        else
+          lo = mid;
+      }
+      best = hi;
+      hit = -1;  // the ground came first
+      break;
+    }
+    prev = tt;
+    if (tt >= best) break;
+  }
+  if (hitObj) *hitObj = hit;
+  return best;
+}
+
+#if defined(TYRAX_SCRIPT_API)
+// Hands the sweep to the script API (tyrax::raycast) at static-init time;
+// g_animGame is the live game, set in buildScene before any script runs.
+namespace {
+float tyraxWorldSweepThunk(float px, float py, float pz, float dx, float dy,
+                           float dz, float maxDist, float radius, int skip,
+                           int* hitObj) {
+  if (!g_animGame) {
+    if (hitObj) *hitObj = -1;
+    return maxDist;
+  }
+  return g_animGame->worldSweep(px, py, pz, dx, dy, dz, maxDist, radius, skip,
+                                hitObj);
+}
+const bool g_tyraxWorldSweepRegistered = []() {
+  tyrax::detail::g_worldSweep = &tyraxWorldSweepThunk;
+  return true;
+}();
+}  // namespace
+#endif
+#endif
+
 
 
 // Dispatcher: walk P1 (and P2 while active) from their pads, then compose the

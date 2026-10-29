@@ -44,7 +44,7 @@ Read when: you use a headless verb beyond `--new`/`--build`, verify a bake (GI, 
 - `--new` writes every generated file; `--refresh-gen` refreshes `inc/scene_data.hpp`, `src/gen/flow_graph.gen.cpp`, etc. for an existing project.
 - Ownership (tyra-editor-dev): `.gen.*` + `scene_data.hpp` always rewritten; `terrain_game.cpp`/`controls.hpp`/`script.hpp` regenerate only while their marker line is intact — stale-looking there may be user-owned by design.
 - Test a specific graph/scene shape by editing `<name>.tyra` directly (source of truth; stale undo in `<name>.history` is discarded), refresh, inspect.
-- `examples/script-demo/` is a checked-in generated project — only as fresh as its last regeneration; regenerate before using as a diff baseline. All examples' generated files drift silently.
+- Every `examples/*/` (e.g. `examples/cube/`) is a checked-in generated project — only as fresh as its last regeneration; regenerate before using as a diff baseline. All examples' generated files drift silently.
 - Codegen harness: scratch `main()` building a `Project`, calling `templates::generate()`, asserting on strings (`project.cpp`, `templates.cpp`, `json.cpp` have no ImGui/GLFW deps). Keep harnesses in the scratchpad. Link recipes: host-harnesses.md.
 - A new generated file must join `refreshGenerated`'s allowlist, not only the `--new` scaffold (`inc/bag_array.gen.hpp` was missing → every existing project failed to compile; same shape as the `live_pad.gen.cpp` mistake).
 

@@ -415,11 +415,14 @@ makes an attached snapshot *late*, never absent.
 
 - [live-link.md](live-link.md) — the opposite direction (edits into the game),
   and the channel this rides on.
+- [script-debugger.md](script-debugger.md) — the same idea for C++ scripts:
+  GDB / VS Code breakpoints, stepping and locals, in PCSX2.
 - [object-scripts.md](object-scripts.md), [custom-flow-nodes.md](custom-flow-nodes.md)
   — the other halves of the scripting story.
-- `examples/script-demo` is a good playground: open it, set the build profile to
-  debug (the top bar's build profile pill, left of PCSX2 | PS2), and press F5 — the
-  panel's tab comes forward by itself.
+- `examples/script-cookbook` is a good playground: its scripts log every
+  station's reaction. Open it, set the build profile to debug (the top bar's
+  build profile pill, left of PCSX2 | PS2), and press F5 — the panel's tab
+  comes forward by itself.
 
 The **Render cost** tab captures synchronized phase and object timings on demand,
 with baseline deltas and CSV export. See [profiling](profiling.md#on-demand-render-cost-178).

@@ -162,6 +162,8 @@ tools/toolchain/*
 !tools/toolchain/native-build.ps1
 !tools/toolchain/native-build.sh
 !tools/toolchain/machorelink.c
+!tools/toolchain/gdb-relay.c
+!tools/toolchain/gdb-relay.sh
 !tools/toolchain/bin2s/
 !tools/toolchain/bin2s/bin2s.c
 !tools/toolchain/bin2s/LICENSE

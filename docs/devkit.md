@@ -154,6 +154,7 @@ a detector nobody has seen fire is not a detector.
 | [Live Link](live-link.md) | Streams object transforms and simple property edits |
 | [Live Logic](live-logic.md) | Hot-patches compatible flow-graph changes |
 | [Live Debugger](live-debugger.md) | Breakpoints, stepping, counters and watches |
+| [Script debugger](script-debugger.md) | GDB / VS Code breakpoints, stepping and locals in C++ scripts (PCSX2 only) |
 | [Time Machine](time-machine.md) | Captures and restores recent game state |
 | [Remote Pad](remote-pad.md) | Drives pad 1 or 2 without window focus |
 | [Input recorder](input-replay.md) | Records a play session and performs it again |

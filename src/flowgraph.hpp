@@ -147,6 +147,9 @@ enum class FlowParamKind {
     // free one. "" is fixed so a graph written before this existed is
     // unchanged. A closed list, not a project lookup - see saveSlotModes().
     SaveSlotMode,
+    // "Class.method" of an object script's TYRA_SCRIPT_METHOD (the Call Script
+    // node), picked from what the editor scans in src/scripts.
+    ScriptMethod,
 };
 
 // The SaveSlotMode choices. Order is cosmetic; the KEY is what a graph stores.
@@ -2469,6 +2472,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // On Update, which is both slower and impossible to read as intent.
         // Delivery is deliberately ONE FRAME later and uniform for every
         // receiver - see the desc.
+        // Graph -> script: runs a method an object script exposes with
+        // TYRA_SCRIPT_METHOD (docs/script-api.md, "Flow graphs and scripts").
+        {.key = "CallScript", .title = "Call Script", .category = "Events",
+         .strKind = FlowParamKind::ScriptMethod,
+         .strTip = "Class.method - a method an object script registered with "
+                   "TYRA_SCRIPT_METHOD(Class, method) in src/scripts.",
+         .idIn = true,
+         .desc = "Runs a method of the object script attached to the target "
+                 "object (wired object, or this graph's own object): the way a "
+                 "graph hands work to C++ - open the door the script animates, "
+                 "fire the turret, reset the puzzle. Nothing happens when the "
+                 "target does not carry that script. Scripts talk back with "
+                 "tyrax::sendEvent, which every On Event hears."},
         {.key = "SendEvent", .title = "Send Event", .category = "Events",
          .strKind = FlowParamKind::EventName,
          .strTip = "The event's name - free text that exists by being used. Use "
@@ -2564,6 +2580,12 @@ struct CustomFlowNode {
     std::string numTipStore[4];
     std::string strTipStore;
     std::string sourceFile;  // absolute path of the .flownode file (diagnostics)
+    // `include = file.hpp`: a header beside the .flownode's folder (an
+    // extension's own C++, docs/script-extensions.md) that the generated
+    // flow graph includes - where a `call = fn` node's function lives when it
+    // is not in inc/scripts/flow_nodes.hpp. Absolute path, "" = none.
+    std::string includeFile;
+    std::string extension;  // the extension folder that shipped it, "" = the project's own
     FlowNodeType type{};     // char* fields point into the strings above
 };
 
@@ -2770,6 +2792,7 @@ inline const char* flowStrLabel(const FlowNodeType& t) {
         case FlowParamKind::EventName: return "Event";
         case FlowParamKind::FactName: return "Fact";
         case FlowParamKind::FactQueryName: return "Query";
+        case FlowParamKind::ScriptMethod: return "Method";
         default: return "";
     }
 }

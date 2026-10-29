@@ -969,6 +969,13 @@ struct SceneObject {
     // instance in the game (Unity-style components); the same class can be
     // attached to any number of objects across scenes.
     std::vector<std::string> scripts;
+    // Values for the attached scripts' public fields ([[tyra::prop]],
+    // docs/script-api.md): class -> field -> value text (scriptprops.hpp says
+    // the form per kind). Only fields set away from the script's default are
+    // here; a class can be attached once per object, so the class is the key.
+    // Entries outlive a detach or a renamed field on purpose - the value comes
+    // back when the script does - and the editor offers to clear them.
+    std::map<std::string, std::map<std::string, std::string>> scriptProps;
 
     // The four numbers this mesh hands to the project's own VU1 microprogram
     // (docs/vu-authoring.md). A custom program replaces a whole MATERIAL CLASS
@@ -1690,6 +1697,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.meshLodOverride == b.meshLodOverride &&
            a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
+           a.scriptProps == b.scriptProps &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
            a.roadPoints == b.roadPoints && a.roadHeights == b.roadHeights &&
            a.roadWidth == b.roadWidth && a.roadSampleStep == b.roadSampleStep &&
@@ -1718,6 +1726,22 @@ struct ProjectSettings {
     // "debug" (you author with Live Link, then switch to release for the disc).
     std::string videoSystem = "auto";      // "auto" | "ntsc" | "pal"
     std::string buildProfile = "release";  // "release" | "debug"
+
+    // The C++ dialect the game's OWN sources compile in (the generated
+    // Makefile's -std=gnu++NN; the prebuilt engine keeps its own). "c++17" |
+    // "c++20" | "c++23". C++20 is also what every project that predates the
+    // key gets: until it existed nothing passed -std, so games compiled as the
+    // compiler's default gnu++17, and they all build unchanged as C++20.
+    // C++23 needs GCC 15 (the native toolchain, or the from-source Docker
+    // image); the default h4570/tyra image is GCC 11.3 and knows only C++2b.
+    std::string cppStandard = "c++20";
+    // Free-form flags appended to the game's compiler (CFLAGS) and linker
+    // (LINKFLAGS) command lines, both profiles. Only the game's sources see
+    // them - the engine library is shared by every project of a checkout.
+    // Profile-specific or structural additions belong in the project's own
+    // user.mk, which the generated Makefile includes when it exists.
+    std::string extraCompilerFlags;
+    std::string extraLinkerFlags;
 
     // Output scan mode. "interlaced" is the stock 480i/576i signal (follows
     // videoSystem). "interlaced-field" is the same signal with true field
@@ -1916,6 +1940,13 @@ struct ProjectSettings {
     // the moment it goes in, so this needs a real console (or a hand-written
     // exception stub) before it can be the default - see docs/devkit.md.
     bool eeCrashHandler = false;
+
+    // Debug profile only, off by default: the script debugger
+    // (docs/script-debugger.md). The game carries a BREAK handler, the
+    // project's own scripts compile at -O0, PCSX2 starts with PINE on and the
+    // editor serves GDB for the running game - so VS Code (or any GDB) can stop
+    // on a line of a script, step and read locals. PCSX2 only.
+    bool scriptDebugger = false;
 
     // USB keyboard & mouse controls: the game loads the usbd/ps2kbd/ps2mouse
     // drivers and maps keys/mouse onto a virtual pad (bindings live in the
@@ -2498,9 +2529,9 @@ struct ProjectSettings {
 // std::string against libstdc++'s 32, so both are listed - update BOTH when a
 // field lands (a Mac build prints the libc++ one in the same message).
 #if defined(_LIBCPP_VERSION)
-static_assert(sizeof(ProjectSettings) == 816,
+static_assert(sizeof(ProjectSettings) == 888,
 #else
-static_assert(sizeof(ProjectSettings) == 912,
+static_assert(sizeof(ProjectSettings) == 1008,
 #endif
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
@@ -2527,6 +2558,9 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
+           a.cppStandard == b.cppStandard &&
+           a.extraCompilerFlags == b.extraCompilerFlags &&
+           a.extraLinkerFlags == b.extraLinkerFlags &&
            a.textureQuant == b.textureQuant &&
            a.textureAtlas == b.textureAtlas &&
            a.textureFilter == b.textureFilter &&
@@ -2554,6 +2588,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.remotePad == b.remotePad &&
            a.inputRecorder == b.inputRecorder &&
            a.eeCrashHandler == b.eeCrashHandler &&
+           a.scriptDebugger == b.scriptDebugger &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
            a.disableVsync == b.disableVsync &&

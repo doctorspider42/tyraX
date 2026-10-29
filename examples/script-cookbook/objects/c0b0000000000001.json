@@ -1,0 +1,1 @@
+{"id": "c0b0000000000001", "name": "a-ease-linear", "type": "sphere", "position": [-8, 0.4, 6], "rotation": [0, 0, 0], "scale": [0.6, 0.6, 0.6], "color": [0.25, 0.55, 1.0], "physics": false, "scripts": ["EaseShowcase"], "scriptProps": {"EaseShowcase": {"curve": "0", "height": "2", "period": "1.5"}}}

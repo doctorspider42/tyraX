@@ -1,0 +1,6 @@
+{
+  "name": "Checkpoints",
+  "version": "0.1.0",
+  "description": "Checkpoints reached in order - a Checkpoint object script with public fields and a Checkpoints Done flow node. Written inside the script-framework example as the how-to for your own extension.",
+  "author": "TyraX examples"
+}

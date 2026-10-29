@@ -1225,14 +1225,47 @@ void installDesktopEntry(const std::string& appId, const std::string& appName,
 #endif
 }
 
+std::string vscodeCli() {
+    if (commandExists("code")) return "code";
+    // Not on PATH: where the installers put it. macOS is the usual case - its
+    // `code` command exists only after "Shell Command: Install 'code' command
+    // in PATH", which a fresh install has not run - but a Windows install
+    // without the PATH option ticked, or a Linux .tar.gz, lands here too.
+    std::vector<fs::path> candidates;
+#ifdef _WIN32
+    if (const char* la = std::getenv("LOCALAPPDATA"))
+        candidates.push_back(fs::path(la) / "Programs" / "Microsoft VS Code" / "bin" / "code.cmd");
+    for (const char* env : {"ProgramFiles", "ProgramFiles(x86)"})
+        if (const char* pf = std::getenv(env))
+            candidates.push_back(fs::path(pf) / "Microsoft VS Code" / "bin" / "code.cmd");
+#elif defined(__APPLE__)
+    const char* app = "Visual Studio Code.app/Contents/Resources/app/bin/code";
+    candidates.push_back(fs::path("/Applications") / app);
+    if (const fs::path home = homeDir(); !home.empty())
+        candidates.push_back(home / "Applications" / app);
+#else
+    candidates = {"/usr/share/code/bin/code", "/snap/bin/code",
+                  "/var/lib/flatpak/exports/bin/com.visualstudio.code"};
+    if (const fs::path home = homeDir(); !home.empty())
+        candidates.push_back(home / ".local" / "share" / "flatpak" / "exports" / "bin" /
+                             "com.visualstudio.code");
+#endif
+    for (const fs::path& c : candidates) {
+        std::error_code ec;
+        if (fs::exists(c, ec)) return shellArg(c.string());
+    }
+    return "";
+}
+
 std::string openInVSCode(const std::string& projectDir, const std::string& absFile) {
-    if (!commandExists("code"))
-        return "Could not launch VS Code - is the 'code' CLI on PATH? "
+    const std::string code = vscodeCli();
+    if (code.empty())
+        return "Could not find VS Code - install it, or put its 'code' CLI on PATH "
                "(VS Code: Shell Command: Install 'code' in PATH)";
     // Passing the project dir opens (or reuses) that workspace; an extra file
     // path opens it in the same window (-g = goto), so we can jump straight to
     // a script or a custom-node file while keeping the whole project in view.
-    std::string cmd = "code " + shellArg(projectDir);
+    std::string cmd = code + " " + shellArg(projectDir);
     if (!absFile.empty()) cmd += " -g " + shellArg(absFile);
     if (!Process::startDetached(cmd, projectDir)) return "Could not launch VS Code.";
     return "";

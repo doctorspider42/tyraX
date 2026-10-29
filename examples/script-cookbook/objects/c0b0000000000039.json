@@ -1,0 +1,1 @@
+{"id": "c0b0000000000039", "name": "e-lifecycle-zone", "type": "area", "position": [8, 2, 38], "rotation": [0, 0, 0], "scale": [4, 4, 4], "color": [0.3, 0.8, 0.5], "physics": false, "scripts": ["LifecycleLogger"]}

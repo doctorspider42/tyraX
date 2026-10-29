@@ -1,0 +1,1 @@
+{"id": "c0b0000000000013", "name": "b-transform-tour", "type": "box", "position": [0, 0.5, 13], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.4, 0.7, 1.0], "physics": false, "scripts": ["TransformTour"], "scriptProps": {"TransformTour": {"stepSeconds": "1.2"}}}

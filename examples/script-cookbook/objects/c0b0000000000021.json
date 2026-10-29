@@ -1,0 +1,1 @@
+{"id": "c0b0000000000021", "name": "c-crate-1", "type": "box", "position": [-10, 0.5, 20], "rotation": [0, 0, 0], "scale": [0.7, 0.7, 0.7], "color": [0.7, 0.5, 0.3], "physics": true, "physMass": 1, "physBounce": 0.3, "physFriction": 0.5, "physTumble": true, "physSleep": 2}

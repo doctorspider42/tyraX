@@ -175,6 +175,56 @@ OpenVCL, vclpp and bin2s trees as the native backend and runs the OpenVCL tests,
 so fallback does not mean a second compiler implementation. The inherited
 `docker/Dockerfile` remains solely as the Sony-vcl A/B reference.
 
+## C++ standard and compiler flags
+
+The C++ dialect your game compiles in is a project setting: *Project >
+Preferences > Build & debug > Advanced > Compiler > C++ standard* picks C++17,
+**C++20** (the default) or C++23. The generated `Makefile` passes it as
+`-std=gnu++17`, `-std=gnu++20` or `-std=gnu++2b`. These are the GNU dialects,
+because the engine and PS2SDK headers use GNU extensions. The same choice goes
+into `.vscode/c_cpp_properties.json`, so IntelliSense flags exactly what the
+compiler would.
+
+![Project Preferences > Build & debug > Advanced > Compiler: C++23 picked, with extra compiler and linker flags](img/compiler-preferences.png)
+
+| Backend | Compiler | C++20 | C++23 |
+|---|---|---|---|
+| Native (default) | GCC 15.2 | full | nearly full (`std::expected`, `std::print`, deducing `this`) |
+| Docker, `docker/Dockerfile.fromsource` | GCC 15.2 | full | nearly full |
+| Docker, default `h4570/tyra` image | GCC 11.3 | nearly full (no `std::format`) | not usable |
+
+Projects saved before format 124 have no `cppStandard` key and build as C++20.
+Before that, the Makefile passed no `-std` at all, so games compiled as the
+compiler's default `gnu++17`. The engine library (`libtyra`) keeps its own
+flags: one build of it is shared by every project of a checkout. Mixing it with
+a game in another standard is safe because both use the same `libstdc++`.
+
+*Extra compiler flags* and *Extra linker flags* on the same page are appended
+to the game's `CFLAGS` and `LINKFLAGS`, in both profiles. They come **after**
+the engine's own `-O3 -Wall`, so `-O2`, `-Wextra` or `-Wno-...` typed there
+take effect. They apply to your game's sources only. Do not remove `-G0` from
+the engine's flags: without it the link fails on `R_MIPS_GPREL16`
+relocations. `-ffast-math` changes floating-point results, which can make
+baked data and input replays (`--replay`) disagree with the game.
+
+Anything beyond a flag goes in **`user.mk`** in the project root. The editor
+never generates or overwrites it, and the `Makefile` includes it last when it
+exists, so it can append to `CFLAGS`, `LINKFLAGS`, `LIB` and `INC`, and add
+rules of its own. `$(TYRAX_PROFILE)` is `debug` or `release`:
+
+```make
+# user.mk - yours, never regenerated
+ifeq ($(TYRAX_PROFILE),release)
+CFLAGS += -DMY_SHIPPING_BUILD
+endif
+LIB += -lmylib
+```
+
+Editing `user.mk`, or changing a flag or the standard, recompiles the whole
+game on the next build, because every object file depends on `Makefile` and
+`user.mk`. The native backend and the Docker fallback both read the same
+`Makefile`, so the settings behave the same in both.
+
 ## Incremental builds
 
 On Windows, native builds mirror the installed toolchain and generated project

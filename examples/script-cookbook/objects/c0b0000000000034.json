@@ -1,0 +1,1 @@
+{"id": "c0b0000000000034", "name": "d-event-button", "type": "cylinder", "position": [4, 0.25, 30], "rotation": [0, 0, 0], "scale": [1, 0.5, 1], "color": [1, 0.5, 0.1], "physics": false, "usable": true, "scripts": ["EventButton"], "scriptProps": {"EventButton": {"event": "CookbookPing"}}}

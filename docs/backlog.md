@@ -4,6 +4,28 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Script debugger: what is left (2026-10-28)
+
+The script debugger (docs/script-debugger.md) is measured end to end on Windows:
+GDB batch and MI, and cpptools' own debug adapter over DAP (breakpoint, locals,
+step, Pause, disconnect, reconnect). Still owed:
+
+- **The first publish of `doctorspider.tyrax`**: every release runs
+  `.github/workflows/vscode-extension.yml` with the Marketplace's Trusted
+  Publishing (policies in place, never used yet). Open VSX is left out for now.
+- **Linux and macOS**: the native-GDB path (no relay), PINE over the Unix socket
+  (`$XDG_RUNTIME_DIR` / `$TMPDIR`), and the flatpak PCSX2's socket directory are
+  written but not run.
+- **Step speed** is ~0.1 s per F10 (range stepping, batched PINE). What is left
+  is PCSX2 pacing (~10 ms to reach the next trap) and GDB/cpptools re-reading
+  (~30-60 ms); stepping over calls inside the server (instead of GDB's
+  breakpoint-at-return round trip) would save one stop per call.
+- **Detach while running** prints a cpptools warning (`-target-detach` refused
+  while the target runs); the server cleans up anyway. Interrupting before the
+  detach would silence it.
+- **A pause point outside the script driver** for games that run no object
+  script (and for pause menus): the frame loop itself.
+
 ## Check PS2Link r8 on another console
 
 Startup, game audio, Stop and redeployment passed on an SCPH-70004 booted

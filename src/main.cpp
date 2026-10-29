@@ -21,6 +21,7 @@
 #include "devsession.hpp"
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
+#include "extension.hpp"
 #include "gibake.hpp"
 #include "gigpu.hpp"
 #include "impostorgpu.hpp"
@@ -51,6 +52,7 @@
 #include "staticbatch.hpp"
 #include "texatlas.hpp"
 #include "runner.hpp"
+#include "templates.hpp"
 
 // tyrax-editor.exe --debug-state
 //
@@ -501,6 +503,150 @@ static int buildFromCli(int argc, char** argv) {
     return 0;
 }
 
+// Headless helper: tyrax-editor.exe --debug-run <projectDir> [--no-build] [--rebuild] [--enable]
+// The script debugger without the editor window (docs/script-debugger.md):
+// builds, runs in PCSX2 and serves GDB for the game until the emulator closes.
+// It is what the VS Code extension's F5 starts when no editor is serving the
+// project already. Prints "[gdb] ready on 127.0.0.1:<port>" once GDB can
+// attach. --enable switches the debugger on in the project (and saves it)
+// when it is off - VS Code's F5 asks first, then passes it.
+static int debugRunFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --debug-run <projectDir> [--no-build] [--rebuild] "
+                     "[--enable]\n");
+        return 2;
+    }
+    bool build = true, rebuild = false, enable = false;
+    for (int i = 3; i < argc; i++) {
+        if (std::strcmp(argv[i], "--no-build") == 0) build = false;
+        else if (std::strcmp(argv[i], "--rebuild") == 0) rebuild = true;
+        else if (std::strcmp(argv[i], "--enable") == 0) enable = true;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;
+    if (enable && p.settings.buildProfile == "debug" && !p.settings.scriptDebugger) {
+        p.settings.scriptDebugger = true;
+        if (std::string err = project::save(p); !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        build = true;  // the switch changes the Makefile: the last build has no debugger
+        std::printf("[gdb] turned the script debugger on (the game rebuilds once)\n");
+    }
+    if (!templates::scriptDebugOn(p)) {
+        std::fprintf(stderr,
+                     "error: the script debugger is off for this project - turn on "
+                     "Project > Preferences > Build & debug > Script debugger (debug "
+                     "profile), or Build > Debug Scripts in VS Code in the editor\n");
+        return 1;
+    }
+    Runner runner;
+    if (build) {
+        bakeProcedural(p);
+        bakeStaleGi(p);
+        bakeStaleShadows(p);
+        bakeStalePrelit(p);
+        runner.buildAndRun(p, true, rebuild);
+    } else {
+        runner.runEmulatorOnly(p);
+    }
+    size_t printed = 0;
+    auto flushLog = [&] {
+        std::string log = runner.log();
+        if (log.size() > printed) {
+            std::fwrite(log.data() + printed, 1, log.size() - printed, stdout);
+            std::fflush(stdout);
+            printed = log.size();
+        }
+    };
+    while (runner.busy()) {
+        flushLog();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    flushLog();
+    if (runner.state() != Runner::State::Success) return 1;
+
+    // Serve while the emulator runs; give it a while to show up first.
+    std::unique_ptr<gdbstub::Server> server;
+    gdbstub::State last = gdbstub::State::Failed;
+    std::string lastMsg;
+    bool seen = false;
+    const auto start = std::chrono::steady_clock::now();
+    for (;;) {
+        runner.watchGame(&p);
+        const Runner::GameStatus gs = runner.gameStatus();
+        if (gs.running) seen = true;
+        if (!gs.running && (seen || std::chrono::steady_clock::now() - start >
+                                        std::chrono::seconds(60))) {
+            std::printf("[gdb] the emulator closed - done\n");
+            break;
+        }
+        if (gs.running && !server)
+            server = std::make_unique<gdbstub::Server>(runner.scriptDebugConfig(p));
+        if (server) {
+            const gdbstub::State s = server->state();
+            const std::string msg = server->message();
+            if (s != last || msg != lastMsg) {
+                if (s == gdbstub::State::WaitingForGdb && last != gdbstub::State::Running &&
+                    last != gdbstub::State::Stopped)
+                    std::printf("[gdb] ready on 127.0.0.1:%d\n", server->config().port);
+                std::printf("[gdb] %s: %s\n", gdbstub::stateName(s), msg.c_str());
+                std::fflush(stdout);
+                last = s;
+                lastMsg = msg;
+            }
+            if (s == gdbstub::State::Failed) return 1;
+        }
+        flushLog();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    runner.watchGame(nullptr);
+    return 0;
+}
+
+// Headless helper: tyrax-editor.exe --debug-serve <projectDir> [--pine-slot N]
+// Only the GDB server, for a game somebody else launched (a PCSX2 of your own,
+// a test rig): serves until killed. The game must be a debug build with the
+// script debugger on, and that PCSX2 needs PINE enabled on the given slot.
+static int debugServeFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --debug-serve <projectDir> [--pine-slot N]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    Runner runner;
+    gdbstub::Config cfg = runner.scriptDebugConfig(p);
+    for (int i = 3; i + 1 < argc; i++)
+        if (std::strcmp(argv[i], "--pine-slot") == 0) cfg.pineSlot = std::atoi(argv[i + 1]);
+    gdbstub::Server server(cfg);
+    std::printf("[gdb] serving %s (PINE slot %d, GDB port %d)\n", cfg.elfPath.c_str(),
+                cfg.pineSlot, cfg.port);
+    std::fflush(stdout);
+    gdbstub::State last = gdbstub::State::Failed;
+    std::string lastMsg = "-";
+    for (;;) {
+        const gdbstub::State s = server.state();
+        const std::string msg = server.message();
+        if (s != last || msg != lastMsg) {
+            std::printf("[gdb] %s: %s\n", gdbstub::stateName(s), msg.c_str());
+            std::fflush(stdout);
+            last = s;
+            lastMsg = msg;
+        }
+        if (s == gdbstub::State::Failed) return 1;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
 // Headless helper: tyrax-editor.exe --resave <projectDir>
 // Loads a project and writes it straight back out. On its own it is a no-op for
 // an up-to-date project, but the loader defaults every field the file does not
@@ -700,6 +846,52 @@ static int atlasReportFromCli(int argc, char** argv) {
     std::printf("[atlas] pages=%zu members=%zu excluded=%zu savedKb=%d\n",
                 plan.pages.size(), plan.entries.size(), plan.excluded.size(),
                 v.savedKb);
+    return 0;
+}
+
+// tyrax-editor.exe --list-extensions <projectDir>
+//                  --new-extension <projectDir> <name>
+//                  --install-extension <projectDir> <folder>
+// Script extensions (docs/script-extensions.md), headless: what is installed,
+// a new skeleton, or a folder copied in - the same calls as Project > Scripts
+// > Extensions. Exit 1 on any refusal.
+static int extensionsFromCli(int argc, char** argv) {
+    const std::string verb = argv[1];
+    if (argc < 3 || (verb != "--list-extensions" && argc < 4)) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --list-extensions <projectDir>\n"
+                     "       tyrax-editor --new-extension <projectDir> <name>\n"
+                     "       tyrax-editor --install-extension <projectDir> <folder>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::string err;
+    if (verb == "--new-extension") {
+        err = extension::scaffold(p.dir, argv[3]);
+        if (err.empty())
+            std::printf("created src/extensions/%s\n", extension::folderFor(argv[3]).c_str());
+    } else if (verb == "--install-extension") {
+        std::string folder;
+        err = extension::install(p.dir, argv[3], &folder);
+        if (err.empty()) std::printf("installed src/extensions/%s\n", folder.c_str());
+    }
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    for (const extension::Info& e : extension::list(p.dir)) {
+        std::printf("%s  %s%s%s  sources=%d flowNodes=%d scripts=", e.folder.c_str(),
+                    e.name.c_str(), e.version.empty() ? "" : " v", e.version.c_str(),
+                    e.sources, e.flowNodes);
+        for (size_t i = 0; i < e.objectScripts.size(); ++i)
+            std::printf("%s%s", i ? "," : "", e.objectScripts[i].c_str());
+        if (!e.problem.empty()) std::printf("  PROBLEM: %s", e.problem.c_str());
+        std::printf("\n");
+    }
     return 0;
 }
 
@@ -4782,6 +4974,10 @@ int main(int argc, char** argv) {
         return uiScriptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--build") == 0) return buildFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--debug-run") == 0)
+        return debugRunFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--debug-serve") == 0)
+        return debugServeFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--resave") == 0) return resaveFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--migrate") == 0) return migrateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--list-nodes") == 0)
@@ -4793,6 +4989,10 @@ int main(int argc, char** argv) {
         return batchReportFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--road-crossings") == 0)
         return roadCrossingsFromCli(argc, argv);
+    if (argc > 1 && (std::strcmp(argv[1], "--list-extensions") == 0 ||
+                     std::strcmp(argv[1], "--new-extension") == 0 ||
+                     std::strcmp(argv[1], "--install-extension") == 0))
+        return extensionsFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)
@@ -4831,6 +5031,14 @@ int main(int argc, char** argv) {
             "  --new <name> <parentDir> [w] [d] [empty|fpp|thirdperson] "
             "[unitsPerMeter] [--no-terrain]\n"
             "  --build <projectDir> [--run | --run-ps2 [ip]] [--rebuild] [--docker]\n"
+            "  --debug-run <projectDir> [--no-build] [--rebuild] [--enable]\n"
+            "                                          build, run in PCSX2 and serve "
+            "GDB for the script\n"
+            "                                          debugger "
+            "(docs/script-debugger.md)\n"
+            "  --debug-serve <projectDir> [--pine-slot N]\n"
+            "                                          only the GDB server, for a "
+            "game launched elsewhere\n"
             "  --audit-release <projectDir>            prove a release ELF "
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "
@@ -4882,6 +5090,13 @@ int main(int argc, char** argv) {
             "decals (docs/shadows.md)\n"
             "  --bake-particles <projectDir>           re-bake the particle "
             "library's textures (docs/particles.md)\n"
+            "  --list-extensions <projectDir>          the installed script "
+            "extensions\n"
+            "  --new-extension <projectDir> <name>     a new extension skeleton in "
+            "src/extensions\n"
+            "  --install-extension <projectDir> <folder>\n"
+            "                                          copy an extension folder in "
+            "(docs/script-extensions.md)\n"
             "  --road-crossings <projectDir> [sceneIndex]\n"
             "                                          every road crossing and what "
             "it does; exit 1 on an\n"

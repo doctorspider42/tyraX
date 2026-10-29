@@ -404,7 +404,13 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[Flow graph](docs/flow-graph.md)** — visual logic (triggers → actions), extensible with your own
   [`.flownode` nodes](docs/custom-flow-nodes.md).
 - **[Object scripts](docs/object-scripts.md)** — Unity-style C++ components in
-  `src/scripts/`, a directory the editor never touches.
+  `src/scripts/`, a directory the editor never touches, with a
+  [script API](docs/script-api.md) that does everything a flow node does
+  (raycasts, sounds, events shared with graphs, save data, HUD) and names your
+  project's sounds, scenes and objects as typed constants. Members marked
+  `[[tyra::prop]]` are set per object in Properties, and reusable code travels
+  between projects as [script extensions](docs/script-extensions.md) (one
+  ships: *Essentials*).
 - **Player and physics** — FPP / third-person / noclip player entities with
   [walk, run and sprint speeds](docs/player-speeds.md),
   [rigid bodies that collide as their mesh's convex hull](docs/physics.md), [collision boxes and invisible walls](docs/collision-boxes.md), pickable and usable
@@ -495,6 +501,8 @@ polling/report intervals, and a release build that provably carries none of it
 - [Live Link](docs/live-link.md) (edit the running game),
   [Live Logic](docs/live-logic.md) (hot-patch a flow graph),
   [the Live Debugger](docs/live-debugger.md) (breakpoints, stepping, watches),
+  [the script debugger](docs/script-debugger.md) (VS Code / GDB breakpoints in
+  your C++ scripts, in PCSX2),
   [the time machine](docs/time-machine.md) (put the game back where it was) and
   [the Remote Pad](docs/remote-pad.md) (hold its controller, no focus needed).
 - [The input recorder](docs/input-replay.md) — record a play session and perform
@@ -543,8 +551,8 @@ wait for their polish pass.
 | Example | What it shows |
 | --- | --- |
 | [impostor-grove](examples/impostor-grove) | A walkable wooded ruin with generated trees and configurable 4/8/16-view, two-triangle distant impostors and a universal-baked waystone |
-| [script-demo](examples/script-demo) | Start here. Walk to the box, press X, and the sky obeys — one object script, and you've touched the whole pipeline |
-| [showcase](examples/showcase) | **Aster — The Tide Observatory**: a playable coastal garden with precision-built arcades, a moving planetarium, CC0 props, cinematics, skeletal animation, a portal-linked vaulted cellar, optical experiments and collectible lenses |
+| [showcase](examples/showcase) | **Start here.** **Aster — The Tide Observatory**: a playable coastal garden with precision-built arcades, a moving planetarium, CC0 props, cinematics, skeletal animation, a portal-linked vaulted cellar, optical experiments and collectible lenses |
+| [script-cookbook](examples/script-cookbook) | Everything about C++ scripts as a walkable level: easing, raycasts, physics, spawning, input, sound, saves, HUD, World Facts, events to and from graphs, callbacks, and script extensions (the **Essentials** library, and **Checkpoints**, written in the project as a how-to) - one station per topic, each configured through public fields, with [the cookbook](docs/script-cookbook.md) beside it |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style; its ambience and a corridor sound bank stream with it |
 | [large-terrain](examples/large-terrain) | A 2048×2048 world that could never fit in 32 MB of RAM. It doesn't have to |
 | [deep-forest](examples/deep-forest) | A 2048×2048 daylight map with 7,000 instanced broadleaf trees and Blender rocks, cheap far models and a reproducible physical-PS2 density/LOD sweep |

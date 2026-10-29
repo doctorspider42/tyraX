@@ -1,42 +1,57 @@
 {
-  "name": "tyrax-flownode",
-  "displayName": "TyraX Flow Nodes, Screen Effects, Menu Styles & VU1",
-  "description": "Syntax highlighting, snippets and validation for TyraX custom flow-graph nodes (.flownode), screen effects (.screenfx), menu stylesheets (.menustyle), VU1 microprograms (.vclpp) and a project's own VU programs (src/vu/*.cpp).",
-  "version": "0.4.1",
-  "publisher": "tyrax",
-  "license": "MIT",
+  "name": "tyrax",
+  "displayName": "TyraX",
+  "description": "PS2 game development with the TyraX editor: debug your C++ scripts in PCSX2 (breakpoints, stepping, locals), plus language support for flow nodes (.flownode), screen effects (.screenfx), menu stylesheets (.menustyle) and VU1 microprograms (.vclpp, src/vu/*.cpp).",
+  "version": "0.5.0",
+  "publisher": "doctorspider",
+  "license": "Apache-2.0",
   "icon": "icon.png",
+  "homepage": "https://github.com/doctorspider42/tyraX/blob/main/docs/vscode-extension.md",
+  "bugs": {
+    "url": "https://github.com/doctorspider42/tyraX/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/doctorspider42/tyraX"
+  },
+  "galleryBanner": {
+    "color": "#1b1d2b",
+    "theme": "dark"
   },
   "engines": {
     "vscode": "^1.75.0"
   },
   "categories": [
+    "Debuggers",
     "Programming Languages",
     "Snippets",
     "Linters"
   ],
   "keywords": [
     "tyrax",
+    "tyra",
     "ps2",
     "playstation 2",
-    "flowgraph",
+    "pcsx2",
+    "gdb",
+    "homebrew",
+    "gamedev",
     "flownode",
-    "menustyle",
     "screenfx",
+    "menustyle",
     "vclpp",
-    "vu1",
-    "menu",
-    "stylesheet"
+    "vu1"
   ],
   "activationEvents": [
     "onLanguage:tyrax-flownode",
     "onLanguage:tyrax-screenfx",
     "onLanguage:tyrax-menustyle",
     "onLanguage:tyrax-vu",
-    "workspaceContains:src/vu/*.cpp"
+    "workspaceContains:src/vu/*.cpp",
+    "workspaceContains:.vscode/tyrax.json",
+    "onDebugResolve:tyrax",
+    "onDebugDynamicConfigurations:tyrax",
+    "onCommand:tyrax.debugGame"
   ],
   "main": "./extension.js",
   "contributes": {
@@ -134,6 +149,90 @@
         "language": "tyrax-vu",
         "path": "./snippets/vu.json"
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "tyrax.debugGame",
+        "title": "Debug Game in PCSX2",
+        "category": "TyraX",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "tyrax.rebuildAndRestart",
+        "title": "Rebuild and Restart the Game",
+        "category": "TyraX",
+        "icon": "$(debug-restart)"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "tyrax",
+        "label": "TyraX (PCSX2)",
+        "languages": [
+          "cpp"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "properties": {
+              "build": {
+                "type": "boolean",
+                "default": true,
+                "description": "Build the game before running it when no editor is serving it yet (tyrax-editor --debug-run). false = run the last build."
+              },
+              "setupCommands": {
+                "type": "array",
+                "description": "Extra GDB commands, passed to the C/C++ debugger as-is."
+              },
+              "logging": {
+                "type": "object",
+                "description": "The C/C++ debugger's logging options (engineLogging, trace...), passed as-is."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "tyrax",
+            "request": "launch",
+            "name": "TyraX: debug game in PCSX2"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "TyraX: debug game in PCSX2",
+            "description": "Stop the game in PCSX2 on breakpoints in your C++ scripts",
+            "body": {
+              "type": "tyrax",
+              "request": "launch",
+              "name": "TyraX: debug game in PCSX2"
+            }
+          }
+        ]
+      }
+    ],
+    "breakpoints": [
+      {
+        "language": "cpp"
+      }
+    ],
+    "menus": {
+      "editor/title/run": [
+        {
+          "command": "tyrax.debugGame",
+          "when": "tyrax.project",
+          "group": "navigation@0"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "tyrax.debugGame",
+          "when": "tyrax.project"
+        },
+        {
+          "command": "tyrax.rebuildAndRestart",
+          "when": "tyrax.project && inDebugMode"
+        }
+      ]
+    }
   }
 }

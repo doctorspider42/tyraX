@@ -1,4 +1,4 @@
 node_modules/
-# The prebuilt tyrax-flownode-*.vsix IS committed (the editor installs it via
-# `code --install-extension`); regenerate it with `npx @vscode/vsce package`
-# whenever the extension changes. Remove the old versioned file when you bump.
+# The prebuilt tyrax-*.vsix IS committed (the editor installs it via
+# `code --install-extension`, and it is the file that gets published);
+# regenerate it with `python3 package-vsix.py` whenever the extension changes.

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0
+
+- **Debug C++ scripts in PCSX2.** A `tyrax` debug type: F5 stops the game on a
+  breakpoint in a script, with stepping, locals, `this` and Pause. It resolves to
+  a `cppdbg` configuration (the toolchain's GDB, through WSL on Windows) and is
+  the whole workflow: it attaches to a game the editor serves, asks an open
+  editor to switch the debugger on, build and run, or runs
+  `tyrax-editor --debug-run --enable` itself when no editor is open. F5 saves
+  your files, and when code changed since the running build it rebuilds and
+  restarts the game before attaching. Adds a
+  *TyraX: Debug Game in PCSX2* command, which is also the run button in the
+  editor title bar of a TyraX project; the C/C++ extension's "build and debug
+  active file" button there is hidden (`C_Cpp.debugShortcut`) unless you set it.
+  Saving changed code during a session shows that the game runs older code (a
+  status bar warning and one notification), and **Restart** rebuilds and
+  starts the game again. Needs the C/C++ extension.
+- **New id: `doctorspider.tyrax`**, published on the Visual Studio Marketplace.
+  The editor uninstalls the old, never-published ids
+  `tyrax.tyrax-flownode` and `tyrax.tyrax`.
+- The package now carries everything the manifest declares. 0.4.1 was missing
+  the `.menustyle` grammar and snippets, so menu stylesheets had no highlighting.
+- Licence corrected to Apache-2.0, the repository's licence (the manifest said
+  MIT).
+
 ## 0.4.1
 
 - **The `vuprogram` scaffold no longer appears after `::`, `.` or `->`.** It is

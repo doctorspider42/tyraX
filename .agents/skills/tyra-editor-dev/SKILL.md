@@ -69,7 +69,7 @@ Sibling skills: **tyra-engine-dev** (the PS2 engine fork in `vendor/tyra`), **ty
 | Per-scene override | `SceneOverrides` bool + `==` + `resolvedSettings` branch + serialize only when on; consumers read `resolvedSettings` | project-model-and-serialization |
 | Machine-global setting | `EditorConfig` + `loadEditorConfig`/`saveEditorConfig` + App member + `saveGlobalConfig()` | editor-ui-and-conventions |
 | New object type | `PrimitiveType` (0-22 used) + viewport mesh + `pickBounds` case + insert menu + codegen; non-geometry types join every marker skip list; collision only via `objectCollides`/`objectCollisionBox` (+ `placement::collisionBox` twin) | scene-objects-and-gameplay |
-| Flow node | registry entry with `.category`, `.desc`, a tip per param -> codegen in `flowGraphScript` -> Live Logic decision; buttons are read through named input actions only | flow-graph-input-player |
+| Flow node | registry entry with `.category`, `.desc`, a tip per param -> codegen in `flowGraphScript` -> Live Logic decision; buttons are read through named input actions only. New runtime behaviour goes into the `tyrax::` script API (`src/script_api.inc`) and the codegen CALLS it, so scripts get the node too (docs/script-api.md) | flow-graph-input-player |
 | Procedural node | `procNodeTypes()` (+ `.desc`, `.tip`) -> `evalNode` -> runtime: `kRuntimeNodes` AND an `emit*`, or leave out | procedural-and-prefabs |
 | New optional window | own `*_ui.cpp` if large; register in `showFlagForKey` AND `kLayoutWindowKeys`; `!hasProject_` guard; workers/caches join `closeProject` | editor-ui-and-conventions |
 | Something the running game mutates | joins the time-machine capture walk (`liveTimeSource`) | devkit-runner-and-network |

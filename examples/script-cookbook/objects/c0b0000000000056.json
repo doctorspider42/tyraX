@@ -1,0 +1,1 @@
+{"id": "c0b0000000000056", "name": "g-checkpoint-3", "type": "cylinder", "position": [0, 0.05, 60], "rotation": [0, 0, 0], "scale": [1.6, 0.1, 1.6], "color": [0.35, 0.35, 0.4], "physics": false, "scripts": ["Checkpoint"], "scriptProps": {"Checkpoint": {"order": "3", "reachedEvent": "Checkpoint", "reachedColor": "1 0.8 0.1"}}}

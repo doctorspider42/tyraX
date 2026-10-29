@@ -33,6 +33,7 @@
 #include "menustyle.hpp"  // the staged stylesheet the Style tab edits
 #include "isoexport.hpp"
 #include "elfsym.hpp"
+#include "gdbstub.hpp"  // the script debugger's GDB server
 #include "vucap.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
@@ -42,6 +43,7 @@
 #include "livetime.hpp"
 #include "livelogic.hpp"
 #include "placement.hpp"
+#include "scriptprops.hpp"  // [[tyra::prop]] fields shown in Properties > Scripts
 #include "roadgen.hpp"  // roadgen::Surface - the test drive stands on roads
 #include "prefab.hpp"
 #include "vehbake.hpp"  // the import bake cached per vehicle definition
@@ -382,7 +384,7 @@ private:
     // Open the project in VS Code. A non-empty `file` (project-relative or
     // absolute) is also opened in that window - jump straight to a script /
     // custom node while keeping the whole project in context.
-    void openInVSCode(const std::string& file = "");
+    void openInVSCode(const std::string& file = "", int line = 0);
     // Install/refresh the bundled TyraX VS Code extension (syntax highlighting +
     // validation for .flownode/.screenfx) into the user's ~/.vscode/extensions.
     // Best-effort and idempotent; called before openInVSCode and from the
@@ -3687,6 +3689,13 @@ private:
     char newScriptName_[64] = "my_script";
     std::string newScriptError_;
     int newScriptAttachTo_ = -1;
+    // A game script that is global (TYRA_SCRIPT, one instance, every frame)
+    // instead of attachable (TYRA_OBJECT_SCRIPT). Off when attaching.
+    bool newScriptGlobal_ = false;
+    // The New Script modal's "Vector unit programs" fold, and "Open in VS Code"
+    // (kept for the session: whoever wants it once wants it every time).
+    bool newScriptVuOpen_ = false;
+    bool newScriptOpenCode_ = true;
     // A VU program instead of an EE script: src/vu/<name>.cpp, compiled and
     // run on the HOST at build time (docs/vu-authoring.md). Cannot be attached
     // to an object - it replaces a material class, not a behaviour.
@@ -3695,6 +3704,13 @@ private:
     // stopped being a bool the moment the VU0 half became authorable.
     int newScriptKind_ = 0;
 
+    // Project panel > Scripts > Extensions (docs/script-extensions.md): the
+    // "New extension" name field, and the folder a Remove click is waiting
+    // for its confirmation on.
+    char newExtensionName_[64] = "my-extension";
+    std::string extensionRemovePending_;
+    void drawExtensionsSection();
+
     // Object script classes registered in src/scripts/*.cpp with
     // TYRA_OBJECT_SCRIPT(Name), for the Properties attach UI. Per-file cache
     // keyed by write time - directories are cheap to walk every frame, file
@@ -3702,9 +3718,32 @@ private:
     struct ScriptFileScan {
         std::filesystem::file_time_type mtime;
         std::vector<std::string> names;
+        // The [[tyra::prop]] fields of the classes it registers.
+        std::vector<scriptprops::ClassInfo> classes;
     };
     std::map<std::string, ScriptFileScan> scriptScanCache_;
     std::vector<std::string> objectScriptNames();
+    // A registered class's public fields, from the cache objectScriptNames()
+    // keeps (call that first in the frame); null when no file registers it.
+    const scriptprops::ClassInfo* scriptClassInfo(const std::string& name) const;
+    // Properties > Scripts: one attachment's public fields. True = edited.
+    bool drawScriptFields(SceneObject& o, const std::string& cls);
+    // Properties > Scripts: one card per attachment (fold, VS Code, Show in
+    // Scripts page, Detach / Reset all) + the Add script button. True = edited.
+    bool drawScriptCards(SceneObject& o);
+    // The searchable Add script picker under that button. True = attached.
+    bool drawAddScriptPicker(SceneObject& o);
+    // Attached most recently first (this session) - the picker's Recent group.
+    std::vector<std::string> recentScripts_;
+    char scriptPickerSearch_[96] = "";
+    int scriptPickerFilter_ = 0;  // 0 All, 1 Used in this scene, 2+ a source (folder/extension)
+    int scriptPickerCursor_ = 0;  // highlighted row (keyboard)
+    bool openScriptPicker_ = false;
+    // Show in Scripts page: the class the page scrolls to and highlights once.
+    std::string scriptsPageFocus_;
+    // Select object i (switching to the scene holding it is not possible: the
+    // index is the active scene's), frame it in the viewport, focus the viewport.
+    void focusObject(int i);
 
     // Layer rename-in-place: the name captured when the field gained focus,
     // so object and flow-node references remap from it when editing ends.
@@ -4129,6 +4168,23 @@ private:
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
     void livedbgTick();
+    // The script debugger's GDB server (docs/script-debugger.md): alive while
+    // this project's game runs in PCSX2 with the script debugger built in.
+    // scriptDebugTick starts and stops it; the toolbar's GDB chip shows it.
+    void scriptDebugTick();
+    // Build > Debug Scripts in VS Code: switch it on, build, run, open VS Code.
+    void debugScriptsInVsCode();
+    std::unique_ptr<gdbstub::Server> gdbServer_;
+    std::string gdbServerKey_;  // the config it was started with
+    // bin/gdbserver.json, which the VS Code extension reads: written while a
+    // project is open whatever the debugger is doing ("off", "building",
+    // "waiting for GDB", ...), so F5 there knows an editor owns the project and
+    // asks it (bin/gdbserver.request) instead of starting a second one.
+    std::string gdbSessionPath_, gdbSessionLast_;
+    std::string gdbRequestError_;  // why the last request could not be served
+    std::string gdbRequestId_;     // the last request handled, echoed back
+    bool gdbRequestBuilding_ = false;  // a build started for that request
+    double gdbRequestPollAt_ = 0.0;
     void drawDebuggerWindow();
     // The window's parts (devkit_ui.cpp): a status header with the transport,
     // a section rail instead of a tab strip, one page, a right column (where

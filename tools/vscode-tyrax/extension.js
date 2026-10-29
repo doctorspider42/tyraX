@@ -27,6 +27,7 @@
 const vscode = require("vscode");
 const vu = require("./vu");
 const vuscript = require("./vuscript");
+const debug = require("./debug");
 
 // ---- Per-language specification --------------------------------------------
 
@@ -336,6 +337,10 @@ function provideCompletions(doc, position) {
 // ---- Activation ------------------------------------------------------------
 
 function activate(context) {
+  // The `tyrax` debug type (debug.js): F5 on a project with the script
+  // debugger on stops the game in PCSX2 on a line of a C++ script.
+  debug.activate(context);
+
   const selector = [{ language: "tyrax-flownode" }, { language: "tyrax-screenfx" }];
   const collection = vscode.languages.createDiagnosticCollection("tyrax");
   context.subscriptions.push(collection);

@@ -1,0 +1,60 @@
+# Publishes the TyraX VS Code extension (tools/vscode-tyrax) to the Visual
+# Studio Marketplace (not Open VSX for now: VSCodium/Cursor users install the
+# .vsix the editor bundles).
+#
+# Runs as part of every release (release.yml calls it with the released commit)
+# and by hand (workflow_dispatch, the branch it is dispatched on). The version
+# is package.json's, NOT the editor's: a release whose package.json names a
+# version a store already has publishes nothing there (--skip-duplicate), so
+# "bump package.json + CHANGELOG, merge" is the whole extension release.
+#
+# Marketplace: Trusted Publishing (OIDC, no token) - the `doctorspider`
+# publisher has a policy for this repository and BOTH workflow files
+# (release.yml calls this one; vscode-extension.yml for a manual dispatch).
+# Runs in doctorspider42's repository only, so a fork still releases the editor.
+# See docs/vscode-extension.md, "Publishing".
+name: vscode-extension
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit to publish from (the release's SHA).
+        type: string
+        required: true
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write  # the Marketplace's Trusted Publishing token
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Offline checks
+        run: |
+          node tools/vscode-tyrax/test/debug.test.js
+          node tools/vscode-tyrax/test/activate.test.js
+          node tools/vscode-tyrax/test/stale.test.js
+          node tools/vscode-tyrax/test/restart.test.js
+      - name: Package
+        id: pkg
+        run: |
+          python3 tools/vscode-tyrax/package-vsix.py
+          vsix=$(ls tools/vscode-tyrax/*.vsix)
+          echo "vsix=$vsix" >> "$GITHUB_OUTPUT"
+          echo "## TyraX VS Code extension $(basename "$vsix" .vsix)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Visual Studio Marketplace
+        if: github.repository_owner == 'doctorspider42'
+        run: npx --yes @vscode/vsce@4 publish --oidc --skip-duplicate --packagePath "${{ steps.pkg.outputs.vsix }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vsix
+          path: ${{ steps.pkg.outputs.vsix }}

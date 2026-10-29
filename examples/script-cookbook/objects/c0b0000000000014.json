@@ -1,0 +1,1 @@
+{"id": "c0b0000000000014", "name": "b-laser-dot", "type": "sphere", "position": [4, 0.5, 18], "rotation": [0, 0, 0], "scale": [0.25, 0.25, 0.25], "color": [1, 0.2, 0.2], "physics": false, "collision": "none"}
