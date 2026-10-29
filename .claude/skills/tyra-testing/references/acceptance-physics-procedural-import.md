@@ -99,3 +99,9 @@ awake populations and warm matches, and check waking after a car impact.
 
 The stationary --settle-check gate uses eight four-arm phases, 1260 rows each.
 Use --temporal-arms 3 only for the archived initial six-phase prototype.
+
+The refined pair-admission gate is tools/verify-body-pair-grid.cpp linked with
+engine src/physics/broad_phase.cpp: 200 scenes/128 bodies, all-pairs envelope
+oracle and candidate order. For the focused cache-only hardware follow-up use
+--temporal-comparison --temporal-arms 2 (28 phases); warm/island code is compiled
+out. The raw candidate/rejection counters count work, not omitted contacts.

@@ -262,3 +262,7 @@ component; waking any sleeping member wakes its recorded component. All
 contacts still receive six velocity and three split passes. The new warm-start
 and island switches are experimental until physical-console qualification.
 See [the temporal physics experiment](temporal-physics.md).
+
+The body-pair cache path indexes conservative swept hull/sphere bounds rather
+than COM spheres. Sleeping hulls use a transformed local-box superset, with
+outward rounding; narrow phase and all contact tests remain authoritative.

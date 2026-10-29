@@ -155,6 +155,11 @@ public:
     if (generation_ != generation)
       previous_.clear();
     generation_ = generation;
+    previous_.erase(std::remove_if(previous_.begin(), previous_.end(),
+                                   [](const Entry &e) {
+                                     return cvDot(e.axis, e.axis) < 1e-10f;
+                                   }),
+                    previous_.end());
     std::sort(previous_.begin(), previous_.end(),
               [](const Entry &a, const Entry &b) {
                 return a.a < b.a || (a.a == b.a && a.b < b.b);

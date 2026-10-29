@@ -83,3 +83,10 @@ External-change revisions live in regenerated runtime side state, not PhysBody:
 owned terrain_game.hpp files must keep compiling. Geometry cache keys include
 current transform, model yaw and resolved collision-box bounds. Cached axes
 may reject only after checking current geometry and its entire linear sweep.
+
+Body-pair coherence uses current swept envelopes for awake grid boxes/queries
+and outward-rounded transformed local bounds for sleepers. Keep the later
+exact envelope test; local hull bounds invalidate with shape/external revisions.
+Cached-axis hints use analytic OBB projection for known boxes and retain only
+separating results. verify-body-pair-grid.cpp compares against all-pairs envelope
+admission, including order, sleepers, motion and off-centre hulls.

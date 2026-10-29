@@ -119,6 +119,30 @@ inline bool collisionBoundsOverlap(const CollisionBounds &a,
   return a.mn.x <= b.mx.x + e && b.mn.x <= a.mx.x + e && a.mn.y <= b.mx.y + e &&
          b.mn.y <= a.mx.y + e && a.mn.z <= b.mx.z + e && b.mn.z <= a.mx.z + e;
 }
+// A transformed local AABB encloses every hull vertex, including off-centre
+// hulls. Used for sleeping partners without rebuilding their full step.
+inline CollisionBounds collisionTransformBounds(const CollisionBounds &local,
+                                                const float *r, CollisionV3 p) {
+  const CollisionV3 c = cvMul(cvAdd(local.mn, local.mx), .5f);
+  const CollisionV3 h = cvMul(cvSub(local.mx, local.mn), .5f);
+  CollisionV3 centre = {p.x + r[0] * c.x + r[1] * c.y + r[2] * c.z,
+                        p.y + r[3] * c.x + r[4] * c.y + r[5] * c.z,
+                        p.z + r[6] * c.x + r[7] * c.y + r[8] * c.z};
+  CollisionV3 extent = {
+      std::fabs(r[0]) * h.x + std::fabs(r[1]) * h.y + std::fabs(r[2]) * h.z,
+      std::fabs(r[3]) * h.x + std::fabs(r[4]) * h.y + std::fabs(r[5]) * h.z,
+      std::fabs(r[6]) * h.x + std::fabs(r[7]) * h.y + std::fabs(r[8]) * h.z};
+  extent.x +=
+      1e-5f * (1 + std::fabs(p.x) + std::fabs(r[0] * c.x) +
+               std::fabs(r[1] * c.y) + std::fabs(r[2] * c.z) + extent.x);
+  extent.y +=
+      1e-5f * (1 + std::fabs(p.y) + std::fabs(r[3] * c.x) +
+               std::fabs(r[4] * c.y) + std::fabs(r[5] * c.z) + extent.y);
+  extent.z +=
+      1e-5f * (1 + std::fabs(p.z) + std::fabs(r[6] * c.x) +
+               std::fabs(r[7] * c.y) + std::fabs(r[8] * c.z) + extent.z);
+  return {cvSub(centre, extent), cvAdd(centre, extent)};
+}
 inline bool convexContact(const ConvexView &a, const ConvexView &b,
                           ConvexContact &out) {
   if (!a.nv || !b.nv)
@@ -339,17 +363,42 @@ struct CollisionObb {
 // Any axis may prove separation, but a cached one must test CURRENT geometry
 // and the entire linear interval. A previous frame's boolean is never reused.
 inline bool convexSeparatedOnAxis(const ConvexView &a, const ConvexView &b,
-                                 CollisionV3 motionA, CollisionV3 motionB,
-                                 CollisionV3 axis) {
-  if (cvDot(axis,axis)<1e-10f || !a.nv || !b.nv) return false;
-  float alo=1e30f,ahi=-1e30f,blo=1e30f,bhi=-1e30f;
-  for(int i=0;i<a.nv;++i) {float d=cvDot(axis,a.verts[i]);alo=std::min(alo,d);ahi=std::max(ahi,d);}
-  for(int i=0;i<b.nv;++i) {float d=cvDot(axis,b.verts[i]);blo=std::min(blo,d);bhi=std::max(bhi,d);}
-  const float da=cvDot(axis,motionA),db=cvDot(axis,motionB);
-  alo-=std::max(0.f,da);ahi-=std::min(0.f,da);
-  blo-=std::max(0.f,db);bhi-=std::min(0.f,db);
-  const float eps=1e-5f*(1+std::fabs(alo)+std::fabs(ahi)+std::fabs(blo)+std::fabs(bhi));
-  return ahi < blo-eps || bhi < alo-eps;
+                                  CollisionV3 motionA, CollisionV3 motionB,
+                                  CollisionV3 axis,
+                                  const CollisionObb *boxA = nullptr,
+                                  const CollisionObb *boxB = nullptr) {
+  if (cvDot(axis, axis) < 1e-10f || !a.nv || !b.nv)
+    return false;
+  float alo = 1e30f, ahi = -1e30f, blo = 1e30f, bhi = -1e30f;
+  auto project = [&](const ConvexView &view, const CollisionObb *box, float &lo,
+                     float &hi) {
+    if (box) {
+      const float c = cvDot(axis, box->centre);
+      float radius = std::fabs(cvDot(axis, box->halfAxes[0])) +
+                     std::fabs(cvDot(axis, box->halfAxes[1])) +
+                     std::fabs(cvDot(axis, box->halfAxes[2]));
+      radius += 1e-6f * (1 + std::fabs(axis.x * box->centre.x) +
+                         std::fabs(axis.y * box->centre.y) +
+                         std::fabs(axis.z * box->centre.z) + radius);
+      lo = c - radius;
+      hi = c + radius;
+    } else
+      for (int i = 0; i < view.nv; ++i) {
+        const float d = cvDot(axis, view.verts[i]);
+        lo = std::min(lo, d);
+        hi = std::max(hi, d);
+      }
+  };
+  project(a, boxA, alo, ahi);
+  project(b, boxB, blo, bhi);
+  const float da = cvDot(axis, motionA), db = cvDot(axis, motionB);
+  alo -= std::max(0.f, da);
+  ahi -= std::min(0.f, da);
+  blo -= std::max(0.f, db);
+  bhi -= std::min(0.f, db);
+  const float eps = 1e-5f * (1 + std::fabs(alo) + std::fabs(ahi) +
+                             std::fabs(blo) + std::fabs(bhi));
+  return ahi < blo - eps || bhi < alo - eps;
 }
 inline bool convexMotionContact(const ConvexView &a, const ConvexView &b,
                                 CollisionV3 motionA, CollisionV3 motionB,
@@ -357,7 +406,8 @@ inline bool convexMotionContact(const ConvexView &a, const ConvexView &b,
                                 const CollisionObb *boxA = nullptr,
                                 const CollisionObb *boxB = nullptr,
                                 CollisionV3 *cachedAxis = nullptr) {
-  if(cachedAxis && convexSeparatedOnAxis(a,b,motionA,motionB,*cachedAxis))
+  if (cachedAxis &&
+      convexSeparatedOnAxis(a, b, motionA, motionB, *cachedAxis, boxA, boxB))
     return false;
   if (!a.nv || !b.nv)
     return false;
@@ -426,7 +476,8 @@ inline bool convexMotionContact(const ConvexView &a, const ConvexView &b,
         possible = enter <= leave;
       }
     }
-    if (!overlap && !possible && cachedAxis) *cachedAxis=n;
+    if (!overlap && !possible && cachedAxis)
+      *cachedAxis = n;
     return overlap || possible;
   };
   for (int i = 0; i < a.nn; ++i)
@@ -454,7 +505,9 @@ inline bool convexMotionContact(const ConvexView &a, const ConvexView &b,
       return cvMul(sum, 1.f / count);
     };
     out.normal = normal;
-    if(cachedAxis)*cachedAxis=normal;
+    // An overlapping hint would add duplicate projection work next step.
+    if (cachedAxis)
+      *cachedAxis = {};
     out.depth = depth;
     out.point =
         cvMul(cvAdd(support(a, cvMul(normal, -1)), support(b, normal)), .5f);
@@ -479,7 +532,8 @@ inline bool convexMotionContact(const ConvexView &a, const ConvexView &b,
     }
   }
   out.normal = sweepNormal;
-  if(cachedAxis)*cachedAxis=sweepNormal;
+  if (cachedAxis)
+    *cachedAxis = {};
   out.depth = std::max(0.f, bmax - amin);
   out.point = cvMul(cvAdd(cvSub(av, cvMul(motionA, 1 - enter)),
                           cvSub(bv, cvMul(motionB, 1 - enter))),

@@ -174,3 +174,10 @@ Temporal fixtures use synthetic input only: their private Pad init/update/
 rumble paths avoid physical padman DMA/RPC. All arms share this setting. The
 production engine Pad remains unchanged; do not compare these whole-frame
 numbers directly with a differently configured physical-input fixture.
+
+For a focused refined-cache comparison use --temporal-comparison
+--temporal-arms 2 on prepare/instrument, and --temporal-comparison
+--temporal-arms 2 --complete on analyze. This has 28 phases and compiles the
+candidate's cache on and warm/islands off, matching its default code path.
+CSV body_candidates/body_bounds_rejects count broad visits and subsequent
+conservative envelope rejection, never contact omissions.

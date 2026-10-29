@@ -25065,12 +25065,21 @@ void TerrainGame::updateObjectPhysics() {
   // awake body. Sleeping COMs use their orientation, not the object origin.
   static Tyra::BroadPhase bodyPairs;
   static std::vector<int> nearBodies;
+  struct LocalBoundsCache {bool valid=false;unsigned revision=0;Tyra::CollisionBounds bounds;};
+  static std::vector<LocalBoundsCache> localBoundsCache;
+  static unsigned localBoundsGeneration=~0u;
+  if(coherence && (localBoundsGeneration!=sceneGeneration || localBoundsCache.size()!=runtimeObjects.size())) {
+    localBoundsCache.clear();localBoundsCache.resize(runtimeObjects.size());localBoundsGeneration=sceneGeneration;
+  }
   bodyPairs.begin((int)bodies.size());
   for (size_t pairIndex=0; pairIndex<bodies.size(); ++pairIndex) {
     const int j=bodies[pairIndex];
     const PhysBody& B = physBodies[physSlotOf[j]];
-    RbV c, previous;
-    if (stepOf[j] >= 0) { c = steps[stepOf[j]].x1; previous = steps[stepOf[j]].x0; }
+    RbV c, previous;Tyra::CollisionBounds tight{};
+    if (stepOf[j] >= 0) {
+      c=steps[stepOf[j]].x1;previous=steps[stepOf[j]].x0;
+      if(coherence)tight=steps[stepOf[j]].bounds;
+    }
     else {
       float R[9];
       rbQuatToMat(B.q, R);
@@ -25078,10 +25087,31 @@ void TerrainGame::updateObjectPhysics() {
       c = rbAdd(rbV(o.data.position[0], o.data.position[1], o.data.position[2]),
                 rbMat(R, rbV(B.comL[0], B.comL[1], B.comL[2])));
       previous = c;
+      if(coherence) {
+        if(!B.verts) {
+          const RbV r=rbV(B.radius,B.radius,B.radius);tight={rbSub(c,r),rbAdd(c,r)};
+        } else {
+          auto& cached=localBoundsCache[j];
+          if(!cached.valid || cached.revision!=rbRevisions[j]) {
+            cached.bounds={{1e30F,1e30F,1e30F},{-1e30F,-1e30F,-1e30F}};
+            for(int k=0;k<B.verts;++k) {
+              const float* v=B.lv+k*3;
+              cached.bounds.mn.x=std::min(cached.bounds.mn.x,v[0]);cached.bounds.mx.x=std::max(cached.bounds.mx.x,v[0]);
+              cached.bounds.mn.y=std::min(cached.bounds.mn.y,v[1]);cached.bounds.mx.y=std::max(cached.bounds.mx.y,v[1]);
+              cached.bounds.mn.z=std::min(cached.bounds.mn.z,v[2]);cached.bounds.mx.z=std::max(cached.bounds.mx.z,v[2]);
+            }
+            cached.revision=rbRevisions[j];cached.valid=true;
+          }
+          tight=Tyra::collisionTransformBounds(cached.bounds,R,c);
+        }
+      }
     }
     Tyra::BroadBox box;
     const float v[3] = {c.x, c.y, c.z}, prev[3] = {previous.x,previous.y,previous.z};
-    for (int k = 0; k < 3; ++k) {
+    if(coherence) {
+      const float lo[3]={tight.mn.x,tight.mn.y,tight.mn.z},hi[3]={tight.mx.x,tight.mx.y,tight.mx.z};
+      for(int k=0;k<3;++k){box.mn[k]=lo[k]-1e-4F;box.mx[k]=hi[k]+1e-4F;}
+    } else for (int k = 0; k < 3; ++k) {
       box.mn[k] = std::min(v[k],prev[k]) - B.radius;
       box.mx[k] = std::max(v[k],prev[k]) + B.radius;
     }
@@ -25096,7 +25126,11 @@ void TerrainGame::updateObjectPhysics() {
     const float queryRadius = physBodies[queryStep.slot].radius;
     const float queryCentre[3] = {queryStep.x1.x, queryStep.x1.y, queryStep.x1.z};
     const float queryPrev[3] = {queryStep.x0.x,queryStep.x0.y,queryStep.x0.z};
-    for (int k = 0; k < 3; ++k) {
+    if(coherence) {
+      const auto& bounds=queryStep.bounds;
+      const float lo[3]={bounds.mn.x,bounds.mn.y,bounds.mn.z},hi[3]={bounds.mx.x,bounds.mx.y,bounds.mx.z};
+      for(int k=0;k<3;++k){pairArea.mn[k]=lo[k]-1e-4F;pairArea.mx[k]=hi[k]+1e-4F;}
+    } else for (int k = 0; k < 3; ++k) {
       pairArea.mn[k] = std::min(queryCentre[k],queryPrev[k]) - queryRadius;
       pairArea.mx[k] = std::max(queryCentre[k],queryPrev[k]) + queryRadius;
     }

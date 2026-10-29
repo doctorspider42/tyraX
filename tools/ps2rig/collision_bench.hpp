@@ -35,7 +35,7 @@ inline U phys = 0, awake = 0, contacts = 0, drops = 0, pushDrops = 0,
          pushes = 0;
 inline U generated = 0, pushCandidates = 0, pushTested = 0;
 inline U solverTicks = 0;
-inline U stageTicks[7]={},warmHits=0,islands=0;
+inline U stageTicks[7]={},warmHits=0,islands=0,bodyCandidates=0,bodyBoundsRejects=0;
 inline float energy=0,maxDepth=0;
 inline float carZ = 0, carSpeed = 0;
 inline int carValid = 0;
@@ -46,6 +46,7 @@ struct Row {
   U solverTicks;
   U stages[7],warmHits,islands;
   float energy,maxDepth;
+  U bodyCandidates,bodyBoundsRejects;
 };
 inline Row rows[maxRows];
 inline int used = 0;
@@ -100,7 +101,7 @@ inline void begin(U stalls) {
         pushCandidates, pushTested, solverTicks};
     auto& row=rows[used-1];
     for(int k=0;k<7;++k)row.stages[k]=stageTicks[k];
-    row.warmHits=warmHits;row.islands=islands;row.energy=energy;row.maxDepth=maxDepth;
+    row.warmHits=warmHits;row.islands=islands;row.energy=energy;row.maxDepth=maxDepth;row.bodyCandidates=bodyCandidates;row.bodyBoundsRejects=bodyBoundsRejects;
   }
   prev = now;
   lastStalls = stalls;
@@ -108,7 +109,7 @@ inline void begin(U stalls) {
   generated = pushCandidates = pushTested = 0;
   solverTicks = 0;
   for(auto& t:stageTicks)t=0;
-  warmHits=islands=0;energy=maxDepth=0;
+  warmHits=islands=bodyCandidates=bodyBoundsRejects=0;energy=maxDepth=0;
   if (ready && !finished)
     ++frame;
 }
@@ -120,17 +121,17 @@ inline void flush() {
     fprintf(f, "phase,baseline,added,layout,repeat,frame,state,period_ticks,"
                "work_ticks,physics_ticks,awake,contacts,dropped_contacts,push_"
                "overflow,pushes,car_z,car_speed,generated_contacts,push_"
-               "candidates,push_tested,solver_arm,solver_ticks,predict_ticks,world_ticks,body_ticks,body_grid_ticks,query_ticks,sat_ticks,writeback_ticks,warm_hits,islands,velocity_energy,max_depth\n");
+               "candidates,push_tested,solver_arm,solver_ticks,predict_ticks,world_ticks,body_ticks,body_grid_ticks,query_ticks,sat_ticks,writeback_ticks,warm_hits,islands,velocity_energy,max_depth,body_candidates,body_bounds_rejects\n");
     for (int i = 0; i < used; ++i) {
       auto &r = rows[i];
       fprintf(f,
               "%d,%d,%d,%d,%d,%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%.5f,%.5f,%u,%u,%u,"
-              "%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%.9g,%.9g\n",
+              "%d,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%.9g,%.9g,%u,%u\n",
               phase, baseline, added, layout, repeat, r.frame, state(r.frame),
               r.period, r.work, r.phys, r.awake, r.contacts, r.drops,
               r.pushDrops, r.pushes, r.z, r.speed, r.generated,
               r.pushCandidates, r.pushTested, solverArm, r.solverTicks,
-              r.stages[0],r.stages[1],r.stages[2],r.stages[3],r.stages[4],r.stages[5],r.stages[6],r.warmHits,r.islands,r.energy,r.maxDepth);
+              r.stages[0],r.stages[1],r.stages[2],r.stages[3],r.stages[4],r.stages[5],r.stages[6],r.warmHits,r.islands,r.energy,r.maxDepth,r.bodyCandidates,r.bodyBoundsRejects);
     }
     fclose(f);
   }

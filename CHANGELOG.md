@@ -10,7 +10,7 @@ under it as that release's notes, and the release's own page carries the date.
 
 ## 2.4.0
 
-- Rigid-body physics can reuse collider transforms and separating axes, warm-start persistent contacts, and solve/sleep independent dynamic islands without reducing contact coverage or iteration counts.
+- Rigid-body physics can index conservative swept hull bounds, reuse collider transforms and separating axes, warm-start persistent contacts, and solve/sleep independent dynamic islands without reducing contact coverage or iteration counts.
 
 ## 2.3.0
 

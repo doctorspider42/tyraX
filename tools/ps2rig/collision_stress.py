@@ -15,7 +15,7 @@ parser.add_argument('--baseline',default='e4acb7379',help='Baseline commit for e
 parser.add_argument('--uncapped-baseline',action='store_true',help='Remove the reference solver cap for an equal-completeness comparison')
 parser.add_argument('--solver-comparison',action='store_true',help='42 phases: prior solver, prepared scalar, prepared VU0; reverse order on repeat')
 parser.add_argument('--temporal-comparison',action='store_true',help='42 phases: reference, geometry cache, cache + warm starting + islands')
-parser.add_argument('--temporal-arms',type=int,choices=[3,4],default=4,help='Four arms separate warm starting from islands; three replays the initial prototype')
+parser.add_argument('--temporal-arms',type=int,choices=[2,3,4],default=4,help='Four arms separate warm starting from islands; three replays the initial prototype')
 parser.add_argument('--settle-check',action='store_true',help='Six stationary 64-box pile phases: settle, known base impulse, recover')
 args=parser.parse_args()
 if args.settle_check:args.temporal_comparison=True
@@ -172,7 +172,8 @@ for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
   s=s.replace('TYRA_PHYSICS_SOLVER_VU0 != 0','CB::solverArm == 2')
   s=('#define TYRA_PHYSICS_PREPARED 0\n' if args.temporal_comparison else '#define TYRA_PHYSICS_PREPARED 1\n')+s
   if args.temporal_comparison:
-   for flag,value in [('COHERENCE','CB::solverArm >= 1'),('WARM_START','CB::solverArm >= 2'),('ISLANDS',f'CB::solverArm == {args.temporal_arms-1}')]:
+   options=[('COHERENCE','true'),('WARM_START','false'),('ISLANDS','false')] if args.temporal_arms==2 else [('COHERENCE','CB::solverArm >= 1'),('WARM_START','CB::solverArm >= 2'),('ISLANDS',f'CB::solverArm == {args.temporal_arms-1}')]
+   for flag,value in options:
     token='TYRA_PHYSICS_'+flag+' != 0';assert s.count(token)==1;s=s.replace(token,value)
    assert s.index('  // --- 4.') < s.index('  // Independent dynamic components:')
  if args.solver_comparison:
@@ -195,7 +196,8 @@ for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
   s=s[:b]+'  CB::stageTicks[3]+=CB::ticks()-bodyGridStart;\n'+s[b:]
   s=s.replace('  bodyPairs.begin((int)bodies.size());','  unsigned bodyGridStart=CB::ticks();\n  bodyPairs.begin((int)bodies.size());')
   s=s.replace('      broadPhaseNear(area, bpNearPhys);','      {CB::StageScope q(4);broadPhaseNear(area,bpNearPhys);}')
-  s=s.replace('    bodyPairs.queryBox(pairArea, nearBodies);','    {CB::StageScope q(4);bodyPairs.queryBox(pairArea,nearBodies);}')
+  s=s.replace('    bodyPairs.queryBox(pairArea, nearBodies);','    {CB::StageScope q(4);bodyPairs.queryBox(pairArea,nearBodies);} CB::bodyCandidates+=nearBodies.size();')
+  s=s.replace('if (!Tyra::collisionBoundsOverlap(A.bounds, Bs.bounds)) continue;','if (!Tyra::collisionBoundsOverlap(A.bounds, Bs.bounds)) {++CB::bodyBoundsRejects;continue;}')
   needle='    if (!Tyra::collisionBoundsOverlap(A.bounds,'
   s=s.replace(needle,'    CB::StageScope satScope(5);\n'+needle,1)
   marker='  // --- 5.';a=s.index(marker,s.index('void TerrainGame::updateObjectPhysics'))
