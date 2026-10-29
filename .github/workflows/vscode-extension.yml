@@ -1,5 +1,6 @@
 # Publishes the TyraX VS Code extension (tools/vscode-tyrax) to the Visual
-# Studio Marketplace and Open VSX.
+# Studio Marketplace (not Open VSX for now: VSCodium/Cursor users install the
+# .vsix the editor bundles).
 #
 # Runs as part of every release (release.yml calls it with the released commit)
 # and by hand (workflow_dispatch, the branch it is dispatched on). The version
@@ -11,8 +12,7 @@
 # publisher has a policy for this repository and BOTH workflow files
 # (release.yml calls this one; vscode-extension.yml for a manual dispatch).
 # Runs in doctorspider42's repository only, so a fork still releases the editor.
-# Open VSX has no OIDC: secret OVSX_PAT (namespace `doctorspider`), skipped
-# when missing. See docs/vscode-extension.md, "Publishing".
+# See docs/vscode-extension.md, "Publishing".
 name: vscode-extension
 
 on:
@@ -31,8 +31,6 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-22.04
-    env:
-      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -56,9 +54,6 @@ jobs:
       - name: Visual Studio Marketplace
         if: github.repository_owner == 'doctorspider42'
         run: npx --yes @vscode/vsce@4 publish --oidc --skip-duplicate --packagePath "${{ steps.pkg.outputs.vsix }}"
-      - name: Open VSX
-        if: env.OVSX_PAT != ''
-        run: npx --yes ovsx@0 publish --skip-duplicate "${{ steps.pkg.outputs.vsix }}" -p "$OVSX_PAT"
       - uses: actions/upload-artifact@v7
         with:
           name: vsix

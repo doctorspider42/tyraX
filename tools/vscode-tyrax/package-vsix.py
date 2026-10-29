@@ -13,8 +13,8 @@ against a 0.2.0 package, and menu stylesheets did the same).
 Writes <name>-<version>.vsix (tyrax-X.Y.Z.vsix) next to this script, removes
 any older .vsix (the editor installs the newest, but a stale one is still a
 trap), and prints what went in. The same file is what gets published to the
-Visual Studio Marketplace and Open VSX (`vsce publish --packagePath`,
-`ovsx publish`; see README.md, "Publishing").
+Visual Studio Marketplace (`vsce publish --packagePath`; see
+docs/vscode-extension.md, "Publishing").
 
 The extension was packaged as `tyrax.tyrax-flownode` until 0.4.x, which was
 never published anywhere; 0.5.0 is `doctorspider.tyrax` (pre-release builds

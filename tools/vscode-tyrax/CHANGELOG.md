@@ -16,8 +16,8 @@
   Saving changed code during a session shows that the game runs older code (a
   status bar warning and one notification), and **Restart** rebuilds and
   starts the game again. Needs the C/C++ extension.
-- **New id: `doctorspider.tyrax`**, published on the Visual Studio Marketplace
-  and Open VSX. The editor uninstalls the old, never-published ids
+- **New id: `doctorspider.tyrax`**, published on the Visual Studio Marketplace.
+  The editor uninstalls the old, never-published ids
   `tyrax.tyrax-flownode` and `tyrax.tyrax`.
 - The package now carries everything the manifest declares. 0.4.1 was missing
   the `.menustyle` grammar and snippets, so menu stylesheets had no highlighting.

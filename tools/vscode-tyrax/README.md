@@ -10,7 +10,6 @@
 
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=doctorspider.tyrax"><img alt="Marketplace" src="https://img.shields.io/visual-studio-marketplace/v/doctorspider.tyrax?label=Marketplace&color=1b1d2b"></a>
-  <a href="https://open-vsx.org/extension/doctorspider/tyrax"><img alt="Open VSX" src="https://img.shields.io/open-vsx/v/doctorspider/tyrax?label=Open%20VSX&color=1b1d2b"></a>
   <a href="https://github.com/doctorspider42/tyraX/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
   <a href="https://github.com/doctorspider42/tyraX"><img alt="TyraX" src="https://img.shields.io/badge/made%20for-TyraX-ff6a3d"></a>
 </p>
@@ -75,7 +74,8 @@ editor generates.
 
 ## Installing
 
-- From the Marketplace or Open VSX: search for **TyraX**.
+- From the Marketplace: search for **TyraX**. (VSCodium, Cursor: install the
+  `.vsix` the editor ships, below.)
 - Or let the editor do it: the first **Open in VS Code** in a session installs the
   copy it bundles when yours is missing or older. It never downgrades a newer one.
 - By hand: `code --install-extension tyrax-<version>.vsix`.

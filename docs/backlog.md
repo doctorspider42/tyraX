@@ -11,8 +11,8 @@ GDB batch and MI, and cpptools' own debug adapter over DAP (breakpoint, locals,
 step, Pause, disconnect, reconnect). Still owed:
 
 - **The first publish of `doctorspider.tyrax`**: every release runs
-  `.github/workflows/vscode-extension.yml`; the Marketplace's Trusted Publishing
-  policies and Open VSX's `OVSX_PAT` are the maintainer's (docs/vscode-extension.md).
+  `.github/workflows/vscode-extension.yml` with the Marketplace's Trusted
+  Publishing (policies in place, never used yet). Open VSX is left out for now.
 - **Linux and macOS**: the native-GDB path (no relay), PINE over the Unix socket
   (`$XDG_RUNTIME_DIR` / `$TMPDIR`), and the flatpak PCSX2's socket directory are
   written but not run.

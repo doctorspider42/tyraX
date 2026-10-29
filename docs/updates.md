@@ -261,7 +261,7 @@ a machine without it loses the update check and nothing else.
    then `installer/build-macos.sh`, which signs and notarizes the `.dmg`
    ([Releasing for macOS](#releasing-for-macos)).
 5. **vscode-extension** — the VS Code extension from the same commit
-   (`vscode-extension.yml`): published to the Marketplace and Open VSX when its
+   (`vscode-extension.yml`): published to the Marketplace when its
    `package.json` version is new, skipped otherwise; it gates nothing
    ([Publishing](vscode-extension.md#publishing)).
 6. **release** — publishes the tag with every package attached. Its notes
