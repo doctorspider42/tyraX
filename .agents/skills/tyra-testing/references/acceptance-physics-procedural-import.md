@@ -26,6 +26,10 @@ mode5 compares it on the same in-memory corpora. Preserve all three versioned
 input captures beside the CSV; the analyzer validates payload hashes and SHA-256.
 The clear-winner control must avoid scalar confirmation while the near-tie control
 retains it. Both kernels must pass the corpus geometry gate outside timings.
+The common-motion shortcut must pass four overlap/separation/touching/translation
+controls against the full interval path; the host oracle also requires fewer
+executed source instructions. The preceding kernel must fail that work-reduction
+assertion. Same-ELF reference probes compare live instruction bytes outside timing.
 No Vec4/COP2 calls may run while another micro packet is active, including
 inside EE result reconstruction or canonical positive-CCD confirmation.
 

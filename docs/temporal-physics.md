@@ -492,3 +492,17 @@ this does not establish a whole-scene FPS improvement. See the
 [backend report](../tools/ps2rig/results/vu0-minimum-2026-10-29.json),
 [full-scene shadow](../tools/ps2rig/results/vu0-minimum-shadow-2026-10-29.json)
 and [replay inputs and logs](../tools/ps2rig/results/vu0-minimum-2026-10-29.inputs.zip).
+
+The next experimental kernel recognizes **exactly equal** linear displacements.
+At the existing fixed orientation their relative motion is zero, so linear CCD
+cannot add a contact beyond discrete SAT. All relevant SAT face/edge tests and
+minimum-depth selection remain enabled; only interval arithmetic is bypassed.
+A separating axis still proves no hit. No approximate velocity threshold or new
+collision simplification is introduced. Four controlled overlap/separation/
+touching/common-translation cases compare the shortcut against full interval
+arithmetic, and the host oracle requires fewer executed instructions. The prior
+kernel fails that work-reduction check. Physical qualification is pending.
+
+The reference-image fixture also checks the live VU0 instruction memory against
+both selected images outside timing, and reports the fraction of input pairs
+with exactly equal motion. Captured Case data is replayed without regeneration.

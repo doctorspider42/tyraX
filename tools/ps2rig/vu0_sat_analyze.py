@@ -48,6 +48,7 @@ def main():
  metadata=json.loads(a.metadata.read_text(encoding='utf8'))
  if metadata.get('min_axis_guard'):assert 'VUSATTIE cases=1 failures=0' in log
  if metadata.get('winning_axis_uncertainty'):assert 'VUSATCLEAR cases=1 failures=0' in log
+ if metadata.get('common_motion_shortcut'):assert 'VUSATCOMMON cases=4 failures=0' in log
  assert f'VUSAT mode={a.mode}' in log
  assert 'VUSATCHECK cases=2048 failures=0 ' in log
  assert 'VU0OWNERCHECK switches=3 failures=0' in log

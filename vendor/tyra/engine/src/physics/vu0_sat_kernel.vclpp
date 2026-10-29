@@ -20,6 +20,10 @@ jobLoop:
 iaddiu axisAddr, jobAddr, 10
 ilw.x axesLeft, 31(jobAddr)
 iaddiu overlapping, vi00, 1
+; A negative overlap sentinel denotes EXACTLY equal linear motion.
+ilw.z alive, 31(jobAddr)
+iadd alive, alive, alive
+isub overlapping, overlapping, alive
 iaddiu possible, vi00, 1
 iadd found, vi00, vi00
 ilw.y uncertain, 31(jobAddr)
@@ -192,8 +196,15 @@ positiveNormal:
 add.xyz bestNormal, zero, direction
 b sweepAxis
 notOverlapping:
+; With no relative motion, separation at the fixed orientation rules out CCD.
+ibgez overlapping, movingSeparation
+iadd possible, vi00, vi00
+iadd overlapping, vi00, vi00
+b jobDone
+movingSeparation:
 iadd overlapping, vi00, vi00
 sweepAxis:
+ibltz overlapping, axisEnd
 ibeq possible, vi00, axisEnd
 lq motion, 8(jobAddr)
 mul.xyz temp, direction, motion
@@ -270,6 +281,10 @@ iaddiu axisAddr, axisAddr, 1
 iaddi axesLeft, axesLeft, -1
 ibgtz axesLeft, axisLoop
 jobDone:
+; Keep the public result's overlap field Boolean, not the internal sentinel.
+ibgez overlapping, overlapResultReady
+iaddiu overlapping, vi00, 1
+overlapResultReady:
 add.w bestNormal, zero, bestDepth[x]
 add.w sweepNormal, zero, enterTime[x]
 add.x resultFlags, vf00, leaveTime[x]

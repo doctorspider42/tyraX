@@ -53,7 +53,7 @@ inline bool scalarMotionContactReference(const ConvexView& a,const ConvexView& b
 // Only plain scalar data crosses the asynchronous boundary. No Vec4/COP2
 // helpers may execute between start() and finish(), including indirect calls.
 struct alignas(16) Vu0SatJob {
-  float q[32][4]{}; // 2 boxes (centre + 3 half axes), 2 motions, 21 SAT axes, count
+  float q[32][4]{}; // 2 boxes (centre + 3 half axes), 2 motions, 21 SAT axes, count/uncertainty/common-motion flags
 };
 struct alignas(16) Vu0SatResult {
   float normalDepth[4], sweepEnter[4], flags[4]; // leave, overlap, possible, found

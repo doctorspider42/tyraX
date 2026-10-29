@@ -17,7 +17,12 @@ def install(repo,root,baseline):
     (engine/'src/physics/vu0_sat_reference_kernel.vclpp').write_bytes(kernel.encode())
     p=engine/'inc/physics/vu0_sat.hpp';h=p.read_text(encoding='utf8')
     assert 'TYRA_VU0_SAT_KERNEL_REFERENCE' not in h,'Reference already installed'
-    h+='\n#define TYRA_VU0_SAT_KERNEL_REFERENCE 1\nnamespace Tyra {inline bool vu0SatProbeReference=false;}\n'
+    h+='''
+#define TYRA_VU0_SAT_KERNEL_REFERENCE 1
+extern unsigned Vu0SatKernel_CodeStart,Vu0SatKernel_CodeEnd;
+extern unsigned Vu0SatReferenceKernel_CodeStart,Vu0SatReferenceKernel_CodeEnd;
+namespace Tyra {inline bool vu0SatProbeReference=false;}
+'''
     p.write_bytes(h.encode())
     p=engine/'src/physics/vu0_sat.cpp';s=p.read_text(encoding='utf8')
     s='extern unsigned Vu0SatReferenceKernel_CodeStart;\nextern unsigned Vu0SatReferenceKernel_CodeEnd;\n'+s

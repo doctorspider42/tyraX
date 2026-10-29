@@ -30,6 +30,20 @@ int main(int argc,char** argv) {
     if(controlled)assert(result.flags[3]==0 && "Losing ambiguous axes must not force scalar confirmation");
     else assert(result.flags[3]>=2 && "Distinct near-minimum axes must use canonical scalar selection");
   }
+  for(int pattern=0;pattern<4;++pattern){auto c=Vu0SatProbe::commonMotion(pattern);Vu0SatJob job;
+    assert(packVu0Sat(job,c.view(0),c.view(1),c.box[0],c.box[1],c.motion[0],c.motion[1]));
+    long long fastSteps=0;
+    for(int full=0;full<2;++full){
+      if(full){const unsigned zero=0;std::memcpy(&job.q[31][2],&zero,4);}
+      std::vector<unsigned> mem(1024,0);mem[0]=1;float constants[4]={1e30f,1e-10f,1e-9f,1e-6f};
+      std::memcpy(mem.data()+4,constants,16);std::memcpy(mem.data()+8,&job,sizeof(job));
+      vusim::Config config;config.target=vusim::Target::VU0;auto run=vusim::run(program,mem,config);
+      assert(run.ok && !run.divByZero && !run.qClobbers && run.warnings.empty());
+      Vu0SatResult result;std::memcpy(&result,run.mem.data()+226*4,sizeof(result));
+      float d=0,n=0,p=0;assert(Vu0SatProbe::compare(c,job,result,d,n,p));
+      if(full)assert(run.steps>fastSteps && "Common-motion shortcut must remove work");else fastSteps=run.steps;
+    }
+  }
   std::mt19937 rng(0x534154);std::uniform_real_distribution<float> pos(-4,4),size(.05f,2),angle(-3,3);
   int hits=0,misses=0;float maxDepth=0,maxNormal=0,maxPoint=0;
   for(int trial=0;trial<10000;++trial) {

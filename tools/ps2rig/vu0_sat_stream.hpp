@@ -67,7 +67,7 @@ inline Sample measure(const Vu0SatProbe::Case* cases,const Vu0SatJob* cached,int
 }
 inline bool run(){
   static Vu0SatProbe::Case cases[Cases];static Vu0SatJob cached[Cases];
-  Sample samples[Workloads][Repeats][Modes];unsigned inputHashes[Workloads];
+  Sample samples[Workloads][Repeats][Modes];unsigned inputHashes[Workloads],commonMotionJobs[Workloads];
   int existing=0;
   for(int w=0;w<Workloads;++w){char name[64];snprintf(name,sizeof(name),"vu0-stream-input-%d.bin",w);
     if(FILE* f=fopen(FileUtils::fromCwd(name).c_str(),"rb")){++existing;fclose(f);}}
@@ -101,12 +101,23 @@ inline bool run(){
     for(unsigned i=0;i<sizeof(cases);++i)inputHash=(inputHash^bytes[i])*16777619u;
     inputHashes[workload]=inputHash;
     for(int i=0;i<Cases;++i){const auto& c=cases[i];if(!packVu0Sat(cached[i],c.view(0),c.view(1),c.box[0],c.box[1],c.motion[0],c.motion[1]))return false;}
+    commonMotionJobs[workload]=0;
+    for(const auto& c:cases)commonMotionJobs[workload]+=Loops*(c.motion[0].x==c.motion[1].x && c.motion[0].y==c.motion[1].y && c.motion[0].z==c.motion[1].z);
     // Validate both assembled kernels on this exact corpus outside timing.
     for(int reference=0;reference<(Modes==6?2:1);++reference){
 #ifdef TYRA_VU0_SAT_KERNEL_REFERENCE
     vu0SatProbeReference=reference!=0;
 #endif
     Vu0SatBatch validation;if(!validation.begin())return false;
+#ifdef TYRA_VU0_SAT_KERNEL_REFERENCE
+    const auto* first=reference?&::Vu0SatReferenceKernel_CodeStart:&::Vu0SatKernel_CodeStart;
+    const auto* last=reference?&::Vu0SatReferenceKernel_CodeEnd:&::Vu0SatKernel_CodeEnd;
+    const auto* loaded=reinterpret_cast<volatile unsigned*>(0x11000000);
+    bool imageOk=vu0MicroOwner==first;
+    for(unsigned i=0;i<unsigned(last-first);++i)imageOk &= loaded[i]==first[i];
+    printf("VUSTREAMIMAGE workload=%d reference=%d bytes=%u failures=%u\n",workload,reference,unsigned(last-first)*4,imageOk?0u:1u);fflush(stdout);
+    if(!imageOk)return false;
+#endif
     for(int first=0;first<Cases;first+=Vu0SatBatch::Capacity){Vu0SatResult result[Vu0SatBatch::Capacity];
       const int count=std::min(Vu0SatBatch::Capacity,Cases-first);
       validation.start(cached+first,count);validation.finish(result);
@@ -128,9 +139,9 @@ inline bool run(){
   }
   FILE* f=fopen(FileUtils::fromCwd("vu0-stream.csv").c_str(),"wb");
   if(!f)return false;
-  fprintf(f,"workload,repeat,mode,jobs,ticks,hash,wait_ticks,batches,confirmed_ccd,confirmed_tie,confirmed_parallel,input_hash\n");
+  fprintf(f,"workload,repeat,mode,jobs,ticks,hash,wait_ticks,batches,confirmed_ccd,confirmed_tie,confirmed_parallel,input_hash,common_motion_jobs\n");
   for(int w=0;w<Workloads;++w)for(int r=0;r<Repeats;++r)for(int m=0;m<Modes;++m){const auto& s=samples[w][r][m];
-    fprintf(f,"%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u\n",w,r,m,Cases*Loops,s.ticks,s.hash,s.wait,s.batches,s.confirmedCcd,s.confirmedTie,s.confirmedParallel,inputHashes[w]);}
+    fprintf(f,"%d,%d,%d,%d,%u,%u,%u,%u,%u,%u,%u,%u,%u\n",w,r,m,Cases*Loops,s.ticks,s.hash,s.wait,s.batches,s.confirmedCcd,s.confirmedTie,s.confirmedParallel,inputHashes[w],commonMotionJobs[w]);}
   fclose(f);
   printf("VUSTREAM cases=%d workloads=%d modes=%d repeats=%d replay=%d failures=%u file=1\n",Cases,Workloads,Modes,Repeats,replay?1:0,ok?0u:1u);fflush(stdout);
   return ok;

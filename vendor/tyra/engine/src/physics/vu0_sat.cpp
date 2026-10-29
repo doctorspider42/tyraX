@@ -39,6 +39,8 @@ bool packVu0Sat(Vu0SatJob& job, const ConvexView& a, const ConvexView& b,
   // Almost parallel axes can exchange rank after VU normalization rounding.
   // Their support vertices need not be close. Preserve the scalar tie policy.
   std::memcpy(&job.q[31][1],&uncertain,sizeof(uncertain));
+  const unsigned commonMotion=motionA.x==motionB.x && motionA.y==motionB.y && motionA.z==motionB.z;
+  std::memcpy(&job.q[31][2],&commonMotion,sizeof(commonMotion));
   return true;
 }
 bool finishVu0Sat(const Vu0SatResult& r, const Vu0SatJob& job, const ConvexView& a,

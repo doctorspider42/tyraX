@@ -33,6 +33,11 @@ def main():
             for byte in raw[16:]:input_hash=((input_hash^byte)*16777619)&0xffffffff
             assert {int(r['input_hash'])for r in rows if int(r['workload'])==w}=={input_hash}
             inputs[f.name]=hashlib.sha256(raw).hexdigest()
+            if 'common_motion_jobs' in rows[0]:
+                common={int(r['common_motion_jobs'])for r in rows if int(r['workload'])==w}
+                assert len(common)==1 and 0<=next(iter(common))<=1792
+                if mode_count==6:
+                    for reference in [0,1]:assert re.search(fr'VUSTREAMIMAGE workload={w} reference={reference} bytes=\d+ failures=0',log)
         for repeat in range(8):
             same=[r for r in rows if int(r['workload'])==w and int(r['repeat'])==repeat and int(r['mode'])in [1,2,4]]
             assert len({r['hash']for r in same})==1
@@ -41,6 +46,7 @@ def main():
     result=[]
     for workload in range(workloads):
         entry=dict(workload=['mixed','coincident-centres','offset-overlaps'][workload],modes=[])
+        if 'common_motion_jobs' in rows[0]:entry['common_motion_fraction']=next(int(r['common_motion_jobs'])/int(r['jobs'])for r in rows if int(r['workload'])==workload)
         for mode,name in enumerate(modes):
             selected=[r for r in rows if int(r['workload'])==workload and int(r['mode'])==mode]
             us=[int(r['ticks'])/294.912/int(r['jobs'])for r in selected]

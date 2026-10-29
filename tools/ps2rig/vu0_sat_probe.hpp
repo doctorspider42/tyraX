@@ -2,6 +2,7 @@
 #pragma once
 #include "physics/vu0_sat.hpp"
 #include <cstdio>
+#include <cstring>
 #ifdef _EE
 #include "math/vu0_owner.hpp"
 #include "renderer/rt/vu0_raytracer.hpp"
@@ -66,6 +67,14 @@ inline Case clearWinner() {
   for(auto& v:c.vertices[1])v=Tyra::cvAdd(v,delta);
   return c;
 }
+inline Case commonMotion(int pattern) {
+  Case c=pattern==3?nearTie():clearWinner();
+  if(pattern==1 || pattern==2){const Tyra::CollisionV3 delta={0,0,pattern==1?2.5f:.5f};
+    c.box[1].centre=Tyra::cvAdd(c.box[1].centre,delta);
+    for(auto& v:c.vertices[1])v=Tyra::cvAdd(v,delta);}
+  c.motion[0]=c.motion[1]=pattern?Tyra::CollisionV3{4,-2,7}:Tyra::CollisionV3{};
+  return c;
+}
 #ifdef _EE
 inline bool run() {
   using namespace Tyra;Vu0SatBatch batch;if(!batch.begin())return false;
@@ -81,6 +90,16 @@ inline bool run() {
     batch.start(&job,1);batch.finish(&result);
     const bool ok=result.flags[3]==0 && compare(c,job,result,depth,normal,point);
     printf("VUSATCLEAR cases=1 failures=%u\n",ok?0u:1u);fflush(stdout);if(!ok)return false;}
+  {bool ok=true;
+    for(int pattern=0;pattern<4;++pattern){auto c=commonMotion(pattern);Vu0SatJob job;Vu0SatResult fast,full;
+      if(!packVu0Sat(job,c.view(0),c.view(1),c.box[0],c.box[1],c.motion[0],c.motion[1]))return false;
+      batch.start(&job,1);batch.finish(&fast);
+      ok &= compare(c,job,fast,depth,normal,point);
+      const unsigned zero=0;std::memcpy(&job.q[31][2],&zero,4);
+      batch.start(&job,1);batch.finish(&full);
+      ok &= compare(c,job,full,depth,normal,point);
+    }
+    printf("VUSATCOMMON cases=4 failures=%u\n",ok?0u:1u);fflush(stdout);if(!ok)return false;}
   for(int first=0;first<2048;first+=Vu0SatBatch::Capacity) {
     const int count=std::min(Vu0SatBatch::Capacity,2048-first);
     for(int i=0;i<count;++i){make(cases[i],seed,first+i);if(!packVu0Sat(jobs[i],cases[i].view(0),cases[i].view(1),cases[i].box[0],cases[i].box[1],cases[i].motion[0],cases[i].motion[1]))return false;}

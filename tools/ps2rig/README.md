@@ -272,3 +272,9 @@ run vu0_stream_analyze.py on vu0-stream.csv with --log hardware.log. The package
 also contains both full-scene phase CSV families and metadata for
 vu0_sat_analyze.py --mode verify. A changed input byte must be rejected by the
 payload-hash gate. This kernel assembles to2496B/openvcl and2560B/Sony VCL.
+
+Common-motion qualification additionally requires VUSATCOMMON cases=4 failures=0
+and the old-kernel work-reduction falsifier. The stream CSV reports
+common_motion_jobs; mode5 reference probes compare live instruction memory to
+the selected image before validating each corpus. These checks and image uploads
+remain outside timings. Replay the captured Case files to preserve exact inputs.
