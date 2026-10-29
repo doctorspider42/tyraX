@@ -53,3 +53,8 @@ If launching by hand, first create and verify an **absolute** `PROJECT/bin/ps2li
 
 - **Empty ps2client log, not even `loadelf:`** = RACE: ps2link reboots the IOP on `reset`, an `execee` sent in that window is a lost UDP packet. Kill the client, resend `execee` WITHOUT another reset. Recipe: `reset`, wait ~8 s, `execee`; empty after ~20 s → kill + resend `execee`.
 - **`freepad: DMA Busy ... ret = 0` repeating** (or empty log, `livedbg.bin` stuck at frame 1) = IOP wedge; only a power cycle clears it. Frequent from 2026-09-22 when resetting a console running a DEBUG build (suspect: reset during devkit `host:` I/O; root cause unknown — don't write one). After a power cycle send a **bare `execee`** (probe-reset + launch-reset failed twice). Budget one clean boot per power cycle for debug builds; measure on devkit-off builds (reset cleanly, and are the player's frame).
+
+PowerShell native exit codes: a failed Python assertion does not stop later
+commands merely because ErrorActionPreference is Stop. Check LASTEXITCODE
+and throw, or launch only in a separate tool call after successful validation.
+Never place execee after a validation process whose nonzero exit is unchecked.

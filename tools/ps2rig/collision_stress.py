@@ -15,7 +15,9 @@ parser.add_argument('--baseline',default='e4acb7379',help='Baseline commit for e
 parser.add_argument('--uncapped-baseline',action='store_true',help='Remove the reference solver cap for an equal-completeness comparison')
 parser.add_argument('--solver-comparison',action='store_true',help='42 phases: prior solver, prepared scalar, prepared VU0; reverse order on repeat')
 parser.add_argument('--temporal-comparison',action='store_true',help='42 phases: reference, geometry cache, cache + warm starting + islands')
+parser.add_argument('--settle-check',action='store_true',help='Six stationary 64-box pile phases: settle, known base impulse, recover')
 args=parser.parse_args()
+if args.settle_check:args.temporal_comparison=True
 if args.temporal_comparison:args.solver_comparison=True
 repo=Path(args.repo).resolve();root=Path(args.scratch).resolve();base=args.baseline
 common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
@@ -47,7 +49,7 @@ if not (proj/'src/gen/game_physics.gen.cpp').is_file():raise SystemExit('Generat
 if 'updateObjectPhysicsCandidate' in (proj/'inc/terrain_game.hpp').read_text(encoding='utf8'):raise SystemExit('Fixture is already instrumented')
 
 # Strip BOMs and preserve LF for every injected engine source.
-(eng/'inc/debug/collision_bench.hpp').write_bytes((('#define TYRA_SOLVER_COMPARISON 1\n#define TYRA_TEMPORAL_COMPARISON 1\n' if args.temporal_comparison else '#define TYRA_SOLVER_COMPARISON 1\n' if args.solver_comparison else '')+(rig/'collision_bench.hpp').read_text(encoding='utf-8-sig')).encode())
+(eng/'inc/debug/collision_bench.hpp').write_bytes((('#define TYRA_TEMPORAL_SETTLE 1\n' if args.settle_check else '')+('#define TYRA_SOLVER_COMPARISON 1\n#define TYRA_TEMPORAL_COMPARISON 1\n' if args.temporal_comparison else '#define TYRA_SOLVER_COMPARISON 1\n' if args.solver_comparison else '')+(rig/'collision_bench.hpp').read_text(encoding='utf-8-sig')).encode())
 for rel in ['inc/physics/broad_phase.hpp','src/physics/broad_phase.cpp']:
  text=subprocess.check_output(['git','-C',str(repo),'show',f'{base}:vendor/tyra/engine/{rel}']).decode('utf8')
  text=text.replace('namespace Tyra {','namespace BaselineTyra {').replace('namespace Tyra','namespace BaselineTyra')
@@ -124,6 +126,10 @@ void TerrainGame::benchTick(){
   if(CB::phase>=CB::phases){CB::finished=true;printf("CB DONE phases=%d\\n",CB::phase);fflush(stdout);return;}
   CB::configure();loadScene(0);CB::setup=true;
  }
+ if(TYRA_TEMPORAL_SETTLE && CB::ready && CB::frame==CB::warm+CB::park){
+  const int index=CB_FIRST_BODY;const auto& o=runtimeObjects[index];
+  physPushAt(index,o.data.position[0],o.data.position[1],o.data.position[2],.12F,0,0);
+ }
  if(CB::setup && !runtimeObjects.empty()){
   CB::configure();int found=0;
   for(int i=0;i<(int)runtimeObjects.size();++i){auto&o=runtimeObjects[i];
@@ -146,6 +152,7 @@ rows=re.findall(r'^    \{.*?\},  // (.*)$',(proj/'src/gen/scene_objects.gen.cpp'
 indices=[i for i,name in enumerate(rows)if name.startswith('CB body ')]
 assert len(indices)==128 and indices==list(range(indices[0],indices[0]+128)), 'Unexpected generated body ordering'
 setup=setup.replace('int index=i-135',f'int index=i-{indices[0]}')
+setup=setup.replace('CB_FIRST_BODY',str(indices[0]))
 if args.solver_comparison:
  (eng/'inc/debug/contact_solver_probe.hpp').write_bytes((rig/'contact_solver_probe.hpp').read_text(encoding='utf-8-sig').encode())
  extra_include='#include "debug/contact_solver_probe.hpp"\n'
@@ -218,6 +225,8 @@ meta['uncapped_baseline']=args.uncapped_baseline
 meta['solver_comparison']=args.solver_comparison
 meta['temporal_comparison']=args.temporal_comparison
 if args.solver_comparison:meta['phases']=42
+meta['settle_check']=args.settle_check
+if args.settle_check:meta['phases']=6
 (root/'metadata.json').write_text(json.dumps(meta,indent=2),encoding='utf8')
 print('Instrumented same-ELF baseline/candidate arms:',meta)
 

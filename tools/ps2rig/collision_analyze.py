@@ -5,36 +5,49 @@ import csv,json,argparse,statistics
 def percentile(values,p):
  values=sorted(values)
  return values[min(len(values)-1,int((len(values)-1)*p))]
-def analyze(root, complete=False, baseline_label='main-algorithms', solver_comparison=False, temporal_comparison=False):
- groups={};repeats={};phases=[]
+def analyze(root, complete=False, baseline_label='main-algorithms', solver_comparison=False, temporal_comparison=False,settle_check=False):
+ groups={};repeats={};phases=[];settle_results=[]
  for file in sorted(Path(root).glob('collision-phase-*.csv')):
   rows=list(csv.DictReader(file.open()))
   if not rows:continue
   if any(None in r or None in r.values() for r in rows):raise ValueError(f"Malformed CSV fields: {file}")
   h=rows[0];phase=int(h['phase']);phases.append(phase)
   if complete:
-   assert [int(r['frame']) for r in rows]==list(range(150,750)),file
-   assert {state:sum(r['state']==state for r in rows) for state in ['park','drive','settle']}==dict(park=120,drive=360,settle=120),file
+   assert [int(r['frame']) for r in rows]==list(range(150,1410 if settle_check else 750)),file
+   assert {state:sum(r['state']==state for r in rows) for state in ['park','drive','settle']}==(dict(park=600,drive=60,settle=600) if settle_check else dict(park=120,drive=360,settle=120)),file
    variant=(phase//2)%7
    expected=dict(phase=phase,baseline=int(phase%2==phase//14%2),added=[0,32,64,128,32,64,128][variant],layout=int(variant>=4),repeat=phase//14)
    if solver_comparison:
     rep=phase//21;variant=(phase//3)%7;arm=2-phase%3 if rep else phase%3
     expected=dict(phase=phase,baseline=int(arm==0),added=[0,32,64,128,32,64,128][variant],layout=int(variant>=4),repeat=rep,solver_arm=arm)
+   if settle_check:
+    rep=phase//3;arm=2-phase%3 if rep else phase%3
+    expected=dict(phase=phase,baseline=int(arm==0),added=64,layout=1,repeat=rep,solver_arm=arm)
    for r in rows:
     assert all(int(r[k])==v for k,v in expected.items()),file
     assert 0<int(r['period_ticks'])<2949120000,file
     assert 0<=int(r['physics_ticks'])<=int(r['work_ticks'])<=int(r['period_ticks']),file
     if 'solver_ticks' in r:assert 0<=int(r['solver_ticks'])<=int(r['physics_ticks']),file
+    if temporal_comparison:
+     assert sum(int(r[k])for k in ['predict_ticks','world_ticks','body_ticks','solver_ticks','writeback_ticks'])<=int(r['physics_ticks']),file
+     assert int(r['body_grid_ticks'])<=int(r['body_ticks']),file
+     assert int(r['query_ticks'])<=int(r['world_ticks'])+int(r['body_ticks']),file
+     assert int(r['sat_ticks'])<=int(r['world_ticks'])+int(r['body_ticks']),file
     assert all(__import__('math').isfinite(float(r[k])) for k in ['car_z','car_speed']),file
     if 'generated_contacts' in r and not int(r['baseline']):
      assert int(r['generated_contacts'])==int(r['contacts']),file
      assert int(r['push_candidates'])==int(r['push_tested']),file
      assert int(r['dropped_contacts'])==int(r['push_overflow'])==0,file
+  if settle_check:
+   def window(lo,hi):return [r for r in rows if lo<=int(r['frame'])<hi]
+   pre=window(630,750);wake=window(750,753);post=window(1290,1410)
+   if pre and wake and post:
+    settle_results.append(dict(phase=phase,arm=int(h['solver_arm']),repeat=int(h['repeat']),park_awake_max=max(int(r['awake'])for r in pre),park_energy_mean=statistics.mean(float(r['velocity_energy'])for r in pre),wake_first_frames=[int(r['awake'])for r in wake],recovery_awake_max=max(int(r['awake'])for r in post),recovery_energy_mean=statistics.mean(float(r['velocity_energy'])for r in post),recovery_depth_max=max(float(r['max_depth'])for r in post)))
   for r in rows:
    key=(int(r['solver_arm']) if solver_comparison else int(r['baseline']),int(r['added']),int(r['layout']),r['state'])
    groups.setdefault(key,[]).append(r)
    repeats.setdefault((int(r['repeat']),key),[]).append(r)
- if complete:assert phases==list(range(42 if solver_comparison else 28)),phases
+ if complete:assert phases==list(range(6 if settle_check else 42 if solver_comparison else 28)),phases
  result=[];repeat_result=[]
  entries=[(None,k,v) for k,v in sorted(groups.items())]+[(rep,k,v) for (rep,k),v in sorted(repeats.items())]
  for rep,(old,count,layout,state),rows in entries:
@@ -51,9 +64,9 @@ def analyze(root, complete=False, baseline_label='main-algorithms', solver_compa
    contact_total=sum(int(r['contacts'])for r in rows)
    target[-1]['solver_us_per_contact']=sum(ticks)*1000/contact_total if contact_total else None
    target[-1].update(solver_mean=statistics.mean(ticks),solver_p95=percentile(ticks,.95),solver_p99=percentile(ticks,.99))
- return dict(phases=phases,groups=result,repeats=repeat_result)
+ return dict(phases=phases,groups=result,repeats=repeat_result,settle_checks=settle_results)
 if __name__=='__main__':
- p=argparse.ArgumentParser();p.add_argument('root');p.add_argument('--out');p.add_argument('--complete',action='store_true');p.add_argument('--baseline-label',default='main-algorithms');p.add_argument('--solver-comparison',action='store_true');p.add_argument('--temporal-comparison',action='store_true');a=p.parse_args();result=analyze(a.root,a.complete,a.baseline_label,a.solver_comparison or a.temporal_comparison,a.temporal_comparison)
+ p=argparse.ArgumentParser();p.add_argument('root');p.add_argument('--out');p.add_argument('--complete',action='store_true');p.add_argument('--baseline-label',default='main-algorithms');p.add_argument('--solver-comparison',action='store_true');p.add_argument('--temporal-comparison',action='store_true');p.add_argument('--settle-check',action='store_true');a=p.parse_args();result=analyze(a.root,a.complete,a.baseline_label,a.solver_comparison or a.temporal_comparison or a.settle_check,a.temporal_comparison or a.settle_check,a.settle_check)
  if a.out:Path(a.out).write_text(json.dumps(result,indent=2))
  print('phases',result['phases'])
  for g in result['groups']:

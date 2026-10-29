@@ -40,3 +40,29 @@ including both full-feature drive trials. Contact/candidate accounting and
 disjoint-stage timing checks passed; history recorded 2,636 and 2,300 matches
 in the two full-feature phases. No assert, exception or missing-resource
 diagnostic occurred. Physical-console qualification follows separately.
+
+## Stationary settle and wake gate
+
+`collision_stress.py --settle-check` uses the same three arms and reversed
+repeat order, with 64 piled boxes and no driving. After 150 warm frames it
+records 600 park frames, applies one horizontal 0.12 per-frame velocity impulse
+to a base box, records a 60-frame wake interval and 600 recovery frames.
+All six phases must have 1,260 rows. The test checks late-park/late-recovery
+motion and the first frames after the impulse, in addition to complete contacts
+and finite disjoint/nested timing scopes. It does not replace representative
+non-box or moving-support qualification.
+
+Fixture qualification caught a missing reflection-panorama binary in a manual
+asset copy; that attempt is rejected. Baked binary resources must be copied
+alongside textures/models, and the complete 283-file cache is hash-qualified
+before hardware timing. A premature manual launch without the resident-IOP
+marker required a console power cycle; no result from that attempt is used.
+
+The six-phase stationary software-emulator gate completed 7,560 rows with full
+contact/candidate accounting and finite, consistent timings. Both full-feature
+repeats had zero awake bodies and zero squared-velocity sum in their final
+120 park and recovery frames. Their first wake frames activated 64 and 60
+bodies, versus 2 and 1 in the prior-solver repeats: whole-component waking is
+functionally conservative but can increase transient workload substantially.
+This motivates measuring warm starting separately from coordinated islands.
+Emulator timings are not physical PS2 performance evidence.

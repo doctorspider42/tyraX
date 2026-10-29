@@ -5,6 +5,9 @@
 #ifndef TYRA_SOLVER_COMPARISON
 #define TYRA_SOLVER_COMPARISON 0
 #endif
+#ifndef TYRA_TEMPORAL_SETTLE
+#define TYRA_TEMPORAL_SETTLE 0
+#endif
 namespace CB {
 using U = unsigned;
 using U64 = unsigned long long;
@@ -18,9 +21,10 @@ inline bool ready = false, setup = true, finished = false;
 inline bool baseline = true;
 inline int solverArm = 0;
 inline int added = 0, layout = 0, repeat = 0;
-constexpr int warm = 150, park = 120, drive = 360, settle = 120,
+constexpr int warm = 150, park = TYRA_TEMPORAL_SETTLE?600:120, drive = TYRA_TEMPORAL_SETTLE?60:360, settle = TYRA_TEMPORAL_SETTLE?600:120,
               total = warm + park + drive + settle,
-              phases = TYRA_SOLVER_COMPARISON ? 42 : 28;
+              phases = TYRA_TEMPORAL_SETTLE ? 6 : TYRA_SOLVER_COMPARISON ? 42 : 28;
+constexpr int maxRows=TYRA_TEMPORAL_SETTLE?2048:1024;
 inline U phys = 0, awake = 0, contacts = 0, drops = 0, pushDrops = 0,
          pushes = 0;
 inline U generated = 0, pushCandidates = 0, pushTested = 0;
@@ -37,10 +41,10 @@ struct Row {
   U stages[7],warmHits,islands;
   float energy,maxDepth;
 };
-inline Row rows[1024];
+inline Row rows[maxRows];
 inline int used = 0;
 inline bool gas() {
-  return ready && !finished && frame >= warm + park &&
+  return !TYRA_TEMPORAL_SETTLE && ready && !finished && frame >= warm + park &&
          frame < warm + park + drive;
 }
 inline const char *state(int f) {
@@ -50,6 +54,9 @@ inline const char *state(int f) {
                                    : "settle";
 }
 inline void configure() {
+#if TYRA_TEMPORAL_SETTLE
+  repeat=phase/3;solverArm=repeat?2-phase%3:phase%3;baseline=solverArm==0;added=64;layout=1;return;
+#endif
 #if TYRA_SOLVER_COMPARISON
   repeat = phase / 21;
   const int variant = (phase / 3) % 7;
@@ -76,7 +83,7 @@ inline void begin(U stalls) {
   static U prev = 0, lastStalls = 0;
   U now = ticks();
   if (prev && ready && !finished && frame >= warm && frame < total &&
-      used < 1024) {
+      used < maxRows) {
     U period = now - prev, wait = stalls - lastStalls;
     rows[used++] = {
         (U)frame,       period,     period > wait ? period - wait : 0,
@@ -120,7 +127,7 @@ inline void flush() {
     }
     fclose(f);
   }
-  U sorted[1024], physSorted[1024];
+  U sorted[maxRows], physSorted[maxRows];
   U64 sum = 0;
   U cap = 0, pdrop = 0, pushed = 0, aw = 0, con = 0, miss = 0;
   for (int i = 0; i < used; ++i) {
