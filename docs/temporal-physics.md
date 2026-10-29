@@ -3,6 +3,33 @@
 Temporal physics adds conservative collision caches, persistent contact impulses
 and independent dynamic islands without reducing collision coverage or solver passes.
 
+## Asynchronous VU0 SAT/CCD experiment
+
+`TYRA_PHYSICS_MICRO` is an experimental, default-off backend for dynamic OBB
+pairs that reach SAT after the existing corner tests. Seven jobs fit VU0's
+4 KB data memory. VU0 computes every existing face/edge axis projection,
+minimum penetration and linear time interval. EE reconstructs the winning
+support feature with the original scalar normalization, preserving feature
+selection when rounding would otherwise select a different corner. Ambiguous
+normal signs fall back to the complete scalar algorithm. Other shapes and
+world contacts retain their algorithms. Solver passes, colliders, candidate
+coverage and contact order remain unchanged.
+
+While one batch runs, EE builds the next using scalar RbV and broad-phase
+code. Deferred contacts reserve their original positions; stable compaction
+removes misses after the final completion fence. VU0 memory accesses happen
+while idle. Macro-mode transforms disable the asynchronous route. Built-in
+ray-tracing and generated compute wrappers share a micro-image owner token
+and reload their programs after an owner switch.
+
+The first semantic gate runs the actual VCL source through the host VU0
+simulator against `convexMotionContact`: 10,000 rotated/swept pairs, including
+stationary and coincident-centre cases. Classifications agree; measured depth,
+normal and point errors are zero after winning-feature reconstruction. The
+first openvcl image is 2,048 bytes. These gates do not qualify assembled-code
+execution or establish a console speedup; console validation and same-ELF
+timing remain required.
+
 
 ## Selected defaults and final PS2 result
 

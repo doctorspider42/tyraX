@@ -17,7 +17,9 @@ parser.add_argument('--solver-comparison',action='store_true',help='42 phases: p
 parser.add_argument('--temporal-comparison',action='store_true',help='42 phases: reference, geometry cache, cache + warm starting + islands')
 parser.add_argument('--temporal-arms',type=int,choices=[2,3,4],default=4,help='Four arms separate warm starting from islands; three replays the initial prototype')
 parser.add_argument('--settle-check',action='store_true',help='Six stationary 64-box pile phases: settle, known base impulse, recover')
+parser.add_argument('--micro-comparison',action='store_true',help='28 phases: current scalar physics versus asynchronous VU0 SAT/CCD')
 args=parser.parse_args()
+if args.micro_comparison:args.temporal_comparison=True;args.temporal_arms=2
 if args.settle_check:args.temporal_comparison=True
 if args.temporal_comparison:args.solver_comparison=True
 repo=Path(args.repo).resolve();root=Path(args.scratch).resolve();base=args.baseline
@@ -172,6 +174,9 @@ for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
   s=s.replace('TYRA_PHYSICS_SOLVER_VU0 != 0','CB::solverArm == 2')
   s=('#define TYRA_PHYSICS_PREPARED 0\n' if args.temporal_comparison else '#define TYRA_PHYSICS_PREPARED 1\n')+s
   if args.temporal_comparison:
+   if args.micro_comparison:
+    s='#define TYRA_PHYSICS_MICRO 1\n'+s
+    s=s.replace('TYRA_PHYSICS_MICRO != 0','CB::solverArm == 1')
    options=[('COHERENCE','true'),('WARM_START','false'),('ISLANDS','false')] if args.temporal_arms==2 else [('COHERENCE','CB::solverArm >= 1'),('WARM_START','CB::solverArm >= 2'),('ISLANDS',f'CB::solverArm == {args.temporal_arms-1}')]
    for flag,value in options:
     token='TYRA_PHYSICS_'+flag+' != 0';assert s.count(token)==1;s=s.replace(token,value)
@@ -238,6 +243,7 @@ meta['uncapped_baseline']=args.uncapped_baseline
 meta['solver_comparison']=args.solver_comparison
 meta['temporal_comparison']=args.temporal_comparison
 meta['synthetic_pad']=args.temporal_comparison
+meta['micro_comparison']=args.micro_comparison
 if args.temporal_comparison:meta.update(phases=args.temporal_arms*14,temporal_arms=args.temporal_arms)
 if args.solver_comparison and not args.temporal_comparison:meta['phases']=42
 meta['settle_check']=args.settle_check

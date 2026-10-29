@@ -97,3 +97,14 @@ visits; +32 was slightly slower. Do not enable warm/islands on convergence
 intuition: fixed6+3 dense-pile tests regressed, especially complete-group wake.
 Collider-cache allocation waits for an awake body; disabled islands keep no
 scene-sized membership map. See docs/temporal-physics.md/raw sources and repeats.
+
+
+## Asynchronous physics VU0 experiment
+
+`physics/vu0_sat.hpp` and `vu0_sat_kernel.vclpp` implement default-off
+`TYRA_PHYSICS_MICRO` OBB SAT/linear-CCD batches. Dynamic-pair enumeration is
+a COP2-free interval until the final fence. Never insert Vec4/Matrix4 calls,
+macro transforms, callbacks or other VU0 owners there. Retain scalar fallback
+for unsupported geometry and ambiguous feature signs. Built-in micro owners
+share `math/vu0_owner.hpp`; update generated wrappers when ownership changes.
+See docs/temporal-physics.md and tools/verify-vu0-sat.cpp.

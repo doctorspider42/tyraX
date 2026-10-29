@@ -11,6 +11,7 @@
 #include <math.h>
 #include "renderer/rt/vu0_raytracer.hpp"
 #include "debug/debug.hpp"
+#include "math/vu0_owner.hpp"
 
 // The microprogram, assembled by vclpp/vcl/dvp-as like the VU1 programs
 // (see Makefile.base) - but uploaded to VU0 micro memory by the EE below,
@@ -113,7 +114,7 @@ u32 sampleTextureNearest(const Texture* t, float u, float v) {
 }  // namespace
 
 void Vu0Raytracer::init() {
-  if (uploaded) return;
+  if (uploaded && vu0MicroOwner == &Vu0RtKernel_CodeStart) return;
   vu0WaitIdle();
 
   const u32 words = static_cast<u32>(&Vu0RtKernel_CodeEnd -
@@ -126,6 +127,7 @@ void Vu0Raytracer::init() {
   asm volatile("sync.l");
 
   uploaded = true;
+  vu0MicroOwner = &Vu0RtKernel_CodeStart;
   TYRA_LOG("VU0 ray tracing kernel uploaded (", static_cast<int>(words * 4),
            " bytes)");
 }

@@ -1,0 +1,249 @@
+; Added by TyraX: exact OBB SAT and fixed-orientation linear CCD.
+; 0: count, 1: constants; jobs at 2, stride32; results at226, stride3.
+; The EE only touches VU memory while idle. No VU1-only instructions.
+.syntax new
+.name Vu0SatKernel
+.vu
+.init_vf_all
+.init_vi_all
+--enter
+--endenter
+#vuprog Vu0SatKernel
+sub.xyzw zero, vf00, vf00
+sub.xyz comparison, vf00, vf00
+ilw.x jobsLeft, 0(vi00)
+iaddiu jobAddr, vi00, 2
+iaddiu outAddr, vi00, 226
+lq constants, 1(vi00)
+jobLoop:
+iaddiu axisAddr, jobAddr, 10
+ilw.x axesLeft, 31(jobAddr)
+iaddiu overlapping, vi00, 1
+iaddiu possible, vi00, 1
+iadd found, vi00, vi00
+iadd uncertain, vi00, vi00
+iaddi depthIndex, vi00, -1
+iaddi sweepIndex, vi00, -1
+add.x bestDepth, vf00, constants[x]
+add.xyz bestNormal, vf00, vf00
+add.y bestNormal, vf00, vf00[w]
+sub.xyz sweepNormal, vf00, vf00
+sub.x enterTime, vf00, vf00
+add.x leaveTime, vf00, vf00[w]
+axisLoop:
+lq direction, 0(axisAddr)
+mul.xyz temp, direction, direction
+add.x lengthSquared, temp, temp[y]
+add.x lengthSquared, lengthSquared, temp[z]
+add.x threshold, vf00, constants[y]
+sub.x comparison, threshold, lengthSquared[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, axisSkip
+rsqrt q, vf00[w], lengthSquared[x]
+mulq.xyz direction, direction, q
+lq centre, 0(jobAddr)
+mul.xyz temp, direction, centre
+add.x centreProjection, temp, temp[y]
+add.x centreProjection, centreProjection, temp[z]
+abs.xyz temp, temp
+add.x rounding, temp, temp[y]
+add.x rounding, rounding, temp[z]
+add.x rounding, rounding, vf00[w]
+lq halfAxis, 1(jobAddr)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, vf00, projection[x]
+lq halfAxis, 2(jobAddr)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, radius, projection[x]
+lq halfAxis, 3(jobAddr)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, radius, projection[x]
+add.x rounding, rounding, radius[x]
+mul.x rounding, rounding, constants[w]
+add.x radius, radius, rounding[x]
+sub.x alo, centreProjection, radius[x]
+add.x ahi, centreProjection, radius[x]
+lq centre, 4(jobAddr)
+mul.xyz temp, direction, centre
+add.x centreProjection, temp, temp[y]
+add.x centreProjection, centreProjection, temp[z]
+abs.xyz temp, temp
+add.x rounding, temp, temp[y]
+add.x rounding, rounding, temp[z]
+add.x rounding, rounding, vf00[w]
+lq halfAxis, 5(jobAddr)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, vf00, projection[x]
+lq halfAxis, 6(jobAddr)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, radius, projection[x]
+lq halfAxis, 7(jobAddr)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, radius, projection[x]
+add.x rounding, rounding, radius[x]
+mul.x rounding, rounding, constants[w]
+add.x radius, radius, rounding[x]
+sub.x blo, centreProjection, radius[x]
+add.x bhi, centreProjection, radius[x]
+sub.x comparison, bhi, alo[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibeq VI01, vi00, notOverlapping
+sub.x comparison, ahi, blo[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibeq VI01, vi00, notOverlapping
+ibeq overlapping, vi00, sweepAxis
+sub.x plusDepth, bhi, alo[x]
+sub.x minusDepth, ahi, blo[x]
+mini.x axisDepth, plusDepth, minusDepth[x]
+sub.x margin, plusDepth, minusDepth[x]
+abs.x margin, margin
+loi 0.00001
+addi.x tolerance, vf00, i
+sub.x comparison, tolerance, margin[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, ambiguousNormal
+b depthReady
+ambiguousNormal:
+iaddiu uncertain, vi00, 1
+depthReady:
+sub.x comparison, bestDepth, axisDepth[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, updateDepth
+b sweepAxis
+updateDepth:
+isub depthIndex, axisAddr, jobAddr
+iaddi depthIndex, depthIndex, -10
+add.x bestDepth, vf00, axisDepth[x]
+sub.x comparison, minusDepth, plusDepth[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, positiveNormal
+sub.xyz bestNormal, zero, direction
+b sweepAxis
+positiveNormal:
+add.xyz bestNormal, zero, direction
+b sweepAxis
+notOverlapping:
+iadd overlapping, vi00, vi00
+sweepAxis:
+ibeq possible, vi00, axisEnd
+lq motion, 8(jobAddr)
+mul.xyz temp, direction, motion
+add.x da, temp, temp[y]
+add.x da, da, temp[z]
+lq motion, 9(jobAddr)
+mul.xyz temp, direction, motion
+add.x db, temp, temp[y]
+add.x db, db, temp[z]
+sub.x velocity, da, db[x]
+sub.x alo, alo, da[x]
+sub.x ahi, ahi, da[x]
+sub.x blo, blo, db[x]
+sub.x bhi, bhi, db[x]
+abs.x absoluteVelocity, velocity
+add.x threshold, vf00, constants[z]
+sub.x comparison, threshold, absoluteVelocity[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, stationaryAxis
+sub.x numerator, blo, ahi[x]
+div q, numerator[x], velocity[x]
+addq.x timeZero, vf00, q
+sub.x numerator, bhi, alo[x]
+div q, numerator[x], velocity[x]
+addq.x timeOne, vf00, q
+sub.xyz axisNormal, zero, direction
+sub.x comparison, timeZero, timeOne[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, swapTimes
+b timesReady
+swapTimes:
+add.x temp, vf00, timeZero[x]
+add.x timeZero, vf00, timeOne[x]
+add.x timeOne, vf00, temp[x]
+add.xyz axisNormal, zero, direction
+timesReady:
+sub.x comparison, timeZero, enterTime[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, updateEnter
+b updateLeave
+updateEnter:
+isub sweepIndex, axisAddr, jobAddr
+iaddi sweepIndex, sweepIndex, -10
+add.x enterTime, vf00, timeZero[x]
+add.xyz sweepNormal, zero, axisNormal
+iaddiu found, vi00, 1
+updateLeave:
+mini.x leaveTime, leaveTime, timeOne[x]
+sub.x comparison, enterTime, leaveTime[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, impossibleAxis
+b axisEnd
+stationaryAxis:
+sub.x comparison, blo, ahi[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, impossibleAxis
+sub.x comparison, alo, bhi[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, impossibleAxis
+b axisEnd
+impossibleAxis:
+iadd possible, vi00, vi00
+axisEnd:
+ior alive, overlapping, possible
+ibeq alive, vi00, jobDone
+axisSkip:
+iaddiu axisAddr, axisAddr, 1
+iaddi axesLeft, axesLeft, -1
+ibgtz axesLeft, axisLoop
+jobDone:
+add.w bestNormal, zero, bestDepth[x]
+add.w sweepNormal, zero, enterTime[x]
+add.x resultFlags, vf00, leaveTime[x]
+mfir.y resultFlags, overlapping
+mfir.z resultFlags, possible
+iadd uncertain, uncertain, uncertain
+iadd found, found, uncertain
+mfir.w resultFlags, found
+itof0.yzw resultFlags, resultFlags
+sq bestNormal, 0(outAddr)
+sq sweepNormal, 1(outAddr)
+sq resultFlags, 2(outAddr)
+sub.xyzw indices, vf00, vf00
+mfir.x indices, depthIndex
+mfir.y indices, sweepIndex
+itof0.xy indices, indices
+sq indices, 3(outAddr)
+iaddiu jobAddr, jobAddr, 32
+iaddiu outAddr, outAddr, 4
+iaddi jobsLeft, jobsLeft, -1
+ibgtz jobsLeft, jobLoop
+#endvuprog

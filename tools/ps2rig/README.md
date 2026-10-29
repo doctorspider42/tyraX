@@ -181,3 +181,11 @@ For a focused refined-cache comparison use --temporal-comparison
 candidate's cache on and warm/islands off, matching its default code path.
 CSV body_candidates/body_bounds_rejects count broad visits and subsequent
 conservative envelope rejection, never contact omissions.
+
+
+## VU0 SAT/CCD comparison
+
+Use collision_stress.py with --micro-comparison --baseline 0647f5596.
+This selects two arms and 28 phases, comparing the current scalar pipeline
+with asynchronous dynamic OBB SAT/CCD, retaining cache defaults and synthetic
+pad isolation. This is an experimental backend, disabled in production.
