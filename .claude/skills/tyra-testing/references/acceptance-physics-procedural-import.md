@@ -56,3 +56,10 @@ playground copy, drive its controller, and compare VU0/scalar transforms on the
 physical console before reporting timing gains.
 
 Run `tools/verify-collision-codegen.py --editor <editor> --scratch <primary-checkout>/.tmp/tests` for collision-sidecar lifecycle/incrementality; it owns and cleans its temporary project.
+
+The `verify-collision-envelope.cpp` oracle checks 50,000 rotated, swept box
+pairs against full SAT/CCD and requires every reference hit to survive the
+conservative bounds test, including separated-endpoint pass-throughs. The
+collision stress rig's new completeness columns also require all generated
+contacts to reach the solver and all car-prop candidates to be tested. Use
+`--uncapped-baseline` for equal-completeness performance comparisons.

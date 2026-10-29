@@ -4786,6 +4786,7 @@ struct RbStep {
   int nv;
   RbV wv0[PHYS_MAX_HULL_VERTS];  // hull corners at the start pose
   RbV wv[PHYS_MAX_HULL_VERTS];   // ... and at the predicted pose
+  Tyra::CollisionBounds bounds; // conservative current/linear-sweep envelope
 };
 
 struct RbContact {
@@ -4871,7 +4872,7 @@ inline int rbInsideHull(const float* lp, int np, RbV l, float* depth) {
 
 inline constexpr int PHYS_ITERATIONS = 6;        // velocity passes per frame
 inline constexpr int PHYS_POS_ITERATIONS = 3;    // split-impulse passes
-inline constexpr int PHYS_MAX_CONTACTS = 384;
+inline constexpr int PHYS_MAX_CONTACTS = 384;  // reserve hint, never a contact cap
 inline constexpr float PHYS_SLOP = 0.005F;       // units of allowed overlap
 inline constexpr float PHYS_BAUMGARTE = 0.5F;    // fraction of overlap fixed per frame
 inline constexpr float PHYS_MAX_SPIN = 0.6F;     // radians/frame clamp

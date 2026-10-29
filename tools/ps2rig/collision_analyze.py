@@ -21,6 +21,10 @@ def analyze(root, complete=False):
     assert 0<int(r['period_ticks'])<2949120000,file
     assert 0<=int(r['physics_ticks'])<=int(r['work_ticks'])<=int(r['period_ticks']),file
     assert all(__import__('math').isfinite(float(r[k])) for k in ['car_z','car_speed']),file
+    if 'generated_contacts' in r and not int(r['baseline']):
+     assert int(r['generated_contacts'])==int(r['contacts']),file
+     assert int(r['push_candidates'])==int(r['push_tested']),file
+     assert int(r['dropped_contacts'])==int(r['push_overflow'])==0,file
   for r in rows:
    key=(int(r['baseline']),int(r['added']),int(r['layout']),r['state'])
    groups.setdefault(key,[]).append(r)

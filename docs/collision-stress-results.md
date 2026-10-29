@@ -5,6 +5,11 @@ Physical PS2 measurements show that the collision pipeline keeps 60 FPS with sca
 These are measurements from 2026-10-29, not a prediction from emulator speed.
 They qualify the collision branch, not a general 60 FPS guarantee.
 
+This first run used the 384-contact/eight-prop caps. The 2.2.1 follow-up removes
+those caps and rejects disjoint swept hull envelopes before narrow phase.
+The original numbers below remain a historical record, not measurements of
+that follow-up.
+
 ## Driving results
 
 Each row combines two 360-frame full-throttle driving windows, with the arm
@@ -103,3 +108,30 @@ The [summary and per-repeat statistics](../tools/ps2rig/results/collision-2026-1
 and [compressed raw frame CSV](../tools/ps2rig/results/collision-2026-10-29.csv.gz)
 are retained with the repository. The [rig instructions](../tools/ps2rig/README.md)
 describe how to reproduce the fixture.
+
+## Dense-pile attribution
+
+A second physical PS2 run sampled eight phases: +64/+128 piles, both algorithms,
+then reversed order. COP0 brackets separated preparation, world contacts, body
+pairs, solver and write-back. A small scope also counted/timed the SAT/CCD
+fallback. These diagnostic hooks affect timing and subsequent trajectories;
+use them to attribute work, not as replacement headline FPS.
+
+In the first +128 drive window, body-pair contacts cost 7.79 ms/frame with the
+earlier main algorithms and 41.67 ms with the unoptimized collision branch.
+SAT/CCD fallback alone cost 22.30 ms/frame: 1262.1 calls, of which 1231.0 ran
+the linear sweep and only 0.02 sweeps/frame hit. World contacts also rose from
+2.79 to 9.63 ms/frame, and the capped solver from 2.13 to 5.50 ms/frame as the
+awake/contact workloads diverged. For +64, fallback cost 3.07 ms/frame and the
+body-pair stage 5.39 versus 2.08 ms/frame. These scopes identify excessive
+negative narrow-phase work; they do not establish equal trajectories.
+
+The [diagnostic summary](../tools/ps2rig/results/collision-diagnosis-2026-10-29.json)
+contains both repeats and the ELF hash; [raw diagnostic rows](../tools/ps2rig/results/collision-diagnosis-2026-10-29.csv.gz)
+retain all stage counters. The fix keeps the existing SAT/CCD algorithms and
+solver iterations, adds conservative tight swept bounds, and lets contact and
+car-prop storage grow. The 50,000-pair geometry oracle retained every reference
+SAT/CCD hit, including separated-endpoint pass-throughs. New runtime counters
+check that every generated manifold point reaches the solver and every car
+candidate reaches its exact test. Hardware qualification of the fix is separate
+from these pre-fix diagnostic numbers.

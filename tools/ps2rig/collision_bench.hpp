@@ -18,11 +18,13 @@ constexpr int warm = 150, park = 120, drive = 360, settle = 120,
               total = warm + park + drive + settle, phases = 28;
 inline U phys = 0, awake = 0, contacts = 0, drops = 0, pushDrops = 0,
          pushes = 0;
+inline U generated = 0, pushCandidates = 0, pushTested = 0;
 inline float carZ = 0, carSpeed = 0;
 inline int carValid = 0;
 struct Row {
   U frame, period, work, phys, awake, contacts, drops, pushDrops, pushes;
   float z, speed;
+  U generated, pushCandidates, pushTested;
 };
 inline Row rows[1024];
 inline int used = 0;
@@ -55,11 +57,12 @@ inline void begin(U stalls) {
     rows[used++] = {(U)frame, period,    period > wait ? period - wait : 0,
                     phys,     awake,     contacts,
                     drops,    pushDrops, pushes,
-                    carZ,     carSpeed};
+                    carZ,     carSpeed, generated, pushCandidates, pushTested};
   }
   prev = now;
   lastStalls = stalls;
   phys = awake = contacts = drops = pushDrops = pushes = 0;
+  generated = pushCandidates = pushTested = 0;
   if (ready && !finished)
     ++frame;
 }
@@ -70,13 +73,13 @@ inline void flush() {
   if (f) {
     fprintf(f, "phase,baseline,added,layout,repeat,frame,state,period_ticks,"
                "work_ticks,physics_ticks,awake,contacts,dropped_contacts,push_"
-               "overflow,pushes,car_z,car_speed\n");
+               "overflow,pushes,car_z,car_speed,generated_contacts,push_candidates,push_tested\n");
     for (int i = 0; i < used; ++i) {
       auto &r = rows[i];
-      fprintf(f, "%d,%d,%d,%d,%d,%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%.5f,%.5f\n",
+      fprintf(f, "%d,%d,%d,%d,%d,%u,%s,%u,%u,%u,%u,%u,%u,%u,%u,%.5f,%.5f,%u,%u,%u\n",
               phase, baseline, added, layout, repeat, r.frame, state(r.frame),
               r.period, r.work, r.phys, r.awake, r.contacts, r.drops,
-              r.pushDrops, r.pushes, r.z, r.speed);
+              r.pushDrops, r.pushes, r.z, r.speed, r.generated, r.pushCandidates, r.pushTested);
     }
     fclose(f);
   }

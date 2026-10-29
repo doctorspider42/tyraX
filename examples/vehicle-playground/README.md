@@ -163,3 +163,7 @@ user-owned source files retain their existing ownership rules.
 The TyraX 2.0 native build and PCSX2 software-renderer smoke check passed
 seated startup, R2 acceleration, left-stick steering and L2 braking without
 warnings or assertions. See the [integration record](../../docs/tyrax-2.0.md#showcase-and-motor-district-smoke-checks-2026-10-22).
+
+Dense-prop collision follow-up: generated runtime uses conservative swept-hull
+envelopes and growing contact/car-prop lists. The old 384-contact/eight-prop
+caps no longer discard entries. See [physics](../../docs/physics.md) for scope.

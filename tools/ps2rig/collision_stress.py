@@ -12,6 +12,7 @@ parser.add_argument('command',choices=['prepare','instrument'])
 parser.add_argument('--repo',default=str(Path(__file__).resolve().parents[2]))
 parser.add_argument('--scratch',required=True,help="Primary checkout's ignored .tmp/tests/<task> root")
 parser.add_argument('--baseline',default='e4acb7379',help='Baseline commit for exact physics and broad-phase source')
+parser.add_argument('--uncapped-baseline',action='store_true',help='Remove the reference solver cap for an equal-completeness comparison')
 args=parser.parse_args()
 repo=Path(args.repo).resolve();root=Path(args.scratch).resolve();base=args.baseline
 common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
@@ -84,6 +85,8 @@ files=[proj/'src/gen'/n for n in ['game_physics.gen.cpp','game_scene.gen.cpp','g
 chunks=[]
 for name in names:
  chunk=extract(old,name).replace('TerrainGame::'+name+'(', 'TerrainGame::'+name+'Baseline(')
+ if args.uncapped_baseline:
+  chunk=chunk.replace('      if ((int)contacts.size() >= PHYS_MAX_CONTACTS) return;','')
  if name!='updateObjectPhysics':chunk=re.sub(r'\bbroadPhase\b','baselineBroadPhase',chunk).replace('Tyra::BroadPhase','BaselineTyra::BroadPhase')
  chunks.append(chunk)
  for p in files:
@@ -143,6 +146,7 @@ extra=proj/'src/gen/collision_baseline.gen.cpp';extra.write_text('#include "game
 for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
  s=p.read_text(encoding='utf8')
  s=s.replace('  const int awakeCount = (int)steps.size();','  const int awakeCount = (int)steps.size(); CB::awake += awakeCount;')
+ s=s.replace('    const int m = rbReduce(cs, n, red);','    const int m = rbReduce(cs, n, red); CB::generated += m;')
  s=s.replace('if ((int)contacts.size() >= PHYS_MAX_CONTACTS) return;','if ((int)contacts.size() >= PHYS_MAX_CONTACTS) {CB::drops += m-k;return;}')
  s=s.replace('  const int nc = (int)contacts.size();','  const int nc = (int)contacts.size(); CB::contacts += nc;')
  p.write_text(s,encoding='utf8',newline='\n')
@@ -152,13 +156,17 @@ s=s.replace(needle,'''      CB::carZ=v.pos[2];CB::carSpeed=v.speed;CB::carValid=
       inThrottle=CB::gas()?1.0F:0.0F;inBrake=0;inSteer=0;inHand=CB::gas()?0:1;inNos=0;
 '''+needle)
 s=s.replace('if (dx * dx + dz * dz < r * r && pushN < 8) pushIdx[pushN++] = oi;','if (dx * dx + dz * dz < r * r) {if(pushN<8)pushIdx[pushN++]=oi;else ++CB::pushDrops;}')
-s=s.replace('        physPushAt(pushIdx[pk],','        ++CB::pushes;\n        physPushAt(pushIdx[pk],');p.write_text(s,encoding='utf8',newline='\n')
+s=s.replace('        physPushAt(pushIdx[pk],','        ++CB::pushes;\n        physPushAt(pushIdx[pk],')
+s=s.replace('    if (pushN > 0) {','    CB::pushCandidates += pushN;\n    if (pushN > 0) {')
+s=s.replace('      for (int pk = 0; pk < pushN; ++pk) {','      for (int pk = 0; pk < pushN; ++pk) {\n        ++CB::pushTested;')
+p.write_text(s,encoding='utf8',newline='\n')
 p=proj/'src/scripts/district_mood.cpp';s=p.read_text(encoding='utf8');start=s.index('    const bool night =');end=s.index(';',start)+1;s=s[:start]+'    const bool night = false; // fixed daytime in both arms'+s[end:];p.write_text(s,encoding='utf8',newline='\n')
 p=eng/'src/engine.cpp';s=p.read_text(encoding='utf8').replace('#include "engine.hpp"','#include "engine.hpp"\n#include "debug/collision_bench.hpp"');s=s.replace('void Engine::realLoop() {','void Engine::realLoop() {\n  CB::begin(renderer.core.getStallTotal());');p.write_bytes(s.encode())
 # Silence normal chatter, preserve asserts/missing-resource errors.
 p=eng/'inc/debug/debug.hpp';s=p.read_text(encoding='utf8').replace('#define TYRA_LOG(...) TyraDebug::writeLines("LOG: ", ##__VA_ARGS__, "\\n")','#define TYRA_LOG(...) ((void)0) // measurement: no periodic console IO');p.write_bytes(s.encode())
 # Record the exact source heads and comparison scope.
 meta={'baseline':subprocess.check_output(['git','-C',str(repo),'rev-parse',base],text=True).strip(),'candidate':subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip(),'data_layout':'shared candidate PhysBody/RbStep layout; renderer and assets identical','mesh_collision_objects':0,'tick_hz':294912000,'phases':28,'profiles':'release, NTSC progressive vsync on, day, all devkit polling off'}
+meta['uncapped_baseline']=args.uncapped_baseline
 (root/'metadata.json').write_text(json.dumps(meta,indent=2),encoding='utf8')
 print('Instrumented same-ELF baseline/candidate arms:',meta)
 

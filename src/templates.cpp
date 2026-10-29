@@ -16601,7 +16601,10 @@ void TerrainGame::updateVehicles(float dt) {
     // Physics BODIES (crates, barrels - data.physics): not walls. A car
     // trades momentum with them after the wall pass below - the era's
     // "drive through the boxes" - the way it already does with another car.
-    int pushIdx[8];
+    // Reuse storage; never discard a physical prop because eight nearer
+    // candidates filled the list (the exact contact test runs below).
+    static std::vector<int> pushIdx;
+    pushIdx.clear();
     int pushN = 0;
     const float feet0 = v.pos[1] - s.rideHeight * SC;
     {
@@ -16617,7 +16620,10 @@ void TerrainGame::updateVehicles(float dt) {
           const float dx = e.wx - v.pos[0];
           const float dz = e.wz - v.pos[2];
           const float r = reach + e.rs + 1.0F;
-          if (dx * dx + dz * dz < r * r && pushN < 8) pushIdx[pushN++] = oi;
+          if (dx * dx + dz * dz < r * r) {
+            pushIdx.push_back(oi);
+            ++pushN;
+          }
           return;
         }
         if (e.kind == 1) {
@@ -16694,13 +16700,15 @@ void TerrainGame::updateVehicles(float dt) {
         {
           VehWallBox w0[12];
           VehFloorBox f0[8];
-          int m0[4], p0[8];
+          int m0[4];
+          const auto p0 = pushIdx;
           const int wn = wallBoxN, fn = floorBoxN, mn = nearMeshN, pn = pushN;
           memcpy(w0, wallBox, sizeof(w0));
           memcpy(f0, floorBox, sizeof(f0));
           memcpy(m0, nearMesh, sizeof(m0));
-          memcpy(p0, pushIdx, sizeof(p0));
+
           wallBoxN = floorBoxN = nearMeshN = pushN = 0;
+          pushIdx.clear();
           for (const VehColEntry& e : vehColliders_) considerCol(e);
           for (const StaticBox& b : procColliders) considerProc(b);
           const bool same =
@@ -16708,7 +16716,7 @@ void TerrainGame::updateVehicles(float dt) {
               memcmp(w0, wallBox, sizeof(VehWallBox) * (size_t)wn) == 0 &&
               memcmp(f0, floorBox, sizeof(VehFloorBox) * (size_t)fn) == 0 &&
               memcmp(m0, nearMesh, sizeof(int) * (size_t)mn) == 0 &&
-              memcmp(p0, pushIdx, sizeof(int) * (size_t)pn) == 0;
+              p0 == pushIdx;
           static u32 vChecked = 0, vBad = 0, vFrames = 0;
           ++vChecked;
           if (!same) ++vBad;
@@ -16765,20 +16773,22 @@ void TerrainGame::updateVehicles(float dt) {
         {
           VehWallBox w0[12];
           VehFloorBox f0[8];
-          int m0[4], p0[8];
+          int m0[4];
+          const auto p0 = pushIdx;
           const int wn = wallBoxN, fn = floorBoxN, mn = nearMeshN, pn = pushN;
           memcpy(w0, wallBox, sizeof(w0));
           memcpy(f0, floorBox, sizeof(f0));
           memcpy(m0, nearMesh, sizeof(m0));
-          memcpy(p0, pushIdx, sizeof(p0));
+
           wallBoxN = floorBoxN = nearMeshN = pushN = 0;
+          pushIdx.clear();
           for (const VehColEntry& e : vehColliders_) considerCol(e);
           const bool same =
               wn == wallBoxN && fn == floorBoxN && mn == nearMeshN && pn == pushN &&
               memcmp(w0, wallBox, sizeof(VehWallBox) * (size_t)wn) == 0 &&
               memcmp(f0, floorBox, sizeof(VehFloorBox) * (size_t)fn) == 0 &&
               memcmp(m0, nearMesh, sizeof(int) * (size_t)mn) == 0 &&
-              memcmp(p0, pushIdx, sizeof(int) * (size_t)pn) == 0;
+              p0 == pushIdx;
           static u32 gChecked = 0, gBad = 0, gFrames = 0;
           ++gChecked;
           if (!same) ++gBad;

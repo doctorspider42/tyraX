@@ -85,6 +85,39 @@ struct ConvexContact {
   CollisionV3 normal, point;
   float depth;
 };
+// Conservative for the fixed-orientation linear sweep used below. Include
+// end vertices translated back to their sweep start, not just the previous
+// orientation's vertices: rotation can otherwise hide a linear CCD candidate.
+struct CollisionBounds {
+  CollisionV3 mn, mx;
+};
+inline CollisionBounds convexMotionBounds(const CollisionV3* v, int nv,
+                                         CollisionV3 motion) {
+  CollisionBounds b = {{1e30f, 1e30f, 1e30f}, {-1e30f, -1e30f, -1e30f}};
+  for (int i = 0; i < nv; ++i) {
+    b.mn.x = std::min(b.mn.x, v[i].x);
+    b.mn.y = std::min(b.mn.y, v[i].y);
+    b.mn.z = std::min(b.mn.z, v[i].z);
+    b.mx.x = std::max(b.mx.x, v[i].x);
+    b.mx.y = std::max(b.mx.y, v[i].y);
+    b.mx.z = std::max(b.mx.z, v[i].z);
+  }
+  b.mn.x -= std::max(0.f, motion.x);
+  b.mn.y -= std::max(0.f, motion.y);
+  b.mn.z -= std::max(0.f, motion.z);
+  b.mx.x -= std::min(0.f, motion.x);
+  b.mx.y -= std::min(0.f, motion.y);
+  b.mx.z -= std::min(0.f, motion.z);
+  return b;
+}
+inline bool collisionBoundsOverlap(const CollisionBounds& a,
+                                   const CollisionBounds& b) {
+  // Allow rounding at touching faces; the exact narrow phase decides.
+  constexpr float e = 1e-4f;
+  return a.mn.x <= b.mx.x + e && b.mn.x <= a.mx.x + e &&
+         a.mn.y <= b.mx.y + e && b.mn.y <= a.mx.y + e &&
+         a.mn.z <= b.mx.z + e && b.mn.z <= a.mx.z + e;
+}
 inline bool convexContact(const ConvexView& a, const ConvexView& b,
                           ConvexContact& out) {
   if (!a.nv || !b.nv) return false;

@@ -1,0 +1,151 @@
+{
+  "source": "cc1f8895b (candidate), e4acb7379 (reference), 384 contacts/eight car candidates in both",
+  "elf_sha256": "04b46d65bf8da7005b644938affbbb211b7c018b55b127daa0fa4fdd16c36c6b",
+  "units": "stage means in milliseconds; calls/hits per frame; drive windows, two arm orders",
+  "phases": [
+    {
+      "phase": 0,
+      "baseline": 1,
+      "added": 64,
+      "n": 360,
+      "means": {
+        "prep": 0.2356744554307726,
+        "world": 1.06709578714253,
+        "pairs": 2.0770096390335646,
+        "solve": 1.7609736595624759,
+        "integrate": 0.08416293108904803,
+        "sat_ticks": 0.0,
+        "sat_calls": 0.0,
+        "sat_hits": 0.0,
+        "ccd_calls": 0.0,
+        "ccd_hits": 0.0
+      }
+    },
+    {
+      "phase": 1,
+      "baseline": 0,
+      "added": 64,
+      "n": 360,
+      "means": {
+        "prep": 0.33346699844171973,
+        "world": 1.633341320650077,
+        "pairs": 5.389816500816816,
+        "solve": 2.3475943200382186,
+        "integrate": 0.10502198772665895,
+        "sat_ticks": 3.0669678299515337,
+        "sat_calls": 153.85833333333332,
+        "sat_hits": 6.566666666666666,
+        "ccd_calls": 147.29166666666666,
+        "ccd_hits": 0.002777777777777778
+      }
+    },
+    {
+      "phase": 2,
+      "baseline": 1,
+      "added": 128,
+      "n": 360,
+      "means": {
+        "prep": 0.43628859343352144,
+        "world": 2.7904422618724682,
+        "pairs": 7.793822111906828,
+        "solve": 2.130572952458888,
+        "integrate": 0.163892901385272,
+        "sat_ticks": 0.0,
+        "sat_calls": 0.0,
+        "sat_hits": 0.0,
+        "ccd_calls": 0.0,
+        "ccd_hits": 0.0
+      }
+    },
+    {
+      "phase": 3,
+      "baseline": 0,
+      "added": 128,
+      "n": 360,
+      "means": {
+        "prep": 1.0776232213149837,
+        "world": 9.625439019850742,
+        "pairs": 41.67131614214108,
+        "solve": 5.503768374596113,
+        "integrate": 0.516426717499156,
+        "sat_ticks": 22.30025185479058,
+        "sat_calls": 1262.0583333333334,
+        "sat_hits": 31.08888888888889,
+        "ccd_calls": 1230.9694444444444,
+        "ccd_hits": 0.022222222222222223
+      }
+    },
+    {
+      "phase": 4,
+      "baseline": 0,
+      "added": 64,
+      "n": 360,
+      "means": {
+        "prep": 0.336547945752556,
+        "world": 1.5862604117687837,
+        "pairs": 5.0677938861611445,
+        "solve": 2.023844636516807,
+        "integrate": 0.10691665837794175,
+        "sat_ticks": 2.8647367971914783,
+        "sat_calls": 138.925,
+        "sat_hits": 7.275,
+        "ccd_calls": 131.65,
+        "ccd_hits": 0.016666666666666666
+      }
+    },
+    {
+      "phase": 5,
+      "baseline": 1,
+      "added": 64,
+      "n": 360,
+      "means": {
+        "prep": 0.2930079048062548,
+        "world": 1.4467815163694782,
+        "pairs": 2.72797289247866,
+        "solve": 2.3356784679271554,
+        "integrate": 0.11343955522702065,
+        "sat_ticks": 0.0,
+        "sat_calls": 0.0,
+        "sat_hits": 0.0,
+        "ccd_calls": 0.0,
+        "ccd_hits": 0.0
+      }
+    },
+    {
+      "phase": 6,
+      "baseline": 0,
+      "added": 128,
+      "n": 360,
+      "means": {
+        "prep": 1.0339256192431039,
+        "world": 8.922053009786724,
+        "pairs": 43.12142913253219,
+        "solve": 5.55724503316997,
+        "integrate": 0.4857427714783468,
+        "sat_ticks": 23.847248878008052,
+        "sat_calls": 1341.6,
+        "sat_hits": 37.86388888888889,
+        "ccd_calls": 1303.736111111111,
+        "ccd_hits": 0.016666666666666666
+      }
+    },
+    {
+      "phase": 7,
+      "baseline": 1,
+      "added": 128,
+      "n": 360,
+      "means": {
+        "prep": 0.33110737741729357,
+        "world": 1.8812848879967206,
+        "pairs": 5.359541961293162,
+        "solve": 1.5058375794210552,
+        "integrate": 0.10631579175407505,
+        "sat_ticks": 0.0,
+        "sat_calls": 0.0,
+        "sat_hits": 0.0,
+        "ccd_calls": 0.0,
+        "ccd_hits": 0.0
+      }
+    }
+  ]
+}

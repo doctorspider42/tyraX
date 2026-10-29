@@ -80,3 +80,7 @@ Collision runtime refreshed for the spatial dynamic-body broad phase, cached
 hull transforms, edge-aware SAT contacts and selective linear sweeps. The
 portable collision regression probes live in `tools/verify-collision-*.cpp`;
 performance comparisons must include a physical PS2 run.
+
+Dense-prop collision follow-up: generated runtime uses conservative swept-hull
+envelopes and growing contact/car-prop lists. The old 384-contact/eight-prop
+caps no longer discard entries. See [physics](../../docs/physics.md) for scope.

@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.2.1
+
+- Dense physics scenes reject disjoint swept hull bounds before expensive contact tests. Rigid-body contact storage and vehicle prop candidates grow as needed instead of silently truncating at 384 contacts or eight props.
+
 ## 2.2.0
 
 - Moving and sleeping colliders participate in spatial filtering, and rigid-body pairs use swept bounds instead of scanning the entire physics population.

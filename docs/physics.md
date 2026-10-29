@@ -163,9 +163,10 @@ the budget. Current bounds include:
 - **No warm starting and no persistent manifolds.** Stable stacks of a few
   bodies are fine because sleeping bodies are immovable partners; tall stacks
   of awake bodies jitter before they sleep.
-- The solver has a 384-contact budget, and car pushing collects eight nearby
-  prop candidates per substep. Both saturate in the stress fixture; see the
-  [measured completeness limits](collision-stress-results.md#collision-limits-matter-too).
+- Contact storage and the car's nearby prop list grow to retain every reduced
+  manifold/candidate. The older 384-contact/eight-prop caps saturated in the
+  [original stress measurement](collision-stress-results.md#collision-limits-matter-too).
+  Memory and solver cost still rise with contact density.
 - A shape is convex (see above), and an animated model is its AABB box.
 - There is no editor-side simulation: the viewport shows the authored pose.
 
@@ -184,6 +185,12 @@ cross-products, catching crossed beams with no contained vertex. Unique hull
 edge directions are cached when a shape is built. Sphere/hull contacts use
 closest face, edge or vertex distance rather than inflated face planes alone.
 Selective linear CCD is described in [Collision boxes](collision-boxes.md).
+
+Each predicted step also caches a tight hull/sphere envelope for the existing
+fixed-orientation linear sweep. Disjoint envelopes skip vertex planes and
+SAT/CCD. The hull envelope includes its predicted vertices translated back by
+the COM displacement, retaining pass-through hits even when the endpoint poses
+are separate. This is conservative rejection, not a limit on pairs or contacts.
 
 Hull vertex transforms have an optional batched VU0 macro-mode path: one
 matrix load for up to 24 aligned points. `TYRA_COLLISION_VU0=1` enables it;

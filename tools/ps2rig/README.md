@@ -103,3 +103,12 @@ performance is measured by this fixture.
   loosen it.
 - Instrumented builds (scopes + PMU) add ~2.5 ms a frame; quote `--lean` numbers.
 - `--pgo-*` assumes the WSL native-build cache prefix in `PGO_PREFIX`.
+
+
+For an equal-completeness optimization comparison, use `--baseline cc1f8895b
+--uncapped-baseline` when instrumenting. This retains the earlier branch's
+SAT/CCD and broad-phase algorithms but removes its contact cap. Both arms
+share the current unbounded car-prop candidate list. New CSV columns compare
+`generated_contacts` with solver `contacts` and `push_candidates` with
+`push_tested`; `--complete` rejects candidate omissions. Historical CSVs without
+these columns remain readable. Do not present this as a stock-old-branch A/B.

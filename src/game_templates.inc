@@ -4790,6 +4790,7 @@ struct RbStep {
   int nv;
   RbV wv0[PHYS_MAX_HULL_VERTS];  // hull corners at the start pose
   RbV wv[PHYS_MAX_HULL_VERTS];   // ... and at the predicted pose
+  Tyra::CollisionBounds bounds; // conservative current/linear-sweep envelope
 };
 
 struct RbContact {
@@ -4875,7 +4876,7 @@ inline int rbInsideHull(const float* lp, int np, RbV l, float* depth) {
 
 inline constexpr int PHYS_ITERATIONS = 6;        // velocity passes per frame
 inline constexpr int PHYS_POS_ITERATIONS = 3;    // split-impulse passes
-inline constexpr int PHYS_MAX_CONTACTS = 384;
+inline constexpr int PHYS_MAX_CONTACTS = 384;  // reserve hint, never a contact cap
 inline constexpr float PHYS_SLOP = 0.005F;       // units of allowed overlap
 inline constexpr float PHYS_BAUMGARTE = 0.5F;    // fraction of overlap fixed per frame
 inline constexpr float PHYS_MAX_SPIN = 0.6F;     // radians/frame clamp
@@ -24465,6 +24466,9 @@ void TerrainGame::updateObjectPhysics() {
   static std::vector<int> bodies;   // every physics object this frame
   steps.clear();
   contacts.clear();
+  // Initial storage only: every reduced manifold is retained, including
+  // dense stacks. Capacity grows and is reused across subsequent frames.
+  if (contacts.capacity() < PHYS_MAX_CONTACTS) contacts.reserve(PHYS_MAX_CONTACTS);
   bodies.clear();
   // The physics objects, as indices. Walking every object in the scene to
   // find the few with data.physics set - reading two fields out of a
@@ -24556,6 +24560,17 @@ void TerrainGame::updateObjectPhysics() {
     if (asleep) {
       for (int k = 0; k < b.verts; ++k) s.wv[k] = s.wv0[k];
     } else Tyra::collisionTransformPoints(s.R1, s.x1, b.lv, b.verts, s.wv);
+    if (s.sphere) {
+      const RbV r = rbV(s.sphereR, s.sphereR, s.sphereR);
+      s.bounds = {rbSub(s.x1, r), rbAdd(s.x1, r)};
+      const RbV from = rbSub(s.x0, r), to = rbAdd(s.x0, r);
+      s.bounds.mn = {std::min(s.bounds.mn.x, from.x),
+                     std::min(s.bounds.mn.y, from.y), std::min(s.bounds.mn.z, from.z)};
+      s.bounds.mx = {std::max(s.bounds.mx.x, to.x),
+                     std::max(s.bounds.mx.y, to.y), std::max(s.bounds.mx.z, to.z)};
+    } else {
+      s.bounds = Tyra::convexMotionBounds(s.wv, s.nv, rbSub(s.x1, s.x0));
+    }
     steps.push_back(s);
     stepOf[i] = (short)(steps.size() - 1);
     return (int)steps.size() - 1;
@@ -24568,6 +24583,8 @@ void TerrainGame::updateObjectPhysics() {
   auto satContact = [&](const RbStep& A, const PhysBody& Ba,
                          const RbV* bv, int bnv, const RbV* bn, int bnn,
                          const RbV* be, int bne, RbCand& result, RbV motionB) {
+    if (!Tyra::collisionBoundsOverlap(A.bounds,
+        Tyra::convexMotionBounds(bv, bnv, motionB))) return false;
     RbV normals[44], edges[66];
     for (int k = 0; k < Ba.planes; ++k)
       normals[k] = rbMat(A.R1, rbV(Ba.lp[k*4], Ba.lp[k*4+1], Ba.lp[k*4+2]));
@@ -24586,7 +24603,6 @@ void TerrainGame::updateObjectPhysics() {
   auto emit = [&](int a, int b, const RbCand* cs, int n) {
     const int m = rbReduce(cs, n, red);
     for (int k = 0; k < m; ++k) {
-      if ((int)contacts.size() >= PHYS_MAX_CONTACTS) return;
       RbContact c;
       c.a = (short)a;
       c.b = (short)b;
@@ -24835,6 +24851,11 @@ void TerrainGame::updateObjectPhysics() {
                                s.data.position[2]),
                            rbMat(Bm, rbV(cb.center[0], cb.center[1], cb.center[2])));
       const float h[3] = {cb.half[0], cb.half[1], cb.half[2]};
+      const RbV wh = rbV(fabsf(ax.x)*h[0] + fabsf(ay.x)*h[1] + fabsf(az.x)*h[2],
+                         fabsf(ax.y)*h[0] + fabsf(ay.y)*h[1] + fabsf(az.y)*h[2],
+                         fabsf(ax.z)*h[0] + fabsf(ay.z)*h[1] + fabsf(az.z)*h[2]);
+      if (!Tyra::collisionBoundsOverlap(S.bounds,
+          {rbSub(bc, wh), rbAdd(bc, wh)})) continue;
       if (S.sphere) {
         const RbV l=rbMatT(Bm,rbSub(x1,bc));
         const float lc[3]={l.x,l.y,l.z};float cl[3];bool inside=true;
@@ -24995,6 +25016,10 @@ void TerrainGame::updateObjectPhysics() {
       const RbStep& A = steps[si];
       const RbStep& Bs = steps[sj];
       const PhysBody& Ba = physBodies[A.slot];
+      // The grid's swept sphere bounds deliberately over-select. Reject by
+      // cached hull/sphere envelopes before vertex planes, SAT or CCD. This
+      // is conservative for every contact path below, including linear TOI.
+      if (!Tyra::collisionBoundsOverlap(A.bounds, Bs.bounds)) continue;
       const RbV d = rbSub(A.x1, Bs.x1);
       const float d2 = rbDot(d, d);
       int n = 0;
