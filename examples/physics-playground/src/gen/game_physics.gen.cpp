@@ -135,6 +135,7 @@ void TerrainGame::physBuildShape(int index, PhysBody& b) {
 
 
 int TerrainGame::physBodyFor(int index) {
+  unsigned& revision=rbRevisionFor(index,sceneGeneration,(int)runtimeObjects.size());
   if (physBodiesScene != currentScene) {
     physBodies.clear();
     physSlotOf.clear();
@@ -179,6 +180,7 @@ int TerrainGame::physBodyFor(int index) {
   }
   if (moved || b.lastSpin[0] != o.spin[0] || b.lastSpin[1] != o.spin[1] ||
       b.lastSpin[2] != o.spin[2]) {
+    ++revision;
     for (int k = 0; k < 3; ++k) {
       b.w[k] = o.spin[k] * (PI / 180.0F);
       b.lastSpin[k] = o.spin[k];
@@ -229,6 +231,62 @@ void TerrainGame::updateObjectPhysics() {
   const float bounceThreshold = 3.0F * gravityPerFrame + 0.004F;
   const int count = (int)runtimeObjects.size();
   const float wakeSpeed = sqrtf(PHYS_WAKE_SPEED2);
+  const bool coherence = TYRA_PHYSICS_COHERENCE != 0;
+  const bool warmStart = TYRA_PHYSICS_WARM_START != 0;
+  const bool useIslands = TYRA_PHYSICS_ISLANDS != 0;
+  static Tyra::ContactHistory contactHistory;
+  static Tyra::SeparatingAxisHistory axisHistory;
+  static Tyra::ContactIslands islands;
+  static std::vector<unsigned char> islandQuiet,islandReady;
+  static std::vector<int> lastIsland;
+  static unsigned temporalGeneration = ~0u;
+  if (temporalGeneration != sceneGeneration || lastIsland.size() != runtimeObjects.size()) {
+    lastIsland.assign(runtimeObjects.size(), -1);
+    temporalGeneration = sceneGeneration;
+  }
+  if(warmStart) contactHistory.begin(sceneGeneration,g_frameDt);
+  if(coherence) axisHistory.begin(sceneGeneration);
+
+  struct SatGeometry { bool valid=false; RbV normals[44],edges[66]; };
+  static std::vector<SatGeometry> satGeometry;
+  struct WorldGeometry {
+    bool valid=false; unsigned revision=0; float key[14];
+    V3 ax,ay,az; float matrix[9],half[3]; RbV centre,extent,vertices[8];
+    Tyra::CollisionObb box;
+  };
+  static std::vector<WorldGeometry> worldGeometry;
+  static unsigned worldGeometryGeneration=~0u;
+  if(worldGeometryGeneration!=sceneGeneration || worldGeometry.size()!=runtimeObjects.size()) {
+    worldGeometry.clear();worldGeometry.resize(runtimeObjects.size());
+    worldGeometryGeneration=sceneGeneration;
+  }
+  auto worldShape = [&](int index,const CollisionBox& cb) -> WorldGeometry& {
+    auto& g=worldGeometry[index];const auto& d=runtimeObjects[index].data;
+    const float key[14]={d.position[0],d.position[1],d.position[2],
+      d.rotation[0],d.rotation[1],d.rotation[2],cb.center[0],cb.center[1],cb.center[2],
+      cb.half[0],cb.half[1],cb.half[2],cb.yaw,float(d.type)};
+    bool same=g.valid;
+    for(int k=0;k<14 && same;++k)same=g.key[k]==key[k];
+    if(!same) {++g.revision;for(int k=0;k<14;++k)g.key[k]=key[k];}
+    if(!coherence || !same) {
+      g.ax=boxRotate({1,0,0},d);g.ay=boxRotate({0,1,0},d);g.az=boxRotate({0,0,1},d);
+      const float matrix[9]={g.ax.x,g.ay.x,g.az.x,g.ax.y,g.ay.y,g.az.y,g.ax.z,g.ay.z,g.az.z};
+      for(int k=0;k<9;++k)g.matrix[k]=matrix[k];
+      for(int k=0;k<3;++k)g.half[k]=cb.half[k];
+      g.centre=rbAdd(rbV(d.position[0],d.position[1],d.position[2]),
+          rbMat(g.matrix,rbV(cb.center[0],cb.center[1],cb.center[2])));
+      const auto& ax=g.ax;const auto& ay=g.ay;const auto& az=g.az;const float* h=g.half;
+      g.extent=rbV(fabsf(ax.x)*h[0]+fabsf(ay.x)*h[1]+fabsf(az.x)*h[2],
+          fabsf(ax.y)*h[0]+fabsf(ay.y)*h[1]+fabsf(az.y)*h[2],
+          fabsf(ax.z)*h[0]+fabsf(ay.z)*h[1]+fabsf(az.z)*h[2]);
+      for(int c=0;c<8;++c)g.vertices[c]=rbAdd(g.centre,rbMat(g.matrix,
+          rbV((c&1)?h[0]:-h[0],(c&2)?h[1]:-h[1],(c&4)?h[2]:-h[2])));
+      g.box={g.centre,{rbMul(rbV(ax.x,ax.y,ax.z),h[0]),
+          rbMul(rbV(ay.x,ay.y,ay.z),h[1]),rbMul(rbV(az.x,az.y,az.z),h[2])}};
+      g.valid=true;
+    }
+    return g;
+  };
 
   static std::vector<RbStep> steps;
   static std::vector<RbContact> contacts;
@@ -266,6 +324,16 @@ void TerrainGame::updateObjectPhysics() {
     bodies.push_back(i);
   }
   if (bodies.empty()) return;
+  if(useIslands) {
+    // Wake every member of a previously sleeping component when any member
+    // was pushed, scripted or otherwise woken. Never cull a collision here.
+    static std::vector<unsigned char> wakeIsland;
+    wakeIsland.assign(count,0);
+    for(int i:bodies)if(!physAsleep(runtimeObjects[i]) && lastIsland[i]>=0)
+      wakeIsland[lastIsland[i]]=1;
+    for(int i:bodies)if(physAsleep(runtimeObjects[i]) && lastIsland[i]>=0 && wakeIsland[lastIsland[i]])
+      runtimeObjects[i].restFrames=0;
+  }
   bool anyAwake = false;
   for (int i : bodies)
     if (!physAsleep(runtimeObjects[i])) {
@@ -278,6 +346,7 @@ void TerrainGame::updateObjectPhysics() {
   physBodies.reserve(physBodies.size() + bodies.size());
   for (int i : bodies) physBodyFor(i);
   stepOf.assign(count, -1);
+  if(coherence) satGeometry.resize(bodies.size());
 
   auto makeStep = [&](int i, bool asleep) -> int {
     RuntimeObject& o = runtimeObjects[i];
@@ -353,6 +422,7 @@ void TerrainGame::updateObjectPhysics() {
           rbV(s.R1[k],s.R1[k+3],s.R1[k+6]),(hi[k]-lo[k])*.5F);
     }
     steps.push_back(s);
+    if(coherence)satGeometry[steps.size()-1].valid=false;
     stepOf[i] = (short)(steps.size() - 1);
     return (int)steps.size() - 1;
   };
@@ -361,32 +431,46 @@ void TerrainGame::updateObjectPhysics() {
     if (!physAsleep(runtimeObjects[i])) makeStep(i, false);
   const int awakeCount = (int)steps.size();
 
+  auto transformedShape = [&](const RbStep& s,const PhysBody& b) -> SatGeometry& {
+    auto& g=satGeometry[stepOf[s.obj]];
+    if(!g.valid) {
+      for(int k=0;k<b.planes;++k)g.normals[k]=rbMat(s.R1,rbV(b.lp[k*4],b.lp[k*4+1],b.lp[k*4+2]));
+      for(int k=0;k<b.edges;++k)g.edges[k]=rbMat(s.R1,rbV(b.le[k*3],b.le[k*3+1],b.le[k*3+2]));
+      g.valid=true;
+    }
+    return g;
+  };
+
   auto satContact = [&](const RbStep& A, const PhysBody& Ba,
                          const RbV* bv, int bnv, const RbV* bn, int bnn,
                          const RbV* be, int bne, RbCand& result, RbV motionB,
-                         const Tyra::CollisionObb* boxB = nullptr) {
+                          const Tyra::CollisionObb* boxB = nullptr, int other = -1) {
     if (!Tyra::collisionBoundsOverlap(A.bounds,
         Tyra::convexMotionBounds(bv, bnv, motionB))) return false;
     RbV normals[44], edges[66];
-    for (int k = 0; k < Ba.planes; ++k)
+    for (int k = 0; !coherence && k < Ba.planes; ++k)
       normals[k] = rbMat(A.R1, rbV(Ba.lp[k*4], Ba.lp[k*4+1], Ba.lp[k*4+2]));
-    for (int k = 0; k < Ba.edges; ++k)
+    for (int k = 0; !coherence && k < Ba.edges; ++k)
       edges[k] = rbMat(A.R1, rbV(Ba.le[k*3], Ba.le[k*3+1], Ba.le[k*3+2]));
     Tyra::ConvexContact c;
-    const Tyra::ConvexView av = {A.wv,A.nv,normals,Ba.planes,edges,Ba.edges};
+    const SatGeometry* geometry=coherence?&transformedShape(A,Ba):nullptr;
+    const Tyra::ConvexView av = {A.wv,A.nv,geometry?geometry->normals:normals,
+        Ba.planes,geometry?geometry->edges:edges,Ba.edges};
     const Tyra::ConvexView bvView = {bv,bnv,bn,bnn,be,bne};
     if (!Tyra::convexMotionContact(av, bvView, rbSub(A.x1, A.x0), motionB, c,
-        A.box ? &A.obb : nullptr, boxB))
+        A.box ? &A.obb : nullptr, boxB,
+        coherence?&axisHistory.acquire(A.obj,other):nullptr))
       return false;
     result.n = c.normal; result.p = c.point; result.depth = c.depth;
     return true;
   };
   RbCand cand[48];
   RbCand red[4];
-  auto emit = [&](int a, int b, const RbCand* cs, int n) {
+  auto emit = [&](int a, int b, const RbCand* cs, int n, int worldObject=-1) {
     const int m = rbReduce(cs, n, red);
     for (int k = 0; k < m; ++k) {
       RbContact c;
+      c.other=b>=0?steps[b].obj:worldObject;c.history=-1;
       c.a = (short)a;
       c.b = (short)b;
       c.n = red[k].n;
@@ -500,6 +584,7 @@ void TerrainGame::updateObjectPhysics() {
       RuntimeObject& s = runtimeObjects[j];
       if (!s.active || s.data.physics || !physObstacle(s.data)) continue;
       const CollisionBox scb = objectCollisionBox(s);
+      WorldGeometry& staticShape=worldShape(j,scb);
       const float sc2 = scb.center[0] * scb.center[0] +
                         scb.center[1] * scb.center[1] +
                         scb.center[2] * scb.center[2];
@@ -616,7 +701,7 @@ void TerrainGame::updateObjectPhysics() {
             }
           }
         }
-        if (n) emit(si, -1, cand, n);
+        if (n) emit(si, -1, cand, n, j);
         continue;
       }
 
@@ -625,18 +710,9 @@ void TerrainGame::updateObjectPhysics() {
       // only (its floor keeps carrying the body), a FLOOR portal opens it all.
       const bool doorway = aimOn && portalDoorwayOpens(s, aimPlane, aimPoint);
       if (doorway && fabsf(aimPlane[1]) >= 0.5F) continue;
-      const CollisionBox cb = objectCollisionBox(s);
-      const V3 ax = boxRotate({1.0F, 0.0F, 0.0F}, s.data);
-      const V3 ay = boxRotate({0.0F, 1.0F, 0.0F}, s.data);
-      const V3 az = boxRotate({0.0F, 0.0F, 1.0F}, s.data);
-      const float Bm[9] = {ax.x, ay.x, az.x, ax.y, ay.y, az.y, ax.z, ay.z, az.z};
-      const RbV bc = rbAdd(rbV(s.data.position[0], s.data.position[1],
-                               s.data.position[2]),
-                           rbMat(Bm, rbV(cb.center[0], cb.center[1], cb.center[2])));
-      const float h[3] = {cb.half[0], cb.half[1], cb.half[2]};
-      const RbV wh = rbV(fabsf(ax.x)*h[0] + fabsf(ay.x)*h[1] + fabsf(az.x)*h[2],
-                         fabsf(ax.y)*h[0] + fabsf(ay.y)*h[1] + fabsf(az.y)*h[2],
-                         fabsf(ax.z)*h[0] + fabsf(ay.z)*h[1] + fabsf(az.z)*h[2]);
+      const V3& ax=staticShape.ax;const V3& ay=staticShape.ay;const V3& az=staticShape.az;
+      const float* Bm=staticShape.matrix;const float* h=staticShape.half;
+      const RbV bc=staticShape.centre,wh=staticShape.extent;
       if (!Tyra::collisionBoundsOverlap(S.bounds,
           {rbSub(bc, wh), rbAdd(bc, wh)})) continue;
       if (S.sphere) {
@@ -724,14 +800,9 @@ void TerrainGame::updateObjectPhysics() {
         }
       }
       if (!n && !S.sphere) {
-        RbV verts[8];
-        const RbV axes[3] = {{ax.x,ax.y,ax.z},{ay.x,ay.y,ay.z},{az.x,az.y,az.z}};
-        for (int c = 0; c < 8; ++c)
-          verts[c] = rbAdd(bc, rbMat(Bm, rbV((c&1)?h[0]:-h[0],
-              (c&2)?h[1]:-h[1], (c&4)?h[2]:-h[2])));
-        const Tyra::CollisionObb box={bc,{rbMul(axes[0],h[0]),
-            rbMul(axes[1],h[1]),rbMul(axes[2],h[2])}};
-        if (satContact(S, B, verts, 8, axes, 3, axes, 3, cand[0], rbV(0,0,0), &box)) n = 1;
+        const RbV axes[3]={{ax.x,ax.y,ax.z},{ay.x,ay.y,ay.z},{az.x,az.y,az.z}};
+        if (satContact(S,B,staticShape.vertices,8,axes,3,axes,3,cand[0],
+            rbV(0,0,0),&staticShape.box,j)) n = 1;
       }
       if (doorway) {  // through a wall portal only the floor answers
         int m = 0;
@@ -739,7 +810,7 @@ void TerrainGame::updateObjectPhysics() {
           if (cand[k].n.y > 0.7F) cand[m++] = cand[k];
         n = m;
       }
-      if (n) emit(si, -1, cand, n);
+      if (n) emit(si, -1, cand, n, j);
     }
   }
 
@@ -865,13 +936,14 @@ void TerrainGame::updateObjectPhysics() {
       }
       if (!n && !A.sphere && !Bs.sphere) {
         RbV normals[44], edges[66];
-        for (int k = 0; k < Bj.planes; ++k)
-          normals[k] = rbMat(Bs.R1, rbV(Bj.lp[k*4], Bj.lp[k*4+1], Bj.lp[k*4+2]));
-        for (int k = 0; k < Bj.edges; ++k)
-          edges[k] = rbMat(Bs.R1, rbV(Bj.le[k*3], Bj.le[k*3+1], Bj.le[k*3+2]));
-        if (satContact(A, Ba, Bs.wv, Bs.nv, normals, Bj.planes,
-                       edges, Bj.edges, cand[0], rbSub(Bs.x1,Bs.x0),
-                       Bs.box ? &Bs.obb : nullptr)) n = 1;
+        for (int k=0; !coherence && k<Bj.planes; ++k)
+          normals[k]=rbMat(Bs.R1,rbV(Bj.lp[k*4],Bj.lp[k*4+1],Bj.lp[k*4+2]));
+        for (int k=0; !coherence && k<Bj.edges; ++k)
+          edges[k]=rbMat(Bs.R1,rbV(Bj.le[k*3],Bj.le[k*3+1],Bj.le[k*3+2]));
+        const SatGeometry* geometry=coherence?&transformedShape(Bs,Bj):nullptr;
+        if(satContact(A,Ba,Bs.wv,Bs.nv,geometry?geometry->normals:normals,Bj.planes,
+            geometry?geometry->edges:edges,Bj.edges,cand[0],rbSub(Bs.x1,Bs.x0),
+            Bs.box?&Bs.obb:nullptr,Bs.obj)) n=1;
       }
       if (!n) continue;
       if (Bs.asleep) {
@@ -892,6 +964,34 @@ void TerrainGame::updateObjectPhysics() {
   }
 
   // --- 4. sequential impulses (prepared backend is opt-in) ------------------
+  // Independent dynamic components: static/world partners never join them.
+  if(useIslands) {
+    islands.begin(awakeCount);
+    for(const auto& c:contacts)
+      if(c.b>=0 && !steps[c.b].asleep)islands.link(c.a,c.b);
+    islands.arrange(contacts);
+    static std::vector<RbContact> orderedContacts;
+    orderedContacts.resize(contacts.size());
+    for(size_t k=0;k<contacts.size();++k)orderedContacts[k]=contacts[islands.order[k]];
+    contacts.swap(orderedContacts);
+    for(int si=0;si<awakeCount;++si)lastIsland[steps[si].obj]=steps[islands.root(si)].obj;
+  }
+  auto restoreContact = [&](RbContact& c) {
+    if(!warmStart)return;
+    const auto& a=steps[c.a];
+    const auto* b=c.b>=0?&steps[c.b]:nullptr;
+    const unsigned revB=b?rbRevisions[b->obj]:
+        c.other>=0?worldGeometry[c.other].revision:0;
+    const RbV anchorA=rbMatT(a.R1,rbSub(c.p,a.x1));
+    const RbV anchorB=b?rbMatT(b->R1,rbSub(c.p,b->x1)):c.p;
+    Tyra::ContactMemory memory{a.obj,c.other,rbRevisions[a.obj],revB,
+        unsigned(a.asleep)|(b && b->asleep?2u:0u),anchorA,anchorB,c.n,{},0};
+    c.history=contactHistory.add(memory,c.bounceTarget==0 && c.vnPred<=bounceThreshold);
+    const auto& old=contactHistory[c.history];c.jn=old.normalImpulse;c.ft=old.friction;
+    const float limit=c.mu*c.jn,l2=rbDot(c.ft,c.ft);
+    if(l2>limit*limit)c.ft=rbMul(c.ft,limit/sqrtf(l2));
+  };
+
   const int nc = (int)contacts.size();
 #if TYRA_PHYSICS_PREPARED
   static Tyra::SolverBuffer<Tyra::SolverBody> solverBodies;
@@ -907,7 +1007,7 @@ void TerrainGame::updateObjectPhysics() {
     }
     solverBodies.back()=Tyra::SolverBody{};
     for(int k=0;k<nc;++k) {
-      const RbContact& c=contacts[k];auto& d=solverContacts[k];
+      RbContact& c=contacts[k];auto& d=solverContacts[k];
       RbStep& a=steps[c.a];d.friction.a=c.a;d.friction.b=c.b>=0?c.b:(int)steps.size();
       d.normal=Tyra::sv(c.n);d.ra=Tyra::sv(rbSub(c.p,a.x1));
       d.rb=Tyra::sv(c.b>=0?rbSub(c.p,steps[c.b].x1):rbV(0,0,0),c.depth);
@@ -918,10 +1018,21 @@ void TerrainGame::updateObjectPhysics() {
       }
       if(c.n.y>.5F)a.grounded=true;
       Tyra::prepareSolverContact(d,solverBodies[d.friction.a],solverBodies[d.friction.b],e,f,bounceThreshold);
+      c.jn=0;c.ft=rbV(0,0,0);c.mu=d.angularB.w;c.vnPred=d.ra.w;c.bounceTarget=d.normal.w;
+      restoreContact(c);d.k[0].w=c.jn;
+      d.friction.x=c.ft.x;d.friction.y=c.ft.y;d.friction.z=c.ft.z;
+    }
+    if(warmStart)for(int k=0;k<nc;++k) {
+      auto& c=solverContacts[k];
+      const auto p=Tyra::sv(rbAdd(rbMul(Tyra::xyz(c.normal),c.k[0].w),Tyra::xyz(c.friction)));
+      Tyra::solverImpulse<false>(solverBodies[c.friction.a],solverBodies[c.friction.b],c,p);
     }
     Tyra::solvePhysics(solverBodies.data(),solverContacts.data(),nc,
         PHYS_ITERATIONS,PHYS_POS_ITERATIONS,PHYS_SLOP,PHYS_BAUMGARTE,
         TYRA_PHYSICS_SOLVER_VU0 != 0);
+    if(warmStart)for(int k=0;k<nc;++k) {
+      contacts[k].jn=solverContacts[k].k[0].w;contacts[k].ft=Tyra::xyz(solverContacts[k].friction);
+    }
     for(size_t i=0;i<steps.size();++i) {
       auto& d=steps[i];const auto& s=solverBodies[i];
       d.v=Tyra::xyz(s.v);d.w=Tyra::xyz(s.w);
@@ -955,6 +1066,7 @@ void TerrainGame::updateObjectPhysics() {
     c.mu = 0.05F + 0.95F * f;
     c.jn = c.jp = 0.0F;
     c.ft = rbV(0.0F, 0.0F, 0.0F);
+    restoreContact(c);
     if (c.n.y > 0.5F) A.grounded = true;
     if (c.b >= 0 && c.n.y < -0.5F) steps[c.b].grounded = true;
   }
@@ -977,6 +1089,7 @@ void TerrainGame::updateObjectPhysics() {
     }
     return v;
   };
+  if(warmStart)for(auto& c:contacts)applyImpulse(c,rbAdd(rbMul(c.n,c.jn),c.ft));
   for (int it = 0; it < PHYS_ITERATIONS; ++it)
     for (int k = 0; k < nc; ++k) {
       RbContact& c = contacts[k];
@@ -1041,6 +1154,20 @@ void TerrainGame::updateObjectPhysics() {
       }
     }
 #endif
+  if(warmStart)for(const auto& c:contacts)if(c.history>=0) {
+    auto& memory=contactHistory[c.history];memory.normalImpulse=c.jn;memory.friction=c.ft;
+  }
+  // A component sleeps together only after every member has met its authored
+  // delay. A moving member resets the component's countdown, not its contacts.
+  if(useIslands) {
+    islandQuiet.assign(awakeCount,1);islandReady.assign(awakeCount,1);
+    for(int si=0;si<awakeCount;++si) {
+      const auto& s=steps[si];const auto& o=runtimeObjects[s.obj];const int root=islands.root(si);
+      const bool quiet=s.grounded && rbDot(s.v,s.v)<PHYS_REST_SPEED2 && rbDot(s.w,s.w)<PHYS_REST_W2;
+      if(!quiet)islandQuiet[root]=0;
+      if(o.restFrames+1<everyFrames(o.data.physSleep))islandReady[root]=0;
+    }
+  }
 
   // --- 5. integrate and write back ------------------------------------------
   for (int si = 0; si < awakeCount; ++si) {
@@ -1079,14 +1206,15 @@ void TerrainGame::updateObjectPhysics() {
     const float speed2 = rbDot(v, v);
     const float spin2 = rbDot(w, w);
     bool sleepNow = false;
-    if (S.grounded && speed2 < PHYS_REST_SPEED2 && spin2 < PHYS_REST_W2) {
+    if (S.grounded && speed2 < PHYS_REST_SPEED2 && spin2 < PHYS_REST_W2 &&
+        (!useIslands || islandQuiet[islands.root(si)])) {
       // Countdown length is per-object (Properties > Physics > Sleep after,
       // seconds); everyFrames tracks the measured frame time so the wait is
       // wall-clock true with vsync off too. On completion the counter pins
       // to PHYS_ASLEEP - the asleep test never re-derives the threshold.
       const int sleepAt = everyFrames(o.data.physSleep);
       if (o.restFrames < sleepAt) ++o.restFrames;
-      if (o.restFrames >= sleepAt) {
+      if (o.restFrames >= sleepAt && (!useIslands || islandReady[islands.root(si)])) {
         o.restFrames = PHYS_ASLEEP;
         sleepNow = true;
         // Fast-path bodies stay on objMat while asleep - no settle rebuild,

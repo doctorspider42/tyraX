@@ -76,3 +76,10 @@ set 1 and optionally `TYRA_PHYSICS_SOLVER_VU0=1` to test the compact paths.
 Physical PS2 data in docs/prepared-contact-solver.md show lower dense-contact
 solver cost but mixed whole-frame FPS. Do not enable it globally on kernel
 arithmetic or per-contact ratios alone; include packing and preparation.
+
+Temporal physics: `contact_history.hpp` owns immediate-frame impulse matching,
+scene/timestep invalidation, uncapped hash chains and stable dynamic islands.
+External-change revisions live in regenerated runtime side state, not PhysBody:
+owned terrain_game.hpp files must keep compiling. Geometry cache keys include
+current transform, model yaw and resolved collision-box bounds. Cached axes
+may reject only after checking current geometry and its entire linear sweep.

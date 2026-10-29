@@ -48,6 +48,15 @@ int main() {
     }
     bool boxHit = convexMotionContact(a, b, motion[0], motion[1], combined,
                                       &boxes[0], &boxes[1]);
+    CollisionV3 cached = {pos(rng),pos(rng),pos(rng)};
+    ConvexContact cachedContact;
+    bool cachedHit=convexMotionContact(a,b,motion[0],motion[1],cachedContact,
+                                      &boxes[0],&boxes[1],&cached);
+    assert(cachedHit==boxHit);
+    if(boxHit) {
+      assert(cachedContact.depth==combined.depth);
+      assert(cachedContact.normal.x==combined.normal.x && cachedContact.normal.y==combined.normal.y && cachedContact.normal.z==combined.normal.z);
+    }
     if (hit) {
       assert(boxHit);
       assert(std::fabs(combined.depth - contact.depth) < 1e-3f);
@@ -71,6 +80,9 @@ int main() {
   CollisionV3 a[2] = {{4, -1, -1}, {6, 1, 1}}, b[2] = {{-1, -1, -1}, {1, 1, 1}};
   assert(collisionBoundsOverlap(convexMotionBounds(a, 2, {10, 0, 0}),
                                 convexMotionBounds(b, 2, {0, 0, 0})));
+  ConvexView va{a,2,nullptr,0,nullptr,0},vb{b,2,nullptr,0,nullptr,0};
+  assert(!convexSeparatedOnAxis(va,vb,{10,0,0},{0,0,0},{1,0,0}));
+  assert(convexSeparatedOnAxis(va,vb,{0,0,0},{0,0,0},{1,0,0}));
   assert(hits > 1000 && rejects > 1000);
   std::printf("50000 swept/rotated box pairs: %d reference hits retained, %d "
               "conservative rejections\n",

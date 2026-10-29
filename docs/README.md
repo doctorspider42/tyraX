@@ -481,3 +481,5 @@ write-ups below are kept for reference:
 - [Claude proposal trials](tyrax2-claude-trials.md) - validation bypass and owned TEX1 preparation; not promoted.
 - [Scratchpad staging](tyrax2-spr-staging.md) and [SPR/CALL runtime trials](tyrax2-spr-call-runtime-2026-10-04.md) - scratchpad staging and CALL/RET replay; both slower on hardware.
 - [Lab cleanup (2026-10-12)](tyrax2-lab-cleanup-2026-10-12.md) - what was removed from the separate lab checkout.
+
+- [Temporal physics](temporal-physics.md): geometry/contact coherence, warm starting and independent dynamic islands, with stage attribution and console qualification.

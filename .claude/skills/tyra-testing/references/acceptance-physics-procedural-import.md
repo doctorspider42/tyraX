@@ -87,3 +87,12 @@ integration with a fresh stock code generation/native build too. The final
 lazy-response fixture source is b8bd7f719; its 42-phase report includes the
 entire preparation/copy-back scope. Preserve both repeats and report whole
 FPS alongside solver cost: +128 VU0 had cheaper solves but lower FPS.
+
+Temporal physics acceptance: build/run tools/verify-contact-history.cpp and the
+cached-axis extension of verify-collision-envelope.cpp. The temporal rig uses
+--temporal-comparison --baseline ef9597bda --uncapped-baseline for 42 phases:
+prior scalar, geometry cache only, cache + warm starting + islands. Analyze
+with --temporal-comparison --complete. All arms keep six velocity/three split
+passes and full contacts. Stage scopes for grid/query/SAT are nested; do not
+sum them again into world/body parents. Track velocity-energy, penetration,
+awake populations and warm matches, and check waking after a car impact.

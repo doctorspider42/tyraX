@@ -3,6 +3,7 @@
 #include "terrain_game.hpp"
 #include "physics/convex_collision.hpp"
 #include "physics/contact_solver.hpp"
+#include "physics/contact_history.hpp"
 #include "physics/collision_math.hpp"
 #include "debug/hardware_trace.hpp"
 #include "terrain_config.hpp"
@@ -4769,6 +4770,15 @@ inline void rbWorldInvI(const float* R, const float* s, float* out) {
                        t[r * 3 + 2] * R[c * 3 + 2];
 }
 
+// Side state stays in the regenerated runtime: owned terrain_game.hpp files
+// keep their PhysBody layout and do not need a new member for contact history.
+inline std::vector<unsigned> rbRevisions;
+inline unsigned rbRevisionGeneration=~0u;
+inline unsigned& rbRevisionFor(int index,unsigned generation,int count) {
+  if(rbRevisionGeneration!=generation) {rbRevisions.assign(count,0);rbRevisionGeneration=generation;}
+  else if((int)rbRevisions.size()<count)rbRevisions.resize(count,0);
+  return rbRevisions[index];
+}
 struct RbStep {
   int obj;
   int slot;
@@ -4793,6 +4803,7 @@ struct RbStep {
 };
 
 struct RbContact {
+  int other, history; // stable other object (-1 terrain), history record
   short a, b;     // RbStep indices; b = -1 is the world
   RbV n;          // pushes a away from b
   RbV p;          // world point

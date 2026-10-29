@@ -93,3 +93,7 @@ scalar/VU0 implementations preserve the existing 6+3 passes and friction model.
 The prior solver stays the default after the three-arm physical-console comparison;
 see the [prepared solver report](../../docs/prepared-contact-solver.md) for
 measurements and opt-in flags.
+
+Temporal physics experiment: generated code supports collider/axis caches,
+persistent impulse matching and independent dynamic islands. See the
+[qualification report](../../docs/temporal-physics.md) for switches and results.

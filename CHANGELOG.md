@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.4.0
+
+- Rigid-body physics can reuse collider transforms and separating axes, warm-start persistent contacts, and solve/sleep independent dynamic islands without reducing contact coverage or iteration counts.
+
 ## 2.3.0
 
 - Optional prepared rigid-body contacts cache direct response coefficients on first friction use and solve from compact aligned velocity/contact buffers. Scalar and VU0 implementations retain the existing contact order, Coulomb friction and six velocity/three split-impulse iterations; the prior solver remains the default after console comparison.

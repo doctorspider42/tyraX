@@ -149,3 +149,15 @@ forces `TYRA_PHYSICS_PREPARED=1` only for its candidate translation unit and
 selects scalar/VU0 per arm; it must not silently benchmark the prior default
 three times. The final lazy/direct response report is linked from
 [the solver experiment](../../docs/prepared-contact-solver.md).
+
+## Temporal physics comparison
+
+Use --temporal-comparison --baseline ef9597bda --uncapped-baseline instead of
+the prepared-solver comparison. This keeps the previous scalar solver and
+compares prior / geometry cache / cache + warm starting + islands, 42 phases
+with reversed order on repeat. Analyze with --temporal-comparison --complete.
+The CSV adds prediction/world/body/write-back stages, nested grid/query/SAT,
+warm match/island counts, summed squared velocities and maximum contact depth.
+Energy and penetration are stability diagnostics; driven scenes inject energy,
+and per-frame velocity units change with measured dt. Do not call them a
+mass-weighted energy conservation proof or add nested scopes to their parents.

@@ -336,11 +336,29 @@ inline bool convexSweepContact(const ConvexView &a, const ConvexView &b,
 struct CollisionObb {
   CollisionV3 centre, halfAxes[3];
 };
+// Any axis may prove separation, but a cached one must test CURRENT geometry
+// and the entire linear interval. A previous frame's boolean is never reused.
+inline bool convexSeparatedOnAxis(const ConvexView &a, const ConvexView &b,
+                                 CollisionV3 motionA, CollisionV3 motionB,
+                                 CollisionV3 axis) {
+  if (cvDot(axis,axis)<1e-10f || !a.nv || !b.nv) return false;
+  float alo=1e30f,ahi=-1e30f,blo=1e30f,bhi=-1e30f;
+  for(int i=0;i<a.nv;++i) {float d=cvDot(axis,a.verts[i]);alo=std::min(alo,d);ahi=std::max(ahi,d);}
+  for(int i=0;i<b.nv;++i) {float d=cvDot(axis,b.verts[i]);blo=std::min(blo,d);bhi=std::max(bhi,d);}
+  const float da=cvDot(axis,motionA),db=cvDot(axis,motionB);
+  alo-=std::max(0.f,da);ahi-=std::min(0.f,da);
+  blo-=std::max(0.f,db);bhi-=std::min(0.f,db);
+  const float eps=1e-5f*(1+std::fabs(alo)+std::fabs(ahi)+std::fabs(blo)+std::fabs(bhi));
+  return ahi < blo-eps || bhi < alo-eps;
+}
 inline bool convexMotionContact(const ConvexView &a, const ConvexView &b,
                                 CollisionV3 motionA, CollisionV3 motionB,
                                 ConvexContact &out,
                                 const CollisionObb *boxA = nullptr,
-                                const CollisionObb *boxB = nullptr) {
+                                const CollisionObb *boxB = nullptr,
+                                CollisionV3 *cachedAxis = nullptr) {
+  if(cachedAxis && convexSeparatedOnAxis(a,b,motionA,motionB,*cachedAxis))
+    return false;
   if (!a.nv || !b.nv)
     return false;
   float depth = 1e30f, enter = 0, leave = 1;
@@ -408,6 +426,7 @@ inline bool convexMotionContact(const ConvexView &a, const ConvexView &b,
         possible = enter <= leave;
       }
     }
+    if (!overlap && !possible && cachedAxis) *cachedAxis=n;
     return overlap || possible;
   };
   for (int i = 0; i < a.nn; ++i)
@@ -435,6 +454,7 @@ inline bool convexMotionContact(const ConvexView &a, const ConvexView &b,
       return cvMul(sum, 1.f / count);
     };
     out.normal = normal;
+    if(cachedAxis)*cachedAxis=normal;
     out.depth = depth;
     out.point =
         cvMul(cvAdd(support(a, cvMul(normal, -1)), support(b, normal)), .5f);
@@ -459,6 +479,7 @@ inline bool convexMotionContact(const ConvexView &a, const ConvexView &b,
     }
   }
   out.normal = sweepNormal;
+  if(cachedAxis)*cachedAxis=sweepNormal;
   out.depth = std::max(0.f, bmax - amin);
   out.point = cvMul(cvAdd(cvSub(av, cvMul(motionA, 1 - enter)),
                           cvSub(bv, cvMul(motionB, 1 - enter))),

@@ -14,7 +14,9 @@ parser.add_argument('--scratch',required=True,help="Primary checkout's ignored .
 parser.add_argument('--baseline',default='e4acb7379',help='Baseline commit for exact physics and broad-phase source')
 parser.add_argument('--uncapped-baseline',action='store_true',help='Remove the reference solver cap for an equal-completeness comparison')
 parser.add_argument('--solver-comparison',action='store_true',help='42 phases: prior solver, prepared scalar, prepared VU0; reverse order on repeat')
+parser.add_argument('--temporal-comparison',action='store_true',help='42 phases: reference, geometry cache, cache + warm starting + islands')
 args=parser.parse_args()
+if args.temporal_comparison:args.solver_comparison=True
 repo=Path(args.repo).resolve();root=Path(args.scratch).resolve();base=args.baseline
 common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
 scratch_root=common.parent/'.tmp'
@@ -45,7 +47,7 @@ if not (proj/'src/gen/game_physics.gen.cpp').is_file():raise SystemExit('Generat
 if 'updateObjectPhysicsCandidate' in (proj/'inc/terrain_game.hpp').read_text(encoding='utf8'):raise SystemExit('Fixture is already instrumented')
 
 # Strip BOMs and preserve LF for every injected engine source.
-(eng/'inc/debug/collision_bench.hpp').write_bytes((('#define TYRA_SOLVER_COMPARISON 1\n' if args.solver_comparison else '')+(rig/'collision_bench.hpp').read_text(encoding='utf-8-sig')).encode())
+(eng/'inc/debug/collision_bench.hpp').write_bytes((('#define TYRA_SOLVER_COMPARISON 1\n#define TYRA_TEMPORAL_COMPARISON 1\n' if args.temporal_comparison else '#define TYRA_SOLVER_COMPARISON 1\n' if args.solver_comparison else '')+(rig/'collision_bench.hpp').read_text(encoding='utf-8-sig')).encode())
 for rel in ['inc/physics/broad_phase.hpp','src/physics/broad_phase.cpp']:
  text=subprocess.check_output(['git','-C',str(repo),'show',f'{base}:vendor/tyra/engine/{rel}']).decode('utf8')
  text=text.replace('namespace Tyra {','namespace BaselineTyra {').replace('namespace Tyra','namespace BaselineTyra')
@@ -160,12 +162,41 @@ for p in [proj/'src/gen/game_physics.gen.cpp',extra]:
  if args.solver_comparison and p.name=='game_physics.gen.cpp':
   assert s.count('TYRA_PHYSICS_SOLVER_VU0 != 0')==1
   s=s.replace('TYRA_PHYSICS_SOLVER_VU0 != 0','CB::solverArm == 2')
-  s='#define TYRA_PHYSICS_PREPARED 1\n'+s # qualify both opt-in backends regardless of shipped default
+  s=('#define TYRA_PHYSICS_PREPARED 0\n' if args.temporal_comparison else '#define TYRA_PHYSICS_PREPARED 1\n')+s
+  if args.temporal_comparison:
+   for flag,value in [('COHERENCE','CB::solverArm >= 1'),('WARM_START','CB::solverArm == 2'),('ISLANDS','CB::solverArm == 2')]:
+    token='TYRA_PHYSICS_'+flag+' != 0';assert s.count(token)==1;s=s.replace(token,value)
+   assert s.index('  // --- 4.') < s.index('  // Independent dynamic components:')
  if args.solver_comparison:
   marker='  // --- 4.';pos=s.index(marker,s.index('void TerrainGame::updateObjectPhysics'))
   s=s[:pos]+'  { CB::SolverScope solverScope;\n'+s[pos:]
   marker='  // --- 5.';pos=s.index(marker,pos)
   s=s[:pos]+'  }\n'+s[pos:]
+ if args.temporal_comparison:
+  # The outer solver scope already brackets section 4, including history/islands.
+  for marker,end,stage in [('  // --- 1.','  // --- 2.',0),('  // --- 2.','  // --- 3.',1),('  // --- 3.','  { CB::SolverScope',2)]:
+   a=s.index(marker,s.index('void TerrainGame::updateObjectPhysics'));b=s.index(end,a)
+   s=s[:a]+'  { CB::StageScope phaseScope('+str(stage)+');\n'+s[a:b]+'  }\n'+s[b:]
+  # Section 1 declares variables/lambdas used below, so use an explicit boundary
+  # timer rather than a lexical scope that would hide them.
+  s=s.replace('  { CB::StageScope phaseScope(0);\n','  unsigned predictionStart=CB::ticks();\n')
+  boundary=s.index('  // --- 2.',s.index('void TerrainGame::updateObjectPhysics'))
+  brace=s.rfind('  }\n',0,boundary);s=s[:brace]+s[brace:].replace('  }\n','  CB::stageTicks[0]+=CB::ticks()-predictionStart;\n',1)
+  # Body grid and contacts are separate scopes. Queries/SAT are nested children.
+  a=s.index('  bodyPairs.commit();');b=s.index('  for (int si = 0; si < awakeCount; ++si)',a)
+  s=s[:b]+'  CB::stageTicks[3]+=CB::ticks()-bodyGridStart;\n'+s[b:]
+  s=s.replace('  bodyPairs.begin((int)bodies.size());','  unsigned bodyGridStart=CB::ticks();\n  bodyPairs.begin((int)bodies.size());')
+  s=s.replace('      broadPhaseNear(area, bpNearPhys);','      {CB::StageScope q(4);broadPhaseNear(area,bpNearPhys);}')
+  s=s.replace('    bodyPairs.queryBox(pairArea, nearBodies);','    {CB::StageScope q(4);bodyPairs.queryBox(pairArea,nearBodies);}')
+  needle='    if (!Tyra::collisionBoundsOverlap(A.bounds,'
+  s=s.replace(needle,'    CB::StageScope satScope(5);\n'+needle,1)
+  marker='  // --- 5.';a=s.index(marker,s.index('void TerrainGame::updateObjectPhysics'))
+  s=s[:a]+'  CB::StageScope writebackScope(6);\n'+s[a:]
+  s=s.replace('    const float spin2 = rbDot(w, w);','    const float spin2 = rbDot(w, w);CB::energy+=speed2+spin2;')
+  s=s.replace('      contacts.push_back(c);','      CB::maxDepth=std::max(CB::maxDepth,c.depth);\n      contacts.push_back(c);')
+  if p.name=='game_physics.gen.cpp':
+   needle='  if(warmStart)for(const auto& c:contacts)if(c.history>=0) {'
+   s=s.replace(needle,'  CB::warmHits=warmStart?contactHistory.hits:0;CB::islands=useIslands?islands.count:0;\n'+needle)
  p.write_text(s,encoding='utf8',newline='\n')
 p=proj/'src/terrain_game.cpp';s=p.read_text(encoding='utf8');s=s.replace('  const bool menuActive =','  benchTick();\n  const bool menuActive =',1);s=s.replace('  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);','  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);\n  {Tyra::PadButtons neutral{};engine->pad.setState(neutral,neutral,128,128,128,128);}',1);p.write_text(s,encoding='utf8',newline='\n')
 p=proj/'src/gen/game_vehicles.gen.cpp';s=p.read_text(encoding='utf8');needle='    } else if (v.wpCount > 0 && (s.damageMechanical <= 0.5F || v.damage < 0.999F)) {';assert s.count(needle)==1
@@ -185,6 +216,7 @@ p=eng/'inc/debug/debug.hpp';s=p.read_text(encoding='utf8').replace('#define TYRA
 meta={'baseline':subprocess.check_output(['git','-C',str(repo),'rev-parse',base],text=True).strip(),'candidate':subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip(),'data_layout':'shared candidate PhysBody/RbStep layout; renderer and assets identical','mesh_collision_objects':0,'tick_hz':294912000,'phases':28,'profiles':'release, NTSC progressive vsync on, day, all devkit polling off'}
 meta['uncapped_baseline']=args.uncapped_baseline
 meta['solver_comparison']=args.solver_comparison
+meta['temporal_comparison']=args.temporal_comparison
 if args.solver_comparison:meta['phases']=42
 (root/'metadata.json').write_text(json.dumps(meta,indent=2),encoding='utf8')
 print('Instrumented same-ELF baseline/candidate arms:',meta)

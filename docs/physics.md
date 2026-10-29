@@ -244,3 +244,21 @@ removal after switching mesh collision off, then cleans its scratch fixture.
 Vehicle-stage completion and individual portal teleports invalidate the shared
 scene broad phase before subsequent camera/carry/world queries; moving
 colliders no longer rely on being unconditional candidates for freshness.
+
+## Temporal contact experiment
+
+Collider transforms and per-step SAT normals/edges can be reused while their
+inputs stay unchanged. A remembered separating axis tests current geometry and
+the complete linear interval; it never reuses a previous collision boolean.
+Contact impulses can be matched by both local anchors, normal, object identity,
+shape/transform revision and dynamic/static state. Matching is one-to-one;
+scene changes and incompatible timesteps discard history. Split-position
+impulses are not carried across steps, and bounce targets precede warm impulses.
+
+Dynamic islands preserve contact order within a connected component. World
+and immovable partners do not connect unrelated components. Sleeping uses the
+existing speed thresholds and authored delays, coordinated across the entire
+component; waking any sleeping member wakes its recorded component. All
+contacts still receive six velocity and three split passes. The new warm-start
+and island switches are experimental until physical-console qualification.
+See [the temporal physics experiment](temporal-physics.md).
