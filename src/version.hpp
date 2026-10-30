@@ -1,5 +1,8 @@
 #pragma once
 
+// 2.1.2: qualified spatial collision filtering, shared SAT/CCD projections,
+// cached geometry/world queries and complete contact coverage.
+
 // 2.0.1: fix the Assets browser-action ID collision; scripted frames reject duplicate widget IDs,
 // and the check-ui build target gates Linux release packaging.
 
@@ -5616,7 +5619,7 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 1
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 // 2.1.1: the release workflow publishes CHANGELOG.md's "## <version>" section
 // as the release notes (generated notes when the changelog names no such
 // version); changelog headings carry no date (docs/updates.md).

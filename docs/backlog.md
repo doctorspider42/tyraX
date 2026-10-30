@@ -2868,3 +2868,7 @@ post-5 back at y = 1.
 - [x] Combine latest main, the UI redesign and the TyraX2 foundation on `codex/tyrax-2.0`.
 - [x] Unify additive project fields as format 114 and expose the integrated renderer settings in the redesigned preferences.
 - [ ] Complete Windows/Linux build and UI qualification, physical-console integration checks and installer/update qualification before publishing 2.0.0.
+
+- [x] Extract qualified collision spatial filtering, BVH, SAT/CCD projection and
+  geometry/world cache improvements without VU0 or traffic experiments.
+- [ ] Qualify a replacement support manifold for deeply overlapping/offset stacks.

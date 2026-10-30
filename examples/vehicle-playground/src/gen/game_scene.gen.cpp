@@ -56,6 +56,9 @@ void TerrainGame::setupAnimObject(int index) {
   g.animMat.identity();
   g.animLightMat.identity();
   g.animInfoBag = std::make_unique<StaPipInfoBag>();
+  // Skinned: the torch's receiver pass never re-renders it (see
+  // PipelineInfoBag::torchPerPixel).
+  g.animInfoBag->torchPerPixel = false;
   g.animInfoBag->model = &g.animMat;
   g.animInfoBag->shadingType = TyraShadingGouraud;  // per-vertex lighting
   g.animInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
@@ -100,6 +103,7 @@ void TerrainGame::setupAnimObject(int index) {
     if (m < gam.textures.size() && gam.textures[m] && frame->textureCoords) {
       ap.texBag = std::make_unique<StaPipTextureBag>();
       ap.texBag->texture = gam.textures[m];
+      ap.texBag->filter = TEXTURE_FILTER_DEFAULT;
       ap.texBag->coordinates = frame->textureCoords;
       ap.bag->texture = ap.texBag.get();
     }
@@ -710,6 +714,17 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       // there and sucked fast walkers inside the mesh.
       const V3 pc = toLocal(prevX, feetY + eyeHeight * 0.5F, prevZ);
       const Vec4 prevLocal(pc.x, pc.y, pc.z, 1.0F);
+      const Vec4 upLocal(upL.x, upL.y, upL.z, 0.0F);
+      float fraction;
+      if (!doorway && gm->collider.sweepSphere(prevLocal, center,
+              playerRadius / sAvg, &fraction, nullptr, 0.7F, &upLocal)) {
+        const float t = fraction > 1e-4F ? fraction-1e-4F : 0.0F;
+        center.x = prevLocal.x + (center.x-prevLocal.x)*t;
+        center.y = prevLocal.y + (center.y-prevLocal.y)*t;
+        center.z = prevLocal.z + (center.z-prevLocal.z)*t;
+        const V3 w = toWorld({center.x,center.y,center.z});
+        *nextX=w.x; *nextZ=w.z;
+      }
       if (!doorway &&
           gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F,
                                      Vec4(upL.x, upL.y, upL.z, 0.0F),
@@ -765,6 +780,27 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     const float ex = cb.half[0], ey = cb.half[1], ez = cb.half[2];
     const float hx = ex + playerRadius;
     const float hz = ez + playerRadius;
+    struct WalkerBoxCache {
+      float key[10] = {}; bool valid = false;
+      V3 offset = {0,0,0}; float cosine = 1, sine = 0;
+    };
+    static std::vector<WalkerBoxCache> walkBoxes;
+    static unsigned walkGen = ~0u;
+    if (walkGen != sceneGeneration || walkBoxes.size() != runtimeObjects.size()) {
+      walkBoxes.assign(runtimeObjects.size(), WalkerBoxCache{}); walkGen = sceneGeneration;
+    }
+    WalkerBoxCache& cached = walkBoxes[(size_t)oi];
+    const float key[10] = {o.data.rotation[0],o.data.rotation[1],o.data.rotation[2],
+      cb.center[0],cb.center[1],cb.center[2],cb.half[0],cb.half[1],cb.half[2],cb.yaw};
+    bool same = cached.valid;
+    for (int k=0;k<10 && same;++k) same = key[k] == cached.key[k];
+    if (!same) {
+      for (int k=0;k<10;++k) cached.key[k] = key[k];
+      cached.offset = boxRotate({cb.center[0],cb.center[1],cb.center[2]},o.data);
+      const float yaw = (o.data.rotation[1]+cb.yaw)*PI/180.0F;
+      cached.cosine = cosf(yaw); cached.sine = sinf(yaw); cached.valid = true;
+    }
+
     // Far away, out before the rotation below (boxRotate is a handful of
     // sinf/cosf per object, and this loop runs per walker per frame): the
     // footprint test can only pass within its half-diagonal of the box
@@ -775,7 +811,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       const float off2 = cb.center[0] * cb.center[0] +
                          cb.center[1] * cb.center[1] +
                          cb.center[2] * cb.center[2];
-      const float reach = sqrtf(off2) + sqrtf(hx * hx + hz * hz);
+      const float mvx = *nextX-prevX, mvz = *nextZ-prevZ;
+      const float reach = sqrtf(off2) + sqrtf(hx * hx + hz * hz) + sqrtf(mvx*mvx+mvz*mvz);
       const float dx = *nextX - o.data.position[0];
       const float dz = *nextZ - o.data.position[2];
       if (dx * dx + dz * dz > reach * reach) continue;
@@ -783,8 +820,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // World box center: the model-AABB offset lives in the object's own frame,
     // so it rotates with the object (a primitive's offset is 0, so this is
     // just its position).
-    const V3 cWorld =
-        boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+    const V3 cWorld = cached.offset;
     const float cx = o.data.position[0] + cWorld.x;
     const float cy = o.data.position[1] + cWorld.y;
     const float cz = o.data.position[2] + cWorld.z;
@@ -808,8 +844,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // stuck inside them).
     // modelYaw rides along: it is a rotation about the same (model) Y, so for
     // the yaw-only frame the two simply add.
-    const float yaw = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
-    const float yawC = cosf(yaw), yawS = sinf(yaw);
+    const float yawC = cached.cosine, yawS = cached.sine;
     auto toLocalXZ = [&](float wx, float wz, float& lx, float& lz) {
       const float dx = wx - cx, dz = wz - cz;
       lx = dx * yawC - dz * yawS;
@@ -820,7 +855,21 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     toLocalXZ(prevX, prevZ, lpx, lpz);
 
     const bool nextInside = lnx > -hx && lnx < hx && lnz > -hz && lnz < hz;
-    if (!nextInside) continue;
+    if (!nextInside) {
+      if (!doorway && feetY + 0.5F < top && bottom < feetY + eyeHeight) {
+        const float p[2] = {lpx, lpz}, end[2] = {lnx, lnz};
+        const float mn[2] = {-hx, -hz}, mx[2] = {hx, hz};
+        float toi, sign; int axis;
+        if (Tyra::collisionSweepBox(p, end, mn, mx, 2, toi, axis, sign)) {
+          const float t = toi > 1e-4F ? toi - 1e-4F : 0.0F;
+          const float lx = lpx + (lnx-lpx)*t, lz = lpz + (lnz-lpz)*t;
+          *nextX = cx + lx*yawC + lz*yawS;
+          *nextZ = cz - lx*yawS + lz*yawC;
+        }
+      }
+      continue;
+    }
+
 
     const bool wasInsideX = lpx > -hx && lpx < hx;
     const bool wasInsideZ = lpz > -hz && lpz < hz;
@@ -936,6 +985,82 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
 }
 
  // last quantized depth written
+
+// Sound effects in SPU2 sample RAM (docs/sound.md, "SPU2 sample RAM"): the
+// same need-based residency the layers use for models, for sounds. Loaded =
+// the shared sounds, the scene's own, each resident layer's and each sound
+// bank a graph loaded (sound_bank.gen.hpp); anything else is freed - the
+// engine first stops the voices playing it - and what is missing loads, all
+// at once behind a scene's loading screen and one sample a frame in play. The
+// forked audsrv reuses freed RAM wherever it lies, so the order layers and
+// banks come and go in does not matter.
+//
+// A terrain_game.cpp owned from before this filled `samples` with every sound
+// in init(): that table is adopted as it is and nothing is ever freed.
+namespace {
+int sndBankMode = 0;  // 0 not set up yet, 1 managed, -1 adopted (see above)
+int sndBankScene = -1;
+int sndBankSerial = -1;
+std::vector<unsigned char> sndLayersSeen;
+std::vector<int> sndQueue;  // slots still to load, in play
+}  // namespace
+
+static void applySoundResidency(Engine* engine, std::vector<audsrv_adpcm_t*>& samples,
+                                int scene, const std::vector<unsigned char>& layers,
+                                bool now) {
+  if (sndBankMode == 0) {
+    if (!samples.empty()) {
+      sndBankMode = -1;
+      soundbank::g_bank = samples.data();
+      return;
+    }
+    sndBankMode = 1;
+    samples.assign(SND_COUNT, nullptr);  // never resized again: g_bank points in
+    soundbank::g_bank = samples.empty() ? nullptr : samples.data();
+  }
+  if (sndBankMode != 1 || samples.empty()) return;
+  sndBankScene = scene;
+  sndBankSerial = soundbank::g_bankSerial;
+  sndLayersSeen = layers;
+  std::vector<unsigned char> need(samples.size(), 0);
+  auto mark = [&](const int* list, int first, int last) {
+    for (int k = first; k < last; ++k) need[list[k]] = 1;
+  };
+  mark(soundbank::SHARED, 0, soundbank::SHARED_COUNT);
+  mark(soundbank::SCENE_LIST, soundbank::SCENE_FIRST[scene], soundbank::SCENE_FIRST[scene + 1]);
+  const int lb = soundbank::SCENE_LAYER_BASE[scene];
+  const int lc = soundbank::SCENE_LAYER_BASE[scene + 1] - lb;
+  for (int l = 0; l < lc && l < (int)layers.size(); ++l)
+    if (layers[l])
+      mark(soundbank::LAYER_LIST, soundbank::LAYER_FIRST[lb + l],
+           soundbank::LAYER_FIRST[lb + l + 1]);
+  for (int b = 0; b < soundbank::BANK_COUNT; ++b)
+    if (soundbank::g_bankOn[b])
+      mark(soundbank::BANK_LIST, soundbank::BANK_FIRST[b], soundbank::BANK_FIRST[b + 1]);
+  // Frees first, so the loads below have the room.
+  for (int s = 0; s < (int)samples.size(); ++s)
+    if (!need[s] && samples[s]) engine->audio.adpcm.unload(samples[s]);
+  sndQueue.clear();
+  for (int s = 0; s < (int)samples.size(); ++s)
+    if (need[s] && !samples[s]) sndQueue.push_back(s);
+  if (!now) return;
+  for (const int s : sndQueue)
+    samples[s] = engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[s]));
+  sndQueue.clear();
+}
+
+// Per frame, in play: a layer streamed in or out, or a graph loaded or
+// unloaded a sound bank -> settle again; then load one waiting sample.
+static void tickSoundResidency(Engine* engine, std::vector<audsrv_adpcm_t*>& samples,
+                               const std::vector<unsigned char>& layers) {
+  if (sndBankMode != 1 || sndBankScene < 0) return;
+  if (layers != sndLayersSeen || soundbank::g_bankSerial != sndBankSerial)
+    applySoundResidency(engine, samples, sndBankScene, layers, false);
+  if (sndQueue.empty()) return;
+  const int s = sndQueue.front();
+  sndQueue.erase(sndQueue.begin());
+  if (!samples[s]) samples[s] = engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[s]));
+}
 
 // Switches the runtime state to a scene from scene_data.hpp and settles the
 // asset residency for it: everything the scene's start-resident layers need
@@ -1232,6 +1357,12 @@ void TerrainGame::loadScene(int sceneIndex) {
   // this scene's models and its block field is this scene's ground).
   procChunks.clear();
   procColliders.clear();
+  procLodRefs.clear();
+  procInsts.clear();
+  procInstCells.clear();
+  procInstGeo.clear();
+  procInstGeoFirst.clear();
+  procInstGeoCount.clear();
   prefabInstances.clear();
   procBlocks.active = false;
   procBlocks.col.clear();
@@ -1246,6 +1377,26 @@ void TerrainGame::loadScene(int sceneIndex) {
       lsPump(8);
     }
   }
+#if TYRAX_PROC_INSTANCES
+  // Baked instanced volumes: the copies come from a table, not a graph.
+  for (int v = 0; v < PROC_INST_VOLUME_COUNT; ++v) {
+    const ProcInstVolumeRow& V = PROC_INST_VOLUMES[v];
+    if (V.scene != currentScene) continue;
+    const int from = (int)procInsts.size();
+    SceneObjectData d{};
+    d.type = 5;
+    for (int i = V.first; i < V.first + V.count; ++i) {
+      const ProcInstRow& r = PROC_INST_ROWS[i];
+      d.model = r.model;
+      d.position[0] = r.x, d.position[1] = r.y, d.position[2] = r.z;
+      d.rotation[0] = r.rx, d.rotation[1] = r.ry, d.rotation[2] = r.rz;
+      d.scale[0] = d.scale[1] = d.scale[2] = r.scale;
+      procAddInstance(-4, d, r.lodModel, r.lodDist, V.collide != 0);
+    }
+    procFinishInstances(-4, V.cell, V.drawDist, from);
+    lsPump(8);
+  }
+#endif
 
   // Roads AFTER the procedural build: that block clears procChunks (nothing
   // generated survives a scene switch), and the first placement of this call
@@ -1371,6 +1522,10 @@ void TerrainGame::loadScene(int sceneIndex) {
 
   buildParticles();
 
+  // A sound bank lasts until the scene ends.
+  for (int b = 0; b < soundbank::BANK_COUNT; ++b) soundbank::setBank(b, false);
+  applySoundResidency(engine, sndSamples, sceneIndex, layerTarget, true);
+
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
   // ADPCM sample can't be stopped - it plays out, but silently). Both cores'
   // sets, because a room can have moved the emitters onto either bus.
@@ -1433,6 +1588,7 @@ void TerrainGame::loadScene(int sceneIndex) {
 // sndOnPlayer emitters skip all of that: full volume, centered - they play
 // "on the player" wherever they are (dialogs, narration). Hiding it mutes.
 void TerrainGame::updateSoundEmitters() {
+  tickSoundResidency(engine, sndSamples, layerTarget);
   if (sndSamples.empty()) return;
   // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
   // Whatever is in flight plays out - an ADPCM voice cannot be stopped - so
@@ -4257,7 +4413,6 @@ void TerrainGame::buildStarField() {
     sb.info->fullClipChecks = false;
     sb.info->fogDisabled = true;    // past the fog end, like the dome
     sb.info->dynLightPick = false;  // a torch must not tint the sky
-    sb.info->blssProxy = false;     // a camera-centred shell, like the dome
     sb.info->additiveBlendFix = 128;
     sb.colorBag = std::make_unique<StaPipColorBag>();
     sb.colors.bind(sb.colorBag);
@@ -4414,10 +4569,6 @@ void TerrainGame::setupSkyBodies() {
     b.info->fogDisabled = true;
     // Centred on the camera like the dome: a nearby torch must not tint the sun.
     b.info->dynLightPick = false;
-    // ...and it rides the dome, so it is a shell fragment too - see the dome's
-    // blssProxy. A disc at 94% of the dome radius has a w range the upscaler
-    // would read as "the far plane, everywhere it covers".
-    b.info->blssProxy = false;
     b.info->fullClipChecks = true;  // crosses the screen edge constantly
     if (additive) b.info->additiveBlendFix = 128;
     else b.info->blendingEnabled = true;

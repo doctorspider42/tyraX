@@ -7,8 +7,8 @@ it comes from, and how to look at it, in the editor and in the running game.
 Mesh-accurate collision exists and is opt-in per object (*Collision: mesh*, a
 static `.obj` feature — see [Rigid-body physics](physics.md)). The player and,
 since 1.83.0, rigid bodies collide with such a model's triangles; the camera
-boom and the carried/thrown-arc sweep still use the box described here, and so
-does everything without the option.
+boom and the carried/thrown-arc sweep also use triangle sweeps for mesh-mode
+objects. Everything without the option keeps the box described here.
 
 ## Which box
 
@@ -161,7 +161,7 @@ settles by itself; a wrong box for a moment right after a load is that.
 
 ## The broad phase
 
-Every contact query against scene objects goes through **one broad phase**:
+Scene contact queries share the **broad-phase geometry cache**:
 the walker (and a game's own actors, through the same `collidePlayer`), the
 camera boom / carry / throw sweep (`sweepSphere`), the physics step's static
 obstacles and the trace world (`traceLine`). It holds each obstacle's world box
@@ -206,14 +206,12 @@ of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
   placeholder bounds). A refresh that changes nothing in the structure (no
   object came, went, started or stopped moving, or got a new box) skips the
   rebuild: a boundary after a quiet stage costs one walk over the objects.
-- **Moving objects** - physics bodies, and anything that moved this frame or
-  the last - are candidates of every query rather than placed in the
-  structure, and every box is padded by 0.5 m for an object that only starts
-  moving after a refresh, within the same stage. So is an object too large to
-  place (more than 64 grid cells, or outside the octree's root). Counting
-  "moving" by frame rather than by refresh keeps something that moves every
-  frame in a late stage (a vehicle) a candidate everywhere, instead of
-  settling it at an early boundary and leaving its box behind.
+- **Moving objects** are spatially indexed too. Changed transforms refresh
+  their boxes at stage boundaries, including after vehicle movement. Oversized
+  boxes retain the conservative fallback. Rigid-body/world queries use a cached
+  static index and a separately refreshed set of moving nonphysics solids;
+  dynamic body pairs have their own per-step swept-bounds grid. Results remain
+  ascending, and the exact collision test decides whether contact exists.
 - **Moving a collider yourself.** Scripts and flow graphs need nothing: they
   write `ctx.objects` during the script stage, nothing queries the broad phase
   inside it, and the boundary after it picks every change up. Game-side C++
@@ -225,8 +223,8 @@ of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
   refreshes, and rebuilds only if the structure changed. The two boundaries
   live in the generated frame loop (`src/terrain_game.cpp`); a project that
   owns that file (its marker line removed) keeps its own loop and adds them
-  itself - `broadPhaseInvalidate();` before `updateObjectPhysics()` and after
-  `updateSpinners()`.
+  itself - `broadPhaseInvalidate();` before `updateObjectPhysics()`, after
+  `updateSpinners()`, and after `updateVehicles(...)`.
 - **Two shapes per object.** The sweep and the physics statics test an
   object's box in its full rotation; the walker's box mode stands the same box
   upright and turns it by yaw alone (a pitched or rolled box collides
@@ -264,3 +262,10 @@ The two builders are a twin pair: change one and the other must follow, or
 the editor starts drawing a box the console does not collide with.
 `src/placement.cpp` is host-only and links on its own, so the box is
 checkable from a ~40-line harness rather than by eye.
+
+
+Mesh-mode static models bake an exact triangle BVH into a `.tmdl.tcol` sidecar.
+It retains the triangle geometry, independent of render LOD/strips. Old resources
+without the sidecar build the collider at runtime. Changing a model back to box
+mode removes unused generated sidecars. Regenerate and rebuild the project to
+refresh these resources; no project-format migration is required.

@@ -15,6 +15,7 @@ void TerrainGame::physBuildShape(int index, PhysBody& b) {
   b.sigShape = d.type * 4096 + (d.model + 1) * 16 + (d.animModel + 1) +
                (d.physTumble ? 0x40000000 : 0);
   b.valid = true;
+  b.edges = 0;
   b.verts = b.planes = 0;
   for (int k = 0; k < 6; ++k) b.invI[k] = 0.0F;
 
@@ -127,11 +128,14 @@ void TerrainGame::physBuildShape(int index, PhysBody& b) {
     out[3] = (pl[3] + ns[0] * off[0] + ns[1] * off[1] + ns[2] * off[2]) * il -
              (out[0] * b.comL[0] + out[1] * b.comL[1] + out[2] * b.comL[2]);
   }
+  b.edges = (short)Tyra::convexEdges(b.lv, b.verts, b.lp, b.planes, b.le);
+
 }
 
 
 
 int TerrainGame::physBodyFor(int index) {
+  unsigned& revision=rbRevisionFor(index,sceneGeneration,(int)runtimeObjects.size());
   if (physBodiesScene != currentScene) {
     physBodies.clear();
     physSlotOf.clear();
@@ -176,6 +180,7 @@ int TerrainGame::physBodyFor(int index) {
   }
   if (moved || b.lastSpin[0] != o.spin[0] || b.lastSpin[1] != o.spin[1] ||
       b.lastSpin[2] != o.spin[2]) {
+    ++revision;
     for (int k = 0; k < 3; ++k) {
       b.w[k] = o.spin[k] * (PI / 180.0F);
       b.lastSpin[k] = o.spin[k];
@@ -226,6 +231,46 @@ void TerrainGame::updateObjectPhysics() {
   const float bounceThreshold = 3.0F * gravityPerFrame + 0.004F;
   const int count = (int)runtimeObjects.size();
   const float wakeSpeed = sqrtf(PHYS_WAKE_SPEED2);
+  constexpr bool coherence = true;
+  static Tyra::SeparatingAxisHistory axisHistory;
+  if(coherence) axisHistory.begin(sceneGeneration);
+
+  struct SatGeometry { bool valid=false; RbV normals[44],edges[66]; };
+  static std::vector<SatGeometry> satGeometry;
+  struct WorldGeometry {
+    bool valid=false; unsigned revision=0; float key[14];
+    V3 ax,ay,az; float matrix[9],half[3]; RbV centre,extent,vertices[8];
+    Tyra::CollisionObb box;
+  };
+  static std::vector<WorldGeometry> worldGeometry;
+  static unsigned worldGeometryGeneration=~0u;
+  auto worldShape = [&](int index,const CollisionBox& cb) -> WorldGeometry& {
+    auto& g=worldGeometry[index];const auto& d=runtimeObjects[index].data;
+    const float key[14]={d.position[0],d.position[1],d.position[2],
+      d.rotation[0],d.rotation[1],d.rotation[2],cb.center[0],cb.center[1],cb.center[2],
+      cb.half[0],cb.half[1],cb.half[2],cb.yaw,float(d.type)};
+    bool same=g.valid;
+    for(int k=0;k<14 && same;++k)same=g.key[k]==key[k];
+    if(!same) {++g.revision;for(int k=0;k<14;++k)g.key[k]=key[k];}
+    if(!coherence || !same) {
+      g.ax=boxRotate({1,0,0},d);g.ay=boxRotate({0,1,0},d);g.az=boxRotate({0,0,1},d);
+      const float matrix[9]={g.ax.x,g.ay.x,g.az.x,g.ax.y,g.ay.y,g.az.y,g.ax.z,g.ay.z,g.az.z};
+      for(int k=0;k<9;++k)g.matrix[k]=matrix[k];
+      for(int k=0;k<3;++k)g.half[k]=cb.half[k];
+      g.centre=rbAdd(rbV(d.position[0],d.position[1],d.position[2]),
+          rbMat(g.matrix,rbV(cb.center[0],cb.center[1],cb.center[2])));
+      const auto& ax=g.ax;const auto& ay=g.ay;const auto& az=g.az;const float* h=g.half;
+      g.extent=rbV(fabsf(ax.x)*h[0]+fabsf(ay.x)*h[1]+fabsf(az.x)*h[2],
+          fabsf(ax.y)*h[0]+fabsf(ay.y)*h[1]+fabsf(az.y)*h[2],
+          fabsf(ax.z)*h[0]+fabsf(ay.z)*h[1]+fabsf(az.z)*h[2]);
+      for(int c=0;c<8;++c)g.vertices[c]=rbAdd(g.centre,rbMat(g.matrix,
+          rbV((c&1)?h[0]:-h[0],(c&2)?h[1]:-h[1],(c&4)?h[2]:-h[2])));
+      g.box={g.centre,{rbMul(rbV(ax.x,ax.y,ax.z),h[0]),
+          rbMul(rbV(ay.x,ay.y,ay.z),h[1]),rbMul(rbV(az.x,az.y,az.z),h[2])}};
+      g.valid=true;
+    }
+    return g;
+  };
 
   static std::vector<RbStep> steps;
   static std::vector<RbContact> contacts;
@@ -233,6 +278,9 @@ void TerrainGame::updateObjectPhysics() {
   static std::vector<int> bodies;   // every physics object this frame
   steps.clear();
   contacts.clear();
+  // Initial storage only: every reduced manifold is retained, including
+  // dense stacks. Capacity grows and is reused across subsequent frames.
+  if (contacts.capacity() < PHYS_MAX_CONTACTS) contacts.reserve(PHYS_MAX_CONTACTS);
   bodies.clear();
   // The physics objects, as indices. Walking every object in the scene to
   // find the few with data.physics set - reading two fields out of a
@@ -267,11 +315,17 @@ void TerrainGame::updateObjectPhysics() {
       break;
     }
   if (!anyAwake) return;  // a settled scene pays one pass over its bodies
+  // No scene-sized collider allocation for empty or wholly sleeping scenes.
+  if(worldGeometryGeneration!=sceneGeneration || worldGeometry.size()!=runtimeObjects.size()) {
+    worldGeometry.clear();worldGeometry.resize(runtimeObjects.size());
+    worldGeometryGeneration=sceneGeneration;
+  }
   // physBodies may grow while slots are handed out - take every slot now,
   // before any reference into the vector is held.
   physBodies.reserve(physBodies.size() + bodies.size());
   for (int i : bodies) physBodyFor(i);
   stepOf.assign(count, -1);
+  if(coherence) satGeometry.resize(bodies.size());
 
   auto makeStep = [&](int i, bool asleep) -> int {
     RuntimeObject& o = runtimeObjects[i];
@@ -320,12 +374,34 @@ void TerrainGame::updateObjectPhysics() {
       rbWorldInvI(s.R1, b.invI, s.invIw);
     }
     s.nv = b.verts;
-    for (int k = 0; k < b.verts; ++k) {
-      const RbV l = rbV(b.lv[k * 3], b.lv[k * 3 + 1], b.lv[k * 3 + 2]);
-      s.wv0[k] = rbAdd(s.x0, rbMat(s.R0, l));
-      s.wv[k] = asleep ? s.wv0[k] : rbAdd(s.x1, rbMat(s.R1, l));
+    Tyra::collisionTransformPoints(s.R0, s.x0, b.lv, b.verts, s.wv0);
+    if (asleep) {
+      for (int k = 0; k < b.verts; ++k) s.wv[k] = s.wv0[k];
+    } else Tyra::collisionTransformPoints(s.R1, s.x1, b.lv, b.verts, s.wv);
+    if (s.sphere) {
+      const RbV r = rbV(s.sphereR, s.sphereR, s.sphereR);
+      s.bounds = {rbSub(s.x1, r), rbAdd(s.x1, r)};
+      const RbV from = rbSub(s.x0, r), to = rbAdd(s.x0, r);
+      s.bounds.mn = {std::min(s.bounds.mn.x, from.x),
+                     std::min(s.bounds.mn.y, from.y), std::min(s.bounds.mn.z, from.z)};
+      s.bounds.mx = {std::max(s.bounds.mx.x, to.x),
+                     std::max(s.bounds.mx.y, to.y), std::max(s.bounds.mx.z, to.z)};
+    } else {
+      s.bounds = Tyra::convexMotionBounds(s.wv, s.nv, rbSub(s.x1, s.x0));
+    }
+    s.box = o.data.type == 0 && b.verts == 8;
+    if (s.box) {
+      float lo[3]={1e30F,1e30F,1e30F}, hi[3]={-1e30F,-1e30F,-1e30F};
+      for (int v=0;v<b.verts;++v) for(int k=0;k<3;++k) {
+        lo[k]=std::min(lo[k],b.lv[v*3+k]);hi[k]=std::max(hi[k],b.lv[v*3+k]);
+      }
+      s.obb.centre=rbAdd(s.x1,rbMat(s.R1,rbV((lo[0]+hi[0])*.5F,
+          (lo[1]+hi[1])*.5F,(lo[2]+hi[2])*.5F)));
+      for(int k=0;k<3;++k) s.obb.halfAxes[k]=rbMul(
+          rbV(s.R1[k],s.R1[k+3],s.R1[k+6]),(hi[k]-lo[k])*.5F);
     }
     steps.push_back(s);
+    if(coherence)satGeometry[steps.size()-1].valid=false;
     stepOf[i] = (short)(steps.size() - 1);
     return (int)steps.size() - 1;
   };
@@ -334,12 +410,44 @@ void TerrainGame::updateObjectPhysics() {
     if (!physAsleep(runtimeObjects[i])) makeStep(i, false);
   const int awakeCount = (int)steps.size();
 
+  auto transformedShape = [&](const RbStep& s,const PhysBody& b) -> SatGeometry& {
+    auto& g=satGeometry[stepOf[s.obj]];
+    if(!g.valid) {
+      for(int k=0;k<b.planes;++k)g.normals[k]=rbMat(s.R1,rbV(b.lp[k*4],b.lp[k*4+1],b.lp[k*4+2]));
+      for(int k=0;k<b.edges;++k)g.edges[k]=rbMat(s.R1,rbV(b.le[k*3],b.le[k*3+1],b.le[k*3+2]));
+      g.valid=true;
+    }
+    return g;
+  };
+
+  auto satContact = [&](const RbStep& A, const PhysBody& Ba,
+                         const RbV* bv, int bnv, const RbV* bn, int bnn,
+                         const RbV* be, int bne, RbCand& result, RbV motionB,
+                          const Tyra::CollisionObb* boxB = nullptr, int other = -1) {
+    if (!Tyra::collisionBoundsOverlap(A.bounds,
+        Tyra::convexMotionBounds(bv, bnv, motionB))) return false;
+    RbV normals[44], edges[66];
+    for (int k = 0; !coherence && k < Ba.planes; ++k)
+      normals[k] = rbMat(A.R1, rbV(Ba.lp[k*4], Ba.lp[k*4+1], Ba.lp[k*4+2]));
+    for (int k = 0; !coherence && k < Ba.edges; ++k)
+      edges[k] = rbMat(A.R1, rbV(Ba.le[k*3], Ba.le[k*3+1], Ba.le[k*3+2]));
+    Tyra::ConvexContact c;
+    const SatGeometry* geometry=coherence?&transformedShape(A,Ba):nullptr;
+    const Tyra::ConvexView av = {A.wv,A.nv,geometry?geometry->normals:normals,
+        Ba.planes,geometry?geometry->edges:edges,Ba.edges};
+    const Tyra::ConvexView bvView = {bv,bnv,bn,bnn,be,bne};
+    if (!Tyra::convexMotionContact(av, bvView, rbSub(A.x1, A.x0), motionB, c,
+        A.box ? &A.obb : nullptr, boxB,
+        coherence?&axisHistory.acquire(A.obj,other):nullptr))
+      return false;
+    result.n = c.normal; result.p = c.point; result.depth = c.depth;
+    return true;
+  };
   RbCand cand[48];
   RbCand red[4];
   auto emit = [&](int a, int b, const RbCand* cs, int n) {
     const int m = rbReduce(cs, n, red);
     for (int k = 0; k < m; ++k) {
-      if ((int)contacts.size() >= PHYS_MAX_CONTACTS) return;
       RbContact c;
       c.a = (short)a;
       c.b = (short)b;
@@ -447,13 +555,14 @@ void TerrainGame::updateObjectPhysics() {
       area.mx[0] = x1.x + reach;
       area.mx[1] = x1.y + reach;
       area.mx[2] = x1.z + reach;
-      broadPhaseNear(area, bpNearPhys);
+      broadPhaseWorldNear(area, bpNearPhys);
     }
     for (int j : bpNearPhys) {
       if (j == S.obj) continue;
       RuntimeObject& s = runtimeObjects[j];
       if (!s.active || s.data.physics || !physObstacle(s.data)) continue;
       const CollisionBox scb = objectCollisionBox(s);
+      WorldGeometry& staticShape=worldShape(j,scb);
       const float sc2 = scb.center[0] * scb.center[0] +
                         scb.center[1] * scb.center[1] +
                         scb.center[2] * scb.center[2];
@@ -537,6 +646,17 @@ void TerrainGame::updateObjectPhysics() {
           ++n;
         }
         if (S.sphere && n < 48) {
+          const RbV from = toLocal(S.x0), to = toLocal(S.x1);
+          float fraction, localNormal[3];
+          const float scaleMin=std::min(fabsf(sc[0]),std::min(fabsf(sc[1]),fabsf(sc[2])));
+          if(sgm->collider.sweepSphere(Vec4(from.x,from.y,from.z,1),
+              Vec4(to.x,to.y,to.z,1),S.sphereR/scaleMin,&fraction,localNormal)) {
+            RbV normal=rbMat(Rs,rbV(localNormal[0]/sc[0],localNormal[1]/sc[1],localNormal[2]/sc[2]));
+            normal=rbMul(normal,1.0F/sqrtf(rbDot(normal,normal)));
+            const RbV hit=rbAdd(S.x0,rbMul(rbSub(S.x1,S.x0),fraction));
+            cand[n].n=normal; cand[n].p=rbSub(hit,rbMul(normal,S.sphereR));
+            cand[n].depth=std::max(0.0F,rbDot(rbSub(hit,S.x1),normal)); ++n;
+          }
           // The ball's sides: its sphere out of steep faces, side-aware.
           const RbV up = dirLocal(rbV(0.0F, 1.0F, 0.0F));
           const float ul = sqrtf(rbDot(up, up));
@@ -544,7 +664,7 @@ void TerrainGame::updateObjectPhysics() {
           Vec4 center(lc.x, lc.y, lc.z, 1.0F);
           const Vec4 prevLocal(lp0.x, lp0.y, lp0.z, 1.0F);
           const float sAvg = (sc[0] + sc[2]) * 0.5F;
-          if (sgm->collider.resolveSphere(&center, S.sphereR / sAvg, 0.7F,
+          if (n < 48 && sgm->collider.resolveSphere(&center, S.sphereR / sAvg, 0.7F,
                                           Vec4(up.x / ul, up.y / ul, up.z / ul, 0.0F),
                                           &prevLocal)) {
             const RbV w = rbAdd(sp, rbMat(Rs, rbV(center.x * sc[0], center.y * sc[1],
@@ -568,48 +688,26 @@ void TerrainGame::updateObjectPhysics() {
       // only (its floor keeps carrying the body), a FLOOR portal opens it all.
       const bool doorway = aimOn && portalDoorwayOpens(s, aimPlane, aimPoint);
       if (doorway && fabsf(aimPlane[1]) >= 0.5F) continue;
-      const CollisionBox cb = objectCollisionBox(s);
-      const V3 ax = boxRotate({1.0F, 0.0F, 0.0F}, s.data);
-      const V3 ay = boxRotate({0.0F, 1.0F, 0.0F}, s.data);
-      const V3 az = boxRotate({0.0F, 0.0F, 1.0F}, s.data);
-      const float Bm[9] = {ax.x, ay.x, az.x, ax.y, ay.y, az.y, ax.z, ay.z, az.z};
-      const RbV bc = rbAdd(rbV(s.data.position[0], s.data.position[1],
-                               s.data.position[2]),
-                           rbMat(Bm, rbV(cb.center[0], cb.center[1], cb.center[2])));
-      const float h[3] = {cb.half[0], cb.half[1], cb.half[2]};
+      const V3& ax=staticShape.ax;const V3& ay=staticShape.ay;const V3& az=staticShape.az;
+      const float* Bm=staticShape.matrix;const float* h=staticShape.half;
+      const RbV bc=staticShape.centre,wh=staticShape.extent;
+      if (!Tyra::collisionBoundsOverlap(S.bounds,
+          {rbSub(bc, wh), rbAdd(bc, wh)})) continue;
       if (S.sphere) {
-        const RbV l = rbMatT(Bm, rbSub(x1, bc));
-        const float lc[3] = {l.x, l.y, l.z};
-        float cl[3];
-        bool inside = true;
-        for (int k = 0; k < 3; ++k) {
-          cl[k] = lc[k] < -h[k] ? -h[k] : (lc[k] > h[k] ? h[k] : lc[k]);
-          if (cl[k] != lc[k]) inside = false;
+        const RbV l=rbMatT(Bm,rbSub(x1,bc));
+        const float lc[3]={l.x,l.y,l.z};float cl[3];bool inside=true;
+        for(int k=0;k<3;++k){cl[k]=std::max(-h[k],std::min(h[k],lc[k]));inside &= cl[k]==lc[k];}
+        RbV normal;float depth=0;
+        if(inside){int axis=0;float pen=1e30F;
+          for(int k=0;k<3;++k){float d=h[k]-fabsf(lc[k]);if(d<pen){pen=d;axis=k;}}
+          float v[3]={0,0,0};v[axis]=lc[axis]<0?-1.0F:1.0F;
+          normal=rbV(v[0],v[1],v[2]);depth=pen+S.sphereR;
+        }else{
+          const RbV delta=rbV(lc[0]-cl[0],lc[1]-cl[1],lc[2]-cl[2]);
+          const float distance=sqrtf(rbDot(delta,delta));
+          if(distance<S.sphereR){normal=rbMul(delta,1.0F/distance);depth=S.sphereR-distance;}
         }
-        RbV nL;
-        float depth;
-        if (!inside) {
-          const RbV dv = rbV(lc[0] - cl[0], lc[1] - cl[1], lc[2] - cl[2]);
-          const float dl = sqrtf(rbDot(dv, dv));
-          if (dl >= S.sphereR) continue;
-          nL = rbMul(dv, 1.0F / dl);
-          depth = S.sphereR - dl;
-        } else {
-          int ak = 0;
-          float pen = 1e30F;
-          for (int k = 0; k < 3; ++k) {
-            const float pk = h[k] - fabsf(lc[k]);
-            if (pk < pen) pen = pk, ak = k;
-          }
-          float nv3[3] = {0.0F, 0.0F, 0.0F};
-          nv3[ak] = lc[ak] < 0.0F ? -1.0F : 1.0F;
-          nL = rbV(nv3[0], nv3[1], nv3[2]);
-          depth = pen + S.sphereR;
-        }
-        cand[0].n = rbMat(Bm, nL);
-        cand[0].p = rbSub(x1, rbMul(cand[0].n, S.sphereR));
-        cand[0].depth = depth;
-        n = 1;
+        if(depth>0){cand[0].n=rbMat(Bm,normal);cand[0].p=rbSub(x1,rbMul(cand[0].n,S.sphereR));cand[0].depth=depth;n=1;}
       } else {
         // Hull corners inside the box, pushed out through the face they
         // came in by (side-aware - a thin wall must not eject a fast corner
@@ -666,6 +764,24 @@ void TerrainGame::updateObjectPhysics() {
           ++n;
         }
       }
+      if (!n && S.sphere) {
+        const RbV p0 = rbMatT(Bm,rbSub(S.x0,bc)), p1 = rbMatT(Bm,rbSub(S.x1,bc));
+        const float from[3]={p0.x,p0.y,p0.z}, to[3]={p1.x,p1.y,p1.z};
+        const float mn[3]={-h[0]-S.sphereR,-h[1]-S.sphereR,-h[2]-S.sphereR};
+        const float mx[3]={h[0]+S.sphereR,h[1]+S.sphereR,h[2]+S.sphereR};
+        float t,sign;int axis;
+        if(Tyra::collisionSweepBox(from,to,mn,mx,3,t,axis,sign)) {
+          float normal[3]={0,0,0};normal[axis]=sign;
+          cand[0].n=rbMat(Bm,rbV(normal[0],normal[1],normal[2]));
+          cand[0].p=rbSub(rbAdd(S.x0,rbMul(rbSub(S.x1,S.x0),t)),rbMul(cand[0].n,S.sphereR));
+          cand[0].depth=std::max(0.0F,(sign>0?mx[axis]-to[axis]:to[axis]-mn[axis])); n=1;
+        }
+      }
+      if (!n && !S.sphere) {
+        const RbV axes[3]={{ax.x,ax.y,ax.z},{ay.x,ay.y,ay.z},{az.x,az.y,az.z}};
+        if (satContact(S,B,staticShape.vertices,8,axes,3,axes,3,cand[0],
+            rbV(0,0,0),&staticShape.box,j)) n = 1;
+      }
       if (doorway) {  // through a wall portal only the floor answers
         int m = 0;
         for (int k = 0; k < n; ++k)
@@ -679,10 +795,82 @@ void TerrainGame::updateObjectPhysics() {
   // --- 3. contacts between bodies -------------------------------------------
   // A sleeping partner is immovable this frame; a hit hard enough wakes it
   // for the next one, and so does its support sliding out from under it.
+  // Index predicted body bounds once, rather than scanning every body per
+  // awake body. Sleeping COMs use their orientation, not the object origin.
+  static Tyra::BroadPhase bodyPairs;
+  static std::vector<int> nearBodies;
+  struct LocalBoundsCache {bool valid=false;unsigned revision=0;Tyra::CollisionBounds bounds;};
+  static std::vector<LocalBoundsCache> localBoundsCache;
+  static unsigned localBoundsGeneration=~0u;
+  if(coherence && (localBoundsGeneration!=sceneGeneration || localBoundsCache.size()!=runtimeObjects.size())) {
+    localBoundsCache.clear();localBoundsCache.resize(runtimeObjects.size());localBoundsGeneration=sceneGeneration;
+  }
+  bodyPairs.begin((int)bodies.size());
+  for (size_t pairIndex=0; pairIndex<bodies.size(); ++pairIndex) {
+    const int j=bodies[pairIndex];
+    const PhysBody& B = physBodies[physSlotOf[j]];
+    RbV c, previous;Tyra::CollisionBounds tight{};
+    if (stepOf[j] >= 0) {
+      c=steps[stepOf[j]].x1;previous=steps[stepOf[j]].x0;
+      if(coherence)tight=steps[stepOf[j]].bounds;
+    }
+    else {
+      float R[9];
+      rbQuatToMat(B.q, R);
+      const auto& o = runtimeObjects[j];
+      c = rbAdd(rbV(o.data.position[0], o.data.position[1], o.data.position[2]),
+                rbMat(R, rbV(B.comL[0], B.comL[1], B.comL[2])));
+      previous = c;
+      if(coherence) {
+        if(!B.verts) {
+          const RbV r=rbV(B.radius,B.radius,B.radius);tight={rbSub(c,r),rbAdd(c,r)};
+        } else {
+          auto& cached=localBoundsCache[j];
+          if(!cached.valid || cached.revision!=rbRevisions[j]) {
+            cached.bounds={{1e30F,1e30F,1e30F},{-1e30F,-1e30F,-1e30F}};
+            for(int k=0;k<B.verts;++k) {
+              const float* v=B.lv+k*3;
+              cached.bounds.mn.x=std::min(cached.bounds.mn.x,v[0]);cached.bounds.mx.x=std::max(cached.bounds.mx.x,v[0]);
+              cached.bounds.mn.y=std::min(cached.bounds.mn.y,v[1]);cached.bounds.mx.y=std::max(cached.bounds.mx.y,v[1]);
+              cached.bounds.mn.z=std::min(cached.bounds.mn.z,v[2]);cached.bounds.mx.z=std::max(cached.bounds.mx.z,v[2]);
+            }
+            cached.revision=rbRevisions[j];cached.valid=true;
+          }
+          tight=Tyra::collisionTransformBounds(cached.bounds,R,c);
+        }
+      }
+    }
+    Tyra::BroadBox box;
+    const float v[3] = {c.x, c.y, c.z}, prev[3] = {previous.x,previous.y,previous.z};
+    if(coherence) {
+      const float lo[3]={tight.mn.x,tight.mn.y,tight.mn.z},hi[3]={tight.mx.x,tight.mx.y,tight.mx.z};
+      for(int k=0;k<3;++k){box.mn[k]=lo[k]-1e-4F;box.mx[k]=hi[k]+1e-4F;}
+    } else for (int k = 0; k < 3; ++k) {
+      box.mn[k] = std::min(v[k],prev[k]) - B.radius;
+      box.mx[k] = std::max(v[k],prev[k]) + B.radius;
+    }
+    bodyPairs.set((int)pairIndex, box, false);
+  }
+  bodyPairs.commit();
   for (int si = 0; si < awakeCount; ++si) {
     const int i = steps[si].obj;
     if (!physObstacle(runtimeObjects[i].data)) continue;
-    for (int j : bodies) {
+    Tyra::BroadBox pairArea;
+    const RbStep& queryStep = steps[si];
+    const float queryRadius = physBodies[queryStep.slot].radius;
+    const float queryCentre[3] = {queryStep.x1.x, queryStep.x1.y, queryStep.x1.z};
+    const float queryPrev[3] = {queryStep.x0.x,queryStep.x0.y,queryStep.x0.z};
+    if(coherence) {
+      const auto& bounds=queryStep.bounds;
+      const float lo[3]={bounds.mn.x,bounds.mn.y,bounds.mn.z},hi[3]={bounds.mx.x,bounds.mx.y,bounds.mx.z};
+      for(int k=0;k<3;++k){pairArea.mn[k]=lo[k]-1e-4F;pairArea.mx[k]=hi[k]+1e-4F;}
+    } else for (int k = 0; k < 3; ++k) {
+      pairArea.mn[k] = std::min(queryCentre[k],queryPrev[k]) - queryRadius;
+      pairArea.mx[k] = std::max(queryCentre[k],queryPrev[k]) + queryRadius;
+    }
+    bodyPairs.queryBox(pairArea, nearBodies);
+    for (int candidate : nearBodies) {
+      const int j=bodies[(size_t)candidate];
       if (j == i) continue;
       RuntimeObject& ob = runtimeObjects[j];
       if (!physObstacle(ob.data)) continue;
@@ -691,27 +879,17 @@ void TerrainGame::updateObjectPhysics() {
       const bool jAsleep = stepOf[j] < 0 || steps[stepOf[j]].asleep;
       if (!jAsleep && j < i) continue;  // an awake pair is visited once
       const PhysBody& Bj = physBodies[physSlotOf[j]];
-      const RbStep& A0 = steps[si];
-      const RbV pj = stepOf[j] >= 0
-                         ? steps[stepOf[j]].x1
-                         : rbV(ob.data.position[0], ob.data.position[1],
-                               ob.data.position[2]);
-      // bounding-sphere reject before a sleeper is expanded into a step
-      const float rr = physBodies[A0.slot].radius + Bj.radius +
-                       sqrtf(rbDot(A0.v, A0.v)) +
-                       sqrtf(Bj.comL[0] * Bj.comL[0] + Bj.comL[1] * Bj.comL[1] +
-                             Bj.comL[2] * Bj.comL[2]);
-      const RbV dd = rbSub(pj, A0.x1);
-      if (rbDot(dd, dd) > rr * rr) continue;
       int sj = stepOf[j];
       if (sj < 0) sj = makeStep(j, true);
       const RbStep& A = steps[si];
       const RbStep& Bs = steps[sj];
       const PhysBody& Ba = physBodies[A.slot];
+      // The grid's swept sphere bounds deliberately over-select. Reject by
+      // cached hull/sphere envelopes before vertex planes, SAT or CCD. This
+      // is conservative for every contact path below, including linear TOI.
+      if (!Tyra::collisionBoundsOverlap(A.bounds, Bs.bounds)) continue;
       const RbV d = rbSub(A.x1, Bs.x1);
       const float d2 = rbDot(d, d);
-      const float rs = Ba.radius + Bj.radius;
-      if (d2 > rs * rs) continue;
       int n = 0;
       if (A.sphere && Bs.sphere) {
         const float dl = sqrtf(d2 > 1e-10F ? d2 : 1e-10F);
@@ -728,20 +906,12 @@ void TerrainGame::updateObjectPhysics() {
         const RbStep& Ss = A.sphere ? A : Bs;
         const PhysBody& Hb = physBodies[Hs.slot];
         const RbV lc = rbMatT(Hs.R1, rbSub(Ss.x1, Hs.x1));
-        int best = -1;
-        float sep = -1e30F;
-        for (int k = 0; k < Hb.planes; ++k) {
-          const float* pl = Hb.lp + k * 4;
-          const float s = pl[0] * lc.x + pl[1] * lc.y + pl[2] * lc.z - pl[3];
-          if (s > sep) sep = s, best = k;
-        }
-        if (best >= 0 && sep < Ss.sphereR) {
-          const float* pl = Hb.lp + best * 4;
-          RbV nw = rbMat(Hs.R1, rbV(pl[0], pl[1], pl[2]));  // hull -> sphere
-          cand[0].p = rbSub(Ss.x1, rbMul(nw, Ss.sphereR));
-          cand[0].depth = Ss.sphereR - sep;
-          cand[0].n = A.sphere ? nw : rbMul(nw, -1.0F);
-          n = 1;
+        Tyra::ConvexContact contact;
+        if (Tyra::sphereConvexContact(lc,Ss.sphereR,Hb.lv,Hb.verts,Hb.lp,Hb.planes,contact)) {
+          const RbV nw = rbMat(Hs.R1, contact.normal);
+          cand[0].p = rbAdd(Hs.x1, rbMat(Hs.R1, contact.point));
+          cand[0].depth = contact.depth;
+          cand[0].n = A.sphere ? nw : rbMul(nw, -1.0F); n = 1;
         }
       } else {
         // hull against hull: each one's corners inside the other
@@ -770,6 +940,23 @@ void TerrainGame::updateObjectPhysics() {
           ++n;
         }
       }
+      if (!n && A.sphere && Bs.sphere) {
+        Tyra::ConvexContact c;
+        if (Tyra::sphereSweepContact(A.x0,A.x1,A.sphereR,Bs.x0,Bs.x1,Bs.sphereR,c)) {
+          cand[0].n=c.normal; cand[0].p=c.point; cand[0].depth=c.depth; n=1;
+        }
+      }
+      if (!n && !A.sphere && !Bs.sphere) {
+        RbV normals[44], edges[66];
+        for (int k=0; !coherence && k<Bj.planes; ++k)
+          normals[k]=rbMat(Bs.R1,rbV(Bj.lp[k*4],Bj.lp[k*4+1],Bj.lp[k*4+2]));
+        for (int k=0; !coherence && k<Bj.edges; ++k)
+          edges[k]=rbMat(Bs.R1,rbV(Bj.le[k*3],Bj.le[k*3+1],Bj.le[k*3+2]));
+        const SatGeometry* geometry=coherence?&transformedShape(Bs,Bj):nullptr;
+        if(satContact(A,Ba,Bs.wv,Bs.nv,geometry?geometry->normals:normals,Bj.planes,
+            geometry?geometry->edges:edges,Bj.edges,cand[0],rbSub(Bs.x1,Bs.x0),
+            Bs.box?&Bs.obb:nullptr,Bs.obj)) n=1;
+      }
       if (!n) continue;
       if (Bs.asleep) {
         // Wake the sleeper on a real hit, or when it rides on this body and
@@ -789,6 +976,7 @@ void TerrainGame::updateObjectPhysics() {
   }
 
   // --- 4. sequential impulses -------------------------------------------------
+
   const int nc = (int)contacts.size();
   for (int k = 0; k < nc; ++k) {
     RbContact& c = contacts[k];
@@ -1858,6 +2046,7 @@ void TerrainGame::renderScene() {
   // the same deal one step further: the game built these bags itself, so they
   // need no per-object bookkeeping at all, only a distance test and a submit.
   { const u32 ct=costStart(); renderProcChunks(); costEnd("Procedural",-1,ct); }
+  { const u32 ct=costStart(); renderProcInstances(); costEnd("Instances",-1,ct); }
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
   renderCollisionBoxes();
@@ -2150,6 +2339,9 @@ void TerrainGame::renderScene() {
   // Owned object streams remain alive until the next VIF1 synchronization.
   stapip.core.beginSubmissionBatch();
   int impostorSwitchBudget = 4;
+  // Vertices of near-model bake per frame, shared by every object waiting to
+  // leave its impostor (advanceNearStage).
+  int nearBakeBudget = 1024;
   // The game side of the object loop, lap by lap, for the render-cost capture
   // only (docs/profiling.md, "The game side of the object loop"). A lap is a
   // bare COUNT read - no drain - so the sections add up to the loop and sit
@@ -2200,7 +2392,26 @@ void TerrainGame::renderScene() {
         const float threshold = d.impostorDistance * (g.impostor ? .9F : 1.0F);
         far = dx*dx + dy*dy + dz*dz > threshold*threshold;
       }
-      if (far != g.impostor && impostorSwitchBudget > 0) {
+      // Back past the threshold before the full model was ready.
+      if (far == g.impostor && g.nearStaging) {
+        g.nearStage.clear();
+        g.nearStaging = g.nearStageDone = false;
+      }
+      // Far-to-near costs a whole-model bake (~3000 vertices for a grove
+      // tree, ms of EE). Spread it: the card keeps drawing while the arrays
+      // fill a frame's budget at a time, and the switch below waits for them.
+      bool switchNow = far != g.impostor;
+      if (switchNow && !far && nearStageEligible(i)) {
+        if (!g.nearStaging) {
+          g.nearStage.clear();
+          g.nearStagePart = g.nearStageVert = 0;
+          g.nearStaging = true;
+          g.nearStageDone = false;
+        }
+        if (!g.nearStageDone) g.nearStageDone = advanceNearStage(i, nearBakeBudget);
+        switchNow = g.nearStageDone;
+      }
+      if (switchNow && impostorSwitchBudget > 0) {
         --impostorSwitchBudget;
         g.impostor = far;
         if (DEBUG_SHOW_PROFILER)
@@ -2267,6 +2478,7 @@ void TerrainGame::renderScene() {
           part.sts[k] = Vec4(v[6],v[7],1.0F,0.0F);
         }
         part.texBag->texture = src.texture;
+        part.texBag->filter = src.textureFilter;
         part.baseStamp = ++g_bboxStamp;
         part.bag->bboxVersion = part.baseStamp;
         if (DEBUG_SHOW_PROFILER && g.impostorView != view)
@@ -2574,6 +2786,21 @@ void TerrainGame::renderScene() {
                                       : Vec4(ux, uy, uz, 0.0F);
     }
   }
+  // BLSS particles only (docs/upscaler.md): every emitter of the MAIN view
+  // draws into the reduced target, depth-tested against a quarter-area copy of
+  // the finished opaque scene, and is composited back where it drew. Not in
+  // split screen - each half is a scissored view of one buffer, so one
+  // full-screen copy cannot serve both. Skipped when nothing would draw: the
+  // two copies and the composite are not free.
+  bool blssParts = false;
+  if (BLSS_PARTICLES && !splitPassActive &&
+      engine->renderer.core.blss.isParticleMode())
+    for (ParticleSystem& ps : particles)
+      if (ps.bag && ps.bag->count > 0) { blssParts = true; break; }
+  if (blssParts) {
+    stapip.core.flushDeferred();  // queued stamps are opaque scene: draw them first
+    engine->renderer.core.blss.beginParticles();
+  }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) renderWorldBag(ps.bag.get());
   renderVehicleGlass();
@@ -2582,6 +2809,7 @@ void TerrainGame::renderScene() {
   { const u32 ct=costStart(); renderVehicleGlow(); costEnd("Vehicle_lights",-1,ct); }
   { const u32 ct=costStart(); renderVehicleLampGlow(); costEnd("Vehicle_lamp_glow",-1,ct); }
 
+  if (blssParts) engine->renderer.core.blss.endParticles();
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
   costEnd("Particles",-1,costParticleStart);
   if (costSeq) {
@@ -4566,6 +4794,7 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
         ro.data.position[0] = nx2;
         ro.data.position[1] = ny2;
         ro.data.position[2] = nz2;
+        broadPhaseInvalidate();  // a teleported collider must be visible immediately
         float nvx, nvy, nvz;
         mapDir(ro.velocityX, vy, ro.velocityZ, &nvx, &nvy, &nvz);
         ro.velocityX = nvx;

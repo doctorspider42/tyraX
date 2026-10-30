@@ -1,4 +1,5 @@
 #include "templates.hpp"
+#include "../vendor/tyra/engine/inc/physics/triangle_bvh.hpp"
 
 #include <algorithm>
 #include <array>
@@ -2259,6 +2260,8 @@ class TerrainGame : public Tyra::Game {
     bool valid = false, tumble = true;
     float lv[24 * 3];   // PHYS_MAX_HULL_VERTS corners, centre-of-mass frame
     float lp[44 * 4];   // PHYS_MAX_HULL_PLANES faces n.x <= d, same frame
+    short edges = 0;
+    float le[66 * 3];   // unique local hull edge directions for SAT
   };
   std::vector<PhysBody> physBodies;
   std::vector<short> physSlotOf;
@@ -2616,6 +2619,7 @@ class TerrainGame : public Tyra::Game {
   // fills `out` with every object whose box may reach it - never fewer - in
   // ascending order, and the caller's own exact tests decide.
   void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
+  void broadPhaseWorldNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
   void broadPhaseAlong(const float* a, const float* b, float radius,
                        std::vector<int>& out) const;
   // The next query refreshes first. The contract for code that moves, turns
@@ -2637,6 +2641,7 @@ class TerrainGame : public Tyra::Game {
     unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
   };
   mutable Tyra::BroadPhase broadPhase;
+  mutable Tyra::WorldBroadPhase worldBroadPhase;
   mutable std::vector<BroadPhaseCache> bpCache;
   mutable unsigned bpFrame = ~0u, bpGen = ~0u;
   mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
@@ -4350,6 +4355,8 @@ class TerrainGame : public Tyra::Game {
     bool valid = false, tumble = true;
     float lv[24 * 3];   // PHYS_MAX_HULL_VERTS corners, centre-of-mass frame
     float lp[44 * 4];   // PHYS_MAX_HULL_PLANES faces n.x <= d, same frame
+    short edges = 0;
+    float le[66 * 3];   // unique local hull edge directions for SAT
   };
   std::vector<PhysBody> physBodies;
   std::vector<short> physSlotOf;
@@ -4707,6 +4714,7 @@ class TerrainGame : public Tyra::Game {
   // fills `out` with every object whose box may reach it - never fewer - in
   // ascending order, and the caller's own exact tests decide.
   void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
+  void broadPhaseWorldNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
   void broadPhaseAlong(const float* a, const float* b, float radius,
                        std::vector<int>& out) const;
   // The next query refreshes first. The contract for code that moves, turns
@@ -4728,6 +4736,7 @@ class TerrainGame : public Tyra::Game {
     unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
   };
   mutable Tyra::BroadPhase broadPhase;
+  mutable Tyra::WorldBroadPhase worldBroadPhase;
   mutable std::vector<BroadPhaseCache> bpCache;
   mutable unsigned bpFrame = ~0u, bpGen = ~0u;
   mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
@@ -6831,6 +6840,7 @@ static const char* TPL_RES_GITIGNORE =
 /models/*.tskl
 /models/*.tanm
 /models/*.tmdl
+/models/*.tmdl.tcol
 )";
 
 // The attribution a shipped game owes to the code inside it, written into every
@@ -16595,7 +16605,10 @@ void TerrainGame::updateVehicles(float dt) {
     // Physics BODIES (crates, barrels - data.physics): not walls. A car
     // trades momentum with them after the wall pass below - the era's
     // "drive through the boxes" - the way it already does with another car.
-    int pushIdx[8];
+    // Reuse storage; never discard a physical prop because eight nearer
+    // candidates filled the list (the exact contact test runs below).
+    static std::vector<int> pushIdx;
+    pushIdx.clear();
     int pushN = 0;
     const float feet0 = v.pos[1] - s.rideHeight * SC;
     {
@@ -16611,7 +16624,10 @@ void TerrainGame::updateVehicles(float dt) {
           const float dx = e.wx - v.pos[0];
           const float dz = e.wz - v.pos[2];
           const float r = reach + e.rs + 1.0F;
-          if (dx * dx + dz * dz < r * r && pushN < 8) pushIdx[pushN++] = oi;
+          if (dx * dx + dz * dz < r * r) {
+            pushIdx.push_back(oi);
+            ++pushN;
+          }
           return;
         }
         if (e.kind == 1) {
@@ -16688,13 +16704,15 @@ void TerrainGame::updateVehicles(float dt) {
         {
           VehWallBox w0[12];
           VehFloorBox f0[8];
-          int m0[4], p0[8];
+          int m0[4];
+          const auto p0 = pushIdx;
           const int wn = wallBoxN, fn = floorBoxN, mn = nearMeshN, pn = pushN;
           memcpy(w0, wallBox, sizeof(w0));
           memcpy(f0, floorBox, sizeof(f0));
           memcpy(m0, nearMesh, sizeof(m0));
-          memcpy(p0, pushIdx, sizeof(p0));
+
           wallBoxN = floorBoxN = nearMeshN = pushN = 0;
+          pushIdx.clear();
           for (const VehColEntry& e : vehColliders_) considerCol(e);
           for (const StaticBox& b : procColliders) considerProc(b);
           const bool same =
@@ -16702,7 +16720,7 @@ void TerrainGame::updateVehicles(float dt) {
               memcmp(w0, wallBox, sizeof(VehWallBox) * (size_t)wn) == 0 &&
               memcmp(f0, floorBox, sizeof(VehFloorBox) * (size_t)fn) == 0 &&
               memcmp(m0, nearMesh, sizeof(int) * (size_t)mn) == 0 &&
-              memcmp(p0, pushIdx, sizeof(int) * (size_t)pn) == 0;
+              p0 == pushIdx;
           static u32 vChecked = 0, vBad = 0, vFrames = 0;
           ++vChecked;
           if (!same) ++vBad;
@@ -16759,20 +16777,22 @@ void TerrainGame::updateVehicles(float dt) {
         {
           VehWallBox w0[12];
           VehFloorBox f0[8];
-          int m0[4], p0[8];
+          int m0[4];
+          const auto p0 = pushIdx;
           const int wn = wallBoxN, fn = floorBoxN, mn = nearMeshN, pn = pushN;
           memcpy(w0, wallBox, sizeof(w0));
           memcpy(f0, floorBox, sizeof(f0));
           memcpy(m0, nearMesh, sizeof(m0));
-          memcpy(p0, pushIdx, sizeof(p0));
+
           wallBoxN = floorBoxN = nearMeshN = pushN = 0;
+          pushIdx.clear();
           for (const VehColEntry& e : vehColliders_) considerCol(e);
           const bool same =
               wn == wallBoxN && fn == floorBoxN && mn == nearMeshN && pn == pushN &&
               memcmp(w0, wallBox, sizeof(VehWallBox) * (size_t)wn) == 0 &&
               memcmp(f0, floorBox, sizeof(VehFloorBox) * (size_t)fn) == 0 &&
               memcmp(m0, nearMesh, sizeof(int) * (size_t)mn) == 0 &&
-              memcmp(p0, pushIdx, sizeof(int) * (size_t)pn) == 0;
+              p0 == pushIdx;
           static u32 gChecked = 0, gBad = 0, gFrames = 0;
           ++gChecked;
           if (!same) ++gBad;
@@ -31417,13 +31437,16 @@ static std::string modelDataHeader(const Project& p) {
     // A CollisionMesh is only built for models some object collides with in
     // mesh mode - box-only models skip the memory and build time.
     std::vector<bool> needsCollider(keys.size(), false);
+    auto markCollider = [&](const SceneObject& o) {
+        if (o.type != PrimitiveType::Model || o.collisionMode != 1) return;
+        for (size_t m = 0; m < keys.size(); ++m)
+            if (keys[m].first == o.modelPath && keys[m].second == o.materialPath)
+                needsCollider[m] = true;
+    };
     for (const SceneData& sc : p.scenes)
-        for (const SceneObject& o : sc.objects) {
-            if (o.type != PrimitiveType::Model || o.collisionMode != 1) continue;
-            for (size_t m = 0; m < keys.size(); ++m)
-                if (keys[m].first == o.modelPath && keys[m].second == o.materialPath)
-                    needsCollider[m] = true;
-        }
+        for (const SceneObject& o : sc.objects) markCollider(o);
+    for (const Prefab& pf : p.prefabs)
+        for (const SceneObject& o : pf.objects) markCollider(o);
 
     std::ostringstream out;
     out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
@@ -35808,6 +35831,30 @@ std::vector<File> bakeStaticModels(const Project& p,
                          std::to_string(meshlod::kShadowProxyMaxTris) +
                          " - the flashlight casts its bounding boxes");
             }
+        }
+
+        // The exact collision list is baked independently of render strips/LOD.
+        // Keep original model geometry: automatic decimation could open walls.
+        bool colliderWanted = false;
+        auto needsCollider = [&](const SceneObject& obj) {
+            colliderWanted |= obj.type == PrimitiveType::Model &&
+                obj.collisionMode == 1 && obj.modelPath == relPath &&
+                obj.materialPath == materialPath;
+        };
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& obj : sc.objects) needsCollider(obj);
+        for (const Prefab& pf : p.prefabs)
+            for (const SceneObject& obj : pf.objects) needsCollider(obj);
+        if (colliderWanted) {
+            std::vector<float> verts;
+            for (const tmdl::Part& part : out.parts)
+                verts.insert(verts.end(), part.verts.begin(), part.verts.end());
+            auto triangles = Tyra::collisionTriangles(verts.data(),
+                static_cast<uint32_t>(verts.size() / 8), 8);
+            Tyra::TriangleBvh bvh;
+            bvh.build(triangles);
+            files.push_back({replaceAll(staticBakedTmdlRel(relPath, materialPath)
+                + ".tcol", "/", "\\"), bvh.encode(triangles)});
         }
 
         files.push_back(

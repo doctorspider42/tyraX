@@ -146,19 +146,20 @@ sooner - three of the old one's were still awake a minute in. Where the budget
 goes, and what keeps it bounded:
 
 - a sleeping scene returns after one pass over its physics objects;
-- the static obstacles are gathered ONCE per frame with a reject radius and
-  no trigonometry, then every awake body tests only the near ones;
+- static-world queries retain an index until its inputs change; moving world
+  solids refresh separately, and awake bodies query only nearby candidates;
 - a body carries at most 24 corners and each contact source at most four
   points, however detailed the mesh;
-- a sleeping body is only expanded into a contact partner when an awake one is
-  inside its bounding sphere.
+- a separate body grid uses conservative swept hull/sphere bounds; a sleeping
+  partner is expanded only when an awake body queries its region.
 
 ## Limits
 
-- **Corner contacts only.** Edge-against-edge crossings of two hulls (two
-  beams crossed like an X) are caught only once a corner goes inside. The box
-  corners-in-hull test covers the common case of a body resting across an
-  edge.
+- **Convex contact fallback.** Corner manifolds are supplemented by full
+  face/edge-axis SAT and linear CCD when no corner contact exists. This is
+  not continuous rotational collision detection; extreme rotation can tunnel.
+- Deeply interpenetrating or offset stacks can still select weak corner
+  support manifolds. The experimental face-clipping replacement is not included.
 - **No warm starting and no persistent manifolds.** Stable stacks of a few
   bodies are fine because sleeping bodies are immovable partners; tall stacks
   of awake bodies jitter before they sleep.
@@ -166,3 +167,42 @@ goes, and what keeps it bounded:
   over-reports contact near a hull's edges by a few percent of the radius.
 - A shape is convex (see above), and an animated model is its AABB box.
 - There is no editor-side simulation: the viewport shows the authored pose.
+
+## Qualified collision optimizations
+
+The runtime keeps the existing six velocity and three split-impulse passes.
+Conservative spatial bounds reject disjoint pairs before narrow phase; SAT and
+linear CCD share projections, with analytic outward-rounded OBB intervals.
+Cached separating axes are hints: the current geometry and complete movement
+interval must still prove separation. Transformed hull axes, static boxes and
+sleeping local bounds are reused only while their inputs remain valid.
+Scene reloads and shape changes invalidate the relevant caches.
+
+Contacts grow with demand: 384 is an initial reserve, not a scene-wide cap.
+Vehicle-to-prop candidate storage also grows beyond eight objects. Each source
+still reduces its manifold to at most four points. Vehicles retain their existing
+update and push mechanism; this is not the experimental common vehicle solver.
+All physics work in this release uses the EE scalar path. VU0 kernels, prepared
+solver backends, warm starting and island sleeping are not included.
+
+Historical physical-PS2 qualification, complete contacts enabled in both arms:
+
+| Added boxes | Earlier complete-contact algorithms | Optimized algorithms |
+|---|---:|---:|
+| 32 piled | 48.8 FPS | 51.6 FPS |
+| 64 piled | 30.0 FPS | 37.1 FPS |
+| 128 piled | 15.3 FPS | 19.1 FPS |
+| 32 / 64 scattered | 59.9 / 59.9 FPS | 59.9 / 59.9 FPS |
+
+This is not a stock-main comparison. Subsequent geometry-cache qualification
+measured 32.17 to 27.48 ms of physics at 128 piled boxes (32 boxes slightly
+regressed). Cached-world qualification independently measured 19.05 to 20.19
+and 20.04 to 22.67 FPS in two 128-pile repeats, with 48,502 query-oracle checks
+and zero errors. These are different runs: gains must not be added together.
+Variable-step trajectories differ, so whole-frame gains do not isolate query
+cost, and dense piles do not reach 60 FPS.
+
+The original reports and raw inputs remain on the investigation branch at
+[the retained checkpoint](https://github.com/doctorspider42/tyraX/tree/84e4d465c/tools/ps2rig).
+They qualify the source algorithms before this clean extraction; this PR's
+fresh build/smoke validation is reported separately in its description.

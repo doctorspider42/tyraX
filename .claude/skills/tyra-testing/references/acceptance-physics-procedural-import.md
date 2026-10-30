@@ -40,3 +40,17 @@ ls <proj>/objects | wc -l      # one object per imported model
 ## Game audio
 
 EE-side logs are invisible for audio — meter the PCSX2 process: Windows WASAPI session peak (`AudioMeterInformation`); Linux `pactl list sink-inputs` (PCSX2 sink input volume/peak) or a short `parec` of the monitor source. Silence vs bursts at expected times; by-ear checks stay with the human. Loop/mono ADPCM header bytes: acceptance-vehicles-roads.md "Sounds" and e2e-pcsx2.md. Editor-side audition/DSP: host-harnesses.md.
+
+
+## Qualified collision extraction (2.1.2)
+
+Host: compile tools/verify-collision-{broad-phase,bvh,geometry,envelope}.cpp,
+verify-body-pair-grid.cpp and verify-world-grid.cpp with `-O2 -std=c++17`
+and `-I vendor/tyra/engine/inc`. Broad-phase/body-grid checks link
+vendor/tyra/engine/src/physics/broad_phase.cpp; world-grid also links
+world_broad_phase.cpp. Run each executable; assertions must remain enabled.
+Run verify-collision-codegen.py --editor <Release editor> --scratch
+<primary-checkout>/.tmp/tests for sidecar creation, unchanged bytes/mtime and
+stale-sidecar removal. Refresh both physics/vehicle playgrounds, build a native
+PS2 game, and boot it in an isolated software PCSX2 session. Historical console
+measurements in docs/physics.md are not a fresh benchmark of the extraction.
