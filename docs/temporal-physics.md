@@ -609,3 +609,11 @@ throughput improves more modestly:128-pile22.50/22.52 to23.43/23.74FPS.
 This does not qualify production60FPS. A new private build restores the
 original variable clock and all28 workload phases; its admission gate is
 repeated before measuring the same new ELF without verification overhead.
+
+Normal-clock admission requalification also passed:1200 frame/accounting rows
+and45,328 actual world queries checked against independent full walks, with
+zero missing candidates/order errors. Per-frame trajectory parity is not a
+requirement here because simulation uses the original variable clock. The
+[normal-clock admission package](../tools/ps2rig/results/world-grid-normal-verify-2026-10-30.json)
+records the new ELF; its complete28-phase same-binary timing run follows with
+verification disabled. Production codegen still awaits those measurements.

@@ -381,3 +381,8 @@ production-clock workloads, use world_grid_fixture.py --normal-clock --full-suit
 and measuring all28 phases on the same binary. These options restore the
 original clock and full schedule only in the private fixture; keep initial
 warmup balanced and record the new ELF/source hashes.
+
+The normal-clock world-index gate is archived in
+results/world-grid-normal-verify-2026-10-30.inputs.zip:1200 frame rows and45,328
+independently checked world queries, no admission/accounting failures. Its ELF
+hash is reused for the separate full28-phase normal-clock timing run.
