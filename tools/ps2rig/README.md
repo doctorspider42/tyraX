@@ -1310,3 +1310,6 @@ The body stage accounts for most savings. Mean finish wait rises only about
 whole-physics gain. This is a qualified relative layout result against the
 shared compiled pose baseline, not production-clock FPS or an original-inline
 scalar comparison. No production layout is selected yet.
+
+Independent Astra and Claude-CLI Opus traffic/physics recommendations and the
+parent acceptance/corrections are preserved in [the review record](reviews/2026-10-30/README.md).

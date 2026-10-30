@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-30",
+  "requested_astra_model": "gpt-6-astra",
+  "opus_cli": [
+    {
+      "file": "opus-review.json",
+      "requested_alias": "opus",
+      "reported_models": [
+        "claude-opus-5-5"
+      ],
+      "turns": 49,
+      "response_sha256": "be8c203b735c089dfc6e7bab5ff4ec2b6ec6b20f31e6777276232142c8a06b90"
+    },
+    {
+      "file": "opus-physics-review.json",
+      "requested_alias": "opus",
+      "reported_models": [
+        "claude-opus-5-5"
+      ],
+      "turns": 41,
+      "response_sha256": "64ae7496fa4c0cda2ff73c2172c2de43e210417ee7cc39e617fbc2f242a12abc"
+    }
+  ],
+  "reviewed_refs": {
+    "collision_branch": "eb7a95ce0ed0175afe629b8a08010ee4a29af527",
+    "pr285": "8fc9f33a78e4bdabfe443b5354f7ee660c01a321"
+  },
+  "scope": "Independent source-based proposals; no new tests, implementation or hardware qualification by reviewers. Parent implementation decisions are separate.",
+  "markdown_sha256": {
+    "astra-physics-review.md": "f31ef6902239033de0fe4ee4ea03831bd3734a17de9db3e48b4315bfb900cf40",
+    "astra-traffic-review.md": "22cdd7e72c134d5882e0520b56558aaf107c312969cad3690c99edcb736a5351",
+    "opus-physics-review.md": "2e9bad880b697a45f3f3c0a8ac524d3ae373d8f85fde74fdd056b72a8003139e",
+    "opus-review.md": "5657c70b15d1282769856eebdd6afdb80e19f40a7bf275e86e33c8c8d45e8a80"
+  }
+}

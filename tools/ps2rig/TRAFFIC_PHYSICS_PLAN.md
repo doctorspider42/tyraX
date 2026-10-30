@@ -10,8 +10,9 @@ independent physics reviews before the next console experiment.
   `results/vehicle-contacts-impact-timing-2026-10-30.*`.
 - Shared contacts and opposite impulses work with one full object pass, but
   the measured dense scene is more expensive; this is not a speedup.
-- The previously planned double-interval timing is deferred. No new console
-  run starts before both requested independent model consultations return.
+- The previously planned double-interval timing is deferred. Both requested model consultations have now returned; detailed reports and
+  parent acceptance/corrections are in `reviews/2026-10-30/README.md`. No new
+  console run was started before that gate was satisfied.
 - All scratch stays under the primary checkout `.tmp`; never power off the
   computer or console. Stop only owned processes identified by command line.
 
@@ -31,6 +32,8 @@ sequential dependencies, finite-mass/yaw constraints and FPU/VU operation-order
 hazards. Read existing measured dead ends before proposing another backend.
 Do not pretend FPU is a third independent thread or promise magical VU gains.
 Review proposals against existing code and measurements before implementation.
+This review is complete; first implement source-exact penetration diagnostics
+and the separated-road fixture, then qualify selected performance changes.
 
 ## Primary practical target: traffic
 
