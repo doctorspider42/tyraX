@@ -693,3 +693,15 @@ both world-first layouts require zero packet-window world chunks, while old
 interleaving experiments retain their busy-witness gate. A valid synthetic
 pooled gate passes and a changed contact fingerprint fails; the prior unprobed
 schedule report still passes its original checks. Admission is running on PS2.
+
+The first physical layout admission is rejected and retained in
+results/step-pool-verify-2026-10-30.*. Canonical micro validation reports no lost
+hits/errors, but all600 measured frames differ in workload/contact fingerprints.
+The first warm frame already has different ordered fingerprints despite92
+contacts in both arms. Do not qualify timing or assume an arithmetic/compiler
+cause from the storage oracle alone. --diagnose adds raw snapshots of every
+initialized pre-solver step field, all actual vertices and ordered contact
+geometry at frames0/1. Only the phase flush writes them. step_pool_diff.py
+decodes exact words independently; a host writer/decoder check locates injected
+one-ULP R1/depth changes. The diagnostic build compiles warning-clean. No gate
+was relaxed and production retains the original layout.
