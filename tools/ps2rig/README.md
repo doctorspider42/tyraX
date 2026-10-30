@@ -1498,3 +1498,25 @@ output and installs a failure-only `new_handler` reporting phase/frame,
 inclusive-stage enum and current rebuild/submission object before sleeping.
 Object scopes are diagnostic ownership labels, not exclusive timing scopes.
 Those changes do not reclaim memory or claim to fix the allocation failure.
+
+`results/traffic-scaling-software-2026-10-30.*` preserves the independent
+PCSX2 software check of that diagnostic ELF. It finishes1/3/5-HQ phases;
+every measured5-HQ row reports allfive near/front/submitted, no kinematic
+bypass and one full physics step. The saved-state screenshot shows them.
+It does NOT reproduce the hardware allocation failure through that point.
+The first civilian seed then fails: the old projection threshold included
+100*laneY^2, so the boulevard's~0.202-unit elevation alone exceeds the limit.
+The corrected fixture first bounds ground-level elevation to±1, selects
+primarily by horizontal distance, and independently requires horizontal
+error≤0.5 units. Initial full-box pair tests remain unchanged. Seed segment,
+arc, horizontal error and lane height are printed before each window.
+
+Optional `traffic-bench-phase.cfg` contains the initial phase index0..9.
+Use2 for a cold5-HQ diagnostic to separate prior scene loads from that working
+set; remove it for the complete ten-window matrix. DONE records the actual
+number of windows and starting index. A partial diagnostic cannot satisfy
+the full-matrix analyzer. The failed software check carries NO console FPS
+claim; its saved-state log warns MTVU is enabled, so it is not DMA-lifetime
+qualification either. The physical attempt of that intermediate ELF did not
+launch after software reset (empty log/no CSV); emulator files are never
+substituted for physical evidence.

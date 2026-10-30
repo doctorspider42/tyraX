@@ -25,7 +25,7 @@ struct Row {
 };
 inline Row current;
 inline std::vector<Row> rows;
-inline int phase=0,frame=0,wantedHQ=0,wantedCiv=0;
+inline int phase=0,firstPhase=0,frame=0,wantedHQ=0,wantedCiv=0;
 inline bool ready=false,finished=false,previous=false;
 inline bool detailed=false;
 inline int allocationStage=-1,allocationOwner=-1;

@@ -145,7 +145,9 @@ def install(repo, project):
       fflush(stdout);finished=true;for(;;)SleepThread();
     });
     FILE* f=fopen("traffic-bench-detail.cfg","r");detailed=f!=nullptr;if(f)fclose(f);
-    printf("TRAFFICBENCH CONFIG detail=%d normal_clock=1\n",int(detailed));fflush(stdout);
+    f=fopen("traffic-bench-phase.cfg","r");int first=0;
+    if(f){if(fscanf(f,"%d",&first)==1 && first>=0 && first<10)phase=firstPhase=first;fclose(f);}
+    printf("TRAFFICBENCH CONFIG detail=%d normal_clock=1 start_phase=%d\n",int(detailed),phase);fflush(stdout);
   }''')
     p.write_bytes(s.encode())
     meta.update(instrumented=True, detailed=False,

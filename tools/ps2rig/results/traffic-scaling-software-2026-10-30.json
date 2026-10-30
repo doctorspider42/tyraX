@@ -1,0 +1,40 @@
+{
+  "elf_sha256": "0911d7ca5ba0831204d32f35c791862e9791500a843ff19c6a7e790be63ec316",
+  "pcsx2_version": "2.9.93",
+  "renderer": 13,
+  "source_snapshot_sha256": "92cd7be237ba37c8ba864cea33d90c3e819eeb97eae24b178d6fdc089ace6e56",
+  "completed_phases": [
+    0,
+    1,
+    2
+  ],
+  "hq_phase2": [
+    5
+  ],
+  "hq_lod0_phase2": [
+    5
+  ],
+  "hq_front_phase2": [
+    5
+  ],
+  "hq_submission_attempts_phase2": [
+    5
+  ],
+  "kinematic_calls_phase2": [
+    0
+  ],
+  "full_physics_steps_phase2": [
+    1
+  ],
+  "free_mb_phase_ends": [
+    3.5433,
+    2.445,
+    2.0981
+  ],
+  "failure": "Phase3 first civilian seed rejected with error4.08062: startup projection score includes squared lane elevation, not solely horizontal error.",
+  "physical_diagnostic_launched": false,
+  "physical_transport_log_bytes": 0,
+  "performance_qualified": false,
+  "target_60fps_qualified": false,
+  "notes": "Software correctness diagnostic only. Five near HQ cars visible in captured state; every measured phase2 frame reports all5 near/front/submitted. No allocator failure reproduced through phase2. No FPS inference from emulation. Saved-state log warns MTVU is enabled; not DMA-lifetime qualification. Physical diagnostic execee after software reset has no loadelf, CSV or stdout; do not treat emulator files as console evidence."
+}

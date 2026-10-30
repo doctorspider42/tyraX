@@ -7,7 +7,7 @@ bool TerrainGame::benchTrafficBegin() {
     if(float(U(now-phaseStart))/Hz>=6.f){
       printf("TRAFFICBENCH RAM phase=%d free_mb=%.4f\n",phase,engine->info.getAvailableRAM());
       flush();ready=false;previous=false;++phase;
-      if(phase>=10){finished=true;printf("TRAFFICBENCH DONE phases=10\n");fflush(stdout);return false;}
+      if(phase>=10){finished=true;printf("TRAFFICBENCH DONE phases=%d start_phase=%d\n",10-firstPhase,firstPhase);fflush(stdout);return false;}
       loadScene(0);g_frameClockLast=0;return false;
     }
   }else{
@@ -42,7 +42,7 @@ void TerrainGame::benchTrafficSetup() {
     v.active=0;o.active=o.visible=false;
     if(ci>=wantedCiv)continue;
     const float tx=(ci&1)?4.875f:1.625f,tz=-68.f+7.f*float(ci/2);
-    float best=1e30f,arc=0;int pick=-1;
+    float best=1e30f,arc=0,bestXZ=1e30f,bestY=0;int pick=-1;
     // Initial placement searches the entire actual lane polyline. The normal
     // per-frame local projection window is inappropriate for initial seeds.
     for(int si=0;si<int(tf_.g.segs.size());++si){const auto& s=tf_.g.segs[size_t(si)];
@@ -52,11 +52,13 @@ void TerrainGame::benchTrafficSetup() {
         if(!(len2>1e-8f) || dz<.8f*sqrtf(len2))continue;
         const float t=std::max(0.f,std::min(1.f,((tx-a[0])*dx+(tz-a[2])*dz)/len2));
         const float px=a[0]+dx*t,pz=a[2]+dz*t,py=a[1]+(b[1]-a[1])*t;
-        const float e=(px-tx)*(px-tx)+(pz-tz)*(pz-tz)+100.f*py*py;
-        if(e<best){best=e;pick=si;arc=tf_.g.arc[size_t(k)]+(tf_.g.arc[size_t(k+1)]-tf_.g.arc[size_t(k)])*t;}
+        if(fabsf(py)>1.f)continue; // this fixture seeds the ground-level boulevard
+        const float xz=(px-tx)*(px-tx)+(pz-tz)*(pz-tz),e=xz+.01f*py*py;
+        if(e<best){best=e;bestXZ=xz;bestY=py;pick=si;arc=tf_.g.arc[size_t(k)]+(tf_.g.arc[size_t(k+1)]-tf_.g.arc[size_t(k)])*t;}
       }
     }
-    if(pick<0 || best>4.f){finished=true;printf("TRAFFICBENCH ERROR seed ci=%d error=%g\n",ci,best);return;}
+    if(pick<0 || bestXZ>.25f){finished=true;printf("TRAFFICBENCH ERROR seed ci=%d xz_error2=%g lane_y=%g\n",ci,bestXZ,bestY);return;}
+    printf("TRAFFICBENCH SEED ci=%d segment=%d arc=%g xz_error2=%g lane_y=%g\n",ci,pick,arc,bestXZ,bestY);
     o.active=true;trafficPlace(ci,pick,arc);v.speed=0;tf_.cars[size_t(ci)].speed=0;
   }
   // Publish initial poses once. Later movement is entirely normal dynamics.
