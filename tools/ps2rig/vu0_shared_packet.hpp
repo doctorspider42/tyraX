@@ -60,12 +60,20 @@ inline Vu0SatResult legacySharedResult(const Vu0SharedResult& r){
 }
 inline bool finishVu0Shared(const Vu0SharedResult& r,const ConvexView& a,const ConvexView& b,
                             const CollisionObb& aa,const CollisionObb& bb,
-                            CollisionV3 ma,CollisionV3 mb,ConvexContact& out){
+                            CollisionV3 ma,CollisionV3 mb,ConvexContact& out,bool profile=false){
   const bool possible=r.interval[2]!=0 || (r.interval[3]!=0&&r.state[0]!=0&&r.interval[0]<=1&&r.interval[1]>=0);
   if(!possible&&std::isfinite(r.state[1])&&r.state[1]>=0&&r.state[1]<21&&a.nn==6&&b.nn==6&&a.ne==3&&b.ne==3){
     const int i=int(r.state[1]);
     const auto axis=i<6?a.normals[i]:i<12?b.normals[i-6]:cvCross(a.edges[(i-12)/3],b.edges[(i-12)%3]);
-    if(convexSeparatedOnAxis(a,b,ma,mb,axis,&aa,&bb))return false;
+    if(convexSeparatedOnAxis(a,b,ma,mb,axis,&aa,&bb)){
+      if(profile)++vu0SatMetrics.provedNegative;
+      return false;
+    }
+  }
+  if(profile){
+    if(!possible)++vu0SatMetrics.confirmedNegative;
+    else if(r.interval[2]==0)++vu0SatMetrics.confirmedCcd;
+    else ++vu0SatMetrics.confirmedPositive;
   }
   return scalarMotionContactReference(a,b,ma,mb,out,&aa,&bb);
 }

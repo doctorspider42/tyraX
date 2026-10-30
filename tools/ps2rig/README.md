@@ -50,6 +50,39 @@ This validates the format, arithmetic and assembled scheduling, not useful
 EE/VU0 overlap or a whole-physics speedup. Scene integration and same-ELF timing
 remain pending; production micro stays disabled.
 
+`vu0_shared_scene.py --scratch ROOT` installs the next comparison after the
+gate-only probe. Both arms now execute the same pooled EE function and common
+pose routines; only VU packet preparation, dispatch and consumption differ.
+Immutable records are cached lazily per step, with storage sized before any
+micro launch, and full descriptor/body tables flush then retry the same pair.
+The new `Vu0SharedBatch` starts the next packet before EE consumes the previous
+results, as the legacy path does. It uses integer LQ/SQ transfers while idle.
+Canonical positive confirmation and conservative negative proof remain in both
+arms. Shared result classes deliberately omit unused approximate tie metadata;
+every dispatched result must still belong to exactly one class.
+
+The scene installer restores the gate-only runtime from its byte backup, keeps
+all legacy startup/replay/precision gates and adds both shared-image gates.
+It invalidates prior ELF admission and enables shadow checks. The analyzer's
+`shared_scene_comparison` scope requires raw initialized steps, vertices and
+ordered contacts to match at frames0/1, as well as600 measured workload/contact
+fingerprints and zero missed canonical hits. Different micro job/batch counts
+are expected: the shared path does not calculate nine EE axes merely to decide
+whether a near-parallel pair should stay scalar. This changes dispatch, not
+collision acceptance. Full-physics timing remains unqualified until admission
+passes and the same ELF is rerun with diagnostic work disabled.
+
+The first scene admission passes in
+`results/shared-scene-admission-2026-10-30.*`:600 measured frames have identical
+workload and ordered contact fingerprints; raw frame0/1 steps, local/world
+vertices and contacts are bitwise equal. Legacy/shared dispatch72,394/71,241
+jobs in10,660/8,496 batches, with complete classifications and zero numerical
+differences, missed hits or validation errors. Both shared image corpora,
+saved-contact replays and all legacy startup gates pass. Analyzer falsifiers
+reject an omitted image corpus and a one-bit raw snapshot change. The installer
+reproduces both compiled scene translation units byte-for-byte. Verification
+timings are invalid; the exact same ELF must still complete unshadowed timing.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used
