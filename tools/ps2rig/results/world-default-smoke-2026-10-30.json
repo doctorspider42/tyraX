@@ -1,0 +1,586 @@
+{
+  "hardware": "Physical PS2,192.168.100.150",
+  "performance_qualified": false,
+  "flags": {
+    "world_index": 1,
+    "coherence": 1,
+    "warm_start": 0,
+    "islands": 0,
+    "prepared": 0,
+    "micro": 0
+  },
+  "integration": "Freshly regenerated authored nonbox fixture, canonical generated physics/world queries, private Pad stub and finite-state telemetry only. Native object references broadPhaseWorldNear.",
+  "body_count": 37,
+  "diagnostics": [],
+  "samples": [
+    {
+      "frame": 100,
+      "bodies": 37,
+      "awake": 37,
+      "energy": 0.640589237,
+      "bad": 0
+    },
+    {
+      "frame": 200,
+      "bodies": 37,
+      "awake": 37,
+      "energy": 0.410206765,
+      "bad": 0
+    },
+    {
+      "frame": 300,
+      "bodies": 37,
+      "awake": 30,
+      "energy": 0.841290116,
+      "bad": 0
+    },
+    {
+      "frame": 400,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.755339384,
+      "bad": 0
+    },
+    {
+      "frame": 500,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.675112665,
+      "bad": 0
+    },
+    {
+      "frame": 600,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.323302686,
+      "bad": 0
+    },
+    {
+      "frame": 700,
+      "bodies": 37,
+      "awake": 30,
+      "energy": 0.188363045,
+      "bad": 0
+    },
+    {
+      "frame": 800,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.12223874,
+      "bad": 0
+    },
+    {
+      "frame": 900,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.102751568,
+      "bad": 0
+    },
+    {
+      "frame": 1000,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.0749318525,
+      "bad": 0
+    },
+    {
+      "frame": 1100,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.053377483,
+      "bad": 0
+    },
+    {
+      "frame": 1200,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.064007476,
+      "bad": 0
+    },
+    {
+      "frame": 1300,
+      "bodies": 37,
+      "awake": 29,
+      "energy": 0.042563986,
+      "bad": 0
+    },
+    {
+      "frame": 1400,
+      "bodies": 37,
+      "awake": 28,
+      "energy": 0.030695308,
+      "bad": 0
+    },
+    {
+      "frame": 1500,
+      "bodies": 37,
+      "awake": 28,
+      "energy": 0.0282362178,
+      "bad": 0
+    },
+    {
+      "frame": 1600,
+      "bodies": 37,
+      "awake": 28,
+      "energy": 0.0137806023,
+      "bad": 0
+    },
+    {
+      "frame": 1700,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.0114364661,
+      "bad": 0
+    },
+    {
+      "frame": 1800,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.0130311977,
+      "bad": 0
+    },
+    {
+      "frame": 1900,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.0151890367,
+      "bad": 0
+    },
+    {
+      "frame": 2000,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.0107353618,
+      "bad": 0
+    },
+    {
+      "frame": 2100,
+      "bodies": 37,
+      "awake": 27,
+      "energy": 0.00953969732,
+      "bad": 0
+    },
+    {
+      "frame": 2200,
+      "bodies": 37,
+      "awake": 26,
+      "energy": 0.0114031453,
+      "bad": 0
+    },
+    {
+      "frame": 2300,
+      "bodies": 37,
+      "awake": 26,
+      "energy": 0.00930733979,
+      "bad": 0
+    },
+    {
+      "frame": 2400,
+      "bodies": 37,
+      "awake": 25,
+      "energy": 0.00835717656,
+      "bad": 0
+    },
+    {
+      "frame": 2500,
+      "bodies": 37,
+      "awake": 25,
+      "energy": 0.0155274468,
+      "bad": 0
+    },
+    {
+      "frame": 2600,
+      "bodies": 37,
+      "awake": 25,
+      "energy": 0.0114840362,
+      "bad": 0
+    },
+    {
+      "frame": 2700,
+      "bodies": 37,
+      "awake": 25,
+      "energy": 0.00974453241,
+      "bad": 0
+    },
+    {
+      "frame": 2800,
+      "bodies": 37,
+      "awake": 25,
+      "energy": 0.00527905812,
+      "bad": 0
+    },
+    {
+      "frame": 2900,
+      "bodies": 37,
+      "awake": 25,
+      "energy": 0.0105578043,
+      "bad": 0
+    },
+    {
+      "frame": 3000,
+      "bodies": 37,
+      "awake": 24,
+      "energy": 0.0106579438,
+      "bad": 0
+    },
+    {
+      "frame": 3100,
+      "bodies": 37,
+      "awake": 24,
+      "energy": 0.0162560046,
+      "bad": 0
+    },
+    {
+      "frame": 3200,
+      "bodies": 37,
+      "awake": 24,
+      "energy": 0.00669953972,
+      "bad": 0
+    },
+    {
+      "frame": 3300,
+      "bodies": 37,
+      "awake": 24,
+      "energy": 0.00845673587,
+      "bad": 0
+    },
+    {
+      "frame": 3400,
+      "bodies": 37,
+      "awake": 24,
+      "energy": 0.0136347013,
+      "bad": 0
+    },
+    {
+      "frame": 3500,
+      "bodies": 37,
+      "awake": 24,
+      "energy": 0.00628370279,
+      "bad": 0
+    },
+    {
+      "frame": 3600,
+      "bodies": 37,
+      "awake": 24,
+      "energy": 0.00926227774,
+      "bad": 0
+    },
+    {
+      "frame": 3700,
+      "bodies": 37,
+      "awake": 24,
+      "energy": 0.00693211611,
+      "bad": 0
+    },
+    {
+      "frame": 3800,
+      "bodies": 37,
+      "awake": 24,
+      "energy": 0.0105490061,
+      "bad": 0
+    },
+    {
+      "frame": 3900,
+      "bodies": 37,
+      "awake": 24,
+      "energy": 0.00774224149,
+      "bad": 0
+    },
+    {
+      "frame": 4000,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.0196371432,
+      "bad": 0
+    },
+    {
+      "frame": 4100,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.0142407632,
+      "bad": 0
+    },
+    {
+      "frame": 4200,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.00672091777,
+      "bad": 0
+    },
+    {
+      "frame": 4300,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.0146281356,
+      "bad": 0
+    },
+    {
+      "frame": 4400,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.0102873379,
+      "bad": 0
+    },
+    {
+      "frame": 4500,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.00843628775,
+      "bad": 0
+    },
+    {
+      "frame": 4600,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.0106724193,
+      "bad": 0
+    },
+    {
+      "frame": 4700,
+      "bodies": 37,
+      "awake": 23,
+      "energy": 0.0211355519,
+      "bad": 0
+    },
+    {
+      "frame": 4800,
+      "bodies": 37,
+      "awake": 21,
+      "energy": 0.0154779656,
+      "bad": 0
+    },
+    {
+      "frame": 4900,
+      "bodies": 37,
+      "awake": 20,
+      "energy": 0.023220621,
+      "bad": 0
+    },
+    {
+      "frame": 5000,
+      "bodies": 37,
+      "awake": 20,
+      "energy": 0.0152547685,
+      "bad": 0
+    },
+    {
+      "frame": 5100,
+      "bodies": 37,
+      "awake": 20,
+      "energy": 0.00757658947,
+      "bad": 0
+    },
+    {
+      "frame": 5200,
+      "bodies": 37,
+      "awake": 20,
+      "energy": 0.00940750074,
+      "bad": 0
+    },
+    {
+      "frame": 5300,
+      "bodies": 37,
+      "awake": 20,
+      "energy": 0.00898860954,
+      "bad": 0
+    },
+    {
+      "frame": 5400,
+      "bodies": 37,
+      "awake": 20,
+      "energy": 0.00833683554,
+      "bad": 0
+    },
+    {
+      "frame": 5500,
+      "bodies": 37,
+      "awake": 20,
+      "energy": 0.00772435684,
+      "bad": 0
+    },
+    {
+      "frame": 5600,
+      "bodies": 37,
+      "awake": 20,
+      "energy": 0.0060201562,
+      "bad": 0
+    },
+    {
+      "frame": 5700,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00365428324,
+      "bad": 0
+    },
+    {
+      "frame": 5800,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00757631008,
+      "bad": 0
+    },
+    {
+      "frame": 5900,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.0166167598,
+      "bad": 0
+    },
+    {
+      "frame": 6000,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00584324822,
+      "bad": 0
+    },
+    {
+      "frame": 6100,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00674668886,
+      "bad": 0
+    },
+    {
+      "frame": 6200,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.0168264322,
+      "bad": 0
+    },
+    {
+      "frame": 6300,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.0152351689,
+      "bad": 0
+    },
+    {
+      "frame": 6400,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.0115418751,
+      "bad": 0
+    },
+    {
+      "frame": 6500,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00842788629,
+      "bad": 0
+    },
+    {
+      "frame": 6600,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00714289863,
+      "bad": 0
+    },
+    {
+      "frame": 6700,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00480345171,
+      "bad": 0
+    },
+    {
+      "frame": 6800,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00986235403,
+      "bad": 0
+    },
+    {
+      "frame": 6900,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00985636935,
+      "bad": 0
+    },
+    {
+      "frame": 7000,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00626118155,
+      "bad": 0
+    },
+    {
+      "frame": 7100,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00998212118,
+      "bad": 0
+    },
+    {
+      "frame": 7200,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00783949625,
+      "bad": 0
+    },
+    {
+      "frame": 7300,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.0121667823,
+      "bad": 0
+    },
+    {
+      "frame": 7400,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.0148023721,
+      "bad": 0
+    },
+    {
+      "frame": 7500,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.0309813134,
+      "bad": 0
+    },
+    {
+      "frame": 7600,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.0250238962,
+      "bad": 0
+    },
+    {
+      "frame": 7700,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00829428528,
+      "bad": 0
+    },
+    {
+      "frame": 7800,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00362841249,
+      "bad": 0
+    },
+    {
+      "frame": 7900,
+      "bodies": 37,
+      "awake": 19,
+      "energy": 0.00945556816,
+      "bad": 0
+    }
+  ],
+  "elf_sha256": "f96958228886de15ee56963d4279601270a156b3c426884ce15d0bd589c5e355",
+  "source_sha256": {
+    "src/game_templates.inc": "1a06a51a1ab96fd47f0d2150d7d18fca037909eadd54dc71ab8cc67c4b89f4a3",
+    "src/templates.cpp": "2878d7d6226726592293966ea5a29af5af9da88fe9a8c355b43dc964029e62d4",
+    "vendor/tyra/engine/inc/physics/contact_history.hpp": "aa262681646624a93697d148223912363b6d85176ec8adc6f70d907ecf3b70d3",
+    "vendor/tyra/engine/inc/physics/world_broad_phase.hpp": "47a05588cf067285b47319950494a55e6512e69d6754bebe26e594fabb35bd9f",
+    "vendor/tyra/engine/src/physics/world_broad_phase.cpp": "6514a4f132bbb7f94fd69507ae022fe8577b045a9308be79f00c70f3f9d742ec"
+  },
+  "project_source_sha256": {
+    "src/terrain_game.cpp": "27043519eb6dc2f70f637ef047d4246b6624faa45965faa228ff2f681979fde4",
+    "src/gen/game_physics.gen.cpp": "b9d0241be073d1b066007d085e15438fe3d2696aa157b7db48fc5a7fc190c9a7",
+    "src/gen/game_collision.gen.cpp": "c32bffe6d439d8f4d97dde064f63561c5464628e20363e7ee892df2181d31d7c",
+    "inc/terrain_game.hpp": "3a70f815a38c57d58a40cb8a2177e7392db0af723779a2cfb19f55dedf109130"
+  },
+  "log_sha256": "0b33d42cfa261cc80fd106656c9e2203a213d2161d3e0aee90fc96e8cdee31e8",
+  "scope": "Physical smoke of37 mixed rigid bodies, including non-box hulls. Finite-state aggregate telemetry is not an exact contact/state oracle, a production-pad check, or a performance comparison."
+}

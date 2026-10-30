@@ -2907,4 +2907,4 @@ post-5 back at y = 1.
 - A separately authored collision-mesh asset would allow deliberate geometry
   reduction; do not automatically decimate the render mesh into a collider.
 
-- [ ] Complete normal-clock hardware qualification of the cached static world/compact-moving admission backend before enabling its production switch. Eager and threshold prototypes have archived full comparisons; cached admission passes48,502 independent physical checks.
+- [x] Complete normal-clock hardware qualification of cached static world/compact-moving admission:48,502 independent query checks and16,800 frame rows; enable the measured world index while retaining the8m body grid and production clock.

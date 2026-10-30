@@ -403,7 +403,7 @@ same ELF with the original28-phase production-clock schedule. Its first gate,
 results/world-cache-verify-2026-10-30.inputs.zip, contains48,502 independent
 query checks with zero errors and only five index builds. Those instrumented
 frame times are not performance evidence. The production switch
-TYRA_PHYSICS_WORLD_INDEX remains0 until uninstrumented timing qualifies it.
+TYRA_PHYSICS_WORLD_INDEX is now1 after the following timing qualification.
 Build the host oracle with both broad_phase.cpp and world_broad_phase.cpp;
 it exercises cached statics, moving/category transitions, asset-bound changes,
 more than eight movers, clear, global ordering and grid/octree backends.
@@ -411,3 +411,30 @@ codegen_member.py provides the shared source-method extractor without importing
 the fixture CLI. World-grid sidecars retain build counts as well as admission
 checks; original combined-index fallback can contain physics candidates before
 the existing exact filter, which the independent oracle handles explicitly.
+
+
+results/world-cache-normal-2026-10-30.inputs.zip retains the complete same-ELF
+16,800-frame normal-clock run after the cached admission gate. Both128-pile
+repeats improve19.05->20.19 and20.04->22.67FPS;64-pile world work roughly halves.
+Sparse overhead is absent, while32-pile FPS is mixed within the small observed
+delta. Keep all repeats and the variable-step trajectory caveat.
+
+physics_pmu_fixture.py --scratch <cached-world-rig> installs a separate private
+12/13 dense profile. It rotates PCR event pairs each frame:6/6 I$/D$ misses,
+2/2 single/dual issue,12/14 completed/COP1 instructions. Only outer physics,
+solver and stage scopes read PMU counters; frequent query/SAT scopes remain
+CP0-only. The probe refuses an enabled external PMU owner, preserves disabled
+control/count state, checks overflow, calibrates CPU-cycle counters against CP0
+Count, and compares warm4KiB to128KiB cache scans before any profile frames.
+Selectors and timer cadence follow the [SCE EE Core User's Manual v6](https://docs.alexrp.com/mips/ee.pdf),
+sections3.2 and7. Counter events are diagnostic counts, not unit utilization.
+The profiled ELF changes instrumentation and cannot qualify production FPS.
+
+
+physics_pmu_analyze.py validates the physical calibration,600 frames per arm,
+three balanced event modes, positive outer scopes, complete collision/push
+accounting and zero micro dispatch. The first retained profile is
+results/physics-pmu-2026-10-30.inputs.zip. It is diagnostic evidence only;
+performance_qualified staysfalse even when all counter checks pass.
+The selected-default non-box smoke is results/world-default-smoke-2026-10-30.*:
+37 bodies,79 finite aggregate samples through frame7900, private Pad stub.

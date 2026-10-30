@@ -10,6 +10,7 @@ under it as that release's notes, and the release's own page carries the date.
 
 ## 2.4.0
 
+- Rigid-body world queries cache unchanged static obstacles and update moving obstacles separately, avoiding rigid-body candidates that the world path immediately rejects. The backend is enabled after physical-console admission and frame comparisons; exact collision tests and solver passes are unchanged.
 - Experimental asynchronous VU0 SAT/CCD overlaps packet execution with EE contact reconstruction. Full collision coverage is preserved, with canonical scalar selection for ambiguous contacts. The backend remains disabled by default; physical-console reports distinguish isolated backend throughput from whole-scene FPS.
 - Rigid-body collision queries use conservative swept hull bounds and cached transforms/axes without reducing contact coverage or solver passes. The cache is enabled; warm starting and coordinated island sleeping remain experimental opt-ins after physical-console comparison. Collider caches initialize only when active physics needs them.
 

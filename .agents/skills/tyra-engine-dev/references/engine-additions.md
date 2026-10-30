@@ -117,7 +117,7 @@ to call one compiled scalar body; do not replace that call with another inline
 copy when investigating numerical differences. Physical tolerances are declared
 in physics/vu0_sat.hpp; lost reference hits always fail validation.
 
-WorldBroadPhase is a staged world-only admission cache. begin() must be followed
+WorldBroadPhase is the default world-only admission cache. begin() must be followed
 by exactly one set()/remove() per scene slot. changedBox is the authoritative
 BroadPhaseCache recomputation flag, not an approximate transform comparison.
 Static boxes survive refreshes; role/count/kind/geometry changes invalidate them.
@@ -125,4 +125,8 @@ Current movers use direct AABB admission up to eight entries and a compact grid
 above that, mapped back to ascending global IDs. No candidate/contact cap is
 introduced. The generator initializes it lazily and tracks every later refresh,
 including nonphysics vehicles/doors and role changes without pose changes.
-TYRA_PHYSICS_WORLD_INDEX defaults0 pending uninstrumented physical qualification.
+TYRA_PHYSICS_WORLD_INDEX defaults1 after the48,502-query admission gate and
+16,800-frame normal-clock A/B. Dense128 repeats improve19.05->20.19 and
+20.04->22.67FPS; sparse workloads retain roughly60FPS. Exact contact tests and
+6+3 solver passes are unchanged. These variable-step trajectories are not a
+bitwise matched-workload proof.

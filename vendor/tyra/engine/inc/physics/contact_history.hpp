@@ -8,8 +8,8 @@
 #define TYRA_PHYSICS_COHERENCE 1
 #endif
 #ifndef TYRA_PHYSICS_WORLD_INDEX
-// Staged separately from the measured private fixture until normal-clock gates pass.
-#define TYRA_PHYSICS_WORLD_INDEX 0
+// Cached static world and current movers; retain exact tests and contact order.
+#define TYRA_PHYSICS_WORLD_INDEX 1
 #endif
 #ifndef TYRA_PHYSICS_WARM_START
 #define TYRA_PHYSICS_WARM_START 0

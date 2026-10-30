@@ -626,9 +626,47 @@ prototype reduced sparse overhead but had mixed128-pile results; both raw
 comparisons are retained in tools/ps2rig/results/world-grid-{normal,adaptive}-2026-10-30.*.
 Neither establishes a universal speedup or60FPS for dense piles.
 
-A subsequent staged implementation caches the static world index until geometry
+The selected implementation caches the static world index until geometry
 or membership changes and handles current moving solids separately, with no
 awake-body threshold. The physical admission gate checked48,502 world queries
 against independent full walks with zero errors; only five index builds were
-needed. Its timing comparison is pending. TYRA_PHYSICS_WORLD_INDEX remains0;
-all exact contact tests, contact ordering and6+3 solver passes are preserved.
+needed. The subsequent16,800-frame normal-clock comparison passes all contact
+and candidate accounting checks, with no micro dispatch or admission oracle
+in measured frames. TYRA_PHYSICS_WORLD_INDEX now defaults1; set0 to compare
+the original combined query. All exact contact tests, contact ordering and6+3
+solver passes are preserved.
+
+| Piled props | Baseline FPS, repeat1/2 | Cached world FPS, repeat1/2 | World stage ms, baseline -> cached |
+|---|---|---|---|
+|32|51.38 /49.61|51.13 /50.65|0.82 /0.90 ->0.67 /0.68|
+|64|36.76 /37.14|36.95 /37.27|2.26 /2.14 ->1.15 /1.14|
+|128|19.05 /20.04|20.19 /22.67|6.69 /6.23 ->2.73 /2.29|
+
+Scattered32/64 workloads remain about59.9FPS and scattered128 about59.1-59.3.
+The added sparse physics overhead seen in the eager prototype is gone. The
+32-pile first repeat is slightly slower in FPS despite lower world-query time;
+keep both repeats. This is a useful reduction of EE query work, not dense-pile
+60FPS or a hardware-limit proof. Variable-step contact densities differ between
+arms, so whole-physics savings include trajectory feedback. The complete
+[normal-clock report](../tools/ps2rig/results/world-cache-normal-2026-10-30.json)
+and its inputs ZIP/log retain all28 phases.
+
+
+The selected default also passed a separate physical non-box smoke:37 rigid
+bodies,79 finite-state samples through frame7900, zero reported invalid values
+or load/exception diagnostics. The fixture was freshly regenerated and its
+native physics object references broadPhaseWorldNear. Pad I/O was privately
+stubbed to avoid the unrelated freepad DMA wedge; this is not a production-pad
+check or an exact full-state oracle. See
+[smoke metadata](../tools/ps2rig/results/world-default-smoke-2026-10-30.json).
+
+A separate calibrated EE hardware-counter profile sampled1200 dense frames.
+On the cached-world arm the drive solver averaged about23,732 D-cache misses
+per frame and486 I-cache misses; body contact generation averaged32,827 and
+10,813 respectively. These event counts motivate investigating data locality
+and instruction footprint. They do not measure hardware-unit utilization or
+prove a console limit. Three event pairs rotate across different live frames;
+outer scopes overlap, and the instrumented profile is not a production FPS
+comparison. The counter calibration measured identical CP0/PCR cycle counts,
+zero warm4KiB scan misses and8386 misses for four128KiB scans. See the complete
+[PMU report](../tools/ps2rig/results/physics-pmu-2026-10-30.json).

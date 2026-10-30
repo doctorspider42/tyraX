@@ -194,3 +194,11 @@ its48,502-query physical admission gate passes with five index builds. Remove
 The earlier eager world-index full run improves dense128 repeats but adds sparse
 overhead; the minimum16-awake prototype has mixed dense results. Preserve both
 raw packages and do not promote either solely on the best repeat.
+
+
+The cached normal-clock run is archived as world-cache-normal-2026-10-30.*:
+16,800 frame rows with complete accounting and no micro/oracle work. The world
+stage falls2.26/2.14->1.15/1.14ms at64 piled props, and128-pile FPS improves
+in both repeats. World admission is enabled by default; body cells and the
+production clock remain unchanged. physics_pmu_fixture.py is a separate private
+outer-stage hardware-counter probe, not a frame-performance qualification run.
