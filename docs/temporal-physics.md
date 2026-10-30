@@ -736,3 +736,22 @@ or show hardware saturation. The next architectural experiment should expose
 independent EE/FPU work earlier, audit COP2 ownership over that interval, preserve
 contact order and account for duplicated EE work as well as waits. FPU shares
 the EE instruction stream; it is not an independently scheduled task processor.
+
+The controlled sorted-body-index comparison is now complete:4800 measured
+rows,2400 matched logged frame pairs, no contact-accounting errors. Mean drive
+physics saves0.30ms for64 props and0.75-0.79ms for128, with the same cached-world
+backend and canonical scalar contacts. This is nominal-step throughput rather
+than production FPS; the index remains a private candidate pending a normal
+scene comparison. See the
+[body-index report](../tools/ps2rig/results/body-sweep-fixed-2026-10-30.json).
+
+The initial linked-code
+[world-helper inventory](../tools/ps2rig/results/ee-world-audit-2026-10-30.json)
+finds no COP2 instructions in selected world-admission, mesh-query and
+geometry/SAT helper closures. The symbol-bearing relink strips to exactly the
+measured ELF bytes. This supports testing useful world-contact work while
+body SAT runs; it does not qualify all scenes, indirect calls, interrupts or
+allocation-failure paths. Object-matrix/geometry updates elsewhere in physics
+do reach COP2 and must remain behind the completion fence. Any reordered
+prototype must keep world contacts before body contacts for the solver and
+preserve sleeping-body wake semantics. No production schedule changes yet.

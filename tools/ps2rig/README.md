@@ -529,4 +529,25 @@ The host tools/verify-body-sweep.cpp passes120,000 independent full-walk queries
 The physical gate results/body-sweep-verify-2026-10-30.inputs.zip passes48,606
 queries plus two independently replayed EE input snapshots, with exact logged
 workload parity and complete contact accounting. body_sweep_analyze.py validates
-those snapshots independently from the index. Timing on the same ELF is pending.
+those snapshots independently from the index. The same-ELF nominal-step timing
+package is results/body-sweep-fixed-2026-10-30.*:4800 rows,2400 matched logged
+frame pairs. Mean drive physics changes9.680->9.380 and9.695->9.397ms for64
+props;18.508->17.755 and18.534->17.742ms for128. Both directions save query
+time. This is controlled throughput, not production-clock FPS; promotion is
+pending a normal-clock scene comparison.
+
+ee_pipeline_audit.py inventories raw EE COP1/COP2 instructions, direct calls,
+cross-function tail branches and unresolved indirect calls in a symbol-bearing
+linked ELF. --wsl runs the specified --objdump under WSL; --tool-elf supplies
+its Linux path. --match is repeatable and selects closure seeds. The parser
+was falsified with injected COP2 words and checked against direct/tail/indirect
+edges. Static results do not prove runtime ownership or utilization. The
+results/ee-world-audit-2026-10-30.json inventory uses a relink whose stripped
+bytes exactly match the timed ELF. Selected world helpers, including mesh
+queries, geometry/SAT helpers and world admission, have no direct/transitive
+COP2 in the inspected closure. Portal bodies have no authored portal workload
+in this fixture. The whole physics closure does reach COP2 through later
+object-matrix/geometry updates; preserve the completion fence before those
+calls. Library indirect calls, exceptions and interrupts require separate
+review. This evidence supports a private world/body interleaving experiment,
+not enabling asynchronous physics in production.
