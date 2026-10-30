@@ -27,3 +27,13 @@ Read when: you measure or claim a PS2 frame-time change, add counters/brackets, 
 - VU1: 0.0768 ms per cycle per triangle (garage); EE: 2.362 µs per package; ~565 `div.s` a frame = 0.007 ms (~2 100 EE cycles); one full-screen textured blended GS pass 0.5174 ms at 512x448, 0.5896 at 512x512; FlushCache 17.9 µs per call.
 - `Math::sqrtNonNegative` uses EE `sqrt.s` only for known non-negative squared lengths; don't substitute it for a general sqrt with errno/domain behaviour.
 - **Chase-view reality** (stationary night vehicle entry): the older GPU-hold sweep's 2.5–3.5 ms overlap estimate does not bound it — the camera doubles StaPip calls and submits 46 096 primitives incl. strip joins. Reprice GPU-hold/segments in that view before promising a frame-pipeline gain; dynamic-light and raster suppression probes identify material costs without isolating VU1/GS utilisation (docs/ee-submission-rearchitecture.md "Stationary night vehicle entry: what TyraX2 would and would not solve").
+
+Before proposing another physics optimization, map the complete current frame
+pipeline and data dependencies. Distinguish EE integer execution, its shared
+instruction-stream FPU, VU0 macro ownership and autonomous VU0 micro work. Name
+the independent EE/FPU work available while each packet runs, where the first
+packet can start, and which result dependency or COP2 owner forces a fence.
+Check this map before changing another isolated kernel. A chained schedule or
+busy sample alone does not prove maximal useful overlap. Measure packing,
+launch/transfer, actual waits, EE reconstruction/canonical confirmations and
+solver costs separately, then compare complete frames with unchanged coverage.

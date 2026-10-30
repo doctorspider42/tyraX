@@ -503,5 +503,30 @@ after this gate, then measure the same ELF with no plane/world oracle work.
 plane_sparse_analyze.py checks all sidecars and collision/push accounting;
 plane-timing counters must stayzero. The common cached-world baseline can
 legitimately build its index, so the general timing analyzer permits baseline
-builds only for explicitly tagged plane experiments. No production plane
-optimization is enabled until the normal-clock comparison is complete.
+builds only for explicitly tagged plane experiments. Production retains generic planes after the subsequent controlled-workload
+comparison fails to establish a direct compute benefit.
+
+
+The complete normal-clock plane package is plane-sparse-normal-2026-10-30.*,
+with16,800 rows. It improves dense128 FPS while changing contact-density
+trajectories. For a separate controlled run, apply body_grid_fixture.py
+--fixed-step, then plane_sparse_fixture.py --verify --dense-only, rebuild,
+qualify that new ELF, and toggle only its cfg to time phases10/11/12/13/24/25/26/27.
+The physical nominal-step gate checks724,457 points without errors. The fixed
+package has4800 rows and2400 matched logged frame pairs; mean drive physics
+differs by at most0.018ms across four workload pairs. Both timing reports mark
+optimization_selected=false. This rejects production integration, not the
+correctness of the exact arithmetic. The original generic plane code remains.
+
+
+body_sweep_fixture.py follows the rejected sparse-plane experiment. It restores
+generic planes in both arms and switches only the transient body index:8m grid
+versus a sorted32-byte row list with prefix maxima. Two binary searches narrow
+each inclusive query; exact full AABB checks and original ascending IDs remain.
+Invalid bounds use conservative fallback. Storage is linear; no all-pairs table
+or pair/contact cap is added. World admission/solver/clock remain unchanged.
+The host tools/verify-body-sweep.cpp passes120,000 independent full-walk queries.
+The physical gate results/body-sweep-verify-2026-10-30.inputs.zip passes48,606
+queries plus two independently replayed EE input snapshots, with exact logged
+workload parity and complete contact accounting. body_sweep_analyze.py validates
+those snapshots independently from the index. Timing on the same ELF is pending.

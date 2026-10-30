@@ -2910,3 +2910,8 @@ post-5 back at y = 1.
 - [x] Complete normal-clock hardware qualification of cached static world/compact-moving admission:48,502 independent query checks and16,800 frame rows; enable the measured world index while retaining the8m body grid and production clock.
 
 - [ ] Qualify a common scalar solver kernel before any compact/SPR integration. Saved layout/SPR screens find up to5.96e-8 caller-inline differences; dense SPR replay saves0.27/0.47ms but light cases regress. Preserve full coverage, test amortization and ownership, and require a whole-frame A/B.
+
+- [x] Screen exact sparse box planes:1,050,837 normal-clock and724,457 nominal-step point shadows pass; full FPS appears favorable, but four controlled workload pairs show no direct compute gain. Retain generic production planes.
+- [ ] Measure a sorted prefix-maximum body index against the8m body grid, preserving exact inclusive admission, original IDs, sleepers and sweeps without quadratic pair storage. Host full-walk oracle passes120,000 queries.
+
+- [ ] Audit the complete EE/FPU/VU0 physics dependency graph before the next kernel experiment. Current micro SAT is dispatched only after scalar corner contacts fail, after world contacts; measure useful overlap, duplicated EE work and ownership fences before selecting a broader packet boundary or earlier schedule.

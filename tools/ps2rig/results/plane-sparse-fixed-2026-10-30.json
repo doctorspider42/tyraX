@@ -1,0 +1,3843 @@
+{
+  "metadata": {
+    "baseline": "0647f55967eeb09fa613aea5becc2c6e495c5d37",
+    "candidate": "657e5937c plus cached static world/compact movers from current generator",
+    "data_layout": "shared candidate PhysBody/RbStep layout; renderer and assets identical",
+    "mesh_collision_objects": 0,
+    "tick_hz": 294912000,
+    "phases": 28,
+    "profiles": "release, NTSC progressive vsync on, day, all devkit polling off",
+    "uncapped_baseline": false,
+    "solver_comparison": true,
+    "temporal_comparison": true,
+    "synthetic_pad": true,
+    "micro_comparison": true,
+    "temporal_arms": 2,
+    "settle_check": false,
+    "elf_sha256": "e6f394244eaa8a671cd4ee9fb9bb67e4ece0d3b00e064c0ade6af483baf6a137",
+    "assets": [
+      {
+        "path": "fonts\\atlas-default.png",
+        "sha256": "448b3765d24c7b4a9b3582c518f251a9e919880b02ceb0bc197c2859d6b23c9a"
+      },
+      {
+        "path": "gshadow\\s0_0_1.png",
+        "sha256": "0ef51c39e76eb040add3946298ae26860c574a2357e048c60621f17fa13c8e46"
+      },
+      {
+        "path": "gshadow\\s0_0_2.png",
+        "sha256": "f00a7c1f7d7485b3bb70422889513d84862c4c821d95dbec3b98b54368bb8203"
+      },
+      {
+        "path": "gshadow\\s0_0_3.png",
+        "sha256": "937e3369c0f1e7a2a3e603f6b94aa34f54a3272b13be6b8263833742337f3455"
+      },
+      {
+        "path": "gshadow\\s0_0_4.png",
+        "sha256": "526a1db44e12022af381f780274580009655048e270757a0a41181511afca944"
+      },
+      {
+        "path": "gshadow\\s0_1_1.png",
+        "sha256": "45f1335f0c9ea8d0eb8b595e86fff6d9cff4f66daa91a9de4987566615d38831"
+      },
+      {
+        "path": "gshadow\\s0_1_2.png",
+        "sha256": "a043b245e7353c46c77d9597227f1e95f905fa43a165cd80780e55609752247c"
+      },
+      {
+        "path": "gshadow\\s0_1_3.png",
+        "sha256": "9972042ad27f08b3d8ea165f25269c18b7bb1aeab09da1fd88cac2ddfd926b8f"
+      },
+      {
+        "path": "gshadow\\s0_2_1.png",
+        "sha256": "0b2375f52f6ac3d4a6120a038a5666054ceb8b4f2a792257467a8f83319436ee"
+      },
+      {
+        "path": "gshadow\\s0_2_2.png",
+        "sha256": "af3b0417ac1d3f454915d3a91e614b6353f80fc2a3759775a950cbdbc5b82c62"
+      },
+      {
+        "path": "gshadow\\s0_2_3.png",
+        "sha256": "a61ea381a6b2cec05de5505180008e9e058b0e8ada9196d7e0a577df285862f2"
+      },
+      {
+        "path": "gshadow\\s0_3_1.png",
+        "sha256": "efdff01600102ffb09a0ccb712882cd95e6c0ee8841aaf73e5277025b8dddc44"
+      },
+      {
+        "path": "gshadow\\s0_3_2.png",
+        "sha256": "7fa63f710ed399c7337ff95489a111dd59c7762bef95b4b75e90ef729100d754"
+      },
+      {
+        "path": "gshadow\\s0_3_3.png",
+        "sha256": "758d548dc9aa18f4b4bfc4dafdb1153dd56fd1377b63a2b066bc3e3d60f4c3c7"
+      },
+      {
+        "path": "gshadow\\s0_3_4.png",
+        "sha256": "07a4bb70467f361ea435a0841f93362105e472fe70d2f11b594f65ecd1811b85"
+      },
+      {
+        "path": "gshadow\\s0_4_0.png",
+        "sha256": "e30c9b5d1ad0b930d59e682a0278c81538229f4d3a356fbb1ffb0063bd79d53b"
+      },
+      {
+        "path": "gshadow\\s0_4_1.png",
+        "sha256": "db7806b17a7ab3c868b30b23d9ccc10f5f3365f32b54f8def7fa8e2c02af3311"
+      },
+      {
+        "path": "gshadow\\s0_4_2.png",
+        "sha256": "b1cf3b2d4462772179dc8a71526415b0db343db9f0ac71778f822f0180bd5043"
+      },
+      {
+        "path": "gshadow\\s0_4_3.png",
+        "sha256": "0466aa39c86b8d6d9c46033e93a9c8a58dd3ea8a37493f5d626cd7859276e792"
+      },
+      {
+        "path": "hud\\debugfont.png",
+        "sha256": "a02cd1c73e8997e3a0370204405156b68ed8583a88680b0125b4a0e9ae5416c8"
+      },
+      {
+        "path": "hud\\flare-corona.png",
+        "sha256": "a3ee5cb781e93cf306be117e21954494687846b8a6464dd213abb8d237ef7e10"
+      },
+      {
+        "path": "hud\\flare-glow.png",
+        "sha256": "2b6563ad8e6721fce94f4489681aeef8156230e6b8ca0e20b944ea2d1f71b522"
+      },
+      {
+        "path": "hud\\flashlight-gobo.png",
+        "sha256": "76d196f718faaf149bb0093d0c5c39d46c0b17b062b6c400e9923d723e924b23"
+      },
+      {
+        "path": "hud\\icon-circle.png",
+        "sha256": "8029e6a08c06e9a7426aba04efe74aa03dc46935d11f9ee4fbfade992907fb68"
+      },
+      {
+        "path": "hud\\icon-cross.png",
+        "sha256": "63adb1520656bb8bbb7e787c6ac66ca445e86a668790886493e7a11bcd77a7c8"
+      },
+      {
+        "path": "hud\\icon-dpaddown.png",
+        "sha256": "82051f011f1ca1d20e5b47415a883b04958e1576e6e84388c211e043836272ae"
+      },
+      {
+        "path": "hud\\icon-dpadleft.png",
+        "sha256": "0f0f0c797484a583df206c56249930ba1dfe9807665c079c25b820bc0c009b7f"
+      },
+      {
+        "path": "hud\\icon-dpadright.png",
+        "sha256": "36c1318aacde72b88892d1841fb3b1df99fe18efaba7ff1e83989eb2c44c1f42"
+      },
+      {
+        "path": "hud\\icon-dpadup.png",
+        "sha256": "8d32ded1121e5f833ac40b6c273a2448c5b5bb936c63ceeae37c24379fa78352"
+      },
+      {
+        "path": "hud\\icon-l1.png",
+        "sha256": "59a95507439159baf400d79f74c90ad9a313e855ed87d3ec0467d6a7ee8837d6"
+      },
+      {
+        "path": "hud\\icon-l2.png",
+        "sha256": "47ca3aaa4492609ac03af2b3a1ea1942cdef6e4fbcb7849ed4f6b4578252cadb"
+      },
+      {
+        "path": "hud\\icon-l3.png",
+        "sha256": "ed05cfa28c41905f2f10431d82de71ae40d688a7287b71666be6914fcfc4cdcb"
+      },
+      {
+        "path": "hud\\icon-lstick.png",
+        "sha256": "87fc708b52af0851c05b71259aeebcd05f8daa25866392c48520e64a0e7f080c"
+      },
+      {
+        "path": "hud\\icon-r1.png",
+        "sha256": "a22b22854a51a5b7bbbbf07e084bd67d13d37d0e0ceef9ffb0f494f9a6d9da47"
+      },
+      {
+        "path": "hud\\icon-r2.png",
+        "sha256": "815a3dd9ccbbf6dd7d44aa2df783e4f7c898866ea69ab4710bf40023b9a06a2f"
+      },
+      {
+        "path": "hud\\icon-r3.png",
+        "sha256": "494a85cd1e9e634a75f3c35a84581aef7056cb0e3693883c6b0035a8218e94a5"
+      },
+      {
+        "path": "hud\\icon-rstick.png",
+        "sha256": "e11131b9f697c959f88924ca6c89e20a660e6278ee70b0c665367ecf12f00b3d"
+      },
+      {
+        "path": "hud\\icon-select.png",
+        "sha256": "7a0f91e1d5ddb562cb3c4db6714536c83cf8574f575460ecec2c5d37f6f15b26"
+      },
+      {
+        "path": "hud\\icon-square.png",
+        "sha256": "18f574e19af44db9c8bd89ef5fabe9a0ee86125019bbb827a4d30ec72b98823e"
+      },
+      {
+        "path": "hud\\icon-start.png",
+        "sha256": "116e286593bb0e757c3f94f2da82c7b892ea603d144de6212eaa1e2144e34d6b"
+      },
+      {
+        "path": "hud\\icon-triangle.png",
+        "sha256": "7523322cee76826027beafc0ede643a29cc11ae4e719f0f1835548fa8f7cf543"
+      },
+      {
+        "path": "hud\\icons.png",
+        "sha256": "c867306f65344a0bb21e6d6088c10161d1c1ea1ddec97790ec293095359adc64"
+      },
+      {
+        "path": "hud\\loading-white.png",
+        "sha256": "695da32f539757ed88bbe9724d21ef5522658cc008ae30ad6fb9bfe7cf2b35c7"
+      },
+      {
+        "path": "hud\\loading.png",
+        "sha256": "e4e37f5395e7b930d610d49149294e886b91a8163b3062555c854275522f92b4"
+      },
+      {
+        "path": "hud\\menu-dim.png",
+        "sha256": "09a2f918ad4a4beffdfa5b0bfe7da63ffbb1eb6f8e1be85339d8a6a28497b9ac"
+      },
+      {
+        "path": "hud\\moon-disc.png",
+        "sha256": "18ea4b104295725846e9b10a4c25da239e8fc31183a89396dc158a256a5063d7"
+      },
+      {
+        "path": "hud\\pick-text.png",
+        "sha256": "446603e78d673e70118c41b5ab59c1d37f4bb782062d043765ec71c628f47a43"
+      },
+      {
+        "path": "hud\\pickup.png",
+        "sha256": "fe867af8fcef4163e0934261c8ada74ca88c77289decebcd35b28cc3507c3712"
+      },
+      {
+        "path": "hud\\save-busy.png",
+        "sha256": "6f86deb513a334940b9363c1e0922f88921a9a9891809aef919f8b3c96c3c39a"
+      },
+      {
+        "path": "hud\\save-cursor.png",
+        "sha256": "ab2105fef732e5c4da8e8e88582c028a69dd3d3e0b8a3eb536dbac1e572f8359"
+      },
+      {
+        "path": "hud\\save-error.png",
+        "sha256": "d1fffbf26052414eea1f7d52a1bf78d905c19faa6e8bb22b892d8227a0aabf2a"
+      },
+      {
+        "path": "hud\\save-loaded.png",
+        "sha256": "29ff58c1fd3e282492a31a2b3503288c260511293a2a402337aa59481c0376e7"
+      },
+      {
+        "path": "hud\\save-menu.png",
+        "sha256": "0e5c14aa477c67fc2715161398a686627522dcf21695e0681b82d64a665a7cff"
+      },
+      {
+        "path": "hud\\save-saved.png",
+        "sha256": "5aee947be802a7bfea9a399af3a2f67ffc8579ef686b859edc2ea55e9a37f857"
+      },
+      {
+        "path": "hud\\save-spinner.png",
+        "sha256": "e9c49f1004d404c813e5153ed43786b6ddbd0219089533cab970e5604110e8a4"
+      },
+      {
+        "path": "hud\\save-used.png",
+        "sha256": "92dbe9fecb7761c10ee7239558a648c5f88749fceaadb53d1dec65015bbc4649"
+      },
+      {
+        "path": "hud\\seq-black.png",
+        "sha256": "1b90017cbe62be2e7f6e6776826267705e928fb0b7cc3661484274a791b0753e"
+      },
+      {
+        "path": "hud\\sun-disc.png",
+        "sha256": "13a6edfb466326dc3fb1fb39f1d9fc778a718149dcb9b8334c2c45f593a343cc"
+      },
+      {
+        "path": "hud\\use-text.png",
+        "sha256": "19e008d429a151ca957aaaf047355477ef076a66b258e6aa93649b5f48170d27"
+      },
+      {
+        "path": "hud\\use.png",
+        "sha256": "ea6670f8379bf26577b65be4c41bb1bec437a249e42c04056e7421418ae7108f"
+      },
+      {
+        "path": "materials\\district-asphalt.mtl",
+        "sha256": "1dca5ac135a47595669d3733d9fa9709db5dce5cc3cb97bc9b653d3e72c879b4"
+      },
+      {
+        "path": "materials\\district-ground.mtl",
+        "sha256": "acd1f207bd781dd852da972bf609f6d70bbad7375529c137bb56bf313a66de54"
+      },
+      {
+        "path": "materials\\district-plaza.mtl",
+        "sha256": "b5593b132bc63152333cf4d4dc3a852fe978051819e83e886cfb9c07882786dd"
+      },
+      {
+        "path": "materials\\district-road.mtl",
+        "sha256": "302f4d578e3db5a8eee0e5030edaf87d020bb54c30087c4fe1e3b392897a637c"
+      },
+      {
+        "path": "materials\\district-sign.mtl",
+        "sha256": "f889d1e69bff604f7458df03c8a5781ef093098978a74d6f95cece53d723b51d"
+      },
+      {
+        "path": "materials\\night-cyan.mtl",
+        "sha256": "c9514f2d701bbc12cfdcee0656aef5271d1e710721a9f77cddbbbaedf4974693"
+      },
+      {
+        "path": "materials\\night-pink.mtl",
+        "sha256": "1a358bf868e33b61312214325a65e315c5cec5f86e7c9d0451709616338b882f"
+      },
+      {
+        "path": "materials\\night-warm.mtl",
+        "sha256": "814ab4460fb71a2c423a98421450979d8e482b72b173fbb565ef9a7ec026756c"
+      },
+      {
+        "path": "materials\\procedural-concrete.mtl",
+        "sha256": "a15c97e132b85dd304d93069405c786e123fe68df893ddb7ed2d1a3dc301bf4d"
+      },
+      {
+        "path": "materials\\procedural-grass.mtl",
+        "sha256": "58aef74698ad4d037df74a70d82fee4231bdab720aba15cb8fc32b48b1edad6f"
+      },
+      {
+        "path": "menus\\district-pause-values.png",
+        "sha256": "9db52303bc68eb3218d0cbb960a694c3bb9039a9b910cb8d048953f91775d99e"
+      },
+      {
+        "path": "menus\\district-pause.png",
+        "sha256": "32ba49c31e1f793cae641197d9c5ffe7eadc3da2fd9919c127930c66b00f46ff"
+      },
+      {
+        "path": "menus\\save.png",
+        "sha256": "da4a7b3b18ffa0d87d4b32e7ffe5f6f8bfb3c539c6e51795db4198d7d1fd1d35"
+      },
+      {
+        "path": "modelao\\40859c88ba80a47f-71f9aea4cdcc0d81.png",
+        "sha256": "f58e522b2518f5abd44c8e6446e747923ee50b65711f204fe2d7da46114f24c5"
+      },
+      {
+        "path": "modelao\\42f3be83ccea680c-6ac0e9350910956f.png",
+        "sha256": "da946ec7a84a63ca801d0f115340f75bdaea875324b35bae03315797d5e39a13"
+      },
+      {
+        "path": "modelao\\58e898f779bd502d-119fba8f1c5f1b95.png",
+        "sha256": "5bdcdf49647788bb9161a190ab14c37a6679244f60e28812214d42b70d5805bf"
+      },
+      {
+        "path": "modelao\\c6a6e4ae9f26f5d1-75b96416205fcdbc.png",
+        "sha256": "b5948cb3503a0a6e1f933a8b6cfa6524b41bfda8a73032f4c6e0f4c4f2133ab1"
+      },
+      {
+        "path": "models\\pica-far.glb",
+        "sha256": "9a5cccb765fdf63d599da820651c6df8a06808ae4a1c3049444bc1fba923f06c"
+      },
+      {
+        "path": "models\\pica.glb",
+        "sha256": "c893697339de44e5357689bce0c0ec35a99a625c7ff5ae8ef5f64f51122382e6"
+      },
+      {
+        "path": "models\\ravager-far.glb",
+        "sha256": "ed0f207946dbf78ed40f47892f6ddf0ce0cda3fad1ae8fda85f6a13cb64f8ee3"
+      },
+      {
+        "path": "models\\ravager.glb",
+        "sha256": "2f9dccf1f922440a0b2d5804d8f084cecc6fe072a6c809dcb89243587da2d753"
+      },
+      {
+        "path": "models\\strix-far.glb",
+        "sha256": "c3fcad4c78c04b94bf170d5358b351186f7e1c99549ec8a99757c7137048bb45"
+      },
+      {
+        "path": "models\\strix.glb",
+        "sha256": "8564cfa966ad2cffdfaab6cafacfed353a0171217d78d251a95e2363b3c77044"
+      },
+      {
+        "path": "reflpano\\s0.bin",
+        "sha256": "a7f7e82dde3fdf154b22dd6f4c468deff9e6c8724b60749a52ed131db46a9532"
+      },
+      {
+        "path": "save\\icon.sys",
+        "sha256": "66a4b9a216ecbdc314adda9ec2212bba9fd1cf1b7052a3be80dd90520e4430a9"
+      },
+      {
+        "path": "save\\list.icn",
+        "sha256": "1e82fd6d9580142738568172b9be5f9355a17ad93bc090f1f217431dbb4e3c15"
+      },
+      {
+        "path": "shadowatlas\\scene0-0.png",
+        "sha256": "5ef37b8ff3ee68a3a6ab8d5b74e12b225a0ea4cc6fc23de372b76149e6acae73"
+      },
+      {
+        "path": "shadowatlas\\scene0-1.png",
+        "sha256": "c75174b9f885daee730fb63580706adda0195c0e966dacfad2fa8b2758981b87"
+      },
+      {
+        "path": "sky\\scene0.png",
+        "sha256": "92c7b9b5f6b203ec004b86a5acf5e6c0805d7e1ebe080195f711adb39319db21"
+      },
+      {
+        "path": "textures\\district-asphalt.png",
+        "sha256": "0c15cc56521c956b142c692e83d73477fa12e24412b472b94e11de7eb7e7798d"
+      },
+      {
+        "path": "textures\\district-ground.png",
+        "sha256": "754789fbbd9ceb6898d378f8566c7107d352e9153862e1a3af3e88ddaa4c0cc0"
+      },
+      {
+        "path": "textures\\district-plaza.png",
+        "sha256": "8f2b1aff3d1656b5db5c9865c9c4c9c13c7c34fbe99de6983624766742ae2598"
+      },
+      {
+        "path": "textures\\district-road.png",
+        "sha256": "b0f77131fbce9864ec98f75d2d8ea07b2fb375622e7c7b162454cde912698832"
+      },
+      {
+        "path": "textures\\district-sign.png",
+        "sha256": "ee7e2cbcfe6993d31a1ba629033c4ccc1c2d50c72e1981fb5946cee4f309276d"
+      },
+      {
+        "path": "textures\\nfs-streaks.png",
+        "sha256": "ddabb12575a824c7f3609c825a282c241d4576a734fb39725b64d917a9d37465"
+      },
+      {
+        "path": "textures\\pica-paint-mask.png",
+        "sha256": "ab42ec1fa262f34cb3b71ea729af82932826ac4615fa417733b9899bb1fb05ab"
+      },
+      {
+        "path": "textures\\ravager-paint-mask.png",
+        "sha256": "fad14a0c6b11425c5b95bdccdad65fdb73d66b4cafbdb34ba50fe568d9580b00"
+      },
+      {
+        "path": "textures\\road.png",
+        "sha256": "d7583f7219166f6b2740229e8a8e02fb3ff390103021482c7e8837a965e0c5fe"
+      },
+      {
+        "path": "textures\\strix-paint-mask.png",
+        "sha256": "206ba266aacd83d0ca6b5b70812f7f11bb4e35a1c699837b2ab8929f51da5d6e"
+      },
+      {
+        "path": "vehicles\\fx-skid.png",
+        "sha256": "a229f9625d17bbfd80f9d1e2eda4146139ab6dcb1d6427fe2c607d5cc12d45bb"
+      },
+      {
+        "path": "vehicles\\fx-smoke.png",
+        "sha256": "d5d30b604050559a7c1815b0e67f34498370c019f966df9b194a1cf3c63676d4"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-body.tmdl",
+        "sha256": "1adc9d54d4bc1a1b15cc65a6fd7465cd79234388cb20505d3361bc04b20d9f7b"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-palette-image-0.png",
+        "sha256": "1e3591ebd8ea643f66fae520af390eb47dcd6cfb9a9ada9352542865c16b3c08"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-palette.png",
+        "sha256": "80c07b839f6832bdfa25eb99d4a9952708b388b66ba497509e42e4ed1ae36656"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-shadow.png",
+        "sha256": "073728c7a0b516d3b2ea82e1b5cec283cc1c3c5c54e6895a97bd2d35dd2205e6"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-wheel.tmdl",
+        "sha256": "1debda041c41361fbaca2dc2f2d0afd0b79ac27151741e6f7c62f4932860f738"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-wheelfast.tmdl",
+        "sha256": "21d60f29880a91a6b24772e74fb7522031471f9f1635bc672663ca26cc09df6a"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-body.tmdl",
+        "sha256": "0370d210553cb86fd91613c84727f79dbbb14ea13a28387c46f7e154eb02964f"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-palette-image-0.png",
+        "sha256": "6c7bc3f3837794ab907f1124ce7d8dcef5d3367dee77dcd5f04be4c52642faa7"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-palette.png",
+        "sha256": "2c3cf13a24fe7f38188f640b966cd0bdaaf7561c652633113e0f66c129bf418a"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-shadow.png",
+        "sha256": "1139e9073e3862d01cc92cb61bfb244d33f746155dbd479721783132e6070661"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-wheel.tmdl",
+        "sha256": "031b63da2fdf17bf8a7bba3c9a2ffdbea5fa5e3fd904a5592d3c961f214be2f5"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-wheelfast.tmdl",
+        "sha256": "0288451a9cda47729d3f43370a6fd068557170f25ef1fae5e9b2fa54450a47b9"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-body.tmdl",
+        "sha256": "cd66500d7b6fc2238303e6e4a54f66bafaa6d1ad940006496be6a471bb8602d2"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-palette-image-0.png",
+        "sha256": "bdedeade1f987b0491c107ce80a326dfd3180db7fa5fb68785398299f0e2d788"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-palette.png",
+        "sha256": "3517b04ebbd8a17821fec2a04776fd7c71e0774974761427bd52ac48383bf2f7"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-shadow.png",
+        "sha256": "289056bdc002b5432540ca6e413f4bbfc8b382bd2f7f5dd7a59b7f2cf37a410f"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-wheel.tmdl",
+        "sha256": "12509cd3616d05a795e4d6a17e8b6731d3b1af4cdd53db1e349c21b4ac8592e3"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-wheelfast.tmdl",
+        "sha256": "dc42b4c3b56ed5e2a1720cb6ba7c2dd7c96e3ff401ae2f1e0fd7b57b81bbfe22"
+      },
+      {
+        "path": "materials\\particles\\rally-dust-f1.mtl",
+        "sha256": "9934d4a566363c34846c3ce9b6a99224dc1635aa86d087c620b645347ad9ddf2"
+      },
+      {
+        "path": "materials\\particles\\rally-dust-f1.png",
+        "sha256": "73234b29beb5e9f0ba1fd995724514de7b053a9f2cd9fd0690eba3124338f630"
+      },
+      {
+        "path": "materials\\particles\\rally-dust.mtl",
+        "sha256": "2775f186605dfdbc60ec012f12a91bed19254850a5b47d0251a75fe1239edd54"
+      },
+      {
+        "path": "materials\\particles\\rally-dust.png",
+        "sha256": "761c87de53301dd63bd15386c3987cac80d6883653f58c2dd172e7d4cc8366d2"
+      },
+      {
+        "path": "models\\urban\\detail-barrier-type-a.mtl",
+        "sha256": "06e4d13df4c9a096c464d4c2e40c5bb6938fb8f5a3f5ac9478d3687d94d264f9"
+      },
+      {
+        "path": "models\\urban\\detail-barrier-type-a.tmdl",
+        "sha256": "7700c9e702d7fc439e25439f41b0b501964eb85dc03b05d8f9474aa6d63dd27a"
+      },
+      {
+        "path": "models\\urban\\detail-bench.mtl",
+        "sha256": "848b716dfcc80c1c1f2e9ac5616cee46fbbcce9b0f0143698b860e601092726c"
+      },
+      {
+        "path": "models\\urban\\detail-bench.tmdl",
+        "sha256": "697fa446a4b95811fb9a2b0b0dffd02ae8b1b78444561373bdb30a769cccf1be"
+      },
+      {
+        "path": "models\\urban\\detail-dumpster-closed.mtl",
+        "sha256": "8547bcf6469528d798980d23915c69e9309fabe936f7f3948358c8138c40da94"
+      },
+      {
+        "path": "models\\urban\\detail-dumpster-closed.tmdl",
+        "sha256": "b1631cfec345b78549b2167139edf2eb99133148b3584ac1e8b0a56238257cf7"
+      },
+      {
+        "path": "models\\urban\\detail-light-double.mtl",
+        "sha256": "246f9169421816ad75b96d18e4975ae7d5c3ad530dff7426cc503e84b85b4ff4"
+      },
+      {
+        "path": "models\\urban\\detail-light-double.tmdl",
+        "sha256": "b5cc6e8607cd813478bcace02a8487c3fa5ef9e8c791dd80514804ed26a9cc6d"
+      },
+      {
+        "path": "models\\urban\\detail-light-traffic.mtl",
+        "sha256": "30660de0259653b1fea05544ac26f251905c7dfa91dbf1393515a1990df89315"
+      },
+      {
+        "path": "models\\urban\\detail-light-traffic.tmdl",
+        "sha256": "da49ff98eaea9dad401cfdc5478c6803e772b08617163754d6171bfcec824c34"
+      },
+      {
+        "path": "models\\urban\\district-buildings.mtl",
+        "sha256": "e35f79abcd2c036709b9e21eca2bdd51db6b6e53b6cb09fa6e56314e573ad188"
+      },
+      {
+        "path": "models\\urban\\district-loft.tmdl",
+        "sha256": "b543843898bf4f49f05b5b713bbab699d48bb8b965519e81232a9e38f678b386"
+      },
+      {
+        "path": "models\\urban\\district-tower.tmdl",
+        "sha256": "86a4c1e1477fb883d2c16cb8a0ae81ea48458e4c4da8554cedeb0866572735a0"
+      },
+      {
+        "path": "models\\urban\\district-workshop.tmdl",
+        "sha256": "0bbf0e790bc46921e4ee7ac22934e8202e0682be2a0cd28edd30a6be67f432fe"
+      },
+      {
+        "path": "models\\urban\\LICENSE.txt",
+        "sha256": "4f58d6cc3e9c85fa9b9c00462773d28cd26b01c2b6f6ab718e52c29cd265ab7a"
+      },
+      {
+        "path": "models\\urban\\pallet.mtl",
+        "sha256": "aa799b0bbf789ecff19dfec51c5366a44160e8b6f1dd88fd259f1ef84250fb64"
+      },
+      {
+        "path": "models\\urban\\pallet.tmdl",
+        "sha256": "0f7f23ec4d03bd097787ae4d935bff3dca6597fd35bdf7f0c578f16f0d2e3efd"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x0z0.tmdl",
+        "sha256": "6b969f0bc96b0623d3853e7115c754d2cfc5cb5d7c2b2324eaa726dabb686825"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x0z1.tmdl",
+        "sha256": "42a810f5ce6ed7a4040098d7ab4fa7ba866f07b8a3af81f4699c4527360c1911"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x0zm1.tmdl",
+        "sha256": "6b16d5f9682cf48adc185d24b4f9f1b4b37b90bda34ab102f98c9788f9a0b5a8"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x0zm2.tmdl",
+        "sha256": "0a72b5b3a889e5150ece0db035da577c1e10533b3a94ef6535119d37e5254d9d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x1z0.tmdl",
+        "sha256": "32f763b374964aa4d1311b7e282d2f181e26174e434b9e5d69c34758340a472d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x1z1.tmdl",
+        "sha256": "c6a9f80254c9ac6af6f9aa3b249674812b5d58b49c5e2b9e60e599feabe9d1a8"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x1zm1.tmdl",
+        "sha256": "6e47c5600b2baf1daf2ade9a45ec512ad9c9e5a2176e3dd5c219536c7d9428b1"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x1zm2.tmdl",
+        "sha256": "0dc344768c4e89fa433d9124aae01edb07cac4b54cfd85dd3dc21e79c882dd88"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm1z0.tmdl",
+        "sha256": "dfe1ddfa04a4fc023584bfad19b47167e1f5b449fe0df7118d701053218b00b2"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm1zm1.tmdl",
+        "sha256": "a8b52508b27f3fdfbba74e6d1070b5112dc299c46190eafda2a9b83e7c21e052"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm1zm2.tmdl",
+        "sha256": "12b5b119cd6b18658e3ffefa6ffc85f78c704db22bc1a62a7631b77060c7bd5a"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm2z0.tmdl",
+        "sha256": "2f83bcfdaa94d3c6baa4e7ccd8602a4684b59a4af5fc2e79275c1ed54fc6789a"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm2z1.tmdl",
+        "sha256": "e86fdc597978d8afac4c35130f5f459d2d21d0ec95feae486e160c01464511e4"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm2zm1.tmdl",
+        "sha256": "6b6230c1267c999ee77297a6a978f21ffd6a03a7f3a15fc26ac7dbb42a46ee80"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm2zm2.tmdl",
+        "sha256": "cb5295bb35ad46837057811b3ae393ab7308b68b2bdc9dd9e64010c5f6da383d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x0z0.tmdl",
+        "sha256": "fff0352eabd8ae590537eeb6496a90e59bbf9288e1d951b68e8d49f55c961a22"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x0z1.tmdl",
+        "sha256": "6bccd8728d17c91973fb012b8cd7b62d9bc92d9f724bfc2bd2ddc2b18c25ceb9"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x0zm1.tmdl",
+        "sha256": "fb24c4fcdc41f2ad75f9ceea893513d42ab25a43f3ee5faacb60881f29634833"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x0zm2.tmdl",
+        "sha256": "d88652b9e8d0de1bc1a470b4dfe35baf4083a5931da9b2c2950b87e6f745651d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x1z0.tmdl",
+        "sha256": "fcdc9afe9ef812c1da500dd897977b25249ddafd239e700b8584e711546187d6"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x1z1.tmdl",
+        "sha256": "5d7182e45f8925cf0fc6111ed7c61aaf84ecc45985d079b71e3ad012282e9350"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x1zm1.tmdl",
+        "sha256": "32e56c564c9bc78e8d3dd75cdd5f9dd7f472139c29a992faf372ae711e173962"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x1zm2.tmdl",
+        "sha256": "d07dad4ef59cee73a23124d4c11b2e97021dd56d13d2fcf88ede4a64f94b6a3e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm1z0.tmdl",
+        "sha256": "6b06b241d62eaea9cd9f0c8650dff092f64d8504ccf9a18b676e8bf2e9179c64"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm1z1.tmdl",
+        "sha256": "ef83f07629afd55f236d27a611c0c78a6bc36c571b75b2c10c40f4b9635982c4"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm1zm1.tmdl",
+        "sha256": "1e21ae208041bc311d8cff3af1da267e09ac80f694accf9d2ff273d943399b56"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm1zm2.tmdl",
+        "sha256": "72933e9500243c2dad95abe5968673be1cde5022e973687b83eaab409a11e300"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm2z0.tmdl",
+        "sha256": "f1c7cf3950208417a4347c205cba3686022ce63078ac98e224ec958f9265a9cd"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm2z1.tmdl",
+        "sha256": "c31ad4f50e7e62272028f5f00fa94b1a96a980e2adf1b19cc7351fa940a29297"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm2zm1.tmdl",
+        "sha256": "3434a1a80cd5d18f62253f858e5a81f551947c684473b071b4fd4e6be02acbff"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm2zm2.tmdl",
+        "sha256": "0dc6a4f92796fdb8c257b15610229a39053bf385edd28e24e61a8d5184dd3585"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x0z0.tmdl",
+        "sha256": "3c80502ca2f0ed7b568cda9a518d2290fdde1f05404e43fd026e15f51dc2ae4d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x0zm1.tmdl",
+        "sha256": "d4cab6cab728edcd722e768852a95d87b7a9781748e73a78d48d44fdf02c96e3"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x0zm2.tmdl",
+        "sha256": "51626bc986e01eb77ebbe213b7eb6ca7d0e51373cc0e52ff9d7b012e48c1e02c"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x1z0.tmdl",
+        "sha256": "da1076d8b378ba29c325fd708e3558127408e7eb46b5bea8abfe14760006e59b"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x1z1.tmdl",
+        "sha256": "26050b9b7bc70840eb2462d652d1e50346579300d875680fe6b26862abfd3ecf"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x1zm2.tmdl",
+        "sha256": "75b1cc76d83867539242ac77d12c75ef717c2d41c8e8ad9161269af7910d9a17"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm1z0.tmdl",
+        "sha256": "84c1714bfff50d3bd0e85e3d81671df156ea66f9b134f1b8eff2c9f8cefbbddb"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm1z1.tmdl",
+        "sha256": "f5c7120eddcbcbee297000aa24da37327e02417b2d0582b8441616b4721738a6"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm1zm1.tmdl",
+        "sha256": "ae37fd64a8ca539f1a25c0e96d45c49bb0bec74d93b8424990961d4e9f02e34e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm1zm2.tmdl",
+        "sha256": "0d10079ee0f90bd506cbf3564e8fa9e9587397fceeefb4b42f89cf9b89f0d588"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm2z0.tmdl",
+        "sha256": "ef85919a9e69337bc83f3acb27cdcb80596c92058f5a7f42c78a0521427938d6"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm2z1.tmdl",
+        "sha256": "034519723bdf6927556c09381413850be8304d3cb3c93e6d994b1c29f83f64a3"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm2zm1.tmdl",
+        "sha256": "3d38097f25925592abd68972e0c56368b76416a93d1fdd1e9bcfc03a355a35db"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm2zm2.tmdl",
+        "sha256": "b9f58a72bc8db6d284044778c18956655117838b25695b4af4555817df0a3f0b"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0z0.tmdl",
+        "sha256": "c054c163e517646817d04f6fa7c41bf6754914ce4b852d2706273e6fa2e4a15e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0z1.tmdl",
+        "sha256": "a78e6dea237d29c6ffa0b35e8fe8898dbb3e1d999f88aec659ba0e8d6d1b0714"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0z2.tmdl",
+        "sha256": "ec1096e80d6b7a1edfb9be2826feb950561023b45ba30f90109f499756fd7c60"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0zm1.tmdl",
+        "sha256": "dd89144f387a0da6ad3aed2ba2c66d1f24835ec95559fff8fafd5ba9a854e2c8"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0zm2.tmdl",
+        "sha256": "dd2bbe4074432aaea1510a53cc461d64f2af28fcc71abbfeecc3e98f10c1eb14"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0zm3.tmdl",
+        "sha256": "4825c2e4712332ecd0177c23313b37eb9fe4172a1c7e18be73a4b93f694d0cfc"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1z0.tmdl",
+        "sha256": "8c3b551548d1103600e582ce1af3986620dfa8049c76742615f6fb88fb4e26ec"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1z1.tmdl",
+        "sha256": "e91da6823e603c0514b474749b4001bdaf23ad554ce8b82b0faa0ec01dba82ff"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1z2.tmdl",
+        "sha256": "8a97a3c03c2c73d263bbe3bd94282ad3558a29c577501123ce4dc7f9c5346bc1"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1zm1.tmdl",
+        "sha256": "af2045bc5975b8ace8e570ce59e780864eea923613f598aadf07354ba4e2ff4d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1zm2.tmdl",
+        "sha256": "ecaeec273c29690a76d4cb6eefd4bcae9826cebb6c1fde5850c1ab9edaf4e8cb"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1zm3.tmdl",
+        "sha256": "acea0ef90316f43b8f64b28a2df87095290eb1e04d8efa51384cfd4aca4c2071"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x2z0.tmdl",
+        "sha256": "2d950d0c37383596aaa3f6c24d48d1bf954f4212aa77e5634866292a4a4b5827"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x2z1.tmdl",
+        "sha256": "d33e47ab39a9fbfbf7e1a46f29714db8fabbe64078dbe4ac474ed8e384a17c2a"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x2zm1.tmdl",
+        "sha256": "85c5064b5807556b53eec5e61719305e42b46731a19b892ee5695cd464d7e0ba"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x2zm2.tmdl",
+        "sha256": "de871b2ff1a989a9d7708c606ca91280f69de5c91a4e4c9a4ef485f22b62356e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1z0.tmdl",
+        "sha256": "648a9a2ebb628c2be64e2975e0e7da7d77ae2133950d46553c5e72614a4549a5"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1z1.tmdl",
+        "sha256": "5c78ee8093b0fec7412cd3973b4206af2ba4b4878a6ba30bf7baf0ef73cf330e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1z2.tmdl",
+        "sha256": "f77831d3edca1d652b9c4d71edf16a89a35c018d25722fcfd9a8c8c572fe4b6f"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1zm1.tmdl",
+        "sha256": "390569f9b9cf3c97024cfebc342e130e99537e05b5e8ce4160fd3ae41567c45b"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1zm2.tmdl",
+        "sha256": "d0853831c6395db0bd41176a6f5762beb480b3d8e9b1fabd7f61b682af76e9c8"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1zm3.tmdl",
+        "sha256": "669f5802dd4eaf1ab92c86146ae6ca55de49abc0859769140e6f1f1396729dc5"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2z0.tmdl",
+        "sha256": "e60f4bdb9aa195baa26aa68e980ce483def220a3073b3efb5e9485f9fc341151"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2z1.tmdl",
+        "sha256": "0d905df27e0cd64ebd4701822e54cf1384d4e14bdce31c7e0babd2e3607939bf"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2z2.tmdl",
+        "sha256": "a7e78fe79df82e20ff88318a88d4dcc9c5684a38ee06a6669e64d370be8ef99d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2zm1.tmdl",
+        "sha256": "cf74589511459c6c157c41ce3a942343031495f1e8e1b1fef2c90112a7af3343"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2zm2.tmdl",
+        "sha256": "bd93b2f1e001bca452ac990554712a1322b2076993b264d777be633a0397f641"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2zm3.tmdl",
+        "sha256": "dd61a80648aa8be2ef2936e5ef11fc05cdc05052d5cf8f03e21ecc6b83b2a956"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm3z0.tmdl",
+        "sha256": "dd5d5321613a9b1e9a0b1f042a9a772fa9a56a91c2c29ee5b0abd25649bb84d5"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm3z1.tmdl",
+        "sha256": "4258114b106ea34a9f2441e6c8badf1310d75ee00e62783942b6fd4351d3138d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm3z2.tmdl",
+        "sha256": "49b4a3627eb73906d90d12be0d3cbdc48926fc605dbc1a970da7eda987f73afc"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm3zm1.tmdl",
+        "sha256": "070bc15209ab77527278f8fd712c7d58ed0dd54af70d7deefa7153c1e9c5a004"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm3zm2.tmdl",
+        "sha256": "0f2d0f950627a66123cba4001bb5559147b6ea22677c778d9b6a8511914fbe24"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0z0.tmdl",
+        "sha256": "a73db779475a16245b40ce3c74a84c81ea11e2c64166b44d10bb75eb93f58280"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0z1.tmdl",
+        "sha256": "7068ea61d4ac0664b2c1fc4541382181f3cdccd01712128cfe86c6d40622cfe9"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0z2.tmdl",
+        "sha256": "f113b7d6a825e99b08c8a7aef5386582a8883280bccc9759e5f2cb4e51db455e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0zm1.tmdl",
+        "sha256": "0ef2c7e64ec464fd84e4d4bf87f095a2c4afdf2368ae2e200685c1f4729c3731"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0zm2.tmdl",
+        "sha256": "5c98952dd03333273b068b856236a648964c923909e73ef357b3fd52651e3cfa"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0zm3.tmdl",
+        "sha256": "3b7c848459c25f97782c08e10903f3168e28beb1d6a1799a9761ecc209a459df"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x1z1.tmdl",
+        "sha256": "547167695c0509123902b50de877a5d8f79a0bd883d2b765ed85f2e2eb55ab46"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x1z2.tmdl",
+        "sha256": "767f0c5ec633d179a0436eddbe2bd916c6e93575078c0fdf27cb38c3c8e07f5e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x1zm2.tmdl",
+        "sha256": "2d6198f1bf246ad63213744ed5de0aaaf9241d9e17490ce104c84bbe03e30560"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x1zm3.tmdl",
+        "sha256": "56ece5fce9b980fbd612c7318375e791221c7527cd93f6f14e432ac9a58e7638"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2z0.tmdl",
+        "sha256": "32af6b39bb1db03cba0381b75c256c7878b183b13d04096179e347cbdaf266ad"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2z1.tmdl",
+        "sha256": "881e3385efc977491550d838622042d88f1239964f85cd0703e949c32872fd68"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2z2.tmdl",
+        "sha256": "a8bd89d3e06bf6f7f937f5090776eb609417ed27a8951b9b4d0eca02022ec04b"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2zm1.tmdl",
+        "sha256": "d168f64547e77fc9fdb5f9ec4e2b092c985ddc200ecc44dbbab991544165f637"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2zm2.tmdl",
+        "sha256": "71f4acdd0d49c6489279e515c335140a062594a248c80fb3d7398043ea18c329"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2zm3.tmdl",
+        "sha256": "a1ab1994838c7d4f226e860974c2fee46a64b8516e1b12a7d6d478bd280d0b62"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1z0.tmdl",
+        "sha256": "1bed3f57e366ca0dc506842fc496910f00e6455e602ff312b1c30181e5158a25"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1z1.tmdl",
+        "sha256": "a3539ad6356833e2db27539850b13e1f2edd11e596f5e295dd25e6e416659563"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1z2.tmdl",
+        "sha256": "56cd3c42486f7107dc936a1c61ff0afe6917ba51473c0094332d30ddd7820488"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1zm1.tmdl",
+        "sha256": "59bc77058dd5347dec9886b25b56304e443f771f868b22ae967fb03a80f00dad"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1zm2.tmdl",
+        "sha256": "c15042a1460b16c8b64a1fc1d716332160056663121a2cebb337cc5e1fb197c0"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1zm3.tmdl",
+        "sha256": "aec05e71da1062a570cc965fcad51d7870b39e9f7a570db8f2552c9eb0504b16"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm2z0.tmdl",
+        "sha256": "2a7e911a516075123aa12c3966748578f16ee2576bbf8bfb84d37b0535736154"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm2z1.tmdl",
+        "sha256": "7c11302b3fc2f343dd3e5eafdb3f3dd8ace0885fac20eebe931b9ddc64cc87e5"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm2z2.tmdl",
+        "sha256": "9aed451106788ebaf504886f4bceb11fec45b7d680f982224d48d14179f06ee5"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm2zm2.tmdl",
+        "sha256": "ca1a4fed6030bd2c4f3abe118d1c402e96dab13aa7ffe49a695fa00a38ee1d7a"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm2zm3.tmdl",
+        "sha256": "accd7d289c77d3bc33e0f90556715d7dd0978989dcd5506a536ce5877d4a2cb7"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm3z0.tmdl",
+        "sha256": "89ddec759076776d448454e87eb4f278017e3faf9a7cbc79a180b5884b6e0ea0"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm3z1.tmdl",
+        "sha256": "476c3982ff7050c7a5aee360036df443e6b5548ff3f9852badf909445a75c452"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm3z2.tmdl",
+        "sha256": "111c1258e0d5a155f6876f499143c3f3e99800f7d2d23f909fd96da0ba01850c"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm3zm1.tmdl",
+        "sha256": "238f165417059fdd56a01d30f6fe650e38d332a1c2c791dc5a4d8c91b41b37ba"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm3zm2.tmdl",
+        "sha256": "3b22f8b4f1750ac45440623fce6f1beb7dc5216f9d752086fff6afacb945af12"
+      },
+      {
+        "path": "models\\urban\\tree-park-large.mtl",
+        "sha256": "41916e639884cf52ce7f3c3531634e1ec2632fff60386569353469d6cc58003a"
+      },
+      {
+        "path": "models\\urban\\tree-park-large.tmdl",
+        "sha256": "6580b92ddb7316284ee4bf33a367b41c9a02f705c63819dc44a81376deba85d6"
+      },
+      {
+        "path": "models\\urban\\tree-park-pine-large.mtl",
+        "sha256": "8b1c62e58aafdcb6c15b3d1d3ae9437e86e0a8c942b95e3e502b17b026cd076c"
+      },
+      {
+        "path": "models\\urban\\tree-park-pine-large.tmdl",
+        "sha256": "bb71c693306ae9810793c595356505e91c94897b2d584c006fab66d0eee0c80a"
+      },
+      {
+        "path": "models\\urban\\wall-a-garage.mtl",
+        "sha256": "be225ab7c4e845fd56a4c38bd0413e2c3431a63674241c6504f70d3f0edf5a8d"
+      },
+      {
+        "path": "models\\urban\\wall-a-garage.obj",
+        "sha256": "d6ddcc7ab95a59acc8b8859c4ef2e4d2332a8a4b8d39490fc63d66458a9cddbe"
+      },
+      {
+        "path": "models\\urban\\wall-a-roof.mtl",
+        "sha256": "f2bd4a172bf54c3452c1ca63f18a68a7b023a77434e3acb365c9cb35c15bcb0d"
+      },
+      {
+        "path": "models\\urban\\wall-a-roof.obj",
+        "sha256": "3a8486d2c3dd3cd146b6265698dba62c34b71d674eeccd4d0ada8bde4b666fc0"
+      },
+      {
+        "path": "models\\urban\\wall-a-window.mtl",
+        "sha256": "e6047115d1b6aa2e5afab34cd23457cf72ab2e1dd39c190864fdbdd08f484a58"
+      },
+      {
+        "path": "models\\urban\\wall-a-window.obj",
+        "sha256": "fc86490eddf57d85e113d04d6e6dca3d05a5b66cebebe439157c817e153795db"
+      },
+      {
+        "path": "models\\urban\\Textures\\concrete.png",
+        "sha256": "6c945026c68f2b3ab64cdca3d9bc941f7756724a3a4c8a9000a99a1f38d8da4a"
+      },
+      {
+        "path": "models\\urban\\Textures\\dirt.png",
+        "sha256": "dc197506c397e59440be1e363b7d430e526193ec6efc448d68f7d509b8d04f6e"
+      },
+      {
+        "path": "models\\urban\\Textures\\district-facades.png",
+        "sha256": "3aaff298117f2f48b74d5fbc127c0de623b245b892eba214df9b537ff5a2c156"
+      },
+      {
+        "path": "models\\urban\\Textures\\metal.png",
+        "sha256": "9ba8501e99905fd40ebcd3e5fcdeab92ca6bbd11d95378e1a7ff22ec7a35a9cb"
+      },
+      {
+        "path": "models\\urban\\Textures\\metal_wall.png",
+        "sha256": "f70304cda44fc9aaab684dfcf84e947f85b6843f06e11a8c97905db33a695cce"
+      },
+      {
+        "path": "models\\urban\\Textures\\planks.png",
+        "sha256": "b11917bfbb9a023860e407084f59dd5a0acb8b43c3dbf0132921d98bf6ea3e20"
+      },
+      {
+        "path": "models\\urban\\Textures\\roof.png",
+        "sha256": "d223a6a7c985a3cfbc6c475d3baef94b2a0f014074b175589498c9971f767b87"
+      },
+      {
+        "path": "models\\urban\\Textures\\signs.png",
+        "sha256": "375bd044792967af9e63fc0176d4d19db493ad8a161d4dd7e14cad503ff3e63a"
+      },
+      {
+        "path": "models\\urban\\Textures\\tiles.png",
+        "sha256": "a1333cec2bf1c7a88ba46ec9ec4dc4c50f306ab2df1988a83f3639ebc830f94a"
+      },
+      {
+        "path": "models\\urban\\Textures\\treeA.png",
+        "sha256": "bdc7a19fee6405e4f343197374bb8847ab589cc436275ab2ef78d8013f3efb31"
+      },
+      {
+        "path": "models\\urban\\Textures\\treeB.png",
+        "sha256": "0674ee0ca5c4651c1541ba63407fc9c132515bed8ae4e039fb0d385c4dee01da"
+      },
+      {
+        "path": "models\\urban\\Textures\\wall.png",
+        "sha256": "1c57f50a696e4ce98194dec9b5977527e3ca700610a36a473b468beea54c10e1"
+      },
+      {
+        "path": "models\\urban\\Textures\\wall_garage.png",
+        "sha256": "e591a31a6403ace7b88f5c50296d3b2e783ee629cf2cee4f73c78c093774db4a"
+      },
+      {
+        "path": "models\\urban\\Textures\\wall_lines.png",
+        "sha256": "7da9b8941f196e3632b1301b99b30eb803f071a3b7dd77a249523424c6fb2302"
+      },
+      {
+        "path": "models\\urban\\Textures\\windows.png",
+        "sha256": "73cb7f0da437b35b9b88a8b7a62d07d5f69ca1b6cca8e62b5459d90894f5859b"
+      }
+    ],
+    "sounds": [
+      {
+        "path": "sfx\\engine_high.wav",
+        "output": "sfx\\engine_high.adpcm",
+        "sha256": "0de94dfcd465aef9489b3d88cddebc790561ece566206ac2835b0721c073a10c"
+      },
+      {
+        "path": "sfx\\engine_idle.wav",
+        "output": "sfx\\engine_idle.adpcm",
+        "sha256": "7ff557e935c64f4244da09a55eff63f2f41be834a3ab0d217a23deafe2d62630"
+      },
+      {
+        "path": "sfx\\gear-shift.wav",
+        "output": "sfx\\gear-shift.adpcm",
+        "sha256": "1b8661aa3fba4c594d829cf4b0c66f40059017538c074abd4b1f1988c17283c3"
+      },
+      {
+        "path": "sfx\\tires_screech.wav",
+        "output": "sfx\\tires_screech.adpcm",
+        "sha256": "896d31a8d6a145aa2393ce42a061835fe6971f36dfad3ae4fb14d4fc5f9c83a5"
+      }
+    ],
+    "shadow_mode_file": "bin/sat-verify.cfg",
+    "source_clean": false,
+    "startup_oracle_cases": 2048,
+    "positive_ccd_scalar_confirmation": true,
+    "tolerances": {
+      "depth_ratio": 0.0001,
+      "extra_touch_ratio": 0.0001,
+      "point_ratio": 0.01,
+      "normal_error": 0.01,
+      "missed_reference_hits": 0
+    },
+    "canonical_scalar_confirmation": true,
+    "transfer_bits": 128,
+    "active_mode": "plane-sparse-timing",
+    "shadow_enabled": false,
+    "same_elf_shadow_qualified": false,
+    "micro_stream": true,
+    "min_axis_guard": true,
+    "candidate_base": "05054481b",
+    "working_source_sha256": {
+      "vendor\\tyra\\engine\\src\\physics\\vu0_sat_kernel.vclpp": "e761eeae19ac707699ba401ec3029eee4ce8c6168bfb8e895cb7c831e43fbdc3",
+      "vendor\\tyra\\engine\\src\\physics\\vu0_sat.cpp": "49c15a6e5117c5f2c769def50c87427deb19418b3d075d80210068dd0061fa18",
+      "tools\\ps2rig\\vu0_sat_probe.hpp": "88c1281d62d7ae855a043def7a6ad7cfd21b9ffba4142f261c414eb449e6b1b5",
+      "tools\\ps2rig\\vu0_sat_stream.hpp": "e9371a419dfebbfec9ee172ec39a52278808f17d2ed16deee85c0dd56694bc19",
+      "F:\\Projects\\tyra-editor\\.tmp\\tests\\vu0-sat\\stream\\engine\\engine\\src\\physics\\vu0_sat.cpp": "90187a8ae8f4b7e5c375c1696d0e3801a6278b04c0f6f598c75df49e7d8c7f31",
+      "F:\\Projects\\tyra-editor\\.tmp\\tests\\vu0-sat\\stream\\engine\\engine\\inc\\physics\\vu0_sat.hpp": "c3051af2ce1d00a0736403e9db2f351d90cc014a8ed1d7b7f793877963d716bc",
+      "F:\\Projects\\tyra-editor\\.tmp\\tests\\vu0-sat\\stream\\engine\\engine\\src\\physics\\vu0_sat_reference_kernel.vclpp": "3d9bb000e38af3c6fbad05ee37c2137b3302f03ef16086abd940152f7c2fb40a",
+      "tools/ps2rig/vu0_sat_capture.hpp": "261edd73e7b25e44badcc352313b47bb22c7117bdb8e5a37ffe5cdb4049eae15",
+      "tools/ps2rig/vu0_sat_precision.hpp": "ba47cb482104a5202763ee8fd12b251a4d68820f826e3dfaedcd2040d3dc0523",
+      "vendor/tyra/engine/inc/physics/vu0_sat.hpp": "cf08cde2cf7e0d95e6292afe26ce569d546abaaedda6054e4d870c52bfbdec02",
+      "vendor/tyra/engine/inc/physics/broad_phase.hpp": "648413bcf4b93367f6ef347183372ecae6be34d3b53be43b33359b9ec505a581",
+      "vendor/tyra/engine/src/physics/broad_phase.cpp": "baa29bf7465b80ab26d9152101f3b2dd47e28a8d90a48d58eff5e59c648091bd",
+      "tools/ps2rig/body_grid_probe.hpp": "f4fa74c52fc7f388981c781f9080142c645fa05d0147534a1a2ba4c119a454d3",
+      "private_candidate_game_physics": "540e278d2ab08579608a15bb7174968ec667ffb1bf8e8a8f7e48d0b608578a8e",
+      "private_baseline_game_physics": "2027edd63e69045ae4a52310d1fa52f307a0818dc9c31168ef2a2ed7f96170b4",
+      "private_main_loop": "f80678f3d0e3ce96a6c92fef6d7540f305d463d2239106a0da27ff0eb2f62f56",
+      "private_src/gen/game_physics.gen.cpp": "889c160d31808e8f659091458b1ed03089e8bb0b8f0d2a6bcfb41da80dbd617c",
+      "private_src/gen/collision_baseline.gen.cpp": "5e7da2b7f450cc34851da1982fa0b149df892a61d05a3e86de734aac1f55cd07",
+      "private_src/terrain_game.cpp": "2db6895dfdd9c360de19975752be514f34b5ede2a6b25569053c7f6d0e529089",
+      "private_collision_bench": "791a9faa89f833b93599beec3e6adcfd8da2626af782d3412077b65560ed9ca4",
+      "world_grid_probe": "997a2529483ad712b84fabe30835aa9d99db1d9321381a87193871f4fd22e1bc",
+      "private_src/gen/game_collision.gen.cpp": "0351b14a1a12c7df3917012eeacf69c69a89f9cfe5fc3da6bcf2921ca1c24d78",
+      "private_inc/terrain_game.hpp": "b7b0506e1655335b0b5845e09bbdd714bfc3b3ba3dd66600b7b404e6bc1737da",
+      "private_engine_inc/physics/world_broad_phase.hpp": "47a05588cf067285b47319950494a55e6512e69d6754bebe26e594fabb35bd9f",
+      "private_engine_src/physics/world_broad_phase.cpp": "6514a4f132bbb7f94fd69507ae022fe8577b045a9308be79f00c70f3f9d742ec",
+      "private_engine_inc/tyra": "35369a5ffe1c165ace62d730b182e10f674601bf36849cefaf2cd996cdec5d19"
+    },
+    "micro_kernel_baseline": "742a962bb66bf4989b6ed5aae718426dc8f95083",
+    "winning_axis_uncertainty": true,
+    "common_motion_shortcut": true,
+    "micro_capture": true,
+    "micro_precision": true,
+    "certified_negatives": true,
+    "precision_replay": true,
+    "body_grid_probe": false,
+    "scene_timing_qualified": false,
+    "body_grid_timing_cell": 8,
+    "micro_dispatch": false,
+    "comparison": "Shared cached-world/body8m scalar physics: generic plane dot products vs exact signed-axis planes with full fallback, same six/three solver passes; no replay or PMU instrumentation",
+    "fixed_simulation_step": true,
+    "simulation_clock": "Private benchmark uses nominal display step in both arms; CP0 work/frame measurements remain real wall time. Production clock unchanged.",
+    "shared_physics": true,
+    "expected_phases": [
+      10,
+      11,
+      12,
+      13,
+      24,
+      25,
+      26,
+      27
+    ],
+    "world_grid_comparison": true,
+    "world_grid_verify": false,
+    "world_body_cell": 8,
+    "same_elf_admission_qualified": true,
+    "world_cache": true,
+    "pmu_modes": [
+      "I-cache misses / D-cache misses",
+      "single / dual issue",
+      "completed instructions / COP1 completed"
+    ],
+    "pmu_stages": [
+      "physics",
+      "prediction",
+      "world",
+      "body",
+      "grid",
+      "solver",
+      "writeback",
+      "unused"
+    ],
+    "admission_reference_elf": "96e54bfedeb0b91e429235c8326804027e5df62d15676f887ffd82a70bb9e2a1",
+    "plane_sparse_comparison": true,
+    "plane_sparse_verify": false,
+    "plane_source_sha256": {
+      "engine/engine/inc/debug/plane_sparse_probe.hpp": "b9a38c5ccfe598f436a0a4b32d10452a585dc3e83ac789650b8fadd1ce4f03a7",
+      "engine/engine/inc/debug/plane_sparse.hpp": "42e77b744963f0cf2d4aea46419b5c7b2fc29ba10acb6540ac759d77cdef195a",
+      "engine/engine/inc/debug/collision_bench.hpp": "791a9faa89f833b93599beec3e6adcfd8da2626af782d3412077b65560ed9ca4",
+      "district/src/gen/game_physics.gen.cpp": "c61e79cb215061a32e0c26901de34643e9e912295e9b32408c133b931c8e535c",
+      "district/src/gen/collision_baseline.gen.cpp": "ff06e428f7f976ea06a62bb3bbfe8995c93fa0c0728dcdb5b9a6c1e40ec6b8a5",
+      "district/inc/game_runtime.gen.hpp": "175209a9e284f72ef4040fe4d2585592153132ba055d3033e7efc02884c11d04",
+      "district/src/terrain_game.cpp": "f80678f3d0e3ce96a6c92fef6d7540f305d463d2239106a0da27ff0eb2f62f56"
+    },
+    "plane_dense_control": true
+  },
+  "measured_frames": 4800,
+  "summary": {
+    "phases": [
+      10,
+      11,
+      12,
+      13,
+      24,
+      25,
+      26,
+      27
+    ],
+    "groups": [
+      {
+        "repeat": null,
+        "arm": "generic-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "drive",
+        "n": 720,
+        "fps": 36.084334247186874,
+        "period_p95": 33.554056803385414,
+        "period_p99": 33.676371256510414,
+        "work_mean": 22.541318116364657,
+        "work_p95": 29.817311604817707,
+        "work_p99": 30.879275851779514,
+        "phys_mean": 10.386852433946398,
+        "phys_p95": 17.874020046657986,
+        "phys_p99": 18.794857449001736,
+        "missed": 475,
+        "awake_max": 51,
+        "contacts_max": 402,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1952,
+        "z_min": -73.8802,
+        "z_max": -46.908,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6084975066008391,
+            "p95": 0.9041680230034722
+          },
+          "world_ticks": {
+            "mean": 1.2248746518735532,
+            "p95": 1.9186435275607638
+          },
+          "body_ticks": {
+            "mean": 4.806819529592255,
+            "p95": 8.081871880425346
+          },
+          "body_grid_ticks": {
+            "mean": 0.24786902533637153,
+            "p95": 0.3051418728298611
+          },
+          "query_ticks": {
+            "mean": 1.4685711236647618,
+            "p95": 2.2647162543402777
+          },
+          "sat_ticks": {
+            "mean": 1.5947007497151693,
+            "p95": 2.86248779296875
+          },
+          "writeback_ticks": {
+            "mean": 0.15705188233175396,
+            "p95": 0.2795647515190972
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.014356142889244618,
+        "velocity_energy_p95": 0.0261768214,
+        "max_depth": 1.00655603,
+        "body_candidates_mean": 339.6361111111111,
+        "body_bounds_rejects_mean": 0.1111111111111111,
+        "solver_us_per_contact": 19.28854854373291,
+        "solver_mean": 3.5321618727695796,
+        "solver_p95": 7.012888590494792,
+        "solver_p99": 7.506815592447917
+      },
+      {
+        "repeat": null,
+        "arm": "generic-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "park",
+        "n": 240,
+        "fps": 30.285993666048455,
+        "period_p95": 33.427103678385414,
+        "period_p99": 35.189249674479164,
+        "work_mean": 21.44829971878617,
+        "work_p95": 25.262037489149307,
+        "work_p99": 25.939317491319443,
+        "phys_mean": 9.551513163248698,
+        "phys_p95": 13.112301296657986,
+        "phys_p99": 13.369625515407986,
+        "missed": 235,
+        "awake_max": 53,
+        "contacts_max": 252,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.675987610993562,
+            "p95": 0.9310438368055556
+          },
+          "world_ticks": {
+            "mean": 1.1028952987105758,
+            "p95": 1.4945305718315973
+          },
+          "body_ticks": {
+            "mean": 4.529333609121817,
+            "p95": 5.967064751519097
+          },
+          "body_grid_ticks": {
+            "mean": 0.2425581755461516,
+            "p95": 0.2979058159722222
+          },
+          "query_ticks": {
+            "mean": 1.4964864095052084,
+            "p95": 1.9698079427083333
+          },
+          "sat_ticks": {
+            "mean": 1.423982083355939,
+            "p95": 1.9220377604166667
+          },
+          "writeback_ticks": {
+            "mean": 0.18360889576099537,
+            "p95": 0.2678866916232639
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.00189347975778375,
+        "velocity_energy_p95": 0.0108960206,
+        "max_depth": 1.03907681,
+        "body_candidates_mean": 238.36666666666667,
+        "body_bounds_rejects_mean": 0.3,
+        "solver_us_per_contact": 18.986606263441846,
+        "solver_mean": 3.012699748851635,
+        "solver_p95": 4.488457573784722,
+        "solver_p99": 4.529147677951389
+      },
+      {
+        "repeat": null,
+        "arm": "generic-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "settle",
+        "n": 240,
+        "fps": 30.542741619782063,
+        "period_p95": 33.540303548177086,
+        "period_p99": 33.6041259765625,
+        "work_mean": 21.640264624136467,
+        "work_p95": 24.92302788628472,
+        "work_p99": 25.32773166232639,
+        "phys_mean": 10.147857948585793,
+        "phys_p95": 13.132239447699654,
+        "phys_p99": 13.364932590060764,
+        "missed": 231,
+        "awake_max": 43,
+        "contacts_max": 261,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 272,
+        "z_min": -46.8829,
+        "z_max": -46.81881,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6764036955656829,
+            "p95": 0.8218248155381944
+          },
+          "world_ticks": {
+            "mean": 1.477191812020761,
+            "p95": 1.8100212944878473
+          },
+          "body_ticks": {
+            "mean": 4.084882609049479,
+            "p95": 5.751407199435764
+          },
+          "body_grid_ticks": {
+            "mean": 0.2474168000397859,
+            "p95": 0.2959933810763889
+          },
+          "query_ticks": {
+            "mean": 1.6102123825638384,
+            "p95": 1.9759012858072917
+          },
+          "sat_ticks": {
+            "mean": 1.17606649045591,
+            "p95": 1.9667426215277777
+          },
+          "writeback_ticks": {
+            "mean": 0.21219921818485965,
+            "p95": 0.279571533203125
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.013393627154583334,
+        "velocity_energy_p95": 0.0256260429,
+        "max_depth": 0.998291016,
+        "body_candidates_mean": 311.64166666666665,
+        "body_bounds_rejects_mean": 0.075,
+        "solver_us_per_contact": 18.265551147571365,
+        "solver_mean": 3.6456517961290147,
+        "solver_p95": 4.587344699435764,
+        "solver_p99": 4.680002848307292
+      },
+      {
+        "repeat": null,
+        "arm": "generic-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "drive",
+        "n": 720,
+        "fps": 27.057617974566313,
+        "period_p95": 50.050679524739586,
+        "period_p99": 50.085774739583336,
+        "work_mean": 28.251379451045285,
+        "work_p95": 35.44462754991319,
+        "work_p99": 36.39085557725694,
+        "phys_mean": 13.7309477723675,
+        "phys_p95": 20.628434922960068,
+        "phys_p99": 21.500545925564236,
+        "missed": 720,
+        "awake_max": 50,
+        "contacts_max": 367,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 3566,
+        "z_min": -73.8802,
+        "z_max": -49.99261,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8179651048448351,
+            "p95": 1.0912814670138888
+          },
+          "world_ticks": {
+            "mean": 1.4910016095196759,
+            "p95": 2.0778978135850696
+          },
+          "body_ticks": {
+            "mean": 7.171528521879219,
+            "p95": 10.92295667860243
+          },
+          "body_grid_ticks": {
+            "mean": 0.4938595901300878,
+            "p95": 0.5572577582465278
+          },
+          "query_ticks": {
+            "mean": 2.293687217618212,
+            "p95": 3.1106465657552085
+          },
+          "sat_ticks": {
+            "mean": 2.1403937728316698,
+            "p95": 3.66448974609375
+          },
+          "writeback_ticks": {
+            "mean": 0.1874442677438995,
+            "p95": 0.2669508192274306
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.010315771818043988,
+        "velocity_energy_p95": 0.0383696519,
+        "max_depth": 1.07531083,
+        "body_candidates_mean": 381.15,
+        "body_bounds_rejects_mean": 0.4222222222222222,
+        "solver_us_per_contact": 19.670707340542766,
+        "solver_mean": 3.9793840949918016,
+        "solver_p95": 6.497711181640625,
+        "solver_p99": 6.766282823350695
+      },
+      {
+        "repeat": null,
+        "arm": "generic-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "park",
+        "n": 240,
+        "fps": 21.503426894474305,
+        "period_p95": 50.099711100260414,
+        "period_p99": 53.458902994791664,
+        "work_mean": 38.34989640977648,
+        "work_p95": 46.96140882703993,
+        "work_p99": 49.64947509765625,
+        "phys_mean": 23.74213287918656,
+        "phys_p95": 31.998694525824654,
+        "phys_p99": 34.007286919487846,
+        "missed": 240,
+        "awake_max": 113,
+        "contacts_max": 618,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 1.4233925148292823,
+            "p95": 1.9134182400173612
+          },
+          "world_ticks": {
+            "mean": 1.8292537265353732,
+            "p95": 2.4389275444878473
+          },
+          "body_ticks": {
+            "mean": 12.478019629584418,
+            "p95": 15.932254367404514
+          },
+          "body_grid_ticks": {
+            "mean": 0.4292061417191117,
+            "p95": 0.5080227322048612
+          },
+          "query_ticks": {
+            "mean": 3.958851001880787,
+            "p95": 5.31144544813368
+          },
+          "sat_ticks": {
+            "mean": 3.692068905300564,
+            "p95": 4.908423529730903
+          },
+          "writeback_ticks": {
+            "mean": 0.38991241455078124,
+            "p95": 0.5402865939670138
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.023075048796916665,
+        "velocity_energy_p95": 0.0334873684,
+        "max_depth": 1.0318532,
+        "body_candidates_mean": 684.1166666666667,
+        "body_bounds_rejects_mean": 0.48333333333333334,
+        "solver_us_per_contact": 20.37262252793973,
+        "solver_mean": 7.510027751216182,
+        "solver_p95": 11.061452229817709,
+        "solver_p99": 11.694986979166666
+      },
+      {
+        "repeat": null,
+        "arm": "generic-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "settle",
+        "n": 240,
+        "fps": 29.907754608025485,
+        "period_p95": 33.5826416015625,
+        "period_p99": 33.65179443359375,
+        "work_mean": 29.698970780549224,
+        "work_p95": 31.925384521484375,
+        "work_p99": 32.48064507378472,
+        "phys_mean": 15.40522600809733,
+        "phys_p95": 17.504777696397568,
+        "phys_p99": 17.979576958550346,
+        "missed": 240,
+        "awake_max": 41,
+        "contacts_max": 300,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 2206,
+        "z_min": -49.98955,
+        "z_max": -49.98365,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.823062190303096,
+            "p95": 0.9354790581597222
+          },
+          "world_ticks": {
+            "mean": 1.5515863206651477,
+            "p95": 1.918914794921875
+          },
+          "body_ticks": {
+            "mean": 8.123618994818793,
+            "p95": 9.388220893012154
+          },
+          "body_grid_ticks": {
+            "mean": 0.4936336234763817,
+            "p95": 0.5641682942708334
+          },
+          "query_ticks": {
+            "mean": 2.326094337745949,
+            "p95": 2.7249586317274304
+          },
+          "sat_ticks": {
+            "mean": 2.5150963959870514,
+            "p95": 3.2100355360243054
+          },
+          "writeback_ticks": {
+            "mean": 0.18842448481807003,
+            "p95": 0.23271687825520834
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.0036661946489833334,
+        "velocity_energy_p95": 0.00656498875,
+        "max_depth": 0.994529724,
+        "body_candidates_mean": 406.4166666666667,
+        "body_bounds_rejects_mean": 0.35833333333333334,
+        "solver_us_per_contact": 19.941451675862734,
+        "solver_mean": 4.638049302277741,
+        "solver_p95": 5.41142103407118,
+        "solver_p99": 5.87736341688368
+      },
+      {
+        "repeat": null,
+        "arm": "sparse-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "drive",
+        "n": 720,
+        "fps": 36.54266561002894,
+        "period_p95": 33.5574951171875,
+        "period_p99": 33.668050130208336,
+        "work_mean": 22.13812067008313,
+        "work_p95": 29.740675184461807,
+        "work_p99": 30.860870361328125,
+        "phys_mean": 10.389811103726611,
+        "phys_p95": 17.833940294053818,
+        "phys_p99": 18.747500949435764,
+        "missed": 461,
+        "awake_max": 51,
+        "contacts_max": 402,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1952,
+        "z_min": -73.8802,
+        "z_max": -46.908,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6082602889449508,
+            "p95": 0.9118177625868056
+          },
+          "world_ticks": {
+            "mean": 1.2444868299696181,
+            "p95": 1.9595167371961806
+          },
+          "body_ticks": {
+            "mean": 4.794767280861183,
+            "p95": 8.04417249891493
+          },
+          "body_grid_ticks": {
+            "mean": 0.2481239648512852,
+            "p95": 0.3073594835069444
+          },
+          "query_ticks": {
+            "mean": 1.473872196527175,
+            "p95": 2.2811075846354165
+          },
+          "sat_ticks": {
+            "mean": 1.6137866644211758,
+            "p95": 2.8569539388020835
+          },
+          "writeback_ticks": {
+            "mean": 0.15797143630039545,
+            "p95": 0.2755974663628472
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.014356142889244618,
+        "velocity_energy_p95": 0.0261768214,
+        "max_depth": 1.00655603,
+        "body_candidates_mean": 339.6361111111111,
+        "body_bounds_rejects_mean": 0.1111111111111111,
+        "solver_us_per_contact": 19.258332944150833,
+        "solver_mean": 3.5266287250283326,
+        "solver_p95": 7.00764634874132,
+        "solver_p99": 7.50926038953993
+      },
+      {
+        "repeat": null,
+        "arm": "sparse-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "park",
+        "n": 240,
+        "fps": 30.608165495031297,
+        "period_p95": 33.413960774739586,
+        "period_p99": 35.734151204427086,
+        "work_mean": 20.860392874258537,
+        "work_p95": 24.299163818359375,
+        "work_p99": 24.63060845269097,
+        "phys_mean": 9.547963983041269,
+        "phys_p95": 13.10023668077257,
+        "phys_p99": 13.34114244249132,
+        "missed": 230,
+        "awake_max": 53,
+        "contacts_max": 252,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6766019044099031,
+            "p95": 0.9372897677951388
+          },
+          "world_ticks": {
+            "mean": 1.1094191092031973,
+            "p95": 1.509490966796875
+          },
+          "body_ticks": {
+            "mean": 4.54455232973452,
+            "p95": 5.940622965494792
+          },
+          "body_grid_ticks": {
+            "mean": 0.243645915278682,
+            "p95": 0.2908393012152778
+          },
+          "query_ticks": {
+            "mean": 1.4977171579996744,
+            "p95": 1.9691196017795138
+          },
+          "sat_ticks": {
+            "mean": 1.448852327134874,
+            "p95": 1.9461703830295138
+          },
+          "writeback_ticks": {
+            "mean": 0.18520096672905817,
+            "p95": 0.2673441569010417
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.00189347975778375,
+        "velocity_energy_p95": 0.0108960206,
+        "max_depth": 1.03907681,
+        "body_candidates_mean": 238.36666666666667,
+        "body_bounds_rejects_mean": 0.3,
+        "solver_us_per_contact": 18.815912690426522,
+        "solver_mean": 2.985614946153429,
+        "solver_p95": 4.453823513454861,
+        "solver_p99": 4.543138292100695
+      },
+      {
+        "repeat": null,
+        "arm": "sparse-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "settle",
+        "n": 240,
+        "fps": 30.54263573277522,
+        "period_p95": 33.536173502604164,
+        "period_p99": 33.628580729166664,
+        "work_mean": 21.66643582096806,
+        "work_p95": 24.889940049913193,
+        "work_p99": 25.30341254340278,
+        "phys_mean": 10.170145741215459,
+        "phys_p95": 13.148623996310764,
+        "phys_p99": 13.33284166124132,
+        "missed": 231,
+        "awake_max": 43,
+        "contacts_max": 261,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 272,
+        "z_min": -46.8829,
+        "z_max": -46.81881,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6768927962691695,
+            "p95": 0.8209160698784722
+          },
+          "world_ticks": {
+            "mean": 1.5007801479763454,
+            "p95": 1.8207363552517362
+          },
+          "body_ticks": {
+            "mean": 4.07968829119647,
+            "p95": 5.72068617078993
+          },
+          "body_grid_ticks": {
+            "mean": 0.24991192287868924,
+            "p95": 0.302734375
+          },
+          "query_ticks": {
+            "mean": 1.6161247394703053,
+            "p95": 1.9696790907118056
+          },
+          "sat_ticks": {
+            "mean": 1.1931880244502315,
+            "p95": 2.0093926323784723
+          },
+          "writeback_ticks": {
+            "mean": 0.21289212262188947,
+            "p95": 0.2799716525607639
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.013393627154583334,
+        "velocity_energy_p95": 0.0256260429,
+        "max_depth": 0.998291016,
+        "body_candidates_mean": 311.64166666666665,
+        "body_bounds_rejects_mean": 0.075,
+        "solver_us_per_contact": 18.27676948171944,
+        "solver_mean": 3.647890882138853,
+        "solver_p95": 4.573496500651042,
+        "solver_p99": 4.695027669270833
+      },
+      {
+        "repeat": null,
+        "arm": "sparse-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "drive",
+        "n": 720,
+        "fps": 27.125657225766762,
+        "period_p95": 50.050638834635414,
+        "period_p99": 50.080973307291664,
+        "work_mean": 28.244465693721065,
+        "work_p95": 35.402560763888886,
+        "work_p99": 36.52537706163194,
+        "phys_mean": 13.737597675088011,
+        "phys_p95": 20.601966010199654,
+        "phys_p99": 21.575415717230904,
+        "missed": 720,
+        "awake_max": 50,
+        "contacts_max": 367,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 3566,
+        "z_min": -73.8802,
+        "z_max": -49.99261,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8184763684684847,
+            "p95": 1.0912204318576388
+          },
+          "world_ticks": {
+            "mean": 1.5094507806095077,
+            "p95": 2.1015455457899304
+          },
+          "body_ticks": {
+            "mean": 7.159536394660855,
+            "p95": 10.884891086154514
+          },
+          "body_grid_ticks": {
+            "mean": 0.4901825092456959,
+            "p95": 0.5612046983506944
+          },
+          "query_ticks": {
+            "mean": 2.2802161934935015,
+            "p95": 3.1029832628038196
+          },
+          "sat_ticks": {
+            "mean": 2.1792760919641565,
+            "p95": 3.697597927517361
+          },
+          "writeback_ticks": {
+            "mean": 0.18823601051613137,
+            "p95": 0.2674323187934028
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.010315771818043988,
+        "velocity_energy_p95": 0.0383696519,
+        "max_depth": 1.07531083,
+        "body_candidates_mean": 381.15,
+        "body_bounds_rejects_mean": 0.4222222222222222,
+        "solver_us_per_contact": 19.665971554855645,
+        "solver_mean": 3.978426045547297,
+        "solver_p95": 6.514716254340278,
+        "solver_p99": 6.825653076171875
+      },
+      {
+        "repeat": null,
+        "arm": "sparse-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "park",
+        "n": 240,
+        "fps": 21.503506348932635,
+        "period_p95": 50.087012396918404,
+        "period_p99": 53.615315755208336,
+        "work_mean": 38.328736015602395,
+        "work_p95": 46.92987399631076,
+        "work_p99": 49.531046549479164,
+        "phys_mean": 23.70020418520327,
+        "phys_p95": 31.768022325303818,
+        "phys_p99": 33.92960951063368,
+        "missed": 240,
+        "awake_max": 113,
+        "contacts_max": 618,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 1.4207699528446904,
+            "p95": 1.9040662977430556
+          },
+          "world_ticks": {
+            "mean": 1.8350166885941117,
+            "p95": 2.4534403483072915
+          },
+          "body_ticks": {
+            "mean": 12.433206798412181,
+            "p95": 15.779876708984375
+          },
+          "body_grid_ticks": {
+            "mean": 0.4290856537995515,
+            "p95": 0.5138210720486112
+          },
+          "query_ticks": {
+            "mean": 3.933554260819047,
+            "p95": 5.244835747612847
+          },
+          "sat_ticks": {
+            "mean": 3.7485876154016564,
+            "p95": 4.960459391276042
+          },
+          "writeback_ticks": {
+            "mean": 0.39051378038194445,
+            "p95": 0.5605299207899306
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.023075048796916665,
+        "velocity_energy_p95": 0.0334873684,
+        "max_depth": 1.0318532,
+        "body_candidates_mean": 684.1166666666667,
+        "body_bounds_rejects_mean": 0.48333333333333334,
+        "solver_us_per_contact": 20.369817548244136,
+        "solver_mean": 7.5089937422010635,
+        "solver_p95": 11.030222574869791,
+        "solver_p99": 11.700141059027779
+      },
+      {
+        "repeat": null,
+        "arm": "sparse-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "settle",
+        "n": 240,
+        "fps": 29.907821688452636,
+        "period_p95": 33.546305338541664,
+        "period_p99": 33.6248779296875,
+        "work_mean": 29.723879340842917,
+        "work_p95": 31.971730550130207,
+        "work_p99": 32.48041449652778,
+        "phys_mean": 15.422130867286965,
+        "phys_p95": 17.537316216362846,
+        "phys_p99": 18.053883870442707,
+        "missed": 240,
+        "awake_max": 41,
+        "contacts_max": 300,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 2206,
+        "z_min": -49.98955,
+        "z_max": -49.98365,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8236907676414207,
+            "p95": 0.9331597222222222
+          },
+          "world_ticks": {
+            "mean": 1.5767517654984087,
+            "p95": 1.9388868543836806
+          },
+          "body_ticks": {
+            "mean": 8.112311130099826,
+            "p95": 9.435577392578125
+          },
+          "body_grid_ticks": {
+            "mean": 0.4905429133662471,
+            "p95": 0.5568101671006944
+          },
+          "query_ticks": {
+            "mean": 2.3173722443757234,
+            "p95": 2.7554185655381946
+          },
+          "sat_ticks": {
+            "mean": 2.561361567179362,
+            "p95": 3.253323025173611
+          },
+          "writeback_ticks": {
+            "mean": 0.18714509186921297,
+            "p95": 0.2312995062934028
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.0036661946489833334,
+        "velocity_energy_p95": 0.00656498875,
+        "max_depth": 0.994529724,
+        "body_candidates_mean": 406.4166666666667,
+        "body_bounds_rejects_mean": 0.35833333333333334,
+        "solver_us_per_contact": 19.958062367272408,
+        "solver_mean": 4.641912672254774,
+        "solver_p95": 5.442019992404514,
+        "solver_p99": 5.900217692057292
+      }
+    ],
+    "repeats": [
+      {
+        "repeat": 0,
+        "arm": "generic-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 35.72585927028014,
+        "period_p95": 33.53851318359375,
+        "period_p99": 33.655965169270836,
+        "work_mean": 22.972999808229048,
+        "work_p95": 29.887461344401043,
+        "work_p99": 30.830858018663193,
+        "phys_mean": 10.400693615571953,
+        "phys_p95": 17.897016737196182,
+        "phys_p99": 18.794857449001736,
+        "missed": 244,
+        "awake_max": 51,
+        "contacts_max": 402,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 976,
+        "z_min": -73.8802,
+        "z_max": -46.908,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6070340191876447,
+            "p95": 0.8978203667534722
+          },
+          "world_ticks": {
+            "mean": 1.226329473801601,
+            "p95": 1.9236280653211806
+          },
+          "body_ticks": {
+            "mean": 4.828154217755353,
+            "p95": 8.110056559244791
+          },
+          "body_grid_ticks": {
+            "mean": 0.2501464561179832,
+            "p95": 0.3048638237847222
+          },
+          "query_ticks": {
+            "mean": 1.478379379084081,
+            "p95": 2.286834716796875
+          },
+          "sat_ticks": {
+            "mean": 1.5977308391053,
+            "p95": 2.86248779296875
+          },
+          "writeback_ticks": {
+            "mean": 0.1564271244001977,
+            "p95": 0.2679816351996528
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.014356142889244618,
+        "velocity_energy_p95": 0.0261768214,
+        "max_depth": 1.00655603,
+        "body_candidates_mean": 339.6361111111111,
+        "body_bounds_rejects_mean": 0.1111111111111111,
+        "solver_us_per_contact": 19.247155983262267,
+        "solver_mean": 3.5245819751127265,
+        "solver_p95": 7.00810072157118,
+        "solver_p99": 7.463816324869792
+      },
+      {
+        "repeat": 0,
+        "arm": "generic-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 29.970302254815252,
+        "period_p95": 33.414204915364586,
+        "period_p99": 34.667500813802086,
+        "work_mean": 22.072154659695094,
+        "work_p95": 25.606374104817707,
+        "work_p99": 25.939317491319443,
+        "phys_mean": 9.57685546875,
+        "phys_p95": 13.128726535373264,
+        "phys_p99": 13.435570610894096,
+        "missed": 120,
+        "awake_max": 53,
+        "contacts_max": 252,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.675156487358941,
+            "p95": 0.9280734592013888
+          },
+          "world_ticks": {
+            "mean": 1.1041514078776042,
+            "p95": 1.4543016221788194
+          },
+          "body_ticks": {
+            "mean": 4.550631657353154,
+            "p95": 5.971276177300347
+          },
+          "body_grid_ticks": {
+            "mean": 0.2467673690230758,
+            "p95": 0.3063998752170139
+          },
+          "query_ticks": {
+            "mean": 1.510678157099971,
+            "p95": 1.9762980143229167
+          },
+          "sat_ticks": {
+            "mean": 1.425244649251302,
+            "p95": 1.9220377604166667
+          },
+          "writeback_ticks": {
+            "mean": 0.1851714805320457,
+            "p95": 0.2678866916232639
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.00189347975778375,
+        "velocity_energy_p95": 0.0108960206,
+        "max_depth": 1.03907681,
+        "body_candidates_mean": 238.36666666666667,
+        "body_bounds_rejects_mean": 0.3,
+        "solver_us_per_contact": 19.00044672567174,
+        "solver_mean": 3.0148958841959637,
+        "solver_p95": 4.488457573784722,
+        "solver_p99": 4.526014539930555
+      },
+      {
+        "repeat": 0,
+        "arm": "generic-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 30.47802763656585,
+        "period_p95": 33.469502766927086,
+        "period_p99": 33.572672526041664,
+        "work_mean": 21.643338860405816,
+        "work_p95": 24.905653211805557,
+        "work_p99": 25.283755832248264,
+        "phys_mean": 10.152068018030237,
+        "phys_p95": 13.13719007703993,
+        "phys_p99": 13.268802218967014,
+        "missed": 116,
+        "awake_max": 43,
+        "contacts_max": 261,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 136,
+        "z_min": -46.8829,
+        "z_max": -46.81881,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6760416666666667,
+            "p95": 0.8263278537326388
+          },
+          "world_ticks": {
+            "mean": 1.479808270489728,
+            "p95": 1.8091600206163194
+          },
+          "body_ticks": {
+            "mean": 4.103748293276186,
+            "p95": 5.782189263237847
+          },
+          "body_grid_ticks": {
+            "mean": 0.24998852765118634,
+            "p95": 0.2959933810763889
+          },
+          "query_ticks": {
+            "mean": 1.620518324110243,
+            "p95": 1.98504638671875
+          },
+          "sat_ticks": {
+            "mean": 1.1756384955512154,
+            "p95": 1.9629923502604167
+          },
+          "writeback_ticks": {
+            "mean": 0.21284671359592014,
+            "p95": 0.2829013400607639
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.013393627154583334,
+        "velocity_energy_p95": 0.0256260429,
+        "max_depth": 0.998291016,
+        "body_candidates_mean": 311.64166666666665,
+        "body_bounds_rejects_mean": 0.075,
+        "solver_us_per_contact": 18.179379858280534,
+        "solver_mean": 3.6284527248806424,
+        "solver_p95": 4.564944797092014,
+        "solver_p99": 4.633114284939236
+      },
+      {
+        "repeat": 0,
+        "arm": "generic-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 27.04066588373264,
+        "period_p95": 50.050944010416664,
+        "period_p99": 50.081685384114586,
+        "work_mean": 28.233736852951992,
+        "work_p95": 35.371053059895836,
+        "work_p99": 36.39085557725694,
+        "phys_mean": 13.708939653561439,
+        "phys_p95": 20.558122422960068,
+        "phys_p99": 21.468461778428818,
+        "missed": 360,
+        "awake_max": 50,
+        "contacts_max": 367,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1783,
+        "z_min": -73.8802,
+        "z_max": -49.99261,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8173524456259645,
+            "p95": 1.0906711154513888
+          },
+          "world_ticks": {
+            "mean": 1.4960901425208575,
+            "p95": 2.0778978135850696
+          },
+          "body_ticks": {
+            "mean": 7.1455172691816164,
+            "p95": 10.907419840494791
+          },
+          "body_grid_ticks": {
+            "mean": 0.47949017183280285,
+            "p95": 0.5341729058159722
+          },
+          "query_ticks": {
+            "mean": 2.287606029745973,
+            "p95": 3.1020609537760415
+          },
+          "sat_ticks": {
+            "mean": 2.1407235039605035,
+            "p95": 3.6676534016927085
+          },
+          "writeback_ticks": {
+            "mean": 0.1870726032021605,
+            "p95": 0.2665235731336806
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.010315771818043988,
+        "velocity_energy_p95": 0.0383696519,
+        "max_depth": 1.07531083,
+        "body_candidates_mean": 381.15,
+        "body_bounds_rejects_mean": 0.4222222222222222,
+        "solver_us_per_contact": 19.670419835058123,
+        "solver_mean": 3.979325932632258,
+        "solver_p95": 6.497711181640625,
+        "solver_p99": 6.766282823350695
+      },
+      {
+        "repeat": 0,
+        "arm": "generic-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 21.535593983833724,
+        "period_p95": 50.100423177083336,
+        "period_p99": 52.584391276041664,
+        "work_mean": 38.30401616979528,
+        "work_p95": 46.96140882703993,
+        "work_p99": 48.757286919487846,
+        "phys_mean": 23.70998071741175,
+        "phys_p95": 31.882063123914932,
+        "phys_p99": 32.50437757703993,
+        "missed": 120,
+        "awake_max": 113,
+        "contacts_max": 618,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 1.4224627459490742,
+            "p95": 1.9076809353298612
+          },
+          "world_ticks": {
+            "mean": 1.8348098754882813,
+            "p95": 2.4389275444878473
+          },
+          "body_ticks": {
+            "mean": 12.439136815954138,
+            "p95": 15.81162855360243
+          },
+          "body_grid_ticks": {
+            "mean": 0.41587501808449073,
+            "p95": 0.4958767361111111
+          },
+          "query_ticks": {
+            "mean": 3.941325321903935,
+            "p95": 5.195556640625
+          },
+          "sat_ticks": {
+            "mean": 3.6872435675726996,
+            "p95": 4.924112955729167
+          },
+          "writeback_ticks": {
+            "mean": 0.3927967212818287,
+            "p95": 0.5407545301649306
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.023075048796916665,
+        "velocity_energy_p95": 0.0334873684,
+        "max_depth": 1.0318532,
+        "body_candidates_mean": 684.1166666666667,
+        "body_bounds_rejects_mean": 0.48333333333333334,
+        "solver_us_per_contact": 20.371626914604498,
+        "solver_mean": 7.5096607349537035,
+        "solver_p95": 11.037594265407986,
+        "solver_p99": 11.206278483072916
+      },
+      {
+        "repeat": 0,
+        "arm": "generic-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 29.845706707355838,
+        "period_p95": 33.5826416015625,
+        "period_p99": 33.620768229166664,
+        "work_mean": 29.685585982711228,
+        "work_p95": 31.925384521484375,
+        "work_p99": 32.38866170247396,
+        "phys_mean": 15.384720413773149,
+        "phys_p95": 17.432783338758682,
+        "phys_p99": 17.965172661675346,
+        "missed": 120,
+        "awake_max": 41,
+        "contacts_max": 300,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1103,
+        "z_min": -49.98955,
+        "z_max": -49.98365,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8232590851960359,
+            "p95": 0.9359063042534722
+          },
+          "world_ticks": {
+            "mean": 1.5597650033456307,
+            "p95": 1.9251946343315973
+          },
+          "body_ticks": {
+            "mean": 8.09626623083044,
+            "p95": 9.368872748480904
+          },
+          "body_grid_ticks": {
+            "mean": 0.4772361755371094,
+            "p95": 0.5190904405381944
+          },
+          "query_ticks": {
+            "mean": 2.3146679630985965,
+            "p95": 2.7249586317274304
+          },
+          "sat_ticks": {
+            "mean": 2.5193763732910157,
+            "p95": 3.178866916232639
+          },
+          "writeback_ticks": {
+            "mean": 0.1885417796947338,
+            "p95": 0.2346157497829861
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.0036661946489833334,
+        "velocity_energy_p95": 0.00656498875,
+        "max_depth": 0.994529724,
+        "body_candidates_mean": 406.4166666666667,
+        "body_bounds_rejects_mean": 0.35833333333333334,
+        "solver_us_per_contact": 19.9355727382192,
+        "solver_mean": 4.636681959364149,
+        "solver_p95": 5.41142103407118,
+        "solver_p99": 5.728146023220486
+      },
+      {
+        "repeat": 0,
+        "arm": "sparse-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 36.511752186188396,
+        "period_p95": 33.577189127604164,
+        "period_p99": 33.658487955729164,
+        "work_mean": 22.130929782066815,
+        "work_p95": 29.725023057725693,
+        "work_p99": 30.753068712022568,
+        "phys_mean": 10.389513350121769,
+        "phys_p95": 17.825842963324654,
+        "phys_p99": 18.674170600043404,
+        "missed": 231,
+        "awake_max": 51,
+        "contacts_max": 402,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 976,
+        "z_min": -73.8802,
+        "z_max": -46.908,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6079990151487751,
+            "p95": 0.9166124131944444
+          },
+          "world_ticks": {
+            "mean": 1.245633480872637,
+            "p95": 1.9577602810329862
+          },
+          "body_ticks": {
+            "mean": 4.809602902259356,
+            "p95": 8.049523247612846
+          },
+          "body_grid_ticks": {
+            "mean": 0.25063920197663486,
+            "p95": 0.3081936306423611
+          },
+          "query_ticks": {
+            "mean": 1.4785451535825376,
+            "p95": 2.278713650173611
+          },
+          "sat_ticks": {
+            "mean": 1.6156852251217688,
+            "p95": 2.852077907986111
+          },
+          "writeback_ticks": {
+            "mean": 0.15797302811234085,
+            "p95": 0.2755974663628472
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.014356142889244618,
+        "velocity_energy_p95": 0.0261768214,
+        "max_depth": 1.00655603,
+        "body_candidates_mean": 339.6361111111111,
+        "body_bounds_rejects_mean": 0.1111111111111111,
+        "solver_us_per_contact": 19.172678847027107,
+        "solver_mean": 3.510943556420597,
+        "solver_p95": 6.946621365017361,
+        "solver_p99": 7.488369411892361
+      },
+      {
+        "repeat": 0,
+        "arm": "sparse-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 30.478415065368782,
+        "period_p95": 33.406331380208336,
+        "period_p99": 35.369038899739586,
+        "work_mean": 20.839262390136717,
+        "work_p95": 24.254574245876736,
+        "work_p99": 24.507853190104168,
+        "phys_mean": 9.546568411367911,
+        "phys_p95": 13.10023668077257,
+        "phys_p99": 13.31651136610243,
+        "missed": 116,
+        "awake_max": 53,
+        "contacts_max": 252,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6751094394259982,
+            "p95": 0.9307386610243056
+          },
+          "world_ticks": {
+            "mean": 1.1086274888780383,
+            "p95": 1.4829678005642362
+          },
+          "body_ticks": {
+            "mean": 4.552831070511429,
+            "p95": 5.947133382161458
+          },
+          "body_grid_ticks": {
+            "mean": 0.24620163529007524,
+            "p95": 0.2935316297743056
+          },
+          "query_ticks": {
+            "mean": 1.5055713229709202,
+            "p95": 1.9350416395399306
+          },
+          "sat_ticks": {
+            "mean": 1.4509921321162471,
+            "p95": 1.9299079047309027
+          },
+          "writeback_ticks": {
+            "mean": 0.1847460428873698,
+            "p95": 0.2672220865885417
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.00189347975778375,
+        "velocity_energy_p95": 0.0108960206,
+        "max_depth": 1.03907681,
+        "body_candidates_mean": 238.36666666666667,
+        "body_bounds_rejects_mean": 0.3,
+        "solver_us_per_contact": 18.77099529737137,
+        "solver_mean": 2.978487678810402,
+        "solver_p95": 4.437574598524305,
+        "solver_p99": 4.503485785590278
+      },
+      {
+        "repeat": 0,
+        "arm": "sparse-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 30.60772464879415,
+        "period_p95": 33.5396728515625,
+        "period_p99": 33.600382486979164,
+        "work_mean": 21.65270538330078,
+        "work_p95": 24.88290744357639,
+        "work_p99": 25.162889268663193,
+        "phys_mean": 10.168923272026909,
+        "phys_p95": 13.148623996310764,
+        "phys_p99": 13.252356635199654,
+        "missed": 115,
+        "awake_max": 43,
+        "contacts_max": 261,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 136,
+        "z_min": -46.8829,
+        "z_max": -46.81881,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6765436808268229,
+            "p95": 0.8209160698784722
+          },
+          "world_ticks": {
+            "mean": 1.5036135638201678,
+            "p95": 1.8207363552517362
+          },
+          "body_ticks": {
+            "mean": 4.093024472837095,
+            "p95": 5.770151774088542
+          },
+          "body_grid_ticks": {
+            "mean": 0.25344916449652777,
+            "p95": 0.3076036241319444
+          },
+          "query_ticks": {
+            "mean": 1.62490076135706,
+            "p95": 1.9712354871961806
+          },
+          "sat_ticks": {
+            "mean": 1.1935335795084636,
+            "p95": 2.0524834526909723
+          },
+          "writeback_ticks": {
+            "mean": 0.21317082157841435,
+            "p95": 0.281036376953125
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.013393627154583334,
+        "velocity_energy_p95": 0.0256260429,
+        "max_depth": 0.998291016,
+        "body_candidates_mean": 311.64166666666665,
+        "body_bounds_rejects_mean": 0.075,
+        "solver_us_per_contact": 18.188232771846252,
+        "solver_mean": 3.6302196926540797,
+        "solver_p95": 4.566348605685764,
+        "solver_p99": 4.602176242404514
+      },
+      {
+        "repeat": 0,
+        "arm": "sparse-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 27.10866640356809,
+        "period_p95": 50.050618489583336,
+        "period_p99": 50.0806884765625,
+        "work_mean": 28.255976585105614,
+        "work_p95": 35.511623806423614,
+        "work_p99": 36.609215630425346,
+        "phys_mean": 13.712766218774112,
+        "phys_p95": 20.551008436414932,
+        "phys_p99": 21.517852783203125,
+        "missed": 360,
+        "awake_max": 50,
+        "contacts_max": 367,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1783,
+        "z_min": -73.8802,
+        "z_max": -49.99261,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8179465588228202,
+            "p95": 1.0906914605034723
+          },
+          "world_ticks": {
+            "mean": 1.5054029770839361,
+            "p95": 2.0899285210503473
+          },
+          "body_ticks": {
+            "mean": 7.139299727074894,
+            "p95": 10.83140394422743
+          },
+          "body_grid_ticks": {
+            "mean": 0.4758623570571711,
+            "p95": 0.5273369683159722
+          },
+          "query_ticks": {
+            "mean": 2.279051114306038,
+            "p95": 3.1029832628038196
+          },
+          "sat_ticks": {
+            "mean": 2.17601778006848,
+            "p95": 3.6812811957465277
+          },
+          "writeback_ticks": {
+            "mean": 0.1880925213849103,
+            "p95": 0.2668084038628472
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.010315771818043988,
+        "velocity_energy_p95": 0.0383696519,
+        "max_depth": 1.07531083,
+        "body_candidates_mean": 381.15,
+        "body_bounds_rejects_mean": 0.4222222222222222,
+        "solver_us_per_contact": 19.66811946526381,
+        "solver_mean": 3.9788605678228683,
+        "solver_p95": 6.514716254340278,
+        "solver_p99": 6.825653076171875
+      },
+      {
+        "repeat": 0,
+        "arm": "sparse-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 21.471378579256573,
+        "period_p95": 50.087626139322914,
+        "period_p99": 52.83966064453125,
+        "work_mean": 38.30715464839229,
+        "work_p95": 46.865200466579864,
+        "work_p99": 48.79606458875868,
+        "phys_mean": 23.679614879466868,
+        "phys_p95": 31.757876925998264,
+        "phys_p99": 32.41125827365451,
+        "missed": 120,
+        "awake_max": 113,
+        "contacts_max": 618,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 1.4191816541883682,
+            "p95": 1.8953518337673612
+          },
+          "world_ticks": {
+            "mean": 1.828216552734375,
+            "p95": 2.4534403483072915
+          },
+          "body_ticks": {
+            "mean": 12.420723978678385,
+            "p95": 15.779876708984375
+          },
+          "body_grid_ticks": {
+            "mean": 0.418603911223235,
+            "p95": 0.4916042751736111
+          },
+          "query_ticks": {
+            "mean": 3.9259562739619502,
+            "p95": 5.244835747612847
+          },
+          "sat_ticks": {
+            "mean": 3.7506546585648146,
+            "p95": 5.009884304470486
+          },
+          "writeback_ticks": {
+            "mean": 0.39116606535734955,
+            "p95": 0.5552402072482638
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.023075048796916665,
+        "velocity_energy_p95": 0.0334873684,
+        "max_depth": 1.0318532,
+        "body_candidates_mean": 684.1166666666667,
+        "body_bounds_rejects_mean": 0.48333333333333334,
+        "solver_us_per_contact": 20.365916539193822,
+        "solver_mean": 7.507555700231482,
+        "solver_p95": 11.030222574869791,
+        "solver_p99": 11.200005425347221
+      },
+      {
+        "repeat": 0,
+        "arm": "sparse-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 29.970065858140483,
+        "period_p95": 33.483235677083336,
+        "period_p99": 33.612284342447914,
+        "work_mean": 29.704718554461444,
+        "work_p95": 31.858998616536457,
+        "work_p99": 32.397972954644096,
+        "phys_mean": 15.39522038212529,
+        "phys_p95": 17.489125569661457,
+        "phys_p99": 17.974341498480904,
+        "missed": 120,
+        "awake_max": 41,
+        "contacts_max": 300,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1103,
+        "z_min": -49.98955,
+        "z_max": -49.98365,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8250123200593171,
+            "p95": 0.9376152886284722
+          },
+          "world_ticks": {
+            "mean": 1.570265084725839,
+            "p95": 1.9343702528211806
+          },
+          "body_ticks": {
+            "mean": 8.09004652235243,
+            "p95": 9.36704847547743
+          },
+          "body_grid_ticks": {
+            "mean": 0.4773623996310764,
+            "p95": 0.5129597981770834
+          },
+          "query_ticks": {
+            "mean": 2.312651175039786,
+            "p95": 2.701995849609375
+          },
+          "sat_ticks": {
+            "mean": 2.5583178202311196,
+            "p95": 3.2469991048177085
+          },
+          "writeback_ticks": {
+            "mean": 0.1871136700665509,
+            "p95": 0.2247551812065972
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.0036661946489833334,
+        "velocity_energy_p95": 0.00656498875,
+        "max_depth": 0.994529724,
+        "body_candidates_mean": 406.4166666666667,
+        "body_bounds_rejects_mean": 0.35833333333333334,
+        "solver_us_per_contact": 19.96268234395683,
+        "solver_mean": 4.642987201831959,
+        "solver_p95": 5.429511176215278,
+        "solver_p99": 5.739356146918403
+      },
+      {
+        "repeat": 1,
+        "arm": "generic-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 36.450076049822215,
+        "period_p95": 33.55413818359375,
+        "period_p99": 33.68804931640625,
+        "work_mean": 22.109636424500266,
+        "work_p95": 29.683088514539932,
+        "work_p99": 30.879275851779514,
+        "phys_mean": 10.373011252320843,
+        "phys_p95": 17.848229302300346,
+        "phys_p99": 18.744259304470486,
+        "missed": 231,
+        "awake_max": 51,
+        "contacts_max": 402,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 976,
+        "z_min": -73.8802,
+        "z_max": -46.908,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6099609940140336,
+            "p95": 0.9098985460069444
+          },
+          "world_ticks": {
+            "mean": 1.2234198299455055,
+            "p95": 1.9078538682725694
+          },
+          "body_ticks": {
+            "mean": 4.785484841429157,
+            "p95": 8.062611897786459
+          },
+          "body_grid_ticks": {
+            "mean": 0.24559159455475985,
+            "p95": 0.3059624565972222
+          },
+          "query_ticks": {
+            "mean": 1.4587628682454428,
+            "p95": 2.2516920301649304
+          },
+          "sat_ticks": {
+            "mean": 1.5916706603250386,
+            "p95": 2.851810031467014
+          },
+          "writeback_ticks": {
+            "mean": 0.15767664026331019,
+            "p95": 0.2859530978732639
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.014356142889244618,
+        "velocity_energy_p95": 0.0261768214,
+        "max_depth": 1.00655603,
+        "body_candidates_mean": 339.6361111111111,
+        "body_bounds_rejects_mean": 0.1111111111111111,
+        "solver_us_per_contact": 19.329941104203563,
+        "solver_mean": 3.5397417704264322,
+        "solver_p95": 7.032992892795139,
+        "solver_p99": 7.577548556857639
+      },
+      {
+        "repeat": 1,
+        "arm": "generic-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 30.608406532346585,
+        "period_p95": 33.427103678385414,
+        "period_p99": 35.189249674479164,
+        "work_mean": 20.824444777877243,
+        "work_p95": 24.196248372395832,
+        "work_p99": 24.5177001953125,
+        "phys_mean": 9.526170857747395,
+        "phys_p95": 13.057071261935764,
+        "phys_p99": 13.340783013237846,
+        "missed": 115,
+        "awake_max": 53,
+        "contacts_max": 252,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6768187346281829,
+            "p95": 0.9310438368055556
+          },
+          "world_ticks": {
+            "mean": 1.1016391895435476,
+            "p95": 1.5051710340711806
+          },
+          "body_ticks": {
+            "mean": 4.50803556089048,
+            "p95": 5.856875949435764
+          },
+          "body_grid_ticks": {
+            "mean": 0.23834898206922744,
+            "p95": 0.2857937282986111
+          },
+          "query_ticks": {
+            "mean": 1.4822946619104456,
+            "p95": 1.9315083821614583
+          },
+          "sat_ticks": {
+            "mean": 1.4227195174605758,
+            "p95": 1.8956637912326388
+          },
+          "writeback_ticks": {
+            "mean": 0.18204631098994503,
+            "p95": 0.2678256564670139
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.00189347975778375,
+        "velocity_energy_p95": 0.0108960206,
+        "max_depth": 1.03907681,
+        "body_candidates_mean": 238.36666666666667,
+        "body_bounds_rejects_mean": 0.3,
+        "solver_us_per_contact": 18.97276580121195,
+        "solver_mean": 3.010503613507306,
+        "solver_p95": 4.475986056857639,
+        "solver_p99": 4.5252685546875
+      },
+      {
+        "repeat": 1,
+        "arm": "generic-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 30.607731002099563,
+        "period_p95": 33.540303548177086,
+        "period_p99": 33.6041259765625,
+        "work_mean": 21.637190387867115,
+        "work_p95": 24.92302788628472,
+        "work_p99": 25.17969428168403,
+        "phys_mean": 10.143647879141348,
+        "phys_p95": 13.06736585828993,
+        "phys_p99": 13.29478285047743,
+        "missed": 115,
+        "awake_max": 43,
+        "contacts_max": 261,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 136,
+        "z_min": -46.8829,
+        "z_max": -46.81881,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6767657244646991,
+            "p95": 0.8189561631944444
+          },
+          "world_ticks": {
+            "mean": 1.474575353551794,
+            "p95": 1.8100212944878473
+          },
+          "body_ticks": {
+            "mean": 4.066016924822772,
+            "p95": 5.713755289713542
+          },
+          "body_grid_ticks": {
+            "mean": 0.2448450724283854,
+            "p95": 0.29510498046875
+          },
+          "query_ticks": {
+            "mean": 1.5999064410174335,
+            "p95": 1.9605611165364583
+          },
+          "sat_ticks": {
+            "mean": 1.1764944853606047,
+            "p95": 1.9832933213975694
+          },
+          "writeback_ticks": {
+            "mean": 0.2115517227737992,
+            "p95": 0.2776930067274306
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.013393627154583334,
+        "velocity_energy_p95": 0.0256260429,
+        "max_depth": 0.998291016,
+        "body_candidates_mean": 311.64166666666665,
+        "body_bounds_rejects_mean": 0.075,
+        "solver_us_per_contact": 18.351722436862197,
+        "solver_mean": 3.662850867377387,
+        "solver_p95": 4.599917941623264,
+        "solver_p99": 4.680002848307292
+      },
+      {
+        "repeat": 1,
+        "arm": "generic-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 27.07459133363764,
+        "period_p95": 50.05047607421875,
+        "period_p99": 50.094136555989586,
+        "work_mean": 28.269022049138574,
+        "work_p95": 35.56226264105903,
+        "work_p99": 36.34874810112847,
+        "phys_mean": 13.752955891173563,
+        "phys_p95": 20.671830919053818,
+        "phys_p99": 21.500545925564236,
+        "missed": 360,
+        "awake_max": 50,
+        "contacts_max": 367,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1783,
+        "z_min": -73.8802,
+        "z_max": -49.99261,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8185777640637056,
+            "p95": 1.0929701063368056
+          },
+          "world_ticks": {
+            "mean": 1.4859130765184945,
+            "p95": 2.060909695095486
+          },
+          "body_ticks": {
+            "mean": 7.197539774576823,
+            "p95": 10.935794406467014
+          },
+          "body_grid_ticks": {
+            "mean": 0.5082290084273727,
+            "p95": 0.5689154730902778
+          },
+          "query_ticks": {
+            "mean": 2.2997684054904513,
+            "p95": 3.1162584092881946
+          },
+          "sat_ticks": {
+            "mean": 2.1400640417028356,
+            "p95": 3.651153564453125
+          },
+          "writeback_ticks": {
+            "mean": 0.1878159322856385,
+            "p95": 0.2673712836371528
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.010315771818043988,
+        "velocity_energy_p95": 0.0383696519,
+        "max_depth": 1.07531083,
+        "body_candidates_mean": 381.15,
+        "body_bounds_rejects_mean": 0.4222222222222222,
+        "solver_us_per_contact": 19.670994846027412,
+        "solver_mean": 3.9794422573513453,
+        "solver_p95": 6.490820990668403,
+        "solver_p99": 6.754343668619792
+      },
+      {
+        "repeat": 1,
+        "arm": "generic-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 21.471355755884595,
+        "period_p95": 50.0872802734375,
+        "period_p99": 52.896199544270836,
+        "work_mean": 38.395776649757664,
+        "work_p95": 46.91565958658854,
+        "work_p99": 48.898952907986114,
+        "phys_mean": 23.77428504096137,
+        "phys_p95": 32.00004408094618,
+        "phys_p99": 32.620079888237846,
+        "missed": 120,
+        "awake_max": 113,
+        "contacts_max": 618,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 1.4243222837094907,
+            "p95": 1.9143744574652777
+          },
+          "world_ticks": {
+            "mean": 1.8236975775824653,
+            "p95": 2.4296502007378473
+          },
+          "body_ticks": {
+            "mean": 12.516902443214699,
+            "p95": 15.932254367404514
+          },
+          "body_grid_ticks": {
+            "mean": 0.4425372653537326,
+            "p95": 0.5144110785590278
+          },
+          "query_ticks": {
+            "mean": 3.976376681857639,
+            "p95": 5.31144544813368
+          },
+          "sat_ticks": {
+            "mean": 3.696894243028429,
+            "p95": 4.819678412543403
+          },
+          "writeback_ticks": {
+            "mean": 0.3870281078197338,
+            "p95": 0.5314161512586806
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.023075048796916665,
+        "velocity_energy_p95": 0.0334873684,
+        "max_depth": 1.0318532,
+        "body_candidates_mean": 684.1166666666667,
+        "body_bounds_rejects_mean": 0.48333333333333334,
+        "solver_us_per_contact": 20.373618141274964,
+        "solver_mean": 7.51039476747866,
+        "solver_p95": 11.064124213324654,
+        "solver_p99": 11.217264811197916
+      },
+      {
+        "repeat": 1,
+        "arm": "generic-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 29.970061035829257,
+        "period_p95": 33.4581298828125,
+        "period_p99": 33.647867838541664,
+        "work_mean": 29.712355578387225,
+        "work_p95": 31.898284912109375,
+        "work_p99": 32.38624403211806,
+        "phys_mean": 15.425731602421513,
+        "phys_p95": 17.504777696397568,
+        "phys_p99": 17.970781114366318,
+        "missed": 120,
+        "awake_max": 41,
+        "contacts_max": 300,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1103,
+        "z_min": -49.98955,
+        "z_max": -49.98365,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8228652954101563,
+            "p95": 0.9330986870659722
+          },
+          "world_ticks": {
+            "mean": 1.5434076379846644,
+            "p95": 1.9097120496961806
+          },
+          "body_ticks": {
+            "mean": 8.150971758807147,
+            "p95": 9.395653618706596
+          },
+          "body_grid_ticks": {
+            "mean": 0.510031071415654,
+            "p95": 0.5672946506076388
+          },
+          "query_ticks": {
+            "mean": 2.3375207123933013,
+            "p95": 2.7070142957899304
+          },
+          "sat_ticks": {
+            "mean": 2.5108164186830875,
+            "p95": 3.2100355360243054
+          },
+          "writeback_ticks": {
+            "mean": 0.18830718994140624,
+            "p95": 0.2258673773871528
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.0036661946489833334,
+        "velocity_energy_p95": 0.00656498875,
+        "max_depth": 0.994529724,
+        "body_candidates_mean": 406.4166666666667,
+        "body_bounds_rejects_mean": 0.35833333333333334,
+        "solver_us_per_contact": 19.947330613506274,
+        "solver_mean": 4.639416645191334,
+        "solver_p95": 5.411373562282986,
+        "solver_p99": 5.773251003689236
+      },
+      {
+        "repeat": 1,
+        "arm": "sparse-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 36.57363142519633,
+        "period_p95": 33.551005045572914,
+        "period_p99": 33.669677734375,
+        "work_mean": 22.14531155809944,
+        "work_p95": 29.752315945095486,
+        "work_p99": 30.860870361328125,
+        "phys_mean": 10.390108857331452,
+        "phys_p95": 17.847856309678818,
+        "phys_p99": 18.747500949435764,
+        "missed": 230,
+        "awake_max": 51,
+        "contacts_max": 402,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 976,
+        "z_min": -73.8802,
+        "z_max": -46.908,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6085215627411266,
+            "p95": 0.9007025824652778
+          },
+          "world_ticks": {
+            "mean": 1.2433401790665992,
+            "p95": 1.9595167371961806
+          },
+          "body_ticks": {
+            "mean": 4.779931659463011,
+            "p95": 8.033660888671875
+          },
+          "body_grid_ticks": {
+            "mean": 0.24560872772593556,
+            "p95": 0.3051011827256944
+          },
+          "query_ticks": {
+            "mean": 1.4691992394718123,
+            "p95": 2.2812364366319446
+          },
+          "sat_ticks": {
+            "mean": 1.6118881037205826,
+            "p95": 2.8569539388020835
+          },
+          "writeback_ticks": {
+            "mean": 0.15796984448845003,
+            "p95": 0.2752922905815972
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.014356142889244618,
+        "velocity_energy_p95": 0.0261768214,
+        "max_depth": 1.00655603,
+        "body_candidates_mean": 339.6361111111111,
+        "body_bounds_rejects_mean": 0.1111111111111111,
+        "solver_us_per_contact": 19.343987041274563,
+        "solver_mean": 3.542313893636068,
+        "solver_p95": 7.00764634874132,
+        "solver_p99": 7.57391357421875
+      },
+      {
+        "repeat": 1,
+        "arm": "sparse-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 30.739025375419207,
+        "period_p95": 33.413960774739586,
+        "period_p99": 35.707804361979164,
+        "work_mean": 20.881523358380353,
+        "work_p95": 24.313700358072918,
+        "work_p99": 24.63060845269097,
+        "phys_mean": 9.549359554714627,
+        "phys_p95": 12.954043918185764,
+        "phys_p99": 13.332665337456596,
+        "missed": 114,
+        "awake_max": 53,
+        "contacts_max": 252,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6780943693938078,
+            "p95": 0.9407077365451388
+          },
+          "world_ticks": {
+            "mean": 1.1102107295283565,
+            "p95": 1.509490966796875
+          },
+          "body_ticks": {
+            "mean": 4.53627358895761,
+            "p95": 5.861114501953125
+          },
+          "body_grid_ticks": {
+            "mean": 0.24109019526728878,
+            "p95": 0.2872450086805556
+          },
+          "query_ticks": {
+            "mean": 1.4898629930284288,
+            "p95": 1.9691196017795138
+          },
+          "sat_ticks": {
+            "mean": 1.446712522153501,
+            "p95": 1.95458984375
+          },
+          "writeback_ticks": {
+            "mean": 0.18565589057074652,
+            "p95": 0.2673441569010417
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.00189347975778375,
+        "velocity_energy_p95": 0.0108960206,
+        "max_depth": 1.03907681,
+        "body_candidates_mean": 238.36666666666667,
+        "body_bounds_rejects_mean": 0.3,
+        "solver_us_per_contact": 18.860830083481677,
+        "solver_mean": 2.9927422134964554,
+        "solver_p95": 4.45751953125,
+        "solver_p99": 4.547885470920139
+      },
+      {
+        "repeat": 1,
+        "arm": "sparse-planes-scalar",
+        "added": 64,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 30.477823059232673,
+        "period_p95": 33.531534830729164,
+        "period_p99": 33.617513020833336,
+        "work_mean": 21.680166258635346,
+        "work_p95": 24.927978515625,
+        "work_p99": 25.30341254340278,
+        "phys_mean": 10.171368210404008,
+        "phys_p95": 13.12119886610243,
+        "phys_p99": 13.287173800998264,
+        "missed": 116,
+        "awake_max": 43,
+        "contacts_max": 261,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 136,
+        "z_min": -46.8829,
+        "z_max": -46.81881,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.6772419117115162,
+            "p95": 0.8094957139756944
+          },
+          "world_ticks": {
+            "mean": 1.497946732132523,
+            "p95": 1.8018425835503473
+          },
+          "body_ticks": {
+            "mean": 4.066352109555845,
+            "p95": 5.718319363064236
+          },
+          "body_grid_ticks": {
+            "mean": 0.2463746812608507,
+            "p95": 0.2937961154513889
+          },
+          "query_ticks": {
+            "mean": 1.6073487175835504,
+            "p95": 1.9282565646701388
+          },
+          "sat_ticks": {
+            "mean": 1.1928424693919994,
+            "p95": 1.999481201171875
+          },
+          "writeback_ticks": {
+            "mean": 0.2126134236653646,
+            "p95": 0.2780049641927083
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.013393627154583334,
+        "velocity_energy_p95": 0.0256260429,
+        "max_depth": 0.998291016,
+        "body_candidates_mean": 311.64166666666665,
+        "body_bounds_rejects_mean": 0.075,
+        "solver_us_per_contact": 18.36530619159263,
+        "solver_mean": 3.6655620716236257,
+        "solver_p95": 4.599361843532986,
+        "solver_p99": 4.724263509114583
+      },
+      {
+        "repeat": 1,
+        "arm": "sparse-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 27.14266935990224,
+        "period_p95": 50.050638834635414,
+        "period_p99": 50.080973307291664,
+        "work_mean": 28.232954802336515,
+        "work_p95": 35.34797498914931,
+        "work_p99": 36.32019721137153,
+        "phys_mean": 13.762429131401909,
+        "phys_p95": 20.646094428168404,
+        "phys_p99": 21.575415717230904,
+        "missed": 360,
+        "awake_max": 50,
+        "contacts_max": 367,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1783,
+        "z_min": -73.8802,
+        "z_max": -49.99261,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8190061781141493,
+            "p95": 1.0912204318576388
+          },
+          "world_ticks": {
+            "mean": 1.5134985841350792,
+            "p95": 2.1015455457899304
+          },
+          "body_ticks": {
+            "mean": 7.179773062246817,
+            "p95": 10.888492160373264
+          },
+          "body_grid_ticks": {
+            "mean": 0.5045026614342207,
+            "p95": 0.5817532009548612
+          },
+          "query_ticks": {
+            "mean": 2.2813812726809655,
+            "p95": 3.097873263888889
+          },
+          "sat_ticks": {
+            "mean": 2.182534403859833,
+            "p95": 3.7130906846788196
+          },
+          "writeback_ticks": {
+            "mean": 0.18837949964735243,
+            "p95": 0.2788526746961806
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.010315771818043988,
+        "velocity_energy_p95": 0.0383696519,
+        "max_depth": 1.07531083,
+        "body_candidates_mean": 381.15,
+        "body_bounds_rejects_mean": 0.4222222222222222,
+        "solver_us_per_contact": 19.663823644447483,
+        "solver_mean": 3.9779915232717253,
+        "solver_p95": 6.511328803168403,
+        "solver_p99": 6.800252278645833
+      },
+      {
+        "repeat": 1,
+        "arm": "sparse-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 21.535730408688373,
+        "period_p95": 50.086568196614586,
+        "period_p99": 52.477634006076386,
+        "work_mean": 38.3503173828125,
+        "work_p95": 46.92987399631076,
+        "work_p99": 48.896209716796875,
+        "phys_mean": 23.72079349093967,
+        "phys_p95": 31.768022325303818,
+        "phys_p99": 32.45618014865451,
+        "missed": 120,
+        "awake_max": 113,
+        "contacts_max": 618,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 1.4223582515010127,
+            "p95": 1.9157036675347223
+          },
+          "world_ticks": {
+            "mean": 1.8418168244538484,
+            "p95": 2.4496900770399304
+          },
+          "body_ticks": {
+            "mean": 12.445689618145979,
+            "p95": 15.743370903862846
+          },
+          "body_grid_ticks": {
+            "mean": 0.43956739637586806,
+            "p95": 0.5181749131944444
+          },
+          "query_ticks": {
+            "mean": 3.941152247676143,
+            "p95": 5.219126383463542
+          },
+          "sat_ticks": {
+            "mean": 3.746520572238498,
+            "p95": 4.952050103081597
+          },
+          "writeback_ticks": {
+            "mean": 0.38986149540653936,
+            "p95": 0.5605299207899306
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.023075048796916665,
+        "velocity_energy_p95": 0.0334873684,
+        "max_depth": 1.0318532,
+        "body_candidates_mean": 684.1166666666667,
+        "body_bounds_rejects_mean": 0.48333333333333334,
+        "solver_us_per_contact": 20.373718557294453,
+        "solver_mean": 7.510431784170645,
+        "solver_p95": 11.013498942057291,
+        "solver_p99": 11.231797960069445
+      },
+      {
+        "repeat": 1,
+        "arm": "sparse-planes-scalar",
+        "added": 128,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 29.84583552999713,
+        "period_p95": 33.558329264322914,
+        "period_p99": 33.6248779296875,
+        "work_mean": 29.743040127224393,
+        "work_p95": 31.982323540581596,
+        "work_p99": 32.421969943576386,
+        "phys_mean": 15.44904135244864,
+        "phys_p95": 17.537316216362846,
+        "phys_p99": 18.028269449869793,
+        "missed": 120,
+        "awake_max": 41,
+        "contacts_max": 300,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1103,
+        "z_min": -49.98955,
+        "z_max": -49.98365,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8223692152235244,
+            "p95": 0.9262220594618056
+          },
+          "world_ticks": {
+            "mean": 1.583238446270978,
+            "p95": 1.9420810275607638
+          },
+          "body_ticks": {
+            "mean": 8.134575737847221,
+            "p95": 9.438995361328125
+          },
+          "body_grid_ticks": {
+            "mean": 0.5037234271014178,
+            "p95": 0.5645412868923612
+          },
+          "query_ticks": {
+            "mean": 2.322093313711661,
+            "p95": 2.7554185655381946
+          },
+          "sat_ticks": {
+            "mean": 2.564405314127604,
+            "p95": 3.253323025173611
+          },
+          "writeback_ticks": {
+            "mean": 0.187176513671875,
+            "p95": 0.23143513997395834
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.0036661946489833334,
+        "velocity_energy_p95": 0.00656498875,
+        "max_depth": 0.994529724,
+        "body_candidates_mean": 406.4166666666667,
+        "body_bounds_rejects_mean": 0.35833333333333334,
+        "solver_us_per_contact": 19.953442390587988,
+        "solver_mean": 4.640838142677589,
+        "solver_p95": 5.442019992404514,
+        "solver_p99": 5.753028021918403
+      }
+    ],
+    "settle_checks": []
+  },
+  "raw_sha256": {
+    "collision-phase-10.csv": "175e75b35c2fabfdc5369180c91558675b5dddc36e2cea4d0ac93bd1190e9ffc",
+    "vu0-phase-10.csv": "f2c99121a2769ce8eef9c122d920b83d7a0628e89d1d1359c10012874c636235",
+    "vu0-class-10.csv": "a3452e629870955f42efd888a235412820e44694ea90f6e7bfeddd5b20687f4c",
+    "world-grid-10.csv": "72f82a2a2ee3521f1311f7a338a4ca0bc855180fce6daf35e9bb64245a5b195b",
+    "collision-phase-11.csv": "fdd75b88189e78505f4f62f9353d343b68643e5df637ef2a6437772ef61fbe3d",
+    "vu0-phase-11.csv": "69984f0e454f891d125a257375ab0b11c3446ad68cd367f55d0b2c749ef7d799",
+    "vu0-class-11.csv": "ee7ed5c2f19f747e09fbe540bdde6f8818a5796a92e88403f7fae5eab91514c9",
+    "world-grid-11.csv": "90e16613503050bb8ff3cda8badd9512a00f8cf8bdc750688c4ae9e11d603127",
+    "collision-phase-12.csv": "0ff299ac087df6c224df7b04bf5ce4f180126eba90d3bc67dd9a3f8a5ed34625",
+    "vu0-phase-12.csv": "29044211fbd321eefe05861e915b8d8b4896dbfaec1a1f33a616db0e54a02c1e",
+    "vu0-class-12.csv": "4992a5dc41289085d8a6bdd73eff2d8a3b8470b82c15539cd20b9ce3b92ed96a",
+    "world-grid-12.csv": "4e71435b47497ac4d1923e92d863d549fb1ca4e70fc5d442597b116682e9c9e0",
+    "collision-phase-13.csv": "2857ef3f8f6e705b5e080cc635265d1ec66333dc535c19cb93a5d960d8e72a96",
+    "vu0-phase-13.csv": "be7367cb96f6bfd1d254cea979e45ba46bb1dabc9115dc51a2bfa850e7f852de",
+    "vu0-class-13.csv": "e631f7c04e8c11ae4b12f81a986b07d7a99a0400cd4ce39f9e93562e13d6bf9a",
+    "world-grid-13.csv": "92e9a0426de8701c7ae8d233abd59bb709b3ee92faefd2f72613130ac9e56dc1",
+    "collision-phase-24.csv": "5dcfc2b1caea934d9c430afedd60399799b66d38361ee41bd9fcce3f287a80d2",
+    "vu0-phase-24.csv": "257afbc52c5cd89549b56a0192c166a18a18be505e342007cbd36f12a3b52470",
+    "vu0-class-24.csv": "25306502a0cd363f66f26fb2a5ce7516c83514996308fbb6d5de3d692d70f82e",
+    "world-grid-24.csv": "5bcd50c4a84a856ccc1dff2db834c617eaeb778e9326d2fa0bc30310bf9e80ff",
+    "collision-phase-25.csv": "1fa222ce842eb51c1fea86423b25b3f67417ce3a2927fac1df5bffbfad83db87",
+    "vu0-phase-25.csv": "a25af1ea5004bdb351b5ebd52a9241c722a683d99be251bebe97eec836d5fdae",
+    "vu0-class-25.csv": "331a5efd2a0625aca2728c1e9deca7d0fe0a9bc5c006e41ceeded1c83058a2b6",
+    "world-grid-25.csv": "45e1dfbd1b2917a43608419f21553b186e582f2198030f0a3fe0793b2bedd63e",
+    "collision-phase-26.csv": "e32ca98dd8d48780b0dea09c866da11e17d880d22baed54e853dba1018f5aa44",
+    "vu0-phase-26.csv": "703dcd00ffa4ac24a40e5871a348b9a2fb3f746146586acee12f82a6aa5db8af",
+    "vu0-class-26.csv": "c75a0d45cc377a32c3563c4af7f264c4cbbe91ebae1807e8a6b2d53ef4758a65",
+    "world-grid-26.csv": "4d068bd581bd10a3fc4b8510152521baa4d8163daf88f09ad6b6270cefae3bbc",
+    "collision-phase-27.csv": "6203bb2191af0d9613816e58cbc0afb632ad9ead870f6eaecf1ea04601537b35",
+    "vu0-phase-27.csv": "e91d5ba604f525f472bcad47dde8550680827070ff632c12cfa3886d4f6a8aa0",
+    "vu0-class-27.csv": "bff8f92389c054819355dd2cbe5aeb4097b5278760ad6984b6b33f23f8f20307",
+    "world-grid-27.csv": "d242ffda11a97cd3e6ff3bf2ed53e638026cc00e3f08f02fd4532213b2208900",
+    "plane-sparse-10.csv": "49d982cd9437e9207d2b2a14b35bec747def0f79a50dd414ab2bec3251803815",
+    "plane-sparse-11.csv": "aed74e41eb109e231963ab0b7d280be1c5056f329876ffe4232060f677f04023",
+    "plane-sparse-12.csv": "330637a51630892b96d8871ee5d6b7296bb720fdd2b9faab3729b675845cb6ba",
+    "plane-sparse-13.csv": "534681165b09dddf19d1c4b43bb3d36e0ccf40f849353d096d69d769cdf605fe",
+    "plane-sparse-24.csv": "6ba7ed607d55c0ae94643b184e36c945aaeba2ddc1983cd9da37d9003f444e3f",
+    "plane-sparse-25.csv": "39acdd7bfe0c1e77ac4f4bb124828d877bbb2dfdd33210dd38de06c2f6d48a21",
+    "plane-sparse-26.csv": "ecbffe419f9f71429d245fb6fc150ae6be228231fe7eeab366845126cc3acb31",
+    "plane-sparse-27.csv": "e9ace27e9b63d5af527e5bcad9a939db41b08a5bc559f760b255ea2c0401b745"
+  },
+  "world_metrics": [
+    {
+      "phase": 10,
+      "queries": 0,
+      "verified": 0,
+      "errors": 0,
+      "builds": 6
+    },
+    {
+      "phase": 11,
+      "queries": 28764,
+      "verified": 0,
+      "errors": 0,
+      "builds": 6
+    },
+    {
+      "phase": 12,
+      "queries": 0,
+      "verified": 0,
+      "errors": 0,
+      "builds": 6
+    },
+    {
+      "phase": 13,
+      "queries": 45300,
+      "verified": 0,
+      "errors": 0,
+      "builds": 6
+    },
+    {
+      "phase": 24,
+      "queries": 28764,
+      "verified": 0,
+      "errors": 0,
+      "builds": 6
+    },
+    {
+      "phase": 25,
+      "queries": 0,
+      "verified": 0,
+      "errors": 0,
+      "builds": 6
+    },
+    {
+      "phase": 26,
+      "queries": 45300,
+      "verified": 0,
+      "errors": 0,
+      "builds": 6
+    },
+    {
+      "phase": 27,
+      "queries": 0,
+      "verified": 0,
+      "errors": 0,
+      "builds": 6
+    }
+  ],
+  "logged_workload_parity": {
+    "pairs": 4,
+    "frames_per_arm": 2400,
+    "fields": [
+      "contacts",
+      "generated_contacts",
+      "awake",
+      "body_candidates",
+      "body_bounds_rejects",
+      "car_z",
+      "car_speed",
+      "velocity_energy",
+      "max_depth"
+    ],
+    "passed": true,
+    "mismatched_frames": 0,
+    "first_mismatches": [],
+    "resolution": "Exact integer counters and equality at printed floating-point resolution; not a bitwise full-body state proof."
+  },
+  "qualified": true,
+  "log_sha256": "cb28d6931e4019732fddad220b2a3b68035d1f4ff804ca19dcd2d336d1de4e18",
+  "scope": "Same-ELF nominal-step controlled throughput comparison; this does not qualify production-clock FPS. Both arms use selected cached world admission,8m body grid, canonical scalar SAT/CCD and6+3 solver. Exact six-plane normal classification and normal-point guard retain full generic fallback. Nominal-step runs require paired logged-workload parity; production clock is unchanged.",
+  "plane_metrics": [
+    {
+      "phase": 10,
+      "calls": 0,
+      "checked": 0,
+      "errors": 0,
+      "shapes": 0,
+      "eligible_shapes": 0,
+      "guard_fallback": 0
+    },
+    {
+      "phase": 11,
+      "calls": 0,
+      "checked": 0,
+      "errors": 0,
+      "shapes": 0,
+      "eligible_shapes": 0,
+      "guard_fallback": 0
+    },
+    {
+      "phase": 12,
+      "calls": 0,
+      "checked": 0,
+      "errors": 0,
+      "shapes": 0,
+      "eligible_shapes": 0,
+      "guard_fallback": 0
+    },
+    {
+      "phase": 13,
+      "calls": 0,
+      "checked": 0,
+      "errors": 0,
+      "shapes": 0,
+      "eligible_shapes": 0,
+      "guard_fallback": 0
+    },
+    {
+      "phase": 24,
+      "calls": 0,
+      "checked": 0,
+      "errors": 0,
+      "shapes": 0,
+      "eligible_shapes": 0,
+      "guard_fallback": 0
+    },
+    {
+      "phase": 25,
+      "calls": 0,
+      "checked": 0,
+      "errors": 0,
+      "shapes": 0,
+      "eligible_shapes": 0,
+      "guard_fallback": 0
+    },
+    {
+      "phase": 26,
+      "calls": 0,
+      "checked": 0,
+      "errors": 0,
+      "shapes": 0,
+      "eligible_shapes": 0,
+      "guard_fallback": 0
+    },
+    {
+      "phase": 27,
+      "calls": 0,
+      "checked": 0,
+      "errors": 0,
+      "shapes": 0,
+      "eligible_shapes": 0,
+      "guard_fallback": 0
+    }
+  ],
+  "performance_qualified": true,
+  "normal_clock_fps_qualified": false,
+  "admission_qualified": true,
+  "optimization_selected": false,
+  "selection_reason": "Normal-clock dense FPS improves with fewer contacts, but four matched nominal-step workload pairs differ by at most0.018ms mean physics. No repeatable direct compute win; keep the production generic plane path."
+}

@@ -10,7 +10,7 @@ def main():
     subprocess.run([sys.executable,str(Path(__file__).with_name('body_grid_timing_analyze.py')),str(a.root),'--log',str(a.log),'--metadata',str(a.metadata),'--output',str(a.output)],check=True)
     result=json.loads(a.output.read_text(encoding='utf8'));log=a.log.read_text(encoding='utf8',errors='replace')
     assert 'PLANESPARSEDIFF ' not in log
-    expected=[12,13] if verify else list(range(28));metrics=[]
+    expected=[12,13] if verify else meta.get('expected_phases',list(range(28)));metrics=[]
     for phase in expected:
         source=a.root/f'plane-sparse-{phase}.csv';rows=list(csv.DictReader(source.open()));assert len(rows)==1
         r={k:int(v) for k,v in rows[0].items()};assert r['phase']==phase and r['errors']==0 and r['checked']<=r['calls']
@@ -27,9 +27,13 @@ def main():
         return x
     result['summary']=labels(result['summary']);result['plane_metrics']=metrics
     result['performance_qualified']=not verify
+    result['normal_clock_fps_qualified']=not verify and not meta.get('fixed_simulation_step')
     result['admission_qualified']=verify or bool(meta.get('same_elf_admission_qualified'))
-    result['scope']=('Exact face/depth bit shadow for every eligible point query; candidate and independent world-admission oracle overhead invalidate FPS. ' if verify else 'Complete same-ELF normal-clock frame comparison, no plane/world oracle or PMU/replay work in measured frames. ')+\
-        'Both arms use selected cached world admission,8m body grid, canonical scalar SAT/CCD and6+3 solver. Exact six-plane normal classification and normal-point guard retain full generic fallback. Variable-step trajectories can differ.'
+    result['scope']=('Exact face/depth bit shadow for every eligible point query; candidate and independent world-admission oracle overhead invalidate FPS. ' if verify else
+        'Same-ELF nominal-step controlled throughput comparison; this does not qualify production-clock FPS. ' if meta.get('fixed_simulation_step') else
+        'Complete same-ELF normal-clock frame comparison, no plane/world oracle or PMU/replay work in measured frames. ')+\
+        'Both arms use selected cached world admission,8m body grid, canonical scalar SAT/CCD and6+3 solver. Exact six-plane normal classification and normal-point guard retain full generic fallback. '+\
+        ('Nominal-step runs require paired logged-workload parity; production clock is unchanged.' if meta.get('fixed_simulation_step') else 'Variable-step trajectories can differ.')
     a.output.write_text(json.dumps(result,indent=2),encoding='utf8')
     print(f'Plane sparse: {sum(r["checked"] for r in metrics)} exact shadow comparisons, zero errors; frames={result["measured_frames"]}')
 

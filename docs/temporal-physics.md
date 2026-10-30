@@ -708,3 +708,31 @@ The [physical admission gate](../tools/ps2rig/results/plane-sparse-verify-2026-1
 passed1,050,837 eligible point comparisons and56,057 independent world-query
 checks with zero errors. This is correctness evidence only; shadow overhead
 invalidates its FPS and production timing qualification remains pending.
+
+
+The complete [normal-clock plane comparison](../tools/ps2rig/results/plane-sparse-normal-2026-10-30.json)
+contains16,800 frames with all accounting checks passing.128-pile drive FPS
+changes21.39->23.82 and20.36->21.43, with fewer contacts in both faster live
+trajectories. This alone does not isolate an arithmetic gain.
+
+The separate [nominal-step control](../tools/ps2rig/results/plane-sparse-fixed-2026-10-30.json)
+contains4800 frames/four workload pairs and2400 exactly matched logged frame
+pairs at printed telemetry resolution. Mean drive physics changes10.401->10.390
+and10.373->10.390ms for64 props,13.709->13.713 and13.753->13.762ms for128.
+The largest absolute mean difference is0.018ms. Its new ELF independently passes
+724,457 exact point shadows before timing on the same binary. Nominal timing
+is not production-clock FPS. The sparse-plane prototype is not selected:
+production retains the generic point-plane test, with the existing cached-world
+optimization unchanged. Keep the favorable normal-clock and negligible
+controlled-workload results together; they demonstrate trajectory feedback.
+
+
+Architecture audit: production asynchronous VU0 physics remains off. Its optional
+micro path starts only in the body-pair stage, after world contacts. A pair reaches
+micro SAT/CCD only after scalar corner contacts failed, and EE still prepares
+cross axes and reconstructs/confirms selected results. The chained packet
+scheduler improves this partition; it does not qualify full EE/FPU/VU0 overlap
+or show hardware saturation. The next architectural experiment should expose
+independent EE/FPU work earlier, audit COP2 ownership over that interval, preserve
+contact order and account for duplicated EE work as well as waits. FPU shares
+the EE instruction stream; it is not an independently scheduled task processor.

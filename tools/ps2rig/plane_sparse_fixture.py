@@ -44,14 +44,14 @@ static_assert(sizeof(RbStep)==880,"Sparse flag must use existing bool padding");
 } } // Vehicle_playground::PlaneSparseProbe
 '''
 
-def install(repo,root,verify):
+def install(repo,root,verify,dense=False):
     common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
     allowed=(common.parent/'.tmp').resolve();assert root.is_relative_to(allowed) and root!=allowed
     p=root/'metadata.json';meta=json.loads(p.read_text(encoding='utf8'))
-    assert meta.get('world_cache') and meta.get('shared_physics') and not meta.get('fixed_simulation_step')
+    assert meta.get('world_cache') and meta.get('shared_physics')
     engine=root/'engine/engine';project=root/'district'
     if not meta.get('plane_sparse_comparison'):
-        assert meta.get('solver_scratchpad')
+        assert meta.get('solver_scratchpad') and not meta.get('fixed_simulation_step')
         p=project/'inc/game_runtime.gen.hpp';s=p.read_text(encoding='utf8')
         before='  bool sphere;\n  float sphereR;';assert s.count(before)==1
         s=s.replace(before,'  bool sphere;\n  bool sparseBox; // exact local plane pattern, recomputed once per step\n  float sphereR;',1)
@@ -86,16 +86,26 @@ def install(repo,root,verify):
         (engine/'inc/debug/collision_bench.hpp').write_bytes(bench.encode());p.write_bytes(baseline.encode())
         (engine/'inc/debug/plane_sparse_probe.hpp').write_bytes(PROBE.encode())
         shutil.copyfile(repo/'tools/ps2rig/plane_sparse.hpp',engine/'inc/debug/plane_sparse.hpp')
+    if dense and not meta.get('plane_dense_control'):
+        assert meta.get('fixed_simulation_step'),'Use body_grid_fixture.py --fixed-step first'
+        p=project/'src/gen/collision_baseline.gen.cpp';s=p.read_text(encoding='utf8')
+        before='if(Tyra::vu0SatVerify && !TYRA_TEMPORAL_SETTLE)CB::phase=12;';assert s.count(before)==1
+        s=s.replace(before,before+'else CB::phase=10;',1)
+        before='++CB::phase;CB::ready=false;';assert s.count(before)==1
+        s=s.replace(before,'++CB::phase;if(!Tyra::vu0SatVerify && CB::phase==14)CB::phase=24;CB::ready=false;',1)
+        p.write_bytes(s.encode());meta['plane_dense_control']=True
     cfg=project/'bin/sat-verify.cfg'
     if verify:cfg.write_bytes(b'verify\n')
     elif cfg.exists():cfg.unlink()
     for name in ['solver_scratchpad','solver_layout','physics_pmu','layout_source_sha256','pmu_source_sha256','scratchpad_scope','pmu_scope']:
         meta.pop(name,None)
     meta.update(plane_sparse_comparison=True,plane_sparse_verify=verify,world_grid_verify=verify,shadow_enabled=verify,
-        active_mode='plane-sparse-verify' if verify else 'plane-sparse-timing',same_elf_admission_qualified=False,expected_phases=list(range(28)),
+        active_mode='plane-sparse-verify' if verify else 'plane-sparse-timing',same_elf_admission_qualified=False,
+        expected_phases=[10,11,12,13,24,25,26,27] if meta.get('plane_dense_control') else list(range(28)),
         comparison='Shared cached-world/body8m scalar physics: generic plane dot products vs exact signed-axis planes with full fallback, same six/three solver passes; no replay or PMU instrumentation')
     (root/'metadata.json').write_text(json.dumps(meta,indent=2),encoding='utf8')
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--scratch',required=True,type=Path);p.add_argument('--verify',action='store_true')
-    p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);a=p.parse_args();install(a.repo.resolve(),a.scratch.resolve(),a.verify)
+    p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);p.add_argument('--dense-only',action='store_true')
+    a=p.parse_args();install(a.repo.resolve(),a.scratch.resolve(),a.verify,a.dense_only)

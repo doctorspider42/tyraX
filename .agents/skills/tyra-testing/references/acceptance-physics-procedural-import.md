@@ -231,3 +231,19 @@ plane_sparse_fixture.py removes prior replay/PMU probes and uses the same cached
 world backend in both arms. Toggle its cfg without rebuilding for28-phase
 normal-clock timing; plane_sparse_analyze.py rejects nonzero probe counters in
 timing mode. Keep the original result during shadow verification.
+
+
+Sparse planes are not selected after the controlled follow-up. Favorable
+normal-clock128-pile FPS accompanies fewer contacts. A separate qualified ELF
+passes724,457 shadows and4800 nominal-step frame rows with2400 matched logged
+pairs; four drive-workload means differ by at most0.018ms. Keep both packages
+and reject production promotion from the variable-step FPS alone. Nominal
+results require exact printed telemetry parity, without weakening that gate.
+
+
+The private sorted-prefix body index keeps linear storage and exact inclusive
+admission, sleepers/sweeps and original body-index order. Host oracle:120,000
+full-walk queries. Physical gate:48,606 queries, two independently decoded
+snapshots, exact printed workload parity and complete accounting. Generic
+planes and cached-world admission are shared controls; timing remains separate.
+body_sweep_analyze.py validates each snapshot by an independent full scan.

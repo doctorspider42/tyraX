@@ -45,9 +45,9 @@ def main():
             if 'builds' in w:assert w['builds']>=0
             if int(rows[0]['baseline']):
                 assert w['queries']==0
-                # Plane arithmetic controls share the selected cached-world
-                # backend; its baseline legitimately builds the same index.
-                if not meta.get('plane_sparse_comparison'):assert w.get('builds',0)==0
+                # Plane/body-index controls share the cached-world backend;
+                # their baseline legitimately builds that same world index.
+                if not (meta.get('plane_sparse_comparison') or meta.get('body_sweep_comparison')):assert w.get('builds',0)==0
             world_metrics.append(w);hashes[source.name]=hashlib.sha256(source.read_bytes()).hexdigest()
         count+=len(rows)
     if world:assert sum(w['queries']for w in world_metrics)>0
