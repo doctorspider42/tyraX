@@ -319,6 +319,18 @@ controller receives the original object dt and retains vehicle conversion
 rounding explicitly at the vehicle adapter; neither admission tolerance nor
 workload equality is relaxed. Requalification of the new ELF is pending.
 
+The corrected nominal physical admission passes in
+`results/unified-timeline-nominal-admission-2026-10-30.*` on ELF
+`557eb14d3f9b0cf1a8d271970d512c41fcc75bae0f691d7000adac7855727a6e`.
+All750 per-phase body/vehicle end-state fingerprints agree, as do600 measured
+workload/contact frames and every raw initialized step/contact field at
+frames0/1. Both arms execute750 object and750 vehicle updates, with138
+active bodies and3 active cars in this fixture. Saved positive contacts,
+both shared-image corpora,2048 SAT cases and50,000 precision cases pass.
+In-memory count and warm-frame state-hash falsifiers reject as expected.
+Shadow timings remain invalid. Double-step screening and unshadowed costs
+are still pending; no shared contact solver or production default is selected.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used
