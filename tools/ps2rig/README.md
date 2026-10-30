@@ -259,8 +259,8 @@ chassis contacts do not enter the new body-pair VU0 queue. A bumped prop then
 continues in the ordinary object physics pipeline on a subsequent update;
 object physics precedes updateVehicles in the frame. The present optimization
 therefore accelerates the prop simulation, not the complete vehicle detector.
-Work pauses here at the user's request; no further experiment is implied by
-this checkpoint.
+Work paused at this checkpoint at the user's request. The shared-timeline
+prototype below records the subsequently requested integration experiment.
 
 ## Shared object/vehicle timeline prototype
 
@@ -344,6 +344,55 @@ This screen does not prove handling quality, energy conservation or complete
 rotational CCD. Counts such as contacts/awake/energy in the original CSV now
 accumulate across substeps and cannot be read as distinct body counts or
 compared as equal workloads. Unshadowed nominal overhead remains pending.
+
+`results/unified-timeline-nominal-timing-2026-10-30.*` completes4800 measured
+rows and2400 matched same-ELF workload-frame pairs in both run orders. For64
+props the shared-clock combined boundary costs11.424/11.379ms versus
+11.327/11.305ms for control:0.096/0.074ms overhead. For128 it costs18.799/18.817
+versus18.773/18.837ms:the difference changes sign (+0.026/-0.020ms), so no
+consistent improvement is established. The boundary includes object physics,
+spinners, vehicle updates and common probe checks; smoke/skids/debris remain
+outside. This is controller overhead on a common compiled reference, not a
+physics speedup or normal-clock FPS result.
+
+The prior-source audit is explicitly unqualified:
+`results/unified-timeline-source-audit-2026-10-30.json`. Raw initialized steps
+and contacts at frames0/1 match the previous admitted zero-friction build,
+but all600 later measured rows differ. The first divergent update/instruction
+has not been localized. Same-ELF clock admission does not establish equality
+to that older source baseline; do not compare their absolute timings or add
+historical gains. Reports explicitly leave prior-source equivalence and
+production integration unqualified. Double-step car travel also changes,
+confounding equal-workload FPS comparisons. Shared contact generation and
+bidirectional chassis/body solving are still separate follow-up work.
+
+Double-step unshadowed cost reports additionally require
+`--schedule-admission` pointing to this same ELF's double-step shadow report,
+as well as `--admission` for its nominal gate. Removing world verification or
+micro result-class coverage from in-memory input copies rejects the double
+screen; original evidence files remain unchanged.
+
+`results/unified-timeline-double-timing-2026-10-30.*` completes another4800
+unshadowed rows in both orders on the same ELF and passes schedule/oracle
+accounting. Performance equivalence remains false because trajectories differ.
+The observed combined drive boundary is15.085/15.062ms for64 props versus
+11.434/11.473ms for control;128 is43.298/43.287ms versus21.747/21.772ms.
+Object physics alone is13.226/13.199ms and40.910/40.894ms respectively. These
+are costs of each resulting workload, not equal-trajectory speedup/regression
+percentages. For example, the64-prop shared run reaches car z91.970 while the
+legacy run remains blocked near the pile. Do not infer a rendering or FPS gain.
+Missing or wrong double-step admission reports are rejected by the analyzer.
+
+Integration checkpoint: retain this private experiment as a tested clock/unit
+adapter, but do not enable it as a performance optimization. Merely running the
+entire prop pipeline more often is expensive in dense contacts and does not
+remove duplicate vehicle/prop response. A subsequent contact-integration
+experiment must share pair/contact ownership and bidirectional impulses, price
+the number of full body/geometry/solver passes explicitly, and handle vehicle
+control/suspension separately from collision work. This round implements only
+the first timeline stage; vehicle chassis contacts still do not enter the
+body-pair VU0 queue or the common rigid-body solver. No production source,
+project format, default collision geometry or shipped vehicle handling changes.
 
 ## Collision stress fixture
 

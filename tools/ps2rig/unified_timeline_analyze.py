@@ -3,7 +3,7 @@ from pathlib import Path
 import argparse,csv,hashlib,json,math,statistics,subprocess,sys
 
 
-def analyze(root,output,admission=None):
+def analyze(root,output,admission=None,schedule_admission=None):
     meta=json.loads((root/'metadata.json').read_text(encoding='utf8'))
     assert meta.get('unified_timeline_comparison')
     multiplier=meta['timeline_multiplier'];shadow=meta['shadow_enabled'];phases=meta['expected_phases']
@@ -31,6 +31,11 @@ def analyze(root,output,admission=None):
         if admission:
             old=json.loads(admission.read_text(encoding='utf8'))
             check(old['qualified'] and old['metadata']['shadow_enabled'] and old['metadata']['timeline_multiplier']==1 and old['metadata']['elf_sha256']==meta['elf_sha256'],'nominal admission mismatch')
+    if not shadow and multiplier==2:
+        check(schedule_admission is not None,'missing double-step same-ELF admission')
+        if schedule_admission:
+            old=json.loads(schedule_admission.read_text(encoding='utf8'))
+            check(old['qualified'] and old['metadata']['shadow_enabled'] and old['metadata']['timeline_multiplier']==2 and old['metadata']['elf_sha256']==meta['elf_sha256'],'double-step admission mismatch')
     for phase in phases:
         data=rows(f'collision-phase-{phase:02}.csv');clock=rows(f'unified-timeline-{phase}.csv')
         check([int(r['frame']) for r in data]==list(range(150,750)),f'phase {phase}: measured frame set')
@@ -76,7 +81,8 @@ def analyze(root,output,admission=None):
                     if any(x[k]!=y[k] for k in ['hash_a','hash_b','bodies','cars']):differences.append(dict(workload=key,frame=int(x['frame'])))
             check(not differences,'nominal end-state fingerprint mismatch')
     report=dict(metadata=meta,qualified=not errors,performance_qualified=not errors and not shadow and multiplier==1,
-        normal_clock_fps_qualified=False,errors=sorted(set(errors)),metrics=metrics,
+        normal_clock_fps_qualified=False,prior_source_equivalence_qualified=False,
+        production_integration_qualified=False,errors=sorted(set(errors)),metrics=metrics,
         end_state_mismatches=differences[:12],raw_sha256=hashes,
         log_sha256=hashlib.sha256((root/'hardware.log').read_bytes()).hexdigest(),
         scope='Private shared-clock orchestration only. Detectors, legacy vehicle response and EE solver remain separate; VU0 body-pair dispatch is unchanged. Nominal admission requires matching workload/contacts and end-state fingerprints. Double-step runs deliberately change trajectories/workload and qualify only schedule coverage/numerical-oracle screening, never a speedup or complete gameplay correctness. No normal-clock FPS claim.')
@@ -86,5 +92,5 @@ def analyze(root,output,admission=None):
 
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path);p.add_argument('--output',required=True,type=Path);p.add_argument('--admission',type=Path);a=p.parse_args()
-    if not analyze(a.root,a.output,a.admission)['qualified']:raise SystemExit(1)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path);p.add_argument('--output',required=True,type=Path);p.add_argument('--admission',type=Path);p.add_argument('--schedule-admission',type=Path);a=p.parse_args()
+    if not analyze(a.root,a.output,a.admission,a.schedule_admission)['qualified']:raise SystemExit(1)

@@ -1,0 +1,82 @@
+{
+  "prior_source_equivalence_qualified": false,
+  "performance_qualified": false,
+  "raw_initialized_snapshots": [
+    {
+      "frame": 0,
+      "step_counts": [
+        138,
+        138
+      ],
+      "contact_counts": [
+        92,
+        92
+      ],
+      "step_differences": 0,
+      "contact_differences": 0
+    },
+    {
+      "frame": 1,
+      "step_counts": [
+        138,
+        138
+      ],
+      "contact_counts": [
+        92,
+        92
+      ],
+      "step_differences": 0,
+      "contact_differences": 0
+    }
+  ],
+  "measured_frames": 600,
+  "mismatched_measured_frames": 600,
+  "first_measured_mismatches": [
+    {
+      "frame": 150,
+      "fields": [
+        "contacts",
+        "generated_contacts",
+        "awake",
+        "body_candidates",
+        "body_bounds_rejects",
+        "velocity_energy",
+        "max_depth"
+      ]
+    },
+    {
+      "frame": 151,
+      "fields": [
+        "contacts",
+        "generated_contacts",
+        "awake",
+        "body_candidates",
+        "body_bounds_rejects",
+        "velocity_energy",
+        "max_depth"
+      ]
+    },
+    {
+      "frame": 152,
+      "fields": [
+        "contacts",
+        "generated_contacts",
+        "awake",
+        "body_candidates",
+        "velocity_energy",
+        "max_depth"
+      ]
+    }
+  ],
+  "input_sha256": {
+    "F:\\Projects\\tyra-editor\\.tmp\\artifacts\\vu0-sat\\zero-friction-admission\\step-pool-13-0.bin": "9a15aca1222557013932b21c4c52745fcc986a1d9e8637512c15f11198a0040d",
+    "F:\\Projects\\tyra-editor\\.tmp\\artifacts\\vu0-sat\\unified-timeline-nominal-admission-v2\\step-pool-12-0.bin": "ce054315195d6126da495067bfe8b1d90b07210d79740a08ecb5bd7225a49b63",
+    "F:\\Projects\\tyra-editor\\.tmp\\artifacts\\vu0-sat\\zero-friction-admission\\step-pool-13-1.bin": "34904c33eb0befff75b1982cac69a3d701b4b6d916b8831954ea4d13a99197be",
+    "F:\\Projects\\tyra-editor\\.tmp\\artifacts\\vu0-sat\\unified-timeline-nominal-admission-v2\\step-pool-12-1.bin": "0954d4b310fd15bf4789217172d229961de9e5b4e1415053a2e4b7f064cce7cf",
+    "F:\\Projects\\tyra-editor\\.tmp\\artifacts\\vu0-sat\\zero-friction-admission\\collision-phase-13.csv": "101b87abcc72675daa02d8d7a3018ee64a9657fc8e57ef73cedce04f64733518",
+    "F:\\Projects\\tyra-editor\\.tmp\\artifacts\\vu0-sat\\unified-timeline-nominal-admission-v2\\collision-phase-12.csv": "aa8d55a229c7f289bab7879d6ccf202b639c042b655c650297079505bd103a1c"
+  },
+  "old_elf_sha256": "eab92385ce4ce2262f34080306acb9131255b61cd83f94e9b6ce13dbc4d002e1",
+  "new_elf_sha256": "557eb14d3f9b0cf1a8d271970d512c41fcc75bae0f691d7000adac7855727a6e",
+  "scope": "Both use the friction guard. This compares different compiled source baselines, not the same-ELF legacy/shared clock arms. Captured frame0/1 inputs/contacts agree; all600 later measured rows differ. The first divergent update/instruction has not been localized. The relative same-ELF clock result cannot establish equivalence to the prior build, source-to-source speedup or production readiness."
+}
