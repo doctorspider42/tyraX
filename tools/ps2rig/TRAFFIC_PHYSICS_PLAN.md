@@ -82,3 +82,27 @@ ELF/scenario identity and hardware logs; do not add gains from unrelated source
 baselines. Report remaining limits and any target that cannot be demonstrated
 on the measured scene. Keep active worktree/evidence for review and clean
 finished temporary helpers when no longer needed.
+
+## First post-review diagnostic: corner manifold
+
+The source-extracted host diagnostic is archived as
+`results/box-manifold-host-2026-10-30.{csv,json,log,inputs.zip}`.
+Two unit boxes have centres `(dx,0.9,dz)` and `(0,0,0)`, identity rotations,
+no motion and 0.1 vertical overlap. Sweep dx/dz over
+`{-0.001,-0.0001,0,0.0001,0.001}`. Actual generated corner loops,
+`rbInsideHull`, scalar transforms and `rbReduce` are extracted unchanged;
+canonical `convexMotionContact` independently selects vertical normal/depth0.1.
+
+All16 cases with both offsets nonzero produce two horizontal-only corner
+contacts of depth0.0001 or0.001. Because n>0, the existing SAT fallback does
+not run. The9 exact-boundary controls produce no corner contacts and reach
+SAT. Thus this is a reproduced manifold defect, not a missed-overlap/NaN
+claim: a tiny lateral translation replaces vertical support with lateral
+normals. It is a plausible contributor to stack penetration, not proof of
+all observed in-game failures. A deliberately corrupted canonical normal
+fails the harness assertion. Source identities and harness are archived.
+
+No game behavior changed. This diagnostic does not qualify PS2 float
+behavior, yawed boxes, stack integration/sleep, console timing or60 FPS.
+Next qualify a SAT-feature-consistent box face manifold, full simulation
+residuals, and100 separated roadside obstacles before timing optimizations.

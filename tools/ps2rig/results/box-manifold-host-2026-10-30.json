@@ -1,0 +1,12 @@
+{
+  "physics_sha256": "fb11969eaa051ddfb031ad994a37526043ca0387fe8aa93a44e70d8d3a6f23e4",
+  "runtime_sha256": "5a3d912f667b83b4eecaf60d10b317023b299e52ff197713d84265282825dbfc",
+  "scope": "source-extracted corner loops, rbInsideHull/rbReduce; host geometry diagnostic only; no integration, yaw sweep, console or performance qualification",
+  "cases": 25,
+  "horizontal_only_manifold_cases": 16,
+  "boundary_fallback_controls": 9,
+  "reference_normal_falsifier_rejected": true,
+  "falsifier_exit_code": 3221226505,
+  "harness_sha256": "c8915e4aa584588a04de4d14ca04c8682ec3b03b07a790619a5640a0d54606a7",
+  "canonical_sha256": "09739519949285e9d4fc65823e3e02717bb761b62509872cec3bafd6b2407694"
+}

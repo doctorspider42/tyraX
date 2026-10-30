@@ -1313,3 +1313,11 @@ scalar comparison. No production layout is selected yet.
 
 Independent Astra and Claude-CLI Opus traffic/physics recommendations and the
 parent acceptance/corrections are preserved in [the review record](reviews/2026-10-30/README.md).
+
+### Post-review corner-manifold diagnostic
+
+See [the traffic/physics plan](TRAFFIC_PHYSICS_PLAN.md#first-post-review-diagnostic-corner-manifold)
+and `results/box-manifold-host-2026-10-30.*` for the source-extracted host
+reproducer:16 slightly offset unit-box cases create horizontal-only corner
+contacts despite a vertical minimum-penetration SAT axis. No console or
+performance qualification is implied.

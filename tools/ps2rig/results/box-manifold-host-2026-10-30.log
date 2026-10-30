@@ -1,0 +1,1 @@
+REPRODUCED: 16/25 offsets generate horizontal-only corner manifolds despite vertical SAT minimum; boundary controls fall back to SAT.
