@@ -1329,14 +1329,18 @@
     "collision-phase-12.csv": "aa8d55a229c7f289bab7879d6ccf202b639c042b655c650297079505bd103a1c",
     "unified-timeline-12.csv": "f76f0e45c6392580763b01c9bef836383970b881686a7c885c65202b86bddd5a",
     "vu0-phase-12.csv": "1e6ee6a7c7b85e4072f4c6ddafc6a085ade6417d4f8243c7843e46335ee553a6",
+    "vu0-class-12.csv": "b48d0be70fb42c06779ada67f61766f7c5264b9e40cd7a5c3bbeff86dc42eaac",
+    "world-grid-12.csv": "4e71435b47497ac4d1923e92d863d549fb1ca4e70fc5d442597b116682e9c9e0",
+    "world-overlap-12.csv": "37d810a31ccef7389f26259b99630c72b4eb2e9cb01abc0aa2159b9c2526aa59",
+    "zero-friction-12.csv": "737faf90a3c277a8e1a49f714d3972aeff9d907a66856f90b89bf8008a048901",
     "collision-phase-13.csv": "cdbcd995b7fcf034d8cff3624b2456055ed7caad2190f888d33690fd74c7d53a",
     "unified-timeline-13.csv": "db2ccbdbf39efc8a7082fd7cf1bfdbdb6f30b17e2e59b1858be99aa22459385d",
-    "vu0-phase-13.csv": "90d321b37d2f13a53c367961385a12c5349684a51b7f93203e379e3bc8442fef"
+    "vu0-phase-13.csv": "90d321b37d2f13a53c367961385a12c5349684a51b7f93203e379e3bc8442fef",
+    "vu0-class-13.csv": "5d5b426c3f83139085c11e0b81d8579a6582da2ce7c0e2ae5454f8e8375571c0",
+    "world-grid-13.csv": "ce5d6c3f21d8f98298946e43ae0cfc57bbf6624cc61b0179e9ff7d0376452442",
+    "world-overlap-13.csv": "37d810a31ccef7389f26259b99630c72b4eb2e9cb01abc0aa2159b9c2526aa59",
+    "zero-friction-13.csv": "46c8876a2103752c327544f604d125cbcfc46ab49d4792159ccb61f60371e82b"
   },
   "log_sha256": "c23b5f99dbc91d96f0043465f1cca1ff122d5b0c90ba316c256cb106dfde6348",
-  "scope": "Private shared-clock orchestration only. Detectors, legacy vehicle response and EE solver remain separate; VU0 body-pair dispatch is unchanged. Nominal admission requires matching workload/contacts and end-state fingerprints. Double-step runs deliberately change trajectories/workload and qualify only schedule coverage/numerical-oracle screening, never a speedup or complete gameplay correctness. No normal-clock FPS claim.",
-  "analyzer_falsifiers": [
-    "In-memory physics-call count changed at frame2 rejects schedule coverage",
-    "In-memory end-state hash changed at frame2 rejects nominal end-state equality; trusted inputs untouched"
-  ]
+  "scope": "Private shared-clock orchestration only. Detectors, legacy vehicle response and EE solver remain separate; VU0 body-pair dispatch is unchanged. Nominal admission requires matching workload/contacts and end-state fingerprints. Double-step runs deliberately change trajectories/workload and qualify only schedule coverage/numerical-oracle screening, never a speedup or complete gameplay correctness. No normal-clock FPS claim."
 }

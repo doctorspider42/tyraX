@@ -47,6 +47,15 @@ def analyze(root,output,admission=None):
             check(all(math.isfinite(float(r[k])) for k in ['car_z','car_speed','velocity_energy','max_depth']),f'phase {phase}: nonfinite')
         micro=rows(f'vu0-phase-{phase:02}.csv')
         check(len(micro)==1 and int(micro[0]['jobs'])>0 and int(micro[0]['validation_errors'])==int(micro[0]['missed_reference_hits'])==0,f'phase {phase}: micro oracle')
+        classes=rows(f'vu0-class-{phase}.csv')
+        check(len(classes)==1 and sum(int(classes[0][k]) for k in ['proved_negative','confirmed_negative','confirmed_ccd','confirmed_tie','confirmed_parallel','confirmed_positive'])==int(micro[0]['jobs'])==int(classes[0]['jobs']),f'phase {phase}: incomplete micro classifications')
+        world=rows(f'world-grid-{phase}.csv')
+        check(len(world)==1 and int(world[0]['errors'])==0 and int(world[0]['verified'])==(int(world[0]['queries']) if shadow else 0),f'phase {phase}: world oracle')
+        check(int(world[0]['queries'])>0 if arm else int(world[0]['queries'])==0,f'phase {phase}: world oracle coverage')
+        fingerprints=rows(f'world-overlap-{phase}.csv')
+        check([int(r['frame']) for r in fingerprints]==list(range(750)) if shadow else not fingerprints,f'phase {phase}: ordered contact coverage')
+        friction=rows(f'zero-friction-{phase}.csv')
+        check(len(friction)==1 and int(friction[0]['enabled'])==1 and 0<int(friction[0]['frames'])<=750*(multiplier if arm else 1) and 0<int(friction[0]['skipped'])<=int(friction[0]['visits']),f'phase {phase}: shared friction guard coverage')
         drive={int(r['frame']) for r in data if r['state']=='drive'}
         metrics.append(dict(phase=phase,arm='shared-clock' if arm else 'legacy-clock',
             mean_drive_combined_ms=statistics.mean(int(r['ticks']) for r in clock if int(r['frame']) in drive)/294912,

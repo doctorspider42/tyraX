@@ -331,6 +331,20 @@ In-memory count and warm-frame state-hash falsifiers reject as expected.
 Shadow timings remain invalid. Double-step screening and unshadowed costs
 are still pending; no shared contact solver or production default is selected.
 
+`results/unified-timeline-double-admission-2026-10-30.*` passes schedule and
+numerical/oracle screening on the same admitted ELF. Both phases contain750
+frames. The control executes750 object/1500 vehicle updates; the candidate
+executes1500/1500, with all138 active bodies and3 cars represented. There are
+no dropped contacts, omitted bumper candidates, nonfinite states or micro
+reference misses/errors. Candidate world queries verify84,245/84,245 with
+zero errors; all135,678 micro jobs have result classifications. Both arms use
+the friction guard. Some object calls return early when every body sleeps,
+so solver-visit frames are correctly below scheduler calls in the candidate.
+This screen does not prove handling quality, energy conservation or complete
+rotational CCD. Counts such as contacts/awake/energy in the original CSV now
+accumulate across substeps and cannot be read as distinct body counts or
+compared as equal workloads. Unshadowed nominal overhead remains pending.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used
