@@ -1586,3 +1586,67 @@ savestate while driving, to separate the allocation failure from capture timing.
 The analyzer records the boot's starting phase/cache arm and console-log hash;
 legacy logs without those fields remain explicitly unspecified. It still
 requires the complete matrix and never promotes this diagnostic to60FPS proof.
+
+`results/traffic-cache-reload-2026-10-30.*` preserves the negative same-ELF
+software A/B (b3ec78b1...). With no savestate request, the control again fails
+in phase5/frame19, stage VehicleSubmit, Strix object133. Cache bytes before
+reload are4,130,768; free RAM1.470MiB. Setter invalidation reduces logical cache
+bytes to0 but only raises free RAM to1.632MiB; allocation still fails at frame40.
+It is NOT a fix or proof of a pure-cache cause: the setter also synchronizes
+and reuploads programs. One unobserved candidate has a stale log and is excluded;
+the accepted repeat explicitly enables file logging and starts a fresh log.
+
+`traffic_retirement_probe.py --project <instrumented-copy>` adds PRIVATE
+diagnostics to its private engine copy and generated vehicle error handler.
+`traffic-bench-retired.cfg` enables an arena ledger/report every8 callback
+frames: live qwords, retired bytes/count/oldest age, bytes blocked by actual
+DMA bank leases, collected bytes and allocator uordblks/fordblks. `heap_free`
+is only allocator fordblks, not all EE free RAM or the largest contiguous block.
+The failure handler also prints a pending baked-arena request, but that local
+counter proved unreliable in the optimized build: zero MUST NOT exclude the
+arena wrapper. Fix its optimizer observability and retest before using it.
+The fixed ledger adds12KiB; these diagnostics cannot qualify production timing.
+
+Optional `traffic-bench-cache-qw.cfg` selects1024..262144 qwords as a diagnostic
+baked-cache reservation/eviction budget (default262144). It changes cache
+eligibility/fallback, not submitted geometry or collision work. It is not a
+production allocator-pressure fix: two existing arena paths still allocate
+before reserving their cache budget. The ledger/budget probe compiles natively;
+The observed default-budget retirement results are preserved below; lower-budget
+admission is still pending.
+
+`results/traffic-retirement-default-2026-10-30.*` records active collection of
+retired arenas: sampled blocked bytes0, oldest age1 callback frame, and positive
+collected bytes. This rules against a demonstrated persistent baked-arena lease
+leak in the observed samples, not against a transient within-frame peak.
+Its earlier interpretation of pending request0 is explicitly superseded.
+
+`traffic_allocation_trace.py --project <copy>` installs diagnostic global
+new/new[] replacements (malloc/memalign plus the usual new-handler retry),
+matching deletes and KEEPSYM=1. This is PRIVATE debugging instrumentation,
+never a production allocator or production-timing qualification. Native build
+passes. `results/traffic-allocation-trace-2026-10-30.*` identifies the failure
+as158623 bytes, ordinary alignment, return PC0x0023c060, symbolicated against
+the same build's unstripped ELF to `StaPipQBufferRenderer::endBakedBag()`.
+The request is for an optional baked-command-cache arena, not collision work.
+Fragmentation versus a transient peak is not yet resolved: sampled total free
+bytes are not a failure-time largest-contiguous-block measurement.
+
+### Review checkpoint: paused after the current trial
+
+The user requested a summary and explicitly paused further trials. Evidence
+and tools are retained on the collision branch; owned emulator clients were
+stopped and the physical PS2 was not reset or powered off. This round produces
+a concrete render-cache allocation diagnosis, not a measured speedup or a
+13-car console/60FPS qualification. The earlier quiet5-HQ console window is
+29.97FPS (scene17.95ms, vehicle3.56ms, physics0.84ms); road100 remains a
+separate profiled55..57FPS drive, not quiet-production60FPS. Post-writeback
+stack depth/sleep correctness remains unqualified.
+
+Highest-value bounded continuation: make optional cache allocation resilient
+under RAM pressure without losing geometry, then profile the valid13-car
+scene on hardware, especially blob shadows and vehicle/world submissions.
+Another SAT/VU0 micro tuning round is lower priority given these measured CPU
+intervals. A fixed/slab cache arena is a possible later design, not implemented
+or performance-qualified here. Do not infer a cache-only root cause from the
+failed clipping-setter experiment, and do not silently lower collision coverage.

@@ -1,0 +1,17 @@
+{
+  "elf_sha256": "d2ddf815d5d64534d62d1d229873afeae26fa50aa8c3d71082e4acb97391b763",
+  "symbol_elf_sha256": "98dc5d4722765b2f3f8d005c5f020d2961b859f84d1573fef10456ada6aeea39",
+  "software_only": true,
+  "performance_qualified": false,
+  "target_60fps_qualified": false,
+  "requested_bytes": 158623,
+  "alignment": 0,
+  "caller_address": "0x0023c060",
+  "caller_symbol": "Tyra::StaPipQBufferRenderer::endBakedBag()",
+  "phase": 5,
+  "frame": 20,
+  "stage": 19,
+  "object": 132,
+  "pending_arena_counter_reliable": false,
+  "notes": "Global new trace locates a normal-sized optional baked-command-cache arena allocation. Earlier arena_request=0 is unreliable and must not exclude the arena wrapper; optimizing compiler/inlining observability has not been separately audited. Last sampled allocator free-byte total is not a failure-time contiguous-block measurement, so fragmentation versus transient peak remains unproven. No physical13-car FPS, visual or DMA qualification. No new memory fix or measured speedup in this round."
+}

@@ -1,0 +1,28 @@
+{
+  "elf_sha256": "b3ec78b11433d66eca6a6744f2a742e21867076cf74e810080e3822e3c8d882a",
+  "same_elf": true,
+  "same_compiled_source_hashes": true,
+  "software_only": true,
+  "performance_qualified": false,
+  "target_60fps_qualified": false,
+  "cache_invalidation_fixes_failure": false,
+  "notes": "No savestates requested in either observed arm. Existing setter also synchronizes/reuploads programs; no pure cache-only causality claim. Initial candidate has stale/unqualified log and is excluded. Subsequent observed candidate forces file logging and fresh log. Physical console not launched with this experiment.",
+  "arms": {
+    "control": {
+      "configuration": "TRAFFICBENCH CONFIG detail=0 normal_clock=1 start_phase=4 drop_cache=0",
+      "allocation_failure": "TRAFFICBENCH ERROR allocation phase=5 frame=19 stage=19 object=133",
+      "reload": "TRAFFICBENCH RELOAD phase=5 drop_cache=0 baked_before=4130768 baked_after=4130768 free_before=1.46996 free_after=1.46996",
+      "completed_phases": [
+        4
+      ]
+    },
+    "invalidate": {
+      "configuration": "TRAFFICBENCH CONFIG detail=0 normal_clock=1 start_phase=4 drop_cache=1",
+      "allocation_failure": "TRAFFICBENCH ERROR allocation phase=5 frame=40 stage=19 object=133",
+      "reload": "TRAFFICBENCH RELOAD phase=5 drop_cache=1 baked_before=4130768 baked_after=0 free_before=1.46996 free_after=1.63198",
+      "completed_phases": [
+        4
+      ]
+    }
+  }
+}
