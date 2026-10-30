@@ -809,3 +809,13 @@ proofs for negatives and calls the shared compiled EE routine for every possible
 contact, including positives without a reported axis tie. No tolerance is
 relaxed and no contact is dropped. This adds EE work; earlier micro timing
 packages do not price the corrected backend. Production micro remains off.
+
+With canonical positive confirmation and shared compiled pose construction, the
+[wide/pooled layout timing](../tools/ps2rig/results/step-pool-common-timing-2026-10-30.json)
+passes4800 nominal-step rows/2400 matched logged frame pairs. The312-byte step
+plus exact pose spans saves0.310/0.308ms for64 props and0.786/0.831ms for128
+versus880-byte steps. Finish waits rise only0.0014/0.0024ms per phase frame, so
+the net physics gain remains. The comparison does not establish original-inline
+scalar equivalence, production FPS or non-box coverage; promotion remains
+pending those controls. It supports reducing EE data/preparation costs before
+attempting another isolated VU arithmetic optimization.

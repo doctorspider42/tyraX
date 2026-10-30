@@ -784,3 +784,12 @@ Reports tagged micro_positive_confirmation also require the saved positive
 regression replay to pass for both kernel images. The startup50,000-case corpus
 alone cannot silently substitute for that captured case. Historical packages
 retain their original checks; no old replay marker is invented retroactively.
+
+results/step-pool-common-timing-2026-10-30.* completes4800 nominal-step rows and
+2400 exactly matched logged frame pairs.64-prop drive physics changes
+10.821->10.511 and10.862->10.553ms;128 changes17.707->16.922 and17.769->16.937.
+The body stage accounts for most savings. Mean finish wait rises only about
+0.0014ms for64 and0.0024ms for128, so faster EE traversal does not erase the
+whole-physics gain. This is a qualified relative layout result against the
+shared compiled pose baseline, not production-clock FPS or an original-inline
+scalar comparison. No production layout is selected yet.
