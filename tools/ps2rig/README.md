@@ -1432,3 +1432,48 @@ experiments. The libc++ size assertion is updated but no Mac build is claimed.
 This is a prerequisite for traffic profiling, not13-car/60FPS or production
 face-manifold/shared-solver qualification. The private benchmark snapshots
 remain separate from freshly generated traffic game sources.
+
+### Traffic scaling probe
+
+`traffic_scaling_fixture.py --project <primary-.tmp-copy>` authors the merged
+Motor District FPP project with five HQ cars TOTAL (including the player) and
+eight civilians. Run a complete editor build for fresh baked assets BEFORE
+`traffic_instrument.py --project <copy>`. Imported GLB near meshes are not
+decimated by the triangle-budget fields: the civilian uses `pica-far.glb` as
+a complete near model, retaining four named wheels. The observed bake is540
+body +4*28 wheel triangles =652 total, versus988+4*146=1572 for original Pica.
+Its measured wheel anchors/radius also differ; this is a separate authored
+vehicle, not an assertion of identical Pica dynamics. All collision algorithms
+remain enabled. All near-model distances are48 and traffic's extra far margin
+is unchanged. The original render interleave settings are preserved.
+
+The installer backs up generated sources, makes a private quiet engine and
+disables physical pad/rumble RPCs for synthetic input. Thereafter use the
+native backend directly, with `TYRAX_NATIVE_BUILD_ROOT` under primary `.tmp`;
+editor regeneration destroys these hooks. `traffic_bench.hpp` and
+`traffic_bench_members.inc` run population1/3/5/10/13/13/10/5/3/1, six real
+seconds each: two seconds brake warmup, three seconds driving, one braking.
+NPCs use ordinary waypoint/traffic AI during measurement; the driver's throttle
+is0.65. Warmup clears waypoint escape timers so the held brake cannot provoke
+a reverse manoeuvre. Startup checks every active pair's resolved full boxes
+for overlap, including civilians projected onto straight junction connectors.
+This is a straight-road scaling diagnosis, not a racing/impact qualification.
+
+CSV rows stay in EE RAM and flush only between windows. Detail laps are
+off unless `traffic-bench-detail.cfg` exists at boot. Inclusive vehicle,
+traffic-core, physics, scene, wheels, glass and end-frame intervals overlap:
+do not sum them or label them exclusive VU1/GS execution. Counts distinguish
+full model calls/substeps, full physics steps, kinematic bypasses, near LOD,
+camera-facing cars, paint grants and render submission attempts. A submission
+attempt is NOT proof of GS visibility. Fixed wall/floor/mesh high-water values
+alone do not prove that their historical candidate caps never truncate.
+
+Archive all ten `traffic-bench-NN.csv` files, complete transport log, exact
+ELF/hash, authored project metadata and patched sources before the next boot.
+`traffic_analyze.py <archive> --output <report.json>` validates population,
+one full physics step/frame, complete model calls for every car,1..4 vehicle
+substeps, no kinematic bypass, finite state and near-model coverage. It reports
+normal-clock average/p95 periods and keeps60FPS qualification FALSE: turning,
+impacts, longer runs, actual visual quality and timing transparency still need
+separate evidence. Neither successful build nor this short probe proves the
+requested final traffic target.
