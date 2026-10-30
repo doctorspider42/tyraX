@@ -617,3 +617,21 @@ without status/timer/counter work when verification is disabled. The revised
 analyzer's synthetic unprobed package passes, and a mismatched admission ELF
 is rejected. Its same-ELF unprobed timing run follows; it remains a private
 candidate rather than a selected production schedule.
+
+The complete unprobed timing package is
+results/world-overlap-unprobed-timing-2026-10-30.*:4800 rows/2400 matched logged
+frame pairs, same-ELF admission bound, no world-window diagnostic rows. Drive
+physics changes8.957->9.100 and8.956->9.137ms for64 props;15.328->15.568 and
+15.327->15.535ms for128. This policy is rejected; production stays unchanged.
+
+micro_cost_fixture.py follows that screen and profiles the world-first chained
+schedule in both arms. It preserves every contact path and6+3 passes. Scopes
+measure corner/sphere contacts, transformed views and axis hint, packet packing,
+upload/start, finish including readback, reconstruction and contact emission.
+Consume includes reconstruction/emission, so those values overlap and must not
+be summed. CP0 timing and extra branches perturb the run: attribution is not a
+production FPS ranking. A micro-cost.cfg boot flag selects instrumentation;
+sat-verify.cfg independently selects the canonical admission oracle. Both modes
+run only phases12/13. File writes occur after the completion fence. Inputs are
+backed up under the scratch root, actual profile sources have their own hashes,
+and predecessor hashes are retained as lineage. Native qualification is pending.

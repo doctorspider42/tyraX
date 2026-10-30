@@ -778,3 +778,12 @@ not a qualified production-performance result: world-window status/counter
 probes were still active asymmetrically. A subsequent build disables those
 probes outside admission mode and must pass a new same-ELF gate before timing.
 Preserve the unfavorable screen; do not infer speedup from busy observations.
+
+The [unprobed follow-up](../tools/ps2rig/results/world-overlap-unprobed-timing-2026-10-30.json)
+also passes4800 rows/2400 matched logged frame pairs and the same-ELF admission
+binding, with no world diagnostic rows in timing. Interleaving still adds
+0.143/0.181ms for64 props and0.240/0.208ms for128. The schedule is not selected;
+production remains unchanged. This rejects this particular whole-body world
+chunk policy, not all possible EE/VU0 partitions. The next attribution screen
+separates EE corner/preparation/packing/transfer/reconstruction costs in the
+world-first chained schedule before choosing a larger offload boundary.
