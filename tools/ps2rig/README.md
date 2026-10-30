@@ -443,6 +443,27 @@ linear/yaw momentum and non-increasing-energy cases plus an immovable-partner
 case. Reversing the partner impulse is rejected. Final diagnostics build,
 physical coverage and performance qualification are pending.
 
+The final diagnostic integration compiles natively on ELF
+`b0e89e83993900380fe9ed4deabd55ca26f37bc65208074991057f9fdf891d76`.
+New fixture code is warning-clean; existing unused-variable warnings remain
+in the generated vehicle runtime. Installation explicitly rejects mesh-mode
+fixtures; no mesh chassis is silently substituted by a box. The initial
+physical run is the parked isolation admission, with source and all275 asset
+hashes, the positive regression capture and resident-IOP marker checked.
+
+Use `vehicle_contacts_fixture.py --scratch ROOT --mode isolation-admission`
+or `impact-admission` after building. The corresponding `*-timing` modes
+remove shadow diagnostics without rebuilding. `--double` doubles the controlled
+frame interval while retaining one full physics pass. The CFG mode and ELF hash
+are saved in metadata. `vehicle_contacts_analyze.py ROOT --output REPORT`
+requires startup/replay/precision gates, complete micro classifications, full
+frame/collider/pair/finite-mass diagnostics, exactly one object pass and the
+expected vehicle control substeps. Timing additionally requires `--admission`
+with the same ELF, scenario and clock multiplier. Isolation admission compares
+all750 selected end-state fingerprints and requires zero common car contacts;
+impact admission requires actual common contacts and opposite impulse updates,
+with zero old bumper calls. It does not require equal old/new impact trajectories.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used

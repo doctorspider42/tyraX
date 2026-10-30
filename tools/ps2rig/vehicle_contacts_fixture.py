@@ -25,6 +25,7 @@ def install(repo,root,refresh=False):
     with zipfile.ZipFile(root/'before-unified-timeline.zip') as z:
         original={path:z.read(path.relative_to(root).as_posix()).decode('utf8') for path in paths}
     meta=json.loads(original[metadata]);assert meta['zero_friction_comparison']
+    assert meta['mesh_collision_objects']==0,'This fixture qualifies existing box colliders only; mesh chassis need a dedicated path'
     header=paths[1];s=original[header]
     s=replace(s,'  void benchTick();','''  void benchTick();
   void stepVehicleBodyContacts(float dt);
