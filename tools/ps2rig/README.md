@@ -224,7 +224,43 @@ reported. Both arms visit1,495,320 contact iterations; only the candidate skips
 422,167 zero-friction updates (about28.2%). Saved-contact, both shared-image,
 precision and solver startup gates pass. In-memory falsifiers reject zero
 candidate coverage and a changed warm-frame contact hash. Unshadowed timing
-must still complete on this same ELF before any speedup claim.
+completed on this same ELF; see the timing result below.
+
+
+`results/zero-friction-timing-2026-10-30.*` passes all eight unshadowed phases,
+4800 measured rows and2400 matched workload-frame pairs. Both run orders agree:
+64-prop drive physics changes10.511->10.075 and10.520->10.065ms;128-prop changes
+16.905->16.421 and16.942->16.416ms. Solver savings are0.489/0.490ms for64 and
+0.529/0.529ms for128. Whole-physics savings are0.436/0.455ms (4.1/4.3%) and
+0.484/0.525ms (2.9/3.1%). Finish-wait means remain about0.024-0.025ms for64
+and0.0064ms for128, over all750 phase frames; these exclude packet handling
+and EE confirmation. This is a relative nominal-step result, not a qualified
+normal-clock FPS figure or equivalence to the original scalar/inline backend.
+No independent historical gains are added to these figures.
+
+Checkpoint: the measured private fixture keeps broad phase, world contacts,
+canonical contact reconstruction, six velocity passes, three position passes
+and state writeback on EE (scalar floating-point instructions use its FPU).
+VU0 micro handles batched body-pair SAT/linear CCD; the next packet starts
+before EE consumes the preceding results. Every possible positive contact is
+reconstructed canonically on EE; a negative also requires conservative EE
+proof. Shared immutable body records reduce transfer duplication. Macro-mode
+VU0 math is disabled in this fixture while micro jobs can be active. VU1
+serves rendering, not this collision solver. Production defaults still leave
+this experimental micro selection disabled. This is not a proven optimal
+partition or console limit; scalar-baseline admission and normal-clock whole
+frame validation remain open.
+
+Vehicles retain a separate EE path in templates.cpp: terrain/wheel sampling,
+eight chassis sample points with stepped travel checks against nearby world
+colliders, dynamic-body bump impulses via physPushAt, and a separate car-pair
+response. They share scene collider/broad-phase infrastructure, but their
+chassis contacts do not enter the new body-pair VU0 queue. A bumped prop then
+continues in the ordinary object physics pipeline on a subsequent update;
+object physics precedes updateVehicles in the frame. The present optimization
+therefore accelerates the prop simulation, not the complete vehicle detector.
+Work pauses here at the user's request; no further experiment is implied by
+this checkpoint.
 
 ## Collision stress fixture
 
