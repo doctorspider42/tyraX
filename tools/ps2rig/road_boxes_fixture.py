@@ -50,7 +50,7 @@ def install(repo, root):
         Tyra::ConvexContact discrete;
         // A second full static SAT is intentional in this correctness arm.
         // It prevents treating a sweep-only hit as an end-pose face patch.
-        if(Tyra::scalarMotionContactReference(av,bv,rbV(0,0,0),rbV(0,0,0),discrete)){
+        if(Tyra::scalarMotionContactReference(av,bv,rbV(0,0,0),rbV(0,0,0),discrete,nullptr,nullptr)){
           BoxFaceManifold::Point points[16];
           const int count=BoxFaceManifold::clip(A.obb,B.obb,discrete,points);
           if(count){for(int k=0;k<count;++k)patch[k]={points[k].n,points[k].p,points[k].depth};cs=patch;n=count;++BoxPatch::current.patches;BoxPatch::current.points+=count;}

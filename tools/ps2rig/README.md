@@ -1357,3 +1357,13 @@ Store the ELF hash, full logs, collision/vehicle/box-patch CSVs, placements and
 metadata before the next boot. Physical admission/timing is pending. Do not
 feed this experiment to the old vehicle-contact analyzer: both arms now have
 shared contacts enabled, four new phases and changed contact trajectories.
+
+`road_boxes_analyze.py <archived-root> --output <report.json>` checks allfour
+normal-clock phases,100 collider placements, single full shared steps,
+variable1..4 vehicle substeps, contact accounting, micro classifications and
+canonical replay/precision gates. Timing needs `--admission <same-ELF-report>`
+and `shadow_enabled:false`; admission alone never qualifies FPS. It reports
+per-state periods/physics/solver cost and pre-solve contact depth, explicitly
+not final-pose penetration or13-car traffic. Its first physical invocation
+is pending. The fixture static reference call explicitly passes both null
+OBB arguments, as required by the compiled EE wrapper signature.
