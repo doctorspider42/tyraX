@@ -1297,7 +1297,11 @@
         "confirmed_ccd": "6",
         "confirmed_tie": "200",
         "confirmed_parallel": "0"
-      }
+      },
+      "finish_wait_total_ms": 11.477864583333334,
+      "finish_wait_mean_all750_ms": 0.015303819444444445,
+      "finish_wait_drive_mean_upper_ms": 0.03188295717592593,
+      "wait_scope": "Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations."
     },
     {
       "phase": 11,
@@ -1339,7 +1343,11 @@
         "confirmed_ccd": "6",
         "confirmed_tie": "200",
         "confirmed_parallel": "0"
-      }
+      },
+      "finish_wait_total_ms": 1.5307142469618056,
+      "finish_wait_mean_all750_ms": 0.0020409523292824073,
+      "finish_wait_drive_mean_upper_ms": 0.004251984019338349,
+      "wait_scope": "Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations."
     },
     {
       "phase": 12,
@@ -1381,7 +1389,11 @@
         "confirmed_ccd": "14",
         "confirmed_tie": "305",
         "confirmed_parallel": "0"
-      }
+      },
+      "finish_wait_total_ms": 15.65495130750868,
+      "finish_wait_mean_all750_ms": 0.020873268410011574,
+      "finish_wait_drive_mean_upper_ms": 0.04348597585419078,
+      "wait_scope": "Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations."
     },
     {
       "phase": 13,
@@ -1423,7 +1435,11 @@
         "confirmed_ccd": "14",
         "confirmed_tie": "305",
         "confirmed_parallel": "0"
-      }
+      },
+      "finish_wait_total_ms": 3.8641425238715277,
+      "finish_wait_mean_all750_ms": 0.005152190031828704,
+      "finish_wait_drive_mean_upper_ms": 0.010733729232976465,
+      "wait_scope": "Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations."
     },
     {
       "phase": 24,
@@ -1465,7 +1481,11 @@
         "confirmed_ccd": "6",
         "confirmed_tie": "200",
         "confirmed_parallel": "0"
-      }
+      },
+      "finish_wait_total_ms": 1.5199449327256944,
+      "finish_wait_mean_all750_ms": 0.002026593243634259,
+      "finish_wait_drive_mean_upper_ms": 0.004222069257571373,
+      "wait_scope": "Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations."
     },
     {
       "phase": 25,
@@ -1507,7 +1527,11 @@
         "confirmed_ccd": "6",
         "confirmed_tie": "200",
         "confirmed_parallel": "0"
-      }
+      },
+      "finish_wait_total_ms": 11.62496609157986,
+      "finish_wait_mean_all750_ms": 0.015499954788773147,
+      "finish_wait_drive_mean_upper_ms": 0.03229157247661073,
+      "wait_scope": "Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations."
     },
     {
       "phase": 26,
@@ -1549,7 +1573,11 @@
         "confirmed_ccd": "14",
         "confirmed_tie": "305",
         "confirmed_parallel": "0"
-      }
+      },
+      "finish_wait_total_ms": 3.948333740234375,
+      "finish_wait_mean_all750_ms": 0.005264444986979167,
+      "finish_wait_drive_mean_upper_ms": 0.010967593722873264,
+      "wait_scope": "Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations."
     },
     {
       "phase": 27,
@@ -1591,7 +1619,11 @@
         "confirmed_ccd": "14",
         "confirmed_tie": "305",
         "confirmed_parallel": "0"
-      }
+      },
+      "finish_wait_total_ms": 15.603919135199654,
+      "finish_wait_mean_all750_ms": 0.020805225513599538,
+      "finish_wait_drive_mean_upper_ms": 0.04334421981999904,
+      "wait_scope": "Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations."
     }
   ],
   "mismatched_frames": 0,

@@ -600,3 +600,20 @@ admission gate before timing. For the new timing format the world-overlap CSV
 must have no data rows; supply --admission with its qualified same-ELF report.
 Older diagnostic packages retain the strict nonzero busy-witness checks.
 No production optimization is selected from the diagnostic screen.
+
+The diagnostic control's finish waitIdle interval totals11.48/11.62ms per64-prop
+phase and15.65/15.60ms per128-prop phase, each covering750 frames. That is only
+0.015-0.021ms per frame on average. Even assigning all phase waits to the360
+drive frames bounds their mean at0.032-0.0435ms. This limits savings from hiding
+that particular fence; it does not bound packet packing/upload/readback or EE
+confirmation work, prove unit utilization, or establish the console maximum.
+The analyzer records this distinction explicitly.
+
+The revised ELF815b12db... passes its independent physical gate in
+results/world-overlap-unprobed-verify-2026-10-30.*:zero lost micro reference
+hits/errors,600 matching logged workload/contact fingerprints,47,972 checked
+world queries and witnessed world/VU0 overlap. Diagnostic callbacks now return
+without status/timer/counter work when verification is disabled. The revised
+analyzer's synthetic unprobed package passes, and a mismatched admission ELF
+is rejected. Its same-ELF unprobed timing run follows; it remains a private
+candidate rather than a selected production schedule.

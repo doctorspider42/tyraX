@@ -71,7 +71,12 @@ def main():
             if arm:check(totals['packet']==totals['busy_before']==totals['busy_after']==0,f'phase {phase}: control overlap')
             else:check(totals['packet']>0 and totals['busy_before']>0,f'phase {phase}: no witnessed overlap')
         else:check(not probes and not any(totals.values()),f'phase {phase}: timing world probe active')
-        metrics.append(dict(phase=phase,world=totals,micro=v,world_admission=world,classification=classification[0]))
+        wait_ms=int(v['wait_ticks'])/294912.0
+        drive_frames=sum(x['state']=='drive' for x in samples)
+        metrics.append(dict(phase=phase,world=totals,micro=v,world_admission=world,classification=classification[0],
+            finish_wait_total_ms=wait_ms,finish_wait_mean_all750_ms=wait_ms/750,
+            finish_wait_drive_mean_upper_ms=wait_ms/drive_frames,
+            wait_scope='Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations.'))
     differences=[]
     fields=['contacts','generated_contacts','awake','body_candidates','body_bounds_rejects','car_z','car_speed','velocity_energy','max_depth']
     for key,pair in pairs.items():
