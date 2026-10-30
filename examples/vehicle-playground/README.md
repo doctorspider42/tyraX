@@ -163,3 +163,8 @@ user-owned source files retain their existing ownership rules.
 The TyraX 2.0 native build and PCSX2 software-renderer smoke check passed
 seated startup, R2 acceleration, left-stick steering and L2 braking without
 warnings or assertions. See the [integration record](../../docs/tyrax-2.0.md#showcase-and-motor-district-smoke-checks-2026-10-22).
+
+Rebuild with TyraX 2.1.2 to use spatial body filtering, cached world queries,
+shared SAT/CCD projections and complete contact/prop candidate storage. The
+existing scalar impulse solver and vehicle update remain selected. Dense
+stack support quality remains a known limitation; no 60 FPS pile guarantee.

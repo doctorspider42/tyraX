@@ -76,6 +76,9 @@ bool sameBox(const BroadBox& a, const BroadBox& b) {
 }  // namespace
 
 void BroadPhase::clear() {
+  movingIndex_.reset();
+  movingObjects_.clear();
+  movingHits_.clear();
   count_ = 0;
   box_.clear();
   next_.clear();
@@ -122,7 +125,16 @@ void BroadPhase::set(int index, const BroadBox& box, bool moving) {
 }
 
 void BroadPhase::commit() {
-  always_.clear();
+  refreshMoving();
+  bool staticChanged = false;
+  for (int i = 0; i < count_; ++i) {
+    const size_t k = (size_t)i;
+    const bool wasStatic = present_[k] && !moving_[k];
+    const bool nowStatic = nextPresent_[k] && !nextMoving_[k];
+    if (wasStatic != nowStatic || (nowStatic && !sameBox(box_[k], next_[k])))
+      staticChanged = true;
+  }
+
   if (kind_ == kGrid) {
     box_.swap(next_);
     present_.swap(nextPresent_);
@@ -130,9 +142,13 @@ void BroadPhase::commit() {
     nextPresent_.resize(present_.size());
     nextMoving_.resize(moving_.size());
     next_.resize(box_.size());
-    rebuildGrid();
+    if (staticChanged) {
+      always_.clear();
+      rebuildGrid();
+    }
     return;
   }
+  always_.clear();
   if (!rootBuilt_) {
     for (int i = 0; i < count_; ++i) {
       box_[(size_t)i] = next_[(size_t)i];
@@ -142,8 +158,8 @@ void BroadPhase::commit() {
     buildOctreeRoot();
     rootBuilt_ = true;
     for (int i = 0; i < count_; ++i) {
-      if (!present_[(size_t)i]) continue;
-      if (moving_[(size_t)i] || !octreeInsert(i)) always_.push_back(i);
+      if (!present_[(size_t)i] || moving_[(size_t)i]) continue;
+      if (!octreeInsert(i)) always_.push_back(i);
     }
     return;
   }
@@ -156,11 +172,7 @@ void BroadPhase::commit() {
     box_[k] = next_[k];
     present_[k] = nextPresent_[k];
     moving_[k] = nextMoving_[k];
-    if (!present_[k]) continue;
-    if (moving_[k]) {
-      always_.push_back(i);
-      continue;
-    }
+    if (!present_[k] || moving_[k]) continue;
     if (objNode_[k] < 0 && !octreeInsert(i)) always_.push_back(i);
   }
 }
@@ -171,11 +183,7 @@ void BroadPhase::rebuildGrid() {
   float mnX = 1e30F, mnZ = 1e30F, mxX = -1e30F, mxZ = -1e30F;
   for (int i = 0; i < count_; ++i) {
     const size_t k = (size_t)i;
-    if (!present_[k]) continue;
-    if (moving_[k]) {
-      always_.push_back(i);
-      continue;
-    }
+    if (!present_[k] || moving_[k]) continue;
     const BroadBox& b = box_[k];
     if (b.mn[0] < mnX) mnX = b.mn[0];
     if (b.mn[2] < mnZ) mnZ = b.mn[2];
@@ -188,7 +196,8 @@ void BroadPhase::rebuildGrid() {
   float cell = kGridCell;
   const float spanX = mxX - mnX, spanZ = mxZ - mnZ;
   const float span = spanX > spanZ ? spanX : spanZ;
-  if (span / cell > (float)(kGridMaxSide - 2)) cell = span / (float)(kGridMaxSide - 2);
+  if (span / cell > (float)(kGridMaxSide - 2))
+    cell = span / (float)(kGridMaxSide - 2);
   invCell_ = 1.0F / cell;
   minX_ = mnX;
   minZ_ = mnZ;
@@ -401,7 +410,8 @@ void BroadPhase::octreeSplit(int n, int depth) {
   }
   for (int k = 0; k < 8; ++k) {
     const int c = nodes_[(size_t)n].child[k];
-    if (c >= 0 && nodes_[(size_t)c].count > kOctSplit) octreeSplit(c, depth + 1);
+    if (c >= 0 && nodes_[(size_t)c].count > kOctSplit)
+      octreeSplit(c, depth + 1);
   }
 }
 
@@ -462,6 +472,33 @@ void BroadPhase::octreeQuery(const BroadBox& area, const float* segA,
 
 // --- queries -----------------------------------------------------------------
 
+void BroadPhase::refreshMoving() {
+  movingObjects_.clear();
+  for (int i = 0; i < count_; ++i)
+    if (nextPresent_[(size_t)i] && nextMoving_[(size_t)i])
+      movingObjects_.push_back(i);
+  if (movingObjects_.empty()) {
+    if (movingIndex_) movingIndex_->clear();
+    return;
+  }
+  if (!movingIndex_) movingIndex_.reset(new BroadPhase(kGrid));
+  movingIndex_->begin((int)movingObjects_.size());
+  for (size_t k = 0; k < movingObjects_.size(); ++k)
+    movingIndex_->set((int)k, next_[(size_t)movingObjects_[k]], false);
+  movingIndex_->commit();
+}
+
+void BroadPhase::queryMoving(const BroadBox* area, const float* a,
+                             const float* b, float radius,
+                             std::vector<int>& out) {
+  if (!movingIndex_ || movingObjects_.empty()) return;
+  if (area)
+    movingIndex_->queryBox(*area, movingHits_);
+  else
+    movingIndex_->querySegment(a, b, radius, movingHits_);
+  for (int i : movingHits_) out.push_back(movingObjects_[(size_t)i]);
+}
+
 void BroadPhase::finishQuery(std::vector<int>& out) {
   // Ascending: the order a full walk over the objects visits them.
   std::sort(out.begin(), out.end());
@@ -474,6 +511,7 @@ void BroadPhase::queryBox(const BroadBox& area, std::vector<int>& out) {
     gridQuery(area, nullptr, nullptr, 0.0F, out);
   else
     octreeQuery(area, nullptr, nullptr, 0.0F, out);
+  queryMoving(&area, nullptr, nullptr, 0.0F, out);
   finishQuery(out);
 }
 
@@ -491,6 +529,7 @@ void BroadPhase::querySegment(const float a[3], const float b[3], float radius,
     gridQuery(area, a, d, radius, out);
   else
     octreeQuery(area, a, d, radius, out);
+  queryMoving(nullptr, a, b, radius, out);
   finishQuery(out);
 }
 

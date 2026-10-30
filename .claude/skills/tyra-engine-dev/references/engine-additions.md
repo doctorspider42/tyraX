@@ -39,7 +39,7 @@ Layout: `vendor/tyra/engine/{inc,src}/` mirror each other: `audio`, `debug`, `fi
 `Sprite`/`Mesh`/`MeshFrame`/`MeshMaterial`/`MeshMaterialFrame` share ONE lookup namespace in `TextureRepository` (`addLink(id)`; `getBySpriteId`/`getByMeshMaterialId` return the FIRST texture whose links contain the id). Upstream `rand() % 1000000` (never seeded) collided → wrong texture on a sprite → garbled/black HUD sprites, worst right after opening a menu. Use `renderer/models/unique_id.hpp` `generateUniqueId()` for any id-bearing render object. (`audio_song.cpp` deliberately keeps `rand()` — separate namespace, off-thread.) Id lookup cache: textures-vram.md.
 
 ## Physics
-`physics/CollisionMesh` (XZ-grid triangle collider): `raycast(..., outNormal)` returns the hit triangle's mesh-local normal (rigid-body per-corner contacts, docs/physics.md). Both queries test the mesh's own box FIRST (the grid clamps outside queries onto edge cells, else every border triangle is paid) — keep the early-out exact: sphere reach = radius + the 0.6 crossing band. Plus `Ray::intersectTriangle`.
+`physics/CollisionMesh` (3D-BVH triangle collider): `raycast(..., outNormal)` returns the hit triangle's mesh-local normal (rigid-body per-corner contacts, docs/physics.md). Both queries test the mesh's own box FIRST (the grid clamps outside queries onto edge cells, else every border triangle is paid) — keep the early-out exact: sphere reach = radius + the 0.6 crossing band. Plus `Ray::intersectTriangle`.
 
 `physics/BroadPhase` (`broad_phase.{hpp,cpp}`, docs/collision-boxes.md "The broad phase"): which objects may touch an area or a segment, two backends behind one interface - a height-aware XZ grid (rebuilt per commit) and a loose octree (split past 8 objects, per-node content bounds, kept across commits). Caller hands boxes `begin`/`set(i, box, moving)`/`commit`; `queryBox`/`querySegment` return a SUPERSET, ascending. Host-compilable (only `<vector>`): fuzz it against brute force from a scratch harness before changing it - keep it never-fewer and ascending (the walker's pushes depend on order).
 
@@ -54,3 +54,15 @@ Layout: `vendor/tyra/engine/{inc,src}/` mirror each other: `audio`, `debug`, `fi
 
 ## Optional boot logo (2.0)
 `EngineOptions::showBanner` (default true): `Engine::init` calls `banner.show()` only when set. Generated `main.cpp` writes it from `ProjectSettings::showEngineLogo` (Loading Screens > First power-on, format 115). Off = the game's first picture is its own splash or loading screen; nothing else about init moves.
+
+
+### Qualified collision runtime (2.1.2)
+
+CollisionMesh uses an exact 3D triangle BVH with `.tmdl.tcol` host baking and
+runtime fallback. BroadPhase indexes moving and sleeping boxes; WorldBroadPhase
+retains unchanged statics and refreshes compact movers. Body pairs use swept
+bounds, convex SAT/linear CCD share projections, and OBB projections round
+outwards. separating_axis_cache.hpp stores hints only: every rejection proves
+current separation again. Geometry/shape revisions invalidate transformed data.
+The scalar six/three-pass solver remains; no VU0, warm-start or island backend.
+Contacts and car-prop candidate lists grow instead of silently truncating.

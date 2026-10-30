@@ -75,3 +75,8 @@ Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dy
 TyraX 2.0 integration: generated sources have been refreshed with the combined
 TyraX2 renderer and mainline collision broad phase; authored settings and
 user-owned source files retain their existing ownership rules.
+
+Rebuild with TyraX 2.1.2 to use spatial body filtering, cached world queries,
+shared SAT/CCD projections and complete contact/prop candidate storage. The
+existing scalar impulse solver and vehicle update remain selected. Dense
+stack support quality remains a known limitation; no 60 FPS pile guarantee.

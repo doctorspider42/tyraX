@@ -835,3 +835,7 @@ per material, so material borders never move.
 **An exported ISO still contains the .obj.** `bin/` accumulates - the build
 deletes a superseded `.obj` from it, but if you see stale files, a
 *Project > Clean* followed by a build gives you an exact `bin/`.
+
+Mesh-mode static collision also bakes a `.tmdl.tcol` triangle-BVH sidecar. It
+retains collision geometry independently of render LOD/strips, skips box-only
+models, and falls back to runtime construction when the sidecar is absent.

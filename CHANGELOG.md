@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.1.2
+
+- Physics avoids unnecessary collision tests with spatial body filtering, cached static-world queries and shared SAT/CCD projections. Mesh collision uses a baked 3D BVH, with runtime fallback for older resources. Dense contacts and vehicle pushes no longer silently stop at fixed global limits. Physical PS2 comparisons show gains in dense scenes; this does not guarantee 60 FPS for large piles. Rebuild games to use the updated runtime.
+
 ## 2.1.1
 
 - The release notes on GitHub, and in the editor's update dialog, are now this changelog's entry for the version instead of a bare "Full Changelog" link.

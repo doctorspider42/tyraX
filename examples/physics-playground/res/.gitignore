@@ -17,3 +17,6 @@
 /models/*.tskl
 /models/*.tanm
 /models/*.tmdl
+
+# Host-baked triangle collision BVH.
+/models/*.tmdl.tcol

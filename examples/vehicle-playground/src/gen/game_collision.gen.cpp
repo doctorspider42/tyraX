@@ -172,6 +172,8 @@ void TerrainGame::broadPhaseRefresh() const {
     bpGen = sceneGeneration;
     changed = true;
   }
+  const bool trackWorld = worldBroadPhase.initialized();
+  if (trackWorld) worldBroadPhase.begin(n, kind);
   // First bring every entry up to date and see whether the structure would
   // change at all: an object came or went, started or stopped moving, or a
   // placed box changed. A refresh boundary after a stage that moved nothing
@@ -182,6 +184,7 @@ void TerrainGame::broadPhaseRefresh() const {
     // physObstacle is the widest "can be touched" list (the walker's and the
     // sweep's objectCollides is a subset): every consumer re-applies its own.
     if (!o.active || !physObstacle(o.data)) {
+      if (trackWorld) worldBroadPhase.remove(i);
       changed = changed || e.present;
       e.present = false;
       continue;
@@ -201,14 +204,13 @@ void TerrainGame::broadPhaseRefresh() const {
       e.valid = true;
       e.stale = true;
     }
-    // Moving (a physics body, or moved this frame or the last): a candidate
-    // of every query until it settles - a placed box would lag it. By FRAME,
-    // not since the last refresh: something that moves every frame in a late
-    // stage (a vehicle) must not settle at an earlier boundary of the next
-    // frame and then move away from its box. Nothing reads a moving object's
-    // box, so it is rebuilt once, when it settles.
-    const bool moving = o.data.physics || g_frameStamp - e.movedAt <= 1u;
-    if (!moving && e.stale) {
+    // Every collider, including sleeping and moving bodies, is spatially
+    // indexed. Stage boundaries refresh transforms; a caller moving a collider
+    // beyond the padding inside one stage must invalidate before querying.
+    const bool moving = (o.data.physics && !physAsleep(o)) ||
+                        g_frameStamp - e.movedAt <= 1u;
+    const bool changedBox = e.stale;
+    if (e.stale) {
       broadPhaseBoxOf(o, e.box);
       e.stale = false;
       changed = true;
@@ -216,6 +218,10 @@ void TerrainGame::broadPhaseRefresh() const {
     changed = changed || !e.present || moving != e.moving;
     e.present = true;
     e.moving = moving;
+    if (trackWorld) {
+      if (o.data.physics) worldBroadPhase.remove(i);
+      else worldBroadPhase.set(i, e.box, moving, changedBox);
+    }
   }
   if (!changed) return;
   broadPhase.begin(n);
@@ -224,6 +230,24 @@ void TerrainGame::broadPhaseRefresh() const {
     if (e.present) broadPhase.set(i, e.box, e.moving);
   }
   broadPhase.commit();
+}
+
+
+void TerrainGame::broadPhaseWorldNear(const Tyra::BroadBox& area,
+                                      std::vector<int>& out) const {
+  if (bpFrame != g_frameStamp) broadPhaseRefresh();
+  // Preserve the existing all-collider development oracle.
+  if (kBroadPhaseVerify || bpVerifyAll) { broadPhaseNear(area, out); return; }
+  if (!worldBroadPhase.initialized()) {
+    worldBroadPhase.begin((int)runtimeObjects.size(), broadPhase.kind());
+    for (size_t i = 0; i < bpCache.size(); ++i) {
+      const auto& entry = bpCache[i];
+      if (entry.present && !runtimeObjects[i].data.physics)
+        worldBroadPhase.set((int)i, entry.box, entry.moving, true);
+      else worldBroadPhase.remove((int)i);
+    }
+  }
+  worldBroadPhase.queryBox(area, out);
 }
 
 void TerrainGame::broadPhaseNear(const Tyra::BroadBox& area,
@@ -509,6 +533,23 @@ float TerrainGame::sweepObject(const SweepSeg& s, int oi, float best) const {
   // up - collidePlayer's doorway rule, same function.
   if (sweepPassOn && portalDoorwayOpens(o, sweepPassPlane, sweepPassPoint))
     return best;
+
+  if (o.data.collision == 1 && o.data.model >= 0 &&
+      o.data.model < (int)gameModels.size() && !gameModels[o.data.model].collider.empty()) {
+    float scale[3];
+    for (int k=0;k<3;++k) scale[k]=fabsf(o.data.scale[k])>1e-4F?o.data.scale[k]:1e-4F;
+    auto local = [&](float x,float y,float z) {
+      V3 p=invRotated({x-o.data.position[0],y-o.data.position[1],z-o.data.position[2]},o.data.rotation);
+      return Vec4(p.x/scale[0],p.y/scale[1],p.z/scale[2],1.0F);
+    };
+    const float smallest=std::min(fabsf(scale[0]),std::min(fabsf(scale[1]),fabsf(scale[2])));
+    const Vec4 from=local(s.p[0],s.p[1],s.p[2]);
+    const Vec4 to=local(s.p[0]+s.d[0]*best,s.p[1]+s.d[1]*best,s.p[2]+s.d[2]*best);
+    float t;
+    if (gameModels[o.data.model].collider.sweepSphere(from,to,s.r/smallest,&t))
+      return best*(t>1e-4F?t-1e-4F:0.0F);
+    return best;
+  }
 
   if (g_sweepBoxCache.size() != runtimeObjects.size() ||
       g_sweepBoxGen != sceneGeneration) {
@@ -1269,11 +1310,6 @@ void TerrainGame::buildSkyDome() {
   skyDome.infoBag->dynLightPick = false;
   // ...and for the same reason it cannot be described to the BLSS upscaler:
   // a shell around the eye has no screen bounding box that means anything.
-  // Its package boxes wrap the near plane, so each one reports "the frame,
-  // fully covered, at the nearest representable depth" and flattens coverage,
-  // depth and depthGrad wherever it lands. Measured: with the dome in, the
-  // widest proxy of an `fpp` frame was the top 106 rows of the screen.
-  skyDome.infoBag->blssProxy = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colors.bind(skyDome.colorBag);
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -1555,14 +1591,32 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       const bool hasAo = geoAo.size() * 8 == geo.size();
       g_litNormals = dynLit ? &part.litNormals : nullptr;
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
-      for (size_t i = 0; i + 7 < geo.size(); i += 8) {
-        const float* v = &geo[i];
-        pushVert(part.vertices, part.colors, part.sts, visualData,
-                 {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
-                 textured, hasAo ? geoAo[i / 8] : (unsigned char)255,
-                 src.ke);
+      // The far-to-near switch baked these arrays over the last few frames
+      // (advanceNearStage) with the same function and inputs as the branch
+      // below - take them instead of baking the part again here.
+      const bool fast = !billboard && directionalOnlyBake();
+      if (fast && g.nearStageDone && pi < (int)g.nearStage.size() &&
+          g.nearStage[pi].vertices.size() * 8 == geo.size() / 8 * 8) {
+        part.vertices.swap(g.nearStage[pi].vertices);
+        part.colors.swap(g.nearStage[pi].colors);
+        part.sts.swap(g.nearStage[pi].sts);
+      } else if (fast) {
+        pushModelPartRange(part.vertices, part.colors, part.sts, visualData,
+                           geo, 0, geo.size() / 8, src.kd, textured, src.ke);
+      } else {
+        for (size_t i = 0; i + 7 < geo.size(); i += 8) {
+          const float* v = &geo[i];
+          pushVert(part.vertices, part.colors, part.sts, visualData,
+                   {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
+                   textured, hasAo ? geoAo[i / 8] : (unsigned char)255,
+                   src.ke);
+        }
       }
     }
+    // Consumed above, or stale: this bake is the object's truth either way.
+    g.nearStage.clear();
+    g.nearStaging = g.nearStageDone = false;
+    g.nearStagePart = g.nearStageVert = 0;
     g_envNormals = nullptr;
   } else {
     // Primitives, decals and every other builder emit triangle lists.
@@ -1725,6 +1779,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
         o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].texture : (gmat ? gmat->texture : nullptr);
+    const Texture* const surfaceTex = tex;  // a feed below replaces it
+    const unsigned char texFilter =
+        o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].textureFilter
+                         : (gmat ? gmat->textureFilter : 0);
     // Raytraced mirror: the glass samples the VU0-traced reflection image
     // (created by buildRtMirrors before this rebuild ever runs).
     if (o.data.type == 15)
@@ -1768,6 +1826,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
+      // Mirror and camera feeds are render targets, never point sampled.
+      part.texBag->filter = tex == surfaceTex ? texFilter : 0;
       part.sts.bind(part.texBag);
       part.bag->texture = part.texBag.get();
     } else {
@@ -2070,6 +2130,65 @@ void TerrainGame::renderReflectionProxy(int index) {
     g.reflectionProxy = std::move(p);
   }
   if (g.reflectionProxy->bag) renderObjectBag(index, g.reflectionProxy->bag.get());
+}
+
+
+
+// Whether this object's full model can be baked ahead of its far-to-near
+// switch (advanceNearStage). Conservative on purpose: only when every part is
+// sure to take directionalOnlyBake() inside rebuildObjectGeometry - no probe
+// grid, point light, emissive or baked lamp in the scene, no prelit, lit or
+// reflective part. Anything else switches the old way, in one frame.
+bool TerrainGame::nearStageEligible(int index) const {
+  const SceneObjectData& d = runtimeObjects[index].data;
+  if (d.type != 5 || d.model < 0 || d.model >= (int)gameModels.size() ||
+      d.collision == 3 || d.prelit != 0 || d.dynLit != 0)
+    return false;
+  if (SCENE_PROBES != nullptr || !g_scenePointLights.empty() ||
+      (SCENE_EMIS != nullptr && SCENE_EMIS_COUNT > 0) ||
+      (BAKE_STATIC_LAMPS && !g_bakedLamps.empty()))
+    return false;
+  for (const GameModelPart& p : gameModels[d.model].parts)
+    if (p.reflTexture) return false;
+  return true;
+}
+
+
+
+// Bakes up to `vertBudget` more vertices of the full model into the object's
+// near stage, part by part, and spends them from the budget. True once every
+// part is complete; rebuildObjectGeometry then swaps the arrays in.
+bool TerrainGame::advanceNearStage(int index, int& vertBudget) {
+  ObjectGeometry& g = objectGeometry[index];
+  const SceneObjectData& d = runtimeObjects[index].data;
+  const GameModel& gm = gameModels[d.model];
+  if (g.nearStage.size() != gm.parts.size()) g.nearStage.resize(gm.parts.size());
+  while (vertBudget > 0 && g.nearStagePart < gm.parts.size()) {
+    const GameModelPart& src = gm.parts[g.nearStagePart];
+    // The same list/strip choice as rebuildObjectGeometry.
+    const bool useStrip = src.stripRun != 0 && !src.stripVerts.empty() &&
+                          src.stripRun <= minPackageSize();
+    const std::vector<float>& geo = useStrip ? src.stripVerts : src.verts;
+    const size_t total = geo.size() / 8;
+    GeoPart& part = g.nearStage[g.nearStagePart];
+    if (g.nearStageVert == 0) {
+      part.vertices.reserve(total);
+      part.colors.reserve(total);
+      part.sts.reserve(total);
+    }
+    size_t last = g.nearStageVert + (size_t)vertBudget;
+    if (last > total) last = total;
+    pushModelPartRange(part.vertices, part.colors, part.sts, d, geo,
+                       g.nearStageVert, last, src.kd, src.texture != nullptr,
+                       src.ke);
+    vertBudget -= (int)(last - g.nearStageVert);
+    g.nearStageVert = last;
+    if (last >= total) {
+      ++g.nearStagePart;
+      g.nearStageVert = 0;
+    }
+  }
+  return g.nearStagePart >= gm.parts.size();
 }
 
 
@@ -2435,12 +2554,13 @@ void TerrainGame::buildStaticBatchList() {
   // members that disagree about the distance must not share one - otherwise
   // the nearest member's number would silently extend every other member's.
   // Objects that leave it at 0 group exactly as they did before.
-  auto addMember = [&](int object, int part, Texture* texture, int cx, int cz,
-                       float dd, int lamp, unsigned int stripRun,
-                       bool reflected) {
+  auto addMember = [&](int object, int part, Texture* texture,
+                       unsigned char filter, int cx, int cz, float dd,
+                       int lamp, unsigned int stripRun, bool reflected) {
     int bi = -1;
     for (int b = 0; b < (int)staticBatches.size(); ++b)
-      if (staticBatches[b].texture == texture && keyX[b] == cx &&
+      if (staticBatches[b].texture == texture &&
+          staticBatches[b].textureFilter == filter && keyX[b] == cx &&
           keyZ[b] == cz && staticBatches[b].drawDistance == dd &&
           keyL[b] == lamp && staticBatches[b].stripRun == stripRun &&
           staticBatches[b].reflected == reflected) {
@@ -2450,6 +2570,7 @@ void TerrainGame::buildStaticBatchList() {
     if (bi < 0) {
       staticBatches.emplace_back();
       staticBatches.back().texture = texture;
+      staticBatches.back().textureFilter = filter;
       staticBatches.back().reflected = reflected;
       staticBatches.back().drawDistance = dd;
       staticBatches.back().stripRun = stripRun;
@@ -2495,8 +2616,9 @@ void TerrainGame::buildStaticBatchList() {
         if (p.reflTexture) { reflective = true; break; }
       if (reflective || gm.parts.empty()) continue;
       for (int pi = 0; pi < (int)gm.parts.size(); ++pi)
-        addMember(i, pi, gm.parts[pi].texture, cx, cz, d.drawDistance, lamp,
-                  gm.parts[pi].stripRun, d.reflected != 0);
+        addMember(i, pi, gm.parts[pi].texture, gm.parts[pi].textureFilter, cx,
+                  cz, d.drawDistance, lamp, gm.parts[pi].stripRun,
+                  d.reflected != 0);
     } else {
       if (d.material >= 0 &&
           (d.material >= (int)gameMaterials.size() ||
@@ -2504,7 +2626,9 @@ void TerrainGame::buildStaticBatchList() {
         continue;
       Texture* texture =
           d.material >= 0 ? gameMaterials[d.material].texture : nullptr;
-      addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u,
+      const unsigned char filter =
+          d.material >= 0 ? gameMaterials[d.material].textureFilter : 0;
+      addMember(i, -1, texture, filter, cx, cz, d.drawDistance, lamp, 0u,
                 d.reflected != 0);
     }
   }
@@ -2785,6 +2909,7 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   if (b.texture) {
     if (!b.texBag) b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = b.texture;
+    b.texBag->filter = b.textureFilter;
     b.sts.bind(b.texBag);
     b.bag->texture = b.texBag.get();
   } else {
@@ -3121,11 +3246,39 @@ void TerrainGame::procBlockVertexAo(float x, float y, float z,
 void TerrainGame::procAddMergedObject(int owner, int instance,
                                       const SceneObjectData& d,
                                       unsigned char faces,
-                                      const unsigned char* blockAo) {
+                                      const unsigned char* blockAo,
+                                      int lodTier, float lodDist,
+                                      const float* lodAnchor) {
   const float cell =
       owner >= 0 ? procrt::VOLUMES[owner].cell : 100000.0F;  // one bag per prefab
-  const int cx = (int)floorf(d.position[0] / cell);
-  const int cz = (int)floorf(d.position[2] / cell);
+  // A prefab instance's members land in the cell of the INSTANCE's origin
+  // (lodAnchor), never each member's own position, and Y joins the key. Two
+  // reasons, one measured: a distant-version switch is decided per chunk, so
+  // a whole room must switch together; and on a physical PS2 the cube example
+  // ran 25.4 -> 8.8 ms of SCENE (25 -> 50 fps) from this alone - chunks keyed
+  // by member position spanned all three floors and crossed the edge of the
+  // view, which the EE then clips triangle by triangle, while a room-sized
+  // chunk is mostly wholly in or wholly out (docs/procedural-runtime.md).
+  if (lodTier >= 0 && !lodAnchor) lodTier = -1;
+  const float* at = lodAnchor ? lodAnchor : d.position;
+  const int cx = (int)floorf(at[0] / cell);
+  const int cy = lodAnchor ? (int)floorf(at[1] / cell) : 0;
+  const int cz = (int)floorf(at[2] / cell);
+  // The group's one reference point (see ProcLodRef): the origin of the
+  // first instance in the cell, so every chunk of the group measures the
+  // same distance whichever instance created it.
+  float lodRef[3] = {at[0], at[1], at[2]};
+  if (lodTier >= 0 && owner >= 0) {
+    bool found = false;
+    for (const ProcLodRef& r : procLodRefs)
+      if (r.owner == owner && r.cx == cx && r.cy == cy && r.cz == cz) {
+        for (int a = 0; a < 3; ++a) lodRef[a] = r.p[a];
+        found = true;
+        break;
+      }
+    if (!found)
+      procLodRefs.push_back({owner, cx, cy, cz, {at[0], at[1], at[2]}});
+  }
 
   // Analytic lights are pruned PER OBJECT (pushVert reads the g_*Local lists),
   // exactly as rebuildStaticBatch does for its members - collecting once for a
@@ -3187,7 +3340,9 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
   auto chunkFor = [&](int model, int part, int material) -> ProcChunk& {
     for (ProcChunk& c : procChunks)
       if (c.owner == owner && c.instance == instance && c.model == model &&
-          c.part == part && c.material == material && c.cx == cx && c.cz == cz) {
+          c.part == part && c.material == material && c.cx == cx && c.cz == cz &&
+          c.lodTier == lodTier && c.cy == cy &&
+          (lodTier < 0 || c.lodDist == lodDist)) {
         c.smooth = c.smooth || wantSmooth;
         // About to grow its arrays: release them first (immutableStreams).
         if (c.bag) c.bag->releaseImmutableStreams();
@@ -3203,7 +3358,11 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
     c.material = material;
     c.cx = cx;
     c.cz = cz;
+    c.cy = cy;
     c.drawDist = owner >= 0 ? procrt::VOLUMES[owner].drawDist : 0.0F;
+    c.lodTier = lodTier;
+    c.lodDist = lodDist;
+    for (int a = 0; a < 3; ++a) c.lodRef[a] = lodRef[a];
     return c;
   };
 
@@ -3264,6 +3423,297 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
   g_primKe = nullptr;
   g_primTextured = false;
   g_primUvRect = nullptr;
+}
+
+
+
+// --- Instanced scatter (docs/procedural-generation.md, "Instanced") ---------
+// The geometry every copy of `model` shares: model-local, unscaled, one entry
+// per texture its parts use. Colours are baked once per yaw bucket, with the
+// scene's directional light and ambient only - a copy has no position of its
+// own at bake time, so probe GI, ambient occlusion and point/baked lamps are
+// not on instanced copies (the price the Output tooltip states).
+int TerrainGame::procInstGeoRange(int model, int* count) {
+  *count = 0;
+  if (model < 0 || model >= (int)gameModels.size()) return -1;
+  if (procInstGeoFirst.size() < gameModels.size()) {
+    procInstGeoFirst.resize(gameModels.size(), -1);
+    procInstGeoCount.resize(gameModels.size(), 0);
+  }
+  if (procInstGeoFirst[(size_t)model] >= 0) {
+    *count = procInstGeoCount[(size_t)model];
+    return procInstGeoFirst[(size_t)model];
+  }
+  const GameModel& gm = gameModels[(size_t)model];
+  // One draw group per texture AND filter: an atlas page may carry a smooth
+  // and a point-sampled part, and a bag has one TEX1.
+  std::vector<std::pair<Tyra::Texture*, unsigned char>> textures;
+  for (const GameModelPart& p : gm.parts) {
+    const std::pair<Tyra::Texture*, unsigned char> key(p.texture,
+                                                       p.textureFilter);
+    if (!p.verts.empty() &&
+        std::find(textures.begin(), textures.end(), key) == textures.end())
+      textures.push_back(key);
+  }
+  const int first = (int)procInstGeo.size();
+  // The bake's pose: far above everything, so no point light, emissive pool
+  // or AO occluder reaches it, and local-space output (g_bakeLocal).
+  g_aoAtlas = false;
+  g_emisAtlas = false;
+  g_aoSts = nullptr;
+  g_aoOff = true;
+  g_giLightmap = false;
+  g_giProbeShade = false;
+  g_litNormals = nullptr;
+  g_envNormals = nullptr;
+  g_bakeLocal = true;
+  aoCollectLocal(0.0F, 1.0e6F, 0.0F, 0.0F, -1);
+  emisCollectLocal(0.0F, 1.0e6F, 0.0F, 0.0F, -1);
+  SceneObjectData d{};
+  d.type = 5;
+  d.model = model;
+  d.position[1] = 1.0e6F;
+  for (int a = 0; a < 3; ++a) d.scale[a] = d.color[a] = 1.0F;
+  for (const auto& texKey : textures) {
+    Tyra::Texture* tex = texKey.first;
+    auto g = std::make_unique<ProcInstGeo>();
+    g->model = model;
+    for (int b = 0; b < kInstYawBuckets; ++b) {
+      d.rotation[1] = 360.0F * (float)b / (float)kInstYawBuckets;
+      for (const GameModelPart& src : gm.parts) {
+        if (src.texture != tex || src.textureFilter != texKey.second ||
+            src.verts.empty())
+          continue;
+        const bool textured = src.texture != nullptr;
+        for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
+          const float* v = &src.verts[i];
+          pushVert(g->vertices[b], g->colors[b], g->sts[b], d,
+                   {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
+                   textured, 255, src.ke);
+        }
+      }
+    }
+    for (size_t i = 0; i < g->vertices[0].size(); ++i) {
+      const Vec4& v = g->vertices[0][i];
+      const float r = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+      if (r > g->radius) g->radius = r;
+    }
+    g->identity.identity();
+    g->info = std::make_unique<StaPipInfoBag>();
+    g->info->model = &g->identity;  // renderInstances supplies the real ones
+    g->info->shadingType = TyraShadingGouraud;
+    g->info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    g->info->fullClipChecks = true;
+    g->info->dynLightSkipBaked = BAKE_STATIC_LAMPS;
+    for (int b = 0; b < kInstYawBuckets; ++b) {
+      if (tex) {
+        g->texBag[b] = std::make_unique<StaPipTextureBag>();
+        g->texBag[b]->texture = tex;
+        g->texBag[b]->filter = texKey.second;
+        g->sts[b].bind(g->texBag[b]);
+      }
+      g->colorBag[b] = std::make_unique<StaPipColorBag>();
+      g->bag[b] = std::make_unique<StaPipBag>();
+      g->bag[b]->info = g->info.get();
+      g->bag[b]->color = g->colorBag[b].get();
+      g->bag[b]->lighting = nullptr;
+      g->bag[b]->texture = tex ? g->texBag[b].get() : nullptr;
+      g->colors[b].bind(g->colorBag[b]);
+      g->vertices[b].bind(g->bag[b]);
+      // One stamp per array, never bumped: every copy of the bucket shares
+      // the package-bbox and baked-stream entries (the wheels' trap,
+      // docs/wheel-rebake-skip.md).
+      g->bag[b]->bboxVersion = ++g_bboxStamp;
+      g->bag[b]->immutableStreams = true;
+    }
+    procInstGeo.push_back(std::move(g));
+  }
+  g_bakeLocal = false;
+  procInstGeoFirst[(size_t)model] = first;
+  procInstGeoCount[(size_t)model] = (int)procInstGeo.size() - first;
+  *count = procInstGeoCount[(size_t)model];
+  return first;
+}
+
+// One copy of `d.model` (position, rotation, uniform scale). Collision, when
+// asked for, is the conservative world box of the model's bounds - not the
+// merged path's scale-sized box, which is a primitive's size, not a model's.
+void TerrainGame::procAddInstance(int owner, const SceneObjectData& d,
+                                  int lodModel, float lodDist, bool collide) {
+  if (d.model < 0 || d.model >= (int)gameModels.size()) return;
+  ProcInst p;
+  const float s = d.scale[0];
+  const V3 ax = rotated({s, 0.0F, 0.0F}, d.rotation);
+  const V3 ay = rotated({0.0F, s, 0.0F}, d.rotation);
+  const V3 az = rotated({0.0F, 0.0F, s}, d.rotation);
+  p.axes[0] = ax.x, p.axes[1] = ax.y, p.axes[2] = ax.z;
+  p.axes[3] = ay.x, p.axes[4] = ay.y, p.axes[5] = ay.z;
+  p.axes[6] = az.x, p.axes[7] = az.y, p.axes[8] = az.z;
+  p.x = d.position[0];
+  p.y = d.position[1];
+  p.z = d.position[2];
+  p.model = (short)d.model;
+  p.lodModel = (short)lodModel;
+  p.lodDist2 = lodModel >= 0 ? lodDist * lodDist : 0.0F;
+  float yaw = fmodf(d.rotation[1], 360.0F);
+  if (yaw < 0.0F) yaw += 360.0F;
+  p.bucket = (unsigned char)((int)floorf(yaw / (360.0F / kInstYawBuckets) + 0.5F) %
+                             kInstYawBuckets);
+  procInsts.push_back(p);
+  if (!collide) return;
+  const GameModel& gm = gameModels[(size_t)d.model];
+  StaticBox b;
+  for (int a = 0; a < 3; ++a) {
+    b.mn[a] = 1.0e30F;
+    b.mx[a] = -1.0e30F;
+  }
+  for (int k = 0; k < 8; ++k) {
+    const float lx = k & 1 ? gm.mx[0] : gm.mn[0];
+    const float ly = k & 2 ? gm.mx[1] : gm.mn[1];
+    const float lz = k & 4 ? gm.mx[2] : gm.mn[2];
+    const float w[3] = {p.x + ax.x * lx + ay.x * ly + az.x * lz,
+                        p.y + ax.y * lx + ay.y * ly + az.y * lz,
+                        p.z + ax.z * lx + ay.z * ly + az.z * lz};
+    for (int a = 0; a < 3; ++a) {
+      if (w[a] < b.mn[a]) b.mn[a] = w[a];
+      if (w[a] > b.mx[a]) b.mx[a] = w[a];
+    }
+  }
+  b.owner = (short)owner;
+  b.instance = -1;
+  procColliders.push_back(b);
+}
+
+// Buckets the copies added since `from` into cells of `cell` units (the
+// Output node's chunk size): the frustum and draw-distance tests run per cell
+// first, so a copy outside every visible cell costs nothing per frame.
+void TerrainGame::procFinishInstances(int owner, float cell, float drawDist,
+                                      int from) {
+  if (cell < 1.0F) cell = 1.0F;
+  const int n = (int)procInsts.size() - from;
+  if (n <= 0) return;
+  auto key = [cell](const ProcInst& p) {
+    const int cx = (int)floorf(p.x / cell), cz = (int)floorf(p.z / cell);
+    return ((long long)cx << 32) ^ (unsigned int)cz;
+  };
+  std::sort(procInsts.begin() + from, procInsts.end(),
+            [&](const ProcInst& a, const ProcInst& b) { return key(a) < key(b); });
+  int start = from;
+  for (int i = from; i <= (int)procInsts.size(); ++i) {
+    if (i < (int)procInsts.size() && i > start &&
+        key(procInsts[(size_t)i]) == key(procInsts[(size_t)start]))
+      continue;
+    if (i == start) continue;
+    ProcInstCell c;
+    c.owner = owner;
+    c.drawDist = drawDist;
+    c.first = start;
+    c.count = i - start;
+    for (int a = 0; a < 3; ++a) {
+      c.mn[a] = 1.0e30F;
+      c.mx[a] = -1.0e30F;
+    }
+    for (int k = start; k < i; ++k) {
+      const ProcInst& p = procInsts[(size_t)k];
+      int gn = 0;
+      const int g0 = procInstGeoRange(p.model, &gn);
+      float r = 0.0F;
+      for (int g = 0; g0 >= 0 && g < gn; ++g)
+        if (procInstGeo[(size_t)(g0 + g)]->radius > r)
+          r = procInstGeo[(size_t)(g0 + g)]->radius;
+      const float s = sqrtf(p.axes[0] * p.axes[0] + p.axes[1] * p.axes[1] +
+                            p.axes[2] * p.axes[2]);
+      r *= s;
+      const float pc[3] = {p.x, p.y, p.z};
+      for (int a = 0; a < 3; ++a) {
+        if (pc[a] - r < c.mn[a]) c.mn[a] = pc[a] - r;
+        if (pc[a] + r > c.mx[a]) c.mx[a] = pc[a] + r;
+      }
+    }
+    procInstCells.push_back(c);
+    start = i;
+  }
+}
+
+void TerrainGame::procClearInstances(int owner) {
+  // Cells of other owners keep their ranges valid only if nothing before them
+  // moves, so compact the copies and re-point every surviving cell.
+  std::vector<ProcInst> kept;
+  std::vector<ProcInstCell> cells;
+  for (const ProcInstCell& c : procInstCells) {
+    if (c.owner == owner) continue;
+    ProcInstCell nc = c;
+    nc.first = (int)kept.size();
+    kept.insert(kept.end(), procInsts.begin() + c.first,
+                procInsts.begin() + c.first + c.count);
+    cells.push_back(nc);
+  }
+  procInsts.swap(kept);
+  procInstCells.swap(cells);
+}
+
+void TerrainGame::renderProcInstances() {
+  if (procInstCells.empty()) return;
+  const size_t groups = procInstGeo.size() * kInstYawBuckets;
+  if (procInstMats.size() < groups) procInstMats.resize(groups);
+  for (auto& v : procInstMats) v.clear();
+  const auto* planes = engine->renderer.core.renderer3D.frustumPlanes.getAll();
+  const float cam[3] = {cameraPosition.x, cameraPosition.y, cameraPosition.z};
+  for (const ProcInstCell& c : procInstCells) {
+    const Tyra::Vec4 mn(c.mn[0], c.mn[1], c.mn[2], 1.0F);
+    const Tyra::Vec4 mx(c.mx[0], c.mx[1], c.mx[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(planes, mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
+    if (splitBandActive && outsideSplitBand(c.mn, c.mx)) continue;
+    for (int i = c.first; i < c.first + c.count; ++i) {
+      const ProcInst& p = procInsts[(size_t)i];
+      const float dx = p.x - cam[0], dy = p.y - cam[1], dz = p.z - cam[2];
+      const float d2 = dx * dx + dy * dy + dz * dz;
+      if (c.drawDist > 0.0F && d2 > c.drawDist * c.drawDist) continue;
+      const int model =
+          p.lodModel >= 0 && p.lodDist2 > 0.0F && d2 > p.lodDist2 ? p.lodModel
+                                                                  : p.model;
+      int gn = 0;
+      const int g0 = procInstGeoRange(model, &gn);
+      if (g0 < 0) continue;
+      // A distant version's geometry is built the first frame one is seen.
+      if (procInstMats.size() < (size_t)(g0 + gn) * kInstYawBuckets)
+        procInstMats.resize((size_t)(g0 + gn) * kInstYawBuckets);
+      Tyra::M4x4 m;
+      m.data[0] = p.axes[0], m.data[1] = p.axes[1], m.data[2] = p.axes[2];
+      m.data[3] = 0.0F;
+      m.data[4] = p.axes[3], m.data[5] = p.axes[4], m.data[6] = p.axes[5];
+      m.data[7] = 0.0F;
+      m.data[8] = p.axes[6], m.data[9] = p.axes[7], m.data[10] = p.axes[8];
+      m.data[11] = 0.0F;
+      m.data[12] = p.x, m.data[13] = p.y, m.data[14] = p.z, m.data[15] = 1.0F;
+      for (int g = 0; g < gn; ++g)
+        procInstMats[(size_t)(g0 + g) * kInstYawBuckets + p.bucket].push_back(m);
+    }
+  }
+  for (size_t g = 0; g < procInstGeo.size(); ++g)
+    for (int b = 0; b < kInstYawBuckets; ++b) {
+      const auto& mats = procInstMats[g * kInstYawBuckets + (size_t)b];
+      if (mats.empty()) continue;
+      stapip.core.renderInstances(procInstGeo[g]->bag[b].get(), mats.data(),
+                                  (u32)mats.size());
+    }
+  if (DEBUG_SHOW_PROFILER) {
+    // Per 50 frames: copies that reached StaPip, how many were one REF to the
+    // shared body, how many took an ordinary submit (the first of each group
+    // and every copy crossing the guard band or the near plane).
+    static int beat = 0;
+    if (++beat >= 50) {
+      u32 tested = 0, appended = 0, ordinary = 0, crossing = 0;
+      stapip.core.takeInstanceStats(&tested, &appended, &ordinary, &crossing);
+      TYRA_LOG("INSTANCES copies ", (int)procInsts.size(), " tested ",
+               (int)tested / beat, " appended ", (int)appended / beat,
+               " ordinary ", (int)ordinary / beat, " (crossing ",
+               (int)crossing / beat, ") per frame");
+      beat = 0;
+    }
+  }
 }
 
 
@@ -3360,15 +3810,20 @@ void TerrainGame::procFinishChunks() {
     c.bag->packageSize = c.stripRun > 0 ? static_cast<u32>(c.stripRun) : 0U;
     c.bag->bboxVersion = ++g_bboxStamp;
     const Tyra::Texture* tex = c.roadTex;
+    unsigned char texFilter = 0;  // roads stay smooth
     if (tex) {
     } else if (c.model >= 0 && c.model < (int)gameModels.size() &&
-        c.part < (int)gameModels[c.model].parts.size())
+        c.part < (int)gameModels[c.model].parts.size()) {
       tex = gameModels[c.model].parts[c.part].texture;
-    else if (c.material >= 0 && c.material < (int)gameMaterials.size())
+      texFilter = gameModels[c.model].parts[c.part].textureFilter;
+    } else if (c.material >= 0 && c.material < (int)gameMaterials.size()) {
       tex = gameMaterials[c.material].texture;
+      texFilter = gameMaterials[c.material].textureFilter;
+    }
     if (tex) {
       if (!c.texBag) c.texBag = std::make_unique<StaPipTextureBag>();
       c.texBag->texture = const_cast<Tyra::Texture*>(tex);
+      c.texBag->filter = texFilter;
       c.sts.bind(c.texBag);
       c.bag->texture = c.texBag.get();
     } else {
@@ -6727,7 +7182,10 @@ void TerrainGame::updateVehicles(float dt) {
     // Physics BODIES (crates, barrels - data.physics): not walls. A car
     // trades momentum with them after the wall pass below - the era's
     // "drive through the boxes" - the way it already does with another car.
-    int pushIdx[8];
+    // Reuse storage; never discard a physical prop because eight nearer
+    // candidates filled the list (the exact contact test runs below).
+    static std::vector<int> pushIdx;
+    pushIdx.clear();
     int pushN = 0;
     const float feet0 = v.pos[1] - s.rideHeight * SC;
     {
@@ -6743,7 +7201,10 @@ void TerrainGame::updateVehicles(float dt) {
           const float dx = e.wx - v.pos[0];
           const float dz = e.wz - v.pos[2];
           const float r = reach + e.rs + 1.0F;
-          if (dx * dx + dz * dz < r * r && pushN < 8) pushIdx[pushN++] = oi;
+          if (dx * dx + dz * dz < r * r) {
+            pushIdx.push_back(oi);
+            ++pushN;
+          }
           return;
         }
         if (e.kind == 1) {
@@ -6820,13 +7281,15 @@ void TerrainGame::updateVehicles(float dt) {
         {
           VehWallBox w0[12];
           VehFloorBox f0[8];
-          int m0[4], p0[8];
+          int m0[4];
+          const auto p0 = pushIdx;
           const int wn = wallBoxN, fn = floorBoxN, mn = nearMeshN, pn = pushN;
           memcpy(w0, wallBox, sizeof(w0));
           memcpy(f0, floorBox, sizeof(f0));
           memcpy(m0, nearMesh, sizeof(m0));
-          memcpy(p0, pushIdx, sizeof(p0));
+
           wallBoxN = floorBoxN = nearMeshN = pushN = 0;
+          pushIdx.clear();
           for (const VehColEntry& e : vehColliders_) considerCol(e);
           for (const StaticBox& b : procColliders) considerProc(b);
           const bool same =
@@ -6834,7 +7297,7 @@ void TerrainGame::updateVehicles(float dt) {
               memcmp(w0, wallBox, sizeof(VehWallBox) * (size_t)wn) == 0 &&
               memcmp(f0, floorBox, sizeof(VehFloorBox) * (size_t)fn) == 0 &&
               memcmp(m0, nearMesh, sizeof(int) * (size_t)mn) == 0 &&
-              memcmp(p0, pushIdx, sizeof(int) * (size_t)pn) == 0;
+              p0 == pushIdx;
           static u32 vChecked = 0, vBad = 0, vFrames = 0;
           ++vChecked;
           if (!same) ++vBad;
@@ -6891,20 +7354,22 @@ void TerrainGame::updateVehicles(float dt) {
         {
           VehWallBox w0[12];
           VehFloorBox f0[8];
-          int m0[4], p0[8];
+          int m0[4];
+          const auto p0 = pushIdx;
           const int wn = wallBoxN, fn = floorBoxN, mn = nearMeshN, pn = pushN;
           memcpy(w0, wallBox, sizeof(w0));
           memcpy(f0, floorBox, sizeof(f0));
           memcpy(m0, nearMesh, sizeof(m0));
-          memcpy(p0, pushIdx, sizeof(p0));
+
           wallBoxN = floorBoxN = nearMeshN = pushN = 0;
+          pushIdx.clear();
           for (const VehColEntry& e : vehColliders_) considerCol(e);
           const bool same =
               wn == wallBoxN && fn == floorBoxN && mn == nearMeshN && pn == pushN &&
               memcmp(w0, wallBox, sizeof(VehWallBox) * (size_t)wn) == 0 &&
               memcmp(f0, floorBox, sizeof(VehFloorBox) * (size_t)fn) == 0 &&
               memcmp(m0, nearMesh, sizeof(int) * (size_t)mn) == 0 &&
-              memcmp(p0, pushIdx, sizeof(int) * (size_t)pn) == 0;
+              p0 == pushIdx;
           static u32 gChecked = 0, gBad = 0, gFrames = 0;
           ++gChecked;
           if (!same) ++gBad;
@@ -10435,6 +10900,16 @@ void TerrainGame::renderProcChunks() {
     // them now that the main view calls renderRoadChunks explicitly.
     if (c.owner == -3) continue;
     if (!c.bag || c.bag->count == 0) continue;
+    // Distant version per pool row: the near chunks and the far model of one
+    // group read the same reference point and distance, so exactly one side
+    // of the group draws.
+    if (c.lodTier >= 0) {
+      const float dx = c.lodRef[0] - cameraPosition.x;
+      const float dy = c.lodRef[1] - cameraPosition.y;
+      const float dz = c.lodRef[2] - cameraPosition.z;
+      const bool isFar = dx * dx + dy * dy + dz * dz > c.lodDist * c.lodDist;
+      if (isFar != (c.lodTier == 1)) continue;
+    }
     // StaPip has its own precise clipper, but entering it for every generated
     // road/prefab chunk still pays the bag setup and classification cost. The
     // chunks already own world-space bounds, so reject wholly invisible ones

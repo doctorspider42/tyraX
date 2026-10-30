@@ -305,6 +305,11 @@ struct ScriptContext {
   // subject to the per-frame gate), 2 = on and IGNORE the gate. The game
   // latches it and clears it back to -1.
   int frameExtrapolation = -1;
+  // The upscaler (docs/upscaler.md, "At runtime"), written by the Set
+  // Upscaler flow node: -1 = leave alone, 0 = the scene's own setting, 1 =
+  // native, 2 = reduced, 3 = automatic (the frame-budget switch). The game
+  // latches it and clears it back to -1; a scene load resets to 0.
+  int upscaler = -1;
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
