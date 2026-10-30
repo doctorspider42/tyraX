@@ -474,6 +474,19 @@ falsifiers reject an extra full step, changed warm-frame state, missing chassis
 checks and a missing canonical contact; original evidence remains untouched.
 Impact admission and unshadowed cost measurements are still pending.
 
+`results/vehicle-contacts-impact-admission-2026-10-30.*` passes on PS2 with
+750 full object passes and750 vehicle control steps per arm. The candidate
+emits4502 shared chassis/prop contact points and observes48,420 finite-mass
+impulse updates. Exhaustive admission checks310,500 pairs with2425 canonical
+positive pair/frame cases and zero missing hits;18,000 corner checks pass.
+The maximum collider and impulse budget ratios are0.0193/0.0505 (<1), with
+zero diagnostics. Old bumper pushes are zero in candidate versus2017 in
+control, and the solved car correction is nonzero. Selected impact states
+are intentionally different and are not an equality gate. Removing positive
+coverage, suppressing the returned car correction or reporting old bumper
+execution in in-memory CSV copies rejects admission. Long-interval validation
+and unshadowed cost measurements follow; these shadow costs are invalid.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used
