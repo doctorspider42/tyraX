@@ -727,3 +727,12 @@ prevent qualifying broader asynchronous use without replay and a correctness
 fix. Do not relax the tolerance. The private diagnostic now stops physics after
 CB DONE so unobserved continuation cannot create unlabelled post-window cases;
 active benchmark frames and production gameplay are unchanged.
+
+A fresh host build of tools/verify-vu0-sat.cpp reproduces the late capture's
+rejection both from simulated results and the stored hardware result
+(accepted=0, recoveryAccepted=0). The JSON records source hashes and expected
+failure; it is not a passing qualification or proof of host/EE bit equivalence.
+The next local-input diagnostic uses snapshot v2 and retains all existing
+collision checks. The late positive-contact discrepancy must be replayed and
+fixed before broader asynchronous selection, independently of the pose-layout
+experiment.

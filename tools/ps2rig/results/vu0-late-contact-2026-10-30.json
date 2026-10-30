@@ -43,5 +43,16 @@
   "depth_error": 3.814697265625e-06,
   "smaller_radius": 0.7794229433489502,
   "point_ratio": 0.40824482371788,
-  "classification": "Both report a hit; point error exceeds the existing1% radius tolerance. Captured after the bounded benchmark finished; phase/frame unavailable. Replay required before qualifying broader asynchronous use."
+  "classification": "Both report a hit; point error exceeds the existing1% radius tolerance. Captured after the bounded benchmark finished; phase/frame unavailable. Replay required before qualifying broader asynchronous use.",
+  "host_replay": {
+    "expected_exit": 1,
+    "observed_exit": 1,
+    "stdout": "capture ids=170,253 common=0 recorded=1 EE=1 hostReference=1 replay=1 accepted=0 recordedRecovery=1 recoveryAccepted=0 flags=1,1,1,1",
+    "sources": {
+      "tools/verify-vu0-sat.cpp": "29a4ce1b357836f0d2ec2aaff07be26e2dd9aeee789185701ba5f7ce1bbccddd",
+      "vendor/tyra/engine/src/physics/vu0_sat.cpp": "49c15a6e5117c5f2c769def50c87427deb19418b3d075d80210068dd0061fa18",
+      "vendor/tyra/engine/src/physics/vu0_sat_kernel.vclpp": "e761eeae19ac707699ba401ec3029eee4ce8c6168bfb8e895cb7c831e43fbdc3"
+    },
+    "scope": "Fresh host build reproduces rejection against the saved EE contact, including the recorded hardware result. This is defect reproduction, not a passing qualification or proof of identical host/EE floating-point behavior."
+  }
 }
