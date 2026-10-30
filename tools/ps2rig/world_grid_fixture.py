@@ -1,0 +1,56 @@
+"""Install an experimental world-only index into the private scalar body-grid rig."""
+from pathlib import Path
+import argparse,json,shutil,subprocess
+
+def install(repo,root,verify):
+    common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
+    allowed=(common.parent/'.tmp').resolve();assert root.is_relative_to(allowed) and root!=allowed
+    meta_path=root/'metadata.json';meta=json.loads(meta_path.read_text(encoding='utf8'))
+    assert meta.get('body_grid_timing_cell')==2 and meta.get('micro_dispatch') is False
+    engine=root/'engine/engine';rig=repo/'tools/ps2rig'
+    shutil.copyfile(rig/'world_grid_probe.hpp',engine/'inc/debug/world_grid_probe.hpp')
+    p=root/'district/src/gen/game_physics.gen.cpp';s=p.read_text(encoding='utf8')
+    if 'static Tyra::BroadPhase worldPairs;' not in s:
+        s='#include "debug/world_grid_probe.hpp"\n'+s
+        before='  // --- 2. contacts against the world';assert s.count(before)==1
+        start=s.index(before);end=s.index('\n',start)+1
+        code='''  // Reuse the general collider cache; retain scripted moving world solids.
+  static Tyra::BroadPhase worldPairs;
+  if(awakeCount>0){
+    if(bpFrame!=g_frameStamp)broadPhaseRefresh();
+    if(worldPairs.kind()!=broadPhase.kind())worldPairs=Tyra::BroadPhase(broadPhase.kind());
+    worldPairs.begin(int(runtimeObjects.size()));
+    for(size_t index=0;index<bpCache.size();++index){const auto& entry=bpCache[index];
+      if(entry.present && !runtimeObjects[index].data.physics)
+        worldPairs.set(int(index),entry.box,entry.moving);
+    }
+    worldPairs.commit();
+  }
+'''
+        s=s[:end]+code+s[end:]
+        before='{CB::StageScope q(4);broadPhaseNear(area,bpNearPhys);}';assert s.count(before)==1
+        s=s.replace(before,'{CB::StageScope q(4);worldPairs.queryBox(area,bpNearPhys);}\n      WorldGridProbe::inspect(area,bpNearPhys,bpCache,runtimeObjects,Tyra::vu0SatVerify);',1)
+        candidate_path=p;candidate_text=s
+        # Both arms retain the same2m body index; isolate the world index change.
+        p=root/'district/src/gen/collision_baseline.gen.cpp';s=p.read_text(encoding='utf8')
+        before='  static Tyra::BroadPhase bodyPairs;';assert s.count(before)==1
+        s=s.replace(before,'  static Tyra::BroadPhase bodyPairs(Tyra::BroadPhase::kGrid,2.0F);',1)
+        baseline_path=p;baseline_text=s
+        p=engine/'inc/debug/collision_bench.hpp';s=p.read_text(encoding='utf8')
+        s='#include "debug/world_grid_probe.hpp"\n'+s
+        before='  used = 0;\n}';assert before in s
+        s=s.replace(before,'  WorldGridProbe::flush(phase);\n'+before,1)
+        # Validate all insertion points before mutating the generated fixture.
+        candidate_path.write_bytes(candidate_text.encode());baseline_path.write_bytes(baseline_text.encode());p.write_bytes(s.encode())
+    cfg=root/'district/bin/sat-verify.cfg'
+    if verify:cfg.write_bytes(b'verify\n')
+    elif cfg.exists():cfg.unlink()
+    meta.update(world_grid_comparison=True,world_grid_verify=verify,body_grid_probe=False,
+        shadow_enabled=verify,scene_timing_qualified=False,
+        comparison='2m body grid/canonical scalar in both arms; original combined world query versus world-only index, retaining nonphysics moving solids')
+    meta_path.write_text(json.dumps(meta,indent=2),encoding='utf8')
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--scratch',required=True,type=Path)
+    p.add_argument('--verify',action='store_true');p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);a=p.parse_args()
+    install(a.repo.resolve(),a.scratch.resolve(),a.verify)

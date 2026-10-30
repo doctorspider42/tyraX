@@ -549,3 +549,19 @@ allocation, and perturbs the live scene; it only selects a candidate for a
 separate complete frame benchmark. See the
 [screening report](../tools/ps2rig/results/body-grid-screen-2026-10-30.json)
 and its captured input package.
+
+The complete normal-clock body-grid follow-up passed16,800 frame/accounting
+rows with micro dispatch off in both arms. It does **not** qualify a2m default:
+128-pile drive FPS changed20.07/22.57 to18.98/21.16 across the two reversing
+repeats;64-pile33.15/37.08 to39.45/37.01;32-pile50.65/50.30 to50.18/50.30.
+Different real frame intervals produce different contact-density trajectories
+(the first128-pile comparison averaged roughly451 versus549 contacts), so
+fixed-input query savings cannot be substituted for live FPS. Preserve this
+[normal-clock result](../tools/ps2rig/results/body-grid-normal-2026-10-30.json);
+a separately labeled nominal-step private benchmark is being measured to
+isolate algorithm cost without changing the production clock or collisions.
+The next world-index prototype remains private: it excludes physics bodies
+from world queries because those candidates are immediately rejected there,
+while retaining scripted moving nonphysics solids. Its host oracle passes
+20,000 category/movement/full-walk comparisons and generated PS2 sources pass
+syntax checks; physical admission and frame qualification are pending.

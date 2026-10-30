@@ -162,3 +162,11 @@ snapshot probe on physical EE. Validate with body_grid_analyze.py; snapshots
 include exact body/query boxes and sorted full-walk checks. Its fresh allocation
 benchmark only screens candidates: live scene timings are perturbed and cannot
 qualify a default cell-size change.
+
+Normal-clock frame comparisons can follow different contact-density trajectories:
+retain those results, then add a separately labeled private --fixed-step run.
+It overrides only benchmark simulation cadence, never production clock policy.
+For the world-only-index experiment, verify-world-grid.cpp covers moving solids
+and physics-category transitions with20,000 independent full walks; the private
+world_grid_fixture.py --verify gate checks every actual world query. Its frame
+timings include verification overhead and are not performance qualification.

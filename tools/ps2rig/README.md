@@ -325,3 +325,20 @@ both arms. It removes only that private fixture's sat-verify.cfg to enable28
 phases. Rebuild before launch, preserve screening files first, and validate the
 full16,800 rows with body_grid_timing_analyze.py plus matching log/metadata.
 No VU0 dispatch or snapshot work may appear in the measured scene run.
+
+When variable frame times produce different contact-density trajectories, keep
+the normal-clock result and add a separate --fixed-step body_grid_fixture.py
+run. It pins g_frameDt/g_frameScale only in the private benchmark after benchTick;
+CP0 timing stays real and production codegen is unchanged. Metadata and the
+FIXEDSTEP marker distinguish controlled-workload throughput from real-clock FPS.
+Do not discard an unfavorable normal-clock repeat because fixed-step looks better.
+
+The next private experiment, world_grid_fixture.py --verify, requires the2m
+scalar body-grid fixture. It builds an additional world index from current
+BroadPhaseCache boxes, excluding physics bodies while retaining nonphysics moving
+solids. Both arms use2m body grids. Each world query is checked against an
+independent filtered full walk; world-grid-<phase>.csv records queries, verified
+queries and errors. The same scalar timing analyzer handles its metadata and
+12/13 verification phases or all28 timing phases. --verify selects the fixture's
+sat-verify.cfg admission gate; absent --verify switches the same ELF to timing.
+The host category-transition oracle is tools/verify-world-grid.cpp.

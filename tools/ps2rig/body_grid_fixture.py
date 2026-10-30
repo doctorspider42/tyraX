@@ -2,12 +2,25 @@
 from pathlib import Path
 import argparse,json,shutil,subprocess
 
-def install(repo,root,timing_cell=None):
+def install(repo,root,timing_cell=None,fixed_step=False):
     common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
     allowed=(common.parent/'.tmp').resolve()
     assert root.is_relative_to(allowed) and root!=allowed
     meta_path=root/'metadata.json';meta=json.loads(meta_path.read_text(encoding='utf8'))
     assert meta.get('micro_capture')
+    if fixed_step:
+        assert meta.get('body_grid_timing_cell') and meta.get('micro_dispatch') is False
+        p=root/'district/src/terrain_game.cpp';s=p.read_text(encoding='utf8')
+        if 'FIXEDSTEP benchmark_nominal_display_step' not in s:
+            before='  benchTick();';assert s.count(before)==1
+            s=s.replace(before,before+'''
+  // Private controlled-workload benchmark, never emitted by production codegen.
+  if(CB::ready){g_frameDt=1.0F/g_frameRate;g_frameScale=g_frameDt*50.0F;
+    static bool logged=false;if(!logged){logged=true;printf("FIXEDSTEP benchmark_nominal_display_step hz=%g\\n",g_frameRate);fflush(stdout);}}
+''',1);p.write_bytes(s.encode())
+        meta.update(fixed_simulation_step=True,scene_timing_qualified=False,
+            simulation_clock='Private benchmark uses nominal display step in both arms; CP0 work/frame measurements remain real wall time. Production clock unchanged.')
+        meta_path.write_text(json.dumps(meta,indent=2),encoding='utf8');return
     engine=root/'engine/engine';rig=repo/'tools/ps2rig'
     shutil.copyfile(rig/'body_grid_probe.hpp',engine/'inc/debug/body_grid_probe.hpp')
     for rel in ['inc/physics/broad_phase.hpp','src/physics/broad_phase.cpp']:
@@ -47,5 +60,7 @@ def install(repo,root,timing_cell=None):
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--scratch',required=True,type=Path)
     p.add_argument('--timing-cell',type=int,choices=[1,2,4],help='Remove probes and select the candidate cell size; disables micro dispatch in both arms')
+    p.add_argument('--fixed-step',action='store_true',help='After a normal-clock timing run, pin only the private benchmark simulation to the nominal display step')
     p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);a=p.parse_args()
-    install(a.repo.resolve(),a.scratch.resolve(),a.timing_cell)
+    assert not(a.fixed_step and a.timing_cell)
+    install(a.repo.resolve(),a.scratch.resolve(),a.timing_cell,a.fixed_step)

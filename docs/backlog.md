@@ -2873,6 +2873,16 @@ post-5 back at y = 1.
 
 ## Collision follow-ups
 
+- [x] Capture a real shallow-contact VU0 rejection and replay both the input
+  and actual hardware output. Conservative EE negative certification passes
+  50,000 near-touching cases and 103,623 scene jobs without changing tolerances.
+- [x] Screen compact body-grid cells on exact physical snapshots; preserve
+  admission/order with independent full walks and host replay. The production
+  8m default remains pending complete frame comparisons.
+- [ ] Separate variable-timestep trajectory feedback from optimization cost
+  using a private nominal-step benchmark alongside normal-clock frame tests.
+- [ ] Measure a world-only contact index, retaining scripted moving solids,
+  so world queries avoid collecting rigid bodies that they immediately reject.
 - [x] Measure scattered and piled vehicle props on physical PS2 with a same-ELF
   algorithm A/B; retain raw frames and repeat statistics in the repository.
   See [collision stress results](collision-stress-results.md).
