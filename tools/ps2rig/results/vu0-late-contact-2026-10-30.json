@@ -1,0 +1,47 @@
+{
+  "sha256": "20c58b83bf42e8d4e6eba205948fdf225f8311eacfa256a82e87d44a8b48a6e2",
+  "bytes": 1232,
+  "observed": "reset command after diagnostic v1 completed; old program continued after CB DONE and its game client had been stopped; reset file server received this pending capture",
+  "last_deployed_elf": "2c2b8d93986e5243f4575193fd550360d822313a55c536a157985a0e36332360",
+  "phase_frame_unknown": true,
+  "requires_replay": true,
+  "header": [
+    1396790342,
+    1,
+    1232,
+    170,
+    253,
+    8,
+    6,
+    3,
+    8,
+    6,
+    3,
+    1,
+    1
+  ],
+  "actual": [
+    -0.3468244969844818,
+    -0.2678873836994171,
+    -0.898859977722168,
+    1.027823567390442,
+    1.2488280534744263,
+    -46.68366622924805,
+    3.814697265625e-06
+  ],
+  "reference": [
+    -0.3468244671821594,
+    -0.2678873538970947,
+    -0.8988599181175232,
+    0.8401330709457397,
+    1.0315603017807007,
+    -46.5464973449707,
+    0.0
+  ],
+  "normal_error": 7.300048299977713e-08,
+  "point_error": 0.31819538210916337,
+  "depth_error": 3.814697265625e-06,
+  "smaller_radius": 0.7794229433489502,
+  "point_ratio": 0.40824482371788,
+  "classification": "Both report a hit; point error exceeds the existing1% radius tolerance. Captured after the bounded benchmark finished; phase/frame unavailable. Replay required before qualifying broader asynchronous use."
+}

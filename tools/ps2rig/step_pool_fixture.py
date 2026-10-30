@@ -72,10 +72,12 @@ def diagnose(repo,root):
     b=root/'district/src/gen/collision_baseline.gen.cpp';s=b.read_text();assert s.count('#include "debug/world_overlap_probe.hpp"')==1
     s=s.replace('#include "debug/world_overlap_probe.hpp"','#include "debug/world_overlap_probe.hpp"\n#include "debug/step_pool_probe.hpp"',1)
     before='WorldOverlapProbe::flush(CB::phase);';assert s.count(before)==1
-    s=s.replace(before,before+'StepPoolProbe::flush(CB::phase);',1);b.write_bytes(s.encode())
+    s=s.replace(before,before+'StepPoolProbe::flush(CB::phase);',1)
+    old='void TerrainGame::updateObjectPhysics(){CB::PhysicsScope scope;updateObjectPhysicsCandidate();}'
+    assert s.count(old)==1;s=s.replace(old,'void TerrainGame::updateObjectPhysics(){if(CB::finished)return;CB::PhysicsScope scope;updateObjectPhysicsCandidate();}',1);b.write_bytes(s.encode())
     probe=root/'engine/engine/inc/debug/step_pool_probe.hpp';shutil.copyfile(repo/'tools/ps2rig/step_pool_probe.hpp',probe)
     for f in [p,b,probe]:meta['step_pool_source_sha256'][str(f.relative_to(root))]=hashlib.sha256(f.read_bytes()).hexdigest()
-    meta.update(step_pool_diagnostic=True,same_elf_admission_qualified=False,active_mode='step-pool-first-divergence',shadow_enabled=True,world_grid_verify=True,world_overlap_verify=True)
+    meta.update(step_pool_diagnostic=True,step_pool_snapshot_version=2,stop_physics_after_done=True,same_elf_admission_qualified=False,active_mode='step-pool-first-divergence',shadow_enabled=True,world_grid_verify=True,world_overlap_verify=True)
     metadata.write_text(json.dumps(meta,indent=2),encoding='utf8')
 
 
@@ -86,8 +88,11 @@ def local_inputs(repo,root):
     p=root/'district/src/gen/game_physics.gen.cpp';s=p.read_text();old='StepPoolProbe::capture(steps,contacts);';assert s.count(old)==2
     s=s.replace(old,'StepPoolProbe::capture(steps,contacts,physBodies);');p.write_bytes(s.encode())
     probe=root/'engine/engine/inc/debug/step_pool_probe.hpp';shutil.copyfile(repo/'tools/ps2rig/step_pool_probe.hpp',probe)
-    for f in [p,probe]:meta['step_pool_source_sha256'][str(f.relative_to(root))]=hashlib.sha256(f.read_bytes()).hexdigest()
-    meta.update(step_pool_snapshot_version=2,same_elf_admission_qualified=False,active_mode='step-pool-local-inputs')
+    b=root/'district/src/gen/collision_baseline.gen.cpp';s=b.read_text()
+    old='void TerrainGame::updateObjectPhysics(){CB::PhysicsScope scope;updateObjectPhysicsCandidate();}'
+    assert s.count(old)==1;s=s.replace(old,'void TerrainGame::updateObjectPhysics(){if(CB::finished)return;CB::PhysicsScope scope;updateObjectPhysicsCandidate();}',1);b.write_bytes(s.encode())
+    for f in [p,b,probe]:meta['step_pool_source_sha256'][str(f.relative_to(root))]=hashlib.sha256(f.read_bytes()).hexdigest()
+    meta.update(step_pool_snapshot_version=2,stop_physics_after_done=True,same_elf_admission_qualified=False,active_mode='step-pool-local-inputs')
     metadata.write_text(json.dumps(meta,indent=2),encoding='utf8')
 
 

@@ -716,3 +716,14 @@ for an installed diagnostic) also stores those local vertices before both world
 poses. The decoder retains v1 support. The actual host writer/decoder passes
 the v2 format with injected one-ULP matrix/depth changes correctly located.
 No performance claim or promotion is made from the divergent trajectories.
+
+A separate late capture arrived through the reset client's file server after
+the diagnostic had printed CB DONE and its owned game client was stopped.
+results/vu0-late-contact-2026-10-30.bin/json preserve the1232-byte case and
+provenance. Both paths report a hit, but their point distance is about40.8% of
+the smaller radius, beyond the existing1% tolerance. Phase/frame are unavailable;
+this is not a measured-window failure or a demonstrated missed hit. It does
+prevent qualifying broader asynchronous use without replay and a correctness
+fix. Do not relax the tolerance. The private diagnostic now stops physics after
+CB DONE so unobserved continuation cannot create unlabelled post-window cases;
+active benchmark frames and production gameplay are unchanged.
