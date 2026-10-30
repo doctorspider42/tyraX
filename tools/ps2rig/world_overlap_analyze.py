@@ -61,6 +61,8 @@ def main():
         check(int(v['validation_errors'])==int(v['missed_reference_hits'])==0,f'phase {phase}: micro errors')
         classification=rows(f'vu0-class-{phase}.csv')
         check(len(classification)==1 and int(classification[0]['jobs'])==int(v['jobs']),f'phase {phase}: classification jobs')
+        if 'confirmed_positive' in classification[0]:
+            check(sum(int(classification[0][k]) for k in ['proved_negative','confirmed_negative','confirmed_ccd','confirmed_tie','confirmed_parallel','confirmed_positive'])==int(v['jobs']),f'phase {phase}: incomplete result classes')
         world=rows(f'world-grid-{phase}.csv')
         check(len(world)==1,f'phase {phase}: world sidecar')
         world=world[0]

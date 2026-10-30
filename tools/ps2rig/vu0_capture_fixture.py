@@ -29,6 +29,8 @@ def install(repo,root,precision=False):
         before='  used = 0;\n}'
         assert before in text
         code='  if(FILE* cls=fopen(("vu0-class-"+std::to_string(phase)+".csv").c_str(),"wb")) {\n    const auto& v=Tyra::vu0SatMetrics;\n    fprintf(cls,"phase,jobs,proved_negative,confirmed_negative,confirmed_ccd,confirmed_tie,confirmed_parallel\\n%d,%u,%u,%u,%u,%u,%u\\n",phase,v.jobs,v.provedNegative,v.confirmedNegative,v.confirmedCcd,v.confirmedTie,v.confirmedParallel);fclose(cls);\n    printf("VUSATCLASS phase=%d proved=%u negative_full=%u ccd=%u tie=%u parallel=%u\\n",phase,v.provedNegative,v.confirmedNegative,v.confirmedCcd,v.confirmedTie,v.confirmedParallel);fflush(stdout);\n  }\n'
+        code=code.replace('confirmed_parallel\\n%d,%u,%u,%u,%u,%u,%u\\n','confirmed_parallel,confirmed_positive\\n%d,%u,%u,%u,%u,%u,%u,%u\\n')
+        code=code.replace('v.confirmedParallel);fclose(cls);','v.confirmedParallel,v.confirmedPositive);fclose(cls);')
         text=text.replace(before,code+before,1);p.write_bytes(text.encode())
     if precision:
         p=root/'district/src/gen/collision_baseline.gen.cpp';s=p.read_text(encoding='utf8')

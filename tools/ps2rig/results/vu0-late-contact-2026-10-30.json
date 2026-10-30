@@ -54,5 +54,43 @@
       "vendor/tyra/engine/src/physics/vu0_sat_kernel.vclpp": "e761eeae19ac707699ba401ec3029eee4ce8c6168bfb8e895cb7c831e43fbdc3"
     },
     "scope": "Fresh host build reproduces rejection against the saved EE contact, including the recorded hardware result. This is defect reproduction, not a passing qualification or proof of identical host/EE floating-point behavior."
+  },
+  "fix_host_validation": {
+    "observed_exit": 0,
+    "recorded_result_accepted": true,
+    "simulated_result_accepted": true,
+    "semantic_pairs": 10000,
+    "mixed_batch_cases": 2048,
+    "all_positive_geometry_bitwise_canonical": true,
+    "physical_pending": false,
+    "sources": {
+      "tools/verify-vu0-sat.cpp": "2655dc0179e719a5f0710b1d9f4947b5e8b36db376742848a309bc3239403a95",
+      "vendor/tyra/engine/inc/physics/vu0_sat.hpp": "0226321ec686694f0f492b66f79334011125a856cb4617b2644be2114a1a144c",
+      "vendor/tyra/engine/src/physics/vu0_sat.cpp": "3ca4659318a638e9c36bd2a769fe1ec3d67af0e203c3e43030022edefa31d58d"
+    }
+  },
+  "fix_physical_validation": {
+    "elf_sha256": "b8feacf033879e3960bc0fbc65dbae59a013ffaaaf8d883df4c1f4310954bd7d",
+    "saved_case_replay_accepted": [
+      1,
+      1
+    ],
+    "precision_cases": 50000,
+    "precision_failures": 0,
+    "startup_cases": 2048,
+    "startup_geometry_errors": [
+      0,
+      0,
+      0
+    ],
+    "phase_micro_errors": [
+      0,
+      0
+    ],
+    "phase_missed_reference_hits": [
+      0,
+      0
+    ],
+    "scope": "Saved-case and canonical micro correctness qualification only. Pose-layout trajectory parity still fails, and corrected-backend performance remains unqualified."
   }
 }

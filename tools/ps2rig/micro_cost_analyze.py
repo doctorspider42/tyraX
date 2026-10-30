@@ -6,7 +6,7 @@ import argparse,csv,hashlib,json,math
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('root',type=Path)
     p.add_argument('--output',required=True,type=Path);p.add_argument('--admission',type=Path);a=p.parse_args()
-    root=a.root;meta=json.loads((root/'metadata.json').read_text());assert meta.get('micro_cost_profile')
+    root=a.root;meta=json.loads((root/'metadata.json').read_text(encoding='utf8'));assert meta.get('micro_cost_profile')
     verify=meta['shadow_enabled'];errors=[];hashes={};phases=[];paired=[]
     def check(ok,why):
         if not ok:errors.append(why)
@@ -14,7 +14,7 @@ def main():
         f=root/name;hashes[name]=hashlib.sha256(f.read_bytes()).hexdigest()
         with f.open() as stream:return list(csv.DictReader(stream))
     check(hashlib.sha256((root/'vehicle-playground.elf').read_bytes()).hexdigest()==meta['elf_sha256'],'ELF mismatch')
-    log=(root/'hardware.log').read_text(errors='replace')
+    log=(root/'hardware.log').read_text(encoding='utf8',errors='replace')
     for required in ['CB DONE phases=14','MICROCOST mode=profile','VUSATCHECK cases=2048 failures=0 ','VUSATPRECISION cases=50000 failures=0']:
         check(required in log,'missing '+required)
     check(f'VUSAT mode={"verify" if verify else "timing"}' in log,'oracle mode mismatch')
@@ -23,7 +23,7 @@ def main():
     if not verify:
         check(a.admission is not None,'missing admission')
         if a.admission:
-            admission=json.loads(a.admission.read_text());check(admission['qualified'] and admission['metadata']['shadow_enabled'] and admission['metadata']['elf_sha256']==meta['elf_sha256'],'admission mismatch')
+            admission=json.loads(a.admission.read_text(encoding='utf8'));check(admission['qualified'] and admission['metadata']['shadow_enabled'] and admission['metadata']['elf_sha256']==meta['elf_sha256'],'admission mismatch')
     check([int(f.stem.rsplit('-',1)[1]) for f in sorted(root.glob('collision-phase-*.csv'))]==[12,13],'phase set')
     components=['corners','prepare','pack','upload_start','finish_readback','consume','reconstruct','emit']
     for phase in [12,13]:

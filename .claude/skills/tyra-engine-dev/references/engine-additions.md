@@ -130,3 +130,12 @@ TYRA_PHYSICS_WORLD_INDEX defaults1 after the48,502-query admission gate and
 20.04->22.67FPS; sparse workloads retain roughly60FPS. Exact contact tests and
 6+3 solver passes are unchanged. These variable-step trajectories are not a
 bitwise matched-workload proof.
+
+Asynchronous correctness follow-up: micro SAT is now a conservative separation
+filter. Every possible contact, including apparently untied discrete positives,
+uses scalarMotionContactReference. A saved late contact had matching hit flags
+but a support-centroid error beyond the existing1% radius tolerance. Never
+restore independent positive reconstruction or relax that tolerance on short
+benchmark gates. confirmedPositive is a separate profiling counter; earlier
+benchmarks predate this extra EE work and cannot price the corrected backend.
+Default micro remains off pending fresh hardware qualification and full frames.

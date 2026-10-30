@@ -736,3 +736,23 @@ The next local-input diagnostic uses snapshot v2 and retains all existing
 collision checks. The late positive-contact discrepancy must be replayed and
 fixed before broader asynchronous selection, independently of the pose-layout
 experiment.
+
+Correctness fix under qualification:finishVu0Sat now accepts a micro negative
+only after its existing conservative EE proof; every remaining result calls
+scalarMotionContactReference. Approximate untied-positive centroid recovery is
+removed. confirmed_positive is separate from the historical tie/CCD counters,
+and new classification files must account for every job. The saved late case
+passes fresh host replay after the fix;10,000 semantic pairs and2048 mixed-batch
+cases pass, with bitwise canonical geometry asserted for all hits. Physical
+replay/precision qualification and any new performance measurements are pending.
+Earlier micro timings predate this extra EE confirmation work. Default micro
+remains off, and the pose-layout gate is still unqualified.
+
+The corrected backend now passes the saved contact on physical PS2 for both
+kernel images,2048 startup pairs with zero geometry error,50,000 precision cases
+and both dense phase micro oracles without misses/errors. Evidence is in
+results/step-pool-local-positive-2026-10-30.* and the late-case JSON. The layout
+gate remains rejected. V2 snapshots show identical local hull coordinates and
+all captured core inputs at frame0, while derived world poses differ. This
+supports using one compiled transform routine before ranking the two layouts;
+no trajectory gate is relaxed. Fixture source readers now explicitly use UTF-8.

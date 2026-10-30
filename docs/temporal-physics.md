@@ -797,3 +797,15 @@ them. These instrumented750-frame means are not fractions of the600-frame scene
 CSV means and are not production FPS. The evidence directs the next experiment
 toward EE data/preparation costs and a more useful offload boundary, while
 retaining conservative reference confirmations and all collisions.
+
+A later saved contact exposes a limit of the former positive-result
+reconstruction:the hit agrees with EE, but a support-feature centroid differs
+by about40.8% of the smaller radius, exceeding the existing1% point tolerance.
+The [captured case](../tools/ps2rig/results/vu0-late-contact-2026-10-30.json)
+was received after the bounded benchmark finished; it is not evidence that
+its measured-window counters failed. Fresh host and physical startup replays
+reject it. The asynchronous backend now retains conservative EE separation
+proofs for negatives and calls the shared compiled EE routine for every possible
+contact, including positives without a reported axis tie. No tolerance is
+relaxed and no contact is dropped. This adds EE work; earlier micro timing
+packages do not price the corrected backend. Production micro remains off.

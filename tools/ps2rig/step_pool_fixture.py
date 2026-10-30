@@ -6,7 +6,7 @@ import argparse,hashlib,json,shutil,subprocess,zipfile
 def install(repo,root):
     common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
     allowed=(common.parent/'.tmp').resolve();assert root.is_relative_to(allowed) and root!=allowed
-    metadata=root/'metadata.json';meta=json.loads(metadata.read_text());assert meta.get('micro_cost_profile') and not meta.get('step_pool_comparison')
+    metadata=root/'metadata.json';meta=json.loads(metadata.read_text(encoding='utf8'));assert meta.get('micro_cost_profile') and not meta.get('step_pool_comparison')
     project=root/'district';physics=project/'src/gen/game_physics.gen.cpp';baseline=project/'src/gen/collision_baseline.gen.cpp'
     runtime=project/'inc/game_runtime.gen.hpp';terrain=project/'inc/terrain_game.hpp'
     with zipfile.ZipFile(root/'before-step-pool.zip','x',zipfile.ZIP_DEFLATED) as z:
@@ -38,13 +38,13 @@ def install(repo,root):
     s.wv0=posePool.previous(size_t(i));s.wv=posePool.predicted(size_t(i));''',1)
     s=s[:begin]+wide+compact+s[end:]
     s='#include "debug/step_vertex_pool.hpp"\n'+s
-    header=runtime.read_text();start=header.index('struct RbStep {');stop=header.index('\n};',start)+3
+    header=runtime.read_text(encoding='utf8');start=header.index('struct RbStep {');stop=header.index('\n};',start)+3
     record=header[start:stop].replace('struct RbStep {','struct RbPoolStep {',1)
     for old,new in [('RbV wv0[PHYS_MAX_HULL_VERTS];','RbV* wv0;'),('RbV wv[PHYS_MAX_HULL_VERTS];','RbV* wv;')]:
         assert record.count(old)==1;record=record.replace(old,new,1)
     record+='\nstatic_assert(sizeof(RbStep)==880,"wide pose ABI changed");\nstatic_assert(sizeof(void*)!=4 || sizeof(RbPoolStep)==312,"pooled EE pose ABI changed");\n'
     header=header[:stop]+'\n'+record+header[stop:]
-    declarations=terrain.read_text();old='void updateObjectPhysicsCandidate();';assert declarations.count(old)==1
+    declarations=terrain.read_text(encoding='utf8');old='void updateObjectPhysicsCandidate();';assert declarations.count(old)==1
     declarations=declarations.replace(old,old+' void updateObjectPhysicsWide();',1)
     # Both layouts retain canonical micro validation in the initial gate.
     physics.write_bytes(s.encode());baseline.write_bytes(base.encode());runtime.write_bytes(header.encode());terrain.write_bytes(declarations.encode())
@@ -63,13 +63,13 @@ def install(repo,root):
 def diagnose(repo,root):
     common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
     allowed=(common.parent/'.tmp').resolve();assert root.is_relative_to(allowed) and root!=allowed
-    metadata=root/'metadata.json';meta=json.loads(metadata.read_text());assert meta.get('step_pool_comparison')
-    p=root/'district/src/gen/game_physics.gen.cpp';s=p.read_text();assert 'StepPoolProbe::' not in s
+    metadata=root/'metadata.json';meta=json.loads(metadata.read_text(encoding='utf8'));assert meta.get('step_pool_comparison')
+    p=root/'district/src/gen/game_physics.gen.cpp';s=p.read_text(encoding='utf8');assert 'StepPoolProbe::' not in s
     before='#include "debug/world_overlap_probe.hpp"';assert s.count(before)==1
     s=s.replace(before,before+'\n#include "debug/step_pool_probe.hpp"',1)
     before='  WorldOverlapProbe::capture(contacts);';assert s.count(before)==2
     s=s.replace(before,before+'\n  StepPoolProbe::capture(steps,contacts,physBodies);');p.write_bytes(s.encode())
-    b=root/'district/src/gen/collision_baseline.gen.cpp';s=b.read_text();assert s.count('#include "debug/world_overlap_probe.hpp"')==1
+    b=root/'district/src/gen/collision_baseline.gen.cpp';s=b.read_text(encoding='utf8');assert s.count('#include "debug/world_overlap_probe.hpp"')==1
     s=s.replace('#include "debug/world_overlap_probe.hpp"','#include "debug/world_overlap_probe.hpp"\n#include "debug/step_pool_probe.hpp"',1)
     before='WorldOverlapProbe::flush(CB::phase);';assert s.count(before)==1
     s=s.replace(before,before+'StepPoolProbe::flush(CB::phase);',1)
@@ -84,11 +84,11 @@ def diagnose(repo,root):
 def local_inputs(repo,root):
     common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
     allowed=(common.parent/'.tmp').resolve();assert root.is_relative_to(allowed) and root!=allowed
-    metadata=root/'metadata.json';meta=json.loads(metadata.read_text());assert meta.get('step_pool_diagnostic')
-    p=root/'district/src/gen/game_physics.gen.cpp';s=p.read_text();old='StepPoolProbe::capture(steps,contacts);';assert s.count(old)==2
+    metadata=root/'metadata.json';meta=json.loads(metadata.read_text(encoding='utf8'));assert meta.get('step_pool_diagnostic')
+    p=root/'district/src/gen/game_physics.gen.cpp';s=p.read_text(encoding='utf8');old='StepPoolProbe::capture(steps,contacts);';assert s.count(old)==2
     s=s.replace(old,'StepPoolProbe::capture(steps,contacts,physBodies);');p.write_bytes(s.encode())
     probe=root/'engine/engine/inc/debug/step_pool_probe.hpp';shutil.copyfile(repo/'tools/ps2rig/step_pool_probe.hpp',probe)
-    b=root/'district/src/gen/collision_baseline.gen.cpp';s=b.read_text()
+    b=root/'district/src/gen/collision_baseline.gen.cpp';s=b.read_text(encoding='utf8')
     old='void TerrainGame::updateObjectPhysics(){CB::PhysicsScope scope;updateObjectPhysicsCandidate();}'
     assert s.count(old)==1;s=s.replace(old,'void TerrainGame::updateObjectPhysics(){if(CB::finished)return;CB::PhysicsScope scope;updateObjectPhysicsCandidate();}',1);b.write_bytes(s.encode())
     for f in [p,b,probe]:meta['step_pool_source_sha256'][str(f.relative_to(root))]=hashlib.sha256(f.read_bytes()).hexdigest()

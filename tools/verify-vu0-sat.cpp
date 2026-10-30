@@ -36,6 +36,7 @@ int main(int argc,char** argv) {
     ConvexContact recorded{};
     const bool recordedHit=finishVu0Sat(dump.result,dump.job,c.view(0),c.view(1),c.motion[0],c.motion[1],recorded);
     const auto recordedComparison=compareVu0Sat(recordedHit,recorded,dump.referenceHit,dump.reference,scale);
+    if(recordedHit && hostHit)assert(std::memcmp(&recorded,&hostReference,sizeof(recorded))==0);
     unsigned common;std::memcpy(&common,&dump.job.q[31][2],4);
     std::printf("capture ids=%d,%d common=%u recorded=%u EE=%u hostReference=%u replay=%u accepted=%u recordedRecovery=%u recoveryAccepted=%u flags=%g,%g,%g,%g\n",dump.a,dump.b,common,dump.hit,dump.referenceHit,hostHit,hit,comparison.accepted,recordedHit,recordedComparison.accepted,result.flags[0],result.flags[1],result.flags[2],result.flags[3]);
     return comparison.accepted && recordedComparison.accepted?0:1;
@@ -89,10 +90,10 @@ int main(int argc,char** argv) {
     }
     Vu0SatResult result;std::memcpy(&result,run.mem.data()+226*4,sizeof(result));
     ConvexContact expected,actual;
-    bool ref=convexMotionContact(a,b,motion[0],motion[1],expected,&boxes[0],&boxes[1]);
+    bool ref=scalarMotionContactReference(a,b,motion[0],motion[1],expected,&boxes[0],&boxes[1]);
     bool hit=finishVu0Sat(result,job,a,b,motion[0],motion[1],actual);
     if(hit!=ref){std::fprintf(stderr,"classification trial=%d ref=%d micro=%d flags=%g,%g,%g,%g\n",trial,ref,hit,result.flags[0],result.flags[1],result.flags[2],result.flags[3]);return 1;}
-    if(hit){++hits;float de=std::fabs(expected.depth-actual.depth),ne=std::sqrt(cvDot(cvSub(expected.normal,actual.normal),cvSub(expected.normal,actual.normal))),pe=std::sqrt(cvDot(cvSub(expected.point,actual.point),cvSub(expected.point,actual.point)));
+    if(hit){assert(std::memcmp(&expected,&actual,sizeof(actual))==0);++hits;float de=std::fabs(expected.depth-actual.depth),ne=std::sqrt(cvDot(cvSub(expected.normal,actual.normal),cvSub(expected.normal,actual.normal))),pe=std::sqrt(cvDot(cvSub(expected.point,actual.point),cvSub(expected.point,actual.point)));
       maxDepth=std::max(maxDepth,de);maxNormal=std::max(maxNormal,ne);maxPoint=std::max(maxPoint,pe);
       if(!std::isfinite(de+ne+pe) || de>1e-4f || ne>1e-4f || pe>1e-3f){std::fprintf(stderr,"geometry trial=%d errors=%g,%g,%g\n",trial,de,ne,pe);return 1;}
     }else ++misses;
