@@ -262,6 +262,52 @@ therefore accelerates the prop simulation, not the complete vehicle detector.
 Work pauses here at the user's request; no further experiment is implied by
 this checkpoint.
 
+## Shared object/vehicle timeline prototype
+
+`unified_timeline_fixture.py --scratch ROOT` installs the first integration
+stage after the zero-friction fixture. It saves the exact inputs in
+`before-unified-timeline.zip`; `--refresh` reinstalls from that backup. Both
+arms keep shared VU0 body packets and the admitted zero-friction guard. No
+production template or default changes. This is one simulation-clock owner,
+not yet common chassis SAT contacts or a unified impulse solver.
+
+The control retains one full-frame object update followed by vehicle substeps.
+The candidate interleaves object physics, spinners and vehicles over the same
+subintervals. Frame-displacement velocities and angular state are converted
+at entry/exit; velocity thresholds, bumper minimum impulses and sleep counters
+are adapted to the substep units. Script-visible state remains in its original
+frame convention. Collider/gather caches refresh after every object/spinner
+step, while vehicle presentation/click edges retain their once-per-frame
+cadence. Every object update finishes its VU0 packets before vehicle code runs;
+this stage adds no VU0 kernel or overlap claim.
+
+After native compilation, `--mode nominal-admission` binds the deployed ELF
+hash and writes the runtime configuration. Other modes are `nominal-timing`,
+`double-admission` and `double-timing`; they use the same ELF. The double mode
+advances 1/30 second per frame: the candidate must execute two object updates
+and both arms two vehicle updates, with no discarded interval. CSV counters
+include the complete object-plus-vehicle boundary and numerical-state checks.
+Shadow mode also records two ordered end-state fingerprints for body poses,
+velocities, angular mirrors, sleep state and selected vehicle state.
+
+`unified_timeline_analyze.py ROOT --output REPORT [--admission REPORT]` rejects
+missing participants, wrong mode/step counts, numerical faults, omitted
+contacts/pushes and micro oracle failures. Nominal admission additionally
+requires the established raw contact/snapshot gate and all750 end-state
+fingerprints to agree. Double-step trajectories intentionally differ; their
+report qualifies only schedule coverage and numerical/oracle screening, never
+a speedup, complete vehicle handling or a full-body bitwise proof. Performance
+comparison requires a nominal same-ELF admission and unshadowed nominal runs.
+
+Initial native compilation passes. A host harness includes the actual
+controller and probe header with simple integration callbacks: analytic free
+translation/rotation/gravity, sleep duration, wake-after-physics, restored
+frame units, collider refresh, one click per frame and nominal compatibility
+pass. It does not replace console collision/vehicle admission. Physical
+qualification and timings are pending. Further stages must explicitly replace
+legacy vehicle/body responses with shared contacts; the clock alone does not
+complete that integration.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used

@@ -1,0 +1,23 @@
+{
+  "qualified": true,
+  "scope": "Host controller/adapter checks with simple integration callbacks, not console collision or gameplay qualification",
+  "passed": [
+    "analytic whole-frame translation and rotation across two object substeps",
+    "analytic semi-implicit free-fall displacement and final velocity",
+    "sleep after elapsed time, not rendered-frame count",
+    "vehicle wake after physics is not resurrected by sleep export",
+    "frame clock and velocity/angular units restored",
+    "one click/tutorial interval per frame and collider refresh between steps",
+    "one-step legacy/shared compatibility"
+  ],
+  "falsifier": "Removing velocity conversion compiles successfully and fails analytic trajectory assertion",
+  "source_sha256": {
+    "unified-timeline-host.cpp": "2e4d031025dbae1d0eceaa5a458d97ca92a88f569745212419fa5c112c18f60f",
+    "unified-timeline-falsifier.cpp": "6d49a07eba1a84a69ba52ed4d8704151b30d4ffed0e8a88cec3aa946f015af93",
+    "unified-timeline-mutated.inc": "dd752187f185a3d31ac5f1f6358a57c3198a2dd29ecf21e6d42dd29667cbdb7c",
+    "unified_timeline_body.inc": "e64cbf37e0a617e00f85dd3d9df53288386d48c049c8c1d3c5a2bdc48d250e23",
+    "unified_timeline_probe.hpp": "0d499d03efbb59dd9ac2789f9b9b04fee234911541556c73c69db915de9c76bb"
+  },
+  "native_elf_sha256": "0baab2bba121956d3f406ad5a33fadd9bf2cb60b550a7b1e0008e056654f4e3a",
+  "native_build": "PASS; existing unused-variable warnings in vehicle runtime; physical admission pending"
+}
