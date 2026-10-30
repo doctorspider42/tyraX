@@ -3,15 +3,20 @@ void TerrainGame::stepUnifiedTimeline(float frameDt) {
   if(CB::finished || !CB::ready)return;
   const unsigned begin=CB::ticks();
   UnifiedTimeline::enabled=!CB::baseline;
-  int n=int(frameDt*50.0F+0.5F);if(n<1)n=1;if(n>4)n=4;
+  // Preserve the old vehicle API's conversion rounding at its adapter. It
+  // denotes the same interval, but scale*(1/50) need not equal g_frameDt
+  // bitwise. Object gravity must continue to receive the original dt.
+  const float vehicleDt=g_frameScale*(1.0F/50.0F);
+  int n=int(vehicleDt*50.0F+0.5F);if(n<1)n=1;if(n>4)n=4;
   const float h=frameDt/float(n);
+  const float vehicleH=vehicleDt/float(n);
   UnifiedTimeline::Row row{unsigned(CB::frame),unsigned(n),0,0,0,0,0,0,frameDt,h};
   row.enabled=UnifiedTimeline::enabled;
   for(const auto& o:runtimeObjects)if(o.active && o.data.physics)++row.bodies;
   for(int i=0;i<vehicleCount_;++i)if(vehicles_[i].active)++row.cars;
   if(!UnifiedTimeline::enabled){
     updateObjectPhysics();++row.physics;updateSpinners();broadPhaseInvalidate();
-    stepVehicles(frameDt);row.vehicles=unsigned(n);
+    stepVehicles(vehicleDt);row.vehicles=unsigned(n);
   }else{
     const float savedDt=g_frameDt,savedScale=g_frameScale;
     // Script-visible velocities/spin are frame displacements. During this
@@ -23,7 +28,7 @@ void TerrainGame::stepUnifiedTimeline(float frameDt) {
       o.velocityX*=ratio;o.velocityY*=ratio;o.velocityZ*=ratio;
       for(float& spin:o.spin)spin*=ratio;
     }
-    vehFrameDt_=frameDt;
+    vehFrameDt_=vehicleDt;
     for(VehGatherCache& cache:vehGather_)cache.valid=false;
     for(int k=0;k<n;++k){
       g_frameDt=h;g_frameScale=h*50.0F;
@@ -41,7 +46,7 @@ void TerrainGame::stepUnifiedTimeline(float frameDt) {
       updateSpinners();broadPhaseInvalidate();
       for(VehGatherCache& cache:vehGather_)cache.valid=false;
       if(k>0 && TYRA_VEH_SUBSTEP_REUSE)buildVehicleColliders();
-      updateVehicles(h);++row.vehicles;
+      updateVehicles(vehicleH);++row.vehicles;
       broadPhaseInvalidate();
     }
     if(n>1)for(size_t i=0;i<runtimeObjects.size();++i)if(runtimeObjects[i].data.physics){
@@ -54,7 +59,7 @@ void TerrainGame::stepUnifiedTimeline(float frameDt) {
     }
     vehSubStepRepeat_=vehSubStepMore_=false;
     UnifiedTimeline::unitScale=1;g_frameDt=savedDt;g_frameScale=savedScale;
-    updateVehicleTutorial(frameDt);
+    updateVehicleTutorial(vehicleDt);
   }
   for(const auto& o:runtimeObjects)if(o.active && o.data.physics){
     for(float value:o.data.position)if(!std::isfinite(value))++row.errors;

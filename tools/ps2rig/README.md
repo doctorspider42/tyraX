@@ -308,6 +308,17 @@ qualification and timings are pending. Further stages must explicitly replace
 legacy vehicle/body responses with shared contacts; the clock alone does not
 complete that integration.
 
+The first nominal console gate is rejected, not priced:
+`results/unified-timeline-rounding-rejected-2026-10-30.*`. At frame0 every
+initialized body/contact count agrees, contacts agree, but vertical velocity
+already differs by three float ULPs. The controller incorrectly used the
+vehicle API's `g_frameScale*(1/50)` value as object dt. The legacy object step
+uses `g_frameDt`, whose bits differ on this PS2 build. All600 measured frames
+then diverge. No missed contact or numerical fault was reported. The corrected
+controller receives the original object dt and retains vehicle conversion
+rounding explicitly at the vehicle adapter; neither admission tolerance nor
+workload equality is relaxed. Requalification of the new ELF is pending.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used

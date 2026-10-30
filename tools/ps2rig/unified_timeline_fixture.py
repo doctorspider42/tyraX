@@ -63,7 +63,7 @@ def install(repo, root, refresh=False):
             a=s.index('#if TYRA_FRAME_PROFILE\n',s.index('// Broad-phase refresh boundary'))
             b=s.index('  else muteVehicleEngines();',a)
             s=s[:a]+'''  if (!menuActive) {
-    stepUnifiedTimeline(g_frameScale * (1.0F / 50.0F));
+    stepUnifiedTimeline(g_frameDt);
     updateVehicleSmoke(g_frameScale * (1.0F / 50.0F));
     updateVehicleSkids(g_frameScale * (1.0F / 50.0F));
     updateVehicleDebris(g_frameScale * (1.0F / 50.0F));

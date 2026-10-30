@@ -1,0 +1,14 @@
+{
+  "qualified": true,
+  "native_elf_sha256": "557eb14d3f9b0cf1a8d271970d512c41fcc75bae0f691d7000adac7855727a6e",
+  "scope": "Host controller callbacks, not physical scene qualification",
+  "tests": "Prior analytic translation/rotation/gravity/sleep/wake/unit/cadence checks plus bitwise nominal state and explicit unequal object/vehicle clock input preservation pass",
+  "falsifier": "Wrong object clock fails only after an explicit differing-input case is added; ordinary host float rounding did not reproduce the PS2 clock split",
+  "source_sha256": {
+    "unified-timeline-host.cpp": "a7d02678948ff73dd88ad752f5a5e0b347f981ef23f9eb6c126f99ff98592c80",
+    "unified-timeline-clock-falsifier.cpp": "5a97062579c2a42f4a09dcb5e42cddcb7b27d3ba5cc25d9480b04c95e76c4808",
+    "unified-timeline-wrong-clock.inc": "86f6bf07878b4e9a93f84d64569ba03165bee201a73c41e70b03be04509f2446",
+    "unified_timeline_body.inc": "ae013106ecff8930cac4e8954229f8f3151645133612f2d54285a6ca0b2474eb",
+    "unified_timeline_probe.hpp": "0d499d03efbb59dd9ac2789f9b9b04fee234911541556c73c69db915de9c76bb"
+  }
+}
