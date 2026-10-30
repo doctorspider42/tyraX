@@ -1558,3 +1558,31 @@ must be checked before comparing reports from older ELFs without these fields.
 An always-on inclusive blob-shadow interval additionally brackets
 `updateAndRenderBlobShadows`; it nests inside the scene interval and is not
 exclusive GPU time or an instruction to disable vehicle shadows.
+
+`results/traffic-four-lane-software13-2026-10-30.*` records the first complete
+software13-car window, ELF1b0338ac...: all5HQ+8civilians near/front, allfull
+model calls, one full physics step/frame, no kinematic bypass or finite-state
+error, and zero initial full-box overlaps. Civilian submission attempts range
+from5 to8; front/near does not guarantee every car is inside the render frustum.
+The repeated13-car phase then fails allocation at frame19, stage Scene,
+object133(Strix). The first PINE snapshot times out: NO visual/DMA or console
+FPS qualification. The manual emulator launch first paused before game code;
+the helper retry runs with controller-disconnect pause disabled. That retry
+changes two things, so it does not establish the pause's root cause.
+
+Optional `traffic-bench-reload-cache.cfg` enables a DIAGNOSTIC reload experiment.
+Between windows only, it toggles the existing VU1 clipping setter twice back
+to the SAME `CLIP_VU1` mode, exercising its existing command-cache invalidation.
+It reports baked bytes/free RAM before and after; the normal control omits
+the file. Both arms use one ELF. This is not a production scene-resource API,
+not proof that caches caused the allocation failure, and not a steady-frame
+speedup claim. Real DMA readers still govern deferred freeing. Allocation
+labels now distinguish geometry rebuild from object submission scopes.
+The installer requires both project-VU-program/script ENABLED flags to be
+false; the setter rebuilds resident programs and this diagnostic must not
+silently remove custom overrides. The native build passes; control/candidate
+admission for this experiment is pending. The controlled retry requests no
+savestate while driving, to separate the allocation failure from capture timing.
+The analyzer records the boot's starting phase/cache arm and console-log hash;
+legacy logs without those fields remain explicitly unspecified. It still
+requires the complete matrix and never promotes this diagnostic to60FPS proof.

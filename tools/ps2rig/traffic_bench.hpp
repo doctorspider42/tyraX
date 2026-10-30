@@ -30,7 +30,7 @@ inline Row current;
 inline std::vector<Row> rows;
 inline int phase=0,firstPhase=0,frame=0,wantedHQ=0,wantedCiv=0;
 inline bool ready=false,finished=false,previous=false;
-inline bool detailed=false;
+inline bool detailed=false,dropReloadCache=false;
 inline int allocationStage=-1,allocationOwner=-1;
 inline U phaseStart=0,frameStart=0;
 inline bool paintSeen[32]{};
@@ -58,14 +58,15 @@ struct Scope {
   ~Scope(){if(active)current.c[id]+=U(ticks()-start);allocationStage=prior;}
 };
 struct ObjectScope {
-  int prior;bool active;Counter counter;U start;
-  explicit ObjectScope(int object,bool rebuilding=false):prior(allocationOwner),active(ready&&detailed){
+  int prior,priorStage;bool active;Counter counter;U start;
+  explicit ObjectScope(int object,bool rebuilding=false):prior(allocationOwner),priorStage(allocationStage),active(ready&&detailed){
     allocationOwner=object;
     const bool car=object>=0 && size_t(object)<objectSlot.size() && objectSlot[size_t(object)]>=0;
     counter=rebuilding?(car?VehicleRebuild:WorldRebuild):(car?VehicleSubmit:WorldSubmit);
+    allocationStage=int(counter);
     start=active?ticks():0;
   }
-  ~ObjectScope(){if(active)current.c[counter]+=U(ticks()-start);allocationOwner=prior;}
+  ~ObjectScope(){if(active)current.c[counter]+=U(ticks()-start);allocationOwner=prior;allocationStage=priorStage;}
 };
 inline void lap(int i,U& prior){if(detailed){const U now=ticks();current.lap[i]+=U(now-prior);prior=now;}}
 inline void flush(){

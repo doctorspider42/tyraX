@@ -20,6 +20,11 @@ def install(repo, project):
     meta = json.loads(meta_path.read_text(encoding='utf8'))
     assert meta['hq_total'] == 5 and meta['civilian_total'] == 8
     assert not meta.get('instrumented')
+    # The optional clipping-setter cache diagnostic must not replace custom
+    # resident microprogram overrides. This fixture has none.
+    for name in ['vu_programs.gen.hpp', 'vu_scripts.gen.hpp']:
+        assert 'constexpr bool ENABLED = false;' in (
+            project/'inc/scripts'/name).read_text(encoding='utf8'), name
     source = project/'src/gen'
     main = project/'src/terrain_game.cpp'
     header = project/'inc/terrain_game.hpp'
@@ -152,7 +157,8 @@ def install(repo, project):
     FILE* f=fopen("traffic-bench-detail.cfg","r");detailed=f!=nullptr;if(f)fclose(f);
     f=fopen("traffic-bench-phase.cfg","r");int first=0;
     if(f){if(fscanf(f,"%d",&first)==1 && first>=0 && first<10)phase=firstPhase=first;fclose(f);}
-    printf("TRAFFICBENCH CONFIG detail=%d normal_clock=1 start_phase=%d\n",int(detailed),phase);fflush(stdout);
+    f=fopen("traffic-bench-reload-cache.cfg","r");dropReloadCache=f!=nullptr;if(f)fclose(f);
+    printf("TRAFFICBENCH CONFIG detail=%d normal_clock=1 start_phase=%d drop_cache=%d\n",int(detailed),phase,int(dropReloadCache));fflush(stdout);
   }''')
     p.write_bytes(s.encode())
     meta.update(instrumented=True, detailed=False,

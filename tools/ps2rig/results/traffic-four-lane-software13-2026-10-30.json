@@ -1,0 +1,57 @@
+{
+  "elf_sha256": "1b0338ac2fc603b9bcb39504e9e15a3b7b22c57dd9cdb840cda49306d2a22d58",
+  "source_snapshot_sha256": "5ee774f858df588cac76727bf7e5b74d34b5f4816b589e11401b5f817758d8ef",
+  "pcsx2_version": "2.9.93",
+  "renderer": 13,
+  "first_phase": 4,
+  "completed_phases": [
+    4
+  ],
+  "measured_rows": 121,
+  "checks": {
+    "hq": [
+      5
+    ],
+    "civ": [
+      8
+    ],
+    "hq_lod0": [
+      5
+    ],
+    "civ_lod0": [
+      8
+    ],
+    "hq_front": [
+      5
+    ],
+    "civ_front": [
+      8
+    ],
+    "hq_submitted": [
+      5
+    ],
+    "civ_submitted": [
+      5,
+      6,
+      7,
+      8
+    ],
+    "kinematic_calls": [
+      0
+    ],
+    "full_physics_steps": [
+      1
+    ],
+    "errors": [
+      0
+    ]
+  },
+  "failure": "Repeated13-car phase5: allocation failure, frame19, inclusive stage3(Scene), object133(Strix).",
+  "initial_box_overlaps": 0,
+  "all13_complete_models": true,
+  "visual_capture_qualified": false,
+  "performance_qualified": false,
+  "physical_run": false,
+  "target_60fps_qualified": false,
+  "notes": "First13-car window completes, reload fails. Submission attempts vary:5..8 civilians, all8 near/front and fully simulated. PINE savestate timed out, so no visual/DMA qualification. Initial manual emulator launch paused before the game; helper retry executed it with PauseOnControllerDisconnection=false. Do not infer the pause root cause from that two-factor retry."
+}

@@ -21,6 +21,8 @@ def analyze(root):
     errors, phases = [], []
     log_path = root/'console.log'
     log = log_path.read_text(encoding='utf8', errors='replace') if log_path.exists() else ''
+    config = re.search(r'TRAFFICBENCH CONFIG detail=(\d+) normal_clock=1'
+                       r'(?: start_phase=(\d+))?(?: drop_cache=(\d+))?', log)
     starts = re.findall(r'TRAFFICBENCH START phase=(\d+) hq=(\d+) civ=(\d+) initial_box_overlaps=(\d+)', log)
     expected = [(str(i), str(min(n, 5)), str(max(n-5, 0)), '0') for i, n in enumerate(POPULATIONS)]
     if starts != expected:
@@ -78,6 +80,9 @@ def analyze(root):
             min_civilian_submission_attempts=min(r['civ_submitted'] for r in measured),
             max_camera_distance=max(r['max_camera_distance'] for r in measured)))
     return dict(probe_gates_passed=not errors, errors=errors, phases=phases,
+                initial_phase=int(config[2]) if config and config[2] is not None else None,
+                reload_cache_diagnostic=bool(int(config[3])) if config and config[3] is not None else None,
+                console_log_sha256=hashlib.sha256(log_path.read_bytes()).hexdigest() if log_path.exists() else None,
                 target_60fps_qualified=False,
                 scope='Short straight-road normal-clock scaling diagnosis. '
                 'Submission attempts are not GS visibility. Nested CPU counters must not be added. '

@@ -8,6 +8,16 @@ bool TerrainGame::benchTrafficBegin() {
       printf("TRAFFICBENCH RAM phase=%d free_mb=%.4f\n",phase,engine->info.getAvailableRAM());
       flush();ready=false;previous=false;++phase;
       if(phase>=10){finished=true;printf("TRAFFICBENCH DONE phases=%d start_phase=%d\n",10-firstPhase,firstPhase);fflush(stdout);return false;}
+      const unsigned cacheBefore=stapip.core.getBakedStreamBytes();
+      const float freeBefore=engine->info.getAvailableRAM();
+      if(dropReloadCache){
+        // Diagnostic only: the existing mode setter flushes and invalidates
+        // command caches. Restore the SAME shader mode before any next draw.
+        // This is not the proposed production scene-lifetime API.
+        stapip.core.setVU1Clipping(!CLIP_VU1);
+        stapip.core.setVU1Clipping(CLIP_VU1);
+      }
+      printf("TRAFFICBENCH RELOAD phase=%d drop_cache=%d baked_before=%u baked_after=%u free_before=%g free_after=%g\n",phase,int(dropReloadCache),cacheBefore,unsigned(stapip.core.getBakedStreamBytes()),freeBefore,engine->info.getAvailableRAM());fflush(stdout);
       loadScene(0);g_frameClockLast=0;return false;
     }
   }else{
