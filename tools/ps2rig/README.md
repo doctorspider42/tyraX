@@ -137,6 +137,64 @@ Its native cache still needs resynchronization before another build. Future
 attribution should keep the measured physics translation unit unchanged; a
 PC-sampling approach would first need an interrupt/register-ownership audit.
 
+## External EE instruction sampling
+
+`pc_sample_fixture.py --scratch ROOT` adds a separate sampler translation unit
+and external begin/end calls in the existing physics wrapper. It never edits
+`game_physics.gen.cpp`. SDK virtual timer counters supply the interrupted PC;
+the sampler does not take over hardware timers. The callback contains integer
+operations only, touches neither FPU nor COP2, and writes a bounded RAM trace.
+Each record stores PC, physics frame, scheduled time and actual callback time.
+Files are written only outside the physics window, after the micro fence.
+Every phase must report zero lost samples. `pc-sample.cfg` selects enabled mode;
+the same ELF without it is the trajectory control. Both stop after phases12/13.
+
+Before deployment compare all original object hashes: only the wrapper object
+may change; physics and engine objects must remain byte-identical. Audit the
+sampler and installed SDK timer handler for FPU/COP2 use. A100ms integer loop
+calibrates PC capture before any measured frame. `pc_sample_analyze.py ROOT
+--symbols SYMBOLS --reference FROZEN --output FILE` checks the trace format,
+bounds, calibration symbol coverage, disabled-mode emptiness and optional
+trajectory/fingerprint/raw-snapshot equivalence. Corrupting calibration PCs
+must reject capture. Shadow traces include oracle work; they are admission,
+not an attribution of the unshadowed pipeline or production FPS. Interrupts
+can change exposed EE/VU overlap even with identical arithmetic.
+
+Release symbol preservation (`KEEPSYM=1`) can retain an unstripped symbol table
+without changing the stripped ELF. Adding `-g` is different: the installed MIPS
+assembler documents inhibited NOP removal/branch swapping, and both `-g`/`-g1`
+change executable sections here. Do not deploy those analysis builds. A
+`-S -fverbose-asm` assembly reconstructed without listing/debug flags reproduces
+all104 executable sections of the original physics object. Assembler listing
+options themselves change some instruction scheduling, so source mapping uses
+`pc_sample_source_map.py`: require the unlisted reconstruction first, then map
+only instruction/relocation spans unchanged in the listed candidate function.
+Changed words and128bytes on either side stay explicitly unmapped. The map
+records direct source locations, not complete inline call stacks. Neither
+analysis object is linked into the game. `--source-map FILE` adds these partial
+source locations to the decoder; unknown locations must remain visible.
+
+First physical admission and control are retained in
+`results/pc-sample-admission-*-2026-10-30.json`,
+`pc-sample-control-*-2026-10-30.json` and their input/log archives. Of228
+original objects only the wrapper changes; the physics object and every engine
+object remain identical. The known loop yields98 samples and its wrong-PC
+falsifier is rejected. Both timer modes retain1200 measured workload pairs,
+1500 full-phase ordered contact fingerprints and four bitwise raw snapshots.
+The enabled trace also matches the preceding source build, unlike the inner
+scope profiler. Both shared images and all collision/replay/precision gates pass.
+
+`results/pc-sample-unshadowed-*-2026-10-30.json` records16,758 legacy and16,489
+shared instruction samples, each covering all750 physics frames, with no lost
+records. Its1200 measured workload rows match the preceding unshadowed source
+comparison. The main inlined physics function accounts for53.2/55.3% of samples;
+world/body grid queries account for9.3/9.8%, and the canonical convex projection
+lambda for4.9/4.6%. These are occupancy shares in sampled physics windows, not
+exclusive substage times, cache-miss attribution, VU utilization or a speedup.
+The partial source map leaves37/48 sampled candidate instructions unmapped.
+Injecting a changed unlisted instruction rejects mapping; a changed listing
+instruction is explicitly excluded instead of assigned a source location.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used

@@ -37,3 +37,24 @@ Check this map before changing another isolated kernel. A chained schedule or
 busy sample alone does not prove maximal useful overlap. Measure packing,
 launch/transfer, actual waits, EE reconstruction/canonical confirmations and
 solver costs separately, then compare complete frames with unchanged coverage.
+
+## External PC sampling without recompiling physics
+
+The private `tools/ps2rig/pc_sample_*` workflow keeps the measured physics
+translation unit untouched. Compare the complete original object manifest:
+only the external wrapper may change, plus a new integer-only sampler object.
+Use SDK virtual timer-counter APIs; Timer2 belongs to SDK system time and
+Timer3 is reserved for kernel alarms. Do not reprogram either directly. Audit
+the installed callback for FPU/COP2 instructions before running beside VU0 micro.
+A known integer-loop calibration, no-overflow trace and same-ELF disabled control
+are mandatory. Serialize only after the physics/micro fence. PC occupancy is
+not VU utilization, and interrupts can change exposed overlap.
+
+`KEEPSYM=1` alone preserves symbols without changing the stripped release ELF.
+Adding `-g`/`-g1` changes executable code with this MIPS toolchain: assembler
+help explicitly documents inhibited NOP removal/branch swapping. Even assembler
+listing options can change code. An unlisted `-S -fverbose-asm` reconstruction
+must match every original executable section before it can support a partial
+source map. Map only unchanged instruction/relocation spans, excluding changed
+words and128bytes around them; leave unknown PCs explicit. Analysis objects must
+never replace the measured runtime object. See the rig README for commands.

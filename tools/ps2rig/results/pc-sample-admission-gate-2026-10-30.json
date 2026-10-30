@@ -1,0 +1,2233 @@
+{
+  "metadata": {
+    "baseline": "0647f55967eeb09fa613aea5becc2c6e495c5d37",
+    "candidate": "Shared 16-byte pair descriptors versus legacy512-byte VU0 jobs; same pooled EE path and world-first schedule",
+    "data_layout": "Both arms use pooled312-byte EE steps and common compiled pose functions",
+    "mesh_collision_objects": 0,
+    "tick_hz": 294912000,
+    "phases": 28,
+    "profiles": "release, NTSC progressive vsync on, day, all devkit polling off",
+    "uncapped_baseline": false,
+    "solver_comparison": true,
+    "temporal_comparison": true,
+    "synthetic_pad": true,
+    "micro_comparison": true,
+    "temporal_arms": 2,
+    "settle_check": false,
+    "elf_sha256": "4e53c92bdd586d55d2d5909be22988bab0c1e5fa2dc6bae5b434013aefd5c0c2",
+    "assets": [
+      {
+        "path": "fonts\\atlas-default.png",
+        "sha256": "448b3765d24c7b4a9b3582c518f251a9e919880b02ceb0bc197c2859d6b23c9a"
+      },
+      {
+        "path": "gshadow\\s0_0_1.png",
+        "sha256": "0ef51c39e76eb040add3946298ae26860c574a2357e048c60621f17fa13c8e46"
+      },
+      {
+        "path": "gshadow\\s0_0_2.png",
+        "sha256": "f00a7c1f7d7485b3bb70422889513d84862c4c821d95dbec3b98b54368bb8203"
+      },
+      {
+        "path": "gshadow\\s0_0_3.png",
+        "sha256": "937e3369c0f1e7a2a3e603f6b94aa34f54a3272b13be6b8263833742337f3455"
+      },
+      {
+        "path": "gshadow\\s0_0_4.png",
+        "sha256": "526a1db44e12022af381f780274580009655048e270757a0a41181511afca944"
+      },
+      {
+        "path": "gshadow\\s0_1_1.png",
+        "sha256": "45f1335f0c9ea8d0eb8b595e86fff6d9cff4f66daa91a9de4987566615d38831"
+      },
+      {
+        "path": "gshadow\\s0_1_2.png",
+        "sha256": "a043b245e7353c46c77d9597227f1e95f905fa43a165cd80780e55609752247c"
+      },
+      {
+        "path": "gshadow\\s0_1_3.png",
+        "sha256": "9972042ad27f08b3d8ea165f25269c18b7bb1aeab09da1fd88cac2ddfd926b8f"
+      },
+      {
+        "path": "gshadow\\s0_2_1.png",
+        "sha256": "0b2375f52f6ac3d4a6120a038a5666054ceb8b4f2a792257467a8f83319436ee"
+      },
+      {
+        "path": "gshadow\\s0_2_2.png",
+        "sha256": "af3b0417ac1d3f454915d3a91e614b6353f80fc2a3759775a950cbdbc5b82c62"
+      },
+      {
+        "path": "gshadow\\s0_2_3.png",
+        "sha256": "a61ea381a6b2cec05de5505180008e9e058b0e8ada9196d7e0a577df285862f2"
+      },
+      {
+        "path": "gshadow\\s0_3_1.png",
+        "sha256": "efdff01600102ffb09a0ccb712882cd95e6c0ee8841aaf73e5277025b8dddc44"
+      },
+      {
+        "path": "gshadow\\s0_3_2.png",
+        "sha256": "7fa63f710ed399c7337ff95489a111dd59c7762bef95b4b75e90ef729100d754"
+      },
+      {
+        "path": "gshadow\\s0_3_3.png",
+        "sha256": "758d548dc9aa18f4b4bfc4dafdb1153dd56fd1377b63a2b066bc3e3d60f4c3c7"
+      },
+      {
+        "path": "gshadow\\s0_3_4.png",
+        "sha256": "07a4bb70467f361ea435a0841f93362105e472fe70d2f11b594f65ecd1811b85"
+      },
+      {
+        "path": "gshadow\\s0_4_0.png",
+        "sha256": "e30c9b5d1ad0b930d59e682a0278c81538229f4d3a356fbb1ffb0063bd79d53b"
+      },
+      {
+        "path": "gshadow\\s0_4_1.png",
+        "sha256": "db7806b17a7ab3c868b30b23d9ccc10f5f3365f32b54f8def7fa8e2c02af3311"
+      },
+      {
+        "path": "gshadow\\s0_4_2.png",
+        "sha256": "b1cf3b2d4462772179dc8a71526415b0db343db9f0ac71778f822f0180bd5043"
+      },
+      {
+        "path": "gshadow\\s0_4_3.png",
+        "sha256": "0466aa39c86b8d6d9c46033e93a9c8a58dd3ea8a37493f5d626cd7859276e792"
+      },
+      {
+        "path": "hud\\debugfont.png",
+        "sha256": "a02cd1c73e8997e3a0370204405156b68ed8583a88680b0125b4a0e9ae5416c8"
+      },
+      {
+        "path": "hud\\flare-corona.png",
+        "sha256": "a3ee5cb781e93cf306be117e21954494687846b8a6464dd213abb8d237ef7e10"
+      },
+      {
+        "path": "hud\\flare-glow.png",
+        "sha256": "2b6563ad8e6721fce94f4489681aeef8156230e6b8ca0e20b944ea2d1f71b522"
+      },
+      {
+        "path": "hud\\flashlight-gobo.png",
+        "sha256": "76d196f718faaf149bb0093d0c5c39d46c0b17b062b6c400e9923d723e924b23"
+      },
+      {
+        "path": "hud\\icon-circle.png",
+        "sha256": "8029e6a08c06e9a7426aba04efe74aa03dc46935d11f9ee4fbfade992907fb68"
+      },
+      {
+        "path": "hud\\icon-cross.png",
+        "sha256": "63adb1520656bb8bbb7e787c6ac66ca445e86a668790886493e7a11bcd77a7c8"
+      },
+      {
+        "path": "hud\\icon-dpaddown.png",
+        "sha256": "82051f011f1ca1d20e5b47415a883b04958e1576e6e84388c211e043836272ae"
+      },
+      {
+        "path": "hud\\icon-dpadleft.png",
+        "sha256": "0f0f0c797484a583df206c56249930ba1dfe9807665c079c25b820bc0c009b7f"
+      },
+      {
+        "path": "hud\\icon-dpadright.png",
+        "sha256": "36c1318aacde72b88892d1841fb3b1df99fe18efaba7ff1e83989eb2c44c1f42"
+      },
+      {
+        "path": "hud\\icon-dpadup.png",
+        "sha256": "8d32ded1121e5f833ac40b6c273a2448c5b5bb936c63ceeae37c24379fa78352"
+      },
+      {
+        "path": "hud\\icon-l1.png",
+        "sha256": "59a95507439159baf400d79f74c90ad9a313e855ed87d3ec0467d6a7ee8837d6"
+      },
+      {
+        "path": "hud\\icon-l2.png",
+        "sha256": "47ca3aaa4492609ac03af2b3a1ea1942cdef6e4fbcb7849ed4f6b4578252cadb"
+      },
+      {
+        "path": "hud\\icon-l3.png",
+        "sha256": "ed05cfa28c41905f2f10431d82de71ae40d688a7287b71666be6914fcfc4cdcb"
+      },
+      {
+        "path": "hud\\icon-lstick.png",
+        "sha256": "87fc708b52af0851c05b71259aeebcd05f8daa25866392c48520e64a0e7f080c"
+      },
+      {
+        "path": "hud\\icon-r1.png",
+        "sha256": "a22b22854a51a5b7bbbbf07e084bd67d13d37d0e0ceef9ffb0f494f9a6d9da47"
+      },
+      {
+        "path": "hud\\icon-r2.png",
+        "sha256": "815a3dd9ccbbf6dd7d44aa2df783e4f7c898866ea69ab4710bf40023b9a06a2f"
+      },
+      {
+        "path": "hud\\icon-r3.png",
+        "sha256": "494a85cd1e9e634a75f3c35a84581aef7056cb0e3693883c6b0035a8218e94a5"
+      },
+      {
+        "path": "hud\\icon-rstick.png",
+        "sha256": "e11131b9f697c959f88924ca6c89e20a660e6278ee70b0c665367ecf12f00b3d"
+      },
+      {
+        "path": "hud\\icon-select.png",
+        "sha256": "7a0f91e1d5ddb562cb3c4db6714536c83cf8574f575460ecec2c5d37f6f15b26"
+      },
+      {
+        "path": "hud\\icon-square.png",
+        "sha256": "18f574e19af44db9c8bd89ef5fabe9a0ee86125019bbb827a4d30ec72b98823e"
+      },
+      {
+        "path": "hud\\icon-start.png",
+        "sha256": "116e286593bb0e757c3f94f2da82c7b892ea603d144de6212eaa1e2144e34d6b"
+      },
+      {
+        "path": "hud\\icon-triangle.png",
+        "sha256": "7523322cee76826027beafc0ede643a29cc11ae4e719f0f1835548fa8f7cf543"
+      },
+      {
+        "path": "hud\\icons.png",
+        "sha256": "c867306f65344a0bb21e6d6088c10161d1c1ea1ddec97790ec293095359adc64"
+      },
+      {
+        "path": "hud\\loading-white.png",
+        "sha256": "695da32f539757ed88bbe9724d21ef5522658cc008ae30ad6fb9bfe7cf2b35c7"
+      },
+      {
+        "path": "hud\\loading.png",
+        "sha256": "e4e37f5395e7b930d610d49149294e886b91a8163b3062555c854275522f92b4"
+      },
+      {
+        "path": "hud\\menu-dim.png",
+        "sha256": "09a2f918ad4a4beffdfa5b0bfe7da63ffbb1eb6f8e1be85339d8a6a28497b9ac"
+      },
+      {
+        "path": "hud\\moon-disc.png",
+        "sha256": "18ea4b104295725846e9b10a4c25da239e8fc31183a89396dc158a256a5063d7"
+      },
+      {
+        "path": "hud\\pick-text.png",
+        "sha256": "446603e78d673e70118c41b5ab59c1d37f4bb782062d043765ec71c628f47a43"
+      },
+      {
+        "path": "hud\\pickup.png",
+        "sha256": "fe867af8fcef4163e0934261c8ada74ca88c77289decebcd35b28cc3507c3712"
+      },
+      {
+        "path": "hud\\save-busy.png",
+        "sha256": "6f86deb513a334940b9363c1e0922f88921a9a9891809aef919f8b3c96c3c39a"
+      },
+      {
+        "path": "hud\\save-cursor.png",
+        "sha256": "ab2105fef732e5c4da8e8e88582c028a69dd3d3e0b8a3eb536dbac1e572f8359"
+      },
+      {
+        "path": "hud\\save-error.png",
+        "sha256": "d1fffbf26052414eea1f7d52a1bf78d905c19faa6e8bb22b892d8227a0aabf2a"
+      },
+      {
+        "path": "hud\\save-loaded.png",
+        "sha256": "29ff58c1fd3e282492a31a2b3503288c260511293a2a402337aa59481c0376e7"
+      },
+      {
+        "path": "hud\\save-menu.png",
+        "sha256": "0e5c14aa477c67fc2715161398a686627522dcf21695e0681b82d64a665a7cff"
+      },
+      {
+        "path": "hud\\save-saved.png",
+        "sha256": "5aee947be802a7bfea9a399af3a2f67ffc8579ef686b859edc2ea55e9a37f857"
+      },
+      {
+        "path": "hud\\save-spinner.png",
+        "sha256": "e9c49f1004d404c813e5153ed43786b6ddbd0219089533cab970e5604110e8a4"
+      },
+      {
+        "path": "hud\\save-used.png",
+        "sha256": "92dbe9fecb7761c10ee7239558a648c5f88749fceaadb53d1dec65015bbc4649"
+      },
+      {
+        "path": "hud\\seq-black.png",
+        "sha256": "1b90017cbe62be2e7f6e6776826267705e928fb0b7cc3661484274a791b0753e"
+      },
+      {
+        "path": "hud\\sun-disc.png",
+        "sha256": "13a6edfb466326dc3fb1fb39f1d9fc778a718149dcb9b8334c2c45f593a343cc"
+      },
+      {
+        "path": "hud\\use-text.png",
+        "sha256": "19e008d429a151ca957aaaf047355477ef076a66b258e6aa93649b5f48170d27"
+      },
+      {
+        "path": "hud\\use.png",
+        "sha256": "ea6670f8379bf26577b65be4c41bb1bec437a249e42c04056e7421418ae7108f"
+      },
+      {
+        "path": "materials\\district-asphalt.mtl",
+        "sha256": "1dca5ac135a47595669d3733d9fa9709db5dce5cc3cb97bc9b653d3e72c879b4"
+      },
+      {
+        "path": "materials\\district-ground.mtl",
+        "sha256": "acd1f207bd781dd852da972bf609f6d70bbad7375529c137bb56bf313a66de54"
+      },
+      {
+        "path": "materials\\district-plaza.mtl",
+        "sha256": "b5593b132bc63152333cf4d4dc3a852fe978051819e83e886cfb9c07882786dd"
+      },
+      {
+        "path": "materials\\district-road.mtl",
+        "sha256": "302f4d578e3db5a8eee0e5030edaf87d020bb54c30087c4fe1e3b392897a637c"
+      },
+      {
+        "path": "materials\\district-sign.mtl",
+        "sha256": "f889d1e69bff604f7458df03c8a5781ef093098978a74d6f95cece53d723b51d"
+      },
+      {
+        "path": "materials\\night-cyan.mtl",
+        "sha256": "c9514f2d701bbc12cfdcee0656aef5271d1e710721a9f77cddbbbaedf4974693"
+      },
+      {
+        "path": "materials\\night-pink.mtl",
+        "sha256": "1a358bf868e33b61312214325a65e315c5cec5f86e7c9d0451709616338b882f"
+      },
+      {
+        "path": "materials\\night-warm.mtl",
+        "sha256": "814ab4460fb71a2c423a98421450979d8e482b72b173fbb565ef9a7ec026756c"
+      },
+      {
+        "path": "materials\\procedural-concrete.mtl",
+        "sha256": "a15c97e132b85dd304d93069405c786e123fe68df893ddb7ed2d1a3dc301bf4d"
+      },
+      {
+        "path": "materials\\procedural-grass.mtl",
+        "sha256": "58aef74698ad4d037df74a70d82fee4231bdab720aba15cb8fc32b48b1edad6f"
+      },
+      {
+        "path": "menus\\district-pause-values.png",
+        "sha256": "9db52303bc68eb3218d0cbb960a694c3bb9039a9b910cb8d048953f91775d99e"
+      },
+      {
+        "path": "menus\\district-pause.png",
+        "sha256": "32ba49c31e1f793cae641197d9c5ffe7eadc3da2fd9919c127930c66b00f46ff"
+      },
+      {
+        "path": "menus\\save.png",
+        "sha256": "da4a7b3b18ffa0d87d4b32e7ffe5f6f8bfb3c539c6e51795db4198d7d1fd1d35"
+      },
+      {
+        "path": "modelao\\40859c88ba80a47f-71f9aea4cdcc0d81.png",
+        "sha256": "f58e522b2518f5abd44c8e6446e747923ee50b65711f204fe2d7da46114f24c5"
+      },
+      {
+        "path": "modelao\\42f3be83ccea680c-6ac0e9350910956f.png",
+        "sha256": "da946ec7a84a63ca801d0f115340f75bdaea875324b35bae03315797d5e39a13"
+      },
+      {
+        "path": "modelao\\58e898f779bd502d-119fba8f1c5f1b95.png",
+        "sha256": "5bdcdf49647788bb9161a190ab14c37a6679244f60e28812214d42b70d5805bf"
+      },
+      {
+        "path": "modelao\\c6a6e4ae9f26f5d1-75b96416205fcdbc.png",
+        "sha256": "b5948cb3503a0a6e1f933a8b6cfa6524b41bfda8a73032f4c6e0f4c4f2133ab1"
+      },
+      {
+        "path": "models\\pica-far.glb",
+        "sha256": "9a5cccb765fdf63d599da820651c6df8a06808ae4a1c3049444bc1fba923f06c"
+      },
+      {
+        "path": "models\\pica.glb",
+        "sha256": "c893697339de44e5357689bce0c0ec35a99a625c7ff5ae8ef5f64f51122382e6"
+      },
+      {
+        "path": "models\\ravager-far.glb",
+        "sha256": "ed0f207946dbf78ed40f47892f6ddf0ce0cda3fad1ae8fda85f6a13cb64f8ee3"
+      },
+      {
+        "path": "models\\ravager.glb",
+        "sha256": "2f9dccf1f922440a0b2d5804d8f084cecc6fe072a6c809dcb89243587da2d753"
+      },
+      {
+        "path": "models\\strix-far.glb",
+        "sha256": "c3fcad4c78c04b94bf170d5358b351186f7e1c99549ec8a99757c7137048bb45"
+      },
+      {
+        "path": "models\\strix.glb",
+        "sha256": "8564cfa966ad2cffdfaab6cafacfed353a0171217d78d251a95e2363b3c77044"
+      },
+      {
+        "path": "reflpano\\s0.bin",
+        "sha256": "a7f7e82dde3fdf154b22dd6f4c468deff9e6c8724b60749a52ed131db46a9532"
+      },
+      {
+        "path": "save\\icon.sys",
+        "sha256": "66a4b9a216ecbdc314adda9ec2212bba9fd1cf1b7052a3be80dd90520e4430a9"
+      },
+      {
+        "path": "save\\list.icn",
+        "sha256": "1e82fd6d9580142738568172b9be5f9355a17ad93bc090f1f217431dbb4e3c15"
+      },
+      {
+        "path": "shadowatlas\\scene0-0.png",
+        "sha256": "5ef37b8ff3ee68a3a6ab8d5b74e12b225a0ea4cc6fc23de372b76149e6acae73"
+      },
+      {
+        "path": "shadowatlas\\scene0-1.png",
+        "sha256": "c75174b9f885daee730fb63580706adda0195c0e966dacfad2fa8b2758981b87"
+      },
+      {
+        "path": "sky\\scene0.png",
+        "sha256": "92c7b9b5f6b203ec004b86a5acf5e6c0805d7e1ebe080195f711adb39319db21"
+      },
+      {
+        "path": "textures\\district-asphalt.png",
+        "sha256": "0c15cc56521c956b142c692e83d73477fa12e24412b472b94e11de7eb7e7798d"
+      },
+      {
+        "path": "textures\\district-ground.png",
+        "sha256": "754789fbbd9ceb6898d378f8566c7107d352e9153862e1a3af3e88ddaa4c0cc0"
+      },
+      {
+        "path": "textures\\district-plaza.png",
+        "sha256": "8f2b1aff3d1656b5db5c9865c9c4c9c13c7c34fbe99de6983624766742ae2598"
+      },
+      {
+        "path": "textures\\district-road.png",
+        "sha256": "b0f77131fbce9864ec98f75d2d8ea07b2fb375622e7c7b162454cde912698832"
+      },
+      {
+        "path": "textures\\district-sign.png",
+        "sha256": "ee7e2cbcfe6993d31a1ba629033c4ccc1c2d50c72e1981fb5946cee4f309276d"
+      },
+      {
+        "path": "textures\\nfs-streaks.png",
+        "sha256": "ddabb12575a824c7f3609c825a282c241d4576a734fb39725b64d917a9d37465"
+      },
+      {
+        "path": "textures\\pica-paint-mask.png",
+        "sha256": "ab42ec1fa262f34cb3b71ea729af82932826ac4615fa417733b9899bb1fb05ab"
+      },
+      {
+        "path": "textures\\ravager-paint-mask.png",
+        "sha256": "fad14a0c6b11425c5b95bdccdad65fdb73d66b4cafbdb34ba50fe568d9580b00"
+      },
+      {
+        "path": "textures\\road.png",
+        "sha256": "d7583f7219166f6b2740229e8a8e02fb3ff390103021482c7e8837a965e0c5fe"
+      },
+      {
+        "path": "textures\\strix-paint-mask.png",
+        "sha256": "206ba266aacd83d0ca6b5b70812f7f11bb4e35a1c699837b2ab8929f51da5d6e"
+      },
+      {
+        "path": "vehicles\\fx-skid.png",
+        "sha256": "a229f9625d17bbfd80f9d1e2eda4146139ab6dcb1d6427fe2c607d5cc12d45bb"
+      },
+      {
+        "path": "vehicles\\fx-smoke.png",
+        "sha256": "d5d30b604050559a7c1815b0e67f34498370c019f966df9b194a1cf3c63676d4"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-body.tmdl",
+        "sha256": "1adc9d54d4bc1a1b15cc65a6fd7465cd79234388cb20505d3361bc04b20d9f7b"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-palette-image-0.png",
+        "sha256": "1e3591ebd8ea643f66fae520af390eb47dcd6cfb9a9ada9352542865c16b3c08"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-palette.png",
+        "sha256": "80c07b839f6832bdfa25eb99d4a9952708b388b66ba497509e42e4ed1ae36656"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-shadow.png",
+        "sha256": "073728c7a0b516d3b2ea82e1b5cec283cc1c3c5c54e6895a97bd2d35dd2205e6"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-wheel.tmdl",
+        "sha256": "1debda041c41361fbaca2dc2f2d0afd0b79ac27151741e6f7c62f4932860f738"
+      },
+      {
+        "path": "vehicles\\veh-pica00000001-wheelfast.tmdl",
+        "sha256": "21d60f29880a91a6b24772e74fb7522031471f9f1635bc672663ca26cc09df6a"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-body.tmdl",
+        "sha256": "0370d210553cb86fd91613c84727f79dbbb14ea13a28387c46f7e154eb02964f"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-palette-image-0.png",
+        "sha256": "6c7bc3f3837794ab907f1124ce7d8dcef5d3367dee77dcd5f04be4c52642faa7"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-palette.png",
+        "sha256": "2c3cf13a24fe7f38188f640b966cd0bdaaf7561c652633113e0f66c129bf418a"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-shadow.png",
+        "sha256": "1139e9073e3862d01cc92cb61bfb244d33f746155dbd479721783132e6070661"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-wheel.tmdl",
+        "sha256": "031b63da2fdf17bf8a7bba3c9a2ffdbea5fa5e3fd904a5592d3c961f214be2f5"
+      },
+      {
+        "path": "vehicles\\veh-ravager000001-wheelfast.tmdl",
+        "sha256": "0288451a9cda47729d3f43370a6fd068557170f25ef1fae5e9b2fa54450a47b9"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-body.tmdl",
+        "sha256": "cd66500d7b6fc2238303e6e4a54f66bafaa6d1ad940006496be6a471bb8602d2"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-palette-image-0.png",
+        "sha256": "bdedeade1f987b0491c107ce80a326dfd3180db7fa5fb68785398299f0e2d788"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-palette.png",
+        "sha256": "3517b04ebbd8a17821fec2a04776fd7c71e0774974761427bd52ac48383bf2f7"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-shadow.png",
+        "sha256": "289056bdc002b5432540ca6e413f4bbfc8b382bd2f7f5dd7a59b7f2cf37a410f"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-wheel.tmdl",
+        "sha256": "12509cd3616d05a795e4d6a17e8b6731d3b1af4cdd53db1e349c21b4ac8592e3"
+      },
+      {
+        "path": "vehicles\\veh-strix0000001-wheelfast.tmdl",
+        "sha256": "dc42b4c3b56ed5e2a1720cb6ba7c2dd7c96e3ff401ae2f1e0fd7b57b81bbfe22"
+      },
+      {
+        "path": "materials\\particles\\rally-dust-f1.mtl",
+        "sha256": "9934d4a566363c34846c3ce9b6a99224dc1635aa86d087c620b645347ad9ddf2"
+      },
+      {
+        "path": "materials\\particles\\rally-dust-f1.png",
+        "sha256": "73234b29beb5e9f0ba1fd995724514de7b053a9f2cd9fd0690eba3124338f630"
+      },
+      {
+        "path": "materials\\particles\\rally-dust.mtl",
+        "sha256": "2775f186605dfdbc60ec012f12a91bed19254850a5b47d0251a75fe1239edd54"
+      },
+      {
+        "path": "materials\\particles\\rally-dust.png",
+        "sha256": "761c87de53301dd63bd15386c3987cac80d6883653f58c2dd172e7d4cc8366d2"
+      },
+      {
+        "path": "models\\urban\\detail-barrier-type-a.mtl",
+        "sha256": "06e4d13df4c9a096c464d4c2e40c5bb6938fb8f5a3f5ac9478d3687d94d264f9"
+      },
+      {
+        "path": "models\\urban\\detail-barrier-type-a.tmdl",
+        "sha256": "7700c9e702d7fc439e25439f41b0b501964eb85dc03b05d8f9474aa6d63dd27a"
+      },
+      {
+        "path": "models\\urban\\detail-bench.mtl",
+        "sha256": "848b716dfcc80c1c1f2e9ac5616cee46fbbcce9b0f0143698b860e601092726c"
+      },
+      {
+        "path": "models\\urban\\detail-bench.tmdl",
+        "sha256": "697fa446a4b95811fb9a2b0b0dffd02ae8b1b78444561373bdb30a769cccf1be"
+      },
+      {
+        "path": "models\\urban\\detail-dumpster-closed.mtl",
+        "sha256": "8547bcf6469528d798980d23915c69e9309fabe936f7f3948358c8138c40da94"
+      },
+      {
+        "path": "models\\urban\\detail-dumpster-closed.tmdl",
+        "sha256": "b1631cfec345b78549b2167139edf2eb99133148b3584ac1e8b0a56238257cf7"
+      },
+      {
+        "path": "models\\urban\\detail-light-double.mtl",
+        "sha256": "246f9169421816ad75b96d18e4975ae7d5c3ad530dff7426cc503e84b85b4ff4"
+      },
+      {
+        "path": "models\\urban\\detail-light-double.tmdl",
+        "sha256": "b5cc6e8607cd813478bcace02a8487c3fa5ef9e8c791dd80514804ed26a9cc6d"
+      },
+      {
+        "path": "models\\urban\\detail-light-traffic.mtl",
+        "sha256": "30660de0259653b1fea05544ac26f251905c7dfa91dbf1393515a1990df89315"
+      },
+      {
+        "path": "models\\urban\\detail-light-traffic.tmdl",
+        "sha256": "da49ff98eaea9dad401cfdc5478c6803e772b08617163754d6171bfcec824c34"
+      },
+      {
+        "path": "models\\urban\\district-buildings.mtl",
+        "sha256": "e35f79abcd2c036709b9e21eca2bdd51db6b6e53b6cb09fa6e56314e573ad188"
+      },
+      {
+        "path": "models\\urban\\district-loft.tmdl",
+        "sha256": "b543843898bf4f49f05b5b713bbab699d48bb8b965519e81232a9e38f678b386"
+      },
+      {
+        "path": "models\\urban\\district-tower.tmdl",
+        "sha256": "86a4c1e1477fb883d2c16cb8a0ae81ea48458e4c4da8554cedeb0866572735a0"
+      },
+      {
+        "path": "models\\urban\\district-workshop.tmdl",
+        "sha256": "0bbf0e790bc46921e4ee7ac22934e8202e0682be2a0cd28edd30a6be67f432fe"
+      },
+      {
+        "path": "models\\urban\\LICENSE.txt",
+        "sha256": "4f58d6cc3e9c85fa9b9c00462773d28cd26b01c2b6f6ab718e52c29cd265ab7a"
+      },
+      {
+        "path": "models\\urban\\pallet.mtl",
+        "sha256": "aa799b0bbf789ecff19dfec51c5366a44160e8b6f1dd88fd259f1ef84250fb64"
+      },
+      {
+        "path": "models\\urban\\pallet.tmdl",
+        "sha256": "0f7f23ec4d03bd097787ae4d935bff3dca6597fd35bdf7f0c578f16f0d2e3efd"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x0z0.tmdl",
+        "sha256": "6b969f0bc96b0623d3853e7115c754d2cfc5cb5d7c2b2324eaa726dabb686825"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x0z1.tmdl",
+        "sha256": "42a810f5ce6ed7a4040098d7ab4fa7ba866f07b8a3af81f4699c4527360c1911"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x0zm1.tmdl",
+        "sha256": "6b16d5f9682cf48adc185d24b4f9f1b4b37b90bda34ab102f98c9788f9a0b5a8"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x0zm2.tmdl",
+        "sha256": "0a72b5b3a889e5150ece0db035da577c1e10533b3a94ef6535119d37e5254d9d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x1z0.tmdl",
+        "sha256": "32f763b374964aa4d1311b7e282d2f181e26174e434b9e5d69c34758340a472d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x1z1.tmdl",
+        "sha256": "c6a9f80254c9ac6af6f9aa3b249674812b5d58b49c5e2b9e60e599feabe9d1a8"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x1zm1.tmdl",
+        "sha256": "6e47c5600b2baf1daf2ade9a45ec512ad9c9e5a2176e3dd5c219536c7d9428b1"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-x1zm2.tmdl",
+        "sha256": "0dc344768c4e89fa433d9124aae01edb07cac4b54cfd85dd3dc21e79c882dd88"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm1z0.tmdl",
+        "sha256": "dfe1ddfa04a4fc023584bfad19b47167e1f5b449fe0df7118d701053218b00b2"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm1zm1.tmdl",
+        "sha256": "a8b52508b27f3fdfbba74e6d1070b5112dc299c46190eafda2a9b83e7c21e052"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm1zm2.tmdl",
+        "sha256": "12b5b119cd6b18658e3ffefa6ffc85f78c704db22bc1a62a7631b77060c7bd5a"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm2z0.tmdl",
+        "sha256": "2f83bcfdaa94d3c6baa4e7ccd8602a4684b59a4af5fc2e79275c1ed54fc6789a"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm2z1.tmdl",
+        "sha256": "e86fdc597978d8afac4c35130f5f459d2d21d0ec95feae486e160c01464511e4"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm2zm1.tmdl",
+        "sha256": "6b6230c1267c999ee77297a6a978f21ffd6a03a7f3a15fc26ac7dbb42a46ee80"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-loft-xm2zm2.tmdl",
+        "sha256": "cb5295bb35ad46837057811b3ae393ab7308b68b2bdc9dd9e64010c5f6da383d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x0z0.tmdl",
+        "sha256": "fff0352eabd8ae590537eeb6496a90e59bbf9288e1d951b68e8d49f55c961a22"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x0z1.tmdl",
+        "sha256": "6bccd8728d17c91973fb012b8cd7b62d9bc92d9f724bfc2bd2ddc2b18c25ceb9"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x0zm1.tmdl",
+        "sha256": "fb24c4fcdc41f2ad75f9ceea893513d42ab25a43f3ee5faacb60881f29634833"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x0zm2.tmdl",
+        "sha256": "d88652b9e8d0de1bc1a470b4dfe35baf4083a5931da9b2c2950b87e6f745651d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x1z0.tmdl",
+        "sha256": "fcdc9afe9ef812c1da500dd897977b25249ddafd239e700b8584e711546187d6"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x1z1.tmdl",
+        "sha256": "5d7182e45f8925cf0fc6111ed7c61aaf84ecc45985d079b71e3ad012282e9350"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x1zm1.tmdl",
+        "sha256": "32e56c564c9bc78e8d3dd75cdd5f9dd7f472139c29a992faf372ae711e173962"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-x1zm2.tmdl",
+        "sha256": "d07dad4ef59cee73a23124d4c11b2e97021dd56d13d2fcf88ede4a64f94b6a3e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm1z0.tmdl",
+        "sha256": "6b06b241d62eaea9cd9f0c8650dff092f64d8504ccf9a18b676e8bf2e9179c64"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm1z1.tmdl",
+        "sha256": "ef83f07629afd55f236d27a611c0c78a6bc36c571b75b2c10c40f4b9635982c4"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm1zm1.tmdl",
+        "sha256": "1e21ae208041bc311d8cff3af1da267e09ac80f694accf9d2ff273d943399b56"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm1zm2.tmdl",
+        "sha256": "72933e9500243c2dad95abe5968673be1cde5022e973687b83eaab409a11e300"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm2z0.tmdl",
+        "sha256": "f1c7cf3950208417a4347c205cba3686022ce63078ac98e224ec958f9265a9cd"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm2z1.tmdl",
+        "sha256": "c31ad4f50e7e62272028f5f00fa94b1a96a980e2adf1b19cc7351fa940a29297"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm2zm1.tmdl",
+        "sha256": "3434a1a80cd5d18f62253f858e5a81f551947c684473b071b4fd4e6be02acbff"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-tower-xm2zm2.tmdl",
+        "sha256": "0dc6a4f92796fdb8c257b15610229a39053bf385edd28e24e61a8d5184dd3585"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x0z0.tmdl",
+        "sha256": "3c80502ca2f0ed7b568cda9a518d2290fdde1f05404e43fd026e15f51dc2ae4d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x0zm1.tmdl",
+        "sha256": "d4cab6cab728edcd722e768852a95d87b7a9781748e73a78d48d44fdf02c96e3"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x0zm2.tmdl",
+        "sha256": "51626bc986e01eb77ebbe213b7eb6ca7d0e51373cc0e52ff9d7b012e48c1e02c"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x1z0.tmdl",
+        "sha256": "da1076d8b378ba29c325fd708e3558127408e7eb46b5bea8abfe14760006e59b"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x1z1.tmdl",
+        "sha256": "26050b9b7bc70840eb2462d652d1e50346579300d875680fe6b26862abfd3ecf"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-x1zm2.tmdl",
+        "sha256": "75b1cc76d83867539242ac77d12c75ef717c2d41c8e8ad9161269af7910d9a17"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm1z0.tmdl",
+        "sha256": "84c1714bfff50d3bd0e85e3d81671df156ea66f9b134f1b8eff2c9f8cefbbddb"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm1z1.tmdl",
+        "sha256": "f5c7120eddcbcbee297000aa24da37327e02417b2d0582b8441616b4721738a6"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm1zm1.tmdl",
+        "sha256": "ae37fd64a8ca539f1a25c0e96d45c49bb0bec74d93b8424990961d4e9f02e34e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm1zm2.tmdl",
+        "sha256": "0d10079ee0f90bd506cbf3564e8fa9e9587397fceeefb4b42f89cf9b89f0d588"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm2z0.tmdl",
+        "sha256": "ef85919a9e69337bc83f3acb27cdcb80596c92058f5a7f42c78a0521427938d6"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm2z1.tmdl",
+        "sha256": "034519723bdf6927556c09381413850be8304d3cb3c93e6d994b1c29f83f64a3"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm2zm1.tmdl",
+        "sha256": "3d38097f25925592abd68972e0c56368b76416a93d1fdd1e9bcfc03a355a35db"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-district-workshop-xm2zm2.tmdl",
+        "sha256": "b9f58a72bc8db6d284044778c18956655117838b25695b4af4555817df0a3f0b"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0z0.tmdl",
+        "sha256": "c054c163e517646817d04f6fa7c41bf6754914ce4b852d2706273e6fa2e4a15e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0z1.tmdl",
+        "sha256": "a78e6dea237d29c6ffa0b35e8fe8898dbb3e1d999f88aec659ba0e8d6d1b0714"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0z2.tmdl",
+        "sha256": "ec1096e80d6b7a1edfb9be2826feb950561023b45ba30f90109f499756fd7c60"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0zm1.tmdl",
+        "sha256": "dd89144f387a0da6ad3aed2ba2c66d1f24835ec95559fff8fafd5ba9a854e2c8"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0zm2.tmdl",
+        "sha256": "dd2bbe4074432aaea1510a53cc461d64f2af28fcc71abbfeecc3e98f10c1eb14"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x0zm3.tmdl",
+        "sha256": "4825c2e4712332ecd0177c23313b37eb9fe4172a1c7e18be73a4b93f694d0cfc"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1z0.tmdl",
+        "sha256": "8c3b551548d1103600e582ce1af3986620dfa8049c76742615f6fb88fb4e26ec"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1z1.tmdl",
+        "sha256": "e91da6823e603c0514b474749b4001bdaf23ad554ce8b82b0faa0ec01dba82ff"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1z2.tmdl",
+        "sha256": "8a97a3c03c2c73d263bbe3bd94282ad3558a29c577501123ce4dc7f9c5346bc1"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1zm1.tmdl",
+        "sha256": "af2045bc5975b8ace8e570ce59e780864eea923613f598aadf07354ba4e2ff4d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1zm2.tmdl",
+        "sha256": "ecaeec273c29690a76d4cb6eefd4bcae9826cebb6c1fde5850c1ab9edaf4e8cb"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x1zm3.tmdl",
+        "sha256": "acea0ef90316f43b8f64b28a2df87095290eb1e04d8efa51384cfd4aca4c2071"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x2z0.tmdl",
+        "sha256": "2d950d0c37383596aaa3f6c24d48d1bf954f4212aa77e5634866292a4a4b5827"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x2z1.tmdl",
+        "sha256": "d33e47ab39a9fbfbf7e1a46f29714db8fabbe64078dbe4ac474ed8e384a17c2a"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x2zm1.tmdl",
+        "sha256": "85c5064b5807556b53eec5e61719305e42b46731a19b892ee5695cd464d7e0ba"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-x2zm2.tmdl",
+        "sha256": "de871b2ff1a989a9d7708c606ca91280f69de5c91a4e4c9a4ef485f22b62356e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1z0.tmdl",
+        "sha256": "648a9a2ebb628c2be64e2975e0e7da7d77ae2133950d46553c5e72614a4549a5"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1z1.tmdl",
+        "sha256": "5c78ee8093b0fec7412cd3973b4206af2ba4b4878a6ba30bf7baf0ef73cf330e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1z2.tmdl",
+        "sha256": "f77831d3edca1d652b9c4d71edf16a89a35c018d25722fcfd9a8c8c572fe4b6f"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1zm1.tmdl",
+        "sha256": "390569f9b9cf3c97024cfebc342e130e99537e05b5e8ce4160fd3ae41567c45b"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1zm2.tmdl",
+        "sha256": "d0853831c6395db0bd41176a6f5762beb480b3d8e9b1fabd7f61b682af76e9c8"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm1zm3.tmdl",
+        "sha256": "669f5802dd4eaf1ab92c86146ae6ca55de49abc0859769140e6f1f1396729dc5"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2z0.tmdl",
+        "sha256": "e60f4bdb9aa195baa26aa68e980ce483def220a3073b3efb5e9485f9fc341151"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2z1.tmdl",
+        "sha256": "0d905df27e0cd64ebd4701822e54cf1384d4e14bdce31c7e0babd2e3607939bf"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2z2.tmdl",
+        "sha256": "a7e78fe79df82e20ff88318a88d4dcc9c5684a38ee06a6669e64d370be8ef99d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2zm1.tmdl",
+        "sha256": "cf74589511459c6c157c41ce3a942343031495f1e8e1b1fef2c90112a7af3343"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2zm2.tmdl",
+        "sha256": "bd93b2f1e001bca452ac990554712a1322b2076993b264d777be633a0397f641"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm2zm3.tmdl",
+        "sha256": "dd61a80648aa8be2ef2936e5ef11fc05cdc05052d5cf8f03e21ecc6b83b2a956"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm3z0.tmdl",
+        "sha256": "dd5d5321613a9b1e9a0b1f042a9a772fa9a56a91c2c29ee5b0abd25649bb84d5"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm3z1.tmdl",
+        "sha256": "4258114b106ea34a9f2441e6c8badf1310d75ee00e62783942b6fd4351d3138d"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm3z2.tmdl",
+        "sha256": "49b4a3627eb73906d90d12be0d3cbdc48926fc605dbc1a970da7eda987f73afc"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm3zm1.tmdl",
+        "sha256": "070bc15209ab77527278f8fd712c7d58ed0dd54af70d7deefa7153c1e9c5a004"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-large-xm3zm2.tmdl",
+        "sha256": "0f2d0f950627a66123cba4001bb5559147b6ea22677c778d9b6a8511914fbe24"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0z0.tmdl",
+        "sha256": "a73db779475a16245b40ce3c74a84c81ea11e2c64166b44d10bb75eb93f58280"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0z1.tmdl",
+        "sha256": "7068ea61d4ac0664b2c1fc4541382181f3cdccd01712128cfe86c6d40622cfe9"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0z2.tmdl",
+        "sha256": "f113b7d6a825e99b08c8a7aef5386582a8883280bccc9759e5f2cb4e51db455e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0zm1.tmdl",
+        "sha256": "0ef2c7e64ec464fd84e4d4bf87f095a2c4afdf2368ae2e200685c1f4729c3731"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0zm2.tmdl",
+        "sha256": "5c98952dd03333273b068b856236a648964c923909e73ef357b3fd52651e3cfa"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x0zm3.tmdl",
+        "sha256": "3b7c848459c25f97782c08e10903f3168e28beb1d6a1799a9761ecc209a459df"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x1z1.tmdl",
+        "sha256": "547167695c0509123902b50de877a5d8f79a0bd883d2b765ed85f2e2eb55ab46"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x1z2.tmdl",
+        "sha256": "767f0c5ec633d179a0436eddbe2bd916c6e93575078c0fdf27cb38c3c8e07f5e"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x1zm2.tmdl",
+        "sha256": "2d6198f1bf246ad63213744ed5de0aaaf9241d9e17490ce104c84bbe03e30560"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x1zm3.tmdl",
+        "sha256": "56ece5fce9b980fbd612c7318375e791221c7527cd93f6f14e432ac9a58e7638"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2z0.tmdl",
+        "sha256": "32af6b39bb1db03cba0381b75c256c7878b183b13d04096179e347cbdaf266ad"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2z1.tmdl",
+        "sha256": "881e3385efc977491550d838622042d88f1239964f85cd0703e949c32872fd68"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2z2.tmdl",
+        "sha256": "a8bd89d3e06bf6f7f937f5090776eb609417ed27a8951b9b4d0eca02022ec04b"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2zm1.tmdl",
+        "sha256": "d168f64547e77fc9fdb5f9ec4e2b092c985ddc200ecc44dbbab991544165f637"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2zm2.tmdl",
+        "sha256": "71f4acdd0d49c6489279e515c335140a062594a248c80fb3d7398043ea18c329"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-x2zm3.tmdl",
+        "sha256": "a1ab1994838c7d4f226e860974c2fee46a64b8516e1b12a7d6d478bd280d0b62"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1z0.tmdl",
+        "sha256": "1bed3f57e366ca0dc506842fc496910f00e6455e602ff312b1c30181e5158a25"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1z1.tmdl",
+        "sha256": "a3539ad6356833e2db27539850b13e1f2edd11e596f5e295dd25e6e416659563"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1z2.tmdl",
+        "sha256": "56cd3c42486f7107dc936a1c61ff0afe6917ba51473c0094332d30ddd7820488"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1zm1.tmdl",
+        "sha256": "59bc77058dd5347dec9886b25b56304e443f771f868b22ae967fb03a80f00dad"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1zm2.tmdl",
+        "sha256": "c15042a1460b16c8b64a1fc1d716332160056663121a2cebb337cc5e1fb197c0"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm1zm3.tmdl",
+        "sha256": "aec05e71da1062a570cc965fcad51d7870b39e9f7a570db8f2552c9eb0504b16"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm2z0.tmdl",
+        "sha256": "2a7e911a516075123aa12c3966748578f16ee2576bbf8bfb84d37b0535736154"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm2z1.tmdl",
+        "sha256": "7c11302b3fc2f343dd3e5eafdb3f3dd8ace0885fac20eebe931b9ddc64cc87e5"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm2z2.tmdl",
+        "sha256": "9aed451106788ebaf504886f4bceb11fec45b7d680f982224d48d14179f06ee5"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm2zm2.tmdl",
+        "sha256": "ca1a4fed6030bd2c4f3abe118d1c402e96dab13aa7ffe49a695fa00a38ee1d7a"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm2zm3.tmdl",
+        "sha256": "accd7d289c77d3bc33e0f90556715d7dd0978989dcd5506a536ce5877d4a2cb7"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm3z0.tmdl",
+        "sha256": "89ddec759076776d448454e87eb4f278017e3faf9a7cbc79a180b5884b6e0ea0"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm3z1.tmdl",
+        "sha256": "476c3982ff7050c7a5aee360036df443e6b5548ff3f9852badf909445a75c452"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm3z2.tmdl",
+        "sha256": "111c1258e0d5a155f6876f499143c3f3e99800f7d2d23f909fd96da0ba01850c"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm3zm1.tmdl",
+        "sha256": "238f165417059fdd56a01d30f6fe650e38d332a1c2c791dc5a4d8c91b41b37ba"
+      },
+      {
+        "path": "models\\urban\\procgen-procpain-tree-park-pine-large-xm3zm2.tmdl",
+        "sha256": "3b22f8b4f1750ac45440623fce6f1beb7dc5216f9d752086fff6afacb945af12"
+      },
+      {
+        "path": "models\\urban\\tree-park-large.mtl",
+        "sha256": "41916e639884cf52ce7f3c3531634e1ec2632fff60386569353469d6cc58003a"
+      },
+      {
+        "path": "models\\urban\\tree-park-large.tmdl",
+        "sha256": "6580b92ddb7316284ee4bf33a367b41c9a02f705c63819dc44a81376deba85d6"
+      },
+      {
+        "path": "models\\urban\\tree-park-pine-large.mtl",
+        "sha256": "8b1c62e58aafdcb6c15b3d1d3ae9437e86e0a8c942b95e3e502b17b026cd076c"
+      },
+      {
+        "path": "models\\urban\\tree-park-pine-large.tmdl",
+        "sha256": "bb71c693306ae9810793c595356505e91c94897b2d584c006fab66d0eee0c80a"
+      },
+      {
+        "path": "models\\urban\\wall-a-garage.mtl",
+        "sha256": "be225ab7c4e845fd56a4c38bd0413e2c3431a63674241c6504f70d3f0edf5a8d"
+      },
+      {
+        "path": "models\\urban\\wall-a-garage.obj",
+        "sha256": "d6ddcc7ab95a59acc8b8859c4ef2e4d2332a8a4b8d39490fc63d66458a9cddbe"
+      },
+      {
+        "path": "models\\urban\\wall-a-roof.mtl",
+        "sha256": "f2bd4a172bf54c3452c1ca63f18a68a7b023a77434e3acb365c9cb35c15bcb0d"
+      },
+      {
+        "path": "models\\urban\\wall-a-roof.obj",
+        "sha256": "3a8486d2c3dd3cd146b6265698dba62c34b71d674eeccd4d0ada8bde4b666fc0"
+      },
+      {
+        "path": "models\\urban\\wall-a-window.mtl",
+        "sha256": "e6047115d1b6aa2e5afab34cd23457cf72ab2e1dd39c190864fdbdd08f484a58"
+      },
+      {
+        "path": "models\\urban\\wall-a-window.obj",
+        "sha256": "fc86490eddf57d85e113d04d6e6dca3d05a5b66cebebe439157c817e153795db"
+      },
+      {
+        "path": "models\\urban\\Textures\\concrete.png",
+        "sha256": "6c945026c68f2b3ab64cdca3d9bc941f7756724a3a4c8a9000a99a1f38d8da4a"
+      },
+      {
+        "path": "models\\urban\\Textures\\dirt.png",
+        "sha256": "dc197506c397e59440be1e363b7d430e526193ec6efc448d68f7d509b8d04f6e"
+      },
+      {
+        "path": "models\\urban\\Textures\\district-facades.png",
+        "sha256": "3aaff298117f2f48b74d5fbc127c0de623b245b892eba214df9b537ff5a2c156"
+      },
+      {
+        "path": "models\\urban\\Textures\\metal.png",
+        "sha256": "9ba8501e99905fd40ebcd3e5fcdeab92ca6bbd11d95378e1a7ff22ec7a35a9cb"
+      },
+      {
+        "path": "models\\urban\\Textures\\metal_wall.png",
+        "sha256": "f70304cda44fc9aaab684dfcf84e947f85b6843f06e11a8c97905db33a695cce"
+      },
+      {
+        "path": "models\\urban\\Textures\\planks.png",
+        "sha256": "b11917bfbb9a023860e407084f59dd5a0acb8b43c3dbf0132921d98bf6ea3e20"
+      },
+      {
+        "path": "models\\urban\\Textures\\roof.png",
+        "sha256": "d223a6a7c985a3cfbc6c475d3baef94b2a0f014074b175589498c9971f767b87"
+      },
+      {
+        "path": "models\\urban\\Textures\\signs.png",
+        "sha256": "375bd044792967af9e63fc0176d4d19db493ad8a161d4dd7e14cad503ff3e63a"
+      },
+      {
+        "path": "models\\urban\\Textures\\tiles.png",
+        "sha256": "a1333cec2bf1c7a88ba46ec9ec4dc4c50f306ab2df1988a83f3639ebc830f94a"
+      },
+      {
+        "path": "models\\urban\\Textures\\treeA.png",
+        "sha256": "bdc7a19fee6405e4f343197374bb8847ab589cc436275ab2ef78d8013f3efb31"
+      },
+      {
+        "path": "models\\urban\\Textures\\treeB.png",
+        "sha256": "0674ee0ca5c4651c1541ba63407fc9c132515bed8ae4e039fb0d385c4dee01da"
+      },
+      {
+        "path": "models\\urban\\Textures\\wall.png",
+        "sha256": "1c57f50a696e4ce98194dec9b5977527e3ca700610a36a473b468beea54c10e1"
+      },
+      {
+        "path": "models\\urban\\Textures\\wall_garage.png",
+        "sha256": "e591a31a6403ace7b88f5c50296d3b2e783ee629cf2cee4f73c78c093774db4a"
+      },
+      {
+        "path": "models\\urban\\Textures\\wall_lines.png",
+        "sha256": "7da9b8941f196e3632b1301b99b30eb803f071a3b7dd77a249523424c6fb2302"
+      },
+      {
+        "path": "models\\urban\\Textures\\windows.png",
+        "sha256": "73cb7f0da437b35b9b88a8b7a62d07d5f69ca1b6cca8e62b5459d90894f5859b"
+      }
+    ],
+    "sounds": [
+      {
+        "path": "sfx\\engine_high.wav",
+        "output": "sfx\\engine_high.adpcm",
+        "sha256": "0de94dfcd465aef9489b3d88cddebc790561ece566206ac2835b0721c073a10c"
+      },
+      {
+        "path": "sfx\\engine_idle.wav",
+        "output": "sfx\\engine_idle.adpcm",
+        "sha256": "7ff557e935c64f4244da09a55eff63f2f41be834a3ab0d217a23deafe2d62630"
+      },
+      {
+        "path": "sfx\\gear-shift.wav",
+        "output": "sfx\\gear-shift.adpcm",
+        "sha256": "1b8661aa3fba4c594d829cf4b0c66f40059017538c074abd4b1f1988c17283c3"
+      },
+      {
+        "path": "sfx\\tires_screech.wav",
+        "output": "sfx\\tires_screech.adpcm",
+        "sha256": "896d31a8d6a145aa2393ce42a061835fe6971f36dfad3ae4fb14d4fc5f9c83a5"
+      }
+    ],
+    "shadow_mode_file": "bin/sat-verify.cfg",
+    "source_clean": false,
+    "startup_oracle_cases": 2048,
+    "positive_ccd_scalar_confirmation": true,
+    "tolerances": {
+      "depth_ratio": 0.0001,
+      "extra_touch_ratio": 0.0001,
+      "point_ratio": 0.01,
+      "normal_error": 0.01,
+      "missed_reference_hits": 0
+    },
+    "canonical_scalar_confirmation": true,
+    "transfer_bits": 128,
+    "active_mode": "external-pc-sample-admission",
+    "shadow_enabled": true,
+    "same_elf_shadow_qualified": false,
+    "micro_stream": true,
+    "min_axis_guard": true,
+    "candidate_base": "05054481b",
+    "working_source_sha256": {
+      "vendor\\tyra\\engine\\src\\physics\\vu0_sat_kernel.vclpp": "e761eeae19ac707699ba401ec3029eee4ce8c6168bfb8e895cb7c831e43fbdc3",
+      "vendor\\tyra\\engine\\src\\physics\\vu0_sat.cpp": "49c15a6e5117c5f2c769def50c87427deb19418b3d075d80210068dd0061fa18",
+      "tools\\ps2rig\\vu0_sat_probe.hpp": "88c1281d62d7ae855a043def7a6ad7cfd21b9ffba4142f261c414eb449e6b1b5",
+      "tools\\ps2rig\\vu0_sat_stream.hpp": "e9371a419dfebbfec9ee172ec39a52278808f17d2ed16deee85c0dd56694bc19",
+      "F:\\Projects\\tyra-editor\\.tmp\\tests\\vu0-sat\\stream\\engine\\engine\\src\\physics\\vu0_sat.cpp": "90187a8ae8f4b7e5c375c1696d0e3801a6278b04c0f6f598c75df49e7d8c7f31",
+      "F:\\Projects\\tyra-editor\\.tmp\\tests\\vu0-sat\\stream\\engine\\engine\\inc\\physics\\vu0_sat.hpp": "c3051af2ce1d00a0736403e9db2f351d90cc014a8ed1d7b7f793877963d716bc",
+      "F:\\Projects\\tyra-editor\\.tmp\\tests\\vu0-sat\\stream\\engine\\engine\\src\\physics\\vu0_sat_reference_kernel.vclpp": "3d9bb000e38af3c6fbad05ee37c2137b3302f03ef16086abd940152f7c2fb40a",
+      "tools/ps2rig/vu0_sat_capture.hpp": "261edd73e7b25e44badcc352313b47bb22c7117bdb8e5a37ffe5cdb4049eae15",
+      "tools/ps2rig/vu0_sat_precision.hpp": "ba47cb482104a5202763ee8fd12b251a4d68820f826e3dfaedcd2040d3dc0523",
+      "vendor/tyra/engine/inc/physics/vu0_sat.hpp": "cf08cde2cf7e0d95e6292afe26ce569d546abaaedda6054e4d870c52bfbdec02",
+      "vendor/tyra/engine/inc/physics/broad_phase.hpp": "648413bcf4b93367f6ef347183372ecae6be34d3b53be43b33359b9ec505a581",
+      "vendor/tyra/engine/src/physics/broad_phase.cpp": "baa29bf7465b80ab26d9152101f3b2dd47e28a8d90a48d58eff5e59c648091bd",
+      "tools/ps2rig/body_grid_probe.hpp": "f4fa74c52fc7f388981c781f9080142c645fa05d0147534a1a2ba4c119a454d3",
+      "private_candidate_game_physics": "540e278d2ab08579608a15bb7174968ec667ffb1bf8e8a8f7e48d0b608578a8e",
+      "private_baseline_game_physics": "2027edd63e69045ae4a52310d1fa52f307a0818dc9c31168ef2a2ed7f96170b4",
+      "private_main_loop": "f80678f3d0e3ce96a6c92fef6d7540f305d463d2239106a0da27ff0eb2f62f56",
+      "private_src/gen/game_physics.gen.cpp": "889c160d31808e8f659091458b1ed03089e8bb0b8f0d2a6bcfb41da80dbd617c",
+      "private_src/gen/collision_baseline.gen.cpp": "5e7da2b7f450cc34851da1982fa0b149df892a61d05a3e86de734aac1f55cd07",
+      "private_src/terrain_game.cpp": "2db6895dfdd9c360de19975752be514f34b5ede2a6b25569053c7f6d0e529089",
+      "private_collision_bench": "791a9faa89f833b93599beec3e6adcfd8da2626af782d3412077b65560ed9ca4",
+      "world_grid_probe": "997a2529483ad712b84fabe30835aa9d99db1d9321381a87193871f4fd22e1bc",
+      "private_src/gen/game_collision.gen.cpp": "0351b14a1a12c7df3917012eeacf69c69a89f9cfe5fc3da6bcf2921ca1c24d78",
+      "private_inc/terrain_game.hpp": "b7b0506e1655335b0b5845e09bbdd714bfc3b3ba3dd66600b7b404e6bc1737da",
+      "private_engine_inc/physics/world_broad_phase.hpp": "47a05588cf067285b47319950494a55e6512e69d6754bebe26e594fabb35bd9f",
+      "private_engine_src/physics/world_broad_phase.cpp": "6514a4f132bbb7f94fd69507ae022fe8577b045a9308be79f00c70f3f9d742ec",
+      "private_engine_inc/tyra": "35369a5ffe1c165ace62d730b182e10f674601bf36849cefaf2cd996cdec5d19"
+    },
+    "micro_kernel_baseline": "742a962bb66bf4989b6ed5aae718426dc8f95083",
+    "winning_axis_uncertainty": true,
+    "common_motion_shortcut": true,
+    "micro_capture": true,
+    "micro_precision": true,
+    "certified_negatives": true,
+    "precision_replay": true,
+    "body_grid_probe": false,
+    "scene_timing_qualified": false,
+    "body_grid_timing_cell": 8,
+    "micro_dispatch": true,
+    "comparison": "Both wide and pooled layouts now share one compiled EE vertex transform and OBB builder. This is a new common pose baseline; old inline trajectories and performance do not qualify it. All vertices, contacts, canonical positive confirmations and6+3 passes retained.",
+    "fixed_simulation_step": true,
+    "simulation_clock": "Private benchmark uses nominal display step in both arms; CP0 work/frame measurements remain real wall time. Production clock unchanged.",
+    "shared_physics": true,
+    "expected_phases": [
+      12,
+      13
+    ],
+    "world_grid_comparison": true,
+    "world_grid_verify": true,
+    "world_body_cell": 8,
+    "same_elf_admission_qualified": false,
+    "world_cache": true,
+    "pmu_modes": [
+      "I-cache misses / D-cache misses",
+      "single / dual issue",
+      "completed instructions / COP1 completed"
+    ],
+    "pmu_stages": [
+      "physics",
+      "prediction",
+      "world",
+      "body",
+      "grid",
+      "solver",
+      "writeback",
+      "unused"
+    ],
+    "admission_reference_elf": "96e54bfedeb0b91e429235c8326804027e5df62d15676f887ffd82a70bb9e2a1",
+    "body_sweep_comparison": false,
+    "body_sweep_verify": false,
+    "body_sweep_source_sha256": {
+      "engine/engine/inc/debug/body_sweep.hpp": "17aecab53088fd79586d4c01f5972389e890df5cdff4d5ade1e5ce5960691690",
+      "engine/engine/inc/debug/body_sweep_probe.hpp": "4eaa26651592f51798c9fee21374e19644dc1c60a576bf348f27a90dae466253",
+      "district/src/gen/game_physics.gen.cpp": "4322ec82f0af7dd2fa557d52036ec6ac09d5bef712a74e1f90c131c50722f987",
+      "district/src/gen/collision_baseline.gen.cpp": "054f872c5618f1bd5098736c6d547bc0ac583211d583d12db96838840877269f",
+      "district/inc/game_runtime.gen.hpp": "54cf8ba3cd9585f8c63e50024d62d70ebb0fb0e66e50a0e1150408fee248e2ea",
+      "district/src/terrain_game.cpp": "f80678f3d0e3ce96a6c92fef6d7540f305d463d2239106a0da27ff0eb2f62f56"
+    },
+    "world_overlap_comparison": false,
+    "world_overlap_verify": true,
+    "world_overlap_timing_probe": false,
+    "micro_cost_profile": false,
+    "lineage_world_overlap_source_sha256": {
+      "district\\src\\gen\\game_physics.gen.cpp": "d9070d49f136a188668b452d483fe4c8a39ddd4e2037ae761ab3b8c263421bdb",
+      "district\\src\\gen\\collision_baseline.gen.cpp": "606a7ebcc35a128841e9c5142b8b40f009a17f3d077588f825eca0a8fe5890ee",
+      "engine\\engine\\inc\\debug\\world_overlap_probe.hpp": "99a8ed17b55791a01a930deb9c21cc3f3b67e6f6cd112189506609981eb61702"
+    },
+    "lineage_micro_cost_source_sha256": {
+      "district\\src\\gen\\game_physics.gen.cpp": "6a1bc863ec4d721385c8f899b0df233f8f8259a8b28510b830e3e10fe1ab6e7c",
+      "district\\src\\gen\\collision_baseline.gen.cpp": "4439db865d9b6800cec1d4e0bf2226ae538bbd1015ac031fd30d6a2551c3f7e5",
+      "engine\\engine\\inc\\debug\\micro_cost_probe.hpp": "450f27c3814b2549a03acc60969e89fd697a82f5514645936420d04d9ce10350"
+    },
+    "step_pool_comparison": false,
+    "step_pool_diagnostic": true,
+    "step_pool_snapshot_version": 2,
+    "stop_physics_after_done": true,
+    "micro_positive_confirmation": true,
+    "micro_confirmation_source_sha256": {
+      "engine/engine/src/physics/vu0_sat.cpp": "d1d4676b2695da290a94cdb4dabc93178b0ada3e1dc3db0c9d5416b30a0ecf76",
+      "engine/engine/inc/physics/vu0_sat.hpp": "e03afd953455691c1420e3e9255634a8ecac630475ba152d6a6c7df2e4482e87",
+      "engine/engine/inc/debug/collision_bench.hpp": "d2c290891b9e210b17d9ee86b92597dbce68a3d866ca8992a36b2e02cbf9eff4",
+      "engine/engine/inc/debug/vu0_sat_stream.hpp": "56b556ab0a578a255157ddccf7da1d614627d978ea7240183648552a6b7be994"
+    },
+    "lineage_pre_common_pose_source_sha256": {
+      "district\\src\\gen\\game_physics.gen.cpp": "c7ec98696a29ad2a0bb74a866b3597ae4ed5b22152164cd33bbe5bacee30dfc6",
+      "district\\src\\gen\\collision_baseline.gen.cpp": "589be9d197bfa550f2504c0784996bc6c01cf7a09eec010d310e3c06eaf50fb3",
+      "district\\inc\\game_runtime.gen.hpp": "a9fc80cb95aa508acd909064e7292b1634b85669442b94910e79014414987caf",
+      "district\\inc\\terrain_game.hpp": "3898a7fcae92d208be13d4b4188b4bc133242a3b4c0f55228bec9e95bee92c82",
+      "engine\\engine\\inc\\debug\\step_vertex_pool.hpp": "7555ae711952f22fe7b1a56c066bac19221cafd7a46a4332bb767e8e455ad23c",
+      "engine\\engine\\inc\\debug\\step_pool_probe.hpp": "bca5266e1343eb22989d4843788e6a6df210aa640298e6230727673e7a2474c5"
+    },
+    "step_pool_common_transform": true,
+    "source_regenerated_utf8": true,
+    "shared_scene_comparison": true,
+    "shared_probe_only": false,
+    "lineage_pre_shared_scene_source_sha256": {
+      "district\\src\\gen\\game_physics.gen.cpp": "501e4f6bbb94c285868c04012190eda9da99b349b8b127edfe6f0695a400b98f",
+      "district\\src\\gen\\collision_baseline.gen.cpp": "589be9d197bfa550f2504c0784996bc6c01cf7a09eec010d310e3c06eaf50fb3",
+      "district\\inc\\game_runtime.gen.hpp": "5a3d912f667b83b4eecaf60d10b317023b299e52ff197713d84265282825dbfc",
+      "district\\inc\\terrain_game.hpp": "3898a7fcae92d208be13d4b4188b4bc133242a3b4c0f55228bec9e95bee92c82",
+      "engine\\engine\\inc\\debug\\step_vertex_pool.hpp": "7555ae711952f22fe7b1a56c066bac19221cafd7a46a4332bb767e8e455ad23c",
+      "engine\\engine\\inc\\debug\\step_pool_probe.hpp": "bca5266e1343eb22989d4843788e6a6df210aa640298e6230727673e7a2474c5",
+      "engine\\engine\\inc\\debug\\step_pose_reference.hpp": "31338b6c03020886345e696121afdce8c682426b82b5cf0ca5bdb10a48bae18d"
+    },
+    "lineage_pre_pc_sample_source_sha256": {
+      "district\\src\\gen\\game_physics.gen.cpp": "6c37ac040e050acfa392268a0773792a196a8e5476fe1fd23a010f9577398018",
+      "district\\src\\gen\\collision_baseline.gen.cpp": "f3283222e2006f99074e5f29aa0d3a8fa1e04823e565c34dbca12ad26b4d7c25",
+      "engine\\engine\\inc\\debug\\vu0_shared_packet.hpp": "aa1fdd9634d44b74129e1ec855c8a48ba3abde3a9d050f5c01cd075d38b665aa",
+      "engine\\engine\\inc\\debug\\vu0_shared_batch.hpp": "388086b370325483facb885b62762f2788200b4732c1728acfc791e02a61622b",
+      "engine\\engine\\inc\\debug\\vu0_shared_probe.hpp": "c291a3b7dc6382aa5e570cae44b44ff8c1a12c093e74bf1bd96896916fcd1f8d"
+    },
+    "external_pc_sample": true,
+    "pc_sample_enabled": true,
+    "pc_sample_period_bus": 149381,
+    "pc_sample_capacity": 65536,
+    "measured_physics_source_sha256": "6c37ac040e050acfa392268a0773792a196a8e5476fe1fd23a010f9577398018",
+    "pc_sample_source_sha256": {
+      "district\\src\\gen\\game_physics.gen.cpp": "6c37ac040e050acfa392268a0773792a196a8e5476fe1fd23a010f9577398018",
+      "district\\src\\gen\\collision_baseline.gen.cpp": "a3f11dd90a32f2c24fafa001aa362d5be5082e58ba97009901d8d70f736bc3a6",
+      "district\\src\\gen\\pc_sample_probe.gen.cpp": "e1f52cfd1c1222b5a547bf4a0b780372aa305a02af1b728e39a7e563660d13e0",
+      "district\\Makefile": "a0e1caee666ad0379f480caab3fa9230590b2c74f15e5c776ae680e8bdb8107d"
+    },
+    "pc_sample_object_proof": {
+      "original_objects_checked": 228,
+      "changed_original_objects": [
+        "projects/dcaea1d8e06e6aab6f372be9/obj/gen/collision_baseline.gen.o"
+      ],
+      "physics_object_sha256": "2aade8d3a6981ceacf706855e25db87062a1967a590a87a0b33cb876a0efed01",
+      "physics_object_unchanged": true,
+      "engine_objects_unchanged": true
+    }
+  },
+  "qualified": true,
+  "performance_qualified": false,
+  "world_timing_probe_enabled": false,
+  "normal_clock_fps_qualified": false,
+  "errors": [],
+  "metrics": [
+    {
+      "phase": 12,
+      "world": {
+        "world": 45914,
+        "packet": 0,
+        "busy_before": 0,
+        "busy_after": 0,
+        "packet_world_ticks": 0
+      },
+      "micro": {
+        "phase": "12",
+        "jobs": "72394",
+        "batches": "10660",
+        "busy_finish": "5",
+        "busy_ee_query": "477",
+        "wait_ticks": "1114059",
+        "validation_errors": "0",
+        "numerical_differences": "0",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "0",
+        "max_point_ratio": "0",
+        "max_normal_error": "0",
+        "max_extra_depth_ratio": "0"
+      },
+      "world_admission": {
+        "phase": "12",
+        "queries": "0",
+        "verified": "0",
+        "errors": "0",
+        "builds": "6"
+      },
+      "classification": {
+        "phase": "12",
+        "jobs": "72394",
+        "proved_negative": "36842",
+        "confirmed_negative": "12055",
+        "confirmed_ccd": "7",
+        "confirmed_tie": "285",
+        "confirmed_parallel": "0",
+        "confirmed_positive": "23205"
+      },
+      "finish_wait_total_ms": 3.7775980631510415,
+      "finish_wait_mean_all750_ms": 0.005036797417534722,
+      "finish_wait_drive_mean_upper_ms": 0.010493327953197337,
+      "wait_scope": "Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations."
+    },
+    {
+      "phase": 13,
+      "world": {
+        "world": 45914,
+        "packet": 0,
+        "busy_before": 0,
+        "busy_after": 0,
+        "packet_world_ticks": 0
+      },
+      "micro": {
+        "phase": "13",
+        "jobs": "71241",
+        "batches": "8496",
+        "busy_finish": "15",
+        "busy_ee_query": "603",
+        "wait_ticks": "817769",
+        "validation_errors": "0",
+        "numerical_differences": "0",
+        "extra_touches": "0",
+        "missed_reference_hits": "0",
+        "max_depth_ratio": "0",
+        "max_point_ratio": "0",
+        "max_normal_error": "0",
+        "max_extra_depth_ratio": "0"
+      },
+      "world_admission": {
+        "phase": "13",
+        "queries": "45914",
+        "verified": "45914",
+        "errors": "0",
+        "builds": "6"
+      },
+      "classification": {
+        "phase": "13",
+        "jobs": "71241",
+        "proved_negative": "35611",
+        "confirmed_negative": "12124",
+        "confirmed_ccd": "7",
+        "confirmed_tie": "0",
+        "confirmed_parallel": "0",
+        "confirmed_positive": "23499"
+      },
+      "finish_wait_total_ms": 2.7729254828559027,
+      "finish_wait_mean_all750_ms": 0.0036972339771412037,
+      "finish_wait_drive_mean_upper_ms": 0.007702570785710841,
+      "wait_scope": "Profiled finish waitIdle interval including status/timer overhead, all750 phase frames. Drive upper bound assigns all phase wait to drive frames. Excludes pack/upload/start/readback and EE confirmations."
+    }
+  ],
+  "mismatched_frames": 0,
+  "first_mismatches": [],
+  "summary": {
+    "phases": [
+      12,
+      13
+    ],
+    "groups": [
+      {
+        "repeat": null,
+        "arm": "legacy-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 21.862648361899492,
+        "period_p95": 66.7337646484375,
+        "period_p99": 66.74910481770833,
+        "work_mean": 37.24577169536072,
+        "work_p95": 51.451880560980904,
+        "work_p99": 52.79414537217882,
+        "phys_mean": 21.881228458734206,
+        "phys_p95": 36.56402926974826,
+        "phys_p99": 38.09434339735243,
+        "missed": 360,
+        "awake_max": 70,
+        "contacts_max": 696,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1637,
+        "z_min": -73.8802,
+        "z_max": -49.60783,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.9088292628158757,
+            "p95": 1.2496541341145833
+          },
+          "world_ticks": {
+            "mean": 1.7603593991126543,
+            "p95": 2.4920552571614585
+          },
+          "body_ticks": {
+            "mean": 11.737101227560162,
+            "p95": 19.376542833116318
+          },
+          "body_grid_ticks": {
+            "mean": 0.45470913545584973,
+            "p95": 0.5203993055555556
+          },
+          "query_ticks": {
+            "mean": 2.8078916949990353,
+            "p95": 4.247551812065972
+          },
+          "sat_ticks": {
+            "mean": 0.050966606611087,
+            "p95": 0.15484619140625
+          },
+          "writeback_ticks": {
+            "mean": 0.22724059305073302,
+            "p95": 0.3682725694444444
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.014799752534048055,
+        "velocity_energy_p95": 0.0562084317,
+        "max_depth": 1.0890007,
+        "body_candidates_mean": 552.6472222222222,
+        "body_bounds_rejects_mean": 0.44722222222222224,
+        "solver_us_per_contact": 19.627006687129672,
+        "solver_mean": 7.080824298623168,
+        "solver_p95": 12.897833930121529,
+        "solver_p99": 13.307054307725695
+      },
+      {
+        "repeat": null,
+        "arm": "legacy-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 22.69037299458762,
+        "period_p95": 50.0806884765625,
+        "period_p99": 50.129536946614586,
+        "work_mean": 35.03294900964808,
+        "work_p95": 46.446868896484375,
+        "work_p99": 47.229102240668404,
+        "phys_mean": 19.60530621563947,
+        "phys_p95": 30.453108045789932,
+        "phys_p99": 31.585188123914932,
+        "missed": 120,
+        "awake_max": 103,
+        "contacts_max": 577,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 1.1057747452347366,
+            "p95": 1.5633341471354167
+          },
+          "world_ticks": {
+            "mean": 1.691366774947555,
+            "p95": 2.4275105794270835
+          },
+          "body_ticks": {
+            "mean": 10.204580462420429,
+            "p95": 15.35531955295139
+          },
+          "body_grid_ticks": {
+            "mean": 0.4324905960648148,
+            "p95": 0.4831746419270833
+          },
+          "query_ticks": {
+            "mean": 3.0983521072952835,
+            "p95": 4.80955335828993
+          },
+          "sat_ticks": {
+            "mean": 0.0,
+            "p95": 0.0
+          },
+          "writeback_ticks": {
+            "mean": 0.3147886488172743,
+            "p95": 0.4942626953125
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.023358583830166667,
+        "velocity_energy_p95": 0.0745851249,
+        "max_depth": 1.00893211,
+        "body_candidates_mean": 433.1,
+        "body_bounds_rejects_mean": 0.325,
+        "solver_us_per_contact": 19.835765586729458,
+        "solver_mean": 6.161980579517506,
+        "solver_p95": 10.384596082899305,
+        "solver_p99": 11.08614773220486
+      },
+      {
+        "repeat": null,
+        "arm": "legacy-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 22.407516085333878,
+        "period_p95": 50.167154947916664,
+        "period_p99": 50.4248046875,
+        "work_mean": 37.202154880099826,
+        "work_p95": 45.902625189887154,
+        "work_p99": 47.38287692599826,
+        "phys_mean": 21.8877933078342,
+        "phys_p95": 30.589257134331596,
+        "phys_p99": 30.733869764539932,
+        "missed": 120,
+        "awake_max": 49,
+        "contacts_max": 558,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 824,
+        "z_min": -49.60125,
+        "z_max": -49.5951,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8045762521249277,
+            "p95": 0.98370361328125
+          },
+          "world_ticks": {
+            "mean": 1.782662116156684,
+            "p95": 2.314480251736111
+          },
+          "body_ticks": {
+            "mean": 12.242880898934823,
+            "p95": 16.89214409722222
+          },
+          "body_grid_ticks": {
+            "mean": 0.46924237851743344,
+            "p95": 0.507171630859375
+          },
+          "query_ticks": {
+            "mean": 2.4863861083984373,
+            "p95": 3.2456834581163196
+          },
+          "sat_ticks": {
+            "mean": 0.12429193567346644,
+            "p95": 0.22645399305555555
+          },
+          "writeback_ticks": {
+            "mean": 0.18888566758897568,
+            "p95": 0.25775146484375
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.0010059153361166666,
+        "velocity_energy_p95": 0.00242059911,
+        "max_depth": 1.08103371,
+        "body_candidates_mean": 519.6416666666667,
+        "body_bounds_rejects_mean": 0.55,
+        "solver_us_per_contact": 19.760445335188667,
+        "solver_mean": 6.678207171404803,
+        "solver_p95": 10.223748101128471,
+        "solver_p99": 10.48440212673611
+      },
+      {
+        "repeat": null,
+        "arm": "shared-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 20.55088697841295,
+        "period_p95": 66.74637858072917,
+        "period_p99": 66.98373074001736,
+        "work_mean": 40.29459640126169,
+        "work_p95": 57.81483629014757,
+        "work_p99": 59.202351888020836,
+        "phys_mean": 25.68281630527826,
+        "phys_p95": 42.77244398328993,
+        "phys_p99": 44.401635064019096,
+        "missed": 360,
+        "awake_max": 70,
+        "contacts_max": 696,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1637,
+        "z_min": -73.8802,
+        "z_max": -49.60783,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.907280495726032,
+            "p95": 1.2641194661458333
+          },
+          "world_ticks": {
+            "mean": 6.1770962844660255,
+            "p95": 9.78048366970486
+          },
+          "body_ticks": {
+            "mean": 11.11948139520339,
+            "p95": 18.172231038411457
+          },
+          "body_grid_ticks": {
+            "mean": 0.45054823322060666,
+            "p95": 0.5168863932291666
+          },
+          "query_ticks": {
+            "mean": 2.845250975055459,
+            "p95": 4.302588568793403
+          },
+          "sat_ticks": {
+            "mean": 0.0534788437831549,
+            "p95": 0.15596177842881945
+          },
+          "writeback_ticks": {
+            "mean": 0.22404723932713638,
+            "p95": 0.3642171223958333
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.014799752534048055,
+        "velocity_energy_p95": 0.0562084317,
+        "max_depth": 1.0890007,
+        "body_candidates_mean": 552.6472222222222,
+        "body_bounds_rejects_mean": 0.44722222222222224,
+        "solver_us_per_contact": 19.583383703173105,
+        "solver_mean": 7.0650864589361495,
+        "solver_p95": 12.90975613064236,
+        "solver_p99": 13.311231825086805
+      },
+      {
+        "repeat": null,
+        "arm": "shared-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 20.204890007194436,
+        "period_p95": 66.73372395833333,
+        "period_p99": 66.74533420138889,
+        "work_mean": 38.873556801124856,
+        "work_p95": 52.97839016384549,
+        "work_p99": 54.416527642144096,
+        "phys_mean": 24.585300756383827,
+        "phys_p95": 38.51231214735243,
+        "phys_p99": 39.960900200737846,
+        "missed": 120,
+        "awake_max": 103,
+        "contacts_max": 577,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 1.1104159884982638,
+            "p95": 1.569580078125
+          },
+          "world_ticks": {
+            "mean": 7.076882171630859,
+            "p95": 11.045850965711805
+          },
+          "body_ticks": {
+            "mean": 9.762921283863209,
+            "p95": 14.809302435980904
+          },
+          "body_grid_ticks": {
+            "mean": 0.43592009367766205,
+            "p95": 0.4954766167534722
+          },
+          "query_ticks": {
+            "mean": 3.195473254168475,
+            "p95": 5.015797932942708
+          },
+          "sat_ticks": {
+            "mean": 0.0,
+            "p95": 0.0
+          },
+          "writeback_ticks": {
+            "mean": 0.31207377115885415,
+            "p95": 0.4922146267361111
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.023358583830166667,
+        "velocity_energy_p95": 0.0745851249,
+        "max_depth": 1.00893211,
+        "body_candidates_mean": 433.1,
+        "body_bounds_rejects_mean": 0.325,
+        "solver_us_per_contact": 19.81384236229404,
+        "solver_mean": 6.155170129846644,
+        "solver_p95": 10.378431532118055,
+        "solver_p99": 11.11910671657986
+      },
+      {
+        "repeat": null,
+        "arm": "shared-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 20.20452809651082,
+        "period_p95": 66.49784342447917,
+        "period_p99": 66.76719156901042,
+        "work_mean": 40.70641694245515,
+        "work_p95": 50.12598673502604,
+        "work_p99": 52.409827338324654,
+        "phys_mean": 25.107397065339267,
+        "phys_p95": 34.72418551974826,
+        "phys_p99": 35.53629896375868,
+        "missed": 120,
+        "awake_max": 49,
+        "contacts_max": 558,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 824,
+        "z_min": -49.60125,
+        "z_max": -49.5951,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8047416969581886,
+            "p95": 0.9604831271701388
+          },
+          "world_ticks": {
+            "mean": 5.642942810058594,
+            "p95": 7.528354220920139
+          },
+          "body_ticks": {
+            "mean": 11.583475692183884,
+            "p95": 15.96304660373264
+          },
+          "body_grid_ticks": {
+            "mean": 0.4566579748083044,
+            "p95": 0.49359130859375
+          },
+          "query_ticks": {
+            "mean": 2.5122312475133826,
+            "p95": 3.3056437174479165
+          },
+          "sat_ticks": {
+            "mean": 0.13313129566333912,
+            "p95": 0.2437778049045139
+          },
+          "writeback_ticks": {
+            "mean": 0.19068207917390045,
+            "p95": 0.26226806640625
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.0010059153361166666,
+        "velocity_energy_p95": 0.00242059911,
+        "max_depth": 1.08103371,
+        "body_candidates_mean": 519.6416666666667,
+        "body_bounds_rejects_mean": 0.55,
+        "solver_us_per_contact": 19.7633762333752,
+        "solver_mean": 6.679197692871094,
+        "solver_p95": 10.268059624565971,
+        "solver_p99": 10.462877061631945
+      }
+    ],
+    "repeats": [
+      {
+        "repeat": 0,
+        "arm": "legacy-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 21.862648361899492,
+        "period_p95": 66.7337646484375,
+        "period_p99": 66.74910481770833,
+        "work_mean": 37.24577169536072,
+        "work_p95": 51.451880560980904,
+        "work_p99": 52.79414537217882,
+        "phys_mean": 21.881228458734206,
+        "phys_p95": 36.56402926974826,
+        "phys_p99": 38.09434339735243,
+        "missed": 360,
+        "awake_max": 70,
+        "contacts_max": 696,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1637,
+        "z_min": -73.8802,
+        "z_max": -49.60783,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.9088292628158757,
+            "p95": 1.2496541341145833
+          },
+          "world_ticks": {
+            "mean": 1.7603593991126543,
+            "p95": 2.4920552571614585
+          },
+          "body_ticks": {
+            "mean": 11.737101227560162,
+            "p95": 19.376542833116318
+          },
+          "body_grid_ticks": {
+            "mean": 0.45470913545584973,
+            "p95": 0.5203993055555556
+          },
+          "query_ticks": {
+            "mean": 2.8078916949990353,
+            "p95": 4.247551812065972
+          },
+          "sat_ticks": {
+            "mean": 0.050966606611087,
+            "p95": 0.15484619140625
+          },
+          "writeback_ticks": {
+            "mean": 0.22724059305073302,
+            "p95": 0.3682725694444444
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.014799752534048055,
+        "velocity_energy_p95": 0.0562084317,
+        "max_depth": 1.0890007,
+        "body_candidates_mean": 552.6472222222222,
+        "body_bounds_rejects_mean": 0.44722222222222224,
+        "solver_us_per_contact": 19.627006687129672,
+        "solver_mean": 7.080824298623168,
+        "solver_p95": 12.897833930121529,
+        "solver_p99": 13.307054307725695
+      },
+      {
+        "repeat": 0,
+        "arm": "legacy-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 22.69037299458762,
+        "period_p95": 50.0806884765625,
+        "period_p99": 50.129536946614586,
+        "work_mean": 35.03294900964808,
+        "work_p95": 46.446868896484375,
+        "work_p99": 47.229102240668404,
+        "phys_mean": 19.60530621563947,
+        "phys_p95": 30.453108045789932,
+        "phys_p99": 31.585188123914932,
+        "missed": 120,
+        "awake_max": 103,
+        "contacts_max": 577,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 1.1057747452347366,
+            "p95": 1.5633341471354167
+          },
+          "world_ticks": {
+            "mean": 1.691366774947555,
+            "p95": 2.4275105794270835
+          },
+          "body_ticks": {
+            "mean": 10.204580462420429,
+            "p95": 15.35531955295139
+          },
+          "body_grid_ticks": {
+            "mean": 0.4324905960648148,
+            "p95": 0.4831746419270833
+          },
+          "query_ticks": {
+            "mean": 3.0983521072952835,
+            "p95": 4.80955335828993
+          },
+          "sat_ticks": {
+            "mean": 0.0,
+            "p95": 0.0
+          },
+          "writeback_ticks": {
+            "mean": 0.3147886488172743,
+            "p95": 0.4942626953125
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.023358583830166667,
+        "velocity_energy_p95": 0.0745851249,
+        "max_depth": 1.00893211,
+        "body_candidates_mean": 433.1,
+        "body_bounds_rejects_mean": 0.325,
+        "solver_us_per_contact": 19.835765586729458,
+        "solver_mean": 6.161980579517506,
+        "solver_p95": 10.384596082899305,
+        "solver_p99": 11.08614773220486
+      },
+      {
+        "repeat": 0,
+        "arm": "legacy-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 22.407516085333878,
+        "period_p95": 50.167154947916664,
+        "period_p99": 50.4248046875,
+        "work_mean": 37.202154880099826,
+        "work_p95": 45.902625189887154,
+        "work_p99": 47.38287692599826,
+        "phys_mean": 21.8877933078342,
+        "phys_p95": 30.589257134331596,
+        "phys_p99": 30.733869764539932,
+        "missed": 120,
+        "awake_max": 49,
+        "contacts_max": 558,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 824,
+        "z_min": -49.60125,
+        "z_max": -49.5951,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8045762521249277,
+            "p95": 0.98370361328125
+          },
+          "world_ticks": {
+            "mean": 1.782662116156684,
+            "p95": 2.314480251736111
+          },
+          "body_ticks": {
+            "mean": 12.242880898934823,
+            "p95": 16.89214409722222
+          },
+          "body_grid_ticks": {
+            "mean": 0.46924237851743344,
+            "p95": 0.507171630859375
+          },
+          "query_ticks": {
+            "mean": 2.4863861083984373,
+            "p95": 3.2456834581163196
+          },
+          "sat_ticks": {
+            "mean": 0.12429193567346644,
+            "p95": 0.22645399305555555
+          },
+          "writeback_ticks": {
+            "mean": 0.18888566758897568,
+            "p95": 0.25775146484375
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.0010059153361166666,
+        "velocity_energy_p95": 0.00242059911,
+        "max_depth": 1.08103371,
+        "body_candidates_mean": 519.6416666666667,
+        "body_bounds_rejects_mean": 0.55,
+        "solver_us_per_contact": 19.760445335188667,
+        "solver_mean": 6.678207171404803,
+        "solver_p95": 10.223748101128471,
+        "solver_p99": 10.48440212673611
+      },
+      {
+        "repeat": 0,
+        "arm": "shared-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "drive",
+        "n": 360,
+        "fps": 20.55088697841295,
+        "period_p95": 66.74637858072917,
+        "period_p99": 66.98373074001736,
+        "work_mean": 40.29459640126169,
+        "work_p95": 57.81483629014757,
+        "work_p99": 59.202351888020836,
+        "phys_mean": 25.68281630527826,
+        "phys_p95": 42.77244398328993,
+        "phys_p99": 44.401635064019096,
+        "missed": 360,
+        "awake_max": 70,
+        "contacts_max": 696,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 1637,
+        "z_min": -73.8802,
+        "z_max": -49.60783,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.907280495726032,
+            "p95": 1.2641194661458333
+          },
+          "world_ticks": {
+            "mean": 6.1770962844660255,
+            "p95": 9.78048366970486
+          },
+          "body_ticks": {
+            "mean": 11.11948139520339,
+            "p95": 18.172231038411457
+          },
+          "body_grid_ticks": {
+            "mean": 0.45054823322060666,
+            "p95": 0.5168863932291666
+          },
+          "query_ticks": {
+            "mean": 2.845250975055459,
+            "p95": 4.302588568793403
+          },
+          "sat_ticks": {
+            "mean": 0.0534788437831549,
+            "p95": 0.15596177842881945
+          },
+          "writeback_ticks": {
+            "mean": 0.22404723932713638,
+            "p95": 0.3642171223958333
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.014799752534048055,
+        "velocity_energy_p95": 0.0562084317,
+        "max_depth": 1.0890007,
+        "body_candidates_mean": 552.6472222222222,
+        "body_bounds_rejects_mean": 0.44722222222222224,
+        "solver_us_per_contact": 19.583383703173105,
+        "solver_mean": 7.0650864589361495,
+        "solver_p95": 12.90975613064236,
+        "solver_p99": 13.311231825086805
+      },
+      {
+        "repeat": 0,
+        "arm": "shared-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "park",
+        "n": 120,
+        "fps": 20.204890007194436,
+        "period_p95": 66.73372395833333,
+        "period_p99": 66.74533420138889,
+        "work_mean": 38.873556801124856,
+        "work_p95": 52.97839016384549,
+        "work_p99": 54.416527642144096,
+        "phys_mean": 24.585300756383827,
+        "phys_p95": 38.51231214735243,
+        "phys_p99": 39.960900200737846,
+        "missed": 120,
+        "awake_max": 103,
+        "contacts_max": 577,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 0,
+        "z_min": -73.8802,
+        "z_max": -73.8802,
+        "stages": {
+          "predict_ticks": {
+            "mean": 1.1104159884982638,
+            "p95": 1.569580078125
+          },
+          "world_ticks": {
+            "mean": 7.076882171630859,
+            "p95": 11.045850965711805
+          },
+          "body_ticks": {
+            "mean": 9.762921283863209,
+            "p95": 14.809302435980904
+          },
+          "body_grid_ticks": {
+            "mean": 0.43592009367766205,
+            "p95": 0.4954766167534722
+          },
+          "query_ticks": {
+            "mean": 3.195473254168475,
+            "p95": 5.015797932942708
+          },
+          "sat_ticks": {
+            "mean": 0.0,
+            "p95": 0.0
+          },
+          "writeback_ticks": {
+            "mean": 0.31207377115885415,
+            "p95": 0.4922146267361111
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.023358583830166667,
+        "velocity_energy_p95": 0.0745851249,
+        "max_depth": 1.00893211,
+        "body_candidates_mean": 433.1,
+        "body_bounds_rejects_mean": 0.325,
+        "solver_us_per_contact": 19.81384236229404,
+        "solver_mean": 6.155170129846644,
+        "solver_p95": 10.378431532118055,
+        "solver_p99": 11.11910671657986
+      },
+      {
+        "repeat": 0,
+        "arm": "shared-packet-micro",
+        "added": 128,
+        "layout": "pile",
+        "state": "settle",
+        "n": 120,
+        "fps": 20.20452809651082,
+        "period_p95": 66.49784342447917,
+        "period_p99": 66.76719156901042,
+        "work_mean": 40.70641694245515,
+        "work_p95": 50.12598673502604,
+        "work_p99": 52.409827338324654,
+        "phys_mean": 25.107397065339267,
+        "phys_p95": 34.72418551974826,
+        "phys_p99": 35.53629896375868,
+        "missed": 120,
+        "awake_max": 49,
+        "contacts_max": 558,
+        "dropped": 0,
+        "push_overflow": 0,
+        "pushes": 824,
+        "z_min": -49.60125,
+        "z_max": -49.5951,
+        "stages": {
+          "predict_ticks": {
+            "mean": 0.8047416969581886,
+            "p95": 0.9604831271701388
+          },
+          "world_ticks": {
+            "mean": 5.642942810058594,
+            "p95": 7.528354220920139
+          },
+          "body_ticks": {
+            "mean": 11.583475692183884,
+            "p95": 15.96304660373264
+          },
+          "body_grid_ticks": {
+            "mean": 0.4566579748083044,
+            "p95": 0.49359130859375
+          },
+          "query_ticks": {
+            "mean": 2.5122312475133826,
+            "p95": 3.3056437174479165
+          },
+          "sat_ticks": {
+            "mean": 0.13313129566333912,
+            "p95": 0.2437778049045139
+          },
+          "writeback_ticks": {
+            "mean": 0.19068207917390045,
+            "p95": 0.26226806640625
+          }
+        },
+        "warm_hits": 0,
+        "islands_max": 0,
+        "velocity_energy_mean": 0.0010059153361166666,
+        "velocity_energy_p95": 0.00242059911,
+        "max_depth": 1.08103371,
+        "body_candidates_mean": 519.6416666666667,
+        "body_bounds_rejects_mean": 0.55,
+        "solver_us_per_contact": 19.7633762333752,
+        "solver_mean": 6.679197692871094,
+        "solver_p95": 10.268059624565971,
+        "solver_p99": 10.462877061631945
+      }
+    ],
+    "settle_checks": []
+  },
+  "raw_sha256": {
+    "collision-phase-12.csv": "0f9110066be38bd1c0a32f5f6258f2b8628c6b4d2e62f3d46e00329942da9d24",
+    "world-overlap-12.csv": "4ea5282fc6c601d978f209ed2793262164b2352c321817b7b37296a442b1640b",
+    "vu0-phase-12.csv": "4ab983a3162903b9855021ccd4d9bc391e9f93484215c2a4caa1148048224174",
+    "vu0-class-12.csv": "403170fdc99e8144c64d2ed2bfe086fa9a28b7d19562573d4dc7b398e63870e9",
+    "world-grid-12.csv": "4e71435b47497ac4d1923e92d863d549fb1ca4e70fc5d442597b116682e9c9e0",
+    "collision-phase-13.csv": "4607f64f9a02b347d28776473669d4ac8589b0d8edd47322d4d9a304ad9612cb",
+    "world-overlap-13.csv": "4ea5282fc6c601d978f209ed2793262164b2352c321817b7b37296a442b1640b",
+    "vu0-phase-13.csv": "e8b19ff2823814741d16eaaa4a39f771f4b6f14892bef2812c36d9018bc95bfd",
+    "vu0-class-13.csv": "b1b58e1ee5e3fecf08e6d91907fbb81fb81bc4595df35b8d5a1c732abaae10aa",
+    "world-grid-13.csv": "b9dec6ecc95c3d77ede105016cdf0e9ee2653439c8864df5f8321cf204dcd16b"
+  },
+  "log_sha256": "7d117490bd2c0992d2b6327d978760e94280f5df5ba336d5eb677ba35a71ff40",
+  "scope": "Private same-ELF nominal-step legacy/shared VU0 packet comparison. Both arms use the same pooled EE path, common compiled pose functions and world-first chained schedule. Shared records are immutable through the micro fence; all possible contacts are canonical EE. Different packet counts and EE-confirmation classes are expected. Admission requires ordered workload/contact fingerprints, kernel startup/replay gates and zero missed canonical hits. Timing requires this same ELF without shadow/window probes. This does not qualify production-clock FPS."
+}

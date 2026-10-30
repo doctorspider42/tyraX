@@ -1,0 +1,34 @@
+{
+  "capture_qualified": true,
+  "performance_qualified": false,
+  "errors": [],
+  "enabled": false,
+  "calibration_samples": 0,
+  "symbols_sha256": "5dde8171b1a6a14032186cea3e51aa190f921eaee2661e389470076c0f81398e",
+  "phases": [
+    {
+      "phase": 12,
+      "count": 0,
+      "covered_frames": 0,
+      "sha256": "bedb99036e97a97dbedd670bc2162eda46f67b8395c4fccaa0fe8259497ccfb7",
+      "functions": [],
+      "candidate_source_locations": []
+    },
+    {
+      "phase": 13,
+      "count": 0,
+      "covered_frames": 0,
+      "sha256": "e5ce747a161907d8fe8ab125a2d6719544798718721a6c5c8c0ec27136e833be",
+      "functions": [],
+      "candidate_source_locations": []
+    }
+  ],
+  "trajectory_comparison": {
+    "measured_frame_pairs": 1200,
+    "mismatched_frames": 0,
+    "ordered_fingerprint_pairs": 1500,
+    "raw_snapshot_pairs": 4,
+    "first_mismatches": []
+  },
+  "scope": "External SDK timer PC samples while the original physics wrapper is active. No function-body probes. Known-loop calibration and bounded traces are required. Instruction occupancy is not VU utilization or production FPS. Shadow runs include oracle work and cannot price the unshadowed pipeline; trajectory/object identity gates are separate."
+}

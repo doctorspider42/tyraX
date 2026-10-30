@@ -1,0 +1,738 @@
+{
+  "capture_qualified": true,
+  "performance_qualified": false,
+  "errors": [],
+  "enabled": true,
+  "calibration_samples": 98,
+  "symbols_sha256": "5dde8171b1a6a14032186cea3e51aa190f921eaee2661e389470076c0f81398e",
+  "phases": [
+    {
+      "phase": 12,
+      "count": 18158,
+      "covered_frames": 750,
+      "sha256": "ddd830e41511a9a1674ddff30e6a138cc6f0b1aa65b15a3138d02c93a47b9ccc",
+      "functions": [
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()",
+          "samples": 9049,
+          "fraction": 0.4983478356647208
+        },
+        {
+          "name": "Tyra::convexMotionContact(Tyra::ConvexView const&, Tyra::ConvexView const&, Tyra::CollisionV3, Tyra::CollisionV3, Tyra::ConvexContact&, Tyra::CollisionObb const*, Tyra::CollisionObb const*, Tyra::CollisionV3*)::{lambda(Tyra::CollisionV3)#1}::operator()(Tyra::CollisionV3) const",
+          "samples": 1850,
+          "fraction": 0.1018834673422183
+        },
+        {
+          "name": "Tyra::BroadPhase::gridQuery(Tyra::BroadBox const&, float const*, float const*, float, std::vector<int, std::allocator<int> >&)",
+          "samples": 1483,
+          "fraction": 0.08167199030730257
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()::{lambda(int, bool)#1}::operator()(int, bool) const [clone .isra.0]",
+          "samples": 599,
+          "fraction": 0.03298821456107501
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()::{lambda(int, int, Tyra::Vu0SatResult const*, Tyra::Vu0SharedResult const*)#1}::operator()(int, int, Tyra::Vu0SatResult const*, Tyra::Vu0SharedResult const*) const",
+          "samples": 446,
+          "fraction": 0.024562176451151007
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()::{lambda()#1}::operator()() const",
+          "samples": 420,
+          "fraction": 0.02313030069390902
+        },
+        {
+          "name": "Tyra::convexMotionContact(Tyra::ConvexView const&, Tyra::ConvexView const&, Tyra::CollisionV3, Tyra::CollisionV3, Tyra::ConvexContact&, Tyra::CollisionObb const*, Tyra::CollisionObb const*, Tyra::CollisionV3*)",
+          "samples": 363,
+          "fraction": 0.01999118845687851
+        },
+        {
+          "name": "Tyra::packVu0Sat(Tyra::Vu0SatJob&, Tyra::ConvexView const&, Tyra::ConvexView const&, Tyra::CollisionObb const&, Tyra::CollisionObb const&, Tyra::CollisionV3, Tyra::CollisionV3)",
+          "samples": 348,
+          "fraction": 0.0191651062892389
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::broadPhaseRefreshCandidate() const",
+          "samples": 290,
+          "fraction": 0.015970921907699085
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()::{lambda(Vehicle_playground::runtime_detail::RbPoolStep const&, Vehicle_playground::TerrainGame::PhysBody const&)#1}::operator()(Vehicle_playground::runtime_detail::RbPoolStep const&, Vehicle_playground::TerrainGame::PhysBody const&) const [clone .isra.0]",
+          "samples": 271,
+          "fraction": 0.01492455116202225
+        },
+        {
+          "name": "Tyra::BroadPhase::rebuildGrid()",
+          "samples": 257,
+          "fraction": 0.014153541138891949
+        },
+        {
+          "name": "Tyra::SeparatingAxisHistory::acquire(int, int)",
+          "samples": 205,
+          "fraction": 0.011289789624407975
+        },
+        {
+          "name": "Tyra::convexSeparatedOnAxis(Tyra::ConvexView const&, Tyra::ConvexView const&, Tyra::CollisionV3, Tyra::CollisionV3, Tyra::CollisionV3, Tyra::CollisionObb const*, Tyra::CollisionObb const*)",
+          "samples": 197,
+          "fraction": 0.010849212468333517
+        },
+        {
+          "name": "Vehicle_playground::StepPoseReference::boxKernel(float const*, int, float const*, Tyra::CollisionV3, Tyra::CollisionObb&)",
+          "samples": 195,
+          "fraction": 0.010739068179314902
+        },
+        {
+          "name": "Tyra::finishVu0Sat(Tyra::Vu0SatResult const&, Tyra::Vu0SatJob const&, Tyra::ConvexView const&, Tyra::ConvexView const&, Tyra::CollisionV3, Tyra::CollisionV3, Tyra::ConvexContact&)",
+          "samples": 188,
+          "fraction": 0.010353563167749753
+        },
+        {
+          "name": "Tyra::collisionTransformPoints(float const*, Tyra::CollisionV3, float const*, int, Tyra::CollisionV3*)",
+          "samples": 180,
+          "fraction": 0.009912986011675295
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::physBodyFor(int)",
+          "samples": 171,
+          "fraction": 0.00941733671109153
+        },
+        {
+          "name": "memcpy",
+          "samples": 152,
+          "fraction": 0.008370965965414694
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::physObstacle(Vehicle_playground::SceneObjectData const&)",
+          "samples": 145,
+          "fraction": 0.007985460953849543
+        },
+        {
+          "name": "Tyra::Vu0SatBatch::start(Tyra::Vu0SatJob const*, int)",
+          "samples": 111,
+          "fraction": 0.006113008040533098
+        },
+        {
+          "name": "Tyra::BroadPhase::commit()",
+          "samples": 107,
+          "fraction": 0.00589271946249587
+        },
+        {
+          "name": "void Vehicle_playground::WorldOverlapProbe::capture<std::vector<Vehicle_playground::runtime_detail::RbContact, std::allocator<Vehicle_playground::runtime_detail::RbContact> > >(std::vector<Vehicle_playground::runtime_detail::RbContact, std::allocator<Vehicle_playground::runtime_detail::RbContact> > const&)",
+          "samples": 107,
+          "fraction": 0.00589271946249587
+        },
+        {
+          "name": "WaitSema",
+          "samples": 84,
+          "fraction": 0.004626060138781804
+        },
+        {
+          "name": "Tyra::BroadPhase::queryBox(Tyra::BroadBox const&, std::vector<int, std::allocator<int> >&)",
+          "samples": 72,
+          "fraction": 0.003965194404670118
+        },
+        {
+          "name": "Tyra::BroadPhase::set(int, Tyra::BroadBox const&, bool)",
+          "samples": 59,
+          "fraction": 0.0032492565260491242
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::broadPhaseBoxOf(Vehicle_playground::RuntimeObject const&, Tyra::BroadBox&) const",
+          "samples": 58,
+          "fraction": 0.003194184381539817
+        },
+        {
+          "name": "Tyra::WorldBroadPhase::queryBox(Tyra::BroadBox const&, std::vector<int, std::allocator<int> >&)",
+          "samples": 55,
+          "fraction": 0.0030289679480118956
+        },
+        {
+          "name": "__kernel_cosf",
+          "samples": 46,
+          "fraction": 0.0025333186474281308
+        },
+        {
+          "name": "__kernel_sinf",
+          "samples": 43,
+          "fraction": 0.002368102213900209
+        },
+        {
+          "name": "SleepThread",
+          "samples": 39,
+          "fraction": 0.0021478136358629805
+        }
+      ],
+      "candidate_source_locations": [
+        {
+          "file": "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_vector.h",
+          "line": 1264,
+          "samples": 1057
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4651,
+          "samples": 806
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4649,
+          "samples": 727
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4647,
+          "samples": 587
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4656,
+          "samples": 475
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4648,
+          "samples": 371
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4657,
+          "samples": 313
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4658,
+          "samples": 301
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4905,
+          "samples": 298
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4646,
+          "samples": 264
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4652,
+          "samples": 176
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2585,
+          "samples": 162
+        },
+        {
+          "file": "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/new_allocator.h",
+          "line": 191,
+          "samples": 133
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2310,
+          "samples": 125
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2573,
+          "samples": 124
+        },
+        {
+          "file": "/mnt/f/Projects/tyra-editor/.tmp/builds/collision-opt/native/engines/c5d392fcbcd0e70838ca11fe/tyra/engine/inc/physics/convex_collision.hpp",
+          "line": 119,
+          "samples": 124
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2435,
+          "samples": 121
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4906,
+          "samples": 119
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2609,
+          "samples": 94
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2363,
+          "samples": 92
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4907,
+          "samples": 90
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2629,
+          "samples": 85
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4903,
+          "samples": 84
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2351,
+          "samples": 76
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2589,
+          "samples": 63
+        },
+        {
+          "file": "/mnt/f/Projects/tyra-editor/.tmp/builds/collision-opt/native/engines/c5d392fcbcd0e70838ca11fe/tyra/engine/inc/physics/convex_collision.hpp",
+          "line": 120,
+          "samples": 63
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2605,
+          "samples": 62
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2566,
+          "samples": 56
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2361,
+          "samples": 52
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2305,
+          "samples": 52
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2349,
+          "samples": 47
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2567,
+          "samples": 45
+        },
+        {
+          "file": "<unmapped candidate instruction>",
+          "line": 0,
+          "samples": 42
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2594,
+          "samples": 42
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4662,
+          "samples": 41
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2304,
+          "samples": 39
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2623,
+          "samples": 39
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2602,
+          "samples": 39
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4901,
+          "samples": 39
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2383,
+          "samples": 39
+        }
+      ]
+    },
+    {
+      "phase": 13,
+      "count": 22157,
+      "covered_frames": 750,
+      "sha256": "af63996ca210df6a2fbc710cc95447d7f9f2f92016cb2169bd8c19ae49f71df3",
+      "functions": [
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()",
+          "samples": 9163,
+          "fraction": 0.41354876562711557
+        },
+        {
+          "name": "void WorldGridProbe::inspect<std::vector<Vehicle_playground::TerrainGame::BroadPhaseCache, std::allocator<Vehicle_playground::TerrainGame::BroadPhaseCache> >, std::vector<Vehicle_playground::RuntimeObject, std::allocator<Vehicle_playground::RuntimeObject> > >(Tyra::BroadBox const&, std::vector<int, std::allocator<int> > const&, std::vector<Vehicle_playground::TerrainGame::BroadPhaseCache, std::allocator<Vehicle_playground::TerrainGame::BroadPhaseCache> > const&, std::vector<Vehicle_playground::RuntimeObject, std::allocator<Vehicle_playground::RuntimeObject> > const&, bool, bool)",
+          "samples": 3879,
+          "fraction": 0.17506882700726634
+        },
+        {
+          "name": "Tyra::convexMotionContact(Tyra::ConvexView const&, Tyra::ConvexView const&, Tyra::CollisionV3, Tyra::CollisionV3, Tyra::ConvexContact&, Tyra::CollisionObb const*, Tyra::CollisionObb const*, Tyra::CollisionV3*)::{lambda(Tyra::CollisionV3)#1}::operator()(Tyra::CollisionV3) const",
+          "samples": 1786,
+          "fraction": 0.0806065803132193
+        },
+        {
+          "name": "Tyra::BroadPhase::gridQuery(Tyra::BroadBox const&, float const*, float const*, float, std::vector<int, std::allocator<int> >&)",
+          "samples": 1561,
+          "fraction": 0.0704517759624498
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()::{lambda()#1}::operator()() const",
+          "samples": 575,
+          "fraction": 0.025951166674188744
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()::{lambda(int, bool)#1}::operator()(int, bool) const [clone .isra.0]",
+          "samples": 536,
+          "fraction": 0.02419100058672203
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()::{lambda(int, int, Tyra::Vu0SatResult const*, Tyra::Vu0SharedResult const*)#1}::operator()(int, int, Tyra::Vu0SatResult const*, Tyra::Vu0SharedResult const*) const",
+          "samples": 457,
+          "fraction": 0.020625535948007402
+        },
+        {
+          "name": "Tyra::convexMotionContact(Tyra::ConvexView const&, Tyra::ConvexView const&, Tyra::CollisionV3, Tyra::CollisionV3, Tyra::ConvexContact&, Tyra::CollisionObb const*, Tyra::CollisionObb const*, Tyra::CollisionV3*)",
+          "samples": 372,
+          "fraction": 0.016789276526605588
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::broadPhaseRefreshCandidate() const",
+          "samples": 285,
+          "fraction": 0.012862752177641377
+        },
+        {
+          "name": "Tyra::convexSeparatedOnAxis(Tyra::ConvexView const&, Tyra::ConvexView const&, Tyra::CollisionV3, Tyra::CollisionV3, Tyra::CollisionV3, Tyra::CollisionObb const*, Tyra::CollisionObb const*)",
+          "samples": 274,
+          "fraction": 0.012366295076048202
+        },
+        {
+          "name": "Tyra::BroadPhase::rebuildGrid()",
+          "samples": 254,
+          "fraction": 0.011463645800424246
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()::{lambda(Vehicle_playground::runtime_detail::RbPoolStep const&, Vehicle_playground::TerrainGame::PhysBody const&)#1}::operator()(Vehicle_playground::runtime_detail::RbPoolStep const&, Vehicle_playground::TerrainGame::PhysBody const&) const [clone .isra.0]",
+          "samples": 231,
+          "fraction": 0.010425599133456696
+        },
+        {
+          "name": "WaitSema",
+          "samples": 216,
+          "fraction": 0.009748612176738728
+        },
+        {
+          "name": "Vehicle_playground::StepPoseReference::boxKernel(float const*, int, float const*, Tyra::CollisionV3, Tyra::CollisionObb&)",
+          "samples": 214,
+          "fraction": 0.009658347249176332
+        },
+        {
+          "name": "Tyra::SeparatingAxisHistory::acquire(int, int)",
+          "samples": 196,
+          "fraction": 0.008845962901114772
+        },
+        {
+          "name": "Tyra::collisionTransformPoints(float const*, Tyra::CollisionV3, float const*, int, Tyra::CollisionV3*)",
+          "samples": 183,
+          "fraction": 0.0082592408719592
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::physBodyFor(int)",
+          "samples": 172,
+          "fraction": 0.007762783770366024
+        },
+        {
+          "name": "memcpy",
+          "samples": 165,
+          "fraction": 0.00744685652389764
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::physObstacle(Vehicle_playground::SceneObjectData const&)",
+          "samples": 164,
+          "fraction": 0.0074017240601164415
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::updateObjectPhysicsCandidate()::{lambda()#3}::operator()() const",
+          "samples": 132,
+          "fraction": 0.005957485219118112
+        },
+        {
+          "name": "Tyra::BroadPhase::commit()",
+          "samples": 111,
+          "fraction": 0.005009703479712958
+        },
+        {
+          "name": "void Vehicle_playground::WorldOverlapProbe::capture<std::vector<Vehicle_playground::runtime_detail::RbContact, std::allocator<Vehicle_playground::runtime_detail::RbContact> > >(std::vector<Vehicle_playground::runtime_detail::RbContact, std::allocator<Vehicle_playground::runtime_detail::RbContact> > const&)",
+          "samples": 109,
+          "fraction": 0.004919438552150562
+        },
+        {
+          "name": "Tyra::BroadPhase::queryBox(Tyra::BroadBox const&, std::vector<int, std::allocator<int> >&)",
+          "samples": 87,
+          "fraction": 0.00392652434896421
+        },
+        {
+          "name": "Tyra::WorldBroadPhase::queryBox(Tyra::BroadBox const&, std::vector<int, std::allocator<int> >&)",
+          "samples": 63,
+          "fraction": 0.0028433452182154624
+        },
+        {
+          "name": "SignalSema",
+          "samples": 61,
+          "fraction": 0.002753080290653067
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::broadPhaseBoxOf(Vehicle_playground::RuntimeObject const&, Tyra::BroadBox&) const",
+          "samples": 58,
+          "fraction": 0.0026176828993094733
+        },
+        {
+          "name": "Tyra::BroadPhase::set(int, Tyra::BroadBox const&, bool)",
+          "samples": 54,
+          "fraction": 0.002437153044184682
+        },
+        {
+          "name": "Vehicle_playground::TerrainGame::objectCollisionBox(Vehicle_playground::RuntimeObject const&) const",
+          "samples": 51,
+          "fraction": 0.0023017556528410884
+        },
+        {
+          "name": "__kernel_cosf",
+          "samples": 50,
+          "fraction": 0.0022566231890598907
+        },
+        {
+          "name": "SleepThread",
+          "samples": 49,
+          "fraction": 0.002211490725278693
+        }
+      ],
+      "candidate_source_locations": [
+        {
+          "file": "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/stl_vector.h",
+          "line": 1264,
+          "samples": 1001
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4651,
+          "samples": 797
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4649,
+          "samples": 695
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4647,
+          "samples": 531
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4656,
+          "samples": 459
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4648,
+          "samples": 387
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4658,
+          "samples": 351
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4657,
+          "samples": 340
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4646,
+          "samples": 290
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4905,
+          "samples": 273
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2585,
+          "samples": 176
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4652,
+          "samples": 165
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2573,
+          "samples": 134
+        },
+        {
+          "file": "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/mips64r5900el-ps2-elf/include/c++/15.2.0/bits/new_allocator.h",
+          "line": 191,
+          "samples": 128
+        },
+        {
+          "file": "/mnt/f/Projects/tyra-editor/.tmp/builds/collision-opt/native/engines/c5d392fcbcd0e70838ca11fe/tyra/engine/inc/physics/convex_collision.hpp",
+          "line": 119,
+          "samples": 127
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4906,
+          "samples": 126
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2310,
+          "samples": 115
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2435,
+          "samples": 110
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2363,
+          "samples": 94
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2609,
+          "samples": 91
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4903,
+          "samples": 89
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2351,
+          "samples": 87
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2629,
+          "samples": 83
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4907,
+          "samples": 78
+        },
+        {
+          "file": "/mnt/f/Projects/tyra-editor/.tmp/builds/collision-opt/native/engines/c5d392fcbcd0e70838ca11fe/tyra/engine/inc/debug/vu0_shared_packet.hpp",
+          "line": 13,
+          "samples": 75
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2594,
+          "samples": 66
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2361,
+          "samples": 65
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2605,
+          "samples": 58
+        },
+        {
+          "file": "/mnt/f/Projects/tyra-editor/.tmp/builds/collision-opt/native/engines/c5d392fcbcd0e70838ca11fe/tyra/engine/inc/physics/convex_collision.hpp",
+          "line": 120,
+          "samples": 58
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2589,
+          "samples": 57
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2566,
+          "samples": 54
+        },
+        {
+          "file": "<unmapped candidate instruction>",
+          "line": 0,
+          "samples": 48
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2567,
+          "samples": 48
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2602,
+          "samples": 45
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2305,
+          "samples": 45
+        },
+        {
+          "file": "/mnt/f/Projects/tyra-editor/.tmp/builds/collision-opt/native/engines/c5d392fcbcd0e70838ca11fe/tyra/engine/inc/debug/vu0_shared_packet.hpp",
+          "line": 28,
+          "samples": 45
+        },
+        {
+          "file": "inc/game_runtime.gen.hpp",
+          "line": 4661,
+          "samples": 39
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2349,
+          "samples": 37
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2562,
+          "samples": 35
+        },
+        {
+          "file": "src/gen/game_physics.gen.cpp",
+          "line": 2304,
+          "samples": 32
+        }
+      ]
+    }
+  ],
+  "trajectory_comparison": {
+    "measured_frame_pairs": 1200,
+    "mismatched_frames": 0,
+    "ordered_fingerprint_pairs": 1500,
+    "raw_snapshot_pairs": 4,
+    "first_mismatches": []
+  },
+  "scope": "External SDK timer PC samples while the original physics wrapper is active. No function-body probes. Known-loop calibration and bounded traces are required. Instruction occupancy is not VU utilization or production FPS. Shadow runs include oracle work and cannot price the unshadowed pipeline; trajectory/object identity gates are separate."
+}
