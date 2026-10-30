@@ -10,7 +10,7 @@ def decode(path):
         nonlocal cursor
         assert 0<=n<=len(words)-cursor,path
         result=words[cursor:cursor+n];cursor+=n;return result
-    magic,version,phase,frame=take(4);assert magic==0x504f4f4c and version==1
+    magic,version,phase,frame=take(4);assert magic==0x504f4f4c and version in (1,2)
     ns,nc=take(2);steps=[];contacts=[]
     names=['sphereR','invMass','bounce','friction']
     for prefix in ['x0','x1','v','w','vp','wp']:names.extend(prefix+'.'+a for a in 'xyz')
@@ -20,12 +20,14 @@ def decode(path):
     for _ in range(ns):
         step=dict(zip(['obj','slot','asleep','grounded','sphere','nv','box'],take(7)));assert step['nv']<=24
         step.update(zip(names,take(71)))
+        if version==2:
+            for k in range(step['nv']):step.update(zip([f'lv[{k}].{a}' for a in 'xyz'],take(3)))
         for prefix in ['wv0','wv']:
             for k in range(step['nv']):step.update(zip([f'{prefix}[{k}].{a}' for a in 'xyz'],take(3)))
         steps.append(step)
     for _ in range(nc):contacts.append(dict(zip(['a','b','other','n.x','n.y','n.z','p.x','p.y','p.z','depth'],take(10))))
     assert cursor==len(words),path
-    return dict(phase=phase,frame=frame,steps=steps,contacts=contacts,sha256=hashlib.sha256(data).hexdigest())
+    return dict(phase=phase,frame=frame,version=version,steps=steps,contacts=contacts,sha256=hashlib.sha256(data).hexdigest())
 
 
 def differences(left,right):
@@ -49,8 +51,9 @@ def main():
     results=[]
     for frame in [0,1]:
         wide=decode(a.root/f'step-pool-12-{frame}.bin');pooled=decode(a.root/f'step-pool-13-{frame}.bin')
+        assert wide['version']==pooled['version']
         sd=differences(wide['steps'],pooled['steps']);cd=differences(wide['contacts'],pooled['contacts'])
-        results.append(dict(frame=frame,step_counts=[len(wide['steps']),len(pooled['steps'])],contact_counts=[len(wide['contacts']),len(pooled['contacts'])],
+        results.append(dict(frame=frame,snapshot_version=wide['version'],step_counts=[len(wide['steps']),len(pooled['steps'])],contact_counts=[len(wide['contacts']),len(pooled['contacts'])],
             step_field_differences=len(sd),contact_field_differences=len(cd),first_step_differences=sd[:24],first_contact_differences=cd[:24],
             wide_sha256=wide['sha256'],pooled_sha256=pooled['sha256']))
     result=dict(frames=results,scope='Exact words from initialized pre-solver step fields, all actual vertices, and ordered contact geometry at frames0/1. No scalar replay and no performance qualification. Count differences are reported separately from zipped field comparisons.')

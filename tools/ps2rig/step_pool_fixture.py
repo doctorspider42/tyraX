@@ -68,7 +68,7 @@ def diagnose(repo,root):
     before='#include "debug/world_overlap_probe.hpp"';assert s.count(before)==1
     s=s.replace(before,before+'\n#include "debug/step_pool_probe.hpp"',1)
     before='  WorldOverlapProbe::capture(contacts);';assert s.count(before)==2
-    s=s.replace(before,before+'\n  StepPoolProbe::capture(steps,contacts);');p.write_bytes(s.encode())
+    s=s.replace(before,before+'\n  StepPoolProbe::capture(steps,contacts,physBodies);');p.write_bytes(s.encode())
     b=root/'district/src/gen/collision_baseline.gen.cpp';s=b.read_text();assert s.count('#include "debug/world_overlap_probe.hpp"')==1
     s=s.replace('#include "debug/world_overlap_probe.hpp"','#include "debug/world_overlap_probe.hpp"\n#include "debug/step_pool_probe.hpp"',1)
     before='WorldOverlapProbe::flush(CB::phase);';assert s.count(before)==1
@@ -79,8 +79,21 @@ def diagnose(repo,root):
     metadata.write_text(json.dumps(meta,indent=2),encoding='utf8')
 
 
+def local_inputs(repo,root):
+    common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
+    allowed=(common.parent/'.tmp').resolve();assert root.is_relative_to(allowed) and root!=allowed
+    metadata=root/'metadata.json';meta=json.loads(metadata.read_text());assert meta.get('step_pool_diagnostic')
+    p=root/'district/src/gen/game_physics.gen.cpp';s=p.read_text();old='StepPoolProbe::capture(steps,contacts);';assert s.count(old)==2
+    s=s.replace(old,'StepPoolProbe::capture(steps,contacts,physBodies);');p.write_bytes(s.encode())
+    probe=root/'engine/engine/inc/debug/step_pool_probe.hpp';shutil.copyfile(repo/'tools/ps2rig/step_pool_probe.hpp',probe)
+    for f in [p,probe]:meta['step_pool_source_sha256'][str(f.relative_to(root))]=hashlib.sha256(f.read_bytes()).hexdigest()
+    meta.update(step_pool_snapshot_version=2,same_elf_admission_qualified=False,active_mode='step-pool-local-inputs')
+    metadata.write_text(json.dumps(meta,indent=2),encoding='utf8')
+
+
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--scratch',required=True,type=Path)
-    p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);p.add_argument('--diagnose',action='store_true');a=p.parse_args()
-    if a.diagnose:diagnose(a.repo.resolve(),a.scratch.resolve())
+    p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);p.add_argument('--diagnose',action='store_true');p.add_argument('--local-inputs',action='store_true');a=p.parse_args()
+    if a.local_inputs:local_inputs(a.repo.resolve(),a.scratch.resolve())
+    elif a.diagnose:diagnose(a.repo.resolve(),a.scratch.resolve())
     else:install(a.repo.resolve(),a.scratch.resolve())

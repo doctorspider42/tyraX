@@ -8,7 +8,7 @@ struct Snapshot {int frame;std::vector<unsigned> words;};
 inline std::vector<Snapshot> snapshots;
 inline void real(std::vector<unsigned>& out,float value){unsigned v;std::memcpy(&v,&value,4);out.push_back(v);}
 template<class V>void vec(std::vector<unsigned>& out,const V& v){real(out,v.x);real(out,v.y);real(out,v.z);}
-template<class Steps,class Contacts>void capture(const Steps& steps,const Contacts& contacts){
+template<class Steps,class Contacts,class Bodies>void capture(const Steps& steps,const Contacts& contacts,const Bodies& bodies){
   if(!Tyra::vu0SatVerify || CB::frame>1)return;
   snapshots.push_back({CB::frame,{}});auto& out=snapshots.back().words;
   out.push_back(unsigned(steps.size()));out.push_back(unsigned(contacts.size()));
@@ -23,6 +23,8 @@ template<class Steps,class Contacts>void capture(const Steps& steps,const Contac
     vec(out,s.bounds.mn);vec(out,s.bounds.mx);
     if(s.box){vec(out,s.obb.centre);for(const auto& v:s.obb.halfAxes)vec(out,v);}
     else for(int k=0;k<12;++k)out.push_back(0);
+    const auto& b=bodies[size_t(s.slot)];
+    for(int k=0;k<s.nv*3;++k)real(out,b.lv[k]);
     for(int k=0;k<s.nv;++k)vec(out,s.wv0[k]);
     for(int k=0;k<s.nv;++k)vec(out,s.wv[k]);
   }
@@ -30,7 +32,7 @@ template<class Steps,class Contacts>void capture(const Steps& steps,const Contac
 }
 inline void flush(int phase){
   for(const auto& s:snapshots){char name[80];snprintf(name,sizeof(name),"step-pool-%d-%d.bin",phase,s.frame);FILE* f=fopen(name,"wb");
-    const unsigned header[4]={0x504f4f4c,1,unsigned(phase),unsigned(s.frame)};
+    const unsigned header[4]={0x504f4f4c,2,unsigned(phase),unsigned(s.frame)};
     if(f){fwrite(header,4,4,f);fwrite(s.words.data(),4,s.words.size(),f);fclose(f);}
     printf("STEPPOOLSNAP phase=%d frame=%d words=%u file=%d\n",phase,s.frame,unsigned(s.words.size()),f!=nullptr);
   }

@@ -705,3 +705,14 @@ geometry at frames0/1. Only the phase flush writes them. step_pool_diff.py
 decodes exact words independently; a host writer/decoder check locates injected
 one-ULP R1/depth changes. The diagnostic build compiles warning-clean. No gate
 was relaxed and production retains the original layout.
+
+The first raw diagnostic is results/step-pool-diagnostic-2026-10-30.*. At frame0
+all captured core pose/velocity/matrix fields match, but1016 previous-vertex,
+768 predicted-vertex,192 bounds and128 OBB words differ, as do48 contact words.
+The first previous y is0 versus5.96046448e-8. This localizes the discrepancy to
+geometry generation or its inputs; v1 did not capture local hull coordinates,
+so it does not yet prove an instruction-contraction cause. V2 (--local-inputs
+for an installed diagnostic) also stores those local vertices before both world
+poses. The decoder retains v1 support. The actual host writer/decoder passes
+the v2 format with injected one-ULP matrix/depth changes correctly located.
+No performance claim or promotion is made from the divergent trajectories.
