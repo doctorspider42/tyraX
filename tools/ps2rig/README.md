@@ -587,3 +587,16 @@ world chunks. Micro job counts differ78,936/78,595 despite matching contacts;
 this is a full schedule comparison including admission/history effects, not
 a fixed micro-job corpus. Admission includes reference work and cannot price
 the change. Unshadowed same-ELF nominal-step timing follows.
+
+The first complete diagnostic timing screen is
+results/world-overlap-probed-timing-2026-10-30.*.4800 rows/2400 matched logged
+frame pairs pass accounting/parity. Interleaving adds0.167/0.173ms to64-prop
+drive physics and0.262/0.271ms to128. This screen still samples VPU status and
+updates world-window diagnostics in the candidate interval. Its
+performance_qualified is therefore false despite the consistent regression.
+The probe now disables all world-window counters/status/clock reads when the
+shadow oracle is off. That changes the ELF and requires a fresh same-ELF
+admission gate before timing. For the new timing format the world-overlap CSV
+must have no data rows; supply --admission with its qualified same-ELF report.
+Older diagnostic packages retain the strict nonzero busy-witness checks.
+No production optimization is selected from the diagnostic screen.

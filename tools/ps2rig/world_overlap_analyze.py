@@ -12,15 +12,22 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('root',type=Path)
     p.add_argument('--output',required=True,type=Path)
+    p.add_argument('--admission',type=Path,help='Required for timing with world probes disabled')
     a=p.parse_args();root=a.root
     meta=json.loads((root/'metadata.json').read_text(encoding='utf8'))
     assert meta.get('world_overlap_comparison') and meta['micro_dispatch']
     verify=meta['shadow_enabled'];expected=[12,13] if verify else meta['expected_phases']
+    world_probe=verify or meta.get('world_overlap_timing_probe',True)
     log=(root/'hardware.log').read_text(encoding='utf8',errors='replace')
     errors=[];hashes={};pairs={};metrics=[]
     def check(value,reason):
         if not value:errors.append(reason)
     check(hashlib.sha256((root/'vehicle-playground.elf').read_bytes()).hexdigest()==meta['elf_sha256'],'ELF hash mismatch')
+    if not verify and not world_probe:
+        check(a.admission is not None,'missing admission report')
+        if a.admission:
+            admission=json.loads(a.admission.read_text(encoding='utf8'))
+            check(admission['qualified'] and admission['metadata']['shadow_enabled'] and admission['metadata']['elf_sha256']==meta['elf_sha256'],'timing/admission ELF mismatch')
     check(f'CB DONE phases={14 if verify else 28}' in log,'incomplete hardware log')
     for bad in ['VUSATDIFF ','WORLDGRIDDIFF ','CB ERROR','Assertion failed','Failed to load','EE exception']:
         check(bad not in log,'log diagnostic: '+bad)
@@ -46,7 +53,7 @@ def main():
             check(0<=int(x['physics_ticks'])<=int(x['work_ticks'])<=int(x['period_ticks']),f'phase {phase}: timer')
             check(sum(int(x[k]) for k in ['predict_ticks','world_ticks','body_ticks','solver_ticks','writeback_ticks'])<=int(x['physics_ticks']),f'phase {phase}: stage accounting')
             check(all(math.isfinite(float(x[k])) for k in ['car_z','car_speed','velocity_energy','max_depth']),f'phase {phase}: nonfinite')
-            check(int(x['frame']) in byframe,f'phase {phase}: missing world probe')
+            if world_probe:check(int(x['frame']) in byframe,f'phase {phase}: missing world probe')
         v=rows(f'vu0-phase-{phase:02}.csv');check(len(v)==1,f'phase {phase}: micro sidecar')
         v=v[0]
         check(int(v['jobs'])>0 and int(v['batches'])>0,f'phase {phase}: no micro work')
@@ -59,9 +66,11 @@ def main():
         check(int(world['errors'])==0 and int(world['verified'])==(int(world['queries']) if verify else 0),f'phase {phase}: world oracle')
         check(int(world['queries'])==0 if arm else int(world['queries'])>0,f'phase {phase}: world admission')
         totals={k:sum(int(r[k]) for r in probes) for k in ['world','packet','busy_before','busy_after','packet_world_ticks']}
-        check(totals['world']>0,f'phase {phase}: no world work')
-        if arm:check(totals['packet']==totals['busy_before']==totals['busy_after']==0,f'phase {phase}: control overlap')
-        else:check(totals['packet']>0 and totals['busy_before']>0,f'phase {phase}: no witnessed overlap')
+        if world_probe:
+            check(totals['world']>0,f'phase {phase}: no world work')
+            if arm:check(totals['packet']==totals['busy_before']==totals['busy_after']==0,f'phase {phase}: control overlap')
+            else:check(totals['packet']>0 and totals['busy_before']>0,f'phase {phase}: no witnessed overlap')
+        else:check(not probes and not any(totals.values()),f'phase {phase}: timing world probe active')
         metrics.append(dict(phase=phase,world=totals,micro=v,world_admission=world,classification=classification[0]))
     differences=[]
     fields=['contacts','generated_contacts','awake','body_candidates','body_bounds_rejects','car_z','car_speed','velocity_energy','max_depth']
@@ -80,7 +89,8 @@ def main():
                     baseline_label='world-before-micro')
     for group in summary['groups']+summary.get('repeats',[]):
         if group['arm']=='cache-only':group['arm']='world-interleaved-micro'
-    result=dict(metadata=meta,qualified=not errors,performance_qualified=not verify and not errors,
+    result=dict(metadata=meta,qualified=not errors,performance_qualified=not verify and not world_probe and not errors,
+        world_timing_probe_enabled=not verify and world_probe,
         normal_clock_fps_qualified=False,errors=sorted(set(errors)),metrics=metrics,
         mismatched_frames=len(differences),first_mismatches=differences[:12],summary=summary,
         raw_sha256=hashes,log_sha256=hashlib.sha256((root/'hardware.log').read_bytes()).hexdigest(),

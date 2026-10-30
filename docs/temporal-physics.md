@@ -769,3 +769,12 @@ schedules dispatch78,936/78,595 micro jobs, so admission/history effects are par
 of the comparison. The fingerprints are not an exhaustive full-state proof,
 and reference overhead invalidates gate timings. Production remains unchanged
 pending unshadowed same-ELF timing and broader scene coverage.
+
+The first complete
+[schedule timing screen](../tools/ps2rig/results/world-overlap-probed-timing-2026-10-30.json)
+matches2400 logged frame pairs and reports a consistent interleaving regression:
+0.167/0.173ms for64 props and0.262/0.271ms for128. This is diagnostic evidence,
+not a qualified production-performance result: world-window status/counter
+probes were still active asymmetrically. A subsequent build disables those
+probes outside admission mode and must pass a new same-ELF gate before timing.
+Preserve the unfavorable screen; do not infer speedup from busy observations.

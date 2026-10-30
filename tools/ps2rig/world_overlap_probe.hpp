@@ -10,8 +10,8 @@ struct Row {
 inline std::vector<Row> rows;
 inline Row& row(){if(rows.size()<=size_t(CB::frame))rows.resize(size_t(CB::frame)+1);return rows[size_t(CB::frame)];}
 inline unsigned busy(){unsigned v;asm volatile("cfc2 %0,$29":"=r"(v)::"memory");return v&1;}
-inline unsigned beginWorld(bool packet){auto& r=row();++r.world;if(packet){++r.packet;r.busyBefore+=busy();}return CB::ticks();}
-inline void endWorld(bool packet,unsigned begin){if(packet){auto& r=row();r.packetWorldTicks+=CB::ticks()-begin;r.busyAfter+=busy();}}
+inline unsigned beginWorld(bool packet){if(!Tyra::vu0SatVerify)return 0;auto& r=row();++r.world;if(packet){++r.packet;r.busyBefore+=busy();}return CB::ticks();}
+inline void endWorld(bool packet,unsigned begin){if(Tyra::vu0SatVerify && packet){auto& r=row();r.packetWorldTicks+=CB::ticks()-begin;r.busyAfter+=busy();}}
 inline void word(Row& r,unsigned v){r.hashA=(r.hashA^v)*16777619u;r.hashB^=v+0x9e3779b9u+(r.hashB<<6)+(r.hashB>>2);}
 inline void real(Row& r,float v){unsigned u;__builtin_memcpy(&u,&v,4);word(r,u);}
 template<class Contacts>void capture(const Contacts& contacts){

@@ -127,6 +127,8 @@ def add_probe(repo, root):
     old='BodySweepProbe::flush(CB::phase);';assert s.count(old)==1
     s=s.replace(old,old+'WorldOverlapProbe::flush(CB::phase);',1);path.write_bytes(s.encode())
     shutil.copyfile(repo/'tools/ps2rig/world_overlap_probe.hpp',root/'engine/engine/inc/debug/world_overlap_probe.hpp')
+    meta['world_overlap_timing_probe']=False
+    (root/'metadata.json').write_text(json.dumps(meta,indent=2),encoding='utf8')
 
 
 if __name__ == '__main__':
