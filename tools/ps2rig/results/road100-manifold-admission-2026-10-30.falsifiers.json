@@ -1,0 +1,37 @@
+[
+  {
+    "fault": "extra-full-step",
+    "rejected": true,
+    "errors": [
+      "1: shared step invariant"
+    ]
+  },
+  {
+    "fault": "overlapping-placement",
+    "rejected": true,
+    "errors": [
+      "1: initial overlapping props"
+    ]
+  },
+  {
+    "fault": "micro-accounting",
+    "rejected": true,
+    "errors": [
+      "1: incomplete micro results"
+    ]
+  },
+  {
+    "fault": "missing-reference-hit",
+    "rejected": true,
+    "errors": [
+      "1: vehicle diagnostics"
+    ]
+  },
+  {
+    "fault": "empty-patches",
+    "rejected": true,
+    "errors": [
+      "1: no face-patch coverage"
+    ]
+  }
+]

@@ -1367,3 +1367,25 @@ per-state periods/physics/solver cost and pre-solve contact depth, explicitly
 not final-pose penetration or13-car traffic. Its first physical invocation
 is pending. The fixture static reference call explicitly passes both null
 OBB arguments, as required by the compiled EE wrapper signature.
+
+The road100 admission now passes on physical PS2:
+`results/road100-manifold-admission-2026-10-30.*`, ELF
+`e3f7763e4b81cadd9e53b960c861bef45d213bce049a79ce15dbd2a2b63f5d01`.
+Allfour750-step phases retain every reported contact, exhaustive car/prop
+checks and numerical budgets, with zero missed reference hits/errors.
+All100 added primitive props have at least1.1 units initial horizontal
+clearance from one another; the GS capture shows the road placement.
+Both candidate phases exercise face patches (177 and305 clipped pairs).
+Five in-memory analyzer falsifiers reject extra full steps, overlapping
+placements, incomplete micro classes, a missing reference hit and erased
+patch coverage. Raw CSVs, snapshots, source and full compressed log are saved.
+The first silent attempt completed but had no complete UDP log through the
+worktree-path client. The accepted repeat used the MAIN checkout's identical
+ps2client binary and a fresh reset/load; do not use the silent attempt as
+qualification. All accepted sidecars are newer than this repeat's log start.
+
+Normal-clock admission FPS includes shadow overhead and is NOT qualified.
+The drive holds throttle for360 frames, so wall-clock duration/travel vary
+with performance (and contact response differs); this is not an equal-input
+speedup comparison. A separate same-ELF unshadowed run follows. Post-writeback
+penetration, stacks/sleep and the5-HQ+5..8-civilian target remain unqualified.

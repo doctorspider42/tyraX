@@ -120,3 +120,17 @@ face clipping currently pays a second discrete SAT for correctness. This is
 not an equal-trajectory speedup comparison. Physical build/admission and the
 subsequent unshadowed measurement are pending; small-stack residual/sleep
 qualification also remains outstanding before any production promotion.
+
+## Road100 physical admission
+
+The four-phase normal-clock correctness run completed with all3000 one-pass
+shared steps and no missing car/prop contacts/errors; the minimum initial
+prop-to-prop horizontal gap is1.1. Captured GS output confirms road placement.
+Evidence and falsifier results: `results/road100-manifold-admission-2026-10-30.*`.
+Native compilation and the saved micro/canonical replay/precision gates pass.
+Use the main-checkout ps2client path: the worktree binary served files but
+provided no complete UDP log in the first attempt; a fresh main-client repeat
+provides the accepted evidence. Unshadowed timing on the SAME ELF is next.
+This test has three cars and100 ADDED separated props, not13 traffic cars.
+Frame-count throttle durations and changed contacts produce different travel;
+no equal-input/trajectory speedup or final-pose separation claim is made.
