@@ -119,7 +119,7 @@ When analyzing a `cc1f8895b --uncapped-baseline` run, pass
 The diagnostic, first-bounds and final-projection 2026-10-29 follow-ups are in
 `results/collision-{diagnosis,bounds,projection}-2026-10-29.{json,csv.gz}`.
 The final run validates all 16,800 frames in both arms for complete contact/prop
-accounting. It improves pile FPS by 6â€“25% against uncapped prior algorithms;
+accounting. It improves pile FPS by 6-25% against uncapped prior algorithms;
 it does not qualify dense 60 FPS. See the linked results page for frame misses,
 per-repeat spread, shared-layout and trajectory limitations.
 
@@ -300,3 +300,28 @@ scene phase families, classification CSVs, metadata and the complete log. With
 metadata.certified_negatives the scene analyzer validates classification totals
 against jobs and hashes the additional sidecars. The precision gate is50,000
 cases plus accepted replay of the recorded hardware failure.
+
+The body-grid experiment uses body_grid_fixture.py --scratch <existing-micro-fixture>.
+It captures actual body boxes and awake-body query boxes at phase13 frames0,150,300,600,
+after all micro packets drain. Each fixed snapshot compares8/4/2/1m cells in
+eight reversing-order samples, with an independent sorted full-walk eligibility
+oracle outside timing. body_grid_analyze.py validates binary input hashes and
+reports fresh-build plus query-pass times. Fresh allocation differs from the live
+reused-grid rebuild; this is a screening benchmark, not whole-scene FPS. The probes
+perturb the live simulation; never qualify that run's scene timing.
+
+BroadPhase accepts an optional minimum grid-cell size (default8m, unchanged);
+its moving index inherits it. Invalid/sub-millimetre values fall back to8m.
+The64-side limit still increases cells for large scenes, wide-object fallback
+and the original inclusive float tests remain intact. No production caller has
+changed its cell size on the basis of the screening test alone.
+
+Replay the captured snapshot files with tools/verify-body-grid-snapshot.cpp
+linked with engine/src/physics/broad_phase.cpp. The first physical screening
+package is results/body-grid-screen-2026-10-30.inputs.zip (1136 query/cell
+combinations also replayed on the host). Use --timing-cell 2 on the same fixture
+to remove probes and compare8m/tuned body grids with canonical EE physics in
+both arms. It removes only that private fixture's sat-verify.cfg to enable28
+phases. Rebuild before launch, preserve screening files first, and validate the
+full16,800 rows with body_grid_timing_analyze.py plus matching log/metadata.
+No VU0 dispatch or snapshot work may appear in the measured scene run.

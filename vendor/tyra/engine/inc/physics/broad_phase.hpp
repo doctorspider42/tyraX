@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -49,7 +50,11 @@ class BroadPhase {
  public:
   enum Kind : int { kGrid = 0, kOctree = 1 };
 
-  explicit BroadPhase(Kind kind = kGrid) : kind_(kind) {}
+  // Scenery keeps the 8m default; compact body indices can measure finer cells.
+  // This only changes bucketing, never the inclusive float overlap test.
+  // Invalid or sub-millimetre cells use the default (avoid reciprocal overflow).
+  explicit BroadPhase(Kind kind = kGrid, float gridCell = 8.0F)
+      : kind_(kind), gridCell_(gridCell >= .001F && std::isfinite(gridCell) ? gridCell : 8.0F) {}
   Kind kind() const { return kind_; }
 
   /** Start a refresh over `count` objects; one not set() before commit() is
@@ -117,6 +122,7 @@ class BroadPhase {
   std::vector<int> movingObjects_, movingHits_;
 
   Kind kind_;
+  float gridCell_;
   int count_ = 0;
   // Per object: the box handed over, and whether it takes part / moves.
   std::vector<BroadBox> box_, next_;

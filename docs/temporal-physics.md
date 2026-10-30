@@ -537,3 +537,15 @@ duplication motivates further dispatch/work-selection measurements. Replay the
 with the stream and full-scene analyzers. The
 [initial common-motion report](../tools/ps2rig/results/vu0-common-initial-2026-10-30.json)
 is explicitly unqualified despite its promising isolated throughput.
+
+The body-grid screening experiment compares minimum cells of8/4/2/1m on
+actual captured body/query bounds. The engine parameter defaults to8m;
+production callers are unchanged. Four physical snapshots preserved eligibility
+and sorted order against an independent full walk, with1136 query/cell
+combinations replayed on the host. A2m cell reduced fresh-build plus query-pass
+time from3.575 to1.872ms in the initial138-body snapshot and1.512 to0.929ms
+in a later55-query snapshot. This excludes SAT and solver work, includes fresh
+allocation, and perturbs the live scene; it only selects a candidate for a
+separate complete frame benchmark. See the
+[screening report](../tools/ps2rig/results/body-grid-screen-2026-10-30.json)
+and its captured input package.

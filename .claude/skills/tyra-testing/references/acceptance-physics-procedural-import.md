@@ -155,3 +155,10 @@ refined-cache28*600, total60480 measured frames; all-arm contact/candidate
 accounting and clocks passed. Sources407585452 and3fa710314 are in the result
 JSONs. The refined non-box software probe had34 finite aggregate samples,
 matching the earlier per-frame telemetry. This is not non-box hardware timing.
+
+For cell-size experiments, run verify-collision-broad-phase.cpp across8/4/2/1m
+(minimum-cell constructor parameter), then the private body_grid_fixture.py
+snapshot probe on physical EE. Validate with body_grid_analyze.py; snapshots
+include exact body/query boxes and sorted full-walk checks. Its fresh allocation
+benchmark only screens candidates: live scene timings are perturbed and cannot
+qualify a default cell-size change.

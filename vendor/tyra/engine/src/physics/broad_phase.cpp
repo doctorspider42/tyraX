@@ -17,10 +17,9 @@ namespace Tyra {
 
 namespace {
 
-// Grid: cells of at least kGridCell metres, at most kGridMaxSide a side (a
+// Grid: cells of at least the caller's gridCell_ metres, at most kGridMaxSide a side (a
 // bigger scene gets bigger cells); an object covering more than kGridMaxSpan
 // cells is a candidate of every query rather than copied into each.
-constexpr float kGridCell = 8.0F;
 constexpr int kGridMaxSide = 64;
 constexpr int kGridMaxSpan = 64;
 // Octree: a node splits only once it holds more than kOctSplit objects (so a
@@ -193,7 +192,7 @@ void BroadPhase::rebuildGrid() {
   nx_ = nz_ = 0;
   if (mnX > mxX) return;  // nothing static to bucket
   // Sized so span / cell < side - 1: every box falls inside the grid.
-  float cell = kGridCell;
+  float cell = gridCell_;
   const float spanX = mxX - mnX, spanZ = mxZ - mnZ;
   const float span = spanX > spanZ ? spanX : spanZ;
   if (span / cell > (float)(kGridMaxSide - 2))
@@ -481,7 +480,7 @@ void BroadPhase::refreshMoving() {
     if (movingIndex_) movingIndex_->clear();
     return;
   }
-  if (!movingIndex_) movingIndex_.reset(new BroadPhase(kGrid));
+  if (!movingIndex_) movingIndex_.reset(new BroadPhase(kGrid, gridCell_));
   movingIndex_->begin((int)movingObjects_.size());
   for (size_t k = 0; k < movingObjects_.size(); ++k)
     movingIndex_->set((int)k, next_[(size_t)movingObjects_[k]], false);

@@ -11,8 +11,9 @@
 int main() {
   std::mt19937 rng(81231);
   std::uniform_real_distribution<float> pos(-100, 100), size(.01f, 8);
+  for(float cell : {8.f,4.f,2.f,1.f})
   for (int backend = 0; backend < 2; ++backend) {
-    Tyra::BroadPhase bp((Tyra::BroadPhase::Kind)backend);
+    Tyra::BroadPhase bp((Tyra::BroadPhase::Kind)backend,cell);
     std::vector<Tyra::BroadBox> boxes(400);
     std::vector<bool> present(400);
     for (int frame = 0; frame < 50; ++frame) {
@@ -104,5 +105,5 @@ int main() {
     assert(out.size() == 1 && out[0] == 0);
   }
   puts(
-      "broad phase: 10,000 box + 2,000 segment queries, moving rejection passed");
+      "broad phase: 40,000 box + 8,000 segment queries, four cell sizes, moving rejection passed");
 }
