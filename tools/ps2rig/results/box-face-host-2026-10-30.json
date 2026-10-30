@@ -1,0 +1,26 @@
+{
+  "geometry_random_cases": 30000,
+  "geometry_hits": 18621,
+  "geometry_clipped": 9417,
+  "geometry_fallback": 9204,
+  "offset_cases_with_vertical_support": 25,
+  "reversed_normal_falsifier_rejected": true,
+  "falsifier_exit_code": 3221226505,
+  "actual_solver": {
+    "passes_velocity": 6,
+    "passes_position": 3,
+    "old_vy": -0.00999999978,
+    "new_vy": -1.05984509e-06,
+    "old_pseudo_y": 0,
+    "new_pseudo_y": 0.0424844809
+  },
+  "source_sha256": {
+    "box-face-host.cpp": "99d52ba02b3b30309d10d269a67011642140e7782fc2c61908b964a9d33893d9",
+    "box-face-solver-host.cpp": "0e3b5ac519e613fde3e2cd1708fdfccf318f0793a2d94bffc20cb7a24cf4c665",
+    "box_face_manifold.hpp": "6eadefa3bd6891cb35a6b31d049d42c0cdd53245c80f1c5b7ea497cbbc1df9c7",
+    "vehicle_contacts_probe.hpp": "6bfff6e12b206ce13a9e36cb3a52072833a3f791b22a539ddb8a1b7924704e09",
+    "convex_collision.hpp": "09739519949285e9d4fc65823e3e02717bb761b62509872cec3bafd6b2407694",
+    "vu0_sat.hpp": "0226321ec686694f0f492b66f79334011125a856cb4617b2644be2114a1a144c"
+  },
+  "scope": "Host geometry and isolated actual-solver support only. No full stack/sleep integration, PS2 admission or performance qualification."
+}

@@ -1,0 +1,33 @@
+box-face-host
+REPRODUCED: 16/25 offsets generate horizontal-only corner manifolds despite vertical SAT minimum; boundary controls fall back to SAT.
+PASS: fixed=25 random_hits=18621 clipped=9417 canonical_fallback=9204; reverse normals, finite depths, zero-axis guard, sweep-only discrete gate.
+offset_x,offset_z,corner_contacts,vertical_contacts,sat_depth,max_corner_depth
+-0.001,-0.001,2,0,0.1,0.0009999871
+-0.001,-0.0001,2,0,0.1,9.998679e-05
+-0.001,0,0,0,0.1,0
+-0.001,0.0001,2,0,0.1,9.998679e-05
+-0.001,0.001,2,0,0.1,0.0009999871
+-0.0001,-0.001,2,0,0.1,9.998679e-05
+-0.0001,-0.0001,2,0,0.1,9.998679e-05
+-0.0001,0,0,0,0.1,0
+-0.0001,0.0001,2,0,0.1,9.998679e-05
+-0.0001,0.001,2,0,0.1,9.998679e-05
+0,-0.001,0,0,0.1,0
+0,-0.0001,0,0,0.1,0
+0,0,0,0,0.1,0
+0,0.0001,0,0,0.1,0
+0,0.001,0,0,0.1,0
+0.0001,-0.001,2,0,0.1,9.998679e-05
+0.0001,-0.0001,2,0,0.1,9.998679e-05
+0.0001,0,0,0,0.1,0
+0.0001,0.0001,2,0,0.1,9.998679e-05
+0.0001,0.001,2,0,0.1,9.998679e-05
+0.001,-0.001,2,0,0.1,0.0009999871
+0.001,-0.0001,2,0,0.1,9.998679e-05
+0.001,0,0,0,0.1,0
+0.001,0.0001,2,0,0.1,9.998679e-05
+0.001,0.001,2,0,0.1,0.0009999871
+
+box-face-solver-host
+mode=0 contacts=2 grounded=0 vy=-0.00999999978 pseudo_y=0 spin=0
+mode=1 contacts=4 grounded=1 vy=-1.05984509e-06 pseudo_y=0.0424844809 spin=6.73000704e-06

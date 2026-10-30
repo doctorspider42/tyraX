@@ -1321,3 +1321,39 @@ and `results/box-manifold-host-2026-10-30.*` for the source-extracted host
 reproducer:16 slightly offset unit-box cases create horizontal-only corner
 contacts despite a vertical minimum-penetration SAT axis. No console or
 performance qualification is implied.
+
+### Canonical box face-patch and road100 experiment
+
+`box_face_manifold.hpp` clips an incident OBB face against a reference rectangle
+selected from a canonical DISCRETE SAT normal. It retains that normal, emits
+shared midpoint contacts, and returns zero for edge features/invalid geometry/
+empty clips so the caller keeps its canonical contact. The output is reduced
+with existing `rbReduce`; this changes physical response intentionally.
+`results/box-face-host-2026-10-30.*` archives25 offset cases,30,000 random
+orientations (18,621 overlaps;9,417 face patches and9,204 canonical fallbacks),
+reverse normal checks, finite/depth checks and an inverted-normal falsifier.
+The source-extracted6+3 solver restores support in the original pair case:
+vertical velocity changes from-0.01 to about-0.00000106, with pseudo-y0.04248.
+This is isolated host evidence, not stack/sleep or PS2 qualification.
+
+Install `python tools/ps2rig/road_boxes_fixture.py --scratch <primary>/.tmp/tests/vu0-sat/stream`
+ONLY on the completed shared vehicle-contact fixture. It saves
+`before-road-boxes.zip`, copies the private helpers, and prepares four phases
+(old/new then new/old). Both arms use the SAME unified vehicle/prop solver,
+pose layout and micro backend. The candidate bypasses box corner contacts;
+canonical SAT/CCD remains authoritative. A second full zero-motion SAT gates
+face clipping, preserving sweep-only/edge canonical fallback. This deliberately
+unoptimized correctness path is not a VU speedup proposal.
+
+The normal-clock scenario places100 active props in25 rows of four, with
+2-unit lateral/4-unit longitudinal spacing. It validates resolved unrotated
+primitive collider horizontal gaps and writes every placement. This proves
+prop-to-prop initial separation, not clearance from all pre-existing scenery.
+Normal wall-clock dt replaces the earlier forced nominal step. The first boot
+uses `sat-verify.cfg` for exhaustive coverage; remove it only for a separate
+same-ELF unshadowed measurement after admission. Keep `vehicle-contacts.cfg`
+at `0 1`. Native-build directly; editor regeneration erases instrumentation.
+Store the ELF hash, full logs, collision/vehicle/box-patch CSVs, placements and
+metadata before the next boot. Physical admission/timing is pending. Do not
+feed this experiment to the old vehicle-contact analyzer: both arms now have
+shared contacts enabled, four new phases and changed contact trajectories.

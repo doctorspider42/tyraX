@@ -106,3 +106,17 @@ No game behavior changed. This diagnostic does not qualify PS2 float
 behavior, yawed boxes, stack integration/sleep, console timing or60 FPS.
 Next qualify a SAT-feature-consistent box face manifold, full simulation
 residuals, and100 separated roadside obstacles before timing optimizations.
+
+## First candidate after the diagnostic
+
+Private face clipping restores vertical support for all25 original offsets;
+30,000 random orientations and the original6+3 scalar solver pair case pass
+host gates, including an inverted-normal falsifier. Evidence is in
+`results/box-face-host-2026-10-30.*`. Production remains unchanged.
+`road_boxes_fixture.py` prepares a SAME-unified-solver four-phase normal-clock
+comparison with100 initially separated props and a scripted drive. The
+candidate retains canonical21-axis SAT/CCD and canonical edge/swept fallbacks;
+face clipping currently pays a second discrete SAT for correctness. This is
+not an equal-trajectory speedup comparison. Physical build/admission and the
+subsequent unshadowed measurement are pending; small-stack residual/sleep
+qualification also remains outstanding before any production promotion.
