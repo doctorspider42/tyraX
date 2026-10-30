@@ -365,3 +365,10 @@ errors and zero micro dispatch. The2m grid saves roughly0.26-0.33ms total
 physics in the128-pile controlled workload; this does not replace normal-clock
 FPS qualification. world_grid_fixture.py defaults to --body-cell 8 in both arms
 to measure world admission independently of this small grid effect.
+
+The world-index admission package is results/world-grid-verify-2026-10-30.inputs.zip:
+1200 frame rows,48,606 independently checked world queries, zero admission/parity
+errors and no micro dispatch. It includes both phase12/13 frame/sidecar families,
+world metrics, metadata and the full log. Re-run body_grid_timing_analyze.py on
+the extracted package. Remove the private cfg with world_grid_fixture.py without
+--verify to time the exact same ELF; preserve its hash and disable oracle work.

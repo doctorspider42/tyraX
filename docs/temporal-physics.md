@@ -589,4 +589,12 @@ across reversing repeats (roughly1.2-1.5% lower);64-pile10.988/10.960 to
 controlled-workload throughput, not a production60FPS qualification. The
 production8m grid remains unchanged. The world-only admission experiment uses
 the shared implementation and8m body grids in both arms to isolate its effect;
-physical full-walk admission verification is running before frame timing.
+physical full-walk admission verification passed before frame timing.
+
+The world-only admission gate passed1200 frame/accounting rows and48,606
+actual world queries checked against independent filtered full walks, with zero
+missing candidates, ordering errors or logged-workload parity failures. Both
+arms use the shared scalar implementation and8m body grids. The same ELF is
+now measured with the admission oracle disabled; no world-index timing claim
+is made from the verification run. See the
+[physical admission report](../tools/ps2rig/results/world-grid-verify-2026-10-30.json).
