@@ -487,6 +487,18 @@ coverage, suppressing the returned car correction or reporting old bumper
 execution in in-memory CSV copies rejects admission. Long-interval validation
 and unshadowed cost measurements follow; these shadow costs are invalid.
 
+`results/vehicle-contacts-impact-admission-double-2026-10-30.*` passes the
+long-interval physical screen on this same ELF. Each arm runs750 full object
+passes and1500 vehicle control steps. The candidate emits8787 common contact
+points; exhaustive checks310,500 pairs with4752 canonical positive pair/frame
+hits and zero misses/diagnostics. No old bumper execution or discarded contact
+is reported. This validates the one-full-pass schedule when vehicle controls
+substep; it is not a production-clock or rotational-CCD qualification. Timing
+reports now separate prediction/world/body/solver/writeback stages and the
+combined boundary. Micro finish-wait means cover all750 phase frames and omit
+packing/transfer/readback/canonical EE work; they are not utilization figures.
+Unshadowed no-interaction and impact costs remain pending.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used

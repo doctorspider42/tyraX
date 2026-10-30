@@ -72,6 +72,9 @@ def analyze(root,output,admission=None):
             mean_drive_combined_ms=statistics.mean(int(r['combined_ticks']) for r in vehicle if int(r['frame']) in drive)/294912,
             mean_drive_physics_ms=statistics.mean(int(r['physics_ticks']) for r in data if int(r['frame']) in drive)/294912,
             mean_drive_solver_ms=statistics.mean(int(r['solver_ticks']) for r in data if int(r['frame']) in drive)/294912,
+            mean_drive_stages_ms={k:statistics.mean(int(r[k+'_ticks']) for r in data if int(r['frame']) in drive)/294912 for k in ['predict','world','body','writeback']},
+            micro_finish_wait_mean_all750_ms=int(micro[0]['wait_ticks'])/294912/750,
+            micro_wait_scope='Profiled finish wait interval over all750 phase frames; excludes packing, upload, readback and canonical EE confirmations; not VU utilization.',
             final_car_z=float(data[-1]['car_z'])))
     differences=[]
     if isolation and shadow:
