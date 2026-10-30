@@ -2881,7 +2881,7 @@ post-5 back at y = 1.
   8m default remains pending complete frame comparisons.
 - [ ] Separate variable-timestep trajectory feedback from optimization cost
   using a private nominal-step benchmark alongside normal-clock frame tests.
-- [ ] Measure a world-only contact index, retaining scripted moving solids,
+- [x] Measure a world-only contact index, retaining scripted moving solids,
   so world queries avoid collecting rigid bodies that they immediately reject.
 - [x] Measure scattered and piled vehicle props on physical PS2 with a same-ELF
   algorithm A/B; retain raw frames and repeat statistics in the repository.
@@ -2906,3 +2906,5 @@ post-5 back at y = 1.
   a bounded substep/TOI design and a rotating-thin-obstacle console fixture.
 - A separately authored collision-mesh asset would allow deliberate geometry
   reduction; do not automatically decimate the render mesh into a collider.
+
+- [ ] Complete normal-clock hardware qualification of the cached static world/compact-moving admission backend before enabling its production switch. Eager and threshold prototypes have archived full comparisons; cached admission passes48,502 independent physical checks.

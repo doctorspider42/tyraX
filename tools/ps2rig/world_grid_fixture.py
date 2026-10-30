@@ -2,7 +2,7 @@
 from pathlib import Path
 import argparse,json,shutil,subprocess
 
-def install(repo,root,verify,body_cell=8,normal_clock=False,full_suite=False):
+def install(repo,root,verify,body_cell=8,normal_clock=False,full_suite=False,min_awake=None):
     common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
     allowed=(common.parent/'.tmp').resolve();assert root.is_relative_to(allowed) and root!=allowed
     meta_path=root/'metadata.json';meta=json.loads(meta_path.read_text(encoding='utf8'))
@@ -54,6 +54,19 @@ def install(repo,root,verify,body_cell=8,normal_clock=False,full_suite=False):
         s=s.replace(before,'  WorldGridProbe::flush(phase);\n'+before,1)
         # Validate all insertion points before mutating the generated fixture.
         candidate_path.write_bytes(candidate_text.encode());baseline_path.write_bytes(baseline_text.encode());p.write_bytes(s.encode())
+    if min_awake is not None:
+        assert meta.get('shared_physics') and min_awake>=1
+        p=root/'district/src/gen/game_physics.gen.cpp';s=p.read_text(encoding='utf8')
+        assert not meta.get('world_index_min_awake'),'Select a fresh screening fixture before changing its threshold again'
+        before='if(!CB::baseline && awakeCount>0){';assert s.count(before)==1
+        s=s.replace(before,f'if(!CB::baseline && awakeCount>={min_awake}){{',1)
+        before='if(CB::baseline)broadPhaseNear(area,bpNearPhys);else worldPairs.queryBox(area,bpNearPhys);';assert s.count(before)==1
+        s=s.replace(before,f'if(CB::baseline || awakeCount<{min_awake})broadPhaseNear(area,bpNearPhys);else worldPairs.queryBox(area,bpNearPhys);',1)
+        before='WorldGridProbe::inspect(area,bpNearPhys,bpCache,runtimeObjects,Tyra::vu0SatVerify);';assert s.count(before)==1
+        s=s.replace(before,f'WorldGridProbe::inspect(area,bpNearPhys,bpCache,runtimeObjects,Tyra::vu0SatVerify,awakeCount>={min_awake});',1)
+        before='    worldPairs.commit();';assert s.count(before)==1
+        s=s.replace(before,before+'++WorldGridProbe::builds;',1);p.write_bytes(s.encode())
+        meta.update(world_index_min_awake=min_awake,same_elf_admission_qualified=False)
     if normal_clock:
         p=root/'district/src/terrain_game.cpp';s=p.read_text(encoding='utf8')
         marker='  // Private controlled-workload benchmark, never emitted by production codegen.'
@@ -81,5 +94,6 @@ if __name__=='__main__':
     p.add_argument('--body-cell',type=int,choices=[2,8],default=8,help='Identical body-grid cells in both arms; default8m retains production policy')
     p.add_argument('--normal-clock',action='store_true',help='Restore the private main loop to production variable-frame simulation; rebuild/requalify the new ELF')
     p.add_argument('--full-suite',action='store_true',help='Restore all28 phases instead of the dense screening subset; rebuild the new ELF')
+    p.add_argument('--min-awake',type=int,help='Build/use the extra world index only above this active-body count; keep the original complete query below it')
     p.add_argument('--verify',action='store_true');p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);a=p.parse_args()
-    install(a.repo.resolve(),a.scratch.resolve(),a.verify,a.body_cell,a.normal_clock,a.full_suite)
+    install(a.repo.resolve(),a.scratch.resolve(),a.verify,a.body_cell,a.normal_clock,a.full_suite,a.min_awake)

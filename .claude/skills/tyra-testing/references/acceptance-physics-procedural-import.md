@@ -184,3 +184,13 @@ qualified fixed-step screening, --normal-clock --full-suite --verify restores
 the production simulation clock and28-phase schedule in the private fixture.
 Rebuild/requalify admission on that new ELF, then remove its cfg and time the
 same binary. The fixed-step9/13% physics savings are not production60FPS proof.
+
+The cached world-index host oracle now links world_broad_phase.cpp as well as
+broad_phase.cpp. It covers retained statics, moving/category transitions without
+pose changes, asset bounds, more than eight movers, clear and both backends.
+world_cache_fixture.py --verify installs the canonical cached implementation;
+its48,502-query physical admission gate passes with five index builds. Remove
+--verify and preserve the ELF hash for independent28-phase normal-clock timing.
+The earlier eager world-index full run improves dense128 repeats but adds sparse
+overhead; the minimum16-awake prototype has mixed dense results. Preserve both
+raw packages and do not promote either solely on the best repeat.

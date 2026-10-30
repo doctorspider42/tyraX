@@ -2077,6 +2077,7 @@ class TerrainGame : public Tyra::Game {
   // fills `out` with every object whose box may reach it - never fewer - in
   // ascending order, and the caller's own exact tests decide.
   void broadPhaseNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
+  void broadPhaseWorldNear(const Tyra::BroadBox& area, std::vector<int>& out) const;
   void broadPhaseAlong(const float* a, const float* b, float radius,
                        std::vector<int>& out) const;
   // The next query refreshes first. The contract for code that moves, turns
@@ -2098,6 +2099,7 @@ class TerrainGame : public Tyra::Game {
     unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
   };
   mutable Tyra::BroadPhase broadPhase;
+  mutable Tyra::WorldBroadPhase worldBroadPhase;
   mutable std::vector<BroadPhaseCache> bpCache;
   mutable unsigned bpFrame = ~0u, bpGen = ~0u;
   mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything

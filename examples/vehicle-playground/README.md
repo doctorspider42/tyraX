@@ -199,3 +199,8 @@ validator and canonical EE CCD reference.
 
 The experimental micro scheduler now launches the next ready packet before EE
 reconstructs the preceding contacts, preserving contact order and buffer ownership.
+
+Generated sources include the staged cached world-query backend
+(TYRA_PHYSICS_WORLD_INDEX=0 pending normal-clock hardware timing). Static
+obstacles retain their index and moving world solids are refreshed separately;
+exact collision tests and solver passes are unchanged.

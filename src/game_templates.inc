@@ -19347,6 +19347,8 @@ void TerrainGame::broadPhaseRefresh() const {
     bpGen = sceneGeneration;
     changed = true;
   }
+  const bool trackWorld = worldBroadPhase.initialized();
+  if (trackWorld) worldBroadPhase.begin(n, kind);
   // First bring every entry up to date and see whether the structure would
   // change at all: an object came or went, started or stopped moving, or a
   // placed box changed. A refresh boundary after a stage that moved nothing
@@ -19357,6 +19359,7 @@ void TerrainGame::broadPhaseRefresh() const {
     // physObstacle is the widest "can be touched" list (the walker's and the
     // sweep's objectCollides is a subset): every consumer re-applies its own.
     if (!o.active || !physObstacle(o.data)) {
+      if (trackWorld) worldBroadPhase.remove(i);
       changed = changed || e.present;
       e.present = false;
       continue;
@@ -19381,6 +19384,7 @@ void TerrainGame::broadPhaseRefresh() const {
     // beyond the padding inside one stage must invalidate before querying.
     const bool moving = (o.data.physics && !physAsleep(o)) ||
                         g_frameStamp - e.movedAt <= 1u;
+    const bool changedBox = e.stale;
     if (e.stale) {
       broadPhaseBoxOf(o, e.box);
       e.stale = false;
@@ -19389,6 +19393,10 @@ void TerrainGame::broadPhaseRefresh() const {
     changed = changed || !e.present || moving != e.moving;
     e.present = true;
     e.moving = moving;
+    if (trackWorld) {
+      if (o.data.physics) worldBroadPhase.remove(i);
+      else worldBroadPhase.set(i, e.box, moving, changedBox);
+    }
   }
   if (!changed) return;
   broadPhase.begin(n);
@@ -19397,6 +19405,24 @@ void TerrainGame::broadPhaseRefresh() const {
     if (e.present) broadPhase.set(i, e.box, e.moving);
   }
   broadPhase.commit();
+}
+
+
+void TerrainGame::broadPhaseWorldNear(const Tyra::BroadBox& area,
+                                      std::vector<int>& out) const {
+  if (bpFrame != g_frameStamp) broadPhaseRefresh();
+  // Preserve the existing all-collider development oracle.
+  if (kBroadPhaseVerify || bpVerifyAll) { broadPhaseNear(area, out); return; }
+  if (!worldBroadPhase.initialized()) {
+    worldBroadPhase.begin((int)runtimeObjects.size(), broadPhase.kind());
+    for (size_t i = 0; i < bpCache.size(); ++i) {
+      const auto& entry = bpCache[i];
+      if (entry.present && !runtimeObjects[i].data.physics)
+        worldBroadPhase.set((int)i, entry.box, entry.moving, true);
+      else worldBroadPhase.remove((int)i);
+    }
+  }
+  worldBroadPhase.queryBox(area, out);
 }
 
 void TerrainGame::broadPhaseNear(const Tyra::BroadBox& area,
@@ -24823,7 +24849,11 @@ void TerrainGame::updateObjectPhysics() {
       area.mx[0] = x1.x + reach;
       area.mx[1] = x1.y + reach;
       area.mx[2] = x1.z + reach;
+#if TYRA_PHYSICS_WORLD_INDEX
+      broadPhaseWorldNear(area, bpNearPhys);
+#else
       broadPhaseNear(area, bpNearPhys);
+#endif
     }
     for (int j : bpNearPhys) {
       if (j == S.obj) continue;

@@ -617,3 +617,18 @@ requirement here because simulation uses the original variable clock. The
 [normal-clock admission package](../tools/ps2rig/results/world-grid-normal-verify-2026-10-30.json)
 records the new ELF; its complete28-phase same-binary timing run follows with
 verification disabled. Production codegen still awaits those measurements.
+
+The full production-clock eager world-index experiment measured16,800 frames:
+the128-box pile repeats changed18.32/18.49 to22.52/22.06FPS, while lightweight
+scenes gained roughly0.1ms physics overhead. These use live variable-step
+trajectories, so contact density can differ between arms. A minimum16-awake
+prototype reduced sparse overhead but had mixed128-pile results; both raw
+comparisons are retained in tools/ps2rig/results/world-grid-{normal,adaptive}-2026-10-30.*.
+Neither establishes a universal speedup or60FPS for dense piles.
+
+A subsequent staged implementation caches the static world index until geometry
+or membership changes and handles current moving solids separately, with no
+awake-body threshold. The physical admission gate checked48,502 world queries
+against independent full walks with zero errors; only five index builds were
+needed. Its timing comparison is pending. TYRA_PHYSICS_WORLD_INDEX remains0;
+all exact contact tests, contact ordering and6+3 solver passes are preserved.

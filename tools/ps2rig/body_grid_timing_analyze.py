@@ -38,7 +38,11 @@ def main():
             source=a.root/f'world-grid-{phase}.csv';items=list(csv.DictReader(source.open()));assert len(items)==1
             w={k:int(value)for k,value in items[0].items()};assert w['phase']==phase and w['errors']==0
             assert w['verified']==(w['queries']if verify else 0)
-            if int(rows[0]['baseline']):assert w['queries']==0
+            assert f'WORLDGRID phase={phase} queries={w["queries"]} verified={w["verified"]} errors=0' in log
+            if meta.get('world_index_min_awake'):
+                assert 'builds' in w and w['builds']>=0
+                assert f'errors=0 builds={w["builds"]}' in log
+            if int(rows[0]['baseline']):assert w['queries']==w.get('builds',0)==0
             world_metrics.append(w);hashes[source.name]=hashlib.sha256(source.read_bytes()).hexdigest()
         count+=len(rows)
     if world:assert sum(w['queries']for w in world_metrics)>0

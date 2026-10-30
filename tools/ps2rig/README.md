@@ -386,3 +386,28 @@ The normal-clock world-index gate is archived in
 results/world-grid-normal-verify-2026-10-30.inputs.zip:1200 frame rows and45,328
 independently checked world queries, no admission/accounting failures. Its ELF
 hash is reused for the separate full28-phase normal-clock timing run.
+
+The complete eager world-index production-clock comparison is archived in
+results/world-grid-normal-2026-10-30.inputs.zip (16,800 measured frames). Dense
+128-box repeats improved from18.32/18.49 to22.52/22.06FPS; lightweight scenes
+paid roughly0.1ms extra physics. Variable-step trajectories differ, so these
+whole-frame gains do not isolate query cost. A minimum16-awake private prototype
+removed most sparse overhead but produced mixed128-pile results; retain
+results/world-grid-adaptive-2026-10-30.inputs.zip and its admission package.
+Neither result qualifies a universal default or dense-pile60FPS.
+
+world_cache_fixture.py installs the canonical cached-static/compact-moving
+WorldBroadPhase in the existing shared-function world rig. --verify selects
+phase12/13 full-walk admission; omit it only after qualification, then time the
+same ELF with the original28-phase production-clock schedule. Its first gate,
+results/world-cache-verify-2026-10-30.inputs.zip, contains48,502 independent
+query checks with zero errors and only five index builds. Those instrumented
+frame times are not performance evidence. The production switch
+TYRA_PHYSICS_WORLD_INDEX remains0 until uninstrumented timing qualifies it.
+Build the host oracle with both broad_phase.cpp and world_broad_phase.cpp;
+it exercises cached statics, moving/category transitions, asset-bound changes,
+more than eight movers, clear, global ordering and grid/octree backends.
+codegen_member.py provides the shared source-method extractor without importing
+the fixture CLI. World-grid sidecars retain build counts as well as admission
+checks; original combined-index fallback can contain physics candidates before
+the existing exact filter, which the independent oracle handles explicitly.

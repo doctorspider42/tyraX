@@ -578,7 +578,11 @@ void TerrainGame::updateObjectPhysics() {
       area.mx[0] = x1.x + reach;
       area.mx[1] = x1.y + reach;
       area.mx[2] = x1.z + reach;
+#if TYRA_PHYSICS_WORLD_INDEX
+      broadPhaseWorldNear(area, bpNearPhys);
+#else
       broadPhaseNear(area, bpNearPhys);
+#endif
     }
     for (int j : bpNearPhys) {
       if (j == S.obj) continue;

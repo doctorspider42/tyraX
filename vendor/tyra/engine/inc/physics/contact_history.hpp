@@ -7,6 +7,10 @@
 #ifndef TYRA_PHYSICS_COHERENCE
 #define TYRA_PHYSICS_COHERENCE 1
 #endif
+#ifndef TYRA_PHYSICS_WORLD_INDEX
+// Staged separately from the measured private fixture until normal-clock gates pass.
+#define TYRA_PHYSICS_WORLD_INDEX 0
+#endif
 #ifndef TYRA_PHYSICS_WARM_START
 #define TYRA_PHYSICS_WARM_START 0
 #endif
