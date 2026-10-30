@@ -17,6 +17,7 @@ def main():
     log=(root/'hardware.log').read_text(errors='replace')
     for required in ['CB DONE phases=14','MICROCOST mode=profile','VUSATCHECK cases=2048 failures=0 ','VUSATPRECISION cases=50000 failures=0']:
         check(required in log,'missing '+required)
+    check(f'VUSAT mode={"verify" if verify else "timing"}' in log,'oracle mode mismatch')
     for bad in ['CB ERROR','VUSATDIFF ','WORLDGRIDDIFF ','Assertion failed','Failed to load','EE exception']:
         check(bad not in log,'diagnostic '+bad)
     if not verify:
@@ -28,6 +29,7 @@ def main():
     for phase in [12,13]:
         samples=rows(f'collision-phase-{phase}.csv');check([int(r['frame']) for r in samples]==list(range(150,750)),'frame coverage')
         for r in samples:
+            check(int(r['phase'])==phase and int(r['baseline'])==int(phase==12),'phase identity')
             check(int(r['contacts'])==int(r['generated_contacts']) and int(r['dropped_contacts'])==int(r['push_overflow'])==0,'contact accounting')
             check(r['push_candidates']==r['push_tested'],'push accounting')
             check(0<=int(r['physics_ticks'])<=int(r['work_ticks'])<=int(r['period_ticks']),'timer accounting')

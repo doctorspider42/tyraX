@@ -645,3 +645,11 @@ All cost buckets cover750 frames including warmup, whereas scene CSVs contain600
 the report explicitly prohibits treating these different-window means as cost
 fractions. Canonical admission and unshadowed attribution must use the same ELF.
 The profiler does not qualify production FPS, even after admission passes.
+
+The physical admission report is results/micro-cost-verify-2026-10-30.*,
+ELF3386355e...:both phases dispatch78,936 jobs/11,583 batches, with no canonical
+micro misses/errors.600 duplicate-schedule frames match printed workload and
+ordered-contact fingerprints. All eight scope counts match the corresponding
+job/batch relationships. A synthetic valid report passes, and one extra
+reconstruction is rejected. The same-ELF run with only the shadow oracle disabled
+follows; admission timings cannot establish the EE cost ranking.
