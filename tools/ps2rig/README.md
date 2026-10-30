@@ -195,6 +195,37 @@ The partial source map leaves37/48 sampled candidate instructions unmapped.
 Injecting a changed unlisted instruction rejects mapping; a changed listing
 instruction is explicitly excluded instead of assigned a source location.
 
+## Zero-radius friction work experiment
+
+`zero_friction_fixture.py --scratch ROOT` restores the sampler's byte-preserved
+inputs, moves its extra source outside the build tree, and compares one small
+guard in the original EE solve loop. Both arms use pooled steps and shared VU0
+packets with the same world-first chained schedule. After the normal impulse,
+the candidate bypasses friction arithmetic only when both the accumulated
+normal impulse and all three prior tangent impulse components equal zero.
+The Coulomb disk then has zero radius and there is no prior friction to undo.
+The prepared backend already contains this condition; this experiment isolates
+it in the current legacy solver without adopting a different solver layout.
+
+All contact records, six normal passes and three position passes remain.
+A volatile per-frame mode prevents loop unswitching from creating separate
+floating-point solve loops for the two arms. RAM coverage counters report the
+actual skipped updates after the phase fence; the control must skip none.
+Admission retains raw initialized-state/contact snapshots, ordered fingerprints,
+canonical collision oracles and both kernel replay/precision gates. Signed-zero
+and other numerical behavior still need physical admission before pricing;
+mathematical equivalence alone is not trajectory/performance qualification.
+
+The first physical admission passes in
+`results/zero-friction-admission-2026-10-30.*`. All750 full-phase ordered
+contact fingerprints match, as do600 measured workload frames and every raw
+initialized field/contact at frames0/1. No missed hits or numerical errors are
+reported. Both arms visit1,495,320 contact iterations; only the candidate skips
+422,167 zero-friction updates (about28.2%). Saved-contact, both shared-image,
+precision and solver startup gates pass. In-memory falsifiers reject zero
+candidate coverage and a changed warm-frame contact hash. Unshadowed timing
+must still complete on this same ELF before any speedup claim.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used

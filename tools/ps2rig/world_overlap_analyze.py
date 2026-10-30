@@ -16,7 +16,8 @@ def main():
     a=p.parse_args();root=a.root
     meta=json.loads((root/'metadata.json').read_text(encoding='utf8'))
     layout=bool(meta.get('step_pool_comparison'))
-    shared=bool(meta.get('shared_scene_comparison'))
+    zero=bool(meta.get('zero_friction_comparison'))
+    shared=bool(meta.get('shared_scene_comparison') or zero)
     pipeline=bool(meta.get('pipeline_cost_profile'))
     external=bool(meta.get('external_pc_sample'))
     assert (meta.get('world_overlap_comparison') or layout or shared) and meta['micro_dispatch']
@@ -79,6 +80,11 @@ def main():
         check(len(classification)==1 and int(classification[0]['jobs'])==int(v['jobs']),f'phase {phase}: classification jobs')
         if 'confirmed_positive' in classification[0]:
             check(sum(int(classification[0][k]) for k in ['proved_negative','confirmed_negative','confirmed_ccd','confirmed_tie','confirmed_parallel','confirmed_positive'])==int(v['jobs']),f'phase {phase}: incomplete result classes')
+        if zero:
+            stats=rows(f'zero-friction-{phase}.csv');check(len(stats)==1,f'phase {phase}: friction coverage sidecar')
+            z=stats[0];check(int(z['enabled'])==1-arm,f'phase {phase}: wrong friction arm')
+            check(0<int(z['frames'])<=750 and int(z['visits'])>0,f'phase {phase}: no solver coverage')
+            check(0<int(z['skipped'])<=int(z['visits']) if not arm else int(z['skipped'])==0,f'phase {phase}: wrong friction shortcut coverage')
         world=rows(f'world-grid-{phase}.csv')
         check(len(world)==1,f'phase {phase}: world sidecar')
         world=world[0]
@@ -108,6 +114,12 @@ def main():
             if verify and frame in lp and frame in rp:
                 changed += [k for k in ['contacts','hash_a','hash_b'] if lp[frame][k]!=rp[frame][k]]
             if changed:differences.append(dict(workload=key,frame=frame,fields=changed))
+        if zero and verify:
+            check(set(lp)==set(rp)==set(range(750)),f'{key}: incomplete full-phase contact fingerprints')
+            for frame in range(750):
+                if frame not in lp or frame not in rp:continue
+                changed=[k for k in ['contacts','hash_a','hash_b'] if lp[frame][k]!=rp[frame][k]]
+                if changed and frame<150:differences.append(dict(workload=key,frame=frame,fields=changed))
     check(not differences,'schedule workload/contact fingerprint mismatch')
     if shared and verify:
         from step_pool_diff import decode,differences as raw_differences
@@ -121,9 +133,9 @@ def main():
                   not raw_differences(left['steps'],right['steps']) and not raw_differences(left['contacts'],right['contacts']),
                   f'shared scene raw snapshot mismatch frame {frame}')
     summary=analyze(root,solver_comparison=True,temporal_comparison=True,temporal_arms=2,
-                    baseline_label='legacy-packet-micro' if shared else 'wide-step-micro' if layout else 'world-before-micro')
+                    baseline_label='shared-full-friction' if zero else 'legacy-packet-micro' if shared else 'wide-step-micro' if layout else 'world-before-micro')
     for group in summary['groups']+summary.get('repeats',[]):
-        if group['arm']=='cache-only':group['arm']='shared-packet-micro' if shared else 'pooled-step-micro' if layout else 'world-interleaved-micro'
+        if group['arm']=='cache-only':group['arm']='shared-zero-friction-guard' if zero else 'shared-packet-micro' if shared else 'pooled-step-micro' if layout else 'world-interleaved-micro'
     result=dict(metadata=meta,qualified=not errors,performance_qualified=not verify and not world_probe and not pipeline and not external and not errors,
         world_timing_probe_enabled=not verify and world_probe,
         normal_clock_fps_qualified=False,errors=sorted(set(errors)),metrics=metrics,
@@ -132,6 +144,7 @@ def main():
         scope='Private same-ELF nominal-step schedule screen. Verification includes ordered contact fields in two 32-bit rolling fingerprints, not an exhaustive saved full-body bitwise state proof. Busy samples witness kernel activity at world-chunk boundaries, not utilization. Canonical micro validation remains enabled in the admission run; its timings are invalid.')
     if layout:result['scope']='Private same-ELF nominal-step wide/pooled pose layout comparison with the same world-first chained micro schedule. All original vertices and scalar arithmetic retained. Admission checks ordered contact fingerprints and canonical micro results; it is not a complete saved full-body state proof. Oracle timings are invalid; timing requires the same-ELF admission report and no world-window probes.'
     if shared:result['scope']='Private same-ELF nominal-step legacy/shared VU0 packet comparison. Both arms use the same pooled EE path, common compiled pose functions and world-first chained schedule. Shared records are immutable through the micro fence; all possible contacts are canonical EE. Different packet counts and EE-confirmation classes are expected. Admission requires ordered workload/contact fingerprints, kernel startup/replay gates and zero missed canonical hits. Timing requires this same ELF without shadow/window probes. This does not qualify production-clock FPS.'
+    if zero:result['scope']='Private same-ELF nominal-step exact zero-normal/zero-prior-friction guard. Both arms use one pooled EE solver function and shared VU0 packets with the same world-first chained schedule. All contacts and six/three normal/position passes remain. Coverage must show actual skipped zero updates only in the candidate; admission retains exact initialized-state/contact snapshots and full ordered fingerprints. Timing requires this same admitted ELF without shadow checks. No production-clock FPS claim.'
     a.output.write_text(json.dumps(result,indent=2),encoding='utf8')
     print(json.dumps(dict(qualified=result['qualified'],errors=result['errors'],mismatched_frames=len(differences))))
     if errors:raise SystemExit(1)
