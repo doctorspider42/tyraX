@@ -635,3 +635,13 @@ sat-verify.cfg independently selects the canonical admission oracle. Both modes
 run only phases12/13. File writes occur after the completion fence. Inputs are
 backed up under the scratch root, actual profile sources have their own hashes,
 and predecessor hashes are retained as lineage. Native qualification is pending.
+
+The cost fixture now compiles warning-clean natively. A host harness verifies
+disabled scopes perform no timer reads, nested scopes retain inclusive timing,
+and typed/void wrappers preserve return values and counts. micro_cost_analyze.py
+checks complete phase/contact accounting, duplicate-schedule workload/contact
+fingerprints, source ELF binding and exact wrapper calls versus job/batch counts.
+All cost buckets cover750 frames including warmup, whereas scene CSVs contain600;
+the report explicitly prohibits treating these different-window means as cost
+fractions. Canonical admission and unshadowed attribution must use the same ELF.
+The profiler does not qualify production FPS, even after admission passes.
