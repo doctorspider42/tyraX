@@ -34,6 +34,9 @@ def main():
         check(bad not in log,'log diagnostic: '+bad)
     check('VUSATCHECK cases=2048 failures=0 ' in log,'missing SAT startup gate')
     check('VUSATPRECISION cases=50000 failures=0' in log,'missing precision startup gate')
+    if meta.get('micro_positive_confirmation'):
+        for variant in [0,1]:
+            check(f'VUSATREPLAY reference={variant} saved=1 raw=1 hit=1 accepted=1' in log,f'missing positive regression replay {variant}')
     files=sorted(root.glob('collision-phase-*.csv'))
     check([int(f.stem.rsplit('-',1)[1]) for f in files]==expected,'wrong phase set')
     for phase in expected:

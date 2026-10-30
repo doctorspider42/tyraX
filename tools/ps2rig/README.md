@@ -779,3 +779,8 @@ zero missed reference hits/errors, saved late-case replay accepted for both
 kernels and50,000 precision cases passing. This qualifies the new common-pose
 comparison only; old inline baseline equivalence/performance is not established.
 Unshadowed timing on this same ELF follows before considering integration.
+
+Reports tagged micro_positive_confirmation also require the saved positive
+regression replay to pass for both kernel images. The startup50,000-case corpus
+alone cannot silently substitute for that captured case. Historical packages
+retain their original checks; no old replay marker is invented retroactively.
