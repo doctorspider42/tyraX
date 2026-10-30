@@ -684,3 +684,12 @@ ASan/UBSan, including0/3/8/12/23/24 vertices, record-vector relocation, pool
 growth/reuse and invalid-count rejection without truncation. This is storage
 correctness only. Same-ELF physical admission and timing of the layout remain
 pending. Runtime/header changes are private; no production layout is selected.
+
+The pooled/wide native build now passes, including the312-byte EE ABI assertion.
+The fixture retains the original full timing schedule:admission phases12/13,
+then unshadowed64/128 comparisons in both phase orderings on the same ELF.
+world_overlap_analyze.py also accepts explicitly tagged step-pool experiments:
+both world-first layouts require zero packet-window world chunks, while old
+interleaving experiments retain their busy-witness gate. A valid synthetic
+pooled gate passes and a changed contact fingerprint fails; the prior unprobed
+schedule report still passes its original checks. Admission is running on PS2.

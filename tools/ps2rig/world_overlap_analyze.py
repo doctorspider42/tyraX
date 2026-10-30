@@ -15,7 +15,8 @@ def main():
     p.add_argument('--admission',type=Path,help='Required for timing with world probes disabled')
     a=p.parse_args();root=a.root
     meta=json.loads((root/'metadata.json').read_text(encoding='utf8'))
-    assert meta.get('world_overlap_comparison') and meta['micro_dispatch']
+    layout=bool(meta.get('step_pool_comparison'))
+    assert (meta.get('world_overlap_comparison') or layout) and meta['micro_dispatch']
     verify=meta['shadow_enabled'];expected=[12,13] if verify else meta['expected_phases']
     world_probe=verify or meta.get('world_overlap_timing_probe',True)
     log=(root/'hardware.log').read_text(encoding='utf8',errors='replace')
@@ -68,7 +69,7 @@ def main():
         totals={k:sum(int(r[k]) for r in probes) for k in ['world','packet','busy_before','busy_after','packet_world_ticks']}
         if world_probe:
             check(totals['world']>0,f'phase {phase}: no world work')
-            if arm:check(totals['packet']==totals['busy_before']==totals['busy_after']==0,f'phase {phase}: control overlap')
+            if arm or layout:check(totals['packet']==totals['busy_before']==totals['busy_after']==0,f'phase {phase}: control overlap')
             else:check(totals['packet']>0 and totals['busy_before']>0,f'phase {phase}: no witnessed overlap')
         else:check(not probes and not any(totals.values()),f'phase {phase}: timing world probe active')
         wait_ms=int(v['wait_ticks'])/294912.0
@@ -91,15 +92,16 @@ def main():
             if changed:differences.append(dict(workload=key,frame=frame,fields=changed))
     check(not differences,'schedule workload/contact fingerprint mismatch')
     summary=analyze(root,solver_comparison=True,temporal_comparison=True,temporal_arms=2,
-                    baseline_label='world-before-micro')
+                    baseline_label='wide-step-micro' if layout else 'world-before-micro')
     for group in summary['groups']+summary.get('repeats',[]):
-        if group['arm']=='cache-only':group['arm']='world-interleaved-micro'
+        if group['arm']=='cache-only':group['arm']='pooled-step-micro' if layout else 'world-interleaved-micro'
     result=dict(metadata=meta,qualified=not errors,performance_qualified=not verify and not world_probe and not errors,
         world_timing_probe_enabled=not verify and world_probe,
         normal_clock_fps_qualified=False,errors=sorted(set(errors)),metrics=metrics,
         mismatched_frames=len(differences),first_mismatches=differences[:12],summary=summary,
         raw_sha256=hashes,log_sha256=hashlib.sha256((root/'hardware.log').read_bytes()).hexdigest(),
         scope='Private same-ELF nominal-step schedule screen. Verification includes ordered contact fields in two 32-bit rolling fingerprints, not an exhaustive saved full-body bitwise state proof. Busy samples witness kernel activity at world-chunk boundaries, not utilization. Canonical micro validation remains enabled in the admission run; its timings are invalid.')
+    if layout:result['scope']='Private same-ELF nominal-step wide/pooled pose layout comparison with the same world-first chained micro schedule. All original vertices and scalar arithmetic retained. Admission checks ordered contact fingerprints and canonical micro results; it is not a complete saved full-body state proof. Oracle timings are invalid; timing requires the same-ELF admission report and no world-window probes.'
     a.output.write_text(json.dumps(result,indent=2),encoding='utf8')
     print(json.dumps(dict(qualified=result['qualified'],errors=result['errors'],mismatched_frames=len(differences))))
     if errors:raise SystemExit(1)

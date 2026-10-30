@@ -47,9 +47,6 @@ def install(repo,root):
     declarations=terrain.read_text();old='void updateObjectPhysicsCandidate();';assert declarations.count(old)==1
     declarations=declarations.replace(old,old+' void updateObjectPhysicsWide();',1)
     # Both layouts retain canonical micro validation in the initial gate.
-    base=base.replace('if(Tyra::vu0SatVerify && !TYRA_TEMPORAL_SETTLE)CB::phase=12;else CB::phase=10;','CB::phase=12;',1)
-    base=base.replace('if(!Tyra::vu0SatVerify && CB::phase==14)CB::phase=24;','',1)
-    base=base.replace('CB::phase>=((Tyra::vu0SatVerify && !TYRA_TEMPORAL_SETTLE)?14:CB::phases)','CB::phase>=14',1)
     physics.write_bytes(s.encode());baseline.write_bytes(base.encode());runtime.write_bytes(header.encode());terrain.write_bytes(declarations.encode())
     shutil.copyfile(repo/'tools/ps2rig/step_vertex_pool.hpp',root/'engine/engine/inc/debug/step_vertex_pool.hpp')
     (project/'bin/sat-verify.cfg').write_bytes(b'verify\n')
@@ -57,6 +54,7 @@ def install(repo,root):
     meta.update(step_pool_comparison=True,micro_cost_profile=False,shadow_enabled=True,world_grid_verify=True,
         world_overlap_verify=True,same_elf_admission_qualified=False,expected_phases=[12,13],active_mode='step-pool-verify',
         candidate='Private312-byte EE steps with exact shared pose spans versus original880-byte steps',
+        data_layout='Shared PhysBody;880-byte wide EE step versus312-byte pointer step plus exact per-body pose spans',
         comparison='Both layouts use the same world-first chained micro backend,8m body grid,cached world and6+3 solver. Every original vertex retained; invalid counts fall back to the wide function. No arithmetic or contact-cap change.')
     meta['step_pool_source_sha256']={str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest() for f in [physics,baseline,runtime,terrain,root/'engine/engine/inc/debug/step_vertex_pool.hpp']}
     metadata.write_text(json.dumps(meta,indent=2),encoding='utf8')
