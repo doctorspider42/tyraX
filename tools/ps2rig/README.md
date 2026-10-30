@@ -551,3 +551,26 @@ object-matrix/geometry updates; preserve the completion fence before those
 calls. Library indirect calls, exceptions and interrupts require separate
 review. This evidence supports a private world/body interleaving experiment,
 not enabling asynchronous physics in production.
+
+world_overlap_fixture.py installs a private schedule comparison over the
+fixed-step body-index fixture. Both arms restore the same8m body grid and use
+the same chained micro SAT/CCD with canonical confirmations. The candidate
+defers world-contact work into whole-awake-body chunks after packet launch;
+the control completes world work first. Both stage contacts into separate
+vectors and merge world before body, preserving solver order and6+3 passes.
+The prototype changes no predicted pose during contact generation; sleepers
+woken by pairs remain immovable until the next frame. Geometry updates stay
+after the micro completion fence. Native compilation of the uninstrumented
+schedule passed; production remains unchanged.
+
+world_overlap_probe.hpp counts packet-window world chunks and samples actual
+VPU busy status at chunk boundaries. This witnesses overlap, not utilization.
+Admission mode also fingerprints ordered contact fields with two32-bit hashes
+before the solver; this is not an exhaustive saved full-body state proof.
+world_overlap_analyze.py requires complete phases, full accounting, nonzero
+micro work in both schedules, witnessed candidate overlap and matching printed
+workload/contact fingerprints. A synthetic valid package passes and changing
+one candidate frame's contact fingerprint is rejected. Physical qualification
+of the instrumented schedule is pending; its oracle timings cannot be used as
+performance evidence. Use --add-probe only to upgrade an already installed
+uninstrumented prototype. Inputs are backed up under the scratch root.
