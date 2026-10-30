@@ -1,0 +1,11 @@
+{
+  "same_elf_sha256": "c3bdf19622afd9ebeb1f65f4c9f730d2bb87956f6be65ef83a61f97c865e0c86",
+  "runtime_trajectory_equivalent": true,
+  "measured_frame_pairs": 1200,
+  "all_frame_contact_fingerprints": 1500,
+  "raw_snapshot_pairs_bitwise_equal": 4,
+  "result_classifications_equal": true,
+  "original_source_equivalent": false,
+  "performance_qualified": false,
+  "scope": "Enabled/disabled sampled timers preserve trajectory within one instrumented ELF. Both differ from preceding source build later in the stack; first two raw frames match. This supports investigation of changed generated code, not an identified compiler instruction cause or a transferable cost attribution."
+}

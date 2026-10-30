@@ -96,6 +96,47 @@ function and defines its own baseline. The dense128 admission precedes timing;
 original selected scalar/inline equivalence, broader scene admission and normal
 clock production FPS remain unqualified. Micro remains off in production.
 
+## Current shared-pipeline attribution
+
+`pipeline_cost_fixture.py --scratch ROOT` instruments the current shared/legacy
+scene comparison, including scalar solver preparation, velocity solve, normal
+impulses, friction and split-position solve. It preserves the original six/three
+iteration and contact order. All counters remain in RAM until the phase fence.
+`pipeline-cost.cfg` enables every16th physics frame, with64 empty-scope samples
+per sampled frame to expose timer overhead. `sat-verify.cfg` controls the
+independent collision oracle. Both modes stop after dense phases12/13.
+
+`pipeline_cost_analyze.py ROOT --gate GATE --previous OLD_ADMISSION --output FILE`
+requires a passing same-ELF collision gate, all47 sampled frames per phase,
+complete component sets, calibration and six normal/friction visits per
+contact. It compares workload against the preceding uninstrumented-source
+admission, including raw initialized state/contact snapshots in verification
+mode. A compiler-induced trajectory change must invalidate that equivalence,
+not silently redefine the preceding workload. Raw intervals include timer
+overhead; velocity includes normal/friction, consumption includes reconstruction
+and some emission, and emission includes both world and body contacts. Means
+normalize sampled frames only. Never sum inclusive buckets or treat attribution
+as production FPS. An unshadowed attribution run must use the exact admitted
+ELF; instrumentation remains a perturbation even after correctness admission.
+
+The first attempt is retained in `results/pipeline-cost-*-2026-10-30.*` and is
+**rejected as attribution of the preceding source build**. The native build is
+warning-clean; collision admission passes with47 sampled frames per phase and
+complete solver coverage. All1200 measured frames nevertheless differ from the
+preceding source comparison, although raw frames0/1 match. No cost ranking or
+unshadowed timing is qualified from these samples.
+
+The same instrumented ELF with timers disabled passes collision admission and
+matches the enabled run's1200 measured workload pairs, all1500 ordered-contact
+fingerprints, four raw snapshots and result classifications. This narrows the
+investigation toward the changed generated code; it does not identify a
+particular compiler transformation. Both builds' first two raw frames match,
+so do not claim an already-localized first-frame pose defect. The private rig
+is restored from its byte backup plus the exact admitted shared-scene ELF.
+Its native cache still needs resynchronization before another build. Future
+attribution should keep the measured physics translation unit unchanged; a
+PC-sampling approach would first need an interrupt/register-ownership audit.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used

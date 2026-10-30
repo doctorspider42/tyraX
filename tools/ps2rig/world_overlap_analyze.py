@@ -17,6 +17,7 @@ def main():
     meta=json.loads((root/'metadata.json').read_text(encoding='utf8'))
     layout=bool(meta.get('step_pool_comparison'))
     shared=bool(meta.get('shared_scene_comparison'))
+    pipeline=bool(meta.get('pipeline_cost_profile'))
     assert (meta.get('world_overlap_comparison') or layout or shared) and meta['micro_dispatch']
     verify=meta['shadow_enabled'];expected=[12,13] if verify else meta['expected_phases']
     world_probe=verify or meta.get('world_overlap_timing_probe',True)
@@ -30,7 +31,7 @@ def main():
         if a.admission:
             admission=json.loads(a.admission.read_text(encoding='utf8'))
             check(admission['qualified'] and admission['metadata']['shadow_enabled'] and admission['metadata']['elf_sha256']==meta['elf_sha256'],'timing/admission ELF mismatch')
-    check(f'CB DONE phases={14 if verify else 28}' in log,'incomplete hardware log')
+    check(f'CB DONE phases={14 if verify or pipeline else 28}' in log,'incomplete hardware log')
     for bad in ['VUSATDIFF ','WORLDGRIDDIFF ','CB ERROR','Assertion failed','Failed to load','EE exception']:
         check(bad not in log,'log diagnostic: '+bad)
     check('VUSATCHECK cases=2048 failures=0 ' in log,'missing SAT startup gate')
@@ -118,7 +119,7 @@ def main():
                     baseline_label='legacy-packet-micro' if shared else 'wide-step-micro' if layout else 'world-before-micro')
     for group in summary['groups']+summary.get('repeats',[]):
         if group['arm']=='cache-only':group['arm']='shared-packet-micro' if shared else 'pooled-step-micro' if layout else 'world-interleaved-micro'
-    result=dict(metadata=meta,qualified=not errors,performance_qualified=not verify and not world_probe and not errors,
+    result=dict(metadata=meta,qualified=not errors,performance_qualified=not verify and not world_probe and not pipeline and not errors,
         world_timing_probe_enabled=not verify and world_probe,
         normal_clock_fps_qualified=False,errors=sorted(set(errors)),metrics=metrics,
         mismatched_frames=len(differences),first_mismatches=differences[:12],summary=summary,
