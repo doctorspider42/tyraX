@@ -27,7 +27,8 @@ def install(repo, project):
     physics = source/'game_physics.gen.cpp'
     scene = source/'game_scene.gen.cpp'
     collision = source/'game_collision.gen.cpp'
-    paths = [main, header, vehicles, physics, scene, collision]
+    lighting = source/'game_lighting.gen.cpp'
+    paths = [main, header, vehicles, physics, scene, collision, lighting]
     with zipfile.ZipFile(project.parent/'before-traffic-instrument.zip',
                          'x', zipfile.ZIP_DEFLATED) as z:
         for p in paths:
@@ -133,8 +134,12 @@ def install(repo, project):
     scene.write_bytes(s.encode())
     s = '#include "debug/traffic_bench.hpp"\n'+collision.read_text(encoding='utf8')
     s = replace(s, 'void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {',
-                'void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {\n  TrafficBench::ObjectScope allocationOwner(index);')
+                'void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {\n  TrafficBench::ObjectScope allocationOwner(index,true);')
     collision.write_bytes(s.encode())
+    s = '#include "debug/traffic_bench.hpp"\n'+lighting.read_text(encoding='utf8')
+    s = replace(s, 'void TerrainGame::updateAndRenderBlobShadows() {',
+                'void TerrainGame::updateAndRenderBlobShadows() {\n  TrafficBench::Scope trafficScope(TrafficBench::BlobShadows);')
+    lighting.write_bytes(s.encode())
     # Configuration is read once, outside the first measured phase.
     p = vehicles
     s = p.read_text(encoding='utf8')

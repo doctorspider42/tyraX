@@ -1549,3 +1549,12 @@ runtime seed projection, initial box checks and the ten physical windows still
 have to pass. Prior13-unit diagnostic windows are not a performance baseline
 for the changed14-unit scene. All original/raw snapshots remain in primary
 `.tmp`; the new fixture lives in a separate root so it cannot overwrite them.
+
+Detail mode additionally separates vehicle/world geometry rebuild intervals
+and vehicle/world `renderObjectBag` submission intervals. These nest in the
+scene/wheel/glass/other caller scopes and include any exposed waits; they are
+not GS execution time. They stay zero with detail mode off. Source identity
+must be checked before comparing reports from older ELFs without these fields.
+An always-on inclusive blob-shadow interval additionally brackets
+`updateAndRenderBlobShadows`; it nests inside the scene interval and is not
+exclusive GPU time or an instruction to disable vehicle shadows.

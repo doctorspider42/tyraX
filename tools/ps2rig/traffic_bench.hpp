@@ -11,13 +11,16 @@ inline U ticks() { U t; asm volatile("mfc0 %0,$9" : "=r"(t)::"memory"); return t
 constexpr float Hz = 294912000.f;
 enum Counter { Vehicle, Core, Physics, Scene, Wheels, Glass, End,
                Steps, PhysicsSteps, FullModels, Kinematic, PaintGrants,
-               WallMax, FloorMax, MeshMax, PropMax, Errors, Count };
+               WallMax, FloorMax, MeshMax, PropMax, Errors,
+               VehicleRebuild, WorldRebuild, VehicleSubmit, WorldSubmit, BlobShadows, Count };
 inline const char* names[Count] = {
   "vehicle_inclusive_ticks","traffic_core_ticks","physics_ticks",
   "scene_inclusive_ticks","wheels_inclusive_ticks","glass_inclusive_ticks",
   "end_frame_ticks","model_substeps","full_physics_steps","full_model_calls","kinematic_calls",
   "non_driver_paint_grants","world_wall_highwater","world_floor_highwater",
-  "world_mesh_highwater","prop_candidate_highwater","errors"};
+  "world_mesh_highwater","prop_candidate_highwater","errors",
+  "vehicle_geometry_rebuild_ticks","world_geometry_rebuild_ticks",
+  "vehicle_submission_ticks","world_submission_ticks","blob_shadows_inclusive_ticks"};
 struct Row {
   U phase=0,frame=0,period=0,body=0,c[Count]{},lap[7]{};
   U hq=0,civ=0,hqNear=0,civNear=0,hqFront=0,civFront=0,hqLod0=0,civLod0=0,hqSubmitted=0,civSubmitted=0;
@@ -55,9 +58,14 @@ struct Scope {
   ~Scope(){if(active)current.c[id]+=U(ticks()-start);allocationStage=prior;}
 };
 struct ObjectScope {
-  int prior;
-  explicit ObjectScope(int object):prior(allocationOwner){allocationOwner=object;}
-  ~ObjectScope(){allocationOwner=prior;}
+  int prior;bool active;Counter counter;U start;
+  explicit ObjectScope(int object,bool rebuilding=false):prior(allocationOwner),active(ready&&detailed){
+    allocationOwner=object;
+    const bool car=object>=0 && size_t(object)<objectSlot.size() && objectSlot[size_t(object)]>=0;
+    counter=rebuilding?(car?VehicleRebuild:WorldRebuild):(car?VehicleSubmit:WorldSubmit);
+    start=active?ticks():0;
+  }
+  ~ObjectScope(){if(active)current.c[counter]+=U(ticks()-start);allocationOwner=prior;}
 };
 inline void lap(int i,U& prior){if(detailed){const U now=ticks();current.lap[i]+=U(now-prior);prior=now;}}
 inline void flush(){
