@@ -482,3 +482,26 @@ by0.25/0.31ms; do not pool these into a universal speedup. Caller-inline differe
 qualified/performance_qualified remainfalse and production
 solver code is unchanged. Any integration needs a common scalar kernel,
 amortization/fallback qualification, explicit SPR ownership and full scene A/B.
+
+
+plane_sparse_fixture.py follows the completed private solver replay rig. It
+removes replay/PMU instrumentation, restores the full28-phase production-clock
+schedule, and compares generic plane dot products with exact signed-axis
+arithmetic. Both arms retain the selected cached-world admission and8m body
+grid. A fourth RbStep bool uses existing padding (880-byte size retained).
+Classification requires exactly the generated box normals/order; zeros,
+subnormals and nonfinite point coordinates retain the full generic path.
+All six stored plane offsets and strict face/depth tie rules are preserved.
+
+--verify shadows every eligible point, compares face/depth bits, and always
+returns the original answer. The host tools/verify-plane-sparse.cpp checks
+10,000,545 cases (9,884,203 eligible), including boundaries and exceptional
+fallback; a broken first-plane sign is rejected. The physical same-ELF gate is
+results/plane-sparse-verify-2026-10-30.inputs.zip:1,050,837 point comparisons and
+56,057 independent world-query checks with zero errors. Omit --verify only
+after this gate, then measure the same ELF with no plane/world oracle work.
+plane_sparse_analyze.py checks all sidecars and collision/push accounting;
+plane-timing counters must stayzero. The common cached-world baseline can
+legitimately build its index, so the general timing analyzer permits baseline
+builds only for explicitly tagged plane experiments. No production plane
+optimization is enabled until the normal-clock comparison is complete.

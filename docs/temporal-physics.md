@@ -697,3 +697,14 @@ caller-inline differences reach5.96e-8 and numerical parity remains unqualified.
 The shipped solver is
 unchanged. A common-kernel integration and whole-frame comparison would be
 needed before enabling any heap/SPR solver path.
+
+
+An exact sparse-plane experiment evaluates the original six half-spaces without
+zero multiplications when their normals exactly match the generated box pattern.
+It preserves stored offsets, strict outside/nearest-face comparisons and the
+original plane order; all other shapes and exceptional point coordinates use
+the generic path. The host oracle passed10,000,545 face/depth bit comparisons.
+The [physical admission gate](../tools/ps2rig/results/plane-sparse-verify-2026-10-30.json)
+passed1,050,837 eligible point comparisons and56,057 independent world-query
+checks with zero errors. This is correctness evidence only; shadow overhead
+invalidates its FPS and production timing qualification remains pending.

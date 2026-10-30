@@ -221,3 +221,13 @@ coverage. Initial hardware data match heap bitwise with zero restore errors;
 only dense snapshots improve, by0.27/0.47ms, while light snapshots regress.
 Caller-inline parity still rejects production promotion. Do not read these
 isolated timings as a shipped solver or console-limit claim.
+
+
+The exact sparse-plane experiment retains all six planes and generic fallback.
+Host verification covers10,000,545 face/depth bit comparisons and rejects an
+injected plane-sign error. The physical --verify gate compares1,050,837 eligible
+points bitwise and56,057 world queries independently, with zero errors.
+plane_sparse_fixture.py removes prior replay/PMU probes and uses the same cached
+world backend in both arms. Toggle its cfg without rebuilding for28-phase
+normal-clock timing; plane_sparse_analyze.py rejects nonzero probe counters in
+timing mode. Keep the original result during shadow verification.
