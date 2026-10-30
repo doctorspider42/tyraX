@@ -787,3 +787,13 @@ production remains unchanged. This rejects this particular whole-body world
 chunk policy, not all possible EE/VU0 partitions. The next attribution screen
 separates EE corner/preparation/packing/transfer/reconstruction costs in the
 world-first chained schedule before choosing a larger offload boundary.
+
+The subsequent [EE attribution screen](../tools/ps2rig/results/micro-cost-attribution-2026-10-30.json)
+passes a fresh same-ELF canonical gate and duplicate-schedule accounting. Per
+all750 phase frames, corners cost about2.0ms, preparation1.06ms, packing0.51ms,
+upload/start0.18ms, finish/readback0.075ms and result reconstruction0.74ms.
+Inclusive consume costs1.23ms and overlaps reconstruction/emission; do not sum
+them. These instrumented750-frame means are not fractions of the600-frame scene
+CSV means and are not production FPS. The evidence directs the next experiment
+toward EE data/preparation costs and a more useful offload boundary, while
+retaining conservative reference confirmations and all collisions.

@@ -653,3 +653,15 @@ ordered-contact fingerprints. All eight scope counts match the corresponding
 job/batch relationships. A synthetic valid report passes, and one extra
 reconstruction is rejected. The same-ELF run with only the shadow oracle disabled
 follows; admission timings cannot establish the EE cost ranking.
+
+results/micro-cost-attribution-2026-10-30.* completes the same-ELF unshadowed
+screen with both duplicate schedules matching600 logged frames. All750-frame
+means agree closely between repeats:corners2.005-2.009ms, preparation1.062-1.069,
+packing0.512-0.513, upload/start0.176-0.178, finish/readback0.0747-0.0749,
+consume1.234-1.240, reconstruction0.740-0.743 and emission0.379-0.381ms.
+Consume overlaps reconstruction and some emission. The profile is attribution,
+not a production FPS comparison; extra timers and changed code layout perturb
+execution. It establishes that EE preparation/packing/result handling merits
+attention even though the finish wait itself is small. Before moving a larger
+kernel, inspect stage-specific data layout and duplicated EE work across the
+whole pipeline, including the effect of faster EE work on VU0 overlap.
