@@ -51,6 +51,20 @@ def prepare(repo, project):
     settings['traffic'] = dict(cars=8, vehicles=['Civilian Pica'],
                                density=100, radius=110)
     main = d['scenes'][0]
+    boulevards = []
+    for oid in main['objects']:
+        path = project/'objects'/(oid+'.json')
+        obj = json.loads(path.read_text(encoding='utf8'))
+        if obj.get('type') == 'road' and obj.get('name') == 'Garage boulevard':
+            boulevards.append((path, obj))
+    assert len(boulevards) == 1
+    road_path, boulevard = boulevards[0]
+    # This hand-authored material has no lane-count recipe. The graph uses
+    # floor(width/7) lanes/direction:13 means ONE,14 means TWO. The baked
+    # road/collision/furniture and lane graph must agree; do a full build.
+    assert boulevard['roadTexture'] == 'res/materials/district-road.mtl'
+    boulevard['roadWidth'] = 14
+    road_path.write_text(json.dumps(boulevard, indent=2)+'\n', encoding='utf8')
     hq = []
     for oid in main['objects']:
         path = project/'objects'/(oid+'.json')
@@ -95,6 +109,7 @@ def prepare(repo, project):
         hq_ids=[o['id'] for o in hq], hq_positions=placements,
         civilian_definition=low,
         main_model_distance=48,
+        boulevard_width=14, boulevard_lanes_per_direction=2,
         collision_policy='Existing full vehicle model and collision handling. Civilians use the authored lower-poly asset; the ordinary baker measures its wheel anchors.',
         status='Authored input only; fresh bake, instrumentation and hardware admission pending.',
         manifest_sha256=hashlib.sha256(manifest.read_bytes()).hexdigest())

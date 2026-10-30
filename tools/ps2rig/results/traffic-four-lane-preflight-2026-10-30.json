@@ -1,0 +1,26 @@
+{
+  "author_width": 14,
+  "main_scene_only": true,
+  "positive_z_boulevard_lane_centres": [
+    1.75,
+    5.25
+  ],
+  "lane_stretches": [
+    {
+      "x": 5.25,
+      "z0": -41.50706,
+      "z1": -14.00202
+    },
+    {
+      "x": 1.75,
+      "z0": -41.50706,
+      "z1": -14.00202
+    }
+  ],
+  "status": "Generated main-scene graph contains both requested lane rows. Runtime startup projection/full-box admission is still required.",
+  "source_sha256": {
+    "vehicle-playground.tyra": "c9de211d2a06f0a2879dbdb5c854dd12b4294c2e38435ea8cfbdd5e8d873821c",
+    "objects\\district94b4bbe8.json": "4c60178d7160d938c25df76310f38fe123ae74ac1e8b8972d711fb7b75acbfbe",
+    "inc\\scene_data.hpp": "c8d314944fbaace649445627f8870c728d23f652cf029f3af3602aa467b1fabc"
+  }
+}

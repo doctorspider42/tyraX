@@ -1437,7 +1437,10 @@ remain separate from freshly generated traffic game sources.
 
 `traffic_scaling_fixture.py --project <primary-.tmp-copy>` authors the merged
 Motor District FPP project with five HQ cars TOTAL (including the player) and
-eight civilians. Run a complete editor build for fresh baked assets BEFORE
+eight civilians. It explicitly widens Garage boulevard to14 units: this
+hand-authored material has no lane recipe and the traffic graph infers
+floor(width/7) lanes/direction, so the original13-unit road had only ONE.
+Run a complete editor build for fresh baked assets BEFORE
 `traffic_instrument.py --project <copy>`. Imported GLB near meshes are not
 decimated by the triangle-budget fields: the civilian uses `pica-far.glb` as
 a complete near model, retaining four named wheels. The observed bake is540
@@ -1504,8 +1507,14 @@ PCSX2 software check of that diagnostic ELF. It finishes1/3/5-HQ phases;
 every measured5-HQ row reports allfive near/front/submitted, no kinematic
 bypass and one full physics step. The saved-state screenshot shows them.
 It does NOT reproduce the hardware allocation failure through that point.
-The first civilian seed then fails: the old projection threshold included
-100*laneY^2, so the boulevard's~0.202-unit elevation alone exceeds the limit.
+The first civilian seed then fails: its old projection score4.08062 combines
+horizontal error2.64062 (1.625 units sideways) with100*0.12^2 of elevation.
+The initial inference that elevation alone caused this was incomplete. The
+stricter separated check in the next cold hardware/software run correctly
+rejects the sideways error too: both requested rows projected onto the same
+single lane. Do not loosen that threshold or position cars off their lanes.
+The fixture now authors a14-unit boulevard and requires a fresh complete
+road/collision/furniture/lane bake before the next instrumented matrix.
 The corrected fixture first bounds ground-level elevation to±1, selects
 primarily by horizontal distance, and independently requires horizontal
 error≤0.5 units. Initial full-box pair tests remain unchanged. Seed segment,
@@ -1520,3 +1529,23 @@ claim; its saved-state log warns MTVU is enabled, so it is not DMA-lifetime
 qualification either. The physical attempt of that intermediate ELF did not
 launch after software reset (empty log/no CSV); emulator files are never
 substituted for physical evidence.
+
+`results/traffic-scaling-cold5-2026-10-30.*` preserves the corrected-seed,
+quiet hardware cold5-HQ window (ELF6cf1e07a...). It completes with allfive
+near/front/submitted, no kinematic calls and one full physics step/frame:
+29.970FPS, p95 period33.429ms, inclusive scene17.951ms, vehicle3.556ms,
+physics0.843ms, wheels1.184ms, glass0.261ms and end-frame9.035ms.
+These intervals overlap and must not be summed indiscriminately. The next
+phase rejects the single-lane seed as above; no civilians/13-car qualification.
+No allocation failure occurred in this cold5-HQ phase. The first failure's
+cause remains unproven: repeated loads, peak/fragmentation and the previous
+periodic RAM report differ between boots. The CPU scene interval alone exceeds
+one NTSC frame here, so physics-only acceleration cannot deliver this target.
+
+`results/traffic-four-lane-preflight-2026-10-30.json` records the fresh authored
+14-unit boulevard's generated MAIN-scene lane centres1.75 and5.25. It excludes
+other scenes and is only a source/authoring preflight; a complete bake/build,
+runtime seed projection, initial box checks and the ten physical windows still
+have to pass. Prior13-unit diagnostic windows are not a performance baseline
+for the changed14-unit scene. All original/raw snapshots remain in primary
+`.tmp`; the new fixture lives in a separate root so it cannot overwrite them.

@@ -1,0 +1,70 @@
+{
+  "probe_gates_passed": false,
+  "errors": [
+    "missing/invalid population startup or initial box overlap checks",
+    "missing completion or explicit benchmark error",
+    "phase 0: missing CSV",
+    "phase 1: missing CSV",
+    "phase 3: missing CSV",
+    "phase 4: missing CSV",
+    "phase 5: missing CSV",
+    "phase 6: missing CSV",
+    "phase 7: missing CSV",
+    "phase 8: missing CSV",
+    "phase 9: missing CSV"
+  ],
+  "phases": [
+    {
+      "phase": 2,
+      "hq": 5,
+      "civilians": 0,
+      "csv_sha256": "6c079cc2360051e886f50885f403cd16da00afa3675d3f7750ab5f584dcac20b",
+      "frames": 90,
+      "average_fps": 29.969504297740656,
+      "median_period_ms": 33.366750081380204,
+      "p95_period_ms": 33.428670247395836,
+      "max_period_ms": 33.4822998046875,
+      "over_20_ms": 90,
+      "driver_travel_z": 25.652080500000004,
+      "mean_ms": {
+        "period_ticks": 33.36725192599826,
+        "body_ticks": 33.34015442648052,
+        "vehicle_inclusive_ticks": 3.5559995298032407,
+        "traffic_core_ticks": 0.029435032974054785,
+        "physics_ticks": 0.8430548020351081,
+        "scene_inclusive_ticks": 17.950886140046297,
+        "wheels_inclusive_ticks": 1.183635268976659,
+        "glass_inclusive_ticks": 0.26093863028067127,
+        "end_frame_ticks": 9.034866596739969,
+        "vehicle_lap0_ticks": 0.0,
+        "vehicle_lap1_ticks": 0.0,
+        "vehicle_lap2_ticks": 0.0,
+        "vehicle_lap3_ticks": 0.0,
+        "vehicle_lap4_ticks": 0.0,
+        "vehicle_lap5_ticks": 0.0,
+        "vehicle_lap6_ticks": 0.0
+      },
+      "max_non_driver_paint_grants": 0.0,
+      "min_hq_front": 5.0,
+      "min_civilian_front": 0.0,
+      "min_hq_submission_attempts": 5.0,
+      "min_civilian_submission_attempts": 0.0,
+      "max_camera_distance": 36.0315819
+    }
+  ],
+  "target_60fps_qualified": false,
+  "scope": "Short straight-road normal-clock scaling diagnosis. Submission attempts are not GS visibility. Nested CPU counters must not be added. No turning/impact, visual-quality or production-transparency qualification.",
+  "launch": {
+    "elf_sha256": "6cf1e07a8be0c476595f4398f095c91421eb553e870ba512b98d6ab4b1f884b7",
+    "start": "2026-10-30T20:45:43.5898493+01:00",
+    "first_phase": 2,
+    "bin": "F:/Projects/tyra-editor/.tmp/tests/traffic-pr285/merged-game/bin"
+  },
+  "diagnostic_start_phase": 2,
+  "periodic_renderer_output_present": false,
+  "failure": "Phase3 seed ci0 rejected: horizontal error squared2.64062, lane height0.12.13-unit boulevard has one lane/direction, while fixture requested two.",
+  "cold_5hq_completed": true,
+  "memory_failure_reproduced": false,
+  "source_snapshot_sha256": "ef0044b7637a047dff61ceb6a2a780a0522096d484210c11b6414b7097b7c65a",
+  "notes": "Physical PS2 cold5-HQ diagnostic; partial matrix, no13-car/60FPS qualification. Prior bad_alloc is not reproduced on this boot; repeated-load versus peak/fragmentation/report effects remain unresolved. Next fixture authors14-unit road and requires full bake. Do not combine different-ELF phases into a qualification."
+}
