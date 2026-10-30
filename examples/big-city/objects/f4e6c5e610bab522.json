@@ -1,0 +1,1 @@
+{ "id": "f4e6c5e610bab522", "name": "Building 804", "type": "model", "position": [104.13, 0, -437.959], "rotation": [0, 0, 0], "scale": [1.1852, 1.7232, 2.1874], "color": [1, 1, 1], "physics": false, "layer": "district-4-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

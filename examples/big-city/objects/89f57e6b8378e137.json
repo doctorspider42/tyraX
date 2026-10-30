@@ -1,0 +1,1 @@
+{ "id": "89f57e6b8378e137", "name": "Building 807", "type": "model", "position": [119.819, 0, -437.959], "rotation": [0, 0, 0], "scale": [1.0689, 1.7707, 2.4017], "color": [1, 1, 1], "physics": false, "layer": "district-4-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

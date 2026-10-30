@@ -1,0 +1,1 @@
+{ "id": "f3f8985a861c9e20", "name": "Building 814", "type": "model", "position": [88.9426, 0, -360.515], "rotation": [0, 0, 0], "scale": [1.72, 1.667, 1.9842], "color": [1, 1, 1], "physics": false, "layer": "district-4-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

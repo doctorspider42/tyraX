@@ -1,7 +1,9 @@
 #include "app.hpp"
 #include "menu_actions.hpp"
 #include "app_internal.hpp"
+#include "roadbridge.hpp"  // a bridge's heights follow its points
 #include "roadgen.hpp"
+#include "roadstream.hpp"  // the road stream radius's suggestion
 #include "hudanim.hpp"
 
 #include <algorithm>
@@ -1131,6 +1133,7 @@ void App::drawUI() {
     drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
+    drawRoadTextureWindow();
     giBakerPoll();
     shadowBakerPoll();
     modelAoPoll();
@@ -1790,6 +1793,13 @@ void App::drawMainMenus() {
                 "prop you cannot walk up to or a\ncamera that pulls in "
                 "early. The running game can draw the same\nboxes - "
                 "Preferences > Build & debug > Show collision boxes.");
+        if (menuact::MenuItem("Lanes", nullptr, showLanes_, hasProject_))
+            showLanes_ = !showLanes_;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "Draw the lane graph traffic drives (docs/traffic.md):\n"
+                "lanes in blue, turns through a node in green (priority),\n"
+                "yellow (gives way) or orange / violet (signal phase A / B).");
         if (menuact::MenuItem("Static batches", nullptr, showBatchOverlay_,
                             hasProject_)) {
             showBatchOverlay_ = !showBatchOverlay_;
@@ -2029,6 +2039,10 @@ void App::drawMainMenus() {
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("The particle library: effects defined once, used by\n"
                               "emitters and vehicle tyre smoke.");
+        if (menuact::MenuItem("Road Texture Generator...")) showRoadTexGen_ = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Bake road surfaces - asphalt, setts, gravel, dirt,\n"
+                              "lane markings - into res/materials/roads.");
         if (menuact::MenuItem("Texture Atlas...")) {
             showTextureAtlas_ = true;
             atlasPlanDirty_ = true;
@@ -3541,6 +3555,7 @@ void App::drawViewportWindow() {
             // previewed preset while the editor is open, the scene's own
             // otherwise - so they are visible during ordinary scene work too.
             updateSkyBodyPreview(preview ? selectedAmbience_ : -1);
+            updateRoadWeatherPreview(preview ? selectedAmbience_ : -1);
         }
         // Layer eye toggles: objects on hidden layers vanish from the render
         // and the click picking (mask indices parallel project_.objects()).
@@ -3724,7 +3739,7 @@ void App::drawViewportWindow() {
             }
             viewport_.setGsColorSim(quant, dith);
         }
-        viewport_.setRoadDragging(roadDragPoint_ >= 0);
+        viewport_.setRoadDragging(roadDragPoint_ >= 0 || bridgeDragPoint_ >= 0);
         viewport_.setRoadJunctions(project_.active().roadJunctions);
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
@@ -3873,13 +3888,34 @@ void App::drawViewportWindow() {
         drawScreenIconOverlay(imgPos, avail);
         // Road crossings (docs/roads.md, "Junction overrides"): a diamond per
         // crossing while a road or a junction is selected.
-        junctionMarkers(imgPos, avail, true, io.MousePos);
+        if (const int jh = junctionMarkers(imgPos, avail, true, io.MousePos);
+            jh != -1 && imageHovered) {
+            // In-place junction editing: say what a click on the diamond does.
+            const roadgen::CrossingPlan& jp = sceneCrossings();
+            if (jh >= 0 && jh < (int)jp.crossings.size()) {
+                const roadgen::Crossing& jc = jp.crossings[(size_t)jh];
+                ImGui::SetTooltip("%s node, %d arms - click to edit its overrides",
+                                  jc.transition ? "Transition"
+                                  : jc.arms == 2 ? "Corner"
+                                  : jc.arms == 3 ? "T / fork"
+                                                 : "Crossing",
+                                  jc.arms);
+            } else {
+                ImGui::SetTooltip("Orphaned junction override - click to show it");
+            }
+        }
 
         // --- Axis view gizmo (top-right corner) ---
         // Drawn before the input handling so its hover can veto the click that
         // would otherwise fall through and change the selection.
         const bool overAxisGizmo = drawAxisGizmo(imgPos, avail) |
                                    drawViewportGear(imgPos, avail);
+        // The Draw road tool and the bridge height handles (docs/roads.md
+        // "Drawing roads", "Bridges", src/roaddraw_ui.cpp). Each says when it
+        // owns the mouse, so the picker and the rubber band leave the click.
+        const bool roadDrawOwns = roadDrawViewport(imgPos, avail, imageHovered, overAxisGizmo);
+        const bool bridgeHot =
+            bridgeHandles(imgPos, avail, imageHovered && !overAxisGizmo && !roadDrawOwns);
 
         // --- Terrain sculpting / painting brush (shared raycast + ring) ---
         const bool brushMode = sculptMode_ || paintMode_;
@@ -4030,8 +4066,11 @@ void App::drawViewportWindow() {
                 for (size_t k = 0; k < (size_t)roadgen::controlCount(ro.roadPoints) * 2; k += 2) {
                     const float px = ro.roadPoints[k], pz = ro.roadPoints[k + 1];
                     ImVec2 pt;
+                    // A bridge's marker sits at its deck height (docs/roads.md
+                    // "Bridges").
+                    const float lift = ro.roadBridge ? roadbridge::heightOf(ro, (int)(k / 2)) : 0.0f;
                     if (worldToImage(
-                            px, viewport_.terrainHeight(px, pz) + 0.15f, pz,
+                            px, viewport_.terrainHeight(px, pz) + 0.15f + lift, pz,
                             pt)) {
                         const float rr = roadEdit_ ? 7.0f : 5.0f;
                         dl->AddCircleFilled(pt, rr,
@@ -4064,7 +4103,7 @@ void App::drawViewportWindow() {
         // --- Transform gizmo on the selection (disabled while sculpting;
         // objects on a hidden layer can't be grabbed either) ---
         bool objectSelected = !sculptMode_ && !paintMode_ && !measureMode_ &&
-                              !pastePending_ &&
+                              !pastePending_ && !roadDraw_.active &&
                               selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
                               project_.objects()[selectedObject_].type !=
@@ -4349,7 +4388,7 @@ void App::drawViewportWindow() {
             // Alt+LMB does) and we're not sculpting.
             const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
             if (!sculptMode_ && !paintMode_ && !measureMode_ && !pastePending_ &&
-                !roadEdit_ && !lmbCamera && !overAxisGizmo &&
+                !roadEdit_ && !lmbCamera && !overAxisGizmo && !roadDrawOwns && !bridgeHot &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 boxSelecting_ = true;
         }
@@ -4383,7 +4422,8 @@ void App::drawViewportWindow() {
             if (!roadOk || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
                 roadEdit_ = false;
                 roadDragPoint_ = -1;
-            } else if ((imageHovered || roadDragPoint_ >= 0) && !gizmoBusy) {
+            } else if ((imageHovered || roadDragPoint_ >= 0) && !gizmoBusy &&
+                       !(bridgeHot && roadDragPoint_ < 0)) {
                 SceneObject& ro = project_.objects()[selectedObject_];
                 const float u = (io.MousePos.x - imgPos.x) / avail.x;
                 const float v = (io.MousePos.y - imgPos.y) / avail.y;
@@ -4391,8 +4431,8 @@ void App::drawViewportWindow() {
                 std::vector<char> skipAll(project_.objects().size(), 1);
                 const bool hit = viewport_.placementRaycast(
                     u, v, project_.objects(), skipAll, ground);
-                auto toScreen = [&](float wx, float wz, ImVec2& out) {
-                    const float wy = viewport_.terrainHeight(wx, wz) + 0.15f;
+                auto toScreen = [&](float wx, float wz, ImVec2& out, float lift = 0.0f) {
+                    const float wy = viewport_.terrainHeight(wx, wz) + 0.15f + lift;
                     const float* V = viewport_.viewMatrix();
                     const float* P = viewport_.projMatrix();
                     const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
@@ -4411,7 +4451,7 @@ void App::drawViewportWindow() {
                     if (hit && ImGui::IsMouseHoveringRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y)) &&
                         (size_t)roadDragPoint_ * 2 + 1 < ro.roadPoints.size()) {
                         roadgen::moveControl(ro.roadPoints, roadDragPoint_, ground[0], ground[2]);
-                        ro.roadHeights.clear();
+                        roadbridge::onPointsReshaped(ro);
                     }
                     if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
                         bool merged = false;
@@ -4429,9 +4469,42 @@ void App::drawViewportWindow() {
                                 }
                             }
                         }
+                        // A dragged END lands on the road under it, the Draw
+                        // road tool's own snap (docs/roads.md "Drawing
+                        // roads"): onto another road's end, or its centre
+                        // line - a clean T. Never onto the road itself.
+                        std::string snappedTo;
+                        if (!merged && !roadgen::isClosed(ro.roadPoints) &&
+                            (roadDragPoint_ == 0 || roadDragPoint_ == count - 1)) {
+                            std::vector<int> idx;
+                            std::vector<roadgen::CrossingRoad> roads = project::crossingRoads(
+                                project_.objects(), &idx, project_.dir,
+                                [this](float x, float z) { return viewport_.terrainHeight(x, z); });
+                            std::vector<int> keep;
+                            std::vector<roadgen::CrossingRoad> others;
+                            for (size_t k = 0; k < roads.size(); ++k)
+                                if (idx[k] != selectedObject_) {
+                                    others.push_back(std::move(roads[k]));
+                                    keep.push_back(idx[k]);
+                                }
+                            const roaddraw::Snapper snapper(std::move(others));
+                            roaddraw::Options so;
+                            so.angleSnap = false;
+                            const float px = ro.roadPoints[(size_t)roadDragPoint_ * 2];
+                            const float pz = ro.roadPoints[(size_t)roadDragPoint_ * 2 + 1];
+                            const roaddraw::Snap s = snapper.resolve({}, px, pz, so);
+                            if (!io.KeyShift && (s.kind == roaddraw::kEnd || s.kind == roaddraw::kCentre)) {
+                                roadgen::moveControl(ro.roadPoints, roadDragPoint_, s.x, s.z);
+                                snappedTo = project_.objects()[(size_t)keep[(size_t)s.road]].name;
+                                snappedTo = (s.kind == roaddraw::kEnd ? "the end of " : "the centre of ") +
+                                            snappedTo;
+                            }
+                        }
                         roadDragPoint_ = -1;
                         commitChange();
-                        statusMessage_ = merged ? "Road loop closed (Ctrl+Z to undo)" : "Road point moved";
+                        statusMessage_ = merged               ? "Road loop closed (Ctrl+Z to undo)"
+                                         : !snappedTo.empty() ? "Road end snapped to " + snappedTo
+                                                              : std::string("Road point moved");
                     }
                 } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && hit) {
                     const int np = roadgen::controlCount(ro.roadPoints);
@@ -4440,7 +4513,8 @@ void App::drawViewportWindow() {
                     for (int i = 0; i < np; ++i) {
                         ImVec2 pt;
                         if (!toScreen(ro.roadPoints[(size_t)i * 2],
-                                      ro.roadPoints[(size_t)i * 2 + 1], pt))
+                                      ro.roadPoints[(size_t)i * 2 + 1], pt,
+                                      ro.roadBridge ? roadbridge::heightOf(ro, i) : 0.0f))
                             continue;
                         const float dx = pt.x - io.MousePos.x;
                         const float dy = pt.y - io.MousePos.y;
@@ -4451,7 +4525,7 @@ void App::drawViewportWindow() {
                     }
                     if (grab >= 0 && io.KeyShift) {
                         if (roadgen::removeControl(ro.roadPoints, grab)) {
-                            ro.roadHeights.clear();
+                            roadbridge::onPointRemoved(ro, grab);
                             commitChange();
                             statusMessage_ = "Road point removed";
                         } else {
@@ -4486,14 +4560,15 @@ void App::drawViewportWindow() {
                             const size_t at = (size_t)(insertSeg + 1) * 2;
                             ro.roadPoints.insert(ro.roadPoints.begin() + at,
                                                  {ground[0], ground[2]});
-                            ro.roadHeights.clear();
+                            roadbridge::onPointInserted(ro, insertSeg + 1);
                             roadDragPoint_ = insertSeg + 1;
                             statusMessage_ = "Road point inserted";
                         } else if (!roadgen::isClosed(ro.roadPoints)) {
                             // 3) open ground: append.
                             ro.roadPoints.push_back(ground[0]);
                             ro.roadPoints.push_back(ground[2]);
-                            ro.roadHeights.clear();
+                            roadbridge::onPointInserted(
+                                ro, roadgen::controlCount(ro.roadPoints) - 1);
                             roadDragPoint_ =
                                 (int)(ro.roadPoints.size() / 2) - 1;
                             statusMessage_ = "Road point added";
@@ -4536,6 +4611,7 @@ void App::drawViewportWindow() {
             if (ImGui::IsKeyPressed(ImGuiKey_Escape)) measurePoints_ = 0;
             drawMeasureOverlay(imgPos, avail);
         }
+        if (showLanes_ && hasProject_) drawLanesOverlay(imgPos, avail);
 
         // Rubber-band box select: tracked until the button is released, even if
         // the cursor leaves the image. A left-drag past the click threshold
@@ -4636,6 +4712,7 @@ void App::drawViewportWindow() {
         // Clicking the same spot again walks the stack under it (viewportPick).
         if (!procClick && imageHovered && (!gizmoBusy || gizmoClick) && !sculptMode_ &&
             !paintMode_ && !measureMode_ && !pastePending_ && !overAxisGizmo &&
+            !roadDraw_.active && !bridgeHot && bridgeDragPoint_ < 0 &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
@@ -4795,8 +4872,8 @@ void App::drawViewportWindow() {
 
         // --- Tool palette (top-left corner of the viewport) ---
         // One vertical card: the transform gizmo modes, the two terrain
-        // brushes, then the measuring tape - each with its shortcut in the
-        // corner. Labels are the old buttons' ("Move (1)" ...): they are the
+        // brushes, then the measuring tape and the Draw road tool - each with
+        // its shortcut in the corner. Labels are the old buttons' ("Move (1)" ...): they are the
         // IDs scripts and docs name. The view controls (projection, camera,
         // render mode, surface snap, axis space) are the pill at the top
         // centre; the selection readout and the output switch the bottom row.
@@ -4806,7 +4883,7 @@ void App::drawViewportWindow() {
         const float toolBtn = IM_TRUNC(ImGui::GetFrameHeight() * 1.22f);
         float toolsRight = imgPos.x + ovMargin;
         {
-            const int nBtn = 6, nSep = 2;
+            const int nBtn = 7, nSep = 2;
             const float sepH = scaled(9.0f);
             const ImVec2 p0(imgPos.x + ovMargin, imgPos.y + ovMargin);
             const ImVec2 p1(p0.x + toolBtn + ovPad * 2.0f,
@@ -4873,12 +4950,25 @@ void App::drawViewportWindow() {
                     measureMode_ = !measureMode_;
                     measurePoints_ = 0;
                     if (measureMode_) sculptMode_ = paintMode_ = false;
+                    if (measureMode_ && roadDraw_.active) stopRoadDraw();
                 }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip(
                         "Measure (7): click a point, then a second one - the distance\n"
                         "is shown in world units and in meters (Preferences > World >\n"
                         "Units per meter). Click again to start over, Esc clears.");
+                // Draw road (docs/roads.md "Drawing roads", src/roaddraw_ui.cpp).
+                if (btn("Draw road (8)", ui::Glyph::Road, roadDraw_.active, true, "8")) {
+                    if (roadDraw_.active) stopRoadDraw();
+                    else startRoadDraw();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Draw road (8): click the ground to place points of a new road;\n"
+                        "double-click or Enter finishes it (one undo step), Esc cancels.\n"
+                        "Points snap to existing roads' ends and centre lines (a T, a\n"
+                        "crossing, a corner, or the road carried on) and to 15-degree\n"
+                        "steps - hold Shift to place freely. The preset sets the look.");
             }
         }
         const float topRowX = toolsRight + scaled(10.0f);
@@ -5380,6 +5470,11 @@ void App::drawViewportWindow() {
                 measureMode_ = !measureMode_;
                 measurePoints_ = 0;
                 if (measureMode_) sculptMode_ = paintMode_ = false;
+                if (measureMode_ && roadDraw_.active) stopRoadDraw();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_8)) {
+                if (roadDraw_.active) stopRoadDraw();
+                else startRoadDraw();
             }
             // Resize the brush without leaving the stroke ([ / ], 15% steps).
             if (sculptMode_ || paintMode_) {
@@ -6268,6 +6363,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "facts") return &showWorldFacts_;
     if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
+    if (key == "roadtex") return &showRoadTexGen_;
     if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
     if (key == "pad") return &showRemotePad_;
@@ -6310,7 +6406,9 @@ static const char* const kLayoutWindowKeys[] = {
     // Tools > Particle Editor (docs/particles.md).
     "particles",
     // Tools > Texture Filtering (docs/texture-filtering.md).
-    "texfilter"};
+    "texfilter",
+    // Tools > Road Texture Generator (docs/road-textures.md).
+    "roadtex"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -9852,15 +9950,32 @@ bool App::pickProjectTexture(const char* popupId, std::string& path) {
     return changed;
 }
 
+float App::propFieldWidth(float preferred) const {
+    const float avail = ImGui::GetContentRegionAvail().x;
+    return std::clamp(avail - scaled(150.0f), scaled(80.0f), scaled(preferred));
+}
+
 bool App::drawRoadSurfaceCombo(const char* label, const char* id,
                                std::string& surfacePath, const char* noneLabel) {
     if (!noneLabel) noneLabel = "<none - untextured grey>";
     std::string current = surfacePath.empty() ? noneLabel : surfacePath;
     if (current.rfind("res/", 0) == 0) current = current.substr(4);
+    // The preview names the material, not its folder: at a Properties panel's
+    // width a path showed only "materials/". The whole path is the tooltip.
+    std::string shown = current;
+    if (!surfacePath.empty()) {
+        const size_t slash = shown.find_last_of("/\\");
+        if (slash != std::string::npos) shown = shown.substr(slash + 1);
+        const size_t dot = shown.rfind('.');
+        if (dot != std::string::npos && dot > 0) shown = shown.substr(0, dot);
+    }
 
     bool changed = false;
-    ImGui::SetNextItemWidth(scaled(300));
-    if (ImGui::BeginCombo(label, current.c_str())) {
+    ImGui::SetNextItemWidth(propFieldWidth(300.0f));
+    const bool open = ImGui::BeginCombo(label, shown.c_str());
+    if (!open && !surfacePath.empty() && ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", current.c_str());
+    if (open) {
         if (ImGui::Selectable(noneLabel, surfacePath.empty()) &&
             !surfacePath.empty()) {
             surfacePath.clear();
@@ -10396,17 +10511,12 @@ void App::drawAddObjectMenu() {
                 project_.objects().back().vehicleDef = project_.vehicles.front().name;
             commitChange();
         }
-        // A spline road (docs/roads.md): points in, terrain-hugging textured
-        // chunks at boot. A fresh one gets three points around the placement
-        // spot so there is something to see and grab immediately.
-        if (menuact::MenuItem("Road")) {
-            addObject(PrimitiveType::Road, /*commit=*/false);
-            SceneObject& r = project_.objects().back();
-            r.roadPoints = {r.position[0] - 12.0f, r.position[2],
-                            r.position[0],         r.position[2],
-                            r.position[0] + 12.0f, r.position[2]};
-            commitChange();
-        }
+        // A spline road (docs/roads.md): a new road is DRAWN - the Draw road
+        // tool (docs/roads.md "Drawing roads") starts at once, snapped to the
+        // roads already there, with the preset picked in its panel. A road
+        // that appeared as a short straight stub only to be redrawn point by
+        // point was the old way, and the slower one.
+        if (menuact::MenuItem("Road", "8")) startRoadDraw();
         // Linked pair of surfaces: a live view through to the target portal
         // plus a walk-through teleport that carries speed and view angle.
         if (menuact::MenuItem("Portal")) addPortal();
@@ -14398,6 +14508,28 @@ void App::drawAmbienceInspector(AmbiencePreset& a, bool& changed) {
     (void)fs;
     ImGui::EndChild();
     if (changed) project::clampDayCycle(c);
+}
+
+// Weather and street lamps (docs/weather.md): the street lamps' level from the
+// scene's lamp mode and the previewed hour (the same core function the game
+// runs on its live sun), and the roads' wetness from the scene's authored
+// weather - the state a scene load starts with.
+void App::updateRoadWeatherPreview(int presetIndex) {
+    const SceneData& sc = project_.active();
+    float lamp = 0.0f;
+    if (sc.streetLamps == 1) {
+        lamp = 1.0f;
+    } else if (sc.streetLamps == 0) {
+        const DayCycle* c = nullptr;
+        if (presetIndex >= 0 && presetIndex < (int)project_.ambiencePresets.size()) {
+            const DayCycle& pc = project_.ambiencePresets[presetIndex].cycle;
+            if (pc.enabled) c = &pc;
+        } else {
+            c = templates::sceneDayCycle(project_, sc);
+        }
+        if (c) lamp = roadlight::lampLevelFromSun(ambience::evaluate(*c, c->time).sunDir[1]);
+    }
+    viewport_.setRoadWeather(lamp, sc.weather == 1 ? sc.weatherIntensity : 0.0f);
 }
 
 // Pushes the sun/moon discs into the viewport, re-baking the moon only when its
@@ -18780,6 +18912,9 @@ static const PrefIndexEntry kPrefIndex[] = {
     {"Terrain material", "World", "World", "terrainMaterial", false, "texture"},
     {"Loading screen between scenes", "World", "World", "loadingScreen", false, "scenes"},
     {"Detail distance", "World", "Terrain detail", "terrainLodDistance", true, "terrain LOD"},
+    {"Road stream radius", "World", "Roads and traffic", "roadStreamRadius,roadStreamEmbedTables", true,
+     "road streaming city tables on disk roads.bin"},
+    {"Traffic", "World", "Roads and traffic", "traffic", true, "ambient AI cars lanes signals traffic lights"},
     {"AI navigation grid", "World", "AI navigation", "navCellSize,navMaxSlope,navAgentRadius", true,
      "nav cell size walkable slope agent radius NPC"},
 
@@ -18794,6 +18929,8 @@ static const PrefIndexEntry kPrefIndex[] = {
      false, "usable proximity outline"},
     {"Sky, sun and fog", "Graphics", "Look", "", false, "ambience editor lighting"},
     {"Static object batching", "Graphics", "Performance", "staticBatching", true, "rendering"},
+    {"Share model geometry between instances", "Graphics", "Performance", "instanceSharing", true,
+     "instancing EE RAM memory"},
     {"Occlusion culling", "Graphics", "Performance", "occlusionCulling", true, "conservative"},
     {"Texture atlasing", "Graphics", "Performance", "textureAtlas", true, "atlas"},
     {"Interleave batches and roads", "Graphics", "Performance", "interleavePasses", true, "objects"},
@@ -20012,7 +20149,7 @@ void App::drawPreferencesWindow() {
          kOpensWindow)
             .c_str());
     prefRow("Loading screen between scenes");
-    if (advanced("terrain detail distance, the AI navigation grid")) {
+    if (advanced("terrain detail distance, road streaming and traffic, the AI navigation grid")) {
     prefGroup("Terrain detail");
     ui::DragFloat("Detail distance", &prefSettings_.terrainLodDistance, 1.0f,
                      0.0f, 2000.0f,
@@ -20045,6 +20182,46 @@ void App::drawPreferencesWindow() {
     }
 
     prefRow("Detail distance");
+    // Road streaming (docs/roads.md "Road streaming"): the roads' twin of the
+    // view distance, project-wide.
+    prefGroup("Roads and traffic");
+    ui::DragFloat("Road stream radius", &prefSettings_.roadStreamRadius, 1.0f, 0.0f,
+                  2000.0f,
+                  prefSettings_.roadStreamRadius > 0.0f ? "%.0f units"
+                                                        : "off (every road resident)");
+    if (prefSettings_.roadStreamRadius < 0.0f) prefSettings_.roadStreamRadius = 0.0f;
+    {
+        const float suggest = roadstream::suggestedRadius(
+            prefSettings_.fogEnabled ? prefSettings_.fogEnd : 0.0f,
+            prefSettings_.terrainViewDistance);
+        char label[48];
+        std::snprintf(label, sizeof(label), "Suggest (%.0f)##roadstream", suggest);
+        if (ImGui::SmallButton(label)) prefSettings_.roadStreamRadius = suggest;
+    }
+    prefHelp(
+        "Only the road geometry within this range of the camera is built -\n"
+        "asphalt, junctions, kerbs, rails, bridges, details, street furniture\n"
+        "and their collision - and the rest streams in as the player moves,\n"
+        "a few chunks a frame. A big generated city needs it: every road\n"
+        "vertex costs ~60 bytes of the PS2's 32 MB. Keep it past the fog end\n"
+        "(and the terrain view distance) so nothing pops in sight; Suggest\n"
+        "uses those. Cars nobody drives stop where their road is not built.\n"
+        "0 builds every road at scene load, as before.");
+    if (prefSettings_.roadStreamRadius > 0.0f) {
+        // Tables on disk (docs/roads.md "Tables on disk"): the default reads
+        // the baked rows from bin/roadfile/roads.bin; this keeps them in the ELF.
+        ui::Switch("Keep road tables in the ELF", &prefSettings_.roadStreamEmbedTables);
+        prefHelp(
+            "Off (the default): the baked road rows - junctions, pavements,\n"
+            "paint, kerbs, rails, bridges, details, street furniture - are\n"
+            "written to bin/roadfile/roads.bin and read piece by piece as the roads\n"
+            "stream, so they cost no EE RAM until they are near. On: they\n"
+            "stay in the ELF, resident for good, as before (no file to ship,\n"
+            "no background reads).");
+    }
+    prefRow("Road stream radius");
+    drawTrafficSettings(prefSettings_.traffic);
+    prefRow("Traffic");
     prefGroup("AI navigation");
     ui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
                      16.0f, "%.2f units");
@@ -20261,6 +20438,17 @@ void App::drawPreferencesWindow() {
         "streaming layer stay individual.");
 
     prefRow("Static object batching");
+    ui::Switch("Share model geometry between instances",
+               &prefSettings_.instanceSharing);
+    prefHelp(
+        "Every placed copy of an imported model draws one shared model-space\n"
+        "mesh under its own matrix and keeps only its lit colours (pooled\n"
+        "when copies light alike), instead of a whole world-space copy of\n"
+        "the mesh. Statically batched objects draw from their batch either\n"
+        "way; with batching off, this is what keeps a big scene in EE RAM.\n"
+        "Objects with physics, the USE highlight, dynamic lighting,\n"
+        "reflections or an impostor keep their own copy.");
+    prefRow("Share model geometry between instances");
     ui::Switch("Occlusion culling",
                     &prefSettings_.occlusionCulling);
     prefHelp(
@@ -21641,6 +21829,9 @@ void App::openScenePreferences() {
     scenePrefAmbience_ = project_.active().ambiencePreset;
     scenePrefLoading_ = project_.active().loadingScreen;
     scenePrefStart_ = project_.startScene == project_.activeScene;
+    scenePrefWeather_ = project_.active().weather;
+    scenePrefWeatherIntensity_ = project_.active().weatherIntensity;
+    scenePrefStreetLamps_ = project_.active().streetLamps;
     openScenePrefsPopup_ = true;
 }
 
@@ -21791,6 +21982,29 @@ void App::drawScenePreferencesModal() {
         ImGui::TextDisabled("Every load at once: Tools > Loading Screens > Assignments.");
     }
 
+    // Weather and street lamps (docs/weather.md). Scene data, not a
+    // project-settings category: there is nothing to inherit.
+    ImGui::SeparatorText("Weather and street lamps");
+    {
+        const char* weathers[] = {"Dry", "Rain"};
+        ImGui::Combo("Weather", &scenePrefWeather_, weathers, 2);
+        prefHelp("What this scene starts with. Rain falls around the camera and "
+                 "darkens the asphalt; at night the street lamps' reflections "
+                 "streak across the wet road. The Set Weather flow node changes "
+                 "it at runtime.");
+        ImGui::BeginDisabled(scenePrefWeather_ == 0);
+        float pct = scenePrefWeatherIntensity_ * 100.0f;
+        if (ImGui::SliderFloat("Rain intensity", &pct, 0.0f, 100.0f, "%.0f%%"))
+            scenePrefWeatherIntensity_ = std::clamp(pct / 100.0f, 0.0f, 1.0f);
+        ImGui::EndDisabled();
+        const char* lampModes[] = {"Auto (day/night cycle)", "Always on", "Off"};
+        ImGui::Combo("Street lamps", &scenePrefStreetLamps_, lampModes, 3);
+        prefHelp("When the road furniture's lamps light: their pools on the "
+                 "street, their halos and their wet reflections. Auto follows "
+                 "the sun of the scene's day/night cycle (off in a scene without "
+                 "one); Off bakes no pools at all.");
+    }
+
     category("Dynamic light reception", ov.dynamicLightReceivers, [&] {
         if (ov.dynamicLightReceivers) drawDynamicLightReceiversCombo(s);
         else {
@@ -21927,6 +22141,9 @@ void App::drawScenePreferencesModal() {
         sc.overrides = scenePrefOverrides_;
         sc.ambiencePreset = scenePrefAmbience_;
         sc.loadingScreen = scenePrefLoading_;
+        sc.weather = scenePrefWeather_;
+        sc.weatherIntensity = scenePrefWeatherIntensity_;
+        sc.streetLamps = scenePrefStreetLamps_;
         if (scenePrefStart_) project_.startScene = scenePrefScene_;
         applyProjectToViewport();
         commitChange();

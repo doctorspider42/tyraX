@@ -9,7 +9,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `main.cpp` | 5.1k | Entry point: GUI by default, plus every headless CLI verb (`--new`, `--build [--run\|--run-ps2] [--rebuild]`, `--resave`, `--refresh-gen`, `--migrate`, `--dump`, `--list-nodes`, `--dump-graph`, `--apply-graph`, `--ai-graph`, `--add-ai-support`, `--chat-prompt`, `--search-docs`, `--import-model`, `--bake-*`, `--bake-status`, `--gi-gpu-check`, `--batch-report`, `--atlas-report`, `--audit-release`, `--pad`, `--replay`, `--ui-script`, `--profile-frame`, `--capture-frame`, `--debug-state`, `--vehicle-check`, `--vu-*`, `--dump-vucap`...). docs/ai-tools.md | tyra-testing |
 | `app.cpp` / `app.hpp` | 17.2k / 3.9k | ImGui shell; `app.hpp` declares the WHOLE `App` class | editor-ui-and-conventions |
 | `app_internal.hpp` | 300 | Helpers shared by >1 App TU | editor-ui-and-conventions |
-| `props_ui.cpp` | 3.7k | Properties inspector (sections for solid objects) | editor-ui-and-conventions |
+| `props_ui.cpp` | 3.7k | Properties inspector (sections for solid objects; a Road hands off to `drawRoadProperties`) | editor-ui-and-conventions |
 | `flowgraph_ui.cpp` | 2.3k | Flow Graph editor window | flow-graph-input-player |
 | `hud_ui.cpp` | 5.8k | UI Editor, Loading Screen, Splash, Font Manager, icons, Input Map, Animation Editor, GI/prelit/model-AO sections, Tree generator window | game-screens-menus-text |
 | `procui.cpp` | 1.9k | Procedural window, preview, bake verbs, seed simulator | procedural-and-prefabs |
@@ -25,6 +25,10 @@ Read when you need to find which file owns something, or before adding a file. L
 | `batch_ui.cpp` | 460 | Tools > Static Batches panel | runtime-rendering-and-meshes |
 | `atlas_ui.cpp` | 400 | Tools > Texture Atlas | runtime-rendering-and-meshes |
 | `junction_ui.cpp` | 370 | Road junction overrides UI | vehicles-and-roads |
+| `roadtex_ui.cpp` | 320 | Tools > Road Texture Generator (window key `roadtex`) | vehicles-and-roads |
+| `roaddraw_ui.cpp` | 1.75k | Draw road viewport tool (`App::roadDrawViewport`), bridge height handles, the Road's Properties page (preset card, tabs, Road/Edges/Junctions) | vehicles-and-roads |
+| `roadfurniture_ui.cpp` | 470 | The Road's Properties Furniture tab (`App::drawRoadFurniture`): plan, line cards, junction signs, Breakable | vehicles-and-roads |
+| `traffic_ui.cpp` | 140 | View > Lanes overlay | vehicles-and-roads |
 | `vehicle_ui.cpp` | 1.7k | Tools > Vehicle Editor | vehicles-and-roads |
 | `vu_ui.cpp` | 1.3k | Tools > VU Programs | vu-framework |
 | `modelimport_ui.cpp` | 940 | Import model window | assets-import-animation |
@@ -35,7 +39,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `rail_ui.cpp` | 700 | Project panel pages Assets / Audio (`drawAudioPage`, `audiopreview::ClipPlayer`) / Scripts - read `assetItems_`, `assetUsageFor`, `logOut_`; never move/rename files (the browser does) | editor-ui-and-conventions |
 | `save_assets.cpp` | 540 | Built-in save-menu HUD sprites (embedded PNGs) | game-screens-menus-text |
 | `project.cpp` / `project.hpp` | 9.8k / 5.1k | Data model, (de)serialization, sections, `refreshGenerated` | project-model-and-serialization |
-| `version.hpp` | 6.1k | Editor semver macros + `kFormatVersion` (94) + `kMinFormatVersion`; mostly the per-version change log | project-model-and-serialization |
+| `version.hpp` | 6.1k | Editor semver macros + `kFormatVersion` (137) + `kMinFormatVersion`; mostly the per-version change log | project-model-and-serialization |
 | `migrations.cpp/.hpp` | 260 | Format migration registry, backup | project-model-and-serialization |
 | `history.hpp` | 90 | Undo/redo snapshot stack + distance from the saved state (`stepsFromSaved`) | project-model-and-serialization |
 | `json.cpp/.hpp` | 330 | Small JSON parser/writer | project-model-and-serialization |
@@ -58,7 +62,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `palette_ui.cpp` | 450 | Command palette (Ctrl/Cmd+K; Ctrl+Enter hands the query to the AI Assistant): commands, objects, scenes, windows (`windowTitle` table over `chatWindowKeys`), layouts, docs (`aichat::docIndex`) | editor-ui-and-conventions |
 | `toolkit.cpp/.hpp` | 330 | Tool-window kit (`ui::`): PrimaryButton/DangerButton/GhostButton, VSplitter/HSplitter, BeginCard, Caption, ListRow, ThumbTile+TileFlow, EmptyState, ProgressInline, StatusLine, Badge, UsedBy, Segmented | editor-ui-and-conventions |
 | `pad_widget.cpp` | 1.2k | The toolkit's `pad` section: `ui::PadDiagram` (the one DualShock 2 - geometry table, Interactive/Annotated/Compact, callout slots), `PadButtonGlyph`, `PadButtonCombo`, `PadPortSegmented` | editor-ui-and-conventions |
-| `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3, Keycap, ShortcutChord) + heading/mono faces | editor-ui-and-conventions |
+| `widgets.cpp/.hpp` | 130 | `ui::` shared widgets (AxisDrag3, Keycap, ShortcutChord, the picture inspector kit) + heading/mono faces | editor-ui-and-conventions |
 | `uiscript.cpp/.hpp` | 740 | `--ui-script` item registry + script | editor-ui-and-conventions |
 | `viewport.cpp/.hpp` | 8.8k / 1.6k | Offscreen GL 3.3 preview | viewport |
 | `gl_loader.h/.cpp` | 215 | Hand-rolled GL loader, `glUploadTexRgba` | viewport |
@@ -119,7 +123,18 @@ Read when you need to find which file owns something, or before adding a file. L
 | `procbake.cpp/.hpp` | 590 | Procedural bake to chunks | procedural-and-prefabs |
 | `procrt.cpp/.hpp` | 1.4k | Runtime procedural compiler | procedural-and-prefabs |
 | `prefab.cpp/.hpp` | 700 | Prefab verbs, `memberMerges` | procedural-and-prefabs |
-| `roadgen.cpp/.hpp` | 1.6k | Road tessellator, crossings | vehicles-and-roads |
+| `roadgen.cpp/.hpp` | 3.8k | Road tessellator, crossings, nodes (`findNodes`), node markings, kerbs, pavements | vehicles-and-roads |
+| `roadrail.cpp/.hpp` | 550 | Rails and tram tracks (`planRails`, own strip emitter, `addRailsToSurface`) | vehicles-and-roads |
+| `roadbridge.cpp/.hpp` | 1.0k | Bridges: deck, structure, piers, `drawnRoad`, height-follow on point edits | vehicles-and-roads |
+| `roaddetail.cpp/.hpp` | 1.2k | Road details + puddles (placement, decal bake, atlas) | vehicles-and-roads |
+| `roadfurniture.cpp/.hpp` | 1.9k | Street furniture (`roadfurn::Settings`, `build`, tables, upload source) | vehicles-and-roads |
+| `roadfurnbreak.cpp/.hpp` | 920 | Breakable furniture: runtime text patch, host twins, check | vehicles-and-roads |
+| `roadlight.cpp/.hpp`, `weather_core.inl` | 1.7k + 240 | Lit street lamps (pool bake) + weather runtime core | vehicles-and-roads |
+| `roadstream.cpp/.hpp`, `roadstream_core.inl` | 2.1k + 410 | Road streaming: the cutter (`emit`), hooks, shared core | vehicles-and-roads |
+| `roadfile.cpp/.hpp` | 580 | Road tables on disk (`roads.bin` builder) | vehicles-and-roads |
+| `roadlanes.cpp/.hpp`, `roadlanes_gen.cpp`, `roadlanes_check.cpp`, `traffic_core.inl` | 860 + 830 + 620 + 900 | Traffic: the lane graph, its codegen + hooks, its check, the runtime core | vehicles-and-roads |
+| `roadtex.cpp/.hpp` | 1.3k | Road Texture Generator (host-only, deterministic) | vehicles-and-roads |
+| `roaddraw.cpp/.hpp`, `roadpresets.cpp/.hpp` | 810 + 560 | Draw road decisions (snapper, finish, commit, handles), road presets | vehicles-and-roads |
 | `vehbake.cpp/.hpp` | 2.6k | Vehicle import bake | vehicles-and-roads |
 | `vehiclesim.cpp/.hpp` | 2.2k | Wheel detection + drive model | vehicles-and-roads |
 | `vehcheck.cpp/.hpp` | 1.3k | `--vehicle-check` property tests | vehicles-and-roads |

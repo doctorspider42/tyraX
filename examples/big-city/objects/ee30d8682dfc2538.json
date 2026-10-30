@@ -1,0 +1,1 @@
+{ "id": "ee30d8682dfc2538", "name": "Building 664", "type": "model", "position": [-88.2375, 0, 392.622], "rotation": [0, 0, 0], "scale": [2.561, 1.8569, 2.5544], "color": [1, 1, 1], "physics": false, "layer": "district-3-6", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

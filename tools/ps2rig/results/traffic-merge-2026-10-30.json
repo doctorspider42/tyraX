@@ -1,0 +1,117 @@
+{
+  "base_collision_head": "38c56740a",
+  "traffic_head": "8fc9f33a78e4bdabfe443b5354f7ee660c01a321",
+  "editor_version": "2.5.0",
+  "format_version": 138,
+  "editor_sha256": "aa26167c777ecad7844427d9c169b21753abf5ea029b4fea6369c6f2152724a6",
+  "format_roundtrip": {
+    "old_stamp": 123,
+    "written_stamp": 138,
+    "settings_texture_filter": "pixel",
+    "asset_texture_filter": "closeup",
+    "traffic_cars": 8,
+    "future_139_refused_without_manifest_write": true,
+    "editor_sha256": "aa26167c777ecad7844427d9c169b21753abf5ea029b4fea6369c6f2152724a6",
+    "settings_size_libstdcpp_windows_linux": 1008,
+    "settings_size_libcxx_expected_uncompiled": 912,
+    "inputs": {
+      "format-123-input.tyra": "dff175a075727896dfdfeded427251c32a870175baaba1aa2a266844b28ac51f",
+      "format-138-output.tyra": "a98770abc508962dc3b402a6a9998e14b3597707e0a3e5b8b36abfeb9f376d0d",
+      "format-139-rejected.tyra": "7b2f6bf6a49b22b07ca2cbbf713addccea752f4cdc58f797356d1c52d03a141f"
+    }
+  },
+  "vehicle_check_before_failures": 4,
+  "vehicle_check_after": "all properties hold",
+  "breakable_hooks": 11,
+  "traffic_hooks": 6,
+  "windows_release_editor_build": true,
+  "linux_libstdcpp_settings_syntax": true,
+  "libcxx_size": 912,
+  "libcxx_build_qualified": false,
+  "native_fpp_game_build": true,
+  "release_audit_clean": true,
+  "elf_sha256": "fbb02c7e29c5040cee648e45a99a43b6aee80158b09211995340f4ad4cf449ea",
+  "elf_bytes": 6168368,
+  "asset_count": 296,
+  "orbit_ps2_syntax_files": 7,
+  "orbit_link_runtime_qualified": false,
+  "pcsx2_software_boot": true,
+  "pcsx2_version": "2.9.93",
+  "screenshot_size": [
+    640,
+    480
+  ],
+  "screenshot_sha256": "ceb19c2c954fc37a2d78f7f9ae4ee117351181c2e092f94ada4a53d2a4db03f0",
+  "traffic_initial_slots": 3,
+  "source_sha256": {
+    "src/app.cpp": "86b5946d8920cdcf5d9b02cae08dcde2ccb8ee889be6f1f2d9a020da85b7b9b3",
+    "src/game_templates.inc": "5412b4b9100809b696ef11774594de79e3a195a90f4e59f627a0ca0b9b63fd8a",
+    "src/templates.cpp": "218d684d0301da0a57030ded1e7e5f0d06bcff83ae0e564acd3005662c65cf44",
+    "src/project.hpp": "1516998c354b14571c2c2fbe3192e3dbfc841f444f87812f4585360d51c3be39",
+    "src/project.cpp": "7b396739f4900004a6f3327bfaa8682fef2f81784aa27c7fa80a1e92afb37380",
+    "src/version.hpp": "8eb4db55cbe87d1dd594ee1290025864acf6e66a260bad30bdcc00627510d73c",
+    "src/roadfurnbreak.cpp": "3126d5818434ab218a033adc4c96287e977826df340a32e2e3eb4f1f03921a72",
+    "src/roadlanes_gen.cpp": "381ab0fe700e55f5f8d4e73c6975ffda3841f9241b9aa9e7473b993ced6393bc",
+    "src/traffic_core.inl": "c8e731a6923086faf074499caa40694c83a0ffb34db643d8bf81dc808c670fc2",
+    "vendor/tyra/engine/inc/physics/contact_history.hpp": "aa262681646624a93697d148223912363b6d85176ec8adc6f70d907ecf3b70d3",
+    "vendor/tyra/engine/inc/physics/vu0_sat.hpp": "0226321ec686694f0f492b66f79334011125a856cb4617b2644be2114a1a144c"
+  },
+  "console_traffic_scaling_qualified": false,
+  "normal_clock_13_car_fps_qualified": false,
+  "production_face_manifold_enabled": false,
+  "scope": "Integration checkpoint only: source conflict resolutions, additive-format compatibility, host property checks, native FPP release build/clean audit and PCSX2 software parked smoke. Orbit receives PS2 syntax checks only. This preserves existing default-off physics experiments and does not promote the private shared-vehicle solver or face patch. No new console traffic timings,13-car scaling or motion/quality qualification. Final shard formatting only moves comment delimiters; four regenerated collision shards match the exact declared comment-only transform. Native build/boot used the preformatting generated source hashes recorded here.",
+  "vehicle_check_final_editor_sha256": "aa26167c777ecad7844427d9c169b21753abf5ea029b4fea6369c6f2152724a6",
+  "final_comment_formatting_equivalence": {
+    "physics-playground": {
+      "only_comment_delimiter_linebreaks_changed": true,
+      "expanded_placeholders": 0,
+      "empty_placeholders": 2
+    },
+    "texture-atlas-filtering": {
+      "only_comment_delimiter_linebreaks_changed": true,
+      "expanded_placeholders": 0,
+      "empty_placeholders": 2
+    },
+    "vehicle-playground": {
+      "only_comment_delimiter_linebreaks_changed": true,
+      "expanded_placeholders": 2,
+      "empty_placeholders": 0
+    },
+    "big-city": {
+      "only_comment_delimiter_linebreaks_changed": true,
+      "expanded_placeholders": 2,
+      "empty_placeholders": 0
+    }
+  },
+  "native_fpp_compiled_before_comment_only_formatting": true,
+  "native_compiled_game_source_sha256": {
+    "src\\main.cpp": "b288092b0eca49a7df96f3ecb3a039f357fb31dda66deceaeb598e929167baf8",
+    "src\\save_system.gen.cpp": "a1eb568550fd04db0a35d1f2f787521a4bb48a43937f927e0cf5bdcce3fcab52",
+    "src\\terrain_game.cpp": "7bac84821c44207673a3ac284789de144ebd5746dedeafdc260cc0769dc5c755",
+    "src\\gen\\credits.gen.cpp": "91339bb83f5ab035167bca35a5b2962b9eec3da2c4fbfdd36e2c99739b926f03",
+    "src\\gen\\flow_graph.gen.cpp": "dc23a857fb9c8b93396afd806637aa2e4810c6aec8e1952f8e8fcf5f27672bbc",
+    "src\\gen\\game_collision.gen.cpp": "1c65920b68a9b8a09ef0927f52c83edd1b53a5e1e411b9c7783df555defb27c5",
+    "src\\gen\\game_lighting.gen.cpp": "2fa2431fe6ab483282a4b0130e8ac6f7c65b5f162bb11aadb5e61c054ac6458a",
+    "src\\gen\\game_physics.gen.cpp": "450a6ff43f8f8447d887286ee2430505a6054ce66a99a987ed4db48c7a7624c2",
+    "src\\gen\\game_scene.gen.cpp": "096c655a6c3b3e381e7baadd74893ca89a63a44e827b942453a76144a89f1acb",
+    "src\\gen\\game_vehicles.gen.cpp": "49790f18f4111c97f720f87176e6adaec2d547eaa9a73522fe591bbfe218a5fc",
+    "src\\gen\\input_map.gen.cpp": "36d55372ac935d8e7b210c5ad602a934a156977f298217d35f176c5539c4a798",
+    "src\\gen\\input_replay.gen.cpp": "538c9a0d62215877b804902424d6d0eefb2895f404d55781db871a641baad2e0",
+    "src\\gen\\live_debug.gen.cpp": "5be3bb9bed2ad0d66dcb05456b4d815e7c09436e7eb4d7c72435d48b019af09e",
+    "src\\gen\\live_link.gen.cpp": "24f808946415c4dc9fca0b586a689279fb76138df1e7f29d5a056070d81317a0",
+    "src\\gen\\live_logic.gen.cpp": "ae51d5603ef11d1bd9d2bb5c17cd47fb12735fe438196f081dc05c8570023192",
+    "src\\gen\\live_pad.gen.cpp": "ac72cfe35f42017badd0d64b6176da7fc2e8107db16513d09c440426e255ac6f",
+    "src\\gen\\live_tex.gen.cpp": "7c799c350d8bb6d46ef821062d567964dda46795a53b3422548f92bdae8f4d51",
+    "src\\gen\\live_time.gen.cpp": "f6d2985f11f9dcefbf7dfe0ad70b7c9ea246696d27e6d26539cb25d4a8c52096",
+    "src\\gen\\navigation.gen.cpp": "0f4ce0734795e4fc0c13e5cf12b801ce72eb55ef70e4c69a8ca5b026a950ac0f",
+    "src\\gen\\object_scripts.gen.cpp": "cb34058e8e7aa5e4dea71f927b65e50d2e617527313dc80b354befedf935f218",
+    "src\\gen\\procedural.gen.cpp": "e07475cb7190eaf723bbb475cce459f2f7b676020cb72721c3d98a03ebde6aac",
+    "src\\gen\\scene_objects.gen.cpp": "1bf04fdb5a64c6c8d80c511a6c179564056b35fb1aad602cd2bc2d454c5d1109",
+    "src\\gen\\screen_fx.gen.cpp": "a6ea93ac20926c74735010a21500dcd7b80e620e27105ea5e3c644924fb66249",
+    "src\\gen\\scroller.gen.cpp": "2882013a4215ad9cf3912bf62cc79e8c367f45b8cc34fab3393fe34639a7c989",
+    "src\\gen\\sequences.gen.cpp": "d4de086c4338ad29df87c0395d3250b0a63d2ae99aec240c302695ded0764b47",
+    "src\\gen\\vu_programs.gen.cpp": "60ef74bdab9c293ca2fca415aeb38daa287c5bae3abc8e97d6d7db61eef0c1d1",
+    "src\\scripts\\district_mood.cpp": "b0e2653e5e9d03818440414bd9b52596c70d9bc0493134c7cef9954aee71a2f5",
+    "src\\scripts\\example_interaction.cpp": "246d914d86c08f7d5ff18adaed691ac950eaf3b3b95431291ef9c5cd2696156a"
+  }
+}

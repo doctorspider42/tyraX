@@ -1,0 +1,1 @@
+{ "id": "e8a953d9bc0ef3b8", "name": "Plinth 9-7 115", "type": "box", "position": [183.891, 0.135, 21.9387], "rotation": [0, 0, 0], "scale": [71.3557, 0.27, 28.5035], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-5-4", "drawDistance": 140, "castShadow": false }

@@ -121,3 +121,10 @@ Generated sources use the cached world-query backend by default
 (TYRA_PHYSICS_WORLD_INDEX=1, with0 available for comparison). Static
 obstacles retain their index and moving world solids are refreshed separately;
 exact collision tests and solver passes are unchanged.
+
+## Combined road and collision generator
+
+Generated sources are refreshed with the combined 2.5 road/traffic and collision
+code, retaining texture filtering. Existing optional project keys load across
+the development-format overlap; the current writer uses format 138. Native
+runtime validation is recorded in the collision branch's integration checkpoint.

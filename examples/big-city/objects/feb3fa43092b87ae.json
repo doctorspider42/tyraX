@@ -1,0 +1,1 @@
+{ "id": "feb3fa43092b87ae", "name": "Building 163", "type": "model", "position": [-464.599, 0, -155.111], "rotation": [0, 0, 0], "scale": [1.2354, 1.4404, 2.0149], "color": [1, 1, 1], "physics": false, "layer": "district-2-3", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

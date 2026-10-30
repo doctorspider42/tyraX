@@ -1419,3 +1419,16 @@ profiling higher priority than another isolated SAT timing tweak.
 Post-writeback depth/sleep quality is still unmeasured: the reported max_depth
 is a PRE-SOLVE contact metric. Next use small stacks/final geometry for quality
 and a quiet faithful PR285 traffic fixture for5HQ TOTAL+5..8 civilians.
+
+### Traffic source integration checkpoint
+
+`results/traffic-merge-2026-10-30.*` records PR285 composition with this branch:
+Windows Release editor, additive format123/138 preservation, native FPP game
+build/clean release audit, PCSX2 software smoke/capture and seven orbit PS2
+syntax checks. It includes the four failing furniture-hook checks before the
+anchor fix and the passing full host suite afterwards. The merged source
+retains texture filtering, uncapped prop candidates and default-off physics
+experiments. The libc++ size assertion is updated but no Mac build is claimed.
+This is a prerequisite for traffic profiling, not13-car/60FPS or production
+face-manifold/shared-solver qualification. The private benchmark snapshots
+remain separate from freshly generated traffic game sources.

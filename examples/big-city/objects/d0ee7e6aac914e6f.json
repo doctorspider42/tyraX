@@ -1,0 +1,1 @@
+{ "id": "d0ee7e6aac914e6f", "name": "Building 850", "type": "model", "position": [74.4173, 0, 26.4401], "rotation": [0, 0, 0], "scale": [2.3342, 1.5138, 1.8256], "color": [1, 1, 1], "physics": false, "layer": "district-4-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

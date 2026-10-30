@@ -137,3 +137,10 @@ Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dy
 TyraX 2.0 integration: generated sources have been refreshed with the combined
 TyraX2 renderer and mainline collision broad phase; authored settings and
 user-owned source files retain their existing ownership rules.
+
+## Combined road and collision generator
+
+Generated sources are refreshed with the combined 2.5 road/traffic and collision
+code, retaining texture filtering. Existing optional project keys load across
+the development-format overlap; the current writer uses format 138. Native
+runtime validation is recorded in the collision branch's integration checkpoint.

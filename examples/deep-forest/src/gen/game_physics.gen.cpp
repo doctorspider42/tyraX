@@ -1662,6 +1662,16 @@ void TerrainGame::renderScene() {
   heavyCollect = heavyActive;
   heavyBlendAt = -1;
   { const u32 ct=costStart(); renderStaticBatches(); costEnd("Static_batches",-1,ct); }
+  // MEMSTAT 60, 300, 900 and 1500 frames after the load: the early ones once
+  // everything resident has baked, the later two once load-time scratch has
+  // gone - the number to compare with the HUD's MEM.
+  if (DEBUG_SHOW_MEM && !splitSecondPass && memStatCountdown >= 0) {
+    ++memStatCountdown;
+    if (memStatCountdown == 60 || memStatCountdown == 300 ||
+        memStatCountdown == 900 || memStatCountdown == 1500)
+      logGeometryMemory();
+    if (memStatCountdown > 1500) memStatCountdown = -1;
+  }
   // Roads are generated once at scene load, but their ready bags still incur
   // per-frame culling and submission. Price that work separately: otherwise a
   // road-only scene misleadingly reports the whole cost as "Procedural".
@@ -1964,6 +1974,9 @@ void TerrainGame::renderScene() {
   // Owned object streams remain alive until the next VIF1 synchronization.
   stapip.core.beginSubmissionBatch();
   int impostorSwitchBudget = 4;
+  // Vertices of near-model bake per frame, shared by every object waiting to
+  // leave its impostor (advanceNearStage).
+  int nearBakeBudget = 1024;
   // The game side of the object loop, lap by lap, for the render-cost capture
   // only (docs/profiling.md, "The game side of the object loop"). A lap is a
   // bare COUNT read - no drain - so the sections add up to the loop and sit
@@ -2014,7 +2027,26 @@ void TerrainGame::renderScene() {
         const float threshold = d.impostorDistance * (g.impostor ? .9F : 1.0F);
         far = dx*dx + dy*dy + dz*dz > threshold*threshold;
       }
-      if (far != g.impostor && impostorSwitchBudget > 0) {
+      // Back past the threshold before the full model was ready.
+      if (far == g.impostor && g.nearStaging) {
+        g.nearStage.clear();
+        g.nearStaging = g.nearStageDone = false;
+      }
+      // Far-to-near costs a whole-model bake (~3000 vertices for a grove
+      // tree, ms of EE). Spread it: the card keeps drawing while the arrays
+      // fill a frame's budget at a time, and the switch below waits for them.
+      bool switchNow = far != g.impostor;
+      if (switchNow && !far && nearStageEligible(i)) {
+        if (!g.nearStaging) {
+          g.nearStage.clear();
+          g.nearStagePart = g.nearStageVert = 0;
+          g.nearStaging = true;
+          g.nearStageDone = false;
+        }
+        if (!g.nearStageDone) g.nearStageDone = advanceNearStage(i, nearBakeBudget);
+        switchNow = g.nearStageDone;
+      }
+      if (switchNow && impostorSwitchBudget > 0) {
         --impostorSwitchBudget;
         g.impostor = far;
         if (DEBUG_SHOW_PROFILER)
@@ -2386,9 +2418,25 @@ void TerrainGame::renderScene() {
                                       : Vec4(ux, uy, uz, 0.0F);
     }
   }
+  // BLSS particles only (docs/upscaler.md): every emitter of the MAIN view
+  // draws into the reduced target, depth-tested against a quarter-area copy of
+  // the finished opaque scene, and is composited back where it drew. Not in
+  // split screen - each half is a scissored view of one buffer, so one
+  // full-screen copy cannot serve both. Skipped when nothing would draw: the
+  // two copies and the composite are not free.
+  bool blssParts = false;
+  if (BLSS_PARTICLES && !splitPassActive &&
+      engine->renderer.core.blss.isParticleMode())
+    for (ParticleSystem& ps : particles)
+      if (ps.bag && ps.bag->count > 0) { blssParts = true; break; }
+  if (blssParts) {
+    stapip.core.flushDeferred();  // queued stamps are opaque scene: draw them first
+    engine->renderer.core.blss.beginParticles();
+  }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) renderWorldBag(ps.bag.get());
 
+  if (blssParts) engine->renderer.core.blss.endParticles();
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
   costEnd("Particles",-1,costParticleStart);
   if (costSeq) {
@@ -2599,12 +2647,14 @@ void TerrainGame::renderMirroredObject(int index) {
   ObjectGeometry& g = objectGeometry[index];
   // Fast-path bodies hold local vertices under objMat - the copy composes
   // reflection * objMat, exactly like the animated path right below.
-  if (g.matrixMode) mirrorObjMat = mirrorMat * g.objMat;
+  // Shared instances (model-space bake under objMat) compose the same way.
+  const bool local = g.matrixMode || g.shared;
+  if (local) mirrorObjMat = mirrorMat * g.objMat;
   for (GeoPart& part : g.parts) {
     if (!part.bag) continue;
-    part.infoBag->model = g.matrixMode ? &mirrorObjMat : &mirrorMat;
+    part.infoBag->model = local ? &mirrorObjMat : &mirrorMat;
     renderObjectBag(index, part.bag.get());
-    part.infoBag->model = g.matrixMode ? &g.objMat : &model;
+    part.infoBag->model = local ? &g.objMat : &model;
   }
   if (g.animInfoBag && !g.animParts.empty()) {
     // The anim bags point at whatever updateAndRenderAnimObjects last
@@ -4719,12 +4769,22 @@ void TerrainGame::buildHighlightProxy(int index) {
 
   if (o.data.type == 5) {
     size_t total = 0;
-    for (const GeoPart& part : g.parts) total += part.vertices.size();
-    g.hullProxyVerts.reserve(total);
     for (const GeoPart& part : g.parts)
-      if (part.bag)
+      total += part.shared ? part.shared->vertices.size() : part.vertices.size();
+    g.hullProxyVerts.reserve(total);
+    for (const GeoPart& part : g.parts) {
+      if (!part.bag) continue;
+      if (part.shared) {
+        // The shells are drawn in WORLD space (renderOutlineShells scales
+        // them about the eye), so a shared instance's model-space bake goes
+        // through its objMat on the way in. Built once per rebuild.
+        for (const Vec4& v : part.shared->vertices)
+          g.hullProxyVerts.push_back(g.objMat * v);
+      } else {
         g.hullProxyVerts.insert(g.hullProxyVerts.end(), part.vertices.begin(),
                                 part.vertices.end());
+      }
+    }
   } else {
     SceneObjectData low = o.data;
     low.primDetail = 1;

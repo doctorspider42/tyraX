@@ -1,0 +1,1 @@
+{ "id": "83e065af8bcec17a", "name": "Building 1402", "type": "model", "position": [575.083, 0, -19.3472], "rotation": [0, 0, 0], "scale": [1.8317, 2.3983, 2.3803], "color": [1, 1, 1], "physics": false, "layer": "district-7-4", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

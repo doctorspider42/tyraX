@@ -1,0 +1,1 @@
+{ "id": "a2d2ca269899a381", "name": "Building 1040", "type": "model", "position": [304.873, 0, -274.988], "rotation": [0, 0, 0], "scale": [2.0174, 1.513, 2.5226], "color": [1, 1, 1], "physics": false, "layer": "district-5-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

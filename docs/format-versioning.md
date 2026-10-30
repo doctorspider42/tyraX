@@ -26,6 +26,13 @@ in `src/version.hpp`; the range is deliberately not restated here, for the same
 reason the per-version history is not (below) — a number copied into prose is a
 number that goes stale. The refusal messages quote the live values.
 
+## Combining additive development formats
+
+The road/traffic branch used formats 123..137 while the filtering branch used 123 for
+optional texture-filter keys. The combined writer uses 138 and keeps both
+sets of unconditional readers. Existing stamps need no destructive migration:
+missing keys retain their original defaults, and explicit values survive.
+
 ## What happens when you open a project
 
 TyraX 2.0 writes format **114**, combining TyraX2 settings through v113,

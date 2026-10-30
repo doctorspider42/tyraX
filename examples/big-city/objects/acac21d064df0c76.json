@@ -1,0 +1,1 @@
+{ "id": "acac21d064df0c76", "name": "Plinth 9-8 116", "type": "box", "position": [184.319, 0.135, 92.9402], "rotation": [0, 0, 0], "scale": [72.2115, 0.27, 70.0651], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-5-4", "drawDistance": 140, "castShadow": false }

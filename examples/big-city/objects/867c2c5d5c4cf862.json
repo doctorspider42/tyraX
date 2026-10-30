@@ -1,0 +1,1 @@
+{ "id": "867c2c5d5c4cf862", "name": "Building 845", "type": "model", "position": [112.584, 0, -78.3406], "rotation": [0, 0, 0], "scale": [3.6044, 1.7542, 1.9685], "color": [1, 1, 1], "physics": false, "layer": "district-4-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

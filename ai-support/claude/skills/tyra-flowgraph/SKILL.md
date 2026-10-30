@@ -191,6 +191,28 @@ node's description, and prefer the catalog over this file.
   writes its four params, `on`/`off`; a wired number overrides the first).
   **Restart Scene** reloads the scene (variables and save values survive).
   **Set Sound Volume** ducks sound effects (music has its own node).
+  **Set Weather** (Dry / Rain, intensity 0..1, transition seconds) makes it
+  rain round the camera; roads get wet over ~6 s and dry over ~40 s, puddles
+  fill by the kerbs (on roads with details) and mirror the street lamps and
+  every lit car's lamps. 0 seconds switches at once (wet roads included) - use
+  that from On Start. Live Logic can hot-patch it once the build already has
+  weather (a raining scene or another Set Weather). A scene's starting
+  weather is set in Scene Preferences, not with this node.
+- **On Red Light Run** (Player) fires when the PLAYER's car crosses a stop line
+  at traffic lights on red - once per crossing, never for ambient traffic;
+  number output = the car's speed then (units/s). Params: Node (-1 = any
+  signalled node, else the number `--road-lanes` prints), Min speed (0 = any).
+  Needs road traffic on (Preferences > World > Traffic, Ambient cars above 0)
+  and a signalled node, else it never fires. Hang a fine, a wanted level or a
+  HUD warning off it. docs/traffic.md.
+- **On Prop Broken** (Player) fires when the PLAYER's car knocks over a piece
+  of street furniture (lamp post, sign, bollard, traffic light, or a tree when
+  its road lets trees break) - once per prop; ambient/AI cars break props too
+  but never trigger it. Number output = speed at the hit (units/s). Params:
+  Kind (-1 any, 0 lamp, 1 tree, 2 bollard, 3 sign, 4 traffic light), Min speed
+  (0 = any). Needs a road whose Street furniture has Breakable on and a vehicle
+  in the project. Use it for scoring (-> Add To Save Value) or a "property
+  damage" HUD line. docs/roads.md "Breakable furniture".
 - **Buttons: prefer On Action** (an Input Map action - follows presets and the
   player's rebind) over On Button (raw pad button) and On Key (raw USB key) -
   those are for fixed debug/cheat keys.

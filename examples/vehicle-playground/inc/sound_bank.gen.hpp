@@ -8,10 +8,10 @@
 #include <audsrv.h>
 
 namespace soundbank {
-inline constexpr int SHARED_COUNT = 3;
-inline constexpr int SHARED[3] = {0, 2, 3};
-inline constexpr int SCENE_FIRST[4] = {0, 1, 1, 2};
-inline constexpr int SCENE_LIST[2] = {1, 1};
+inline constexpr int SHARED_COUNT = 4;
+inline constexpr int SHARED[4] = {0, 1, 2, 3};
+inline constexpr int SCENE_FIRST[4] = {0, 0, 0, 0};
+inline constexpr int SCENE_LIST[1] = {0};
 inline constexpr int SCENE_LAYER_BASE[4] = {0, 0, 0, 0};
 inline constexpr int LAYER_FIRST[1] = {0};
 inline constexpr int LAYER_LIST[1] = {0};
@@ -23,7 +23,7 @@ inline constexpr int BANK_LIST[1] = {0};
 // residency (loadScene). Until then - a terrain_game.cpp owned from
 // before the bank - the graphs load their own sounds into `own`.
 inline audsrv_adpcm_t** g_bank = nullptr;
-inline audsrv_adpcm_t* own[4] = {};
+inline audsrv_adpcm_t* own[5] = {};
 inline audsrv_adpcm_t* sample(int slot) {
   return g_bank ? g_bank[slot] : own[slot];
 }

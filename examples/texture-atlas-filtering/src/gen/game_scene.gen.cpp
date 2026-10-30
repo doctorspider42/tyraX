@@ -714,6 +714,17 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       // there and sucked fast walkers inside the mesh.
       const V3 pc = toLocal(prevX, feetY + eyeHeight * 0.5F, prevZ);
       const Vec4 prevLocal(pc.x, pc.y, pc.z, 1.0F);
+      const Vec4 upLocal(upL.x, upL.y, upL.z, 0.0F);
+      float fraction;
+      if (!doorway && gm->collider.sweepSphere(prevLocal, center,
+              playerRadius / sAvg, &fraction, nullptr, 0.7F, &upLocal)) {
+        const float t = fraction > 1e-4F ? fraction-1e-4F : 0.0F;
+        center.x = prevLocal.x + (center.x-prevLocal.x)*t;
+        center.y = prevLocal.y + (center.y-prevLocal.y)*t;
+        center.z = prevLocal.z + (center.z-prevLocal.z)*t;
+        const V3 w = toWorld({center.x,center.y,center.z});
+        *nextX=w.x; *nextZ=w.z;
+      }
       if (!doorway &&
           gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F,
                                      Vec4(upL.x, upL.y, upL.z, 0.0F),
@@ -769,6 +780,27 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     const float ex = cb.half[0], ey = cb.half[1], ez = cb.half[2];
     const float hx = ex + playerRadius;
     const float hz = ez + playerRadius;
+    struct WalkerBoxCache {
+      float key[10] = {}; bool valid = false;
+      V3 offset = {0,0,0}; float cosine = 1, sine = 0;
+    };
+    static std::vector<WalkerBoxCache> walkBoxes;
+    static unsigned walkGen = ~0u;
+    if (walkGen != sceneGeneration || walkBoxes.size() != runtimeObjects.size()) {
+      walkBoxes.assign(runtimeObjects.size(), WalkerBoxCache{}); walkGen = sceneGeneration;
+    }
+    WalkerBoxCache& cached = walkBoxes[(size_t)oi];
+    const float key[10] = {o.data.rotation[0],o.data.rotation[1],o.data.rotation[2],
+      cb.center[0],cb.center[1],cb.center[2],cb.half[0],cb.half[1],cb.half[2],cb.yaw};
+    bool same = cached.valid;
+    for (int k=0;k<10 && same;++k) same = key[k] == cached.key[k];
+    if (!same) {
+      for (int k=0;k<10;++k) cached.key[k] = key[k];
+      cached.offset = boxRotate({cb.center[0],cb.center[1],cb.center[2]},o.data);
+      const float yaw = (o.data.rotation[1]+cb.yaw)*PI/180.0F;
+      cached.cosine = cosf(yaw); cached.sine = sinf(yaw); cached.valid = true;
+    }
+
     // Far away, out before the rotation below (boxRotate is a handful of
     // sinf/cosf per object, and this loop runs per walker per frame): the
     // footprint test can only pass within its half-diagonal of the box
@@ -779,7 +811,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       const float off2 = cb.center[0] * cb.center[0] +
                          cb.center[1] * cb.center[1] +
                          cb.center[2] * cb.center[2];
-      const float reach = sqrtf(off2) + sqrtf(hx * hx + hz * hz);
+      const float mvx = *nextX-prevX, mvz = *nextZ-prevZ;
+      const float reach = sqrtf(off2) + sqrtf(hx * hx + hz * hz) + sqrtf(mvx*mvx+mvz*mvz);
       const float dx = *nextX - o.data.position[0];
       const float dz = *nextZ - o.data.position[2];
       if (dx * dx + dz * dz > reach * reach) continue;
@@ -787,8 +820,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // World box center: the model-AABB offset lives in the object's own frame,
     // so it rotates with the object (a primitive's offset is 0, so this is
     // just its position).
-    const V3 cWorld =
-        boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+    const V3 cWorld = cached.offset;
     const float cx = o.data.position[0] + cWorld.x;
     const float cy = o.data.position[1] + cWorld.y;
     const float cz = o.data.position[2] + cWorld.z;
@@ -812,8 +844,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // stuck inside them).
     // modelYaw rides along: it is a rotation about the same (model) Y, so for
     // the yaw-only frame the two simply add.
-    const float yaw = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
-    const float yawC = cosf(yaw), yawS = sinf(yaw);
+    const float yawC = cached.cosine, yawS = cached.sine;
     auto toLocalXZ = [&](float wx, float wz, float& lx, float& lz) {
       const float dx = wx - cx, dz = wz - cz;
       lx = dx * yawC - dz * yawS;
@@ -824,7 +855,21 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     toLocalXZ(prevX, prevZ, lpx, lpz);
 
     const bool nextInside = lnx > -hx && lnx < hx && lnz > -hz && lnz < hz;
-    if (!nextInside) continue;
+    if (!nextInside) {
+      if (!doorway && feetY + 0.5F < top && bottom < feetY + eyeHeight) {
+        const float p[2] = {lpx, lpz}, end[2] = {lnx, lnz};
+        const float mn[2] = {-hx, -hz}, mx[2] = {hx, hz};
+        float toi, sign; int axis;
+        if (Tyra::collisionSweepBox(p, end, mn, mx, 2, toi, axis, sign)) {
+          const float t = toi > 1e-4F ? toi - 1e-4F : 0.0F;
+          const float lx = lpx + (lnx-lpx)*t, lz = lpz + (lnz-lpz)*t;
+          *nextX = cx + lx*yawC + lz*yawS;
+          *nextZ = cz - lx*yawS + lz*yawC;
+        }
+      }
+      continue;
+    }
+
 
     const bool wasInsideX = lpx > -hx && lpx < hx;
     const bool wasInsideZ = lpz > -hz && lpz < hz;
@@ -877,6 +922,25 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       continue;
     const float headY = feetY + eyeHeight;
     const float stepY = feetY + 0.6F;
+    if (b.lhx > 0.0F) {
+      // An oriented wall (a bridge parapet or pier): the object boxes' rule
+      // in its own yaw frame - a low top is a step, overhead is ignored,
+      // anything else cancels the local axes that entered it.
+      if (b.mx[1] <= stepY || b.mn[1] >= headY) continue;
+      const float ocx = 0.5F * (b.mn[0] + b.mx[0]), ocz = 0.5F * (b.mn[2] + b.mx[2]);
+      const float ohx = b.lhx + playerRadius, ohz = b.lhz + playerRadius;
+      const float ndx = *nextX - ocx, ndz = *nextZ - ocz;
+      const float lnx = ndx * b.yc - ndz * b.ys, lnz = ndx * b.ys + ndz * b.yc;
+      if (!(lnx > -ohx && lnx < ohx && lnz > -ohz && lnz < ohz)) continue;
+      const float pdx = prevX - ocx, pdz = prevZ - ocz;
+      const float lpx = pdx * b.yc - pdz * b.ys, lpz = pdx * b.ys + pdz * b.yc;
+      const bool inX = lpx > -ohx && lpx < ohx, inZ = lpz > -ohz && lpz < ohz;
+      const float lx = inX && inZ ? lpx : (inX ? lnx : lpx);
+      const float lz = inX && inZ ? lpz : (inZ ? lnz : lpz);
+      *nextX = ocx + lx * b.yc + lz * b.ys;
+      *nextZ = ocz - lx * b.ys + lz * b.yc;
+      continue;
+    }
     if (b.mx[1] <= feetY + 0.01F || b.mn[1] >= headY) {
       // Entirely below the feet or above the head: it can still be the floor.
       if (b.mx[1] <= stepY && b.mx[1] > *ground && *nextX + playerRadius > b.mn[0] &&
@@ -1265,6 +1329,10 @@ void TerrainGame::loadScene(int sceneIndex) {
                         RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
+  // The old scene's instances let go of their pooled colours above; the
+  // pool's own references are the last ones.
+  colorPool.clear();
+  memStatCountdown = DEBUG_SHOW_MEM ? 0 : -1;  // MEMSTAT frame counter
   // The flashlight's receivers are indices into the table that just went away.
   flashSpotOffList.clear();
   // Pool slots start empty - data arrives from a template at spawn time.

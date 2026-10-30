@@ -1,0 +1,1 @@
+{ "id": "c40a802d3dd0fb7e", "name": "Building 1409", "type": "model", "position": [551.436, 0, 115.978], "rotation": [0, 0, 0], "scale": [1.6674, 1.5943, 2.6429], "color": [1, 1, 1], "physics": false, "layer": "district-7-4", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

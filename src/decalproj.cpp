@@ -10,6 +10,7 @@
 
 #include "objparser.hpp"
 #include "primmesh.hpp"
+#include "roadbridge.hpp"
 #include "roadgen.hpp"
 
 namespace decalproj {
@@ -309,6 +310,8 @@ std::shared_ptr<const std::vector<Tri>> roadTris(
         mixF(o.roadWidth), mixF(o.roadSampleStep), mixI(o.roadRank);
         mixF(o.roadGrip), mixF(o.roadSpill), mixF(o.roadEdgeFade);
         mixS(o.roadIntersectionTexture);
+        mixI(o.roadBridge ? 1 : 0);
+        for (float v : o.roadHeights) mixF(v);
     }
     for (const roadgen::JunctionOverride& j : s.roadJunctions) {
         mixS(j.roadA), mixS(j.roadB), mixF(j.x), mixF(j.z), mixI(j.winner);
@@ -348,20 +351,27 @@ std::shared_ptr<const std::vector<Tri>> roadTris(
         if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) continue;
         if (accept && !accept(o)) continue;
         const float lift = roadgen::rankLift(o.roadRank);
+        // The drawn surface receives (a bridge's deck, docs/roads.md
+        // "Bridges"); the node patches are fitted to the glued roads.
         std::vector<roadgen::Vertex> tris;
-        roadgen::tessellate(o.roadPoints, o.roadWidth,
-                            [&](float x, float z) { return ground(x, z) + lift; },
-                            tris, {}, o.roadSampleStep);
+        roadbridge::drawnRoad(o, ground, tris);
         for (size_t i = 0; i + 2 < tris.size(); i += 3) push(tris[i], tris[i + 1], tris[i + 2]);
+        if (o.roadBridge)
+            roadgen::tessellate(o.roadPoints, o.roadWidth,
+                                [&](float x, float z) { return ground(x, z) + lift; },
+                                tris, {}, o.roadSampleStep);
         all.insert(all.end(), tris.begin(), tris.end());
     }
-    const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(s.objects);
+    const std::vector<roadgen::CrossingRoad> cr =
+        project::crossingRoads(s.objects, nullptr, "", ground);
     if (cr.size() >= 2 && !all.empty()) {
         const roadgen::CrossingPlan plan = roadgen::planCrossings(cr, s.roadJunctions);
         for (const roadgen::Crossing& c : plan.crossings) {
             if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
             std::vector<roadgen::Vertex> patch;
-            roadgen::tessellateJunctionSurface(c.shape, all, ground, c.lift, patch);
+            roadgen::tessellateJunctionSurface(
+                c.shape, all, ground, c.lift, patch,
+                grid ? roadgen::terrainGridOf(s.hmW, s.hmD, w, d) : roadgen::TerrainGrid{});
             for (size_t i = 0; i + 2 < patch.size(); i += 3)
                 push(patch[i], patch[i + 1], patch[i + 2]);
         }

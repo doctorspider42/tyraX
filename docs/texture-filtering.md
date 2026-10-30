@@ -87,7 +87,7 @@ close-up members need it; pixel members simply never reach it).
   same page are the same `Texture*`.
 - **Editor.** `ProjectSettings::textureFilter` and `Project::textureFilters`
   (keyed by the texture's res path, stored beside `textureQuality`; project
-  format 123). The viewport applies `GL_NEAREST`/`GL_LINEAR` the same way to
+  format 123 on the filtering branch, format 138 in the combined road/physics build). The viewport applies `GL_NEAREST`/`GL_LINEAR` the same way to
   material and model colour textures only.
 
 ## Troubleshooting

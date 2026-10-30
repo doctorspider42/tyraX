@@ -1,0 +1,1 @@
+{ "id": "cb1a85037d190dd0", "name": "Building 360", "type": "model", "position": [-276.549, 0, -438.409], "rotation": [0, 0, 0], "scale": [2.4812, 1.1493, 2.523], "color": [1, 1, 1], "physics": false, "layer": "district-2-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

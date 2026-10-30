@@ -56,6 +56,9 @@ void TerrainGame::setupAnimObject(int index) {
   g.animMat.identity();
   g.animLightMat.identity();
   g.animInfoBag = std::make_unique<StaPipInfoBag>();
+  // Skinned: the torch's receiver pass never re-renders it (see
+  // PipelineInfoBag::torchPerPixel).
+  g.animInfoBag->torchPerPixel = false;
   g.animInfoBag->model = &g.animMat;
   g.animInfoBag->shadingType = TyraShadingGouraud;  // per-vertex lighting
   g.animInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
@@ -873,6 +876,25 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       continue;
     const float headY = feetY + eyeHeight;
     const float stepY = feetY + 0.6F;
+    if (b.lhx > 0.0F) {
+      // An oriented wall (a bridge parapet or pier): the object boxes' rule
+      // in its own yaw frame - a low top is a step, overhead is ignored,
+      // anything else cancels the local axes that entered it.
+      if (b.mx[1] <= stepY || b.mn[1] >= headY) continue;
+      const float ocx = 0.5F * (b.mn[0] + b.mx[0]), ocz = 0.5F * (b.mn[2] + b.mx[2]);
+      const float ohx = b.lhx + playerRadius, ohz = b.lhz + playerRadius;
+      const float ndx = *nextX - ocx, ndz = *nextZ - ocz;
+      const float lnx = ndx * b.yc - ndz * b.ys, lnz = ndx * b.ys + ndz * b.yc;
+      if (!(lnx > -ohx && lnx < ohx && lnz > -ohz && lnz < ohz)) continue;
+      const float pdx = prevX - ocx, pdz = prevZ - ocz;
+      const float lpx = pdx * b.yc - pdz * b.ys, lpz = pdx * b.ys + pdz * b.yc;
+      const bool inX = lpx > -ohx && lpx < ohx, inZ = lpz > -ohz && lpz < ohz;
+      const float lx = inX && inZ ? lpx : (inX ? lnx : lpx);
+      const float lz = inX && inZ ? lpz : (inZ ? lnz : lpz);
+      *nextX = ocx + lx * b.yc + lz * b.ys;
+      *nextZ = ocz - lx * b.ys + lz * b.yc;
+      continue;
+    }
     if (b.mx[1] <= feetY + 0.01F || b.mn[1] >= headY) {
       // Entirely below the feet or above the head: it can still be the floor.
       if (b.mx[1] <= stepY && b.mx[1] > *ground && *nextX + playerRadius > b.mn[0] &&
@@ -936,6 +958,82 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
 }
 
  // last quantized depth written
+
+// Sound effects in SPU2 sample RAM (docs/sound.md, "SPU2 sample RAM"): the
+// same need-based residency the layers use for models, for sounds. Loaded =
+// the shared sounds, the scene's own, each resident layer's and each sound
+// bank a graph loaded (sound_bank.gen.hpp); anything else is freed - the
+// engine first stops the voices playing it - and what is missing loads, all
+// at once behind a scene's loading screen and one sample a frame in play. The
+// forked audsrv reuses freed RAM wherever it lies, so the order layers and
+// banks come and go in does not matter.
+//
+// A terrain_game.cpp owned from before this filled `samples` with every sound
+// in init(): that table is adopted as it is and nothing is ever freed.
+namespace {
+int sndBankMode = 0;  // 0 not set up yet, 1 managed, -1 adopted (see above)
+int sndBankScene = -1;
+int sndBankSerial = -1;
+std::vector<unsigned char> sndLayersSeen;
+std::vector<int> sndQueue;  // slots still to load, in play
+}  // namespace
+
+static void applySoundResidency(Engine* engine, std::vector<audsrv_adpcm_t*>& samples,
+                                int scene, const std::vector<unsigned char>& layers,
+                                bool now) {
+  if (sndBankMode == 0) {
+    if (!samples.empty()) {
+      sndBankMode = -1;
+      soundbank::g_bank = samples.data();
+      return;
+    }
+    sndBankMode = 1;
+    samples.assign(SND_COUNT, nullptr);  // never resized again: g_bank points in
+    soundbank::g_bank = samples.empty() ? nullptr : samples.data();
+  }
+  if (sndBankMode != 1 || samples.empty()) return;
+  sndBankScene = scene;
+  sndBankSerial = soundbank::g_bankSerial;
+  sndLayersSeen = layers;
+  std::vector<unsigned char> need(samples.size(), 0);
+  auto mark = [&](const int* list, int first, int last) {
+    for (int k = first; k < last; ++k) need[list[k]] = 1;
+  };
+  mark(soundbank::SHARED, 0, soundbank::SHARED_COUNT);
+  mark(soundbank::SCENE_LIST, soundbank::SCENE_FIRST[scene], soundbank::SCENE_FIRST[scene + 1]);
+  const int lb = soundbank::SCENE_LAYER_BASE[scene];
+  const int lc = soundbank::SCENE_LAYER_BASE[scene + 1] - lb;
+  for (int l = 0; l < lc && l < (int)layers.size(); ++l)
+    if (layers[l])
+      mark(soundbank::LAYER_LIST, soundbank::LAYER_FIRST[lb + l],
+           soundbank::LAYER_FIRST[lb + l + 1]);
+  for (int b = 0; b < soundbank::BANK_COUNT; ++b)
+    if (soundbank::g_bankOn[b])
+      mark(soundbank::BANK_LIST, soundbank::BANK_FIRST[b], soundbank::BANK_FIRST[b + 1]);
+  // Frees first, so the loads below have the room.
+  for (int s = 0; s < (int)samples.size(); ++s)
+    if (!need[s] && samples[s]) engine->audio.adpcm.unload(samples[s]);
+  sndQueue.clear();
+  for (int s = 0; s < (int)samples.size(); ++s)
+    if (need[s] && !samples[s]) sndQueue.push_back(s);
+  if (!now) return;
+  for (const int s : sndQueue)
+    samples[s] = engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[s]));
+  sndQueue.clear();
+}
+
+// Per frame, in play: a layer streamed in or out, or a graph loaded or
+// unloaded a sound bank -> settle again; then load one waiting sample.
+static void tickSoundResidency(Engine* engine, std::vector<audsrv_adpcm_t*>& samples,
+                               const std::vector<unsigned char>& layers) {
+  if (sndBankMode != 1 || sndBankScene < 0) return;
+  if (layers != sndLayersSeen || soundbank::g_bankSerial != sndBankSerial)
+    applySoundResidency(engine, samples, sndBankScene, layers, false);
+  if (sndQueue.empty()) return;
+  const int s = sndQueue.front();
+  sndQueue.erase(sndQueue.begin());
+  if (!samples[s]) samples[s] = engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[s]));
+}
 
 // Switches the runtime state to a scene from scene_data.hpp and settles the
 // asset residency for it: everything the scene's start-resident layers need
@@ -1185,6 +1283,10 @@ void TerrainGame::loadScene(int sceneIndex) {
                         RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
+  // The old scene's instances let go of their pooled colours above; the
+  // pool's own references are the last ones.
+  colorPool.clear();
+  memStatCountdown = DEBUG_SHOW_MEM ? 0 : -1;  // MEMSTAT frame counter
   // The flashlight's receivers are indices into the table that just went away.
   flashSpotOffList.clear();
   // Pool slots start empty - data arrives from a template at spawn time.
@@ -1395,6 +1497,10 @@ void TerrainGame::loadScene(int sceneIndex) {
 
   buildParticles();
 
+  // A sound bank lasts until the scene ends.
+  for (int b = 0; b < soundbank::BANK_COUNT; ++b) soundbank::setBank(b, false);
+  applySoundResidency(engine, sndSamples, sceneIndex, layerTarget, true);
+
   // Sound emitters: fresh retrigger state; mute the emitter channels (an
   // ADPCM sample can't be stopped - it plays out, but silently). Both cores'
   // sets, because a room can have moved the emitters onto either bus.
@@ -1457,6 +1563,7 @@ void TerrainGame::loadScene(int sceneIndex) {
 // sndOnPlayer emitters skip all of that: full volume, centered - they play
 // "on the player" wherever they are (dialogs, narration). Hiding it mutes.
 void TerrainGame::updateSoundEmitters() {
+  tickSoundResidency(engine, sndSamples, layerTarget);
   if (sndSamples.empty()) return;
   // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
   // Whatever is in flight plays out - an ADPCM voice cannot be stopped - so
@@ -4281,7 +4388,6 @@ void TerrainGame::buildStarField() {
     sb.info->fullClipChecks = false;
     sb.info->fogDisabled = true;    // past the fog end, like the dome
     sb.info->dynLightPick = false;  // a torch must not tint the sky
-    sb.info->blssProxy = false;     // a camera-centred shell, like the dome
     sb.info->additiveBlendFix = 128;
     sb.colorBag = std::make_unique<StaPipColorBag>();
     sb.colors.bind(sb.colorBag);
@@ -4438,10 +4544,6 @@ void TerrainGame::setupSkyBodies() {
     b.info->fogDisabled = true;
     // Centred on the camera like the dome: a nearby torch must not tint the sun.
     b.info->dynLightPick = false;
-    // ...and it rides the dome, so it is a shell fragment too - see the dome's
-    // blssProxy. A disc at 94% of the dome radius has a w range the upscaler
-    // would read as "the far plane, everywhere it covers".
-    b.info->blssProxy = false;
     b.info->fullClipChecks = true;  // crosses the screen edge constantly
     if (additive) b.info->additiveBlendFix = 128;
     else b.info->blendingEnabled = true;

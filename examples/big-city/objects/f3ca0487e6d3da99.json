@@ -1,0 +1,1 @@
+{ "id": "f3ca0487e6d3da99", "name": "Building 443", "type": "model", "position": [-193.998, 0, -573.811], "rotation": [0, 0, 0], "scale": [1.4129, 1.8217, 1.9032], "color": [1, 1, 1], "physics": false, "layer": "district-3-1", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

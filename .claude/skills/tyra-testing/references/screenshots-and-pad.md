@@ -132,3 +132,4 @@ tyrax-editor --replay-dump recordings/smoke.tyrarep [firstFrame lastFrame]
 
 - Two-player (docs/multiplayer.md): two Player objects + pause menu with "Player count" → `--pad <dir> "press start; wait 0.5; press cross"`, screenshot: full screen ↔ top/bottom split (or pulled-back shared camera).
 - Flow-graph `On Button`/`On Action` triggers: `--pad <dir> "press cross"` — don't rewire to `On Start` / `Every N Seconds` just to test. Still human-only: mouse FEEL, analog ramps judged by eye, clicking the editor's on-screen pad (writes through the same `livepad::write`) — say so in the commit.
+- `Select-Object -First N` on a PowerShell script's output STOPS the script after N lines - a capture loop piped into it takes one shot and quits.

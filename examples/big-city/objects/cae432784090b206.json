@@ -1,0 +1,1 @@
+{ "id": "cae432784090b206", "name": "Building 1191", "type": "model", "position": [395.582, 0, 93.4057], "rotation": [0, 0, 0], "scale": [2.3098, 1.366, 2.718], "color": [1, 1, 1], "physics": false, "layer": "district-6-4", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

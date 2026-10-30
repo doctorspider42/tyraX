@@ -82,7 +82,7 @@ Sibling skills: **tyra-engine-dev** (the PS2 engine fork in `vendor/tyra`), **ty
 
 ### 4. Twins and oracles
 
-The editor and the PS2 game compute many things twice (host C++ for preview/bake, generated C++ for the console). **Change a formula -> find and change its twin in the same commit.** Known twin sets: viewport shading `SHADE_COMMON` vs generated shading; terrain splat + `tintNoise2`; `occShapeAt`/`aoShadeMul`/`shapeBlocksRay` (host, game, viewport FS); `seqCameraUp` (3-way); `ambience::evaluate` vs `daynight.gen.hpp`; `scrollsim` vs `scroller.gen.cpp`; `procgen` vs `procrt` emitted evaluator; `roadgen` (list + strips) vs `buildRoads`; `vehiclesim` vs the vehicle runtime; `staticbatch` vs `buildStaticBatchList`; `menulayout`/`menubake` text vs runtime `drawFontText`/icons; `hudanim.hpp`; `livedbg`/`livetime`/`livepad`/`livereplay` layouts vs generated runtimes; `tmdl` writer vs `TmdlLoader`; `project::tripleBufferingFit` vs `allocateVramBuffers`; `blssClashes()` vs `blssClashesFor`. Mechanical oracles exist for some: `verify-road-twins.py`, `verify-batch-twins.py`, `--gi-gpu-check`, `--vu-check`/`--vu-replay`, `tools/bag-array-enforcement.sh`, `--audit-release`.
+The editor and the PS2 game compute many things twice (host C++ for preview/bake, generated C++ for the console). **Change a formula -> find and change its twin in the same commit.** Known twin sets: viewport shading `SHADE_COMMON` vs generated shading; terrain splat + `tintNoise2`; `occShapeAt`/`aoShadeMul`/`shapeBlocksRay` (host, game, viewport FS); `seqCameraUp` (3-way); `ambience::evaluate` vs `daynight.gen.hpp`; `scrollsim` vs `scroller.gen.cpp`; `procgen` vs `procrt` emitted evaluator; `roadgen` (list + strips) vs `buildRoads`; `vehiclesim` vs the vehicle runtime; `staticbatch` vs `buildStaticBatchList`; `menulayout`/`menubake` text vs runtime `drawFontText`/icons; `hudanim.hpp`; `livedbg`/`livetime`/`livepad`/`livereplay` layouts vs generated runtimes; `tmdl` writer vs `TmdlLoader`; `project::tripleBufferingFit` vs `allocateVramBuffers`; `blssClashes()` vs `blssClashesFor`; `roadfurn`'s sign rule vs `bakeMarkings`' giving-way rule. The road network's runtime cores (`roadstream_core.inl`, `traffic_core.inl`, `weather_core.inl`) are ONE source compiled into the editor AND pasted into the game (vehicles-and-roads.md). Mechanical oracles exist for some: `verify-road-twins.py`, `verify-batch-twins.py`, `--gi-gpu-check`, `--vu-check`/`--vu-replay`, `tools/bag-array-enforcement.sh`, `--audit-release`, `--vehicle-check` (its road sections also count every road codegen hook).
 
 ### 5. Platform parity and paths
 
@@ -116,9 +116,9 @@ The editor and the PS2 game compute many things twice (host C++ for preview/bake
 | `scene-objects-and-gameplay.md` | New object types, marker skip lists, collision, invisible walls, comments/screen icons, object groups, areas (live catch, reverb, sound voices), scroller, physics + hulls, placement, optional terrain, portals, cutscenes, camera takes, phone camera |
 | `game-screens-menus-text.md` | Menus/option blocks, stylesheets/layout/widescreen, fonts, glyph atlases, inline icons, HUD, credits rolls, memory-card save system, VRAM rule for game textures |
 | `lighting-and-bakes.md` | AO/lightmaps, GI + GPU GI + probes, matbake, model AO, pre-lit, baked shadows, blob shadows, occlusion culling, reflection scenery, decals, ambience/day-night, grading, stars, painted sky |
-| `runtime-rendering-and-meshes.md` | Static batching invariants + twin, `dirty`/matrix path, coarse boxes, `BagArray`/`contentVersion`/`bboxVersion`, VU1-lit bags, triple buffering/headroom, motion blur, submission scopes, impostors/proxies/env maps, tmdl/meshlod/meshstrip/texatlas/texbake/stochtile, `.mtl` features, particles |
+| `runtime-rendering-and-meshes.md` | Static batching invariants + twin, `dirty`/matrix path, coarse boxes, `BagArray`/`contentVersion`/`bboxVersion`, VU1-lit bags, triple buffering/headroom, motion blur, submission scopes, impostors/proxies/env maps, tmdl/meshlod/meshstrip/texatlas/texbake/stochtile, `.mtl` features, particles, instance sharing (`INSTANCE_SHARING`) |
 | `procedural-and-prefabs.md` | Procedural graph/evaluator/bake/runtime, frozen bakes, placement filter, the Procedural window, prefabs, runtime-generated chunks (ProcChunk, Blocks AO) |
-| `vehicles-and-roads.md` | Vehicle bake/sim/runtime (strips, far tiers, glass, damage, exhaust, lamps, sound, controls card, tuning inheritance, editor preview), roads (span reduction, strips, junctions, crossings, editing) |
+| `vehicles-and-roads.md` | Vehicle bake/sim/runtime (strips, far tiers, glass, damage, exhaust, lamps, sound, controls card, tuning inheritance, editor preview), roads (span reduction, strips, junctions, crossings, editing), the road network (nodes, kerbs, pavements, rails, bridges, details, street furniture + breakable, streaming + tables on disk, traffic, weather + lit lamps, road textures, Draw road tool + presets) |
 | `devkit-runner-and-network.md` | Zero-cost devkit rule + release audit, Live Link/Logic/Debugger, time machine, Remote Pad, input recorder, texture hot reload, error catcher, hardware timeline, the Runner (incrementality, ps2link ownership, PCSX2 paths), session log, collaboration session and `wire` transports |
 | `assets-import-animation.md` | Asset Browser, model importer, glb/fbx parsing, clip edits, animation import/bone mapping/retargeting, UV unwrap, tree generator |
 | `ai-features.md` | AI flow-graph generation backends, the AI Assistant (prompt, tools, search, compaction, chat store, acting loop), AI support files |
@@ -129,7 +129,8 @@ The editor and the PS2 game compute many things twice (host C++ for preview/bake
 
 ## TyraX 2.0 integration
 
-The editor is 2.0.0; the combined project format is 114. Read
+Read the current editor and project-format versions from `src/version.hpp`.
+The TyraX2 notes describe the historical2.0/114 integration. Read
 [TyraX2 integration notes](references/tyrax2-integration.md) before changing
 frame ownership, pipeline recording or the associated acceptance tooling.
 The TyraX2 performance investigation is closed: the notes summarise its

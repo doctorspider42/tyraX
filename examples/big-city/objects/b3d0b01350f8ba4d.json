@@ -1,0 +1,1 @@
+{ "id": "b3d0b01350f8ba4d", "name": "Building 602", "type": "model", "position": [-113.723, 0, -252.11], "rotation": [0, 0, 0], "scale": [1.9336, 1.618, 2.6233], "color": [1, 1, 1], "physics": false, "layer": "district-3-3", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

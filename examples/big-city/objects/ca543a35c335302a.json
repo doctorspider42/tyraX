@@ -1,0 +1,1 @@
+{ "id": "ca543a35c335302a", "name": "Building 40", "type": "model", "position": [-566.77, 0, -296.397], "rotation": [0, 0, 0], "scale": [1.9168, 1.7195, 2.5583], "color": [1, 1, 1], "physics": false, "layer": "district-1-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

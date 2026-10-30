@@ -37,6 +37,8 @@ What it may do is the **mode** above the input - *Ask only* (read-only),
 each reply is stamped with the mode it was asked in. In *Edit project* it can:
 
 - add, duplicate, change and delete objects;
+- draw roads through points with the Draw road tool's snapping and presets
+  (`draw_road`, [roads.md](roads.md) "Drawing roads");
 - write flow and procedural graphs;
 - add or remove scenes;
 - edit menus, ambience, loading screens, HUD, input, saves and other sections;

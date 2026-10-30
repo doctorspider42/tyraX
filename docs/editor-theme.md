@@ -266,6 +266,11 @@ A few things worth knowing because they are decisions rather than defaults:
   parenthesis as a smaller dim second line. A solid object's sections sit on
   three quiet tabs - **Object**, **Material**, **Physics** (`Object##ptab`...),
   accent-underlined, no tab fill - and the choice sticks for the session.
+  A **Road** goes further and shows itself ([roads.md](roads.md#properties)):
+  Road | Edges | Furniture | Junctions tabs with a cross-section, an edge
+  drawing, a plan and a deck profile whose handles drag the values, choices as
+  segmented controls and picture tiles, and settings grouped on inset cards -
+  the "picture inspector kit" in `src/widgets.hpp`.
   Colours are a swatch with a picker and a #RRGGBB field (`ui::ColorHex`),
   the 0-255 fields one arrow away. Sections are titled in the heading cut over
   a hairline (`ui::Section`), not a tinted band.

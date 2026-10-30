@@ -1,0 +1,1 @@
+{ "id": "6d819de43e8af440", "name": "Building 927", "type": "model", "position": [157.571, 0, -275.632], "rotation": [0, 0, 0], "scale": [2.0979, 1.6985, 2.7562], "color": [1, 1, 1], "physics": false, "layer": "district-5-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

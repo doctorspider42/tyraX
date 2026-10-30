@@ -43,6 +43,12 @@ tyrax-editor.exe --search-docs "<query>" [page]
   project data without building (no Docker). The fast way to check what a
   data change does to the code; dangling references show up as
   `// node N: unknown ...` comments in `src/gen/flow_graph.gen.cpp`.
+- **`--draw-road`** — lay a road through world XZ points with the Draw road
+  tool's own snapping (a road's end, its centre line: corners, T's and
+  crossings form by themselves) and a preset for its whole look, then save
+  ([roads.md](roads.md), "Drawing roads"). The in-editor assistant has the same
+  path as its `draw_road` tool, which is how a city generator or an agent lays
+  out a street network without computing junctions.
 - **`--ai-graph`** — the whole [AI generation pipeline](ai-flow-graph.md)
   headlessly. The prompt argument is a file path if one exists, literal text
   otherwise. An existing graph goes into the prompt automatically and the

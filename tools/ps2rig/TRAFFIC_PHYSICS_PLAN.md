@@ -151,10 +151,36 @@ keys), src/game_templates.inc (texture filtering AND shared-part binding),
 src/project.hpp (recompute BOTH platform sizeof assertions), src/version.hpp
 (union additive formats and advance beyond137), and CHANGELOG.md. Other
 conflicts are generated examples/directory-rename fallout: regenerate rather
-than trust textual fixes. This is a preview only; no PR merge has occurred.
+than trust textual fixes. This preview was followed by the checked integration recorded below.
 
 Next work: integrate the traffic dependencies on the SAME branch, preserve
 physics/filtering behavior and platform twins, build/regenerate, then profile
 1/3/5/10/13 vehicles on the console with quiet normal-clock frame measurement.
 Define5HQ as TOTAL including the player. Keep small-stack post-writeback/sleep
 diagnostics outstanding; the reproduced corner bug is only partially qualified.
+
+## Traffic dependency integration checkpoint
+
+PR285 at8fc9f33a is merged into the collision branch after resolving source
+conflicts and regenerating physics-playground, texture-atlas-filtering,
+vehicle-playground and big-city. The combined editor is2.5.0, format138.
+The two independently additive format123 families retain both readers;
+round-trip preserves traffic and filtering, and139 is refused without writes.
+Windows Release builds; Linux libstdc++ validates ProjectSettings1008 bytes;
+libc++912 is updated by its string-size delta but remains uncompiled.
+
+The first host vehicle check caught four breakable-furniture codegen failures:
+the PR searched for the obsolete eight-entry prop array. The hook now anchors
+on the count, preserving the uncapped vector; all properties,11 furniture hooks
+and6 traffic hooks pass. Native FPP Motor District builds with fresh assets
+and a clean release audit. The SAME ELF boots in PCSX2 software rendering,
+with traffic initialized and a captured scene. Seven orbit runtime/data files
+also pass PS2 syntax checks with vehicles, traffic and breakable furniture.
+See `results/traffic-merge-2026-10-30.*` for hashes, raw logs and inputs.
+
+This is composition/boot validation, not a new hardware performance result.
+The sample has three authored vehicles and three traffic slots. Console
+1/3/5/10/13 scaling, five HQ TOTAL plus5..8 genuinely lowpoly near cars,
+exclusive stage attribution, motion/quality checks and quiet normal-clock
+measurement remain NEXT. Private shared vehicle solving/face patches are not
+silently promoted by this merge. Small-stack final geometry/sleep is still open.

@@ -8,7 +8,11 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadbridge.hpp"
+#include "roaddetail.hpp"
 #include "roadgen.hpp"
+#include "roadpresets.hpp"
+#include "roadrail.hpp"
 #include "theme.hpp"
 #include "toolkit.hpp"
 #include "widgets.hpp"
@@ -496,6 +500,17 @@ void App::drawPropertiesWindow() {
         const ImVec2 tp = ImGui::GetCursorScreenPos();
         const ImVec4 tc(o.color[0], o.color[1], o.color[2], 1.0f);
         const float r = ImGui::GetStyle().FrameRounding + 2.0f;
+        if (o.type == PrimitiveType::Road) {
+            // A road's colour is not something it shows: its tile is the road
+            // glyph on the accent, like a tool's header.
+            ImVec4 a = theme::semantics().accent;
+            hdl->AddRectFilled(tp, ImVec2(tp.x + headTile, tp.y + headTile), ImGui::GetColorU32(ImVec4(a.x, a.y, a.z, 0.16f)), r);
+            ui::DrawGlyph(hdl, ui::Glyph::Road, ImVec2(tp.x + headTile * 0.5f, tp.y + headTile * 0.5f), headTile * 0.5f,
+                          ImGui::GetColorU32(a));
+            ImGui::Dummy(ImVec2(headTile, headTile));
+            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 1.5f);
+            ImGui::BeginGroup();
+        } else {
         hdl->AddRectFilled(tp, ImVec2(tp.x + headTile, tp.y + headTile), ImGui::GetColorU32(tc), r);
         hdl->AddRectFilledMultiColor(tp, ImVec2(tp.x + headTile, tp.y + headTile), IM_COL32(255, 255, 255, 30),
                                      IM_COL32(255, 255, 255, 0), IM_COL32(0, 0, 0, 70), IM_COL32(0, 0, 0, 30));
@@ -506,6 +521,7 @@ void App::drawPropertiesWindow() {
         ImGui::Dummy(ImVec2(headTile, headTile));
         ImGui::SameLine(0.0f, ImGui::GetStyle().ItemSpacing.x * 1.5f);
         ImGui::BeginGroup();
+        }
     }
     char nameBuf[128];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", o.name.c_str());
@@ -550,7 +566,9 @@ void App::drawPropertiesWindow() {
         // What it is, under the name. A shape's type is still the Type combo
         // below (it is editable); everything else only states it here.
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + scaled(4.0f));
-        if (o.editorGroup.empty())
+        if (o.type == PrimitiveType::Road)
+            ImGui::TextDisabled("%s", roadSubtitle(o).c_str());
+        else if (o.editorGroup.empty())
             ImGui::TextDisabled("%s", typeLabel(o.type));
         else
             ImGui::TextDisabled("%s  ·  group %s", typeLabel(o.type), o.editorGroup.c_str());
@@ -956,183 +974,11 @@ void App::drawPropertiesWindow() {
     // Scale/color are the marker's own - it has no geometry in the game.
     const bool isScroller = o.type == PrimitiveType::Scroller;
     const bool isRoad = o.type == PrimitiveType::Road;
-    if (isRoad) {
-        ImGui::TextDisabled(
-            "Road: a spline through the points below, tessellated onto the "
-            "terrain at boot.");
-        ImGui::SetNextItemWidth(scaled(220));
-        ui::SliderFloat("Width", &o.roadWidth, 1.0f, 24.0f, "%.1f");
-        prefHelp("Full width of the surface, world units.");
-        ImGui::SetNextItemWidth(scaled(220));
-        if (ui::SliderFloat("Longitudinal spacing", &o.roadSampleStep,
-                               1.0f, 2.0f, "%.2f m"))
-            committed = true;
-        prefHelp(
-            "Distance between geometry rows along the spline. 1 m follows\n"
-            "sharp terrain folds most closely; up to 2 m reduces road\n"
-            "triangles and VU1 packages. Inspect crests and tight bends.");
-        ImGui::SetNextItemWidth(scaled(220));
-        if (ui::SliderFloat("Surface grip", &o.roadGrip, 0.1f, 1.5f, "%.2f"))
-            committed = true;
-        prefHelp(
-            "Tyre grip on this road, multiplying every vehicle's own grip:\n"
-            "1 = asphalt, ~0.7 gravel, ~0.3 ice. A junction takes the lower\n"
-            "of its two roads. Terrain off the road uses each vehicle's\n"
-            "Off-road grip instead.");
-        if (drawRoadSurfaceCombo("Surface material", "road-surface",
-                                 o.roadTexture))
-            committed = true;
-        prefHelp(
-            "A project material; its first map_Kd is tiled along the road -\n"
-            "one repeat per 4 units, so one small texture carries a street of\n"
-            "any length. Direct PNG references from older projects still work.\n"
-            "Empty = untextured grey.");
-        if (drawRoadSurfaceCombo("Intersection material", "road-intersection",
-                                 o.roadIntersectionTexture))
-            committed = true;
-        prefHelp(
-            "When two roads of the SAME rank cross and both name this same\n"
-            "non-empty material, TyraX generates a terrain-hugging junction\n"
-            "patch at build time. Different ranks never make a patch: the\n"
-            "higher road runs through. Old direct PNG references remain\n"
-            "supported.");
-        {
-            static const char* kRanks[] = {"Track", "Local", "Main"};
-            ImGui::SetNextItemWidth(scaled(220));
-            if (ui::Combo("Rank", &o.roadRank, kRanks, 3)) committed = true;
-            prefHelp(
-                "Which road wins a crossing. A higher rank runs straight\n"
-                "through and covers the lower one - a mud track stops at the\n"
-                "asphalt's edge instead of fighting it. Equal ranks meet in\n"
-                "an intersection-material junction, as before.");
-            ImGui::SetNextItemWidth(scaled(220));
-            if (ui::SliderFloat("Spill onto higher roads", &o.roadSpill, 0.0f,
-                                   8.0f, "%.1f units"))
-                committed = true;
-            prefHelp(
-                "Where this road crosses a higher-rank one, its surface carries\n"
-                "on over the higher road's edge for this far and fades out -\n"
-                "mud trailed onto the asphalt. Grip fades with it. 0 = a clean\n"
-                "edge. No effect against equal or lower ranks.");
-            ImGui::SetNextItemWidth(scaled(220));
-            if (ui::SliderFloat("Edge fade", &o.roadEdgeFade, 0.0f, 4.0f,
-                                   "%.1f units"))
-                committed = true;
-            prefHelp(
-                "Soft edges: the outer this-many units on each side fade into\n"
-                "the terrain instead of ending in a hard line - a dirt track.\n"
-                "Snaps to the road's 0.5-unit lateral grid; the grip fades to\n"
-                "the terrain's with it. A texture whose alpha is ragged at the\n"
-                "edges makes it look organic. 0 = the hard edge.");
-        }
-        // This road's crossings (docs/roads.md, "Junction overrides"): the
-        // plan the build uses, one button each - the same junction the
-        // viewport diamond selects.
-        if (ImGui::CollapsingHeader("Crossings")) {
-            const roadgen::CrossingPlan& plan = sceneCrossings();
-            const auto& objs = project_.objects();
-            int shown = 0;
-            for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
-                const roadgen::Crossing& c = plan.crossings[ci];
-                const bool mineA = crossingRoadList_[(size_t)c.a].id == o.id;
-                const bool mineB = crossingRoadList_[(size_t)c.b].id == o.id;
-                if (!mineA && !mineB) continue;
-                ++shown;
-                const SceneObject& other =
-                    objs[(size_t)crossingRoadObj_[(size_t)(mineA ? c.b : c.a)]];
-                const char* what = c.kind == roadgen::kCrossPatch     ? "patch"
-                                   : c.kind == roadgen::kCrossThrough
-                                       ? (c.winner == (mineA ? c.a : c.b) ? "runs through"
-                                                                          : "covered")
-                                       : "overlap";
-                const std::string label = "Junction with " + other.name + " (" + what +
-                                          (c.override >= 0 ? ", override" : "") +
-                                          ")##junction" + std::to_string(ci);
-                if (ImGui::Button(label.c_str())) selectJunction((int)ci);
-            }
-            const auto& ovs = project_.active().roadJunctions;
-            for (size_t oi = 0; oi < ovs.size() && oi < plan.overrideCrossing.size(); ++oi) {
-                if (plan.overrideCrossing[oi] >= 0) continue;
-                if (ovs[oi].roadA != o.id && ovs[oi].roadB != o.id) continue;
-                ++shown;
-                ImGui::TextColored(theme::semantics().danger, "Orphaned junction override");
-                ImGui::SameLine();
-                if (ImGui::SmallButton(("Show##orphan" + std::to_string(oi)).c_str()))
-                    selectJunction(-2 - (int)oi);
-            }
-            if (shown == 0) ImGui::TextDisabled("No crossings on this road");
-        }
-        // The points, world-space XZ. A table, not a gizmo (yet): blunt but
-        // complete - insert after, remove, drag both axes.
-        if (ImGui::CollapsingHeader("Points", ImGuiTreeNodeFlags_DefaultOpen)) {
-            bool loop = roadgen::isClosed(o.roadPoints);
-            if (roadgen::controlCount(o.roadPoints) >= 3 && ui::Switch("Closed loop", &loop)) {
-                if (loop) {
-                    const float x = o.roadPoints[0], z = o.roadPoints[1];
-                    o.roadPoints.insert(o.roadPoints.end(), {x, z});
-                } else {
-                    o.roadPoints.resize(o.roadPoints.size() - 2);
-                }
-                o.roadHeights.clear();
-                committed = true;
-            }
-            int removeAt = -1, insertAfter = -1;
-            const int np = roadgen::controlCount(o.roadPoints);
-            for (int i = 0; i < np; ++i) {
-                ImGui::PushID(i);
-                float* px = &o.roadPoints[(size_t)i * 2];
-                ImGui::SetNextItemWidth(scaled(170));
-                if (ui::DragFloat2(("Point " + std::to_string(i + 1)).c_str(), px,
-                                      0.25f, 0.0f, 0.0f, "%.1f")) {
-                    if (loop && i == 0) {
-                        o.roadPoints[o.roadPoints.size() - 2] = o.roadPoints[0];
-                        o.roadPoints.back() = o.roadPoints[1];
-                    }
-                    o.roadHeights.clear();
-                }
-                committed |= ImGui::IsItemDeactivatedAfterEdit();
-                ImGui::SameLine();
-                if (ImGui::SmallButton("+")) insertAfter = i;
-                ImGui::SameLine();
-                if (np > (roadgen::isClosed(o.roadPoints) ? 3 : 2) && ImGui::SmallButton("-")) removeAt = i;
-                ImGui::PopID();
-            }
-            if (insertAfter >= 0) {
-                // Midway to the next point (or extended past the end).
-                const size_t at = (size_t)(insertAfter + 1) * 2;
-                float nx, nz;
-                if (insertAfter + 1 < np || roadgen::isClosed(o.roadPoints)) {
-                    nx = 0.5f * (o.roadPoints[at - 2] + o.roadPoints[at]);
-                    nz = 0.5f * (o.roadPoints[at - 1] + o.roadPoints[at + 1]);
-                } else {
-                    nx = 2.0f * o.roadPoints[at - 2] - o.roadPoints[at - 4];
-                    nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
-                }
-                o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
-                o.roadHeights.clear();
-                committed = true;
-            }
-            if (removeAt >= 0 && roadgen::removeControl(o.roadPoints, removeAt)) {
-                o.roadHeights.clear();
-                committed = true;
-            }
-        }
-        if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport"))
-            roadEdit_ = !roadEdit_;
-        prefHelp(
-            "Click the ground to APPEND a point, click a point to DRAG it,\n"
-            "click the line between points to INSERT one there.\n"
-            "Shift+click a marker to DELETE it. Drag the final point onto\n"
-            "the first and release to CLOSE a loop. Uncheck Closed loop\n"
-            "to reopen it. Esc stops; Ctrl+Z undoes each operation.");
-        ImGui::SameLine();
-        if (ImGui::Button("Align terrain to road"))
-            alignTerrainToRoad(selectedObject_);
-        prefHelp(
-            "Flattens the heightfield to the road's interpolated line -\n"
-            "the surface under the asphalt becomes the asphalt's own grade,\n"
-            "with a smooth shoulder falloff. Undoable like any edit.");
-    }
+    // A Road draws its own tabbed page (src/roaddraw_ui.cpp, docs/roads.md
+    // "Properties"); its cosmetic Position lives in that page's Advanced fold,
+    // and the generic Scripts section below joins its first tab only.
+    if (isRoad && drawRoadProperties(o)) committed = true;
+    const bool roadOtherTab = isRoad && roadTab_ != 0;
     if (isScatter) {
         ImGui::TextDisabled(
             "Procedural region: position and scale are the box the graph fills.");
@@ -1147,7 +993,7 @@ void App::drawPropertiesWindow() {
                             (unsigned)o.procGraph.seed);
     }
 
-    if (section("Transform", true)) {
+    if (!isRoad && section("Transform", true)) {
         ui::AxisDrag3("Position", o.position, 0.1f);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // custom emitters rotate too - the rotation aims the emission direction
@@ -2974,7 +2820,7 @@ void App::drawPropertiesWindow() {
     // runs as five independent instances, each seeing its object as `self`.
     // ...but not on a comment: an editor note has no behaviour to attach
     // anything to, and the game never sees the object at all.
-    if (!isComment && section("Scripts", true)) {
+    if (!isComment && !roadOtherTab && section("Scripts", true)) {
         if (!isSolid) ImGui::SeparatorText("Scripts");
         const std::vector<std::string> registered = objectScriptNames();
         auto isRegistered = [&](const std::string& n) {

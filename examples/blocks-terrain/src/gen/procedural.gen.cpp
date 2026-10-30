@@ -562,6 +562,9 @@ const char* const pAssetNames_0[] = {"res/models/block-snow.obj", "res/models/bl
 const char* const pPrefabNames_0[] = {0};
 short pAssets_0[5] = {0};
 short pPrefabs_0[1] = {0};
+const char* const pLodNames_0[] = {0, 0, 0, 0, 0};
+const float pLodDist_0[] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+short pLodSlots_0[5] = {0};
 }  // namespace
 
 namespace procrt {
@@ -586,8 +589,23 @@ short* volumePrefabSlots(int v) {
   return 0;
 }
 
+const char* const* volumeLodNames(int v) {
+  if (v == 0) return pLodNames_0;
+  return 0;
+}
+
+const float* volumeLodDist(int v) {
+  if (v == 0) return pLodDist_0;
+  return 0;
+}
+
+short* volumeLodSlots(int v) {
+  if (v == 0) return pLodSlots_0;
+  return 0;
+}
+
 const VolumeDef VOLUMES[] = {
-  { 0, 1, "world", 24.0f, 0.0f, 0, 1, 0, 7u, 12000, 1, pAssets_0, 5, pPrefabs_0, 0 },
+  { 0, 1, "world", 24.0f, 0.0f, 0, 1, 0, 7u, 12000, 1, pAssets_0, 5, pPrefabs_0, 0, 0 },
 };
 
 int generate(int volume, Ctx& c) {

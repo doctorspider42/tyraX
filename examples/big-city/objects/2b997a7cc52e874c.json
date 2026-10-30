@@ -1,0 +1,1 @@
+{ "id": "2b997a7cc52e874c", "name": "Plinth 8-3 98", "type": "box", "position": [80.9025, 0.135, -369.773], "rotation": [0, 0, 0], "scale": [33.0605, 0.27, 74.9645], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-4-2", "drawDistance": 140, "castShadow": false }

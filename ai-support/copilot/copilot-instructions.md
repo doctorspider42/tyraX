@@ -128,6 +128,12 @@ The editor executable on this machine: `{TYRAX_EXE}`
   AO into `.res-baked/modelao/` and report skips (a build does it too)
 - `--bake-particles <projectDir>` - re-bake the particle library's generated
   textures (docs/particles.md)
+- `--road-texture <projectDir> <name> [key=value ...]` - generate a road
+  material into `res/materials/roads/` (docs/road-textures.md)
+- `--draw-road <projectDir> <scene> "x,z x,z ..." [preset]` - draw a road with
+  the editor's snapping (T, crossing, corner) and a preset; saves (docs/roads.md
+  "Drawing roads")
+- `--export-iso <projectDir>` - pack the built `bin/` into `<name>.iso`
 - `--import-model <projectDir> <model> [--split none|top|mesh] [--pivot keep|bottom|center] [--keep f] [--max-texture px] [--animated] [--no-static] [--textures dir] [--name stem] [--dry-run]` -
   the editor's single model importer, headless: `.obj`/`.glb`/`.fbx` -> static
   `.obj` + `.mtl` + PNGs, and with `--animated` the `.glb`/`.fbx` + `.mtl` too

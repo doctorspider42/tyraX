@@ -1,0 +1,71 @@
+THIRD-PARTY NOTICES
+===================
+
+This game is built with TyraX and runs on the Tyra engine. You may release it
+commercially and you may keep your source code closed - nothing here is a
+copyleft license, and none of it requires you to publish anything you wrote.
+
+What IS required is attribution: ship this file with your game (next to the ELF,
+in the package, or reproduced in an in-game credits screen - any of those works)
+and keep the notices below intact. That is the whole obligation.
+
+
+Tyra engine - Apache License 2.0
+--------------------------------
+Copyright Sandro Sobczynski (h4570) and the Tyra contributors.
+https://github.com/h4570/tyra
+
+This game links the Tyra engine, used under the Apache License 2.0. A copy of
+the license is at http://www.apache.org/licenses/LICENSE-2.0 and in the TyraX
+repository at vendor/tyra/LICENSE. The engine as shipped by TyraX is a modified
+fork; the modifications are marked "Modified by TyraX" in its sources.
+
+
+PS2SDK - Academic Free License v2.0
+-----------------------------------
+Copyright the ps2dev project contributors.
+https://github.com/ps2dev/ps2sdk
+
+This game links PS2SDK, used under the Academic Free License version 2.0
+(https://opensource.org/license/afl-2-0-php). If your project enables positional
+audio, it also includes a build of the PS2SDK audsrv module modified to support
+L/R panning.
+
+
+TyraX (the editor and its code templates)
+-----------------------------------------
+Copyright 2026 doctorspider42.
+https://github.com/doctorspider42/tyraX
+
+The generated C++ in this project came from TyraX's templates. TyraX grants
+those generated files to you with NO conditions attached - no attribution, no
+license text, no notice. See LICENSE-EXCEPTION.md in the TyraX repository. This
+section is a courtesy credit, and you may delete it.
+
+Motor District example assets
+-----------------------------
+Kenney — Retro Urban Kit 2.0 (CC0), https://www.kenney.nl
+Includes adapted building kitbashes; original notice: res/models/urban/LICENSE.txt.
+Ravager, Pica Turbo and Strix V12: original TyraX contributor models.
+District layout, generated sign/road/ground textures: TyraX contributors.
+Sky panorama: FreeStylized — Skybox 131 (Royalty Free: "free to use for all
+Commercial and Non-Commercial purposes"), https://freestylized.com/skybox/sky_131/
+Project file: res/sky/sky_131_2k.png (the 2k equirectangular download, unmodified).
+Vehicle audio — Pixabay sources
+-------------------------------
+Car brake3 — MagiaZ
+Source: https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-car-brake3-325523/
+Adapted project files: tires_screech.wav and magiaz-car-brake3-325523.wav
+
+Engine — Eponn (Freesound), shared by freesound_community
+Source: https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-engine-47745/
+Adapted project files: engine_idle.wav and engine-idle-loop.wav
+
+Car Throttle Static — TanwerAman
+Source: https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-car-throttle-static-337873/
+Adapted project files: engine_high.wav and tanweraman-car-throttle-static-337873.wav
+
+Pixabay Content License: https://pixabay.com/service/license-summary/
+The source links above were supplied by the project owner. The vehicle WAVs
+are adapted recordings, converted to mono 16-bit PCM at 22050 Hz. Preparation
+of the earlier engine-idle-loop.wav is described in res/sfx/engine-idle-source.txt.

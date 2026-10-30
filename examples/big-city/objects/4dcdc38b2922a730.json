@@ -1,0 +1,1 @@
+{ "id": "4dcdc38b2922a730", "name": "Building 924", "type": "model", "position": [212.06, 0, -360.515], "rotation": [0, 0, 0], "scale": [2.0428, 1.4068, 2.0052], "color": [1, 1, 1], "physics": false, "layer": "district-5-2", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

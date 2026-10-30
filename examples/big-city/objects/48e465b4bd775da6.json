@@ -1,0 +1,1 @@
+{ "id": "48e465b4bd775da6", "name": "Building 784", "type": "model", "position": [-24.3475, 0, 577.14], "rotation": [0, 0, 0], "scale": [1.2853, 1.9603, 2.6683], "color": [1, 1, 1], "physics": false, "layer": "district-4-7", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

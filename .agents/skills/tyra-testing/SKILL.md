@@ -64,6 +64,7 @@ Never benchmark a Dev build or verify a bake with it (bakes take minutes at -O1)
 | `--bake-model-ao <dir> [--texbake]`, `--bake-prelit <dir> [scene]`, `--bake-object-light <dir> <object> [size] [rays]`, `--bake-shadows <dir>`, `--bake-particles <dir>`, `--bake-impostor <dir> <model.obj> <stem> 4\|8\|16 [--gpu]` | per-feature bakes |
 | `--dump <dir>`, `--list-nodes`, `--dump-graph <dir> <obj> [scene]`, `--apply-graph <dir> <obj> <g.json> [scene] [--append]`, `--ai-graph ...`, `--add-ai-support <dir> [claude] [codex] [copilot]` | project / graph I/O, AI tooling |
 | `--atlas-report <dir>`, `--batch-report <dir> [scene]`, `--road-crossings <dir> [scene]` | what atlasing/batching did and why; road crossings (exit 1 = orphaned junction override) |
+| `--road-texture <dir> <name> [key=value ...]`, `--draw-road <dir> <scene> "x,z[,h] x,z ..." [preset]`, `--road-lanes <dir> [scene]`, `--export-iso <dir>` | road material generator, the Draw road tool headless, the traffic lane graph (exit 1 = a lane with no legal exit), ISO from a built `bin/` |
 | `--import-model <dir> <model> [--split none\|top\|mesh] [--pivot ..] [--keep f] [--max-texture px] [--animated] [--no-static] [--textures dir] [--name stem] [--dry-run]` | the importer, headless |
 | `--vu-check [engineDir]`, `--vu-list`, `--vu-emit`, `--vu-replay <dir>`, `--dump-vucap <dir> [--full] [--peek qw[,n]]` | VU1 host simulator / capture decode |
 | `--vehicle-check` | drive-model property tests, exit 0 = pass |
@@ -144,7 +145,7 @@ idle shot → wait 3 s → idle shot (**control**, ~600 px status-bar noise) →
 | `acceptance-renderer-pipeline.md` | removal visibility, scene-data identity, LOD/impostor pops, skip-when-unchanged, StaPip retained/baked stream/content-version/bbox cache, culling pricing, static submission batch, hull/reflection proxies, first-entry HUD, hybrid triple buffer |
 | `motion-and-ab-rigs.md` | period-2 stability gate, motion gate (`motion-gate.ps1/.py`, `routecam.cpp`), console flicker failure-rate fixture, shadow A/B rig |
 | `acceptance-rendering.md` | animated GI / RGB SH, skeletal animation timing, impostors (views, GPU bake, picking), triangle strips |
-| `acceptance-vehicles-roads.md` | vehicle damage/contact/rendering/editor/inheritance, vehicle sounds + sfx conversion, road/terrain strips, road height index, spans, junctions, road editing, static-batch oracle |
+| `acceptance-vehicles-roads.md` | vehicle damage/contact/rendering/editor/inheritance, vehicle sounds + sfx conversion, road/terrain strips, road height index, spans, junctions, road editing, the road network (nodes, kerbs, rails, details, furniture, traffic, road textures, bridges, Draw road, streaming + tables on disk, weather + lamps, breakable furniture), static-batch oracle |
 | `acceptance-physics-procedural-import.md` | physics, particles, procedural placement + frozen bake, model import + picker (fake `zenity`), game audio metering |
 | `ai-and-packages.md` | AI Assistant (prompt, harness, fake backend, traps), update check, Windows installer, Linux packages, self-update |
 
@@ -152,7 +153,8 @@ Bundled scripts (`.agents/skills/tyra-testing/scripts/`): `screenshot-window.ps1
 
 ## TyraX 2.0 integration
 
-The editor is 2.0.0; the combined project format is 114. Read
+Read the current editor and project-format versions from `src/version.hpp`.
+The TyraX2 notes describe the historical2.0/114 integration. Read
 [TyraX2 integration notes](references/tyrax2-integration.md) before changing
 frame ownership, pipeline recording or the associated acceptance tooling.
 The TyraX2 performance investigation is closed: the notes summarise its

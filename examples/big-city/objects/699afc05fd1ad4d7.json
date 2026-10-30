@@ -1,0 +1,1 @@
+{ "id": "699afc05fd1ad4d7", "name": "Plinth 6-3 75", "type": "box", "position": [-88.3347, 0.135, -369.141], "rotation": [0, 0, 0], "scale": [68.8747, 0.27, 76.2298], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-3-2", "drawDistance": 140, "castShadow": false }

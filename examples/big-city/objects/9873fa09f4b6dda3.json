@@ -1,0 +1,1 @@
+{ "id": "9873fa09f4b6dda3", "name": "Building 495", "type": "model", "position": [-213.083, 0, -19.8479], "rotation": [0, 0, 0], "scale": [2.1159, 1.5174, 2.3496], "color": [1, 1, 1], "physics": false, "layer": "district-3-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

@@ -1,0 +1,1 @@
+{ "id": "0663fbfbe22a072b", "name": "Building 856", "type": "model", "position": [117.014, 0, 26.4401], "rotation": [0, 0, 0], "scale": [2.5176, 1.6915, 1.8807], "color": [1, 1, 1], "physics": false, "layer": "district-4-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

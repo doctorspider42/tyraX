@@ -213,10 +213,8 @@ void TerrainGame::init() {
   // The loading screen (loading_data.gen.hpp) builds its own sprites lazily on
   // first present (loadingscreen::renderFrame), so nothing to set up here.
 
-  // Sound emitter samples (adpenc output next to the ELF)
-  for (int i = 0; i < SND_COUNT; ++i)
-    sndSamples.push_back(
-        engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[i])));
+  // Sound effect samples load with their scene and layers
+  // (applySoundResidency, called from loadScene), not here.
 }
 
 
@@ -973,26 +971,42 @@ void TerrainGame::loop() {
 
 
 
-// Adaptive plain BLSS (docs/neural-upscaler.md). The timer is the previous
+// Adaptive BLSS (docs/upscaler.md). The timer is the previous
 // whole loop, including presentation: on a double-buffered PS2 it therefore
 // sees the thing the player sees - one missed field becomes a 2x step. Four
 // misses engage reduced rendering; 150 full-rate reduced frames buy a brief
 // native probe. No VRAM moves: configure() reserved both rasters at boot.
 void TerrainGame::updateAdaptiveResolution() {
-  if (!BLSS_ADAPTIVE) return;
+  // A scene load puts the upscaler back to the scene's own answer FIRST, so an
+  // On Start in the new scene that asks for something else wins over it.
   if (adaptiveScene != g_activeScene) {
     adaptiveScene = g_activeScene;
+    upscalerMode = 0;
     adaptiveWarmup = 30;
     adaptiveSlowRun = adaptiveFastRun = 0;
     adaptiveReduced = false;
-    engine->renderer.core.blss.setScene(false, false);
-    return;
+    if (BLSS_ADAPTIVE) engine->renderer.core.blss.setScene(false);
   }
-  if (!BLSS_SCENE_ON) {
-    if (adaptiveReduced) engine->renderer.core.blss.setScene(false, false);
+  // Set Upscaler (flow node, or ctx.upscaler from a script - docs/upscaler.md,
+  // "At runtime"), latched: 0 = the scene's own answer, 1 = native, 2 =
+  // reduced, 3 = automatic. Free: configure() reserved both rasters at boot.
+  if (scriptCtx.upscaler >= 0) {
+    upscalerMode = scriptCtx.upscaler > 3 ? 0 : scriptCtx.upscaler;
+    scriptCtx.upscaler = -1;
+    adaptiveWarmup = 30;
+    adaptiveSlowRun = adaptiveFastRun = 0;
     adaptiveReduced = false;
-    return;
+    if (upscalerMode == 2)
+      engine->renderer.core.blss.setScene(true, BLSS_PARTICLES);
+    else if (upscalerMode == 0)
+      engine->renderer.core.blss.setScene(BLSS_SCENE_ON && !BLSS_ADAPTIVE,
+                                          BLSS_PARTICLES);
+    else
+      engine->renderer.core.blss.setScene(false);  // native; automatic starts here
   }
+  const bool automatic =
+      upscalerMode == 3 || (upscalerMode == 0 && BLSS_ADAPTIVE && BLSS_SCENE_ON);
+  if (!automatic) return;
   if (adaptiveWarmup > 0) {
     --adaptiveWarmup;
     return;
@@ -1006,7 +1020,7 @@ void TerrainGame::updateAdaptiveResolution() {
       if (++adaptiveSlowRun < 4) return;
       adaptiveReduced = true;
       adaptiveSlowRun = 0;
-      engine->renderer.core.blss.setScene(true, false);
+      engine->renderer.core.blss.setScene(true, BLSS_PARTICLES);
       TYRA_LOG("Adaptive resolution: REDUCED after sustained missed fields");
     } else {
       adaptiveSlowRun = 0;
@@ -1019,7 +1033,7 @@ void TerrainGame::updateAdaptiveResolution() {
     adaptiveReduced = false;
     adaptiveFastRun = 0;
     adaptiveWarmup = 8;
-    engine->renderer.core.blss.setScene(false, false);
+    engine->renderer.core.blss.setScene(false);
     TYRA_LOG("Adaptive resolution: NATIVE probe after sustained headroom");
   } else {
     adaptiveFastRun = 0;
@@ -1857,7 +1871,10 @@ void TerrainGame::loadModelAsset(int i) {
 
 // Frees a model's geometry, collider and texture references. Only called
 // when no object of a resident layer uses the model - every GeoPart drawing
-// it was dropped by deactivateObject() beforehand.
+// it was dropped by deactivateObject() beforehand. The shared instance bakes
+// (gm.sharedParts) do not rely on that ordering: each instance part holds its
+// own reference, so an array outlives every bag aimed at it whichever side
+// lets go first (docs/instance-sharing.md).
 void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
@@ -2054,7 +2071,24 @@ void TerrainGame::applyLayerResidency() {
       for (int i = 0; i < n; ++i)
         for (int m = 0; m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
           if (!strcmp(MODEL_SOURCES[m], names[i])) modelNeed[m] = 1;
+      // ...and every slot's distant version (asset slots, then prefab slots).
+      int np = 0;
+      procrt::volumePrefabNames(v, &np);
+      const char* const* lods = procrt::volumeLodNames(v);
+      for (int i = 0; lods && i < n + np; ++i)
+        for (int m = 0; lods[i] && m < MODEL_COUNT && m < (int)modelNeed.size(); ++m)
+          if (!strcmp(MODEL_SOURCES[m], lods[i])) modelNeed[m] = 1;
     }
+#if TYRAX_PROC_INSTANCES
+  // Baked instanced volumes reference their models from a table only.
+  for (int v = 0; v < PROC_INST_VOLUME_COUNT; ++v) {
+    if (PROC_INST_VOLUMES[v].scene != currentScene) continue;
+    for (int i = PROC_INST_VOLUMES[v].first;
+         i < PROC_INST_VOLUMES[v].first + PROC_INST_VOLUMES[v].count; ++i)
+      for (int m : {(int)PROC_INST_ROWS[i].model, (int)PROC_INST_ROWS[i].lodModel})
+        if (m >= 0 && m < (int)modelNeed.size()) modelNeed[m] = 1;
+  }
+#endif
   for (int k = 0; k < SCENE_PREFAB_COUNT; ++k) {
     const int pf = SCENE_PREFAB_LIST[SCENE_PREFAB_FIRST + k];
     if (pf < 0 || pf >= PREFAB_COUNT) continue;
@@ -2351,6 +2385,9 @@ void TerrainGame::updateLayerStreaming() {
     for (int l = 0; l < lc; ++l)
       if (layerTarget[l] == 0) layerState[l] = 0;
     applyLayerResidency();
+    // The streamed-out instances let go of their pooled colours; free the
+    // arrays only the pool still holds now rather than at its next sweep.
+    if (anyOut) pruneColorPool();
     if (anyOut) buildParticles();  // drop the streamed-out emitters' pools
   }
 
@@ -2455,7 +2492,7 @@ void TerrainGame::updatePlayer() {
   // Collision with scene objects (collidePlayer: box/mesh/none per object)
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
-  float ground = terrainHeightAt(nextX, nextZ);
+  float ground = walkGroundAt(nextX, nextZ, playerY);
   // a linked floor portal underfoot swallows the walker (see
   // portalSwallowsPlayer) - the terrain stops being the floor there
   if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, playerY, nextZ))
