@@ -565,3 +565,17 @@ from world queries because those candidates are immediately rejected there,
 while retaining scripted moving nonphysics solids. Its host oracle passes
 20,000 category/movement/full-walk comparisons and generated PS2 sources pass
 syntax checks; physical admission and frame qualification are pending.
+
+The first nominal-step run retained all16,800 frame/accounting rows, but its
+overall controlled-workload gate is rejected: the initial zero-added baseline
+had300 extra warmup frames, leaving75 paired rows with different settling
+work. All13 other workload pairs match logged contact/awake/candidate counters
+and trajectory fields at their printed resolution. The rejected
+[initial fixed-step report](../tools/ps2rig/results/body-grid-fixed-initial-2026-10-30.json)
+and raw package remain available. Even at equal heavy workload, query savings
+did not yet become a total-physics win: first128-pile query5.067 to4.665ms,
+physics21.711 to21.853ms. Separately compiled baseline/candidate functions can
+also change instruction/data placement, so a focused control now uses one
+physics/query implementation, varying only the grid cell at phase boundaries.
+It measures64/128 piles in both repeat orders and balances initial warmup.
+Production grid and clock defaults remain unchanged.

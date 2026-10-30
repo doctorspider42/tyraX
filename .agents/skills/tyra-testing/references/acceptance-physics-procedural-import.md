@@ -170,3 +170,11 @@ For the world-only-index experiment, verify-world-grid.cpp covers moving solids
 and physics-category transitions with20,000 independent full walks; the private
 world_grid_fixture.py --verify gate checks every actual world query. Its frame
 timings include verification overhead and are not performance qualification.
+
+Nominal-step comparisons also require matched per-frame logged workload fields:
+body_grid_timing_analyze.py writes qualified=false and exits with failure when
+parity fails. Balance the initial warmup in both arms;300 extra baseline frames
+caused75 divergent zero-added pairs in the first control. For grid-only cost,
+--shared-physics --dense-only runs the same implementation in both arms and
+selects cells at phase boundaries (eight phases/4800 rows). Freeze precisely
+metadata.expected_phases; older CSVs in the live fixture are not fresh evidence.

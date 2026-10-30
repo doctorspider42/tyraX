@@ -2,12 +2,39 @@
 from pathlib import Path
 import argparse,json,shutil,subprocess
 
-def install(repo,root,timing_cell=None,fixed_step=False):
+def install(repo,root,timing_cell=None,fixed_step=False,shared_physics=False,dense_only=False):
     common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
     allowed=(common.parent/'.tmp').resolve()
     assert root.is_relative_to(allowed) and root!=allowed
     meta_path=root/'metadata.json';meta=json.loads(meta_path.read_text(encoding='utf8'))
     assert meta.get('micro_capture')
+    if shared_physics:
+        assert meta.get('fixed_simulation_step') and meta.get('body_grid_timing_cell')==2
+        assert not meta.get('shared_physics') and meta.get('micro_dispatch') is False
+        p=root/'district/src/gen/game_physics.gen.cpp';s=p.read_text(encoding='utf8')
+        before='  static Tyra::BroadPhase bodyPairs(Tyra::BroadPhase::kGrid,2.0F);';assert s.count(before)==1
+        s=s.replace(before,'''  static Tyra::BroadPhase bodyPairs;
+  static int bodyPairPhase=-1;
+  if(bodyPairPhase!=CB::phase){
+    bodyPairs=Tyra::BroadPhase(Tyra::BroadPhase::kGrid,CB::baseline?8.0F:2.0F);
+    bodyPairPhase=CB::phase;
+  }''',1);candidate_path=p;candidate_text=s
+        p=root/'district/src/gen/collision_baseline.gen.cpp';s=p.read_text(encoding='utf8')
+        for name,args in [('updateObjectPhysics',''),('broadPhaseRefresh',''),('broadPhaseNear','b,out'),('broadPhaseAlong','a,b,r,out')]:
+            before=f'if(CB::baseline){name}Baseline({args});else {name}Candidate({args});'
+            assert s.count(before)==1,(name,before)
+            s=s.replace(before,f'{name}Candidate({args});',1)
+        before='CB::frame=CB::phase==0?-300:0;';assert s.count(before)==1
+        s=s.replace(before,'CB::frame=CB::phase<2?-300:0;',1)
+        if dense_only:
+            before='if(Tyra::vu0SatVerify && !TYRA_TEMPORAL_SETTLE)CB::phase=12;';assert s.count(before)==1
+            s=s.replace(before,before+'else CB::phase=10;',1)
+            before='CB::flush();++CB::phase;CB::ready=false;';assert s.count(before)==1
+            s=s.replace(before,'CB::flush();++CB::phase;if(!Tyra::vu0SatVerify && CB::phase==14)CB::phase=24;CB::ready=false;',1)
+        candidate_path.write_bytes(candidate_text.encode());p.write_bytes(s.encode())
+        meta.update(shared_physics=True,expected_phases=[10,11,12,13,24,25,26,27]if dense_only else list(range(28)),
+            scene_timing_qualified=False,comparison='One shared physics/query implementation, changing only minimum body-grid cells at phase boundaries; canonical scalar in both arms')
+        meta_path.write_text(json.dumps(meta,indent=2),encoding='utf8');return
     if fixed_step:
         assert meta.get('body_grid_timing_cell') and meta.get('micro_dispatch') is False
         p=root/'district/src/terrain_game.cpp';s=p.read_text(encoding='utf8')
@@ -61,6 +88,9 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--scratch',required=True,type=Path)
     p.add_argument('--timing-cell',type=int,choices=[1,2,4],help='Remove probes and select the candidate cell size; disables micro dispatch in both arms')
     p.add_argument('--fixed-step',action='store_true',help='After a normal-clock timing run, pin only the private benchmark simulation to the nominal display step')
+    p.add_argument('--shared-physics',action='store_true',help='Use one physics/query implementation in both arms, varying only body-grid size at phase boundaries')
+    p.add_argument('--dense-only',action='store_true',help='With --shared-physics, measure64/128 piles in both repeat orders')
     p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);a=p.parse_args()
-    assert not(a.fixed_step and a.timing_cell)
-    install(a.repo.resolve(),a.scratch.resolve(),a.timing_cell,a.fixed_step)
+    assert sum([a.fixed_step,a.timing_cell is not None,a.shared_physics])<=1
+    assert not a.dense_only or a.shared_physics
+    install(a.repo.resolve(),a.scratch.resolve(),a.timing_cell,a.fixed_step,a.shared_physics,a.dense_only)

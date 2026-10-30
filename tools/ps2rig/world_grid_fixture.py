@@ -14,6 +14,7 @@ def install(repo,root,verify):
         s='#include "debug/world_grid_probe.hpp"\n'+s
         before='  // --- 2. contacts against the world';assert s.count(before)==1
         start=s.index(before);end=s.index('\n',start)+1
+        shared=bool(meta.get('shared_physics'))
         code='''  // Reuse the general collider cache; retain scripted moving world solids.
   static Tyra::BroadPhase worldPairs;
   if(awakeCount>0){
@@ -27,14 +28,21 @@ def install(repo,root,verify):
     worldPairs.commit();
   }
 '''
+        if shared:
+            code=code.replace('if(awakeCount>0){','if(!CB::baseline && awakeCount>0){')
         s=s[:end]+code+s[end:]
         before='{CB::StageScope q(4);broadPhaseNear(area,bpNearPhys);}';assert s.count(before)==1
-        s=s.replace(before,'{CB::StageScope q(4);worldPairs.queryBox(area,bpNearPhys);}\n      WorldGridProbe::inspect(area,bpNearPhys,bpCache,runtimeObjects,Tyra::vu0SatVerify);',1)
+        query=('{CB::StageScope q(4);if(CB::baseline)broadPhaseNear(area,bpNearPhys);else worldPairs.queryBox(area,bpNearPhys);}\n      if(!CB::baseline)WorldGridProbe::inspect(area,bpNearPhys,bpCache,runtimeObjects,Tyra::vu0SatVerify);' if shared else
+            '{CB::StageScope q(4);worldPairs.queryBox(area,bpNearPhys);}\n      WorldGridProbe::inspect(area,bpNearPhys,bpCache,runtimeObjects,Tyra::vu0SatVerify);')
+        s=s.replace(before,query,1)
+        if shared:
+            before='CB::baseline?8.0F:2.0F';assert s.count(before)==1;s=s.replace(before,'2.0F',1)
         candidate_path=p;candidate_text=s
         # Both arms retain the same2m body index; isolate the world index change.
         p=root/'district/src/gen/collision_baseline.gen.cpp';s=p.read_text(encoding='utf8')
-        before='  static Tyra::BroadPhase bodyPairs;';assert s.count(before)==1
-        s=s.replace(before,'  static Tyra::BroadPhase bodyPairs(Tyra::BroadPhase::kGrid,2.0F);',1)
+        if not shared:
+            before='  static Tyra::BroadPhase bodyPairs;';assert s.count(before)==1
+            s=s.replace(before,'  static Tyra::BroadPhase bodyPairs(Tyra::BroadPhase::kGrid,2.0F);',1)
         baseline_path=p;baseline_text=s
         p=engine/'inc/debug/collision_bench.hpp';s=p.read_text(encoding='utf8')
         s='#include "debug/world_grid_probe.hpp"\n'+s

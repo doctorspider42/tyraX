@@ -342,3 +342,18 @@ queries and errors. The same scalar timing analyzer handles its metadata and
 12/13 verification phases or all28 timing phases. --verify selects the fixture's
 sat-verify.cfg admission gate; absent --verify switches the same ELF to timing.
 The host category-transition oracle is tools/verify-world-grid.cpp.
+
+The fixed-step analyzer compares per-frame contact/awake/candidate counters and
+logged trajectory fields at printed resolution across paired arms. A mismatch
+writes qualified=false with the first differing frames, then exits with failure;
+it must not silently bless a changed workload. The first run catches the300-frame
+initial warmup asymmetry in75 zero-added pairs and is archived as rejected.
+
+--shared-physics --dense-only on an existing nominal-step body_grid_fixture.py
+rig removes separately compiled physics/query paths from both arms. One function
+selects8/2m cells only at phase boundaries. It balances initial warmup and measures
+phases10/11/12/13/24/25/26/27 (4800 rows): freeze only those expected phases from
+the live folder, which can still contain older CSVs. The analyzer checks the
+metadata.expected_phases subset and retains strict workload parity. The world
+prototype supports this shared-function rig and fixes body grids at2m in both
+arms while switching only world admission. Physical qualification is pending.
