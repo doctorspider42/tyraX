@@ -499,6 +499,17 @@ combined boundary. Micro finish-wait means cover all750 phase frames and omit
 packing/transfer/readback/canonical EE work; they are not utilization figures.
 Unshadowed no-interaction and impact costs remain pending.
 
+`results/vehicle-contacts-isolation-timing-2026-10-30.*` completes4800
+unshadowed rows in both orders on the admitted ELF. With no car/prop
+interaction, the shared combined boundary costs2.487/2.477ms versus
+1.698/1.686ms for64 props (+0.790/+0.791ms);128 costs6.632/6.631ms versus
+5.540/5.577ms (+1.092/+1.054ms). These windows include a settling pile and
+cars parked outside it; they do not represent the original active drive view.
+This establishes a measurable integration overhead, not a speedup. All full
+pass, legacy-bumper exclusion, micro/world and coverage checks pass. Active
+impact costs remain pending. No historical ELF timing is added or used as the
+reference for these figures.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used
