@@ -755,3 +755,17 @@ allocation-failure paths. Object-matrix/geometry updates elsewhere in physics
 do reach COP2 and must remain behind the completion fence. Any reordered
 prototype must keep world contacts before body contacts for the solver and
 preserve sleeping-body wake semantics. No production schedule changes yet.
+
+The first private schedule screen now passes its
+[physical admission gate](../tools/ps2rig/results/world-overlap-verify-2026-10-30.json).
+Both schedules use the same chained micro backend and8m body grid; the candidate
+runs whole-body world-contact chunks after launch and stages world contacts
+before body contacts for the unchanged solver.600 logged128-prop frames match
+workload fields and two ordered-contact fingerprints, with zero micro reference
+misses/errors.47,972 world queries pass independent admission checks.11,526
+world chunks start while VU0 reports busy;4728 finish while still busy. This
+establishes useful overlap at boundaries, not saturation or a speedup. The two
+schedules dispatch78,936/78,595 micro jobs, so admission/history effects are part
+of the comparison. The fingerprints are not an exhaustive full-state proof,
+and reference overhead invalidates gate timings. Production remains unchanged
+pending unshadowed same-ELF timing and broader scene coverage.

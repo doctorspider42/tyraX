@@ -574,3 +574,16 @@ one candidate frame's contact fingerprint is rejected. Physical qualification
 of the instrumented schedule is pending; its oracle timings cannot be used as
 performance evidence. Use --add-probe only to upgrade an already installed
 uninstrumented prototype. Inputs are backed up under the scratch root.
+
+The physical128-prop admission package is now
+results/world-overlap-verify-2026-10-30.* (ELF2b5ba076...). Both schedules
+pass canonical micro validation without misses/errors;600 matched logged
+frames have identical workload fields and ordered-contact fingerprints.
+The candidate independently verifies47,972 world queries.47,006 whole-body
+world chunks run in a software packet window,11,526 enter while VPU status
+is busy and4728 leave while still busy. These boundary observations prove
+some overlap, not a utilization fraction. The control has zero packet-window
+world chunks. Micro job counts differ78,936/78,595 despite matching contacts;
+this is a full schedule comparison including admission/history effects, not
+a fixed micro-job corpus. Admission includes reference work and cannot price
+the change. Unshadowed same-ELF nominal-step timing follows.

@@ -20,6 +20,7 @@ def main():
     errors=[];hashes={};pairs={};metrics=[]
     def check(value,reason):
         if not value:errors.append(reason)
+    check(hashlib.sha256((root/'vehicle-playground.elf').read_bytes()).hexdigest()==meta['elf_sha256'],'ELF hash mismatch')
     check(f'CB DONE phases={14 if verify else 28}' in log,'incomplete hardware log')
     for bad in ['VUSATDIFF ','WORLDGRIDDIFF ','CB ERROR','Assertion failed','Failed to load','EE exception']:
         check(bad not in log,'log diagnostic: '+bad)
@@ -50,11 +51,18 @@ def main():
         v=v[0]
         check(int(v['jobs'])>0 and int(v['batches'])>0,f'phase {phase}: no micro work')
         check(int(v['validation_errors'])==int(v['missed_reference_hits'])==0,f'phase {phase}: micro errors')
+        classification=rows(f'vu0-class-{phase}.csv')
+        check(len(classification)==1 and int(classification[0]['jobs'])==int(v['jobs']),f'phase {phase}: classification jobs')
+        world=rows(f'world-grid-{phase}.csv')
+        check(len(world)==1,f'phase {phase}: world sidecar')
+        world=world[0]
+        check(int(world['errors'])==0 and int(world['verified'])==(int(world['queries']) if verify else 0),f'phase {phase}: world oracle')
+        check(int(world['queries'])==0 if arm else int(world['queries'])>0,f'phase {phase}: world admission')
         totals={k:sum(int(r[k]) for r in probes) for k in ['world','packet','busy_before','busy_after','packet_world_ticks']}
         check(totals['world']>0,f'phase {phase}: no world work')
         if arm:check(totals['packet']==totals['busy_before']==totals['busy_after']==0,f'phase {phase}: control overlap')
         else:check(totals['packet']>0 and totals['busy_before']>0,f'phase {phase}: no witnessed overlap')
-        metrics.append(dict(phase=phase,world=totals,micro=v))
+        metrics.append(dict(phase=phase,world=totals,micro=v,world_admission=world,classification=classification[0]))
     differences=[]
     fields=['contacts','generated_contacts','awake','body_candidates','body_bounds_rejects','car_z','car_speed','velocity_energy','max_depth']
     for key,pair in pairs.items():
@@ -70,6 +78,8 @@ def main():
     check(not differences,'schedule workload/contact fingerprint mismatch')
     summary=analyze(root,solver_comparison=True,temporal_comparison=True,temporal_arms=2,
                     baseline_label='world-before-micro')
+    for group in summary['groups']+summary.get('repeats',[]):
+        if group['arm']=='cache-only':group['arm']='world-interleaved-micro'
     result=dict(metadata=meta,qualified=not errors,performance_qualified=not verify and not errors,
         normal_clock_fps_qualified=False,errors=sorted(set(errors)),metrics=metrics,
         mismatched_frames=len(differences),first_mismatches=differences[:12],summary=summary,
