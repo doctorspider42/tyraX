@@ -464,6 +464,16 @@ all750 selected end-state fingerprints and requires zero common car contacts;
 impact admission requires actual common contacts and opposite impulse updates,
 with zero old bumper calls. It does not require equal old/new impact trajectories.
 
+`results/vehicle-contacts-isolation-admission-2026-10-30.*` passes on physical
+PS2 with this ELF. Both arms schedule750 full physics passes and750 vehicle
+control steps. All750 selected end-state fingerprints agree with zero common
+vehicle/prop contacts. The candidate performs18,000 chassis-corner checks and
+310,500 exhaustive canonical car/prop pair checks; no diagnostic or missed hit
+is reported. Startup/replay/precision and world-query gates pass. In-memory
+falsifiers reject an extra full step, changed warm-frame state, missing chassis
+checks and a missing canonical contact; original evidence remains untouched.
+Impact admission and unshadowed cost measurements are still pending.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used
