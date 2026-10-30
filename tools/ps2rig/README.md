@@ -1458,6 +1458,8 @@ is0.65. Warmup clears waypoint escape timers so the held brake cannot provoke
 a reverse manoeuvre. Startup checks every active pair's resolved full boxes
 for overlap, including civilians projected onto straight junction connectors.
 This is a straight-road scaling diagnosis, not a racing/impact qualification.
+All thirteen slots/model definitions remain resident throughout; population
+means active cars, not a different resident asset set for each window.
 
 CSV rows stay in EE RAM and flush only between windows. Detail laps are
 off unless `traffic-bench-detail.cfg` exists at boot. Inclusive vehicle,
@@ -1477,3 +1479,22 @@ normal-clock average/p95 periods and keeps60FPS qualification FALSE: turning,
 impacts, longer runs, actual visual quality and timing transparency still need
 separate evidence. Neither successful build nor this short probe proves the
 requested final traffic target.
+
+The first physical scaling attempt is preserved as
+`results/traffic-scaling-initial-2026-10-30.*` (ELF
+`1ff1e97168a54d0e8ac0f46522c5ac8fca93b23ab44be3361efc41013b0a38e6`).
+It finishes1- and3-HQ windows, then throws `std::bad_alloc` immediately after
+the5-HQ phase starts. The analyzer correctly rejects the incomplete run.
+The1/3-car driving averages are57.61/29.97 FPS, inclusive scene12.02/15.04ms,
+vehicle0.54/2.15ms and object physics0.39/0.87ms. These are partial diagnostic
+numbers: engine FRAMEARENA/NATIVEVIF/ORDEREDFRAME/FRAMEPIPELINE printf output
+every120 frames was still enabled. They do not qualify quiet-production FPS,
+13-car traffic, a speedup, or a memory-leak root cause. Available RAM at the
+first two phase ends was3.368/1.835MiB; caches, working set and fragmentation
+still need separation from repeated-load retention.
+
+The next private installer additionally suppresses that periodic VIF1 queue
+output and installs a failure-only `new_handler` reporting phase/frame,
+inclusive-stage enum and current rebuild/submission object before sleeping.
+Object scopes are diagnostic ownership labels, not exclusive timing scopes.
+Those changes do not reclaim memory or claim to fix the allocation failure.

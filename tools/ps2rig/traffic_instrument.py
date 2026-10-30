@@ -26,7 +26,8 @@ def install(repo, project):
     vehicles = source/'game_vehicles.gen.cpp'
     physics = source/'game_physics.gen.cpp'
     scene = source/'game_scene.gen.cpp'
-    paths = [main, header, vehicles, physics, scene]
+    collision = source/'game_collision.gen.cpp'
+    paths = [main, header, vehicles, physics, scene, collision]
     with zipfile.ZipFile(project.parent/'before-traffic-instrument.zip',
                          'x', zipfile.ZIP_DEFLATED) as z:
         for p in paths:
@@ -43,6 +44,11 @@ def install(repo, project):
     s = p.read_text(encoding='utf8')
     s = replace(s, '#define TYRA_LOG(...) TyraDebug::writeLines("LOG: ", ##__VA_ARGS__, "\\n")',
                 '#define TYRA_LOG(...) ((void)0) // private quiet traffic measurement')
+    p.write_bytes(s.encode())
+    p = engine/'engine/src/renderer/core/paths/path1/vif1_queue.cpp'
+    s = p.read_text(encoding='utf8')
+    s = replace(s, 'if (++frames % 120 == 0) {',
+                'if (false && ++frames % 120 == 0) { // private quiet timing')
     p.write_bytes(s.encode())
     p = engine/'engine/src/pad/pad.cpp'
     s = p.read_text(encoding='utf8')
@@ -123,13 +129,21 @@ def install(repo, project):
     s = scene.read_text(encoding='utf8')
     s = '#include "debug/traffic_bench.hpp"\n'+s
     s = replace(s, 'void TerrainGame::renderObjectBag(int owner, Tyra::StaPipBag* bag) {',
-                'void TerrainGame::renderObjectBag(int owner, Tyra::StaPipBag* bag) {\n  if(bag && bag->count)TrafficBench::submitted(owner);')
+                'void TerrainGame::renderObjectBag(int owner, Tyra::StaPipBag* bag) {\n  TrafficBench::ObjectScope allocationOwner(owner);\n  if(bag && bag->count)TrafficBench::submitted(owner);')
     scene.write_bytes(s.encode())
+    s = '#include "debug/traffic_bench.hpp"\n'+collision.read_text(encoding='utf8')
+    s = replace(s, 'void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {',
+                'void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {\n  TrafficBench::ObjectScope allocationOwner(index);')
+    collision.write_bytes(s.encode())
     # Configuration is read once, outside the first measured phase.
     p = vehicles
     s = p.read_text(encoding='utf8')
     s = replace(s, '  if(finished){fflush(stdout);SleepThread();return false;}', r'''  if(finished){fflush(stdout);SleepThread();return false;}
   static bool configured=false;if(!configured){configured=true;
+    std::set_new_handler([](){
+      printf("TRAFFICBENCH ERROR allocation phase=%d frame=%d stage=%d object=%d\n",phase,frame,allocationStage,allocationOwner);
+      fflush(stdout);finished=true;for(;;)SleepThread();
+    });
     FILE* f=fopen("traffic-bench-detail.cfg","r");detailed=f!=nullptr;if(f)fclose(f);
     printf("TRAFFICBENCH CONFIG detail=%d normal_clock=1\n",int(detailed));fflush(stdout);
   }''')
@@ -137,7 +151,7 @@ def install(repo, project):
     meta.update(instrumented=True, detailed=False,
                 source_sha256={str(p.relative_to(project)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths},
                 input_manifest_sha256=hashlib.sha256((project/'vehicle-playground.tyra').read_bytes()).hexdigest(),
-                engine_source_sha256={str(p.relative_to(engine)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [debug/'traffic_bench.hpp',debug/'debug.hpp',engine/'engine/src/pad/pad.cpp']},
+                engine_source_sha256={str(p.relative_to(engine)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [debug/'traffic_bench.hpp',debug/'debug.hpp',engine/'engine/src/pad/pad.cpp',engine/'engine/src/renderer/core/paths/path1/vif1_queue.cpp']},
                 status='Instrumented; native build and physical admission pending.',
                 normal_clock_fps_qualified=False)
     meta_path.write_text(json.dumps(meta, indent=2)+'\n', encoding='utf8')

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <vector>
+#include <new>
 #include <kernel.h>
 namespace TrafficBench {
 using U = unsigned;
@@ -27,6 +28,7 @@ inline std::vector<Row> rows;
 inline int phase=0,frame=0,wantedHQ=0,wantedCiv=0;
 inline bool ready=false,finished=false,previous=false;
 inline bool detailed=false;
+inline int allocationStage=-1,allocationOwner=-1;
 inline U phaseStart=0,frameStart=0;
 inline bool paintSeen[32]{};
 inline bool submittedSeen[32]{};
@@ -48,9 +50,14 @@ inline void paint(int vi,bool driver){
   }
 }
 struct Scope {
-  Counter id;U start;bool active;
-  explicit Scope(Counter c):id(c),start(ticks()),active(ready&&!finished){}
-  ~Scope(){if(active)current.c[id]+=U(ticks()-start);}
+  Counter id;U start;bool active;int prior;
+  explicit Scope(Counter c):id(c),start(ticks()),active(ready&&!finished),prior(allocationStage){allocationStage=int(c);}
+  ~Scope(){if(active)current.c[id]+=U(ticks()-start);allocationStage=prior;}
+};
+struct ObjectScope {
+  int prior;
+  explicit ObjectScope(int object):prior(allocationOwner){allocationOwner=object;}
+  ~ObjectScope(){allocationOwner=prior;}
 };
 inline void lap(int i,U& prior){if(detailed){const U now=ticks();current.lap[i]+=U(now-prior);prior=now;}}
 inline void flush(){
