@@ -1,0 +1,258 @@
+; Added by TyraX: exact OBB SAT and fixed-orientation linear CCD.
+; Shared bodies: jobs2..25, bodies26..193 stride14, results194..241 stride2.
+; The EE only touches VU memory while idle. No VU1-only instructions.
+.syntax new
+.name Vu0SharedSeparation
+.vu
+.init_vf_all
+.init_vi_all
+--enter
+--endenter
+#vuprog Vu0SharedSeparation
+fcset 0
+sub.xyzw zero, vf00, vf00
+sub.xyz comparison, vf00, vf00
+ilw.x jobsLeft, 0(vi00)
+iaddiu jobAddr, vi00, 2
+iaddiu outAddr, vi00, 194
+lq constants, 1(vi00)
+jobLoop:
+ilw.x bodyAddrA, 0(jobAddr)
+ilw.y bodyAddrB, 0(jobAddr)
+iadd axisIndex, vi00, vi00
+iaddiu overlapping, vi00, 1
+ilw.z alive, 0(jobAddr)
+iadd alive, alive, alive
+isub overlapping, overlapping, alive
+iaddiu possible, vi00, 1
+iadd found, vi00, vi00
+sub.x enterTime, vf00, vf00
+add.x leaveTime, vf00, vf00[w]
+axisLoop:
+iaddiu axisSource, vi00, 6
+isub axisSource, axisIndex, axisSource
+ibltz axisSource, faceAxisA
+iaddiu axisSource, vi00, 12
+isub axisSource, axisIndex, axisSource
+ibltz axisSource, faceAxisB
+; Cross axes12..20, original edge-major order. EE no longer builds all nine.
+iaddiu edgeAddrA, bodyAddrA, 11
+iaddi axisSource, axisIndex, -12
+iaddiu testIndex, vi00, 3
+isub testIndex, axisSource, testIndex
+ibltz testIndex, crossAxisReady
+iaddiu edgeAddrA, edgeAddrA, 1
+iaddi axisSource, axisSource, -3
+iaddiu testIndex, vi00, 3
+isub testIndex, axisSource, testIndex
+ibltz testIndex, crossAxisReady
+iaddiu edgeAddrA, edgeAddrA, 1
+iaddi axisSource, axisSource, -3
+crossAxisReady:
+iadd axisSource, bodyAddrB, axisSource
+iaddiu axisSource, axisSource, 11
+lq crossEdgeA, 0(edgeAddrA)
+lq crossEdgeB, 0(axisSource)
+opmula.xyz ACC, crossEdgeA, crossEdgeB
+opmsub.xyz direction, crossEdgeB, crossEdgeA
+b axisReady
+faceAxisA:
+iadd axisSource, bodyAddrA, axisIndex
+iaddiu axisSource, axisSource, 5
+lq direction, 0(axisSource)
+b axisReady
+faceAxisB:
+iadd axisSource, bodyAddrB, axisIndex
+iaddi axisSource, axisSource, -1
+lq direction, 0(axisSource)
+axisReady:
+mul.xyz temp, direction, direction
+add.x lengthSquared, temp, temp[y]
+add.x lengthSquared, lengthSquared, temp[z]
+add.x threshold, vf00, constants[y]
+sub.x comparison, threshold, lengthSquared[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, axisSkip
+rsqrt q, vf00[w], lengthSquared[x]
+mulq.xyz direction, direction, q
+lq centre, 0(bodyAddrA)
+mul.xyz temp, direction, centre
+add.x centreProjection, temp, temp[y]
+add.x centreProjection, centreProjection, temp[z]
+abs.xyz temp, temp
+add.x rounding, temp, temp[y]
+add.x rounding, rounding, temp[z]
+add.x rounding, rounding, vf00[w]
+lq halfAxis, 1(bodyAddrA)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, vf00, projection[x]
+lq halfAxis, 2(bodyAddrA)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, radius, projection[x]
+lq halfAxis, 3(bodyAddrA)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, radius, projection[x]
+add.x rounding, rounding, radius[x]
+mul.x rounding, rounding, constants[w]
+add.x radius, radius, rounding[x]
+sub.x alo, centreProjection, radius[x]
+add.x ahi, centreProjection, radius[x]
+lq centre, 0(bodyAddrB)
+mul.xyz temp, direction, centre
+add.x centreProjection, temp, temp[y]
+add.x centreProjection, centreProjection, temp[z]
+abs.xyz temp, temp
+add.x rounding, temp, temp[y]
+add.x rounding, rounding, temp[z]
+add.x rounding, rounding, vf00[w]
+lq halfAxis, 1(bodyAddrB)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, vf00, projection[x]
+lq halfAxis, 2(bodyAddrB)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, radius, projection[x]
+lq halfAxis, 3(bodyAddrB)
+mul.xyz temp, direction, halfAxis
+add.x projection, temp, temp[y]
+add.x projection, projection, temp[z]
+abs.x projection, projection
+add.x radius, radius, projection[x]
+add.x rounding, rounding, radius[x]
+mul.x rounding, rounding, constants[w]
+add.x radius, radius, rounding[x]
+sub.x blo, centreProjection, radius[x]
+add.x bhi, centreProjection, radius[x]
+sub.x comparison, bhi, alo[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibeq VI01, vi00, notOverlapping
+sub.x comparison, ahi, blo[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibeq VI01, vi00, notOverlapping
+b sweepAxis
+notOverlapping:
+; With no relative motion, separation at the fixed orientation rules out CCD.
+ibgez overlapping, movingSeparation
+iadd possible, vi00, vi00
+iadd overlapping, vi00, vi00
+b jobDone
+movingSeparation:
+iadd overlapping, vi00, vi00
+sweepAxis:
+ibltz overlapping, axisEnd
+ibeq possible, vi00, axisEnd
+lq motion, 4(bodyAddrA)
+mul.xyz temp, direction, motion
+add.x da, temp, temp[y]
+add.x da, da, temp[z]
+lq motion, 4(bodyAddrB)
+mul.xyz temp, direction, motion
+add.x db, temp, temp[y]
+add.x db, db, temp[z]
+sub.x velocity, da, db[x]
+sub.x alo, alo, da[x]
+sub.x ahi, ahi, da[x]
+sub.x blo, blo, db[x]
+sub.x bhi, bhi, db[x]
+abs.x absoluteVelocity, velocity
+add.x threshold, vf00, constants[z]
+sub.x comparison, threshold, absoluteVelocity[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, stationaryAxis
+sub.x numerator, blo, ahi[x]
+div q, numerator[x], velocity[x]
+addq.x timeZero, vf00, q
+sub.x numerator, bhi, alo[x]
+div q, numerator[x], velocity[x]
+addq.x timeOne, vf00, q
+sub.x comparison, timeZero, timeOne[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, swapTimes
+b timesReady
+swapTimes:
+add.x temp, vf00, timeZero[x]
+add.x timeZero, vf00, timeOne[x]
+add.x timeOne, vf00, temp[x]
+timesReady:
+sub.x comparison, timeZero, enterTime[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, updateEnter
+b updateLeave
+updateEnter:
+add.x enterTime, vf00, timeZero[x]
+iaddiu found, vi00, 1
+updateLeave:
+mini.x leaveTime, leaveTime, timeOne[x]
+sub.x comparison, enterTime, leaveTime[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, impossibleAxis
+b axisEnd
+stationaryAxis:
+sub.x comparison, blo, ahi[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, impossibleAxis
+sub.x comparison, alo, bhi[x]
+ clipw.xyz comparison, zero
+ fcand VI01, 0x1
+ ibne VI01, vi00, impossibleAxis
+b axisEnd
+impossibleAxis:
+iadd possible, vi00, vi00
+axisEnd:
+ior alive, overlapping, possible
+ibeq alive, vi00, jobDone
+axisSkip:
+iaddiu axisIndex, axisIndex, 1
+iaddiu testIndex, vi00, 21
+isub testIndex, testIndex, axisIndex
+ibgtz testIndex, axisLoop
+iaddi axisIndex, axisIndex, -1
+jobDone:
+ibgez overlapping, overlapResultReady
+iaddiu overlapping, vi00, 1
+overlapResultReady:
+; All possible contacts are reconstructed canonically on EE. Only admission
+; intervals and a rejected-axis index are consumed, not a micro contact point.
+sub.xyzw sharedInterval, vf00, vf00
+add.x sharedInterval, zero, enterTime[x]
+add.y sharedInterval, zero, leaveTime[x]
+--barrier
+mfir.z sharedInterval, overlapping
+mfir.w sharedInterval, possible
+itof0.zw sharedInterval, sharedInterval
+sq sharedInterval, 0(outAddr)
+sub.xyzw sharedState, vf00, vf00
+--barrier
+mfir.x sharedState, found
+mfir.y sharedState, axisIndex
+itof0.xy sharedState, sharedState
+sq sharedState, 1(outAddr)
+iaddiu jobAddr, jobAddr, 1
+iaddiu outAddr, outAddr, 2
+iaddi jobsLeft, jobsLeft, -1
+ibgtz jobsLeft, jobLoop
+#endvuprog
+--exit
+--endexit

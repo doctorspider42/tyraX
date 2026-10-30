@@ -37,6 +37,7 @@ enum class Op : uint8_t {
     // --- float, "upper" pipe ---
     Add, Sub, Mul, Mula, Madd, Madda, Msub, Msuba, Mini, Max,
     Move, Mr32, Abs, Ftoi0, Ftoi4, Itof0, Clipw,
+    Opmula, Opmsub, // fixed xyz cyclic products; OPMULA writes ACC
     // --- "lower" pipe ---
     Div, Rsqrt, Sqrt, Loi, Mtir, Mfir,
     Fcand, Fcor, Fceq, Fcset, Fcget,

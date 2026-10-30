@@ -351,6 +351,7 @@ const OpEntry kOps[] = {
     {"nop", Op::Nop},       {"add", Op::Add},       {"sub", Op::Sub},
     {"mul", Op::Mul},       {"mula", Op::Mula},     {"madd", Op::Madd},
     {"madda", Op::Madda},   {"msub", Op::Msub},     {"msuba", Op::Msuba},
+    {"opmula", Op::Opmula}, {"opmsub", Op::Opmsub},
     {"mini", Op::Mini},     {"max", Op::Max},       {"move", Op::Move},
     {"mr32", Op::Mr32},     {"abs", Op::Abs},       {"ftoi0", Op::Ftoi0},
     {"ftoi4", Op::Ftoi4},   {"itof0", Op::Itof0},   {"clipw", Op::Clipw},

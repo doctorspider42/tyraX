@@ -224,7 +224,7 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
         auto accF = [&](int f) { return bitsToFloat(m.acc[f]); };
         // "a"-variant ops write the accumulator whatever the written dst says.
         const bool toAcc = in.dst == kAcc || in.op == Op::Mula ||
-                           in.op == Op::Madda || in.op == Op::Msuba;
+                           in.op == Op::Madda || in.op == Op::Msuba || in.op == Op::Opmula;
         // Every arithmetic result lands here, so this is the one place the VU's
         // saturate-and-flush float behaviour has to be applied.
         auto put = [&](int f, float vRaw) {
@@ -295,6 +295,21 @@ Result run(const Program& p, const std::vector<uint32_t>& initialMem,
                                : base - prod);
                 }
                 break;
+
+            case Op::Opmula:
+            case Op::Opmsub: {
+                // Both instructions use the SAME cyclic swizzle. A cross
+                // product swaps sources for OPMSUB (VU User's Manual pp116-117).
+                // Snapshot before writing: fd may alias either input VF.
+                float result[3];
+                for (int f = 0; f < 3; ++f) {
+                    const float product = vfField(in.s1, (f + 1) % 3) *
+                                          vfField(in.s2, (f + 2) % 3);
+                    result[f] = in.op == Op::Opmula ? product : accF(f) - product;
+                }
+                for (int f = 0; f < 3; ++f) put(f, result[f]);
+                break;
+            }
 
             case Op::Move:
                 // A raw field copy, not an arithmetic one: `move` must carry

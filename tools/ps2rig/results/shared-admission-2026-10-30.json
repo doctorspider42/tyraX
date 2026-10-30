@@ -1,0 +1,30 @@
+{
+  "scope": "Shared-body VU0 admission only; no full-physics timing or production selection",
+  "elf_sha256": "cd1d672f4df6b40aa7f8af6c24d0832ee33d95366520ec3931a7fce3eb406f8b",
+  "source_sha256": {
+    "tools\\ps2rig\\vu0_shared_packet.hpp": "284febe87a1cac784831e0fdf7b13b1dedc6943322f6f737d2bff0aa1efe0c30",
+    "tools\\ps2rig\\vu0_shared_probe.hpp": "c291a3b7dc6382aa5e570cae44b44ff8c1a12c093e74bf1bd96896916fcd1f8d",
+    "tools\\ps2rig\\vu0_shared_separation.vclpp": "9f902f8f8c69fa6754147f3ed22bcd836bc2fc12b8f0d521ea15ed5511126be4",
+    "tools\\ps2rig\\vu0_shared_fixture.py": "a5800abc010a6d48084cd26bc4c92da1bdc0c9c935afd86c28171d360d42da08",
+    "tools\\verify-vu0-shared-separation.cpp": "b8bb2dc91daefb00502f7106875ae7297ac54fb38dffd33dc469cab1a8b3e69e",
+    "tools\\verify-vu0-shared-packet.cpp": "3021fbd14cafc6dd0adf83b530554e76a50d8cdde56c897a3c5de0229b1e5ae1"
+  },
+  "sony_binary_sha256": "0a03ac844ed781bea215d6414f4641505fac34f7d12cdd3c799c3f2772c09980",
+  "source_vcl_sha256": "9f902f8f8c69fa6754147f3ed22bcd836bc2fc12b8f0d521ea15ed5511126be4",
+  "hardware_markers": [
+    "VUSHARED replay image=0 accepted=1",
+    "VUSHARED image=0 words=536 cases=48000 hits=20804 raw_rejects=27196 failures=0",
+    "VUSHARED replay image=1 accepted=1",
+    "VUSHARED image=1 words=552 cases=48000 hits=20804 raw_rejects=27196 failures=0",
+    "VUSHARED DONE accepted=1"
+  ],
+  "host": "Shared VCL: 120000 pairs, hits=51999 misses=68001 rawRejects=68001 crossOnlyRejects=374 mask=1ff; canonical geometry bitwise equal\n100 full packets: 12 shared bodies, 24 ordered jobs, inputs and guard unchanged\n",
+  "falsifier": "cross-axis filter failed trial=663\nexit=1\n",
+  "packet_oracle": "ASan+UBSan: 50024 ordered jobs in 7740 packets, no drops or writes into results/guard",
+  "editor": "Release native host build and --vu-check pass",
+  "micro_words_32bit": {
+    "openvcl": 536,
+    "sony": 552
+  },
+  "performance_qualified": false
+}

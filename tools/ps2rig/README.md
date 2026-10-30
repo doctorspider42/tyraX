@@ -9,6 +9,47 @@ cycle), so A and B are interleaved on the same binary and boot.
 
 PCSX2 proves correctness only; timing claims come from the console.
 
+## Shared-body VU0 separation prototype
+
+`vu0_shared_packet.hpp` and `vu0_shared_separation.vclpp` prototype a different
+EE/VU0 work split, not a selected production backend. EE prepares a 224-byte
+record per box; each 16-byte pair descriptor references two shared records.
+VU0 generates all nine edge-cross axes and runs the original SAT/linear CCD
+tests. It returns admission intervals and a separating-axis witness, without
+unused approximate contact reconstruction. Every possible contact still uses
+the canonical compiled EE routine; a rejection needs the conservative EE axis
+proof. The finalizer never rebuilds the old 512-byte packet.
+
+The 4 KiB data layout accommodates twelve bodies and twenty-four jobs. A full
+packet is flushed and the same pair retried; neither capacity limits the number
+of pairs or contacts. Unsupported shapes retain the EE path. Record lifetimes
+must extend through the micro fence; EE upload/readback touches VU memory only
+while idle. More VU work may expose latency, so full physics measurements must
+include packing, transfer, EE confirmation and the final batch tail.
+
+`verify-vu0-shared-packet.cpp` checks ordered flush/retry, serialization and
+memory guards under host sanitizers. `verify-vu0-shared-separation.cpp` executes
+the actual VCL, compares canonical contacts bitwise, checks full mixed packets
+and demands raw cross-axis-only rejections so an EE fallback cannot hide a dead
+filter. Zeroing the cross-axis instruction must fail this gate.
+`vu0_shared_fixture.py --scratch ROOT --sony-binary FILE` installs a gate-only
+physical probe into an existing private stream rig, backs up changed sources
+and invalidates prior same-ELF admission. FILE is the `.vutext` binary extracted
+from the separately Sony-assembled image. This probe stops physics after both
+images; it produces no scene timing qualification. Rebuild natively and retain
+the exact ELF, source/image hashes and `VUSHARED` log before timing integration.
+
+`results/shared-admission-2026-10-30.json` and its hardware log record the first
+passing admission. The host corpus covers 120,000 pairs with bitwise canonical
+contacts, 374 cross-only rejections covering all nine cross-axis indices, and
+100 full packets. Zeroing generated cross axes fails at case663. Physical PS2
+passes 48,000 ordered jobs per image (four repetitions of each six-case group),
+including the saved positive-contact regression; both images report20,804 hits,
+27,196 raw rejections and zero failures. OpenVCL/Sony use536/552 32-bit words.
+This validates the format, arithmetic and assembled scheduling, not useful
+EE/VU0 overlap or a whole-physics speedup. Scene integration and same-ELF timing
+remain pending; production micro stays disabled.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used

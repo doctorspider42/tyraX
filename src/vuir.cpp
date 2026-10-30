@@ -20,6 +20,7 @@ const OpText kOpText[] = {
     {Op::Mini, "mini"},     {Op::Max, "max"},     {Op::Move, "move"},
     {Op::Mr32, "mr32"},     {Op::Abs, "abs"},     {Op::Ftoi0, "ftoi0"},
     {Op::Ftoi4, "ftoi4"},   {Op::Itof0, "itof0"}, {Op::Clipw, "clipw"},
+    {Op::Opmula, "opmula"}, {Op::Opmsub, "opmsub"},
     {Op::Div, "div"},       {Op::Rsqrt, "rsqrt"}, {Op::Sqrt, "sqrt"},
     {Op::Loi, "loi"},       {Op::Mtir, "mtir"},   {Op::Mfir, "mfir"},
     {Op::Fcand, "fcand"},   {Op::Fcor, "fcor"},   {Op::Fceq, "fceq"},
@@ -62,6 +63,7 @@ bool hasMaskSuffix(Op op) {
         case Op::Mini: case Op::Max: case Op::Move: case Op::Mr32:
         case Op::Abs: case Op::Ftoi0: case Op::Ftoi4: case Op::Itof0:
         case Op::Clipw: case Op::Lq: case Op::Sq:
+        case Op::Opmula: case Op::Opmsub:
             return true;
         default:
             return false;

@@ -4967,6 +4967,7 @@ void vfTouched(const Instr& in, std::vector<int16_t>& reads, int16_t& write) {
         case Op::Add: case Op::Sub: case Op::Mul: case Op::Mula:
         case Op::Madd: case Op::Madda: case Op::Msub: case Op::Msuba:
         case Op::Mini: case Op::Max: case Op::Clipw:
+        case Op::Opmula: case Op::Opmsub:
             readVf(in.s1);
             if (in.s2kind == Src::Vf) readVf(in.s2);
             // madd/msub also READ their destination's accumulator, not the

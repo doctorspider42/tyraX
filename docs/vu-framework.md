@@ -195,6 +195,12 @@ register (`clipw`/`fcand`/`fcset`), integer registers with correct 16-bit
 wrapping, `lq`/`sq`/`ilw`/`isw` against the target's data memory, branches, `xtop` and
 `xgkick`.
 
+The parser, IR emitter and simulator also support the fixed-XYZ `opmula` and
+`opmsub` cyclic products. Both use the same source swizzle; a cross product
+swaps the two source registers for `opmsub`. The simulator snapshots all three
+result lanes before writing, including when the destination aliases an input,
+and preserves W. This models arithmetic semantics, not hardware scheduling.
+
 Also modelled, because host floats get it wrong in a way that quietly invalidates
 a whole run: **the VU FPU is not IEEE-754.** It has no infinities and no NaN — an
 overflowing result saturates to ±`0x7F7FFFFF` and a denormal reads as zero — so

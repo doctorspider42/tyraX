@@ -94,3 +94,11 @@ The SAT/CCD assembled oracle rejected openvcl pairing `addx.x VF03` with
 fields did not make the pair safe. Keep the explicit --barrier before the
 MFIR flag pack in vu0_sat_kernel.vclpp. Source-level vusim passes without it;
 only the assembled PCSX2/console probe sees this scheduling fault.
+
+Shared-body physics prototypes use OPMULA/OPMSUB for all nine edge-cross axes.
+Both instructions use the same cyclic source swizzle; swap sources for OPMSUB.
+The IR simulator now supports these fixed-XYZ operations, including aliased
+destinations and W preservation. tools/verify-vu0-shared-separation.cpp checks
+known vectors, canonical contacts and raw cross-only rejections; deliberately
+zeroing cross axes must fail before hardware qualification. Packet bounds alone
+are not semantic evidence, and short VU finish waits are not utilization proof.
