@@ -336,7 +336,7 @@ Do not discard an unfavorable normal-clock repeat because fixed-step looks bette
 The next private experiment, world_grid_fixture.py --verify, requires the2m
 scalar body-grid fixture. It builds an additional world index from current
 BroadPhaseCache boxes, excluding physics bodies while retaining nonphysics moving
-solids. Both arms use2m body grids. Each world query is checked against an
+solids. Both arms use the same body-grid size (--body-cell 8 by default, retaining production policy). Each world query is checked against an
 independent filtered full walk; world-grid-<phase>.csv records queries, verified
 queries and errors. The same scalar timing analyzer handles its metadata and
 12/13 verification phases or all28 timing phases. --verify selects the fixture's
@@ -355,5 +355,13 @@ selects8/2m cells only at phase boundaries. It balances initial warmup and measu
 phases10/11/12/13/24/25/26/27 (4800 rows): freeze only those expected phases from
 the live folder, which can still contain older CSVs. The analyzer checks the
 metadata.expected_phases subset and retains strict workload parity. The world
-prototype supports this shared-function rig and fixes body grids at2m in both
+prototype supports this shared-function rig and fixes body grids at the selected identical size in both
 arms while switching only world admission. Physical qualification is pending.
+
+The shared-function fixed-step control is qualified in
+results/body-grid-shared-2026-10-30.inputs.zip:4800 frames, four workload pairs,
+2400 matched frame pairs at printed telemetry resolution, zero parity/accounting
+errors and zero micro dispatch. The2m grid saves roughly0.26-0.33ms total
+physics in the128-pile controlled workload; this does not replace normal-clock
+FPS qualification. world_grid_fixture.py defaults to --body-cell 8 in both arms
+to measure world admission independently of this small grid effect.

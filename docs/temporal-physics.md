@@ -579,3 +579,14 @@ also change instruction/data placement, so a focused control now uses one
 physics/query implementation, varying only the grid cell at phase boundaries.
 It measures64/128 piles in both repeat orders and balances initial warmup.
 Production grid and clock defaults remain unchanged.
+
+The [shared-function fixed-step control](../tools/ps2rig/results/body-grid-shared-2026-10-30.json)
+passes4800 measured frames: four workload pairs and2400 paired rows match all
+logged workload/trajectory fields, with complete accounting and no micro
+dispatch.128-pile total physics changes21.866/21.811 to21.540/21.552ms
+across reversing repeats (roughly1.2-1.5% lower);64-pile10.988/10.960 to
+10.917/10.849ms. SAT timing is now essentially equal between arms. This is
+controlled-workload throughput, not a production60FPS qualification. The
+production8m grid remains unchanged. The world-only admission experiment uses
+the shared implementation and8m body grids in both arms to isolate its effect;
+physical full-walk admission verification is running before frame timing.

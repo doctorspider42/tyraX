@@ -2,11 +2,12 @@
 from pathlib import Path
 import argparse,json,shutil,subprocess
 
-def install(repo,root,verify):
+def install(repo,root,verify,body_cell=8):
     common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
     allowed=(common.parent/'.tmp').resolve();assert root.is_relative_to(allowed) and root!=allowed
     meta_path=root/'metadata.json';meta=json.loads(meta_path.read_text(encoding='utf8'))
-    assert meta.get('body_grid_timing_cell')==2 and meta.get('micro_dispatch') is False
+    assert meta.get('body_grid_timing_cell') in [2,8] and meta.get('micro_dispatch') is False
+    if meta.get('world_grid_comparison'):assert meta.get('world_body_cell')==body_cell
     engine=root/'engine/engine';rig=repo/'tools/ps2rig'
     shutil.copyfile(rig/'world_grid_probe.hpp',engine/'inc/debug/world_grid_probe.hpp')
     p=root/'district/src/gen/game_physics.gen.cpp';s=p.read_text(encoding='utf8')
@@ -36,13 +37,16 @@ def install(repo,root,verify):
             '{CB::StageScope q(4);worldPairs.queryBox(area,bpNearPhys);}\n      WorldGridProbe::inspect(area,bpNearPhys,bpCache,runtimeObjects,Tyra::vu0SatVerify);')
         s=s.replace(before,query,1)
         if shared:
-            before='CB::baseline?8.0F:2.0F';assert s.count(before)==1;s=s.replace(before,'2.0F',1)
+            before='CB::baseline?8.0F:2.0F';assert s.count(before)==1;s=s.replace(before,f'{body_cell}.0F',1)
+        else:
+            before='  static Tyra::BroadPhase bodyPairs(Tyra::BroadPhase::kGrid,2.0F);';assert s.count(before)==1
+            s=s.replace(before,f'  static Tyra::BroadPhase bodyPairs(Tyra::BroadPhase::kGrid,{body_cell}.0F);',1)
         candidate_path=p;candidate_text=s
-        # Both arms retain the same2m body index; isolate the world index change.
+        # Both arms use the same body index; isolate the world index change.
         p=root/'district/src/gen/collision_baseline.gen.cpp';s=p.read_text(encoding='utf8')
         if not shared:
             before='  static Tyra::BroadPhase bodyPairs;';assert s.count(before)==1
-            s=s.replace(before,'  static Tyra::BroadPhase bodyPairs(Tyra::BroadPhase::kGrid,2.0F);',1)
+            s=s.replace(before,f'  static Tyra::BroadPhase bodyPairs(Tyra::BroadPhase::kGrid,{body_cell}.0F);',1)
         baseline_path=p;baseline_text=s
         p=engine/'inc/debug/collision_bench.hpp';s=p.read_text(encoding='utf8')
         s='#include "debug/world_grid_probe.hpp"\n'+s
@@ -54,11 +58,13 @@ def install(repo,root,verify):
     if verify:cfg.write_bytes(b'verify\n')
     elif cfg.exists():cfg.unlink()
     meta.update(world_grid_comparison=True,world_grid_verify=verify,body_grid_probe=False,
+        body_grid_timing_cell=body_cell,world_body_cell=body_cell,
         shadow_enabled=verify,scene_timing_qualified=False,
-        comparison='2m body grid/canonical scalar in both arms; original combined world query versus world-only index, retaining nonphysics moving solids')
+        comparison=f'{body_cell}m body grid/canonical scalar in both arms; original combined world query versus world-only index, retaining nonphysics moving solids')
     meta_path.write_text(json.dumps(meta,indent=2),encoding='utf8')
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--scratch',required=True,type=Path)
+    p.add_argument('--body-cell',type=int,choices=[2,8],default=8,help='Identical body-grid cells in both arms; default8m retains production policy')
     p.add_argument('--verify',action='store_true');p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);a=p.parse_args()
-    install(a.repo.resolve(),a.scratch.resolve(),a.verify)
+    install(a.repo.resolve(),a.scratch.resolve(),a.verify,a.body_cell)

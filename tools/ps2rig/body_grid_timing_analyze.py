@@ -9,7 +9,7 @@ def main():
     p.add_argument('--output',type=Path,required=True);a=p.parse_args()
     meta=json.loads(a.metadata.read_text(encoding='utf8'));log=a.log.read_text(encoding='utf8',errors='replace')
     world=bool(meta.get('world_grid_comparison'));verify=world and bool(meta.get('world_grid_verify'))
-    assert meta.get('body_grid_timing_cell') in [1,2,4] and meta.get('micro_dispatch') is False
+    assert meta.get('body_grid_timing_cell') in ([1,2,4,8]if world else [1,2,4]) and meta.get('micro_dispatch') is False
     assert meta.get('body_grid_probe') is False and meta.get('shadow_enabled') is verify
     assert 'BODYGRID ' not in log and 'VUSATDIFF ' not in log and 'CB ERROR' not in log
     assert f'CB DONE phases={14 if verify else 28}' in log and f'VUSAT mode={"verify" if verify else "timing"}' in log
