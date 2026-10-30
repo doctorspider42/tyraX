@@ -1,0 +1,21 @@
+{
+  "qualified": true,
+  "scope": "Actual extracted scalar velocity/split impulse loops, six/three passes; host finite-mass mechanical checks, not full scene admission",
+  "finite_mass_cases": 54,
+  "immovable_partner_cases": 1,
+  "tests": [
+    "analytic two-mass restitution",
+    "linear momentum",
+    "yaw angular momentum for off-centre impulses",
+    "no kinetic-energy increase for restitution <=1",
+    "actual nonzero chassis yaw response",
+    "immovable partner diagnostic avoids division by zero"
+  ],
+  "falsifier": "Changing the partner impulse sign compiles and fails the linear momentum assertion",
+  "source_sha256": {
+    "vehicle-contacts-host.cpp": "6c65bd95b16dcf8d703e09c3b1017f30a05deb91d8b04681af79f8e796c0d8e6",
+    "vehicle-contacts-solver-cut.inc": "09eded44edb6714e40debbfe068627fc6dd876c1ba06f603a265152de7eb1a70",
+    "vehicle-contacts-falsifier.cpp": "c17b2b1cc71beeda69a8e20af1ba85883a726ee2248adc4e2ab263ed426e5853",
+    "vehicle_contacts_probe.hpp": "6bfff6e12b206ce13a9e36cb3a52072833a3f791b22a539ddb8a1b7924704e09"
+  }
+}

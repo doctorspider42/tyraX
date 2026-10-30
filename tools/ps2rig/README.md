@@ -394,6 +394,55 @@ the first timeline stage; vehicle chassis contacts still do not enter the
 body-pair VU0 queue or the common rigid-body solver. No production source,
 project format, default collision geometry or shipped vehicle handling changes.
 
+## Shared vehicle/prop contact solver
+
+`vehicle_contacts_fixture.py --scratch ROOT` starts from the byte-preserved
+zero-friction source and installs the actual contact-integration prototype.
+It saves the previous timeline fixture in `before-vehicle-contacts.zip`;
+`--refresh` regenerates from the original guard input. This is private game
+instrumentation, not a production default or an extra full simulation step.
+
+The candidate predicts vehicles first with their existing controls, suspension,
+world collision and car/car response. It disables their old prop kick/speed
+scrub, then adds active chassis to the existing pooled body registry, pair grid,
+SAT/linear-CCD dispatch and sequential impulse loops. Prop/world queries exclude
+those chassis, preventing the same pair from also seeing a static vehicle.
+All contacts retain six velocity and three split-position passes. A solved car
+receives the opposite linear impulse and yaw response; its predicted pose gets
+only the collision correction, so vehicle motion is never integrated twice.
+
+Chassis geometry is the existing `objectCollisionBox`, including centre offset,
+scale and model yaw, represented by all eight corners and six planes. Vehicle
+mass comes from its drive definition; yaw inertia uses this box. Pitch/roll
+remain controlled by the existing sprung rig, as before, so collision angular
+response is constrained to world yaw. Linear vertical response is returned to
+`velY`. This does not introduce free-tumbling cars, change the world/car-car
+collision models or claim exact rotational CCD. Driver camera/body matrices
+receive the solved correction once. A separate impact-only damage call uses
+post-world prediction velocity and zero elapsed time, avoiding double smoke
+clock advancement or charging earlier wall impacts twice.
+
+Shadow admission exhaustively checks every car/prop pair with canonical EE
+geometry, independently of pair-grid selection; every reference hit must have
+a common contact. It compares proxy corners to the prior static collider and
+checks finite-mass impulse conservation with a float-rounding error budget.
+Immovable sleeping partners are excluded from finite-mass conservation checks.
+Moving chassis wake nearby swept candidates before the sole object prediction.
+Pose-pool failure aborts qualification instead of silently selecting the old
+backend without vehicle contacts. Runtime counters must show exactly one full
+object pass per frame even when vehicle control substeps execute twice.
+
+`vehicle-contacts.cfg` contains two integers: isolation (0/1) and frame-clock
+multiplier (1/2). Isolation parks cars outside the prop field and disables their
+route/throttle, allowing a no-interaction state-equivalence gate. Impact mode
+keeps the stress drive; trajectories intentionally change, so FPS differences
+are not equal-workload speedups. Existing micro startup/replay/precision gates
+remain mandatory. Native compilation of the first integration passes; an
+extracted actual scalar solve loop passes54 finite-mass analytic restitution,
+linear/yaw momentum and non-increasing-energy cases plus an immovable-partner
+case. Reversing the partner impulse is rejected. Final diagnostics build,
+physical coverage and performance qualification are pending.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used
