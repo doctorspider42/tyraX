@@ -670,3 +670,30 @@ outer scopes overlap, and the instrumented profile is not a production FPS
 comparison. The counter calibration measured identical CP0/PCR cycle counts,
 zero warm4KiB scan misses and8386 misses for four128KiB scans. See the complete
 [PMU report](../tools/ps2rig/results/physics-pmu-2026-10-30.json).
+
+
+The first follow-up screens compact solver storage without changing the live
+solver. It replays four prepared physical inputs with880-byte full bodies or
+96-byte velocity/mass/inertia bodies, including gather/scatter. Savings are
+only about0-4% in these isolated samples. Both replay layouts agree bitwise,
+including10,000 host contact graphs and four saved physical snapshots, but the
+separate function differs from the caller-inline solver by up to2.98e-8.
+The [expanded layout report](../tools/ps2rig/results/solver-layout-delta-2026-10-30.json)
+is therefore explicitly unqualified. This is not a collision simplification,
+a production solver change, or evidence of a whole-frame speedup. A separate
+private scratchpad replay follows before deciding whether locality merits a
+larger integration change.
+
+
+The [private scratchpad screen](../tools/ps2rig/results/solver-scratchpad-2026-10-30.json)
+uses the same compact scalar function on heap and SPR. All16 SPR repeats restore
+all16KiB without errors; first-repeat outputs match heap bitwise on all four
+snapshots. The two denser snapshots
+save0.27/0.47ms (4.36/6.68%) versus full-stride replay; the lighter snapshots
+lose0.25/0.31ms to maintenance. Mode2 includes gather/scatter and scratchpad
+save/restore/verification, with stack/DMA eligibility outside the bracket.
+This is a small, conditional kernel opportunity, not a production FPS result;
+caller-inline differences reach5.96e-8 and numerical parity remains unqualified.
+The shipped solver is
+unchanged. A common-kernel integration and whole-frame comparison would be
+needed before enabling any heap/SPR solver path.

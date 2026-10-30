@@ -202,3 +202,22 @@ stage falls2.26/2.14->1.15/1.14ms at64 piled props, and128-pile FPS improves
 in both repeats. World admission is enabled by default; body cells and the
 production clock remain unchanged. physics_pmu_fixture.py is a separate private
 outer-stage hardware-counter probe, not a frame-performance qualification run.
+
+
+Solver data-layout screening is separate from scene timing. The private
+solver_layout_fixture.py captures prepared phase12/13 inputs, replays exact6+3
+loops with full880-byte or compact96-byte bodies, includes gather/scatter, and
+checks both against the untouched live solver. Full/compact replay agreement
+alone is insufficient: expanded physical diagnostics find caller-inline deltas
+up to2.98e-8, so the rejecting analyzer retains qualified=false. Four saved
+hardware inputs and10,000 host graphs agree between the two replay layouts.
+Keep these controls and a full-frame gate before any production promotion.
+
+
+solver_scratchpad_fixture.py adds a third replay mode with170-body capacity
+and full heap fallback above capacity or with busy SPR/stack use. The private
+probe saves/restores/verifies16KiB inside timing and never changes contact/body
+coverage. Initial hardware data match heap bitwise with zero restore errors;
+only dense snapshots improve, by0.27/0.47ms, while light snapshots regress.
+Caller-inline parity still rejects production promotion. Do not read these
+isolated timings as a shipped solver or console-limit claim.

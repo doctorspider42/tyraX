@@ -2908,3 +2908,5 @@ post-5 back at y = 1.
   reduction; do not automatically decimate the render mesh into a collider.
 
 - [x] Complete normal-clock hardware qualification of cached static world/compact-moving admission:48,502 independent query checks and16,800 frame rows; enable the measured world index while retaining the8m body grid and production clock.
+
+- [ ] Qualify a common scalar solver kernel before any compact/SPR integration. Saved layout/SPR screens find up to5.96e-8 caller-inline differences; dense SPR replay saves0.27/0.47ms but light cases regress. Preserve full coverage, test amortization and ownership, and require a whole-frame A/B.

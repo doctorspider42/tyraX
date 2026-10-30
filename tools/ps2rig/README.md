@@ -438,3 +438,47 @@ results/physics-pmu-2026-10-30.inputs.zip. It is diagnostic evidence only;
 performance_qualified staysfalse even when all counter checks pass.
 The selected-default non-box smoke is results/world-default-smoke-2026-10-30.*:
 37 bodies,79 finite aggregate samples through frame7900, private Pad stub.
+
+
+solver_layout_fixture.py --scratch <pmu-rig> adds a fixed-input storage screen
+at phase12/13 frames300/600. It extracts the canonical scalar velocity/split
+loops, retaining six/three passes, and instantiates them for the original
+880-byte RbStep or96-byte compact velocity/mass/inertia fields. Mode1 includes
+gather/scatter; input resets are outside timing and mode order alternates.
+The live solver remains unchanged. Raw prepared inputs are saved before replay;
+its output is checked against both replay results after the live solve.
+--refresh-probe updates only this screen header before the separate SPR stage.
+
+The initial and expanded-delta packages are
+results/solver-layout-{initial,delta}-2026-10-30.inputs.zip. Compact heap replay
+saves roughly0-4% in these snapshots, but both are deliberately unqualified:
+separate full/compact calls agree bitwise while the caller-inline solver differs
+by up to2.98e-8 in the expanded gate. Do not infer a production regression or
+promote the candidate from a matching pair of replay functions. The initial
+package also contains the generated host replay source and10,000-graph/four
+physical-snapshot bitwise verification metadata. Solver math is extracted from
+current canonical source; it is not the prepared-coefficient solver experiment.
+solver_layout_analyze.py retains costs with qualified=false and exits1 on
+integration differences, while preserving all contact/push accounting checks.
+These replay frames are perturbed and cannot qualify whole-scene FPS.
+
+solver_scratchpad_fixture.py adds mode2 to the private screen. It calls the
+same CompactBody solver instantiation on EE SPR, checks stack and both SPR DMA
+channels, falls back to heap when busy or above170 bodies, and saves/restores
+and verifies all16KiB before returning to I/O/rendering. Saving, restoring, verifying, gathering and scattering are
+inside mode2 timing; eligibility checks precede the bracket. No contacts or bodies are dropped. In-tree packet owners
+use normal RAM; this private experiment is not a production SPR ownership API.
+The mapping and access model follow the
+[SCE EE Core User's Manual](https://docs.alexrp.com/mips/ee.pdf) section6.4 and
+[PS2SDK packet implementation](https://github.com/ps2dev/ps2sdk/blob/master/ee/packet/src/packet.c).
+
+
+The first SPR package is results/solver-scratchpad-2026-10-30.inputs.zip.
+All16 mode2 repeats actually used SPR and restored its contents without errors.
+The four first-repeat snapshot output checks match compact-heap results bitwise. In the
+two denser snapshots SPR saves0.27/0.47ms (4.36/6.68%) against the extracted
+full-stride replay including maintenance. The two lighter snapshots regress
+by0.25/0.31ms; do not pool these into a universal speedup. Caller-inline differences reach5.96e-8 in this screen, so
+qualified/performance_qualified remainfalse and production
+solver code is unchanged. Any integration needs a common scalar kernel,
+amortization/fallback qualification, explicit SPR ownership and full scene A/B.
