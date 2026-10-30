@@ -769,3 +769,13 @@ can establish a benefit. Native compilation passes. Regenerated runtime/header
 bytes match their original UTF-8 inputs outside intentional ASCII additions.
 The private source snapshot directory is retained for reproducibility. Physical
 admission of this new shared-pose variant is pending.
+
+The common-pose admission now passes on PS2:
+results/step-pool-common-pose-2026-10-30.* plus its separate gate JSON. All raw
+initialized fields, local vertices, both poses and ordered contacts match
+bitwise at frames0/1;600 logged frames match workload/contact fingerprints.
+Both layouts dispatch81,696 jobs/11,992 batches with complete result classes,
+zero missed reference hits/errors, saved late-case replay accepted for both
+kernels and50,000 precision cases passing. This qualifies the new common-pose
+comparison only; old inline baseline equivalence/performance is not established.
+Unshadowed timing on this same ELF follows before considering integration.
