@@ -2,7 +2,7 @@
 from pathlib import Path
 import argparse,json,shutil,subprocess
 
-def install(repo,root,verify,body_cell=8):
+def install(repo,root,verify,body_cell=8,normal_clock=False,full_suite=False):
     common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
     allowed=(common.parent/'.tmp').resolve();assert root.is_relative_to(allowed) and root!=allowed
     meta_path=root/'metadata.json';meta=json.loads(meta_path.read_text(encoding='utf8'))
@@ -54,6 +54,19 @@ def install(repo,root,verify,body_cell=8):
         s=s.replace(before,'  WorldGridProbe::flush(phase);\n'+before,1)
         # Validate all insertion points before mutating the generated fixture.
         candidate_path.write_bytes(candidate_text.encode());baseline_path.write_bytes(baseline_text.encode());p.write_bytes(s.encode())
+    if normal_clock:
+        p=root/'district/src/terrain_game.cpp';s=p.read_text(encoding='utf8')
+        marker='  // Private controlled-workload benchmark, never emitted by production codegen.'
+        if marker in s:
+            begin=s.index(marker);end=s.index('  const bool menuActive =',begin)
+            s=s[:begin]+s[end:];p.write_bytes(s.encode())
+        meta.update(fixed_simulation_step=False,same_elf_admission_qualified=False,
+            simulation_clock='Original production updateFrameClock; both arms use real variable frame intervals.')
+    if full_suite and meta.get('expected_phases')!=list(range(28)):
+        p=root/'district/src/gen/collision_baseline.gen.cpp';s=p.read_text(encoding='utf8')
+        for before in ['else CB::phase=10;','if(!Tyra::vu0SatVerify && CB::phase==14)CB::phase=24;']:
+            assert s.count(before)==1,before;s=s.replace(before,'',1)
+        p.write_bytes(s.encode());meta.update(expected_phases=list(range(28)),same_elf_admission_qualified=False)
     cfg=root/'district/bin/sat-verify.cfg'
     if verify:cfg.write_bytes(b'verify\n')
     elif cfg.exists():cfg.unlink()
@@ -66,5 +79,7 @@ def install(repo,root,verify,body_cell=8):
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--scratch',required=True,type=Path)
     p.add_argument('--body-cell',type=int,choices=[2,8],default=8,help='Identical body-grid cells in both arms; default8m retains production policy')
+    p.add_argument('--normal-clock',action='store_true',help='Restore the private main loop to production variable-frame simulation; rebuild/requalify the new ELF')
+    p.add_argument('--full-suite',action='store_true',help='Restore all28 phases instead of the dense screening subset; rebuild the new ELF')
     p.add_argument('--verify',action='store_true');p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);a=p.parse_args()
-    install(a.repo.resolve(),a.scratch.resolve(),a.verify,a.body_cell)
+    install(a.repo.resolve(),a.scratch.resolve(),a.verify,a.body_cell,a.normal_clock,a.full_suite)

@@ -598,3 +598,14 @@ arms use the shared scalar implementation and8m body grids. The same ELF is
 now measured with the admission oracle disabled; no world-index timing claim
 is made from the verification run. See the
 [physical admission report](../tools/ps2rig/results/world-grid-verify-2026-10-30.json).
+
+The [world-index fixed-step timing](../tools/ps2rig/results/world-grid-fixed-2026-10-30.json)
+passes4800 measured rows,2400 paired telemetry comparisons and full contact/
+candidate accounting with oracle work and micro dispatch disabled.64-pile
+physics11.146/11.075 becomes10.149/10.082ms (about9% less);128-pile
+22.147/22.167 becomes19.325/19.322ms (about13% less). The unchanged8m body
+index and shared scalar solver isolate world admission. Fixed-step frame
+throughput improves more modestly:128-pile22.50/22.52 to23.43/23.74FPS.
+This does not qualify production60FPS. A new private build restores the
+original variable clock and all28 workload phases; its admission gate is
+repeated before measuring the same new ELF without verification overhead.

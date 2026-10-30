@@ -372,3 +372,12 @@ errors and no micro dispatch. It includes both phase12/13 frame/sidecar families
 world metrics, metadata and the full log. Re-run body_grid_timing_analyze.py on
 the extracted package. Remove the private cfg with world_grid_fixture.py without
 --verify to time the exact same ELF; preserve its hash and disable oracle work.
+
+The qualified world-index fixed-step timing package is
+results/world-grid-fixed-2026-10-30.inputs.zip (4800 frame rows, strict paired
+telemetry parity, no oracle work/micro dispatch in timings). To follow up with
+production-clock workloads, use world_grid_fixture.py --normal-clock --full-suite
+--verify, rebuild, and repeat admission on that new ELF before removing the cfg
+and measuring all28 phases on the same binary. These options restore the
+original clock and full schedule only in the private fixture; keep initial
+warmup balanced and record the new ELF/source hashes.

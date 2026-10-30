@@ -178,3 +178,9 @@ caused75 divergent zero-added pairs in the first control. For grid-only cost,
 --shared-physics --dense-only runs the same implementation in both arms and
 selects cells at phase boundaries (eight phases/4800 rows). Freeze precisely
 metadata.expected_phases; older CSVs in the live fixture are not fresh evidence.
+
+The world-index prototype defaults to8m body grids in both arms. After the
+qualified fixed-step screening, --normal-clock --full-suite --verify restores
+the production simulation clock and28-phase schedule in the private fixture.
+Rebuild/requalify admission on that new ELF, then remove its cfg and time the
+same binary. The fixed-step9/13% physics savings are not production60FPS proof.
