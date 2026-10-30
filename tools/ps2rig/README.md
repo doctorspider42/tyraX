@@ -756,3 +756,16 @@ gate remains rejected. V2 snapshots show identical local hull coordinates and
 all captured core inputs at frame0, while derived world poses differ. This
 supports using one compiled transform routine before ranking the two layouts;
 no trajectory gate is relaxed. Fixture source readers now explicitly use UTF-8.
+
+--common-transform regenerates the private wide/pooled source from byte-preserved
+inputs, then routes vertex transforms and OBB construction through single
+compiled EE functions in step_pose_reference.hpp. This removes layout-specific
+inlining at the first differing geometry stage. Both layouts adopt a new common
+pose baseline; old inline trajectories/timings cannot qualify it. All vertices,
+collision rules, positive confirmations and6+3 solver passes remain. The helper
+asserts macro VU0 is disabled, including for sleepers prepared during body
+enumeration. Calls add EE work and may affect overlap; only full measurements
+can establish a benefit. Native compilation passes. Regenerated runtime/header
+bytes match their original UTF-8 inputs outside intentional ASCII additions.
+The private source snapshot directory is retained for reproducibility. Physical
+admission of this new shared-pose variant is pending.

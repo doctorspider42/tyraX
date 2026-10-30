@@ -96,9 +96,51 @@ def local_inputs(repo,root):
     metadata.write_text(json.dumps(meta,indent=2),encoding='utf8')
 
 
+def common_transform(repo,root):
+    common=Path(subprocess.check_output(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],text=True).strip())
+    allowed=(common.parent/'.tmp').resolve();assert root.is_relative_to(allowed) and root!=allowed
+    metadata=root/'metadata.json';meta=json.loads(metadata.read_text(encoding='utf8'))
+    assert meta.get('step_pool_diagnostic') and not meta.get('step_pool_common_transform')
+    clean=root/'clean-step-pool-inputs';clean.mkdir(exist_ok=False)
+    files=['district/src/gen/game_physics.gen.cpp','district/src/gen/collision_baseline.gen.cpp','district/inc/game_runtime.gen.hpp','district/inc/terrain_game.hpp']
+    with zipfile.ZipFile(root/'before-step-pool.zip') as z:
+        for name in files+['metadata.json']:
+            p=clean/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(z.read(name))
+    (clean/'engine/engine/inc/debug').mkdir(parents=True);(clean/'district/bin').mkdir(parents=True)
+    shutil.copyfile(root/'before-micro-cost.zip',clean/'before-micro-cost.zip')
+    # Regenerate from byte-preserved inputs through explicit UTF-8 readers.
+    install(repo,clean);diagnose(repo,clean)
+    for name in files:shutil.copyfile(clean/name,root/name)
+    for name in ['step_vertex_pool.hpp','step_pool_probe.hpp']:
+        shutil.copyfile(repo/'tools/ps2rig'/name,root/'engine/engine/inc/debug'/name)
+    p=root/files[0];s=p.read_text(encoding='utf8');old='#include "game_runtime.gen.hpp"';assert s.count(old)==1
+    s=s.replace(old,old+'\n#include "debug/step_pose_reference.hpp"',1)
+    assert s.count('Tyra::collisionTransformPoints(')==4;s=s.replace('Tyra::collisionTransformPoints(','StepPoseReference::transform(')
+    old='''    if (s.box) {
+      float lo[3]={1e30F,1e30F,1e30F}, hi[3]={-1e30F,-1e30F,-1e30F};
+      for (int v=0;v<b.verts;++v) for(int k=0;k<3;++k) {
+        lo[k]=std::min(lo[k],b.lv[v*3+k]);hi[k]=std::max(hi[k],b.lv[v*3+k]);
+      }
+      s.obb.centre=rbAdd(s.x1,rbMat(s.R1,rbV((lo[0]+hi[0])*.5F,
+          (lo[1]+hi[1])*.5F,(lo[2]+hi[2])*.5F)));
+      for(int k=0;k<3;++k) s.obb.halfAxes[k]=rbMul(
+          rbV(s.R1[k],s.R1[k+3],s.R1[k+6]),(hi[k]-lo[k])*.5F);
+    }'''
+    assert s.count(old)==2;s=s.replace(old,'    if(s.box)StepPoseReference::box(b.lv,b.verts,s.R1,s.x1,s.obb);');p.write_bytes(s.encode('utf8'))
+    helper=root/'engine/engine/inc/debug/step_pose_reference.hpp';shutil.copyfile(repo/'tools/ps2rig/step_pose_reference.hpp',helper)
+    meta['lineage_pre_common_pose_source_sha256']=meta.pop('step_pool_source_sha256')
+    tracked=[root/f for f in files]+[root/'engine/engine/inc/debug'/name for name in ['step_vertex_pool.hpp','step_pool_probe.hpp','step_pose_reference.hpp']]
+    meta['step_pool_source_sha256']={str(f.relative_to(root)):hashlib.sha256(f.read_bytes()).hexdigest()for f in tracked}
+    meta.update(step_pool_common_transform=True,source_regenerated_utf8=True,stop_physics_after_done=True,
+        same_elf_admission_qualified=False,active_mode='step-pool-common-pose-verify',
+        comparison='Both wide and pooled layouts now share one compiled EE vertex transform and OBB builder. This is a new common pose baseline; old inline trajectories and performance do not qualify it. All vertices, contacts, canonical positive confirmations and6+3 passes retained.')
+    metadata.write_text(json.dumps(meta,indent=2),encoding='utf8')
+
+
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--scratch',required=True,type=Path)
-    p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);p.add_argument('--diagnose',action='store_true');p.add_argument('--local-inputs',action='store_true');a=p.parse_args()
-    if a.local_inputs:local_inputs(a.repo.resolve(),a.scratch.resolve())
+    p.add_argument('--repo',type=Path,default=Path(__file__).resolve().parents[2]);p.add_argument('--diagnose',action='store_true');p.add_argument('--local-inputs',action='store_true');p.add_argument('--common-transform',action='store_true');a=p.parse_args()
+    if a.common_transform:common_transform(a.repo.resolve(),a.scratch.resolve())
+    elif a.local_inputs:local_inputs(a.repo.resolve(),a.scratch.resolve())
     elif a.diagnose:diagnose(a.repo.resolve(),a.scratch.resolve())
     else:install(a.repo.resolve(),a.scratch.resolve())

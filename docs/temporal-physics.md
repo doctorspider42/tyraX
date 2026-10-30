@@ -803,8 +803,8 @@ reconstruction:the hit agrees with EE, but a support-feature centroid differs
 by about40.8% of the smaller radius, exceeding the existing1% point tolerance.
 The [captured case](../tools/ps2rig/results/vu0-late-contact-2026-10-30.json)
 was received after the bounded benchmark finished; it is not evidence that
-its measured-window counters failed. Fresh host and physical startup replays
-reject it. The asynchronous backend now retains conservative EE separation
+its measured-window counters failed. Before the fix, fresh host and physical
+startup replays rejected it. The asynchronous backend now retains conservative EE separation
 proofs for negatives and calls the shared compiled EE routine for every possible
 contact, including positives without a reported axis tie. No tolerance is
 relaxed and no contact is dropped. This adds EE work; earlier micro timing
