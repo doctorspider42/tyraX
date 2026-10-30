@@ -510,6 +510,22 @@ pass, legacy-bumper exclusion, micro/world and coverage checks pass. Active
 impact costs remain pending. No historical ELF timing is added or used as the
 reference for these figures.
 
+`results/vehicle-contacts-impact-timing-2026-10-30.*` closes the current run:
+4800 unshadowed rows, both run orders, one full object pass per frame. The
+combined legacy/shared boundary is10.172/12.253 and10.123/12.174ms for64 props;
+128 is18.405/20.381 and18.409/20.421ms. Shared object-physics costs are
+10.845/10.770ms and18.549/18.588ms; solver costs are4.000/3.978ms and
+6.256/6.257ms. Impact trajectories, awake bodies and contact workloads differ,
+so these are observed scene costs, not equal-workload speedup/regression
+percentages. No60 FPS or production-readiness claim follows. The current run
+is complete; the next planned double-interval timing has not been started.
+
+The investigation now follows [the traffic and physics plan](TRAFFIC_PHYSICS_PLAN.md):
+independent Astra/Claude-CLI Opus physics proposals before another console
+experiment, PR285 traffic scaling toward5 HQ +5–8 lowpoly vehicles, and100
+initially separated roadside physics objects. Visible pile interpenetration
+remains unresolved despite numerical/canonical-hit gates passing.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used
