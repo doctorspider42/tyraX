@@ -83,6 +83,19 @@ reject an omitted image corpus and a one-bit raw snapshot change. The installer
 reproduces both compiled scene translation units byte-for-byte. Verification
 timings are invalid; the exact same ELF must still complete unshadowed timing.
 
+`results/shared-scene-timing-2026-10-30.*` completes the same-ELF unshadowed
+comparison:4800 nominal-step rows,2400 matched printed-frame pairs, no workload
+mismatch.64-prop drive physics changes10.9145->10.6921 and10.9974->10.7752ms;
+128 changes19.9706->19.5176 and19.9945->19.5598ms. Savings are0.222ms for64 and
+0.435..0.453ms for128 (about2.0..2.3%). The body stage accounts for the gain;
+solver time is effectively unchanged. All750-frame mean finish wait increases
+roughly0.015->0.024ms for64 and0.0045->0.0068ms for128, so the extra exposed VU
+latency does not erase the complete-physics saving. Do not add this estimate to
+older independent screens: this comparison uses a new common pooled scene
+function and defines its own baseline. The dense128 admission precedes timing;
+original selected scalar/inline equivalence, broader scene admission and normal
+clock production FPS remain unqualified. Micro remains off in production.
+
 ## Collision stress fixture
 
 `collision_stress.py` creates the same-ELF collision algorithm comparison used
