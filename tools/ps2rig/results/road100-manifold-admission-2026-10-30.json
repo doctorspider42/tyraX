@@ -1352,6 +1352,15 @@
           "fps": 34.58126883116198,
           "p50_period_ms": 33.366119384765625,
           "p95_period_ms": 33.395650227864586,
+          "long_periods_over_25ms": 88,
+          "mean_frame_work_ms": 16.620281360767507,
+          "mean_shared_vehicle_physics_ms": 4.420887134693287,
+          "vehicle_model_substeps": {
+            "1": 31,
+            "2": 89,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 3.4935110021520543,
           "mean_solver_ms": 0.0018877382631655093,
           "awake_max": 3,
@@ -1363,6 +1372,15 @@
           "fps": 32.64505955208026,
           "p50_period_ms": 33.366109212239586,
           "p95_period_ms": 33.59173583984375,
+          "long_periods_over_25ms": 301,
+          "mean_frame_work_ms": 18.517274343231577,
+          "mean_shared_vehicle_physics_ms": 8.154837883843316,
+          "vehicle_model_substeps": {
+            "1": 59,
+            "2": 301,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 6.319241163465712,
           "mean_solver_ms": 1.1359281375084394,
           "awake_max": 41,
@@ -1374,6 +1392,15 @@
           "fps": 59.93978095858732,
           "p50_period_ms": 16.683247884114582,
           "p95_period_ms": 16.945556640625,
+          "long_periods_over_25ms": 0,
+          "mean_frame_work_ms": 12.077404417815032,
+          "mean_shared_vehicle_physics_ms": 6.19407071714048,
+          "vehicle_model_substeps": {
+            "1": 120,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 4.680120567039207,
           "mean_solver_ms": 0.5136724401403356,
           "awake_max": 17,
@@ -1396,6 +1423,15 @@
           "fps": 57.55092491003692,
           "p50_period_ms": 16.683390299479168,
           "p95_period_ms": 18.47711181640625,
+          "long_periods_over_25ms": 5,
+          "mean_frame_work_ms": 15.507371210168909,
+          "mean_shared_vehicle_physics_ms": 4.286522250705295,
+          "vehicle_model_substeps": {
+            "1": 115,
+            "2": 5,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 3.479368704336661,
           "mean_solver_ms": 0.0017860130027488425,
           "awake_max": 3,
@@ -1407,6 +1443,15 @@
           "fps": 34.14303175898072,
           "p50_period_ms": 33.36598036024306,
           "p95_period_ms": 33.42999945746528,
+          "long_periods_over_25ms": 271,
+          "mean_frame_work_ms": 18.66873735027549,
+          "mean_shared_vehicle_physics_ms": 8.800912955955223,
+          "vehicle_model_substeps": {
+            "1": 89,
+            "2": 271,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 6.964124137972608,
           "mean_solver_ms": 0.8198238796657986,
           "awake_max": 38,
@@ -1418,6 +1463,15 @@
           "fps": 59.937203243907646,
           "p50_period_ms": 16.678965250651043,
           "p95_period_ms": 16.971700032552082,
+          "long_periods_over_25ms": 0,
+          "mean_frame_work_ms": 12.138951704237195,
+          "mean_shared_vehicle_physics_ms": 5.810249893753617,
+          "vehicle_model_substeps": {
+            "1": 120,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 4.841401672363281,
           "mean_solver_ms": 0.14596128110532408,
           "awake_max": 10,
@@ -1440,6 +1494,15 @@
           "fps": 58.00812359338524,
           "p50_period_ms": 16.683390299479168,
           "p95_period_ms": 18.10158962673611,
+          "long_periods_over_25ms": 4,
+          "mean_frame_work_ms": 15.559965967248987,
+          "mean_shared_vehicle_physics_ms": 4.301126720287182,
+          "vehicle_model_substeps": {
+            "1": 116,
+            "2": 4,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 3.491742847583912,
           "mean_solver_ms": 0.0017737494574652777,
           "awake_max": 3,
@@ -1451,6 +1514,15 @@
           "fps": 33.92715537916888,
           "p50_period_ms": 33.3662109375,
           "p95_period_ms": 33.426900227864586,
+          "long_periods_over_25ms": 276,
+          "mean_frame_work_ms": 18.211811621395157,
+          "mean_shared_vehicle_physics_ms": 8.771793506763599,
+          "vehicle_model_substeps": {
+            "1": 84,
+            "2": 276,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 6.961229762324581,
           "mean_solver_ms": 0.7695632369429977,
           "awake_max": 39,
@@ -1462,6 +1534,15 @@
           "fps": 59.94603125347905,
           "p50_period_ms": 16.67999267578125,
           "p95_period_ms": 16.901570638020832,
+          "long_periods_over_25ms": 0,
+          "mean_frame_work_ms": 10.933017363371672,
+          "mean_shared_vehicle_physics_ms": 5.54942943431713,
+          "vehicle_model_substeps": {
+            "1": 120,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 4.442013549804687,
           "mean_solver_ms": 0.12216548213252315,
           "awake_max": 9,
@@ -1484,6 +1565,15 @@
           "fps": 58.47875059096034,
           "p50_period_ms": 16.683515760633682,
           "p95_period_ms": 17.36669921875,
+          "long_periods_over_25ms": 3,
+          "mean_frame_work_ms": 15.51930152045356,
+          "mean_shared_vehicle_physics_ms": 4.30635415536386,
+          "vehicle_model_substeps": {
+            "1": 117,
+            "2": 3,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 3.5000206841362846,
           "mean_solver_ms": 0.0017648767541956019,
           "awake_max": 3,
@@ -1495,6 +1585,15 @@
           "fps": 42.39388473234436,
           "p50_period_ms": 16.747517903645836,
           "p95_period_ms": 33.400492350260414,
+          "long_periods_over_25ms": 148,
+          "mean_frame_work_ms": 15.86709794409481,
+          "mean_shared_vehicle_physics_ms": 6.050958063573013,
+          "vehicle_model_substeps": {
+            "1": 212,
+            "2": 148,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 4.410044512336637,
           "mean_solver_ms": 0.38707591869212965,
           "awake_max": 24,
@@ -1506,6 +1605,15 @@
           "fps": 59.94090603730667,
           "p50_period_ms": 16.68309868706597,
           "p95_period_ms": 16.887349446614582,
+          "long_periods_over_25ms": 0,
+          "mean_frame_work_ms": 12.299243587917752,
+          "mean_shared_vehicle_physics_ms": 4.748329275625723,
+          "vehicle_model_substeps": {
+            "1": 120,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
           "mean_physics_ms": 3.8213144373010706,
           "mean_solver_ms": 0.037551823368778936,
           "awake_max": 4,
@@ -1542,5 +1650,5 @@
     "vu0-class-3.csv": "63878e6d99603e41c0bc8dc4d61c4aaf695503fe5e1d0ade97b330b3fe38aab1"
   },
   "log_sha256": "7826ef16ae15789dd348cb3506b0f9fa3f1ca79035c1f1a5c25fb7928568a7c1",
-  "scope": "Private3-car/100-separated-prop scenario, both arms use the common shared solver. Face manifolds change trajectories. Admission timings include exhaustive shadow checks. Contact depth is pre-solve, not a final overlap metric. No stack/sleep,13-car traffic or production qualification."
+  "scope": "Private3-car/100-separated-prop scenario, both arms use the common shared solver. Face manifolds change trajectories. Admission timings include exhaustive shadow checks. Unshadowed FPS still includes120-frame renderer diagnostic output and stage instrumentation; it is not quiet-production FPS. Contact depth is pre-solve, not a final overlap metric. No stack/sleep,13-car traffic or production qualification."
 }

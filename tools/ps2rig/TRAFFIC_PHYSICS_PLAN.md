@@ -134,3 +134,27 @@ provides the accepted evidence. Unshadowed timing on the SAME ELF is next.
 This test has three cars and100 ADDED separated props, not13 traffic cars.
 Frame-count throttle durations and changed contacts produce different travel;
 no equal-input/trajectory speedup or final-pose separation claim is made.
+
+## Road100 timing and next priorities
+
+The same-ELF unshadowed four-phase run passes all accounting gates and records
+normal-clock FPS: corners55.33/57.39 and face patches56.93/55.05 during driving.
+Mean full physics is1.575..2.177ms; common vehicles+physics2.992..3.648ms.
+No repeatable face-patch speedup is established. All100 additional props begin
+separated; only a subset is awake at once. The private renderer still emits
+120-frame reports, so quiet-production60FPS remains unproven. Preserve raw
+results in `results/road100-manifold-timing-2026-10-30.*`; see README for scope.
+
+PR285 merge-tree preflight (pinned head8fc9f33a, before merging) reports11
+conflicts. Five hand-written paths need resolution: src/app.cpp (both tool
+keys), src/game_templates.inc (texture filtering AND shared-part binding),
+src/project.hpp (recompute BOTH platform sizeof assertions), src/version.hpp
+(union additive formats and advance beyond137), and CHANGELOG.md. Other
+conflicts are generated examples/directory-rename fallout: regenerate rather
+than trust textual fixes. This is a preview only; no PR merge has occurred.
+
+Next work: integrate the traffic dependencies on the SAME branch, preserve
+physics/filtering behavior and platform twins, build/regenerate, then profile
+1/3/5/10/13 vehicles on the console with quiet normal-clock frame measurement.
+Define5HQ as TOTAL including the player. Keep small-stack post-writeback/sleep
+diagnostics outstanding; the reproduced corner bug is only partially qualified.

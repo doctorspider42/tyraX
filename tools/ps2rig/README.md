@@ -1389,3 +1389,33 @@ The drive holds throttle for360 frames, so wall-clock duration/travel vary
 with performance (and contact response differs); this is not an equal-input
 speedup comparison. A separate same-ELF unshadowed run follows. Post-writeback
 penetration, stacks/sleep and the5-HQ+5..8-civilian target remain unqualified.
+
+### Road100 normal-clock timing checkpoint
+
+`results/road100-manifold-timing-2026-10-30.*` completes2400 measured frames
+and3000 shared full steps, same ELF as admission. Verification is off, contacts
+remain uncapped, every phase drives into props and numerical diagnostics are
+zero. Frame-pipeline renderer output every120 frames and stage instrumentation
+ARE STILL PRESENT; these are measured private-build normal-clock FPS, not a
+quiet-production/13-car qualification. Warm-up/park/drive lengths are in frames.
+
+| Drive phase/order | Average FPS | p95 period ms | Physics ms | Shared vehicle+physics ms |
+|---|---:|---:|---:|---:|
+|0 old corners|55.33|33.37|2.177|3.648|
+|1 face patch|56.93|29.38|2.151|3.614|
+|2 face patch|55.05|33.35|2.096|3.581|
+|3 old corners|57.39|19.17|1.575|2.992|
+
+Median periods are16.68ms; occasional longer frames prevent stable60FPS.
+The patch does not establish a repeatable speedup. Contact populations and
+travel differ (77.7..100.1 units during measured windows), as does real input
+duration at different FPS. Maximum awake counts are18..36 including chassis
+and inherited base-scene physics, while100 additional props are placed.
+Mean frame work is13.90..15.52ms; the common simulation interval is2.99..3.65ms.
+The remaining interval includes rendering/submission AND other game work;
+this is not exclusive EE/VU1/GS attribution. It makes full-frame traffic
+profiling higher priority than another isolated SAT timing tweak.
+
+Post-writeback depth/sleep quality is still unmeasured: the reported max_depth
+is a PRE-SOLVE contact metric. Next use small stacks/final geometry for quality
+and a quiet faithful PR285 traffic fixture for5HQ TOTAL+5..8 civilians.

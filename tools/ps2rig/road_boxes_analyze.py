@@ -93,10 +93,16 @@ def analyze(root, output, admission=None):
         states = {}
         for state in ['park', 'drive', 'settle']:
             window = [r for r in data if r['state'] == state]
+            frames = {int(r['frame']) for r in window}
+            shared = [r for r in vehicle if int(r['frame']) in frames]
             periods = sorted(int(r['period_ticks'])/294912 for r in window)
             states[state] = dict(frames=len(window), fps=1000/statistics.mean(periods),
                                  p50_period_ms=statistics.median(periods),
                                  p95_period_ms=periods[math.ceil(.95*len(periods))-1],
+                                 long_periods_over_25ms=sum(p > 25 for p in periods),
+                                 mean_frame_work_ms=statistics.mean(int(r['work_ticks'])/294912 for r in window),
+                                 mean_shared_vehicle_physics_ms=statistics.mean(int(r['combined_ticks'])/294912 for r in shared),
+                                 vehicle_model_substeps={str(n): sum(int(r['vehicle_steps']) == n for r in shared) for n in range(1, 5)},
                                  mean_physics_ms=statistics.mean(int(r['physics_ticks'])/294912 for r in window),
                                  mean_solver_ms=statistics.mean(int(r['solver_ticks'])/294912 for r in window),
                                  awake_max=max(int(r['awake']) for r in window),
@@ -114,7 +120,7 @@ def analyze(root, output, admission=None):
                   production_integration_qualified=False, equal_workload_speedup_qualified=False,
                   errors=sorted(set(errors)), metrics=metrics, raw_sha256=hashes,
                   log_sha256=hashlib.sha256((root/'hardware.log').read_bytes()).hexdigest(),
-                  scope='Private3-car/100-separated-prop scenario, both arms use the common shared solver. Face manifolds change trajectories. Admission timings include exhaustive shadow checks. Contact depth is pre-solve, not a final overlap metric. No stack/sleep,13-car traffic or production qualification.')
+                  scope='Private3-car/100-separated-prop scenario, both arms use the common shared solver. Face manifolds change trajectories. Admission timings include exhaustive shadow checks. Unshadowed FPS still includes120-frame renderer diagnostic output and stage instrumentation; it is not quiet-production FPS. Contact depth is pre-solve, not a final overlap metric. No stack/sleep,13-car traffic or production qualification.')
     output.write_text(json.dumps(result, indent=2)+'\n', encoding='utf8')
     print(json.dumps({k: result[k] for k in ['qualified', 'normal_clock_fps_qualified', 'errors']}))
     return result
