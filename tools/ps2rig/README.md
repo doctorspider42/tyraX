@@ -665,3 +665,22 @@ execution. It establishes that EE preparation/packing/result handling merits
 attention even though the finish wait itself is small. Before moving a larger
 kernel, inspect stage-specific data layout and duplicated EE work across the
 whole pipeline, including the effect of faster EE work on VU0 overlap.
+
+step_pool_fixture.py is the next private layout screen. It restores the
+uninstrumented world-first chained source and compiles the original880-byte
+step function alongside a312-byte EE step with two pose pointers. Both retain
+the same8m grid, scalar contact arithmetic, micro packets/confirmations and6+3
+solver. The candidate allocates one contiguous pair of pose spans using every
+body's actual vertex count; zero-vertex spheres use null spans. No vertices,
+pairs or contacts are removed. Invalid counts fall back to the original wide
+function. All spans are assigned before prediction and remain stable until the
+next frame, after the micro fence. The intent is to reduce EE working sets in
+contact preparation and the solver; faster EE traversal could expose more VU0
+wait, so only whole-frame measurements may select it.
+
+The exact shared allocator is step_vertex_pool.hpp. Its host oracle
+tools/verify-step-vertex-pool.cpp passes33,526,752 bitwise pose comparisons under
+ASan/UBSan, including0/3/8/12/23/24 vertices, record-vector relocation, pool
+growth/reuse and invalid-count rejection without truncation. This is storage
+correctness only. Same-ELF physical admission and timing of the layout remain
+pending. Runtime/header changes are private; no production layout is selected.
