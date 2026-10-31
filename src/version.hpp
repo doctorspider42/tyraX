@@ -6463,7 +6463,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Project::textureFilters ("textureFilter" { texture: mode } beside
 // "textureQuality", written only when there is one). Missing = smooth, which
 // is what every older project drew. Additive; no migration.
-inline constexpr int kFormatVersion = 123;
+// v124 (docs/vehicles.md, "The shine budget"): ProjectSettings::
+// vehicleShineLite ("vehicleShineLite" in settings, written only when on) and
+// VehicleDef::envLite (the bake-measured lite prefix, "envLite" beside
+// "envLimits", written only when there is one). Missing = the full shine on
+// every shining car, which is what every older project drew. Additive; no
+// migration.
+inline constexpr int kFormatVersion = 124;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

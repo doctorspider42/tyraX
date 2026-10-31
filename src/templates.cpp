@@ -1115,6 +1115,11 @@ constexpr int INTERLEAVE_PASSES = {{INTERLEAVE_PASSES}};
 // shine budget"): how many vehicles draw the body-shine pass in one view, the
 // driven one first and then the nearest. 0 = every vehicle within 35 units.
 constexpr int VEHICLE_SHINE_BUDGET = {{VEHICLE_SHINE_BUDGET}};
+// Lite shine for the cars nobody drives (docs/vehicles.md, "The shine
+// budget and the lite shine"): their reflection covers only the sky-facing prefix the bake put
+// first (VEHICLE_ENV_LIMITS.lite), with paint colours that do not follow the
+// view, so a turning camera rebuilds nothing.
+constexpr bool VEHICLE_SHINE_LITE = {{VEHICLE_SHINE_LITE}};
 
 // Dynamic reflection probe aim (Preferences > Rendering): false = the
 // classic GT3 level-forward aim; true = a camera ray is intersected with
@@ -1476,6 +1481,7 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+    bool envPaintLite = false;  // the colours are the lite shine's fixed ones
 #if TYRA_VU1_EXP_PAINT
     const void* envPaintSource = nullptr;
     u32 envPaintCount = 0, envPaintVersion = 0, paintMapVersion = 0;
@@ -3571,6 +3577,7 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+    bool envPaintLite = false;  // the colours are the lite shine's fixed ones
 #if TYRA_VU1_EXP_PAINT
     const void* envPaintSource = nullptr;
     u32 envPaintCount = 0, envPaintVersion = 0, paintMapVersion = 0;
@@ -9783,14 +9790,25 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     ++n;
                 }
             // The shine's matte suffix: the reflection pass of (def, part)
-            // draws its first `count` vertices only (vehbake, envLimits).
+            // draws its first `count` vertices only (vehbake, envLimits), and
+            // its first `lite` on a car nobody drives (envLite; -1 = none).
+            // A part with a lite prefix and no matte suffix reflects all of it.
             std::ostringstream lrows;
             int ln = 0;
-            for (size_t d = 0; d < defs.size(); ++d)
-                for (const auto& el : defs[d]->envLimits) {
-                    lrows << "    {" << d << ", " << el.first << ", " << el.second << "},\n";
+            for (size_t d = 0; d < defs.size(); ++d) {
+                std::map<int, std::pair<int, int>> rowsOf;  // part -> count, lite
+                for (const auto& el : defs[d]->envLimits)
+                    rowsOf.emplace(el.first, std::make_pair(1 << 30, -1)).first->second.first =
+                        el.second;
+                for (const auto& el : defs[d]->envLite)
+                    rowsOf.emplace(el.first, std::make_pair(1 << 30, -1)).first->second.second =
+                        el.second;
+                for (const auto& r : rowsOf) {
+                    lrows << "    {" << d << ", " << r.first << ", " << r.second.first << ", "
+                          << r.second.second << "},\n";
                     ++ln;
                 }
+            }
             // The lamp glow (docs/vehicles.md, "Lamp glow"): one row per lamp
             // the bake measured - centre, half extents, front/rear - for every
             // definition whose lampGlow is on.
@@ -9833,10 +9851,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 << "constexpr int VEHICLE_EXHAUST_COUNT = " << xn << ";\n"
                 << "constexpr VehicleExhaust VEHICLE_EXHAUSTS[" << (xn ? xn : 1) << "] = {\n"
                 << (xn ? xrows.str() : std::string("    {-1, {0, 0, 0}, {0, 0, -1}}\n")) << "};\n";
-            out << "struct VehicleEnvLimit { int def; int part; int count; };\n"
+            out << "struct VehicleEnvLimit { int def; int part; int count; int lite; };\n"
                 << "constexpr int VEHICLE_ENV_LIMIT_COUNT = " << ln << ";\n"
                 << "constexpr VehicleEnvLimit VEHICLE_ENV_LIMITS[" << (ln ? ln : 1) << "] = {\n"
-                << (ln ? lrows.str() : std::string("    {-1, -1, 0}\n")) << "};\n";
+                << (ln ? lrows.str() : std::string("    {-1, -1, 0, -1}\n")) << "};\n";
             out << "struct VehiclePieceData { int def; int part; int kind; int first; int count; };\n"
                 << "constexpr int VEHICLE_PIECE_COUNT = " << n << ";\n"
                 << "constexpr VehiclePieceData VEHICLE_PIECES[" << (n ? n : 1) << "] = {\n"
@@ -13384,6 +13402,9 @@ static std::string vehicleMembers(const Project& p) {
   // body-shine pass in this view, and answers per object.
   void selectVehicleShine();
   bool vehicleShineOn(int objIdx) const;
+  // A shining car that draws the lite shine (VEHICLE_SHINE_LITE): any car
+  // but the driven one.
+  bool vehicleShineLite(int objIdx) const;
   int vehicleShineLogged_ = -1;  // the last selection VEHSHINE printed
   // May this car's paint colours be rebuilt now, for a view move of `delta`
   // 1/128 steps? (docs/vehicles.md, "Per-car EE cuts"): the step grows with
@@ -14860,21 +14881,25 @@ void TerrainGame::renderVehicleDebris() {
 
 // The shine's matte suffix (VEHICLE_ENV_LIMITS): a shiny part's reflection
 // pass covers its first `count` vertices only, so the dark cabin and trim
-// never catch the sky. Re-asserted every frame because a rebuild or a tier
-// swap re-aims the env bag at the whole array; only tier 0 carries the order.
+// never catch the sky - and only its first `lite` on a car nobody drives when
+// the lite shine is on (VEHICLE_SHINE_LITE). Re-asserted every frame because
+// a rebuild or a tier swap re-aims the env bag at the whole array; only tier
+// 0 carries the order.
 void TerrainGame::applyVehicleEnvLimits() {
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     const VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0 || v.object < 0 || v.object >= (int)objectGeometry.size())
       continue;
     ObjectGeometry& g = objectGeometry[(size_t)v.object];
+    const bool lite = VEHICLE_SHINE_LITE && vi != vehicleDriver_;
     for (int r = 0; r < VEHICLE_ENV_LIMIT_COUNT; ++r) {
       const VehicleEnvLimit& el = VEHICLE_ENV_LIMITS[r];
       if (el.def != v.def || el.part < 0 || el.part >= (int)g.parts.size()) continue;
       GeoPart& part = g.parts[(size_t)el.part];
       if (!part.envBag || part.shownLod != 0) continue;
-      const u32 want = (u32)el.count < (u32)part.vertices.size() ? (u32)el.count
-                                                                  : (u32)part.vertices.size();
+      u32 want = (u32)el.count < (u32)part.vertices.size() ? (u32)el.count
+                                                            : (u32)part.vertices.size();
+      if (lite && el.lite >= 0 && (u32)el.lite < want) want = (u32)el.lite;
       if (part.envBag->count != want) part.envBag->count = want;
     }
   }
@@ -18687,6 +18712,14 @@ bool TerrainGame::vehicleShineOn(int objIdx) const {
   return true;
 }
 
+bool TerrainGame::vehicleShineLite(int objIdx) const {
+  if (!VEHICLE_SHINE_LITE) return false;
+  for (int i = 0; i < vehicleCount_; ++i)
+    if (vehicles_[i].active && vehicles_[i].object == objIdx)
+      return i != vehicleDriver_;
+  return false;
+}
+
 const char* TerrainGame::vehicleBlobTextureFor(int objIdx) const {
   for (int i = 0; i < VEHICLE_COUNT; ++i) {
     const VehicleInstData& inst = VEHICLES[i];
@@ -20847,6 +20880,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                                                      : "1");
     s = replaceAll(s, "{{VEHICLE_SHINE_BUDGET}}",
                    std::to_string(st.vehicleShineBudget));
+    s = replaceAll(s, "{{VEHICLE_SHINE_LITE}}",
+                   st.vehicleShineLite ? "true" : "false");
     s = replaceAll(s, "{{ENV_PROBE_REFLECTED}}",
                    st.envProbeReflected ? "true" : "false");
     s = replaceAll(s, "{{VIDEO_MODE}}", st.videoSystem == "pal"    ? "PAL"
@@ -20947,6 +20982,9 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_SHINE_ON}}",
                    projectHasVehicles(p) ? "vehicleShineOn(objectIndex)"
                                          : "true");
+    s = replaceAll(s, "{{VEHICLE_SHINE_LITE_FOR}}",
+                   projectHasVehicles(p) ? "vehicleShineLite(objectIndex)"
+                                         : "false");
     s = replaceAll(s, "{{VEHICLE_PAINT_GATE}}",
                    projectHasVehicles(p)
                        ? "vehiclePaintGate(objectIndex, maxDelta)"

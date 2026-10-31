@@ -1358,6 +1358,9 @@ struct VehicleDef {
     // {part, vertices}: MEASURED like the pieces - the reflection pass of that
     // body part covers only its first `vertices` (the matte cabin after them).
     std::vector<std::pair<int, int>> envLimits;
+    // {part, vertices}: MEASURED - the lite shine's prefix (vehbake envLite),
+    // what a car nobody drives reflects over when settings.vehicleShineLite.
+    std::vector<std::pair<int, int>> envLite;
     // The lamp glow's lamps, MEASURED by the bake (vehbake::Result::lampGlows):
     // centre xyz, half extents xyz, front 1 / rear 0. Written only when set.
     std::vector<std::array<float, 7>> lampGlows;
@@ -1473,7 +1476,8 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.trafficDistance != b.trafficDistance || a.farPart != b.farPart ||
         a.farHideMask != b.farHideMask || a.fastWheel != b.fastWheel ||
         a.fastWheelTriBudget != b.fastWheelTriBudget || a.pieces != b.pieces ||
-        a.envLimits != b.envLimits || a.lampGlows != b.lampGlows ||
+        a.envLimits != b.envLimits || a.envLite != b.envLite ||
+        a.lampGlows != b.lampGlows ||
         a.exhausts != b.exhausts)
         return false;
     for (int i = 0; i < 3; ++i)
@@ -2004,6 +2008,10 @@ struct ProjectSettings {
     // 0 = every vehicle within the pass's 35 units (the look before format
     // v66).
     int vehicleShineBudget = 2;
+    // The lite shine (format v124): the cars within the budget that nobody
+    // drives reflect over their sky-facing panels only (the bake's envLite
+    // prefix), with paint colours that do not follow the view.
+    bool vehicleShineLite = false;
 
     // Build conservative inner proxies for opaque static objects and use a
     // tiny CPU depth buffer to reject fully hidden objects/chunks before they
@@ -2564,6 +2572,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.staticBatching == b.staticBatching &&
            a.interleavePasses == b.interleavePasses &&
            a.vehicleShineBudget == b.vehicleShineBudget &&
+           a.vehicleShineLite == b.vehicleShineLite &&
            a.occlusionCulling == b.occlusionCulling &&
            a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&

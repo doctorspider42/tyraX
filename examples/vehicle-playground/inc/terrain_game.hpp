@@ -320,6 +320,7 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+    bool envPaintLite = false;  // the colours are the lite shine's fixed ones
 #if TYRA_VU1_EXP_PAINT
     const void* envPaintSource = nullptr;
     u32 envPaintCount = 0, envPaintVersion = 0, paintMapVersion = 0;
@@ -1662,6 +1663,9 @@ class TerrainGame : public Tyra::Game {
   // body-shine pass in this view, and answers per object.
   void selectVehicleShine();
   bool vehicleShineOn(int objIdx) const;
+  // A shining car that draws the lite shine (VEHICLE_SHINE_LITE): any car
+  // but the driven one.
+  bool vehicleShineLite(int objIdx) const;
   int vehicleShineLogged_ = -1;  // the last selection VEHSHINE printed
   // May this car's paint colours be rebuilt now, for a view move of `delta`
   // 1/128 steps? (docs/vehicles.md, "Per-car EE cuts"): the step grows with

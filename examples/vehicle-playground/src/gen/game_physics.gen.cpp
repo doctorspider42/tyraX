@@ -2390,6 +2390,10 @@ void TerrainGame::renderScene() {
     // it stays in the same bucket. The reflection coordinates still update
     // continuously; only the broad Fresnel/specular modulation is stepped.
     const int paint = vehiclePaintFor(objectIndex);
+    // The lite shine (VEHICLE_SHINE_LITE): a car nobody drives gets colours
+    // that do not depend on the view - built once, kept while the camera
+    // turns, so its pass is the baked block replayed.
+    const bool paintLite = paint && vehicleShineLite(objectIndex);
 #if TYRA_VU1_EXP_PAINT
     part.envTexBag->paintVu = false;
 #endif
@@ -2425,7 +2429,8 @@ void TerrainGame::renderScene() {
                             paintKey(fwdL.z), paintKey(hL.x),
                             paintKey(hL.y),   paintKey(hL.z)};
       bool paintChanged = !part.envPaintValid ||
-                          part.envPaintLod != (signed char)part.shownLod;
+                          part.envPaintLod != (signed char)part.shownLod ||
+                          part.envPaintLite != paintLite;
 #if TYRA_VU1_EXP_PAINT
       paintChanged = paintChanged ||
           part.envPaintSource != part.envTexBag->coordinates ||
@@ -2445,11 +2450,13 @@ void TerrainGame::renderScene() {
         if (delta < 0) delta = -delta;
         if (delta > maxDelta) maxDelta = delta;
       }
-      if (!paintChanged && maxDelta >= 4) paintChanged = vehiclePaintGate(objectIndex, maxDelta);
+      if (!paintChanged && !paintLite && maxDelta >= 4)
+        paintChanged = vehiclePaintGate(objectIndex, maxDelta);
       if (paintChanged) {
         for (int k = 0; k < 6; ++k) part.envPaintKey[k] = key[k];
         part.envPaintLod = (signed char)part.shownLod;
         part.envPaintValid = true;
+        part.envPaintLite = paintLite;
 #if TYRA_VU1_EXP_PAINT
         part.envPaintSource = part.envTexBag->coordinates;
         part.envPaintCount = part.envBag->count;
@@ -2531,7 +2538,18 @@ void TerrainGame::renderScene() {
         const u32 un = (u32)part.paintNormals.size();
         paintColors.resize(un);
         const Tyra::Vec4* un4 = part.paintNormals.data();
-        for (u32 k = 0; k < un; ++k) {
+        for (u32 k = 0; k < un && paintLite; ++k) {
+          // A steady sheen with no rim and no moving highlight: the level a
+          // roof or a bonnet seen from the street gets from the full paint,
+          // and a soft sky-light on whatever faces straight up. Car-local y
+          // is up in both the matrix and the world-baked normals.
+          float up = un4[k].y > 0.0F ? un4[k].y : 0.0F;
+          up *= up;
+          up *= up;
+          paintColors[k].r = paintColors[k].g = paintColors[k].b = 128.0F * 0.75F;
+          paintColors[k].a = 1.0F + 40.0F * up;
+        }
+        for (u32 k = 0; k < un && !paintLite; ++k) {
           const float df = un4[k].x * fwdL.x + un4[k].y * fwdL.y +
                            un4[k].z * fwdL.z;
           // 0.3 floor keeps the authored strength's overall level and spends

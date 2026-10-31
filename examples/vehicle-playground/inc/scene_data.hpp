@@ -452,12 +452,12 @@ inline constexpr VehicleExhaust VEHICLE_EXHAUSTS[5] = {
     {2, 0.2576F, -0.0460178F, -2.1896F, -0.0F, -1.19209e-07F, -1.0F},
     {2, -0.2576F, -0.0460178F, -2.1896F, -0.0F, -1.19209e-07F, -1.0F},
 };
-struct VehicleEnvLimit { int def; int part; int count; };
+struct VehicleEnvLimit { int def; int part; int count; int lite; };
 inline constexpr int VEHICLE_ENV_LIMIT_COUNT = 3;
 inline constexpr VehicleEnvLimit VEHICLE_ENV_LIMITS[3] = {
-    {0, 2, 2025},
-    {1, 2, 1725},
-    {2, 2, 2025},
+    {0, 2, 2025, 1200},
+    {1, 2, 1725, 825},
+    {2, 2, 2025, 1125},
 };
 struct VehiclePieceData { int def; int part; int kind; int first; int count; };
 inline constexpr int VEHICLE_PIECE_COUNT = 24;
@@ -466,24 +466,24 @@ inline constexpr VehiclePieceData VEHICLE_PIECES[24] = {
     {0, 1, 6, 54, 72},  // rear window
     {0, 1, 7, 126, 39},  // left windows
     {0, 1, 8, 165, 39},  // right windows
-    {0, 2, 1, 1200, 375},  // bonnet
-    {0, 2, 2, 1575, 300},  // boot
+    {0, 2, 1, 525, 375},  // bonnet
+    {0, 2, 2, 900, 300},  // boot
     {0, 2, 3, 1875, 75},  // left door
     {0, 2, 4, 1950, 75},  // right door
     {1, 1, 5, 0, 51},  // windscreen
     {1, 1, 6, 51, 96},  // rear window
     {1, 1, 7, 147, 42},  // left windows
     {1, 1, 8, 189, 39},  // right windows
-    {1, 2, 1, 975, 375},  // bonnet
-    {1, 2, 2, 1350, 225},  // boot
+    {1, 2, 1, 225, 375},  // bonnet
+    {1, 2, 2, 600, 225},  // boot
     {1, 2, 3, 1575, 75},  // left door
     {1, 2, 4, 1650, 75},  // right door
     {2, 1, 5, 0, 42},  // windscreen
     {2, 1, 6, 42, 60},  // rear window
     {2, 1, 7, 102, 33},  // left windows
     {2, 1, 8, 135, 33},  // right windows
-    {2, 2, 1, 1200, 375},  // bonnet
-    {2, 2, 2, 1575, 300},  // boot
+    {2, 2, 1, 450, 375},  // bonnet
+    {2, 2, 2, 825, 300},  // boot
     {2, 2, 3, 1875, 75},  // left door
     {2, 2, 4, 1950, 75},  // right door
 };

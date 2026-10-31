@@ -346,11 +346,46 @@ front of the camera, the damage smoke and the push keep the frame just over
 and made it worse (the retained route is not cheaper for a bag new to both
 caches).
 
+### The shine budget and the lite shine
+
+*Preferences > Graphics > Shiny vehicles at once* (default 2) picks which cars
+draw the body-shine pass in one view: the driven car first, then the nearest
+others within 35 units; the rest stay matte. On a physical PS2 a second car's
+shine costs 0.7 ms a frame parked and 1.2 ms while the camera turns
+(docs/reflective-materials.md, "The vehicle paint pass").
+
+*Lite shine on other vehicles* (off by default, format v124) makes that pass
+cheaper for every shining car but the driven one:
+
+- **Only the panels that face the sky reflect.** The bake orders each shiny
+  part as: the shell that faces up (face normal more than ~24 degrees above
+  horizontal), the bonnet, the boot lid, the front and rear glass - then the
+  shell's sides, the doors and the side windows, then the matte cabin
+  (`envLite`, measured like `envLimits`). A lite car's pass covers the first
+  stretch only: 48-59% of the shiny vertices on the example cars. The split
+  costs nothing when the setting is off: the strips of the three example
+  bodies are byte for byte the same size.
+- **The paint does not follow the view.** A steady sheen and a soft light on
+  whatever faces straight up replace the fresnel rim and the moving
+  highlight. The colours are built once (and after a dent or a tier change),
+  so a turning camera rebuilds nothing and the pass replays its baked block.
+  The reflection itself still slides with the view (its coordinates are VU1's).
+
+The car you drive keeps the full shine; getting into another car swaps the
+two looks. Measured over the scripted car-on-car crash on a physical PS2 (four
+runs per arm, the Strix lite, the driven car full): frames missed in the 91
+frames around the hit 24/24/24/24 off, 13/21/21/19 on; over the whole run
+51-55 off, 30-46 on, of ~869. The worst frame is the same 33 ms either way -
+the hit itself is the driven car's damage and the push, not the parked car's
+paint. What you lose is the rim light on the doors and sides and the white
+highlight sliding over the body.
+
 ## Effects and display
 
 Headlights project pools onto the ground; lamp glow follows the authored lamp
 materials. Skid marks and tyre smoke respond to slip. Feel > Effects accepts
 built-in effects, materials, or a particle-library smoke effect. **Body shine**
+(budget and lite version: "The shine budget and the lite shine" above)
 uses a reflection texture or the sky (with the city as boxes when *Reflect static
 scenery as boxes* is on, and a flat-colour ground that costs ~2 ms less a turning
 frame on the open road with *Reflect the ground as flat colour* -
