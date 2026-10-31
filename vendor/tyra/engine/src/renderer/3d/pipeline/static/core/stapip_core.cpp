@@ -116,6 +116,24 @@ void StaPipCore::setPrim() {
   prim.colorfix = PRIM_UNFIXED;
 }
 
+// Modified by TyraX: see the header.
+bool StaPipCore::prebakeBag(StaPipBag* bag) {
+  if (Vif1Queue::recordingFrame() || !bag || !bag->info || !bag->vertices ||
+      !bag->count || !bag->color || bag->billboard)
+    return false;
+  const prim_t savedPrim = prim;
+  const lod_t savedLod = lod;
+  const u32 size = getMaxVertCountByBag(bag);
+  setMaxVertCount(size);
+  prim.fogging = rendererCore->fog.enabled && !bag->info->fogDisabled
+      ? DRAW_ENABLE : DRAW_DISABLE;
+  qbufferRenderer.setInfo(bag->info);
+  const bool ready = qbufferRenderer.prebakeBag(bag, size);
+  prim = savedPrim;
+  lod = savedLod;
+  return ready;
+}
+
 #if TYRA_STAPIP_PREPARED_STATIC
 bool StaPipCore::prepareStaticGeometry(StaPipBag* bag) {
   if (Vif1Queue::recordingFrame() || !bag || !bag->info || !bag->vertices ||

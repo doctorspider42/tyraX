@@ -3293,6 +3293,62 @@ void TerrainGame::stepVehicles(float dt) {
   vehSubStepRepeat_ = false;
   vehSubStepMore_ = false;
   updateVehicleTutorial(dt);
+
+  // PRE-BAKE the full-detail tier of a car the camera is closing in on
+  // (docs/vehicles.md, "What a crash costs"). A car on its far tier has never
+  // baked its tier 0 - or the cache let it expire after five idle seconds -
+  // so the frame it swaps in paid the whole bake (~4.8 ms for a 3 600-vertex
+  // body on a physical PS2), and its shine's first bake (~3.7 ms) the frame
+  // after: right before a hit, when the frame is heaviest. Within 1.6x its
+  // swap distance its tier 0 (body and shine bags) is bound for a moment,
+  // baked without being drawn, and the far tier bound back; one car a frame,
+  // again every 120 frames to keep the entries resident.
+  if (vehicleCount_ > 0) {
+    if ((int)vehPrebakeFrame.size() < vehicleCount_)
+      vehPrebakeFrame.resize((size_t)vehicleCount_, 0u);
+    for (int k = 0; k < vehicleCount_; ++k) {
+      const int vi = (vehPrebakeNext + k) % vehicleCount_;
+      VehicleRt& v = vehicles_[vi];
+      if (!v.active || v.def < 0 || v.object < 0 || v.farTier == 0 ||
+          v.object >= (int)objectGeometry.size())
+        continue;
+      const VehicleDefData& s = VEHICLE_DEFS[v.def];
+      float swap = s.farDistance;
+      if (vi != vehicleDriver_ && s.trafficDistance > 0.0F) swap = s.trafficDistance;
+      if (swap <= 0.0F) continue;
+      const float* p = runtimeObjects[v.object].data.position;
+      const float dx = p[0] - cameraPosition.x, dy = p[1] - cameraPosition.y,
+                  dz = p[2] - cameraPosition.z;
+      if (dx * dx + dy * dy + dz * dz > 2.56F * swap * swap) continue;
+      u32& at = vehPrebakeFrame[(size_t)vi];
+      if (at != 0u && g_frameStamp - at < 120u) continue;
+      at = g_frameStamp ? g_frameStamp : 1u;
+      vehPrebakeNext = vi + 1;
+      ObjectGeometry& g = objectGeometry[(size_t)v.object];
+      for (int pi = 0; pi < (int)g.parts.size(); ++pi) {
+        GeoPart& part = g.parts[(size_t)pi];
+        if (!part.bag || part.shownLod == 0) continue;
+        const int shown = part.shownLod;
+        applyGeoLod(v.object, pi, 0);
+        stapip.core.prebakeBag(&*part.bag);
+        if (part.envBag) {
+          // The env pass covers only the shiny prefix of the part (the
+          // matte suffix, VEHICLE_ENV_LIMITS) - the count is in the key.
+          applyVehicleEnvLimits();
+          // The paint pass draws the shine with the HIGHLIGHT2 texture
+          // function, which selects the VU1 program and so the cache key;
+          // the colours it has not painted yet are a colour-only change
+          // later, which the cache refreshes without re-baking.
+          if (part.envTexBag && part.envColorBag && part.envColorBag->many &&
+              vehiclePaintFor(v.object))
+            part.envTexBag->textureFunction = 3;
+          stapip.core.prebakeBag(&*part.envBag);
+        }
+        applyGeoLod(v.object, pi, shown);
+      }
+      break;
+    }
+  }
 }
 
 // Speed feel (docs/vehicles.md, "Speed feel"): turns the driven car's speed

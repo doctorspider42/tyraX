@@ -4818,6 +4818,10 @@ struct VehPartPatch {
   u32 frame = ~0u;
 };
 inline std::vector<std::vector<std::unique_ptr<VehPartPatch>>> vehPartPatches;
+// The frame each car's full-detail tier was last pre-baked (stepVehicles), and
+// where the one-car-a-frame round robin resumes.
+inline std::vector<u32> vehPrebakeFrame;
+inline int vehPrebakeNext = 0;
 
 inline std::vector<unsigned> rbRevisions;
 inline unsigned rbRevisionGeneration=~0u;

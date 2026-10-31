@@ -493,7 +493,47 @@ Two consequences, both implemented:
   for VIF1 before every one of its ~120 submissions a frame — but that count is
   a property of the scene, not of this class, so the second frame is the margin.
 
+## Payload refresh, and baking ahead of the draw (2.1.2)
+
+**A baked block is headers plus verbatim payload.** Every per-vertex stream
+reaches it as a `REF` payload - a copy of the bag's array, word for word - and
+everything else in the block (the unpack headers, the GIFtag, the kick)
+follows from the key. So when a bag's payload moved and nothing structural
+did, the arena can be rebuilt in ONE pass: the non-payload words from the old
+arena, every payload run copied fresh from the bag's arrays. `bakeBlock`
+records the runs during a whole build (`StaPipBakedEntry::runs`: package,
+offset in the block, stream, first vertex, length); they count only when the
+runs of every present stream cover exactly `count` vertices and no `REF`
+payload was left unaccounted for. The refresh then re-copies ALL streams,
+whatever stamp moved - not every writer of an array stamps it (the env-normal
+normalisation of the VU1 paint experiment does not: the first gate run caught
+exactly that, one mismatch at quadword 82 when only the colours were
+re-copied), and a re-bake would have picked such writes up too.
+
+It replaces exactly the rebuilds that would have happened: a payload that
+moves again within `kChurnGapFrames` still goes to the churn damping, as
+before, so a bag rewritten every frame keeps the retained route. Measured on
+a physical PS2 with `TYRA_STAPIP_PATCH_VERIFY` 1 (which now also re-bakes
+after every refresh and compares): 1 609 refreshes in one minute of a
+car-on-car crash, 0 mismatches. A car's shine re-shade, a whole bake every
+few frames before (~2.3 ms for a 2 025-vertex body), is ~1 ms.
+`TYRA_STAPIP_PAYLOAD_REFRESH` 0 is the A/B control.
+
+**`StaPipCore::prebakeBag(bag)`** bakes a bag's stream now, without drawing
+it: the prim state and package size `render()` would use (fog and
+`setInfo`, `getMaxVertCountByBag`), `beginBakedBag` in its partial mode, which
+builds every block when the entry is not complete and submits nothing. Never
+while a frame is being recorded. A bag already baked costs one lookup and is
+kept resident. The vehicle runtime uses it for the full-detail tier of a car
+the camera is closing in on (docs/vehicles.md); the key must match the draw
+exactly, and for a car's shine bag that took three tries - the matte-suffix
+`count` (VEHICLE_ENV_LIMITS) and the paint pass's texture function, which
+selects the program, are both set at draw time.
+
 ## Patch rebake: a bag that changed in a few places (2.1.2)
+
+The payload refresh above covers this case more cheaply wherever its runs are
+valid; the patch path remains for entries whose runs are not.
 
 A car dent rewrites a few hundred vertices of a ~3 400-vertex body, and the
 key (`bboxVersion`, the content stamps) then threw the whole arena away: on a

@@ -328,12 +328,23 @@ undamaged body (4.2-4.4 ms per car), then each dent rewrote its vertices
   rest. A dented body's next draw costs ~2 ms instead of ~7-11 ms
   (docs/baked-vif-stream.md, "Patch rebake").
 
-Still open: the first bakes of a car the camera closes in on - its full
-level-of-detail tier (~6 ms) and, a frame later, its shine (~7 ms, twice,
-because the paint pass changes with the view) - land right before the hit, so
-the frames around a crash into a parked car still drop. Deferring a first bake
-until its payload holds still was measured and made it worse (the retained
-route is not cheaper for a bag new to both caches).
+- **Closing in costs no bake.** A car on its far tier never baked its full
+  tier (or the cache let it expire after five idle seconds), so the frame it
+  swapped in paid ~4.8 ms and its shine's first draw ~3.7-7 ms - right before
+  a hit. Within 1.6x its swap distance its tier 0 body and shine bags are
+  bound for a moment and baked without being drawn (`StaPipCore::prebakeBag`,
+  one car a frame, renewed every 120 frames), so the swap and the shine find
+  them ready. Re-shading the shine afterwards is a payload refresh, not a
+  re-bake (docs/baked-vif-stream.md).
+
+Measured over the same scripted crash on a physical PS2, two runs per arm: the
+50 ms frame at the hit is gone (the worst frame is now 33 ms); frames missed
+in the crash window 36/36 before, 36/32 after; over the whole run 63/61 and
+60/57 of ~869. What remains is steady: two shining full-detail cars right in
+front of the camera, the damage smoke and the push keep the frame just over
+16.7 ms. Deferring a first bake until its payload holds still was measured
+and made it worse (the retained route is not cheaper for a bag new to both
+caches).
 
 ## Effects and display
 

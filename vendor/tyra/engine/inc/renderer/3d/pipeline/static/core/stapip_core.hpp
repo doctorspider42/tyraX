@@ -111,6 +111,15 @@ class StaPipCore {
   void init(RendererCore* t_core);
 
   void onFrameEnd();
+  /**
+   * Modified by TyraX: bake a bag's VIF stream now, without drawing it - so a
+   * bag that is about to appear (a car's full-detail tier, closing in) does
+   * not pay its first bake in the frame it first shows. Same prim state and
+   * package size as render(), so the entry is the one render() then finds and
+   * replays; a bag already baked costs one cache lookup and stays resident.
+   * Never while a frame is being recorded. True when the entry is complete.
+   */
+  bool prebakeBag(StaPipBag* bag);
 #if TYRA_STAPIP_PREPARED_STATIC
   // Modified by TyraX: private bounded scene-residency trial, outside recording.
   bool prepareStaticGeometry(StaPipBag* bag);

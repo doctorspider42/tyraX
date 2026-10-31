@@ -152,6 +152,12 @@
  * wrong (a vertex changed outside its dirty map) or the copy is - either way
  * the patched block would be replayed. Diagnostic only: it costs the whole
  * rebuild the patch exists to avoid. */
+/** Modified by TyraX: payload refresh (StaPipBakedEntry::runs). 0 sends a
+ * payload change down the whole re-bake again - the A/B control. */
+#ifndef TYRA_STAPIP_PAYLOAD_REFRESH
+#define TYRA_STAPIP_PAYLOAD_REFRESH 1
+#endif
+
 #ifndef TYRA_STAPIP_PATCH_VERIFY
 #define TYRA_STAPIP_PATCH_VERIFY 0
 #endif
@@ -429,6 +435,30 @@ struct StaPipBakedEntry {
    * `patchBakedBag` has copied the clean blocks out of it and handed it to
    * the graveyard. Never survives the `beginBakedBag` call that set it. */
   u8 patching = 0;
+  /** Modified by TyraX: payload refresh. Every per-vertex stream reaches a
+   * baked block as a REF payload - a verbatim copy of the bag's array - and
+   * everything else in the block (headers, GIFtag, kick) follows from the key
+   * alone. `runs` records where each payload sits, by stream (0 positions,
+   * 1 colours, 2 STs, 3 normals). When the payload moved but nothing
+   * structural did, the entry is rebuilt by ONE pass over the old arena: the
+   * non-payload words copied, every payload run copied fresh from the bag's
+   * arrays - the same bytes a whole re-bake would write, without the writers
+   * or the transcode. ALL streams are re-copied whatever stamp moved, because
+   * not every writer of an array stamps it (the env-normal normalisation
+   * does not), and a re-bake would have picked those writes up too. Valid
+   * only when the runs of every present stream cover exactly `count`
+   * vertices and no REF payload was left unaccounted for. */
+  u32 streamStamps[4] = {0, 0, 0, 0};
+  struct PayloadRun {
+    u32 package, at, vertex, qwc;  // `at`: quadwords from the block start
+    u32 stream;
+  };
+  std::vector<PayloadRun> runs;
+  u32 runQw[4] = {0, 0, 0, 0};
+  u32 unknownRefs = 0;
+  u8 runsValid = 0;
+  /** Set by a colour refresh, for TYRA_STAPIP_PATCH_VERIFY. */
+  u8 refreshed = 0;
   std::unique_ptr<u8[]> patchRaw;
   qword_t* patchArena = nullptr;
   u32 patchQw = 0;
@@ -504,6 +534,8 @@ class StaPipBakedStreams {
   /** Modified by TyraX: patch rebakes taken / packages they re-baked /
    * packages they copied, since the last take. */
   u32 patches = 0, patchBuilt = 0, patchCopied = 0;
+  /** Modified by TyraX: payload refreshes since the last take. */
+  u32 colourRefreshes = 0;
 
   u32 getBytes() const { return usedQwords * 16; }
   u32 takeHits() { const u32 v = hits; hits = 0; return v; }
@@ -909,6 +941,9 @@ class StaPipQBufferRenderer {
    */
   bool beginBakedBag(StaPipBag* bag, const u32& packageSize,
                      bool partial = false);
+  /** Modified by TyraX: StaPipCore::prebakeBag's half - the bake with no
+   * draw. */
+  bool prebakeBag(StaPipBag* bag, u32 packageSize);
 #if TYRA_STAPIP_PREPARED_STATIC
   bool prepareStaticGeometry(StaPipBag* bag, u32 packageSize, u32 clipSize);
   void releasePreparedGeometry() { baked.releaseScenePins(); }
@@ -1298,6 +1333,12 @@ class StaPipQBufferRenderer {
    * leaves the entry empty for the ordinary rebuild. */
   bool patchBakedBag(StaPipBag* bag, u32 packageSize);
   std::vector<u8> patchFromScratch;
+#if TYRA_STAPIP_PATCH_VERIFY
+  /** Bake the whole bag again with the ordinary writers and compare it with
+   * `entry`'s arena; logs PATCHVERIFY. */
+  void verifyAgainstWriters(StaPipBag* bag, u32 size, StaPipBakedEntry* entry,
+                            const char* what, u32 rebuilt);
+#endif
 #if TYRA_STAPIP_PREPARED_STATIC
   bool preparingStatic = false;
 #endif
