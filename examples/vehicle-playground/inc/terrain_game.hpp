@@ -1570,6 +1570,11 @@ class TerrainGame : public Tyra::Game {
     int skidNext = 0;
     int skidAlive = 0;
     int skidDirty = 0;
+    // The fade is written in steps (kSkidFadeStep): a colour write moves the
+    // bag's content stamp, and a stamp that moves every frame re-stages all
+    // 1 152 vertices every frame (~1 ms on a PS2 after a crash).
+    float skidFadeAcc = 0.0F;
+    bool skidShown[kVehSkidMax] = {};  // alpha written non-zero since its spawn
     std::unique_ptr<Tyra::StaPipBag> skidBag;
     std::unique_ptr<Tyra::StaPipInfoBag> skidInfoBag;
     std::unique_ptr<Tyra::StaPipColorBag> skidColorBag;

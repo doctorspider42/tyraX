@@ -948,18 +948,30 @@ void TerrainGame::renderVehicleSmoke() {
 // and each segment starts on the edge the previous one ended on, so a drift
 // is one continuous, smoothly curving ribbon at any speed.
 void TerrainGame::updateVehicleSkids(float dt) {
+  // THE FADE IN STEPS. Every 0.15 s, not every frame: a mark loses at most
+  // 2.5 of its 100 alpha between two writes, which nobody sees, and the
+  // frames in between replay the baked block untouched. Written every frame
+  // it cost ~1 ms on a physical PS2 for as long as any mark was fading.
+  constexpr float kSkidFadeStep = 0.15F;
   for (auto& fxp : vehFx_) {
     VehFx& fx = *fxp;
     fx.skidAlive = 0;
+    fx.skidFadeAcc += dt;
+    const bool fade = fx.skidFadeAcc >= kSkidFadeStep;
+    if (fade) fx.skidFadeAcc = 0.0F;
     for (int i = 0; i < kVehSkidMax; ++i) {
-      if (fx.skidLife[i] <= 0.0F) continue;
-      fx.skidLife[i] -= dt;
-      const float t = fx.skidLife[i] > 0.0F ? fx.skidLife[i] / 6.0F : 0.0F;
+      if (fx.skidLife[i] > 0.0F) fx.skidLife[i] -= dt;
+      const bool live = fx.skidLife[i] > 0.0F;
+      if (live) ++fx.skidAlive;
+      // A mark that died since the last step still gets its zero.
+      if (!fade || (!live && !fx.skidShown[i])) continue;
+      fx.skidShown[i] = live;
+      const float t = live ? fx.skidLife[i] / 6.0F : 0.0F;
       // Textured marks are multiplied by the texture's own alpha (~0.6 on
       // the tread), so they start stronger than the old flat quads did.
       const float a = (fx.skidTex ? 100.0F : 58.0F) * t;
-      for (int k = 0; k < 6; ++k) fx.skidCols[i * 6 + k].a = a;
-      ++fx.skidAlive;
+      auto c = fx.skidCols.span((size_t)i * 6, 6);  // one stamp per mark
+      for (int k = 0; k < 6; ++k) c[k].a = a;
     }
   }
   constexpr float kStep = 0.6F;    // travel per ribbon segment
@@ -1056,6 +1068,7 @@ void TerrainGame::updateVehicleSkids(float dt) {
         fx->skidCols[q * 6 + k] =
             Tyra::Color(fx->skidTint[0], fx->skidTint[1], fx->skidTint[2],
                         fx->skidTex ? 100.0F : 58.0F);
+      fx->skidShown[q] = true;
       for (int k = 0; k < 6; ++k) v.skidEdge[w][k] = e[k];
       v.skidV[w] = v1;
       fx->skidDirty = 1;

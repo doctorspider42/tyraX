@@ -346,6 +346,17 @@ front of the camera, the damage smoke and the push keep the frame just over
 and made it worse (the retained route is not cheaper for a bag new to both
 caches).
 
+- **Skid marks fade in steps.** After a crash the frame kept paying ~1 ms for
+  the skid marks while they faded: the fade wrote every live mark's alpha
+  every frame, which moved the skid bag's content stamp every frame and
+  re-staged all 1 152 of its vertices. The fade is now written every 0.15 s
+  (a mark loses at most 2.5 of its 100 alpha between two writes) and the
+  frames in between replay the baked block: 1.08 -> 0.29 ms a frame, median
+  over the seconds after the hit, on a physical PS2.
+- **Losing a window costs ~0.07 ms**, not the ~0.7 ms a debug build shows:
+  that build prints a line for every lost piece, and a log line over ps2link
+  costs ~0.6 ms of the frame. Release builds compile the logging out.
+
 ### The shine budget and the lite shine
 
 *Preferences > Graphics > Shiny vehicles at once* (default 2) picks which cars
