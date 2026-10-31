@@ -555,6 +555,29 @@ inline RotTrig rotTrigOf(const float* rotDeg) {
   return t;
 }
 
+/** rotTrigOf() remembered per object slot, keyed by the exact angles - so the
+ * result is the one rotTrigOf() would return, and an object whose rotation
+ * did not change since the last call pays no trigonometry at all. A moving
+ * physics body used to pay ~45 software sines/cosines a frame across the
+ * broad-phase box and the render matrix (82 awake crates on a physical PS2). */
+struct RotTrigSlot {
+  float rot[3] = {0.0F, 0.0F, 0.0F};
+  bool valid = false;
+  RotTrig t{};
+};
+inline std::vector<RotTrigSlot> rotTrigSlots;
+inline const RotTrig& rotTrigCached(int slot, const float* rotDeg) {
+  if (slot >= (int)rotTrigSlots.size()) rotTrigSlots.resize((size_t)slot + 1);
+  RotTrigSlot& e = rotTrigSlots[(size_t)slot];
+  if (!e.valid || e.rot[0] != rotDeg[0] || e.rot[1] != rotDeg[1] ||
+      e.rot[2] != rotDeg[2]) {
+    e.t = rotTrigOf(rotDeg);
+    for (int k = 0; k < 3; ++k) e.rot[k] = rotDeg[k];
+    e.valid = true;
+  }
+  return e.t;
+}
+
 /** rotated() with the trigonometry already done. The three stages run in the
  * same order on the same operands as below, so this is BIT-IDENTICAL to
  * rotated() and not merely equivalent - which is what lets a caller swap to
@@ -4810,13 +4833,40 @@ struct RbContact {
   RbV n;          // pushes a away from b
   RbV p;          // world point
   float depth;
+};
+
+// A contact as the sequential-impulse passes see it. Built per frame from
+// RbContact in island order (see the solve), so the small record above is
+// all that collection writes.
+struct RbSolveContact {
+  short a;        // RbStep index
+  short b;        // RbStep index when that body can move this frame, else -1
+  short bAny;     // the partner's RbStep index, asleep or not (-1 the world)
+  RbV n;
+  float depth;
   float vnPred;   // normal velocity at creation (predicted motion)
   float bounceTarget;
+  float posTarget;  // split-impulse target, fixed once the velocities are
   float mu;
-  float kn;
+  float invKn;    // 1 / effective mass along n
   float jn, jp;
-  RbV ft;         // accumulated friction impulse
+  float f1, f2;   // accumulated friction impulse along t1, t2
   RbV ra, rb;
+  // Per-contact constants of the solve: ra x n and invIw (ra x n) (the
+  // angular response to a unit normal impulse), and the same for the two
+  // fixed friction tangents with their inverse effective masses - so a pass
+  // does no matrix products, divisions or square roots of its own.
+  RbV raXn, rbXn, aN, bN;
+  RbV t1, t2, aT1, aT2, bT1, bT2;
+  float invKt1, invKt2;
+};
+
+// A body as the sequential-impulse passes see it: the fields they touch,
+// packed. RbStep is ~800 bytes (hull corners).
+struct RbSolveBody {
+  RbV v, w, vp, wp;
+  float invMass;
+  float invIw[9];
 };
 
 struct RbCand {
@@ -4886,8 +4936,145 @@ inline int rbInsideHull(const float* lp, int np, RbV l, float* depth) {
   return best;
 }
 
-inline constexpr int PHYS_ITERATIONS = 6;        // velocity passes per frame
-inline constexpr int PHYS_POS_ITERATIONS = 3;    // split-impulse passes
+// Box against box: the face patch, not the corners. Two boxes stacked square
+// put each one's corners exactly on the other's side planes, where the
+// corner-in-hull test (d <= 0 is outside) keeps some corners and drops
+// others by rounding; the lopsided manifold tipped a six-crate tower and
+// flattened a 4-3-2-1 pyramid while awake (PCSX2, old and new solver alike).
+// SAT over the 15 axes picks the normal; when a FACE axis wins, the incident
+// face is clipped to the reference face's rectangle (Sutherland-Hodgman) and
+// each surviving vertex is a contact. An edge-edge axis, a separated pair or
+// a degenerate box returns 0 and the caller keeps its corner contacts. `n`
+// points from b to a (pushes a away from b), like every body contact.
+inline int rbBoxBoxManifold(const Tyra::CollisionObb& a,
+                            const Tyra::CollisionObb& b, RbCand* out) {
+  const Tyra::CollisionObb* box[2] = {&a, &b};
+  RbV unit[2][3];
+  float half[2][3];
+  for (int s = 0; s < 2; ++s)
+    for (int k = 0; k < 3; ++k) {
+      const float l2 = rbDot(box[s]->halfAxes[k], box[s]->halfAxes[k]);
+      if (!(l2 > 1e-12F)) return 0;
+      half[s][k] = sqrtf(l2);
+      unit[s][k] = rbMul(box[s]->halfAxes[k], 1.0F / half[s][k]);
+    }
+  const RbV d = rbSub(a.centre, b.centre);
+  float best = 1e30F;
+  RbV normal = rbV(0.0F, 1.0F, 0.0F);
+  bool faceWins = false;
+  auto axis = [&](RbV L, bool face) {
+    const float l2 = rbDot(L, L);
+    if (l2 < 1e-10F) return true;  // parallel edges: no new axis
+    L = rbMul(L, 1.0F / sqrtf(l2));
+    float ra = 0.0F, rb = 0.0F;
+    for (int k = 0; k < 3; ++k) {
+      ra += half[0][k] * fabsf(rbDot(unit[0][k], L));
+      rb += half[1][k] * fabsf(rbDot(unit[1][k], L));
+    }
+    const float dist = rbDot(d, L);
+    const float overlap = ra + rb - fabsf(dist);
+    if (overlap < 0.0F) return false;
+    // An edge axis has to beat the best face clearly: near-ties between a
+    // face and an edge are rounding, and the face gives the stable patch.
+    const float score = face ? overlap : overlap * 1.05F + 1e-4F;
+    if (score < best) {
+      best = score;
+      normal = dist < 0.0F ? rbMul(L, -1.0F) : L;
+      faceWins = face;
+    }
+    return true;
+  };
+  for (int s = 0; s < 2; ++s)
+    for (int k = 0; k < 3; ++k)
+      if (!axis(unit[s][k], true)) return 0;
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      if (!axis(rbCross(unit[0][i], unit[1][j]), false)) return 0;
+  if (!faceWins) return 0;
+
+  // Reference face: the face most aligned with the normal, on either box.
+  int reference = 0, face = 0;
+  float align = -1.0F;
+  for (int s = 0; s < 2; ++s)
+    for (int k = 0; k < 3; ++k) {
+      const float al = fabsf(rbDot(unit[s][k], normal));
+      if (al > align) align = al, reference = s, face = k;
+    }
+  // `normal` pushes a away from b: a's touching face looks along -normal.
+  const RbV outward = reference == 0 ? rbMul(normal, -1.0F) : normal;
+  const int incident = 1 - reference;
+  const float sign = rbDot(unit[reference][face], outward) >= 0.0F ? 1.0F : -1.0F;
+  const RbV ref = rbAdd(box[reference]->centre,
+                        rbMul(box[reference]->halfAxes[face], sign));
+  int incFace = 0;
+  float incAlign = -1.0F;
+  for (int k = 0; k < 3; ++k) {
+    const float al = fabsf(rbDot(unit[incident][k], outward));
+    if (al > incAlign) incAlign = al, incFace = k;
+  }
+  const float incSign = rbDot(unit[incident][incFace], outward) >= 0.0F ? -1.0F : 1.0F;
+  const RbV centre = rbAdd(box[incident]->centre,
+                           rbMul(box[incident]->halfAxes[incFace], incSign));
+  const RbV u = box[incident]->halfAxes[(incFace + 1) % 3];
+  const RbV v = box[incident]->halfAxes[(incFace + 2) % 3];
+  RbV poly[2][16];
+  poly[0][0] = rbSub(rbSub(centre, u), v);
+  poly[0][1] = rbSub(rbAdd(centre, u), v);
+  poly[0][2] = rbAdd(rbAdd(centre, u), v);
+  poly[0][3] = rbAdd(rbSub(centre, u), v);
+  int count = 4, src = 0;
+  for (int t = 1; t <= 2; ++t) {
+    const int ax = (face + t) % 3;
+    for (int side = -1; side <= 1; side += 2) {
+      const RbV plane = rbMul(unit[reference][ax], (float)side);
+      const float limit = half[reference][ax];
+      int next = 0;
+      for (int k = 0; k < count; ++k) {
+        const RbV p = poly[src][k], q = poly[src][(k + 1) % count];
+        const float dp = limit - rbDot(plane, rbSub(p, ref));
+        const float dq = limit - rbDot(plane, rbSub(q, ref));
+        if (dp >= 0.0F) {
+          if (next >= 16) return 0;
+          poly[1 - src][next++] = p;
+        }
+        if ((dp >= 0.0F) != (dq >= 0.0F)) {
+          if (next >= 16) return 0;
+          poly[1 - src][next++] = rbAdd(p, rbMul(rbSub(q, p), dp / (dp - dq)));
+        }
+      }
+      count = next;
+      src = 1 - src;
+      if (!count) return 0;
+    }
+  }
+  int m = 0;
+  for (int k = 0; k < count; ++k) {
+    const RbV p = poly[src][k];
+    const float depth = rbDot(outward, rbSub(ref, p));
+    if (!(depth >= 0.0F)) continue;
+    // Midway between the incident point and the reference plane, so both
+    // bodies take the impulse at one shared point.
+    out[m].n = normal;
+    out[m].p = rbAdd(p, rbMul(outward, 0.5F * depth));
+    out[m].depth = depth;
+    ++m;
+  }
+  return m;
+}
+
+inline constexpr int PHYS_ITERATIONS = 4;        // velocity passes per frame
+inline constexpr int PHYS_POS_ITERATIONS = 2;    // split-impulse passes
+// Warm starting: a contact found again at the same point of the same pair
+// starts from this fraction of last frame's impulses (docs/physics.md).
+inline constexpr float PHYS_WARM_FACTOR = 0.85F;
+
+// One remembered contact impulse, for the next frame's warm start.
+struct RbWarm {
+  int b;          // partner object index, -1 the world
+  RbV local;      // contact point in the body's frame (offset from its COM)
+  float jn;
+  RbV ft;
+};
 inline constexpr int PHYS_MAX_CONTACTS = 384;  // reserve hint, never a contact cap
 inline constexpr float PHYS_SLOP = 0.005F;       // units of allowed overlap
 inline constexpr float PHYS_BAUMGARTE = 0.5F;    // fraction of overlap fixed per frame
@@ -19287,10 +19474,22 @@ static bool broadPhaseSegmentHits(const float* a, const float* d,
 
 void TerrainGame::broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const {
   const CollisionBox cb = objectCollisionBox(o);
-  const V3 ax = boxRotate({1.0F, 0.0F, 0.0F}, o.data);
-  const V3 ay = boxRotate({0.0F, 1.0F, 0.0F}, o.data);
-  const V3 az = boxRotate({0.0F, 0.0F, 1.0F}, o.data);
-  const V3 c = boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+  // boxRotate() four times, with each piece of trigonometry done once (the
+  // same operations in the same order, so the same box to the bit).
+  const RotTrig& t = rotTrigCached((int)(&o - runtimeObjects.data()), o.data.rotation);
+  float yc = 1.0F, ys = 0.0F;
+  if (o.data.modelYaw != 0.0F) {
+    const float a = o.data.modelYaw * (PI / 180.0F);
+    yc = cosf(a), ys = sinf(a);
+  }
+  auto boxRot = [&](V3 p) {
+    if (o.data.modelYaw != 0.0F) p = {p.x * yc + p.z * ys, p.y, -p.x * ys + p.z * yc};
+    return rotatedBy(p, t);
+  };
+  const V3 ax = boxRot({1.0F, 0.0F, 0.0F});
+  const V3 ay = boxRot({0.0F, 1.0F, 0.0F});
+  const V3 az = boxRot({0.0F, 0.0F, 1.0F});
+  const V3 c = boxRot({cb.center[0], cb.center[1], cb.center[2]});
   const float cw[3] = {o.data.position[0] + c.x, o.data.position[1] + c.y,
                        o.data.position[2] + c.z};
   float h[3] = {
@@ -21588,9 +21787,10 @@ bool TerrainGame::physFastPathEligible(int index) const {
 void TerrainGame::updateObjMat(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   M4x4& m = objectGeometry[index].objMat;
-  const V3 bx = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
-  const V3 by = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
-  const V3 bz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+  const RotTrig& t = rotTrigCached(index, o.data.rotation);
+  const V3 bx = rotatedBy({1.0F, 0.0F, 0.0F}, t);
+  const V3 by = rotatedBy({0.0F, 1.0F, 0.0F}, t);
+  const V3 bz = rotatedBy({0.0F, 0.0F, 1.0F}, t);
   m.identity();
   m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
   m.data[4] = by.x, m.data[5] = by.y, m.data[6] = by.z;
@@ -24567,6 +24767,61 @@ void TerrainGame::updateObjectPhysics() {
     physObjIndexCount = count;
   }
 
+  // A body placed resting on the terrain starts asleep. Every body used to
+  // start awake and spend the physSleep countdown confirming it had not
+  // moved: 82 crates on a road cost ~9 ms a frame for the first three seconds
+  // of every scene load on a physical PS2 (30 FPS). The test is a still body
+  // (no velocity, no spin) whose hull touches flat ground at three corners or
+  // more and goes below it nowhere - a body set on another body, in the air or
+  // on a slope keeps the old path. Checked once per body per scene, the first
+  // frame it is active, so a script's On Start push is seen first.
+  static std::vector<unsigned char> restChecked;
+  static unsigned restCheckedGen = ~0u;
+  if (restCheckedGen != sceneGeneration) {
+    restChecked.assign((size_t)count, 0);
+    restCheckedGen = sceneGeneration;
+  } else if ((int)restChecked.size() < count) {
+    restChecked.resize((size_t)count, 0);
+  }
+  for (int i : physObjIndex) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (restChecked[(size_t)i] || !o.active) continue;
+    restChecked[(size_t)i] = 1;
+    if (i == carryIndex || i == thrownIndex || o.restFrames != 0) continue;
+    if (o.velocityX != 0.0F || o.velocityY != 0.0F || o.velocityZ != 0.0F ||
+        o.spin[0] != 0.0F || o.spin[1] != 0.0F || o.spin[2] != 0.0F)
+      continue;
+    const PhysBody& b = physBodies[physBodyFor(i)];
+    float R[9];
+    rbQuatToMat(b.q, R);
+    const RbV com = rbAdd(rbV(o.data.position[0], o.data.position[1],
+                              o.data.position[2]),
+                          rbMat(R, rbV(b.comL[0], b.comL[1], b.comL[2])));
+    const float hs = 0.35F;
+    RbV nT = rbV(terrainHeightAt(com.x - hs, com.z) - terrainHeightAt(com.x + hs, com.z),
+                 2.0F * hs,
+                 terrainHeightAt(com.x, com.z - hs) - terrainHeightAt(com.x, com.z + hs));
+    if (nT.y * nT.y < 0.81F * rbDot(nT, nT)) continue;  // steeper than ~25 deg
+    constexpr float kRestTol = 0.02F;
+    bool atRest;
+    if (b.verts == 0) {
+      const float gap = com.y - b.radius - terrainHeightAt(com.x, com.z);
+      atRest = fabsf(gap) < kRestTol;
+    } else {
+      int touching = 0;
+      atRest = true;
+      for (int k = 0; k < b.verts && atRest; ++k) {
+        const RbV p = rbAdd(com, rbMat(R, rbV(b.lv[k * 3], b.lv[k * 3 + 1],
+                                              b.lv[k * 3 + 2])));
+        const float gap = p.y - terrainHeightAt(p.x, p.z);
+        if (gap < -kRestTol) atRest = false;
+        else if (gap < kRestTol) ++touching;
+      }
+      atRest = atRest && touching >= 3;
+    }
+    if (atRest) o.restFrames = PHYS_ASLEEP;
+  }
+
   // --- 1. awake bodies: sync, integrate forces, predict the pose ------------
   for (int i : physObjIndex) {
     RuntimeObject& o = runtimeObjects[i];
@@ -24599,7 +24854,10 @@ void TerrainGame::updateObjectPhysics() {
     RuntimeObject& o = runtimeObjects[i];
     const int slot = physSlotOf[i];
     const PhysBody& b = physBodies[slot];
-    RbStep s;
+    // Built in place: an RbStep is ~800 bytes (hull corners at two poses),
+    // and copying it in per body was part of the prediction stage's cost.
+    steps.emplace_back();
+    RbStep& s = steps.back();
     s.obj = i;
     s.slot = slot;
     s.asleep = asleep;
@@ -24668,7 +24926,6 @@ void TerrainGame::updateObjectPhysics() {
       for(int k=0;k<3;++k) s.obb.halfAxes[k]=rbMul(
           rbV(s.R1[k],s.R1[k+3],s.R1[k+6]),(hi[k]-lo[k])*.5F);
     }
-    steps.push_back(s);
     if(coherence)satGeometry[steps.size()-1].valid=false;
     stepOf[i] = (short)(steps.size() - 1);
     return (int)steps.size() - 1;
@@ -24677,6 +24934,9 @@ void TerrainGame::updateObjectPhysics() {
   for (int i : bodies)
     if (!physAsleep(runtimeObjects[i])) makeStep(i, false);
   const int awakeCount = (int)steps.size();
+#if TYRA_FRAME_PROFILE
+  ftrig::physAwake += (u32)awakeCount;
+#endif
 
   auto transformedShape = [&](const RbStep& s,const PhysBody& b) -> SatGeometry& {
     auto& g=satGeometry[stepOf[s.obj]];
@@ -25182,8 +25442,11 @@ void TerrainGame::updateObjectPhysics() {
           cand[0].n = A.sphere ? nw : rbMul(nw, -1.0F); n = 1;
         }
       } else {
+        // box against box: the clipped face patch (rbBoxBoxManifold)
+        if (A.box && Bs.box) n = rbBoxBoxManifold(A.obb, Bs.obb, cand);
+        const bool patched = n > 0;
         // hull against hull: each one's corners inside the other
-        for (int k = 0; k < A.nv && n < 48; ++k) {
+        for (int k = 0; !patched && k < A.nv && n < 48; ++k) {
           const RbV rel = rbSub(A.wv[k], Bs.x1);
           if (rbDot(rel, rel) > Bj.radius * Bj.radius) continue;
           float depth;
@@ -25195,7 +25458,7 @@ void TerrainGame::updateObjectPhysics() {
           cand[n].depth = depth;
           ++n;
         }
-        for (int k = 0; k < Bs.nv && n < 48; ++k) {
+        for (int k = 0; !patched && k < Bs.nv && n < 48; ++k) {
           const RbV rel = rbSub(Bs.wv[k], A.x1);
           if (rbDot(rel, rel) > Ba.radius * Ba.radius) continue;
           float depth;
@@ -25244,119 +25507,283 @@ void TerrainGame::updateObjectPhysics() {
   }
 
   // --- 4. sequential impulses -------------------------------------------------
-
+  // Islands: bodies joined by contacts in which both can move. A contact
+  // against the world or a sleeper changes only its own body, so islands
+  // never touch each other's state, and running every pass island by island
+  // - each island's contacts in their original order - gives the same
+  // result as running each pass over all contacts. It keeps an island's few
+  // contacts in the data cache for all its passes instead of streaming the
+  // whole contact list from memory once per pass (82 awake crates: 326
+  // contacts, solve 4.1 ms on a physical PS2 before this).
   const int nc = (int)contacts.size();
+  const int ns = (int)steps.size();
+  static std::vector<int> islandRoot, islandStart, islandOrder;
+  islandRoot.resize(ns);
+  for (int i = 0; i < ns; ++i) islandRoot[i] = i;
+  auto rootOf = [&](int i) {
+    while (islandRoot[i] != i) i = islandRoot[i] = islandRoot[islandRoot[i]];
+    return i;
+  };
   for (int k = 0; k < nc; ++k) {
-    RbContact& c = contacts[k];
-    RbStep& A = steps[c.a];
-    c.ra = rbSub(c.p, A.x1);
+    const RbContact& c = contacts[k];
+    if (c.b < 0 || steps[c.b].asleep) continue;
+    const int ra = rootOf(c.a), rb = rootOf(c.b);
+    if (ra != rb) islandRoot[ra < rb ? rb : ra] = ra < rb ? ra : rb;
+  }
+  islandStart.assign(ns + 1, 0);
+  for (int k = 0; k < nc; ++k) ++islandStart[rootOf(contacts[k].a) + 1];
+  for (int i = 0; i < ns; ++i) islandStart[i + 1] += islandStart[i];
+  islandOrder.resize(nc);
+  {
+    static std::vector<int> fill;
+    fill.assign(islandStart.begin(), islandStart.end() - 1);
+    for (int k = 0; k < nc; ++k) islandOrder[fill[rootOf(contacts[k].a)]++] = k;
+  }
+
+  // Warm start (docs/physics.md): last frame's impulses, grouped by body
+  // object. Impulses are per-frame displacements, so a support impulse
+  // scales with the square of the frame time.
+  static std::vector<RbWarm> warmPrev;
+  static std::vector<int> warmStart, warmFill;
+  static unsigned warmGen = ~0u, warmFrame = 0u;
+  static float warmDt = 0.0F;
+  // Only the previous frame's: after a stretch with every body asleep (no
+  // solve, nothing stored) the remembered impulses are stale.
+  const bool warmOn = warmGen == sceneGeneration && warmDt > 0.0F &&
+                      warmFrame + 1u == g_frameStamp;
+  float warmScale = 0.0F;
+  if (warmOn) {
+    const float r = g_frameDt / warmDt;
+    warmScale = PHYS_WARM_FACTOR * fminf(fmaxf(r * r, 0.25F), 4.0F);
+  }
+
+  static std::vector<RbSolveContact> solve;
+  solve.resize(nc);
+  for (int idx = 0; idx < nc; ++idx) {
+    const RbContact& src = contacts[islandOrder[idx]];
+    RbSolveContact& c = solve[idx];
+    RbStep& A = steps[src.a];
+    c.a = src.a;
+    c.n = src.n;
+    c.depth = src.depth;
+    c.ra = rbSub(src.p, A.x1);
     RbV vrel = rbAdd(A.v, rbCross(A.w, c.ra));
-    const RbV ca = rbCross(c.ra, c.n);
-    float kn = A.invMass + rbDot(rbCross(rbMat(A.invIw, ca), c.ra), c.n);
+    // (invIw (ra x n)) x ra . n == invIw (ra x n) . (ra x n)
+    c.raXn = rbCross(c.ra, c.n);
+    c.aN = rbMat(A.invIw, c.raXn);
+    float kn = A.invMass + rbDot(c.aN, c.raXn);
+    // Friction along two fixed tangents with their masses inverted once, the
+    // accumulated pair clamped to the Coulomb circle - instead of the slip
+    // direction, whose mass needed a matrix product, a square root and two
+    // divisions in every pass.
+    c.t1 = fabsf(c.n.x) > 0.57F ? rbV(c.n.y, -c.n.x, 0.0F) : rbV(0.0F, c.n.z, -c.n.y);
+    c.t1 = rbMul(c.t1, 1.0F / sqrtf(rbDot(c.t1, c.t1)));
+    c.t2 = rbCross(c.n, c.t1);
+    const RbV raT1 = rbCross(c.ra, c.t1), raT2 = rbCross(c.ra, c.t2);
+    c.aT1 = rbMat(A.invIw, raT1);
+    c.aT2 = rbMat(A.invIw, raT2);
+    float kt1 = A.invMass + rbDot(c.aT1, raT1);
+    float kt2 = A.invMass + rbDot(c.aT2, raT2);
     float e = A.bounce, f = A.friction;
-    if (c.b >= 0) {
-      RbStep& Bs = steps[c.b];
-      c.rb = rbSub(c.p, Bs.x1);
+    c.b = -1;
+    if (src.b >= 0) {
+      RbStep& Bs = steps[src.b];
+      c.rb = rbSub(src.p, Bs.x1);
       vrel = rbSub(vrel, rbAdd(Bs.v, rbCross(Bs.w, c.rb)));
-      const RbV cb = rbCross(c.rb, c.n);
-      kn += Bs.invMass + rbDot(rbCross(rbMat(Bs.invIw, cb), c.rb), c.n);
+      c.rbXn = rbCross(c.rb, c.n);
+      c.bN = rbMat(Bs.invIw, c.rbXn);
+      kn += Bs.invMass + rbDot(c.bN, c.rbXn);
+      const RbV rbT1 = rbCross(c.rb, c.t1), rbT2 = rbCross(c.rb, c.t2);
+      c.bT1 = rbMat(Bs.invIw, rbT1);
+      c.bT2 = rbMat(Bs.invIw, rbT2);
+      kt1 += Bs.invMass + rbDot(c.bT1, rbT1);
+      kt2 += Bs.invMass + rbDot(c.bT2, rbT2);
+      // A sleeping partner has zero velocity, mass and inertia this frame:
+      // every term it adds is zero, so the passes treat it as the world.
+      if (!Bs.asleep) c.b = src.b;
       if (Bs.bounce > e) e = Bs.bounce;
       f = 0.5F * (f + Bs.friction);
     } else {
-      c.rb = rbV(0.0F, 0.0F, 0.0F);
+      c.rb = c.rbXn = c.bN = c.bT1 = c.bT2 = rbV(0.0F, 0.0F, 0.0F);
     }
-    c.kn = kn > 1e-9F ? kn : 1e-9F;
+    c.invKn = 1.0F / (kn > 1e-9F ? kn : 1e-9F);
+    c.invKt1 = 1.0F / (kt1 > 1e-9F ? kt1 : 1e-9F);
+    c.invKt2 = 1.0F / (kt2 > 1e-9F ? kt2 : 1e-9F);
     c.vnPred = rbDot(vrel, c.n);
     c.bounceTarget = -c.vnPred > bounceThreshold ? -e * c.vnPred : 0.0F;
     // Coulomb friction coefficient from the authored 0..1 "Friction".
     c.mu = 0.05F + 0.95F * f;
     c.jn = c.jp = 0.0F;
-    c.ft = rbV(0.0F, 0.0F, 0.0F);
+    c.f1 = c.f2 = 0.0F;
+    c.bAny = src.b;
+    if (warmOn && A.obj + 1 < (int)warmStart.size()) {
+      const int bo = src.b >= 0 ? steps[src.b].obj : -1;
+      const RbV local = rbMatT(A.R1, c.ra);
+      const float tol = 0.15F * physBodies[A.slot].radius;
+      float best = tol * tol;
+      const RbWarm* hit = nullptr;
+      for (int w = warmStart[A.obj]; w < warmStart[A.obj + 1]; ++w) {
+        const RbWarm& h = warmPrev[(size_t)w];
+        if (h.b != bo) continue;
+        const RbV d = rbSub(h.local, local);
+        const float d2 = rbDot(d, d);
+        if (d2 < best) best = d2, hit = &h;
+      }
+      if (hit) {
+        c.jn = hit->jn * warmScale;
+        // Friction, in this frame's tangents and inside its circle.
+        float f1 = rbDot(hit->ft, c.t1) * warmScale;
+        float f2 = rbDot(hit->ft, c.t2) * warmScale;
+        const float lim = c.mu * c.jn, l2 = f1 * f1 + f2 * f2;
+        if (l2 > lim * lim) {
+          const float sc = lim / sqrtf(l2);
+          f1 *= sc, f2 *= sc;
+        }
+        c.f1 = f1, c.f2 = f2;
+      }
+    }
     if (c.n.y > 0.5F) A.grounded = true;
-    if (c.b >= 0 && c.n.y < -0.5F) steps[c.b].grounded = true;
+    if (src.b >= 0 && c.n.y < -0.5F) steps[src.b].grounded = true;
   }
-  auto applyImpulse = [&](RbContact& c, RbV P) {
-    RbStep& A = steps[c.a];
+
+  // The passes run on packed copies of the bodies and write the velocities
+  // back once at the end.
+  static std::vector<RbSolveBody> solveBodies;
+  solveBodies.resize(ns);
+  for (int i = 0; i < ns; ++i) {
+    const RbStep& s = steps[i];
+    RbSolveBody& d = solveBodies[i];
+    d.v = s.v, d.w = s.w, d.vp = s.vp, d.wp = s.wp;
+    d.invMass = s.invMass;
+    for (int m = 0; m < 9; ++m) d.invIw[m] = s.invIw[m];
+  }
+  for (int k = 0; k < nc; ++k) {
+    const RbSolveContact& c = solve[k];
+    if (c.jn == 0.0F && c.f1 == 0.0F && c.f2 == 0.0F) continue;
+    RbSolveBody& A = solveBodies[c.a];
+    const RbV P = rbAdd(rbMul(c.n, c.jn),
+                        rbAdd(rbMul(c.t1, c.f1), rbMul(c.t2, c.f2)));
+    const RbV wa = rbAdd(rbMul(c.aN, c.jn),
+                         rbAdd(rbMul(c.aT1, c.f1), rbMul(c.aT2, c.f2)));
     A.v = rbAdd(A.v, rbMul(P, A.invMass));
-    A.w = rbAdd(A.w, rbMat(A.invIw, rbCross(c.ra, P)));
+    A.w = rbAdd(A.w, wa);
     if (c.b >= 0) {
-      RbStep& Bs = steps[c.b];
-      Bs.v = rbSub(Bs.v, rbMul(P, Bs.invMass));
-      Bs.w = rbSub(Bs.w, rbMat(Bs.invIw, rbCross(c.rb, P)));
+      RbSolveBody& B = solveBodies[c.b];
+      const RbV wb = rbAdd(rbMul(c.bN, c.jn),
+                           rbAdd(rbMul(c.bT1, c.f1), rbMul(c.bT2, c.f2)));
+      B.v = rbSub(B.v, rbMul(P, B.invMass));
+      B.w = rbSub(B.w, wb);
     }
+  }
+  // Normal velocity at the contact: (v + w x r) . n == v . n + w . (r x n).
+  auto normalVel = [](const RbSolveContact& c, RbV v, RbV w, RbV rXn) {
+    return rbDot(v, c.n) + rbDot(w, rXn);
   };
-  auto relVel = [&](const RbContact& c) {
-    const RbStep& A = steps[c.a];
-    RbV v = rbAdd(A.v, rbCross(A.w, c.ra));
-    if (c.b >= 0) {
-      const RbStep& Bs = steps[c.b];
-      v = rbSub(v, rbAdd(Bs.v, rbCross(Bs.w, c.rb)));
-    }
-    return v;
-  };
-  for (int it = 0; it < PHYS_ITERATIONS; ++it)
-    for (int k = 0; k < nc; ++k) {
-      RbContact& c = contacts[k];
-      RbV vrel = relVel(c);
-      const float vn = rbDot(vrel, c.n);
-      float nj = c.jn + (c.bounceTarget - vn) / c.kn;
-      if (nj < 0.0F) nj = 0.0F;
-      const float dj = nj - c.jn;
-      c.jn = nj;
-      if (dj != 0.0F) applyImpulse(c, rbMul(c.n, dj));
-      // friction, against whatever tangential slip is left
-      vrel = relVel(c);
-      const RbV vt = rbSub(vrel, rbMul(c.n, rbDot(vrel, c.n)));
-      const float vtl2 = rbDot(vt, vt);
-      if (vtl2 < 1e-14F) continue;
-      const float vtl = sqrtf(vtl2);
-      const RbV t = rbMul(vt, 1.0F / vtl);
-      const RbStep& A = steps[c.a];
-      float kt = A.invMass +
-                 rbDot(rbCross(rbMat(A.invIw, rbCross(c.ra, t)), c.ra), t);
-      if (c.b >= 0) {
-        const RbStep& Bs = steps[c.b];
-        kt += Bs.invMass +
-              rbDot(rbCross(rbMat(Bs.invIw, rbCross(c.rb, t)), c.rb), t);
+  for (int island = 0; island < ns; ++island) {
+    const int first = islandStart[island], last = islandStart[island + 1];
+    if (first == last) continue;
+    for (int it = 0; it < PHYS_ITERATIONS; ++it)
+      for (int k = first; k < last; ++k) {
+        RbSolveContact& c = solve[k];
+        RbSolveBody& A = solveBodies[c.a];
+        RbSolveBody* B = c.b >= 0 ? &solveBodies[c.b] : nullptr;
+        float vn = normalVel(c, A.v, A.w, c.raXn);
+        if (B) vn -= normalVel(c, B->v, B->w, c.rbXn);
+        float nj = c.jn + (c.bounceTarget - vn) * c.invKn;
+        if (nj < 0.0F) nj = 0.0F;
+        const float dj = nj - c.jn;
+        c.jn = nj;
+        if (dj != 0.0F) {
+          A.v = rbAdd(A.v, rbMul(c.n, dj * A.invMass));
+          A.w = rbAdd(A.w, rbMul(c.aN, dj));
+          if (B) {
+            B->v = rbSub(B->v, rbMul(c.n, dj * B->invMass));
+            B->w = rbSub(B->w, rbMul(c.bN, dj));
+          }
+        }
+        // friction, against whatever tangential slip is left. With no
+        // normal impulse and none accumulated the clamp zeroes it exactly.
+        if (c.jn == 0.0F && c.f1 == 0.0F && c.f2 == 0.0F) continue;
+        RbV vrel = rbAdd(A.v, rbCross(A.w, c.ra));
+        if (B) vrel = rbSub(vrel, rbAdd(B->v, rbCross(B->w, c.rb)));
+        float n1 = c.f1 - rbDot(vrel, c.t1) * c.invKt1;
+        float n2 = c.f2 - rbDot(vrel, c.t2) * c.invKt2;
+        const float lim = c.mu * c.jn, l2 = n1 * n1 + n2 * n2;
+        if (l2 > lim * lim) {
+          const float sc = lim / sqrtf(l2);
+          n1 *= sc, n2 *= sc;
+        }
+        const float d1 = n1 - c.f1, d2 = n2 - c.f2;
+        c.f1 = n1, c.f2 = n2;
+        if (d1 == 0.0F && d2 == 0.0F) continue;
+        const RbV P = rbAdd(rbMul(c.t1, d1), rbMul(c.t2, d2));
+        A.v = rbAdd(A.v, rbMul(P, A.invMass));
+        A.w = rbAdd(A.w, rbAdd(rbMul(c.aT1, d1), rbMul(c.aT2, d2)));
+        if (B) {
+          B->v = rbSub(B->v, rbMul(P, B->invMass));
+          B->w = rbSub(B->w, rbAdd(rbMul(c.bT1, d1), rbMul(c.bT2, d2)));
+        }
       }
-      if (kt < 1e-9F) continue;
-      RbV nf = rbAdd(c.ft, rbMul(t, -vtl / kt));
-      const float lim = c.mu * c.jn;
-      const float nfl2 = rbDot(nf, nf);
-      if (nfl2 > lim * lim) nf = rbMul(nf, lim / sqrtf(nfl2));
-      applyImpulse(c, rbSub(nf, c.ft));
-      c.ft = nf;
-    }
-  // Split impulse: the overlap still left after the velocity solve is
-  // removed through pseudo velocities that move the body and are then
-  // forgotten, so pushing a body out of the ground never launches it.
-  for (int it = 0; it < PHYS_POS_ITERATIONS; ++it)
-    for (int k = 0; k < nc; ++k) {
-      RbContact& c = contacts[k];
-      RbStep& A = steps[c.a];
-      const float vnNow = rbDot(relVel(c), c.n);
+    // Split impulse: the overlap still left after the velocity solve is
+    // removed through pseudo velocities that move the body and are then
+    // forgotten, so pushing a body out of the ground never launches it.
+    // The real velocities no longer change here, so each contact's target
+    // is fixed before the passes.
+    for (int k = first; k < last; ++k) {
+      RbSolveContact& c = solve[k];
+      const RbSolveBody& A = solveBodies[c.a];
+      float vnNow = normalVel(c, A.v, A.w, c.raXn);
+      if (c.b >= 0) {
+        const RbSolveBody& B = solveBodies[c.b];
+        vnNow -= normalVel(c, B.v, B.w, c.rbXn);
+      }
       const float remaining = c.depth - (vnNow - c.vnPred);
-      const float target =
+      c.posTarget =
           remaining > PHYS_SLOP ? PHYS_BAUMGARTE * (remaining - PHYS_SLOP) : 0.0F;
-      RbV vp = rbAdd(A.vp, rbCross(A.wp, c.ra));
-      if (c.b >= 0) {
-        const RbStep& Bs = steps[c.b];
-        vp = rbSub(vp, rbAdd(Bs.vp, rbCross(Bs.wp, c.rb)));
-      }
-      float nj = c.jp + (target - rbDot(vp, c.n)) / c.kn;
-      if (nj < 0.0F) nj = 0.0F;
-      const float dj = nj - c.jp;
-      c.jp = nj;
-      if (dj == 0.0F) continue;
-      const RbV P = rbMul(c.n, dj);
-      A.vp = rbAdd(A.vp, rbMul(P, A.invMass));
-      A.wp = rbAdd(A.wp, rbMat(A.invIw, rbCross(c.ra, P)));
-      if (c.b >= 0) {
-        RbStep& Bs = steps[c.b];
-        Bs.vp = rbSub(Bs.vp, rbMul(P, Bs.invMass));
-        Bs.wp = rbSub(Bs.wp, rbMat(Bs.invIw, rbCross(c.rb, P)));
-      }
     }
+    for (int it = 0; it < PHYS_POS_ITERATIONS; ++it)
+      for (int k = first; k < last; ++k) {
+        RbSolveContact& c = solve[k];
+        RbSolveBody& A = solveBodies[c.a];
+        RbSolveBody* B = c.b >= 0 ? &solveBodies[c.b] : nullptr;
+        float vpn = normalVel(c, A.vp, A.wp, c.raXn);
+        if (B) vpn -= normalVel(c, B->vp, B->wp, c.rbXn);
+        float nj = c.jp + (c.posTarget - vpn) * c.invKn;
+        if (nj < 0.0F) nj = 0.0F;
+        const float dj = nj - c.jp;
+        c.jp = nj;
+        if (dj == 0.0F) continue;
+        A.vp = rbAdd(A.vp, rbMul(c.n, dj * A.invMass));
+        A.wp = rbAdd(A.wp, rbMul(c.aN, dj));
+        if (B) {
+          B->vp = rbSub(B->vp, rbMul(c.n, dj * B->invMass));
+          B->wp = rbSub(B->wp, rbMul(c.bN, dj));
+        }
+      }
+  }
+  for (int i = 0; i < ns; ++i) {
+    RbStep& s = steps[i];
+    const RbSolveBody& d = solveBodies[i];
+    s.v = d.v, s.w = d.w, s.vp = d.vp, s.wp = d.wp;
+  }
+  // This frame's impulses, grouped by body object, for the next warm start.
+  warmStart.assign((size_t)count + 1, 0);
+  for (int k = 0; k < nc; ++k) ++warmStart[(size_t)steps[solve[k].a].obj + 1];
+  for (int i = 0; i < count; ++i) warmStart[(size_t)i + 1] += warmStart[(size_t)i];
+  warmFill.assign(warmStart.begin(), warmStart.end() - 1);
+  warmPrev.resize((size_t)nc);
+  for (int k = 0; k < nc; ++k) {
+    const RbSolveContact& c = solve[k];
+    const RbStep& A = steps[c.a];
+    RbWarm& w = warmPrev[(size_t)warmFill[(size_t)A.obj]++];
+    w.b = c.bAny >= 0 ? steps[c.bAny].obj : -1;
+    w.local = rbMatT(A.R1, c.ra);
+    w.jn = c.jn;
+    w.ft = rbAdd(rbMul(c.t1, c.f1), rbMul(c.t2, c.f2));
+  }
+  warmGen = sceneGeneration;
+  warmFrame = g_frameStamp;
+  warmDt = g_frameDt;
 
   // --- 5. integrate and write back ------------------------------------------
   for (int si = 0; si < awakeCount; ++si) {
@@ -25453,6 +25880,19 @@ void TerrainGame::updateObjectPhysics() {
       // from then on (refreshed in renderScene - no EE re-bake per frame);
       // the rest fall back to the legacy world-space rebuild.
       ObjectGeometry& g = objectGeometry[S.obj];
+      // A body that slept in a static batch leaves it before its own path
+      // draws it: the matrix promotion below never sets `dirty`, which is
+      // what the batch would otherwise demote it by - it would draw twice.
+      if (S.obj < (int)objectBatchOf.size() && objectBatchOf[S.obj] != -1) {
+        for (StaticBatch& sb : staticBatches)
+          for (size_t k = 0; k < sb.members.size();) {
+            if (sb.members[k].object != S.obj) { ++k; continue; }
+            sb.members.erase(sb.members.begin() + (long)k);
+            if (k < sb.shown.size()) sb.shown.erase(sb.shown.begin() + (long)k);
+            sb.dirty = true;
+          }
+        objectBatchOf[S.obj] = -1;
+      }
       if (!g.matrixMode && !o.dirty && physFastPathEligible(S.obj))
         rebuildObjectGeometry(S.obj, true);
       if (!g.matrixMode) o.dirty = true;

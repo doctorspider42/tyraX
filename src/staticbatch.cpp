@@ -230,7 +230,7 @@ Reason eligibility(const Project& p, const SceneObject& o,
         o.type == PrimitiveType::Plane || o.type == PrimitiveType::Model;
     if (!shape) return Reason::NotABatchableShape;
     if (o.collisionMode == 3) return Reason::InvisibleWall;
-    if (o.physics) return Reason::Physics;
+    // Physics bodies batch while they sleep (twin of staticBatchEligible).
     if (o.usable) return Reason::Usable;
     if (o.pickable) return Reason::Pickable;
     if (o.saveState) return Reason::SaveState;

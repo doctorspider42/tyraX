@@ -27,7 +27,7 @@ static `.obj` model:
 | Bounciness | restitution 0..1, the larger of the two bodies in a collision |
 | Friction | 0..1, mapped to a Coulomb coefficient `0.05 + 0.95 * f` (the pair averages) |
 | Tumble | off = the body slides but never rotates (infinite inertia) |
-| Sleep after | seconds of rest before the body freezes and costs one branch per frame |
+| Sleep after | seconds of rest before the body freezes and costs one branch per frame (1 s for new bodies since 2.1.2; 3 s before) |
 
 Nothing else is authored: the shape is derived from the mesh at build time.
 `examples/physics-playground` has the reference props (stool, road barrier,
@@ -83,15 +83,22 @@ runs once per frame over the awake bodies:
      path for the frame against the `CollisionMesh`, from a skin behind where
      it was to where it is predicted, so a fast corner cannot cross a thin
      floor and a stool finds its feet inside a building;
-   - **other bodies** - each hull's corners inside the other hull, sphere
-     against the face of largest separation, sphere against sphere.
-3. **Sequential impulses**, 6 passes: normal impulse with restitution (only
+   - **other bodies** - two boxes: the clipped face patch (SAT over the 15
+     axes; when a face axis wins, the other box's face is clipped to that
+     face's rectangle); otherwise each hull's corners inside the other hull,
+     sphere against the face of largest separation, sphere against sphere.
+3. **Warm start**: a contact found again at the same point of the same pair
+   (within 15% of the body's radius, in the body's own frame) starts from 85%
+   of last frame's impulses, scaled by the square of the frame-time ratio
+   (impulses are per-frame displacements).
+4. **Sequential impulses**, 4 passes: normal impulse with restitution (only
    above a resting threshold, so gravity's own frame of fall never buzzes a
-   crate), Coulomb friction clamped by the accumulated normal impulse.
-4. **Split impulse**, 3 passes: whatever overlap is left after the velocity
+   crate), Coulomb friction along two fixed tangents, the pair clamped to the
+   circle of the accumulated normal impulse.
+5. **Split impulse**, 2 passes: whatever overlap is left after the velocity
    solve is removed through pseudo-velocities that move the body and are then
    discarded - pushing a body out of the ground never launches it.
-5. **Integrate and write back**: the object's position and its Euler angles
+6. **Integrate and write back**: the object's position and its Euler angles
    (rebuilt from the quaternion, same `Rz*Ry*Rx` order as `rotated()`), the
    sleep countdown, and the matrix fast path exactly as before.
 
@@ -158,11 +165,12 @@ goes, and what keeps it bounded:
 - **Convex contact fallback.** Corner manifolds are supplemented by full
   face/edge-axis SAT and linear CCD when no corner contact exists. This is
   not continuous rotational collision detection; extreme rotation can tunnel.
-- Deeply interpenetrating or offset stacks can still select weak corner
-  support manifolds. The experimental face-clipping replacement is not included.
-- **No warm starting and no persistent manifolds.** Stable stacks of a few
-  bodies are fine because sleeping bodies are immovable partners; tall stacks
-  of awake bodies jitter before they sleep.
+- The face patch covers box against box only. Other hull pairs (a model
+  hull on a box, two model hulls) still use corner-in-hull contacts, and a
+  stack of those can select weak support points.
+- **Warm starting, no persistent manifold.** Impulses carry over by matching
+  contact points frame to frame; there is no manifold object, and a contact
+  whose point moved more than 15% of the body radius starts cold.
 - A sphere is tested against a hull by the face of largest separation, which
   over-reports contact near a hull's edges by a few percent of the radius.
 - A shape is convex (see above), and an animated model is its AABB box.
@@ -170,7 +178,8 @@ goes, and what keeps it bounded:
 
 ## Qualified collision optimizations
 
-The runtime keeps the existing six velocity and three split-impulse passes.
+The release extraction kept six velocity and three split-impulse passes;
+2.1.2 changed that with warm starting (below).
 Conservative spatial bounds reject disjoint pairs before narrow phase; SAT and
 linear CCD share projections, with analytic outward-rounded OBB intervals.
 Cached separating axes are hints: the current geometry and complete movement
@@ -183,7 +192,72 @@ Vehicle-to-prop candidate storage also grows beyond eight objects. Each source
 still reduces its manifold to at most four points. Vehicles retain their existing
 update and push mechanism; this is not the experimental common vehicle solver.
 All physics work in this release uses the EE scalar path. VU0 kernels, prepared
-solver backends, warm starting and island sleeping are not included.
+solver backends and island sleeping are not included.
+
+### What a body costs on a PS2, and what 2.1.2 changed
+
+Measured on a physical PS2 in a copy of the vehicle playground: 82 bodies (75
+unit crates scattered on the road, none touching, plus pallets and barriers),
+car parked facing them, debug build with the devkit (Live Debugger, Remote
+Pad) off, `TYRA_FRAME_PROFILE` 2. Window means over 50 frames.
+
+| | before | 2.1.2 |
+|---|---:|---:|
+| scene load, first ~3 s: physics / missed frames of 50 | 9.3 ms / 49 | 1.4 ms / 3 |
+| at rest, crates in view: frame work / scene render | 8.15 / 6.73 ms | 6.5 / 5.0 ms |
+| all 82 awake and resting: physics / scene render | 8.6 / 7.5 ms | 7.5 / 7.0 ms |
+| ... of which the solve | 4.1 ms | 3.4 ms |
+| six-crate tower + 4-3-2-1 pyramid, every body awake (PCSX2) | both fall flat | both stand, asleep in ~4 s |
+
+A sleeping body is free in physics; an awake one costs ~90 us a frame even
+lying still, so the scene budget is about how many are awake at once - here
+~60 at 60 FPS. What changed, and why each one mattered:
+
+- **Bodies placed at rest start asleep.** Every body used to start awake and
+  spend its Sleep-after countdown confirming that it had not moved - every
+  scene load ran at 30 FPS for three seconds. A still body whose hull touches
+  flat terrain at three corners or more, and goes below it nowhere, now
+  starts asleep (checked once per body per scene, the first frame it is
+  active). A body set on another body, in the air or on a slope keeps the
+  old path.
+- **Sleeping bodies batch.** Physics bodies are eligible for static batching;
+  the first frame the solver moves one takes it out of its batch (the matrix
+  promotion never sets `dirty`, so the batch would not have demoted it - it
+  would have drawn twice). 75 crates drawn as their own bags cost ~2.8 ms;
+  the scene above batches 144 objects instead of 59.
+- **Box against box clips the face patch.** Two boxes stacked square put
+  each one's corners exactly on the other's side planes, where the
+  corner-in-hull test keeps some and drops others by rounding; the lopsided
+  manifold tipped towers over. SAT over the 15 axes picks the normal, and when
+  a face axis wins the incident face is clipped to the reference face (the
+  `box_face_manifold` experiment of the investigation branch, never
+  integrated there).
+- **Warm starting with 4 + 2 passes** instead of 6 + 3 cold. A per-island
+  histogram of the cold solver showed impulses still moving by 1e-5..1e-4 (a
+  crate's support is ~4e-4) in its sixth pass: it never converged, it ran
+  out of passes. Starting from last frame's impulses lets fewer passes do
+  better.
+- **Friction along two fixed tangents**, masses inverted once per contact,
+  the pair clamped to the Coulomb circle - a pass does no matrix product,
+  division or square root unless the clamp bites. The normal masses are
+  inverted once too.
+- **Island-ordered passes on packed bodies.** Bodies joined by contacts in
+  which both can move form an island; a contact against the world or a
+  sleeper changes only its own body, so each island runs all its passes
+  while its contacts are in the 8 KB data cache - the same result as sweeps
+  over the whole list.
+- **Rotation trigonometry once per object per change.** `rotTrigCached`
+  keeps `rotTrigOf()`'s answer per object slot, keyed by the exact angles, for
+  the broad-phase box and the render matrix: a moving body paid ~45 software
+  sines and cosines a frame across `broadPhaseBoxOf` and `updateObjMat`.
+- **New bodies sleep after 1 s** of rest instead of 3. Existing objects keep
+  their stored value.
+
+Still open: with every crate awake the frame is 30 FPS - per awake body the
+prediction (~14 us), world contacts (~22 us, terrain samples and the broad
+phase), the solve (~42 us) and the write-back. Contacts between a model hull
+and a box still use corners. `FTPHYS awake=` counts awake bodies again (it
+read 0 before).
 
 Historical physical-PS2 qualification, complete contacts enabled in both arms:
 

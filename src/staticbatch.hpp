@@ -59,7 +59,7 @@ enum class Reason {
     //    column baked into inc/scene_data.hpp.
     NotABatchableShape,  // not Box/Sphere/Cylinder/Cone/Plane/Model
     InvisibleWall,       // collisionMode == 3: no geometry is emitted at all
-    Physics,             // a rigid body moves every frame while it falls
+    Physics,             // unused since physics bodies batch while asleep
     Usable,              // the USE highlight defers and re-submits the body
     Pickable,            // carried and thrown, so it moves at runtime
     SaveState,           // a loaded save repositions it

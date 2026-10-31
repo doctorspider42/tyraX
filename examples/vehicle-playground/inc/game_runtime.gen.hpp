@@ -551,6 +551,29 @@ inline RotTrig rotTrigOf(const float* rotDeg) {
   return t;
 }
 
+/** rotTrigOf() remembered per object slot, keyed by the exact angles - so the
+ * result is the one rotTrigOf() would return, and an object whose rotation
+ * did not change since the last call pays no trigonometry at all. A moving
+ * physics body used to pay ~45 software sines/cosines a frame across the
+ * broad-phase box and the render matrix (82 awake crates on a physical PS2). */
+struct RotTrigSlot {
+  float rot[3] = {0.0F, 0.0F, 0.0F};
+  bool valid = false;
+  RotTrig t{};
+};
+inline std::vector<RotTrigSlot> rotTrigSlots;
+inline const RotTrig& rotTrigCached(int slot, const float* rotDeg) {
+  if (slot >= (int)rotTrigSlots.size()) rotTrigSlots.resize((size_t)slot + 1);
+  RotTrigSlot& e = rotTrigSlots[(size_t)slot];
+  if (!e.valid || e.rot[0] != rotDeg[0] || e.rot[1] != rotDeg[1] ||
+      e.rot[2] != rotDeg[2]) {
+    e.t = rotTrigOf(rotDeg);
+    for (int k = 0; k < 3; ++k) e.rot[k] = rotDeg[k];
+    e.valid = true;
+  }
+  return e.t;
+}
+
 /** rotated() with the trigonometry already done. The three stages run in the
  * same order on the same operands as below, so this is BIT-IDENTICAL to
  * rotated() and not merely equivalent - which is what lets a caller swap to
@@ -4806,13 +4829,40 @@ struct RbContact {
   RbV n;          // pushes a away from b
   RbV p;          // world point
   float depth;
+};
+
+// A contact as the sequential-impulse passes see it. Built per frame from
+// RbContact in island order (see the solve), so the small record above is
+// all that collection writes.
+struct RbSolveContact {
+  short a;        // RbStep index
+  short b;        // RbStep index when that body can move this frame, else -1
+  short bAny;     // the partner's RbStep index, asleep or not (-1 the world)
+  RbV n;
+  float depth;
   float vnPred;   // normal velocity at creation (predicted motion)
   float bounceTarget;
+  float posTarget;  // split-impulse target, fixed once the velocities are
   float mu;
-  float kn;
+  float invKn;    // 1 / effective mass along n
   float jn, jp;
-  RbV ft;         // accumulated friction impulse
+  float f1, f2;   // accumulated friction impulse along t1, t2
   RbV ra, rb;
+  // Per-contact constants of the solve: ra x n and invIw (ra x n) (the
+  // angular response to a unit normal impulse), and the same for the two
+  // fixed friction tangents with their inverse effective masses - so a pass
+  // does no matrix products, divisions or square roots of its own.
+  RbV raXn, rbXn, aN, bN;
+  RbV t1, t2, aT1, aT2, bT1, bT2;
+  float invKt1, invKt2;
+};
+
+// A body as the sequential-impulse passes see it: the fields they touch,
+// packed. RbStep is ~800 bytes (hull corners).
+struct RbSolveBody {
+  RbV v, w, vp, wp;
+  float invMass;
+  float invIw[9];
 };
 
 struct RbCand {
@@ -4882,8 +4932,145 @@ inline int rbInsideHull(const float* lp, int np, RbV l, float* depth) {
   return best;
 }
 
-inline constexpr int PHYS_ITERATIONS = 6;        // velocity passes per frame
-inline constexpr int PHYS_POS_ITERATIONS = 3;    // split-impulse passes
+// Box against box: the face patch, not the corners. Two boxes stacked square
+// put each one's corners exactly on the other's side planes, where the
+// corner-in-hull test (d <= 0 is outside) keeps some corners and drops
+// others by rounding; the lopsided manifold tipped a six-crate tower and
+// flattened a 4-3-2-1 pyramid while awake (PCSX2, old and new solver alike).
+// SAT over the 15 axes picks the normal; when a FACE axis wins, the incident
+// face is clipped to the reference face's rectangle (Sutherland-Hodgman) and
+// each surviving vertex is a contact. An edge-edge axis, a separated pair or
+// a degenerate box returns 0 and the caller keeps its corner contacts. `n`
+// points from b to a (pushes a away from b), like every body contact.
+inline int rbBoxBoxManifold(const Tyra::CollisionObb& a,
+                            const Tyra::CollisionObb& b, RbCand* out) {
+  const Tyra::CollisionObb* box[2] = {&a, &b};
+  RbV unit[2][3];
+  float half[2][3];
+  for (int s = 0; s < 2; ++s)
+    for (int k = 0; k < 3; ++k) {
+      const float l2 = rbDot(box[s]->halfAxes[k], box[s]->halfAxes[k]);
+      if (!(l2 > 1e-12F)) return 0;
+      half[s][k] = sqrtf(l2);
+      unit[s][k] = rbMul(box[s]->halfAxes[k], 1.0F / half[s][k]);
+    }
+  const RbV d = rbSub(a.centre, b.centre);
+  float best = 1e30F;
+  RbV normal = rbV(0.0F, 1.0F, 0.0F);
+  bool faceWins = false;
+  auto axis = [&](RbV L, bool face) {
+    const float l2 = rbDot(L, L);
+    if (l2 < 1e-10F) return true;  // parallel edges: no new axis
+    L = rbMul(L, 1.0F / sqrtf(l2));
+    float ra = 0.0F, rb = 0.0F;
+    for (int k = 0; k < 3; ++k) {
+      ra += half[0][k] * fabsf(rbDot(unit[0][k], L));
+      rb += half[1][k] * fabsf(rbDot(unit[1][k], L));
+    }
+    const float dist = rbDot(d, L);
+    const float overlap = ra + rb - fabsf(dist);
+    if (overlap < 0.0F) return false;
+    // An edge axis has to beat the best face clearly: near-ties between a
+    // face and an edge are rounding, and the face gives the stable patch.
+    const float score = face ? overlap : overlap * 1.05F + 1e-4F;
+    if (score < best) {
+      best = score;
+      normal = dist < 0.0F ? rbMul(L, -1.0F) : L;
+      faceWins = face;
+    }
+    return true;
+  };
+  for (int s = 0; s < 2; ++s)
+    for (int k = 0; k < 3; ++k)
+      if (!axis(unit[s][k], true)) return 0;
+  for (int i = 0; i < 3; ++i)
+    for (int j = 0; j < 3; ++j)
+      if (!axis(rbCross(unit[0][i], unit[1][j]), false)) return 0;
+  if (!faceWins) return 0;
+
+  // Reference face: the face most aligned with the normal, on either box.
+  int reference = 0, face = 0;
+  float align = -1.0F;
+  for (int s = 0; s < 2; ++s)
+    for (int k = 0; k < 3; ++k) {
+      const float al = fabsf(rbDot(unit[s][k], normal));
+      if (al > align) align = al, reference = s, face = k;
+    }
+  // `normal` pushes a away from b: a's touching face looks along -normal.
+  const RbV outward = reference == 0 ? rbMul(normal, -1.0F) : normal;
+  const int incident = 1 - reference;
+  const float sign = rbDot(unit[reference][face], outward) >= 0.0F ? 1.0F : -1.0F;
+  const RbV ref = rbAdd(box[reference]->centre,
+                        rbMul(box[reference]->halfAxes[face], sign));
+  int incFace = 0;
+  float incAlign = -1.0F;
+  for (int k = 0; k < 3; ++k) {
+    const float al = fabsf(rbDot(unit[incident][k], outward));
+    if (al > incAlign) incAlign = al, incFace = k;
+  }
+  const float incSign = rbDot(unit[incident][incFace], outward) >= 0.0F ? -1.0F : 1.0F;
+  const RbV centre = rbAdd(box[incident]->centre,
+                           rbMul(box[incident]->halfAxes[incFace], incSign));
+  const RbV u = box[incident]->halfAxes[(incFace + 1) % 3];
+  const RbV v = box[incident]->halfAxes[(incFace + 2) % 3];
+  RbV poly[2][16];
+  poly[0][0] = rbSub(rbSub(centre, u), v);
+  poly[0][1] = rbSub(rbAdd(centre, u), v);
+  poly[0][2] = rbAdd(rbAdd(centre, u), v);
+  poly[0][3] = rbAdd(rbSub(centre, u), v);
+  int count = 4, src = 0;
+  for (int t = 1; t <= 2; ++t) {
+    const int ax = (face + t) % 3;
+    for (int side = -1; side <= 1; side += 2) {
+      const RbV plane = rbMul(unit[reference][ax], (float)side);
+      const float limit = half[reference][ax];
+      int next = 0;
+      for (int k = 0; k < count; ++k) {
+        const RbV p = poly[src][k], q = poly[src][(k + 1) % count];
+        const float dp = limit - rbDot(plane, rbSub(p, ref));
+        const float dq = limit - rbDot(plane, rbSub(q, ref));
+        if (dp >= 0.0F) {
+          if (next >= 16) return 0;
+          poly[1 - src][next++] = p;
+        }
+        if ((dp >= 0.0F) != (dq >= 0.0F)) {
+          if (next >= 16) return 0;
+          poly[1 - src][next++] = rbAdd(p, rbMul(rbSub(q, p), dp / (dp - dq)));
+        }
+      }
+      count = next;
+      src = 1 - src;
+      if (!count) return 0;
+    }
+  }
+  int m = 0;
+  for (int k = 0; k < count; ++k) {
+    const RbV p = poly[src][k];
+    const float depth = rbDot(outward, rbSub(ref, p));
+    if (!(depth >= 0.0F)) continue;
+    // Midway between the incident point and the reference plane, so both
+    // bodies take the impulse at one shared point.
+    out[m].n = normal;
+    out[m].p = rbAdd(p, rbMul(outward, 0.5F * depth));
+    out[m].depth = depth;
+    ++m;
+  }
+  return m;
+}
+
+inline constexpr int PHYS_ITERATIONS = 4;        // velocity passes per frame
+inline constexpr int PHYS_POS_ITERATIONS = 2;    // split-impulse passes
+// Warm starting: a contact found again at the same point of the same pair
+// starts from this fraction of last frame's impulses (docs/physics.md).
+inline constexpr float PHYS_WARM_FACTOR = 0.85F;
+
+// One remembered contact impulse, for the next frame's warm start.
+struct RbWarm {
+  int b;          // partner object index, -1 the world
+  RbV local;      // contact point in the body's frame (offset from its COM)
+  float jn;
+  RbV ft;
+};
 inline constexpr int PHYS_MAX_CONTACTS = 384;  // reserve hint, never a contact cap
 inline constexpr float PHYS_SLOP = 0.005F;       // units of allowed overlap
 inline constexpr float PHYS_BAUMGARTE = 0.5F;    // fraction of overlap fixed per frame

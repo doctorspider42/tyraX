@@ -37,7 +37,16 @@ answers it in a glance.
 Today the same scene reads 87 eligible, 65 batched, 22 solo. **The counter
 totals those 22; the panel names them** — on this scene all 22 are singleton
 groups, and a further 24 shapes never became eligible at all (18 marked *Show
-in reflections*, 6 physics bodies).
+in reflections*, 6 physics bodies - physics bodies batch while they sleep
+since 2.1.2, see below).
+
+**Physics bodies batch while they sleep** (2.1.2). A body is eligible like
+any other shape; the first frame the solver moves it, the physics write-back
+takes it out of every batch it is in (and marks those batches for a rebuild)
+before promoting it to the matrix path. The promotion never sets `dirty`, so
+without that step the batch would keep drawing the body where it slept. A
+body never rejoins a batch after waking. 75 sleeping crates drawn as their
+own bags cost ~2.8 ms on a physical PS2 (docs/physics.md).
 
 *Show in reflections* no longer keeps an object solo (1.175.5). The flag is
 part of the group key instead, so a reflected object batches only with other
@@ -123,7 +132,6 @@ Build-time (`staticBatchEligible` in `templates.cpp` — these decide the
 | --- | --- |
 | not a batchable shape | only Box, Sphere, Cylinder, Cone, Plane and Model carry mergeable geometry |
 | invisible wall | `collision: invisible` emits no geometry at all |
-| physics body | repositioned every frame while it moves |
 | usable | the USE highlight re-submits the body itself |
 | pickable | carried and thrown, so it moves |
 | save state | a loaded save repositions it |

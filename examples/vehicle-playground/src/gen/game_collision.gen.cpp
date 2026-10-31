@@ -115,10 +115,22 @@ static bool broadPhaseSegmentHits(const float* a, const float* d,
 
 void TerrainGame::broadPhaseBoxOf(const RuntimeObject& o, Tyra::BroadBox& box) const {
   const CollisionBox cb = objectCollisionBox(o);
-  const V3 ax = boxRotate({1.0F, 0.0F, 0.0F}, o.data);
-  const V3 ay = boxRotate({0.0F, 1.0F, 0.0F}, o.data);
-  const V3 az = boxRotate({0.0F, 0.0F, 1.0F}, o.data);
-  const V3 c = boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+  // boxRotate() four times, with each piece of trigonometry done once (the
+  // same operations in the same order, so the same box to the bit).
+  const RotTrig& t = rotTrigCached((int)(&o - runtimeObjects.data()), o.data.rotation);
+  float yc = 1.0F, ys = 0.0F;
+  if (o.data.modelYaw != 0.0F) {
+    const float a = o.data.modelYaw * (PI / 180.0F);
+    yc = cosf(a), ys = sinf(a);
+  }
+  auto boxRot = [&](V3 p) {
+    if (o.data.modelYaw != 0.0F) p = {p.x * yc + p.z * ys, p.y, -p.x * ys + p.z * yc};
+    return rotatedBy(p, t);
+  };
+  const V3 ax = boxRot({1.0F, 0.0F, 0.0F});
+  const V3 ay = boxRot({0.0F, 1.0F, 0.0F});
+  const V3 az = boxRot({0.0F, 0.0F, 1.0F});
+  const V3 c = boxRot({cb.center[0], cb.center[1], cb.center[2]});
   const float cw[3] = {o.data.position[0] + c.x, o.data.position[1] + c.y,
                        o.data.position[2] + c.z};
   float h[3] = {
@@ -2423,9 +2435,10 @@ bool TerrainGame::physFastPathEligible(int index) const {
 void TerrainGame::updateObjMat(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   M4x4& m = objectGeometry[index].objMat;
-  const V3 bx = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
-  const V3 by = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
-  const V3 bz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
+  const RotTrig& t = rotTrigCached(index, o.data.rotation);
+  const V3 bx = rotatedBy({1.0F, 0.0F, 0.0F}, t);
+  const V3 by = rotatedBy({0.0F, 1.0F, 0.0F}, t);
+  const V3 bz = rotatedBy({0.0F, 0.0F, 1.0F}, t);
   m.identity();
   m.data[0] = bx.x, m.data[1] = bx.y, m.data[2] = bx.z;
   m.data[4] = by.x, m.data[5] = by.y, m.data[6] = by.z;

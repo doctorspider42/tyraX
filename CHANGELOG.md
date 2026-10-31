@@ -11,6 +11,9 @@ under it as that release's notes, and the release's own page carries the date.
 ## 2.1.2
 
 - Physics avoids unnecessary collision tests with spatial body filtering, cached static-world queries and shared SAT/CCD projections. Mesh collision uses a baked 3D BVH, with runtime fallback for older resources. Dense contacts and vehicle pushes no longer silently stop at fixed global limits. Physical PS2 comparisons show gains in dense scenes; this does not guarantee 60 FPS for large piles. Rebuild games to use the updated runtime.
+- Physics bodies placed at rest start asleep, so a scene no longer runs at 30 FPS for the first seconds after loading. Sleeping bodies join static batches until they first move.
+- Stacked boxes stay standing: box-on-box contacts use the clipped face patch instead of corners. The solver warm-starts from the previous frame's impulses with 4 + 2 passes, friction runs along two fixed tangents, and passes run island by island.
+- Moving bodies no longer recompute their rotation's sines and cosines for every use. New physics bodies sleep after 1 s of rest (was 3 s); existing ones keep their value.
 
 ## 2.1.1
 

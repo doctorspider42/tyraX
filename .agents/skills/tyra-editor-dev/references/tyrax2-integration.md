@@ -720,7 +720,8 @@ is a SCALE change, because scale is baked into the local vertices. Worth 16 →
 **Physics bodies are rigid bodies** (docs/physics.md): `updateObjectPhysics`
 predicts the pose, collects corner contacts (terrain, `objectCollisionBox` boxes
 WITH rotation, collision meshes per corner ray, hull vs hull) and solves them
-with sequential impulses + a split impulse. Three rules for anything that
+with sequential impulses + a split impulse, run island by island (same result
+as whole-list sweeps, cache-resident). Three rules for anything that
 touches a body. The truth for orientation is `TerrainGame::physBodies` (a
 quaternion per physics object), re-derived from `data.rotation` whenever
 something ELSE wrote position/rotation/spin - so external writers need nothing,

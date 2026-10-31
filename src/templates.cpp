@@ -8882,7 +8882,8 @@ static bool staticBatchEligible(const SceneObject& o,
         o.type == PrimitiveType::Cylinder || o.type == PrimitiveType::Cone ||
         o.type == PrimitiveType::Plane || o.type == PrimitiveType::Model;
     if (!shape || o.collisionMode == 3) return false;
-    if (o.physics) return false;      // moves every frame while falling
+    // Physics bodies batch while they sleep: the first frame the solver
+    // moves one takes it out of its batch (docs/static-batching.md).
     if (o.usable) return false;       // highlight defers/re-submits the body
     if (o.pickable) return false;     // carried/thrown - moves at runtime
     if (o.saveState) return false;    // a loaded save repositions it

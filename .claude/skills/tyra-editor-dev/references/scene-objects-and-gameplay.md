@@ -41,7 +41,7 @@ Host single source for `PrimitiveType::Scroller`: belt axis, segment length, pat
 
 ## Physics (docs/physics.md)
 
-- Rigid bodies: `updateObjectPhysics` predicts the pose, collects corner contacts (terrain, `objectCollisionBox` boxes WITH rotation, collision meshes per corner ray, hull vs hull) and solves with sequential impulses + split impulse.
+- Rigid bodies: `updateObjectPhysics` predicts the pose, collects corner contacts (terrain, `objectCollisionBox` boxes WITH rotation, collision meshes per corner ray, hull vs hull; box vs box = clipped face patch `rbBoxBoxManifold`) and solves with warm-started sequential impulses (4 passes, two fixed friction tangents) + split impulse (2), island by island. Bodies resting on flat terrain start asleep (checked once per body per scene). Price on a PS2: asleep ~free, awake ~90 us/body/frame (docs/physics.md).
   - Orientation truth = `TerrainGame::physBodies` (quaternion per physics object), re-derived from `data.rotation` whenever something ELSE wrote position/rotation/spin; code inside the solver must update `PhysBody::lastPos/lastRot/lastSpin` when it writes, or its write reads as external next frame. `spin[3]` is world angular velocity in deg/frame.
   - A shove with a point of application goes through `physPushAt` (player walk-into, car bumper), never a bare velocity add (no spin -> no tipping). A car's bumper push divides EVERY component by mass, hop included (an unscaled hop tipped a 60-mass dumpster).
   - `physBodies` may reallocate while slots are handed out: `updateObjectPhysics` takes every slot BEFORE holding a reference.
