@@ -711,7 +711,26 @@ bool StaPipBakedStreams::reserve(u32 qwords) {
   return true;
 }
 
-StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
+// Modified by TyraX: the fold beginBakedBag uses for key.contentVersion,
+// over explicit stamp values (StaPipBagPatch).
+static inline u32 foldContentStamps(const u32 s[4]) {
+  return s[0] * 0x9E3779B1U + s[1] * 0x85EBCA6BU + s[2] * 0xC2B2AE35U +
+         s[3] * 0x27D4EB2FU;
+}
+
+void StaPipBakedStreams::retireArena(std::unique_ptr<u8[]> raw, qword_t* arena,
+                                     u32 qw) {
+  Vif1Queue::retireImmutableSpan(arena);
+  usedQwords -= qw < usedQwords ? qw : usedQwords;
+#if TYRA_STAPIP_BAKED_POISON
+  Vif1Queue::unregisterImmutableSpan(arena);
+  if (arena != nullptr && qw > 0) memset(arena, 0xDE, qw * 16);
+#endif
+  if (raw) graveyard[graveyardWrite].push_back({std::move(raw), arena});
+}
+
+StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key,
+                                              const StaPipBagPatch* patch) {
   const u32 bucket = getBucket(key.vertices, key.maxVertCount);
   // Modified by TyraX: a SECOND PASS over one vertex array gets its own entry,
   // up to kVariantsPerArray of them.
@@ -793,6 +812,44 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
           return nullptr;  // not baked this frame; the retained route draws it
         }
         if (payloadMoved) item.lastRebuildFrame = frameNow;
+        // Modified by TyraX: patch rebake. The owner promised which vertices
+        // changed between the state this entry holds and the one asked for;
+        // take it only when this entry holds EXACTLY that FROM state, the
+        // request is EXACTLY the TO state, and nothing else in the key moved.
+        if (payloadMoved && patch != nullptr && patch->dirty != nullptr &&
+            item.complete && item.arena != nullptr &&
+            patch->count == key.count && item.count == key.count &&
+            item.packages == key.packages && item.sts == key.sts &&
+            item.colors == key.colors && item.normals == key.normals &&
+            item.program == key.program && item.programAddr == key.programAddr &&
+            item.primKey == key.primKey && item.singleColor == key.singleColor &&
+            item.stripped == key.stripped &&
+            item.depthScaleBits == key.depthScaleBits &&
+            item.bboxVersion == patch->fromBBox &&
+            item.contentVersion == foldContentStamps(patch->fromStamps) &&
+            key.bboxVersion == patch->toBBox &&
+            key.contentVersion == foldContentStamps(patch->toStamps)
+#if TYRA_STAPIP_BAKED_ANY_VERIFY
+            && !verifying(&item)
+#endif
+        ) {
+          item.patchOffsets.assign(item.offsets.get(),
+                                   item.offsets.get() + item.packages);
+          item.patchSizes.assign(item.sizes.get(), item.sizes.get() + item.packages);
+          item.patchRaw = std::move(item.raw);
+          item.patchArena = item.arena;
+          item.patchQw = item.arenaQw;
+          item.arena = nullptr;
+          item.arenaQw = 0;
+          item.serial = ++serialNext;  // the arena moves, as in a rebuild
+          item.bboxVersion = key.bboxVersion;
+          item.contentVersion = key.contentVersion;
+          item.built = 0;
+          item.complete = 0;
+          item.patching = 1;
+          ++patches;
+          return &item;
+        }
       }
       // Something the stream encodes moved. Throw the arena away and
       // rebuild; the entry (and therefore any pointer the caller is holding)
@@ -2583,7 +2640,11 @@ bool StaPipQBufferRenderer::beginBakedBag(StaPipBag* bag,
   key.stripped = bag->stripped ? 1 : 0;
   key.packages = static_cast<u16>((bag->count + packageSize - 1) / packageSize);
 
-  bakedCurrent = baked.acquire(key);
+  bakedCurrent = baked.acquire(key, bag->patch);
+  // Modified by TyraX: a patch rebake acquire accepted is finished here, before
+  // anything can replay or rebuild the entry (StaPipBagPatch).
+  if (bakedCurrent != nullptr && bakedCurrent->patching)
+    patchBakedBag(bag, packageSize);
 #if TYRA_STAPIP_BAKED_ANY_VERIFY
   // Rewind a COMPLETE entry so the ordinary writers rebuild every block into
   // bakeScratch this frame; `complete` and the arena are left alone, and
@@ -2636,6 +2697,130 @@ bool StaPipQBufferRenderer::preparePartialBakedBag(StaPipBag* bag, u32 size) {
   endBakedBag();
   bakedCurrent = entry;
   return entry->complete;
+}
+
+// Modified by TyraX: patch rebake (StaPipBagPatch). The same writers as
+// preparePartialBakedBag, for the packages holding a dirty vertex only; every
+// other block is copied out of the old arena, which is still allocated - it
+// leaves for the graveyard (never free()) once the copy is done, because a
+// packet of an earlier frame may still name it.
+bool StaPipQBufferRenderer::patchBakedBag(StaPipBag* bag, u32 size) {
+  StaPipBakedEntry* entry = bakedCurrent;
+  const StaPipBagPatch* patch = bag->patch;
+  entry->patching = 0;
+  bool ok = patch != nullptr && patch->dirty != nullptr &&
+            entry->patchArena != nullptr && size == entry->maxVertCount &&
+            entry->patchOffsets.size() == entry->packages;
+  if (ok && !partialBakePacket)
+    partialBakePacket = packet2_create(64, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  StaPipVU1Program* program = ok ? getCullProgramByBag(bag) : nullptr;
+  ok = ok && partialBakePacket != nullptr && program != nullptr;
+  bakeScratch.clear();
+  patchFromScratch.assign(entry->packages, 0);
+  u32 rebuilt = 0;
+  if (ok) {
+    StaPipQBuffer buffer;
+    buffer.setMaxVertCount(size);
+    const prim_t savedPrim = *prim;
+    for (u32 i = 0, offset = 0; ok && i < entry->packages; ++i, offset += size) {
+      const u32 n = std::min(size, bag->count - offset);
+      bool dirty = false;
+      for (u32 k = 0; k < n && !dirty; ++k) dirty = patch->dirty[offset + k] != 0;
+      if (!dirty) continue;
+      packet2_reset(partialBakePacket, false);
+      buffer.fillByPointer(bag, offset, n);
+      program->addBufferDataToPacket(partialBakePacket, &buffer, prim, i == 0);
+      if (i == 0)
+        packet2_utils_vu_add_start_program(partialBakePacket,
+                                           program->getDestinationAddress());
+      else
+        packet2_utils_vu_add_continue_program(partialBakePacket);
+      ok = bakeBlock(partialBakePacket, 0, packet2_get_qw_count(partialBakePacket),
+                     entry, i);
+      patchFromScratch[i] = 1;
+      ++rebuilt;
+    }
+    *prim = savedPrim;
+  }
+  u32 total = 0;
+  for (u32 i = 0; ok && i < entry->packages; ++i)
+    total += patchFromScratch[i] ? entry->sizes[i] : entry->patchSizes[i];
+  ok = ok && total > 0 && baked.reserve(total);
+  if (ok) {
+    entry->raw = std::unique_ptr<u8[]>(new u8[total * 16 + 15]);
+    const u32 aligned = (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
+    entry->arena = reinterpret_cast<qword_t*>(aligned);
+    u32 at = 0;
+    for (u32 i = 0; i < entry->packages; ++i) {
+      const bool fresh = patchFromScratch[i] != 0;
+      const qword_t* src = fresh ? bakeScratch.data() + entry->offsets[i]
+                                 : entry->patchArena + entry->patchOffsets[i];
+      const u32 qw = fresh ? entry->sizes[i] : entry->patchSizes[i];
+      memcpy(entry->arena + at, src, qw * 16);
+      entry->offsets[i] = at;
+      entry->sizes[i] = static_cast<u16>(qw);
+      at += qw;
+    }
+    entry->arenaQw = total;
+    Vif1Queue::registerImmutableSpan(entry->arena, total);
+    entry->built = entry->packages;
+    entry->complete = 1;
+    baked.patchBuilt += rebuilt;
+    baked.patchCopied += entry->packages - rebuilt;
+#if TYRA_STAPIP_PATCH_VERIFY
+    {
+      static u32 checked = 0, failed = 0;
+      std::vector<u32> offs(entry->packages), sizes(entry->packages);
+      bakeScratch.clear();
+      StaPipQBuffer buffer;
+      buffer.setMaxVertCount(size);
+      const prim_t savedPrim = *prim;
+      bool built = true;
+      StaPipBakedEntry probe;
+      probe.offsets = std::unique_ptr<u32[]>(new u32[entry->packages]);
+      probe.sizes = std::unique_ptr<u16[]>(new u16[entry->packages]);
+      for (u32 i = 0, offset = 0; built && i < entry->packages; ++i, offset += size) {
+        packet2_reset(partialBakePacket, false);
+        buffer.fillByPointer(bag, offset, std::min(size, bag->count - offset));
+        program->addBufferDataToPacket(partialBakePacket, &buffer, prim, i == 0);
+        if (i == 0)
+          packet2_utils_vu_add_start_program(partialBakePacket,
+                                             program->getDestinationAddress());
+        else
+          packet2_utils_vu_add_continue_program(partialBakePacket);
+        built = bakeBlock(partialBakePacket, 0,
+                          packet2_get_qw_count(partialBakePacket), &probe, i);
+      }
+      *prim = savedPrim;
+      ++checked;
+      bool same = built && bakeScratch.size() == total &&
+                  memcmp(bakeScratch.data(), entry->arena, total * 16) == 0;
+      if (!same) ++failed;
+      u32 firstDiff = 0;
+      if (!same && built && bakeScratch.size() == total) {
+        const u32* a = reinterpret_cast<const u32*>(entry->arena);
+        const u32* b = reinterpret_cast<const u32*>(bakeScratch.data());
+        while (firstDiff < total * 4 && a[firstDiff] == b[firstDiff]) ++firstDiff;
+      }
+      TYRA_LOG("PATCHVERIFY checked=", checked, " failed=", failed,
+               same ? " ok" : " MISMATCH", " packages=", entry->packages,
+               " rebuilt=", rebuilt, " qw=", total, " freshQw=",
+               static_cast<u32>(bakeScratch.size()), " firstDiffQw=", firstDiff / 4);
+      bakeScratch.clear();
+    }
+#endif
+  } else {
+    // The ordinary rebuild takes over: an empty entry, as after a miss.
+    entry->built = 0;
+    entry->complete = 0;
+  }
+  baked.retireArena(std::move(entry->patchRaw), entry->patchArena, entry->patchQw);
+  entry->patchArena = nullptr;
+  entry->patchQw = 0;
+  entry->patchOffsets.clear();
+  entry->patchSizes.clear();
+  bakeScratch.clear();
+  return ok;
 }
 
 bool StaPipQBufferRenderer::replayPartialBakedBuffer(packet2_t* packet,

@@ -145,6 +145,17 @@
 #error "TYRA_STAPIP_BAKED_VERIFY and TYRA_STAPIP_BAKED_SAMPLE_VERIFY are two arms of one check; enable exactly one."
 #endif
 /** Either arm compiles the comparison in. */
+/** Modified by TyraX: the patch-rebake gate (StaPipBagPatch). 1 = after every
+ * patch rebake, bake the WHOLE bag again with the ordinary writers and compare
+ * it with the patched arena word for word; PATCHVERIFY logs the running
+ * totals and every mismatch. A mismatch means a promise the owner made was
+ * wrong (a vertex changed outside its dirty map) or the copy is - either way
+ * the patched block would be replayed. Diagnostic only: it costs the whole
+ * rebuild the patch exists to avoid. */
+#ifndef TYRA_STAPIP_PATCH_VERIFY
+#define TYRA_STAPIP_PATCH_VERIFY 0
+#endif
+
 #define TYRA_STAPIP_BAKED_ANY_VERIFY \
   (TYRA_STAPIP_BAKED_VERIFY || TYRA_STAPIP_BAKED_SAMPLE_VERIFY)
 // POISON overwrites an evicted arena with a recognisable pattern IMMEDIATELY,
@@ -413,6 +424,17 @@ struct StaPipBakedEntry {
   qword_t* arena;
   u32 arenaQw;
 
+  /** Modified by TyraX: patch rebake (StaPipBagPatch). Set by `acquire` when
+   * a patch was accepted: the old arena and its layout, kept alive until
+   * `patchBakedBag` has copied the clean blocks out of it and handed it to
+   * the graveyard. Never survives the `beginBakedBag` call that set it. */
+  u8 patching = 0;
+  std::unique_ptr<u8[]> patchRaw;
+  qword_t* patchArena = nullptr;
+  u32 patchQw = 0;
+  std::vector<u32> patchOffsets;
+  std::vector<u16> patchSizes;
+
   int framesLeftToDestroy;
   int nextInBucket;
 };
@@ -471,10 +493,17 @@ class StaPipBakedStreams {
   void onFrameEnd();
   void clear();
 
-  StaPipBakedEntry* acquire(const StaPipBakedEntry& key);
+  StaPipBakedEntry* acquire(const StaPipBakedEntry& key,
+                            const StaPipBagPatch* patch = nullptr);
   /** Charge the budget for a finished arena. False means it does not fit even
    * after eviction, and the caller abandons the bake for now. */
   bool reserve(u32 qwords);
+  /** Modified by TyraX: `retire` for an arena already detached from its
+   * entry (the old arena of a patch rebake). */
+  void retireArena(std::unique_ptr<u8[]> raw, qword_t* arena, u32 qw);
+  /** Modified by TyraX: patch rebakes taken / packages they re-baked /
+   * packages they copied, since the last take. */
+  u32 patches = 0, patchBuilt = 0, patchCopied = 0;
 
   u32 getBytes() const { return usedQwords * 16; }
   u32 takeHits() { const u32 v = hits; hits = 0; return v; }
@@ -1264,6 +1293,11 @@ class StaPipQBufferRenderer {
   void finishPartialReplay();
   packet2_t* partialBakePacket = nullptr;
   bool preparePartialBakedBag(StaPipBag* bag, u32 packageSize);
+  /** Modified by TyraX: finish a patch rebake `acquire` accepted - re-bake the
+   * packages holding a dirty vertex, copy the rest from the old arena. False
+   * leaves the entry empty for the ordinary rebuild. */
+  bool patchBakedBag(StaPipBag* bag, u32 packageSize);
+  std::vector<u8> patchFromScratch;
 #if TYRA_STAPIP_PREPARED_STATIC
   bool preparingStatic = false;
 #endif

@@ -21,6 +21,38 @@
 
 namespace Tyra {
 
+class StaPipBag;
+
+/**
+ * Modified by TyraX: an owner's statement about ONE change of a bag's
+ * contents, read by the baked-stream cache (StaPipBakedStreams, "patch
+ * rebake", docs/baked-vif-stream.md).
+ *
+ * "Between the state keyed (fromBBox, fromStamps) and the state keyed
+ * (toBBox, toStamps), only the vertices whose `dirty` byte is non-zero
+ * changed - in any stream." A baked entry still holding exactly the FROM
+ * state is then rebuilt by re-baking only the packages that hold a dirty
+ * vertex and copying every other block from its old arena, instead of
+ * re-running the packet writers over the whole bag. Anything that moved
+ * beyond the promise - a different stamp, another bbox bump, a resized or
+ * re-pointed stream - fails the comparison and the bag is rebuilt whole, as
+ * before; a stale patch is therefore harmless.
+ *
+ * Stamps are in the order vertices, colours, texture coordinates, normals:
+ * the values behind the four `contentVersion` pointers, 0 where a stream has
+ * none (`stampsOf`).
+ */
+struct StaPipBagPatch {
+  u32 fromBBox = 0, toBBox = 0;
+  u32 fromStamps[4] = {0, 0, 0, 0};
+  u32 toStamps[4] = {0, 0, 0, 0};
+  /** One byte per vertex of the bag; non-zero = changed. */
+  const u8* dirty = nullptr;
+  u32 count = 0;
+  /** The bag's current four stamps, in the order above. */
+  static void stampsOf(const StaPipBag* bag, u32 out[4]);
+};
+
 /**
  * @brief 3D Render data bag.
  * Supports frustum culling, full plane clipping, lighting,
@@ -166,6 +198,9 @@ class StaPipBag {
    * them, call releaseImmutableStreams() - the destructor does too. It waits
    * for every DMA reader, so it belongs to rebuilds, not to every frame. */
   bool immutableStreams;
+
+  /** Modified by TyraX: optional, owner-held - see StaPipBagPatch. */
+  const StaPipBagPatch* patch;
   void registerImmutableStreams();
   void releaseImmutableStreams();
   bool immutableRegistered;

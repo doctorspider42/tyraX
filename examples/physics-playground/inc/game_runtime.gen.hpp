@@ -4808,6 +4808,16 @@ inline std::vector<VehDentPending> vehDentQueue;
 inline u32 vehDentFrame = ~0u;
 inline int vehDentBudget = 0;
 inline u32 vehCaptureFrame = ~0u;
+// Per car part: the patch a dent or a collapsed piece hands the part's bags
+// (Tyra::StaPipBagPatch), so the renderer re-bakes only the packages the
+// vertex rewrite touched - a dent reaches 16-25 of a body's ~47 packages.
+// Owned through unique_ptr because the bags hold pointers into it.
+struct VehPartPatch {
+  Tyra::StaPipBagPatch body, env;
+  std::vector<u8> dirty;
+  u32 frame = ~0u;
+};
+inline std::vector<std::vector<std::unique_ptr<VehPartPatch>>> vehPartPatches;
 
 inline std::vector<unsigned> rbRevisions;
 inline unsigned rbRevisionGeneration=~0u;

@@ -321,13 +321,19 @@ undamaged body (4.2-4.4 ms per car), then each dent rewrote its vertices
   `floorf` calls per vertex in the jitter hash (the same values), and the
   scuff set in the same loop with one square root per moved vertex.
 
-Still open, and the larger part of a crash: every rewrite of a body's
-vertices makes the renderer rebuild that body's baked VU1 command streams
-whole, ~10-11 ms for a 5 800-vertex body in the next draw - also the price of
-a level-of-detail swap and of switching a car's shine on, which is why closing
-in on a parked car costs a frame or two before the hit. A rebuild of only the
-packages a dent touched would remove most of it; it is an engine change in
-`StaPipBakedStreams` and is not done.
+- **The renderer re-bakes only what a dent touched.** A dent or a collapsed
+  piece hands the part's bags a `Tyra::StaPipBagPatch` (which vertices moved,
+  and the bag states before and after), and the baked-stream cache rebuilds
+  only the packages holding one of them - 16-25 of a body's ~47 - copying the
+  rest. A dented body's next draw costs ~2 ms instead of ~7-11 ms
+  (docs/baked-vif-stream.md, "Patch rebake").
+
+Still open: the first bakes of a car the camera closes in on - its full
+level-of-detail tier (~6 ms) and, a frame later, its shine (~7 ms, twice,
+because the paint pass changes with the view) - land right before the hit, so
+the frames around a crash into a parked car still drop. Deferring a first bake
+until its payload holds still was measured and made it worse (the retained
+route is not cheaper for a bag new to both caches).
 
 ## Effects and display
 

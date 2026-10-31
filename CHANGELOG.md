@@ -14,7 +14,7 @@ under it as that release's notes, and the release's own page carries the date.
 - Physics bodies placed at rest start asleep, so a scene no longer runs at 30 FPS for the first seconds after loading. Sleeping bodies join static batches until they first move.
 - Stacked boxes stay standing: box-on-box contacts use the clipped face patch instead of corners. The solver warm-starts from the previous frame's impulses with 4 + 2 passes, friction runs along two fixed tangents, and passes run island by island.
 - Moving bodies no longer recompute their rotation's sines and cosines for every use. New physics bodies sleep after 1 s of rest (was 3 s); existing ones keep their value.
-- A hard car-on-car crash costs much less in the frame of the hit (16.7 ms of damage work on a PS2 is now 6.4 ms): the undamaged body is captured before the first hit, two cars dent in consecutive frames, and the dent pass is cheaper.
+- A hard car-on-car crash costs much less in the frame of the hit (16.7 ms of damage work on a PS2 is now 6.4 ms): the undamaged body is captured before the first hit, two cars dent in consecutive frames, and the dent pass is cheaper. The renderer then re-bakes only the parts of a body a dent touched (~2 ms instead of ~7-11 ms per dented car).
 
 ## 2.1.1
 

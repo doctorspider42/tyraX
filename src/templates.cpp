@@ -14229,6 +14229,52 @@ static float vehDentHash(float x, float y, float z) {
   return (float)(h & 0xFFFFu) / 65535.0F;
 }
 
+// The patch side of a vertex rewrite of a car part (VehPartPatch). Begin
+// before the part's vertices change: the first rewrite of a frame records the
+// bags' state as the renderer last baked it and clears the dirty map; later
+// ones in the same frame (the other car's hit, a collapsed piece) add to it.
+// End after the bbox stamp moved: records the new state and hands both bags
+// the patch. Only tier 0 is ever bound while a dent lands (the dent bumps the
+// bags only then), and a patch that no longer matches is simply ignored.
+template <class Part>
+static u8* vehPatchBegin(int vi, int pi, Part& part, size_t n) {
+  if (part.shownLod != 0 || !part.bag) return nullptr;
+  if ((int)vehPartPatches.size() <= vi) vehPartPatches.resize((size_t)vi + 1);
+  auto& parts = vehPartPatches[(size_t)vi];
+  if ((int)parts.size() <= pi) parts.resize((size_t)pi + 1);
+  if (!parts[(size_t)pi]) parts[(size_t)pi].reset(new VehPartPatch());
+  VehPartPatch& pp = *parts[(size_t)pi];
+  if (pp.frame != g_frameStamp || pp.dirty.size() != n) {
+    pp.frame = g_frameStamp;
+    pp.dirty.assign(n, 0);
+    pp.body.fromBBox = part.bag->bboxVersion;
+    Tyra::StaPipBagPatch::stampsOf(&*part.bag, pp.body.fromStamps);
+    if (part.envBag) {
+      pp.env.fromBBox = part.envBag->bboxVersion;
+      Tyra::StaPipBagPatch::stampsOf(&*part.envBag, pp.env.fromStamps);
+    }
+  }
+  return pp.dirty.data();
+}
+template <class Part>
+static void vehPatchEnd(int vi, int pi, Part& part) {
+  if (part.shownLod != 0 || !part.bag || (int)vehPartPatches.size() <= vi ||
+      (int)vehPartPatches[(size_t)vi].size() <= pi ||
+      !vehPartPatches[(size_t)vi][(size_t)pi])
+    return;
+  VehPartPatch& pp = *vehPartPatches[(size_t)vi][(size_t)pi];
+  if (pp.frame != g_frameStamp) return;
+  auto finish = [&](Tyra::StaPipBagPatch& p, Tyra::StaPipBag& bag) {
+    p.toBBox = bag.bboxVersion;
+    Tyra::StaPipBagPatch::stampsOf(&bag, p.toStamps);
+    p.dirty = pp.dirty.data();
+    p.count = (u32)pp.dirty.size();
+    bag.patch = &p;
+  };
+  finish(pp.body, *part.bag);
+  if (part.envBag) finish(pp.env, *part.envBag);
+}
+
 // Captures (or re-captures, after a rebuild) the undamaged pose of a car's
 // body and puts every recorded dent back on it. False while the body is not
 // on the matrix path yet: its vertices are then in WORLD space and a local
@@ -14343,8 +14389,10 @@ void TerrainGame::vehiclePiecesCollapse(int vi) {
       moved = q.x != at.x || q.y != at.y || q.z != at.z;
     }
     if (!moved) continue;
+    u8* D = vehPatchBegin(vi, pc.part, part, part.vertices.size());
     auto P = part.vertices.span((size_t)pc.first, (size_t)pc.count);
     for (int k = 1; k < pc.count; ++k) P[(size_t)k] = at;
+    if (D) for (int k = 1; k < pc.count; ++k) D[(size_t)(pc.first + k)] = 1;
     part.baseStamp = ++g_bboxStamp;
     if (vi < (int)vehDamageGeo_.size() && (size_t)pc.part < vehDamageGeo_[vi].stamp.size())
       vehDamageGeo_[vi].stamp[(size_t)pc.part] = part.baseStamp;
@@ -14352,6 +14400,7 @@ void TerrainGame::vehiclePiecesCollapse(int vi) {
       part.bag->bboxVersion = part.baseStamp;
       if (part.envBag) part.envBag->bboxVersion = part.baseStamp;
     }
+    vehPatchEnd(vi, pc.part, part);
   }
 }
 
@@ -14527,6 +14576,7 @@ int TerrainGame::vehicleDentApply(int vi, const float* dent) {
     if (first == n) continue;
     const bool scuff = (int)pi != s.lampPart && (int)pi != s.glassPart &&
                        !part.translucent && dg.restCol[pi].size() == n;
+    u8* D = vehPatchBegin(vi, (int)pi, part, n);
     auto P = part.vertices.span(0, n);
     // The scuff is a function of the final offset alone, so it is set where
     // the offset is - a vertex outside this sphere keeps the colour its own
@@ -14560,6 +14610,7 @@ int TerrainGame::vehicleDentApply(int vi, const float* dent) {
       p.y = ry + oy;
       p.z = rz + oz;
       ++moved;
+      if (D) D[k] = 1;
       if (C && a > 0.0F) {
         const float f = 1.0F - 0.4F * a;
         const u32 rc = RC[k];
@@ -14576,6 +14627,7 @@ int TerrainGame::vehicleDentApply(int vi, const float* dent) {
       part.bag->bboxVersion = part.baseStamp;
       if (part.envBag) part.envBag->bboxVersion = part.baseStamp;
     }
+    vehPatchEnd(vi, (int)pi, part);
   }
   return moved;
 }

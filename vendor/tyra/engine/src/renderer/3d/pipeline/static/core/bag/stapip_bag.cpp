@@ -27,12 +27,22 @@ StaPipBag::StaPipBag() {
   stripped = false;  // Modified by TyraX: triangle list unless told otherwise
   refineStrips = false;  // Generated terrain opts in for all coplanar passes.
   immutableStreams = false;  // Modified by TyraX: see the header
+  patch = nullptr;  // Modified by TyraX: see StaPipBagPatch
   immutableRegistered = false;
   stampSlot = -1;  // Modified by TyraX: see StaPipBag::stampSlot
   for (auto& s : immutableSpans) s = nullptr;
 }
 
 StaPipBag::~StaPipBag() { releaseImmutableStreams(); }
+
+// Modified by TyraX: see StaPipBagPatch.
+void StaPipBagPatch::stampsOf(const StaPipBag* bag, u32 out[4]) {
+  const auto at = [](const u32* p) { return p != nullptr ? *p : 0u; };
+  out[0] = at(bag->contentVersion);
+  out[1] = bag->color != nullptr ? at(bag->color->contentVersion) : 0u;
+  out[2] = bag->texture != nullptr ? at(bag->texture->contentVersion) : 0u;
+  out[3] = bag->lighting != nullptr ? at(bag->lighting->contentVersion) : 0u;
+}
 
 // Modified by TyraX: one span per stream, each exactly count quadwords. A
 // stream another bag already registered (coplanar passes share vertices) or a

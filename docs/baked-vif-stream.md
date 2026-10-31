@@ -493,6 +493,51 @@ Two consequences, both implemented:
   for VIF1 before every one of its ~120 submissions a frame — but that count is
   a property of the scene, not of this class, so the second frame is the margin.
 
+## Patch rebake: a bag that changed in a few places (2.1.2)
+
+A car dent rewrites a few hundred vertices of a ~3 400-vertex body, and the
+key (`bboxVersion`, the content stamps) then threw the whole arena away: on a
+physical PS2 the next draw of that body cost ~7-11 ms of EE (the packet
+writers plus the transcode plus the copy, for every package), against ~1.4 ms
+for the replay. A dent touches 16-25 of the body's 46-49 packages, spread over
+the whole index range, so a contiguous dirty range would not have helped; a
+per-vertex map does.
+
+`StaPipBagPatch` is the owner's promise about ONE change: "between the state
+keyed (fromBBox, fromStamps) and the state keyed (toBBox, toStamps), only the
+vertices marked in `dirty` changed". `StaPipBag::patch` points at it.
+`StaPipBakedStreams::acquire` takes it only when the entry is complete and
+holds EXACTLY the FROM state, the request is EXACTLY the TO state, and nothing
+else in the key moved (streams, program, prim state, package count, depth
+scale); then `patchBakedBag` re-bakes the packages holding a dirty vertex with
+the ordinary writers (the `preparePartialBakedBag` loop) and copies every other
+block from the old arena into a new one. The old arena is NEVER patched in
+place - it is live DMA memory a frame snapshot may still borrow - and leaves
+through `retireArena`, the same graveyard as `retire`. Anything outside the
+promise fails the comparison and the bag rebuilds whole, so a stale patch is
+harmless.
+
+`TYRA_STAPIP_PATCH_VERIFY` 1 bakes the WHOLE bag again after every patch and
+compares it with the patched arena word for word (`PATCHVERIFY`). On a physical
+PS2, ten patches in a car-on-car crash (bodies of 46 and 49 packages, 16-25
+re-baked; three small parts): ten exact matches. With the gate off, a dented
+Ravager's next draw costs ~2.0-2.3 ms instead of ~7-11.
+
+The generated vehicle runtime is the one owner today (`vehPatchBegin` /
+`vehPatchEnd` around `vehicleDentApply` and `vehiclePiecesCollapse`):
+the first rewrite of a frame records the bags' FROM state, later ones in the
+same frame add to the dirty map, and the TO state is recorded after the bbox
+stamp moved.
+
+**Measured dead end - deferring the first bake.** Baking a new entry only on
+its second sighting with an unchanged payload (the retained route meanwhile)
+was meant to save the two whole bakes a freshly switched-on paint pass pays
+before the churn damping sees it move twice. On the console it was WORSE: the
+car cost 9.4 / 9.5 / 7.8 ms in the three frames instead of 7.5 / 7.2 / 0.5,
+because the retained route builds its own blocks under the same `bboxVersion`
+key and is not cheaper than a bake for a bag that is new to both caches.
+Reverted.
+
 ## Scope of the spike
 
 Only the **direct, wholly-visible cull route**: the branch in
