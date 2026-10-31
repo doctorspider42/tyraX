@@ -297,6 +297,38 @@ repaired. The HUD shows damage when relevant.
 
 ![Vehicle damage controls](img/vehicle-damage-dents.png)
 
+### What a crash costs
+
+Measured on a physical PS2 (2.1.2): a Ravager driven at ~18 m/s into a parked
+Strix V12 (5 800-vertex bodies), devkit off, per-frame probes.
+
+| | before | 2.1.2 |
+|---|---:|---:|
+| damage update in the frame of the hit | 16.7 ms | 6.4 ms |
+| that frame | 66.7 ms | 50 ms |
+
+Where the old 16.7 ms went: the first hit on each car copied its whole
+undamaged body (4.2-4.4 ms per car), then each dent rewrote its vertices
+(2.4 and 4.1 ms), both cars in the same frame. Now:
+
+- **The rest pose is taken ahead of the hit**, while a car is within 30 units
+  of the camera, one car a frame, so the hit itself finds it ready.
+- **One car's dent geometry per frame.** Two cars hitting each other dent in
+  consecutive frames. The hit's velocities, damage, loose pieces and the
+  recorded dent happen at once; only the vertex rewrite waits a frame, and a
+  rebuild that re-applies the recorded dents drops the queued copy.
+- **The dent pass is one pass**: an inline floor instead of three software
+  `floorf` calls per vertex in the jitter hash (the same values), and the
+  scuff set in the same loop with one square root per moved vertex.
+
+Still open, and the larger part of a crash: every rewrite of a body's
+vertices makes the renderer rebuild that body's baked VU1 command streams
+whole, ~10-11 ms for a 5 800-vertex body in the next draw - also the price of
+a level-of-detail swap and of switching a car's shine on, which is why closing
+in on a parked car costs a frame or two before the hit. A rebuild of only the
+packages a dent touched would remove most of it; it is an engine change in
+`StaPipBakedStreams` and is not done.
+
 ## Effects and display
 
 Headlights project pools onto the ground; lamp glow follows the authored lamp

@@ -4794,6 +4794,21 @@ inline void rbWorldInvI(const float* R, const float* s, float* out) {
 
 // Side state stays in the regenerated runtime: owned terrain_game.hpp files
 // keep their PhysBody layout and do not need a new member for cache invalidation.
+// Vehicle damage, side state (an owned terrain_game.hpp keeps its layout):
+// the dents waiting for their frame, and the per-frame budgets. A dent's
+// geometry costs its own rewrite plus a re-bake of the car's whole body in
+// the next draw (~11 ms for a 5 800-vertex body on a physical PS2), so two
+// cars denting each other in one frame used to pay both at once.
+struct VehDentPending {
+  int vi;
+  unsigned generation;
+  float dent[7];
+};
+inline std::vector<VehDentPending> vehDentQueue;
+inline u32 vehDentFrame = ~0u;
+inline int vehDentBudget = 0;
+inline u32 vehCaptureFrame = ~0u;
+
 inline std::vector<unsigned> rbRevisions;
 inline unsigned rbRevisionGeneration=~0u;
 inline unsigned& rbRevisionFor(int index,unsigned generation,int count) {

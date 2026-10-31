@@ -1547,9 +1547,15 @@ static float vehShiftDownFrac(const VehicleDefData& s) {
 // rebuilt ONCE, and from the next frame the car is a matrix-path body again.
 // The per-frame bill is a velocity difference per car.
 // ---------------------------------------------------------------------------
+// floorf is a software routine on the EE; for the centimetre grid below
+// (|x| far under 2^23) truncation corrected by one is the same floor exactly.
+static inline int vehFloorI(float x) {
+  const int i = (int)x;
+  return (float)i > x ? i - 1 : i;
+}
 static float vehDentHash(float x, float y, float z) {
-  const int ix = (int)floorf(x * 100.0F), iy = (int)floorf(y * 100.0F),
-            iz = (int)floorf(z * 100.0F);
+  const int ix = vehFloorI(x * 100.0F), iy = vehFloorI(y * 100.0F),
+            iz = vehFloorI(z * 100.0F);
   unsigned int h = (unsigned int)ix * 73856093u ^ (unsigned int)iy * 19349663u ^
                    (unsigned int)iz * 83492791u;
   h ^= h >> 13;
@@ -1586,40 +1592,41 @@ bool TerrainGame::vehicleDamageCapture(int vi) {
     dg.stamp[pi] = part.baseStamp;
     dg.rest[pi].resize(n * 3);
     float* pb = &dg.partBox[pi * 6];
+    if (n == 0) continue;
+    // Local pointers and running bounds: a store through dg.rest[pi][...]
+    // may alias dg's own floats, so the indexed form reloaded the vector and
+    // both boxes for every vertex - 4.2-4.4 ms per car on a physical PS2, in
+    // the frame of the first hit.
+    const Tyra::Vec4* src = part.vertices.data();
+    float* dst = dg.rest[pi].data();
+    float x0 = src[0].x, y0 = src[0].y, z0 = src[0].z;
+    float x1 = x0, y1 = y0, z1 = z0;
     for (size_t k = 0; k < n; ++k) {
-      const Tyra::Vec4& q = part.vertices[k];
-      if (k == 0) pb[0] = pb[3] = q.x, pb[1] = pb[4] = q.y, pb[2] = pb[5] = q.z;
-      if (q.x < pb[0]) pb[0] = q.x;
-      if (q.y < pb[1]) pb[1] = q.y;
-      if (q.z < pb[2]) pb[2] = q.z;
-      if (q.x > pb[3]) pb[3] = q.x;
-      if (q.y > pb[4]) pb[4] = q.y;
-      if (q.z > pb[5]) pb[5] = q.z;
-      dg.rest[pi][k * 3 + 0] = q.x;
-      dg.rest[pi][k * 3 + 1] = q.y;
-      dg.rest[pi][k * 3 + 2] = q.z;
-      if (!any) {
-        dg.bmin[0] = dg.bmax[0] = q.x;
-        dg.bmin[1] = dg.bmax[1] = q.y;
-        dg.bmin[2] = dg.bmax[2] = q.z;
-        any = true;
-      }
-      if (q.x < dg.bmin[0]) dg.bmin[0] = q.x;
-      if (q.y < dg.bmin[1]) dg.bmin[1] = q.y;
-      if (q.z < dg.bmin[2]) dg.bmin[2] = q.z;
-      if (q.x > dg.bmax[0]) dg.bmax[0] = q.x;
-      if (q.y > dg.bmax[1]) dg.bmax[1] = q.y;
-      if (q.z > dg.bmax[2]) dg.bmax[2] = q.z;
+      const float x = src[k].x, y = src[k].y, z = src[k].z;
+      dst[k * 3 + 0] = x;
+      dst[k * 3 + 1] = y;
+      dst[k * 3 + 2] = z;
+      x0 = x < x0 ? x : x0, y0 = y < y0 ? y : y0, z0 = z < z0 ? z : z0;
+      x1 = x > x1 ? x : x1, y1 = y > y1 ? y : y1, z1 = z > z1 ? z : z1;
+    }
+    pb[0] = x0, pb[1] = y0, pb[2] = z0, pb[3] = x1, pb[4] = y1, pb[5] = z1;
+    if (!any) {
+      for (int a = 0; a < 3; ++a) dg.bmin[a] = pb[a], dg.bmax[a] = pb[3 + a];
+      any = true;
+    }
+    for (int a = 0; a < 3; ++a) {
+      if (pb[a] < dg.bmin[a]) dg.bmin[a] = pb[a];
+      if (pb[3 + a] > dg.bmax[a]) dg.bmax[a] = pb[3 + a];
     }
     if (part.colors.size() == n) {
       dg.restCol[pi].resize(n);
-      for (size_t k = 0; k < n; ++k) {
-        const Tyra::Color& c = part.colors[k];
-        const auto b = [](float f) {
-          return (u32)(f < 0.0F ? 0.0F : (f > 255.0F ? 255.0F : f));
-        };
-        dg.restCol[pi][k] = b(c.r) | (b(c.g) << 8) | (b(c.b) << 16) | (b(c.a) << 24);
-      }
+      const Tyra::Color* cs = part.colors.data();
+      u32* cd = dg.restCol[pi].data();
+      const auto b = [](float f) {
+        return (u32)(f < 0.0F ? 0.0F : (f > 255.0F ? 255.0F : f));
+      };
+      for (size_t k = 0; k < n; ++k)
+        cd[k] = b(cs[k].r) | (b(cs[k].g) << 8) | (b(cs[k].b) << 16) | (b(cs[k].a) << 24);
     }
   }
   dg.ready = any ? 1 : 0;
@@ -1642,6 +1649,10 @@ bool TerrainGame::vehicleDamageCapture(int vi) {
     dg.pieceBox.insert(dg.pieceBox.end(), b, b + 6);
   }
   for (int d = 0; d < v.dentCount; ++d) vehicleDentApply(vi, v.dents[d]);
+  // Every recorded dent is on the body now, the queued ones included.
+  for (size_t q = 0; q < vehDentQueue.size();)
+    if (vehDentQueue[q].vi == vi) vehDentQueue.erase(vehDentQueue.begin() + (long)q);
+    else ++q;
   vehiclePiecesCollapse(vi);
   return true;
 }
@@ -1852,8 +1863,16 @@ int TerrainGame::vehicleDentApply(int vi, const float* dent) {
     const bool scuff = (int)pi != s.lampPart && (int)pi != s.glassPart &&
                        !part.translucent && dg.restCol[pi].size() == n;
     auto P = part.vertices.span(0, n);
+    // The scuff is a function of the final offset alone, so it is set where
+    // the offset is - a vertex outside this sphere keeps the colour its own
+    // dent gave it (the old second pass recomputed the same value for every
+    // vertex from `first` on, with a square root each).
+    Tyra::Color* C = scuff ? &part.colors.span(0, n)[0] : nullptr;
+    const float* R = rest.data();
+    const u32* RC = scuff ? dg.restCol[pi].data() : nullptr;
+    const float md2 = md * md, inv = 1.0F / md;
     for (size_t k = first; k < n; ++k) {
-      const float rx = rest[k * 3], ry = rest[k * 3 + 1], rz = rest[k * 3 + 2];
+      const float rx = R[k * 3], ry = R[k * 3 + 1], rz = R[k * 3 + 2];
       const float ex = rx - dent[0], ey = ry - dent[1], ez = rz - dent[2];
       const float d2 = ex * ex + ey * ey + ez * ez;
       if (d2 >= r2) continue;
@@ -1864,25 +1883,21 @@ int TerrainGame::vehicleDentApply(int vi, const float* dent) {
       float ox = p.x - rx - dent[3] * push;
       float oy = p.y - ry - 0.25F * push;
       float oz = p.z - rz - dent[4] * push;
-      const float ol = sqrtf(ox * ox + oy * oy + oz * oz);
-      if (ol > md) {
-        const float f = md / ol;
+      const float ol2 = ox * ox + oy * oy + oz * oz;
+      float a = 1.0F;  // |offset| / md, after the clamp
+      if (ol2 > md2) {
+        const float f = md / sqrtf(ol2);
         ox *= f, oy *= f, oz *= f;
+      } else if (C) {
+        a = sqrtf(ol2) * inv;
       }
       p.x = rx + ox;
       p.y = ry + oy;
       p.z = rz + oz;
       ++moved;
-    }
-    if (scuff) {
-      auto C = part.colors.span(0, n);
-      for (size_t k = first; k < n; ++k) {
-        const float dx = P[k].x - rest[k * 3], dy = P[k].y - rest[k * 3 + 1],
-                    dz = P[k].z - rest[k * 3 + 2];
-        const float a = sqrtf(dx * dx + dy * dy + dz * dz) / md;
-        if (a <= 0.0F) continue;
-        const float f = 1.0F - 0.4F * (a > 1.0F ? 1.0F : a);
-        const u32 rc = dg.restCol[pi][k];
+      if (C && a > 0.0F) {
+        const float f = 1.0F - 0.4F * a;
+        const u32 rc = RC[k];
         C[k].r = (float)(rc & 255u) * f;
         C[k].g = (float)((rc >> 8) & 255u) * f;
         C[k].b = (float)((rc >> 16) & 255u) * f;
@@ -2477,6 +2492,24 @@ void TerrainGame::renderVehicleLampGlow() {
 
 void TerrainGame::updateVehicleDamage(float dt) {
   const float kDeg = 3.14159265F / 180.0F;
+  // ONE car's dent geometry a frame (docs/vehicles.md, "What a crash costs"):
+  // two cars hitting each other dent in consecutive frames, so their body
+  // re-bakes land in two frames instead of one. The hit itself - velocities,
+  // damage, pieces, the recorded dent - is never delayed.
+  if (vehDentFrame != g_frameStamp) {
+    vehDentFrame = g_frameStamp;
+    vehDentBudget = 1;
+  }
+  for (size_t q = 0; q < vehDentQueue.size() && vehDentBudget > 0;) {
+    const VehDentPending pd = vehDentQueue[q];
+    vehDentQueue.erase(vehDentQueue.begin() + (long)q);
+    if (pd.generation != sceneGeneration || pd.vi >= vehicleCount_ ||
+        !vehicles_[pd.vi].active || !vehicleDamageCapture(pd.vi))
+      continue;
+    --vehDentBudget;
+    vehicleDentApply(pd.vi, pd.dent);
+    vehiclePiecesCollapse(pd.vi);
+  }
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
@@ -2487,6 +2520,17 @@ void TerrainGame::updateVehicleDamage(float dt) {
     const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
     // A rebuild may have baked the dents away - put them back.
     if (s.damageVisual > 0.5F && v.dentCount > 0) vehicleDamageCapture(vi);
+    // The first capture copies the whole body (~1 ms for 5 800 vertices on
+    // a PS2): take it while the car is merely near the camera, one car a
+    // frame, rather than in the frame of its first hit.
+    if (s.damageVisual > 0.5F && vehCaptureFrame != g_frameStamp &&
+        vi < (int)vehDamageGeo_.size() && !vehDamageGeo_[vi].ready) {
+      const float cdx = v.pos[0] - cameraPosition.x, cdz = v.pos[2] - cameraPosition.z;
+      if (cdx * cdx + cdz * cdz < 30.0F * 30.0F) {
+        vehCaptureFrame = g_frameStamp;
+        vehicleDamageCapture(vi);
+      }
+    }
 
     // --- the hit ---------------------------------------------------------
     const float nvx = v.speed * sy + v.lateral * cy;
@@ -2579,7 +2623,18 @@ void TerrainGame::updateVehicleDamage(float dt) {
         // Timed with the EE counter, because "a hit costs one rewrite" is
         // the claim this design rests on (294.912 ticks per microsecond).
         const u32 t0 = profTicks();
-        const int moved = have ? vehicleDentApply(vi, dent) : 0;
+        int moved = 0;
+        if (have && vehDentBudget > 0) {
+          --vehDentBudget;
+          moved = vehicleDentApply(vi, dent);
+        } else if (have) {
+          VehDentPending pd;
+          pd.vi = vi;
+          pd.generation = sceneGeneration;
+          for (int a = 0; a < 7; ++a) pd.dent[a] = dent[a];
+          vehDentQueue.push_back(pd);
+          moved = -1;  // next frame
+        }
         // Loose pieces: every piece of this car the hit reaches from its own
         // side soaks it up; one past its limit comes off (vehiclesim::
         // pieceTakesHit - change one, change both).
