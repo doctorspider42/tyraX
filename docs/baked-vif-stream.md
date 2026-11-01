@@ -519,6 +519,23 @@ car-on-car crash, 0 mismatches. A car's shine re-shade, a whole bake every
 few frames before (~2.3 ms for a 2 025-vertex body), is ~1 ms.
 `TYRA_STAPIP_PAYLOAD_REFRESH` 0 is the A/B control.
 
+### The refresh streak
+
+The churn rule sent a payload that moved twice within `kChurnGapFrames` to
+the retained route. That suits a bag rewritten every frame, and it does not
+suit a car crash: the body moves two or three times in consecutive frames
+(the dent, the broken lamps, the re-shaded paint) and then holds still. On a
+physical PS2 the crashed cars' bodies, shine passes and glass then drew
+through the retained route for five frames, 4-6.6 ms a frame, where a copy
+costs 1-3.5 ms. A payload refresh is now allowed for the first
+`kRefreshStreak` (3) moves in a row however close together; only the next
+rapid one starts the churn. `StaPipBakedEntry::moveStreak` counts them and
+starts over at 1 once a move comes more than `kChurnGapFrames` after the
+last. Measured with the always-refresh arm first (missed frames after the
+hit 5 -> 2-3), then with the streak in the crash fixture (docs/vehicles.md,
+"A hard hit, frame by frame"): the bags that churn after the hit went back
+from 10-12 to the 4-6 that churn while driving (the per-frame effects).
+
 **`StaPipCore::prebakeBag(bag)`** bakes a bag's stream now, without drawing
 it: the prim state and package size `render()` would use (fog and
 `setInfo`, `getMaxVertCountByBag`), `beginBakedBag` in its partial mode, which

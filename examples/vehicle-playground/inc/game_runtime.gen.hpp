@@ -4803,7 +4803,103 @@ struct VehDentPending {
   int vi;
   unsigned generation;
   float dent[7];
+  // The hit's loose pieces wait with its dent, so the body changes in ONE
+  // frame: pieces now and the dent next frame moved the same baked streams
+  // two frames running (docs/vehicles.md, "What a crash costs").
+  float nx, nz, over;
 };
+// CRASH LOG, LATER (docs/vehicles.md, "What a crash costs"): one VEHDMG line
+// per hit car, printed half a second after the hit. A debug build's log line
+// over ps2link costs ~0.6 ms of the frame it is written in, and a hard hit
+// used to write eight of them (one per lost window or panel) into the
+// heaviest frame of all. Release builds compile the logging out.
+struct VehLogLine {
+  u32 due;
+  char text[200];
+};
+// THE PAINT MAP (renderEnvPass): vertex k's slot among the DISTINCT normals
+// of the array the env bag reads. A body is a triangle list, so one normal
+// sits on many vertices and the paint colour is a pure function of it.
+inline void paintMapBuildInto(std::vector<unsigned short>& map,
+                              std::vector<Tyra::Vec4>& normals,
+                              const Tyra::Vec4* nrm, u32 n) {
+  normals.clear();
+  map.assign(n, 0);
+  u32 cap = 64;
+  while (cap < n * 2U) cap <<= 1;
+  std::vector<int> table(cap, -1);
+  bool overflow = false;
+  for (u32 k = 0; k < n && !overflow; ++k) {
+    u32 bits[3];
+    memcpy(bits, &nrm[k], sizeof(bits));
+    u32 h = (bits[0] * 0x9E3779B1U) ^ (bits[1] * 0x85EBCA6BU) ^
+            (bits[2] * 0xC2B2AE35U);
+    for (u32 slot = h & (cap - 1);; slot = (slot + 1) & (cap - 1)) {
+      const int e = table[slot];
+      if (e < 0) {
+        if (normals.size() >= 65535U) { overflow = true; break; }
+        table[slot] = (int)normals.size();
+        map[k] = (unsigned short)normals.size();
+        normals.push_back(nrm[k]);
+        break;
+      }
+      u32 other[3];
+      memcpy(other, &normals[(size_t)e], sizeof(other));
+      if (other[0] == bits[0] && other[1] == bits[1] && other[2] == bits[2]) {
+        map[k] = (unsigned short)e;
+        break;
+      }
+    }
+  }
+  if (overflow) {  // too many to index in 16 bits: one slot per vertex
+    normals.assign(nrm, nrm + n);
+    map.clear();
+  }
+  TYRA_LOG("VEHPAINT normals ", (int)n, " distinct ", (int)normals.size());
+}
+// Make the part's CURRENT map the one for (nrm, n): the spare slot is taken
+// when it already holds it (a tier swap the prebake saw coming), and the two
+// trade places - a car crossing its swap distance back and forth rebuilds
+// nothing. A rebuild goes into the current slot and leaves the spare alone.
+template <class Part>
+inline void paintMapEnsure(Part& part, const Tyra::Vec4* nrm, u32 n) {
+  if (part.paintMapSrc == nrm && part.paintMapCount == n) return;
+  if (part.paintMapSrc2 == nrm && part.paintMapCount2 == n) {
+    part.paintMap.swap(part.paintMap2);
+    part.paintNormals.swap(part.paintNormals2);
+    std::swap(part.paintMapSrc, part.paintMapSrc2);
+    std::swap(part.paintMapCount, part.paintMapCount2);
+    return;
+  }
+  paintMapBuildInto(part.paintMap, part.paintNormals, nrm, n);
+  part.paintMapSrc = nrm;
+  part.paintMapCount = n;
+}
+// Have the map for (nrm, n) ready in either slot without touching the
+// current one - the vehicle prebake, a few frames before the swap.
+template <class Part>
+inline void paintMapPrepare(Part& part, const Tyra::Vec4* nrm, u32 n) {
+  if ((part.paintMapSrc == nrm && part.paintMapCount == n) ||
+      (part.paintMapSrc2 == nrm && part.paintMapCount2 == n))
+    return;
+  paintMapBuildInto(part.paintMap2, part.paintNormals2, nrm, n);
+  part.paintMapSrc2 = nrm;
+  part.paintMapCount2 = n;
+}
+inline int vehPaintPrepNext = 0;  // the car stepVehicles prepares a map for next
+inline VehLogLine vehLogQueue[4];
+inline int vehLogN = 0;
+inline int vehHitLost[2] = {0, 0};  // this hit's shattered windows, lost panels
+inline void vehLogLater(const char* text) {
+#ifndef NDEBUG
+  if (vehLogN >= 4) return;
+  VehLogLine& l = vehLogQueue[vehLogN++];
+  l.due = g_frameStamp + 30u;
+  snprintf(l.text, sizeof(l.text), "%s", text);
+#else
+  (void)text;
+#endif
+}
 inline std::vector<VehDentPending> vehDentQueue;
 inline u32 vehDentFrame = ~0u;
 inline int vehDentBudget = 0;

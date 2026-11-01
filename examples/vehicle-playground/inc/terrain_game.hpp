@@ -333,6 +333,14 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Vec4> paintNormals;
     const void* paintMapSrc = nullptr;
     u32 paintMapCount = 0;
+    // A spare map (paintMapEnsure / paintMapPrepare): the car's prebake
+    // builds its full-detail tier's map here ahead of the swap, while the far
+    // tier's map stays current; the swap then just trades the two (it used to
+    // rebuild ~3 400 normals, 1.7 ms on a PS2, a few frames before a crash).
+    std::vector<unsigned short> paintMap2;
+    std::vector<Tyra::Vec4> paintNormals2;
+    const void* paintMapSrc2 = nullptr;
+    u32 paintMapCount2 = 0;
     // The additive twin of the pass above: same atlas, same STs, WHITE vertex
     // colors, so it sees the baked emissive light in the texture's RGB.
     BagArray<Tyra::Color> emisCols;
@@ -1248,18 +1256,42 @@ class TerrainGame : public Tyra::Game {
       if (VEHICLE_PIECES[r].def == def) return r;
     return -1;
   }
-  // DEBRIS: a lost panel, flying and then lying on the ground. World-space
-  // triangle lists merged per texture into one bag each - one submit per
-  // texture for every piece in flight or at rest, rebuilt only while
-  // something moves (the wheel batch's shape).
+  // DEBRIS: a lost panel, flying and then lying on the ground. A FLYING piece
+  // is its own bag: its mesh is written once, around its centroid, when it
+  // comes off, and drawn with its pose as the model matrix - a tumbling piece
+  // never rewrites a vertex, so its baked stream replays. A piece AT REST
+  // joins its texture's world-space batch, one submit for every piece lying
+  // there, rebuilt only when a piece lands, is kicked or goes. (One merged
+  // world-space batch rewritten every frame while anything flew re-staged
+  // all of it: 1.2 ms a frame on a PS2, 3.3 ms in the frame of the hit.)
   enum { kVehDebrisMax = 8 };
   struct VehDebris {
     int active = 0;
     int rest = 0;
     Tyra::Texture* tex = nullptr;
-    std::vector<Tyra::Vec4> local;   // list triangles around the centroid
-    std::vector<Tyra::Color> cols;
-    std::vector<Tyra::Vec4> sts;
+    BagArray<Tyra::Vec4> local;   // list triangles around the centroid
+    BagArray<Tyra::Color> cols;
+    BagArray<Tyra::Vec4> sts;
+    // The flying piece's bags; kept across reuse of the slot.
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    Tyra::M4x4 mat;
+    u32 stamp = 0;
+    // A slot is reused in place: its arrays keep their storage and its bags
+    // stay, only the state goes back to a new piece's.
+    void reset() {
+      active = rest = 0;
+      tex = nullptr;
+      local.clear();
+      cols.clear();
+      sts.clear();
+      for (int a = 0; a < 3; ++a) pos[a] = vel[a] = spin[a] = 0.0F;
+      for (int k = 0; k < 9; ++k) rot[k] = (k % 4 == 0) ? 1.0F : 0.0F;
+      thin = 1;
+      low = 0.0F;
+    }
     float pos[3] = {0, 0, 0}, vel[3] = {0, 0, 0};
     // Orientation as a rotation matrix (row-major, applied to `local`) and a
     // world angular velocity, rad/s. A matrix rather than Euler angles

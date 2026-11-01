@@ -346,6 +346,53 @@ front of the camera, the damage smoke and the push keep the frame just over
 and made it worse (the retained route is not cheaper for a bag new to both
 caches).
 
+#### A hard hit, frame by frame
+
+A second round, at 34 m/s into the parked Strix on an open lane, with every
+frame recorded on the console and printed after the run (a log line per frame
+would have been the biggest cost in the window). The debug build lost 4-5
+frames in a row after the hit; now 1, three runs each:
+
+| frame of the hit | before | now |
+|---|---:|---:|
+| game update before the render | 10.7 ms | 4.3 ms |
+| render | 18.5 ms | 13.4 ms |
+| damage work | 8.8 ms | 2.5 ms |
+| render, the 10 frames after | 12.6 ms | 10.4 ms |
+
+Where it went, and what changed:
+
+- **The log lines.** A debug build printed a `VEHDMG` line for every lost
+  window and panel - eight in the frame of the hit, ~0.6 ms each over
+  ps2link. Now one line per hit car, half a second later, with the counts
+  (`lost glass N panels M`). Release builds have no logging at all.
+- **Debris draws through a matrix.** All flying pieces were one world-space
+  batch rewritten every frame: re-staged every frame (1.2 ms a frame while
+  anything flew, 3.3 ms in the frame of the hit). A flying piece is now its
+  own bag - its mesh written once, around its centroid, and its pose the
+  model matrix - so its baked stream replays (0.13 ms a frame). A piece that
+  lands joins its texture's world-space batch, which is rebuilt only when a
+  piece lands, is kicked or goes. Building a piece reserves its arrays up
+  front (2.2 -> 0.9 ms for two panels) and reads the body through a const
+  reference, so taking a panel off no longer stamps the body.
+- **A car's pieces wait with its dent.** Two cars hitting each other dent in
+  consecutive frames (one car's dent geometry a frame, above), but the second
+  car's loose pieces came off at once: its body changed two frames running,
+  and the renderer took both cars' bodies off their baked streams for five
+  frames (4-6.6 ms a frame). The pieces now go with the queued dent.
+- **A short burst of changes is refreshed, not churned**
+  (docs/baked-vif-stream.md, "The refresh streak").
+- **Paint maps are built ahead.** The paint pass maps each vertex to its
+  distinct normal once per array (~3 400 normals, 1.7 ms on a PS2). A car
+  driven straight never re-shades, so its map was built at its first turn -
+  the hit. Cars on their full-detail tier within the shine's reach now get it
+  in stepVehicles, one car a frame, and the prebake builds the full tier's
+  map into a spare slot ahead of the swap.
+
+What remains in the frame of the hit is the dents themselves (~1.1 ms a
+car), copying the two bodies' changed streams (~2-3 ms) and the scene with
+two shining cars right in front of the camera.
+
 - **Skid marks fade in steps.** After a crash the frame kept paying ~1 ms for
   the skid marks while they faded: the fade wrote every live mark's alpha
   every frame, which moved the skid bag's content stamp every frame and

@@ -5013,7 +5013,9 @@ void TerrainGame::vehicleDetachPiece(int vi, int row, const float* dent) {
   v.piecesGone |= 1u << (row - first);
   ObjectGeometry& g = objectGeometry[(size_t)v.object];
   if (pc.part < 0 || pc.part >= (int)g.parts.size()) return;
-  GeoPart& part = g.parts[(size_t)pc.part];
+  // Read through a const reference: a non-const BagArray read stamps the
+  // array, and a stamped body re-stages its baked stream for nothing.
+  const GeoPart& part = g.parts[(size_t)pc.part];
   if ((size_t)(pc.first + pc.count) > part.vertices.size()) return;
   const float kDeg = 3.14159265F / 180.0F;
   const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
@@ -5064,11 +5066,24 @@ void TerrainGame::vehicleDetachPiece(int vi, int row, const float* dent) {
     // sit now, become a debris piece around their centroid.
     VehDebris& d = vehDebris_[vehDebrisNext_];
     vehDebrisNext_ = (vehDebrisNext_ + 1) % kVehDebrisMax;
-    d = VehDebris();
+    if (d.active && d.rest) {  // the slot's old piece leaves its batch
+      for (auto& b : vehDebrisBatches_)
+        if (b->tex == d.tex) b->dirty = 1;
+    }
+    d.reset();
     d.active = 1;
     d.tex = part.texBag ? part.texBag->texture : nullptr;
     const bool strip = part.stripRun != 0;
     const int run = strip ? (int)part.stripRun : 3;
+    // Room for every triangle up front: growing three arrays a vertex at a
+    // time reallocated each of them ~9 times for a bonnet (2.1 ms of the hit
+    // frame on a PS2 for a two-car crash).
+    {
+      const size_t most = (size_t)(strip ? 3 * pc.count : pc.count);
+      d.local.reserve(most);
+      d.cols.reserve(most);
+      d.sts.reserve(most);
+    }
     auto emit = [&](int i0, int i1, int i2) {
       const Tyra::Vec4* q[3] = {&part.vertices[(size_t)i0], &part.vertices[(size_t)i1],
                                 &part.vertices[(size_t)i2]};
@@ -5096,9 +5111,11 @@ void TerrainGame::vehicleDetachPiece(int vi, int row, const float* dent) {
         emit(base, base + 1, base + 2);
     }
     for (int a = 0; a < 3; ++a) d.pos[a] = wc[a];
+    d.stamp = ++g_bboxStamp;  // the mesh never changes again: one box for its life
     {
       float mn[3] = {1e30F, 1e30F, 1e30F}, mx[3] = {-1e30F, -1e30F, -1e30F};
-      for (const Tyra::Vec4& l : d.local) {
+      const BagArray<Tyra::Vec4>& dl = d.local;
+      for (const Tyra::Vec4& l : dl) {
         const float q[3] = {l.x, l.y, l.z};
         for (int a = 0; a < 3; ++a) {
           if (q[a] < mn[a]) mn[a] = q[a];
@@ -5124,20 +5141,18 @@ void TerrainGame::vehicleDetachPiece(int vi, int row, const float* dent) {
     d.spin[0] = cy * 5.5F * flip + 0.6F * (float)(row % 3);
     d.spin[1] = 1.2F - 0.7F * (float)(row % 4);
     d.spin[2] = -sy * 5.5F * flip + (row & 1 ? 0.8F : -0.8F);
-    for (VehDebrisBatch* b = nullptr; !b;) {
-      for (auto& bp : vehDebrisBatches_)
-        if (bp->tex == d.tex) b = bp.get();
-      if (!b) {
-        vehDebrisBatches_.push_back(std::make_unique<VehDebrisBatch>());
-        vehDebrisBatches_.back()->tex = d.tex;
-      } else {
-        b->dirty = 1;
-      }
+    // Its texture's resting batch, for when it lands. A flying piece is not
+    // in it, so the batch is not touched now.
+    bool haveBatch = false;
+    for (auto& bp : vehDebrisBatches_)
+      if (bp->tex == d.tex) haveBatch = true;
+    if (!haveBatch) {
+      vehDebrisBatches_.push_back(std::make_unique<VehDebrisBatch>());
+      vehDebrisBatches_.back()->tex = d.tex;
     }
   }
   vehiclePiecesCollapse(vi);
-  TYRA_LOG("VEHDMG ", vi, " lost ", pc.kind, glass ? " shattered" : " debris",
-           " verts ", pc.count);
+  ++vehHitLost[glass ? 0 : 1];  // reported in the hit's one deferred line
 }
 
 // One dent onto the current vertices, measured from the rest pose. The twin
@@ -5328,7 +5343,10 @@ void TerrainGame::updateVehicleDebris(float dt) {
           d.spin[2] += wnx * 0.4F * cs;
           d.spin[1] += 0.2F * cs;
         }
-        if (d.rest) TYRA_LOG("VEHDMG debris kicked by car ", vi, " spd10 ", (int)(cs * 10.0F));
+        if (d.rest) {
+          TYRA_LOG("VEHDMG debris kicked by car ", vi, " spd10 ", (int)(cs * 10.0F));
+          dirtyTex(d.tex);  // it leaves the resting batch and flies again
+        }
         d.rest = 0;
       }
     }
@@ -5338,6 +5356,19 @@ void TerrainGame::updateVehicleDebris(float dt) {
     for (int a = 0; a < 3; ++a) d.pos[a] += d.vel[a] * dt;
     const float w = sqrtf(d.spin[0] * d.spin[0] + d.spin[1] * d.spin[1] + d.spin[2] * d.spin[2]);
     if (w > 1e-4F) rotate(d.rot, d.spin[0] / w, d.spin[1] / w, d.spin[2] / w, w * dt);
+    // How far below its centroid the piece now reaches (the ground test's
+    // `low`). The world-space batch used to measure it while rewriting the
+    // vertices; a flying piece is drawn through its matrix, so it is taken here.
+    {
+      const BagArray<Tyra::Vec4>& dl = d.local;
+      const float r10 = d.rot[3], r11 = d.rot[4], r12 = d.rot[5];
+      float low = 0.0F;
+      for (size_t k = 0; k < dl.size(); ++k) {
+        const float y = r10 * dl[k].x + r11 * dl[k].y + r12 * dl[k].z;
+        if (-y > low) low = -y;
+      }
+      d.low = low;
+    }
     // WALLS: the frame's collider list (buildVehicleColliders). A collision
     // box turns the piece back out along its nearest face and reflects the
     // motion into it; a mesh prop asks the walker's resolver, rationed.
@@ -5399,14 +5430,50 @@ void TerrainGame::updateVehicleDebris(float dt) {
       if (sp < 0.4F && ang < 0.03F) {
         d.rest = 1;
         for (int a = 0; a < 3; ++a) d.vel[a] = d.spin[a] = 0.0F;
+        dirtyTex(d.tex);  // landed: it joins its texture's resting batch
       }
     }
-    dirtyTex(d.tex);
   }
 }
 
 void TerrainGame::renderVehicleDebris() {
   if (!batchInfoBag) return;
+  // FLYING pieces: their own mesh, their pose as the model matrix (row-major
+  // rot -> the column-major M4x4: column j is where local axis j points).
+  for (VehDebris& d : vehDebris_) {
+    if (!d.active || d.rest || d.local.empty()) continue;
+    if (!d.bag) {
+      d.colorBag = std::make_unique<Tyra::StaPipColorBag>();
+      d.bag = std::make_unique<Tyra::StaPipBag>();
+      d.bag->color = d.colorBag.get();
+      d.bag->lighting = nullptr;
+      d.info = std::make_unique<Tyra::StaPipInfoBag>();
+      *d.info = *vehMovingInfo();
+      d.info->model = &d.mat;
+    }
+    const float* R = d.rot;
+    float* M = d.mat.data;
+    M[0] = R[0], M[1] = R[3], M[2] = R[6], M[3] = 0.0F;
+    M[4] = R[1], M[5] = R[4], M[6] = R[7], M[7] = 0.0F;
+    M[8] = R[2], M[9] = R[5], M[10] = R[8], M[11] = 0.0F;
+    M[12] = d.pos[0], M[13] = d.pos[1], M[14] = d.pos[2], M[15] = 1.0F;
+    d.bag->info = d.info.get();
+    d.cols.bind(d.colorBag);
+    d.local.bind(d.bag);
+    d.bag->stripped = false;
+    d.bag->packageSize = 0;
+    d.bag->bboxVersion = d.stamp;  // object-space box: the mesh never changes
+    if (d.tex) {
+      if (!d.texBag) d.texBag = std::make_unique<Tyra::StaPipTextureBag>();
+      d.texBag->texture = d.tex;
+      d.sts.bind(d.texBag);
+      d.bag->texture = d.texBag.get();
+    } else {
+      d.bag->texture = nullptr;
+    }
+    renderWorldBag(d.bag.get());
+  }
+  // Pieces AT REST, merged per texture in world space.
   for (auto& bp : vehDebrisBatches_) {
     VehDebrisBatch& b = *bp;
     if (b.dirty) {
@@ -5414,23 +5481,19 @@ void TerrainGame::renderVehicleDebris() {
       b.verts.clear();
       b.cols.clear();
       b.sts.clear();
-      for (VehDebris& d : vehDebris_) {
-        if (!d.active || d.tex != b.tex) continue;
+      for (const VehDebris& d : vehDebris_) {
+        if (!d.active || !d.rest || d.tex != b.tex) continue;
         const float* R = d.rot;
         const float r00 = R[0], r01 = R[1], r02 = R[2], r10 = R[3], r11 = R[4], r12 = R[5],
                     r20 = R[6], r21 = R[7], r22 = R[8];
-        float low = 0.0F;
         for (size_t k = 0; k < d.local.size(); ++k) {
           const Tyra::Vec4& l = d.local[k];
-          const float y = r10 * l.x + r11 * l.y + r12 * l.z;
-          if (-y > low) low = -y;
           b.verts.push_back(Tyra::Vec4(d.pos[0] + r00 * l.x + r01 * l.y + r02 * l.z,
-                                       d.pos[1] + y,
+                                       d.pos[1] + r10 * l.x + r11 * l.y + r12 * l.z,
                                        d.pos[2] + r20 * l.x + r21 * l.y + r22 * l.z, 1.0F));
           b.cols.push_back(d.cols[k]);
           b.sts.push_back(d.sts[k]);
         }
-        d.low = low;
       }
       b.stamp = ++g_bboxStamp;
     }
@@ -5823,6 +5886,48 @@ void TerrainGame::updateVehicleDamage(float dt) {
     vehDentFrame = g_frameStamp;
     vehDentBudget = 1;
   }
+  // Loose pieces: every piece of this car the hit reaches from its own side
+  // soaks it up; one past its limit comes off (vehiclesim::pieceTakesHit -
+  // change one, change both). Runs in the frame the dent lands, queued with
+  // it when the dent waits, so a body's streams move in one frame.
+  auto hitPieces = [&](int vi, const float* dent, float nx, float nz, float over) {
+    VehicleRt& v = vehicles_[vi];
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    vehiclePiecesCollapse(vi);
+    const int pr0 = vehiclePieceFirstRow(v.def);
+    const VehDamageGeo& dgp = vehDamageGeo_[vi];
+    for (int r = pr0; r >= 0 && r < VEHICLE_PIECE_COUNT &&
+                      VEHICLE_PIECES[r].def == v.def && r - pr0 < 16;
+         ++r) {
+      const int li = r - pr0;
+      if ((v.piecesGone & (1u << li)) || (size_t)li * 6 + 5 >= dgp.pieceBox.size())
+        continue;
+      const int kind = VEHICLE_PIECES[r].kind;
+      if (s.damageLoose <= 0.0F) break;
+      const bool facing = (kind == 1 || kind == 5)   ? nz > 0.5F
+                          : (kind == 2 || kind == 6) ? nz < -0.5F
+                          : (kind == 3 || kind == 7) ? nx < -0.5F
+                                                     : nx > 0.5F;
+      const float* pb = &dgp.pieceBox[(size_t)li * 6];
+      const float rr = dent[6] * (kind >= 5 && facing ? 1.8F : 1.3F);
+      float d2 = 0.0F;
+      for (int a = 0; a < 3; ++a) {
+        const float c = dent[a] < pb[a] ? pb[a] - dent[a]
+                        : (dent[a] > pb[3 + a] ? dent[a] - pb[3 + a] : 0.0F);
+        d2 += c * c;
+      }
+      if (d2 >= rr * rr) continue;
+      const float push = over * s.damageLoose;
+      bool off = false;
+      if (kind >= 5) {
+        off = push >= 5.0F;
+      } else if (facing) {
+        v.pieceHp[li] += push;
+        off = v.pieceHp[li] >= 18.0F || push >= 12.0F;
+      }
+      if (off) vehicleDetachPiece(vi, r, dent);
+    }
+  };
   for (size_t q = 0; q < vehDentQueue.size() && vehDentBudget > 0;) {
     const VehDentPending pd = vehDentQueue[q];
     vehDentQueue.erase(vehDentQueue.begin() + (long)q);
@@ -5831,8 +5936,16 @@ void TerrainGame::updateVehicleDamage(float dt) {
       continue;
     --vehDentBudget;
     vehicleDentApply(pd.vi, pd.dent);
-    vehiclePiecesCollapse(pd.vi);
+    hitPieces(pd.vi, pd.dent, pd.nx, pd.nz, pd.over);
   }
+#ifndef NDEBUG
+  // One deferred crash line a frame, once it is due (vehLogLater).
+  if (vehLogN > 0 && g_frameStamp >= vehLogQueue[0].due) {
+    TYRA_LOG(vehLogQueue[0].text);
+    for (int i = 1; i < vehLogN; ++i) vehLogQueue[i - 1] = vehLogQueue[i];
+    --vehLogN;
+  }
+#endif
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
@@ -5947,63 +6060,41 @@ void TerrainGame::updateVehicleDamage(float dt) {
         // the claim this design rests on (294.912 ticks per microsecond).
         const u32 t0 = profTicks();
         int moved = 0;
+        vehHitLost[0] = vehHitLost[1] = 0;
         if (have && vehDentBudget > 0) {
           --vehDentBudget;
           moved = vehicleDentApply(vi, dent);
+          hitPieces(vi, dent, nx, nz, over);
         } else if (have) {
+          // Its dent - and so its pieces - wait for a frame with budget.
           VehDentPending pd;
           pd.vi = vi;
           pd.generation = sceneGeneration;
           for (int a = 0; a < 7; ++a) pd.dent[a] = dent[a];
+          pd.nx = nx;
+          pd.nz = nz;
+          pd.over = over;
           vehDentQueue.push_back(pd);
           moved = -1;  // next frame
         }
-        // Loose pieces: every piece of this car the hit reaches from its own
-        // side soaks it up; one past its limit comes off (vehiclesim::
-        // pieceTakesHit - change one, change both).
-        if (have) {
-          vehiclePiecesCollapse(vi);
-          const int pr0 = vehiclePieceFirstRow(v.def);
-          const VehDamageGeo& dgp = vehDamageGeo_[vi];
-          for (int r = pr0; r >= 0 && r < VEHICLE_PIECE_COUNT &&
-                            VEHICLE_PIECES[r].def == v.def && r - pr0 < 16;
-               ++r) {
-            const int li = r - pr0;
-            if ((v.piecesGone & (1u << li)) || (size_t)li * 6 + 5 >= dgp.pieceBox.size())
-              continue;
-            const int kind = VEHICLE_PIECES[r].kind;
-            if (s.damageLoose <= 0.0F) break;
-            const bool facing = (kind == 1 || kind == 5)   ? nz > 0.5F
-                                : (kind == 2 || kind == 6) ? nz < -0.5F
-                                : (kind == 3 || kind == 7) ? nx < -0.5F
-                                                           : nx > 0.5F;
-            const float* pb = &dgp.pieceBox[(size_t)li * 6];
-            const float rr = dent[6] * (kind >= 5 && facing ? 1.8F : 1.3F);
-            float d2 = 0.0F;
-            for (int a = 0; a < 3; ++a) {
-              const float c = dent[a] < pb[a] ? pb[a] - dent[a]
-                              : (dent[a] > pb[3 + a] ? dent[a] - pb[3 + a] : 0.0F);
-              d2 += c * c;
-            }
-            if (d2 >= rr * rr) continue;
-            const float push = over * s.damageLoose;
-            bool off = false;
-            if (kind >= 5) {
-              off = push >= 5.0F;
-            } else if (facing) {
-              v.pieceHp[li] += push;
-              off = v.pieceHp[li] >= 18.0F || push >= 12.0F;
-            }
-            if (off) vehicleDetachPiece(vi, r, dent);
-          }
-        }
         const u32 us = (profTicks() - t0) / 295u;
-        TYRA_LOG("VEHDMG ", vi, " hit dv10 ", (int)(dv * 10.0F), " dmg100 ",
-                 (int)(v.damage * 100.0F), " dents ", v.dentCount, " total ",
-                 v.dentTotal, " moved ", moved, " at ", (int)(dent[0] * 10.0F),
-                 " ", (int)(dent[2] * 10.0F), " lamps ", v.lampBroken, " body10 ",
-                 (int)((bmax[0] - bmin[0]) * 10.0F), "x",
-                 (int)((bmax[2] - bmin[2]) * 10.0F), " us ", (int)us);
+#ifndef NDEBUG
+        {
+          char line[200];
+          snprintf(line, sizeof(line),
+                   "VEHDMG %d hit dv10 %d dmg100 %d dents %d total %d moved %d at %d %d"
+                   " lamps %d body10 %dx%d lost glass %d panels %d us %d hit at f %u",
+                   vi, (int)(dv * 10.0F), (int)(v.damage * 100.0F), v.dentCount,
+                   v.dentTotal, moved, (int)(dent[0] * 10.0F), (int)(dent[2] * 10.0F),
+                   v.lampBroken, (int)((bmax[0] - bmin[0]) * 10.0F),
+                   (int)((bmax[2] - bmin[2]) * 10.0F), vehHitLost[0], vehHitLost[1],
+                   (int)us, (unsigned)g_frameStamp);
+          vehLogLater(line);
+        }
+#else
+        (void)us;
+        (void)moved;
+#endif
         // Debris: a burst of dust where it hit, the same pool as the tyre
         // smoke - puffs, not a new effect with a submit of its own.
         VehFx* fx = vehFxFor(v.def);
@@ -6610,13 +6701,55 @@ void TerrainGame::stepVehicles(float dt) {
           // function, which selects the VU1 program and so the cache key;
           // the colours it has not painted yet are a colour-only change
           // later, which the cache refreshes without re-baking.
-          if (part.envTexBag && part.envColorBag && part.envColorBag->many &&
-              vehiclePaintFor(v.object))
-            part.envTexBag->textureFunction = 3;
+          const bool paints = part.envTexBag && part.envColorBag &&
+                              part.envColorBag->many && vehiclePaintFor(v.object);
+          if (paints) part.envTexBag->textureFunction = 3;
           stapip.core.prebakeBag(&*part.envBag);
+          // Its paint map too, into the spare slot: the swap would otherwise
+          // rebuild it from ~3 400 normals (1.7 ms on a PS2) in the frame it
+          // happens - a few frames before the hit, on a car being closed in on.
+          if (paints && part.envTexBag->coordinates) {
+            u32 pn = part.envBag->count;
+            if (pn > (u32)part.envColors.size()) pn = (u32)part.envColors.size();
+            paintMapPrepare(part, part.envTexBag->coordinates, pn);
+          }
         }
         applyGeoLod(v.object, pi, shown);
       }
+      break;
+    }
+  }
+  // PAINT MAPS AHEAD (paintMapPrepare): a car on its full-detail tier whose
+  // paint map is not built yet gets it now, one car a frame. A car driven in
+  // a straight line never re-shades its paint, so its map used to be built at
+  // its first turn - the hit, as often as not (1.7 ms on a PS2 in the frame
+  // after a crash).
+  for (int k = 0; k < vehicleCount_; ++k) {
+    const int vi = (vehPaintPrepNext + k) % vehicleCount_;
+    const VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0 || v.object < 0 || v.object >= (int)objectGeometry.size() ||
+        !vehiclePaintFor(v.object))
+      continue;
+    const float* p = runtimeObjects[v.object].data.position;
+    const float dx = p[0] - cameraPosition.x, dz = p[2] - cameraPosition.z;
+    if (dx * dx + dz * dz > 35.0F * 35.0F) continue;  // past the shine's reach
+    bool built = false;
+    for (GeoPart& part : objectGeometry[(size_t)v.object].parts) {
+      if (!part.envBag || part.shownLod != 0 || !part.envTexBag ||
+          !part.envTexBag->coordinates || !part.envColorBag || !part.envColorBag->many)
+        continue;
+      u32 pn = part.envBag->count;
+      if (pn > (u32)part.envColors.size()) pn = (u32)part.envColors.size();
+      const void* src = part.envTexBag->coordinates;
+      if ((part.paintMapSrc == src && part.paintMapCount == pn) ||
+          (part.paintMapSrc2 == src && part.paintMapCount2 == pn))
+        continue;
+      paintMapPrepare(part, part.envTexBag->coordinates, pn);
+      built = true;
+      break;
+    }
+    if (built) {
+      vehPaintPrepNext = vi + 1;
       break;
     }
   }

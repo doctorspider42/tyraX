@@ -794,7 +794,8 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key,
       // that would have happened: a payload that moves again within
       // kChurnGapFrames still goes to the churn damping below, as before.
       if (TYRA_STAPIP_PAYLOAD_REFRESH && item.complete && item.arena != nullptr &&
-          !item.churning && frameNow - item.lastRebuildFrame > kChurnGapFrames &&
+          !item.churning &&
+          (frameNow - item.lastRebuildFrame > kChurnGapFrames || item.moveStreak < kRefreshStreak) &&
           item.runsValid && item.count == key.count &&
           item.packages == key.packages && item.sts == key.sts &&
           item.colors == key.colors && item.normals == key.normals &&
@@ -844,6 +845,9 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key,
           item.contentVersion = key.contentVersion;
           for (int k = 0; k < 4; ++k) item.streamStamps[k] = key.streamStamps[k];
           item.serial = ++serialNext;  // the arena moved
+          item.moveStreak = frameNow - item.lastRebuildFrame > kChurnGapFrames
+                                ? 1
+                                : (u8)(item.moveStreak + 1);
           item.lastRebuildFrame = frameNow;
           item.refreshed = 1;
           ++colourRefreshes;

@@ -2488,52 +2488,13 @@ void TerrainGame::renderScene() {
         // result is identical to the per-vertex loop it replaces. The loop
         // ran ~1.4 ms of EE on the CC96 every frame the camera turned
         // (physical PS2, 2026-09-23). The map is built once per normal array.
-        if (part.paintMapSrc != nrm || part.paintMapCount != n
 #if TYRA_VU1_EXP_PAINT
-            || part.paintMapVersion != normalStamp
-#endif
-        ) {
-#if TYRA_VU1_EXP_PAINT
+        if (part.paintMapVersion != normalStamp) {
           part.paintMapVersion = normalStamp;
-#endif
-          part.paintMapSrc = nrm;
-          part.paintMapCount = n;
-          part.paintNormals.clear();
-          part.paintMap.assign(n, 0);
-          u32 cap = 64;
-          while (cap < n * 2U) cap <<= 1;
-          std::vector<int> table(cap, -1);
-          bool overflow = false;
-          for (u32 k = 0; k < n && !overflow; ++k) {
-            u32 bits[3];
-            memcpy(bits, &nrm[k], sizeof(bits));
-            u32 h = (bits[0] * 0x9E3779B1U) ^ (bits[1] * 0x85EBCA6BU) ^
-                    (bits[2] * 0xC2B2AE35U);
-            for (u32 slot = h & (cap - 1);; slot = (slot + 1) & (cap - 1)) {
-              const int e = table[slot];
-              if (e < 0) {
-                if (part.paintNormals.size() >= 65535U) { overflow = true; break; }
-                table[slot] = (int)part.paintNormals.size();
-                part.paintMap[k] = (unsigned short)part.paintNormals.size();
-                part.paintNormals.push_back(nrm[k]);
-                break;
-              }
-              u32 other[3];
-              memcpy(other, &part.paintNormals[(size_t)e], sizeof(other));
-              if (other[0] == bits[0] && other[1] == bits[1] &&
-                  other[2] == bits[2]) {
-                part.paintMap[k] = (unsigned short)e;
-                break;
-              }
-            }
-          }
-          if (overflow) {  // too many to index in 16 bits: one slot per vertex
-            part.paintNormals.assign(nrm, nrm + n);
-            part.paintMap.clear();
-          }
-          TYRA_LOG("VEHPAINT normals ", (int)n, " distinct ",
-                   (int)part.paintNormals.size());
+          part.paintMapSrc = part.paintMapSrc2 = nullptr;  // rebuild both
         }
+#endif
+        paintMapEnsure(part, nrm, n);
         static std::vector<Tyra::Color> paintColors;
         const u32 un = (u32)part.paintNormals.size();
         paintColors.resize(un);

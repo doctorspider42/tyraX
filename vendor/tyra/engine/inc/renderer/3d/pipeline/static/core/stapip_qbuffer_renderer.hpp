@@ -417,6 +417,9 @@ struct StaPipBakedEntry {
   u32 seenContentVersion = 0;
   u8 churning = 0;
   u8 settled = 0;
+  /** Modified by TyraX: payload refreshes in a row, each within
+   * kChurnGapFrames of the last (StaPipBakedStreams::kRefreshStreak). */
+  u8 moveStreak = 0;
 
   /** Quadword offset and length of each package's block inside `data`. */
   std::unique_ptr<u32[]> offsets;
@@ -502,6 +505,18 @@ class StaPipBakedStreams {
    * on a physical PS2. A stable bag never enters this state.
    */
   static const u32 kChurnGapFrames = 2;
+  /**
+   * Modified by TyraX: the refresh streak. A payload refresh (one copy of
+   * the arena) is far cheaper than the retained route for a big bag, so a
+   * SHORT burst of moves is refreshed every time and only a longer one
+   * churns: a car crash moves a body 2-3 times in consecutive frames (the
+   * dent, the broken lamps, the re-shaded paint), and sending those to the
+   * retained route cost 4-6 ms a frame for five frames on a physical PS2,
+   * against 1-3.5 ms of copies (docs/baked-vif-stream.md, "Refresh
+   * streak"). A bag rewritten every frame still churns from its
+   * (kRefreshStreak + 1)-th rapid move on, as before.
+   */
+  static const u32 kRefreshStreak = 3;
   static const u32 kSettleFrames = 3;
   u32 takeChurnSkips() { const u32 v = churnSkips; churnSkips = 0; return v; }
   /** Modified by TyraX: bumped by clear(), when every entry goes at once. */
