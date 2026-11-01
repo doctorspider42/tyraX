@@ -351,14 +351,18 @@ caches).
 A second round, at 34 m/s into the parked Strix on an open lane, with every
 frame recorded on the console and printed after the run (a log line per frame
 would have been the biggest cost in the window). The debug build lost 4-5
-frames in a row after the hit; now 1, three runs each:
+frames in a row after the hit; now none:
 
-| frame of the hit | before | now |
-|---|---:|---:|
-| game update before the render | 10.7 ms | 4.3 ms |
-| render | 18.5 ms | 13.4 ms |
-| damage work | 8.8 ms | 2.5 ms |
-| render, the 10 frames after | 12.6 ms | 10.4 ms |
+| frame of the hit | before | first round | now |
+|---|---:|---:|---:|
+| game update before the render | 10.7 ms | 4.3 ms | 3.4-3.5 ms |
+| render | 18.5 ms | 13.4 ms | 12.3 ms |
+| damage work | 8.8 ms | 2.5 ms | 1.7 ms |
+| render, the 10 frames after | 12.6 ms | 10.4 ms | 9.3 ms |
+| frames lost in the 60 after the hit | 4-5 | 1 | 0 |
+
+(Three runs before and in the first round, two now plus one with every probe
+on, which also lost none; the console stopped taking deploys after that.)
 
 Where it went, and what changed:
 
@@ -389,9 +393,24 @@ Where it went, and what changed:
   in stepVehicles, one car a frame, and the prebake builds the full tier's
   map into a spare slot ahead of the swap.
 
-What remains in the frame of the hit is the dents themselves (~1.1 ms a
-car), copying the two bodies' changed streams (~2-3 ms) and the scene with
-two shining cars right in front of the camera.
+- **Lost panels take off in a quiet frame.** A panel's triangles are copied
+  off the body in the frame of the hit (before the collapse removes them),
+  and the piece is built and thrown two frames later at the earliest, never
+  in a frame that applied a dent, one car's pieces a frame
+  (`VehDebrisPending`, `vehicleSpawnDebris`; past eight frames a piece goes
+  regardless). Its build and first draw, ~2.2 ms, used to land in the frame
+  of the hit; the panel is missing from the car for those two frames, under
+  the burst of dust.
+- **A car just hit keeps its paint for ~0.2 s** (12 frames, in
+  `vehiclePaintGate`): every re-shade is a copy of its shine stream, and the
+  camera shake and the spin re-shaded it in exactly the frames that also
+  dent and re-copy the bodies. The highlight catches up when the hold ends.
+
+What remains in the frame of the hit is the dent itself (~1.1 ms a car) and
+copying the dented body's streams (~2.2 ms). Steady driving before the hit
+measured 0.1-0.16 ms slower in each round (6.33 -> 6.49 -> 6.60 ms of
+render), within the ~0.17 ms that a code layout change moves a frame on this
+console; it was not pinned down.
 
 - **Skid marks fade in steps.** After a crash the frame kept paying ~1 ms for
   the skid marks while they faded: the fade wrote every live mark's alpha

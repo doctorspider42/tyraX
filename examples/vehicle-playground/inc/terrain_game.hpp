@@ -1304,6 +1304,26 @@ class TerrainGame : public Tyra::Game {
   };
   VehDebris vehDebris_[kVehDebrisMax];
   int vehDebrisNext_ = 0;
+  // A lost panel waiting to fly (vehicleSpawnDebris): its triangles as they
+  // sat on the body in the frame of the hit, copied before the body
+  // collapsed them. Building a piece and its first draw cost ~2.2 ms, and the
+  // frame of the hit was the one frame with no room for it.
+  struct VehDebrisPending {
+    std::vector<Tyra::Vec4> verts;  // the piece's part-space vertices
+    std::vector<Tyra::Color> cols;
+    std::vector<Tyra::Vec4> sts;
+    Tyra::M4x4 mat;                 // the car's matrix at the hit
+    float wc[3] = {0, 0, 0};        // the piece's centre, world
+    float dir[2] = {0, 0};          // the hit's direction, car frame
+    float preV[2] = {0, 0};         // the car's velocity before the hit
+    float cy = 1.0F, sy = 0.0F;     // the car's heading at the hit
+    Tyra::Texture* tex = nullptr;
+    int row = 0, kind = 0, run = 3, vi = 0;
+    bool strip = false;
+    u32 at = 0;                     // g_frameStamp of the hit
+  };
+  std::vector<VehDebrisPending> vehDebrisPending_;
+  void vehicleSpawnDebris(const VehDebrisPending& p);
   struct VehDebrisBatch {
     Tyra::Texture* tex = nullptr;
     BagArray<Tyra::Vec4> verts;

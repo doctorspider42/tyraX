@@ -4891,6 +4891,10 @@ inline void paintMapPrepare(Part& part, const Tyra::Vec4* nrm, u32 n) {
   part.paintMapCount2 = n;
 }
 inline int vehPaintPrepNext = 0;  // the car stepVehicles prepares a map for next
+// g_frameStamp of each car's last hit (0 = never): its paint holds still for
+// a moment after it (vehiclePaintGate) - the camera shakes and the car spins
+// in exactly the frames the dents re-copy the bodies.
+inline u32 vehHitFrameAt[32] = {};
 inline VehLogLine vehLogQueue[4];
 inline int vehLogN = 0;
 inline int vehHitLost[2] = {0, 0};  // this hit's shattered windows, lost panels
