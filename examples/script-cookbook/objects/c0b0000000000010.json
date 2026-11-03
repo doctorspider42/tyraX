@@ -1,0 +1,1 @@
+{"id": "c0b0000000000010", "name": "b-dice", "type": "box", "position": [-9, 0.5, 13], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "usable": true, "scripts": ["DiceRoller"], "scriptProps": {"DiceRoller": {"luckyChance": "0.25", "rollCounter": "rolls"}}}

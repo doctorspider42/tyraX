@@ -1080,6 +1080,25 @@ std::string objectJson(const SceneObject& o) {
             json += (i ? ", \"" : "\"") + jsonEscape(o.scripts[i]) + "\"";
         json += "]";
     }
+    if (!o.scriptProps.empty()) {
+        // {"Spinner": {"speed": "120", "target": "a0b1..."}} - values are value
+        // text (scriptprops.hpp), strings whatever their kind.
+        json += ", \"scriptProps\": {";
+        bool firstClass = true;
+        for (const auto& [cls, fields] : o.scriptProps) {
+            if (fields.empty()) continue;
+            json += std::string(firstClass ? "" : ", ") + "\"" + jsonEscape(cls) + "\": {";
+            firstClass = false;
+            bool firstField = true;
+            for (const auto& [name, value] : fields) {
+                json += std::string(firstField ? "" : ", ") + "\"" + jsonEscape(name) +
+                        "\": \"" + jsonEscape(value) + "\"";
+                firstField = false;
+            }
+            json += "}";
+        }
+        json += "}";
+    }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     if (!o.procGraph.empty() || o.procGraph.frozen || o.procGraph.bakedHash)
         json += ", \"procGraph\": " + procGraphJson(o.procGraph);
@@ -1820,6 +1839,17 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
+         << (p.settings.cppStandard != "c++20"
+                 ? "    \"cppStandard\": \"" + p.settings.cppStandard + "\",\n"
+                 : std::string())
+         << (!p.settings.extraCompilerFlags.empty()
+                 ? "    \"extraCompilerFlags\": \"" +
+                       jsonEscape(p.settings.extraCompilerFlags) + "\",\n"
+                 : std::string())
+         << (!p.settings.extraLinkerFlags.empty()
+                 ? "    \"extraLinkerFlags\": \"" +
+                       jsonEscape(p.settings.extraLinkerFlags) + "\",\n"
+                 : std::string())
          << "    \"textureQuant\": \"" << p.settings.textureQuant << "\",\n"
          << "    \"textureAtlas\": " << (p.settings.textureAtlas ? "true" : "false")
          << ",\n"
@@ -1854,6 +1884,7 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"inputRecorder\": "
          << (p.settings.inputRecorder ? "true" : "false") << ",\n"
+         << (p.settings.scriptDebugger ? "    \"scriptDebugger\": true,\n" : "")
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -6112,6 +6143,15 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 if (s.type == json::Value::Type::String && !s.str.empty())
                     o.scripts.push_back(s.str);
         }
+        if (const auto* sp = jo.find("scriptProps");
+            sp && sp->type == json::Value::Type::Object) {
+            for (const auto& [cls, fields] : sp->obj) {
+                if (fields.type != json::Value::Type::Object) continue;
+                for (const auto& [name, value] : fields.obj)
+                    if (value.type == json::Value::Type::String)
+                        o.scriptProps[cls][name] = value.str;
+            }
+        }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         if (const auto* pg = jo.find("procGraph")) readProcGraph(*pg, o.procGraph);
         if (const auto* rp = jo.find("roadPoints")) {
@@ -6289,6 +6329,14 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))
             st.buildProfile = v->stringOr("release") == "debug" ? "debug" : "release";
+        if (const auto* v = s->find("cppStandard")) {
+            const std::string c = v->stringOr("c++20");
+            st.cppStandard = (c == "c++17" || c == "c++23") ? c : "c++20";
+        }
+        if (const auto* v = s->find("extraCompilerFlags"))
+            st.extraCompilerFlags = v->stringOr("");
+        if (const auto* v = s->find("extraLinkerFlags"))
+            st.extraLinkerFlags = v->stringOr("");
         // pre-quantization projects keep their full-color output
         st.textureQuant = "none";
         if (const auto* v = s->find("textureQuant")) {
@@ -6332,6 +6380,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.inputRecorder = v->boolOr(false);
         if (const auto* v = s->find("eeCrashHandler"))
             st.eeCrashHandler = v->boolOr(false);
+        if (const auto* v = s->find("scriptDebugger"))
+            st.scriptDebugger = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
             st.keyboardMouse = v->boolOr(true);
         // (a retired "keyboardMousePs2LinkResident" key is ignored - the
@@ -8978,6 +9028,12 @@ std::string refreshGenerated(const Project& p) {
             // directory". Exactly the live_pad.gen.cpp mistake noted below.
             f.relativePath == "inc\\bag_array.gen.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
+            // The script API (docs/script-api.md): the library and the
+            // project's typed names. script.hpp includes the first and every
+            // generated TU leans on both.
+            f.relativePath == "inc\\tyrax\\tyrax.hpp" ||
+            f.relativePath == "inc\\tyrax\\names.gen.hpp" ||
+            f.relativePath == "inc\\tyrax\\script_props.gen.hpp" ||
             // Object table definitions accompany the declarations even in
             // projects created before the data was moved out of the header.
             f.relativePath == "src\\gen\\scene_objects.gen.cpp" ||
@@ -9050,6 +9106,12 @@ std::string refreshGenerated(const Project& p) {
             // deletes it when it stops, which is the half that matters - a
             // stale refusal would block a build that is fine.
             f.relativePath == "src\\gen\\blss_interlock.gen.cpp" ||
+            // The script debugger (docs/script-debugger.md): its runtime, only
+            // while it is on (the sweep below deletes it when it goes off - a
+            // leftover would keep hooking BREAK in a build that no longer polls
+            // for the host), and VS Code's machine-specific tyrax.json, always.
+            f.relativePath == "src\\gen\\script_debug.gen.cpp" ||
+            f.relativePath == ".vscode\\tyrax.json" ||
             // Baked instanced scatter: only in `generated` while a volume draws
             // as Instanced; the sweep below deletes a leftover, which the game
             // would otherwise still include through __has_include.
@@ -9134,6 +9196,9 @@ std::string refreshGenerated(const Project& p) {
                    // missing.
                    f.relativePath == "run.ps1" ||
                    f.relativePath == "run.sh" ||
+                   // The `tyrax` debug configuration for VS Code's F5; once it
+                   // exists it is the user's launch.json.
+                   f.relativePath == ".vscode\\launch.json" ||
                    f.relativePath == "windows-pcsx2.ps1" ||
                    f.relativePath == ".gitattributes" ||
                    f.relativePath == "COLLABORATION.md" ||
@@ -9329,6 +9394,16 @@ std::string refreshGenerated(const Project& p) {
     {
         std::error_code ec;
         fs::remove(fs::path(p.dir) / "inc" / "blss_net.gen.hpp", ec);
+    }
+    // The script debugger's runtime, when it is off. (.vscode/tyrax.json is in
+    // every project: it is how VS Code's F5 finds the editor to turn it on.)
+    for (const char* rel : {"src\\gen\\script_debug.gen.cpp"}) {
+        bool wanted = false;
+        for (const auto& f : generated) wanted |= f.relativePath == rel;
+        if (!wanted) {
+            std::error_code ec;
+            fs::remove(fs::path(p.dir) / templates::nativePath(rel), ec);
+        }
     }
     {
         bool wanted = false;

@@ -260,7 +260,11 @@ a machine without it loses the update check and nothing else.
 4. **build-macos** — two macOS runners (Apple silicon, Intel): the same stamp,
    then `installer/build-macos.sh`, which signs and notarizes the `.dmg`
    ([Releasing for macOS](#releasing-for-macos)).
-5. **release** — publishes the tag with every package attached. Its notes
+5. **vscode-extension** — the VS Code extension from the same commit
+   (`vscode-extension.yml`): published to the Marketplace when its
+   `package.json` version is new, skipped otherwise; it gates nothing
+   ([Publishing](vscode-extension.md#publishing)).
+6. **release** — publishes the tag with every package attached. Its notes
    are `CHANGELOG.md`'s `## <version>` section, read from the released commit,
    plus a link to the whole changelog - which is also what the editor's update
    dialog renders. A version the changelog does not name (the automatic PATCH

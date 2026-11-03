@@ -69,6 +69,9 @@ Read when you need to find which file owns something, or before adding a file. L
 |---|---|---|---|
 | `templates.cpp/.hpp` | 34.9k / 230 | All code generation, model/anim bakes | codegen-and-generated-files |
 | `game_templates.inc` | 27.6k | Game runtime templates (`TPL_GAME_*`) | codegen-and-generated-files |
+| `script_api.inc` | 1.0k | `TPL_TYRAX_HPP`: the `tyrax::` script API library (docs/script-api.md) | codegen-and-generated-files |
+| `extension.cpp/.hpp` | 0.3k | Script extensions (`src/extensions/<name>`): `scriptDirs` (every scan of src/scripts goes through it), list/install/scaffold/remove; UI in rail_ui.cpp `drawExtensionsSection`, CLI `--*-extension` | codegen-and-generated-files |
+| `scriptprops.cpp/.hpp` | 0.6k | Textual `[[tyra::prop]]` scanner (classes registered with TYRA_OBJECT_SCRIPT -> fields, kinds, defaults, attribute options); shared by Properties > Scripts (`App::drawScriptFields`) and codegen | codegen-and-generated-files |
 | `texbake.cpp/.hpp` | 1.0k | `res/` -> `.res-baked/` texture bake | runtime-rendering-and-meshes |
 | `pngquant.cpp/.hpp` | 610 | Palette quantization | runtime-rendering-and-meshes |
 | `texatlas.cpp/.hpp` | 670 | Texture atlas plan | runtime-rendering-and-meshes |
@@ -146,6 +149,8 @@ Read when you need to find which file owns something, or before adding a file. L
 | `pcsx2_config.cpp/.hpp` | 225 | PCSX2.ini discovery + HostFs/USB setup | devkit-runner-and-network |
 | `iso9660.cpp/.hpp`, `isoexport.cpp/.hpp` | 440 + 380 | ISO writer + disc layout | devkit-runner-and-network |
 | `elfsym.cpp/.hpp` | 440 | ELF reader + release audit | devkit-runner-and-network |
+| `gdbstub.cpp/.hpp` | 900 | Script debugger: PINE client, GDB remote protocol server, software single-step | devkit-runner-and-network |
+| `scriptdbg.hpp` | 80 | Script debugger mailbox layout (the game/editor protocol) + `wslPath` | devkit-runner-and-network |
 | `livelogic.cpp/.hpp` | 1.08k | Live Logic compiler/IR | devkit-runner-and-network |
 | `livedbg.cpp/.hpp` | 725 | Live Debugger formats | devkit-runner-and-network |
 | `livetime.cpp/.hpp` | 275 | Time machine | devkit-runner-and-network |
@@ -155,7 +160,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `devsession.cpp/.hpp` | 255 | Which project each editor is debugging | devkit-runner-and-network |
 | `sessionlog.cpp/.hpp` | 175 | Console session log files | devkit-runner-and-network |
 | `session.cpp/.hpp` | 1.55k | Live collaboration session | devkit-runner-and-network |
-| `wire.cpp/.hpp` | 970 | Sockets, frame codec, TCP + WebSocket transports, file hashing | devkit-runner-and-network |
+| `wire.cpp/.hpp` | 1150 | Sockets, frame codec, TCP + WebSocket transports, plain `Stream`s (TCP/Unix, the script debugger), file hashing | devkit-runner-and-network |
 | `platform.cpp/.hpp` | 1.66k | All OS differences | build-platform-release |
 | `platform_mac.mm` | 170 | macOS half of the merged title bar (NSWindow, the only Objective-C++) | build-platform-release |
 | `update.cpp/.hpp` | 520 | Update check | build-platform-release |

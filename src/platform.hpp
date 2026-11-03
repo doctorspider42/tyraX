@@ -259,6 +259,11 @@ void revealInFileManager(const std::string& path);
 bool copyImageToClipboard(const unsigned char* rgba, int width, int height,
                           const std::string& pngPath);
 
+// VS Code's command-line launcher as a shell-ready fragment: "code" when it is
+// on PATH, else the quoted path of a standard install location (a fresh macOS
+// install has no `code` on PATH), else "".
+std::string vscodeCli();
+
 // Open a project folder (and optionally jump to one file) in VS Code. Returns
 // "" on success, or a message naming what went wrong.
 std::string openInVSCode(const std::string& projectDir, const std::string& absFile);

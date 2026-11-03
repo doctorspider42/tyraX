@@ -1,0 +1,10 @@
+# Checkpoints Done - part of the Checkpoints script extension.
+title = Checkpoints Done
+category = Checkpoints
+desc = Puts on its bool output whether the player has reached the course's checkpoints (the Checkpoint script, in order) - all of them, or at least At least of them. Feed a Branch.
+num0 = At least
+tip0 = How many must be reached; 0 = all of them.
+call = checkpointsDone
+include = checkpoints_nodes.hpp
+out = bool
+exec_out = true

@@ -225,14 +225,15 @@ A few things worth knowing because they are decisions rather than defaults:
     settings (Keep / 48k / 32k / 22k, Mono) and its users; the fixes are
     *Convert*, *Edit in Drone Generator* and, for a sound too big for SPU2
     that nothing plays as a sound, *Make music*.
-  - **Scripts** filters All | Flow graphs | C++ | VU. Flow graphs are the
-    active scene's objects with a graph, their node count and trigger
-    nodes, and open in the Flow Graph. C++ files show the classes they
-    register (a *global* tag for `TYRA_SCRIPT`) and the objects each class
-    is attached to; a class nobody attaches has *Attach...* (to the selected
-    object), and a class an object attaches that nothing registers is listed
-    as *missing* with *Create*. The last build's first error in a script
-    sits on top with *Open file*.
+  - **Scripts** is foldable sections under filter chips (All, Object
+    scripts, Global, Graphs, VU, Unused): object scripts grouped by file
+    (an extension is one group, with its version), each class with an
+    *on N objects* / *unused* pill and its objects as chips that select and
+    frame the object; an unused class has *Attach to selected*, and a class
+    an object attaches that nothing registers is listed in amber with
+    *Create*. Then global scripts, flow graphs (open in the Flow Graph), VU
+    programs and Extensions. A class name opens its file at the class. The
+    last build's first error in a script sits on top with *Open file*.
 - **The viewport's controls float on glass cards.** After `render()`,
   `Viewport::blurBackdrop` makes a quarter-size gaussian-blurred copy of the
   viewport image (two reused framebuffers, GL 3.3); `ui::SetOverlayBackdrop`

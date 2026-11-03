@@ -252,7 +252,12 @@ def prepare_datapath(dp, user_ini, slot):
                           # noise. The user ini has it on. Renderer, MTVU, VSync
                           # and SDL are deliberately left as the user set them:
                           # this script must not change emulation behaviour.
-                          ('UI', 'PauseOnFocusLoss', 'false')):
+                          ('UI', 'PauseOnFocusLoss', 'false'),
+                          # Same for a gamepad dropping off USB/Bluetooth: the
+                          # user ini pauses the VM ("System paused because
+                          # controller XInput-0 was disconnected", 2026-10-29),
+                          # and a long unattended run simply stops advancing.
+                          ('UI', 'PauseOnControllerDisconnection', 'false')):
         text = ini_set(text, sec, key, val)
     # Deleted, not blanked - see ini_del. Each is startup work the run does not
     # need, measured on a 31 s run whose first guest line arrives 3.3 s in.

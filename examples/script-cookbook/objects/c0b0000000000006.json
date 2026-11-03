@@ -1,0 +1,1 @@
+{"id": "c0b0000000000006", "name": "a-ease-outcubic", "type": "sphere", "position": [2, 0.4, 6], "rotation": [0, 0, 0], "scale": [0.6, 0.6, 0.6], "color": [0.65, 0.55, 0.6499999999999999], "physics": false, "scripts": ["EaseShowcase"], "scriptProps": {"EaseShowcase": {"curve": "5", "height": "2", "period": "1.5"}}}

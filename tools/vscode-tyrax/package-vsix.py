@@ -10,10 +10,15 @@ against a 0.2.0 package, and menu stylesheets did the same).
 
     python3 tools/vscode-tyrax/package-vsix.py [--version X.Y.Z]
 
-Writes tyrax-flownode-<version>.vsix next to this script, removes any older
-.vsix (the editor globs *.vsix and would otherwise pick whichever it found
-first), and prints what went in. The extension id stays `tyrax-flownode` - it is
-what people have installed and what generated projects recommend.
+Writes <name>-<version>.vsix (tyrax-X.Y.Z.vsix) next to this script, removes
+any older .vsix (the editor installs the newest, but a stale one is still a
+trap), and prints what went in. The same file is what gets published to the
+Visual Studio Marketplace (`vsce publish --packagePath`; see
+docs/vscode-extension.md, "Publishing").
+
+The extension was packaged as `tyrax.tyrax-flownode` until 0.4.x, which was
+never published anywhere; 0.5.0 is `doctorspider.tyrax` (pre-release builds
+said `tyrax.tyrax`) and the editor uninstalls the old ids when it installs it.
 """
 
 import argparse
@@ -28,25 +33,41 @@ HERE = pathlib.Path(__file__).resolve().parent
 # lower-cased in the package because the manifest's asset paths say so.
 FILES = [
     ("package.json", "extension/package.json"),
-    ("extension.js", "extension/extension.js"),
-    ("vu.js", "extension/vu.js"),
     ("language-configuration.json", "extension/language-configuration.json"),
     ("vu-language-configuration.json", "extension/vu-language-configuration.json"),
     ("icon.png", "extension/icon.png"),
     ("README.md", "extension/readme.md"),
     ("CHANGELOG.md", "extension/changelog.md"),
+    ("../../LICENSE", "extension/LICENSE.txt"),
 ]
+# Every module, globbed rather than listed: 0.4.x listed extension.js and vu.js
+# by hand while extension.js also required vuscript.js and now debug.js - a
+# module missing from the package is an extension that fails to activate.
+JS = sorted(p.name for p in HERE.glob("*.js"))
 
-CONTENT_TYPES = (
-    '<?xml version="1.0" encoding="utf-8"?>\n'
-    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-    '<Default Extension=".js" ContentType="application/javascript"/>'
-    '<Default Extension=".json" ContentType="application/json"/>'
-    '<Default Extension=".md" ContentType="text/markdown"/>'
-    '<Default Extension=".png" ContentType="image/png"/>'
-    '<Default Extension=".vsixmanifest" ContentType="text/xml"/>'
-    "</Types>"
-)
+# [Content_Types].xml is built from the files actually packaged: a .vsix is an
+# OPC package, and a part whose extension has no content type does not EXIST to
+# the Marketplace - 0.5.0's first upload was refused because LICENSE.txt was in
+# the zip but ".txt" was not in a hand-written list.
+MIME = {
+    ".js": "application/javascript",
+    ".json": "application/json",
+    ".md": "text/markdown",
+    ".png": "image/png",
+    ".txt": "text/plain",
+    ".vsixmanifest": "text/xml",
+}
+
+
+def content_types(names):
+    exts = sorted({pathlib.PurePosixPath(n).suffix.lower() for n in names})
+    unknown = [e or "(none)" for e in exts if e not in MIME]
+    if unknown:
+        sys.exit("no content type for: " + ", ".join(unknown) + " - add it to MIME")
+    return ('<?xml version="1.0" encoding="utf-8"?>\n'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            + "".join(f'<Default Extension="{e}" ContentType="{MIME[e]}"/>' for e in exts)
+            + "</Types>")
 
 REPO = "https://github.com/doctorspider42/tyraX"
 
@@ -69,11 +90,11 @@ def manifest(pkg):
 \t\t\t<DisplayName>{xml_escape(pkg['displayName'])}</DisplayName>
 \t\t\t<Description xml:space="preserve">{xml_escape(pkg['description'])}</Description>
 \t\t\t<Tags>{xml_escape(','.join(dict.fromkeys(tags)))}</Tags>
-\t\t\t<Categories>Programming Languages,Snippets,Linters</Categories>
+\t\t\t<Categories>{xml_escape(','.join(pkg.get('categories', [])))}</Categories>
 \t\t\t<GalleryFlags>Public</GalleryFlags>
 \t\t\t<Properties>
 \t\t\t\t<Property Id="Microsoft.VisualStudio.Code.Engine" Value="{pkg['engines']['vscode']}" />
-\t\t\t\t<Property Id="Microsoft.VisualStudio.Code.ExtensionDependencies" Value="" />
+\t\t\t\t<Property Id="Microsoft.VisualStudio.Code.ExtensionDependencies" Value="{','.join(pkg.get('extensionDependencies', []))}" />
 \t\t\t\t<Property Id="Microsoft.VisualStudio.Code.ExtensionPack" Value="" />
 \t\t\t\t<Property Id="Microsoft.VisualStudio.Code.ExtensionKind" Value="workspace" />
 \t\t\t\t<Property Id="Microsoft.VisualStudio.Code.LocalizedLanguages" Value="" />
@@ -96,8 +117,9 @@ def manifest(pkg):
 \t\t<Assets>
 \t\t\t<Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true" />
 \t\t\t<Asset Type="Microsoft.VisualStudio.Services.Content.Details" Path="extension/readme.md" Addressable="true" />
-<Asset Type="Microsoft.VisualStudio.Services.Content.Changelog" Path="extension/changelog.md" Addressable="true" />
-<Asset Type="Microsoft.VisualStudio.Services.Icons.Default" Path="extension/icon.png" Addressable="true" />
+\t\t\t<Asset Type="Microsoft.VisualStudio.Services.Content.Changelog" Path="extension/changelog.md" Addressable="true" />
+\t\t\t<Asset Type="Microsoft.VisualStudio.Services.Content.License" Path="extension/LICENSE.txt" Addressable="true" />
+\t\t\t<Asset Type="Microsoft.VisualStudio.Services.Icons.Default" Path="extension/icon.png" Addressable="true" />
 \t\t</Assets>
 \t</PackageManifest>"""
 
@@ -113,7 +135,7 @@ def main():
         (HERE / "package.json").write_text(
             json.dumps(pkg, indent=2) + "\n", encoding="utf-8")
 
-    entries = list(FILES)
+    entries = list(FILES) + [(js, "extension/" + js) for js in JS]
     # Every grammar and snippet file the manifest declares, taken from the
     # manifest rather than a second list here - a language added to package.json
     # and forgotten in this script is the exact failure this file exists to stop.
@@ -134,7 +156,8 @@ def main():
 
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("extension.vsixmanifest", manifest(pkg))
-        z.writestr("[Content_Types].xml", CONTENT_TYPES)
+        z.writestr("[Content_Types].xml",
+                   content_types(["extension.vsixmanifest"] + [d for _, d in entries]))
         for src, dst in entries:
             z.write(HERE / src, dst)
             print(f"  + {dst}")
