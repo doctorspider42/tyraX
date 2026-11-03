@@ -314,10 +314,24 @@ sequential-impulse pass is one dependency chain - every contact reads the
 velocities the previous one wrote - and macro-mode instructions issue one at
 a time from the EE with ~4-cycle latency, so the three lanes buy nothing a
 chain of scalar FPU operations did not already get, and copying the contacts
-into 16-byte lanes and back costs on top. What could still win is VU0
-**micro** mode with several independent islands interleaved in one scheduled
-program (the chain hidden behind other islands' work, the EE free meanwhile) -
-a project with its own data path (VU0 data memory holds ~18 contacts).
+into 16-byte lanes and back costs on top.
+
+**The passes on VU0, micro mode: also slower.** Next, a VU0 microprogram:
+whole islands packed into VU0 data memory as two lanes of linked contacts
+(14 quadwords each, 4 per body, a zero body for the world and for padding)
+that one VCL-scheduled loop runs side by side, so one lane's latency hides
+behind the other's; velocity passes, split targets and split passes all on
+VU0, results equal to the scalar passes to ~1e-9 in PCSX2. On a physical PS2
+(82 awake crates, 326 contacts, 28 batches a frame): solve 3.40 -> 3.91 ms.
+Per frame: packing 0.50 ms, upload 0.15, the program 1.12, reading back
+0.27. The program itself is ~1.9x the FPU (~180 cycles per contact per
+velocity pass against ~340: four extra passes cost +0.84 ms, 2.4x what the
+149-instruction loop listing predicts), and the copies in and out eat all of
+that. The ceiling - packing folded into the solver set-up and overlapped with
+the program - is ~0.3-0.7 ms in this all-awake scene, where held bodies
+already make resting crates free, and less in real piles (big islands do not
+fit 4 KB). Not pursued; the kernel generator, engine wrapper and game
+packing are kept out of tree with the measurement rig.
 
 Checked: the six-crate tower and the 4-3-2-1 pyramid stand and sleep on the
 console (sum of heights 32.856, was 32.854); a 34 m/s car-on-car crash with

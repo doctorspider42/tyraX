@@ -143,7 +143,7 @@ EE clipper with Cohen–Sutherland outcodes and static pools; StaPip `clip` VU1 
 - `--vu-check` green but branch wrong → harness can't see the gated path; prove it fails inverted → vu1-microprograms.md
 
 **Measured dead ends — do not reopen without a new hypothesis**
-coarser (8-package) frustum classification (+4.59 ms); package size above 75 (81 max, 144 impossible); 128-byte `BagArray` alignment; >4-bag or large-bag batching; Vif1Queue depth 8; DMAC-interrupt chain start; per-REF `SyncDCache`; uncached / UCAB packets; per-bag `dma_channel_wait`; transformed-light cache; retaining per-bag uniform copies; k255/ADC-table VU image; REGLIST state compaction; widening the cull programs' ADC guard band.
+coarser (8-package) frustum classification (+4.59 ms); package size above 75 (81 max, 144 impossible); 128-byte `BagArray` alignment; >4-bag or large-bag batching; Vif1Queue depth 8; DMAC-interrupt chain start; per-REF `SyncDCache`; uncached / UCAB packets; per-bag `dma_channel_wait`; transformed-light cache; retaining per-bag uniform copies; k255/ADC-table VU image; REGLIST state compaction; widening the cull programs' ADC guard band; rigid-body solver passes on VU0, macro mode (solve +0.73 ms) and micro mode with two interleaved island lanes (+0.5 ms: the program is ~1.9x the FPU, the copies in/out eat it - docs/physics.md).
 
 ## Reference index — read the file when you touch…
 | File | Read when you touch |
