@@ -472,6 +472,23 @@ void BroadPhase::octreeQuery(const BroadBox& area, const float* segA,
 
 // --- queries -----------------------------------------------------------------
 
+void BroadPhase::updateMoving(const int* index, const BroadBox* boxes, int count) {
+  bool any = false;
+  for (int k = 0; k < count; ++k) {
+    const int i = index[k];
+    if (i < 0 || i >= count_ || !present_[(size_t)i] || !moving_[(size_t)i]) continue;
+    box_[(size_t)i] = boxes[k];
+    any = true;
+  }
+  if (!any || !movingIndex_) return;
+  // movingObjects_ lists the moving objects in index order since the last
+  // commit, and none came or went: only their boxes are new.
+  movingIndex_->begin((int)movingObjects_.size());
+  for (size_t k = 0; k < movingObjects_.size(); ++k)
+    movingIndex_->set((int)k, box_[(size_t)movingObjects_[k]], false);
+  movingIndex_->commit();
+}
+
 void BroadPhase::refreshMoving() {
   movingObjects_.clear();
   for (int i = 0; i < count_; ++i)

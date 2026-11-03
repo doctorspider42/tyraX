@@ -2272,6 +2272,10 @@ class TerrainGame : public Tyra::Game {
     int sigShape = -1;
     short verts = 0, planes = 0;  // 0 verts = a sphere
     bool valid = false, tumble = true;
+    // Frames this body has rested on the world alone (no other body touching
+    // it) - past PHYS_HOLD_AFTER the solver leaves it where it is
+    // (updateObjectPhysics, "held").
+    int holdFrames = 0;
     float lv[24 * 3];   // PHYS_MAX_HULL_VERTS corners, centre-of-mass frame
     float lp[44 * 4];   // PHYS_MAX_HULL_PLANES faces n.x <= d, same frame
     short edges = 0;
@@ -4376,6 +4380,10 @@ class TerrainGame : public Tyra::Game {
     int sigShape = -1;
     short verts = 0, planes = 0;  // 0 verts = a sphere
     bool valid = false, tumble = true;
+    // Frames this body has rested on the world alone (no other body touching
+    // it) - past PHYS_HOLD_AFTER the solver leaves it where it is
+    // (updateObjectPhysics, "held").
+    int holdFrames = 0;
     float lv[24 * 3];   // PHYS_MAX_HULL_VERTS corners, centre-of-mass frame
     float lp[44 * 4];   // PHYS_MAX_HULL_PLANES faces n.x <= d, same frame
     short edges = 0;

@@ -186,6 +186,12 @@ void TerrainGame::broadPhaseRefresh() const {
   }
   const bool trackWorld = worldBroadPhase.initialized();
   if (trackWorld) worldBroadPhase.begin(n, kind);
+  // Boxes that moved on objects already moving - the common case, a few bodies
+  // in flight - go to BroadPhase::updateMoving instead of a full refresh.
+  static std::vector<int> movedIdx;
+  static std::vector<Tyra::BroadBox> movedBox;
+  movedIdx.clear();
+  movedBox.clear();
   // First bring every entry up to date and see whether the structure would
   // change at all: an object came or went, started or stopped moving, or a
   // placed box changed. A refresh boundary after a stage that moved nothing
@@ -225,7 +231,12 @@ void TerrainGame::broadPhaseRefresh() const {
     if (e.stale) {
       broadPhaseBoxOf(o, e.box);
       e.stale = false;
-      changed = true;
+      if (PHYS_LEAN_BOOKKEEPING && e.present && e.moving && moving) {
+        movedIdx.push_back(i);
+        movedBox.push_back(e.box);
+      } else {
+        changed = true;
+      }
     }
     changed = changed || !e.present || moving != e.moving;
     e.present = true;
@@ -235,7 +246,11 @@ void TerrainGame::broadPhaseRefresh() const {
       else worldBroadPhase.set(i, e.box, moving, changedBox);
     }
   }
-  if (!changed) return;
+  if (!changed) {
+    if (!movedIdx.empty())
+      broadPhase.updateMoving(movedIdx.data(), movedBox.data(), (int)movedIdx.size());
+    return;
+  }
   broadPhase.begin(n);
   for (int i = 0; i < n; ++i) {
     const BroadPhaseCache& e = bpCache[(size_t)i];
@@ -2435,6 +2450,22 @@ bool TerrainGame::physFastPathEligible(int index) const {
 void TerrainGame::updateObjMat(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   M4x4& m = objectGeometry[index].objMat;
+  // Called every frame for every matrix-path object; a body lying still (held
+  // or asleep) would rebuild the same matrix each time. Skipped when the pose
+  // is the one this matrix was built from and the matrix is still that one.
+  // The key is the pose plus the matrix's own translation and first column,
+  // so a matrix reset under it (a geometry rebuild) is never mistaken for
+  // the one built from that pose.
+  struct ObjMatKey { float pose[6]; float m0[2]; bool valid = false; };
+  static std::vector<ObjMatKey> keys;
+  if (index >= (int)keys.size()) keys.resize((size_t)index + 1);
+  ObjMatKey& k = keys[(size_t)index];
+  if (k.valid && k.pose[0] == o.data.position[0] && k.pose[1] == o.data.position[1] &&
+      k.pose[2] == o.data.position[2] && k.pose[3] == o.data.rotation[0] &&
+      k.pose[4] == o.data.rotation[1] && k.pose[5] == o.data.rotation[2] &&
+      m.data[12] == o.data.position[0] && m.data[13] == o.data.position[1] &&
+      m.data[14] == o.data.position[2] && m.data[0] == k.m0[0] && m.data[1] == k.m0[1])
+    return;
   const RotTrig& t = rotTrigCached(index, o.data.rotation);
   const V3 bx = rotatedBy({1.0F, 0.0F, 0.0F}, t);
   const V3 by = rotatedBy({0.0F, 1.0F, 0.0F}, t);
@@ -2446,6 +2477,9 @@ void TerrainGame::updateObjMat(int index) {
   m.data[12] = o.data.position[0];
   m.data[13] = o.data.position[1];
   m.data[14] = o.data.position[2];
+  for (int a = 0; a < 3; ++a) k.pose[a] = o.data.position[a], k.pose[3 + a] = o.data.rotation[a];
+  k.m0[0] = m.data[0], k.m0[1] = m.data[1];
+  k.valid = true;
 }
 
 
@@ -2471,6 +2505,8 @@ bool TerrainGame::physObstacle(const SceneObjectData& d) {
 // terrain is chunked.
 void TerrainGame::buildStaticBatchList() {
   staticBatches.clear();
+  bodyBatchHome.clear();  // batch indices of the scene being replaced
+  bodyAsleepAt.clear();
   objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
   if (!STATIC_BATCHING) return;
   if (!batchInfoBag) {
@@ -3145,6 +3181,36 @@ void TerrainGame::renderStaticBatches() {
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerStaticBatches);
 #endif
+  // REJOIN (bodyBatchHome): bodies asleep for PHYS_REJOIN_AFTER_S go back into
+  // the batches they left - every such body of ONE batch per frame, so a
+  // crash's worth of crates costs one re-bake per batch, not one per crate.
+  if (!bodyBatchHome.empty() && !splitSecondPass) {
+    const u32 after = (u32)everyFrames(PHYS_REJOIN_AFTER_S);
+    int target = -1;
+    for (size_t obj = 0; obj < bodyBatchHome.size(); ++obj) {
+      std::vector<BodyBatchHome>& homes = bodyBatchHome[obj];
+      if (homes.empty() || obj >= runtimeObjects.size() ||
+          obj >= bodyAsleepAt.size() || bodyAsleepAt[obj] == 0u)
+        continue;
+      const RuntimeObject& ro = runtimeObjects[obj];
+      if (!physAsleep(ro) || !ro.active || g_frameStamp - bodyAsleepAt[obj] < after ||
+          objectBatchOf[obj] != -1)
+        continue;
+      if (target < 0) target = homes.front().batch;
+      bool home = false;
+      for (const BodyBatchHome& h : homes) home = home || h.batch == target;
+      if (!home) continue;
+      for (const BodyBatchHome& h : homes) {
+        if (h.batch < 0 || h.batch >= (int)staticBatches.size()) continue;
+        StaticBatch& sb = staticBatches[(size_t)h.batch];
+        sb.members.push_back({(int)obj, h.part});
+        sb.shown.push_back(0);
+        sb.dirty = true;
+        objectBatchOf[obj] = h.batch;
+      }
+      homes.clear();
+    }
+  }
   for (StaticBatch& b : staticBatches) {
     bool stale = b.dirty;
     for (size_t k = 0; k < b.members.size(); ++k) {

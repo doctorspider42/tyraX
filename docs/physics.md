@@ -253,11 +253,63 @@ lying still, so the scene budget is about how many are awake at once - here
 - **New bodies sleep after 1 s** of rest instead of 3. Existing objects keep
   their stored value.
 
-Still open: with every crate awake the frame is 30 FPS - per awake body the
-prediction (~14 us), world contacts (~22 us, terrain samples and the broad
-phase), the solve (~42 us) and the write-back. Contacts between a model hull
-and a box still use corners. `FTPHYS awake=` counts awake bodies again (it
-read 0 before).
+`FTPHYS awake=` counts awake bodies again (it read 0 before). Contacts
+between a model hull and a box still use corners.
+
+### Awake bodies that do not move, and bookkeeping that scaled with the scene
+
+The 2.1.2 table above left every crate awake at 30 FPS. Taken apart on a
+physical PS2 (82 crates awake and lying still on the road, none touching
+another), per frame: physics 7.6 ms - prediction 1.18, terrain samples 0.68,
+broad-phase refresh and queries ~1.0, body pairs 0.57, solver set-up 1.19 and
+passes 2.26, write-back 0.52 (0.21 of it quaternion -> Euler) - plus 0.36 ms
+of render matrices rebuilt from those Euler angles, and 2.2 ms more scene
+render than the same crates asleep (each awake crate is a bag of its own).
+With ONE body awake among 81 sleepers physics still cost ~1 ms: syncing,
+indexing and pairing every body of the scene each frame. What changed:
+
+- **Held bodies.** A body resting on the world ALONE - grounded, slower than
+  the rest thresholds, no other body touching it - for `PHYS_HOLD_AFTER` (10)
+  frames is held: no step, so it is an immovable partner like a sleeper,
+  while its Sleep-after countdown runs on (and puts it to sleep exactly as
+  before). The solver's answer for it was "stay where you are" every frame.
+  It goes the moment anything that would wake a sleeper happens, on any touch
+  by another body, and when its pose or velocity was changed from outside the
+  solver (a script, a push, Live Link). 82 awake crates: physics 7.6 ->
+  ~0.3 ms, the frame back at 60 FPS; a slalom through the crate field 2.4-2.7
+  -> 1.3-1.6 ms. A body creeping slower than the rest speed now stops after
+  ten frames instead of creeping for the rest of its Sleep-after wait.
+- **Nothing to solve, nothing to index.** With every body held or asleep the
+  step returns before the pair stage.
+- **Sines and cosines from the matrix.** The write-back turns the quaternion
+  into Euler angles for the scene data; the render matrix and the broad-phase
+  box then took those angles' sines and cosines again in software.
+  `rotTrigSeedFromMatrix` hands them over from the rotation matrix instead
+  (a few ulp from `rotTrigOf`, bodies only), and `updateObjMat` skips an
+  object whose pose and matrix have not changed: 0.34 -> 0.12 ms of matrices
+  for 82 moving bodies, scene render -0.4 ms.
+- **Bookkeeping per awake body** (`PHYS_LEAN_BOOKKEEPING`, false = the old
+  walk for an A/B): a sleeper that already has its slot is synced only when it
+  is about to be a contact partner; the pair grid holds the awake bodies only,
+  and sleepers and held bodies come from the scene broad phase (merged in
+  object order, so contacts solve in the same order); a broad-phase refresh in
+  which only already-moving boxes moved updates the moving index alone
+  (`BroadPhase::updateMoving`, docs/collision-boxes.md). One body awake among
+  81 sleepers: sync 0.18 -> 0.06, broad-phase refresh 0.46 -> 0.30, pairs
+  0.31 -> 0.03 ms; physics 1.08 -> 0.52 ms.
+- **Woken bodies rejoin their batches** (docs/static-batching.md).
+
+Measured and dropped: ending an island's velocity passes once no impulse
+moved more than 1e-6 per contact (no gain - resting contacts under gravity
+never fall below it), and reading the terrain table's size and grid once per
+frame instead of per sample (no gain - the cost is the arithmetic and the
+heightmap reads, ~190 cycles a sample). The solver's passes (~340 cycles per
+contact per pass on the scalar FPU) are the next lever, on VU0 - a separate
+project.
+
+Checked: the six-crate tower and the 4-3-2-1 pyramid stand and sleep on the
+console (sum of heights 32.856, was 32.854); a 34 m/s car-on-car crash with
+the crate field on the map still drops no frame.
 
 Historical physical-PS2 qualification, complete contacts enabled in both arms:
 

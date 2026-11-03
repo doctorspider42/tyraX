@@ -60,6 +60,13 @@ class BroadPhase {
   /** Apply the refresh: the grid rebuilds, the octree moves only what changed.
    */
   void commit();
+  /** Only MOVING objects' boxes changed since the last commit - same objects
+   *  present, same moving flags, no static box touched: take the new boxes of
+   *  `count` moving objects and rebuild the compact moving index alone. The
+   *  whole begin / set / commit walked and compared every object of the scene
+   *  to move one body (docs/collision-boxes.md, "The broad phase"). An
+   *  index that is not moving, or not present, is ignored. */
+  void updateMoving(const int* index, const BroadBox* boxes, int count);
   /** Forget everything (a new scene). The next commit builds from scratch. */
   void clear();
 

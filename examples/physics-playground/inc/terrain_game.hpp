@@ -320,6 +320,7 @@ class TerrainGame : public Tyra::Game {
     short envPaintKey[6] = {};
     signed char envPaintLod = -1;
     bool envPaintValid = false;
+    bool envPaintLite = false;  // the colours are the lite shine's fixed ones
 #if TYRA_VU1_EXP_PAINT
     const void* envPaintSource = nullptr;
     u32 envPaintCount = 0, envPaintVersion = 0, paintMapVersion = 0;
@@ -332,6 +333,14 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Vec4> paintNormals;
     const void* paintMapSrc = nullptr;
     u32 paintMapCount = 0;
+    // A spare map (paintMapEnsure / paintMapPrepare): the car's prebake
+    // builds its full-detail tier's map here ahead of the swap, while the far
+    // tier's map stays current; the swap then just trades the two (it used to
+    // rebuild ~3 400 normals, 1.7 ms on a PS2, a few frames before a crash).
+    std::vector<unsigned short> paintMap2;
+    std::vector<Tyra::Vec4> paintNormals2;
+    const void* paintMapSrc2 = nullptr;
+    u32 paintMapCount2 = 0;
     // The additive twin of the pass above: same atlas, same STs, WHITE vertex
     // colors, so it sees the baked emissive light in the texture's RGB.
     BagArray<Tyra::Color> emisCols;
@@ -1102,6 +1111,10 @@ class TerrainGame : public Tyra::Game {
     int sigShape = -1;
     short verts = 0, planes = 0;  // 0 verts = a sphere
     bool valid = false, tumble = true;
+    // Frames this body has rested on the world alone (no other body touching
+    // it) - past PHYS_HOLD_AFTER the solver leaves it where it is
+    // (updateObjectPhysics, "held").
+    int holdFrames = 0;
     float lv[24 * 3];   // PHYS_MAX_HULL_VERTS corners, centre-of-mass frame
     float lp[44 * 4];   // PHYS_MAX_HULL_PLANES faces n.x <= d, same frame
     short edges = 0;

@@ -291,6 +291,13 @@ about a scene with a broken asset path. Fixture E pins it.
 - The panel describes the **authored** scene. Runtime demotion — an object
   dirtied by a flow node or Live Link leaves its batch and draws solo — is not
   shown, because it has not happened yet.
+- A **physics body** that leaves its batch (woken) remembers the batches it
+  left and goes back once it has been asleep for 3 s
+  (`PHYS_REJOIN_AFTER_S`): every such body of one batch together, one batch
+  re-baked per frame. Before, a crate knocked over once drew on its own for
+  the rest of the scene (~27 us of EE a frame each on a PS2); after a field of
+  crates fell and slept, render went from 10.0 back to 5.9 ms, the picture
+  unchanged to the pixel in PCSX2.
 - A model with no baked `.tmdl` cannot be grouped, since its parts, textures
   and strip runs are products of the bake. Those objects are reported as
   *model not baked* rather than guessed at, and the panel says so at the top.

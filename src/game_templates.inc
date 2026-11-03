@@ -578,6 +578,30 @@ inline const RotTrig& rotTrigCached(int slot, const float* rotDeg) {
   return e.t;
 }
 
+/** Seed a slot from a rotation MATRIX (row-major, the Rz*Ry*Rx of rotated())
+ * whose Euler angles the caller just stored as rotDeg - the physics write-back.
+ * The sines and cosines of those angles are entries of the matrix it already
+ * has, so a moving body's broad-phase box and render matrix stop paying six
+ * software sines/cosines a frame for angles it got from asin/atan2 one step
+ * earlier. Not bit-identical to rotTrigOf() (a few ulp); only bodies use it,
+ * on the matrix path. Gimbal lock falls back to rotTrigOf(). */
+inline void rotTrigSeedFromMatrix(int slot, const float* rotDeg, const float* m) {
+  if (slot >= (int)rotTrigSlots.size()) rotTrigSlots.resize((size_t)slot + 1);
+  RotTrigSlot& e = rotTrigSlots[(size_t)slot];
+  const float sb = -m[6];
+  const float cbx2 = m[7] * m[7] + m[8] * m[8], cbz2 = m[0] * m[0] + m[3] * m[3];
+  if (sb >= 0.9999F || sb <= -0.9999F || cbx2 < 1e-8F || cbz2 < 1e-8F) {
+    e.t = rotTrigOf(rotDeg);
+  } else {
+    const float ix = 1.0F / sqrtf(cbx2), iz = 1.0F / sqrtf(cbz2);
+    e.t.sx = m[7] * ix, e.t.cx = m[8] * ix;
+    e.t.sy = sb, e.t.cy = cbx2 * ix;  // cos(b) = |(m7, m8)|
+    e.t.sz = m[3] * iz, e.t.cz = m[0] * iz;
+  }
+  for (int k = 0; k < 3; ++k) e.rot[k] = rotDeg[k];
+  e.valid = true;
+}
+
 /** rotated() with the trigonometry already done. The three stages run in the
  * same order on the same operands as below, so this is BIT-IDENTICAL to
  * rotated() and not merely equivalent - which is what lets a caller swap to
@@ -4365,6 +4389,35 @@ inline constexpr float PHYS_REST_SPEED2 = 0.00025F;  // (units/frame)^2 = "not m
 // is ~0.8 u/s); slower contacts keep treating the sleeper as immovable, so
 // settled stacks stay cheap and stable.
 inline constexpr float PHYS_WAKE_SPEED2 = 0.0025F;
+// A body resting on the world ALONE (no other body touching it), slower than
+// PHYS_REST_SPEED2 for this many frames, is HELD: the solver skips it the way
+// it skips a sleeper - an immovable partner if something touches it - while
+// its sleep countdown runs on. Its answer was "stay where you are" every frame
+// anyway: a crate lying on the road cost ~90 us a frame on a PS2 for the
+// whole of its Sleep-after wait (docs/physics.md, "Held bodies"). Anything
+// that would wake a sleeper, any touch by another body, and any change to its
+// pose or velocity from outside the solver lets it go.
+inline constexpr int PHYS_HOLD_AFTER = 10;
+// Physics bookkeeping that scaled with the scene's bodies, not the awake ones
+// (docs/physics.md, "Bookkeeping per awake body"): sleepers synced only as
+// partners, sleepers' pair boxes cached, only moving boxes refreshed in the
+// broad phase. false = the old per-frame walk (the A/B control).
+inline constexpr bool PHYS_LEAN_BOOKKEEPING = true;
+// A body woken out of its static batch draws on its own (~27 us of EE a frame
+// on a PS2) - and used to for the rest of the scene, asleep or not. Each one
+// remembers the batches it left; asleep this long, it goes back, one batch
+// re-baked per frame (renderStaticBatches, "Rejoin").
+struct BodyBatchHome {
+  int batch, part;
+};
+inline std::vector<std::vector<BodyBatchHome>> bodyBatchHome;
+inline std::vector<u32> bodyAsleepAt;  // g_frameStamp it fell asleep, 0 = awake
+inline constexpr float PHYS_REJOIN_AFTER_S = 3.0F;
+inline void bodyMarkAsleep(int obj) {
+  if (obj < 0) return;
+  if ((size_t)obj >= bodyAsleepAt.size()) bodyAsleepAt.resize((size_t)obj + 1, 0u);
+  bodyAsleepAt[(size_t)obj] = g_frameStamp | 1u;
+}
 inline constexpr float PHYS_MAX_SPEED = 3.0F;        // units/frame velocity clamp
 inline constexpr float PHYS_PUSH = 0.55F;
 
@@ -19674,6 +19727,12 @@ void TerrainGame::broadPhaseRefresh() const {
   }
   const bool trackWorld = worldBroadPhase.initialized();
   if (trackWorld) worldBroadPhase.begin(n, kind);
+  // Boxes that moved on objects already moving - the common case, a few bodies
+  // in flight - go to BroadPhase::updateMoving instead of a full refresh.
+  static std::vector<int> movedIdx;
+  static std::vector<Tyra::BroadBox> movedBox;
+  movedIdx.clear();
+  movedBox.clear();
   // First bring every entry up to date and see whether the structure would
   // change at all: an object came or went, started or stopped moving, or a
   // placed box changed. A refresh boundary after a stage that moved nothing
@@ -19713,7 +19772,12 @@ void TerrainGame::broadPhaseRefresh() const {
     if (e.stale) {
       broadPhaseBoxOf(o, e.box);
       e.stale = false;
-      changed = true;
+      if (PHYS_LEAN_BOOKKEEPING && e.present && e.moving && moving) {
+        movedIdx.push_back(i);
+        movedBox.push_back(e.box);
+      } else {
+        changed = true;
+      }
     }
     changed = changed || !e.present || moving != e.moving;
     e.present = true;
@@ -19723,7 +19787,11 @@ void TerrainGame::broadPhaseRefresh() const {
       else worldBroadPhase.set(i, e.box, moving, changedBox);
     }
   }
-  if (!changed) return;
+  if (!changed) {
+    if (!movedIdx.empty())
+      broadPhase.updateMoving(movedIdx.data(), movedBox.data(), (int)movedIdx.size());
+    return;
+  }
   broadPhase.begin(n);
   for (int i = 0; i < n; ++i) {
     const BroadPhaseCache& e = bpCache[(size_t)i];
@@ -21916,6 +21984,22 @@ bool TerrainGame::physFastPathEligible(int index) const {
 void TerrainGame::updateObjMat(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   M4x4& m = objectGeometry[index].objMat;
+  // Called every frame for every matrix-path object; a body lying still (held
+  // or asleep) would rebuild the same matrix each time. Skipped when the pose
+  // is the one this matrix was built from and the matrix is still that one.
+  // The key is the pose plus the matrix's own translation and first column,
+  // so a matrix reset under it (a geometry rebuild) is never mistaken for
+  // the one built from that pose.
+  struct ObjMatKey { float pose[6]; float m0[2]; bool valid = false; };
+  static std::vector<ObjMatKey> keys;
+  if (index >= (int)keys.size()) keys.resize((size_t)index + 1);
+  ObjMatKey& k = keys[(size_t)index];
+  if (k.valid && k.pose[0] == o.data.position[0] && k.pose[1] == o.data.position[1] &&
+      k.pose[2] == o.data.position[2] && k.pose[3] == o.data.rotation[0] &&
+      k.pose[4] == o.data.rotation[1] && k.pose[5] == o.data.rotation[2] &&
+      m.data[12] == o.data.position[0] && m.data[13] == o.data.position[1] &&
+      m.data[14] == o.data.position[2] && m.data[0] == k.m0[0] && m.data[1] == k.m0[1])
+    return;
   const RotTrig& t = rotTrigCached(index, o.data.rotation);
   const V3 bx = rotatedBy({1.0F, 0.0F, 0.0F}, t);
   const V3 by = rotatedBy({0.0F, 1.0F, 0.0F}, t);
@@ -21927,6 +22011,9 @@ void TerrainGame::updateObjMat(int index) {
   m.data[12] = o.data.position[0];
   m.data[13] = o.data.position[1];
   m.data[14] = o.data.position[2];
+  for (int a = 0; a < 3; ++a) k.pose[a] = o.data.position[a], k.pose[3 + a] = o.data.rotation[a];
+  k.m0[0] = m.data[0], k.m0[1] = m.data[1];
+  k.valid = true;
 }
 
 
@@ -21952,6 +22039,8 @@ bool TerrainGame::physObstacle(const SceneObjectData& d) {
 // terrain is chunked.
 void TerrainGame::buildStaticBatchList() {
   staticBatches.clear();
+  bodyBatchHome.clear();  // batch indices of the scene being replaced
+  bodyAsleepAt.clear();
   objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
   if (!STATIC_BATCHING) return;
   if (!batchInfoBag) {
@@ -22626,6 +22715,36 @@ void TerrainGame::renderStaticBatches() {
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerStaticBatches);
 #endif
+  // REJOIN (bodyBatchHome): bodies asleep for PHYS_REJOIN_AFTER_S go back into
+  // the batches they left - every such body of ONE batch per frame, so a
+  // crash's worth of crates costs one re-bake per batch, not one per crate.
+  if (!bodyBatchHome.empty() && !splitSecondPass) {
+    const u32 after = (u32)everyFrames(PHYS_REJOIN_AFTER_S);
+    int target = -1;
+    for (size_t obj = 0; obj < bodyBatchHome.size(); ++obj) {
+      std::vector<BodyBatchHome>& homes = bodyBatchHome[obj];
+      if (homes.empty() || obj >= runtimeObjects.size() ||
+          obj >= bodyAsleepAt.size() || bodyAsleepAt[obj] == 0u)
+        continue;
+      const RuntimeObject& ro = runtimeObjects[obj];
+      if (!physAsleep(ro) || !ro.active || g_frameStamp - bodyAsleepAt[obj] < after ||
+          objectBatchOf[obj] != -1)
+        continue;
+      if (target < 0) target = homes.front().batch;
+      bool home = false;
+      for (const BodyBatchHome& h : homes) home = home || h.batch == target;
+      if (!home) continue;
+      for (const BodyBatchHome& h : homes) {
+        if (h.batch < 0 || h.batch >= (int)staticBatches.size()) continue;
+        StaticBatch& sb = staticBatches[(size_t)h.batch];
+        sb.members.push_back({(int)obj, h.part});
+        sb.shown.push_back(0);
+        sb.dirty = true;
+        objectBatchOf[obj] = h.batch;
+      }
+      homes.clear();
+    }
+  }
   for (StaticBatch& b : staticBatches) {
     bool stale = b.dirty;
     for (size_t k = 0; k < b.members.size(); ++k) {
@@ -24975,7 +25094,14 @@ void TerrainGame::updateObjectPhysics() {
   // physBodies may grow while slots are handed out - take every slot now,
   // before any reference into the vector is held.
   physBodies.reserve(physBodies.size() + bodies.size());
-  for (int i : bodies) physBodyFor(i);
+  // A sleeper that already has its slot is synced only when it is about to
+  // be a partner (below): syncing all of them every frame was a fixed cost
+  // per body in the scene, ~2.4 us each on a PS2, however few were awake.
+  // Only a NEW slot can grow physBodies, and every new one is taken here.
+  for (int i : bodies)
+    if (!PHYS_LEAN_BOOKKEEPING || i >= (int)physSlotOf.size() || physSlotOf[i] < 0 ||
+        physBodiesScene != currentScene || !physAsleep(runtimeObjects[i]))
+      physBodyFor(i);
   stepOf.assign(count, -1);
   if(coherence) satGeometry.resize(bodies.size());
 
@@ -25060,12 +25186,39 @@ void TerrainGame::updateObjectPhysics() {
     return (int)steps.size() - 1;
   };
   steps.reserve(bodies.size());
-  for (int i : bodies)
-    if (!physAsleep(runtimeObjects[i])) makeStep(i, false);
+  for (int i : bodies) {
+    RuntimeObject& o = runtimeObjects[i];
+    if (physAsleep(o)) continue;
+    // HELD (PHYS_HOLD_AFTER): no step, so it is an immovable partner like a
+    // sleeper; its countdown to sleep goes on. Not if the solver did not
+    // leave it this way: a script or a push that moved it or gave it speed.
+    PhysBody& hb = physBodies[physSlotOf[i]];
+    if (hb.holdFrames >= PHYS_HOLD_AFTER && o.restFrames > 0 &&
+        o.velocityX * o.velocityX + o.velocityY * o.velocityY +
+                o.velocityZ * o.velocityZ < PHYS_REST_SPEED2 &&
+        o.data.position[0] == hb.lastPos[0] && o.data.position[1] == hb.lastPos[1] &&
+        o.data.position[2] == hb.lastPos[2] && o.data.rotation[0] == hb.lastRot[0] &&
+        o.data.rotation[1] == hb.lastRot[1] && o.data.rotation[2] == hb.lastRot[2]) {
+      const int sleepAt = everyFrames(o.data.physSleep);
+      if (o.restFrames < sleepAt) ++o.restFrames;
+      if (o.restFrames >= sleepAt) {
+        o.restFrames = PHYS_ASLEEP;  // as the write-back puts a body to sleep
+        bodyMarkAsleep(i);
+        o.velocityX = o.velocityY = o.velocityZ = 0.0F;
+        for (int k = 0; k < 3; ++k) hb.w[k] = 0.0F, o.spin[k] = hb.lastSpin[k] = 0.0F;
+      }
+      continue;
+    }
+    if (hb.holdFrames >= PHYS_HOLD_AFTER) hb.holdFrames = 0;  // let go: solve it again
+    makeStep(i, false);
+  }
   const int awakeCount = (int)steps.size();
 #if TYRA_FRAME_PROFILE
   ftrig::physAwake += (u32)awakeCount;
 #endif
+  // Every body held (PHYS_HOLD_AFTER) or asleep: nothing moves, nothing to
+  // index or solve this frame.
+  if (awakeCount == 0) return;
 
   auto transformedShape = [&](const RbStep& s,const PhysBody& b) -> SatGeometry& {
     auto& g=satGeometry[stepOf[s.obj]];
@@ -25462,9 +25615,20 @@ void TerrainGame::updateObjectPhysics() {
   if(coherence && (localBoundsGeneration!=sceneGeneration || localBoundsCache.size()!=runtimeObjects.size())) {
     localBoundsCache.clear();localBoundsCache.resize(runtimeObjects.size());localBoundsGeneration=sceneGeneration;
   }
-  bodyPairs.begin((int)bodies.size());
-  for (size_t pairIndex=0; pairIndex<bodies.size(); ++pairIndex) {
-    const int j=bodies[pairIndex];
+  // LEAN (PHYS_LEAN_BOOKKEEPING): the pair grid holds the awake bodies only;
+  // sleepers and held bodies, which do not move, come from the scene broad
+  // phase that the world contacts above already refreshed. Rebuilding a grid
+  // of every body in the scene each frame was a fixed ~0.3 ms on a PS2 with
+  // one body awake.
+  static std::vector<int> pairObjs, pairGridObj, sleeperNear;
+  pairGridObj.clear();
+  if (PHYS_LEAN_BOOKKEEPING)
+    for (int si = 0; si < awakeCount; ++si) pairGridObj.push_back(steps[si].obj);
+  else
+    pairGridObj.assign(bodies.begin(), bodies.end());
+  bodyPairs.begin((int)pairGridObj.size());
+  for (size_t pairIndex=0; pairIndex<pairGridObj.size(); ++pairIndex) {
+    const int j=pairGridObj[pairIndex];
     const PhysBody& B = physBodies[physSlotOf[j]];
     RbV c, previous;Tyra::CollisionBounds tight{};
     if (stepOf[j] >= 0) {
@@ -25526,8 +25690,26 @@ void TerrainGame::updateObjectPhysics() {
       pairArea.mx[k] = std::max(queryCentre[k],queryPrev[k]) + queryRadius;
     }
     bodyPairs.queryBox(pairArea, nearBodies);
-    for (int candidate : nearBodies) {
-      const int j=bodies[(size_t)candidate];
+    pairObjs.clear();
+    if (PHYS_LEAN_BOOKKEEPING) {
+      // Both lists ascend by object index: merge them into the order the
+      // full grid gave (contacts are solved in that order).
+      Tyra::BroadBox wide = pairArea;
+      for (int k = 0; k < 3; ++k) wide.mn[k] -= 1e-3F, wide.mx[k] += 1e-3F;
+      broadPhaseNear(wide, sleeperNear);
+      size_t a = 0;
+      for (int j : sleeperNear) {
+        if (!runtimeObjects[j].data.physics) continue;
+        if (stepOf[j] >= 0 && !steps[stepOf[j]].asleep) continue;  // awake: from the grid
+        while (a < nearBodies.size() && pairGridObj[(size_t)nearBodies[a]] < j)
+          pairObjs.push_back(pairGridObj[(size_t)nearBodies[a++]]);
+        pairObjs.push_back(j);
+      }
+      while (a < nearBodies.size()) pairObjs.push_back(pairGridObj[(size_t)nearBodies[a++]]);
+    } else {
+      for (int candidate : nearBodies) pairObjs.push_back(pairGridObj[(size_t)candidate]);
+    }
+    for (int j : pairObjs) {
       if (j == i) continue;
       RuntimeObject& ob = runtimeObjects[j];
       if (!physObstacle(ob.data)) continue;
@@ -25537,7 +25719,10 @@ void TerrainGame::updateObjectPhysics() {
       if (!jAsleep && j < i) continue;  // an awake pair is visited once
       const PhysBody& Bj = physBodies[physSlotOf[j]];
       int sj = stepOf[j];
-      if (sj < 0) sj = makeStep(j, true);
+      if (sj < 0) {
+        physBodyFor(j);  // its slot exists: a sync, never a new slot
+        sj = makeStep(j, true);
+      }
       const RbStep& A = steps[si];
       const RbStep& Bs = steps[sj];
       const PhysBody& Ba = physBodies[A.slot];
@@ -25621,7 +25806,8 @@ void TerrainGame::updateObjectPhysics() {
       if (Bs.asleep) {
         // Wake the sleeper on a real hit, or when it rides on this body and
         // this body is moving out from under it.
-        bool wake = false;
+        // A HELD body (awake, skipped by the solver) goes on any touch.
+        bool wake = !physAsleep(ob);
         for (int k = 0; k < n && !wake; ++k) {
           const RbV ra = rbSub(cand[k].p, A.x1);
           const float vn = rbDot(rbAdd(A.v, rbCross(A.w, ra)), cand[k].n);
@@ -25688,6 +25874,12 @@ void TerrainGame::updateObjectPhysics() {
 
   static std::vector<RbSolveContact> solve;
   solve.resize(nc);
+  // Which steps another body touched this frame: only a body alone on the
+  // world can be held (PHYS_HOLD_AFTER).
+  static std::vector<unsigned char> touchedByBody;
+  touchedByBody.assign(steps.size(), 0);
+  for (int k = 0; k < nc; ++k)
+    if (contacts[k].b >= 0) touchedByBody[contacts[k].a] = touchedByBody[contacts[k].b] = 1;
   for (int idx = 0; idx < nc; ++idx) {
     const RbContact& src = contacts[islandOrder[idx]];
     RbSolveContact& c = solve[idx];
@@ -25967,7 +26159,14 @@ void TerrainGame::updateObjectPhysics() {
     } else {
       o.restFrames = 0;
     }
+    // Resting alone on the world: counts towards being held.
+    if (S.grounded && speed2 < PHYS_REST_SPEED2 && spin2 < PHYS_REST_W2 &&
+        !touchedByBody[(size_t)si])
+      ++B.holdFrames;
+    else
+      B.holdFrames = 0;
     if (sleepNow) {
+      bodyMarkAsleep(S.obj);
       v = w = rbV(0.0F, 0.0F, 0.0F);
       // Keep the pose where the solver left it.
     }
@@ -25989,8 +26188,12 @@ void TerrainGame::updateObjectPhysics() {
     o.data.position[2] = pos.z;
     // A body that does not tumble keeps its authored Euler angles exactly
     // (no conversion round trip for a quaternion that never moved).
-    if (turned)
+    if (turned) {
       for (int k = 0; k < 3; ++k) o.data.rotation[k] = rot[k];
+      // The broad-phase box and the render matrix read these angles' sines
+      // and cosines: hand them over from R instead of recomputing them.
+      rotTrigSeedFromMatrix(S.obj, o.data.rotation, R);
+    }
     o.velocityX = v.x;
     o.velocityY = v.y;
     o.velocityZ = v.z;
@@ -26013,13 +26216,18 @@ void TerrainGame::updateObjectPhysics() {
       // draws it: the matrix promotion below never sets `dirty`, which is
       // what the batch would otherwise demote it by - it would draw twice.
       if (S.obj < (int)objectBatchOf.size() && objectBatchOf[S.obj] != -1) {
-        for (StaticBatch& sb : staticBatches)
+        if ((size_t)S.obj >= bodyBatchHome.size()) bodyBatchHome.resize((size_t)S.obj + 1);
+        bodyBatchHome[(size_t)S.obj].clear();
+        for (size_t bi = 0; bi < staticBatches.size(); ++bi) {
+          StaticBatch& sb = staticBatches[bi];
           for (size_t k = 0; k < sb.members.size();) {
             if (sb.members[k].object != S.obj) { ++k; continue; }
+            bodyBatchHome[(size_t)S.obj].push_back({(int)bi, sb.members[k].part});
             sb.members.erase(sb.members.begin() + (long)k);
             if (k < sb.shown.size()) sb.shown.erase(sb.shown.begin() + (long)k);
             sb.dirty = true;
           }
+        }
         objectBatchOf[S.obj] = -1;
       }
       if (!g.matrixMode && !o.dirty && physFastPathEligible(S.obj))

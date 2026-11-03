@@ -574,6 +574,30 @@ inline const RotTrig& rotTrigCached(int slot, const float* rotDeg) {
   return e.t;
 }
 
+/** Seed a slot from a rotation MATRIX (row-major, the Rz*Ry*Rx of rotated())
+ * whose Euler angles the caller just stored as rotDeg - the physics write-back.
+ * The sines and cosines of those angles are entries of the matrix it already
+ * has, so a moving body's broad-phase box and render matrix stop paying six
+ * software sines/cosines a frame for angles it got from asin/atan2 one step
+ * earlier. Not bit-identical to rotTrigOf() (a few ulp); only bodies use it,
+ * on the matrix path. Gimbal lock falls back to rotTrigOf(). */
+inline void rotTrigSeedFromMatrix(int slot, const float* rotDeg, const float* m) {
+  if (slot >= (int)rotTrigSlots.size()) rotTrigSlots.resize((size_t)slot + 1);
+  RotTrigSlot& e = rotTrigSlots[(size_t)slot];
+  const float sb = -m[6];
+  const float cbx2 = m[7] * m[7] + m[8] * m[8], cbz2 = m[0] * m[0] + m[3] * m[3];
+  if (sb >= 0.9999F || sb <= -0.9999F || cbx2 < 1e-8F || cbz2 < 1e-8F) {
+    e.t = rotTrigOf(rotDeg);
+  } else {
+    const float ix = 1.0F / sqrtf(cbx2), iz = 1.0F / sqrtf(cbz2);
+    e.t.sx = m[7] * ix, e.t.cx = m[8] * ix;
+    e.t.sy = sb, e.t.cy = cbx2 * ix;  // cos(b) = |(m7, m8)|
+    e.t.sz = m[3] * iz, e.t.cz = m[0] * iz;
+  }
+  for (int k = 0; k < 3; ++k) e.rot[k] = rotDeg[k];
+  e.valid = true;
+}
+
 /** rotated() with the trigonometry already done. The three stages run in the
  * same order on the same operands as below, so this is BIT-IDENTICAL to
  * rotated() and not merely equivalent - which is what lets a caller swap to
@@ -4361,6 +4385,35 @@ inline constexpr float PHYS_REST_SPEED2 = 0.00025F;  // (units/frame)^2 = "not m
 // is ~0.8 u/s); slower contacts keep treating the sleeper as immovable, so
 // settled stacks stay cheap and stable.
 inline constexpr float PHYS_WAKE_SPEED2 = 0.0025F;
+// A body resting on the world ALONE (no other body touching it), slower than
+// PHYS_REST_SPEED2 for this many frames, is HELD: the solver skips it the way
+// it skips a sleeper - an immovable partner if something touches it - while
+// its sleep countdown runs on. Its answer was "stay where you are" every frame
+// anyway: a crate lying on the road cost ~90 us a frame on a PS2 for the
+// whole of its Sleep-after wait (docs/physics.md, "Held bodies"). Anything
+// that would wake a sleeper, any touch by another body, and any change to its
+// pose or velocity from outside the solver lets it go.
+inline constexpr int PHYS_HOLD_AFTER = 10;
+// Physics bookkeeping that scaled with the scene's bodies, not the awake ones
+// (docs/physics.md, "Bookkeeping per awake body"): sleepers synced only as
+// partners, sleepers' pair boxes cached, only moving boxes refreshed in the
+// broad phase. false = the old per-frame walk (the A/B control).
+inline constexpr bool PHYS_LEAN_BOOKKEEPING = true;
+// A body woken out of its static batch draws on its own (~27 us of EE a frame
+// on a PS2) - and used to for the rest of the scene, asleep or not. Each one
+// remembers the batches it left; asleep this long, it goes back, one batch
+// re-baked per frame (renderStaticBatches, "Rejoin").
+struct BodyBatchHome {
+  int batch, part;
+};
+inline std::vector<std::vector<BodyBatchHome>> bodyBatchHome;
+inline std::vector<u32> bodyAsleepAt;  // g_frameStamp it fell asleep, 0 = awake
+inline constexpr float PHYS_REJOIN_AFTER_S = 3.0F;
+inline void bodyMarkAsleep(int obj) {
+  if (obj < 0) return;
+  if ((size_t)obj >= bodyAsleepAt.size()) bodyAsleepAt.resize((size_t)obj + 1, 0u);
+  bodyAsleepAt[(size_t)obj] = g_frameStamp | 1u;
+}
 inline constexpr float PHYS_MAX_SPEED = 3.0F;        // units/frame velocity clamp
 inline constexpr float PHYS_PUSH = 0.55F;
 
@@ -4803,7 +4856,107 @@ struct VehDentPending {
   int vi;
   unsigned generation;
   float dent[7];
+  // The hit's loose pieces wait with its dent, so the body changes in ONE
+  // frame: pieces now and the dent next frame moved the same baked streams
+  // two frames running (docs/vehicles.md, "What a crash costs").
+  float nx, nz, over;
 };
+// CRASH LOG, LATER (docs/vehicles.md, "What a crash costs"): one VEHDMG line
+// per hit car, printed half a second after the hit. A debug build's log line
+// over ps2link costs ~0.6 ms of the frame it is written in, and a hard hit
+// used to write eight of them (one per lost window or panel) into the
+// heaviest frame of all. Release builds compile the logging out.
+struct VehLogLine {
+  u32 due;
+  char text[200];
+};
+// THE PAINT MAP (renderEnvPass): vertex k's slot among the DISTINCT normals
+// of the array the env bag reads. A body is a triangle list, so one normal
+// sits on many vertices and the paint colour is a pure function of it.
+inline void paintMapBuildInto(std::vector<unsigned short>& map,
+                              std::vector<Tyra::Vec4>& normals,
+                              const Tyra::Vec4* nrm, u32 n) {
+  normals.clear();
+  map.assign(n, 0);
+  u32 cap = 64;
+  while (cap < n * 2U) cap <<= 1;
+  std::vector<int> table(cap, -1);
+  bool overflow = false;
+  for (u32 k = 0; k < n && !overflow; ++k) {
+    u32 bits[3];
+    memcpy(bits, &nrm[k], sizeof(bits));
+    u32 h = (bits[0] * 0x9E3779B1U) ^ (bits[1] * 0x85EBCA6BU) ^
+            (bits[2] * 0xC2B2AE35U);
+    for (u32 slot = h & (cap - 1);; slot = (slot + 1) & (cap - 1)) {
+      const int e = table[slot];
+      if (e < 0) {
+        if (normals.size() >= 65535U) { overflow = true; break; }
+        table[slot] = (int)normals.size();
+        map[k] = (unsigned short)normals.size();
+        normals.push_back(nrm[k]);
+        break;
+      }
+      u32 other[3];
+      memcpy(other, &normals[(size_t)e], sizeof(other));
+      if (other[0] == bits[0] && other[1] == bits[1] && other[2] == bits[2]) {
+        map[k] = (unsigned short)e;
+        break;
+      }
+    }
+  }
+  if (overflow) {  // too many to index in 16 bits: one slot per vertex
+    normals.assign(nrm, nrm + n);
+    map.clear();
+  }
+  TYRA_LOG("VEHPAINT normals ", (int)n, " distinct ", (int)normals.size());
+}
+// Make the part's CURRENT map the one for (nrm, n): the spare slot is taken
+// when it already holds it (a tier swap the prebake saw coming), and the two
+// trade places - a car crossing its swap distance back and forth rebuilds
+// nothing. A rebuild goes into the current slot and leaves the spare alone.
+template <class Part>
+inline void paintMapEnsure(Part& part, const Tyra::Vec4* nrm, u32 n) {
+  if (part.paintMapSrc == nrm && part.paintMapCount == n) return;
+  if (part.paintMapSrc2 == nrm && part.paintMapCount2 == n) {
+    part.paintMap.swap(part.paintMap2);
+    part.paintNormals.swap(part.paintNormals2);
+    std::swap(part.paintMapSrc, part.paintMapSrc2);
+    std::swap(part.paintMapCount, part.paintMapCount2);
+    return;
+  }
+  paintMapBuildInto(part.paintMap, part.paintNormals, nrm, n);
+  part.paintMapSrc = nrm;
+  part.paintMapCount = n;
+}
+// Have the map for (nrm, n) ready in either slot without touching the
+// current one - the vehicle prebake, a few frames before the swap.
+template <class Part>
+inline void paintMapPrepare(Part& part, const Tyra::Vec4* nrm, u32 n) {
+  if ((part.paintMapSrc == nrm && part.paintMapCount == n) ||
+      (part.paintMapSrc2 == nrm && part.paintMapCount2 == n))
+    return;
+  paintMapBuildInto(part.paintMap2, part.paintNormals2, nrm, n);
+  part.paintMapSrc2 = nrm;
+  part.paintMapCount2 = n;
+}
+inline int vehPaintPrepNext = 0;  // the car stepVehicles prepares a map for next
+// g_frameStamp of each car's last hit (0 = never): its paint holds still for
+// a moment after it (vehiclePaintGate) - the camera shakes and the car spins
+// in exactly the frames the dents re-copy the bodies.
+inline u32 vehHitFrameAt[32] = {};
+inline VehLogLine vehLogQueue[4];
+inline int vehLogN = 0;
+inline int vehHitLost[2] = {0, 0};  // this hit's shattered windows, lost panels
+inline void vehLogLater(const char* text) {
+#ifndef NDEBUG
+  if (vehLogN >= 4) return;
+  VehLogLine& l = vehLogQueue[vehLogN++];
+  l.due = g_frameStamp + 30u;
+  snprintf(l.text, sizeof(l.text), "%s", text);
+#else
+  (void)text;
+#endif
+}
 inline std::vector<VehDentPending> vehDentQueue;
 inline u32 vehDentFrame = ~0u;
 inline int vehDentBudget = 0;

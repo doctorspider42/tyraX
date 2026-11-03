@@ -206,11 +206,16 @@ of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
   placeholder bounds). A refresh that changes nothing in the structure (no
   object came, went, started or stopped moving, or got a new box) skips the
   rebuild: a boundary after a quiet stage costs one walk over the objects.
+  Neither does a refresh in which only objects that were already moving got
+  new boxes - a few bodies in flight: those boxes go to
+  `BroadPhase::updateMoving`, which rebuilds the compact moving index alone
+  (one body moving among 81 sleepers on a PS2: refresh 0.46 -> 0.30 ms).
 - **Moving objects** are spatially indexed too. Changed transforms refresh
   their boxes at stage boundaries, including after vehicle movement. Oversized
   boxes retain the conservative fallback. Rigid-body/world queries use a cached
   static index and a separately refreshed set of moving nonphysics solids;
-  dynamic body pairs have their own per-step swept-bounds grid. Results remain
+  dynamic body pairs have their own per-step swept-bounds grid of the awake
+  bodies; sleeping and held bodies come from this index (docs/physics.md). Results remain
   ascending, and the exact collision test decides whether contact exists.
 - **Moving a collider yourself.** Scripts and flow graphs need nothing: they
   write `ctx.objects` during the script stage, nothing queries the broad phase

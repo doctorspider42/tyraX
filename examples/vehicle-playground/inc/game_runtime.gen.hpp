@@ -574,6 +574,30 @@ inline const RotTrig& rotTrigCached(int slot, const float* rotDeg) {
   return e.t;
 }
 
+/** Seed a slot from a rotation MATRIX (row-major, the Rz*Ry*Rx of rotated())
+ * whose Euler angles the caller just stored as rotDeg - the physics write-back.
+ * The sines and cosines of those angles are entries of the matrix it already
+ * has, so a moving body's broad-phase box and render matrix stop paying six
+ * software sines/cosines a frame for angles it got from asin/atan2 one step
+ * earlier. Not bit-identical to rotTrigOf() (a few ulp); only bodies use it,
+ * on the matrix path. Gimbal lock falls back to rotTrigOf(). */
+inline void rotTrigSeedFromMatrix(int slot, const float* rotDeg, const float* m) {
+  if (slot >= (int)rotTrigSlots.size()) rotTrigSlots.resize((size_t)slot + 1);
+  RotTrigSlot& e = rotTrigSlots[(size_t)slot];
+  const float sb = -m[6];
+  const float cbx2 = m[7] * m[7] + m[8] * m[8], cbz2 = m[0] * m[0] + m[3] * m[3];
+  if (sb >= 0.9999F || sb <= -0.9999F || cbx2 < 1e-8F || cbz2 < 1e-8F) {
+    e.t = rotTrigOf(rotDeg);
+  } else {
+    const float ix = 1.0F / sqrtf(cbx2), iz = 1.0F / sqrtf(cbz2);
+    e.t.sx = m[7] * ix, e.t.cx = m[8] * ix;
+    e.t.sy = sb, e.t.cy = cbx2 * ix;  // cos(b) = |(m7, m8)|
+    e.t.sz = m[3] * iz, e.t.cz = m[0] * iz;
+  }
+  for (int k = 0; k < 3; ++k) e.rot[k] = rotDeg[k];
+  e.valid = true;
+}
+
 /** rotated() with the trigonometry already done. The three stages run in the
  * same order on the same operands as below, so this is BIT-IDENTICAL to
  * rotated() and not merely equivalent - which is what lets a caller swap to
@@ -4361,6 +4385,35 @@ inline constexpr float PHYS_REST_SPEED2 = 0.00025F;  // (units/frame)^2 = "not m
 // is ~0.8 u/s); slower contacts keep treating the sleeper as immovable, so
 // settled stacks stay cheap and stable.
 inline constexpr float PHYS_WAKE_SPEED2 = 0.0025F;
+// A body resting on the world ALONE (no other body touching it), slower than
+// PHYS_REST_SPEED2 for this many frames, is HELD: the solver skips it the way
+// it skips a sleeper - an immovable partner if something touches it - while
+// its sleep countdown runs on. Its answer was "stay where you are" every frame
+// anyway: a crate lying on the road cost ~90 us a frame on a PS2 for the
+// whole of its Sleep-after wait (docs/physics.md, "Held bodies"). Anything
+// that would wake a sleeper, any touch by another body, and any change to its
+// pose or velocity from outside the solver lets it go.
+inline constexpr int PHYS_HOLD_AFTER = 10;
+// Physics bookkeeping that scaled with the scene's bodies, not the awake ones
+// (docs/physics.md, "Bookkeeping per awake body"): sleepers synced only as
+// partners, sleepers' pair boxes cached, only moving boxes refreshed in the
+// broad phase. false = the old per-frame walk (the A/B control).
+inline constexpr bool PHYS_LEAN_BOOKKEEPING = true;
+// A body woken out of its static batch draws on its own (~27 us of EE a frame
+// on a PS2) - and used to for the rest of the scene, asleep or not. Each one
+// remembers the batches it left; asleep this long, it goes back, one batch
+// re-baked per frame (renderStaticBatches, "Rejoin").
+struct BodyBatchHome {
+  int batch, part;
+};
+inline std::vector<std::vector<BodyBatchHome>> bodyBatchHome;
+inline std::vector<u32> bodyAsleepAt;  // g_frameStamp it fell asleep, 0 = awake
+inline constexpr float PHYS_REJOIN_AFTER_S = 3.0F;
+inline void bodyMarkAsleep(int obj) {
+  if (obj < 0) return;
+  if ((size_t)obj >= bodyAsleepAt.size()) bodyAsleepAt.resize((size_t)obj + 1, 0u);
+  bodyAsleepAt[(size_t)obj] = g_frameStamp | 1u;
+}
 inline constexpr float PHYS_MAX_SPEED = 3.0F;        // units/frame velocity clamp
 inline constexpr float PHYS_PUSH = 0.55F;
 
