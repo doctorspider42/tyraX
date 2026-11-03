@@ -231,6 +231,17 @@ if (hit.object) { /* a collision box */ } else if (hit.hit) { /* the terrain */ 
 is the *Raycast* node: what the player looks at. Any visible object counts,
 with collision or without.
 
+`tyrax::raycastCamera` fires `raycast` from the camera that renders the
+frame (a cutscene's or `setCamera`'s eye, else the player's camera) at a
+point or an object. By default it stops at the target, so it answers "does
+the camera see this?":
+
+```cpp
+const tyrax::RayHit h = tyrax::raycastCamera(ctx, object);  // or a Vec3
+const bool seen = !h.hit || h.object == object;  // nothing else in the way
+tyrax::Vec3 eye = tyrax::cameraPosition(ctx);               // where the ray starts
+```
+
 **B6: Sentry** turns green while it can see you:
 
 ```cpp

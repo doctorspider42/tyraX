@@ -5615,8 +5615,10 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 8
+#define TYRAX_VERSION_MINOR 9
 #define TYRAX_VERSION_PATCH 0
+// 2.9.0: tyrax::raycastCamera + tyrax::cameraPosition - a raycast from the
+// active camera (cutscene / setCamera eye, else the player's camera) at a target.
 // 2.8.0: the script debugger (docs/script-debugger.md) - GDB / VS Code on a
 // line of a C++ script in PCSX2, through a BREAK handler in the game and the
 // editor's GDB server over PINE; the VS Code extension becomes "doctorspider.tyrax",

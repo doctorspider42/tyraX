@@ -245,11 +245,12 @@ object, as the *Spawn Object* node does.
 |---|---|
 | `raycast(ctx, origin, dir, maxDist, radius, skip)` | **what blocks movement**: object collision boxes, rotated, exactly as the walker and the camera boom see them, and the terrain. `radius > 0` sweeps a sphere. Objects without collision, markers and areas never stop it. |
 | `raycastFromPlayer(ctx, maxDist)` | **what you can see**, the *Raycast* node exactly: every visible object's bounding sphere, with collision or without, and the terrain, from the player's eye along the view |
+| `raycastCamera(ctx, target, maxDist, radius, skip)` | `raycast` fired from the **active camera** at `target` (a point or an `ObjectRef`): a cutscene's or `setCamera`'s eye while one owns the view, the player's camera (first-person eye, third-person boom) otherwise. `maxDist` 0 (the default) stops at the target, so `hit` means something solid is in the way; aimed at an object with collision, `hit.object == target` means the camera sees it first. `cameraPosition(ctx)` is that origin. |
 | `lineOfSight(ctx, a, b, skip)` | true when `raycast` finds nothing between `a` and `b` |
 | `terrainHeight(ctx, x, z)` | the ground height |
 | `playerInArea(ctx, areaIndex)` | either player inside an Area object |
 
-Both raycasts return a `RayHit` with `hit`, `distance`, `point` and `object`.
+Every raycast returns a `RayHit` with `hit`, `distance`, `point` and `object`.
 `object` is empty when the terrain was hit. A project whose
 `terrain_game.hpp` was taken over before 2.3.0 lacks the game's sweep, and
 its `raycast` falls back to the bounding spheres.
