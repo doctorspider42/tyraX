@@ -768,6 +768,40 @@ inline RayHit raycastFromPlayer(ScriptContext& ctx, float maxDist = 100.0F) {
   if (obj >= 0) h.object = ObjectRef(&ctx, obj);
   return h;
 }
+/** Where the camera that renders this frame stands: a cutscene's or
+ * setCamera()'s eye while one owns the view, the player's camera (the
+ * first-person eye, the third-person boom) otherwise. */
+inline Vec3 cameraPosition(const ScriptContext& ctx) {
+  return ctx.cameraOverride ? Vec3(ctx.cameraEye) : Vec3(ctx.playerPosition);
+}
+/** raycast() fired from the active camera (cameraPosition) at `target`,
+ * whatever the camera looks at. maxDist <= 0 stops the ray at the target, so
+ * `hit` means something solid stands between the camera and the target; a
+ * larger maxDist carries it on past the target. */
+inline RayHit raycastCamera(ScriptContext& ctx, const Vec3& target, float maxDist = 0.0F,
+                            float radius = 0.0F, int skip = -1) {
+  const Vec3 o = cameraPosition(ctx);
+  const Vec3 dir = target - o;
+  const float len = length(dir);
+  if (len < 1e-4F) {
+    RayHit h;
+    h.point = o;
+    return h;
+  }
+  return raycast(ctx, o, dir, maxDist > 0.0F ? maxDist : len, radius, skip);
+}
+/** raycastCamera() at an object's position. The object itself is not
+ * skipped: with a collision box, `hit.object == target` means the camera
+ * sees it first. */
+inline RayHit raycastCamera(ScriptContext& ctx, const ObjectRef& target, float maxDist = 0.0F,
+                            float radius = 0.0F, int skip = -1) {
+  if (!target) {
+    RayHit h;
+    h.point = cameraPosition(ctx);
+    return h;
+  }
+  return raycastCamera(ctx, target.position(), maxDist, radius, skip);
+}
 /** Nothing solid between a and b (skip one object, e.g. the looker). */
 inline bool lineOfSight(ScriptContext& ctx, const Vec3& a, const Vec3& b, int skip = -1) {
   const float d = distance(a, b);
