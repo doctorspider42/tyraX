@@ -303,9 +303,21 @@ Measured and dropped: ending an island's velocity passes once no impulse
 moved more than 1e-6 per contact (no gain - resting contacts under gravity
 never fall below it), and reading the terrain table's size and grid once per
 frame instead of per sample (no gain - the cost is the arithmetic and the
-heightmap reads, ~190 cycles a sample). The solver's passes (~340 cycles per
-contact per pass on the scalar FPU) are the next lever, on VU0 - a separate
-project.
+heightmap reads, ~190 cycles a sample).
+
+**The passes on VU0, macro mode: slower.** The velocity and split passes were
+rewritten as a branch-free VU0 macro-mode kernel (three-wide multiplies, the
+per-contact scalars in the w lanes, a zero-mass body for the world, the
+friction clamp as min(1, lim / sqrt(l2)) from one VRSQRT) and A/B'd in one
+build on a physical PS2 with 328 contacts: solve 3.44 -> 4.17 ms. A
+sequential-impulse pass is one dependency chain - every contact reads the
+velocities the previous one wrote - and macro-mode instructions issue one at
+a time from the EE with ~4-cycle latency, so the three lanes buy nothing a
+chain of scalar FPU operations did not already get, and copying the contacts
+into 16-byte lanes and back costs on top. What could still win is VU0
+**micro** mode with several independent islands interleaved in one scheduled
+program (the chain hidden behind other islands' work, the EE free meanwhile) -
+a project with its own data path (VU0 data memory holds ~18 contacts).
 
 Checked: the six-crate tower and the 4-3-2-1 pyramid stand and sleep on the
 console (sum of heights 32.856, was 32.854); a 34 m/s car-on-car crash with
