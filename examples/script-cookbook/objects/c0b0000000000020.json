@@ -1,0 +1,1 @@
+{"id": "c0b0000000000020", "name": "c-magnet", "type": "sphere", "position": [-7, 1.2, 22], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.8, 0.1, 0.1], "physics": false, "scripts": ["Magnet"], "scriptProps": {"Magnet": {"radius": "6", "strength": "6"}}}

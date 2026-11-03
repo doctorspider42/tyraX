@@ -5618,8 +5618,35 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 1
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 10
+#define TYRAX_VERSION_PATCH 0
+// 2.10.0: physics on the PS2 (bodies start asleep, sleepers batch and rejoin
+// their batches, box face patches, warm start, held bodies, bookkeeping per
+// awake body), car crashes without dropped frames, the lite shine (off by
+// default) - docs/physics.md, docs/vehicles.md.
+// 2.9.0: tyrax::raycastCamera + tyrax::cameraPosition - a raycast from the
+// active camera (cutscene / setCamera eye, else the player's camera) at a target.
+// 2.8.0: the script debugger (docs/script-debugger.md) - GDB / VS Code on a
+// line of a C++ script in PCSX2, through a BREAK handler in the game and the
+// editor's GDB server over PINE; the VS Code extension becomes "doctorspider.tyrax",
+// ready for the Marketplace, with a `tyrax` debug type.
+// 2.7.0: docs/script-cookbook.md + examples/script-cookbook; ObjectRef moves
+// take the matrix path (12.5 -> 50 FPS on the cookbook level), same-value
+// setColor/setScale are free, field-picked events and sounds count.
+// 2.6.0: script extensions (src/extensions/<name>, docs/script-extensions.md),
+// TYRAX_NAMESPACE_BEGIN/_END, `include =` for custom nodes, the Essentials
+// library (extensions/essentials) and examples/script-framework.
+// 2.5.0: object-script lifecycle callbacks (onEvent, onPlayerEnter/Exit,
+// onAnimationFinished, onActivated/Deactivated, onLateUpdate, onSceneEnd),
+// tyrax::getScript/findScript(s), TYRA_SCRIPT_METHOD + the Call Script node.
+// 2.4.0: [[tyra::prop]] public script fields, set per attachment in
+// Properties > Scripts (src/scriptprops.cpp, docs/script-api.md).
+// 2.3.0: the tyrax:: script API (docs/script-api.md) - inc/tyrax/tyrax.hpp +
+// typed project names in inc/tyrax/names.gen.hpp; graphs and scripts share the
+// event bus, the random sequence, the SFX voice table and the Raycast node.
+// 2.2.0: the game's C++ standard (17/20/23, default 20) and extra compiler /
+// linker flags are project preferences, and the generated Makefile includes an
+// optional user-owned user.mk (docs/native-toolchain.md).
 // 2.1.1: the release workflow publishes CHANGELOG.md's "## <version>" section
 // as the release notes (generated notes when the changelog names no such
 // version); changelog headings carry no date (docs/updates.md).
@@ -6463,13 +6490,26 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Project::textureFilters ("textureFilter" { texture: mode } beside
 // "textureQuality", written only when there is one). Missing = smooth, which
 // is what every older project drew. Additive; no migration.
-// v124 (docs/vehicles.md, "The shine budget"): ProjectSettings::
+// v124 (docs/native-toolchain.md, "C++ standard and compiler flags"):
+// ProjectSettings::cppStandard ("cppStandard", written only when not
+// "c++20"), extraCompilerFlags and extraLinkerFlags (written only when set).
+// Missing = C++20 and no extra flags; a project that predates them compiled
+// as gnu++17 and builds unchanged as C++20. Additive; no migration.
+// v125 (docs/script-api.md, "Public fields"): SceneObject::scriptProps,
+// "scriptProps" { class: { field: "value text" } } on an object, written only
+// when a field is set away from its script's default. Missing = every field at
+// its default, which is all an older project could mean. Additive; no
+// migration.
+// v126 (docs/script-debugger.md): ProjectSettings::scriptDebugger
+// ("scriptDebugger" in settings, written only when true). Missing = off, which
+// is what every older project built. Additive; no migration.
+// v127 (docs/vehicles.md, "The shine budget"): ProjectSettings::
 // vehicleShineLite ("vehicleShineLite" in settings, written only when on) and
 // VehicleDef::envLite (the bake-measured lite prefix, "envLite" beside
 // "envLimits", written only when there is one). Missing = the full shine on
 // every shining car, which is what every older project drew. Additive; no
-// migration.
-inline constexpr int kFormatVersion = 124;
+// migration. (Stamped 124 on its branch; renumbered at the merge.)
+inline constexpr int kFormatVersion = 127;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

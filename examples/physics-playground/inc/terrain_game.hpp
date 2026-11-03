@@ -1449,6 +1449,19 @@ class TerrainGame : public Tyra::Game {
                     float best) const;
   float sweepTerrain(const SweepSeg& s, float best) const;
 
+ public:
+  // The script API's world raycast (tyrax::raycast, docs/script-api.md):
+  // sweepSphere that also reports WHICH object stopped it (-1 = terrain or
+  // nothing). The collision runtime defines it and registers it with the
+  // script API only when this marker is here, so a project that owns an older
+  // copy of this header still builds (its scripts fall back to the Raycast
+  // node's bounding spheres).
+#define TYRAX_HAS_WORLD_SWEEP 1
+  float worldSweep(float px, float py, float pz, float dx, float dy, float dz,
+                   float maxDist, float radius, int skipIndex, int* hitObj) const;
+
+ private:
+
   // --- the collision box (docs/collision-boxes.md) --------------------------
   // What an object reduces to for the walker, the camera boom and the
   // split-screen cull. ONE builder: these three used to size the box

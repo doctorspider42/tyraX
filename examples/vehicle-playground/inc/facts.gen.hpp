@@ -33,6 +33,9 @@ extern float factPos[FACT_POS_COUNT > 0 ? FACT_POS_COUNT : 1][3];
 void factResetAll();
 // The same, for scene-scoped facts only - run on every scene load.
 void factResetScene();
+// Script writes (tyrax::setFact): the same door the graphs use.
+void factStore(int slot, float v);
+void factStorePos(int slot, float x, float y, float z);
 
 // One row of the save payload. Keyed by the fact's own stable id
 // and NOT by its position, which is what lets the catalog be

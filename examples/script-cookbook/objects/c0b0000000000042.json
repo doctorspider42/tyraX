@@ -1,0 +1,1 @@
+{"id": "c0b0000000000042", "name": "manager", "type": "empty", "position": [0, 0.5, 2], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.8, 0.8, 0.8], "physics": false, "scripts": ["GameManager"], "scriptProps": {"GameManager": {"reportEvery": "10"}}}

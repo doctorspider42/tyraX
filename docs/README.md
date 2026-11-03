@@ -148,6 +148,19 @@ a Mac) finds any command, object or window by name.
 
 - [Object scripts (Unity-style components)](object-scripts.md) — C++ scripts on
   objects: lifecycle, ScriptContext reference, globals, performance.
+- [Script API (`tyrax::`)](script-api.md) — the C++ library every script can
+  call: what the flow nodes do (objects, raycasts against the real collision
+  boxes, sounds, events shared with graphs, save data, HUD, scenes) plus
+  vectors, easing, random numbers and timers, with the project's names as
+  typed constants (`tyrax::Sounds::Door`); `[[tyra::prop]]` public fields
+  set per object in Properties.
+- [Script cookbook](script-cookbook.md) - a working snippet for every
+  script API helper, every kind of public field and every callback, section
+  by section, each one a station of the playable script-cookbook example.
+- [Script extensions](script-extensions.md) — folders of reusable scripts and
+  flow nodes under `src/extensions/` that move between projects as a copy:
+  manifest, portable `TYRAX_NAMESPACE_BEGIN` code, `include =` for a node's
+  C++, the Extensions page and CLI, and the shipped *Essentials* library.
 - [The Flow Graph window](flow-graph.md) — giving an object behaviour: the
   graph that follows the selection, the add-node search, compact nodes with an
   inspector, problems, Frame all / Tidy, and the live-debugging view.
@@ -248,6 +261,10 @@ a Mac) finds any command, object or window by name.
   flow-graph interpreter debug builds carry, and what still needs a build.
 - [Live Debugger (step through the running game's logic)](live-debugger.md) —
   breakpoints on flow nodes, pause/step, watches, the execution timeline.
+- [Script debugger (GDB / VS Code in PCSX2)](script-debugger.md) — stop the
+  running game on a line of a C++ script, step, read and change locals and
+  fields, from VS Code's F5 or any GDB; a BREAK handler in the game, the
+  editor's GDB server over PCSX2's PINE socket, no modified emulator.
 - [The time machine (put the running game back)](time-machine.md) — periodic
   captures of everything the game mutates, pushed back on demand.
 - [Remote Pad (hold the running game's controller)](remote-pad.md) — a
@@ -371,7 +388,8 @@ Developer design docs (internals, not user guides):
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
   kernels out of stages, no assembly.
 - [The native PS2 toolchain](native-toolchain.md) — the default Docker-free
-  build, first-run setup, caches, vendored sources, licences and Docker fallback.
+  build, first-run setup, caches, vendored sources, licences and Docker fallback,
+  plus the game's C++ standard, extra compiler/linker flags and `user.mk`.
 - [The toolchain image](toolchain-image.md) — where the optional Docker image is
   compiled in comes from, and the long measured account of replacing Sony's
   unlicensed `vcl` with `openvcl` so the image can be published at all:

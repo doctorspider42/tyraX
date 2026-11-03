@@ -1,0 +1,1 @@
+{"id": "c0b0000000000030", "name": "c-spawner", "type": "empty", "position": [7, 0.5, 22], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.8, 0.8, 0.8], "physics": false, "scripts": ["SpawnDemo"], "scriptProps": {"SpawnDemo": {"templateObject": "c0b0000000000029", "interval": "1.5", "maxAlive": "4"}}}

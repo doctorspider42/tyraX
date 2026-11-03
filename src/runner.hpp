@@ -9,6 +9,7 @@
 #include <thread>
 #include <vector>
 
+#include "gdbstub.hpp"
 #include "platform.hpp"
 #include "project.hpp"
 
@@ -107,6 +108,9 @@ public:
     // project open). Call once per frame from the UI thread.
     void watchGame(const Project* p);
     GameStatus gameStatus() const;
+    // The PINE slot the last PCSX2 launch with the script debugger on will
+    // listen on (docs/script-debugger.md); 0 = no such launch yet.
+    int pineSlot() const { return pineSlot_.load(); }
 
     // Copies the whole log (called every frame by the UI; log is small).
     std::string log() const;
@@ -116,6 +120,11 @@ public:
     // project would launch (configured path first, then auto-detect). Empty when
     // the emulator or its PCSX2.ini can't be located. Used by the Debug window.
     std::string emulatorLogPath(const Project& p) const;
+
+    // How the script debugger's GDB server serves this project's running game
+    // (docs/script-debugger.md): its symbol ELF, the PINE slot the last launch
+    // enabled, the GDB port and - on Windows - the WSL relay to start.
+    gdbstub::Config scriptDebugConfig(const Project& p) const;
 
 private:
     // Outcome of a `ps2client reset`, as far as the PC can tell. Answered = the
@@ -185,6 +194,7 @@ private:
     // Cancel support: exec() parks the running child here so cancel() can
     // terminate its whole tree; the mutex orders kill vs destruction.
     std::atomic<bool> cancelRequested_{false};
+    std::atomic<int> pineSlot_{0};
     mutable std::mutex execProcMutex_;
     std::unique_ptr<platform::Process> execProc_;  // guarded above
 

@@ -38,9 +38,9 @@ Today the same scene reads 87 eligible, 65 batched, 22 solo. **The counter
 totals those 22; the panel names them** — on this scene all 22 are singleton
 groups, and a further 24 shapes never became eligible at all (18 marked *Show
 in reflections*, 6 physics bodies - physics bodies batch while they sleep
-since 2.1.2, see below).
+since 2.10.0, see below).
 
-**Physics bodies batch while they sleep** (2.1.2). A body is eligible like
+**Physics bodies batch while they sleep** (2.10.0). A body is eligible like
 any other shape; the first frame the solver moves it, the physics write-back
 takes it out of every batch it is in (and marks those batches for a rebuild)
 before promoting it to the matrix path. The promotion never sets `dirty`, so

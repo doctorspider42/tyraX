@@ -1,0 +1,1 @@
+{"id": "c0b0000000000047", "name": "g-watcher", "type": "cone", "position": [0, 1, 50], "rotation": [0, 0, 0], "scale": [0.8, 1.6, 0.8], "color": [1, 0.4, 0.7], "physics": false, "scripts": ["LookAtPlayer"], "scriptProps": {"LookAtPlayer": {"turnSpeed": "240"}}}

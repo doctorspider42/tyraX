@@ -23,6 +23,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <set>
 #include <sstream>
@@ -981,6 +982,158 @@ void App::drawReplayPanel() {
         "runs) and anything you change while it plays - a rewind, a Live\n"
         "Logic patch or a Live Link edit all move the world out from under\n"
         "the recording on purpose. See docs/input-replay.md.");
+}
+
+void App::scriptDebugTick() {
+    namespace fs = std::filesystem;
+    // Serve exactly while this project's game runs in PCSX2 with the debugger
+    // built in. A console has no PINE, so a ps2link deploy never gets one.
+    const bool on = hasProject_ && templates::scriptDebugOn(project_);
+    const Runner::GameStatus gs = runner_.gameStatus();
+    const bool want = on && gs.running && !gs.onPs2;
+    if (!want) {
+        gdbServer_.reset();
+        gdbServerKey_.clear();
+    } else {
+        // Restart when what it serves changes - a rebuild is a new ELF, with
+        // the mailbox somewhere else.
+        gdbstub::Config c = runner_.scriptDebugConfig(project_);
+        c.sessionFile.clear();  // the editor publishes the richer one below
+        std::error_code ec;
+        const auto stamp = fs::last_write_time(c.elfPath, ec);
+        const std::string key =
+            c.elfPath + "|" + std::to_string(c.pineSlot) + "|" + std::to_string(c.port) + "|" +
+            (ec ? std::string("-")
+                : std::to_string(static_cast<long long>(stamp.time_since_epoch().count())));
+        if (!gdbServer_ || key != gdbServerKey_) {
+            gdbServer_.reset();
+            gdbServer_ = std::make_unique<gdbstub::Server>(c);
+            gdbServerKey_ = key;
+            gdbRequestError_.clear();
+        }
+    }
+
+    // bin/gdbserver.json - what VS Code's F5 reads to decide whether to attach,
+    // ask this editor for a debug run, or start one of its own.
+    const std::string path =
+        hasProject_ ? (fs::path(project_.dir) / "bin" / "gdbserver.json").string() : "";
+    if (path != gdbSessionPath_) {
+        std::error_code ec;
+        if (!gdbSessionPath_.empty()) fs::remove(gdbSessionPath_, ec);
+        gdbSessionPath_ = path;
+        gdbSessionLast_.clear();
+        gdbRequestError_.clear();
+    }
+    if (path.empty()) return;
+
+    // A request from VS Code (bin/gdbserver.request): turn the debugger on if it
+    // is off, build and run - unless it is already serving a game.
+    const double now = ImGui::GetTime();
+    if (now >= gdbRequestPollAt_) {
+        gdbRequestPollAt_ = now + 0.4;
+        const fs::path req = fs::path(project_.dir) / "bin" / "gdbserver.request";
+        std::error_code ec;
+        // The Runner deletes the file on every launch (it described the game
+        // that launch replaces); write it again even when nothing changed.
+        if (!fs::exists(path, ec)) gdbSessionLast_.clear();
+        // A build this editor started for a request has finished: a failure
+        // must reach VS Code, which would otherwise wait for a game forever.
+        if (gdbRequestBuilding_ && !runner_.busy()) {
+            gdbRequestBuilding_ = false;
+            if (runner_.state() == Runner::State::Failed)
+                gdbRequestError_ = "the build failed - the editor's Output panel has the first error";
+        }
+        // Left alone while a build runs: the request is handled when it is done.
+        if (fs::exists(req, ec) && !runner_.busy()) {
+            // {"id": "...", "rebuild": true|false} - the id is echoed back so
+            // VS Code never mistakes the old game for the one it asked for.
+            std::string body;
+            {
+                std::ifstream in(req, std::ios::binary);
+                body.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            }
+            fs::remove(req, ec);
+            std::string id;
+            if (const size_t k = body.find("\"id\""); k != std::string::npos) {
+                const size_t q1 = body.find('"', body.find(':', k) + 1);
+                const size_t q2 = q1 == std::string::npos ? q1 : body.find('"', q1 + 1);
+                if (q2 != std::string::npos) id = body.substr(q1 + 1, q2 - q1 - 1);
+            }
+            const bool rebuild = body.find("\"rebuild\": true") != std::string::npos ||
+                                 body.find("\"rebuild\":true") != std::string::npos;
+            gdbRequestError_.clear();
+            const bool serving =
+                gdbServer_ && gdbServer_->state() != gdbstub::State::Failed &&
+                gdbServer_->state() != gdbstub::State::WaitingForGame;
+            if (project_.settings.buildProfile != "debug") {
+                gdbRequestError_ = "this project builds with the release profile - switch to "
+                                   "debug (the profile pill left of PCSX2 | PS2)";
+            } else if (rebuild || !serving) {
+                if (!project_.settings.scriptDebugger) {
+                    project_.settings.scriptDebugger = true;
+                    commitChange();
+                }
+                // Build & Run replaces a game that is already running (the
+                // Runner closes this project's PCSX2 first), and the GDB server
+                // follows the new ELF.
+                runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
+                gdbRequestBuilding_ = true;
+                statusMessage_ = rebuild ? "Script debugger: the code changed - rebuilding for VS Code."
+                                         : "Script debugger: VS Code asked for a debug run - building.";
+            }
+            gdbRequestId_ = id;
+        }
+    }
+
+    std::string state, message;
+    if (!gdbRequestError_.empty()) {
+        state = "failed";
+        message = gdbRequestError_;
+    } else if (project_.settings.buildProfile != "debug") {
+        state = "release";
+        message = "the release profile carries no debugger";
+    } else if (runner_.busy()) {
+        state = "building";
+        message = "building";
+    } else if (!project_.settings.scriptDebugger) {
+        state = "off";
+        message = "the script debugger is off";
+    } else if (!gdbServer_) {
+        state = "idle";
+        message = gs.running ? "the game runs on a console" : "no game running";
+    } else {
+        state = gdbstub::stateName(gdbServer_->state());
+        message = gdbServer_->message();
+    }
+    std::string json = "{\"state\": \"" + state + "\", \"message\": \"";
+    for (char ch : message) {
+        if (ch == '"' || ch == '\\') json += '\\';
+        json += ch;
+    }
+    json += "\", \"port\": " + std::to_string(templates::scriptDebugPort(project_)) +
+            ", \"pid\": " + std::to_string(platform::processId()) +
+            ", \"owner\": \"editor\", \"request\": \"" + gdbRequestId_ + "\"}\n";
+    if (json == gdbSessionLast_) return;
+    // Atomic replace: the extension may read it at any moment.
+    std::error_code ec;
+    fs::create_directories(fs::path(path).parent_path(), ec);
+    const std::string tmp = path + ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::trunc | std::ios::binary);
+        out << json;
+    }
+    fs::rename(tmp, path, ec);
+    if (!ec) gdbSessionLast_ = json;
+}
+
+void App::debugScriptsInVsCode() {
+    if (!project_.settings.scriptDebugger) {
+        project_.settings.scriptDebugger = true;
+        commitChange();
+    }
+    runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
+    openInVSCode();
+    statusMessage_ += "  Script debugger: press F5 in VS Code once the game runs.";
 }
 
 void App::livedbgTick() {
@@ -2381,7 +2534,7 @@ void App::dbgDrawWatchPage() {
     const bool showKind = ImGui::GetContentRegionAvail().x >= scaled(460);
     if (ImGui::BeginTable("##watch", 4,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY |
-                              ImGuiTableFlags_BordersInnerH)) {
+                              ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_Hideable)) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.52f);
         ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthStretch, 0.13f);

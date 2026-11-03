@@ -27,7 +27,7 @@ static `.obj` model:
 | Bounciness | restitution 0..1, the larger of the two bodies in a collision |
 | Friction | 0..1, mapped to a Coulomb coefficient `0.05 + 0.95 * f` (the pair averages) |
 | Tumble | off = the body slides but never rotates (infinite inertia) |
-| Sleep after | seconds of rest before the body freezes and costs one branch per frame (1 s for new bodies since 2.1.2; 3 s before) |
+| Sleep after | seconds of rest before the body freezes and costs one branch per frame (1 s for new bodies since 2.10.0; 3 s before) |
 
 Nothing else is authored: the shape is derived from the mesh at build time.
 `examples/physics-playground` has the reference props (stool, road barrier,
@@ -179,7 +179,7 @@ goes, and what keeps it bounded:
 ## Qualified collision optimizations
 
 The release extraction kept six velocity and three split-impulse passes;
-2.1.2 changed that with warm starting (below).
+2.10.0 changed that with warm starting (below).
 Conservative spatial bounds reject disjoint pairs before narrow phase; SAT and
 linear CCD share projections, with analytic outward-rounded OBB intervals.
 Cached separating axes are hints: the current geometry and complete movement
@@ -194,14 +194,14 @@ update and push mechanism; this is not the experimental common vehicle solver.
 All physics work in this release uses the EE scalar path. VU0 kernels, prepared
 solver backends and island sleeping are not included.
 
-### What a body costs on a PS2, and what 2.1.2 changed
+### What a body costs on a PS2, and what 2.10.0 changed
 
 Measured on a physical PS2 in a copy of the vehicle playground: 82 bodies (75
 unit crates scattered on the road, none touching, plus pallets and barriers),
 car parked facing them, debug build with the devkit (Live Debugger, Remote
 Pad) off, `TYRA_FRAME_PROFILE` 2. Window means over 50 frames.
 
-| | before | 2.1.2 |
+| | before | 2.10.0 |
 |---|---:|---:|
 | scene load, first ~3 s: physics / missed frames of 50 | 9.3 ms / 49 | 1.4 ms / 3 |
 | at rest, crates in view: frame work / scene render | 8.15 / 6.73 ms | 6.5 / 5.0 ms |
@@ -258,7 +258,7 @@ between a model hull and a box still use corners.
 
 ### Awake bodies that do not move, and bookkeeping that scaled with the scene
 
-The 2.1.2 table above left every crate awake at 30 FPS. Taken apart on a
+The 2.10.0 table above left every crate awake at 30 FPS. Taken apart on a
 physical PS2 (82 crates awake and lying still on the road, none touching
 another), per frame: physics 7.6 ms - prediction 1.18, terrain samples 0.68,
 broad-phase refresh and queries ~1.0, body pairs 0.57, solver set-up 1.19 and

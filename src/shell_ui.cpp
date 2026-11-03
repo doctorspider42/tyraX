@@ -1055,6 +1055,49 @@ void App::drawStatusBar() {
             if (chip("##tb_livedbg", gap, c, label, tip)) showDebugger_ = true;
         }
 
+        // Script debugger: the GDB server the editor runs for the game.
+        if (project_.settings.buildProfile == "debug" && project_.settings.scriptDebugger) {
+            ImU32 c = colDim;
+            std::string label = "GDB";
+            std::string tip =
+                "Script debugger: Build & Run (F5), then press F5 in VS Code to "
+                "attach.\nClick to open the project in VS Code.";
+            if (gdbServer_) {
+                const std::string why = gdbServer_->message();
+                switch (gdbServer_->state()) {
+                    case gdbstub::State::WaitingForGame:
+                        tip = "Script debugger: " + why + ".";
+                        break;
+                    case gdbstub::State::WaitingForGdb:
+                        c = col(sem.accent);
+                        tip = "Script debugger: ready - " + why +
+                              ".\nPress F5 in VS Code (or `target remote` from any GDB). "
+                              "Click to open VS Code.";
+                        break;
+                    case gdbstub::State::Running:
+                        c = col(sem.ok);
+                        label = "GDB attached";
+                        tip = "Script debugger: GDB is attached and the game runs.";
+                        break;
+                    case gdbstub::State::Stopped: {
+                        c = IM_COL32(245, 130, 90, 255);
+                        char pc[32];
+                        std::snprintf(pc, sizeof(pc), "GDB stopped @ %08x", gdbServer_->pc());
+                        label = pc;
+                        tip = "Script debugger: the game is parked in a breakpoint - "
+                              "continue from VS Code (F5).";
+                        break;
+                    }
+                    case gdbstub::State::Failed:
+                        c = col(sem.danger);
+                        label = "GDB failed";
+                        tip = "Script debugger: " + why + ".";
+                        break;
+                }
+            }
+            if (chip("##tb_gdb", gap, c, label.c_str(), tip.c_str())) openInVSCode();
+        }
+
         // Live Logic: only once graphs differ from the build.
         if (project_.settings.buildProfile == "debug" &&
             (liveLogicState_ == LogicState::Patched || liveLogicState_ == LogicState::Blocked ||

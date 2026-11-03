@@ -412,8 +412,9 @@ assert; that line now reads `1152..2304 of 2042 - DOES NOT FIT` before you try.
 ## Where it shows up in the editor
 
 - **Project panel > Scripts > VU programs** - every `src/vu/*.cpp`, click to open
-  in VS Code. *New script...* creates one from a working stub - three kinds,
-  *Game script* (the EE), *VU program* (VU1) and *VU0 kernel* (`src/vu0/`).
+  in VS Code. *New script...* creates one from a working stub: open its
+  *Vector unit programs* fold and pick **VU1 program** or **VU0 kernel**
+  (`src/vu0/`); the two cards above it are the game-logic scripts.
 - **Tools > VU Programs > Micro memory** (the list's last entry, under the
   always-visible budget strip) reads as a LIST of what runs on the VU,
   in three groups: what is resident (the clipping mode, the material classes,
@@ -516,7 +517,7 @@ Two ways to write one, exactly mirroring the VU1 side:
 
 ### Writing one
 
-Put a `.cpp` under `src/vu0/` — or *New script…* and pick **VU0 kernel**, which
+Put a `.cpp` under `src/vu0/` — or *New script…*, *Vector unit programs*, **VU0 kernel**, which
 writes the stub for you. That is the whole setup; the editor copies the
 framework next to it and the build compiles and runs it, exactly as for
 `src/vu/`.

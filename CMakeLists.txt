@@ -266,6 +266,7 @@ add_executable(tyrax-editor
     src/glbparser.cpp
     src/json.cpp
     src/elfsym.cpp
+    src/gdbstub.cpp
     src/livedbg.cpp
     src/livelogic.cpp
     src/livepad.cpp
@@ -325,6 +326,8 @@ add_executable(tyrax-editor
     src/project.cpp
     src/savebake.cpp
     src/scrollsim.cpp
+    src/scriptprops.cpp
+    src/extension.cpp
     src/shadowbake.cpp
     src/skytex.cpp
     src/screenfx.cpp

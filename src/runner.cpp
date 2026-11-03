@@ -5,6 +5,7 @@
 #include "isoexport.hpp"
 #include "elfsym.hpp"
 #include "pcsx2_config.hpp"
+#include "scriptdbg.hpp"
 #include "platform.hpp"
 #include "shadowbake.hpp"  // the baked-shadow cache: warn on a stale one
 #include "templates.hpp"
@@ -723,6 +724,10 @@ bool Runner::launchPCSX2(const Project& p) {
     // and still holds whatever was held when the last session ended, so the
     // fresh boot would start walking before anyone touched anything.
     fs::remove(fs::path(p.dir) / "bin" / "livepad.bin", logEc);
+    // The script debugger's session file (docs/script-debugger.md): it says a
+    // GDB server is up for a game, and this launch replaces that game. The
+    // editor writes a fresh one once it serves the new boot.
+    fs::remove(fs::path(p.dir) / "bin" / "gdbserver.json", logEc);
     // The input recorder (docs/input-replay.md): clears the channel and arms
     // whatever the Debugger's Replay tab (or --record/--replay) asked for.
     stageReplayChannel((fs::path(p.dir) / "bin").string());
@@ -745,6 +750,25 @@ bool Runner::launchPCSX2(const Project& p) {
                 break;
             case pcsx2::HostFsResult::AlreadyEnabled:
                 break;
+        }
+        // The script debugger reaches the game's RAM through PINE
+        // (docs/script-debugger.md); the slot it listens on is the user's.
+        if (templates::scriptDebugOn(p)) {
+            int slot = pcsx2::kDefaultPineSlot;
+            switch (pcsx2::ensurePine(ini, &slot)) {
+                case pcsx2::HostFsResult::Enabled:
+                    appendLine("[editor] Enabled PINE in PCSX2 config (the script "
+                               "debugger's line into the game).");
+                    break;
+                case pcsx2::HostFsResult::WriteFailed:
+                    appendLine("[editor] Could not update " + ini.string() +
+                               " - enable Settings > Advanced > 'Enable PINE' in "
+                               "PCSX2 for the script debugger.");
+                    break;
+                case pcsx2::HostFsResult::AlreadyEnabled:
+                    break;
+            }
+            pineSlot_ = slot;
         }
         // Keyboard & mouse preference: point PCSX2's emulated USB ports at
         // the host keyboard/pointer so the ps2kbd/ps2mouse drivers the game
@@ -800,6 +824,26 @@ static std::string findTool(const std::string& relUnderTools) {
         dir = dir.parent_path();
     }
     return "";
+}
+
+gdbstub::Config Runner::scriptDebugConfig(const Project& p) const {
+    gdbstub::Config c;
+    c.elfPath = (fs::path(p.dir) / "bin" / (p.name + ".elf.sym")).lexically_normal().string();
+    const int slot = pineSlot_.load();
+    c.pineSlot = slot > 0 ? slot : pcsx2::kDefaultPineSlot;
+    c.port = templates::scriptDebugPort(p);
+    c.sessionFile = (fs::path(p.dir) / "bin" / "gdbserver.json").lexically_normal().string();
+#ifdef _WIN32
+    // GDB lives in WSL with the rest of the toolchain and cannot reach a
+    // Windows listener; the relay there can be reached (tools/toolchain/
+    // gdb-relay.c says why).
+    const std::string relay = findTool((fs::path("toolchain") / "gdb-relay.sh").string());
+    if (!relay.empty())
+        c.relayCommand = "wsl.exe --exec bash " +
+                         platform::shellArg(scriptdbg::wslPath(relay)) + " " +
+                         std::to_string(c.port);
+#endif
+    return c;
 }
 
 // Falls back to PATH so a system-wide ps2client install also works.
@@ -1152,6 +1196,7 @@ bool Runner::deployToPs2(const Project& p) {
     fs::remove(fs::path(binDir) / "livetime.bin", logEc);
     fs::remove(fs::path(binDir) / "livetime.rst", logEc);
     fs::remove(fs::path(binDir) / "livepad.bin", logEc);
+    fs::remove(fs::path(binDir) / "gdbserver.json", logEc);  // see the PCSX2 path
     stageReplayChannel(binDir);  // see the PCSX2 path
 
     // ps2link passes execee arguments in a non-standard way that the game's

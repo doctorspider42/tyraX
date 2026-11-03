@@ -181,48 +181,126 @@ path it resolved:
   Database**; cpptools caches an unresolved include and does not retry on its
   own.
 
+## Debugging scripts (the `tyrax` debug type)
+
+With the [script debugger](script-debugger.md) on, **F5** in a TyraX project stops
+the game in PCSX2 on breakpoints in your C++ scripts. The generated
+`.vscode/launch.json` holds one configuration of type `tyrax`; the extension
+resolves it into an ordinary `cppdbg` configuration for Microsoft's C/C++
+extension, which drives GDB:
+
+- **the GDB the toolchain ships** (`mips64r5900el-ps2-elf-gdb`), run through
+  `wsl.exe` on Windows, where the toolchain is a Linux bundle;
+- **the connection spelled out** as `customLaunchSetupCommands`
+  (`-file-exec-and-symbols`, `-target-select remote 127.0.0.1:<port>`) with
+  `launchCompleteCommand: exec-continue` and `targetArchitecture: mips`. Under
+  `pipeTransport` the C/C++ extension ignores `miDebuggerServerAddress` and sends
+  `-exec-run` ("Don't know how to run"), and custom launch commands without an
+  architecture fail with "Parameter 'arch'". Both were measured against
+  cpptools 1.34.4's own debug adapter;
+- **`-gdb-set mi-async on`**, without which Pause cannot reach a running target;
+- **a source map** from the `/mnt/<drive>/...` paths in the debug info to the
+  Windows paths, with `useForBreakpoints`, so breakpoints set on `C:\...` files bind.
+
+Everything machine-specific comes from `.vscode/tyrax.json`, which every build
+writes (with whether the debugger is on and the build profile). F5 is the whole
+workflow (`decide()` in `debug.js`). It saves the open files, then compares the
+newest code file (`src/`, `inc/`, `flow-nodes/`, `screen-effects/`) with the
+built ELF: with the editor serving a game built from the current code it
+attaches; changed code makes it ask for a rebuild (the editor's, or a fresh
+headless one in place of the old); with the editor open but no game or the debugger off it writes
+`bin/gdbserver.request` and follows the editor's `bin/gdbserver.json` until it
+says `waiting for GDB`; with no editor it runs `tyrax-editor --debug-run --enable`
+(asking first when that turns the debugger on) and attaches once it prints
+`[gdb] ready`. Progress goes to *Output > TyraX*. The command
+*TyraX: Debug Game in PCSX2* does the same from the palette and from the run
+button in the editor title bar (`editor/title/run`, shown while the context key
+`tyrax.project` - a folder with `.vscode/tyrax.json` - is set). In those folders
+the extension also writes `C_Cpp.debugShortcut: false` to the folder settings,
+unless the user already set it: the C/C++ extension's button there offers to
+build and debug the active file with g++ or cl.exe, which cannot run PS2 code.
+`test/activate.test.js` checks both offline.
+
+Restart: cpptools' adapter has no `restart` request, so VS Code ends the session
+and resolves the configuration again - through `decide()`, BEFORE it drops the
+old session. When the rebuild closes a RUNNING game, the old session ends on its
+own ("has exited with code 0") and VS Code CANCELS that resolution and never
+starts the new session: the provider sees the cancellation token and starts the
+session itself (`finishRestart`). A game parked on a breakpoint does not end the
+session, VS Code restarts by itself, and starting one too made two sessions
+fighting over one game - the token is the only signal that tells the cases
+apart (`test/restart.test.js`). The *Rebuild and Restart* button (notification,
+status bar) is the extension's own `tyrax.rebuildAndRestart`: stop, wait for the
+end, start - an order VS Code cannot drop. The game is then still "attached", so `decide` takes a 4th argument,
+`ours` (this window has its own session on the project, tracked from
+`onDidStartDebugSession` by the `tyrax` key `toCppdbg` adds to the resolved
+configuration): attached + ours = a restart (rebuild if stale, else attach),
+attached + not ours = another debugger. The same tracking drives the stale-code
+warning: on every save of a code file during a session, `codeChanged()` against
+the session's ELF shows the status bar item and one notification per session
+(`test/stale.test.js`).
+
+**In a real VS Code** - what none of the offline tests reach (VS Code's own
+Restart order, cpptools, the WSL pipe): `node tools/vscode-tyrax/test/integration/run.js
+<projectDir>` opens a VS Code window with its own profile (workspace trust off -
+a trust dialog otherwise blocks F5 forever) and this folder as the development
+extension, starts the `tyrax` configuration, stops on a breakpoint, rewrites
+`tyraxProbe` in the script, restarts and passes when the new session stops with
+the new value. `TYRAX_IT_RUNNING=1|0` restarts a running game or one parked on the
+breakpoint, `TYRAX_IT_RESTART=workbench.action.debug.restart|tyrax.rebuildAndRestart`
+picks the green button or ours; the log counts the sessions (3 = one too many). Measured 2026-10-29, Windows:
+restart with rebuild ~28 s, editor open and headless both PASS.
+
 ## Installing it
 
-You normally don't have to do anything: the first time you use **Open in
-VS Code** (from the Flow Graph *Custom nodes…* menu, the UI Editor *Add > Custom
-effects* menu, or the Scripts panel) the editor installs the extension and
-launches VS Code. If VS Code was already open, **reload the window once**
-(Command Palette ▸ *Developer: Reload Window*) to activate it. To (re)install
-without opening a project, use **Custom nodes… ▸ Install VS Code extension** —
-it reports the outcome in the status bar.
+The extension is **TyraX** (`doctorspider.tyrax`, publisher *Doctor Spider*) on
+the Visual Studio Marketplace (not on Open VSX yet: in VSCodium or Cursor, install
+the bundled `.vsix` - see below). Install it from the Extensions view, or
+open a TyraX project: its `.vscode/extensions.json` recommends it together with
+`ms-vscode.cpptools`, and VS Code offers both. The C/C++ extension reads the
+`c_cpp_properties.json` the editor writes; without it every C++ completion in
+the project answers "No suggestions." (see above). It is also what runs GDB for
+the debugger.
 
-Under the hood the editor runs `code --install-extension` on the prebuilt
-`tools/vscode-tyrax/*.vsix` (resolved next to the `tyrax-editor.exe`, the same way
-`c_cpp_properties.json` finds the engine headers). This is the **only** reliable
-way: modern VS Code (≥ 1.74) loads only the extensions listed in its own
-manifest cache, so an extension folder merely copied into `~/.vscode/extensions`
-is silently ignored. It therefore needs VS Code's **`code` CLI on PATH** (in
-VS Code: Command Palette ▸ *Shell Command: Install 'code' command in PATH*); if
-it isn't, the status bar says so instead of failing silently. Generated projects
-also get a `.vscode/extensions.json` recommending **two** ids -
-`ms-vscode.cpptools` and `tyrax.tyrax-flownode` - so an already-installed copy
-is not re-prompted. The first one is not optional garnish: it is what reads the
-`c_cpp_properties.json` this editor writes, and without it every C++ completion
-in the project answers "No suggestions." (see above).
+The editor still carries the package (`tools/vscode-tyrax/tyrax-<version>.vsix`),
+so a machine with no internet gets the extension too. The first time you use
+**Open in VS Code** in a session (Flow Graph *Custom nodes...*, UI Editor *Add >
+Custom effects*, the Scripts panel, the GDB chip), the editor:
+
+1. finds VS Code's `code` CLI, on PATH or in the standard install locations (a
+   fresh macOS install has no `code` on PATH);
+2. reads `code --list-extensions --show-versions`;
+3. uninstalls the old ids `tyrax.tyrax-flownode` and `tyrax.tyrax` if they are
+   there (the extension's names before the Marketplace listing, never published);
+4. installs the bundled `.vsix` only when `doctorspider.tyrax` is missing or older -
+   a newer Marketplace update is never downgraded, and an up-to-date copy is
+   not reinstalled every session.
+
+If VS Code was already open, reload the window once (*Developer: Reload Window*).
+The outcome is in the status bar.
+
+Projects that already have a `.vscode/extensions.json` get the old id renamed in
+place on the next build (the rest of the file is left alone).
 
 ### Installing it by hand
 
-The extension is plain JavaScript with no build step, so you can also drop the
-folder into `~/.vscode/extensions` yourself, or package and install a `.vsix`:
-
 ```sh
-cd tools/vscode-tyrax
-npx @vscode/vsce package
-code --install-extension tyrax-flownode-*.vsix
+code --install-extension tools/vscode-tyrax/tyrax-0.5.0.vsix
 ```
 
 ## For maintainers
 
 `tools/vscode-tyrax` is a self-contained extension:
 
-- `package.json` — declares the two languages (`tyrax-flownode` → `.flownode`,
-  `tyrax-screenfx` → `.screenfx`, `tyrax-menustyle` → `.menustyle`), their
-  grammars and snippets.
+- `package.json` — declares the languages (`tyrax-flownode` → `.flownode`,
+  `tyrax-screenfx` → `.screenfx`, `tyrax-menustyle` → `.menustyle`, `tyrax-vu`
+  → `.vclpp`/`.vcl`/`.vsm`), their grammars and snippets, and the `tyrax`
+  debugger.
+- `debug.js` — the `tyrax` debug type: reads `.vscode/tyrax.json`, starts
+  `tyrax-editor --debug-run` when nobody serves the game, and resolves the
+  launch into a `cppdbg` configuration (`toCppdbg`, a pure function).
+  `node tools/vscode-tyrax/test/debug.test.js` checks it offline for the WSL
+  and native shapes.
 - `syntaxes/*.tmLanguage.json` — TextMate grammars. The body is a begin/end
   region that starts at `---` and runs to end-of-file, sets
   `contentName: meta.embedded.block.cpp` (so VS Code injects the C++ grammar),
@@ -237,7 +315,8 @@ code --install-extension tyrax-flownode-*.vsix
   selector, not a language one, so it never touches ordinary game C++. The
   rules it checks are the ones in `docs/vu-authoring.md`; when one changes
   there, change it here.
-- `tyrax-flownode-<version>.vsix` — the **prebuilt package the editor installs**,
+- `tyrax-<version>.vsix` — the **prebuilt package the editor installs**, and the
+  file that gets published,
   committed to the repo. It is not rebuilt automatically, so after **any** change
   to the extension you must regenerate and re-commit it (bump the `version` in
   `package.json` first so `code --install-extension --force` picks up the new
@@ -252,8 +331,10 @@ code --install-extension tyrax-flownode-*.vsix
   VU language shipped in 0.3.0 sources against a committed 0.2.0 package, and
   menu stylesheets did the same — in both cases the source looked updated while
   every user got the old build, with no error anywhere. It derives its file list
-  from `package.json`'s own `grammars`/`snippets` entries (so a language added to
-  the manifest and forgotten in the script is impossible), deletes the previous
+  from `package.json`'s own `grammars`/`snippets` entries and globs every `*.js`
+  module (0.4.1 shipped without the menu-stylesheet grammar and a module list
+  that had to be kept by hand), adds the repository's Apache-2.0 `LICENSE`,
+  deletes the previous
   `.vsix` (the editor globs `*.vsix` and would otherwise pick whichever it found
   first) and prints what went in. **Check the printed language list against what
   you changed** before committing.
@@ -272,6 +353,36 @@ code --install-extension tyrax-flownode-*.vsix
   delete it.
 
 The extension is verified offline (no VS Code UI needed): the grammars are
-tokenized with `vscode-textmate`, the `extension.js` logic runs against a mock
-`vscode` module, and the manifest is validated by packaging a `.vsix` with
-`vsce` — see the PROGRESS entry for the harness.
+tokenized with `vscode-textmate`, the `extension.js` / `debug.js` logic runs
+against a mock `vscode` module (`test/debug.test.js`), and the debugger's
+resolved configuration was driven end to end through cpptools' own
+`OpenDebugAD7` over DAP - breakpoint, locals, step, Pause, disconnect - which is
+exactly what VS Code does, without a window.
+
+### Publishing
+
+The listing's publisher is `doctorspider` (*Doctor Spider*, the maintainer's
+existing [Marketplace publisher](https://marketplace.visualstudio.com/manage/publishers/doctorspider);
+the ID `tyrax` is taken). Open VSX is left out for now. By hand, with the
+package built (`package-vsix.py`):
+
+```sh
+npx @vscode/vsce publish --packagePath tools/vscode-tyrax/tyrax-<version>.vsix   # signs in, or -p <token>
+```
+
+Every release does it: `release.yml` calls
+`.github/workflows/vscode-extension.yml` with the released commit (it can also
+be dispatched by hand). It runs the offline tests, packages, and publishes with
+`--skip-duplicate` - the extension has its own version (`package.json`), so a
+release that did not bump it publishes nothing, and a failure there holds back
+nothing of the editor's release. **Releasing the extension = bump `version` in
+`package.json`, add its `CHANGELOG.md` section, repackage, merge.**
+
+The Marketplace side is **Trusted Publishing** (OIDC) - no token, nothing
+expires. The [publisher](https://marketplace.visualstudio.com/manage/publishers/doctorspider)'s
+*Trusted Publishing* tab has two policies (set up 2026-10-29): repository owner
+`doctorspider42`, repository `tyraX`, workflow `release.yml` (the release calls
+the publishing workflow; which file the token names is the caller's) and the
+same with `vscode-extension.yml` (a manual dispatch); no environment. The job
+has `id-token: write` (and release.yml grants it to the call). It runs only in
+`doctorspider42`'s repository, so a fork skips it.

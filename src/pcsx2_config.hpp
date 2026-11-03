@@ -27,4 +27,11 @@ HostFsResult ensureHostFs(const std::filesystem::path& ini);
 // (logged by the caller) - same policy as ensureHostFs.
 HostFsResult ensureUsbKbdMouse(const std::filesystem::path& ini);
 
+// PINE, PCSX2's IPC socket, is how the script debugger reads and writes the
+// game's RAM (docs/script-debugger.md). Makes sure EnablePINE = true under
+// [EmuCore] and reports the slot PCSX2 will listen on in *slot: the user's
+// PINESlot when set (never rewritten), else PCSX2's default.
+inline constexpr int kDefaultPineSlot = 28011;
+HostFsResult ensurePine(const std::filesystem::path& ini, int* slot);
+
 }  // namespace pcsx2
