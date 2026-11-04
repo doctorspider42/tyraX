@@ -1397,6 +1397,26 @@ void TerrainGame::loadScene(int sceneIndex) {
     lsPump(8);
   }
 #endif
+  // Authored models drawn instanced (SceneObject::drawInstanced, batchStatic
+  // 2; docs/model-pipeline.md, "Drawn instanced"): their copies join the
+  // same table, grouped by draw distance (a cell carries one cut-off).
+  {
+    std::vector<int> inst;
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+      if (objectDrawnInstanced(i)) inst.push_back(i);
+    std::sort(inst.begin(), inst.end(), [](int a, int b) {
+      return SCENE_OBJECTS[a].drawDistance < SCENE_OBJECTS[b].drawDistance;
+    });
+    for (size_t k = 0; k < inst.size();) {
+      const float dd = SCENE_OBJECTS[inst[k]].drawDistance;
+      const int from = (int)procInsts.size();
+      for (; k < inst.size() && SCENE_OBJECTS[inst[k]].drawDistance == dd; ++k) {
+        loadModelAsset(SCENE_OBJECTS[inst[k]].model);
+        procAddInstance(-5, runtimeObjects[inst[k]].data, -1, 0.0F, false);
+      }
+      procFinishInstances(-5, 32.0F, dd, from);
+    }
+  }
 
   // Roads AFTER the procedural build: that block clears procChunks (nothing
   // generated survives a scene switch), and the first placement of this call

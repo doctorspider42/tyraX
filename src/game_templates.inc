@@ -11633,6 +11633,26 @@ void TerrainGame::loadScene(int sceneIndex) {
     lsPump(8);
   }
 #endif
+  // Authored models drawn instanced (SceneObject::drawInstanced, batchStatic
+  // 2; docs/model-pipeline.md, "Drawn instanced"): their copies join the
+  // same table, grouped by draw distance (a cell carries one cut-off).
+  {
+    std::vector<int> inst;
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+      if (objectDrawnInstanced(i)) inst.push_back(i);
+    std::sort(inst.begin(), inst.end(), [](int a, int b) {
+      return SCENE_OBJECTS[a].drawDistance < SCENE_OBJECTS[b].drawDistance;
+    });
+    for (size_t k = 0; k < inst.size();) {
+      const float dd = SCENE_OBJECTS[inst[k]].drawDistance;
+      const int from = (int)procInsts.size();
+      for (; k < inst.size() && SCENE_OBJECTS[inst[k]].drawDistance == dd; ++k) {
+        loadModelAsset(SCENE_OBJECTS[inst[k]].model);
+        procAddInstance(-5, runtimeObjects[inst[k]].data, -1, 0.0F, false);
+      }
+      procFinishInstances(-5, 32.0F, dd, from);
+    }
+  }
 
   // Roads AFTER the procedural build: that block clears procChunks (nothing
   // generated survives a scene switch), and the first placement of this call
@@ -22315,7 +22335,7 @@ void TerrainGame::buildStaticBatchList() {
   };
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& d = SCENE_OBJECTS[i];
-    if (!d.batchStatic) continue;
+    if (d.batchStatic != 1) continue;  // 2 = drawn instanced, not batched
     // Vehicles, endless scrollers and any future owner of the matrix fast
     // path move after scene load. Baking one into world-space static geometry
     // makes the solo renderer skip it forever; a multi-part model whose parts
@@ -22438,10 +22458,10 @@ void TerrainGame::buildStaticBatchList() {
   // large model, or a reflective one).
   int eligible = 0;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
-    if (SCENE_OBJECTS[i].batchStatic) ++eligible;
+    if (SCENE_OBJECTS[i].batchStatic == 1) ++eligible;
   float widestCell = 0.0F;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
-    if (SCENE_OBJECTS[i].batchStatic) {
+    if (SCENE_OBJECTS[i].batchStatic == 1) {
       const float c = cellFor(SCENE_OBJECTS[i].drawDistance);
       if (c > widestCell) widestCell = c;
     }
@@ -27549,6 +27569,7 @@ void TerrainGame::renderScene() {
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
     if (i < (int)objectBatchOf.size() && objectBatchOf[i] != -1) continue;
+    if (objectDrawnInstanced(i)) continue;  // renderProcInstances draws it
     if (lp) { lpT = profTicks(); ++lpNTested; }
     // Something that moves EVERY frame asked for the matrix path (an endless
     // scroller's clones - see RuntimeObject::wantsMatrixPath). One local-space
@@ -31582,12 +31603,15 @@ int TerrainGame::countPendingChunks(float focusX, float focusZ) {
 
 
 
-// Keeps the resident chunk set centered on the view focus. View distance off
-// (0) = the whole map stays resident (small maps - matches the old
-// behavior). Otherwise chunks outside the focus rect are freed - with one
-// tile of hysteresis so walking along a border doesn't rebuild the same ring
-// every frame - and missing ones are built nearest-first, `budget` per call
-// (loadScene passes INT_MAX to drain behind the loading screen).
+// An authored model drawn through the instanced path (batchStatic 2): it
+// has no solo bag and no batch membership - renderProcInstances draws it.
+bool TerrainGame::objectDrawnInstanced(int i) const {
+  return i >= 0 && i < SCENE_OBJECT_COUNT && SCENE_OBJECTS[i].batchStatic == 2 &&
+         SCENE_OBJECTS[i].type == 5 && SCENE_OBJECTS[i].model >= 0 &&
+         i < (int)runtimeObjects.size() && runtimeObjects[i].active &&
+         runtimeObjects[i].visible;
+}
+
 // Terrain chunks built BEFORE the frame records (docs/terrain-lod.md, "Built
 // before the frame"). A chunk whose LOD band changed was rebuilt inside the
 // frame, in renderScene, and its new stream (and its ground-shadow pass) was
@@ -31649,6 +31673,12 @@ void TerrainGame::settleTerrainChunks() {
   if (next >= 0) bakeChunk(next);
 }
 
+// Keeps the resident chunk set centered on the view focus. View distance off
+// (0) = the whole map stays resident (small maps - matches the old
+// behavior). Otherwise chunks outside the focus rect are freed - with one
+// tile of hysteresis so walking along a border doesn't rebuild the same ring
+// every frame - and missing ones are built nearest-first, `budget` per call
+// (loadScene passes INT_MAX to drain behind the loading screen).
 void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
                                       float focus2X, float focus2Z,
                                       bool twoFoci, int budget) {

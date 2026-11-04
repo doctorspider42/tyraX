@@ -6509,7 +6509,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // "envLimits", written only when there is one). Missing = the full shine on
 // every shining car, which is what every older project drew. Additive; no
 // migration. (Stamped 124 on its branch; renumbered at the merge.)
-inline constexpr int kFormatVersion = 127;
+// v128 (docs/model-pipeline.md, "Drawn instanced"): SceneObject::
+// drawInstanced ("drawInstanced" on the object, written only when true).
+// Missing = drawn as before. Additive; no migration.
+inline constexpr int kFormatVersion = 128;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

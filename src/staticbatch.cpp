@@ -100,6 +100,7 @@ const char* reasonLabel(Reason r) {
         case Reason::FootprintTooBigForCell: return "too big for its cell";
         case Reason::SingletonGroup: return "alone in its group";
         case Reason::PartialModel: return "a part is alone";
+        case Reason::DrawnInstanced: return "drawn instanced";
     }
     return "?";
 }
@@ -173,6 +174,9 @@ const char* reasonDetail(Reason r) {
             return "Nothing else shares its texture, cell, draw distance, "
                    "lamp and strip run. A batch of one saves no submit and "
                    "only duplicates geometry, so it is dropped.";
+        case Reason::DrawnInstanced:
+            return "Draw instanced is on: one shared copy of the model and a "
+                   "matrix per object, outside every batch.";
         case Reason::PartialModel:
             return "One of this model's parts has no batch partner. The solo "
                    "path skips a model as ONE object, so batching only some "
@@ -253,6 +257,11 @@ Reason eligibility(const Project& p, const SceneObject& o,
     // batchStatic column is written (templates.cpp), so it belongs in the
     // same verdict - an object with an atlas region really is not batchable.
     if (hasLightmapRegion) return Reason::LightmapRegion;
+    // batchStatic 2 in the generated table (templates.cpp, the batchStatic
+    // column): static by the same rules, drawn outside every batch.
+    if (o.drawInstanced && o.type == PrimitiveType::Model && !o.reflected &&
+        !o.physics)
+        return Reason::DrawnInstanced;
     return Reason::Batched;
 }
 

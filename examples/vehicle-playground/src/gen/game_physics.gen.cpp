@@ -2730,6 +2730,7 @@ void TerrainGame::renderScene() {
     // Batched members render via renderStaticBatches above; their dirty flag
     // is consumed by the batch rebuild, never by the solo path.
     if (i < (int)objectBatchOf.size() && objectBatchOf[i] != -1) continue;
+    if (objectDrawnInstanced(i)) continue;  // renderProcInstances draws it
     if (lp) { lpT = profTicks(); ++lpNTested; }
     // Something that moves EVERY frame asked for the matrix path (an endless
     // scroller's clones - see RuntimeObject::wantsMatrixPath). One local-space
@@ -6770,12 +6771,15 @@ int TerrainGame::countPendingChunks(float focusX, float focusZ) {
 
 
 
-// Keeps the resident chunk set centered on the view focus. View distance off
-// (0) = the whole map stays resident (small maps - matches the old
-// behavior). Otherwise chunks outside the focus rect are freed - with one
-// tile of hysteresis so walking along a border doesn't rebuild the same ring
-// every frame - and missing ones are built nearest-first, `budget` per call
-// (loadScene passes INT_MAX to drain behind the loading screen).
+// An authored model drawn through the instanced path (batchStatic 2): it
+// has no solo bag and no batch membership - renderProcInstances draws it.
+bool TerrainGame::objectDrawnInstanced(int i) const {
+  return i >= 0 && i < SCENE_OBJECT_COUNT && SCENE_OBJECTS[i].batchStatic == 2 &&
+         SCENE_OBJECTS[i].type == 5 && SCENE_OBJECTS[i].model >= 0 &&
+         i < (int)runtimeObjects.size() && runtimeObjects[i].active &&
+         runtimeObjects[i].visible;
+}
+
 // Terrain chunks built BEFORE the frame records (docs/terrain-lod.md, "Built
 // before the frame"). A chunk whose LOD band changed was rebuilt inside the
 // frame, in renderScene, and its new stream (and its ground-shadow pass) was
@@ -6837,6 +6841,12 @@ void TerrainGame::settleTerrainChunks() {
   if (next >= 0) bakeChunk(next);
 }
 
+// Keeps the resident chunk set centered on the view focus. View distance off
+// (0) = the whole map stays resident (small maps - matches the old
+// behavior). Otherwise chunks outside the focus rect are freed - with one
+// tile of hysteresis so walking along a border doesn't rebuild the same ring
+// every frame - and missing ones are built nearest-first, `budget` per call
+// (loadScene passes INT_MAX to drain behind the loading screen).
 void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
                                       float focus2X, float focus2Z,
                                       bool twoFoci, int budget) {

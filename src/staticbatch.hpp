@@ -85,6 +85,8 @@ enum class Reason {
                              // whole-bag frustum cut
     SingletonGroup,       // the only member of its key - a batch of one saves
                           // no submit and only duplicates geometry
+    DrawnInstanced,       // SceneObject::drawInstanced on a model that could
+                          // batch: one shared copy + a matrix, no batch
     PartialModel,         // a multi-part model with a part left alone: batching
                           // a model is all-or-nothing, so it all draws solo
 };

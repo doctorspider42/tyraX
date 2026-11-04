@@ -781,6 +781,7 @@ std::string objectJson(const SceneObject& o) {
         // is what keeps every project that never touches it resaving byte for
         // byte after this field was added.
         (o.batchExclude ? std::string(", \"batchExclude\": true") : "") +
+        (o.drawInstanced ? std::string(", \"drawInstanced\": true") : "") +
         (o.occluderExclude ? std::string(", \"occluderExclude\": true") : "") +
         (!o.occlusionCull ? std::string(", \"occlusionCull\": false") : "") +
         // rendered into the dynamic env map; default (false) stays implicit
@@ -5778,6 +5779,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* v = jo.find("batchExclude"))
             o.batchExclude = v->boolOr(false);
+        if (const auto* v = jo.find("drawInstanced"))
+            o.drawInstanced = v->boolOr(false);
         if (const auto* v = jo.find("occluderExclude"))
             o.occluderExclude = v->boolOr(false);
         if (const auto* v = jo.find("occlusionCull"))
@@ -8530,6 +8533,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // running game, so toggling it has to read as "rebuild" rather than
     // silently showing a grouping the ELF does not have.
     fnvMix(h, o.batchExclude ? 1 : 0);
+    fnvMix(h, o.drawInstanced ? 1 : 0);  // build-time, like the batch flag
     fnvMix(h, o.occluderExclude ? 1 : 0);
     fnvMix(h, o.occlusionCull ? 1 : 0);
     fnvMix(h, o.reflectionProxy ? 1 : 0);

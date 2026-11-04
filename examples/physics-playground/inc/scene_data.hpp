@@ -113,7 +113,8 @@ struct SceneObjectData {
                   // what a light overhead needs to shade smoothly
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
-  int batchStatic; // 1 = may merge into a combined static batch bag
+  int batchStatic; // 1 = may merge into a combined static batch bag,
+                   // 2 = drawn instanced (one shared model copy)
                    // (build-time verdict: non-moving primitive or
                    // compact model with no special runtime path)
   float vuParams[4]; // the four numbers this mesh hands to the

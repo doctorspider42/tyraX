@@ -374,6 +374,13 @@ struct SceneObject {
     // Written to the .tyra only when true, so every project that never
     // touches it resaves byte for byte.
     bool batchExclude = false;
+    // Draw a static model as an INSTANCE (docs/model-pipeline.md, "Drawn
+    // instanced"): the console keeps one copy of the model for every
+    // object that asks, plus a matrix each, instead of a world-space copy
+    // per object in its batch or solo bag. Lit by the sun and ambient only.
+    // Takes effect only where the object could batch (static, no special
+    // runtime path); written only when true.
+    bool drawInstanced = false;
     // Conservative software occlusion (docs/occlusion-culling.md). Static,
     // opaque geometry may contribute an inward proxy unless excluded.
     bool occluderExclude = false;
@@ -1591,6 +1598,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.primDetail == b.primDetail && a.primRings == b.primRings &&
            a.drawDistance == b.drawDistance &&
            a.batchExclude == b.batchExclude &&
+           a.drawInstanced == b.drawInstanced &&
            a.occluderExclude == b.occluderExclude &&
            a.occlusionCull == b.occlusionCull &&
            a.impostorPath == b.impostorPath &&

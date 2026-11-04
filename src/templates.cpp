@@ -1884,6 +1884,7 @@ class TerrainGame : public Tyra::Game {
   void rebuildStaticBatch(StaticBatch& b);
   void settleStaticBatches();
   void settleTerrainChunks();
+  bool objectDrawnInstanced(int i) const;
   void renderStaticBatches();
 
   void buildOcclusionBuffer();
@@ -4007,6 +4008,7 @@ class TerrainGame : public Tyra::Game {
   void rebuildStaticBatch(StaticBatch& b);
   void settleStaticBatches();
   void settleTerrainChunks();
+  bool objectDrawnInstanced(int i) const;
   void renderStaticBatches();
 
   void buildOcclusionBuffer();
@@ -9344,7 +9346,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
            "                  // what a light overhead needs to shade smoothly\n"
            "  int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:\n"
            "                  // always resident, never streamed out\n"
-           "  int batchStatic; // 1 = may merge into a combined static batch bag\n"
+           "  int batchStatic; // 1 = may merge into a combined static batch bag,\n"
+           "                   // 2 = drawn instanced (one shared model copy)\n"
            "                   // (build-time verdict: non-moving primitive or\n"
            "                   // compact model with no special runtime path)\n"
            "  float vuParams[4]; // the four numbers this mesh hands to the\n"
@@ -9646,7 +9649,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     (staticBatchEligible(o, blocked, brs) &&
                      !(batchOi < (int)batlas.firstRegion.size() &&
                        batlas.firstRegion[batchOi] >= 0))
-                        ? 1
+                        // 2 = drawn instanced (SceneObject::drawInstanced):
+                        // static by the same rules, outside every batch.
+                        // Twin: staticbatch::eligibility, DrawnInstanced.
+                        ? (o.drawInstanced && o.type == PrimitiveType::Model &&
+                                   !o.reflected && !o.physics
+                               ? 2
+                               : 1)
                         : 0);
                 ++batchOi;
             }

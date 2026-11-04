@@ -2698,7 +2698,7 @@ void TerrainGame::buildStaticBatchList() {
   };
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& d = SCENE_OBJECTS[i];
-    if (!d.batchStatic) continue;
+    if (d.batchStatic != 1) continue;  // 2 = drawn instanced, not batched
     // Vehicles, endless scrollers and any future owner of the matrix fast
     // path move after scene load. Baking one into world-space static geometry
     // makes the solo renderer skip it forever; a multi-part model whose parts
@@ -2821,10 +2821,10 @@ void TerrainGame::buildStaticBatchList() {
   // large model, or a reflective one).
   int eligible = 0;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
-    if (SCENE_OBJECTS[i].batchStatic) ++eligible;
+    if (SCENE_OBJECTS[i].batchStatic == 1) ++eligible;
   float widestCell = 0.0F;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
-    if (SCENE_OBJECTS[i].batchStatic) {
+    if (SCENE_OBJECTS[i].batchStatic == 1) {
       const float c = cellFor(SCENE_OBJECTS[i].drawDistance);
       if (c > widestCell) widestCell = c;
     }

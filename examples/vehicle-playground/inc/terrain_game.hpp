@@ -701,6 +701,7 @@ class TerrainGame : public Tyra::Game {
   void rebuildStaticBatch(StaticBatch& b);
   void settleStaticBatches();
   void settleTerrainChunks();
+  bool objectDrawnInstanced(int i) const;
   void renderStaticBatches();
 
   void buildOcclusionBuffer();
