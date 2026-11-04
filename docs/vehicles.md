@@ -433,6 +433,13 @@ console; it was not pinned down.
   (a mark loses at most 2.5 of its 100 alpha between two writes) and the
   frames in between replay the baked block: 1.08 -> 0.29 ms a frame, median
   over the seconds after the hit, on a physical PS2.
+- **The first skid mark draws one segment, not the pool.** The skid bag drew
+  all 192 segments (1 152 vertices, mostly empty), so the first mark of a
+  slide baked the whole pool in the frame the tyres let go, which is usually
+  the frame of a hit: 2.46 ms on a PS2, then 0.94 ms the next frame. The bag
+  now draws only the slots used since the pool last emptied, and an empty pool
+  starts again at slot 0. That frame costs 0.25 ms. A car-on-car crash still
+  loses no frame (p95 work 6.82 -> 6.76 ms).
 - **Losing a window costs ~0.07 ms**, not the ~0.7 ms a debug build shows:
   that build prints a line for every lost piece, and a log line over ps2link
   costs ~0.6 ms of the frame. Release builds compile the logging out.

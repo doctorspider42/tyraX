@@ -13660,6 +13660,10 @@ static std::string vehicleMembers(const Project& p) {
     float skidLife[kVehSkidMax] = {};
     int skidNext = 0;
     int skidAlive = 0;
+    // Slots [0, skidUsed) have held a mark since the pool last emptied: the
+    // bag draws only those. Drawn whole, the pool's first mark baked all
+    // 1 152 vertices in the frame of the hit (2.5 ms on a PS2).
+    int skidUsed = 0;
     int skidDirty = 0;
     // The fade is written in steps (kSkidFadeStep): a colour write moves the
     // bag's content stamp, and a stamp that moves every frame re-stages all
@@ -14016,6 +14020,8 @@ void TerrainGame::updateVehicleSkids(float dt) {
       auto c = fx.skidCols.span((size_t)i * 6, 6);  // one stamp per mark
       for (int k = 0; k < 6; ++k) c[k].a = a;
     }
+    // Every mark gone: the next one starts the pool from slot 0 again.
+    if (fx.skidAlive == 0) fx.skidNext = fx.skidUsed = 0;
   }
   constexpr float kStep = 0.6F;    // travel per ribbon segment
   constexpr float kTile = 1.5F;    // travel per texture repeat
@@ -14090,6 +14096,7 @@ void TerrainGame::updateVehicleSkids(float dt) {
       const float vv1 = v1 < v0 ? v1 + 64.0F : v1;
       const int q = fx->skidNext;
       fx->skidNext = (fx->skidNext + 1) % kVehSkidMax;
+      if (q + 1 > fx->skidUsed) fx->skidUsed = q + 1;
       fx->skidLife[q] = 6.0F;
       // Previous edge (o) -> this edge (e): two triangles, left/right
       // matching, so consecutive segments share their seam exactly.
@@ -14153,7 +14160,8 @@ void TerrainGame::renderVehicleSkids() {
       }
       fx.skidVerts.bind(fx.skidBag);
     }
-    fx.skidBag->count = (u32)(kVehSkidMax * 6);
+    fx.skidBag->count = (u32)(fx.skidUsed * 6);
+    if (fx.skidBag->count == 0) continue;
     if (fx.skidDirty) {
       fx.skidDirty = 0;
       fx.skidBag->bboxVersion = ++g_bboxStamp;

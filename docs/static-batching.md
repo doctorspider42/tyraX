@@ -397,8 +397,29 @@ Ruled out on the console:
 The camera was pushed in by the falling crates themselves: the chase
 camera's boom stopped at every physics body. It now ignores bodies in flight
 (docs/vehicles.md, "Chase camera and loose props"), and the stack test loses
-1 frame in 1 000 (two runs), the frame of the first impact, where the patch,
-the physics of the woken bodies and the impact particles land together.
+1 frame in 1 000 (two runs), the frame of the first impact.
+
+**The frame of the first impact.** It did 21.1 ms of EE work against a
+16.7 ms budget. A probe in that frame found:
+- the first skid mark, 2.46 ms: the skid bag drew its whole pool. Fixed
+  (docs/vehicles.md, "The first skid mark draws one segment"), the frame is
+  now 18.8 ms;
+- the physics of ~25 woken bodies, 4.4 ms (1.7 ms in a quiet frame);
+- the woken bodies' first draws on their own, +1.3 ms;
+- two batch patches in the settle, 2.7 ms.
+
+The settle's `prebakeBag` always succeeded. Tried and dropped, both measured on the console:
+- **Also baking the batch's whole-clip variant ahead.** The variant a
+  partially visible batch replays its crossing packages from saved 0.23 ms of
+  draw per change frame, but cost 0.4-0.9 ms more in the settle.
+- **Putting the settle off one frame when the update has already used
+  4.5 ms.** The bodies that left wait in the batch for that frame. The impact
+  frame came down to 16.65-16.84 ms, and four runs lost 1, 0, 1, 1 frames. It
+  saves a frame in one collapse out of four, at the price of a frame of lag on
+  the crates the car hits, and was not kept.
+
+What remains in that frame is real work (physics and the first draws of the
+bodies that started to move), not a fault.
 
 ## Members at the world origin (fixed 1.176.3)
 

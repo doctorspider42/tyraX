@@ -973,6 +973,8 @@ void TerrainGame::updateVehicleSkids(float dt) {
       auto c = fx.skidCols.span((size_t)i * 6, 6);  // one stamp per mark
       for (int k = 0; k < 6; ++k) c[k].a = a;
     }
+    // Every mark gone: the next one starts the pool from slot 0 again.
+    if (fx.skidAlive == 0) fx.skidNext = fx.skidUsed = 0;
   }
   constexpr float kStep = 0.6F;    // travel per ribbon segment
   constexpr float kTile = 1.5F;    // travel per texture repeat
@@ -1047,6 +1049,7 @@ void TerrainGame::updateVehicleSkids(float dt) {
       const float vv1 = v1 < v0 ? v1 + 64.0F : v1;
       const int q = fx->skidNext;
       fx->skidNext = (fx->skidNext + 1) % kVehSkidMax;
+      if (q + 1 > fx->skidUsed) fx->skidUsed = q + 1;
       fx->skidLife[q] = 6.0F;
       // Previous edge (o) -> this edge (e): two triangles, left/right
       // matching, so consecutive segments share their seam exactly.
@@ -1110,7 +1113,8 @@ void TerrainGame::renderVehicleSkids() {
       }
       fx.skidVerts.bind(fx.skidBag);
     }
-    fx.skidBag->count = (u32)(kVehSkidMax * 6);
+    fx.skidBag->count = (u32)(fx.skidUsed * 6);
+    if (fx.skidBag->count == 0) continue;
     if (fx.skidDirty) {
       fx.skidDirty = 0;
       fx.skidBag->bboxVersion = ++g_bboxStamp;

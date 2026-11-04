@@ -1622,6 +1622,10 @@ class TerrainGame : public Tyra::Game {
     float skidLife[kVehSkidMax] = {};
     int skidNext = 0;
     int skidAlive = 0;
+    // Slots [0, skidUsed) have held a mark since the pool last emptied: the
+    // bag draws only those. Drawn whole, the pool's first mark baked all
+    // 1 152 vertices in the frame of the hit (2.5 ms on a PS2).
+    int skidUsed = 0;
     int skidDirty = 0;
     // The fade is written in steps (kSkidFadeStep): a colour write moves the
     // bag's content stamp, and a stamp that moves every frame re-stages all
