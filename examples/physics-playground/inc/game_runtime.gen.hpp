@@ -4424,6 +4424,13 @@ inline constexpr bool STATIC_BATCH_PATCH = true;
 // vertices. The price is more bags while they all sleep. Twin:
 // staticbatch.cpp kBodyBatchMax.
 inline constexpr int STATIC_BATCH_BODY_MAX = 12;
+// settleTerrainChunks: the slots buildTerrainChunk touched since the settle
+// started, and how many chunks the settle built this frame.
+inline std::vector<int> g_terrainBuiltSlots;
+inline int g_terrainSettled = 0;
+inline bool g_terrainSettleRan = false;
+// Per slot: its bags were baked ahead since it last came near the draw ring.
+inline std::vector<unsigned char> g_terrainAhead;
 struct BatchRange {
   int batch, part;
   unsigned int start, count;

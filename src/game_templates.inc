@@ -4428,6 +4428,13 @@ inline constexpr bool STATIC_BATCH_PATCH = true;
 // vertices. The price is more bags while they all sleep. Twin:
 // staticbatch.cpp kBodyBatchMax.
 inline constexpr int STATIC_BATCH_BODY_MAX = 12;
+// settleTerrainChunks: the slots buildTerrainChunk touched since the settle
+// started, and how many chunks the settle built this frame.
+inline std::vector<int> g_terrainBuiltSlots;
+inline int g_terrainSettled = 0;
+inline bool g_terrainSettleRan = false;
+// Per slot: its bags were baked ahead since it last came near the draw ring.
+inline std::vector<unsigned char> g_terrainAhead;
 struct BatchRange {
   int batch, part;
   unsigned int start, count;
@@ -6040,6 +6047,7 @@ void TerrainGame::loop() {
     if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
   }
   if (!menuActive) settleStaticBatches();
+  if (!menuActive) settleTerrainChunks();
   traceUpdate.finish();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
@@ -8475,6 +8483,7 @@ void TerrainGame::loop() {
   UPD_LAP(9);
 #undef UPD_LAP
   if (!menuActive) settleStaticBatches();
+  if (!menuActive) settleTerrainChunks();
   traceUpdate.finish();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
@@ -26982,16 +26991,24 @@ void TerrainGame::renderScene() {
   // It runs BEFORE the reflection capture so the capture knows whether this
   // frame already paid for a chunk build (terrainBuiltThisFrame).
   if (!splitSecondPass) {
-    terrainBuiltThisFrame = 0;
+    // A chunk settleTerrainChunks built before the frame still cost this
+    // frame its EE time: the reflection capture keeps waiting for it.
+    terrainBuiltThisFrame = g_terrainSettled;
+    g_terrainSettled = 0;
+    const bool settled = g_terrainSettleRan;
+    g_terrainSettleRan = false;
     const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
     // A streamed map builds up to two missing chunks a frame. A resident one
     // only ever rebuilds for a LOD band change, and two of those in one frame
     // were the heaviest frames of the Motor District drive: one a frame
     // halved its late frames on a PS2 (docs/terrain.md).
-    updateTerrainChunks(terrainFocusX, terrainFocusZ,
-                        p2Focus ? players[1].x : 0.0F,
-                        p2Focus ? players[1].z : 0.0F, p2Focus,
-                        terrainWholeMapResident() ? 1 : 2);
+    // settleTerrainChunks already spent this frame's build budget before
+    // the frame: a second build here would bake its stream inside the frame.
+    if (!settled)
+      updateTerrainChunks(terrainFocusX, terrainFocusZ,
+                          p2Focus ? players[1].x : 0.0F,
+                          p2Focus ? players[1].z : 0.0F, p2Focus,
+                          terrainWholeMapResident() ? 1 : 2);
   }
   // Amortised capture (docs/reflective-materials.md): with a second env
   // target the capture is split over THREE frames into the BACK target - the
@@ -30599,6 +30616,7 @@ int TerrainGame::terrainLodStep(int cx, int cz) const {
 void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   TerrainChunk& ch = terrainChunks[slot];
   ++terrainBuiltThisFrame;
+  g_terrainBuiltSlots.push_back(slot);
   if (ch.cx >= 0)  // recycling: unmap the chunk this slot held
     terrainChunkSlot[ch.cz * terrainChunksX + ch.cx] = -1;
   ch.cx = cx;
@@ -31568,6 +31586,67 @@ int TerrainGame::countPendingChunks(float focusX, float focusZ) {
 // tile of hysteresis so walking along a border doesn't rebuild the same ring
 // every frame - and missing ones are built nearest-first, `budget` per call
 // (loadScene passes INT_MAX to drain behind the loading screen).
+// Terrain chunks built BEFORE the frame records (docs/terrain-lod.md, "Built
+// before the frame"). A chunk whose LOD band changed was rebuilt inside the
+// frame, in renderScene, and its new stream (and its ground-shadow pass) was
+// then baked by its first draw: 2-4 ms of EE in one frame on a PS2, a lost
+// frame each time a car crossed a band. The same update runs here, with the
+// focus the update just set, and every bag of a chunk it built is baked now
+// (StaPipCore::prebakeBag, which refuses while a frame records). The call in
+// renderScene stays and finds the ring settled; anything left over (a
+// second missing chunk, the split view's other focus) builds there as
+// before.
+void TerrainGame::settleTerrainChunks() {
+  g_terrainBuiltSlots.clear();
+  terrainBuiltThisFrame = 0;
+  const bool p2Focus = playerTwoActive && players[1].objIndex >= 0;
+  updateTerrainChunks(terrainFocusX, terrainFocusZ,
+                      p2Focus ? players[1].x : 0.0F,
+                      p2Focus ? players[1].z : 0.0F, p2Focus,
+                      terrainWholeMapResident() ? 1 : 2);
+  g_terrainSettled = terrainBuiltThisFrame;
+  g_terrainSettleRan = true;
+  g_terrainAhead.resize(terrainChunks.size(), 0);
+  auto bakeChunk = [&](int slot) {
+    TerrainChunk& ch = terrainChunks[(size_t)slot];
+    auto bake = [&](Tyra::StaPipBag* b) {
+      if (b && b->count > 0) stapip.core.prebakeBag(b);
+    };
+    bake(ch.bag.get());
+    for (TerrainChunk::LayerPass& lp : ch.layerPasses) bake(lp.bag.get());
+    bake(ch.aoBag.get());
+    bake(ch.gsBag.get());
+    bake(ch.emisBag.get());
+    g_terrainAhead[(size_t)slot] = 1;
+  };
+  for (int slot : g_terrainBuiltSlots)
+    if (slot >= 0 && slot < (int)terrainChunks.size() &&
+        terrainChunks[(size_t)slot].cx >= 0)
+      bakeChunk(slot);
+  g_terrainBuiltSlots.clear();
+  // A resident map draws only the chunks inside the view rect, and a chunk
+  // drawn for the first time (or after its baked stream expired unseen)
+  // baked it inside the frame: ~1-1.4 ms with its ground-shadow pass, one
+  // after another as a car drove toward them. Chunks within one chunk of
+  // the rect are baked here, one a frame, before they are drawn; leaving
+  // that margin forgets it, because the cache drops what goes unseen.
+  if (!terrainWholeMapResident() || terrainDrawRectCount <= 0) return;
+  int next = -1;
+  for (int s = 0; s < (int)terrainChunks.size(); ++s) {
+    const TerrainChunk& ch = terrainChunks[(size_t)s];
+    if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
+    bool near = false;
+    for (int r = 0; r < terrainDrawRectCount && !near; ++r)
+      near = ch.cx >= terrainDrawRect[r][0] - 1 &&
+             ch.cx <= terrainDrawRect[r][2] + 1 &&
+             ch.cz >= terrainDrawRect[r][1] - 1 &&
+             ch.cz <= terrainDrawRect[r][3] + 1;
+    if (!near) g_terrainAhead[(size_t)s] = 0;
+    else if (!g_terrainAhead[(size_t)s] && next < 0) next = s;
+  }
+  if (next >= 0) bakeChunk(next);
+}
+
 void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
                                       float focus2X, float focus2Z,
                                       bool twoFoci, int budget) {
@@ -31719,11 +31798,18 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
     for (int s = 0; s < (int)terrainChunks.size(); ++s) {
       const TerrainChunk& ch = terrainChunks[s];
       if (ch.cx < 0) continue;
-      if (ch.lod == terrainLodStep(ch.cx, ch.cz) &&
-          ch.lodW == terrainLodStep(ch.cx - 1, ch.cz) &&
-          ch.lodE == terrainLodStep(ch.cx + 1, ch.cz) &&
-          ch.lodN == terrainLodStep(ch.cx, ch.cz - 1) &&
-          ch.lodS == terrainLodStep(ch.cx, ch.cz + 1))
+      // An edge is only ever snapped to a COARSER neighbour (edgeMix), so
+      // what the mesh depends on is max(own, neighbour) per edge: a
+      // neighbour that stays at or below this chunk's stride changes
+      // nothing, and rebuilding for it was 26% of a drive's rebuilds.
+      const int lod = terrainLodStep(ch.cx, ch.cz);
+      auto edge = [&](int was, int now) {
+        return (was > ch.lod ? was : ch.lod) == (now > lod ? now : lod);
+      };
+      if (ch.lod == lod && edge(ch.lodW, terrainLodStep(ch.cx - 1, ch.cz)) &&
+          edge(ch.lodE, terrainLodStep(ch.cx + 1, ch.cz)) &&
+          edge(ch.lodN, terrainLodStep(ch.cx, ch.cz - 1)) &&
+          edge(ch.lodS, terrainLodStep(ch.cx, ch.cz + 1)))
         continue;
       slot = s;
       break;

@@ -59,8 +59,43 @@ See the qualification.
 
 When a band moves, the tiles it crossed are rebuilt — one per frame, after any
 tile that is missing outright, so a hole in the ground is never waiting behind a
-cosmetic rebuild. A tile whose *neighbour* changed detail is rebuilt too: that
-is the same edge, seen from the other side.
+cosmetic rebuild. A tile whose *neighbour* changed detail is rebuilt when its
+own edge changes: an edge only ever snaps to a COARSER neighbour, so the mesh
+depends on the coarser of the two strides per edge, and a neighbour that stays
+at or below the tile's own stride changes nothing. Rebuilding for every
+neighbour change was 26% of the rebuilds of a drive.
+
+### Built before the frame
+
+Rebuilds run in `settleTerrainChunks`, after the update and before
+`beginFrame` (next to `settleStaticBatches`), with the focus the update just
+set. Every bag of a tile it built is baked there (`StaPipCore::prebakeBag`), and
+so is one tile a frame that comes within a tile of the drawn rect. Built inside
+the frame, a tile's new stream (and its ground-shadow pass) was baked by its
+first draw, so the build and the bake landed in the recording together. The
+call in `renderScene` stays for the frames without a settle (an open menu).
+
+Measured on a physical PS2: a car driving straight through a 5 x 5-tile map
+(64-unit tiles, detail distance 70) rebuilds 15-21 tiles each time the focus
+moves half a tile, four of them at full detail: 1-2.2 ms of EE to build and
+~1.3 ms to bake each. Three interleaved runs of 1 000 frames, debug build, log
+muted:
+
+| | lost frames | p95 work |
+|---|---|---|
+| before | 11, 15, 11 | 11.52 ms |
+| after | 8, 8, 8 | 11.19 ms |
+
+Rebuilds per drive went from 93 to 67 (48 -> 40 ms of building in all). The
+frames still lost on that drive are the full-detail builds themselves, which
+now sit in the update. Two things tried and dropped, both measured:
+- **Waiting for a light frame** (full-detail rebuilds held while the previous
+  frame used more than 12.5 ms, 25 frames at most): that drive has no light
+  frames for that long, so the held tiles were forced into the crash a second
+  later and lost the same number of frames.
+- **Lighting every node of a tile at load** (the shade cache): full-detail
+  builds cost the same, so the shading was never the cost; emitting the 588
+  strip vertices is.
 
 ## Choosing a distance
 

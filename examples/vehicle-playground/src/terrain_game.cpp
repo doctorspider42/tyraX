@@ -792,6 +792,7 @@ void TerrainGame::loop() {
   UPD_LAP(9);
 #undef UPD_LAP
   if (!menuActive) settleStaticBatches();
+  if (!menuActive) settleTerrainChunks();
   traceUpdate.finish();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
