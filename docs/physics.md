@@ -321,6 +321,14 @@ physics 2.76 -> 2.30-2.36 ms, the update 6.20 -> 5.68-5.76 ms, lost frames
 (the first version) gave ~16 awake and lost frames 66/70: the slow sliders
 were the bulk.
 
+**Library math in the step.** The release ELF's physics functions were
+disassembled for calls into libm and soft-float: no double-precision math,
+square roots on the hardware `sqrt.s`, and the software trigonometry left is
+small - `broadPhaseBoxOf` (5 sin/cos per stale box) and the write-back's
+quaternion -> Euler (`atan2f` x3, `asinf`), ~0.15 ms of a crash frame with
+~20 awake bodies. `worldShape`'s 12 sin/cos run only when a static box moved
+(its geometry is cached by pose).
+
 ### The broad-phase walk
 
 `broadPhaseRefresh` compared every object's pose with the one its box was
