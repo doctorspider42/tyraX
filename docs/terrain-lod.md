@@ -75,6 +75,12 @@ the frame, a tile's new stream (and its ground-shadow pass) was baked by its
 first draw, so the build and the bake landed in the recording together. The
 call in `renderScene` stays for the frames without a settle (an open menu).
 
+The settle runs before the game has selected the static pipeline in its first
+frame, when the pipeline's packet buffers do not exist yet; `prebakeBag` (and
+`prepareStaticGeometry`) then decline (`StaPipQBufferRenderer::isAllocated()`)
+and that frame bakes in the draw as before. Without the check the bake wrote
+through the missing buffers: a TLB exception at boot on a PS2.
+
 Measured on a physical PS2: a car driving straight through a 5 x 5-tile map
 (64-unit tiles, detail distance 70) rebuilds 15-21 tiles each time the focus
 moves half a tile, four of them at full detail: 1-2.2 ms of EE to build and

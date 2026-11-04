@@ -118,6 +118,8 @@ void StaPipCore::setPrim() {
 
 // Modified by TyraX: see the header.
 bool StaPipCore::prebakeBag(StaPipBag* bag) {
+  // Modified by TyraX: nothing to bake with before the pipeline is in use.
+  if (!qbufferRenderer.isAllocated()) return false;
   if (Vif1Queue::recordingFrame() || !bag || !bag->info || !bag->vertices ||
       !bag->count || !bag->color || bag->billboard)
     return false;
@@ -136,6 +138,7 @@ bool StaPipCore::prebakeBag(StaPipBag* bag) {
 
 #if TYRA_STAPIP_PREPARED_STATIC
 bool StaPipCore::prepareStaticGeometry(StaPipBag* bag) {
+  if (!qbufferRenderer.isAllocated()) return false;  // Modified by TyraX
   if (Vif1Queue::recordingFrame() || !bag || !bag->info || !bag->vertices ||
       !bag->count || !bag->color || !bag->color->many || bag->lighting ||
       bag->billboard || (bag->texture &&

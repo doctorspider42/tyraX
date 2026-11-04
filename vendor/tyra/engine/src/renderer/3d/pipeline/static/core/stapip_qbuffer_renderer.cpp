@@ -1127,6 +1127,7 @@ void StaPipQBufferRenderer::deallocateOnUse() {
 
   for (u16 i = 0; i < buffersCount; i++) delete buffers[i];
   delete[] buffers;
+  buffers = nullptr;  // Modified by TyraX: isAllocated()
 
   delete[] dBufferPrograms;
 }
@@ -4518,9 +4519,8 @@ void StaPipQBufferRenderer::sendPacket() {
 void StaPipQBufferRenderer::setMaxVertCount(const u32& count) {
   if (maxVertCount == count) return;
   maxVertCount = count;
-  for (u32 i = 0; i < buffersCount; i++) {
-    buffers[i]->setMaxVertCount(count);
-  }
+  if (buffers)  // Modified by TyraX: not allocated outside onUse
+    for (u32 i = 0; i < buffersCount; i++) buffers[i]->setMaxVertCount(count);
   clipper.setMaxVertCount(count);
 }
 

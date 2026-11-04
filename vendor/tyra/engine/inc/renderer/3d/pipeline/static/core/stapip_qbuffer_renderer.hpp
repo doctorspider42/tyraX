@@ -959,6 +959,12 @@ class StaPipQBufferRenderer {
   /** Modified by TyraX: StaPipCore::prebakeBag's half - the bake with no
    * draw. */
   bool prebakeBag(StaPipBag* bag, u32 packageSize);
+  /** Modified by TyraX: the packet buffers exist only between
+   * allocateOnUse and deallocateOnUse. A bake ahead of the frame can run
+   * before the game first selects this pipeline (its first frame), and
+   * setMaxVertCount then wrote through no buffers: a TLB exception on the
+   * console at boot. */
+  bool isAllocated() const { return buffers != nullptr; }
 #if TYRA_STAPIP_PREPARED_STATIC
   bool prepareStaticGeometry(StaPipBag* bag, u32 packageSize, u32 clipSize);
   void releasePreparedGeometry() { baked.releaseScenePins(); }
@@ -1148,7 +1154,9 @@ class StaPipQBufferRenderer {
   qword_t* packetOrigin[kPacketCount] = {};
   void startPacket(packet2_t* packet);
   StaPipVU1Program** dBufferPrograms;
-  StaPipQBuffer** buffers;
+  // Modified by TyraX: null while the static pipeline is not in use
+  // (allocateOnUse / deallocateOnUse) - see isAllocated().
+  StaPipQBuffer** buffers = nullptr;
   packet2_t* staticDataPacket;
   // Modified by TyraX: uniforms already occupy the current geometry packet;
   // append the first buffer flush instead of resetting that packet.
