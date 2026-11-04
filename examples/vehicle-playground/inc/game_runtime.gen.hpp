@@ -5045,6 +5045,8 @@ inline std::vector<std::vector<std::unique_ptr<VehPartPatch>>> vehPartPatches;
 // where the one-car-a-frame round robin resumes.
 inline std::vector<u32> vehPrebakeFrame;
 inline int vehPrebakeNext = 0;
+// The pre-bake step a car is on: part * 3 + (0 body, 1 shine, 2 paint map).
+inline std::vector<unsigned short> vehPrebakeStep;
 
 inline std::vector<unsigned> rbRevisions;
 inline unsigned rbRevisionGeneration=~0u;

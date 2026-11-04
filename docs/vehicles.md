@@ -352,9 +352,12 @@ undamaged body (4.2-4.4 ms per car), then each dent rewrote its vertices
   swapped in paid ~4.8 ms and its shine's first draw ~3.7-7 ms - right before
   a hit. Within 1.6x its swap distance its tier 0 body and shine bags are
   bound for a moment and baked without being drawn (`StaPipCore::prebakeBag`,
-  one car a frame, renewed every 120 frames), so the swap and the shine find
+  one car at a time, renewed every 120 frames), so the swap and the shine find
   them ready. Re-shading the shine afterwards is a payload refresh, not a
-  re-bake (docs/baked-vif-stream.md).
+  re-bake (docs/baked-vif-stream.md). The work goes ONE STEP A FRAME - a
+  part's body, then its shine, then its paint map: the whole car in one frame
+  was 6.2-6.9 ms of update on a PS2 as a car drove up to a parked one, and
+  the heaviest step is now the body, 3.5-3.9 ms (`vehPrebakeStep`).
 
 Measured over the same scripted crash on a physical PS2, two runs per arm: the
 50 ms frame at the hit is gone (the worst frame is now 33 ms); frames missed

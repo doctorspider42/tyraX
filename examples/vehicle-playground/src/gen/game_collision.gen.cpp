@@ -7019,11 +7019,18 @@ void TerrainGame::stepVehicles(float dt) {
   // body on a physical PS2), and its shine's first bake (~3.7 ms) the frame
   // after: right before a hit, when the frame is heaviest. Within 1.6x its
   // swap distance its tier 0 (body and shine bags) is bound for a moment,
-  // baked without being drawn, and the far tier bound back; one car a frame,
-  // again every 120 frames to keep the entries resident.
+  // baked without being drawn, and the far tier bound back; one car at a
+  // time, again every 120 frames to keep the entries resident.
+  //
+  // ONE STEP A FRAME: a part's body, then its shine, then its paint map.
+  // The whole car in one frame was 5.9-6.8 ms of update on a PS2 as a car
+  // drove up to a parked one - the frame before the hit, where the scene
+  // is heaviest; each step is at most the body's ~4.8 ms, usually less.
   if (vehicleCount_ > 0) {
     if ((int)vehPrebakeFrame.size() < vehicleCount_)
       vehPrebakeFrame.resize((size_t)vehicleCount_, 0u);
+    if ((int)vehPrebakeStep.size() < vehicleCount_)
+      vehPrebakeStep.resize((size_t)vehicleCount_, 0u);
     for (int k = 0; k < vehicleCount_; ++k) {
       const int vi = (vehPrebakeNext + k) % vehicleCount_;
       VehicleRt& v = vehicles_[vi];
@@ -7040,16 +7047,32 @@ void TerrainGame::stepVehicles(float dt) {
       if (dx * dx + dy * dy + dz * dz > 2.56F * swap * swap) continue;
       u32& at = vehPrebakeFrame[(size_t)vi];
       if (at != 0u && g_frameStamp - at < 120u) continue;
-      at = g_frameStamp ? g_frameStamp : 1u;
-      vehPrebakeNext = vi + 1;
+      unsigned short& step = vehPrebakeStep[(size_t)vi];
       ObjectGeometry& g = objectGeometry[(size_t)v.object];
-      for (int pi = 0; pi < (int)g.parts.size(); ++pi) {
+      // The next step with work in it; the car is done past its last part.
+      const int stepCount = (int)g.parts.size() * 3;
+      while ((int)step < stepCount) {
+        const GeoPart& part = g.parts[(size_t)(step / 3)];
+        const bool live = part.bag && part.shownLod != 0;
+        if (live && (step % 3 == 0 || part.envBag)) break;
+        ++step;
+      }
+      if ((int)step >= stepCount) {
+        step = 0;
+        at = g_frameStamp ? g_frameStamp : 1u;
+        vehPrebakeNext = vi + 1;
+        continue;
+      }
+      vehPrebakeNext = vi;  // this car again next frame
+      {
+        const int pi = step / 3;
+        const int kind = step % 3;
+        ++step;
         GeoPart& part = g.parts[(size_t)pi];
-        if (!part.bag || part.shownLod == 0) continue;
         const int shown = part.shownLod;
         applyGeoLod(v.object, pi, 0);
-        stapip.core.prebakeBag(&*part.bag);
-        if (part.envBag) {
+        if (kind == 0) stapip.core.prebakeBag(&*part.bag);
+        if (kind != 0 && part.envBag) {
           // The env pass covers only the shiny prefix of the part (the
           // matte suffix, VEHICLE_ENV_LIMITS) - the count is in the key.
           applyVehicleEnvLimits();
@@ -7060,11 +7083,11 @@ void TerrainGame::stepVehicles(float dt) {
           const bool paints = part.envTexBag && part.envColorBag &&
                               part.envColorBag->many && vehiclePaintFor(v.object);
           if (paints) part.envTexBag->textureFunction = 3;
-          stapip.core.prebakeBag(&*part.envBag);
+          if (kind == 1) stapip.core.prebakeBag(&*part.envBag);
           // Its paint map too, into the spare slot: the swap would otherwise
           // rebuild it from ~3 400 normals (1.7 ms on a PS2) in the frame it
           // happens - a few frames before the hit, on a car being closed in on.
-          if (paints && part.envTexBag->coordinates) {
+          if (kind == 2 && paints && part.envTexBag->coordinates) {
             u32 pn = part.envBag->count;
             if (pn > (u32)part.envColors.size()) pn = (u32)part.envColors.size();
             paintMapPrepare(part, part.envTexBag->coordinates, pn);
