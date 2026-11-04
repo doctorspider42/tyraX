@@ -305,6 +305,62 @@ about a scene with a broken asset path. Fixture E pins it.
   static programs use (75 vertices, `meshstrip::kRun`). They are what the bag
   submits, not a measurement of a frame.
 
+## When bodies leave and rejoin a batch, during a crash
+
+A car driving through a field of sleeping crates, and the same car through a
+4-3-2-1 pyramid and a six-crate tower, measured on a physical PS2 with the
+debug build's log muted (see docs/profiling.md, "The log is not free"):
+
+| | lost frames in 1 000, before | after |
+|---|---|---|
+| through the crate field at 29 m/s | 15, 16 | 0, 0 |
+| into the pyramid and the tower | 32, 36 | 2-4 |
+
+Four things cost those frames, and each is changed.
+
+**Rebuilds without a wait.** A batch's vertex arrays are *immutable
+streams*: the frame recorder REFs them in place instead of copying them
+(docs/stapip-stamps.md). With the frame pipeline the previous frame is still
+on the GPU while this one renders, so a rebuild must not rewrite them, and
+`StaPipBag::releaseImmutableStreams()` waited for every DMA reader first. That
+wait forced the previous frame's present - its vsync included - into the
+middle of the frame doing the rebuild: 11-15 ms of EE standing still, one
+lost field each time a body woke out of a batch. The rebuild now retires the
+streams (`StaPipBag::retireImmutableStreams()`: no new frame borrows them)
+and writes fresh arrays; the old ones wait in `retiredBatchStreams` until
+`Vif1Queue::collectRetiredImmutableSpan` says no frame in flight names them,
+two frames later. Found with a ring of EE waits on the GPU tagged with the
+loop phase they happened in (`drain()` called from
+`unregisterImmutableSpan`, caller address resolved from the `.elf.sym`).
+
+**Patching a batch** (`STATIC_BATCH_PATCH`). Without the wait, the rebuild
+itself was the cost: re-baking every member of a batch - lighting, AO,
+probes - for one crate that shared it with the props around it, 4-7 ms on a
+PS2. Each member's vertex range in its batch is recorded (`batchRangeOf`), so
+a body leaving costs a copy of the members that stay (~50 KB, ~0.1 ms) and a
+body rejoining costs a bake of that one member, appended at the end. The
+physics write-back's demotion goes through the same path
+(`batchMemberLeaves`); a visibility change, a lamp re-bake or an unknown range
+still takes the full rebuild. A self-check run in PCSX2 (every shown member's
+range non-empty and centred on its object, no vertex outside a member's
+range) passed 40 of 40 patches.
+
+**Bodies leave without a bake.** The frame a body first moves used to bake
+its local-space geometry for the matrix path - a falling stack woke a dozen
+bodies and paid a dozen bakes at once (+5 ms). Physics bodies are now baked
+ahead, four a frame from the first frames of a scene: a body in a batch gets
+the state a body that rejoined its batch is in (local geometry, kept, not
+drawn while the batch draws it), a solo body moves to the matrix path at its
+rest pose. The VIF streams of batched bodies within 40 units of the camera
+are baked ahead too (`StaPipCore::prebakeBag`, refreshed every 120 frames, as
+a car's full-detail tier is).
+
+**Still open.** The 2-4 frames left in the pile test: the frame after the
+first hit re-bakes the patched batch's VIF stream (its arrays are new; a
+partial `StaPipBagPatch` would avoid it), and the frame the car meets the
+tower spends ~9 ms submitting objects that the object loop's own laps do not
+account for.
+
 ## Members at the world origin (fixed 1.176.3)
 
 A batch bakes its members in WORLD space through the same `pushVert` the solo

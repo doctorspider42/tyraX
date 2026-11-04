@@ -71,6 +71,20 @@ void StaPipBag::releaseImmutableStreams() {
   }
 }
 
+int StaPipBag::retireImmutableStreams(const void* out[4]) {
+  int n = 0;
+  if (!immutableRegistered) return 0;
+  immutableRegistered = false;
+  for (auto& s : immutableSpans) {
+    if (s) {
+      Vif1Queue::retireImmutableSpan(s);
+      out[n++] = s;
+    }
+    s = nullptr;
+  }
+  return n;
+}
+
 StaPipBagPackagesBBox StaPipBag::calculateBbox(const u32& maxVertCount) {
   TYRA_ASSERT(vertices != nullptr, "Vertices are required to calculate bbox");
   TYRA_ASSERT(count > 0, "Count must be greater than 0 to calculate bbox");

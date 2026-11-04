@@ -203,6 +203,15 @@ class StaPipBag {
   const StaPipBagPatch* patch;
   void registerImmutableStreams();
   void releaseImmutableStreams();
+  /** Modified by TyraX: releaseImmutableStreams() without the wait. The
+   * spans are retired - no new frame borrows them - and written to `out`
+   * (returns how many); the caller keeps that memory alive and unchanged
+   * until Vif1Queue::collectRetiredImmutableSpan() is true for each, then
+   * frees or reuses it. With the frame pipeline the previous frame is still
+   * on the GPU during this one, so the wait in releaseImmutableStreams()
+   * forced its present - vsync included - into the middle of the frame that
+   * called it: a whole lost field for a static-batch rebuild. */
+  int retireImmutableStreams(const void* out[4]);
   bool immutableRegistered;
   const void* immutableSpans[4];
 

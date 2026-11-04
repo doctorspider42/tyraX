@@ -4407,6 +4407,60 @@ struct BodyBatchHome {
   int batch, part;
 };
 inline std::vector<std::vector<BodyBatchHome>> bodyBatchHome;
+// Static-batch patches (docs/static-batching.md, "Patching a batch"): where
+// each member's vertices sit in its batch's arrays, so a body leaving a batch
+// (woken) or rejoining it (asleep again) costs a copy of the members that
+// stay plus a bake of the one that joins, instead of re-baking every member
+// - 4-7 ms of EE on a PS2 for one crate sharing a batch with the props
+// around it, a lost frame each time. false = always the full rebuild (the
+// A/B control).
+inline constexpr bool STATIC_BATCH_PATCH = true;
+struct BatchRange {
+  int batch, part;
+  unsigned int start, count;
+};
+inline std::vector<std::vector<BatchRange>> batchRangeOf;  // by object
+struct BatchPatch {
+  std::vector<int> append;  // member indices baked onto the end
+  bool full = false;
+  bool pending = false;
+};
+inline std::vector<BatchPatch> batchPatch;            // by batch
+inline std::vector<unsigned char> batchUsesStrips;    // by batch
+inline const BatchRange* batchRangeFind(int object, int batch, int part) {
+  if (object < 0 || object >= (int)batchRangeOf.size()) return nullptr;
+  for (const BatchRange& r : batchRangeOf[(size_t)object])
+    if (r.batch == batch && r.part == part) return &r;
+  return nullptr;
+}
+inline void batchRangeSet(int object, int batch, int part, unsigned int start,
+                          unsigned int count) {
+  if (object < 0) return;
+  if (object >= (int)batchRangeOf.size()) batchRangeOf.resize((size_t)object + 1);
+  for (BatchRange& r : batchRangeOf[(size_t)object])
+    if (r.batch == batch && r.part == part) {
+      r.start = start, r.count = count;
+      return;
+    }
+  batchRangeOf[(size_t)object].push_back({batch, part, start, count});
+}
+inline void batchPatchSize(size_t batches) {
+  if (batchPatch.size() < batches) batchPatch.resize(batches);
+  if (batchUsesStrips.size() < batches) batchUsesStrips.resize(batches, 0);
+}
+// Member k is about to leave batch bi (call before erasing it): the next
+// rebuild of that batch is a patch, which simply does not copy it.
+template <class Batch>
+inline void batchMemberLeaves(Batch& b, int bi, size_t k) {
+  (void)b;
+  batchPatchSize((size_t)bi + 1);
+  BatchPatch& bp = batchPatch[(size_t)bi];
+  for (int& a : bp.append) {
+    if (a == (int)k) bp.full = true;
+    if (a > (int)k) --a;
+  }
+  bp.pending = true;
+}
 inline std::vector<u32> bodyAsleepAt;  // g_frameStamp it fell asleep, 0 = awake
 inline constexpr float PHYS_REJOIN_AFTER_S = 3.0F;
 inline void bodyMarkAsleep(int obj) {

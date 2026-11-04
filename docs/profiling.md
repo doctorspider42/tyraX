@@ -831,6 +831,27 @@ file I/O inside the measurement, and a `run.log` that stops after ps2link's own
 And `taskkill` without `/F` does not close `ps2client`, so run long enough that
 the `FTRAW` blocks you need are well before the end.
 
+### The log is not free
+
+Under ps2link every `TYRA_LOG` line is a console write the EE waits for, and
+the console is slow: a burst of ~1.5 KB in one frame (the `FRAMETIME`,
+`FTUPD`, `FTPHYS`, ... block a `TYRA_FRAME_PROFILE` build prints every 50
+frames, or `PROFILE FRAME` with the on-screen profiler) costs ~10 ms of EE
+and a lost frame. In vehicle-playground on a physical PS2 that was every
+"unexplained" lost frame of a parked car (~30-40 in 1 000) and of a drive
+around the district: with `TYRA_LOG` muted for the measured window those runs
+lost **0** frames. A normal debug build prints far less (a driven car's
+`VEH pos` twice a second, contact and shine lines on change); a release build
+prints nothing. So before blaming the game for lost frames on a console,
+count them with the log off (a ring recorded every frame and dumped
+afterwards, as `C:\tx\qp\patch_mute.py` does).
+
+Measured and dropped: queueing the lines and writing them once a frame (no
+change - the cost follows the bytes, not the calls), a byte budget per frame
+(64-256 B: fewer losses, not none), and writing in the present's idle time
+when the last wait was long enough (worse - a write's cost varies too much to
+predict).
+
 ### What the rig established about BLSS (2026-08-08 .. 2026-08-09, REAL HARDWARE)
 
 Most of this rig's history was spent pricing the neural reconstruction BLSS used

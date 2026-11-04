@@ -4411,6 +4411,60 @@ struct BodyBatchHome {
   int batch, part;
 };
 inline std::vector<std::vector<BodyBatchHome>> bodyBatchHome;
+// Static-batch patches (docs/static-batching.md, "Patching a batch"): where
+// each member's vertices sit in its batch's arrays, so a body leaving a batch
+// (woken) or rejoining it (asleep again) costs a copy of the members that
+// stay plus a bake of the one that joins, instead of re-baking every member
+// - 4-7 ms of EE on a PS2 for one crate sharing a batch with the props
+// around it, a lost frame each time. false = always the full rebuild (the
+// A/B control).
+inline constexpr bool STATIC_BATCH_PATCH = true;
+struct BatchRange {
+  int batch, part;
+  unsigned int start, count;
+};
+inline std::vector<std::vector<BatchRange>> batchRangeOf;  // by object
+struct BatchPatch {
+  std::vector<int> append;  // member indices baked onto the end
+  bool full = false;
+  bool pending = false;
+};
+inline std::vector<BatchPatch> batchPatch;            // by batch
+inline std::vector<unsigned char> batchUsesStrips;    // by batch
+inline const BatchRange* batchRangeFind(int object, int batch, int part) {
+  if (object < 0 || object >= (int)batchRangeOf.size()) return nullptr;
+  for (const BatchRange& r : batchRangeOf[(size_t)object])
+    if (r.batch == batch && r.part == part) return &r;
+  return nullptr;
+}
+inline void batchRangeSet(int object, int batch, int part, unsigned int start,
+                          unsigned int count) {
+  if (object < 0) return;
+  if (object >= (int)batchRangeOf.size()) batchRangeOf.resize((size_t)object + 1);
+  for (BatchRange& r : batchRangeOf[(size_t)object])
+    if (r.batch == batch && r.part == part) {
+      r.start = start, r.count = count;
+      return;
+    }
+  batchRangeOf[(size_t)object].push_back({batch, part, start, count});
+}
+inline void batchPatchSize(size_t batches) {
+  if (batchPatch.size() < batches) batchPatch.resize(batches);
+  if (batchUsesStrips.size() < batches) batchUsesStrips.resize(batches, 0);
+}
+// Member k is about to leave batch bi (call before erasing it): the next
+// rebuild of that batch is a patch, which simply does not copy it.
+template <class Batch>
+inline void batchMemberLeaves(Batch& b, int bi, size_t k) {
+  (void)b;
+  batchPatchSize((size_t)bi + 1);
+  BatchPatch& bp = batchPatch[(size_t)bi];
+  for (int& a : bp.append) {
+    if (a == (int)k) bp.full = true;
+    if (a > (int)k) --a;
+  }
+  bp.pending = true;
+}
 inline std::vector<u32> bodyAsleepAt;  // g_frameStamp it fell asleep, 0 = awake
 inline constexpr float PHYS_REJOIN_AFTER_S = 3.0F;
 inline void bodyMarkAsleep(int obj) {
@@ -22375,6 +22429,37 @@ void TerrainGame::buildStaticBatchList() {
 
 
 
+// Batch streams the GPU may still be reading. With the frame pipeline the
+// previous frame is on the GPU while this one renders, and it REFs every
+// batch it drew in place (immutableStreams), so a rebuild must not rewrite
+// them. releaseImmutableStreams() waited for that frame instead - its
+// present and vsync forced into the middle of this one, a whole lost field
+// each time a body woke out of a batch (docs/static-batching.md, "Rebuilds
+// without a wait"). The old arrays retire here and are freed once no
+// in-flight frame names them (two frames later).
+struct RetiredBatchStreams {
+  BagArray<Tyra::Vec4> vertices, sts;
+  BagArray<Tyra::Color> colors;
+  const void* spans[4] = {nullptr, nullptr, nullptr, nullptr};
+  int spanCount = 0;
+};
+static std::vector<RetiredBatchStreams> retiredBatchStreams;
+
+static void collectRetiredBatchStreams() {
+  for (size_t i = 0; i < retiredBatchStreams.size();) {
+    RetiredBatchStreams& r = retiredBatchStreams[i];
+    bool idle = true;
+    for (int k = 0; k < r.spanCount; ++k)
+      idle = Tyra::Vif1Queue::collectRetiredImmutableSpan(r.spans[k]) && idle;
+    if (idle) {
+      retiredBatchStreams[i] = std::move(retiredBatchStreams.back());
+      retiredBatchStreams.pop_back();
+    } else {
+      ++i;
+    }
+  }
+}
+
 // One batch's bake: re-run the primitive builders or imported-model part bake
 // for every shown member into the combined arrays - world-space vertices with
 // baked lighting, byte-identical to the solo path for that object. The
@@ -22382,17 +22467,15 @@ void TerrainGame::buildStaticBatchList() {
 // is keyed by (pointer, version), so the bboxVersion bump below is what
 // keeps reused pointers from resurrecting stale boxes.
 void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
+  const bool wasDirty = b.dirty;
   b.dirty = false;
+  const int bi = (int)(&b - staticBatches.data());
+  batchPatchSize(staticBatches.size());
+  BatchPatch patch = std::move(batchPatch[(size_t)bi]);
+  batchPatch[(size_t)bi] = BatchPatch();
   // A batch is world space by definition, whatever the last bake left in
   // the global (see applyGeoLod's tier bake).
   g_bakeLocal = false;
-  // The streams are about to change: hand them back first (see the
-  // immutableStreams note where the bag is made).
-  if (b.bag) b.bag->releaseImmutableStreams();
-  b.vertices.clear();
-  b.colors.clear();
-  b.sts.clear();
-  b.shown.assign(b.members.size(), 0);
   // A batched member never carries a lightmap region (the atlas keeps its
   // receivers solo), so its global illumination comes from the probe grid.
   // Staged explicitly: these are globals, and inheriting whatever the last
@@ -22425,6 +22508,69 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
         break;
       }
     }
+  // Patch (BatchPatch) or bake every member: a patch needs the arrays this
+  // batch already has, the same topology, and a known range for every
+  // member that stays and is shown.
+  std::vector<unsigned char> appended(b.members.size(), 0);
+  for (int a : patch.append)
+    if (a >= 0 && a < (int)appended.size()) appended[(size_t)a] = 1;
+  bool patching = STATIC_BATCH_PATCH && !wasDirty && !patch.full && b.bag &&
+                  b.bag->count == (u32)b.vertices.size() && b.vertices.size() > 0 &&
+                  (useStrips ? 1 : 0) == batchUsesStrips[(size_t)bi];
+  for (size_t k = 0; patching && k < b.members.size(); ++k) {
+    if (appended[k] || k >= b.shown.size() || !b.shown[k]) continue;
+    const BatchRange* r = batchRangeFind(b.members[k].object, bi, b.members[k].part);
+    if (!r || r->count == 0 || r->start + r->count > b.vertices.size()) patching = false;
+  }
+  // The streams are about to change: retire them (RetiredBatchStreams) and
+  // write fresh arrays - for a patch, the members that stay are copied over
+  // from the old ones, the leavers simply not.
+  collectRetiredBatchStreams();
+  BagArray<Vec4> keepV, keepS;
+  BagArray<Color> keepC;
+  const BagArray<Vec4>* srcV = &keepV;
+  const BagArray<Vec4>* srcS = &keepS;
+  const BagArray<Color>* srcC = &keepC;
+  if (b.bag && b.bag->immutableRegistered) {
+    retiredBatchStreams.emplace_back();
+    RetiredBatchStreams& r = retiredBatchStreams.back();
+    r.spanCount = b.bag->retireImmutableStreams(r.spans);
+    r.vertices.swap(b.vertices);
+    r.colors.swap(b.colors);
+    r.sts.swap(b.sts);
+    srcV = &r.vertices, srcS = &r.sts, srcC = &r.colors;
+  } else if (patching) {
+    keepV.swap(b.vertices);
+    keepC.swap(b.colors);
+    keepS.swap(b.sts);
+  }
+  b.vertices.clear();
+  b.colors.clear();
+  b.sts.clear();
+  if (patching) {
+    b.vertices.reserve(srcV->size());
+    b.colors.reserve(srcC->size());
+    b.sts.reserve(srcS->size());
+    for (size_t k = 0; k < b.members.size(); ++k) {
+      if (appended[k]) continue;
+      const StaticBatchMember& m = b.members[k];
+      if (k >= b.shown.size() || !b.shown[k]) {
+        batchRangeSet(m.object, bi, m.part, (unsigned int)b.vertices.size(), 0u);
+        continue;
+      }
+      const BatchRange* r = batchRangeFind(m.object, bi, m.part);
+      const unsigned int start = (unsigned int)b.vertices.size();
+      for (unsigned int i = r->start; i < r->start + r->count; ++i) {
+        b.vertices.push_back((*srcV)[i]);
+        b.colors.push_back((*srcC)[i]);
+        if (!srcS->empty()) b.sts.push_back((*srcS)[i]);
+      }
+      batchRangeSet(m.object, bi, m.part, start, r->count);
+    }
+  } else {
+    b.shown.assign(b.members.size(), 0);
+  }
+  batchUsesStrips[(size_t)bi] = useStrips ? 1 : 0;
   // The member-centre box the draw-distance test reads. Built over EVERY
   // member, shown or not: a hidden member needs no drawing, but letting
   // visibility move the box would make the batch's cut-off flicker with
@@ -22437,9 +22583,13 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
       if (k == 0 || p[a] > b.ddMax[a]) b.ddMax[a] = p[a];
     }
   }
-  for (size_t k = 0; k < b.members.size(); ++k) {
+  const size_t emitCount = patching ? patch.append.size() : b.members.size();
+  for (size_t e = 0; e < emitCount; ++e) {
+    const size_t k = patching ? (size_t)patch.append[e] : e;
+    if (k >= b.members.size()) continue;
     const StaticBatchMember member = b.members[k];
     RuntimeObject& o = runtimeObjects[member.object];
+    const unsigned int rangeStart = (unsigned int)b.vertices.size();
     g_aoOff = false;
     g_prelitTex = false;
     g_giProbeShade = SCENE_PROBES != nullptr;
@@ -22448,7 +22598,10 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     // calling this.
     const bool show = o.active && o.visible;
     b.shown[k] = show ? 1 : 0;
-    if (!show) continue;
+    if (!show) {
+      batchRangeSet(member.object, bi, member.part, rangeStart, 0u);
+      continue;
+    }
     // Per-MEMBER analytic-light pruning: pushVert reads the g_*Local lists,
     // which are per object, so a batch that collected them once would shade
     // every member with the first member's neighbours. Use the same primitive
@@ -22528,6 +22681,8 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
         default: addBox(b.vertices, b.colors, b.sts, o.data); break;
       }
     }
+    batchRangeSet(member.object, bi, member.part, rangeStart,
+                  (unsigned int)b.vertices.size() - rangeStart);
   }
   g_primKd = nullptr;
   g_primKe = nullptr;
@@ -22551,7 +22706,7 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     // Static geometry: the frame recorder may REF these arrays in place
     // instead of copying them into the frame arena every frame
     // (docs/stapip-stamps.md, "Immutable streams"). rebuildStaticBatch
-    // releases them before it touches them; destroying the bag does too.
+    // retires them before it touches them; destroying the bag releases them.
     b.bag->immutableStreams = true;
   }
   b.colors.bind(b.colorBag);
@@ -22781,6 +22936,7 @@ bool TerrainGame::occlusionHiddenObject(int index){
 
 
 void TerrainGame::renderStaticBatches() {
+  if (!retiredBatchStreams.empty()) collectRetiredBatchStreams();
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerStaticBatches);
 #endif
@@ -22807,29 +22963,37 @@ void TerrainGame::renderStaticBatches() {
         if (h.batch < 0 || h.batch >= (int)staticBatches.size()) continue;
         StaticBatch& sb = staticBatches[(size_t)h.batch];
         sb.members.push_back({(int)obj, h.part});
-        sb.shown.push_back(0);
-        sb.dirty = true;
+        sb.shown.push_back((ro.active && ro.visible) ? 1 : 0);
+        batchPatchSize(staticBatches.size());
+        BatchPatch& bp = batchPatch[(size_t)h.batch];
+        bp.append.push_back((int)sb.members.size() - 1);
+        bp.pending = true;
         objectBatchOf[obj] = h.batch;
       }
       homes.clear();
     }
   }
+  batchPatchSize(staticBatches.size());
   for (StaticBatch& b : staticBatches) {
-    bool stale = b.dirty;
+    const int bi = (int)(&b - staticBatches.data());
+    BatchPatch& bp = batchPatch[(size_t)bi];
+    bool stale = b.dirty || bp.pending;
     for (size_t k = 0; k < b.members.size(); ++k) {
       const int object = b.members[k].object;
       const RuntimeObject& o = runtimeObjects[object];
       if (o.dirty) {
         objectBatchOf[object] = -1;  // demote: solo from now on
+        batchMemberLeaves(b, bi, k);
         b.members.erase(b.members.begin() + (long)k);
         b.shown.erase(b.shown.begin() + (long)k);
         --k;
         stale = true;
         continue;
       }
-      if (!stale &&
+      // (shown is empty until the batch's first bake - b.dirty then)
+      if (k < b.shown.size() &&
           b.shown[k] != (unsigned char)((o.active && o.visible) ? 1 : 0))
-        stale = true;
+        stale = true, bp.full = true;
     }
     if (stale) rebuildStaticBatch(b);
     if (!b.bag || b.bag->count == 0) continue;
@@ -25019,6 +25183,56 @@ void TerrainGame::updateObjectPhysics() {
   constexpr bool coherence = true;
   static Tyra::SeparatingAxisHistory axisHistory;
   if(coherence) axisHistory.begin(sceneGeneration);
+  // PRE-BAKE (docs/static-batching.md, "Bodies leave without a bake"): the
+  // frame a physics body first moves baked its local-space geometry for the
+  // matrix path - in the middle of the hit: a toppled stack woke a dozen
+  // bodies and paid a dozen bakes at once (+5 ms of Objects, lost frames on
+  // a PS2). Bake them ahead, a few a frame from the first frames of the
+  // scene. A body asleep in a batch gets the state a body that has rejoined
+  // its batch is already in (local geometry, kept and not drawn while the
+  // batch draws it); a solo body moves to the matrix path at its rest pose,
+  // the same picture.
+  {
+    static unsigned prebakeGen = ~0u;
+    static int prebakeNext = 0;
+    if (prebakeGen != sceneGeneration) prebakeGen = sceneGeneration, prebakeNext = 0;
+    for (int done = 0; prebakeNext < (int)runtimeObjects.size() && done < 4; ++prebakeNext) {
+      const int i = prebakeNext;
+      const RuntimeObject& o = runtimeObjects[i];
+      if (!o.data.physics || !o.active || o.dirty) continue;
+      const bool batched = i < (int)objectBatchOf.size() && objectBatchOf[i] != -1;
+      if (objectGeometry[i].matrixMode) continue;
+      if (batched && !objectGeometry[i].parts.empty()) continue;
+      if (!physFastPathEligible(i)) continue;
+      rebuildObjectGeometry(i, true);
+      ++done;
+    }
+    // ...and the VIF streams of the bodies near the camera that still sit in
+    // a batch: drawing a bag the first time bakes its stream (the engine's
+    // cache, StaPipCore::prebakeBag), which a falling stack paid for every
+    // crate in the frame it fell. Kept resident like a car's tier 0: each
+    // again every 120 frames, four a frame.
+    static std::vector<u32> prebakeAt;
+    static int prebakeVifNext = 0;
+    if (prebakeAt.size() != runtimeObjects.size()) prebakeAt.assign(runtimeObjects.size(), 0u);
+    const int n = (int)runtimeObjects.size();
+    for (int step = 0, done = 0; n > 0 && step < n && done < 4; ++step) {
+      const int i = prebakeVifNext = (prebakeVifNext + 1) % n;
+      if (i >= (int)objectBatchOf.size() || objectBatchOf[i] == -1) continue;
+      const RuntimeObject& o = runtimeObjects[i];
+      ObjectGeometry& g = objectGeometry[i];
+      if (!o.data.physics || !o.active || !g.matrixMode || g.parts.empty()) continue;
+      if (prebakeAt[i] != 0u && g_frameStamp - prebakeAt[i] < 120u) continue;
+      const float dx = o.data.position[0] - cameraPosition.x;
+      const float dy = o.data.position[1] - cameraPosition.y;
+      const float dz = o.data.position[2] - cameraPosition.z;
+      if (dx * dx + dy * dy + dz * dz > 40.0F * 40.0F) continue;
+      prebakeAt[i] = g_frameStamp ? g_frameStamp : 1u;
+      for (GeoPart& part : g.parts)
+        if (part.bag && part.bag->count > 0) stapip.core.prebakeBag(&*part.bag);
+      ++done;
+    }
+  }
 
   struct SatGeometry { bool valid=false; RbV normals[44],edges[66]; };
   static std::vector<SatGeometry> satGeometry;
@@ -26292,9 +26506,9 @@ void TerrainGame::updateObjectPhysics() {
           for (size_t k = 0; k < sb.members.size();) {
             if (sb.members[k].object != S.obj) { ++k; continue; }
             bodyBatchHome[(size_t)S.obj].push_back({(int)bi, sb.members[k].part});
+            batchMemberLeaves(sb, (int)bi, k);  // a patch, not a re-bake
             sb.members.erase(sb.members.begin() + (long)k);
             if (k < sb.shown.size()) sb.shown.erase(sb.shown.begin() + (long)k);
-            sb.dirty = true;
           }
         }
         objectBatchOf[S.obj] = -1;

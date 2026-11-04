@@ -234,6 +234,56 @@ void TerrainGame::updateObjectPhysics() {
   constexpr bool coherence = true;
   static Tyra::SeparatingAxisHistory axisHistory;
   if(coherence) axisHistory.begin(sceneGeneration);
+  // PRE-BAKE (docs/static-batching.md, "Bodies leave without a bake"): the
+  // frame a physics body first moves baked its local-space geometry for the
+  // matrix path - in the middle of the hit: a toppled stack woke a dozen
+  // bodies and paid a dozen bakes at once (+5 ms of Objects, lost frames on
+  // a PS2). Bake them ahead, a few a frame from the first frames of the
+  // scene. A body asleep in a batch gets the state a body that has rejoined
+  // its batch is already in (local geometry, kept and not drawn while the
+  // batch draws it); a solo body moves to the matrix path at its rest pose,
+  // the same picture.
+  {
+    static unsigned prebakeGen = ~0u;
+    static int prebakeNext = 0;
+    if (prebakeGen != sceneGeneration) prebakeGen = sceneGeneration, prebakeNext = 0;
+    for (int done = 0; prebakeNext < (int)runtimeObjects.size() && done < 4; ++prebakeNext) {
+      const int i = prebakeNext;
+      const RuntimeObject& o = runtimeObjects[i];
+      if (!o.data.physics || !o.active || o.dirty) continue;
+      const bool batched = i < (int)objectBatchOf.size() && objectBatchOf[i] != -1;
+      if (objectGeometry[i].matrixMode) continue;
+      if (batched && !objectGeometry[i].parts.empty()) continue;
+      if (!physFastPathEligible(i)) continue;
+      rebuildObjectGeometry(i, true);
+      ++done;
+    }
+    // ...and the VIF streams of the bodies near the camera that still sit in
+    // a batch: drawing a bag the first time bakes its stream (the engine's
+    // cache, StaPipCore::prebakeBag), which a falling stack paid for every
+    // crate in the frame it fell. Kept resident like a car's tier 0: each
+    // again every 120 frames, four a frame.
+    static std::vector<u32> prebakeAt;
+    static int prebakeVifNext = 0;
+    if (prebakeAt.size() != runtimeObjects.size()) prebakeAt.assign(runtimeObjects.size(), 0u);
+    const int n = (int)runtimeObjects.size();
+    for (int step = 0, done = 0; n > 0 && step < n && done < 4; ++step) {
+      const int i = prebakeVifNext = (prebakeVifNext + 1) % n;
+      if (i >= (int)objectBatchOf.size() || objectBatchOf[i] == -1) continue;
+      const RuntimeObject& o = runtimeObjects[i];
+      ObjectGeometry& g = objectGeometry[i];
+      if (!o.data.physics || !o.active || !g.matrixMode || g.parts.empty()) continue;
+      if (prebakeAt[i] != 0u && g_frameStamp - prebakeAt[i] < 120u) continue;
+      const float dx = o.data.position[0] - cameraPosition.x;
+      const float dy = o.data.position[1] - cameraPosition.y;
+      const float dz = o.data.position[2] - cameraPosition.z;
+      if (dx * dx + dy * dy + dz * dz > 40.0F * 40.0F) continue;
+      prebakeAt[i] = g_frameStamp ? g_frameStamp : 1u;
+      for (GeoPart& part : g.parts)
+        if (part.bag && part.bag->count > 0) stapip.core.prebakeBag(&*part.bag);
+      ++done;
+    }
+  }
 
   struct SatGeometry { bool valid=false; RbV normals[44],edges[66]; };
   static std::vector<SatGeometry> satGeometry;
@@ -1507,9 +1557,9 @@ void TerrainGame::updateObjectPhysics() {
           for (size_t k = 0; k < sb.members.size();) {
             if (sb.members[k].object != S.obj) { ++k; continue; }
             bodyBatchHome[(size_t)S.obj].push_back({(int)bi, sb.members[k].part});
+            batchMemberLeaves(sb, (int)bi, k);  // a patch, not a re-bake
             sb.members.erase(sb.members.begin() + (long)k);
             if (k < sb.shown.size()) sb.shown.erase(sb.shown.begin() + (long)k);
-            sb.dirty = true;
           }
         }
         objectBatchOf[S.obj] = -1;

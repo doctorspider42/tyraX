@@ -2841,6 +2841,37 @@ void TerrainGame::buildStaticBatchList() {
 
 
 
+// Batch streams the GPU may still be reading. With the frame pipeline the
+// previous frame is on the GPU while this one renders, and it REFs every
+// batch it drew in place (immutableStreams), so a rebuild must not rewrite
+// them. releaseImmutableStreams() waited for that frame instead - its
+// present and vsync forced into the middle of this one, a whole lost field
+// each time a body woke out of a batch (docs/static-batching.md, "Rebuilds
+// without a wait"). The old arrays retire here and are freed once no
+// in-flight frame names them (two frames later).
+struct RetiredBatchStreams {
+  BagArray<Tyra::Vec4> vertices, sts;
+  BagArray<Tyra::Color> colors;
+  const void* spans[4] = {nullptr, nullptr, nullptr, nullptr};
+  int spanCount = 0;
+};
+static std::vector<RetiredBatchStreams> retiredBatchStreams;
+
+static void collectRetiredBatchStreams() {
+  for (size_t i = 0; i < retiredBatchStreams.size();) {
+    RetiredBatchStreams& r = retiredBatchStreams[i];
+    bool idle = true;
+    for (int k = 0; k < r.spanCount; ++k)
+      idle = Tyra::Vif1Queue::collectRetiredImmutableSpan(r.spans[k]) && idle;
+    if (idle) {
+      retiredBatchStreams[i] = std::move(retiredBatchStreams.back());
+      retiredBatchStreams.pop_back();
+    } else {
+      ++i;
+    }
+  }
+}
+
 // One batch's bake: re-run the primitive builders or imported-model part bake
 // for every shown member into the combined arrays - world-space vertices with
 // baked lighting, byte-identical to the solo path for that object. The
@@ -2848,17 +2879,15 @@ void TerrainGame::buildStaticBatchList() {
 // is keyed by (pointer, version), so the bboxVersion bump below is what
 // keeps reused pointers from resurrecting stale boxes.
 void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
+  const bool wasDirty = b.dirty;
   b.dirty = false;
+  const int bi = (int)(&b - staticBatches.data());
+  batchPatchSize(staticBatches.size());
+  BatchPatch patch = std::move(batchPatch[(size_t)bi]);
+  batchPatch[(size_t)bi] = BatchPatch();
   // A batch is world space by definition, whatever the last bake left in
   // the global (see applyGeoLod's tier bake).
   g_bakeLocal = false;
-  // The streams are about to change: hand them back first (see the
-  // immutableStreams note where the bag is made).
-  if (b.bag) b.bag->releaseImmutableStreams();
-  b.vertices.clear();
-  b.colors.clear();
-  b.sts.clear();
-  b.shown.assign(b.members.size(), 0);
   // A batched member never carries a lightmap region (the atlas keeps its
   // receivers solo), so its global illumination comes from the probe grid.
   // Staged explicitly: these are globals, and inheriting whatever the last
@@ -2891,6 +2920,69 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
         break;
       }
     }
+  // Patch (BatchPatch) or bake every member: a patch needs the arrays this
+  // batch already has, the same topology, and a known range for every
+  // member that stays and is shown.
+  std::vector<unsigned char> appended(b.members.size(), 0);
+  for (int a : patch.append)
+    if (a >= 0 && a < (int)appended.size()) appended[(size_t)a] = 1;
+  bool patching = STATIC_BATCH_PATCH && !wasDirty && !patch.full && b.bag &&
+                  b.bag->count == (u32)b.vertices.size() && b.vertices.size() > 0 &&
+                  (useStrips ? 1 : 0) == batchUsesStrips[(size_t)bi];
+  for (size_t k = 0; patching && k < b.members.size(); ++k) {
+    if (appended[k] || k >= b.shown.size() || !b.shown[k]) continue;
+    const BatchRange* r = batchRangeFind(b.members[k].object, bi, b.members[k].part);
+    if (!r || r->count == 0 || r->start + r->count > b.vertices.size()) patching = false;
+  }
+  // The streams are about to change: retire them (RetiredBatchStreams) and
+  // write fresh arrays - for a patch, the members that stay are copied over
+  // from the old ones, the leavers simply not.
+  collectRetiredBatchStreams();
+  BagArray<Vec4> keepV, keepS;
+  BagArray<Color> keepC;
+  const BagArray<Vec4>* srcV = &keepV;
+  const BagArray<Vec4>* srcS = &keepS;
+  const BagArray<Color>* srcC = &keepC;
+  if (b.bag && b.bag->immutableRegistered) {
+    retiredBatchStreams.emplace_back();
+    RetiredBatchStreams& r = retiredBatchStreams.back();
+    r.spanCount = b.bag->retireImmutableStreams(r.spans);
+    r.vertices.swap(b.vertices);
+    r.colors.swap(b.colors);
+    r.sts.swap(b.sts);
+    srcV = &r.vertices, srcS = &r.sts, srcC = &r.colors;
+  } else if (patching) {
+    keepV.swap(b.vertices);
+    keepC.swap(b.colors);
+    keepS.swap(b.sts);
+  }
+  b.vertices.clear();
+  b.colors.clear();
+  b.sts.clear();
+  if (patching) {
+    b.vertices.reserve(srcV->size());
+    b.colors.reserve(srcC->size());
+    b.sts.reserve(srcS->size());
+    for (size_t k = 0; k < b.members.size(); ++k) {
+      if (appended[k]) continue;
+      const StaticBatchMember& m = b.members[k];
+      if (k >= b.shown.size() || !b.shown[k]) {
+        batchRangeSet(m.object, bi, m.part, (unsigned int)b.vertices.size(), 0u);
+        continue;
+      }
+      const BatchRange* r = batchRangeFind(m.object, bi, m.part);
+      const unsigned int start = (unsigned int)b.vertices.size();
+      for (unsigned int i = r->start; i < r->start + r->count; ++i) {
+        b.vertices.push_back((*srcV)[i]);
+        b.colors.push_back((*srcC)[i]);
+        if (!srcS->empty()) b.sts.push_back((*srcS)[i]);
+      }
+      batchRangeSet(m.object, bi, m.part, start, r->count);
+    }
+  } else {
+    b.shown.assign(b.members.size(), 0);
+  }
+  batchUsesStrips[(size_t)bi] = useStrips ? 1 : 0;
   // The member-centre box the draw-distance test reads. Built over EVERY
   // member, shown or not: a hidden member needs no drawing, but letting
   // visibility move the box would make the batch's cut-off flicker with
@@ -2903,9 +2995,13 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
       if (k == 0 || p[a] > b.ddMax[a]) b.ddMax[a] = p[a];
     }
   }
-  for (size_t k = 0; k < b.members.size(); ++k) {
+  const size_t emitCount = patching ? patch.append.size() : b.members.size();
+  for (size_t e = 0; e < emitCount; ++e) {
+    const size_t k = patching ? (size_t)patch.append[e] : e;
+    if (k >= b.members.size()) continue;
     const StaticBatchMember member = b.members[k];
     RuntimeObject& o = runtimeObjects[member.object];
+    const unsigned int rangeStart = (unsigned int)b.vertices.size();
     g_aoOff = false;
     g_prelitTex = false;
     g_giProbeShade = SCENE_PROBES != nullptr;
@@ -2914,7 +3010,10 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     // calling this.
     const bool show = o.active && o.visible;
     b.shown[k] = show ? 1 : 0;
-    if (!show) continue;
+    if (!show) {
+      batchRangeSet(member.object, bi, member.part, rangeStart, 0u);
+      continue;
+    }
     // Per-MEMBER analytic-light pruning: pushVert reads the g_*Local lists,
     // which are per object, so a batch that collected them once would shade
     // every member with the first member's neighbours. Use the same primitive
@@ -2994,6 +3093,8 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
         default: addBox(b.vertices, b.colors, b.sts, o.data); break;
       }
     }
+    batchRangeSet(member.object, bi, member.part, rangeStart,
+                  (unsigned int)b.vertices.size() - rangeStart);
   }
   g_primKd = nullptr;
   g_primKe = nullptr;
@@ -3017,7 +3118,7 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     // Static geometry: the frame recorder may REF these arrays in place
     // instead of copying them into the frame arena every frame
     // (docs/stapip-stamps.md, "Immutable streams"). rebuildStaticBatch
-    // releases them before it touches them; destroying the bag does too.
+    // retires them before it touches them; destroying the bag releases them.
     b.bag->immutableStreams = true;
   }
   b.colors.bind(b.colorBag);
@@ -3247,6 +3348,7 @@ bool TerrainGame::occlusionHiddenObject(int index){
 
 
 void TerrainGame::renderStaticBatches() {
+  if (!retiredBatchStreams.empty()) collectRetiredBatchStreams();
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerStaticBatches);
 #endif
@@ -3273,29 +3375,37 @@ void TerrainGame::renderStaticBatches() {
         if (h.batch < 0 || h.batch >= (int)staticBatches.size()) continue;
         StaticBatch& sb = staticBatches[(size_t)h.batch];
         sb.members.push_back({(int)obj, h.part});
-        sb.shown.push_back(0);
-        sb.dirty = true;
+        sb.shown.push_back((ro.active && ro.visible) ? 1 : 0);
+        batchPatchSize(staticBatches.size());
+        BatchPatch& bp = batchPatch[(size_t)h.batch];
+        bp.append.push_back((int)sb.members.size() - 1);
+        bp.pending = true;
         objectBatchOf[obj] = h.batch;
       }
       homes.clear();
     }
   }
+  batchPatchSize(staticBatches.size());
   for (StaticBatch& b : staticBatches) {
-    bool stale = b.dirty;
+    const int bi = (int)(&b - staticBatches.data());
+    BatchPatch& bp = batchPatch[(size_t)bi];
+    bool stale = b.dirty || bp.pending;
     for (size_t k = 0; k < b.members.size(); ++k) {
       const int object = b.members[k].object;
       const RuntimeObject& o = runtimeObjects[object];
       if (o.dirty) {
         objectBatchOf[object] = -1;  // demote: solo from now on
+        batchMemberLeaves(b, bi, k);
         b.members.erase(b.members.begin() + (long)k);
         b.shown.erase(b.shown.begin() + (long)k);
         --k;
         stale = true;
         continue;
       }
-      if (!stale &&
+      // (shown is empty until the batch's first bake - b.dirty then)
+      if (k < b.shown.size() &&
           b.shown[k] != (unsigned char)((o.active && o.visible) ? 1 : 0))
-        stale = true;
+        stale = true, bp.full = true;
     }
     if (stale) rebuildStaticBatch(b);
     if (!b.bag || b.bag->count == 0) continue;
