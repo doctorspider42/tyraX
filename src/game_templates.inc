@@ -4403,6 +4403,22 @@ inline constexpr int PHYS_HOLD_AFTER = 10;
 // partners, sleepers' pair boxes cached, only moving boxes refreshed in the
 // broad phase. false = the old per-frame walk (the A/B control).
 inline constexpr bool PHYS_LEAN_BOOKKEEPING = true;
+// The broad-phase walk (docs/physics.md, "The broad-phase walk"):
+// broadPhaseRefresh compared EVERY object's pose each frame - ~1.5 us an
+// object on a PS2, all memory traffic, 0.78 ms of a crash frame among 500
+// objects. Only these can have moved since the last refresh: an object the
+// build could not prove static (batchStatic 0, the spawn pool), a body the
+// physics step had awake in the last two frames (bpHotAt), anything that
+// was moving at the last refresh (bpMovingNow). Everything else - static
+// scenery and sleeping bodies, which only the solver moves - is walked one
+// sixteenth per refresh as a safety net (a Live Link edit, say).
+inline std::vector<unsigned> bpHotAt;              // by object
+inline std::vector<unsigned char> bpMovingNow;     // by object
+inline std::vector<int> bpAlways, bpQuiet;         // the two walk lists
+inline unsigned bpRefreshSeq = 0;
+inline void bpTouch(int i) {
+  if (i >= 0 && i < (int)bpHotAt.size()) bpHotAt[(size_t)i] = g_frameStamp;
+}
 // A body woken out of its static batch draws on its own (~27 us of EE a frame
 // on a PS2) - and used to for the rest of the scene, asleep or not. Each one
 // remembers the batches it left; asleep this long, it goes back, one batch
@@ -19833,7 +19849,21 @@ void TerrainGame::broadPhaseRefresh() const {
   // change at all: an object came or went, started or stopped moving, or a
   // placed box changed. A refresh boundary after a stage that moved nothing
   // (or only what is already moving) then costs this walk, not a rebuild.
-  for (int i = 0; i < n; ++i) {
+  // The walk lists, once per object table: a full walk whenever the table
+  // was (re)built, then only what can have moved (see bpHotAt).
+  const bool fullWalk = changed || !PHYS_LEAN_BOOKKEEPING;
+  if (fullWalk) {
+    bpHotAt.assign((size_t)n, 0u);
+    bpMovingNow.assign((size_t)n, 0);
+    bpAlways.clear();
+    bpQuiet.clear();
+    for (int i = 0; i < n; ++i) {
+      const bool provenStatic = i < SCENE_OBJECT_COUNT && SCENE_OBJECTS[i].batchStatic != 0;
+      (provenStatic ? bpQuiet : bpAlways).push_back(i);
+    }
+  }
+  ++bpRefreshSeq;
+  auto visit = [&](int i) {
     const RuntimeObject& o = runtimeObjects[i];
     BroadPhaseCache& e = bpCache[(size_t)i];
     // physObstacle is the widest "can be touched" list (the walker's and the
@@ -19842,7 +19872,8 @@ void TerrainGame::broadPhaseRefresh() const {
       if (trackWorld) worldBroadPhase.remove(i);
       changed = changed || e.present;
       e.present = false;
-      continue;
+      bpMovingNow[(size_t)i] = 0;
+      return;
     }
     const float key[12] = {o.data.position[0], o.data.position[1],
                            o.data.position[2], o.data.rotation[0],
@@ -19878,10 +19909,21 @@ void TerrainGame::broadPhaseRefresh() const {
     changed = changed || !e.present || moving != e.moving;
     e.present = true;
     e.moving = moving;
+    bpMovingNow[(size_t)i] = moving ? 1 : 0;
     if (trackWorld) {
       if (o.data.physics) worldBroadPhase.remove(i);
       else worldBroadPhase.set(i, e.box, moving, changedBox);
     }
+  };
+  if (fullWalk) {
+    for (int i = 0; i < n; ++i) visit(i);
+  } else {
+    for (int i : bpAlways) visit(i);
+    const unsigned lane = bpRefreshSeq & 15u;
+    for (int i : bpQuiet)
+      if (g_frameStamp - bpHotAt[(size_t)i] <= 2u || bpMovingNow[(size_t)i] ||
+          ((unsigned)i & 15u) == lane)
+        visit(i);
   }
   if (!changed) {
     if (!movedIdx.empty())
@@ -25553,6 +25595,7 @@ void TerrainGame::updateObjectPhysics() {
   for (int i : bodies) {
     RuntimeObject& o = runtimeObjects[i];
     if (physAsleep(o)) continue;
+    bpTouch(i);  // the solver may move it: the next refresh must look
     // HELD (PHYS_HOLD_AFTER): no step, so it is an immovable partner like a
     // sleeper; its countdown to sleep goes on. Not if the solver did not
     // leave it this way: a script or a push that moved it or gave it speed.

@@ -299,6 +299,41 @@ indexing and pairing every body of the scene each frame. What changed:
   0.31 -> 0.03 ms; physics 1.08 -> 0.52 ms.
 - **Woken bodies rejoin their batches** (docs/static-batching.md).
 
+### The broad-phase walk
+
+`broadPhaseRefresh` compared every object's pose with the one its box was
+made for, every frame: ~1.5 us an object on a PS2, nearly all of it memory
+traffic. In a stress copy of a vehicle playground (366 crates, ~500 objects)
+that walk was 0.78 ms of a crash frame, against 0.29 ms for the rebuild it
+feeds; switching the scene to the octree backend changed nothing (1.11 ->
+1.02 ms for the whole refresh), because the grid rebuild was never the cost.
+
+Now the walk visits only what can have moved since the last refresh:
+- objects the build did not prove static (`batchStatic` 0 - anything with a
+  script, a flow graph, a runtime reference, a streaming layer - and the
+  spawn pool), every time;
+- bodies the physics step had awake in the last two frames (`bpHotAt`,
+  stamped in the step's awake loop - only the solver moves an eligible body);
+- anything that was moving at the last refresh (`bpMovingNow`);
+- and one sixteenth of everything else per refresh, as a safety net (a Live
+  Link edit to a static object is picked up within 16 frames).
+
+The first refresh of a scene walks everything. Measured on the same drive:
+walk 0.78 -> 0.24 ms, physics 3.41 -> 2.51 ms in the crash, lost frames 153
+-> 117 in 1 000.
+
+Measured and dropped in the same round (both A/B'd twice on a PS2, a
+three-crate-field stress scene):
+- **Awake bodies drawn as instances of one bag** (`StaPipCore::renderInstances`,
+  grouped by shape): the solo-body row fell from ~0.87 to ~0.2 ms, but the
+  instanced draws cost the same - the Objects total stayed at 4.25-4.44 ms and
+  lost frames did not move (68/77 -> 85/67). For a 36-vertex crate an
+  instance is no cheaper than a submit.
+- **One shared per-frame budget for the work that can wait** (2 ms across
+  body pre-bakes, car pre-bakes, rejoins, terrain LOD rebuilds): no gain
+  (80/98 lost frames). In that scene the frames are lost to the steady cost of
+  dozens of moving bodies, not to queues landing in one frame.
+
 Measured and dropped: ending an island's velocity passes once no impulse
 moved more than 1e-6 per contact (no gain - resting contacts under gravity
 never fall below it), and reading the terrain table's size and grid once per

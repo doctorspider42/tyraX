@@ -196,7 +196,21 @@ void TerrainGame::broadPhaseRefresh() const {
   // change at all: an object came or went, started or stopped moving, or a
   // placed box changed. A refresh boundary after a stage that moved nothing
   // (or only what is already moving) then costs this walk, not a rebuild.
-  for (int i = 0; i < n; ++i) {
+  // The walk lists, once per object table: a full walk whenever the table
+  // was (re)built, then only what can have moved (see bpHotAt).
+  const bool fullWalk = changed || !PHYS_LEAN_BOOKKEEPING;
+  if (fullWalk) {
+    bpHotAt.assign((size_t)n, 0u);
+    bpMovingNow.assign((size_t)n, 0);
+    bpAlways.clear();
+    bpQuiet.clear();
+    for (int i = 0; i < n; ++i) {
+      const bool provenStatic = i < SCENE_OBJECT_COUNT && SCENE_OBJECTS[i].batchStatic != 0;
+      (provenStatic ? bpQuiet : bpAlways).push_back(i);
+    }
+  }
+  ++bpRefreshSeq;
+  auto visit = [&](int i) {
     const RuntimeObject& o = runtimeObjects[i];
     BroadPhaseCache& e = bpCache[(size_t)i];
     // physObstacle is the widest "can be touched" list (the walker's and the
@@ -205,7 +219,8 @@ void TerrainGame::broadPhaseRefresh() const {
       if (trackWorld) worldBroadPhase.remove(i);
       changed = changed || e.present;
       e.present = false;
-      continue;
+      bpMovingNow[(size_t)i] = 0;
+      return;
     }
     const float key[12] = {o.data.position[0], o.data.position[1],
                            o.data.position[2], o.data.rotation[0],
@@ -241,10 +256,21 @@ void TerrainGame::broadPhaseRefresh() const {
     changed = changed || !e.present || moving != e.moving;
     e.present = true;
     e.moving = moving;
+    bpMovingNow[(size_t)i] = moving ? 1 : 0;
     if (trackWorld) {
       if (o.data.physics) worldBroadPhase.remove(i);
       else worldBroadPhase.set(i, e.box, moving, changedBox);
     }
+  };
+  if (fullWalk) {
+    for (int i = 0; i < n; ++i) visit(i);
+  } else {
+    for (int i : bpAlways) visit(i);
+    const unsigned lane = bpRefreshSeq & 15u;
+    for (int i : bpQuiet)
+      if (g_frameStamp - bpHotAt[(size_t)i] <= 2u || bpMovingNow[(size_t)i] ||
+          ((unsigned)i & 15u) == lane)
+        visit(i);
   }
   if (!changed) {
     if (!movedIdx.empty())

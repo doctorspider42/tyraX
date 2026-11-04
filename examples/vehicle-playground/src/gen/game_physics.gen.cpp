@@ -523,6 +523,7 @@ void TerrainGame::updateObjectPhysics() {
   for (int i : bodies) {
     RuntimeObject& o = runtimeObjects[i];
     if (physAsleep(o)) continue;
+    bpTouch(i);  // the solver may move it: the next refresh must look
     // HELD (PHYS_HOLD_AFTER): no step, so it is an immovable partner like a
     // sleeper; its countdown to sleep goes on. Not if the solver did not
     // leave it this way: a script or a push that moved it or gave it speed.
