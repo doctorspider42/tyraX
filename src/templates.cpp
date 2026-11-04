@@ -16069,7 +16069,14 @@ void TerrainGame::setupVehicles(int scene) {
       v.pos[0] = d.position[0];
       v.pos[1] = d.position[1];
       v.pos[2] = d.position[2];
-      v.yaw = d.rotation[1];
+      // Heading = the body's forward (+Z) through the WHOLE authored rotation.
+      // The gizmo stores a half turn as e.g. [-180, -2.5, 180], whose
+      // rotation[1] alone pointed the car backwards (docs/vehicles.md).
+      {
+        const V3 fwd = rotated(V3{0.0F, 0.0F, 1.0F}, d.rotation);
+        v.yaw = fwd.x * fwd.x + fwd.z * fwd.z > 1e-6F
+                    ? atan2f(fwd.x, fwd.z) * 57.29578F : d.rotation[1];
+      }
     // Everything geometric in the sim and the wheel bag multiplies by this.
     // The line was ONCE lost to an indentation-mismatched replace with no
     // assert - a silent no-op that left every car simulating at scale 1.0

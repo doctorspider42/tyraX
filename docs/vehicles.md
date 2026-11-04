@@ -138,6 +138,11 @@ control its presentation and power interruption. Wheelspin raises RPM without
 raising road speed. Vehicles can drift under handbrake grip and slide against
 walls rather than stopping on a glancing contact.
 
+A vehicle starts facing where its body points in the editor: the heading is
+the body's forward axis through the whole rotation, not the Y angle alone. The
+rotate gizmo stores a half turn as e.g. `[-180, -2.5, 180]`, and reading only
+the `-2.5` started the car backwards (the editor's test drive did the same).
+
 ### Rev limiter
 
 **Rev limiter** (Engine and gears, 0 = off, the default) makes a flat-out

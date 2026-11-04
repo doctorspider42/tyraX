@@ -20,6 +20,7 @@ under it as that release's notes, and the release's own page carries the date.
 - A hard car-on-car crash no longer drops frames on a PS2 (4-5 before, debug build): flying debris is drawn through its own matrix instead of a batch rewritten every frame and takes off two frames after the hit, the second car's loose pieces come off with its dent instead of a frame earlier, the renderer copies a short burst of changes instead of re-packing the bodies every frame, paint maps are built before the hit and a hit car's paint holds still for 0.2 s, and the crash's debug log is one line per car, half a second later.
 - Fading skid marks no longer re-upload every frame: after a crash they cost ~0.3 ms a frame on a PS2 instead of ~1 ms.
 - **Lite shine on other vehicles** (*Preferences > Graphics*, off by default): cars you are not driving reflect only on the panels that face the sky (roof, bonnet, boot, front and rear glass), with a steady sheen instead of the rim and highlight that follow the camera. On a PS2 a car-on-car crash then misses about 15% fewer frames. Re-import is not needed: the next build re-bakes the cars. Projects are saved as format 127.
+- A vehicle turned around with the rotate gizmo no longer starts the game (or the editor's test drive) facing the other way: its heading now comes from where the body points, not from the Y angle alone.
 
 ## 2.9.0
 
