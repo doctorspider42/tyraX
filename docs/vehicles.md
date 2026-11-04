@@ -185,7 +185,8 @@ the other side, behind or in front - the first spot clear of every collision
 box (a walker that starts inside a box cannot move until it jumps out). The
 log line `VEH exit spot N` names the spot taken (0 = the door, -1 = none was
 clear, so the door spot stands). Chase and far cameras shorten their boom
-against terrain and obstacles. The bumper camera is bolted to the body: it
+against terrain and obstacles (see "Chase camera and loose props" below for
+the one exception). The bumper camera is bolted to the body: it
 takes the drawn pitch, roll and lean, sits just past the front bumper (the
 baked `bodyOverhang`), is kept above the ground surface under it, and follows
 the body's pitch a beat late so a rough road does not shake the horizon. It
@@ -197,6 +198,19 @@ aim - a car whose footprint the aim crosses wins, otherwise the car closest to
 the aim within 45 degrees. The prompt follows the same choice, so with two
 cars side by side it shows only for the one Use would enter.
 `TerrainGame::vehicleUseTarget` is that one decision.
+
+### Chase camera and loose props
+
+The chase camera's boom treats a physics body as a wall only while the body
+rests; one that is falling, rolling or flying is ignored
+(`sweepVehicleCamera`). When a car knocks down a stack, the crates fall
+between the car and the camera. A boom that stopped at each of them pulled
+the camera into the car's body, so the body's packages had to be clipped. The
+body then lost its baked VIF stream for 3-5 frames: about 4-5 ms more draw
+work in the frames that already carry the physics of the collapse. With the
+rule, the stack test on a PS2 loses 1 frame in 1 000 instead of 3-4 (two runs
+each). A crate passing through the camera is cut by the near plane for a
+moment, which is the usual trade in racing games.
 
 ### AI drivers and flow graphs
 

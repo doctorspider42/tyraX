@@ -373,8 +373,8 @@ Measured on a PS2 (stack test, 1 000 frames):
 - the plough test still loses no frames, and its p95 work goes from 9.67 to
   9.51 ms.
 
-**What is left, and why.** The pile test still loses 3-4 frames in 1 000,
-and they are not the pile. A per-bake event dump (which bag, which VU1
+**What was left, and why.** After the settle, the pile test still lost 3-4
+frames in 1 000, and they were not the pile. A per-bake event dump (which bag, which VU1
 program, which package size) puts them on the CAR:
 1. the car runs into the tower, and the chase camera is pushed toward it;
 2. its body (3 390 vertices) is baked once under a clip program
@@ -394,8 +394,11 @@ Ruled out on the console:
 - the frame arena copies 45-142 KB;
 - not drawing the solo bodies near the camera changes nothing.
 
-The next lever is in the renderer, not the batch: a bag that switches
-program for a single frame should not get a whole-bag bake.
+The camera was pushed in by the falling crates themselves: the chase
+camera's boom stopped at every physics body. It now ignores bodies in flight
+(docs/vehicles.md, "Chase camera and loose props"), and the stack test loses
+1 frame in 1 000 (two runs), the frame of the first impact, where the patch,
+the physics of the woken bodies and the impact particles land together.
 
 ## Members at the world origin (fixed 1.176.3)
 

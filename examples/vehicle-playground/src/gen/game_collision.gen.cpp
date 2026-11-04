@@ -7170,6 +7170,13 @@ float TerrainGame::sweepVehicleCamera(float px, float py, float pz, float dx,
   for (const VehColEntry& e : vehColliders_) {
     if (e.oi == skipIndex) continue;
     if (e.kind != 0) {
+      // A physics body in flight is not a wall for the boom, only one at rest
+      // is. Crates falling past the car pulled the camera into its body: the
+      // body went through the clip programs and lost its baked stream, 3-4
+      // frames in 1 000 on a PS2 when a car knocks down a stack (1 without).
+      // docs/vehicles.md, "Chase camera and loose props".
+      const RuntimeObject& ro = runtimeObjects[(size_t)e.oi];
+      if (ro.data.physics && !physAsleep(ro)) continue;
       best = sweepObject(s, e.oi, best);
       continue;
     }
