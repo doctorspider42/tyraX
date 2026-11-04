@@ -421,6 +421,44 @@ The settle's `prebakeBag` always succeeded. Tried and dropped, both measured on 
 What remains in that frame is real work (physics and the first draws of the
 bodies that started to move), not a fault.
 
+### Body batches
+
+A bigger crate field told the rest of the story. 129 crates in rows, a car
+driving straight through all of them, on a physical PS2: 27-37 frames lost in
+1 000. The GPU never held the EE up: every wait on VIF1 or the GS, timed
+without a threshold, was 0.00 ms over 1 000 frames (0.04 ms at most). The
+frames were lost to EE work, and 22 of 28 losses were frames that re-baked a
+batch: the crates shared their batches with the pavement under them, so one
+crate leaving re-baked ~1 800 vertices, 2.6 ms in the hit frame:
+- copying the members that stay, three `push_back`s a vertex, ~1 ms;
+- the VIF bake of the new stream, ~1.1 ms;
+- the rest of the rebuild, ~0.45 ms.
+
+Two changes:
+- **Physics bodies batch apart from static props, at most 12 to a batch**
+  (`STATIC_BATCH_BODY_MAX`, twin `kBodyBatchMax` in `staticbatch.cpp`, oracle
+  fixture N). A batch's re-bake costs in proportion to the whole batch, so a
+  body leaving now re-bakes a dozen boxes (~320 vertices), not the
+  pavement. They fill in object order within their cell and group key, so
+  the panel and the game agree member for member.
+- **The patch copies whole ranges**, one insert per stream and member.
+
+Measured on the same drive (five runs before, one after; debug build, log
+muted):
+
+| | before | after |
+|---|---|---|
+| frames lost in 1 000 | 27-37 | 8 |
+| re-bake in a frame that has one | 2.17 ms | 0.80 ms |
+| draw while every crate sleeps | 6.92 ms | 7.38 ms |
+
+The price is the last row: more bags to draw while the bodies sleep, ~0.3-0.45
+ms for 129 crates in view. In that scene it went from 178 objects in 41
+batches to 174 in 47 (four bodies alone in their group now draw solo). The
+eight frames left: four are the view itself (terrain, roads and batches as
+the car reaches the junction, no crate involved), two are ~25 awake crates
+drawn on their own plus their physics, one the first frame of the run.
+
 ## Members at the world origin (fixed 1.176.3)
 
 A batch bakes its members in WORLD space through the same `pushVert` the solo

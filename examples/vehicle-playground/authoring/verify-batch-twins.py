@@ -110,6 +110,7 @@ struct SceneObjectData {
   int material = -1;
   int batchStatic = 0;
   int reflected = 0;
+  int physics = 0;
   float lightRadius = 0.0f;
 };
 
@@ -143,6 +144,11 @@ static const bool BAKE_STATIC_LAMPS = false;
 static float TERRAIN_WIDTH = 100.0f, TERRAIN_DEPTH = 100.0f;
 static const char* TEXTURE_ATLAS_INFO = "";
 static std::vector<DynLightRt> g_dynLights;
+// Runtime state buildStaticBatchList resets or reads; the grouping does not
+// depend on it beyond the body cap, which must match the runtime's.
+static std::vector<std::vector<int>> bodyBatchHome;
+static std::vector<unsigned int> bodyAsleepAt;
+static const int STATIC_BATCH_BODY_MAX = 12;
 
 struct TerrainGame {
   std::vector<StaticBatch> staticBatches;
@@ -199,6 +205,7 @@ struct FxObject {
   bool eligible = true;         // what stage 1 decided
   bool dynamicLight = false;    // type 9
   float lightRadius = 0.0f;
+  bool physics = false;          // a rigid body (batches apart, capped)
 };
 struct FxMaterial { std::string path; std::string texture; bool reflective = false;
                     bool known = true; int filter = 0; };
@@ -287,6 +294,7 @@ static Picture runRuntime(const Fixture& fx, std::vector<char>& batchedOut) {
     d.model = o.modelPath.empty() ? -1 : modelIndex[o.modelPath];
     d.material = o.materialPath.empty() ? -1 : matIndex[o.materialPath];
     d.batchStatic = o.eligible ? 1 : 0;
+    d.physics = o.physics ? 1 : 0;
     d.lightRadius = o.lightRadius;
     g_objects.push_back(d);
   }
@@ -331,6 +339,7 @@ static Picture runHost(const Fixture& fx, std::vector<char>& batchedOut) {
     so.materialPath = o.materialPath;
     so.lightDynamic = o.dynamicLight;
     so.lightRadius = o.lightRadius;
+    so.physics = o.physics;
     // Stage 1 is oracled separately (the batchStatic column of a generated
     // scene_data.hpp), so an ineligible fixture object is expressed with the
     // one lever that is a pure stage-1 refusal and nothing else.
@@ -532,6 +541,20 @@ int main() {
     fx.batching = false;
     fx.materials = {{"m/j.mtl","j.png"}};
     fx.objects = {box(0,0,"m/j.mtl"), box(2,0,"m/j.mtl")};
+    check(fx);
+  }
+  // N: physics bodies batch apart from the props around them, at most twelve
+  // to a batch: 26 crates and 3 props in one cell are three body batches
+  // (12 + 12 + 2) and one prop batch, never one batch of 29.
+  {
+    Fixture fx; fx.name = "N bodies batch apart, twelve max";
+    fx.materials = {{"m/crate.mtl","crate.png"}};
+    for (int k = 0; k < 26; ++k) {
+      FxObject c = box((float)(k % 6) * 2.0f, (float)(k / 6) * 3.0f, "m/crate.mtl");
+      c.physics = true;
+      fx.objects.push_back(c);
+    }
+    for (int k = 0; k < 3; ++k) fx.objects.push_back(box(20.0f + k, 0, "m/crate.mtl"));
     check(fx);
   }
   // L: texture filtering is part of the key. With atlasing on, a smooth and a

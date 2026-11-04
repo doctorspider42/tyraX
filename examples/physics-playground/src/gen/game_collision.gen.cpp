@@ -2623,7 +2623,8 @@ void TerrainGame::buildStaticBatchList() {
     if (drawDistance <= 0.0F) return baseCellW;
     return drawDistance < baseCellW ? drawDistance : baseCellW;
   };
-  std::vector<int> keyX, keyZ, keyL;  // cell + lamp, only needed while grouping
+  // cell + lamp + physics body, only needed while grouping
+  std::vector<int> keyX, keyZ, keyL, keyP;
   // WHICH DYNAMIC LAMP REACHES THIS OBJECT, or -1. This is a grouping key, not
   // a render decision, and it exists because of how the engine lights a bag:
   // StaPipCore::render gives each bag ONE light slot, picked from that bag's
@@ -2667,14 +2668,16 @@ void TerrainGame::buildStaticBatchList() {
   // Objects that leave it at 0 group exactly as they did before.
   auto addMember = [&](int object, int part, Texture* texture,
                        unsigned char filter, int cx, int cz, float dd,
-                       int lamp, unsigned int stripRun, bool reflected) {
+                       int lamp, unsigned int stripRun, bool reflected,
+                       int body) {
     int bi = -1;
     for (int b = 0; b < (int)staticBatches.size(); ++b)
       if (staticBatches[b].texture == texture &&
           staticBatches[b].textureFilter == filter && keyX[b] == cx &&
           keyZ[b] == cz && staticBatches[b].drawDistance == dd &&
           keyL[b] == lamp && staticBatches[b].stripRun == stripRun &&
-          staticBatches[b].reflected == reflected) {
+          staticBatches[b].reflected == reflected && keyP[b] == body &&
+          (!body || (int)staticBatches[b].members.size() < STATIC_BATCH_BODY_MAX)) {
         bi = b;
         break;
       }
@@ -2688,6 +2691,7 @@ void TerrainGame::buildStaticBatchList() {
       keyX.push_back(cx);
       keyZ.push_back(cz);
       keyL.push_back(lamp);
+      keyP.push_back(body);
       bi = (int)staticBatches.size() - 1;
     }
     staticBatches[bi].members.push_back({object, part});
@@ -2712,6 +2716,7 @@ void TerrainGame::buildStaticBatchList() {
     const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
     const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
     const int lamp = lampOf(d);
+    const int body = d.physics ? 1 : 0;
     if (d.type == 5) {
       if (d.model < 0 || d.model >= (int)gameModels.size()) continue;
       const GameModel& gm = gameModels[d.model];
@@ -2729,7 +2734,7 @@ void TerrainGame::buildStaticBatchList() {
       for (int pi = 0; pi < (int)gm.parts.size(); ++pi)
         addMember(i, pi, gm.parts[pi].texture, gm.parts[pi].textureFilter, cx,
                   cz, d.drawDistance, lamp, gm.parts[pi].stripRun,
-                  d.reflected != 0);
+                  d.reflected != 0, body);
     } else {
       if (d.material >= 0 &&
           (d.material >= (int)gameMaterials.size() ||
@@ -2740,7 +2745,7 @@ void TerrainGame::buildStaticBatchList() {
       const unsigned char filter =
           d.material >= 0 ? gameMaterials[d.material].textureFilter : 0;
       addMember(i, -1, texture, filter, cx, cz, d.drawDistance, lamp, 0u,
-                d.reflected != 0);
+                d.reflected != 0, body);
     }
   }
   // A model is skipped by the solo path as ONE object, so batching it is also
@@ -2965,11 +2970,13 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
       }
       const BatchRange* r = batchRangeFind(m.object, bi, m.part);
       const unsigned int start = (unsigned int)b.vertices.size();
-      for (unsigned int i = r->start; i < r->start + r->count; ++i) {
-        b.vertices.push_back((*srcV)[i]);
-        b.colors.push_back((*srcC)[i]);
-        if (!srcS->empty()) b.sts.push_back((*srcS)[i]);
-      }
+      // One range insert per stream, not three push_backs a vertex: the
+      // per-vertex loop was ~1 ms for an 1 800-vertex batch on a PS2.
+      const long r0 = (long)r->start, r1 = (long)(r->start + r->count);
+      b.vertices.insert(b.vertices.end(), srcV->begin() + r0, srcV->begin() + r1);
+      b.colors.insert(b.colors.end(), srcC->begin() + r0, srcC->begin() + r1);
+      if (!srcS->empty())
+        b.sts.insert(b.sts.end(), srcS->begin() + r0, srcS->begin() + r1);
       batchRangeSet(m.object, bi, m.part, start, r->count);
     }
   } else {

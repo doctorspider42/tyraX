@@ -4415,6 +4415,15 @@ inline std::vector<std::vector<BodyBatchHome>> bodyBatchHome;
 // around it, a lost frame each time. false = always the full rebuild (the
 // A/B control).
 inline constexpr bool STATIC_BATCH_PATCH = true;
+// Physics bodies batch apart from static props, at most this many members a
+// batch (docs/static-batching.md, "Body batches"). Every body that wakes
+// re-bakes the batch it leaves, and that costs in proportion to the WHOLE
+// batch: one crate leaving a 1 800-vertex batch it shared with pavements and
+// 37 other crates cost ~2.6 ms of EE on a PS2 (copy + VIF bake), in the
+// frame of the hit, every row a car ploughed through. Twelve boxes are ~430
+// vertices. The price is more bags while they all sleep. Twin:
+// staticbatch.cpp kBodyBatchMax.
+inline constexpr int STATIC_BATCH_BODY_MAX = 12;
 struct BatchRange {
   int batch, part;
   unsigned int start, count;
