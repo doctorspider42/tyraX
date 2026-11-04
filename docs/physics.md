@@ -299,6 +299,28 @@ indexing and pairing every body of the scene each frame. What changed:
   0.31 -> 0.03 ms; physics 1.08 -> 0.52 ms.
 - **Woken bodies rejoin their batches** (docs/static-batching.md).
 
+### Resting out of sight
+
+After a car ploughs through a crate field, most awake bodies are crates
+nobody can see that have all but stopped. Counted on a physical PS2 (a
+three-crate-field stress scene, scripted drive): of ~22 awake bodies after
+the run, ~19 were outside the view frustum and ~21 slower than the wake
+speed - mostly in piles, touching each other, so never held - and each still
+paid a full step a frame for the whole of its Sleep after (1 s).
+
+A body that is on something, slower than the WAKE speed and four times the
+rest spin, and whose box (centre +- 0.87 x its largest scale + 0.5) is outside
+the last frame's view frustum, now counts down to sleep from those looser
+thresholds and sleeps after `PHYS_OFFSCREEN_SLEEP_S` (0.2 s). In view nothing
+changes. Never in split screen (the planes belong to one half). It can stop a
+slow slide early - out of sight.
+
+Measured, two runs against three: awake bodies on the drive ~20 -> ~14,
+physics 2.76 -> 2.30-2.36 ms, the update 6.20 -> 5.68-5.76 ms, lost frames
+68-79 -> 51-56 in 1 000. Counting only bodies already below the rest speed
+(the first version) gave ~16 awake and lost frames 66/70: the slow sliders
+were the bulk.
+
 ### The broad-phase walk
 
 `broadPhaseRefresh` compared every object's pose with the one its box was

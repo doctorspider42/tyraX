@@ -4398,6 +4398,15 @@ inline constexpr float PHYS_WAKE_SPEED2 = 0.0025F;
 // that would wake a sleeper, any touch by another body, and any change to its
 // pose or velocity from outside the solver lets it go.
 inline constexpr int PHYS_HOLD_AFTER = 10;
+// Resting out of sight (docs/physics.md, "Resting out of sight"): a body on
+// something, slower than the WAKE speed and four times the rest spin, whose
+// box is outside the view frustum sleeps after this many seconds instead of
+// counting its own Sleep after at the rest speed. After a car ploughs
+// through a crate field most awake bodies are exactly that: of ~22 awake
+// on a PS2, ~21 were off screen and below the wake speed, each a full
+// step a frame for a second that nobody saw. Never in split screen (the
+// planes are one half's). 0 = off.
+inline constexpr float PHYS_OFFSCREEN_SLEEP_S = 0.2F;
 // Physics bookkeeping that scaled with the scene's bodies, not the awake ones
 // (docs/physics.md, "Bookkeeping per awake body"): sleepers synced only as
 // partners, sleepers' pair boxes cached, only moving boxes refreshed in the
@@ -25298,6 +25307,8 @@ void TerrainGame::physPushAt(int index, float px, float py, float pz,
 void TerrainGame::updateObjectPhysics() {
   // GRAVITY is units/s^2; velocities are per-frame displacements.
   const float gravityPerFrame = GRAVITY * g_frameDt * g_frameDt;
+  // PHYS_OFFSCREEN_SLEEP_S needs the frustum of the one view there is.
+  const bool offscreenSleepBlocked = MULTIPLAYER_MODE == 2 && playerTwoActive;
   // Below this approach speed a contact is resting and does not bounce -
   // otherwise gravity's own frame of fall would buzz a crate on the floor.
   const float bounceThreshold = 3.0F * gravityPerFrame + 0.004F;
@@ -26550,12 +26561,30 @@ void TerrainGame::updateObjectPhysics() {
     const float speed2 = rbDot(v, v);
     const float spin2 = rbDot(w, w);
     bool sleepNow = false;
-    if (S.grounded && speed2 < PHYS_REST_SPEED2 && spin2 < PHYS_REST_W2) {
+    // Out of sight (PHYS_OFFSCREEN_SLEEP_S): the countdown starts below the
+    // WAKE speed and four times the rest spin, and ends sooner. Still only on
+    // something, so nothing freezes in the air.
+    bool offscreen = false;
+    if (PHYS_OFFSCREEN_SLEEP_S > 0.0F && !offscreenSleepBlocked && S.grounded &&
+        speed2 < PHYS_WAKE_SPEED2) {
+      const float r = 0.87F * fmaxf(o.data.scale[0], fmaxf(o.data.scale[1], o.data.scale[2])) + 0.5F;
+      const Tyra::Vec4 mn(x.x - r, x.y - r, x.z - r, 1.0F);
+      const Tyra::Vec4 mx(x.x + r, x.y + r, x.z + r, 1.0F);
+      offscreen = Tyra::CoreBBox::frustumCheckAABB(
+                      engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+                  Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM;
+    }
+    if (S.grounded && ((speed2 < PHYS_REST_SPEED2 && spin2 < PHYS_REST_W2) ||
+                       (offscreen && spin2 < 4.0F * PHYS_REST_W2))) {
       // Countdown length is per-object (Properties > Physics > Sleep after,
       // seconds); everyFrames tracks the measured frame time so the wait is
       // wall-clock true with vsync off too. On completion the counter pins
       // to PHYS_ASLEEP - the asleep test never re-derives the threshold.
-      const int sleepAt = everyFrames(o.data.physSleep);
+      int sleepAt = everyFrames(o.data.physSleep);
+      if (offscreen) {
+        const int soon = everyFrames(PHYS_OFFSCREEN_SLEEP_S);
+        if (sleepAt > soon) sleepAt = soon;
+      }
       if (o.restFrames < sleepAt) ++o.restFrames;
       if (o.restFrames >= sleepAt) {
         o.restFrames = PHYS_ASLEEP;

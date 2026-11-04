@@ -4394,6 +4394,15 @@ inline constexpr float PHYS_WAKE_SPEED2 = 0.0025F;
 // that would wake a sleeper, any touch by another body, and any change to its
 // pose or velocity from outside the solver lets it go.
 inline constexpr int PHYS_HOLD_AFTER = 10;
+// Resting out of sight (docs/physics.md, "Resting out of sight"): a body on
+// something, slower than the WAKE speed and four times the rest spin, whose
+// box is outside the view frustum sleeps after this many seconds instead of
+// counting its own Sleep after at the rest speed. After a car ploughs
+// through a crate field most awake bodies are exactly that: of ~22 awake
+// on a PS2, ~21 were off screen and below the wake speed, each a full
+// step a frame for a second that nobody saw. Never in split screen (the
+// planes are one half's). 0 = off.
+inline constexpr float PHYS_OFFSCREEN_SLEEP_S = 0.2F;
 // Physics bookkeeping that scaled with the scene's bodies, not the awake ones
 // (docs/physics.md, "Bookkeeping per awake body"): sleepers synced only as
 // partners, sleepers' pair boxes cached, only moving boxes refreshed in the
