@@ -846,6 +846,11 @@ prints nothing. So before blaming the game for lost frames on a console,
 count them with the log off (a ring recorded every frame and dumped
 afterwards, as `C:\tx\qp\patch_mute.py` does).
 
+The engine prints too: the frame pipeline's `FRAMEARENA` / `NATIVEVIF` /
+`ORDEREDFRAME` / `FRAMEPIPELINE` block goes out with `printf` every 120
+frames, outside `TYRA_LOG`, and costs the same way when it lands on a heavy
+frame.
+
 Measured and dropped: queueing the lines and writing them once a frame (no
 change - the cost follows the bytes, not the calls), a byte budget per frame
 (64-256 B: fewer losses, not none), and writing in the present's idle time
