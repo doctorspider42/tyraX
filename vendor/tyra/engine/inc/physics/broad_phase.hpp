@@ -67,6 +67,15 @@ class BroadPhase {
    *  to move one body (docs/collision-boxes.md, "The broad phase"). An
    *  index that is not moving, or not present, is ignored. */
   void updateMoving(const int* index, const BroadBox* boxes, int count);
+  /** Added by TyraX: objects that were present and static start moving,
+   *  with these boxes, WITHOUT rebuilding the static grid: they join the
+   *  moving index, and their old grid entries are skipped by every query
+   *  while they move. A body waking used to rebuild the whole grid over
+   *  every object of the scene (docs/collision-boxes.md, "Waking and
+   *  settling without a rebuild"). Grid backend only; returns false - and
+   *  changes nothing - for the octree, or when an index is not present,
+   *  already moving, or one of the always-candidates. */
+  bool promoteMoving(const int* index, const BroadBox* boxes, int count);
   /** Forget everything (a new scene). The next commit builds from scratch. */
   void clear();
 

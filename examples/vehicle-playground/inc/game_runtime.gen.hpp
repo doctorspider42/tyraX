@@ -4421,6 +4421,18 @@ inline std::vector<unsigned> bpHotAt;              // by object
 inline std::vector<unsigned char> bpMovingNow;     // by object
 inline std::vector<int> bpAlways, bpQuiet;         // the two walk lists
 inline unsigned bpRefreshSeq = 0;
+// Waking and settling without a rebuild (docs/collision-boxes.md): a body
+// that wakes is PROMOTED into the moving index (BroadPhase::promoteMoving)
+// instead of rebuilding the static grid over every object; a body that
+// settles stays in the moving index (correct, a little more to test) until
+// BP_SETTLE_BATCH of them wait or BP_SETTLE_FRAMES pass, and one rebuild
+// puts them all back. Every wake and every sleep used to be a whole rebuild
+// - 0.3-0.5 ms of most crash frames on a PS2. false = the old path.
+inline constexpr bool BP_DEFER_SETTLE = true;
+inline constexpr int BP_SETTLE_BATCH = 16;
+inline constexpr unsigned BP_SETTLE_FRAMES = 30u;
+inline int bpPendingSettle = 0;       // held as moving at the last refresh
+inline unsigned bpPendingSince = 0;   // g_frameStamp the first of them settled
 inline void bpTouch(int i) {
   if (i >= 0 && i < (int)bpHotAt.size()) bpHotAt[(size_t)i] = g_frameStamp;
 }

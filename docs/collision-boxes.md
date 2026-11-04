@@ -246,6 +246,31 @@ of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
   every object and checks every query against the objects' current boxes,
   logging `[BROADPHASE] ...` on any disagreement.
 
+### Waking and settling without a rebuild
+
+Every physics body that woke or fell asleep changed the static grid, and a
+grid change was a rebuild over every object of the scene. After a car
+ploughed through three crate fields (a stress scene, ~500 objects) that
+happened in ~50 of 270 frames of the drive on a physical PS2, ~1.3 ms each.
+
+- **A wake promotes.** `BroadPhase::promoteMoving` moves present, static
+  objects into the moving index with their new boxes and leaves their grid
+  entries where they were; a grid query skips an entry whose object is now
+  moving, so nothing is reported twice. Grid backend only (the octree returns
+  false and the caller rebuilds, as before), never for an always-candidate.
+- **A settle waits.** A body that stops moving stays in the moving index - a
+  few more boxes to test, nothing missed - until `BP_SETTLE_BATCH` (16) of
+  them wait or `BP_SETTLE_FRAMES` (30) pass since the first; one rebuild then
+  puts them all back. `BP_DEFER_SETTLE` false is the old path.
+
+Measured on the same drive: rebuilds 51 -> 6 frames of 270, their average
+0.24 -> 0.03 ms a frame, the whole refresh 0.49 -> 0.39 ms. A run with
+`kBroadPhaseVerify` on reported no disagreement over 1 000 frames, the crash
+included. Lost frames did not move (those rebuild frames were not the ones
+lost); the saving grows with the scene, since the rebuild is per object.
+Skipping the object types that never collide from the walk was tried too and
+changed nothing (0.26 -> 0.27 ms).
+
 The structure itself is engine code (`Tyra::BroadPhase`,
 `vendor/tyra/engine/inc/physics/broad_phase.hpp`): a caller hands it boxes
 (`begin` / `set` / `commit`) and asks `queryBox` / `querySegment`. New code in

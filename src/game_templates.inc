@@ -4425,6 +4425,18 @@ inline std::vector<unsigned> bpHotAt;              // by object
 inline std::vector<unsigned char> bpMovingNow;     // by object
 inline std::vector<int> bpAlways, bpQuiet;         // the two walk lists
 inline unsigned bpRefreshSeq = 0;
+// Waking and settling without a rebuild (docs/collision-boxes.md): a body
+// that wakes is PROMOTED into the moving index (BroadPhase::promoteMoving)
+// instead of rebuilding the static grid over every object; a body that
+// settles stays in the moving index (correct, a little more to test) until
+// BP_SETTLE_BATCH of them wait or BP_SETTLE_FRAMES pass, and one rebuild
+// puts them all back. Every wake and every sleep used to be a whole rebuild
+// - 0.3-0.5 ms of most crash frames on a PS2. false = the old path.
+inline constexpr bool BP_DEFER_SETTLE = true;
+inline constexpr int BP_SETTLE_BATCH = 16;
+inline constexpr unsigned BP_SETTLE_FRAMES = 30u;
+inline int bpPendingSettle = 0;       // held as moving at the last refresh
+inline unsigned bpPendingSince = 0;   // g_frameStamp the first of them settled
 inline void bpTouch(int i) {
   if (i >= 0 && i < (int)bpHotAt.size()) bpHotAt[(size_t)i] = g_frameStamp;
 }
@@ -19872,6 +19884,15 @@ void TerrainGame::broadPhaseRefresh() const {
     }
   }
   ++bpRefreshSeq;
+  static std::vector<int> promoteIdx;
+  static std::vector<Tyra::BroadBox> promoteBox;
+  promoteIdx.clear();
+  promoteBox.clear();
+  const bool settleNow = !BP_DEFER_SETTLE || fullWalk ||
+                         bpPendingSettle >= BP_SETTLE_BATCH ||
+                         (bpPendingSettle > 0 &&
+                          g_frameStamp - bpPendingSince >= BP_SETTLE_FRAMES);
+  int pendingNow = 0;
   auto visit = [&](int i) {
     const RuntimeObject& o = runtimeObjects[i];
     BroadPhaseCache& e = bpCache[(size_t)i];
@@ -19902,8 +19923,15 @@ void TerrainGame::broadPhaseRefresh() const {
     // Every collider, including sleeping and moving bodies, is spatially
     // indexed. Stage boundaries refresh transforms; a caller moving a collider
     // beyond the padding inside one stage must invalidate before querying.
-    const bool moving = (o.data.physics && !physAsleep(o)) ||
-                        g_frameStamp - e.movedAt <= 1u;
+    bool moving = (o.data.physics && !physAsleep(o)) ||
+                  g_frameStamp - e.movedAt <= 1u;
+    // Settled, but put back with the next batch (BP_DEFER_SETTLE).
+    if (!moving && e.present && e.moving && !settleNow) {
+      moving = true;
+      ++pendingNow;
+    }
+    const bool promote = BP_DEFER_SETTLE && PHYS_LEAN_BOOKKEEPING && e.present &&
+                         !e.moving && moving;
     const bool changedBox = e.stale;
     if (e.stale) {
       broadPhaseBoxOf(o, e.box);
@@ -19911,11 +19939,15 @@ void TerrainGame::broadPhaseRefresh() const {
       if (PHYS_LEAN_BOOKKEEPING && e.present && e.moving && moving) {
         movedIdx.push_back(i);
         movedBox.push_back(e.box);
-      } else {
+      } else if (!promote) {
         changed = true;
       }
     }
-    changed = changed || !e.present || moving != e.moving;
+    if (promote) {
+      promoteIdx.push_back(i);
+      promoteBox.push_back(e.box);
+    }
+    changed = changed || !e.present || (moving != e.moving && !promote);
     e.present = true;
     e.moving = moving;
     bpMovingNow[(size_t)i] = moving ? 1 : 0;
@@ -19934,6 +19966,14 @@ void TerrainGame::broadPhaseRefresh() const {
           ((unsigned)i & 15u) == lane)
         visit(i);
   }
+  if (pendingNow > 0 && bpPendingSettle == 0) bpPendingSince = g_frameStamp;
+  bpPendingSettle = pendingNow;
+  // Wakes join the moving index; if the backend cannot, the rebuild below
+  // takes them (their entries already say moving).
+  if (!changed && !promoteIdx.empty() &&
+      !broadPhase.promoteMoving(promoteIdx.data(), promoteBox.data(),
+                                (int)promoteIdx.size()))
+    changed = true;
   if (!changed) {
     if (!movedIdx.empty())
       broadPhase.updateMoving(movedIdx.data(), movedBox.data(), (int)movedIdx.size());

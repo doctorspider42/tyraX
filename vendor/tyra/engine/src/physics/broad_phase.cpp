@@ -256,6 +256,9 @@ void BroadPhase::gridQuery(const BroadBox& area, const float* segA,
       const int i = items_[(size_t)k];
       if (mark_[(size_t)i] == stamp_) continue;
       mark_[(size_t)i] = stamp_;
+      // Promoted since the grid was built (promoteMoving): the moving
+      // index answers for it, and this entry is where it USED to be.
+      if (moving_[(size_t)i]) continue;
       const BroadBox& b = box_[(size_t)i];
       const bool hit = segA ? segmentHits(segA, segD, b.mn, b.mx, radius)
                             : overlaps(area, b.mn, b.mx);
@@ -487,6 +490,29 @@ void BroadPhase::updateMoving(const int* index, const BroadBox* boxes, int count
   for (size_t k = 0; k < movingObjects_.size(); ++k)
     movingIndex_->set((int)k, box_[(size_t)movingObjects_[k]], false);
   movingIndex_->commit();
+}
+
+bool BroadPhase::promoteMoving(const int* index, const BroadBox* boxes, int count) {
+  if (kind_ != kGrid) return false;
+  for (int k = 0; k < count; ++k) {
+    const int i = index[k];
+    if (i < 0 || i >= count_ || !present_[(size_t)i] || moving_[(size_t)i]) return false;
+    for (int a : always_)
+      if (a == i) return false;  // would be reported twice
+  }
+  for (int k = 0; k < count; ++k) {
+    moving_[(size_t)index[k]] = 1;
+    box_[(size_t)index[k]] = boxes[k];
+  }
+  movingObjects_.clear();
+  for (int i = 0; i < count_; ++i)
+    if (present_[(size_t)i] && moving_[(size_t)i]) movingObjects_.push_back(i);
+  if (!movingIndex_) movingIndex_.reset(new BroadPhase(kGrid));
+  movingIndex_->begin((int)movingObjects_.size());
+  for (size_t k = 0; k < movingObjects_.size(); ++k)
+    movingIndex_->set((int)k, box_[(size_t)movingObjects_[k]], false);
+  movingIndex_->commit();
+  return true;
 }
 
 void BroadPhase::refreshMoving() {
