@@ -355,11 +355,26 @@ rest pose. The VIF streams of batched bodies within 40 units of the camera
 are baked ahead too (`StaPipCore::prebakeBag`, refreshed every 120 frames, as
 a car's full-detail tier is).
 
-**Still open.** The 2-4 frames left in the pile test: the frame after the
-first hit re-bakes the patched batch's VIF stream (its arrays are new; a
-partial `StaPipBagPatch` would avoid it), and the frame the car meets the
-tower spends ~9 ms submitting objects that the object loop's own laps do not
-account for.
+**What is left, and why.** The pile test still loses 2-4 frames, in the
+two or three frames around each impact, and no single cost owns them. Ruled
+out on the console, one variable at a time:
+- no GPU wait anywhere in those frames (`drain`, `waitFor` and the deferred
+  present timed per call);
+- the frame arena copies only 45-142 KB;
+- not drawing the bodies near the camera changes nothing, and neither does
+  turning the car's damage off;
+- not drawing ANY solo physics body still loses 2 frames.
+
+What those frames hold, on top of a ~10 ms frame:
+- physics for ~25 woken bodies in contact, ~3-4 ms;
+- the batch patch plus its VIF stream re-bake (the arrays are new; a partial
+  `StaPipBagPatch` could avoid the re-bake), 2-4 ms;
+- the impact's particles, ~1.5 ms;
+- the woken bodies' own submission, 2-5 ms.
+
+That is real work, landing in the same frames. Taking it apart means
+spreading it over frames (the particle burst, the re-bake), not removing a
+fault.
 
 ## Members at the world origin (fixed 1.176.3)
 
