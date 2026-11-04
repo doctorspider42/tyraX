@@ -3347,15 +3347,24 @@ bool TerrainGame::occlusionHiddenObject(int index){
 
 
 
-void TerrainGame::renderStaticBatches() {
-  if (!retiredBatchStreams.empty()) collectRetiredBatchStreams();
-#if TYRA_FRAME_PROFILE
-  stapip.core.setTelemetryProducer(Tyra::StaPipProducerStaticBatches);
-#endif
+// SETTLE (docs/static-batching.md, "Re-bakes before the frame"): the
+// batches that changed this frame are rebuilt and their VIF streams baked
+// here, after the update and before the frame records. Rebuilt inside the
+// recording, the first draw built the stream with its real writers, and at a
+// pile collapse the patch + that draw cost 4-5 ms of one frame on a PS2.
+// renderStaticBatches still catches anything that changes after this.
+void TerrainGame::settleStaticBatches() {
+  if (staticBatches.empty()) return;
+  batchPatchSize(staticBatches.size());
+  bool anyStale = false;
+  for (size_t bi = 0; bi < staticBatches.size(); ++bi)
+    anyStale = anyStale || staticBatches[bi].dirty || batchPatch[bi].pending;
   // REJOIN (bodyBatchHome): bodies asleep for PHYS_REJOIN_AFTER_S go back into
   // the batches they left - every such body of ONE batch per frame, so a
   // crash's worth of crates costs one re-bake per batch, not one per crate.
-  if (!bodyBatchHome.empty() && !splitSecondPass) {
+  // Never in a frame that already re-bakes a batch: a rejoin can wait, and
+  // during a collapse the leaves alone fill the frames.
+  if (!bodyBatchHome.empty() && !anyStale) {
     const u32 after = (u32)everyFrames(PHYS_REJOIN_AFTER_S);
     int target = -1;
     for (size_t obj = 0; obj < bodyBatchHome.size(); ++obj) {
@@ -3385,6 +3394,29 @@ void TerrainGame::renderStaticBatches() {
       homes.clear();
     }
   }
+  batchPatchSize(staticBatches.size());
+  for (StaticBatch& b : staticBatches) {
+    const int bi = (int)(&b - staticBatches.data());
+    BatchPatch& bp = batchPatch[(size_t)bi];
+    // The first bake, and any batch with a member the render loop still has
+    // to demote, stay with renderStaticBatches.
+    if (!b.bag || b.members.empty() || (!b.dirty && !bp.pending)) continue;
+    bool demote = false;
+    for (const StaticBatchMember& m : b.members)
+      demote = demote || runtimeObjects[(size_t)m.object].dirty;
+    if (demote) continue;
+    rebuildStaticBatch(b);
+    if (b.bag && b.bag->count > 0) stapip.core.prebakeBag(b.bag.get());
+  }
+}
+
+
+
+void TerrainGame::renderStaticBatches() {
+  if (!retiredBatchStreams.empty()) collectRetiredBatchStreams();
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerStaticBatches);
+#endif
   batchPatchSize(staticBatches.size());
   for (StaticBatch& b : staticBatches) {
     const int bi = (int)(&b - staticBatches.data());

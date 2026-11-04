@@ -1882,6 +1882,7 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> batchNoSpotInfoBag;
   void buildStaticBatchList();
   void rebuildStaticBatch(StaticBatch& b);
+  void settleStaticBatches();
   void renderStaticBatches();
 
   void buildOcclusionBuffer();
@@ -4003,6 +4004,7 @@ class TerrainGame : public Tyra::Game {
   std::unique_ptr<Tyra::StaPipInfoBag> batchNoSpotInfoBag;
   void buildStaticBatchList();
   void rebuildStaticBatch(StaticBatch& b);
+  void settleStaticBatches();
   void renderStaticBatches();
 
   void buildOcclusionBuffer();

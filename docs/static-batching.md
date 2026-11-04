@@ -355,26 +355,47 @@ rest pose. The VIF streams of batched bodies within 40 units of the camera
 are baked ahead too (`StaPipCore::prebakeBag`, refreshed every 120 frames, as
 a car's full-detail tier is).
 
-**What is left, and why.** The pile test still loses 2-4 frames, in the
-two or three frames around each impact, and no single cost owns them. Ruled
-out on the console, one variable at a time:
-- no GPU wait anywhere in those frames (`drain`, `waitFor` and the deferred
-  present timed per call);
-- the frame arena copies only 45-142 KB;
-- not drawing the bodies near the camera changes nothing, and neither does
-  turning the car's damage off;
-- not drawing ANY solo physics body still loses 2 frames.
+**Re-bakes before the frame.** A batch that changed during the update
+(a body left it, or sleeping bodies rejoin it) is now rebuilt and its VIF
+stream baked in `settleStaticBatches`, after the update and before
+`beginFrame`. Rebuilt inside the frame's recording, the batch's first draw
+built the stream with the real writers and cost 1.6-3.0 ms of submit on top
+of the 1-1.5 ms patch. Settled ahead, the frame draws an already-baked
+stream (1.5-2.3 ms). Rejoins also wait for a frame in which no batch is
+re-baked: they can wait, and during a collapse the leaves alone fill the
+frames. The first bake of a batch, and a batch with a member that the render
+loop still has to demote, stay in `renderStaticBatches`.
 
-What those frames hold, on top of a ~10 ms frame:
-- physics for ~25 woken bodies in contact, ~3-4 ms;
-- the batch patch plus its VIF stream re-bake (the arrays are new; a partial
-  `StaPipBagPatch` could avoid the re-bake), 2-4 ms;
-- the impact's particles, ~1.5 ms;
-- the woken bodies' own submission, 2-5 ms.
+Measured on a PS2 (stack test, 1 000 frames):
+- the frames with a batch change do 1.5 ms less work (e.g. 10.98 -> 9.25 ms,
+  10.84 -> 9.42 ms);
+- no batch is rebuilt during recording any more;
+- the plough test still loses no frames, and its p95 work goes from 9.67 to
+  9.51 ms.
 
-That is real work, landing in the same frames. Taking it apart means
-spreading it over frames (the particle burst, the re-bake), not removing a
-fault.
+**What is left, and why.** The pile test still loses 3-4 frames in 1 000,
+and they are not the pile. A per-bake event dump (which bag, which VU1
+program, which package size) puts them on the CAR:
+1. the car runs into the tower, and the chase camera is pushed toward it;
+2. its body (3 390 vertices) is baked once under a clip program
+   (`ClipTextureColor`);
+3. one frame later it is back under the cull program with a changed key, so
+   the renderer marks it as churning and draws it unbaked for a few frames,
+   with a new per-package copy (`fillCachedPackage`) for each package that
+   crosses the frustum (24 in one frame).
+
+Objects then cost 4-5 ms more than usual for 3-5 frames, and those frames also
+carry the physics of ~25 woken bodies (3-4 ms). Holding the car's paint
+re-shade while many bodies are awake changed nothing (the colours are not the
+cause), and this is why turning the damage off did not help either.
+
+Ruled out on the console:
+- no GPU wait in those frames;
+- the frame arena copies 45-142 KB;
+- not drawing the solo bodies near the camera changes nothing.
+
+The next lever is in the renderer, not the batch: a bag that switches
+program for a single frame should not get a whole-bag bake.
 
 ## Members at the world origin (fixed 1.176.3)
 
