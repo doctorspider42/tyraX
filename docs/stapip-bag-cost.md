@@ -238,12 +238,39 @@ second digit:
 - Storing the bounds results costs 1.7 µs a bag (4.33 -> 6.0). A real
   stage-major pipeline pays that too.
 
-Together, for the ~20 bags a frame that are not stamped or culled, the two
-stages would go from about 1.2 ms to about 0.5 ms a frame, out of the 4.3 ms
-StaPip spends here. Dispatch (partial replay classification, runs, packet
-sends: ~78 µs a crossing bag) is the largest stage and was not probed. It
-reads and writes the most memory, so it is the least likely to shrink by the
-same factor.
+**The dispatch stage, measured the same way.** A third pass takes the bags
+whose real route was the partial replay and runs that route's dispatch for
+all of them: `beginBakedBag`, `beginPartialReplay`, `classifyRoutes` and
+`emitPartialRuns` into the scratch packet, then `endBakedBag`. `sendPacket`
+does nothing while the pass runs, so packet sends are not included, and the
+in-path figure below has its sends taken out too. Each bag gets its package
+size and info first (`setMaxVertCount`, `setInfo`). Without them the probe
+asserted in the merged-box lookup and then hung on baked-cache misses. The
+lean classification was on in both arms. Physical PS2, two runs; every bag
+in the pass replayed (12 319 / 12 319 and 11 720 / 11 720):
+
+| | µs a bag | I-cache misses a bag | D-cache misses a bag |
+|---|---:|---:|---:|
+| Partial dispatch inside the path, without its sends | 49.6-51.2 | - | - |
+| The same, one pass over 13-14 crossing bags | **42.35 / 42.68** | 72 | 107-109 |
+| (this build) bounds, one pass | 5.28 / 5.29 | 1.7 | 27 |
+| (this build) prepare, one pass | 16.92 / 17.07 | 20 | 77 |
+
+Dispatch barely moves: 15 % instead of 2.4-4x. Even run on its own over every
+bag it still misses 72 instruction lines and 108 data lines a bag. Its code
+does not fit, and it reads each bag's own baked entries, offsets and package
+boxes, which nothing before it could have brought in.
+
+**What a stage-major StaPip would buy, then.** About 0.3 ms (bounds) + 0.4 ms
+(prepare) + 0.1 ms (dispatch) = ~0.8 ms a frame here, for the ~20 bags a frame
+that are not stamped or culled. That is a fifth of the 4.3 ms StaPip spends
+and about 5 % of the frame. A crossing bag would cost ~82 µs (5 + 17 + 43
++ its ~17 µs of sends) instead of ~150. Stamps (49 bags a frame, ~26 µs each)
+are already a lean path of their own and are not part of this figure. That
+is the ceiling of a large rewrite of the core submission path. The rest of
+the per-bag cost, in dispatch and in the sends, is memory a bag really owns,
+so it scales with how many bags there are and how many cross the frustum,
+not with how the path is arranged.
 
 ## Rig traps
 
@@ -266,6 +293,7 @@ fewer packet sends (31-34 a frame at ~22 µs), or a lean path for crossing bags
 the way stamps are one for visible bags. The largest one measured is the
 structure itself: run each stage over every bag before the next stage starts,
 so each stage's code stays in the cache (bounds 18-30 -> 4.3-6.0 µs a bag,
-prepare ~38 -> 15.6 µs a bag, see above; dispatch not probed). The head stamp for crossing bags was
+prepare ~38 -> 17 µs a bag, partial dispatch ~50 -> 42.5 µs a bag without
+sends, see above: ~0.8 ms a frame here in all). The head stamp for crossing bags was
 tried and removed (docs/stapip-stamps.md), because the replay read about as
 much memory as the ordinary path.
