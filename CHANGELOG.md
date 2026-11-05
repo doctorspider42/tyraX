@@ -8,6 +8,11 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.10.0
+
+- **Batch grouping cell** (Preferences > Static object batching). The width of the grid static batches are grouped in is now a project setting; *auto* keeps the cell every project used so far. A smaller cell merges fewer sparse props but leaves fewer batches crossing the edge of the screen, which cost the PS2 about 1.7 times a whole batch. Measured on a PS2: in a copy of the Vehicle Playground with a 129-crate field, 48 instead of 80 leaves 11 instead of 13.5 crossing batches a frame and takes 0.15-0.2 ms off draw submission; in the shipped Motor District it is neutral to slightly worse (p95 +0.2-0.5 ms), so the example keeps *auto*. See `docs/static-batching.md`, "The grouping cell".
+- Objects, static batches and road chunks that cross the edge of the screen cost the PS2 about 7 µs less each a frame (about 0.1 ms a frame in the Vehicle Playground crate-field drive). `docs/stapip-bag-cost.md` also measures what one draw costs the console, and why.
+
 ## 2.9.0
 
 - **`tyrax::raycastCamera`.** A script raycast that always starts at the active camera: a cutscene's or `setCamera`'s eye while one owns the view, the player's camera (first-person eye, third-person boom) otherwise. Aim it at a point or an object; by default it stops at the target, so `hit` tells you something solid stands between the camera and it, and `hit.object == target` that the camera sees the object first. `tyrax::cameraPosition(ctx)` returns that origin. See `docs/script-api.md`.

@@ -139,6 +139,7 @@ static int SCENE_OBJECT_COUNT = 0;
 static std::vector<SceneObjectData> g_objects;
 #define SCENE_OBJECTS g_objects
 static int STATIC_BATCHING = 1;
+static float STATIC_BATCH_CELL = 0.0f;
 static const bool BAKE_STATIC_LAMPS = false;
 static float TERRAIN_WIDTH = 100.0f, TERRAIN_DEPTH = 100.0f;
 static const char* TEXTURE_ATLAS_INFO = "";
@@ -206,6 +207,7 @@ struct Fixture {
   std::string name;
   float terrainW = 100.0f, terrainD = 100.0f;
   bool batching = true;
+  float cell = 0.0f;  // settings.staticBatchCell (0 = auto)
   std::vector<FxModel> models;
   std::vector<FxMaterial> materials;
   std::vector<FxObject> objects;
@@ -251,6 +253,7 @@ static Picture runRuntime(const Fixture& fx, std::vector<char>& batchedOut) {
   TERRAIN_WIDTH = fx.terrainW;
   TERRAIN_DEPTH = fx.terrainD;
   STATIC_BATCHING = fx.batching ? 1 : 0;
+  STATIC_BATCH_CELL = fx.cell;
 
   std::map<std::string, int> modelIndex;
   for (const FxModel& m : fx.models) {
@@ -317,6 +320,7 @@ static Picture runRuntime(const Fixture& fx, std::vector<char>& batchedOut) {
 static Picture runHost(const Fixture& fx, std::vector<char>& batchedOut) {
   Project p;
   p.settings.staticBatching = fx.batching;
+  p.settings.staticBatchCell = fx.cell;
   SceneData sc;
   sc.terrain.width = (int)fx.terrainW;
   sc.terrain.depth = (int)fx.terrainD;
@@ -563,6 +567,17 @@ int main() {
     fx.materials = {{"m/k.mtl","k.png"}};
     FxObject out = box(2,0,"m/k.mtl"); out.eligible = false;
     fx.objects = {box(0,0,"m/k.mtl"), out};
+    check(fx);
+  }
+
+  // N: the project's own grouping cell. Auto gives 48 on this 100-unit map,
+  // so these two pairs 30 apart share a cell; a 20-unit cell splits them.
+  {
+    Fixture fx; fx.name = "N project cell splits what auto merges";
+    fx.cell = 20.0f;
+    fx.materials = {{"m/n.mtl","n.png"}};
+    fx.objects = {box(1,1,"m/n.mtl"), box(3,1,"m/n.mtl"),
+                  box(31,1,"m/n.mtl"), box(33,1,"m/n.mtl")};
     check(fx);
   }
 

@@ -19068,6 +19068,7 @@ static const PrefIndexEntry kPrefIndex[] = {
      false, "usable proximity outline"},
     {"Sky, sun and fog", "Graphics", "Look", "", false, "ambience editor lighting"},
     {"Static object batching", "Graphics", "Performance", "staticBatching", true, "rendering"},
+    {"Batch grouping cell", "Graphics", "Performance", "staticBatchCell", true, "static batching grid"},
     {"Occlusion culling", "Graphics", "Performance", "occlusionCulling", true, "conservative"},
     {"Texture atlasing", "Graphics", "Performance", "textureAtlas", true, "atlas"},
     {"Interleave batches and roads", "Graphics", "Performance", "interleavePasses", true, "objects"},
@@ -20540,6 +20541,19 @@ void App::drawPreferencesWindow() {
         "streaming layer stay individual.");
 
     prefRow("Static object batching");
+    ui::SliderFloat("Batch grouping cell", &prefSettings_.staticBatchCell,
+                    0.0f, 256.0f,
+                    prefSettings_.staticBatchCell <= 0.0f ? "auto" : "%.0f units");
+    prefHelp(
+        "The width of the grid cells batches are grouped in. Auto = a\n"
+        "quarter of the map, never below 48. A smaller cell merges fewer\n"
+        "sparse props but leaves fewer batches crossing the screen edge,\n"
+        "which cost about 1.7 times a whole batch. Measured on a PS2: a\n"
+        "129-crate field at 48 instead of 80 = -0.15 to -0.2 ms a frame;\n"
+        "the Motor District = no gain. Check the Batches window and the\n"
+        "profiler.");
+
+    prefRow("Batch grouping cell");
     ui::Switch("Occlusion culling",
                     &prefSettings_.occlusionCulling);
     prefHelp(

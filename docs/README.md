@@ -323,6 +323,16 @@ Developer design docs (internals, not user guides):
   VU1 cycle per triangle is worth in frame time on real hardware, why ps2sdk's
   two cache primitives are both wrong for a DMA packet, and why neither answer
   is a reason to fork the SDK.
+- [What one StaPip bag costs the EE on a PS2](stapip-bag-cost.md) — per-route
+  and per-stage EE cost of one bag on a physical PS2, measured with COP0 laps
+  and the EE PMU: 25 µs for a stamp, ~147 µs for a bag crossing the frustum,
+  almost all of it cache misses. Covers the kept classification cut for the
+  partial replay and the measured dead ends.
+- [How TyraX uses the PS2's hardware](ps2-hardware-utilisation.md) — what
+  each unit (EE, VU0, VU1, GS, DMA channels, scratchpad, IOP) does in a
+  gameplay frame, three rebuild directions priced on a physical PS2 (the frame
+  recorder, VU1 clipping instead of EE classification, VU1 skinning) and the
+  remaining projects ranked by the size of their prize.
 - [The EE pays 147 cycles per triangle](ee-submission-rearchitecture.md) — the
   plan for the next round: why an immediate-mode static pipeline cannot reach
   60 Hz whatever its constants are, the baked VIF stream that would replace it,

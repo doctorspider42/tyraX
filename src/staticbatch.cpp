@@ -293,7 +293,10 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
     const float mapW = sc.terrain.width > sc.terrain.depth
                            ? (float)sc.terrain.width
                            : (float)sc.terrain.depth;
-    const float baseCellW = mapW * 0.25f > 48.0f ? mapW * 0.25f : 48.0f;
+    const float baseCellW =
+        p.settings.staticBatchCell > 0.0f
+            ? p.settings.staticBatchCell
+            : (mapW * 0.25f > 48.0f ? mapW * 0.25f : 48.0f);
     res.mapW = mapW;
     res.baseCellW = baseCellW;
     auto cellFor = [&](float drawDistance) -> float {

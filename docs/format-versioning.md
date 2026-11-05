@@ -310,6 +310,11 @@ the particle branch saved as 62 opens here with its effects intact (and stamps
 particle keys (rule 5 above: a
 format number is claimed at merge time, not at branch time).
 
+Format 127 adds `settings.staticBatchCell` (docs/static-batching.md, "The
+grouping cell"), written only when above 0. Missing reads as 0, the
+automatic cell every older project grouped with. Additive; no migration
+step.
+
 Format 67 adds `settings.vehicleShineBudget` (docs/vehicles.md, "The shine
 budget"), written only when it is not 2. Missing reads as 2, so an older
 project with three or more cars near the camera now draws two of them shiny;

@@ -9,6 +9,7 @@
 # Modified by TyraX: the batching test asks isResident() (hinted lookup).
 */
 
+#include <stdio.h>  // Modified by TyraX: TYRA_STAPIP_LEAN_CLASSIFY_VERIFY
 #include "math/math.hpp"
 #include "math/mmi.hpp"
 
@@ -1230,9 +1231,41 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
       {
         static u8 routes[512];
         static u8 masks[512];
-        auto packages = packager.create(&packagesCount, bag, maxVertCount);
+        // Modified by TyraX: the verdicts straight into routes/masks, no
+        // package records (TYRA_STAPIP_LEAN_CLASSIFY, docs/stapip-bag-cost.md).
+        // Telemetry and the fallback below still want the records.
+        StaPipBagPackage* packages = nullptr;
+        const bool lean = TYRA_STAPIP_LEAN_CLASSIFY && !telemetryEnabled;
+        if (lean)
+          packagesCount =
+              packager.classifyRoutes(bag, maxVertCount, routes, masks, 512);
+        else
+          packages = packager.create(&packagesCount, bag, maxVertCount);
+#if TYRA_STAPIP_LEAN_CLASSIFY_VERIFY
+        if (lean && packagesCount <= 512) {
+          static u32 checked = 0, bad = 0;
+          u16 n = 0;
+          const StaPipBagPackage* ref = packager.create(&n, bag, maxVertCount);
+          for (u16 i = 0; i < n; ++i) {
+            const StaPipBagPackage& p = ref[i];
+            u8 route = 0;
+            if (p.isInFrustum == IN_FRUSTUM || isGuardBandOnly(p)) route = 1;
+            else if (p.isInFrustum == PARTIALLY_IN_FRUSTUM &&
+                     (!bag->stripped || p.size >= 3))
+              route = 2;
+            ++checked;
+            if (route != routes[i] || (route == 2 && p.clipPlaneMask != masks[i]))
+              ++bad;
+          }
+          if (n != packagesCount) ++bad;
+          if (checked % 20000 < n)
+            printf("LEANVERIFY checked=%lu bad=%lu\n",
+                   static_cast<unsigned long>(checked),
+                   static_cast<unsigned long>(bad));
+        }
+#endif
         if (packagesCount <= 512) {
-          for (u16 i = 0; i < packagesCount; ++i) {
+          for (u16 i = 0; !lean && i < packagesCount; ++i) {
             const StaPipBagPackage& p = packages[i];
             const bool guardBandOnly = isGuardBandOnly(p);
             u8 route = 0;
@@ -1255,6 +1288,8 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
           }
         }
         if (!replayedPartial) {
+          if (packages == nullptr)
+            packages = packager.create(&packagesCount, bag, maxVertCount);
           // The runs did not fit the packet: the ordinary loop, same packages.
           if (bag->stripped) renderStrippedPkgs(packages, doClip, packagesCount);
           else renderPkgs(packages, doClip, packagesCount);

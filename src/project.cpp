@@ -1901,6 +1901,12 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"animPlayFps\": " << fmtFloat(p.settings.animPlayFps) << ",\n"
          << "    \"staticBatching\": "
          << (p.settings.staticBatching ? "true" : "false") << ",\n"
+         // Written only when set, so a project on the automatic cell
+         // resaves byte for byte.
+         << (p.settings.staticBatchCell > 0.0f
+                 ? "    \"staticBatchCell\": " +
+                       fmtFloat(p.settings.staticBatchCell) + ",\n"
+                 : std::string())
          // Written only when not the default, so a project that never
          // sets it resaves byte for byte (format v64).
          << (p.settings.interleavePasses != "auto"
@@ -6422,6 +6428,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (st.animPlayFps > 240.0f) st.animPlayFps = 240.0f;
         if (const auto* v = s->find("staticBatching"))
             st.staticBatching = v->boolOr(true);
+        if (const auto* v = s->find("staticBatchCell")) {
+            st.staticBatchCell = (float)v->numberOr(0.0);
+            if (st.staticBatchCell < 0.0f) st.staticBatchCell = 0.0f;
+            if (st.staticBatchCell > 4096.0f) st.staticBatchCell = 4096.0f;
+        }
         if (const auto* v = s->find("interleavePasses")) {
             st.interleavePasses = v->stringOr("auto");
             if (st.interleavePasses != "off" && st.interleavePasses != "always")

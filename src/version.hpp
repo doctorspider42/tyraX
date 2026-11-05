@@ -5615,8 +5615,15 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 9
+#define TYRAX_VERSION_MINOR 10
 #define TYRAX_VERSION_PATCH 0
+// 2.10.0: Preferences > Batch grouping cell (ProjectSettings::staticBatchCell,
+// codegen STATIC_BATCH_CELL; 0 = the automatic cell, kept by every example).
+// A 129-crate field at 48: crossing batches 13.5 -> 11.2 a frame, StaPip
+// -0.15..-0.2 ms on a PS2; the Motor District at 48 is neutral to worse
+// (docs/static-batching.md, "The grouping cell"). Also the 2.9.1 classify cut.
+// 2.9.1: a bag crossing the frustum classifies its packages straight into
+// partial-replay routes, no package records (docs/stapip-bag-cost.md).
 // 2.9.0: tyrax::raycastCamera + tyrax::cameraPosition - a raycast from the
 // active camera (cutscene / setCamera eye, else the player's camera) at a target.
 // 2.8.0: the script debugger (docs/script-debugger.md) - GDB / VS Code on a
@@ -6496,7 +6503,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v126 (docs/script-debugger.md): ProjectSettings::scriptDebugger
 // ("scriptDebugger" in settings, written only when true). Missing = off, which
 // is what every older project built. Additive; no migration.
-inline constexpr int kFormatVersion = 126;
+// v127 (docs/static-batching.md, "The grouping cell"):
+// ProjectSettings::staticBatchCell ("staticBatchCell" in settings, written
+// only when above 0). Missing = 0 = the automatic cell every older project
+// grouped with. Additive; no migration.
+inline constexpr int kFormatVersion = 127;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
