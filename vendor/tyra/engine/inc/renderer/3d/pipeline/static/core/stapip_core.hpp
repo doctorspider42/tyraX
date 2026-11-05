@@ -89,7 +89,7 @@ class StaPipCore {
    * queue uses (batch end, a view change, a program or parameter change,
    * the same bag twice, the frame's end). Bags, their info and models must
    * then stay unchanged until the flush - TYRA_STAPIP_RECORD_VERIFY counts
-   * the ones that do not. Default off. */
+   * the ones that do not. Default on (docs/dod-submission.md, phase 1). */
   void setFrameRecord(bool on) {
     flushDeferred();
     frameRecord = on;
@@ -329,7 +329,7 @@ class StaPipCore {
   // stamp queue's fixed 48 (setFrameRecord).
   std::vector<DeferredBag> recorded;
   Plane recordedFrustum[6];  // the planes the recorded list was culled for
-  bool frameRecord = false;
+  bool frameRecord = true;
   bool frameRecordEnabled() const;
 #if TYRA_STAPIP_RECORD_VERIFY
   std::vector<u32> recordedHash, recordedEnvHash;

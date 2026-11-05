@@ -103,7 +103,7 @@ before recording is turned on for it.
 |---|---|---|---|
 | 1a | Recording behind a flag, flushed bag by bag (same order, same code), plus RECORDVERIFY | 140 000 draws recorded, 0 changed; but `endSubmissionBatch` flushed ~13 times a frame (~11 bags a run) | done |
 | 1b | Batch begin/end as markers in the list; foreign VIF1/GIF work (Vif1Queue entry points, `frameSendPacket`, frame begin/flush/end) flushes the list first | runs ~48 bags (max 141), ~5 flushes a frame. **Work p50 7.72 / 7.68 -> 7.20 / 7.29 ms, missed frames 44 / 28 -> 16 / 16 of 1000, StaPip 4.51 -> 4.29 ms** (crate drive, same ELF, 2 runs) | measured; producers to fix |
-| 1c | Fix every producer RECORDVERIFY names; recording on by default | three fixes (below). Census then **0 of 300 000** changed. Crate drive with them: **work p50 7.70 / 7.75 -> 7.10 / 7.29 ms, missed 26 / 27 -> 16 / 21, StaPip 4.43 / 4.51 -> 4.17 / 4.02 ms** | Motor District check next |
+| 1c | Fix every producer RECORDVERIFY names; recording on by default | three fixes (below). Census then **0 of 300 000** changed. Crate drive with them: **work p50 7.70 / 7.75 -> 7.10 / 7.29 ms, missed 26 / 27 -> 16 / 21, StaPip 4.43 / 4.51 -> 4.17 / 4.02 ms**. Motor District (the shipped example, parked): census 0 of 160 000 changed; work p50 3.86 / 3.82 -> 3.75 / 3.75 ms, **p95 11.99 / 11.93 -> 11.54 / 11.52 ms**, StaPip 2.86 / 2.90 -> 2.66 / 2.64 ms, missed 10 / 6 -> 2 / 6 | **on by default (2.11.0)** |
 
 The fixes RECORDVERIFY found, by component (a per-component variant of the
 census; it names the bag, its info, texture, vertex count and position):

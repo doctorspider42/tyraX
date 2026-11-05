@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.11.0
+
+- Faster draw submission on the PS2: the renderer now records a frame's draws and submits them in long runs instead of one by one between the game's own code, so neither evicts the other from the console's small caches. Measured on a PS2: 0.5-0.6 ms less work a frame and about a third fewer missed frames in the Vehicle Playground crate-field drive; 0.45 ms off the 95th-percentile frame in the Motor District. The plan behind it, and the next steps, are in `docs/dod-submission.md`.
+
 ## 2.10.0
 
 - **Batch grouping cell** (Preferences > Static object batching). The width of the grid static batches are grouped in is now a project setting; *auto* keeps the cell every project used so far. A smaller cell merges fewer sparse props but leaves fewer batches crossing the edge of the screen, which cost the PS2 about 1.7 times a whole batch. Measured on a PS2: in a copy of the Vehicle Playground with a 129-crate field, 48 instead of 80 leaves 11 instead of 13.5 crossing batches a frame and takes 0.15-0.2 ms off draw submission; in the shipped Motor District it is neutral to slightly worse (p95 +0.2-0.5 ms), so the example keeps *auto*. See `docs/static-batching.md`, "The grouping cell".
