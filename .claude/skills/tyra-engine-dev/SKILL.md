@@ -143,7 +143,7 @@ EE clipper with Cohen–Sutherland outcodes and static pools; StaPip `clip` VU1 
 - `--vu-check` green but branch wrong → harness can't see the gated path; prove it fails inverted → vu1-microprograms.md
 
 **Measured dead ends — do not reopen without a new hypothesis**
-coarser (8-package) frustum classification (+4.59 ms); package size above 75 (81 max, 144 impossible); 128-byte `BagArray` alignment; >4-bag or large-bag batching; Vif1Queue depth 8; DMAC-interrupt chain start; per-REF `SyncDCache`; uncached / UCAB packets; per-bag `dma_channel_wait`; transformed-light cache; retaining per-bag uniform copies; k255/ADC-table VU image; REGLIST state compaction; widening the cull programs' ADC guard band.
+coarser (8-package) frustum classification (+4.59 ms); package size above 75 (81 max, 144 impossible); 128-byte `BagArray` alignment; >4-bag or large-bag batching; Vif1Queue depth 8; DMAC-interrupt chain start; per-REF `SyncDCache`; uncached / UCAB packets; per-bag `dma_channel_wait`; transformed-light cache; retaining per-bag uniform copies; k255/ADC-table VU image; REGLIST state compaction; widening the cull programs' ADC guard band; static batches + roads in one submission-batch scope (send -0.06 ms, StaPip flat), `tryStamp` visibility-first (-0.025 ms), the StaPip directory at `-Os` (half the code, 4-6 % slower) - a bag costs the memory it touches (docs/stapip-bag-cost.md).
 
 ## Reference index — read the file when you touch…
 | File | Read when you touch |

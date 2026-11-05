@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.9.1
+
+- Objects, static batches and road chunks that cross the edge of the screen cost the PS2 about 7 µs less each a frame (about 0.1 ms a frame in the Vehicle Playground crate-field drive). `docs/stapip-bag-cost.md` also measures what one draw costs the console, and why.
+
 ## 2.9.0
 
 - **`tyrax::raycastCamera`.** A script raycast that always starts at the active camera: a cutscene's or `setCamera`'s eye while one owns the view, the player's camera (first-person eye, third-person boom) otherwise. Aim it at a point or an object; by default it stops at the target, so `hit` tells you something solid stands between the camera and it, and `hit.object == target` that the camera sees the object first. `tyrax::cameraPosition(ctx)` returns that origin. See `docs/script-api.md`.

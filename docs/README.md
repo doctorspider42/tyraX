@@ -323,6 +323,11 @@ Developer design docs (internals, not user guides):
   VU1 cycle per triangle is worth in frame time on real hardware, why ps2sdk's
   two cache primitives are both wrong for a DMA packet, and why neither answer
   is a reason to fork the SDK.
+- [What one StaPip bag costs the EE on a PS2](stapip-bag-cost.md) — per-route
+  and per-stage EE cost of one bag on a physical PS2, measured with COP0 laps
+  and the EE PMU: 25 µs for a stamp, ~147 µs for a bag crossing the frustum,
+  almost all of it cache misses. Covers the kept classification cut for the
+  partial replay and the measured dead ends.
 - [The EE pays 147 cycles per triangle](ee-submission-rearchitecture.md) — the
   plan for the next round: why an immediate-mode static pipeline cannot reach
   60 Hz whatever its constants are, the baked VIF stream that would replace it,

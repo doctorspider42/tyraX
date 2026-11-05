@@ -5616,7 +5616,9 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 9
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
+// 2.9.1: a bag crossing the frustum classifies its packages straight into
+// partial-replay routes, no package records (docs/stapip-bag-cost.md).
 // 2.9.0: tyrax::raycastCamera + tyrax::cameraPosition - a raycast from the
 // active camera (cutscene / setCamera eye, else the player's camera) at a target.
 // 2.8.0: the script debugger (docs/script-debugger.md) - GDB / VS Code on a
