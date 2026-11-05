@@ -25745,6 +25745,7 @@ void TerrainGame::renderScene() {
       skyMat.data[13] = probeEye.y;
       skyMat.data[14] = probeEye.z;
       const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+      stapip.core.flushDeferred();  // before the shared info changes too
       skyDome.infoBag->zTestType = PipelineZTest_AllPass;
       renderWorldBag(skyDome.bag.get());
       renderSkyBodies(probeEye, envLook);
@@ -26871,6 +26872,9 @@ void TerrainGame::renderMirrors() {
 // shells rewrite hullMat between submits on the same fact), so restoring it
 // right after the call is safe.
 void TerrainGame::renderMirroredObject(int index) {
+  // The target's own draw earlier in the frame may still be recorded: submit
+  // it before its info points at the mirror matrix (docs/dod-submission.md).
+  stapip.core.flushDeferred();
   if (index < 0 || index >= (int)runtimeObjects.size()) return;
   RuntimeObject& o = runtimeObjects[index];
   // no mirror-in-mirror: a mirror listing another mirror would recurse the
@@ -27246,6 +27250,7 @@ void TerrainGame::renderCameraFeed() {
       skyMat.data[13] = eye.y;
       skyMat.data[14] = eye.z;
       const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+      stapip.core.flushDeferred();  // before the shared info changes too
       skyDome.infoBag->zTestType = PipelineZTest_AllPass;
       renderWorldBag(skyDome.bag.get());
       renderSkyBodies(eye, look);
@@ -27394,6 +27399,7 @@ void TerrainGame::renderObjectProbe(int index) {
     skyMat.data[13] = probeEye.y;
     skyMat.data[14] = probeEye.z;
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    stapip.core.flushDeferred();  // before the shared info changes too
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
     renderWorldBag(skyDome.bag.get());
     renderSkyBodies(probeEye, probeLook);

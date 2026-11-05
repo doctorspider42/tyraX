@@ -123,8 +123,20 @@ census; it names the bag, its info, texture, vertex count and position):
    mirror matrices it rewrites per object. Both now flush before they move
    on.
 
+4. **mirror-room**: a target's normal draw was still queued when the mirror
+   pass pointed its info at the mirror matrix, so it would have gone out
+   reflected (a 36-vertex box, every frame). `renderMirroredObject` now
+   flushes at its start, and the sky dome also flushes before it changes the
+   state, not only before it restores it.
+
+Census after the fixes, each scene on the PS2, `--build` with the verify
+switch on: crate drive 0 / 300 000, Motor District 0 / 160 000, two-players
+0 / 20 000 (title screen), portals 0 / 60 000, mirror-room 0 / 60 000,
+showcase 0 / 300 000. None wedged or asserted.
+
 Rule for game code from here: an info, model or bag that is changed AND
 restored around a draw needs `stapip.core.flushDeferred()` before the
+change (an earlier draw of the same bag may still be queued) and before the
 restore. Phase 3's draw records will carry the per-draw values, which
 removes this rule.
 | 2a | Bounds stage as one pass over the recorded list | StaPip 4.29 -> 4.05 ms, but the pass sits outside that counter: work p50 7.36 vs 7.25 ms with recording alone (+0.1) | no gain, off |
