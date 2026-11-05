@@ -116,6 +116,17 @@ overwrites an earlier one. `TYRAX_CLIP_REF_DIR=<dir of old clip/*.vclpp>` makes
 an older tree's programs the reference. See [vu1-clipping.md](vu1-clipping.md),
 "A whole package, streamed".
 
+Two probe knobs change the clip input `stageInput` stages. By default the
+harness hands each trial a random single-plane mask, and its near/far
+judgement constants (`VU1_CLIP_CONSTS_ADDR`) do not agree with its planes.
+That is harmless for a program that only uses the judgement to skip the plane
+loop. A program that REJECTS a triangle on it (the R1-A prototype,
+[architecture-loop.md](architecture-loop.md)) needs the two to agree:
+`TYRAX_VU_CLIP_CONSISTENT=1` stages all six planes and judgement constants that
+match them. `TYRAX_VU_CLIP_GATE=<int>` writes the low bits of
+`VU1_CLIP_CONSTS_ADDR.z`, which that prototype reads as its gate (`0x3CA` =
+on).
+
 **What it does not cover: the EE side.** `--vu-check` stages VU1 memory itself
 (`stageInput`) and diffs only what the microprogram staged for the GS, so the
 generated `addProgramQBufferDataToPacket` — the code that decides *where* each

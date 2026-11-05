@@ -85,6 +85,97 @@ triangle runs the staged fan emit at ~184 cycles against 73.
 district's heavy spot by at least 1 ms, with no new GPU wait above what the
 EE saves.
 
+#### R1-A feasibility (2026-11-05)
+
+**The ceiling, recomputed.** The district's 316-378 µs a crossing bag was
+measured on the sliced route before 1.174.0. After whole-package streaming the
+R5 baseline put a crossing bag at 175-184 µs against 84 µs for a whole replay.
+Run mode 4 (runs + masks) and the lean classification have since taken part
+of that difference. The district ceiling is therefore about 13 x 95 µs ≈
+1.2 ms before those cuts, or ~1.0 ms now. **The district bar (1 ms) cannot be
+met even with zero added VU1 cost.** In the crate field (rig BC44: partial
+138 µs x 14.9 bags, whole replay 77 µs) the ceiling is ~0.9 ms, against a bar
+of 0.3 ms.
+
+**The program.** The prototype fuses the trivial reject and a fast accept
+into the existing clip images. `C:\tx\qp\fuse_clip.py` rewrites
+`stapip_clip_{c,tc}[_fold]_vu1.vclpp`:
+
+- **Trivial reject.** It reads the three per-vertex judgements with FCGET
+  and ANDs them. A triangle wholly outside one tested half-space (x/y
+  against w, near, far: the bits the program's own crossing test reads)
+  skips Sutherland-Hodgman.
+- **Fast accept.** A triangle that crosses nothing is emitted by the fan
+  emitter's exact operations, unrolled three times and reloaded from
+  polygon A, instead of going through the generic fan loop.
+
+Both paths are gated on `VU1_CLIP_CONSTS_ADDR.z` (`0x3CA` = on, 0 = the
+original behaviour).
+
+**Proof on the host.** The editor's `--vu-check` gained two knobs
+([vu-framework.md](vu-framework.md)). With `TYRAX_VU_CLIP_CONSISTENT=1` and
+the gate on, every clip section is IDENTICAL to the generated reference:
+description parity, the whole-package stream with lists and strips, and the
+C/D, TC/TCE and TC/TD peer paths. Planted bugs were all caught:
+
+- a misplaced fog word in the fast accept;
+- rejecting on OR instead of AND;
+- drawing rejected triangles unclipped.
+
+The fast-accept bug passes with the gate off, which shows the gate selects
+the path.
+
+**Cost (openvcl schedule, rows, TC unlit multi-colour no-spot):**
+
+| path | cycles a triangle |
+|---|---:|
+| cull_tc | 73 |
+| clip_tc accept, before | 149 |
+| clip_tc accept, fused | 128 (head 22, judgement 41, emit 56, loop 9) |
+| triangle trivially rejected | 72 |
+
+The fast accept saves only 21 cycles. The per-triangle colour-mode branches
+and the latency-bound judgement are shared by both paths, and they are what
+separates the clip program from cull speed. Getting near 73 needs a cull-shaped
+loop: one variant chosen per batch, no branches inside the body, and the
+judgement folded into the transform chain.
+
+**Micro memory.** Clip TC fold 406 -> 482 words (reject + accept), clip C
+fold 374 -> 418 (reject only). The all-class set with billboards is
+2038/2042. Adding the fast accept to C as well (2088) would push the
+billboards out of residency, so the C image has no fast accept and the
+whole-route arm takes textured bags only.
+
+**What the VU1 side predicts.** Package census for the district cruise
+window (rig EY2), per frame:
+
+| packages | cull | clip | out |
+|---|---:|---:|---:|
+| list | 6 | 11 | 24 |
+| strip | 5 | 10 | 29 |
+
+Today they cost ~216k VU1 cycles a frame. Through the fused program as one
+run they cost ~377k: +0.55 ms of VU1, two thirds of it in out packages that
+the EE drops today and the program now rejects one triangle at a time. R5's
+"whole" arm (+0.6 / +2.5 ms for ~+540k cycles) showed that this VU1 time is
+not hidden by the 44-51 % idle. A per-package box reject (object-space box
+in the double-buffered input, eight corners judged at the batch head, ~60
+cycles) would bring the run to ~188k, below today's cost. It is the missing
+piece for any scene with many out packages.
+
+**Rig (not in the repository).** Engine copy `C:\tx\qp\tyraV`
+(`engine_r1a.py` + `fuse_clip.py`, cache `engine-cacheV`), arms built by
+`C:\tx\qp\mk_r1a.sh`. probeArm bits on top of the BC44 base 1572868:
+
+- 4194304: gate on, routes unchanged.
+- 8388608: whole route. A textured crossing bag skips classification and
+  goes as one REF of its baked six-plane clip blocks.
+
+The game logs `R1A whole <bags> pkgs <packages> refused <n>` at frame 1300.
+`patch_r1a.py --cap` builds the correctness ELF, which grabs frames 250/600/900
+to `host:r1acap-<frame>-a<arm>.tga`; `r1a_capdiff.py` compares them.
+Physical-PS2 results: owed.
+
 ### R1-B: physics data layout for awake bodies
 
 **Hypothesis.** Awake bodies cost ~110 µs each over six stages of similar
