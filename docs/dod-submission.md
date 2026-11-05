@@ -155,6 +155,44 @@ recorded draws in long runs, so neither evicts the other between two bags.
 | 4 | Scratchpad streaming of hot and draw records by DMA, double-buffered | - | |
 | 5 | Emission from records (stamps as the general form) | - | |
 
+## After phase 1: why the next phases do not pay one by one
+
+Phase 2a is the measured lesson. A bounds pass over the recorded list cut a
+crossing bag's in-path bounds stage from 19.2 to 14.3 µs, but the frame got
+0.1 ms slower. The pass touches each bag's data (bag, info, model, bbox
+cache), and by the time `renderNow` reaches the same bag that data has been
+evicted. So the misses are paid twice, once in the pass and once in the
+path. A stage-major pass only wins when the later stages no longer read the
+bag's scattered data. That is phases 3 and 5 together: a compact record the
+passes read, and emission from that record, not from the bag.
+
+Where the remaining StaPip time sits with recording on (crate drive,
+~4.1 ms):
+
+| route | bags a frame | µs a bag | ms a frame |
+|---|---:|---:|---:|
+| stamp | ~47 | ~31 | ~1.45 |
+| partial (crossing) | ~14 | ~138 | ~1.93 |
+| whole replay | ~3.7 | ~85 | ~0.31 |
+| direct | ~2.5 | ~150 | ~0.37 |
+
+Packet sends are ~0.66 ms, inside the rows above. A stamp's ~0.33 sends cost
+about 7 µs of its 31.
+
+The stamp is already an "emission from a record": its captured bytes are
+copied and patched. What it still pays is validation against the live bag,
+info, model, texture and renderer state. The ten measured stages are each 1-5
+µs, and each is mostly the first touch of another structure. So the next
+lever with a clear size is a **lean stamp**:
+- per-bag revision counters replace the field-by-field comparison;
+- the world box and the light pick are read from the record;
+- the copy source is streamed into the scratchpad.
+
+Ceiling estimate: 31 -> ~10 µs a stamp, ~1 ms a frame in the crate drive,
+more in the district (~100 stamps a frame). Its cost is a contract the game
+must keep: every write to a stamped bag's inputs bumps the bag's revision.
+RECORDVERIFY's hashing is the tool that proves it, as it proved phase 1.
+
 ## Phase 3: the hot record (layout draft)
 
 What `renderNow` reads from the bag side, by number of reads in
