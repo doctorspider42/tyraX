@@ -48,7 +48,9 @@ edit(p, 'void Vif1Queue::flushRecording() {',
 edit(p, 'void Vif1Queue::waitFor(u32 sequence) {',
      'void Vif1Queue::waitFor(u32 sequence) {\n  Cld::S cldW("q.waitFor");')
 # ---- fine scopes inside StaPipCore::render ----
-if '--lean' not in sys.argv:
+# --pmu: the PMU counters of a full build without these fine scopes (their
+# anchors follow renderNow and go stale between rewrites).
+if '--lean' not in sys.argv and '--pmu' not in sys.argv:
     p = eng / 'src/renderer/3d/pipeline/static/core/stapip_core.cpp'
     edit(p, '  TYRA_ATTRIB_INC(renderCalls);\n', '  TYRA_ATTRIB_INC(renderCalls);\n  const Cld::M cldT0 = Cld::mark();\n')
     edit(p, '    if (frustumCheck == OUTSIDE_FRUSTUM) {\n', '    if (frustumCheck == OUTSIDE_FRUSTUM) {\n      Cld::span("c.culled", cldT0, Cld::mark());\n')

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Engine-only rig instrumentation, for any generated project.
 
-usage: make_engine_probe.py <project> <engine-root-copy> [--lean] [--opt=Os]
+usage: make_engine_probe.py <project> <engine-root-copy> [--lean] [--opt=Os] [--gpuwait] [--gputl]
 
 make_arm.py also edits the Motor District's generated game (night switch, pad
 neutralisation, drive cycle); its anchors exist only in that example. This
@@ -55,4 +55,27 @@ edit(p, 'u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied
      'u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {\n  Cld::S cldSub("q.submit");')
 flags = '-D_EE -G0 -Wall ' + ('-' + opt if opt else '-O3') + (' -DCLD_NOPMU=1' if '--lean' in sys.argv else '')
 edit(eng_root / 'Makefile.base', 'CFLAGS      += -D_EE -G0 -Wall -O3', 'CFLAGS      += ' + flags)
+# --gpuwait: every place the EE spins on the GPU, as CLDS scopes - the GPU-bound
+# test of the architecture loop (docs/architecture-loop.md): q.waitFor, q.drain
+# and q.ringfull (back-pressure of the VIF1 ring) next to the renderer stall
+# the CLD row already subtracts from work.
+if '--gpuwait' in sys.argv:
+    p = eng / 'src/renderer/core/paths/path1/vif1_queue.cpp'
+    edit(p, 'void Vif1Queue::waitFor(u32 sequence) {',
+         'void Vif1Queue::waitFor(u32 sequence) {\n  Cld::S cldW("q.waitFor");')
+    edit(p, 'void Vif1Queue::drain() {',
+         'void Vif1Queue::drain() {\n  Cld::S cldD("q.drain");')
+    edit(p, '  while (tail - head >= kRingDepth) advanceIfIdle();\n',
+         '  if (tail - head >= kRingDepth) { Cld::S cldR("q.ringfull");\n'
+         '  while (tail - head >= kRingDepth) advanceIfIdle(); }\n')
+# --gputl: the whole-frame VU1 / GIF / VIF1 sampler (CLDGT rows).
+if '--gputl' in sys.argv:
+    sys.path.insert(0, str(rig))
+    import gputl
+    gputl.apply(eng, edit)
+# --twowalk: two-players in gameplay (no title menu, both players walking).
+if '--twowalk' in sys.argv:
+    sys.path.insert(0, str(rig))
+    import twowalk
+    twowalk.apply(proj, edit)
 print('engine probe', proj, eng_root, flags)
