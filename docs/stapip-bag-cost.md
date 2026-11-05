@@ -182,6 +182,38 @@ is a gameplay and batching decision (how soon bodies rejoin, or drawing awake
 copies of one mesh through `renderInstances`, which has no dynamic light and
 no stamps today), not a submission fix.
 
+## One stage for every bag at once: the ceiling of a stage-major pipeline
+
+The warm-floor probe repeats the whole path, so it cannot tell whether a
+pipeline that runs one stage for every bag before the next stage would keep
+its code in the cache. A probe measured that for the bounds stage:
+`renderNow` recorded every bag it was handed (precise culling, MVP), and once
+a frame a separate pass ran only that stage for all of them in one loop
+(`getMaxVertCountByBag`, the transform reuse test, the bbox cache lookup, the
+object-space planes and the main-box test, the same calls the path makes),
+with the clock and both PMU counters around the loop. Physical PS2, two runs:
+
+| | µs a bag | I-cache misses a bag | D-cache misses a bag |
+|---|---:|---:|---:|
+| Bounds stage inside the path (partial / whole / direct bags) | 17.6-18.2 / 20.4-21.3 / 29.8-30.4 | - | - |
+| The same stage, one pass over all bags | **4.33 / 4.33** | 1.5 | 15.5 |
+| The pass run again straight after | 4.19 / 4.19 | - | - |
+
+63-65 bags a frame went through the pass in 0.27-0.28 ms. Run as a stage of
+its own, the bounds work costs a quarter of what it costs inside the path. Its
+instruction misses fall to 1.5 a bag, it no longer gets faster when repeated,
+and the D-cache misses left are the bag, info, model and cache entry it really
+reads. The other routes did not change in the arm that ran the pass (partial
+bounds 17.6-17.8 µs), so the pass warmed nothing for them.
+
+This measures one stage, and only its EE work. It does not show that the
+prepare and dispatch stages, which write packets, shrink by the same factor.
+For bounds alone, on the ~22 bags a frame that are not stamps, it is
+about 0.35 ms of the 4.3 ms. It is the first measurement that puts the
+per-bag overhead in the structure of the path rather than in the hardware:
+the same calls on the same data cost 4 µs instead of 18-30 µs when their
+code stays in the cache.
+
 ## Rig traps
 
 - Leaving the PMU counting after the game stops looked like it made the next
@@ -200,6 +232,9 @@ headers and boxes while the current one is processed), or the structural
 levers: fewer bags (49 stamped bags a frame are ~1.35 ms of mostly fixed
 cost), fewer bags crossing the frustum (they cost 1.7x a whole replay),
 fewer packet sends (31-34 a frame at ~22 µs), or a lean path for crossing bags
-the way stamps are one for visible bags. The head stamp for crossing bags was
+the way stamps are one for visible bags. The largest one measured is the
+structure itself: run each stage over every bag before the next stage starts,
+so each stage's code stays in the cache (the bounds stage drops from 18-30
+to 4.3 µs a bag that way, see above). The head stamp for crossing bags was
 tried and removed (docs/stapip-stamps.md), because the replay read about as
 much memory as the ordinary path.
