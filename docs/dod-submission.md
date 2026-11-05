@@ -108,6 +108,56 @@ before recording is turned on for it.
 | 4 | Scratchpad streaming of hot and draw records by DMA, double-buffered | - | |
 | 5 | Emission from records (stamps as the general form) | - | |
 
+## Phase 3: the hot record (layout draft)
+
+What `renderNow` reads from the bag side, by number of reads in
+`stapip_core.cpp`:
+- texture 39, count 32, lighting 20, info->model 17, colour 17, billboard 15,
+  vertices 14;
+- info->fullClipChecks 13, stripped 12, bboxVersion 10;
+- info->transformationType 9, packageSize 5, info->frustumCulling 5,
+  info->tightClipBand 4, immutableStreams 3;
+- the light-pick fields: info->spotLit, dynamicLightReceive, dynLightPick,
+  dynLightSkipSlot, dynLightSkipBaked, torchPerPixel, fogDisabled.
+
+On top of that come the per-draw lookups that today chase pointers on every
+draw:
+- the bbox cache bucket and entry;
+- the program per bag (`getCullProgramByBag`, `getMaxVertCount`);
+- the texture object and its wrap settings, and the resident-texture hint;
+- the baked-stream table and entry, and the stamp table and entry.
+
+A hot record is 64 or 128 bytes (one or two lines), kept in one array in
+bag-registration order:
+
+| bytes | field | rebuilt when |
+|---:|---|---|
+| 32 | main box lo/hi, object space | bboxVersion changes |
+| 4 | package-box base pointer (the cacher's part array) | bboxVersion / count changes |
+| 2+2 | count, package size (maxVertCount resolved) | count / packageSize / program set changes |
+| 4 | route flags: precise cull, full clip checks, tight band, stripped, billboard, lit, textured, env, fog off, light-pick flags | info revision |
+| 4 | baked cull entry pointer | bake / rebake |
+| 4 | baked clip entry pointer | bake / rebake |
+| 4 | stamp slot | stamp capture / erase |
+| 4 | texture id + wrap class | texture bind / wrap change |
+| 4 | program (cull class) pointer | program set change |
+| 4 | the bag's revision stamp the record was built from | - |
+
+The revision stamp needs an "info revision" counter that the game bumps when
+it edits an info bag after creation. RECORDVERIFY (phase 1) is the tool that
+proves the bump is not missed: today's census shows no draw whose bag, info,
+model, colour, texture or lighting changes between record and submit, which
+is the per-frame half of the same contract.
+
+What phase 3 is expected to take out:
+- The bounds stage stops touching the bag, info, cacher and program
+  (measured in-stage today at 4.3-6 µs with those reads).
+- Prepare's light pick and texture facts read from the record.
+
+The dispatch stage's misses are the baked entry's offsets and package boxes.
+They stay, because they are per-package data. Phase 4 streams them, and the
+records, into the scratchpad by DMA instead.
+
 ## Measured dead ends this design avoids
 
 - Ordering bags by route.
