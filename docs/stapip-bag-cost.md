@@ -119,6 +119,33 @@ static batches or road chunks at the screen edge gains it.
   console wedge after a ps2link reset (see below), and a last-hit cache for
   the same lookup measured nothing earlier (docs/stapip-stamps.md).
 
+## A bag does not fit the cache even on its own
+
+Two probes, physical PS2, two runs an arm:
+
+- **Warm floor.** Every bag's `renderNow` runs twice in a row and the second
+  run is timed apart (it is drawn twice, so the frame itself is not a
+  measurement). The warm bag still pays most of its cold cost:
+
+  | route | normal µs/bag | warm (second run) µs/bag |
+  |---|---:|---:|
+  | stamp | 28.3 / 28.4 | 22.2 / 23.0 |
+  | culled | 30.7 / 31.3 | 10.7 / 11.0 |
+  | direct packages | 149.9 / 151.4 | 114.8 / 115.6 |
+  | partial replay | 149.3 / 149.7 | 137.1 / 138.1 |
+
+  The working set of one bag is larger than the EE's 16 KB instruction and
+  8 KB data caches, so the misses are a bag evicting itself, not one bag
+  evicting the next. Ordering bags by route so the path stays hot is capped
+  below the warm column (at most ~12 µs a partial bag, ~0.17 ms a frame) and
+  stamps are already replayed in runs (docs/stapip-stamps.md). Not worth
+  building. Only the small culled route fits.
+- **Crossing bags that clip nothing.** Of the partial-replay bags (13.4-13.9
+  a frame), 22-25 % have no package to clip, only packages to draw and to drop.
+  None has every package drawn, so none could take the whole replay as it is:
+  that replay would draw the dropped packages unclipped. They cost 155-161 µs,
+  more than the average crossing bag.
+
 ## Rig traps
 
 - Leaving the PMU counting after the game stops looked like it made the next
@@ -130,8 +157,12 @@ static batches or road chunks at the screen edge gains it.
 
 ## What is left
 
-The per-bag cost is the memory a bag touches. The remaining levers are
-structural: fewer bags crossing the frustum (they cost 1.7x a whole replay),
+The per-bag cost is the memory a bag touches, and one bag alone overflows the
+caches, so reuse between bags cannot pay for much. What is left is touching
+less memory per bag, hiding the data misses (prefetching the next bag's
+headers and boxes while the current one is processed), or the structural
+levers: fewer bags (49 stamped bags a frame are ~1.35 ms of mostly fixed
+cost), fewer bags crossing the frustum (they cost 1.7x a whole replay),
 fewer packet sends (31-34 a frame at ~22 µs), or a lean path for crossing bags
 the way stamps are one for visible bags. The head stamp for crossing bags was
 tried and removed (docs/stapip-stamps.md), because the replay read about as
