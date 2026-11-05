@@ -303,3 +303,18 @@ slim step records. Plus the R2-0 calibration for physics.
 
 **Pays when** physics in `R1B_A1` drops by ≥ 0.5 ms with a tolerance check
 passing, or the calibration shows physics under 30 % (closed).
+
+### R1-A on the PS2 (crate drive, rig `C:\tx\qp\RV1`, same ELF)
+
+| arm | runs | work p50 | p95 | StaPip ms a frame | crossing bags (r5) ms / bags a frame |
+|---|---|---:|---:|---:|---:|
+| control (1572868) | 2 | 6.83 / 6.81 | 11.97 / 11.95 | 3.97 / 3.96 | 1.89 / 1.91 |
+| fast accept + reject on VU1 only (5767172) | 1 + 1 short | 6.90 / (7.19, 600 frames) | 11.93 / 12.20 | 3.95 / 3.98 | 1.90 / 1.91 |
+| whole: textured crossing bags sent whole (14155780) | 1 | 6.56 | 11.65 | 3.70 | 1.57 / 13.3 |
+
+`R1A whole 11132 pkgs 110964 refused 0` in the whole arm, 0 in the others.
+The whole route takes ~0.27 ms of StaPip and ~0.26 ms of work p50 off, just
+under the 0.3 ms bar and on one run only. Its second run wedged the console
+(`freepad: DMA Busy` after 8 reset deploys; not attributed to the arm).
+Owed before a verdict: the second run, the GPU-wait arm (`RV1G`) and the
+frame-capture check (`RV1C`).
