@@ -120,10 +120,11 @@ was wrong.
   A smaller cell trades batched members (30 -> 60-73 solo) for fewer
   batches crossing the frustum, and comes out ~0.15-0.2 ms ahead in this
   scene. One 47-cell run took a different drive (69.6 stamps a frame, 5.13
-  ms) and is left out. Not shipped: the cell is a default for every
-  project, and the Motor District's 4.6 ms batching win comes from merging
-  sparse props in exactly that 80-unit cell (docs/static-batching.md), which
-  this pass did not re-measure.
+  ms) and is left out. Shipped in 2.10.0 as a project setting (*Batch
+  grouping cell*, docs/static-batching.md). The automatic default is
+  unchanged: measured on the shipped Motor District, cell 47 is neutral to
+  slightly worse (StaPip -0.05 ms, p95 +0.2-0.5 ms, missed frames 4/5 ->
+  6/13 of 1000).
 - **Batching the parts of a multi-part model that do have partners** (the 11
   models kept solo) was not built. Batch membership is per object in eight
   places (physics demotion, shadows, reflections, the solo path), and the
@@ -136,7 +137,7 @@ was wrong.
 | Physics of awake bodies | 82 awake boxes = 8.6 ms (solve 4.1) in the crate field; 10 awake = 1.7 ms | The largest single EE cost measured in vehicle-playground. Owned by the physics work (docs/physics.md). A VU0 micro solver was slower overall. bpRefresh is the next lever. |
 | VU1 clips only what needs it (above) | ≤0.6 ms crate field, ~2.5-3 ms night district (estimate) | Needs a new clip family with a fast accept path, per-package reject and strip windows. Micro memory is the blocker. |
 | Stage-major StaPip | ~0.8 ms a frame crate field (docs/stapip-bag-cost.md) | A rewrite of the core path for ~5 % of the frame. |
-| Fewer bags (batching coverage, a per-project cell) | ~0.15-0.2 ms crate field (measured above) | The cell default needs a district A/B; woken bodies are only ~5 bags a frame. |
+| Fewer bags (batching coverage) | the per-project cell shipped (-0.15..-0.2 ms crate field) | The automatic default stays (the district is neutral to worse at 47); woken bodies are only ~5 bags a frame. |
 | Hiding D-misses with the scratchpad (DMA the next bags' heads into SPR) | ≤ about half of the stamp path's ~14 µs of D-miss a bag, ~0.3-0.7 ms | Pointer chasing makes the gather list data-dependent. The earlier SPR prefix was layered on the snapshot path and lost 0.18-0.39 ms (docs/tyrax2-spr-call-runtime-2026-10-04.md). |
 | VU1 skinning | ~0.9 ms per 1092-vertex character | Pays only in a game with several animated characters. |
 | Asynchronous VU0 jobs | Unmeasured | Needs an ownership protocol for VU0 (docs/tyrax2-ee-vu0.md); no large independent vector job is waiting for it. |

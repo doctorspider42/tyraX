@@ -159,6 +159,9 @@ constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
 // (SceneObjectData::batchStatic); runtime edits demote that member and rebuild
 // its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = true;
+// The grouping cell in world units; 0 = automatic (Preferences > Static
+// object batching, docs/static-batching.md).
+constexpr float STATIC_BATCH_CELL = 0.0F;
 
 // Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
 // the static batch and road bags are EE-cheap and GPU-heavy, the object loop

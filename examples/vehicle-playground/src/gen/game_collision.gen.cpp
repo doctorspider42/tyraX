@@ -2361,7 +2361,12 @@ void TerrainGame::buildStaticBatchList() {
   // the map corner (terrain is centered on the origin) for the same reason.
   const float mapW =
       TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
-  const float baseCellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
+  // A project may state its own cell (STATIC_BATCH_CELL > 0) - measured on a
+  // 129-crate field, 48 instead of 80 left 11 instead of 13.5 batches
+  // crossing the frustum a frame (docs/static-batching.md).
+  const float baseCellW = STATIC_BATCH_CELL > 0.0F
+                              ? STATIC_BATCH_CELL
+                              : (mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F);
   // ...AND NEVER WIDER THAN THE DRAW DISTANCE ITS MEMBERS SHARE. A quarter of
   // the map is a fraction of the wrong thing: it grows with the MAP, so the
   // bigger the world the coarser the cull, which is backwards. On a 2048-unit

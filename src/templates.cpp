@@ -1123,6 +1123,9 @@ constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
 // (SceneObjectData::batchStatic); runtime edits demote that member and rebuild
 // its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = {{STATIC_BATCHING}};
+// The grouping cell in world units; 0 = automatic (Preferences > Static
+// object batching, docs/static-batching.md).
+constexpr float STATIC_BATCH_CELL = {{STATIC_BATCH_CELL}};
 
 // Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
 // the static batch and road bags are EE-cheap and GPU-heavy, the object loop
@@ -20977,6 +20980,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");
+    s = replaceAll(s, "{{STATIC_BATCH_CELL}}", floatLit(st.staticBatchCell));
     s = replaceAll(s, "{{INTERLEAVE_PASSES}}",
                    st.interleavePasses == "off"      ? "0"
                    : st.interleavePasses == "always" ? "2"

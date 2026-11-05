@@ -2022,6 +2022,12 @@ struct ProjectSettings {
     // actions) trigger a batch rebuild. Off = every object submits its own
     // bag (pre-batching behavior; the A/B lever for profiling).
     bool staticBatching = true;
+    // The static-batching grouping cell, in world units. 0 = automatic
+    // (a quarter of the map, never below 48 - the size every project used
+    // before this setting). A smaller cell batches fewer sparse props but
+    // leaves fewer batches crossing the frustum; docs/static-batching.md
+    // has the measured trade.
+    float staticBatchCell = 0.0f;
 
     // Interleaved passes (docs/interleaved-passes.md): the generated game
     // feeds the static batch and road bags into the object loop so the EE's
@@ -2597,6 +2603,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.animSourceFps == b.animSourceFps &&
            a.animPlayFps == b.animPlayFps &&
            a.staticBatching == b.staticBatching &&
+           a.staticBatchCell == b.staticBatchCell &&
            a.interleavePasses == b.interleavePasses &&
            a.vehicleShineBudget == b.vehicleShineBudget &&
            a.occlusionCulling == b.occlusionCulling &&
