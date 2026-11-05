@@ -146,6 +146,42 @@ Two probes, physical PS2, two runs an arm:
   that replay would draw the dropped packages unclipped. They cost 155-161 µs,
   more than the average crossing bag.
 
+## Where the bags come from, and what fewer of them would take
+
+A call-site census (every `renderWorldBag`/`renderObjectBag` tagged with its
+line, crate-field drive, one frame's average):
+
+| producer | bags a frame | ms a frame |
+|---|---:|---:|
+| static batches + roads fed into the object loop (`dripHeavy`) | 13 stamped + 5 other | 1.06 |
+| scene objects drawn solo (mostly woken crates, 36-vertex cubes) | 20 stamped + 0.4 other | 0.64 |
+| terrain chunks, base pass | 1.7 stamped + 5.3 other | 0.56 |
+| terrain layer passes | 1.9 stamped + 2.6 other | 0.46 |
+| static batches drawn directly (`submitHeavy`) | 3.4 stamped + 1.5 other | 0.38 |
+
+A stamped bag spends its ~26 µs evenly: ten stages of 1-5 µs each (lookup,
+producer facts, renderer facts, visibility, texture, light pick, batch and
+wrap, texture use, copy, flush). No stage is worth a change of its own.
+Each stage is the first touch of another few lines.
+
+Measured and not kept:
+
+- **Prefetching the whole stamp entry** (head, captured bytes, baked entry,
+  texture, colour) for the next bag of a stamp run, and also for the bag after
+  it: stamp 34.4 / 35.1 µs -> 35.1 / 35.8 (whole entry) and 35.8 / 36.5 (two
+  ahead). The run already prefetches the head lines, which is all that lands
+  in time.
+- **Static batches grouped in cells twice as wide** (160 instead of 80 on the
+  crate field): stamped bags unchanged (46 -> 43-47 a frame), crossing bags
+  13.2 -> 17.0, StaPip 4.40 / 4.49 -> 4.80 / 4.96 ms a frame. The cell bound
+  in docs/static-batching.md holds.
+
+The one producer where fewer bags is plausible is the solo crates: a woken
+body draws alone at ~29 µs for 12 triangles until it rejoins its batch. That
+is a gameplay and batching decision (how soon bodies rejoin, or drawing awake
+copies of one mesh through `renderInstances`, which has no dynamic light and
+no stamps today), not a submission fix.
+
 ## Rig traps
 
 - Leaving the PMU counting after the game stops looked like it made the next
