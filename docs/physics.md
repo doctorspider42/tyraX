@@ -348,6 +348,10 @@ Now the walk visits only what can have moved since the last refresh:
 - and one sixteenth of everything else per refresh, as a safety net (a Live
   Link edit to a static object is picked up within 16 frames).
 
+The per-frame numbers in this and the two sections above come from the
+physics rig in [tools/ps2rig/physics](../tools/ps2rig/physics/README.md)
+(scripted crash drive, a 1000-frame ring, a stress copy of the playground).
+
 The first refresh of a scene walks everything. Measured on the same drive:
 walk 0.78 -> 0.24 ms, physics 3.41 -> 2.51 ms in the crash, lost frames 153
 -> 117 in 1 000.

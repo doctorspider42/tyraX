@@ -877,7 +877,9 @@ About 1.1-1.4 ms a frame - and in a scene whose heavy frames sit at 15.5-16
 ms that is the whole difference between 60 lost frames and 7. So: find costs
 in a debug build (it has the probes), but judge "does it hold 60" in a
 release build, and when a debug run loses frames, check how close to the
-budget they were before chasing them.
+budget they were before chasing them. The rig that measured this is
+[tools/ps2rig/physics](../tools/ps2rig/physics/README.md); its stress
+generator's `release` part makes the release copy.
 
 ### What the rig established about BLSS (2026-08-08 .. 2026-08-09, REAL HARDWARE)
 

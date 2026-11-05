@@ -9,6 +9,10 @@ cycle), so A and B are interleaved on the same binary and boot.
 
 PCSX2 proves correctness only; timing claims come from the console.
 
+For per-frame questions (which frames of a crash drive drop, and what they
+spent), use the sibling rig in [physics/](physics/README.md): one arm per
+ELF, a 1000-frame ring, a stress-scene generator.
+
 ## Files
 
 | File | What it is |
