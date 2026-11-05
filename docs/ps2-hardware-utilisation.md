@@ -130,6 +130,39 @@ was wrong.
   places (physics demotion, shadows, reflections, the solo path), and the
   prize is under ~0.15 ms here.
 
+### Physics: two solver lanes on the FPU do not pay
+
+With body holding off (`PHYS_HOLD_AFTER` huge), 72 awake boxes resting in the
+crate field cost about 8 ms of physics a frame on the console (rig `PL1`, 288
+contacts):
+- prep 1.09 ms;
+- world 1.91 ms, of which terrain samples 0.77;
+- pairs 1.30 ms;
+- solve 3.05 ms, of which setup 1.06;
+- write 0.60 ms;
+- broad-phase refresh 0.80 ms.
+
+That is about 110 µs per awake body. The velocity and position passes take
+about 2.0 ms for 1 728 contact passes, ~340 cycles each, for ~165 instructions:
+an IPC of about 0.5.
+
+The guess was FPU latency: one contact is one dependency chain on an in-order
+FPU. So a two-lane solve was built (branch `claude/physics-solver-lanes`,
+local only). It advances two islands in lockstep, with both lanes' reads and
+arithmetic before either lane's writes. Same ELF, toggled at boot, two runs
+each: solve 3.027 / 3.027 ms against 3.042 / 3.043 ms, -0.5 %. The latency
+guess is wrong.
+
+The byte-for-byte check (`PHYS_SOLVE_LANES_VERIFY`) also failed in ~99 % of
+frames. The compiler contracts multiply-adds differently in the two
+instruction streams, so a rearranged solver is not bit-identical even when
+its arithmetic is. Not kept.
+
+With the two VU0 solvers (macro and micro mode, both slower,
+docs/physics.md), this closes the easy rearrangements of the passes. What a
+pile of awake bodies costs is spread over six stages of comparable size, not
+concentrated in the solver.
+
 ## What is left, by size of prize
 
 | Project | Measured or bounded prize | Status, blockers |
