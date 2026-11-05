@@ -196,7 +196,7 @@ RECORDVERIFY's hashing is the tool that proves it, as it proved phase 1.
 
 ### The lean stamp, priced: ~0.14 ms
 
-A rig probe (`C:	x\qp`, arm 1048576) skipped the producer facts (the
+A rig probe (`C:\tx\qp`, arm 1048576) skipped the producer facts (the
 bag/info/stream comparison) and the global renderer facts in `tryStamp`, but
 kept the baked entry's validity check. That is the most a revision-counter
 contract could save. Crate drive with recording on, two runs each:
