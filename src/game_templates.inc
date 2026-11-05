@@ -25745,9 +25745,13 @@ void TerrainGame::renderScene() {
       skyMat.data[13] = probeEye.y;
       skyMat.data[14] = probeEye.z;
       const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+      stapip.core.flushDeferred();  // before the shared info changes too
       skyDome.infoBag->zTestType = PipelineZTest_AllPass;
       renderWorldBag(skyDome.bag.get());
       renderSkyBodies(probeEye, envLook);
+      // The draw above may only be recorded (StaPip frame recording,
+      // docs/dod-submission.md): submit it before the shared info changes.
+      stapip.core.flushDeferred();
       skyDome.infoBag->zTestType = prevZTest;
     }
     // The world under the car matters more to paint than another distant prop.
@@ -26433,6 +26437,10 @@ void TerrainGame::renderScene() {
       Texture* envTex = engine->renderer.core.envMap.getTexture();
       for (GeoPart& part : objectGeometry[i].parts)
         if (part.envTexBag && part.envTexBag->texture == envTex) {
+          // The capture changes the view and the shared env state: what is
+          // recorded so far must be submitted first (StaPip frame
+          // recording, docs/dod-submission.md).
+          stapip.core.flushDeferred();
           stapip.core.endSubmissionBatch();
           renderObjectProbe(i);
           stapip.core.beginSubmissionBatch();
@@ -26864,6 +26872,9 @@ void TerrainGame::renderMirrors() {
 // shells rewrite hullMat between submits on the same fact), so restoring it
 // right after the call is safe.
 void TerrainGame::renderMirroredObject(int index) {
+  // The target's own draw earlier in the frame may still be recorded: submit
+  // it before its info points at the mirror matrix (docs/dod-submission.md).
+  stapip.core.flushDeferred();
   if (index < 0 || index >= (int)runtimeObjects.size()) return;
   RuntimeObject& o = runtimeObjects[index];
   // no mirror-in-mirror: a mirror listing another mirror would recurse the
@@ -26878,6 +26889,9 @@ void TerrainGame::renderMirroredObject(int index) {
     if (!part.bag) continue;
     part.infoBag->model = g.matrixMode ? &mirrorObjMat : &mirrorMat;
     renderObjectBag(index, part.bag.get());
+    // A recorded draw reads its matrix at submit: submit it before the
+    // shared mirror matrix and the info move on (docs/dod-submission.md).
+    stapip.core.flushDeferred();
     part.infoBag->model = g.matrixMode ? &g.objMat : &model;
   }
   if (g.animInfoBag && !g.animParts.empty()) {
@@ -26888,6 +26902,7 @@ void TerrainGame::renderMirroredObject(int index) {
     g.animInfoBag->model = &mirrorAnimMat;
     for (ObjectGeometry::AnimPart& ap : g.animParts)
       if (ap.bag && ap.bag->count > 0) renderObjectBag(index, ap.bag.get());
+    stapip.core.flushDeferred();  // see above
     g.animInfoBag->model = &g.animMat;
   }
 }
@@ -27235,9 +27250,13 @@ void TerrainGame::renderCameraFeed() {
       skyMat.data[13] = eye.y;
       skyMat.data[14] = eye.z;
       const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+      stapip.core.flushDeferred();  // before the shared info changes too
       skyDome.infoBag->zTestType = PipelineZTest_AllPass;
       renderWorldBag(skyDome.bag.get());
       renderSkyBodies(eye, look);
+      // The draw above may only be recorded (StaPip frame recording,
+      // docs/dod-submission.md): submit it before the shared info changes.
+      stapip.core.flushDeferred();
       skyDome.infoBag->zTestType = prevZTest;
     }
     renderTerrain();  // resident chunks - the ring follows the MAIN camera
@@ -27380,9 +27399,13 @@ void TerrainGame::renderObjectProbe(int index) {
     skyMat.data[13] = probeEye.y;
     skyMat.data[14] = probeEye.z;
     const Tyra::PipelineZTest prevZTest = skyDome.infoBag->zTestType;
+    stapip.core.flushDeferred();  // before the shared info changes too
     skyDome.infoBag->zTestType = PipelineZTest_AllPass;
     renderWorldBag(skyDome.bag.get());
     renderSkyBodies(probeEye, probeLook);
+    // The draw above may only be recorded (StaPip frame recording,
+    // docs/dod-submission.md): submit it before the shared info changes.
+    stapip.core.flushDeferred();
     skyDome.infoBag->zTestType = prevZTest;
   }
   renderTerrain();

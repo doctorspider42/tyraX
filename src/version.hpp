@@ -5615,8 +5615,14 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 10
+#define TYRAX_VERSION_MINOR 11
 #define TYRAX_VERSION_PATCH 0
+// 2.11.0: StaPip frame recording (docs/dod-submission.md, phase 1): every
+// draw is queued and submitted in order at the flush points (submission
+// batches become markers; foreign VIF1/GIF work and camera changes flush
+// first). Crate drive -0.46..-0.6 ms work p50 on a PS2, Motor District p95
+// -0.45 ms. Game code that changes and restores an info/model around a draw
+// flushes before the restore (sky dome, env probe, mirror pass).
 // 2.10.0: Preferences > Batch grouping cell (ProjectSettings::staticBatchCell,
 // codegen STATIC_BATCH_CELL; 0 = the automatic cell, kept by every example).
 // A 129-crate field at 48: crossing batches 13.5 -> 11.2 a frame, StaPip

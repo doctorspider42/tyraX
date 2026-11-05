@@ -422,7 +422,13 @@ u32 ownedRecorded = 0, ownedRefused = 0;
 }
 #endif
 
+void Vif1Queue::setBeforeForeignWork(void (*callback)(void*), void* user) {
+  foreignWorkHook = callback;
+  foreignWorkUser = user;
+}
+
 u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {
+  beforeForeignWork();
   HardwareTrace::Scope traceSubmit("VIFSubmit", HardwareTrace::Kind::Span, true);
   if (sourceCopied) *sourceCopied = false;
 #if TYRA_VIF1_CHAIN_CHECK
@@ -638,6 +644,7 @@ void* Vif1Queue::reservePacket(u32 bytes, const void* current) {
 }
 
 u32 Vif1Queue::submitOwned(const void* chain, u32 qwords, bool* sourceCopied) {
+  beforeForeignWork();
 #if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
   if (sourceCopied) *sourceCopied = false;
   const bool live = ownedPacket.open && ownedPacket.base == chain &&
@@ -787,6 +794,7 @@ bool Vif1Queue::canCopyCompletedNativeFrame(u32 sequence) {
 }
 
 void Vif1Queue::waitFor(u32 sequence) {
+  beforeForeignWork();
   if (!sequence) return;
   flushRecording();
 #if TYRA_VIF1_QUEUE_HOLD
@@ -801,6 +809,7 @@ void Vif1Queue::waitFor(u32 sequence) {
 }
 
 void Vif1Queue::drain() {
+  beforeForeignWork();
   closeOpenChain();
   flushRecording();
 #if TYRA_FRAME_PIPELINE_SUPPORT
@@ -858,6 +867,7 @@ void Vif1Queue::synchronizeExternal() {
 }
 
 void Vif1Queue::beginRecordingFrame(bool pipeline) {
+  beforeForeignWork();
 #if TYRA_ORDERED_FRAME || TYRA_FRAME_PIPELINE_SUPPORT
   if (!TYRA_ORDERED_FRAME && !pipeline) return;
   static_assert(!TYRA_ORDERED_FRAME || (TYRA_NATIVE_VIF_RECORD && TYRA_FRAME_CHAIN_ARENA),
@@ -893,6 +903,7 @@ void Vif1Queue::beginRecordingFrame(bool pipeline) {
 }
 
 void Vif1Queue::endRecordingFrame() {
+  beforeForeignWork();
 #if TYRA_ORDERED_FRAME || TYRA_FRAME_PIPELINE_SUPPORT
   if (!frameRecording) return;
   closeOpenChain();
@@ -949,6 +960,7 @@ void Vif1Queue::setBeforeFrameSubmit(void (*callback)(void*), void* user) {
 }
 
 void Vif1Queue::recordBarrier() {
+  beforeForeignWork();
 #if TYRA_ORDERED_FRAME || TYRA_FRAME_PIPELINE_SUPPORT
   if (!frameRecording) return;
   closeOpenChain();
@@ -967,6 +979,7 @@ void Vif1Queue::recordBarrier() {
 }
 
 bool Vif1Queue::recordGif(const packet2_t* packet) {
+  beforeForeignWork();
 #if TYRA_ORDERED_FRAME || TYRA_FRAME_PIPELINE_SUPPORT
   if (!frameRecording || !packet) return false;
   if (packet->mode != P2_MODE_CHAIN && packet->mode != P2_MODE_NORMAL) return false;
@@ -1043,6 +1056,7 @@ bool Vif1Queue::recordGif(const packet2_t* packet) {
 }
 
 void Vif1Queue::flushRecording() {
+  beforeForeignWork();
 #if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
   if (!nativePendingSequence) return;
   const u32 sequence = nativePendingSequence;

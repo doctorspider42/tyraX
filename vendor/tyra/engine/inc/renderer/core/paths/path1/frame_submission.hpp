@@ -24,6 +24,7 @@ inline qword_t* frameDrawFinish(qword_t* q) {
   return q + 1;
 }
 inline void frameSendPacket(packet2_t* packet, int channel, bool flush) {
+  Vif1Queue::beforeForeignWork();
   const bool recording = Vif1Queue::recordingFrame();
   if (recording) {
     if (channel == DMA_CHANNEL_GIF && Vif1Queue::recordGif(packet)) return;
