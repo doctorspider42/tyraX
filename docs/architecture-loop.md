@@ -226,3 +226,80 @@ work is arithmetic.
 **Pays when** physics in the 82-awake scene drops by at least 1 ms with the
 byte-identical or tolerance check passing, or the PMU shows physics is not
 memory-bound (then it is written up and closed).
+
+## Round 1 results so far (2026-11-06)
+
+### R1-B, the PMU per physics stage (PS2, rig `C:\tx\qp\R1B_*`)
+
+72 really awake boxes (`R1B_A1`, holding off, 287 contacts):
+
+| stage | ms a frame | I misses | D misses | miss share (20 cyc .. 50/42 cyc) |
+|---|---:|---:|---:|---:|
+| prep | 1.07 | 192 | 5 131 | 33 .. 71 % |
+| world (terrain 0.82 inside) | 1.98 | 2 424 | 4 647 | 24 .. 54 % |
+| pairs | 1.25 | 414 | 3 354 | 20 .. 44 % |
+| solve setup | 1.07 | 153 | 5 083 | 33 .. 70 % |
+| solve passes | 1.96 | 184 | 8 206 | 29 .. 61 % |
+| write | 0.55 | 134 | 2 089 | 27 .. 58 % |
+| broad-phase refresh (outside) | 0.71 | 871 | 1 810 | 18 .. 57 % |
+| total | 7.89 | 3 504 | 28 517 | 27 .. 59 % |
+
+The pile after a crash in the crate drive (`R1B_U1`, windows with 9-19
+bodies awake): 1.0-1.9 ms of physics, 27-67 %, prep / world / pairs /
+broad-phase dominate; the solver is small there.
+
+Reading:
+- **Physics sits on the 30 % line** and the price of a miss decides which
+  side. Round 2 calibrates the price (below) instead of arguing it.
+- **The solver passes miss far more than their data explains.** They run
+  island by island (all 6 + 3 passes per island), and a resting crate's
+  island is ~4 contacts x 212 bytes + one 88-byte body, so one frame should
+  read ~1 050 lines. It reads 8 206. Either the scope holds more than the
+  passes, or the layout defeats the cache (212-byte contacts straddle lines,
+  the body array is indexed out of island order). That is a defect with a
+  bound: the passes' misses are ~0.6-1.2 ms.
+- **prep and setup build big records.** `RbStep` is 880 bytes a body (hull
+  corners inside) and setup reads it field by field into 212-byte contacts.
+
+## Round 2 (2026-11-06)
+
+### R2-0: the price of a miss, measured
+
+The (b) condition needs the share of time spent in misses, and the two
+prices in use (20 cycles, 50 / 42) put physics on either side of 30 %. The
+EE PMU can count completed instructions instead of I misses (`CLD_EV0=12`,
+`make_arm.py --count-instr`). With a cycles / instructions / I-miss / D-miss
+row for every scope (two builds, same scene), a least-squares fit of
+`cycles = c0 * instructions + pI * I + pD * D` over all scopes gives the
+effective prices in this code, and the miss share follows. Owned by R2-B for
+physics and by the parent for StaPip.
+
+### R2-A: draw records the EE replays without touching the bag (StaPip)
+
+**Hypothesis.** In every EE-bound scene StaPip's `core` is the largest
+subsystem and 40-97 % misses. The stamp route already replays captured bytes,
+but it still touches the bag, info, model, texture, colour bag, stamp table
+and baked entry to validate (~31 µs a stamp; ~47 stamps a frame in the crate
+drive, ~100 in the district). The defect is that the per-frame path reads
+the scene's scattered objects at all. A draw that did not change since its
+last frame should cost one contiguous record read plus its captured bytes.
+
+**Ceiling first.** An unsafe probe arm: a stamped draw whose recorded
+inputs did not change replays from a compact record without touching the
+bag (the GPU work is identical, so the EE number is honest). Expected: ~31 ->
+~8-10 µs a stamp = ~1 ms crate drive, ~2 ms district.
+
+**Pays when** the ceiling is ≥ 0.5 ms in the crate drive and the district,
+and then a correct version (a per-bag revision the producers bump, policed by
+RECORDVERIFY) keeps most of it.
+
+### R2-B: the physics passes' misses and the big step records
+
+**Hypothesis.** See R1-B above: the passes read ~8x the lines their island
+data needs, and prep / setup move 880-byte `RbStep` records. Find what the
+passes' misses are (scope contents, layout, index order), shrink
+`RbSolveContact` to what a pass reads (the rest in a cold array), and build
+slim step records. Plus the R2-0 calibration for physics.
+
+**Pays when** physics in `R1B_A1` drops by ≥ 0.5 ms with a tolerance check
+passing, or the calibration shows physics under 30 % (closed).
