@@ -179,6 +179,26 @@ No gain: the piles the drive leaves are rarely at rest as a whole before
 they sleep or leave the view (bodies out of sight already sleep after 0.2 s).
 Not kept.
 
+### Stage-major bounds through the deferral queue does not pay
+
+The first real stage-major change was built as an extension of the stamp
+deferral queue:
+- Bags with `immutableStreams` (static batches, procedural chunks) joined the
+  queue.
+- The queue ran the bounds stage for all its stamp-less bags in one pass
+  before drawing them.
+
+Crate-field drive, same ELF toggled at boot, two runs each:
+- a crossing bag's bounds stage 18.3 / 18.8 µs against 18.7 / 19.0;
+- StaPip 4.42 / 4.44 ms against 4.41 / 4.45;
+- work and missed frames within noise.
+
+The queue's runs are too short. The object loop feeds a batch between solo
+objects (`dripHeavy`), and any bag that cannot be queued flushes the queue, so
+a "pass over every bag" covers about one bag. The measured ceiling (bounds
+18-30 -> 4-6 µs) needs every bag of the frame recorded before any is drawn.
+That is a change to how the game submits, not to the queue. Reverted.
+
 ## What is left, by size of prize
 
 | Project | Measured or bounded prize | Status, blockers |
