@@ -42,7 +42,7 @@ ls <proj>/objects | wc -l      # one object per imported model
 EE-side logs are invisible for audio — meter the PCSX2 process: Windows WASAPI session peak (`AudioMeterInformation`); Linux `pactl list sink-inputs` (PCSX2 sink input volume/peak) or a short `parec` of the monitor source. Silence vs bursts at expected times; by-ear checks stay with the human. Loop/mono ADPCM header bytes: acceptance-vehicles-roads.md "Sounds" and e2e-pcsx2.md. Editor-side audition/DSP: host-harnesses.md.
 
 
-## Qualified collision extraction (2.10.0)
+## Qualified collision extraction (2.11.0)
 
 Host: compile tools/verify-collision-{broad-phase,bvh,geometry,envelope}.cpp,
 verify-body-pair-grid.cpp and verify-world-grid.cpp with `-O2 -std=c++17`

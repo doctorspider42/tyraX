@@ -60,6 +60,18 @@ class StaPipBagPackager {
    */
   StaPipBagPackage* create(u16* o_size, StaPipBag* data, u16 size);
   /**
+   * Modified by TyraX: create()'s verdicts for every package of `data`,
+   * written straight as partial-replay routes (0 drop, 1 cull, 2 clip) and
+   * clip-plane masks - no package records. The partial replay reads only
+   * the verdict, the guard-band flag and the mask of each package, and
+   * filling a record per package (five stream pointers, sizes, 1/3 indices)
+   * was a fifth of its classification on a physical PS2
+   * (docs/stapip-bag-cost.md). Returns the package count; writes nothing
+   * when that exceeds `capacity`.
+   */
+  u16 classifyRoutes(const StaPipBag* data, u16 size, u8* routes, u8* masks,
+                     u32 capacity);
+  /**
    * @brief Split render package to smaller packages
    *
    * @param size Max maxVertCount verts (VU1 buffer size)

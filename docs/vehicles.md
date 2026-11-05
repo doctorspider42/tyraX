@@ -318,10 +318,10 @@ repaired. The HUD shows damage when relevant.
 
 ### What a crash costs
 
-Measured on a physical PS2 (2.10.0): a Ravager driven at ~18 m/s into a parked
+Measured on a physical PS2 (2.11.0): a Ravager driven at ~18 m/s into a parked
 Strix V12 (5 800-vertex bodies), devkit off, per-frame probes.
 
-| | before | 2.10.0 |
+| | before | 2.11.0 |
 |---|---:|---:|
 | damage update in the frame of the hit | 16.7 ms | 6.4 ms |
 | that frame | 66.7 ms | 50 ms |
@@ -460,7 +460,7 @@ others within 35 units; the rest stay matte. On a physical PS2 a second car's
 shine costs 0.7 ms a frame parked and 1.2 ms while the camera turns
 (docs/reflective-materials.md, "The vehicle paint pass").
 
-*Lite shine on other vehicles* (off by default, format v127) makes that pass
+*Lite shine on other vehicles* (off by default, format v128) makes that pass
 cheaper for every shining car but the driven one:
 
 - **Only the panels that face the sky reflect.** The bake orders each shiny

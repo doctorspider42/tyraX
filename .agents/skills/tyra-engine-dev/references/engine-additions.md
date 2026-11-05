@@ -56,7 +56,7 @@ Layout: `vendor/tyra/engine/{inc,src}/` mirror each other: `audio`, `debug`, `fi
 `EngineOptions::showBanner` (default true): `Engine::init` calls `banner.show()` only when set. Generated `main.cpp` writes it from `ProjectSettings::showEngineLogo` (Loading Screens > First power-on, format 115). Off = the game's first picture is its own splash or loading screen; nothing else about init moves.
 
 
-### Qualified collision runtime (2.10.0)
+### Qualified collision runtime (2.11.0)
 
 CollisionMesh uses an exact 3D triangle BVH with `.tmdl.tcol` host baking and
 runtime fallback. BroadPhase indexes moving and sleeping boxes; WorldBroadPhase

@@ -38,9 +38,9 @@ Today the same scene reads 87 eligible, 65 batched, 22 solo. **The counter
 totals those 22; the panel names them** — on this scene all 22 are singleton
 groups, and a further 24 shapes never became eligible at all (18 marked *Show
 in reflections*, 6 physics bodies - physics bodies batch while they sleep
-since 2.10.0, see below).
+since 2.11.0, see below).
 
-**Physics bodies batch while they sleep** (2.10.0). A body is eligible like
+**Physics bodies batch while they sleep** (2.11.0). A body is eligible like
 any other shape; the first frame the solver moves it, the physics write-back
 takes it out of every batch it is in (and marks those batches for a rebuild)
 before promoting it to the matrix path. The promotion never sets `dirty`, so
@@ -240,6 +240,45 @@ Note that toggling it is a **build-time** change. It decides the object's
 Link cannot re-group a running game — so the LIVE chip goes amber (rebuild)
 rather than pretending the running ELF matches.
 
+## The grouping cell
+
+Batches group in a grid of square cells. By default the cell is a quarter of
+the map, never below 48 units, and a group with a draw distance never gets
+a cell wider than that distance (above). *Preferences > Static object
+batching > Batch grouping cell* (`settings.staticBatchCell`, format 127)
+overrides the base cell. *auto* (0) keeps the default. The draw-distance cap
+still applies on top, and the editor's Batches window and `--batch-report`
+use the same value as the game.
+
+A smaller cell is a trade. It merges fewer sparse props, so more objects stay
+solo. In exchange fewer batches cross the edge of the screen, and a crossing
+batch costs the PS2 about 1.7 times a whole one (docs/stapip-bag-cost.md).
+Measured on a physical PS2 in a copy of the vehicle-playground project with
+a field of 129 crates (254 objects in its main scene), driving the same
+recorded route, the same ELF with the cell toggled at boot, two runs each:
+
+| cell | objects batched | crossing bags a frame | StaPip ms a frame | missed frames / 1000 |
+|---|---:|---:|---:|---:|
+| 80 (auto) | 188 in 49 batches | 13.3-13.8 | 4.40 / 4.48 | 27 / 31 |
+| 47 | 158 in 36 | 11.1-11.4 | 4.27 / 4.25 | 17 / 18 |
+| 31 | 145 in 25 | 11.2 | 4.20 / 4.26 | 19 / 23 |
+
+The same copy with the car started at (-119.3, 0.3, 0.3) in the district,
+cell 47: StaPip 1.70 -> 1.57 ms, work p50 3.55 -> 3.45 ms (both runs
+identical to the digit).
+
+The shipped example (the Motor District, 135 objects in its main scene,
+parked) is a different scene, and the trade goes the other way there.
+Cell 47 batched 39 objects in 26 batches instead of 69 in 38. StaPip moved
+by 2.85 -> 2.79 / 2.81 ms and work p50 by 3.60 / 3.61 -> 3.65 / 3.63 ms, but
+p95 rose 11.62 -> 11.83 / 12.13 ms and missed frames 4 / 5 -> 6 / 13 of
+1000. So the example and the default stay automatic: the district's
+batching win (4.6 ms, docs/tyrax2-closeout.md) comes from merging sparse
+props in exactly that 80-unit cell. A scene of many small props spread
+over a big map wants the default. A scene whose batches mostly sit around
+the camera, like a field of crates, can try a smaller cell: watch the
+Batches window's solo count and the profiler's StaPip rows.
+
 ## The headless twin
 
 ```
@@ -437,7 +476,7 @@ crate leaving re-baked ~1 800 vertices, 2.6 ms in the hit frame:
 Two changes:
 - **Physics bodies batch apart from static props, at most 12 to a batch**
   (`STATIC_BATCH_BODY_MAX`, twin `kBodyBatchMax` in `staticbatch.cpp`, oracle
-  fixture N). A batch's re-bake costs in proportion to the whole batch, so a
+  fixture O). A batch's re-bake costs in proportion to the whole batch, so a
   body leaving now re-bakes a dozen boxes (~320 vertices), not the
   pavement. They fill in object order within their cell and group key, so
   the panel and the game agree member for member.

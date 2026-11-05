@@ -493,7 +493,7 @@ Two consequences, both implemented:
   for VIF1 before every one of its ~120 submissions a frame — but that count is
   a property of the scene, not of this class, so the second frame is the margin.
 
-## Payload refresh, and baking ahead of the draw (2.10.0)
+## Payload refresh, and baking ahead of the draw (2.11.0)
 
 **A baked block is headers plus verbatim payload.** Every per-vertex stream
 reaches it as a `REF` payload - a copy of the bag's array, word for word - and
@@ -547,7 +547,7 @@ exactly, and for a car's shine bag that took three tries - the matte-suffix
 `count` (VEHICLE_ENV_LIMITS) and the paint pass's texture function, which
 selects the program, are both set at draw time.
 
-## Patch rebake: a bag that changed in a few places (2.10.0)
+## Patch rebake: a bag that changed in a few places (2.11.0)
 
 The payload refresh above covers this case more cheaply wherever its runs are
 valid; the patch path remains for entries whose runs are not.

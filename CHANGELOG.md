@@ -8,7 +8,7 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
-## 2.10.0
+## 2.11.0
 
 - Physics avoids unnecessary collision tests with spatial body filtering, cached static-world queries and shared SAT/CCD projections. Mesh collision uses a baked 3D BVH, with runtime fallback for older resources. Dense contacts and vehicle pushes no longer silently stop at fixed global limits. Physical PS2 comparisons show gains in dense scenes; this does not guarantee 60 FPS for large piles. Rebuild games to use the updated runtime.
 - Physics bodies placed at rest start asleep, so a scene no longer runs at 30 FPS for the first seconds after loading. Sleeping bodies join static batches until they first move.
@@ -23,6 +23,11 @@ under it as that release's notes, and the release's own page carries the date.
 - Fading skid marks no longer re-upload every frame: after a crash they cost ~0.3 ms a frame on a PS2 instead of ~1 ms.
 - **Lite shine on other vehicles** (*Preferences > Graphics*, off by default): cars you are not driving reflect only on the panels that face the sky (roof, bonnet, boot, front and rear glass), with a steady sheen instead of the rim and highlight that follow the camera. On a PS2 a car-on-car crash then misses about 15% fewer frames. Re-import is not needed: the next build re-bakes the cars. Projects are saved as format 127.
 - A vehicle turned around with the rotate gizmo no longer starts the game (or the editor's test drive) facing the other way: its heading now comes from where the body points, not from the Y angle alone.
+
+## 2.10.0
+
+- **Batch grouping cell** (Preferences > Static object batching). The width of the grid static batches are grouped in is now a project setting; *auto* keeps the cell every project used so far. A smaller cell merges fewer sparse props but leaves fewer batches crossing the edge of the screen, which cost the PS2 about 1.7 times a whole batch. Measured on a PS2: in a copy of the Vehicle Playground with a 129-crate field, 48 instead of 80 leaves 11 instead of 13.5 crossing batches a frame and takes 0.15-0.2 ms off draw submission; in the shipped Motor District it is neutral to slightly worse (p95 +0.2-0.5 ms), so the example keeps *auto*. See `docs/static-batching.md`, "The grouping cell".
+- Objects, static batches and road chunks that cross the edge of the screen cost the PS2 about 7 µs less each a frame (about 0.1 ms a frame in the Vehicle Playground crate-field drive). `docs/stapip-bag-cost.md` also measures what one draw costs the console, and why.
 
 ## 2.9.0
 

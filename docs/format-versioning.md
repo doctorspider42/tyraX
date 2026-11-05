@@ -310,13 +310,23 @@ the particle branch saved as 62 opens here with its effects intact (and stamps
 particle keys (rule 5 above: a
 format number is claimed at merge time, not at branch time).
 
-Format 127 adds `settings.vehicleShineLite` (docs/vehicles.md, "The shine
+Format 127 adds `settings.staticBatchCell` (docs/static-batching.md, "The
+grouping cell"), written only when above 0. Missing reads as 0, the
+automatic cell every older project grouped with. Additive; no migration
+step.
+
+Format 128 adds `settings.vehicleShineLite` (docs/vehicles.md, "The shine
 budget and the lite shine"), written only when on, and a vehicle definition's
 bake-measured `envLite` (the lite shine's prefix per body part, beside
 `envLimits`), written only when the bake found one. Missing = the full shine
 on every shining car. Additive; no migration step. Its branch stamped it 124;
-the merge renumbered it to 127, after the 124-126 that main had spent on the
-script framework meanwhile - a file that branch saved as 124 reads the same.
+the merges renumbered it to 127 (after the 124-126 that main had spent on
+the script framework) and then to 128 (after main's 127, the batch grouping
+cell) - a file that branch saved as 124 reads the same.
+
+Format 129 adds an object's `drawInstanced` (docs/model-pipeline.md, "Drawn
+instanced"), written only when true. Missing = drawn as before. Additive;
+no migration step.
 
 Format 67 adds `settings.vehicleShineBudget` (docs/vehicles.md, "The shine
 budget"), written only when it is not 2. Missing reads as 2, so an older

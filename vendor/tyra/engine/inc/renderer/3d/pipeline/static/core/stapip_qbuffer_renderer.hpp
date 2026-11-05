@@ -84,6 +84,17 @@
 #ifndef TYRA_STAPIP_PARTIAL_BAKED_VERIFY
 #define TYRA_STAPIP_PARTIAL_BAKED_VERIFY 0
 #endif
+// Modified by TyraX: the partial replay classifies straight into its routes
+// and clip masks (StaPipBagPackager::classifyRoutes) instead of filling a
+// package record per package it only reads three fields of
+// (docs/stapip-bag-cost.md). VERIFY also runs create() and logs every
+// route or mask that differs - diagnostic, never a timing arm.
+#ifndef TYRA_STAPIP_LEAN_CLASSIFY
+#define TYRA_STAPIP_LEAN_CLASSIFY 1
+#endif
+#ifndef TYRA_STAPIP_LEAN_CLASSIFY_VERIFY
+#define TYRA_STAPIP_LEAN_CLASSIFY_VERIFY 0
+#endif
 #ifndef TYRA_STAPIP_EXPANSION_CACHE
 #define TYRA_STAPIP_EXPANSION_CACHE 1
 #endif
