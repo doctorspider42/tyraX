@@ -1,5 +1,8 @@
 #pragma once
 
+// 2.1.2: qualified spatial collision filtering, shared SAT/CCD projections,
+// cached geometry/world queries and complete contact coverage.
+
 // 2.0.1: fix the Assets browser-action ID collision; scripted frames reject duplicate widget IDs,
 // and the check-ui build target gates Linux release packaging.
 
@@ -5623,6 +5626,10 @@
 // first). Crate drive -0.46..-0.6 ms work p50 on a PS2, Motor District p95
 // -0.45 ms. Game code that changes and restores an info/model around a draw
 // flushes before the restore (sky dome, env probe, mirror pass).
+// Also 2.11.0: physics on the PS2 (bodies start asleep, sleepers batch and rejoin
+// their batches, box face patches, warm start, held bodies, bookkeeping per
+// awake body), car crashes without dropped frames, the lite shine (off by
+// default) - docs/physics.md, docs/vehicles.md.
 // 2.10.0: Preferences > Batch grouping cell (ProjectSettings::staticBatchCell,
 // codegen STATIC_BATCH_CELL; 0 = the automatic cell, kept by every example).
 // A 129-crate field at 48: crossing batches 13.5 -> 11.2 a frame, StaPip
@@ -6513,7 +6520,17 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // ProjectSettings::staticBatchCell ("staticBatchCell" in settings, written
 // only when above 0). Missing = 0 = the automatic cell every older project
 // grouped with. Additive; no migration.
-inline constexpr int kFormatVersion = 127;
+// v128 (docs/vehicles.md, "The shine budget"): ProjectSettings::
+// vehicleShineLite ("vehicleShineLite" in settings, written only when on) and
+// VehicleDef::envLite (the bake-measured lite prefix, "envLite" beside
+// "envLimits", written only when there is one). Missing = the full shine on
+// every shining car, which is what every older project drew. Additive; no
+// migration. (Stamped 124 on its branch; renumbered to 127, then 128 at the
+// merges.)
+// v129 (docs/model-pipeline.md, "Drawn instanced"): SceneObject::
+// drawInstanced ("drawInstanced" on the object, written only when true).
+// Missing = drawn as before. Additive; no migration.
+inline constexpr int kFormatVersion = 129;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

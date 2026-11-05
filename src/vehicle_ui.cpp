@@ -459,7 +459,18 @@ void App::vehicleDriveStart(int objectIndex) {
     vehicleDriveState_ = vehiclesim::DriveState{};
     vehicleDriveAccum_ = 0.0f;
     for (int a = 0; a < 3; ++a) vehicleDriveState_.pos[a] = o.position[a];
-    vehicleDriveState_.yaw = o.rotation[1];
+    {
+        // The heading the console spawns with: forward (+Z) through the whole
+        // X->Y->Z rotation, not rotation[1] alone (a gizmo half turn is stored
+        // as [-180, -2.5, 180]).
+        const float d2r = 3.14159265f / 180.0f;
+        const float cx = std::cos(o.rotation[0] * d2r), sx = std::sin(o.rotation[0] * d2r);
+        const float cy = std::cos(o.rotation[1] * d2r), sy = std::sin(o.rotation[1] * d2r);
+        const float cz = std::cos(o.rotation[2] * d2r), sz = std::sin(o.rotation[2] * d2r);
+        const float fx = cx * sy * cz + sx * sz, fz = cx * cy;
+        vehicleDriveState_.yaw = fx * fx + fz * fz > 1e-6f
+                                     ? std::atan2(fx, fz) / d2r : o.rotation[1];
+    }
     vehicleDriveObj_ = objectIndex;
     vehDmgPreviewSerial_ = 0;
 

@@ -27,12 +27,22 @@ StaPipBag::StaPipBag() {
   stripped = false;  // Modified by TyraX: triangle list unless told otherwise
   refineStrips = false;  // Generated terrain opts in for all coplanar passes.
   immutableStreams = false;  // Modified by TyraX: see the header
+  patch = nullptr;  // Modified by TyraX: see StaPipBagPatch
   immutableRegistered = false;
   stampSlot = -1;  // Modified by TyraX: see StaPipBag::stampSlot
   for (auto& s : immutableSpans) s = nullptr;
 }
 
 StaPipBag::~StaPipBag() { releaseImmutableStreams(); }
+
+// Modified by TyraX: see StaPipBagPatch.
+void StaPipBagPatch::stampsOf(const StaPipBag* bag, u32 out[4]) {
+  const auto at = [](const u32* p) { return p != nullptr ? *p : 0u; };
+  out[0] = at(bag->contentVersion);
+  out[1] = bag->color != nullptr ? at(bag->color->contentVersion) : 0u;
+  out[2] = bag->texture != nullptr ? at(bag->texture->contentVersion) : 0u;
+  out[3] = bag->lighting != nullptr ? at(bag->lighting->contentVersion) : 0u;
+}
 
 // Modified by TyraX: one span per stream, each exactly count quadwords. A
 // stream another bag already registered (coplanar passes share vertices) or a
@@ -59,6 +69,20 @@ void StaPipBag::releaseImmutableStreams() {
     if (s) Vif1Queue::unregisterImmutableSpan(s);
     s = nullptr;
   }
+}
+
+int StaPipBag::retireImmutableStreams(const void* out[4]) {
+  int n = 0;
+  if (!immutableRegistered) return 0;
+  immutableRegistered = false;
+  for (auto& s : immutableSpans) {
+    if (s) {
+      Vif1Queue::retireImmutableSpan(s);
+      out[n++] = s;
+    }
+    s = nullptr;
+  }
+  return n;
 }
 
 StaPipBagPackagesBBox StaPipBag::calculateBbox(const u32& maxVertCount) {

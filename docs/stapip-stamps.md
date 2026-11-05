@@ -212,13 +212,21 @@ The safe version is opt-in per bag:
   full table, stays copied.
 - **The owner calls `releaseImmutableStreams` before it changes,
   reallocates or frees a stream.** The destructor calls it too. Release waits
-  for every DMA reader, so it belongs to rebuilds, not to every frame.
+  for every DMA reader, so it belongs to rebuilds, not to every frame - and
+  with the frame pipeline that wait is the previous frame's whole present,
+  vsync included, in the middle of this one.
+- **Or it retires them (`retireImmutableStreams`)**: no new frame borrows
+  the spans, nothing waits, and the owner keeps the old memory unchanged until
+  `Vif1Queue::collectRetiredImmutableSpan` is true for each span (two frames),
+  writing into fresh arrays meanwhile. Static batches do this
+  (docs/static-batching.md, "Rebuilds without a wait").
 
 The span table grew from 512 to 1024 entries, since baked arenas share it.
 
 The generated game opts in two producers:
 
-- **static batches:** `rebuildStaticBatch` releases first;
+- **static batches:** `rebuildStaticBatch` retires its streams and writes
+  fresh arrays (`retiredBatchStreams`);
 - **procedural chunks, roads included:** `procAddMergedObject` releases a chunk
   before it grows its arrays.
 

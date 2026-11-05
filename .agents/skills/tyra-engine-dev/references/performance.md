@@ -12,6 +12,8 @@ Read when: you measure or claim a PS2 frame-time change, add counters/brackets, 
 - Fixture noise: chunk-streaming fixtures (`examples/large-terrain`) — always capture a same-build control; parked scenes may settle differently between identical-ELF runs (check structural counters first).
 - Live Debugger key `liveDebug` on = ~500 ms/frame host I/O inside the measurement.
 - A measurement returning 0 must be reported as a failure (else "the button does nothing").
+- **Debug-build `TYRA_LOG` over ps2link costs ~0.6 ms of the frame per line** (a lost window measured 0.7 ms with its log line, 0.07 ms without). Release builds compile it out. A probe that logs every frame inflates frame times and missed-frame counts in the window it logs: price a fix by its own scope there, and count missed frames on arms that do not log per frame. Never put a probe's log line inside the interval it times.
+- **A per-frame colour write is a per-frame re-stage**: anything that writes a `BagArray` every frame (a fade, a pulse) moves the content stamp every frame and re-stages the whole bag. Write it in steps (skid marks: every 0.15 s, 1.08 -> 0.29 ms).
 
 ## Instruments (all compile out by default — keep shipped values)
 - **`TYRA_FRAME_PROFILE`** (`inc/debug/frame_profile.hpp`, default 0): FRAMETIME line in the generated `drawDebugHud`; one guarded "fairness fence" drain in both arms; enables `StaPipTelemetry` reading and `TYRA_STAPIP_PACKET_PROFILE`.

@@ -1581,6 +1581,16 @@ void App::drawPropertiesWindow() {
                     "member can keep the rest drawn; excluding it is the fix.\n"
                     "Tools > Static Batches shows the merged boxes and the cost.");
 
+            if (o.type == PrimitiveType::Model) {
+                if (ui::Switch("Draw instanced", &o.drawInstanced))
+                    committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "One copy of this model in console RAM for every object\n"
+                        "that draws it instanced, plus a matrix each - instead of\n"
+                        "a copy per object. Lit by sun and ambient only (no GI,\n"
+                        "AO or lamps). Only for objects that could batch.");
+            }
             if (ui::Switch("Never occlude other objects", &o.occluderExclude))
                 committed = true;
             if (ImGui::IsItemHovered())
