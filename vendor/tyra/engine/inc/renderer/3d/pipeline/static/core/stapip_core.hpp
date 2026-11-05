@@ -12,6 +12,7 @@
 
 #include <tamtypes.h>
 #include <memory>
+#include <vector>
 #include "./stapip_strip_subranges.hpp"
 #include "./bag/stapip_bag.hpp"
 #include "./bag/packaging/stapip_bag_packages_bbox.hpp"
@@ -28,6 +29,21 @@ namespace Tyra {
 // FromInfo preserves the descriptor's opt-in; Suppress never changes it.
 enum class StaPipLightReception : u8 { FromInfo, Suppress };
 
+// Modified by TyraX: frame recording census (docs/dod-submission.md, phase
+// 1a). Every recorded draw hashes the game-owned state the renderer reads
+// (bag, info, model, colour, texture, lighting) when it is recorded and
+// again when it is submitted, and logs RECORDVERIFY with the bags that
+// changed in between.
+#ifndef TYRA_STAPIP_RECORD_VERIFY
+#define TYRA_STAPIP_RECORD_VERIFY 0
+#endif
+
+// Modified by TyraX: stage-major bounds check - every queued bag also
+// derives its bounds the ordinary way and is compared (STAGEVERIFY).
+#ifndef TYRA_STAPIP_STAGE_BOUNDS_VERIFY
+#define TYRA_STAPIP_STAGE_BOUNDS_VERIFY 0
+#endif
+
 class StaPipCore {
  public:
   /**
@@ -35,8 +51,13 @@ class StaPipCore {
    * streams. Every begin must be paired with end; referenced streams remain
    * immutable until the renderer's next VIF1 synchronization.
    */
-  void beginSubmissionBatch() { qbufferRenderer.beginSubmissionBatch(); }
+  void beginSubmissionBatch() {
+    // Frame recording: a marker, replayed in order at the flush.
+    if (recordMarker(1)) return;
+    qbufferRenderer.beginSubmissionBatch();
+  }
   void endSubmissionBatch() {
+    if (recordMarker(2)) return;
     flushDeferred();
     qbufferRenderer.endSubmissionBatch();
   }
@@ -51,10 +72,32 @@ class StaPipCore {
     flushDeferred();
     stampDeferral = on;
   }
+  /** Modified by TyraX: stage-major bounds (docs/stapip-bag-cost.md, "One
+   * stage for every bag at once"). A bag with immutableStreams joins the
+   * deferral queue too, and the queue runs the bounds stage - package
+   * size, bbox cache, object-space planes, main box - for every such bag
+   * in one pass before any of them is drawn, so that stage's code stays
+   * in the I-cache. The draw order is the queue's order, as for stamps.
+   * Default off until docs/dod-submission.md phase 2a is measured. */
+  void setStageBounds(bool on) {
+    flushDeferred();
+    stageBoundsOn = on;
+  }
+  /** Modified by TyraX: frame recording (docs/dod-submission.md). Inside a
+   * submission batch EVERY bag is queued, not only stamped ones, and the
+   * queue is submitted in its order at the same flush points the stamp
+   * queue uses (batch end, a view change, a program or parameter change,
+   * the same bag twice, the frame's end). Bags, their info and models must
+   * then stay unchanged until the flush - TYRA_STAPIP_RECORD_VERIFY counts
+   * the ones that do not. Default off. */
+  void setFrameRecord(bool on) {
+    flushDeferred();
+    frameRecord = on;
+  }
   /** Replays the queued stamps now. Cheap when the queue is empty. */
   void flushDeferred() {
 #if TYRA_STAPIP_STAMP
-    if (deferredCount != 0) flushDeferredRun();
+    if (deferredCount != 0 || !recorded.empty()) flushDeferredRun();
 #endif
   }
 #if TYRA_STAPIP_STAMP
@@ -257,9 +300,45 @@ class StaPipCore {
   struct DeferredBag {
     StaPipBag* bag;
     StaPipLightReception reception;
+    // Modified by TyraX: frame recording - 0 a draw, 1 a submission-batch
+    // begin, 2 its end (bag is null for both).
+    u8 op = 0;
   };
+  bool recordMarker(u8 op);
+  static void flushBeforeForeignWork(void* core);
   static const u32 kDeferredMax = 48;
   DeferredBag deferred[kDeferredMax];
+  // Modified by TyraX: stage-major bounds (setStageBounds). The bounds
+  // stage of every queued bag that has no stamp, computed in one pass by
+  // flushDeferredRun; renderNow takes the entry stageBoundsNow points at.
+  struct StageBounds {
+    StaPipBagPackagesBBox* bbox;
+    u32 maxVertCount;
+    CoreBBoxFrustum check;
+    bool valid;
+    Plane planes[6];
+  };
+  StageBounds stageBounds[kDeferredMax];
+  std::vector<StageBounds> stageBoundsRec;  // the recorded list's
+  void computeStageBounds(const DeferredBag* list, u32 n, StageBounds* out);
+  const StageBounds* stageBoundsNow = nullptr;
+  bool stageBoundsOn = false;
+  u32 stageVerifyChecked = 0, stageVerifyBad = 0;
+  bool stageBoundsEnabled() const;
+  // Modified by TyraX: frame recording - every queued bag, beyond the
+  // stamp queue's fixed 48 (setFrameRecord).
+  std::vector<DeferredBag> recorded;
+  bool frameRecord = false;
+  bool frameRecordEnabled() const;
+#if TYRA_STAPIP_RECORD_VERIFY
+  std::vector<u32> recordedHash, recordedEnvHash;
+  u32 recordEnvChanged = 0;
+  u32 hashRendererState() const;
+  u32 recordChecked = 0, recordChanged = 0;
+  struct RecordCulprit { const void* bag; u32 count, changed; s32 mx, my, mz; };
+  RecordCulprit recordCulprits[16] = {};
+  static u32 hashDrawState(const StaPipBag* bag);
+#endif
   u32 deferredCount = 0;
   bool stampDeferral = true;
   bool flushingDeferred = false;

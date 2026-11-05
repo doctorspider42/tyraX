@@ -9,6 +9,7 @@
 # Modified by TyraX: the batching test asks isResident() (hinted lookup).
 */
 
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include <stdio.h>  // Modified by TyraX: TYRA_STAPIP_LEAN_CLASSIFY_VERIFY
 #include "math/math.hpp"
 #include "math/mmi.hpp"
@@ -98,10 +99,14 @@ StaPipCore::StaPipCore() {
   setLod();
 }
 
-StaPipCore::~StaPipCore() {}
+StaPipCore::~StaPipCore() {
+  if (Vif1Queue::foreignWorkUser == this) Vif1Queue::setBeforeForeignWork(nullptr, nullptr);
+}
 
 void StaPipCore::init(RendererCore* t_core) {
   rendererCore = t_core;
+  // Frame recording: foreign work submits StaPip's recorded draws first.
+  Vif1Queue::setBeforeForeignWork(&StaPipCore::flushBeforeForeignWork, this);
   qbufferRenderer.init(t_core, &prim, &lod);
   packager.init(&rendererCore->renderer3D.frustumPlanes);
 }
@@ -554,12 +559,42 @@ void StaPipCore::ensureEnvNormalsUnit(StaPipBag* bag) {
 // path every time. A queued run replays them back to back.
 void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
 #if TYRA_STAPIP_STAMP
+  // Frame recording (setFrameRecord): every bag of the batch joins the
+  // queue, after whatever stamps it holds, in call order.
+  if (!flushingDeferred && frameRecordEnabled() && bag->count > 0 &&
+      !telemetryEnabled && bag->info->transformationType == TyraMVP) {
+    const M4x4& vp = rendererCore->renderer3D.getViewProj();
+    bool flush = (deferredCount != 0 || !recorded.empty()) &&
+                 !mmi::equal64(deferredViewProj.data, vp.data);
+    for (u32 i = 0; !flush && i < deferredCount; ++i)
+      flush = deferred[i].bag == bag;
+    for (size_t i = 0; !flush && i < recorded.size(); ++i)
+      flush = recorded[i].bag == bag;
+    if (flush) flushDeferredRun();
+    if (deferredCount == 0 && recorded.empty()) deferredViewProj = vp;
+    // The stamp queue keeps its order with the recorded bags: move it over.
+    for (u32 i = 0; i < deferredCount; ++i) recorded.push_back(deferred[i]);
+    deferredCount = 0;
+    recorded.push_back({bag, reception});
+#if TYRA_STAPIP_RECORD_VERIFY
+    recordedHash.resize(recorded.size(), 0);
+    recordedHash.back() = hashDrawState(bag);
+    recordedEnvHash.resize(recorded.size(), 0);
+    recordedEnvHash.back() = hashRendererState();
+#endif
+    return;
+  }
+  // A bag that cannot be recorded goes after everything recorded before it.
+  if (!flushingDeferred && !recorded.empty()) flushDeferredRun();
   if (!flushingDeferred) {
     if (stampDeferral && bag->count > 0 &&
         qbufferRenderer.isSubmissionBatchOpen() &&
         qbufferRenderer.isStampEnabled() &&
         bag->info->transformationType == TyraMVP && !telemetryEnabled &&
-        qbufferRenderer.hasStamp(bag)) {
+        (qbufferRenderer.hasStamp(bag) ||
+         (stageBoundsEnabled() && bag->immutableStreams &&
+          bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise &&
+          bag->billboard == nullptr && !qbufferRenderer.hasProgramOverrides()))) {
       const M4x4& vp = rendererCore->renderer3D.getViewProj();
       bool flush = deferredCount != 0 &&
                    !mmi::equal64(deferredViewProj.data, vp.data);
@@ -578,16 +613,232 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
   renderNow(bag, reception);
 }
 
+bool StaPipCore::recordMarker(u8 op) {
+#if TYRA_STAPIP_STAMP
+  if (flushingDeferred || !frameRecordEnabled()) return false;
+  for (u32 i = 0; i < deferredCount; ++i) recorded.push_back(deferred[i]);
+  deferredCount = 0;
+  DeferredBag m{nullptr, StaPipLightReception{}};
+  m.op = op;
+  recorded.push_back(m);
+#if TYRA_STAPIP_RECORD_VERIFY
+  recordedHash.resize(recorded.size(), 0);
+  recordedEnvHash.resize(recorded.size(), 0);
+#endif
+  return true;
+#else
+  (void)op;
+  return false;
+#endif
+}
+
+// Frame recording: foreign VIF1/GIF work (another pipeline, a 2D sprite, a
+// PATH3 upload, a barrier) must find StaPip's recorded draws already
+// submitted, in the order the game made them.
+void StaPipCore::flushBeforeForeignWork(void* core) {
+  auto* self = static_cast<StaPipCore*>(core);
+  if (self->flushingDeferred) return;
+  if (self->deferredCount != 0 || !self->recorded.empty()) self->flushDeferredRun();
+}
+
+#if TYRA_STAPIP_RECORD_VERIFY
+u32 StaPipCore::hashRendererState() const {
+  u32 h = 2166136261u;
+  auto mix = [&](const void* p, u32 n) {
+    const u8* b = static_cast<const u8*>(p);
+    for (u32 i = 0; i < n; ++i) h = (h ^ b[i]) * 16777619u;
+  };
+  mix(&rendererCore->fog, sizeof(rendererCore->fog));
+  mix(&rendererCore->spot, sizeof(rendererCore->spot));
+  mix(&rendererCore->dynLightCount, sizeof(rendererCore->dynLightCount));
+  mix(rendererCore->renderer3D.frustumPlanes.getAll(), sizeof(Plane) * 6);
+  return h;
+}
+#endif
+
+bool StaPipCore::frameRecordEnabled() const { return frameRecord; }
+
+#if TYRA_STAPIP_RECORD_VERIFY
+u32 StaPipCore::hashDrawState(const StaPipBag* bag) {
+  u32 h = 2166136261u;
+  auto mix = [&](const void* p, u32 n) {
+    const u8* b = static_cast<const u8*>(p);
+    for (u32 i = 0; i < n; ++i) h = (h ^ b[i]) * 16777619u;
+  };
+  auto mixPtr = [&](const void* p) { mix(&p, sizeof(p)); };
+  mixPtr(bag->vertices); mix(&bag->count, sizeof(bag->count));
+  mixPtr(bag->info); mixPtr(bag->color); mixPtr(bag->texture);
+  mixPtr(bag->lighting); mixPtr(bag->billboard);
+  mix(&bag->bboxVersion, sizeof(bag->bboxVersion));
+  mix(&bag->stripped, sizeof(bag->stripped));
+  mix(&bag->packageSize, sizeof(bag->packageSize));
+  if (bag->info) {
+    mix(bag->info, sizeof(*bag->info));
+    if (bag->info->model) mix(bag->info->model->data, 64);
+  }
+  if (bag->color) {
+    mixPtr(bag->color->single); mixPtr(bag->color->many);
+    if (bag->color->single) mix(bag->color->single, sizeof(*bag->color->single));
+  }
+  if (bag->texture) {
+    mixPtr(bag->texture->texture); mixPtr(bag->texture->coordinates);
+  }
+  if (bag->lighting) {
+    mixPtr(bag->lighting->lightMatrix); mixPtr(bag->lighting->normals);
+    mixPtr(bag->lighting->dirLights);
+    if (bag->lighting->lightMatrix) mix(bag->lighting->lightMatrix->data, 64);
+  }
+  return h;
+}
+#endif
+
+bool StaPipCore::stageBoundsEnabled() const { return stageBoundsOn; }
+
+// Stage-major bounds (setStageBounds): the bounds stage of every draw in
+// `list` that has no stamp and culls precisely, in one pass, with the
+// calls and planes renderNow would use.
+void StaPipCore::computeStageBounds(const DeferredBag* list, u32 n,
+                                    StageBounds* out) {
+  const Plane* fp = rendererCore->renderer3D.frustumPlanes.getAll();
+  const M4x4* lastModel = nullptr;
+  M4x4 lastModelValue;
+  const Plane* lastPlanes = nullptr;
+  for (u32 i = 0; i < n; ++i) {
+    StageBounds& sb = out[i];
+    StaPipBag* bag = list[i].bag;
+    sb.valid = list[i].op == 0 && bag != nullptr &&
+               bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise &&
+               !qbufferRenderer.hasStamp(bag);
+    if (!sb.valid) continue;
+    sb.maxVertCount = getMaxVertCountByBag(bag);
+    sb.bbox = cacher.getBBoxes(bag->vertices, bag->count,
+                               reinterpret_cast<u32>(bag->vertices),
+                               bag->bboxVersion, sb.maxVertCount);
+    const M4x4* model = bag->info->model;
+    if (lastPlanes && lastModel == model &&
+        mmi::equal64(lastModelValue.data, model->data)) {
+      for (u8 k = 0; k < 6; ++k) sb.planes[k] = lastPlanes[k];
+    } else {
+      CoreBBox::computeObjectSpacePlanes(sb.planes, fp, *model);
+      lastModel = model;
+      lastModelValue = *model;
+      lastPlanes = sb.planes;
+    }
+    sb.check = sb.bbox->getMainBBox()->frustumCheckAABB(sb.planes);
+  }
+}
+
 void StaPipCore::flushDeferredRun() {
 #if TYRA_STAPIP_STAMP
   if (flushingDeferred) return;
+  if (!recorded.empty()) {
+    // Frame recording: the recorded list in its order (the stamp queue was
+    // moved into it as each bag was recorded).
+    flushingDeferred = true;
+    for (u32 i = 0; i < deferredCount; ++i) recorded.push_back(deferred[i]);
+    deferredCount = 0;
+    const bool stageRec = stageBoundsEnabled();
+    if (stageRec) {
+      stageBoundsRec.resize(recorded.size());
+      computeStageBounds(recorded.data(), (u32)recorded.size(), stageBoundsRec.data());
+    }
+    for (size_t i = 0; i < recorded.size(); ++i) {
+#if TYRA_STAPIP_RECORD_VERIFY
+      if (i < recordedHash.size()) {
+        ++recordChecked;
+        if (recorded[i].op == 0 && i < recordedEnvHash.size() &&
+            recordedEnvHash[i] != hashRendererState())
+          ++recordEnvChanged;
+        if (recorded[i].op == 0 && recordedHash[i] != 0 &&
+            hashDrawState(recorded[i].bag) != recordedHash[i]) {
+          ++recordChanged;
+          const StaPipBag* b = recorded[i].bag;
+          RecordCulprit* slot = nullptr;
+          for (auto& c : recordCulprits)
+            if (c.bag == b || c.bag == nullptr) { slot = &c; break; }
+          if (slot) {
+            if (!slot->bag) {
+              slot->bag = b;
+              slot->count = (u32)b->count;
+              if (b->info && b->info->model) {
+                slot->mx = (s32)b->info->model->data[12];
+                slot->my = (s32)b->info->model->data[13];
+                slot->mz = (s32)b->info->model->data[14];
+              }
+            }
+            ++slot->changed;
+          }
+        }
+        if (recordChecked % 20000 == 0) {
+          TYRA_LOG("RECORDVERIFY checked=", recordChecked, " changed=", recordChanged,
+                   " rendererStateChanged=", recordEnvChanged);
+          for (const auto& c : recordCulprits)
+            if (c.bag)
+              TYRA_LOG("RECORDVERIFY bag=", c.bag, " count=", c.count, " changed=",
+                       c.changed, " at ", c.mx, ",", c.my, ",", c.mz);
+        }
+      }
+#endif
+      if (recorded[i].op == 1) {
+        qbufferRenderer.beginSubmissionBatch();
+        continue;
+      }
+      if (recorded[i].op == 2) {
+        qbufferRenderer.endSubmissionBatch();
+        continue;
+      }
+      stageBoundsNow = stageRec && stageBoundsRec[i].valid ? &stageBoundsRec[i] : nullptr;
+      renderNow(recorded[i].bag, recorded[i].reception);
+      stageBoundsNow = nullptr;
+    }
+    recorded.clear();
+#if TYRA_STAPIP_RECORD_VERIFY
+    recordedHash.clear();
+    recordedEnvHash.clear();
+#endif
+    flushingDeferred = false;
+    return;
+  }
   flushingDeferred = true;
   const u32 n = deferredCount;
   deferredCount = 0;
+  // Stage-major bounds: one pass over the queued bags that have no stamp
+  // (a stamped bag never runs the bounds stage), with the same calls and
+  // the same planes renderNow would use.
+  const bool stage = stageBoundsEnabled();
+  if (stage) {
+    const Plane* fp = rendererCore->renderer3D.frustumPlanes.getAll();
+    const M4x4* lastModel = nullptr;
+    M4x4 lastModelValue;
+    const Plane* lastPlanes = nullptr;
+    for (u32 i = 0; i < n; ++i) {
+      StageBounds& sb = stageBounds[i];
+      StaPipBag* bag = deferred[i].bag;
+      sb.valid = bag->immutableStreams && !qbufferRenderer.hasStamp(bag);
+      if (!sb.valid) continue;
+      sb.maxVertCount = getMaxVertCountByBag(bag);
+      sb.bbox = cacher.getBBoxes(bag->vertices, bag->count,
+                                 reinterpret_cast<u32>(bag->vertices),
+                                 bag->bboxVersion, sb.maxVertCount);
+      const M4x4* model = bag->info->model;
+      if (lastPlanes && lastModel == model &&
+          mmi::equal64(lastModelValue.data, model->data)) {
+        for (u8 k = 0; k < 6; ++k) sb.planes[k] = lastPlanes[k];
+      } else {
+        CoreBBox::computeObjectSpacePlanes(sb.planes, fp, *model);
+        lastModel = model;
+        lastModelValue = *model;
+        lastPlanes = sb.planes;
+      }
+      sb.check = sb.bbox->getMainBBox()->frustumCheckAABB(sb.planes);
+    }
+  }
   for (u32 i = 0; i < n; ++i) {
     // Start the next bag's lines on their way while this one is replayed.
     if (i + 1 < n) qbufferRenderer.prefetchStamp(deferred[i + 1].bag);
+    stageBoundsNow = stage && stageBounds[i].valid ? &stageBounds[i] : nullptr;
     renderNow(deferred[i].bag, deferred[i].reception);
+    stageBoundsNow = nullptr;
   }
   flushingDeferred = false;
 #endif
@@ -718,8 +969,12 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   // careful attacks on this bucket - a branchless AABB test and a compacted
   // partBounds stride - together recovered 2% of it, so the cost is in one of
   // these five and guessing which has already been paid for twice.
+  // Stage-major bounds (setStageBounds): the queue computed this stage
+  // already. Taken once - a nested renderNow never sees it.
+  const StageBounds* const pre = stageBoundsNow;
+  stageBoundsNow = nullptr;
   TYRA_ATTRIB_MARK(attribSizeStart);
-  u32 maxVertCount = getMaxVertCountByBag(bag);
+  u32 maxVertCount = pre ? pre->maxVertCount : getMaxVertCountByBag(bag);
   TYRA_ATTRIB_ADD(bdSizeTicks, attribSizeStart);
 
   // Imported models commonly submit one bag per material. Consecutive parts
@@ -746,9 +1001,10 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     // reused vertex buffers with new content (the cacher recomputes the
     // entry in place - per-frame bumps stay allocation-free)
     TYRA_ATTRIB_MARK(attribCacheStart);
-    bbox = cacher.getBBoxes(bag->vertices, bag->count,
-                            reinterpret_cast<u32>(bag->vertices),
-                            bag->bboxVersion, maxVertCount);
+    bbox = pre ? pre->bbox
+               : cacher.getBBoxes(bag->vertices, bag->count,
+                                  reinterpret_cast<u32>(bag->vertices),
+                                  bag->bboxVersion, maxVertCount);
     TYRA_ATTRIB_ADD(bdCacheTicks, attribCacheStart);
   }
 
@@ -767,7 +1023,9 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     // classification then run the two-corner AABB test instead of
     // transforming 8 corners per box and dotting each against every plane.
     TYRA_ATTRIB_MARK(attribPlanesStart);
-    if (reuseTransform && transformCachePlanesValid) {
+    if (pre) {
+      for (u8 i = 0; i < 6; ++i) objectSpacePlanes[i] = pre->planes[i];
+    } else if (reuseTransform && transformCachePlanesValid) {
       for (u8 i = 0; i < 6; ++i)
         objectSpacePlanes[i] = transformCacheObjectSpacePlanes[i];
     } else {
@@ -778,7 +1036,27 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     TYRA_ATTRIB_ADD(bdPlanesTicks, attribPlanesStart);
 
     TYRA_ATTRIB_MARK(attribMainStart);
-    frustumCheck = bbox->getMainBBox()->frustumCheckAABB(objectSpacePlanes);
+    frustumCheck = pre ? pre->check
+                       : bbox->getMainBBox()->frustumCheckAABB(objectSpacePlanes);
+#if TYRA_STAPIP_STAGE_BOUNDS_VERIFY
+    if (pre) {
+      // The ordinary derivation, compared: same box, same verdict, and the
+      // same planes to the bit.
+      Plane p2[6];
+      CoreBBox::computeObjectSpacePlanes(
+          p2, rendererCore->renderer3D.frustumPlanes.getAll(), *bag->info->model);
+      StaPipBagPackagesBBox* b2 = cacher.getBBoxes(
+          bag->vertices, bag->count, reinterpret_cast<u32>(bag->vertices),
+          bag->bboxVersion, getMaxVertCountByBag(bag));
+      ++stageVerifyChecked;
+      if (b2 != bbox || getMaxVertCountByBag(bag) != maxVertCount ||
+          memcmp(p2, objectSpacePlanes, sizeof(p2)) != 0 ||
+          b2->getMainBBox()->frustumCheckAABB(p2) != frustumCheck)
+        ++stageVerifyBad;
+      if (stageVerifyChecked % 4000 == 0)
+        TYRA_LOG("STAGEVERIFY checked=", stageVerifyChecked, " bad=", stageVerifyBad);
+    }
+#endif
     TYRA_ATTRIB_ADD(bdMainTicks, attribMainStart);
 
     if (frustumCheck == OUTSIDE_FRUSTUM) {

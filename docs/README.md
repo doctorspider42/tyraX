@@ -328,6 +328,10 @@ Developer design docs (internals, not user guides):
   and the EE PMU: 25 µs for a stamp, ~147 µs for a bag crossing the frustum,
   almost all of it cache misses. Covers the kept classification cut for the
   partial replay and the measured dead ends.
+- [Data-oriented draw submission](dod-submission.md) — the plan and running
+  record of the rebuild that makes StaPip read compact, contiguous per-draw
+  records instead of scattered bag data (frame recording, stage-major flush,
+  hot records, scratchpad streaming), phase by phase with PS2 measurements.
 - [How TyraX uses the PS2's hardware](ps2-hardware-utilisation.md) — what
   each unit (EE, VU0, VU1, GS, DMA channels, scratchpad, IOP) does in a
   gameplay frame, three rebuild directions priced on a physical PS2 (the frame
