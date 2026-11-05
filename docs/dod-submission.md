@@ -183,7 +183,8 @@ The stamp is already an "emission from a record": its captured bytes are
 copied and patched. What it still pays is validation against the live bag,
 info, model, texture and renderer state. The ten measured stages are each 1-5
 µs, and each is mostly the first touch of another structure. So the next
-lever with a clear size is a **lean stamp**:
+lever with a clear size looked like a **lean stamp** (priced below at
+~0.14 ms, not built):
 - per-bag revision counters replace the field-by-field comparison;
 - the world box and the light pick are read from the record;
 - the copy source is streamed into the scratchpad.
@@ -192,6 +193,25 @@ Ceiling estimate: 31 -> ~10 µs a stamp, ~1 ms a frame in the crate drive,
 more in the district (~100 stamps a frame). Its cost is a contract the game
 must keep: every write to a stamped bag's inputs bumps the bag's revision.
 RECORDVERIFY's hashing is the tool that proves it, as it proved phase 1.
+
+### The lean stamp, priced: ~0.14 ms
+
+A rig probe (`C:	x\qp`, arm 1048576) skipped the producer facts (the
+bag/info/stream comparison) and the global renderer facts in `tryStamp`, but
+kept the baked entry's validity check. That is the most a revision-counter
+contract could save. Crate drive with recording on, two runs each:
+- stamps 30.3 / 29.8 µs against 33.1 / 32.7, so ~3 µs a stamp, ~0.14 ms a frame;
+- work p50 6.99 / 6.70 against 7.31 / 7.42 ms.
+
+The work figure overstates the prize. With the producer checks gone, ~1.2
+bags a frame that are rejected today now replay as stamps (direct 2.5 -> 1.3
+a frame). Those bags' inputs really change every frame, so they would draw
+stale geometry. A correct lean stamp would recover the ~0.14 ms of validation
+only. That is not worth putting a revision contract on every writer of a bag
+or an info in the game. Not built.
+
+The first version of the probe also skipped the entry's validity check. The
+game never reached its first frame, so the entry check is not optional.
 
 ## Phase 3: the hot record (layout draft)
 
