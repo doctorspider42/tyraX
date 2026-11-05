@@ -113,7 +113,8 @@ struct SceneObjectData {
                   // what a light overhead needs to shade smoothly
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
-  int batchStatic; // 1 = may merge into a combined static batch bag
+  int batchStatic; // 1 = may merge into a combined static batch bag,
+                   // 2 = drawn instanced (one shared model copy)
                    // (build-time verdict: non-moving primitive or
                    // compact model with no special runtime path)
   float vuParams[4]; // the four numbers this mesh hands to the
@@ -249,7 +250,7 @@ inline constexpr EmitterLayerData EMITTER_LAYERS[1] = {
     {-1, -1, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}}
 };
 inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
-    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},
+    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 1.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},
 };
 
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
@@ -452,12 +453,12 @@ inline constexpr VehicleExhaust VEHICLE_EXHAUSTS[5] = {
     {2, 0.2576F, -0.0460178F, -2.1896F, -0.0F, -1.19209e-07F, -1.0F},
     {2, -0.2576F, -0.0460178F, -2.1896F, -0.0F, -1.19209e-07F, -1.0F},
 };
-struct VehicleEnvLimit { int def; int part; int count; };
+struct VehicleEnvLimit { int def; int part; int count; int lite; };
 inline constexpr int VEHICLE_ENV_LIMIT_COUNT = 3;
 inline constexpr VehicleEnvLimit VEHICLE_ENV_LIMITS[3] = {
-    {0, 2, 2025},
-    {1, 2, 1725},
-    {2, 2, 2025},
+    {0, 2, 2025, 1200},
+    {1, 2, 1725, 825},
+    {2, 2, 2025, 1125},
 };
 struct VehiclePieceData { int def; int part; int kind; int first; int count; };
 inline constexpr int VEHICLE_PIECE_COUNT = 24;
@@ -466,24 +467,24 @@ inline constexpr VehiclePieceData VEHICLE_PIECES[24] = {
     {0, 1, 6, 54, 72},  // rear window
     {0, 1, 7, 126, 39},  // left windows
     {0, 1, 8, 165, 39},  // right windows
-    {0, 2, 1, 1200, 375},  // bonnet
-    {0, 2, 2, 1575, 300},  // boot
+    {0, 2, 1, 525, 375},  // bonnet
+    {0, 2, 2, 900, 300},  // boot
     {0, 2, 3, 1875, 75},  // left door
     {0, 2, 4, 1950, 75},  // right door
     {1, 1, 5, 0, 51},  // windscreen
     {1, 1, 6, 51, 96},  // rear window
     {1, 1, 7, 147, 42},  // left windows
     {1, 1, 8, 189, 39},  // right windows
-    {1, 2, 1, 975, 375},  // bonnet
-    {1, 2, 2, 1350, 225},  // boot
+    {1, 2, 1, 225, 375},  // bonnet
+    {1, 2, 2, 600, 225},  // boot
     {1, 2, 3, 1575, 75},  // left door
     {1, 2, 4, 1650, 75},  // right door
     {2, 1, 5, 0, 42},  // windscreen
     {2, 1, 6, 42, 60},  // rear window
     {2, 1, 7, 102, 33},  // left windows
     {2, 1, 8, 135, 33},  // right windows
-    {2, 2, 1, 1200, 375},  // bonnet
-    {2, 2, 2, 1575, 300},  // boot
+    {2, 2, 1, 450, 375},  // bonnet
+    {2, 2, 2, 825, 300},  // boot
     {2, 2, 3, 1875, 75},  // left door
     {2, 2, 4, 1950, 75},  // right door
 };
@@ -2887,8 +2888,8 @@ inline constexpr int BLOB_SHADOWS = 0;
 inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
 inline constexpr int BLOB_SHADOWS_USED = 1;
 inline constexpr int BLSS_ADAPTIVE = 0;
+inline constexpr int BLSS_PARTICLES = 0;
 #define BLSS_SCENE_ON 0
-#define BLSS_SCENE_NET 0
 inline constexpr int PROJ_SHADOWS_USED = 0;
 inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
 inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {0, 0, 0};

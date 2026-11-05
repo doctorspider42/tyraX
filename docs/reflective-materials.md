@@ -300,8 +300,16 @@ and logged as `VEHPAINT normals N distinct M`.
 
 Only the driven car and the nearest others up to *Shiny vehicles at once*
 (default 2) draw this pass; the rest stay matte (docs/vehicles.md, "The shine
-budget"). A second car's pass measured 0.7 ms a frame parked and 1.2 ms while
-the camera turned, on a physical PS2.
+budget and the lite shine"). A second car's pass measured 0.7 ms a frame
+parked and 1.2 ms while the camera turned, on a physical PS2. With *Lite shine
+on other vehicles* the cars nobody drives cover only their sky-facing prefix
+(`VEHICLE_ENV_LIMITS.lite`) and get fixed colours - a steady sheen, no rim, no
+moving highlight - so a turning camera rebuilds nothing for them.
+
+The paint colours stay on the EE on purpose: computing them on VU1 was
+measured on a PS2 at +0.5 ms of VU1 a frame (about 20 cycles for every shining
+vertex, every frame), while the EE evaluates each distinct normal once and only
+when the view has turned past the hysteresis step.
 
 ## The ground in the probe (1.125.0)
 

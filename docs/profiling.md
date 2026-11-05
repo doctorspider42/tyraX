@@ -831,6 +831,56 @@ file I/O inside the measurement, and a `run.log` that stops after ps2link's own
 And `taskkill` without `/F` does not close `ps2client`, so run long enough that
 the `FTRAW` blocks you need are well before the end.
 
+### The log is not free
+
+Under ps2link every `TYRA_LOG` line is a console write the EE waits for, and
+the console is slow: a burst of ~1.5 KB in one frame (the `FRAMETIME`,
+`FTUPD`, `FTPHYS`, ... block a `TYRA_FRAME_PROFILE` build prints every 50
+frames, or `PROFILE FRAME` with the on-screen profiler) costs ~10 ms of EE
+and a lost frame. In vehicle-playground on a physical PS2 that was every
+"unexplained" lost frame of a parked car (~30-40 in 1 000) and of a drive
+around the district: with `TYRA_LOG` muted for the measured window those runs
+lost **0** frames. A normal debug build prints far less (a driven car's
+`VEH pos` twice a second, contact and shine lines on change); a release build
+prints nothing. So before blaming the game for lost frames on a console,
+count them with the log off (a ring recorded every frame and dumped
+afterwards, as `C:\tx\qp\patch_mute.py` does).
+
+The engine prints too: the frame pipeline's `FRAMEARENA` / `NATIVEVIF` /
+`ORDEREDFRAME` / `FRAMEPIPELINE` block goes out with `printf` every 120
+frames, outside `TYRA_LOG`, and costs the same way when it lands on a heavy
+frame.
+
+Measured and dropped: queueing the lines and writing them once a frame (no
+change - the cost follows the bytes, not the calls), a byte budget per frame
+(64-256 B: fewer losses, not none), and writing in the present's idle time
+when the last wait was long enough (worse - a write's cost varies too much to
+predict).
+
+### A debug build is not the frame a player gets
+
+Even with the log muted, a debug build does more work every frame than a
+release one: the devkit hooks, the frame-profiler bookkeeping and, when
+`showProfiler` is on, the on-screen profiler. Measured on a physical PS2,
+2026-11-05, the same scripted drive and the same code, two runs each (the
+release copies also had `showProfiler` off):
+
+| | debug | release |
+|---|---|---|
+| vehicle playground, lost frames in 1 000 | 6, 5 | 3, 3 |
+| three-crate-field stress scene, lost frames | 57, 69 | 7, 7 |
+| stress scene: update before the frame | 5.69-6.09 ms | 5.29-5.31 ms |
+| stress scene: frame recording | 8.99-9.04 ms | 8.41-8.42 ms |
+| stress scene: physics | 2.26-2.67 ms | 2.03-2.05 ms |
+
+About 1.1-1.4 ms a frame - and in a scene whose heavy frames sit at 15.5-16
+ms that is the whole difference between 60 lost frames and 7. So: find costs
+in a debug build (it has the probes), but judge "does it hold 60" in a
+release build, and when a debug run loses frames, check how close to the
+budget they were before chasing them. The rig that measured this is
+[tools/ps2rig/physics](../tools/ps2rig/physics/README.md); its stress
+generator's `release` part makes the release copy.
+
 ### What the rig established about BLSS (2026-08-08 .. 2026-08-09, REAL HARDWARE)
 
 Most of this rig's history was spent pricing the neural reconstruction BLSS used

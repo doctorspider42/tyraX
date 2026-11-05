@@ -781,6 +781,7 @@ std::string objectJson(const SceneObject& o) {
         // is what keeps every project that never touches it resaving byte for
         // byte after this field was added.
         (o.batchExclude ? std::string(", \"batchExclude\": true") : "") +
+        (o.drawInstanced ? std::string(", \"drawInstanced\": true") : "") +
         (o.occluderExclude ? std::string(", \"occluderExclude\": true") : "") +
         (!o.occlusionCull ? std::string(", \"occlusionCull\": false") : "") +
         // rendered into the dynamic env map; default (false) stays implicit
@@ -1912,6 +1913,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  ? "    \"vehicleShineBudget\": " +
                        std::to_string(p.settings.vehicleShineBudget) + ",\n"
                  : std::string())
+         // Written only when on (format v127).
+         << (p.settings.vehicleShineLite ? "    \"vehicleShineLite\": true,\n"
+                                         : "")
          << "    \"occlusionCulling\": "
          << (p.settings.occlusionCulling ? "true" : "false") << ",\n"
          << "    \"envProbeReflected\": "
@@ -3391,6 +3395,13 @@ static void writeVehicleArray(std::ostream& json, const std::vector<VehicleDef>&
                      << v.envLimits[k].second << "]";
             json << "]";
         }
+        if (!v.envLite.empty()) {
+            json << ", \"envLite\": [";
+            for (size_t k = 0; k < v.envLite.size(); ++k)
+                json << (k ? ", " : "") << "[" << v.envLite[k].first << ", "
+                     << v.envLite[k].second << "]";
+            json << "]";
+        }
         if (!v.fastWheel.empty())
             json << ", \"fastWheel\": \"" << jsonEscape(v.fastWheel)
                  << "\", \"fastWheelTris\": " << v.fastWheelTriBudget;
@@ -3565,6 +3576,12 @@ static void readVehicleArray(const json::Value& root, std::vector<VehicleDef>& d
                 if (q.type == json::Value::Type::Array && q.arr.size() >= 2)
                     v.envLimits.push_back({(int)q.arr[0].numberOr(-1.0),
                                            (int)q.arr[1].numberOr(0.0)});
+        if (const json::Value* el = e.find("envLite");
+            el && el->type == json::Value::Type::Array)
+            for (const json::Value& q : el->arr)
+                if (q.type == json::Value::Type::Array && q.arr.size() >= 2)
+                    v.envLite.push_back({(int)q.arr[0].numberOr(-1.0),
+                                         (int)q.arr[1].numberOr(0.0)});
         if (const json::Value* x = e.find("fastWheel")) v.fastWheel = x->stringOr("");
         if (const json::Value* x = e.find("fastWheelTris"))
             v.fastWheelTriBudget = (int)x->numberOr(120);
@@ -5762,6 +5779,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* v = jo.find("batchExclude"))
             o.batchExclude = v->boolOr(false);
+        if (const auto* v = jo.find("drawInstanced"))
+            o.drawInstanced = v->boolOr(false);
         if (const auto* v = jo.find("occluderExclude"))
             o.occluderExclude = v->boolOr(false);
         if (const auto* v = jo.find("occlusionCull"))
@@ -6431,6 +6450,9 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.vehicleShineBudget = (int)v->numberOr(2);
             if (st.vehicleShineBudget < 0) st.vehicleShineBudget = 0;
             if (st.vehicleShineBudget > 16) st.vehicleShineBudget = 16;
+        }
+        if (const auto* v = s->find("vehicleShineLite")) {
+            st.vehicleShineLite = v->boolOr(false);
         }
         if (const auto* v = s->find("occlusionCulling"))
             st.occlusionCulling = v->boolOr(false);
@@ -8511,6 +8533,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // running game, so toggling it has to read as "rebuild" rather than
     // silently showing a grouping the ELF does not have.
     fnvMix(h, o.batchExclude ? 1 : 0);
+    fnvMix(h, o.drawInstanced ? 1 : 0);  // build-time, like the batch flag
     fnvMix(h, o.occluderExclude ? 1 : 0);
     fnvMix(h, o.occlusionCull ? 1 : 0);
     fnvMix(h, o.reflectionProxy ? 1 : 0);
@@ -9346,6 +9369,11 @@ std::string refreshGenerated(const Project& p) {
                     "docs/model-pipeline.md).\n/models/*.tmdl\n";
                 grew = true;
             }
+            if (text.find("/models/*.tmdl.tcol") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text += "\n# Host-baked triangle collision BVH.\n/models/*.tmdl.tcol\n";
+                grew = true;
+            }
             // Same migration for the credits page strips: the roll lives in the
             // .tyra, these are only its pixels (docs/credits.md).
             if (text.find("/credits/pages/") == std::string::npos) {
@@ -9481,12 +9509,28 @@ std::string refreshGenerated(const Project& p) {
     // the animated bake above.
     {
         std::vector<std::string> warnings;
+        std::set<fs::path> collisionOutputs;
         for (const auto& f : templates::bakeStaticModels(p, &warnings)) {
+            const fs::path output = fs::path(p.dir) / templates::nativePath(f.relativePath);
+            if (output.extension() == ".tcol") collisionOutputs.insert(output.lexically_normal());
             if (auto err = writeFile(fs::path(p.dir) / templates::nativePath(f.relativePath),
                                      f.content);
                 !err.empty())
                 return err;
         }
+        // Only this generated suffix is owned here. Changing mesh mode to box
+        // must not leave unused collision payloads in the staged resources.
+        std::error_code collisionEc;
+        const fs::path res = fs::path(p.dir) / "res";
+        if (fs::exists(res, collisionEc))
+            for (fs::recursive_directory_iterator it(res, collisionEc), end;
+                 !collisionEc && it != end; it.increment(collisionEc)) {
+                const fs::path path = it->path().lexically_normal();
+                if (!it->is_regular_file(collisionEc)) continue;
+                const std::string name = path.filename().string();
+                if (name.size() >= 10 && name.compare(name.size()-10,10,".tmdl.tcol") == 0 &&
+                    !collisionOutputs.count(path)) fs::remove(path, collisionEc);
+            }
         for (const auto& w : warnings)
             printf("[model bake] %s\n", w.c_str());
     }

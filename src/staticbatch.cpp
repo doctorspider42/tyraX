@@ -100,6 +100,7 @@ const char* reasonLabel(Reason r) {
         case Reason::FootprintTooBigForCell: return "too big for its cell";
         case Reason::SingletonGroup: return "alone in its group";
         case Reason::PartialModel: return "a part is alone";
+        case Reason::DrawnInstanced: return "drawn instanced";
     }
     return "?";
 }
@@ -173,6 +174,9 @@ const char* reasonDetail(Reason r) {
             return "Nothing else shares its texture, cell, draw distance, "
                    "lamp and strip run. A batch of one saves no submit and "
                    "only duplicates geometry, so it is dropped.";
+        case Reason::DrawnInstanced:
+            return "Draw instanced is on: one shared copy of the model and a "
+                   "matrix per object, outside every batch.";
         case Reason::PartialModel:
             return "One of this model's parts has no batch partner. The solo "
                    "path skips a model as ONE object, so batching only some "
@@ -230,7 +234,7 @@ Reason eligibility(const Project& p, const SceneObject& o,
         o.type == PrimitiveType::Plane || o.type == PrimitiveType::Model;
     if (!shape) return Reason::NotABatchableShape;
     if (o.collisionMode == 3) return Reason::InvisibleWall;
-    if (o.physics) return Reason::Physics;
+    // Physics bodies batch while they sleep (twin of staticBatchEligible).
     if (o.usable) return Reason::Usable;
     if (o.pickable) return Reason::Pickable;
     if (o.saveState) return Reason::SaveState;
@@ -253,6 +257,11 @@ Reason eligibility(const Project& p, const SceneObject& o,
     // batchStatic column is written (templates.cpp), so it belongs in the
     // same verdict - an object with an atlas region really is not batchable.
     if (hasLightmapRegion) return Reason::LightmapRegion;
+    // batchStatic 2 in the generated table (templates.cpp, the batchStatic
+    // column): static by the same rules, drawn outside every batch.
+    if (o.drawInstanced && o.type == PrimitiveType::Model && !o.reflected &&
+        !o.physics)
+        return Reason::DrawnInstanced;
     return Reason::Batched;
 }
 
@@ -339,11 +348,15 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
     };
 
     // --- stage 2: grouping --------------------------------------------------
-    std::vector<int> keyX, keyZ;
+    // Physics bodies group apart, at most kBodyBatchMax members a batch -
+    // the twin of the runtime's STATIC_BATCH_BODY_MAX (docs/static-batching.md,
+    // "Body batches"). Filled in object order, as the runtime fills them.
+    constexpr int kBodyBatchMax = 12;
+    std::vector<int> keyX, keyZ, keyP;
     auto addMember = [&](int object, int part, const std::string& texture,
                          int filter, int cx, int cz, float cellW, float dd,
                          int lamp, unsigned int stripRun, unsigned int verts,
-                         bool reflected) {
+                         bool reflected, int body) {
         int bi = -1;
         for (int b = 0; b < (int)res.batches.size(); ++b)
             if (res.batches[(size_t)b].texture == texture &&
@@ -352,7 +365,10 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
                 keyZ[(size_t)b] == cz && res.batches[(size_t)b].drawDistance == dd &&
                 res.batches[(size_t)b].lamp == lamp &&
                 res.batches[(size_t)b].stripRun == stripRun &&
-                res.batches[(size_t)b].reflected == reflected) {
+                res.batches[(size_t)b].reflected == reflected &&
+                keyP[(size_t)b] == body &&
+                (!body ||
+                 (int)res.batches[(size_t)b].members.size() < kBodyBatchMax)) {
                 bi = b;
                 break;
             }
@@ -370,6 +386,7 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
             res.batches.push_back(nb);
             keyX.push_back(cx);
             keyZ.push_back(cz);
+            keyP.push_back(body);
             bi = (int)res.batches.size() - 1;
         }
         res.batches[(size_t)bi].members.push_back({object, part});
@@ -392,6 +409,7 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
         const int cx = (int)std::floor((d.position[0] + 0.5f * mapW) / cellW);
         const int cz = (int)std::floor((d.position[2] + 0.5f * mapW) / cellW);
         const int lamp = lampOf(d);
+        const int body = d.physics ? 1 : 0;
 
         if (d.type == PrimitiveType::Model) {
             ModelInfo mi = in.model ? in.model(d.modelPath) : ModelInfo();
@@ -431,7 +449,7 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
                           d.drawDistance,
                           lamp, stripped ? mp.stripRun : 0u,
                           stripped ? mp.stripVertexCount : mp.vertexCount,
-                          d.reflected);
+                          d.reflected, body);
             }
         } else {
             MaterialInfo mat =
@@ -453,7 +471,7 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
             const unsigned int verts =
                 in.primVertices ? in.primVertices(d) : 0u;
             addMember(i, -1, texture, filter, cx, cz, cellW, d.drawDistance,
-                      lamp, 0u, verts, d.reflected);
+                      lamp, 0u, verts, d.reflected, body);
         }
     }
 

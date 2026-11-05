@@ -138,6 +138,11 @@ control its presentation and power interruption. Wheelspin raises RPM without
 raising road speed. Vehicles can drift under handbrake grip and slide against
 walls rather than stopping on a glancing contact.
 
+A vehicle starts facing where its body points in the editor: the heading is
+the body's forward axis through the whole rotation, not the Y angle alone. The
+rotate gizmo stores a half turn as e.g. `[-180, -2.5, 180]`, and reading only
+the `-2.5` started the car backwards (the editor's test drive did the same).
+
 ### Rev limiter
 
 **Rev limiter** (Engine and gears, 0 = off, the default) makes a flat-out
@@ -185,7 +190,8 @@ the other side, behind or in front - the first spot clear of every collision
 box (a walker that starts inside a box cannot move until it jumps out). The
 log line `VEH exit spot N` names the spot taken (0 = the door, -1 = none was
 clear, so the door spot stands). Chase and far cameras shorten their boom
-against terrain and obstacles. The bumper camera is bolted to the body: it
+against terrain and obstacles (see "Chase camera and loose props" below for
+the one exception). The bumper camera is bolted to the body: it
 takes the drawn pitch, roll and lean, sits just past the front bumper (the
 baked `bodyOverhang`), is kept above the ground surface under it, and follows
 the body's pitch a beat late so a rough road does not shake the horizon. It
@@ -197,6 +203,19 @@ aim - a car whose footprint the aim crosses wins, otherwise the car closest to
 the aim within 45 degrees. The prompt follows the same choice, so with two
 cars side by side it shows only for the one Use would enter.
 `TerrainGame::vehicleUseTarget` is that one decision.
+
+### Chase camera and loose props
+
+The chase camera's boom treats a physics body as a wall only while the body
+rests; one that is falling, rolling or flying is ignored
+(`sweepVehicleCamera`). When a car knocks down a stack, the crates fall
+between the car and the camera. A boom that stopped at each of them pulled
+the camera into the car's body, so the body's packages had to be clipped. The
+body then lost its baked VIF stream for 3-5 frames: about 4-5 ms more draw
+work in the frames that already carry the physics of the collapse. With the
+rule, the stack test on a PS2 loses 1 frame in 1 000 instead of 3-4 (two runs
+each). A crate passing through the camera is cut by the near plane for a
+moment, which is the usual trade in racing games.
 
 ### AI drivers and flow graphs
 
@@ -297,11 +316,182 @@ repaired. The HUD shows damage when relevant.
 
 ![Vehicle damage controls](img/vehicle-damage-dents.png)
 
+### What a crash costs
+
+Measured on a physical PS2 (2.10.0): a Ravager driven at ~18 m/s into a parked
+Strix V12 (5 800-vertex bodies), devkit off, per-frame probes.
+
+| | before | 2.10.0 |
+|---|---:|---:|
+| damage update in the frame of the hit | 16.7 ms | 6.4 ms |
+| that frame | 66.7 ms | 50 ms |
+
+Where the old 16.7 ms went: the first hit on each car copied its whole
+undamaged body (4.2-4.4 ms per car), then each dent rewrote its vertices
+(2.4 and 4.1 ms), both cars in the same frame. Now:
+
+- **The rest pose is taken ahead of the hit**, while a car is within 30 units
+  of the camera, one car a frame, so the hit itself finds it ready.
+- **One car's dent geometry per frame.** Two cars hitting each other dent in
+  consecutive frames. The hit's velocities, damage, loose pieces and the
+  recorded dent happen at once; only the vertex rewrite waits a frame, and a
+  rebuild that re-applies the recorded dents drops the queued copy.
+- **The dent pass is one pass**: an inline floor instead of three software
+  `floorf` calls per vertex in the jitter hash (the same values), and the
+  scuff set in the same loop with one square root per moved vertex.
+
+- **The renderer re-bakes only what a dent touched.** A dent or a collapsed
+  piece hands the part's bags a `Tyra::StaPipBagPatch` (which vertices moved,
+  and the bag states before and after), and the baked-stream cache rebuilds
+  only the packages holding one of them - 16-25 of a body's ~47 - copying the
+  rest. A dented body's next draw costs ~2 ms instead of ~7-11 ms
+  (docs/baked-vif-stream.md, "Patch rebake").
+
+- **Closing in costs no bake.** A car on its far tier never baked its full
+  tier (or the cache let it expire after five idle seconds), so the frame it
+  swapped in paid ~4.8 ms and its shine's first draw ~3.7-7 ms - right before
+  a hit. Within 1.6x its swap distance its tier 0 body and shine bags are
+  bound for a moment and baked without being drawn (`StaPipCore::prebakeBag`,
+  one car at a time, renewed every 120 frames), so the swap and the shine find
+  them ready. Re-shading the shine afterwards is a payload refresh, not a
+  re-bake (docs/baked-vif-stream.md). The work goes ONE STEP A FRAME - a
+  part's body, then its shine, then its paint map: the whole car in one frame
+  was 6.2-6.9 ms of update on a PS2 as a car drove up to a parked one, and
+  the heaviest step is now the body, 3.5-3.9 ms (`vehPrebakeStep`).
+
+Measured over the same scripted crash on a physical PS2, two runs per arm: the
+50 ms frame at the hit is gone (the worst frame is now 33 ms); frames missed
+in the crash window 36/36 before, 36/32 after; over the whole run 63/61 and
+60/57 of ~869. What remains is steady: two shining full-detail cars right in
+front of the camera, the damage smoke and the push keep the frame just over
+16.7 ms. Deferring a first bake until its payload holds still was measured
+and made it worse (the retained route is not cheaper for a bag new to both
+caches).
+
+#### A hard hit, frame by frame
+
+A second round, at 34 m/s into the parked Strix on an open lane, with every
+frame recorded on the console and printed after the run (a log line per frame
+would have been the biggest cost in the window). The debug build lost 4-5
+frames in a row after the hit; now none:
+
+| frame of the hit | before | first round | now |
+|---|---:|---:|---:|
+| game update before the render | 10.7 ms | 4.3 ms | 3.4-3.5 ms |
+| render | 18.5 ms | 13.4 ms | 12.3 ms |
+| damage work | 8.8 ms | 2.5 ms | 1.7 ms |
+| render, the 10 frames after | 12.6 ms | 10.4 ms | 9.3 ms |
+| frames lost in the 60 after the hit | 4-5 | 1 | 0 |
+
+(Three runs before and in the first round, two now plus one with every probe
+on, which also lost none; the console stopped taking deploys after that.)
+
+Where it went, and what changed:
+
+- **The log lines.** A debug build printed a `VEHDMG` line for every lost
+  window and panel - eight in the frame of the hit, ~0.6 ms each over
+  ps2link. Now one line per hit car, half a second later, with the counts
+  (`lost glass N panels M`). Release builds have no logging at all.
+- **Debris draws through a matrix.** All flying pieces were one world-space
+  batch rewritten every frame: re-staged every frame (1.2 ms a frame while
+  anything flew, 3.3 ms in the frame of the hit). A flying piece is now its
+  own bag - its mesh written once, around its centroid, and its pose the
+  model matrix - so its baked stream replays (0.13 ms a frame). A piece that
+  lands joins its texture's world-space batch, which is rebuilt only when a
+  piece lands, is kicked or goes. Building a piece reserves its arrays up
+  front (2.2 -> 0.9 ms for two panels) and reads the body through a const
+  reference, so taking a panel off no longer stamps the body.
+- **A car's pieces wait with its dent.** Two cars hitting each other dent in
+  consecutive frames (one car's dent geometry a frame, above), but the second
+  car's loose pieces came off at once: its body changed two frames running,
+  and the renderer took both cars' bodies off their baked streams for five
+  frames (4-6.6 ms a frame). The pieces now go with the queued dent.
+- **A short burst of changes is refreshed, not churned**
+  (docs/baked-vif-stream.md, "The refresh streak").
+- **Paint maps are built ahead.** The paint pass maps each vertex to its
+  distinct normal once per array (~3 400 normals, 1.7 ms on a PS2). A car
+  driven straight never re-shades, so its map was built at its first turn -
+  the hit. Cars on their full-detail tier within the shine's reach now get it
+  in stepVehicles, one car a frame, and the prebake builds the full tier's
+  map into a spare slot ahead of the swap.
+
+- **Lost panels take off in a quiet frame.** A panel's triangles are copied
+  off the body in the frame of the hit (before the collapse removes them),
+  and the piece is built and thrown two frames later at the earliest, never
+  in a frame that applied a dent, one car's pieces a frame
+  (`VehDebrisPending`, `vehicleSpawnDebris`; past eight frames a piece goes
+  regardless). Its build and first draw, ~2.2 ms, used to land in the frame
+  of the hit; the panel is missing from the car for those two frames, under
+  the burst of dust.
+- **A car just hit keeps its paint for ~0.2 s** (12 frames, in
+  `vehiclePaintGate`): every re-shade is a copy of its shine stream, and the
+  camera shake and the spin re-shaded it in exactly the frames that also
+  dent and re-copy the bodies. The highlight catches up when the hold ends.
+
+What remains in the frame of the hit is the dent itself (~1.1 ms a car) and
+copying the dented body's streams (~2.2 ms). Steady driving before the hit
+measured 0.1-0.16 ms slower in each round (6.33 -> 6.49 -> 6.60 ms of
+render), within the ~0.17 ms that a code layout change moves a frame on this
+console; it was not pinned down.
+
+- **Skid marks fade in steps.** After a crash the frame kept paying ~1 ms for
+  the skid marks while they faded: the fade wrote every live mark's alpha
+  every frame, which moved the skid bag's content stamp every frame and
+  re-staged all 1 152 of its vertices. The fade is now written every 0.15 s
+  (a mark loses at most 2.5 of its 100 alpha between two writes) and the
+  frames in between replay the baked block: 1.08 -> 0.29 ms a frame, median
+  over the seconds after the hit, on a physical PS2.
+- **The first skid mark draws one segment, not the pool.** The skid bag drew
+  all 192 segments (1 152 vertices, mostly empty), so the first mark of a
+  slide baked the whole pool in the frame the tyres let go, which is usually
+  the frame of a hit: 2.46 ms on a PS2, then 0.94 ms the next frame. The bag
+  now draws only the slots used since the pool last emptied, and an empty pool
+  starts again at slot 0. That frame costs 0.25 ms. A car-on-car crash still
+  loses no frame (p95 work 6.82 -> 6.76 ms).
+- **Losing a window costs ~0.07 ms**, not the ~0.7 ms a debug build shows:
+  that build prints a line for every lost piece, and a log line over ps2link
+  costs ~0.6 ms of the frame. Release builds compile the logging out.
+
+### The shine budget and the lite shine
+
+*Preferences > Graphics > Shiny vehicles at once* (default 2) picks which cars
+draw the body-shine pass in one view: the driven car first, then the nearest
+others within 35 units; the rest stay matte. On a physical PS2 a second car's
+shine costs 0.7 ms a frame parked and 1.2 ms while the camera turns
+(docs/reflective-materials.md, "The vehicle paint pass").
+
+*Lite shine on other vehicles* (off by default, format v127) makes that pass
+cheaper for every shining car but the driven one:
+
+- **Only the panels that face the sky reflect.** The bake orders each shiny
+  part as: the shell that faces up (face normal more than ~24 degrees above
+  horizontal), the bonnet, the boot lid, the front and rear glass - then the
+  shell's sides, the doors and the side windows, then the matte cabin
+  (`envLite`, measured like `envLimits`). A lite car's pass covers the first
+  stretch only: 48-59% of the shiny vertices on the example cars. The split
+  costs nothing when the setting is off: the strips of the three example
+  bodies are byte for byte the same size.
+- **The paint does not follow the view.** A steady sheen and a soft light on
+  whatever faces straight up replace the fresnel rim and the moving
+  highlight. The colours are built once (and after a dent or a tier change),
+  so a turning camera rebuilds nothing and the pass replays its baked block.
+  The reflection itself still slides with the view (its coordinates are VU1's).
+
+The car you drive keeps the full shine; getting into another car swaps the
+two looks. Measured over the scripted car-on-car crash on a physical PS2 (four
+runs per arm, the Strix lite, the driven car full): frames missed in the 91
+frames around the hit 24/24/24/24 off, 13/21/21/19 on; over the whole run
+51-55 off, 30-46 on, of ~869. The worst frame is the same 33 ms either way -
+the hit itself is the driven car's damage and the push, not the parked car's
+paint. What you lose is the rim light on the doors and sides and the white
+highlight sliding over the body.
+
 ## Effects and display
 
 Headlights project pools onto the ground; lamp glow follows the authored lamp
 materials. Skid marks and tyre smoke respond to slip. Feel > Effects accepts
 built-in effects, materials, or a particle-library smoke effect. **Body shine**
+(budget and lite version: "The shine budget and the lite shine" above)
 uses a reflection texture or the sky (with the city as boxes when *Reflect static
 scenery as boxes* is on, and a flat-colour ground that costs ~2 ms less a turning
 frame on the open road with *Reflect the ground as flat colour* -
