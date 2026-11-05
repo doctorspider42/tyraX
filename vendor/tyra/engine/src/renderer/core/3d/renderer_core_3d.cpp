@@ -9,6 +9,7 @@
 # Modified by TyraX: env/portal views save and restore the frustum planes.
 */
 
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include "renderer/core/3d/renderer_core_3d.hpp"
 
 namespace Tyra {
@@ -26,6 +27,7 @@ void RendererCore3D::update() { is3DSupportEnabled = false; }
 // culled against `up`; only this was dropping it. `up` is never null - it
 // defaults to (0, 1, 0) - so every existing caller gets a bit-identical matrix.
 void RendererCore3D::update(const CameraInfo3D& cameraInfo) {
+  Vif1Queue::beforeForeignWork();  // Modified by TyraX: recorded draws keep their view
   frustumPlanes.update(cameraInfo, fov);
   M4x4::lookAt(&view, *cameraInfo.position, *cameraInfo.looksAt, *cameraInfo.up);
   viewProj = projection * view;
@@ -60,6 +62,7 @@ void RendererCore3D::setFov(const float& t_fov) {
 }
 
 void RendererCore3D::setProjection() {
+  Vif1Queue::beforeForeignWork();  // Modified by TyraX: recorded draws keep their view
   // Modified by TyraX: the width/height passed here only set the RASTER scale
   // of the projection (the world-space frustum comes from fov + aspectRatio),
   // so field rendering (InterlacedField) squeezes the scene into the
@@ -82,6 +85,7 @@ void RendererCore3D::setProjection() {
 // wrongly culls.
 void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
                                  const float& envFov, const float& size) {
+  Vif1Queue::beforeForeignWork();  // Modified by TyraX: recorded draws keep their view
   savedView = view;
   savedProjection = projection;
   savedViewProj = viewProj;
@@ -103,6 +107,7 @@ void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
 // so the frustum SHAPE is the screen's own); only the view swaps and the
 // frustum planes follow the virtual camera - exact planes, no widening.
 void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
+  Vif1Queue::beforeForeignWork();  // Modified by TyraX: recorded draws keep their view
   savedView = view;
   savedProjection = projection;
   savedViewProj = viewProj;
@@ -116,6 +121,7 @@ void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
 }
 
 void RendererCore3D::popEnvView(const CameraInfo3D& cameraInfo) {
+  Vif1Queue::beforeForeignWork();  // Modified by TyraX: recorded draws keep their view
   (void)cameraInfo;  // Modified by TyraX: see the header - no longer read
   foreignView = false;  // Modified by TyraX (see isForeignViewActive)
   view = savedView;

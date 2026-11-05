@@ -103,7 +103,30 @@ before recording is turned on for it.
 |---|---|---|---|
 | 1a | Recording behind a flag, flushed bag by bag (same order, same code), plus RECORDVERIFY | 140 000 draws recorded, 0 changed; but `endSubmissionBatch` flushed ~13 times a frame (~11 bags a run) | done |
 | 1b | Batch begin/end as markers in the list; foreign VIF1/GIF work (Vif1Queue entry points, `frameSendPacket`, frame begin/flush/end) flushes the list first | runs ~48 bags (max 141), ~5 flushes a frame. **Work p50 7.72 / 7.68 -> 7.20 / 7.29 ms, missed frames 44 / 28 -> 16 / 16 of 1000, StaPip 4.51 -> 4.29 ms** (crate drive, same ELF, 2 runs) | measured; producers to fix |
-| 1c | Fix every producer RECORDVERIFY names; recording on by default | census: one 1152-vertex bag changed 64 times after recording, renderer state (fog/spot/lights/frustum) changed for 256 draws (of ~300 000) | in progress |
+| 1c | Fix every producer RECORDVERIFY names; recording on by default | three fixes (below). Census then **0 of 300 000** changed. Crate drive with them: **work p50 7.70 / 7.75 -> 7.10 / 7.29 ms, missed 26 / 27 -> 16 / 21, StaPip 4.43 / 4.51 -> 4.17 / 4.02 ms** | Motor District check next |
+
+The fixes RECORDVERIFY found, by component (a per-component variant of the
+census; it names the bag, its info, texture, vertex count and position):
+1. **Frustum planes** changed under an unchanged view-projection for four
+   draws every ~25 frames: the env-probe capture. The engine's camera setters
+   (`RendererCore3D::update`, `setProjection`, `pushEnvView`, `pushPortalView`,
+   `popEnvView`) now submit the recorded list first, through the same
+   `Vif1Queue::beforeForeignWork` barrier. The record path also compares the
+   planes.
+2. **The sky dome's info** changed after recording. The game sets
+   `zTestType = AllPass`, draws, and restores it right away, so the recorded
+   draw would have gone out with the restored test. The three sky draws now
+   flush before the restore.
+3. Found by reading the templates, not by the census (this scene has no
+   mirror or probe-lit object): `renderObjectProbe` relied on
+   `endSubmissionBatch` flushing, and the mirror pass points infos at shared
+   mirror matrices it rewrites per object. Both now flush before they move
+   on.
+
+Rule for game code from here: an info, model or bag that is changed AND
+restored around a draw needs `stapip.core.flushDeferred()` before the
+restore. Phase 3's draw records will carry the per-draw values, which
+removes this rule.
 | 2a | Bounds stage as one pass over the recorded list | StaPip 4.29 -> 4.05 ms, but the pass sits outside that counter: work p50 7.36 vs 7.25 ms with recording alone (+0.1) | no gain, off |
 | 2 | Stage-major prepare / dispatch passes; ceiling ~0.8 ms crate field | - | |
 

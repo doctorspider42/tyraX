@@ -328,6 +328,7 @@ class StaPipCore {
   // Modified by TyraX: frame recording - every queued bag, beyond the
   // stamp queue's fixed 48 (setFrameRecord).
   std::vector<DeferredBag> recorded;
+  Plane recordedFrustum[6];  // the planes the recorded list was culled for
   bool frameRecord = false;
   bool frameRecordEnabled() const;
 #if TYRA_STAPIP_RECORD_VERIFY

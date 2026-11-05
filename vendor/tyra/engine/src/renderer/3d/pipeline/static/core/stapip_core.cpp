@@ -564,14 +564,21 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
   if (!flushingDeferred && frameRecordEnabled() && bag->count > 0 &&
       !telemetryEnabled && bag->info->transformationType == TyraMVP) {
     const M4x4& vp = rendererCore->renderer3D.getViewProj();
+    const Plane* fp = rendererCore->renderer3D.frustumPlanes.getAll();
+    // A new view - or new culling planes under the same view-projection
+    // (an env-probe capture sets its own) - submits what was recorded.
     bool flush = (deferredCount != 0 || !recorded.empty()) &&
-                 !mmi::equal64(deferredViewProj.data, vp.data);
+                 (!mmi::equal64(deferredViewProj.data, vp.data) ||
+                  memcmp(recordedFrustum, fp, sizeof(recordedFrustum)) != 0);
     for (u32 i = 0; !flush && i < deferredCount; ++i)
       flush = deferred[i].bag == bag;
     for (size_t i = 0; !flush && i < recorded.size(); ++i)
       flush = recorded[i].bag == bag;
     if (flush) flushDeferredRun();
-    if (deferredCount == 0 && recorded.empty()) deferredViewProj = vp;
+    if (deferredCount == 0 && recorded.empty()) {
+      deferredViewProj = vp;
+      memcpy(recordedFrustum, fp, sizeof(recordedFrustum));
+    }
     // The stamp queue keeps its order with the recorded bags: move it over.
     for (u32 i = 0; i < deferredCount; ++i) recorded.push_back(deferred[i]);
     deferredCount = 0;
