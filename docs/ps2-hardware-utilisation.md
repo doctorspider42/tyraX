@@ -92,6 +92,43 @@ skinning at ~0.9 ms per 1092-vertex instance
 (docs/dynpip-guard-band-cost.md), so the rebuild only pays in a game with
 several animated characters on screen. No example has that scene.
 
+### Fewer bags: who draws solo, and two batching knobs
+
+A census at the object loop's solo draw (`C:\tx\qp\patch_solocen.py`)
+counted the bags drawn solo in the crate-field drive. Per frame:
+- ~9.5 are **non-physics** objects that static batching leaves solo. The
+  game's own log says eligible 218, solo 30, and 11 multi-part models kept
+  solo because one of their parts had no partner.
+- ~5.4 are awake bodies demoted from their batch.
+- None are sleeping bodies waiting to rejoin.
+
+So the earlier reading that the ~20 stamped solo bags were "woken crates"
+was wrong.
+
+- **Rejoin after 0.5 s instead of 3 s** (arm 4096, `patch_rejoin.py`): solo
+  stamped bags over the window 20 757 / 20 853 -> 20 288 / 20 216, work p50
+  7.27 / 7.28 -> 7.44 / 7.36 ms. No change. Asleep bodies are not what draws
+  solo.
+- **A smaller base grouping cell** (`patch_cell2.py`):
+
+  | cell | objects batched | crossing bags a frame | StaPip ms a frame | misses / 1000 |
+  |---|---:|---:|---:|---:|
+  | 80 (default) | 188 in 49 batches | 13.3-13.8 | 4.40 / 4.48 | 27 / 31 |
+  | 47 | 158 in 36 | 11.1-11.4 | 4.27 / 4.25 (and 4.25 in a second build) | 17 / 18 |
+  | 31 | 145 in 25 | 11.2 | 4.20 / 4.26 | 19 / 23 |
+
+  A smaller cell trades batched members (30 -> 60-73 solo) for fewer
+  batches crossing the frustum, and comes out ~0.15-0.2 ms ahead in this
+  scene. One 47-cell run took a different drive (69.6 stamps a frame, 5.13
+  ms) and is left out. Not shipped: the cell is a default for every
+  project, and the Motor District's 4.6 ms batching win comes from merging
+  sparse props in exactly that 80-unit cell (docs/static-batching.md), which
+  this pass did not re-measure.
+- **Batching the parts of a multi-part model that do have partners** (the 11
+  models kept solo) was not built. Batch membership is per object in eight
+  places (physics demotion, shadows, reflections, the solo path), and the
+  prize is under ~0.15 ms here.
+
 ## What is left, by size of prize
 
 | Project | Measured or bounded prize | Status, blockers |
@@ -99,7 +136,7 @@ several animated characters on screen. No example has that scene.
 | Physics of awake bodies | 82 awake boxes = 8.6 ms (solve 4.1) in the crate field; 10 awake = 1.7 ms | The largest single EE cost measured in vehicle-playground. Owned by the physics work (docs/physics.md). A VU0 micro solver was slower overall. bpRefresh is the next lever. |
 | VU1 clips only what needs it (above) | ≤0.6 ms crate field, ~2.5-3 ms night district (estimate) | Needs a new clip family with a fast accept path, per-package reject and strip windows. Micro memory is the blocker. |
 | Stage-major StaPip | ~0.8 ms a frame crate field (docs/stapip-bag-cost.md) | A rewrite of the core path for ~5 % of the frame. |
-| Fewer bags (batching, instancing of woken bodies) | 20 woken crates ≈ 0.64 ms | Gameplay and batching decision (docs/stapip-bag-cost.md). |
+| Fewer bags (batching coverage, a per-project cell) | ~0.15-0.2 ms crate field (measured above) | The cell default needs a district A/B; woken bodies are only ~5 bags a frame. |
 | Hiding D-misses with the scratchpad (DMA the next bags' heads into SPR) | ≤ about half of the stamp path's ~14 µs of D-miss a bag, ~0.3-0.7 ms | Pointer chasing makes the gather list data-dependent. The earlier SPR prefix was layered on the snapshot path and lost 0.18-0.39 ms (docs/tyrax2-spr-call-runtime-2026-10-04.md). |
 | VU1 skinning | ~0.9 ms per 1092-vertex character | Pays only in a game with several animated characters. |
 | Asynchronous VU0 jobs | Unmeasured | Needs an ownership protocol for VU0 (docs/tyrax2-ee-vu0.md); no large independent vector job is waiting for it. |

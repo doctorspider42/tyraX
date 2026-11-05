@@ -176,11 +176,10 @@ Measured and not kept:
   13.2 -> 17.0, StaPip 4.40 / 4.49 -> 4.80 / 4.96 ms a frame. The cell bound
   in docs/static-batching.md holds.
 
-The one producer where fewer bags is plausible is the solo crates: a woken
-body draws alone at ~29 µs for 12 triangles until it rejoins its batch. That
-is a gameplay and batching decision (how soon bodies rejoin, or drawing awake
-copies of one mesh through `renderInstances`, which has no dynamic light and
-no stamps today), not a submission fix.
+A later census (docs/ps2-hardware-utilisation.md) showed the ~20 stamped solo
+bags are mostly non-physics objects that static batching leaves solo (~9.5 a
+frame) and awake demoted bodies (~5.4); none are sleeping bodies waiting to
+rejoin, so rejoining sooner moved nothing.
 
 ## One stage for every bag at once: the ceiling of a stage-major pipeline
 
