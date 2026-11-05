@@ -206,13 +206,44 @@ and the D-cache misses left are the bag, info, model and cache entry it really
 reads. The other routes did not change in the arm that ran the pass (partial
 bounds 17.6-17.8 µs), so the pass warmed nothing for them.
 
-This measures one stage, and only its EE work. It does not show that the
-prepare and dispatch stages, which write packets, shrink by the same factor.
-For bounds alone, on the ~22 bags a frame that are not stamps, it is
-about 0.35 ms of the 4.3 ms. It is the first measurement that puts the
-per-bag overhead in the structure of the path rather than in the hardware:
-the same calls on the same data cost 4 µs instead of 18-30 µs when their
-code stays in the cache.
+This first measurement shows that the per-bag overhead comes from the
+structure of the path, not from the hardware: the same calls on the same data
+cost 4 µs instead of 18-30 µs when their code stays in the cache.
+
+**The prepare stage, measured the same way.** A second version of the probe
+keeps what the bounds pass produces (the box, the frustum result and the
+object-space planes of every bag, as a stage-major pipeline would have to), and
+then runs prepare for every bag that reached it in the real path: MVP, clip
+planes, packager, texture facts, wrap, light pick, fog and info, and
+`sendObjectData` into a scratch packet. The qbuffer renderer is saved byte for
+byte before that pass and restored after it, so nothing reaches the real
+chain. Two things are left out: `useTexture`, because it uploads (the real
+path's texture buffers are replayed instead), and `ensureProgramSet`, because
+it may upload programs. Physical PS2, two runs, results identical to the
+second digit:
+
+| | bags a frame | µs a bag | I-cache misses a bag | D-cache misses a bag |
+|---|---:|---:|---:|---:|
+| Bounds, one pass, results stored | 64 | 6.00 / 6.01 | 6.9 | 26.2 |
+| Prepare inside the path (partial / whole / direct) | 13.9 / 3.3 / 2.5 | 39.5-40.8 / 35.0-36.3 / 29.8-31.2 | - | - |
+| Prepare, one pass | 19.4-19.6 | **15.64 / 15.67** | 28.5 | 48.3 |
+
+- Prepare drops from ~38 µs a bag (the routes' weighted average) to 15.6,
+  about 2.4 times rather than the bounds stage's 4. Its code does not fit
+  the cache even on its own: `sendObjectData` alone is ~11 KB of the 16 KB
+  I-cache, and 28 instruction misses a bag remain. The data misses (bag,
+  info, texture, light, packet lines) are about half of what is left.
+- The pass flatters the packet writes: it writes the same scratch lines every
+  time, where the real path writes fresh packet memory.
+- Storing the bounds results costs 1.7 µs a bag (4.33 -> 6.0). A real
+  stage-major pipeline pays that too.
+
+Together, for the ~20 bags a frame that are not stamped or culled, the two
+stages would go from about 1.2 ms to about 0.5 ms a frame, out of the 4.3 ms
+StaPip spends here. Dispatch (partial replay classification, runs, packet
+sends: ~78 µs a crossing bag) is the largest stage and was not probed. It
+reads and writes the most memory, so it is the least likely to shrink by the
+same factor.
 
 ## Rig traps
 
@@ -234,7 +265,7 @@ cost), fewer bags crossing the frustum (they cost 1.7x a whole replay),
 fewer packet sends (31-34 a frame at ~22 µs), or a lean path for crossing bags
 the way stamps are one for visible bags. The largest one measured is the
 structure itself: run each stage over every bag before the next stage starts,
-so each stage's code stays in the cache (the bounds stage drops from 18-30
-to 4.3 µs a bag that way, see above). The head stamp for crossing bags was
+so each stage's code stays in the cache (bounds 18-30 -> 4.3-6.0 µs a bag,
+prepare ~38 -> 15.6 µs a bag, see above; dispatch not probed). The head stamp for crossing bags was
 tried and removed (docs/stapip-stamps.md), because the replay read about as
 much memory as the ordinary path.
