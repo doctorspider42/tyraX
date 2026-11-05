@@ -42,20 +42,47 @@ with their docs, losers are reverted and written up here.
 What limits each scene's frame, and how much of the dominant subsystem's time
 is spent waiting for memory. Updated after every round.
 
-| # | scene | work p50 / p95 | limited by | dominant EE subsystem | misses in it | meets the goal |
-|---|---|---|---|---|---|---|
-| 1 | crate drive | 6.70-6.99 / 12.0 ms (2.11.0, BC44) | EE; the GPU never makes the EE wait | StaPip 4.0-4.1 ms | 86-100 % per route (docs/stapip-bag-cost.md) | no |
-| 2 | Motor District heavy, night / day | to measure (1.174: heavy 12.3 ms) | EE (VU1 idle 44-51 %, 1.176.3) | StaPip, crossing bags 316-378 µs | to measure | no |
-| 3 | physics: 82 awake / pile after a crash | awake resting 0.3 ms physics (held); really awake ~7.5 ms | EE | physics, six stages of similar size, IPC ~0.5 | to measure | no |
-| 4 | two-players, gameplay | 3.16 ms average (TP2) | vsync (work << 20 ms) | - | to measure | to confirm |
-| 5 | showcase | to measure (was 20 ms GPU-bound; 50 fps after 1.177.14) | GPU? | - | to measure | to confirm |
+All rows below are physical-PS2 runs of a PMU build (the probe adds ~2.5 ms
+of work, so read the ratios, not the absolute milliseconds). "Misses" is the
+share of the subsystem's time that its I and D misses would cost, given as a
+range: 20 cycles a miss (lower bound) to 50 / 42 cycles (upper bound, the
+earlier calibration). The upper bound overcounts. Misses overlap in real code,
+and every uncached access counts as a D miss: the vsync wait's register poll
+alone reads as 100 %+.
 
-## Round 0: baseline
+| # | scene | work mean / p95 | limited by | GPU timeline | EE waits on GPU | dominant EE subsystem | misses in it | meets the goal |
+|---|---|---|---|---|---|---|---|---|
+| 1 | crate drive | 6.70-6.99 / 12.0 ms (lean, BC44) | EE | - | ~0 (max 0.04 ms) | StaPip 4.0-4.1 ms | 86-100 % per route (docs/stapip-bag-cost.md) | no |
+| 2 | Motor District heavy spot, night / day | 11.6 / 13.8 ms parked, 11.0-11.3 / 13.5-13.7 driving (PMU build, R0F) | EE (60 fps held, ~5 ms of vsync slack) | VU1 30-34 %, GIF 13 %, idle 50-52 % parked; idle 66-67 % driving | 0.005 ms | StaPip `core` 4.4-6.3 ms; game scene code 1.9-2.3 ms | core 40-97 %; scene code 33-77 %; whole frame ~80 % (upper) | no |
+| 3 | physics: 82 awake / pile after a crash | (R1-B arms queued) | EE | | | physics | | no |
+| 4 | two-players, split screen, walking (R0U) | 5.6 / 7.3 ms of a 20 ms PAL frame | vsync: neither the EE (28 % busy) nor the GPU (78-83 % idle) | VU1 16-18 %, idle 78-83 % | 0.01-0.02 ms | StaPip `core` 3.2 ms | 39-89 % | the hardware's refresh limits it; see the note |
+| 5 | showcase (R0X) | 19.1 / 19.1 ms | **GPU** | VU1 55 % + kick 8 %, GIF 34 %, idle 1.5 % | **5.5-5.9 ms** (q.waitFor) | - | - | **yes, (a)** |
 
-The table above is assembled from earlier measurements on older builds. Round
-0 re-measures every scene on the current branch: whole-frame work, the
-`--gputl` GPU timeline (VU1 / GIF / VIF1 busy), the EE's waits on the GPU,
-and PMU misses per dominant subsystem.
+Note on two-players: the frame is paced by the display (50 Hz). Neither (a)
+nor (b) describes it, because nothing in the PS2 is the bottleneck. Its EE
+work is 5.6 ms, and 3.2 ms of that is StaPip at the same miss share as
+everywhere else, so the StaPip rebuild applies to it too.
+
+## Round 0: baseline (2026-11-05/06)
+
+Rig: `tools/ps2rig` (`arm.sh`; `make_arm.py --pmu --gputl --daynightab` for the
+district, `make_engine_probe.py --gpuwait --gputl [--twowalk]` for the other
+examples), summary `tools/ps2rig/scene_sum.py`. Same branch, after the PR #311
+merge. Arms `C:	xpnR0F` (district), `vpnR0U` (two-players), `vpnR0X`
+(showcase).
+
+What it shows:
+- **Only the showcase is GPU-bound.** Everywhere else the EE never waits for
+  the GPU (0.005-0.02 ms a frame) and the GPU is idle half the frame or more.
+- **The EE's time is StaPip, and StaPip waits for memory.** In every scene
+  the `core` scope (`StaPipCore::renderNow`) is the largest EE subsystem, at
+  40 % of its time in misses by the lowest price and ~90 % by the
+  calibrated one. That is the same finding as docs/stapip-bag-cost.md, now on
+  three more scenes.
+- **The calibration probe (`CLDCAL`) prices an isolated miss higher, not
+  lower:** I ~83 cycles, D load ~74, D store ~105 (cold 128 KB walks). So the
+  >100 % upper bounds come from overlap and uncached accesses, not from cheap
+  misses.
 
 ## Round 1 (2026-11-05)
 

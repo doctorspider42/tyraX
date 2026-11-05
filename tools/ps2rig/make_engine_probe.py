@@ -68,6 +68,16 @@ if '--gpuwait' in sys.argv:
     edit(p, '  while (tail - head >= kRingDepth) advanceIfIdle();\n',
          '  if (tail - head >= kRingDepth) { Cld::S cldR("q.ringfull");\n'
          '  while (tail - head >= kRingDepth) advanceIfIdle(); }\n')
+    # The pipelined present: r.gstail = waiting for the previous frame's GS
+    # tail (GPU-bound time), r.vsync = the pacing wait. Polling a hardware
+    # register counts as a D-cache miss, so the vsync wait's misses are not
+    # memory stalls of the frame's work.
+    p = eng / 'src/renderer/core/renderer_core.cpp'
+    include(p)
+    edit(p, '  sync.waitAndClear();\n',
+         '  { Cld::S cldGt("r.gstail"); sync.waitAndClear(); }\n')
+    edit(p, '  if (gs.getFrameBufferCount() < 3 && isFrameLimitOn) graph_wait_vsync();\n',
+         '  { Cld::S cldVs("r.vsync");\n  if (gs.getFrameBufferCount() < 3 && isFrameLimitOn) graph_wait_vsync(); }\n')
 # --gputl: the whole-frame VU1 / GIF / VIF1 sampler (CLDGT rows).
 if '--gputl' in sys.argv:
     sys.path.insert(0, str(rig))

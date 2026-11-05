@@ -946,6 +946,21 @@ if '--objcensus' in sys.argv:
     import objcensus
     objcensus.apply(proj, edit)
 
+# --gpuwait: the EE's waits on the GPU and the present split out (same
+# scopes as make_engine_probe.py --gpuwait; make_arm.py already has q.waitFor).
+if '--gpuwait' in sys.argv:
+    p = eng / 'src/renderer/core/paths/path1/vif1_queue.cpp'
+    edit(p, 'void Vif1Queue::drain() {',
+         'void Vif1Queue::drain() {\n  Cld::S cldD("q.drain");')
+    edit(p, '  while (tail - head >= kRingDepth) advanceIfIdle();\n',
+         '  if (tail - head >= kRingDepth) { Cld::S cldR("q.ringfull");\n'
+         '  while (tail - head >= kRingDepth) advanceIfIdle(); }\n')
+    p = eng / 'src/renderer/core/renderer_core.cpp'; include(p)
+    edit(p, '  sync.waitAndClear();\n',
+         '  { Cld::S cldGt("r.gstail"); sync.waitAndClear(); }\n')
+    edit(p, '  if (gs.getFrameBufferCount() < 3 && isFrameLimitOn) graph_wait_vsync();\n',
+         '  { Cld::S cldVs("r.vsync");\n  if (gs.getFrameBufferCount() < 3 && isFrameLimitOn) graph_wait_vsync(); }\n')
+
 if '--gputl' in sys.argv:
     sys.path.insert(0, str(rig))
     import gputl
