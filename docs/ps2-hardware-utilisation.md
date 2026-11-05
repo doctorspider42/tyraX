@@ -163,6 +163,22 @@ docs/physics.md), this closes the easy rearrangements of the passes. What a
 pile of awake bodies costs is spread over six stages of comparable size, not
 concentrated in the solver.
 
+### Physics: holding whole resting islands does not pay on the crate drive
+
+A body counts towards being held (`PHYS_HOLD_AFTER`) only when no other body
+touches it, so a settled pile pays the full solve until it falls asleep. A
+variant was built (`PHYS_HOLD_ISLANDS`, branch `claude/physics-solver-lanes`,
+local only): a touched body may also be held when every body of its island
+rests in that frame, so a pile holds as one.
+
+On the user's crate-field project with the recorded drive (rig `PH1`, same ELF
+toggled at boot, two runs each), physics a frame was 1.306 / 1.277 ms with
+it against 1.240 / 1.245 ms without. Work p50 was 7.62 / 7.43 ms against
+7.57 / 7.53 ms, and missed frames 31 / 40 against 32 / 39 (debug build).
+No gain: the piles the drive leaves are rarely at rest as a whole before
+they sleep or leave the view (bodies out of sight already sleep after 0.2 s).
+Not kept.
+
 ## What is left, by size of prize
 
 | Project | Measured or bounded prize | Status, blockers |
