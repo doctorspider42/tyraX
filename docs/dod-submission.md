@@ -101,9 +101,21 @@ before recording is turned on for it.
 
 | phase | what | measured result | status |
 |---|---|---|---|
-| 1a | Recording behind a flag, flushed bag by bag (same order, same code), plus RECORDVERIFY. No speed-up expected: it proves the contract | - | next |
-| 1b | Fix every producer RECORDVERIFY names; recording on by default | - | |
-| 2 | Stage-major flush of the frame list (bounds, prepare, dispatch as passes); ceiling ~0.8 ms crate field | - | |
+| 1a | Recording behind a flag, flushed bag by bag (same order, same code), plus RECORDVERIFY | 140 000 draws recorded, 0 changed; but `endSubmissionBatch` flushed ~13 times a frame (~11 bags a run) | done |
+| 1b | Batch begin/end as markers in the list; foreign VIF1/GIF work (Vif1Queue entry points, `frameSendPacket`, frame begin/flush/end) flushes the list first | runs ~48 bags (max 141), ~5 flushes a frame. **Work p50 7.72 / 7.68 -> 7.20 / 7.29 ms, missed frames 44 / 28 -> 16 / 16 of 1000, StaPip 4.51 -> 4.29 ms** (crate drive, same ELF, 2 runs) | measured; producers to fix |
+| 1c | Fix every producer RECORDVERIFY names; recording on by default | census: one 1152-vertex bag changed 64 times after recording, renderer state (fog/spot/lights/frustum) changed for 256 draws (of ~300 000) | in progress |
+| 2a | Bounds stage as one pass over the recorded list | StaPip 4.29 -> 4.05 ms, but the pass sits outside that counter: work p50 7.36 vs 7.25 ms with recording alone (+0.1) | no gain, off |
+| 2 | Stage-major prepare / dispatch passes; ceiling ~0.8 ms crate field | - | |
+
+The first 1b run wedged the console (`freepad: DMA Busy`). Bags recorded outside
+a submission batch could still be queued when `endRecordingFrame` kicked the
+frame, because StaPip's own `onFrameEnd` flush comes after it. The barrier in
+`beginRecordingFrame` / `flushRecording` / `endRecordingFrame` fixed it: every
+later run completed.
+
+Why recording alone pays: the game's object loop and StaPip no longer
+alternate bag by bag. The game's code runs once through, then StaPip runs its
+recorded draws in long runs, so neither evicts the other between two bags.
 | 3 | Hot records: per-frame stages read compact persistent records, not bag/info/model/cacher/baked tables | - | |
 | 4 | Scratchpad streaming of hot and draw records by DMA, double-buffered | - | |
 | 5 | Emission from records (stamps as the general form) | - | |
