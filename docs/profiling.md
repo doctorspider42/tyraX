@@ -857,6 +857,28 @@ change - the cost follows the bytes, not the calls), a byte budget per frame
 when the last wait was long enough (worse - a write's cost varies too much to
 predict).
 
+### A debug build is not the frame a player gets
+
+Even with the log muted, a debug build does more work every frame than a
+release one: the devkit hooks, the frame-profiler bookkeeping and, when
+`showProfiler` is on, the on-screen profiler. Measured on a physical PS2,
+2026-11-05, the same scripted drive and the same code, two runs each (the
+release copies also had `showProfiler` off):
+
+| | debug | release |
+|---|---|---|
+| vehicle playground, lost frames in 1 000 | 6, 5 | 3, 3 |
+| three-crate-field stress scene, lost frames | 57, 69 | 7, 7 |
+| stress scene: update before the frame | 5.69-6.09 ms | 5.29-5.31 ms |
+| stress scene: frame recording | 8.99-9.04 ms | 8.41-8.42 ms |
+| stress scene: physics | 2.26-2.67 ms | 2.03-2.05 ms |
+
+About 1.1-1.4 ms a frame - and in a scene whose heavy frames sit at 15.5-16
+ms that is the whole difference between 60 lost frames and 7. So: find costs
+in a debug build (it has the probes), but judge "does it hold 60" in a
+release build, and when a debug run loses frames, check how close to the
+budget they were before chasing them.
+
 ### What the rig established about BLSS (2026-08-08 .. 2026-08-09, REAL HARDWARE)
 
 Most of this rig's history was spent pricing the neural reconstruction BLSS used
