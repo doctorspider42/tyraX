@@ -954,3 +954,37 @@ about unchanged (-10 %). At the fitted prices (pI 51, pD 16) physics spends
 physics is 1.2-1.6 ms of this frame. The frame's dominant subsystem is
 StaPip, the same as scene 1, so the pile does not open a physics defect of
 its own above 0.5 ms.
+
+## Round 8 results: R8-A stamp record (`vpnR8A1`, PS2)
+
+**Verify** (mask 0x800000): 1 037 429 compared stamps, `verdict=0`,
+`recomp=0`, but `bug=3 790` (0.37 %). All of them are camera-contract
+misses: the MVP words (2 568) and the head's plane cache (1 222) changed
+while the camera epoch did not. Some view writer does not bump the epoch.
+This must be fixed before a port.
+
+**Timing**, ALT (0x1400000), 2 runs, same ELF, Motor District:
+
+| state | arm | core | work mean / p95 | stamp µs | stamp I / D misses |
+|---|---|---:|---|---:|---|
+| parked | control | 6.15 / 6.16 | 11.96 / 14.10 | 30.4 | 71 / 116 |
+| parked | records | 5.21 / 5.22 | 11.02 / 12.97 | **20.0** | 37 / 95 |
+| drive | control | 4.64 / 4.63 | 10.94 / 13.35 | 31.9 | 83 / 119 |
+| drive | records | 4.60 / 4.63 | 10.93 / 13.25 | 32.3-32.8 | 81-83 / 125 |
+
+- **Parked: -0.94 ms of core and of work, -1.1 ms p95, both runs.** 86.9 of
+  89 stamps a frame took the fast path. That is the largest single StaPip
+  saving in this loop.
+- **Driving: nothing.** The camera epoch moves 2.6 times a frame (the main
+  view plus the env/aux passes). 41 stamps a frame took the camera-only
+  path, 8 the full path and 6.7 were rejected. A camera-only replay costs
+  32 µs, as much as the full path. So it re-does or re-touches much more
+  than the frustum, MVP and fog, or the write-back of recomputed words into
+  the head costs what the skipped stages saved.
+
+**Verdict.** The benchmark is a drive, so R8-A does not pay yet. Next
+(R8-B):
+- fix the camera contract;
+- find what a camera-only replay still pays;
+- key the visibility test so a moving camera stays cheap: a bag box against
+  the planes, without the head's plane rebuild per stamp.
