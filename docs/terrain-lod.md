@@ -75,6 +75,11 @@ the frame, a tile's new stream (and its ground-shadow pass) was baked by its
 first draw, so the build and the bake landed in the recording together. The
 call in `renderScene` stays for the frames without a settle (an open menu).
 
+Since 2.12.1 the settle spreads that work over frames to a time budget, one
+chunk at a time, drawn only when complete ([terrain.md](terrain.md), "Built
+to a time budget"). The tile under the player is still rebuilt at once if
+its detail is stale.
+
 The settle runs before the game has selected the static pipeline in its first
 frame, when the pipeline's packet buffers do not exist yet; `prebakeBag` (and
 `prepareStaticGeometry`) then decline (`StaPipQBufferRenderer::isAllocated()`)

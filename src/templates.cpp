@@ -1326,6 +1326,44 @@ class TerrainGame : public Tyra::Game {
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
   int terrainChunksX = 0, terrainChunksZ = 0;
+  // Terrain chunks built to a time budget, ahead of need (docs/terrain.md,
+  // "Built to a time budget"; TERRAIN_CHUNK_BUDGET_US, 0 = off). One chunk at
+  // a time is built into a FREE pool slot that is not drawn (cx stays -1), a
+  // few quad rows a frame, its bags pre-baked one a frame, and only then does
+  // it go live: mapped, and the slot it replaces (a rebuild) freed. The old
+  // version is drawn until that moment, so nothing ever shows half-built.
+  struct TerrainBuildJob {
+    int slot = -1;        // the pool slot being filled; -1 = no job
+    int cx = -1, cz = -1;  // the chunk it becomes
+    int replaces = -1;    // the slot drawing its current version; -1 = new chunk
+    int stage = 0;        // 0 picked, 1 rows, 2 tail, 3 pre-bakes
+    int row = 0;          // next quad row (heightmap z)
+    int bake = 0;         // next bag to pre-bake
+    size_t runStart = 0;  // the strip packer's open run, carried across rows
+    u32 rowTicks = 0;     // the last row's cost: the next row's prediction
+    bool textured = false, foldOn = false, strips = false;
+  };
+  TerrainBuildJob terrainJob;
+  // The build rects of the last streaming pass (the view rects widened by the
+  // look-ahead), in chunk indices; the whole map when it is resident.
+  int terrainBuildRect[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+  int terrainBuildRectCount = 0;
+  // Look-ahead: the first focus' travel over TERRAIN_CHUNK_LEAD_FRAMES frames,
+  // clamped to one chunk per axis (the pool is sized for that one extra row).
+  float terrainLeadX = 0.0F, terrainLeadZ = 0.0F;
+  float terrainPrevFocusX = 0.0F, terrainPrevFocusZ = 0.0F;
+  bool terrainPrevFocusValid = false;
+  // The ahead pre-bake of a resident map, one bag at a time.
+  int terrainAheadSlot = -1, terrainAheadBag = 0;
+  bool terrainChunkWork(TerrainBuildJob& job, u32 t0, u32 budgetT);
+  bool terrainChunkStale(const TerrainChunk& ch) const;
+  Tyra::StaPipBag* terrainChunkBagAt(TerrainChunk& ch, int i);
+  bool terrainBakeBudgeted(Tyra::StaPipBag* b, u32 t0, u32 budgetT);
+  bool terrainJobValid() const;
+  bool terrainPickJob();
+  bool terrainJobAdvance(u32 t0, u32 budgetT);
+  void terrainJobGoLive();
+  void settleTerrainChunksBudgeted();
   std::vector<std::string> groundShadowPins;
   void prepareGroundShadowTextures();
 
@@ -3469,6 +3507,44 @@ class TerrainGame : public Tyra::Game {
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
   int terrainChunksX = 0, terrainChunksZ = 0;
+  // Terrain chunks built to a time budget, ahead of need (docs/terrain.md,
+  // "Built to a time budget"; TERRAIN_CHUNK_BUDGET_US, 0 = off). One chunk at
+  // a time is built into a FREE pool slot that is not drawn (cx stays -1), a
+  // few quad rows a frame, its bags pre-baked one a frame, and only then does
+  // it go live: mapped, and the slot it replaces (a rebuild) freed. The old
+  // version is drawn until that moment, so nothing ever shows half-built.
+  struct TerrainBuildJob {
+    int slot = -1;        // the pool slot being filled; -1 = no job
+    int cx = -1, cz = -1;  // the chunk it becomes
+    int replaces = -1;    // the slot drawing its current version; -1 = new chunk
+    int stage = 0;        // 0 picked, 1 rows, 2 tail, 3 pre-bakes
+    int row = 0;          // next quad row (heightmap z)
+    int bake = 0;         // next bag to pre-bake
+    size_t runStart = 0;  // the strip packer's open run, carried across rows
+    u32 rowTicks = 0;     // the last row's cost: the next row's prediction
+    bool textured = false, foldOn = false, strips = false;
+  };
+  TerrainBuildJob terrainJob;
+  // The build rects of the last streaming pass (the view rects widened by the
+  // look-ahead), in chunk indices; the whole map when it is resident.
+  int terrainBuildRect[2][4] = {{0, 0, 0, 0}, {0, 0, 0, 0}};
+  int terrainBuildRectCount = 0;
+  // Look-ahead: the first focus' travel over TERRAIN_CHUNK_LEAD_FRAMES frames,
+  // clamped to one chunk per axis (the pool is sized for that one extra row).
+  float terrainLeadX = 0.0F, terrainLeadZ = 0.0F;
+  float terrainPrevFocusX = 0.0F, terrainPrevFocusZ = 0.0F;
+  bool terrainPrevFocusValid = false;
+  // The ahead pre-bake of a resident map, one bag at a time.
+  int terrainAheadSlot = -1, terrainAheadBag = 0;
+  bool terrainChunkWork(TerrainBuildJob& job, u32 t0, u32 budgetT);
+  bool terrainChunkStale(const TerrainChunk& ch) const;
+  Tyra::StaPipBag* terrainChunkBagAt(TerrainChunk& ch, int i);
+  bool terrainBakeBudgeted(Tyra::StaPipBag* b, u32 t0, u32 budgetT);
+  bool terrainJobValid() const;
+  bool terrainPickJob();
+  bool terrainJobAdvance(u32 t0, u32 budgetT);
+  void terrainJobGoLive();
+  void settleTerrainChunksBudgeted();
   std::vector<std::string> groundShadowPins;
   void prepareGroundShadowTextures();
 

@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.12.1
+
+- Fewer dropped frames while driving fast over terrain on the PS2: a terrain tile whose detail changes is now rebuilt over a few frames, ahead of the camera, instead of in one go. A frame spends at most about 0.7 ms on it, and the old tile stays on screen until the new one is complete, so nothing appears half-built. A missing tile in view, or a stale one under the camera, is still finished at once. Rebuild games to use it.
+
 ## 2.12.0
 
 - Faster drawing of static scenery on the PS2: an object the renderer has drawn before remembers what it worked out for it last time (where it is on screen, its texture, its light, its fog) and only works out again what really changed since, and all such objects of a frame are drawn by one short, tight loop. Measured in the Motor District on a PS2: 1.7-1.8 ms less work a frame with the car parked and about 0.4 ms less while driving. Rebuild games to use it.

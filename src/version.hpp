@@ -5619,7 +5619,13 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 12
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
+// 2.12.1: terrain chunks built ahead of need and to a per-frame time budget
+// (docs/terrain.md, "Built to a time budget"; architecture loop R9-B).
+// TERRAIN_CHUNK_BUDGET_US (700) caps a frame's chunk geometry + pre-bake; a
+// job fills an undrawn spare slot row by row, pre-bakes bag by bag and goes
+// live only when complete. Holes in view and stale detail under the camera
+// are forced. 0 = the old whole-chunk settle. Generated game code, PATCH.
 // 2.12.0: the StaPip stamp record + stamp pass (docs/dod-submission.md, "Phase
 // 3, first slice"; TYRA_STAPIP_STAMP_PASS, verify TYRA_STAPIP_STAMP_VERIFY).
 // A stamp keeps the answers its replay derives (visibility, MVP, fog, texture
