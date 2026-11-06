@@ -688,3 +688,33 @@ the per-draw state it gathers to patch: the camera, the light, the texture
 residency, the arena entry. That memory is scattered across the engine. The
 next lever is the layout of that state, phase 3 of `docs/dod-submission.md`
 (hot records), and not another pass over the stamp's code.
+
+## Round 5 results: physics R3 timing, the 2.11.1 port, R1-A (PS2, queue r7)
+
+All 8 deploys ran. Physics in `R3B_1` (72 awake crates, I-miss PMU, 23
+windows a run):
+
+| arm | runs | world | pairs | bpRef | physics total |
+|---|---|---:|---:|---:|---:|
+| control (0) | 2 | 1.87 / 1.87 | 1.21 / 1.21 | 0.69 / 0.69 | **7.26 / 7.26** |
+| R3-B pair cache (32) | 1 | 1.87 | 0.26 | 0.69 | **6.31** (-0.94) |
+| R3-A + R3-B (38) | 2 | 0.35 / 0.35 | 0.54 / 0.54 | 0.27 / 0.27 | **5.15 / 5.15** (-2.11) |
+
+- **R3-B: winner.** It saves -0.94 ms and was exact in the check run
+  (88 472 body checks, 0 mismatches). It goes to the port.
+- **R3-A: ceiling about -1.2 ms on top of R3-B**, but its contact count
+  differed on 0.8 % of hits. It waits for the count-stable rule (R5-B part
+  2) before it can ship.
+
+With both, the 72 awake crates cost 5.15 ms instead of 7.76 ms at the start
+of the loop.
+
+**2.11.1 on the console (`R2B_L1`, generated from the template):** physics
+7.246 ms (set-up 0.126, passes 2.398). This matches the fused probe arm's
+7.242, so the port is confirmed.
+
+**R1-A verdict: loser.** In `RV1G` the whole route took StaPip from 3.96 to
+3.82 ms (-0.14) and work p50 from 6.79 to 6.72. The first run had shown
+-0.26. EE waits on the GPU were 0 in both arms, so VU1 absorbing the clip
+work cost no EE time, and saved little. That is under the bar, so it is not
+ported. The `TYRAX_VU_CLIP_*` knobs stay off.
