@@ -1091,3 +1091,37 @@ went through the pass at 20.3 µs (35 I / 97 D).
   it. The pass then reads only the record, the stamp head and the arena
   REF.
 - **Pays when** driving core drops ≥ 0.5 ms with V clean.
+
+### R8-D: one run per flush, per-class revision (`vpnR8D1`, PS2)
+
+**Verify:** all clean.
+- R8V: 959 767 compared, bug 0.
+- R8CV: bad 0, order 0, exactly-once 0.
+- R8DV: 6 208 in-pass culls, all confirmed (cullBad 0). 558 798 revision
+  claims, qBug 0.
+
+The pass now runs once per flush (1.0-1.4 runs a frame, max 89-91 draws).
+
+Timing, ALT, 2 runs, same ELF:
+
+| state | arm | core | work mean / p95 |
+|---|---|---:|---|
+| parked | control | 6.49 / 6.48 | 12.82 / 15.55, 12.61 / 14.72 |
+| parked | R8-D | 5.13 / 5.05 | 11.13 / 13.07, 10.85 / 12.79 |
+| drive | control | 4.74 / 4.80 | 11.58 / 14.55, 11.46 / 14.04 |
+| drive | R8-D | 4.57 / 4.64 | 11.15 / 13.93, 11.08 / 13.46 |
+
+- **Parked:** work -1.7 / -1.8 ms, p95 -2.5 / -1.9.
+- **Driving:** core -0.16 / -0.17, work **-0.43 / -0.38**, p95 -0.6.
+  Work falls more than core: the code outside StaPip runs with a less
+  polluted I-cache.
+
+The cost left is the stamp's D side.
+- **Parked:** a pass stamp costs 20.9 µs, 36 I / 99 D.
+- **Driving:** 29.6 µs, 65 I / 125 D.
+
+99 D misses is far more than the lines the fast path should touch: the bag
+line, the record, the stamp head (4 lines), the model line, the entry, the
+texture slot and the packet destination. That is ~15-20. The next question
+(R8-E) is what the other ~80 are: uncached packet stores counted as misses,
+the queue/arena bookkeeping, or the head copy source spread over lines.
