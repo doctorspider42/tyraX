@@ -1125,3 +1125,57 @@ line, the record, the stamp head (4 lines), the model line, the entry, the
 texture slot and the packet destination. That is ~15-20. The next question
 (R8-E) is what the other ~80 are: uncached packet stores counted as misses,
 the queue/arena bookkeeping, or the head copy source spread over lines.
+
+### R8-E: where a pass stamp's misses go (`vpnR8E1`, PS2)
+
+**Verify:** clean (R8V / R8CV / R8DV 0). XS span memo `spanBug=0`.
+
+**X (narrower prefetch, span memo, lq/sq head copy): no gain.** Same ELF:
+core 5.14 vs 5.15 parked, 4.59 vs 4.62 driving. Not ported.
+
+**Laps** (parked, un-lapped R8-D pass stamp = 17.6 µs, 31 I / 83 D):
+
+| stage | D a stamp | share | | stage | D a stamp | share |
+|---|---:|---:|---|---|---:|---:|
+| facts | 12.1 | 15 % | | book | 4.5 | 6 % |
+| state | 10.6 | 13 % | | model | 4.5 | 6 % |
+| dst (packet) | 7.6 | 10 % | | slot | 3.7 | 5 % |
+| src (head) | 5.2 | 7 % | | batch | 3.4 | 4 % |
+| rec | 4.9 | 6 % | | flush chain | ~11 | 14 % |
+
+The rest are ≤ 3 % each.
+
+What this says:
+- The packet is not written uncached.
+- `pref` costs more than it saves on the EE (CLDCAL `copy_lqsq_pref` 15.4 k cycles vs 12.5 k without).
+- The remaining misses are again spread evenly. **The stamp is at ~18 µs
+  parked, and the next ~20 % would need the producer facts and the
+  renderer state out of the path entirely.** That is a per-bag revision
+  covering object parts too, and renderer state resolved per flush.
+
+**The district's StaPip after R8-D, parked:**
+
+| route | bags a frame | µs a bag | ms a frame |
+|---|---:|---:|---:|
+| stamps | 89 | 17.6 | 1.57 |
+| partial | 8 | 178 | 1.42 |
+| strip | 6 | 188 | 1.13 |
+| whole replay | 5 | 99 | 0.49 |
+| direct | 1 | 142 | 0.14 |
+
+**Crossing bags (partial + strip, 2.5 ms) are now the largest StaPip cost,
+not stamps.**
+
+### R8-D is a winner: port it
+
+R8-D took parked work down 1.7-1.8 ms and driving work 0.38-0.43 ms, with
+p95 down 0.6-2.5 ms. Verify was clean in three runs: 2.9 M stamps, the
+order checks and the revision contract.
+
+**Ported to the engine (next commit):**
+- the epochs;
+- the stamp record;
+- the stamp pass in the frame recorder;
+- the per-class revision for static batches, terrain and road chunks.
+
+The verify switch stays as a compile-time engine define.
