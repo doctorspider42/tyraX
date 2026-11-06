@@ -1364,3 +1364,31 @@ path's emitted words) on the district and on the benchmark.
 - Expected: 180 -> 80-110 µs a crossing bag, -1.2..-1.8 ms on f381/382.
 
 **Pays when** crossing-bag time drops ≥ 0.5 ms a frame with verify clean.
+
+### R11-A results (PS2), pending a verify question
+
+**Timing, same ELF.**
+
+District (ALT, 2 runs):
+
+| state | control crossing µs a bag | pass crossing µs a bag | work mean | p95 |
+|---|---:|---:|---|---|
+| parked | 214 | 127 | 11.00 -> 10.32 | 12.91 -> 11.64 |
+| drive | 201 | 137 | 11.00 -> 10.00 | 13.25 -> 12.18 |
+
+Benchmark (release crate-field drive, alternating deploys, 2 runs each):
+
+| arm | missed of 1 000 | work p50 | p95 |
+|---|---|---|---|
+| R11 pass | **0 / 0** | 5.60 / 5.83 | 10.22 / 10.06 |
+| control | 3 / 4 | 6.60 / 6.59 | 11.24 / 11.26 |
+
+**Verify is NOT clean yet.**
+- Clean: classification (`clsBad 0`), heads (`headBad 0`), lengths
+  (`lenBad 0`), verdicts, order and exactly-once.
+- Not clean: `runsBad` 115 267 of 157 123 compared draws (district) and
+  26 051 of 52 817 (benchmark). The words of the emitted runs differ.
+
+Until it is known whether that is the GPU receiving different data or the
+dry copy producing address-dependent words, R11-A is not a winner. Under
+diagnosis.
