@@ -395,3 +395,25 @@ The arm also missed 9x more frames (the record build stalls). Reverted:
 the arm lived only in the rig engine copy, and nothing landed in the repo.
 Dead end: a stamp's cost is its output, not its inputs, so making the
 validation cheaper cannot pay.
+
+## Round 3 (2026-11-06)
+
+### R3-A: physics instructions per awake body
+
+**Hypothesis.** With misses at ~25 % (R2-0), physics on 72 awake crates is
+still 7.24 ms: 1.23 M instructions a frame, ~17 k per body. Contact
+generation per crate is a SAT box test plus a clipped face patch against a
+few neighbours and the terrain. A rough count says that needs ~3-5 k
+instructions. The gap would come from work done per frame that only
+changes when the pose changes: `world` (1.81 ms, terrain 0.78 inside)
+re-collides resting crates with the static world every frame, `prep` /
+`setup` rebuild 880 B `RbStep` records, and `bpRefresh` (0.71 ms) re-sorts
+bodies that did not move.
+
+**Ceiling first.** A probe arm skips the static-world query (`world`) for a
+body whose pose moved less than a tolerance since last frame and reuses
+last frame's world contacts. Same ELF, live vs probe. The pass is the time
+of the `world` + `bpRefresh` stages that goes away.
+
+**Pays when** physics in `R2B_L1`'s scene drops ≥ 0.5 ms and the contacts
+reused stay within tolerance of the recomputed ones (check arm).
