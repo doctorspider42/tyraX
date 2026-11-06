@@ -798,3 +798,14 @@ pick, spot rebuild, template patch, packet write, queue append. It reports
 I and D misses and cycles per stage per stamp, district parked. Decides the
 next rebuild: hot records, scratchpad staging, or a different packet
 destination.
+
+### The 2.11.3 port (R3-A) on the console
+
+A verify build (`R3Q_V`, `TYRA_PHYS_WORLD_REUSE_VERIFY 1`, with the 2.11.2
+pair cache) found `WORLDREUSE countMismatch=0` over 71 120 reuse checks out
+of 83 672 tries. The reuse rate is 85 % in this build: the port invalidates
+more than the probe did. Max carried point diff 4e-6, max depth diff 2.4e-7.
+
+The timing build (`R3Q_L`) wedged on its first deploy. It hung while
+loading, the console's usual wedge after ~19 resets since the last power
+cycle. Timing is owed.
