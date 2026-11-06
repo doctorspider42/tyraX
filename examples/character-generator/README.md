@@ -35,7 +35,7 @@ Clear the node's *Menu* and you get the built-in screen instead.
 ### Night Warden
 
 From **Hero (man)**, press **Left** once on **CHARACTER** to select the warden.
-Her oilskin coat, belt radio, gloves, work boots and asymmetrical bob were built
+Her oilskin coat, belt radio, gloves, work boots and low chignon were built
 for this example. The head and facial texture are original. The Blender source
 contains the mesh, editable UVs, packed images and the 50-bone character rig.
 The exported GLB includes all ten movement clips.
@@ -45,11 +45,13 @@ The exported GLB includes all ten movement clips.
 
 The 256 × 256 coat texture came from painting a guide made from its unwrapped
 front, back and sleeve panels with ImageGen. The placket and storm flap sit
-in the texture. The silhouette, collar and radio are geometry. The face, hair
-base, denim and leather share a 512 × 512 atlas. The radio and outer hair
-strands each have a 128 × 128 texture.
+in the texture. The silhouette, collar and radio are geometry. The open collar reveals a shaped throat and collarbone area. Extra loops around
+the sleeve caps blend upper-arm motion into the shoulders. The radio strap
+uses the coat’s skin weights where it crosses the clavicle. The face, neck,
+denim and leather share a 512 × 512 atlas. The swept hair and coiled bun use
+a 256 × 256 strand texture, and the radio uses a 128 × 128 texture.
 
-![Night Warden from the front and back with face and radio details](../../docs/img/night-warden-study.jpg)
+![Night Warden from the front and back with shoulder and hair details](../../docs/img/night-warden-study.jpg)
 
 ![Night Warden selected in the Character Creator in PCSX2](../../docs/img/night-warden-creator.png)
 
