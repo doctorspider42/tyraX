@@ -2697,12 +2697,21 @@ class TerrainGame : public Tyra::Game {
     bool stale = false;      // key moved on while moving: box not rebuilt yet
     bool present = false;    // what the last commit was handed for it
     bool moving = false;
+    bool physics = false;    // data.physics when last visited (bpVersion)
     unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
   };
   mutable Tyra::BroadPhase broadPhase;
   mutable Tyra::WorldBroadPhase worldBroadPhase;
   mutable std::vector<BroadPhaseCache> bpCache;
   mutable unsigned bpFrame = ~0u, bpGen = ~0u;
+  // The broad phase's version (docs/physics.md, "The pair-candidate cache"):
+  // bumped by broadPhaseRefresh whenever what a query of a NOT-moving entry
+  // returns can change - the object table reset, a promotion into the moving
+  // index, a rebuild, an entry's data.physics flipping. Moving entries'
+  // boxes (updateMoving) do not bump it: bpMovingList names them instead.
+  // Anything that writes the broad phase outside broadPhaseRefresh must bump
+  // it too, or the physics pair cache hands out stale sleeper lists.
+  mutable unsigned bpVersion = 0;
   mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
   // One candidate list per call site: the queries never nest inside a site.
   mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;
@@ -4821,12 +4830,21 @@ class TerrainGame : public Tyra::Game {
     bool stale = false;      // key moved on while moving: box not rebuilt yet
     bool present = false;    // what the last commit was handed for it
     bool moving = false;
+    bool physics = false;    // data.physics when last visited (bpVersion)
     unsigned movedAt = 0;    // g_frameStamp of the last refresh that saw it move
   };
   mutable Tyra::BroadPhase broadPhase;
   mutable Tyra::WorldBroadPhase worldBroadPhase;
   mutable std::vector<BroadPhaseCache> bpCache;
   mutable unsigned bpFrame = ~0u, bpGen = ~0u;
+  // The broad phase's version (docs/physics.md, "The pair-candidate cache"):
+  // bumped by broadPhaseRefresh whenever what a query of a NOT-moving entry
+  // returns can change - the object table reset, a promotion into the moving
+  // index, a rebuild, an entry's data.physics flipping. Moving entries'
+  // boxes (updateMoving) do not bump it: bpMovingList names them instead.
+  // Anything that writes the broad phase outside broadPhaseRefresh must bump
+  // it too, or the physics pair cache hands out stale sleeper lists.
+  mutable unsigned bpVersion = 0;
   mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
   // One candidate list per call site: the queries never nest inside a site.
   mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;

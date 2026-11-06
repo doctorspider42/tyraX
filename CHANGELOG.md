@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.11.2
+
+- Awake physics bodies cost less on the PS2: each body remembers which other bodies it could touch and keeps that list while it stays within a few centimetres of where the list was made, instead of rebuilding a body grid and searching the scene for every awake body every frame. 72 awake crates: the body-pair stage 1.21 -> 0.26 ms, physics 7.26 -> 6.31 ms a frame, with exactly the same contacts. Rebuild games to use it.
+
 ## 2.11.1
 
 - Awake physics bodies cost less on the PS2: the solver now handles each group of touching bodies from start to finish while its contacts are still in the console's small data cache, instead of building every contact first and then reading the whole list four more times. 72 awake crates: physics 7.76 -> 7.24 ms a frame, with exactly the same results.

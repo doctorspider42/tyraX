@@ -5619,7 +5619,11 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 11
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
+// 2.11.2: the body-pair stage keeps each awake body's candidate lists while its
+// box stays inside an inflated box (TYRA_PHYS_PAIR_CACHE, bpVersion on the
+// broad phase): 72 awake crates on a PS2, pairs 1.21 -> 0.26 ms, physics
+// 7.26 -> 6.31 ms, the same lists (docs/physics.md). Generated game code, PATCH.
 // 2.11.1: the rigid-body solve runs each island end to end (contact build,
 // warm apply, passes, warm store) in an island-sized buffer: 72 awake crates
 // on a PS2, physics 7.76 -> 7.24 ms, bitwise the same (docs/physics.md).

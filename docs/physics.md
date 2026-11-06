@@ -308,6 +308,76 @@ indexing and pairing every body of the scene each frame. What changed:
   0.31 -> 0.03 ms; physics 1.08 -> 0.52 ms.
 - **Woken bodies rejoin their batches** (docs/static-batching.md).
 
+### The pair-candidate cache
+
+Since 2.11.2 the body-pair stage keeps each awake body's candidate lists
+across frames instead of rebuilding them. Before, every frame built a grid
+over the awake bodies' swept boxes, queried it once per awake body, asked the
+scene broad phase for the sleepers near each one and merged the two lists -
+all of it a function of poses that, for bodies lying still or drifting
+slowly, did not change. With 72 awake crates resting on a physical PS2
+(none touching another) that was 1.21 ms a frame, ~2 700 instructions a body,
+to find that every body touches only itself.
+
+Now each awake body keeps (`TYRA_PHYS_PAIR_CACHE`, on by default):
+- an **inflated box**: its pair box grown by `PHYS_PAIR_CACHE_MARGIN`
+  (0.05 u);
+- the **awake bodies** whose inflated boxes overlap it;
+- the **sleepers** (physics bodies outside the awake set, held ones
+  included) the scene broad phase returns for the inflated box.
+
+While a body's live box stays inside its inflated box, every candidate the
+live queries would return is in its lists, so a frame filters the lists by
+the exact tests those queries apply (inclusive box overlap with the current
+boxes, the scene's always-entries kept) and merges them in object order as
+the live merge does: the same list in the same order, no grid build, no
+`broadPhaseNear`. A body that left its inflated box is re-inflated and
+re-listed by brute force over the awake set (O(awake) each). More than
+`PHYS_PAIR_CACHE_MAX_ESCAPES` (16) escapes in one frame, a different awake
+set, a new scene or a broad-phase version bump rebuild the cache whole, at
+about the live path's cost. The live path runs instead, and the cache is
+dropped, while a physics body outside the awake set is in the broad phase's
+moving index (a held or settling body: its box can change without a version
+bump), and under `kBroadPhaseVerify` / `bpVerifyAll`.
+
+Measured on a physical PS2 (72 awake crates resting, I-miss PMU build): pairs
+1.21 -> 0.26 ms, physics 7.26 -> 6.31 ms. The check run compared 88 472 body
+lists over 1 226 frames with 0 mismatches (hit rate 1.00).
+
+**The version rule.** The cached sleeper lists are only as good as the
+broad phase they were read from. `bpVersion` (a `TerrainGame` member) is
+bumped by `broadPhaseRefresh` whenever a query of an entry that is NOT moving
+can return something else:
+- the object table is reset (new scene, spawn-pool growth, backend change);
+- `BroadPhase::promoteMoving` succeeds (static entries left the grid);
+- the full `begin` / `set` / `commit` rebuild runs (a static box, an
+  entry's presence or moving flag, the always-entries changed - a teleported
+  static collider lands here);
+- an entry's `data.physics` differs from the last visit (the lists are
+  filtered by it).
+
+`updateMoving` does not bump it: moving entries are awake bodies (never read
+from the lists), non-physics objects (filtered out) or the physics bodies
+that force the live path, all named in `bpMovingList`, which every refresh
+rebuilds. **Code that writes the broad phase anywhere else must bump
+`bpVersion` too.** `broadPhaseInvalidate()` does not need to: it only makes
+the next query refresh, and the refresh bumps when the structure changes.
+
+The verify switch `TYRA_PHYS_PAIR_CACHE_VERIFY` (default 0; define it to 1,
+for example at the top of `inc/game_runtime.gen.hpp` in a scratch copy) runs
+the live path and lets it decide, keeps the cache exactly as the live build
+would, compares every body's list with it, and logs the first mismatches as
+`PAIRCACHE mismatch frame=.. body=.. live=.. cache=..` and every ~300 frames
+`PAIRCACHE bodies=.. mismatch=.. hit=.. partial=.. full=.. fallback=..`.
+Timing in that build is meaningless.
+
+Known inexactness: a body whose live swept box spans more than 64 cells of
+the live pair grid would come back from that grid as an always-entry even
+where it does not overlap; the cache checks only its own inflated grid for
+always-entries. Such a candidate fails the hull-bounds test right after, so
+the contacts are the same either way; the verify build would count it as a
+mismatch.
+
 ### Resting out of sight
 
 After a car ploughs through a crate field, most awake bodies are crates

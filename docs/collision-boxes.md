@@ -215,7 +215,10 @@ of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
   boxes retain the conservative fallback. Rigid-body/world queries use a cached
   static index and a separately refreshed set of moving nonphysics solids;
   dynamic body pairs have their own per-step swept-bounds grid of the awake
-  bodies; sleeping and held bodies come from this index (docs/physics.md). Results remain
+  bodies; sleeping and held bodies come from this index (docs/physics.md),
+  and since 2.11.2 both lists are cached per awake body across frames ("The
+  pair-candidate cache"), keyed on `bpVersion` - code that writes this index
+  outside `broadPhaseRefresh` must bump it. Results remain
   ascending, and the exact collision test decides whether contact exists.
 - **Moving a collider yourself.** Scripts and flow graphs need nothing: they
   write `ctx.objects` during the script stage, nothing queries the broad phase
