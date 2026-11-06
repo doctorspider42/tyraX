@@ -9,6 +9,10 @@ player 1 the ginger one, player 2 the gray one.
 Open `two-players.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor.exe --build <this folder> --run`.
 
+The project builds for NTSC (60 Hz) on every console, like vehicle-playground:
+its frame is a few milliseconds of work, so a PAL console's 50 Hz only made it
+wait longer for the display.
+
 ## What to do
 
 The game boots into a **TWO PLAYERS title menu**: pick `PLAYERS: 2 Players`

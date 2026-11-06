@@ -11,6 +11,7 @@ under it as that release's notes, and the release's own page carries the date.
 ## 2.11.1
 
 - Awake physics bodies cost less on the PS2: the solver now handles each group of touching bodies from start to finish while its contacts are still in the console's small data cache, instead of building every contact first and then reading the whole list four more times. 72 awake crates: physics 7.76 -> 7.24 ms a frame, with exactly the same results.
+- The two-players and showcase examples build for NTSC (60 Hz) on every console, like vehicle-playground. On a PAL console they ran at 50 Hz.
 
 ## 2.11.0
 

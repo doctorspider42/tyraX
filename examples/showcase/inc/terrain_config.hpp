@@ -159,6 +159,9 @@ constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
 // (SceneObjectData::batchStatic); runtime edits demote that member and rebuild
 // its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = true;
+// The grouping cell in world units; 0 = automatic (Preferences > Static
+// object batching, docs/static-batching.md).
+constexpr float STATIC_BATCH_CELL = 0.0F;
 
 // Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
 // the static batch and road bags are EE-cheap and GPU-heavy, the object loop
@@ -172,6 +175,11 @@ constexpr int INTERLEAVE_PASSES = 1;
 // shine budget"): how many vehicles draw the body-shine pass in one view, the
 // driven one first and then the nearest. 0 = every vehicle within 35 units.
 constexpr int VEHICLE_SHINE_BUDGET = 2;
+// Lite shine for the cars nobody drives (docs/vehicles.md, "The shine
+// budget and the lite shine"): their reflection covers only the sky-facing prefix the bake put
+// first (VEHICLE_ENV_LIMITS.lite), with paint colours that do not follow the
+// view, so a turning camera rebuilds nothing.
+constexpr bool VEHICLE_SHINE_LITE = false;
 
 // Dynamic reflection probe aim (Preferences > Rendering): false = the
 // classic GT3 level-forward aim; true = a camera ray is intersected with

@@ -35,6 +35,10 @@ static inline void factWritePos(int slot, float x, float y,
   factPos[slot][1] = y;
   factPos[slot][2] = z;
 }
+void factStore(int slot, float v) { factWrite(slot, v, -1000); }
+void factStorePos(int slot, float x, float y, float z) {
+  factWritePos(slot, x, y, z, -1000);
+}
 
 void factResetAll() {
   for (int i = 0; i < FACT_NUM_COUNT; ++i)

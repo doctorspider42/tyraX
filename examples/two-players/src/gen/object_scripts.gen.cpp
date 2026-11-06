@@ -20,12 +20,19 @@ constexpr ObjectScriptAttach OBJECT_SCRIPT_ATTACHES[1] = {
     {0, 0, ""},
 };
 
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 3
+static const tyrax::detail::PropValue* const OBJECT_SCRIPT_PROPS[1] = {nullptr};
+#endif
+
 /** Owns the live ObjectScript instances (one per attachment of the
  * active scene). Rebuilds them when the scene generation changes;
  * unattached classes and other scenes' attachments cost nothing. */
 class ObjectScriptDriver : public Script {
  public:
   void update(ScriptContext& ctx) override {
+#if defined(TYRAX_SCRIPT_API)
+    tyrax::detail::tick(ctx);  // tyrax::sceneTime(), Timer, Cooldown
+#endif
     if (first || ctx.sceneGeneration != generation) {
       first = false;
       generation = ctx.sceneGeneration;
@@ -33,16 +40,58 @@ class ObjectScriptDriver : public Script {
     }
     for (ObjectScript* s : instances) {
       // runtimeObjects is rebuilt per scene - re-resolve every frame
-      s->self = &ctx.objects[s->selfIndex];
+      bind(s, ctx);
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 4
+      // Streaming: the object left or rejoined the game.
+      if (s->self->active != s->tyraxWasActive) {
+        s->tyraxWasActive = s->self->active;
+        if (s->self->active) s->onActivated(ctx); else s->onDeactivated(ctx);
+      }
+#endif
       s->onUpdate(ctx);
     }
     if (ctx.usedObject >= 0)
       for (ObjectScript* s : instances)
         if (s->selfIndex == ctx.usedObject) s->onUsed(ctx);
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 4
+    // Events delivered this frame (the bus keeps each in `cur` for
+    // exactly one frame, so every script sees it once).
+    for (int e = 0; e < tyrax::EVENT_COUNT; ++e)
+      if (tyrax::detail::g_evtCur[e])
+        for (ObjectScript* s : instances)
+          s->onEvent(ctx, tyrax::EventId{e}, tyrax::detail::g_evtCurVal[e]);
+    for (ObjectScript* s : instances) {
+      if (s->self->data.type == 17) {  // an Area: player in / out
+        const bool in = tyrax::playerInArea(ctx, s->selfIndex);
+        if (in != s->tyraxWasInside) {
+          s->tyraxWasInside = in;
+          if (in) s->onPlayerEnter(ctx); else s->onPlayerExit(ctx);
+        }
+      }
+      if (s->self->animFinished) s->onAnimationFinished(ctx);
+    }
+    for (ObjectScript* s : instances) s->onLateUpdate(ctx);
+#endif
   }
 
  private:
+  static void bind(ObjectScript* s, ScriptContext& ctx) {
+    s->self = &ctx.objects[s->selfIndex];
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 2
+    s->object = tyrax::ObjectRef(&ctx, s->selfIndex);
+#endif
+  }
+
   void rebuild(ScriptContext& ctx) {
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 4
+    // The old scene's objects are gone already: no self in onSceneEnd.
+    for (ObjectScript* s : instances) {
+      s->self = nullptr;
+      s->object = tyrax::ObjectRef();
+      s->onSceneEnd(ctx);
+    }
+    tyrax::detail::g_liveScripts = &instances;
+#endif
     for (ObjectScript* s : instances) delete s;
     instances.clear();
     for (int i = 0; i < OBJECT_SCRIPT_ATTACH_COUNT; ++i) {
@@ -50,9 +99,11 @@ class ObjectScriptDriver : public Script {
       if (a.scene != ctx.scene) continue;
       if (a.object < 0 || a.object >= ctx.objectCount) continue;
       ObjectScript* s = nullptr;
+      const ObjectScriptFactory* made = nullptr;
       for (const ObjectScriptFactory& f : getObjectScriptFactories())
         if (strcmp(f.name, a.script) == 0) {
           s = f.create();
+          made = &f;
           break;
         }
       if (!s) {
@@ -60,10 +111,24 @@ class ObjectScriptDriver : public Script {
         continue;
       }
       s->selfIndex = a.object;
-      s->self = &ctx.objects[a.object];
+      bind(s, ctx);
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 3
+      // The editor-set public fields, before the script sees itself.
+      if (made->applyProps && OBJECT_SCRIPT_PROPS[i])
+        made->applyProps(s, OBJECT_SCRIPT_PROPS[i], ctx);
+#else
+      (void)made;
+#endif
+#if defined(TYRAX_SCRIPT_API) && TYRAX_SCRIPT_API >= 4
+      s->scriptType = made->type;
+      s->scriptName = made->name;
+      s->tyraxWasActive = s->self->active;
+#endif
       instances.push_back(s);
-      s->onStart(ctx);
     }
+    // onStart once EVERY instance exists, so one can find another
+    // (tyrax::getScript / findScript) from its own onStart.
+    for (ObjectScript* s : instances) s->onStart(ctx);
   }
 
   std::vector<ObjectScript*> instances;
