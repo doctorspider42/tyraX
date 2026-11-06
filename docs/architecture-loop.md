@@ -570,3 +570,60 @@ the user's PAL console; the vehicle-playground scenes were already NTSC. Both
 examples now build NTSC (commit a4e82b614). New arms `vpnR0W` (two-players,
 `--twowalk`) and `vpnR0Z` (showcase), both `--gputl --gpuwait`, are queued.
 The 50 Hz rows above (R0U, R0X) are superseded once they run.
+
+## Round 4 results (PS2, 2026-11-06, queue r6)
+
+Seven deploys ran, and the eighth wedged (an empty log, the usual
+reset-count wedge).
+
+### R4-A: lean partial path (`vpnR4A3`), verify + 2 interleaved runs
+
+**Verify** (mask 0x1BC00). The routes, uniforms and classification were
+compared on 208 297 bags, with 11.4 M words and 0 mismatches. The cached
+baked entry was cross-checked 1 600 times with 0 bad.
+
+**Timing.** Mask 0x1DC00, ALT: control and lean alternate by cycle in one
+boot, 2 runs. Motor District, night:
+
+| state | arm | core ms | I / D misses a frame | partial bag µs | I misses a partial bag |
+|---|---|---:|---|---:|---:|
+| parked | control | 6.07 / 6.06 | 14 988 / 21 097 | 172 (part), 186 (strip) | 488 / 453 |
+| parked | lean | 5.83 / 5.84 | 13 741 / 21 204 | 154 | 375 |
+| drive | control | 4.59 | 12 850 / 16 658 | 188 / 161 | 558 / 453 |
+| drive | lean | 4.37 | 11 850 / 16 674 | 145 | 406 |
+
+The lean arm took all partial bags (eligible share 100 %), and its cached
+entry hit 60-99 % of the time. The lean send never engaged: every send went
+to `qbFallback`, so its precondition is wrong for this game.
+
+**Result: -0.22..-0.24 ms of `core` and of work, both runs.** An I-miss
+saving of ~1 000-1 250 a frame, at 0.17 µs each, accounts for all of it.
+The D misses did not move. The partial bag fell from ~470 to ~390 lines,
+not to the 180 targeted.
+
+**Verdict: below the 0.5 ms bar.** Not ported yet. Fixing the lean send
+could add up to ~0.1-0.3 ms (estimate). The whole route path still runs
+~375 lines a bag, because the baked lookups, `classifyRoutes`,
+`emitPartialRuns` and the flush are still in the shared code.
+
+### Scenes 4 and 5 at NTSC
+
+- **Two-players (`vpnR0W`):** work 5.5 / 7.3 ms (mean / p95) of a 16.7 ms
+  frame, 1 late frame in 5 700. GPU idle 77 %, EE waits on the GPU
+  0.03 ms. Still paced by the display: vsync takes 11.1 ms a frame.
+- **Showcase (`vpnR0Z`):** work 19.06 ms, every frame late at 60 Hz. GPU
+  idle 1.3 % (VU1 55 % + kick 8 %, GIF 34 %), and the EE waits 5.9 ms a
+  frame on the GPU. **GPU-bound: (a) holds at NTSC too.**
+
+### R3 check run (`R3B_1`, mask 72)
+
+- **R3-B (pair cache):** hit rate 1.00 and 0 mismatches in 88 472 body
+  checks, over 1 226 frames.
+- **R3-A (world-contact reuse):** hit rate 0.98, but the contact *count*
+  differed on 648 of 85 320 hits (0.8 %). The carried points and depths of
+  the contacts that match are within 4e-6. A reused body sometimes keeps a
+  contact the fresh query drops, or misses one it adds (a terrain corner
+  crossing the rbReduce threshold).
+
+R3-A needs a count-stable reuse rule before its timing means anything. The
+timing runs (masks 0 / 38) were lost to the wedge.
