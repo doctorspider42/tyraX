@@ -37,6 +37,25 @@ prototype; the console runs (one at a time, same ELF, at least two runs an
 arm) happen in the parent session; winners land on `claude/perf-integration`
 with their docs, losers are reverted and written up here.
 
+## The headline benchmark
+
+The worst frame drops seen in this project are in the **Motor District with
+~128 physics cubes scattered on the road, with the car driving into them**.
+That is the crate field of `vehicle-playground` (rig copy `C:\tx\qp\U5src`,
+scene 1 below, recorded drive; the changelog's "car driving through 129
+crates"). Every cost of this loop meets in that frame:
+- StaPip, for the district and the crates;
+- physics, for the bodies the hit wakes;
+- the batch rebuilds when a body leaves or rejoins a static batch;
+- the car's crash work.
+
+**The loop is done when this benchmark either holds a stable 60 fps on a
+physical PS2 (no missed frames over the recorded drive) or is measured
+against the console's ceiling.** Against the ceiling means the frame is
+GPU-bound, or the EE does useful work under the (b) condition with no
+architecture defect above 0.5 ms. Every round reports this scene's work
+p50 / p95 and missed frames.
+
 ## Scene table
 
 What limits each scene's frame, and how much of the dominant subsystem's time
