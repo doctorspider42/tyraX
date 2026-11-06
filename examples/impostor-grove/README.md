@@ -16,7 +16,9 @@ a non-tree, two-material OBJ using the universal capture path. Select it and cli
 - 108 canopy trees and 30 shrubs share four generated assets. Near trees have
   897/1016/1016 triangles and shrubs have 740; each distant model draws **2**, selected from 4 shrub / 8 canopy captures.
 - Trees switch at 30 world units, shrubs at 16, the waystone at 18. Returning within 90% restores
-  full geometry. Four transitions per scene render bound the rebuilding work.
+  full geometry. Four transitions per scene render bound the rebuilding work, and the
+  full model is baked ahead over a few frames so walking does not drop frames
+  ([why](../../docs/impostors.md#switching-back-to-the-full-model)).
 - The original model remains the collision identity. Foliage in this example has
   collision disabled so the experiment isolates rendering; the ruined gate and
   paving remain ordinary solid primitives.
@@ -114,3 +116,16 @@ Generated game methods are split between `src/terrain_game.cpp` and the
 `src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
 `inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
 The main file remains user-ownable; generated subsystem files refresh on build.
+
+
+Hardware timeline instrumentation matches the 1.170 coarse/detail emitter.
+Use the [capture and observer-control guide](../../docs/hardware-profiler.md)
+when comparing performance; traces add measurable work.
+
+This example explicitly requests `framePipeline: true` (TyraX2). Its authored interlaced output preserves the existing scan mode and quality; ordinary interlaced output is eligible, unlike true field rendering. True field rendering, BLSS, unlimited triple buffering and unavailable queue memory fall back safely. This request does not guarantee 60 FPS. See [TyraX2](../../docs/tyrax2.md).
+
+Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dynamic-light-receivers.md). This example retains the default **All objects** policy; Players and driven vehicle is an optional project or scene setting.
+
+TyraX 2.0 integration: generated sources have been refreshed with the combined
+TyraX2 renderer and mainline collision broad phase; authored settings and
+user-owned source files retain their existing ownership rules.

@@ -45,8 +45,8 @@ begin:
     lq         primTag, 1(buffer)
     iaddiu     vertexData, buffer, 2  ; VU1_STAPIP_VERT_DATA_ADDR
     ilw.w      vertexCount, 0(buffer)
-    iaddiu     countMask, vi00, 1023
-    iand       vertexCount, vertexCount, countMask  ; strip the packed six-plane mask
+    iaddiu     countMask, vi00, 511
+    iand       vertexCount, vertexCount, countMask  ; strip the packed six-plane mask and strip flag
     iadd       colorData, vertexData, vertexCount
     ilw.y      sceFlag, 8(vi00)  ; VU1_OPTIONS_ADDR.y = shared clip variant
     iblez      sceFlag, setDestAddrColor
@@ -70,6 +70,21 @@ setDestAddr:
     iaddiu     destAddress, destAddress, 7
     iaddiu     outCount, vi00, 0
     iadd       vertexCounter, vi00, vertexCount
+    iaddi      vertMask, destAddress, -1
+    isw.x      vertMask, 1019(vi00)  ; VU1_CLIP_STREAM_ADDR.x = chunk A's prim tag
+    iaddiu     fanPtr, vertMask, 61
+    isw.z      fanPtr, 1019(vi00)
+    iaddi      fanPtr, destAddress, -7
+    isw.y      fanPtr, 1019(vi00)  ; the first kick carries the tag block
+    ilw.w      vertMask, 0(buffer)  ; packed count: bit 9 = strip
+    iaddiu     fanPtr, vi00, 512
+    iand       vertMask, vertMask, fanPtr
+    iaddiu     fanPtr, vi00, 3
+    ibeq       vertMask, vi00, streamStepReady
+    iaddiu     fanPtr, vi00, 1
+    iaddi      vertexCounter, vertexCounter, -2
+streamStepReady:
+    isw.w      fanPtr, 1019(vi00)
 triLoop:
     lq         vertex1, 0(vertexData)  ; object space - the MVP multiply is below
     lq         vertex2, 1(vertexData)
@@ -85,7 +100,7 @@ triLoop:
     lq.xyz     lightColors[0], 15(vi00)
     lq.xyz     lightColors[1], 16(vi00)
     lq.xyz     lightColors[2], 17(vi00)
-    lq.xyzw     ambientColor, 18(vi00)
+    lq         ambientColor, 18(vi00)
     mula.xyz   acc, lightDirections[0], normal1[x]  ; CalculateTyraDirectionalLights (folded: EE uploads D*M)
     madda.xyz  acc, lightDirections[1], normal1[y]
     madd.xyz   color1, lightDirections[2], normal1[z]
@@ -130,14 +145,6 @@ triLoop:
     add.w      color3, vf00, i
     b          sharedAttributesReady
 sharedColorMode:
-    ; Modified by TyraX: the spot-light gate. sceFlag still holds
-    ; VU1_OPTIONS_ADDR.y here (the peer test above read it), and it is
-    ; negative only when a dynamic light actually reaches this mesh - see
-    ; LoadTyraSpotLight in tyra_macros.i. The UNLIT copy comes first so the
-    ; lit path below is the original block, in its original order, falling
-    ; through to sharedAttributesReady exactly as it did: a branch is a
-    ; scheduling barrier, and jumping INTO the middle of that block cost
-    ; 7 cycles a triangle on meshes that are lit.
     ibltz      sceFlag, litColorMode
     ilw.x      sceFlag, 8(vi00)
     iblez      sceFlag, multiColorNoSpot
@@ -351,6 +358,31 @@ fanStart:
     iaddiu     vertMask, srcBase, 6
     isub       vertMask, srcEnd, vertMask
     ibltz      vertMask, triNext
+    isub       fanPtr, srcEnd, srcBase
+    iadd       fanNext, fanPtr, fanPtr
+    iadd       fanPtr, fanNext, fanPtr
+    iadd       fanPtr, fanPtr, destAddress
+    ilw.x      fanNext, 1019(vi00)  ; the open chunk's prim tag
+    isub       fanPtr, fanPtr, fanNext
+    iaddiu     fanNext, vi00, 73
+    isub       fanPtr, fanPtr, fanNext
+    iblez      fanPtr, fanFits
+    ilw.x      fanNext, 1019(vi00)
+    iaddiu     emitPtr, outCount, 16384
+    iaddiu     emitPtr, emitPtr, 16384
+    isw.x      emitPtr, 0(fanNext)  ; NLOOP | EOP of the full chunk
+    ilw.y      emitNxt, 1019(vi00)
+    xgkick     emitNxt  ; stream the full chunk to the GS
+    ilw.z      emitPtr, 1019(vi00)
+    isw.z      fanNext, 1019(vi00)
+    isw.x      emitPtr, 1019(vi00)
+    isw.y      emitPtr, 1019(vi00)
+    xtop       emitNxt
+    lq         dtmp, 1(emitNxt)  ; the buffer's prim tag
+    sq         dtmp, 0(emitPtr)
+    iaddiu     destAddress, emitPtr, 1
+    iaddiu     outCount, vi00, 0
+fanFits:
     iaddiu     fanPtr, srcBase, 2  ; (P0, Pj, Pj+1) for j = 1 .. n-2
 fanLoop:
     iaddiu     fanNext, fanPtr, 2
@@ -387,24 +419,16 @@ fanEmitLoop:
     iadd       fanPtr, fanNext, vi00
     b          fanLoop
 triNext:
-    iaddiu     vertexData, vertexData, 3
-    iaddiu     colorData, colorData, 3
-    iaddi      vertexCounter, vertexCounter, -3  ; decrement the loop counter
+    ilw.w      vertMask, 1019(vi00)  ; input step
+    iadd       vertexData, vertexData, vertMask
+    iadd       colorData, colorData, vertMask
+    isub       vertexCounter, vertexCounter, vertMask  ; decrement the loop counter
     ibgtz      vertexCounter, triLoop
-    ilw.y      sceFlag, 8(vi00)
-    iblez      sceFlag, kickColor
-    iadd       vertexData, colorData, vi00
-    b          kickPatch
-kickColor:
-    ilw.x      sceFlag, 8(vi00)
-    iblez      sceFlag, kickMulti
-    b          kickPatch
-kickMulti:
-    iadd       vertexData, colorData, vi00
-kickPatch:
+    ilw.x      vertexData, 1019(vi00)
     iaddiu     vertMask, outCount, 16384
     iaddiu     vertMask, vertMask, 16384
-    isw.x      vertMask, 6(vertexData)
+    isw.x      vertMask, 0(vertexData)
+    ilw.y      vertexData, 1019(vi00)
     xgkick     vertexData  ; dispatch to the GS rasterizer
 
 --barrier

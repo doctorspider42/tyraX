@@ -98,6 +98,7 @@ class SequenceDirector : public Script {
   // projection FOV restored.
   void release(ScriptContext& ctx) {
     ctx.cameraOverride = false;
+    ctx.cameraSource = 0;
     ctx.hidePlayer = false;
     ctx.hudSuppressed = false;
     ctx.barsStyle = 0;
@@ -277,6 +278,7 @@ class SequenceDirector : public Script {
         at[0] += ox, at[1] += oy, at[2] += oz;
       }
       ctx.cameraOverride = true;
+      ctx.cameraSource = (uintptr_t)(active_ + 1);
       ctx.cameraEye.x = eye[0];
       ctx.cameraEye.y = eye[1];
       ctx.cameraEye.z = eye[2];

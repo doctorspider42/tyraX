@@ -21,6 +21,7 @@ const SceneObjectData SCENE_0_OBJECTS[12] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {12};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0xa14be10ec419a6e3ULL, 0x43862e9952e92d21ULL, 0x739368e1ec522ff0ULL, 0xb93c9c2b4f9c1862ULL, 0xdd22206f128ec2bcULL, 0xb661c1149b28a043ULL, 0x5086a5132cfe0849ULL, 0xfdcb8671341a69c1ULL, 0x759d17af0e429793ULL, 0x58d1aca80a2eabc1ULL, 0xd4703a4aaebbb804ULL, 0x5a0ae6872f01553bULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[12] = {1,0,0,0,1,1,0,0,0,0,0,0};
 
 }  // namespace Cutscene_demo
 

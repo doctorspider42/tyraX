@@ -1,0 +1,1 @@
+{ "id": "lge3streetlamp01", "name": "street-lamp", "type": "point-light", "position": [1.15, 3.95, 9.5], "rotation": [0, 0, 0], "scale": [0.4, 0.4, 0.4], "color": [1, 0.86, 0.62], "physics": false, "light": { "brightness": 1.35, "radius": 9, "dynamic": true, "flicker": 0, "spot": true, "spotAngle": 38, "shadowVolumes": 2, "beam": 1 } }

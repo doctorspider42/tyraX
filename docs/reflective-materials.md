@@ -92,11 +92,13 @@ map (within ~1.9× its bounding radius): it would swamp the whole reflection —
 typically as the inspected surface's own dark self-reflection, which read as
 ugly patches up close. It fades back in as you step away.
 
-**The whole town at once:** *Project > Preferences > Rendering > Reflect static
+**The whole town at once:** *Project > Preferences > Graphics > Reflect static
 scenery as boxes* draws every static object into the map without marking
 anything - see "Static scenery in the probe" below. *Reflect the ground as flat
 colour* swaps the probe's terrain and road chunks for a cheap coloured grid -
-"The ground stand-in".
+"The ground stand-in". *Reflect a baked background* replaces the ground and the
+unmovable box proxies with one editor-baked panorama per road cell - "The baked
+background".
 
 ## How the PS2 side works
 
@@ -162,6 +164,30 @@ colour* swaps the probe's terrain and road chunks for a cheap coloured grid -
   that basis invalid and forces the next non-split classic view to capture,
   regardless of the cadence phase. Since 1.106.0 the cadence is a CEILING
   rather than a schedule: see "The reuse budget" below.
+- **Amortised capture.** Generated games reserve a second 64 KB env colour
+  target (`EngineOptions::envMapDoubleBuffered`, on whenever the env target
+  is). A capture is then split over three frames (`kEnvPhases`), all from
+  the pose recorded in the first. Frame 1 clears the BACK target and draws
+  the sky and sky bodies. Frame 2 draws the terrain. Frame 3 draws roads,
+  reflected objects and static scenery, then swaps the target live
+  (`RendererCoreEnvMap::begin(.., clear, intoBack)` / `swap()`). Three
+  phases rather than two because, on a PS2 at the heavy night spot, the sky
+  and the terrain each cost ~1.6 ms of one capture and the rest ~1.7 ms. With
+  two phases the first one (sky + terrain, ~3.3 ms) was the frame that went
+  late. The basis and the reuse-gate keys are stored only on the
+  swap, so the sampler never sees a half-drawn image or a basis that does not
+  match it. A frame that just built a terrain chunk skips its half (terrain
+  streaming now runs before the capture and counts its builds in
+  `terrainBuiltThisFrame`), and so does a split-screen half. On a PS2 this
+  removed the worst-frame stacking of capture + chunk build in the night
+  drive: 11–14 late frames instead of ~19 in the heaviest window
+  ([night EE investigation](tyrax2-night-ee-2026-10-12.md)).
+  A phase also waits when the PREVIOUS frame's EE work (loop period minus
+  the present stalls) exceeded 14 ms, at most four frames in a row
+  (`kEnvHeavyMs` / `kEnvMaxDefer`). Heavy views come in runs, so the frame
+  after a heavy one is the wrong place for background work, and a 128-px
+  reflection a frame or two older is invisible. On the PS2 heavy night spot
+  this took the heaviest window from 11 to 6–7 late frames out of 150.
 - Terrain uses the chunks already resident around the main camera. Road capture
   filters the shared procedural list to owner `-3`, so it draws asphalt and
   automatic junctions without also paying for prefabs or procedural volumes.
@@ -196,7 +222,7 @@ The editor's GLSL twin lives in the viewport fragment shader (`uReflOn` block)
   probe when using many small chunks.
 - Remaining "pro" idea: smoothed normals for the env pass.
 
-## Probe aim: reflected ray (Preferences > Rendering)
+## Probe aim: reflected ray (Preferences > Graphics)
 
 The classic pass aims the env camera **level along the player's forward**
 from the eye — the GT3 trick, correct for skies and "good enough" for
@@ -286,7 +312,7 @@ frame - and the whole resident ring cost **10-15 ms of each capturing frame**
 on a physical PS2 (Motor District, car parked at the 25 FPS spot, camera swept
 at ~180 deg/s with the right stick). It was the frame drop on every turn.
 
-*Preferences > Rendering > Reflection ground radius* keeps only the chunks
+*Preferences > Graphics > Reflection ground radius* keeps only the chunks
 whose box lies within that distance of the eye. In a 128-pixel target with a
 110 deg field of view a chunk a hundred units away is a few pixels at the
 horizon. FRAMETIME `work`, ordinary frame, same sweep:
@@ -304,7 +330,7 @@ old behaviour, and a project without the key loads as 0 (format v62).
 
 ## Static scenery in the probe (1.161.0)
 
-*Project > Preferences > Rendering > Reflect static scenery as boxes* puts every
+*Project > Preferences > Graphics > Reflect static scenery as boxes* puts every
 static object of the scene into the shared probe as **one untextured box**: the
 object's own oriented bounds, coloured with the average of its material (Kd x
 the texture's mean colour, weighted by triangle count over a model's parts) and
@@ -388,7 +414,7 @@ units - which is what the ground stand-in below replaces.
 
 ## The ground stand-in (1.161.0)
 
-*Project > Preferences > Rendering > Reflect the ground as flat colour*
+*Project > Preferences > Graphics > Reflect the ground as flat colour*
 (`reflectionGroundProxy`, format v88, written only when on) draws the probe's
 ground as a **coarse, untextured, height-following grid** instead of the
 resident terrain and road chunks. The paint needs the ground's colour and where
@@ -439,12 +465,84 @@ and the stand-in's road colour agree. Not covered: the reflected-ray probe mode,
 which draws its own subset, and a scene without terrain (no grid - the probe
 then draws no ground at all, as before).
 
+## The baked background (1.177.0)
+
+*Project > Preferences > Rendering > Reflect a baked background*
+(`reflectionPanorama`, format v97, written only when on) stops the probe from
+re-rendering the static world on every capture. The editor bakes, at build
+time, what the probe would draw of it from each 16-unit cell near a road, and
+the probe draws that as **one textured card** instead.
+
+- **What is baked** (`src/reflpano.cpp`, written by texbake to
+  `reflpano/s<scene>.bin`): per cell within 12 units of a road, a 128x32 8-bit
+  panorama - azimuth all the way round at 2.8 degrees a texel, elevation +-64
+  degrees (the probe's square 110-degree view reaches about 63 in its corners) -
+  raytraced from the cell centre, 2 units above the terrain. It holds the ground
+  within the reflection ground radius (plus 10 units, what a chunk box adds) in
+  the stand-in's albedo map lit with the scene's baked light, and the objects
+  with *Show in reflections* **and** *Reflection box proxy* that cannot move, as
+  the world box their live proxy draws. Everything else is transparent.
+- **What stays live:** the sky (drawn first, as before), every other reflected
+  object - the district's night windows, static batches, cars. The probe skips
+  only the baked proxies while it draws a panorama, and only the ground in that
+  frame.
+- **The palette is shared by the scene and partly filled in by the game.** Entry
+  0 is see-through, and the game sets its RGB to the sky colour, so a filtered
+  edge fades into the sky rather than toward black. Entries 1..boxes are the
+  proxies: the game colours each from the real object's mean vertex colour,
+  exactly as `renderReflectionProxy` colours its live box, so the two paths
+  cannot disagree about a building's colour. The rest is the ground, median-cut
+  over every cell of the scene.
+- **Small in RAM:** the cells are run-length coded and one cell (4 KB) is
+  expanded when the probe's eye enters it - the Motor District's 299 cells are
+  82 KB of EE RAM, not 1.2 MB. The file is read on the scene's first capture.
+- **The card** is a 6x6 grid over the probe's frustum, a hair inside its edges
+  so nothing needs clipping, built once in the probe's level frame. The probe
+  camera is always level, so each vertex keeps its elevation and its azimuth
+  relative to the camera: a matrix puts the card at the eye and the yaw, and
+  only the texture u (yaw + the vertex's own azimuth) follows a turn. Two
+  textures alternate on a cell change, so a re-upload never touches RAM or VRAM
+  a frame still in flight reads. Outside a baked cell the live ground draws.
+
+**The trade is parallax.** A building sits where it was seen from the cell's
+centre, and the ground is the stand-in's flat colours rather than the real
+textures; the night ground pools (the emissive terrain lightmap) are not in the
+panorama.
+
+Measured on a physical PS2, `examples/vehicle-playground` at night (lean rig,
+same ELF, arm 0 live / arm 1 panorama, three cycles each, the probe's own EE
+scope per frame by drive window):
+
+| drive window | live | panorama |
+|---|---:|---:|
+| 1 | 0.072 ms | 0.033 |
+| 2 | 0.179 | 0.125 |
+| 3 | 0.353 | 0.274 |
+| 4 | 0.326 | 0.268 |
+
+Driving `work` median 10.80 -> 10.55 ms, p50 10.39 -> 10.07; parked unchanged
+(the reuse budget skips the capture). The first capture of the scene pays the
+file read once (about 0.2 s over ps2link). The picture
+([img/reflection-panorama-ps2.png](img/reflection-panorama-ps2.png): live |
+panorama | difference x4, physical PS2, parked at the spawn) differs only in the
+car's paint, at most 9 levels in 3.6-6.5% of the pixels - the same order as two
+live captures differ from each other (3.1%). The district has it on.
+
+**What did not work:** the first version rebuilt a 10x10 card in world space on
+every capture. Its bag never kept its bounds or a stamp, and it was SLOWER than
+the live ground it replaced (0.21-0.43 ms a frame against 0.18-0.35). The live
+probe had already become cheap: the 1-1.7 ms the architecture audit quoted
+predates the ground radius, stamps and the three-phase split. A panorama that
+also carries the sky is not built - the sky is the probe's largest remaining
+part, but it follows the day/night clock and the grade, which a static image
+cannot.
+
 ## The reuse budget (1.106.0)
 
 The cadence above halves the probe's cost and stops there. What it cannot do is
 notice that the capture it is about to take would come out the same as the one
 already in VRAM — and on a parked camera under a still sky, every second one
-does. *Preferences > Rendering > Reflection reuse budget* is that second half,
+does. *Preferences > Graphics > Reflection reuse budget* is that second half,
 and it avoids recapturing an unchanged view when the capture pose and relevant
 scene lighting remain stable.
 

@@ -10,9 +10,14 @@
 namespace impostorbake {
 static GpuCapture gpuCapture = nullptr;
 void setGpuCapture(GpuCapture capture) { gpuCapture = capture; }
-bool write(const std::string& projectDir, const std::string& outputStem,
-           const std::vector<Part>& parts, const float* min, const float* max,
-           std::string* outObjRel, std::string* outError, int size, int views, bool gpu, std::string* report) {
+namespace {
+// The capture half shared by write() and capture(): validates, renders the
+// `views` cards into a 4-wide atlas and dilates RGB. Fills the per-view
+// framing write() needs for the card geometry.
+bool captureViews(const std::vector<Part>& parts, const float* min, const float* max,
+                  int size, int views, bool gpu, std::vector<unsigned char>& pixels,
+                  std::vector<float>& centers, std::vector<float>& halves, float& cy,
+                  float& hh, bool& captured, std::string* outError, std::string* report) {
     auto fail = [&](const std::string& message) {
         if (outError) *outError = message;
         return false;
@@ -33,10 +38,11 @@ bool write(const std::string& projectDir, const std::string& outputStem,
             if (!std::isfinite(v)) return fail("Material contains non-finite colour");
     }
     const int width = size * 4, height = size * (views / 4);
-    std::vector<unsigned char> pixels((size_t)width * height * 4, 0);
-    const float cy = (min[1] + max[1]) * .5f;
-    const float hh = std::max(max[1] - min[1], .01f) * .53f;
-    std::vector<float> centers(views), halves(views);
+    pixels.assign((size_t)width * height * 4, 0);
+    cy = (min[1] + max[1]) * .5f;
+    hh = std::max(max[1] - min[1], .01f) * .53f;
+    centers.assign(views, 0.0f);
+    halves.assign(views, 0.0f);
     for (int view = 0; view < views; ++view) {
         const float angle = view * 6.283185307f / views;
         const float cr = std::cos(angle), sr = std::sin(angle);
@@ -50,7 +56,7 @@ bool write(const std::string& projectDir, const std::string& outputStem,
         halves[view] = std::max(hi-lo, .01f)*.53f;
     }
     std::string gpuNote;
-    const bool captured = gpu && gpuCapture && gpuCapture(parts, size, views, cy, hh,
+    captured = gpu && gpuCapture && gpuCapture(parts, size, views, cy, hh,
         centers.data(), halves.data(), pixels, gpuNote);
     if (report) *report = captured ? "GPU" : (gpu ? "CPU fallback: " +
         (gpuCapture ? gpuNote : "GPU backend not linked") : "CPU");
@@ -135,6 +141,34 @@ bool write(const std::string& projectDir, const std::string& outputStem,
         filled.swap(mask);
     }
     }
+    return true;
+}
+}  // namespace
+
+bool capture(const std::vector<Part>& parts, const float* min, const float* max, int size,
+             int views, std::vector<unsigned char>& pixels, std::string* error) {
+    std::vector<float> centers, halves;
+    float cy = 0.0f, hh = 0.0f;
+    bool captured = false;
+    return captureViews(parts, min, max, size, views, false, pixels, centers, halves, cy, hh,
+                        captured, error, nullptr);
+}
+
+bool write(const std::string& projectDir, const std::string& outputStem,
+           const std::vector<Part>& parts, const float* min, const float* max,
+           std::string* outObjRel, std::string* outError, int size, int views, bool gpu, std::string* report) {
+    auto fail = [&](const std::string& message) {
+        if (outError) *outError = message;
+        return false;
+    };
+    std::vector<unsigned char> pixels;
+    std::vector<float> centers, halves;
+    float cy = 0.0f, hh = 0.0f;
+    bool captured = false;
+    if (!captureViews(parts, min, max, size, views, gpu, pixels, centers, halves, cy, hh,
+                      captured, outError, report))
+        return false;
+    const int width = size * 4, height = size * (views / 4);
     namespace fs = std::filesystem;
     const fs::path rel(outputStem);
     if (rel.is_absolute() || rel.empty() || outputStem.find("..") != std::string::npos)
@@ -179,6 +213,14 @@ bool write(const std::string& projectDir, const std::string& outputStem,
 } // namespace impostorbake
 
 namespace treegen {
+bool captureImpostor(const Mesh& mesh, const Image& bark, const Image& leaf, int size, int views,
+                     std::vector<unsigned char>& pixels, std::string* outError) {
+    std::vector<impostorbake::Part> parts;
+    if (!mesh.bark.empty()) parts.push_back({mesh.bark, bark});
+    if (!mesh.leaves.empty()) parts.push_back({mesh.leaves, leaf});
+    return impostorbake::capture(parts, mesh.min, mesh.max, size, views, pixels, outError);
+}
+
 bool writeImpostor(const std::string& projectDir, const std::string& name,
                    const Mesh& mesh, const Image& bark, const Image& leaf,
                    std::string* outObjRel, std::string* outError, int size, int views, bool gpu, std::string* report) {

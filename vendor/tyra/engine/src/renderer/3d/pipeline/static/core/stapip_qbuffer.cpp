@@ -50,6 +50,7 @@ constexpr int kMaxPools = 32;
 constexpr int kPoolSides = TYRA_VIF1_QUEUE ? static_cast<int>(Vif1Queue::kDepth) : 2;
 QBufferPool pools[kPoolSides][kMaxPools];
 int g_poolSide = 0;
+bool g_poolTouched = false;  // see StaPipQBuffer::poolTouched
 
 QBufferPool* poolFor(const void* owner, int side) {
   QBufferPool* set = pools[side];
@@ -94,7 +95,12 @@ StaPipQBuffer::StaPipQBuffer() {
 
 StaPipQBuffer::~StaPipQBuffer() { deallocateDynamicData(); }
 
-void StaPipQBuffer::flipPoolSide() { g_poolSide = (g_poolSide + 1) % kPoolSides; }
+void StaPipQBuffer::flipPoolSide() {
+  g_poolSide = (g_poolSide + 1) % kPoolSides;
+  g_poolTouched = false;
+}
+
+bool StaPipQBuffer::poolTouched() { return g_poolTouched; }
 
 // Modified by TyraX: is this address inside one of the copy pools?
 //
@@ -353,6 +359,7 @@ void StaPipQBuffer::allocateDynamicData(u16 size, StaPipBag* bag) {
   TYRA_ASSERT(!_isDynamicallyAllocated, "Buffer is already allocated");
 
   if (size == 0) return;
+  g_poolTouched = true;  // pool or heap: either is a copy the packet references
 
   QBufferPool* pool = poolFor(this);
   if (pool) {

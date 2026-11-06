@@ -18,6 +18,12 @@ bool write(const std::string& projectDir, const std::string& outputStem,
            std::string* outObjRel, std::string* error, int size = 128, int views = 8, bool gpu = false,
            std::string* report = nullptr);
 
+// The capture alone, on the CPU, nothing written: `views` cards of `size` px
+// in write()'s 4-wide RGBA layout (width size*4, height size*views/4). The
+// Tree Generator's impostor preview.
+bool capture(const std::vector<Part>& parts, const float* min, const float* max, int size,
+             int views, std::vector<unsigned char>& pixels, std::string* error);
+
 // Static OBJ adapter. outputStem is project-relative, without an extension.
 // Missing textures and unsupported reflective/emissive materials fail before writing.
 bool model(const std::string& projectDir, const std::string& modelRel,

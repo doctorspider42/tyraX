@@ -164,7 +164,8 @@ bool loadMtl(const std::string& path, std::vector<MtlMaterial>& out) {
     return !out.empty();
 }
 
-bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
+bool load(const std::string& path, Model& out, const std::string& overrideMtl,
+          bool splitObjects) {
     std::ifstream f(path);
     if (!f) return false;
 
@@ -193,14 +194,20 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
         }
     }
 
-    // submesh lookup by material name; "" = the default white submesh
+    // submesh lookup by material name; "" = the default white submesh. With
+    // splitObjects the key is (object, material), so every `o`/`g` keeps its
+    // own triangles.
     std::map<std::string, int> submeshIndex;
     int current = -1;
+    std::string currentMat, currentObj;
     auto submeshFor = [&](const std::string& matName) {
-        auto it = submeshIndex.find(matName);
+        const std::string key =
+            splitObjects ? currentObj + '\x1f' + matName : matName;
+        auto it = submeshIndex.find(key);
         if (it != submeshIndex.end()) return it->second;
         Submesh s;
         s.material = matName;
+        if (splitObjects) s.object = currentObj;
         if (auto m = materials.find(matName); m != materials.end()) {
             s.kd[0] = m->second.kd[0];
             s.kd[1] = m->second.kd[1];
@@ -214,7 +221,7 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
             s.reflRounded = m->second.reflRounded;
         }
         out.submeshes.push_back(std::move(s));
-        submeshIndex[matName] = (int)out.submeshes.size() - 1;
+        submeshIndex[key] = (int)out.submeshes.size() - 1;
         return (int)out.submeshes.size() - 1;
     };
 
@@ -280,7 +287,15 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
         } else if (tag == "usemtl") {
             std::string name;
             ss >> name;
+            currentMat = name;
             current = submeshFor(name);
+        } else if (splitObjects && (tag == "o" || tag == "g")) {
+            std::string name;
+            std::getline(ss >> std::ws, name);
+            while (!name.empty() && (name.back() == '\r' || name.back() == ' '))
+                name.pop_back();
+            currentObj = name;
+            current = -1;  // resolved at the next face, keeping the material
         } else if (tag == "f") {
             // face vertex tokens: "7", "7/1", "7//2", "7/1/2", negatives
             std::vector<int> vIdx, tIdx;
@@ -295,7 +310,7 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
                 tIdx.push_back(t);
             }
 
-            if (current < 0) current = submeshFor("");
+            if (current < 0) current = submeshFor(currentMat);
             std::vector<float>& outVerts = out.submeshes[current].verts;
             std::vector<int>& outPosIdx = out.submeshes[current].posIdx;
 
@@ -397,8 +412,11 @@ bool applyMaterialOverride(Model& model, const std::string& overrideMtlPath,
 
     for (auto& part : model.parts) {
         const MtlMaterial* hit = nullptr;
+        // An unnamed glTF/FBX material has no name a .mtl can carry; the
+        // model importer writes it as "default" (docs/model-import.md).
         for (const MtlMaterial& m : lib)
-            if (m.name == part.material) {
+            if (m.name == part.material ||
+                (part.material.empty() && m.name == "default")) {
                 hit = &m;
                 break;
             }

@@ -29,6 +29,10 @@ class StaPipQBuffer {
   // per packet SEND, right where the packet double buffer flips (see the pool
   // comment in stapip_qbuffer.cpp).
   static void flipPoolSide();
+  // Modified by TyraX: has any slot copied into the CURRENT pool side since
+  // the last flip? A packet that references such a copy must be sent before
+  // the next bag reuses the slot - see StaPipQBufferRenderer::flushBuffers.
+  static bool poolTouched();
   /** Diagnostic: is this address inside one of the copy pools? See the
    * definition - it exists to settle where the acceptance gate's geometry
    * hash gets its irreproducibility from. */

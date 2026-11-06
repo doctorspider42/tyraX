@@ -179,8 +179,11 @@ float Math::atan2(float y, float x) {
       "_atan_05:    \n\t"
       "add.s		%0, %1, %0    \n\t"
       "_atan_06:    \n\t"
-      : "=&f"(r)
-      : "f"(x), "f"(y)
+      // Modified by TyraX: the body overwrites x and y (mov.s/mtc1 into %1
+      // and %2), so they are read-write operands, not inputs. The global
+      // `_atan_*` labels are why this stays out of line.
+      : "=&f"(r), "+f"(x), "+f"(y)
+      :
       : "$6", "$7", "$8", "$9", "$f0", "$f1", "$f2");
 
   return r;

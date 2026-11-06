@@ -11,6 +11,8 @@
 #pragma once
 
 #include <tamtypes.h>
+#include <memory>
+#include "./stapip_strip_subranges.hpp"
 #include "./bag/stapip_bag.hpp"
 #include "./bag/packaging/stapip_bag_packages_bbox.hpp"
 #include "./bag/packaging/stapip_bag_package.hpp"
@@ -22,6 +24,10 @@
 
 namespace Tyra {
 
+// Modified by TyraX: synchronous per-draw suppression for shared info bags.
+// FromInfo preserves the descriptor's opt-in; Suppress never changes it.
+enum class StaPipLightReception : u8 { FromInfo, Suppress };
+
 class StaPipCore {
  public:
   /**
@@ -30,16 +36,115 @@ class StaPipCore {
    * immutable until the renderer's next VIF1 synchronization.
    */
   void beginSubmissionBatch() { qbufferRenderer.beginSubmissionBatch(); }
-  void endSubmissionBatch() { qbufferRenderer.endSubmissionBatch(); }
+  void endSubmissionBatch() {
+    flushDeferred();
+    qbufferRenderer.endSubmissionBatch();
+  }
+  /** Modified by TyraX: stamp deferral (docs/stapip-stamps.md, "Stamps in
+   * runs"). Inside a submission batch, a bag that has a stamp is queued and
+   * the queue is replayed in one tight run - at the batch's end, before any
+   * bag that takes the ordinary path, when the view changes or the queue is
+   * full - so the stamp path's code and data stay in cache instead of being
+   * evicted by the game code between two bags. StaPip's own draw order is
+   * unchanged. Default on; false submits every bag at its call. */
+  void setStampDeferral(bool on) {
+    flushDeferred();
+    stampDeferral = on;
+  }
+  /** Replays the queued stamps now. Cheap when the queue is empty. */
+  void flushDeferred() {
+#if TYRA_STAPIP_STAMP
+    if (deferredCount != 0) flushDeferredRun();
+#endif
+  }
+#if TYRA_STAPIP_STAMP
+  /** Modified by TyraX: bag stamps (docs/stapip-stamps.md). */
+  void setStampEnabled(bool on) {
+    flushDeferred();
+    qbufferRenderer.setStampEnabled(on);
+  }
+  void setStampBatchAnySize(bool on) { qbufferRenderer.setStampBatchAnySize(on); }
+  /** Modified by TyraX: StaPipBag::stampSlot as the first lookup. */
+  void setStampSlotHint(bool on) { qbufferRenderer.setStampSlotHint(on); }
+  void takeReplayStats(u32* runs) { qbufferRenderer.takeReplayStats(runs); }
+  u32 takeStampHits() { return qbufferRenderer.takeStampHits(); }
+  u32 takeStampCaptures() { return qbufferRenderer.takeStampCaptures(); }
+#endif
+  /** Modified by TyraX: slice clipping (docs/vu1-clipping.md, "Slice clipping"). With VU1
+   * clipping on, a frustum-crossing package of a list bag is cut into
+   * clipPackageSize slices BY POINTER and each slice goes to the VU1 clip
+   * program, which decides inside / outside / cut per triangle. The old
+   * route re-classified every slice on the EE (a bbox walk over its
+   * vertices) and COPIED the inside ones together into the copy pool, every
+   * frame. Default on; false restores it for an A/B. */
+  void setSliceClip(bool on) { sliceClip = on; }
+  /** Modified by TyraX: a bag that crosses the frustum joins the open
+   * submission batch too (docs/stapip-stamps.md, "Batching"). It used to close
+   * and submit a packet of its own - ~70 us a bag on a physical PS2, mostly the
+   * VIF1 queue's per-packet copy and tag walk. It stays pending only when it
+   * left nothing in the slot copy pools and sent nothing mid-bag; otherwise it
+   * sends at its end exactly as before. VU1 clipping only. Default on; false
+   * restores the old rule for an A/B. */
+  void setPartialBatch(bool on) { partialBatch = on; }
+  /** Modified by TyraX: whole-package clipping (docs/vu1-clipping.md, "A
+   * whole package, streamed"). With VU1 clipping on, a frustum-crossing
+   * package - list or strip - goes to the clip program WHOLE and by pointer;
+   * the program streams its output with mid-program XGKICKs. False restores
+   * the slice / strip-subrange routes for an A/B. Default on. */
+  void setStreamClip(bool on) { streamClip = on; }
+  /** Modified by TyraX (R5): a frustum-crossing bag replayed from immutable
+   * blocks (StaPipQBufferRenderer::beginPartialReplay). 0 = the qbuffer loop;
+   * 1 = runs - per-package classification kept, each run of same-route
+   * packages one REF into its baked cull or whole-clip (six-plane) blocks;
+   * 4 = runs, each clip block carrying its package's own plane mask in a
+   * regenerated header. VU1 clipping with whole-package streaming only. The
+   * whole bag as ONE REF into the clip program (no classification) was
+   * measured and removed. See
+   * docs/tyrax2-arch-audit-ee-submission-2026-10-20.md, "R5". */
+  void setPartialReplay(u8 mode) {
+    flushDeferred();
+    partialReplay = mode;
+  }
   StaPipCore();
   ~StaPipCore();
 
   void init(RendererCore* t_core);
 
   void onFrameEnd();
+#if TYRA_STAPIP_PREPARED_STATIC
+  // Modified by TyraX: private bounded scene-residency trial, outside recording.
+  bool prepareStaticGeometry(StaPipBag* bag);
+  void releasePreparedGeometry() { qbufferRenderer.releasePreparedGeometry(); }
+#endif
 
   /** Render 3D via "bags" */
-  void render(StaPipBag* bag);
+  void render(StaPipBag* bag,
+              StaPipLightReception reception = StaPipLightReception::FromInfo);
+
+  /**
+   * Modified by TyraX: instancing (docs/procedural-generation.md,
+   * "Instanced"). Draws `count` copies of `bag`, copy i under models[i]
+   * (TyraMVP; bag->info->model is ignored and left unchanged). The first
+   * visible copy takes the ordinary path, which uploads the uniforms and
+   * replays (or bakes) the bag's whole VIF body; every further copy wholly
+   * inside the guard band is then an MVP upload plus ONE REF to that same
+   * body (StaPipQBufferRenderer::appendBakedInstance). Copies crossing the
+   * guard band or the near plane take the ordinary path. No dynamic light, no
+   * stamps, fog always computed. The bag's streams are REF'd by every copy and
+   * must stay immutable until the frame ran. Returns the copies not culled.
+   */
+  u32 renderInstances(StaPipBag* bag, const M4x4* models, u32 count);
+  /** Copies tested / appended as one REF / sent the ordinary way since the
+   * last call (counters reset on read). */
+  void takeInstanceStats(u32* tested, u32* appended, u32* ordinary,
+                         u32* crossing = nullptr) {
+    *tested = instancesTested;
+    *appended = instancesAppended;
+    *ordinary = instancesOrdinary;
+    if (crossing) *crossing = instancesCrossing;
+    instancesTested = instancesAppended = instancesOrdinary = 0;
+    instancesCrossing = 0;
+  }
 
   /** Get max vert count of VU1 qbuffer (for optimizations) */
   u32 getMaxVertCountByParams(const bool& isSingleColor,
@@ -64,6 +169,10 @@ class StaPipCore {
    */
   void setVU1Clipping(const bool& enabled);
 
+  bool supportsPaintVu(const StaPipBag* bag) const {
+    return qbufferRenderer.supportsPaintVu(bag);
+  }
+
   /** TyraX addition: which material classes keep a resident VU1 program
    * (docs/vu-framework.md). Safe at run time: a level that stops needing, say,
    * the matcap class can hand that micro memory to something else. It costs a
@@ -78,12 +187,14 @@ class StaPipCore {
    * engine.renderer.renderer3D.staticPipeline.core.setProgramOverride(...). */
   void setProgramOverride(const StaPipProgramName& name,
                           StaPipVU1Program* program) {
+    flushDeferred();
     qbufferRenderer.setProgramOverride(name, program);
   }
   /** TyraX addition: swap a whole set at once - one pipeline drain and one
    * upload instead of one per class. A null entry restores the built-in. */
   void setProgramOverrides(const StaPipProgramName* names,
                            StaPipVU1Program* const* programs, u32 count) {
+    flushDeferred();
     qbufferRenderer.setProgramOverrides(names, programs, count);
   }
 
@@ -93,10 +204,12 @@ class StaPipCore {
    * flashlight, not a field on the bag - and only reaches VU1 for a bag with
    * no lighting, because the two quadwords live in the lights-colour block. */
   void setVuCustomEnabled(const bool& enabled) {
+    flushDeferred();
     qbufferRenderer.setVuCustomEnabled(enabled);
   }
   void setVuParams(const float& x, const float& y, const float& z,
                    const float& w) {
+    flushDeferred();
     qbufferRenderer.setVuParams(x, y, z, w);
   }
   void setVuTime(const float& seconds) { qbufferRenderer.setVuTime(seconds); }
@@ -140,6 +253,25 @@ class StaPipCore {
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
 
  private:
+  // Modified by TyraX: the stamp deferral queue (setStampDeferral).
+  struct DeferredBag {
+    StaPipBag* bag;
+    StaPipLightReception reception;
+  };
+  static const u32 kDeferredMax = 48;
+  DeferredBag deferred[kDeferredMax];
+  u32 deferredCount = 0;
+  bool stampDeferral = true;
+  bool flushingDeferred = false;
+  M4x4 deferredViewProj;
+  void flushDeferredRun();
+  void renderNow(StaPipBag* bag, StaPipLightReception reception);
+  // Modified by TyraX: renderInstances is driving renderNow - no stamps (a
+  // stamp would hide the arena the copies REF) and no per-copy fog box.
+  bool instancing = false;
+  u32 instancesTested = 0, instancesAppended = 0, instancesOrdinary = 0;
+  u32 instancesCrossing = 0;  // ordinary because the copy needs clipping
+  std::unique_ptr<StaPipStripSubranges::Cache> stripSubranges;
   void setPrim();
   void setLod();
 
@@ -186,7 +318,20 @@ class StaPipCore {
   // path: that program's clipw judgement tests z against +/-w, not against
   // the guard band's near/far constants.
   Plane clipObjectSpacePlanes[8];
-  void computeClipObjectSpacePlanes(const M4x4& mvp);
+  // Modified by TyraX: `band` is the X/Y plane distance in units of w -
+  // VU1_CLIP_XY_BAND, or VU1_CLIP_XY_BAND_TIGHT for a bag that asks for it
+  // (StaPipInfoBag::tightClipBand). The same number goes to VU1 through
+  // StaPipQBufferRenderer::setClipBandTight, so classify and cut agree.
+  void computeClipObjectSpacePlanes(const M4x4& mvp, float band);
+  void computeClipPlanesInto(const M4x4& mvp, Plane* dst, float band);
+#if TYRA_STAPIP_STAMP
+  // Modified by TyraX: world-space clip planes for stamps, keyed by the VP,
+  // for the wide band and the tight one.
+  M4x4 stampClipViewProj;
+  Plane stampClipPlanes[8];
+  Plane stampClipPlanesTight[8];
+  bool stampClipValid = false;
+#endif
   // Modified by TyraX: a package that leaves the VIEW frustum but stays inside
   // the guard band needs no clipping at all - the GS scissor crops it. See
   // the comment on the definition.
@@ -213,6 +358,16 @@ class StaPipCore {
   void renderStrippedPkgs(StaPipBagPackage* packages, const bool& doClip,
                           u16 count);
   void renderSubpkgs(StaPipBagPackage* packages, u16 count);
+  // Slice clipping (setSliceClip): [offset, offset + count) of the bag to the
+  // VU1 clip program by pointer, in clipPackageSize slices.
+  void renderClipSlices(StaPipBag* bag, u32 offset, u32 count, u8 planeMask);
+  bool sliceClip = true;
+  bool partialBatch = true;
+  bool streamClip = true;
+  u8 partialReplay = 4;  // runs + per-package masks: PS2 run BA4 (docs/tyrax2-arch-audit-ee-submission-2026-10-20.md)
+  bool wholeClip() const {
+    return streamClip && qbufferRenderer.isVU1ClippingEnabled();
+  }
 };
 
 }  // namespace Tyra

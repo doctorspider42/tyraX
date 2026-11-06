@@ -121,6 +121,7 @@ Prefab capture(const SceneData& s, const std::vector<int>& sel,
         // every instance of the new one under the old one's name.
         o.prefabSource.clear();
         o.editorGroup.clear();  // a prefab stamp must not join an existing group
+        o.editorHidden = false;  // the outliner eye is editor view state, not content
         o.position[0] -= ox;
         o.position[1] -= oy;
         o.position[2] -= oz;

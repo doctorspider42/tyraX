@@ -107,6 +107,11 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
         for (const HudText& t : ls.texts)
             take("hud/" + menubake::textFileName("ls-" + std::to_string(si) + "-" + t.name),
                  "startup");
+        for (const LoadingAnim& a : ls.anims)
+            for (const HudImage& f : a.frames) take(binPathOf(f.imagePath), "startup");
+        if (ls.waitForButton)
+            take("hud/" + menubake::textFileName("ls-" + std::to_string(si) + "-continue"),
+                 "startup");
     }
     // Boot splash images (shown before the first scene) belong to startup too.
     for (const SplashScreen& s : p.splashScreens)

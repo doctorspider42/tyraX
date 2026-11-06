@@ -67,7 +67,7 @@ struct Params {
 
     // Procedural textures
     int barkStyle = 0;          // 0 rough bark, 1 birch, 2 plates
-    int leafStyle = 0;          // 0 broadleaf cluster, 1 needles, 2 single leaf
+    int leafStyle = 0;          // 0 cluster, 1 needles, 2 single, 3 Blender broadleaf spray
     float barkColor[3] = {0.42f, 0.30f, 0.20f};   // highlights
     float barkColor2[3] = {0.24f, 0.16f, 0.10f};  // crevices
     float leafColor[3] = {0.32f, 0.52f, 0.18f};   // lit blade
@@ -121,6 +121,11 @@ const std::vector<Preset>& presets();
 // Select ONE part (2 tris) and face it to the camera with impostorBillboard.
 // Shares the near model's origin and dimensions; intended for distant foliage.
 // Output is an ordinary OBJ/MTL/PNG, not a new console texture format.
+// The impostor's cards captured in memory (CPU), the layout writeImpostor
+// writes as PNG - what the editor previews before a bake.
+bool captureImpostor(const Mesh& mesh, const Image& bark, const Image& leaf, int size, int views,
+                     std::vector<unsigned char>& pixels, std::string* outError);
+
 bool writeImpostor(const std::string& projectDir, const std::string& name,
                    const Mesh& mesh, const Image& bark, const Image& leaf,
                    std::string* outObjRel, std::string* outError,

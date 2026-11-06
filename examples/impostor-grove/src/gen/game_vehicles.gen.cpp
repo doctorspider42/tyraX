@@ -69,7 +69,7 @@ void TerrainGame::submitHeavy(Tyra::StaPipBag* bag) {
   if (heavyCollect)
     heavyBags.push_back(bag);
   else
-    stapip.core.render(bag);
+    renderWorldBag(bag);
 }
 
 
@@ -88,86 +88,165 @@ void TerrainGame::dripHeavy(bool all) {
     const size_t even = (total + objs - 1) / objs;
     if (even < want) want = even;
   }
-  for (size_t k = 0; k < want; ++k) stapip.core.render(heavyBags[heavyNext++]);
+  for (size_t k = 0; k < want; ++k) renderWorldBag(heavyBags[heavyNext++]);
 }
 
 
 
-// Decides this frame's order. Off and always are constants; auto probes 8
-// pairs of frames, one in each order, and keeps the order that won most of
-// them for ilHoldFrames. The two frames of a pair see nearly the same view,
-// and counting pair wins instead of summing times means one slow frame (a
-// scene load, a texture upload burst) decides one pair, not the verdict.
-//
-// What is timed is the WHOLE loop, from here to here one frame later, minus
-// the renderer's stall. Timing only the passes that move was tried first
-// and missed the cost: measured on a PS2 in open ground, interleaving costs
-// nothing inside them and +0.19 ms later, at endFrame, where the GS tail
-// that the object loop used to hide is now waited for.
-bool TerrainGame::interleaveBegin() {
+// Settled whole-loop observations, not a per-job GPU timer. The renderer has
+// at most one pending frame: discard two complete intervals after changing
+// order so current preparation, pending completion and next front end share it.
+void TerrainGame::ilReset() {
+  ilProbing = true;
+  ilFrame = ilWins = ilPair = ilBlock = ilAccepted = 0;
+  ilWarmup = 2;
+  ilBlockSum = ilSumOn = ilSumOff = 0;
+  ilPairOn = ilPairOff = 0;
+  ilHaveMark = false;
+}
+
+bool TerrainGame::interleaveBegin(bool serializedCost) {
   heavyBags.clear();
   heavyNext = 0;
   heavyDrawn = 0;
-  if (INTERLEAVE_PASSES == 0 || splitPassActive) return false;
-  if (INTERLEAVE_PASSES == 2) return true;
-  const u32 now = profTicks();
-  const u32 stall = engine->renderer.core.getStallTotal();
+  if (INTERLEAVE_PASSES == 0 || splitPassActive) {
+    ilReset();
+    ilHaveGeneration = false;
+    return false;
+  }
+  if (INTERLEAVE_PASSES == 2) {
+    ilReset();
+    ilHaveGeneration = false;
+    return true;
+  }
+  // Diagnostic capture/serialized cost passes are not ordinary loop samples.
+  if (serializedCost || Tyra::HardwareTrace::active) {
+    ilReset();
+    return ilChoice;
+  }
+  // Raw custom overrides without a stable owner cannot be compared honestly.
+  // Keep the last chosen order; do not restart perpetual first-block interleave.
+  if (scriptCtx.cameraOverride && !scriptCtx.cameraSource) {
+    ilReset();
+    return ilChoice;
+  }
+  auto& core = engine->renderer.core;
+  const u32 generation = core.getRecordingGeneration();
+  // Track adjacency independently of timing marks: recurring synthetic/skipped
+  // frames must retain the verdict, not force the first probe block forever.
+  const bool interrupted = ilHaveGeneration && generation - ilGeneration != 1u;
+  ilHaveGeneration = true;
+  ilGeneration = generation;
+  if (interrupted) {
+    ilReset();
+    return ilChoice;
+  }
+  const bool pipelined = Tyra::Vif1Queue::recordingPipelined();
+  const auto& settings = core.getSettings();
+  const auto target = core.gs.getRasterTarget();
+  const InterleaveMode mode{
+      (u32)settings.getVideoMode(), (u32)settings.getDisplayMode(),
+      (u32)settings.getColorDepth(), core.gs.getFrameBufferCount(),
+      settings.isFieldRendering(), core.blss.isActive(), core.getFrameLimit(), core.getFrameYield(),
+      settings.getWidescreen(), settings.getDither(),
+      settings.getWidth(), settings.getHeight(), settings.getRenderHeightF(),
+      settings.getRasterWidthF(), settings.getRasterHeightF(),
+      core.blss.getLowResW(), core.blss.getLowResH(), target.frameWidth,
+      target.scissorX0, target.scissorX1, target.scissorY0, target.scissorY1};
+  // Invalid geometry has no comparable epoch. Preserve the last choice.
+  if (!(mode.width > 0.0F && mode.height > 0.0F && mode.renderHeight > 0.0F &&
+        mode.rasterWidth > 0.0F && mode.rasterHeight > 0.0F) ||
+      !std::isfinite(mode.width) || !std::isfinite(mode.height) ||
+      !std::isfinite(mode.renderHeight) || !std::isfinite(mode.rasterWidth) ||
+      !std::isfinite(mode.rasterHeight)) {
+    ilReset();
+    return ilChoice;
+  }
+  const uintptr_t cameraSource = scriptCtx.cameraOverride ? scriptCtx.cameraSource : 0;
+  const int cameraRig = 0;
+  bool topologyChanged = false;
+  if (ilPortalTopology.size() != (size_t)PORTAL_COUNT) {
+    ilPortalTopology.assign(PORTAL_COUNT, 0);
+    topologyChanged = true;
+  }
+  int views = 1;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const auto& p = PORTALS[pi];
+    unsigned char bits = 0;
+    if (p.scene == currentScene && p.object >= 0 && p.target >= 0 &&
+        p.object < (int)runtimeObjects.size() && p.target < (int)runtimeObjects.size()) {
+      const auto& object = runtimeObjects[p.object];
+      bits = (object.active ? 1u : 0u) | (object.visible ? 2u : 0u) |
+             (runtimeObjects[p.target].active ? 4u : 0u);
+    }
+    if (pi < (int)portalLiveFlags.size() && portalLiveFlags[pi]) bits |= 8u;
+    if (ilPortalTopology[pi] != bits) topologyChanged = true;
+    ilPortalTopology[pi] = bits;
+    if (pi < (int)portalLiveFlags.size() && portalLiveFlags[pi]) ++views;
+  }
+  if (ilHaveMark && (ilSceneGeneration != sceneGeneration || ilPipelined != pipelined ||
+      ilRequested != core.getFramePipeline() || !(ilMode == mode) ||
+      ilCameraOverride != scriptCtx.cameraOverride || ilCameraSource != cameraSource ||
+      ilCameraRig != cameraRig || ilViews != views || topologyChanged)) ilReset();
+  const u32 now = ilObservationTicks();
+  const u32 stall = core.getStallTotal();
   if (ilHaveMark) {
     const u32 period = now - ilMark;
     const u32 stalled = stall - ilStallMark;
-    ilAccount(period > stalled ? period - stalled : 0);
+    // Unsigned subtraction accepts a single COP0/stall-counter wrap. Reject
+    // zero/ambiguous long intervals and a pacing delta larger than the period.
+    if (period && period < 0x80000000u && stalled <= period)
+      ilAccount(period - stalled);
+    else ilReset();
   }
   ilHaveMark = true;
   ilMark = now;
   ilStallMark = stall;
-  ilMarkActive = ilProbing ? (ilFrame & 1) == 0 : ilChoice;
+  ilSceneGeneration = sceneGeneration;
+  ilPipelined = pipelined;
+  ilRequested = core.getFramePipeline();
+  ilMode = mode;
+  ilCameraOverride = scriptCtx.cameraOverride;
+  ilCameraSource = cameraSource;
+  ilCameraRig = cameraRig;
+  ilViews = views;
+  // Reverse first/second order in alternate pairs to reduce monotonic drift.
+  ilMarkActive = ilProbing ? ((ilPair & 1) == 0) != (ilBlock != 0) : ilChoice;
   return ilMarkActive;
 }
 
-
-
-// Called once per frame for the frame that just ended, with its work.
 void TerrainGame::ilAccount(u32 work) {
-  constexpr int kProbeFrames = 16;  // 8 pairs
-  // Short on purpose: a hold that outlives the view it was measured in
-  // (measured: 250 frames carried the garage's verdict into open ground)
-  // costs more than the probe frames do.
-  constexpr int ilHoldFrames = 100;
-  ++ilFrame;
+  constexpr int kPairs = 4;
+  constexpr int kBlockSamples = 4;
+  constexpr int kHoldFrames = 100;
+  if (ilWarmup) { --ilWarmup; return; }
   if (!ilProbing) {
-    if (ilFrame >= ilHoldFrames) {
-      ilProbing = true;
-      ilFrame = 0;
-      ilWins = 0;
-      ilSumOn = ilSumOff = 0;
-    }
+    if (++ilFrame >= kHoldFrames) ilReset();
     return;
   }
-  if (ilMarkActive) {
-    ilPairOn = work;
-    ilSumOn += work;
-  } else {
-    // The pair's second frame: interleaving wins it only by a clear 1%,
-    // because the plain order is the one every other measurement of this
-    // engine was taken in.
-    if ((double)ilPairOn * 1.01 < (double)work) ++ilWins;
-    ilSumOff += work;
-  }
-  if (ilFrame < kProbeFrames) return;
-  const bool on = ilWins * 2 > kProbeFrames / 2;
+  ilBlockSum += work;
+  if (++ilAccepted < kBlockSamples) return;
+  const u32 mean = (u32)(ilBlockSum / kBlockSamples);
+  if (ilMarkActive) { ilPairOn = mean; ilSumOn += mean; }
+  else { ilPairOff = mean; ilSumOff += mean; }
+  ilAccepted = 0;
+  ilBlockSum = 0;
+  ilWarmup = 2;
+  if (ilBlock == 0) { ilBlock = 1; return; }
+  if ((double)ilPairOn * 1.01 < (double)ilPairOff) ++ilWins;
+  ilBlock = 0;
+  if (++ilPair < kPairs) return;
+  const bool on = ilWins > kPairs / 2;
   if (on != ilChoice || DEBUG_SHOW_PROFILER)
-    TYRA_LOG("INTERLEAVE auto on=",
-             (int)(ilSumOn / (kProbeFrames / 2) / 295), "us off=",
-             (int)(ilSumOff / (kProbeFrames / 2) / 295), "us -> ",
-             on ? "interleaved" : "plain", " wins=", ilWins, "/",
-             kProbeFrames / 2, " heavy=", ilLastHeavy,
-             " drawn=", heavyPrevDrawn, " blendAt=", ilLastBlendAt);
+    TYRA_LOG("INTERLEAVE settled on=", (int)(ilSumOn / kPairs / 295),
+             "us off=", (int)(ilSumOff / kPairs / 295), "us -> ",
+             on ? "interleaved" : "plain", " wins=", ilWins, "/", kPairs,
+             " heavy=", ilLastHeavy, " drawn=", heavyPrevDrawn,
+             " blendAt=", ilLastBlendAt);
   ilChoice = on;
   ilProbing = false;
   ilFrame = 0;
 }
-
-
 
 void TerrainGame::interleaveEnd() {
   if (heavyActive) {
@@ -481,6 +560,43 @@ float TerrainGame::groundSurfaceAt(float x, float z) const {
 
 
 
+// A ground-conforming lattice (headlight beam, light pool, blob shadow) takes
+// its corner heights from groundSurfaceAt. A road is a decal 0.12 over the
+// terrain with a STEP at its edge, and a cell with corners on both sides spans
+// that step linearly: just inside the asphalt its triangles run under the road,
+// deeper than the patch's own lift, so the z test eats them - a hole in the
+// beam or the shadow along the road edge (reported driving on the edge, found
+// in a GS dump: the beam lost GEQUAL to the road's own triangle there).
+// Each corner is raised by the largest road step any corner within one cell of
+// it stands on, measured over the terrain HERE, so a slope lifts nothing and
+// the patch floats at most one step over the verge. `grid` is nz rows of nx
+// corners (at most 5x5) whose y is groundSurfaceAt + a common lift.
+void TerrainGame::liftLatticeOverRoadStep(Tyra::Vec4* grid, int nx,
+                                          int nz) const {
+  // No ROAD_COUNT test: that constant exists only in projects with roads, and
+  // without them groundSurfaceAt IS the terrain, so every step is equal and
+  // nothing moves.
+  if (nx > 5 || nz > 5) return;
+  float terrain[25], step[25];
+  for (int i = 0; i < nx * nz; ++i) {
+    terrain[i] = terrainHeightAt(grid[i].x, grid[i].z);
+    step[i] = grid[i].y - terrain[i];
+  }
+  for (int iz = 0; iz < nz; ++iz)
+    for (int ix = 0; ix < nx; ++ix) {
+      float m = step[iz * nx + ix];
+      for (int dz = -1; dz <= 1; ++dz)
+        for (int dx = -1; dx <= 1; ++dx) {
+          const int jz = iz + dz, jx = ix + dx;
+          if (jz < 0 || jx < 0 || jz >= nz || jx >= nx) continue;
+          if (step[jz * nx + jx] > m) m = step[jz * nx + jx];
+        }
+      grid[iz * nx + ix].y = terrain[iz * nx + ix] + m;
+    }
+}
+
+
+
 // --- the block collision field ---------------------------------------------
 // A block world's ground is not the terrain heightmap, so the walker needs a
 // second source. It is one bitfield lookup: the column word says which levels
@@ -552,6 +668,10 @@ void TerrainGame::procClearVolume(int volume) {
   for (int i = (int)procColliders.size() - 1; i >= 0; --i)
     if (procColliders[i].owner == volume)
       procColliders.erase(procColliders.begin() + i);
+  for (int i = (int)procLodRefs.size() - 1; i >= 0; --i)
+    if (procLodRefs[i].owner == volume)
+      procLodRefs.erase(procLodRefs.begin() + i);
+  procClearInstances(volume);
   // Prefab instances this volume spawned go with it - their merged geometry
   // lives in the volume's own chunks, and their spawned members would
   // otherwise leak a pool slot per regeneration.
@@ -591,6 +711,7 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
       if (slots[i] < 0)
         TYRA_LOG("Procedural: no model for asset ", names[i]);
     }
+    const int assetCount = n;
     names = procrt::volumePrefabNames(volume, &n);
     slots = procrt::volumePrefabSlots(volume);
     for (int i = 0; i < n && slots; ++i) {
@@ -600,6 +721,20 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
           slots[i] = (short)k;
           break;
         }
+    }
+    // Each slot's distant version (asset slots, then prefab slots).
+    names = procrt::volumeLodNames(volume);
+    slots = procrt::volumeLodSlots(volume);
+    for (int i = 0; names && slots && i < assetCount + n; ++i) {
+      slots[i] = -1;
+      if (!names[i]) continue;
+      for (int m = 0; m < MODEL_COUNT; ++m)
+        if (modelSourceMatches(m, names[i])) {
+          slots[i] = (short)m;
+          break;
+        }
+      if (slots[i] < 0)
+        TYRA_LOG("Procedural: no model for distant version ", names[i]);
     }
   }
 
@@ -684,6 +819,19 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
 
   const short* assetSlots = procrt::volumeAssetSlots(volume);
   const short* prefabSlots = procrt::volumePrefabSlots(volume);
+  const short* lodSlots = procrt::volumeLodSlots(volume);
+  const float* lodDists = procrt::volumeLodDist(volume);
+  int lodPrefabBase = 0;
+  procrt::volumeAssetNames(volume, &lodPrefabBase);
+  const int instFrom = (int)procInsts.size();
+  // The slot's far model and distance, or -1 when it has none.
+  auto lodOf = [&](int slot, float* dist) -> int {
+    *dist = 0.0F;
+    if (!lodSlots || !lodDists || slot < 0) return -1;
+    if (lodSlots[slot] < 0 || lodDists[slot] <= 0.0F) return -1;
+    *dist = lodDists[slot];
+    return lodSlots[slot];
+  };
   SceneObjectData d = SCENE_OBJECTS[V.objectIndex];
   d.type = 5;
   d.layer = -1;
@@ -701,12 +849,17 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     const procrt::Pt& P = c.buf[i];
     if (P.prefab >= 0) {
       const int pf = prefabSlots ? prefabSlots[P.prefab] : -1;
-      if (pf >= 0) spawnPrefabAt(pf, P.x, P.y, P.z, P.ry, P.sc, volume);
+      float lodDist = 0.0F;
+      const int lodModel = lodOf(lodPrefabBase + P.prefab, &lodDist);
+      if (pf >= 0)
+        spawnPrefabAt(pf, P.x, P.y, P.z, P.ry, P.sc, volume, lodModel, lodDist);
       continue;
     }
     if (P.asset < 0 || !assetSlots) continue;
     const int model = assetSlots[P.asset];
     if (model < 0) continue;
+    float lodDist = 0.0F;
+    const int lodModel = lodOf(P.asset, &lodDist);
     d.model = model;
     d.position[0] = P.x;
     d.position[1] = P.y;
@@ -715,18 +868,53 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     d.rotation[1] = P.ry;
     d.rotation[2] = P.rz;
     d.scale[0] = d.scale[1] = d.scale[2] = P.sc;
+    if (V.drawMode == 1 && P.block == 0) {
+      // Instanced (docs/procedural-generation.md): one shared copy of the
+      // model, this point is a matrix. Blocks keep merging - their faces and
+      // corner occlusion are per copy.
+      procAddInstance(volume, d, lodModel, lodDist, V.collide == 1);
+      continue;
+    }
     const bool isBlock = aoBlocks && P.block != 0;
     if (isBlock) procBlockVertexAo(P.x, P.y, P.z, P.faces, blockAo);
-    procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr);
+    if (lodModel < 0) {
+      procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr);
+      continue;
+    }
+    // A switching row: its own geometry is the near side of the group, the
+    // distant version the far side - with no collider of its own, so the
+    // near object's box is what the player walks into at any distance.
+    procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr, 0,
+                        lodDist, d.position);
+    SceneObjectData farObj = d;
+    farObj.model = lodModel;
+    farObj.collision = 2;
+    procAddMergedObject(volume, -1, farObj, 63, nullptr, 1, lodDist, d.position);
   }
   procFinishChunks();
+  if (V.drawMode == 1)
+    procFinishInstances(volume, V.cell, V.drawDist, instFrom);
+  {
+    // How the merge came out: every chunk with geometry is one bag (one
+    // submit when on screen), and switch groups multiply them.
+    int chunks = 0, lodChunks = 0, verts = 0;
+    for (const ProcChunk& pc : procChunks) {
+      if (pc.owner != volume || pc.vertices.empty()) continue;
+      ++chunks;
+      if (pc.lodTier >= 0) ++lodChunks;
+      verts += (int)pc.vertices.size();
+    }
+    TYRA_LOG("Procedural ", V.name, ": ", chunks, " chunks (", lodChunks,
+             " switching), ", verts, " vertices");
+  }
 }
 
 
 
 // --- prefab instances -------------------------------------------------------
 int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
-                               float yaw, float scale, int mergeOwner) {
+                               float yaw, float scale, int mergeOwner,
+                               int lodModel, float lodDist) {
   if (PREFAB_COUNT <= 0) return -1;
   if (prefabIndex < 0 || prefabIndex >= PREFAB_COUNT) return -1;
   const float s = scale > 0.0001F ? scale : 1.0F;
@@ -754,6 +942,13 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
   const int first = PREFAB_FIRST[prefabIndex];
   const int n = PREFAB_COUNTS[prefabIndex];
   bool merged = false;
+  // Distant version of a volume's pool row: the merged members are the near
+  // side of one switch group, the far model (at the instance's origin, yaw
+  // and scale) the far side. Only a volume merges into a shared grid, so only
+  // a volume spawn switches.
+  const bool lod = mergeOwner >= 0 && lodModel >= 0 && lodDist > 0.0F;
+  const float anchor[3] = {x, y, z};
+  int tintFrom = -1;  // the far model takes the first merged model's tint
   for (int k = 0; k < n; ++k) {
     SceneObjectData d = PREFAB_MEMBERS[first + k];
     const float lx = d.position[0] * s, ly = d.position[1] * s,
@@ -764,7 +959,14 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
     d.rotation[1] += yaw;
     for (int a = 0; a < 3; ++a) d.scale[a] *= s;
     if (PREFAB_MERGE[first + k]) {
-      procAddMergedObject(mergeOwner, mergeOwner >= 0 ? -1 : handle, d, 63);
+      if (lod) {
+        procAddMergedObject(mergeOwner, -1, d, 63, nullptr, 0, lodDist, anchor);
+        if (tintFrom < 0 && d.type == 5) tintFrom = first + k;
+      } else if (mergeOwner >= 0) {
+        procAddMergedObject(mergeOwner, -1, d, 63, nullptr, -1, 0.0F, anchor);
+      } else {
+        procAddMergedObject(mergeOwner, handle, d, 63);  // one bag per instance
+      }
       merged = true;
       continue;
     }
@@ -791,6 +993,22 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
     setupAnimObject(slot);
     if (d.type == 7) buildParticles();
     inst.spawned[inst.spawnCount++] = slot;
+  }
+  if (lod && merged) {
+    SceneObjectData farObj = tintFrom >= 0 ? PREFAB_MEMBERS[tintFrom]
+                                           : PREFAB_MEMBERS[first];
+    if (tintFrom < 0) farObj.color[0] = farObj.color[1] = farObj.color[2] = 1.0F;
+    farObj.type = 5;
+    farObj.model = lodModel;
+    farObj.material = -1;
+    farObj.collision = 2;  // the members' boxes stay the collision
+    farObj.position[0] = x;
+    farObj.position[1] = y;
+    farObj.position[2] = z;
+    farObj.rotation[0] = farObj.rotation[2] = 0.0F;
+    farObj.rotation[1] = yaw;
+    farObj.scale[0] = farObj.scale[1] = farObj.scale[2] = s;
+    procAddMergedObject(mergeOwner, -1, farObj, 63, nullptr, 1, lodDist, anchor);
   }
   if (merged) procFinishChunks();
   applyLayerResidency();

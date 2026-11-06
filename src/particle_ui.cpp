@@ -4,6 +4,10 @@
 // vehicle's tyre smoke name it. Textures can be generated here: smoke puffs,
 // flames and glows baked into res/materials/particles by particletex.cpp.
 //
+// Layout: library | animated preview (the hero) | inspector (name, layer
+// stack, Behaviour / Texture / Placement tabs) with Place in scene as the
+// one primary action.
+//
 // App:: members declared in app.hpp, own translation unit (the prefab_ui.cpp
 // precedent). The library is Section::Particles; a linked emitter's fields are
 // copied in by project::applyParticleEffects inside commitChange().
@@ -12,19 +16,48 @@
 #include "app_internal.hpp"
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <string>
 #include <vector>
 
 #include "gl_loader.h"
 #include "particletex.hpp"
+#include "platform.hpp"
+#include "theme.hpp"
+#include "toolkit.hpp"
+#include "uiscript.hpp"
+#include "update.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 namespace {
 
+void openDocPage(const char* page) {
+    platform::openUrl(std::string("https://github.com/") + update::kRepo + "/blob/main/docs/" + page +
+                      ".md");
+}
+
 const char* const kKinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
+// One line per kKinds entry, for the first-effect cards.
+const char* const kKindDesc[] = {"Glowing flames rising from a point", "Slow grey puffs that drift and spread",
+                                 "A low, wide haze over the ground",   "Tiny bright bits that shoot and fall",
+                                 "Streaks falling over an area",        "Plain particles to shape yourself"};
+
+// An effect's glow: its tint in soft rings on a dark tile `d` px square.
+void drawGlowTile(ImDrawList* dl, ImVec2 t0, float d, const float color[3], bool additive, float r) {
+    const theme::Semantics& sem = theme::semantics();
+    dl->AddRectFilled(t0, ImVec2(t0.x + d, t0.y + d), ImGui::GetColorU32(sem.ground), r);
+    const ImVec2 c(t0.x + d * 0.5f, t0.y + d * 0.5f);
+    for (int i = 5; i >= 1; --i)
+        dl->AddCircleFilled(c, d * (0.16f + 0.065f * (float)i),
+                            ImGui::ColorConvertFloat4ToU32(
+                                ImVec4(color[0], color[1], color[2], additive ? 0.22f : 0.16f)),
+                            24);
+}
 const char* const kTexKinds[] = {"None (pick a material)", "Smoke puff", "Flame",
                                  "Glow / spark"};
 
@@ -74,7 +107,7 @@ bool App::particleBakeTexture(ParticleEffect& fx) {
 
 void App::drawParticleEditorWindow() {
     if (!showParticles_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(760), scaled(600)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1180), scaled(760)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Particle Editor", &showParticles_)) {
         ImGui::End();
         return;
@@ -84,6 +117,7 @@ void App::drawParticleEditorWindow() {
         ImGui::End();
         return;
     }
+    const theme::Semantics& sem = theme::semantics();
 
     // Edits commit when no widget is held: a drag must not become sixty undo
     // steps (applyParticleEffects rewrites the linked emitters in the SCENES,
@@ -98,297 +132,274 @@ void App::drawParticleEditorWindow() {
 
     auto& lib = project_.particleEffects;
     if (particleSel_ >= (int)lib.size()) particleSel_ = (int)lib.size() - 1;
+    if (particleSel_ < 0 && !lib.empty()) particleSel_ = 0;
 
-    // --- toolbar -------------------------------------------------------------
-    if (ImGui::Button("New effect...")) ImGui::OpenPopup("##fxnew");
-    if (ImGui::BeginPopup("##fxnew")) {
-        for (int k = 0; k < 6; ++k)
-            if (ImGui::MenuItem(kKinds[k])) {
-                ParticleEffect fx = project::particlePreset(k);
-                fx.id = project::newObjectId();
-                fx.name = uniqueName(project_, fx.name);
-                particleBakeTexture(fx);
-                lib.push_back(fx);
-                particleSel_ = (int)lib.size() - 1;
-                particleLayerSel_ = 0;
-            }
-        ImGui::EndPopup();
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(particleSel_ < 0);
-    if (ImGui::Button("Duplicate") && particleSel_ >= 0) {
-        ParticleEffect fx = lib[(size_t)particleSel_];
+    auto newEffect = [&](int kind) {
+        ParticleEffect fx = project::particlePreset(kind);
         fx.id = project::newObjectId();
         fx.name = uniqueName(project_, fx.name);
         particleBakeTexture(fx);
         lib.push_back(fx);
         particleSel_ = (int)lib.size() - 1;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Delete") && particleSel_ >= 0) {
-        // Linked emitters keep the look they last copied; vehicles fall back
-        // to the built-in smoke. The texture files stay - they are assets.
-        project::renameParticleEffectRefs(project_, lib[(size_t)particleSel_].name, "");
-        lib.erase(lib.begin() + particleSel_);
-        particleSel_ = std::min(particleSel_, (int)lib.size() - 1);
         particleLayerSel_ = 0;
-        sceneEdit = true;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Place in scene") && particleSel_ >= 0) {
-        const std::string name = lib[(size_t)particleSel_].name;
-        addObject(PrimitiveType::Emitter, false);
-        if (!project_.objects().empty()) project_.objects().back().particleEffect = name;
-        sceneEdit = true;
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Adds an emitter linked to this effect where objects are inserted.");
-    ImGui::EndDisabled();
-    if (!particleStatus_.empty()) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", particleStatus_.c_str());
-    }
-    ImGui::Separator();
+        particleHidden_.clear();
+    };
+    auto duplicate = [&](int k) {
+        ParticleEffect fx = lib[(size_t)k];
+        fx.id = project::newObjectId();
+        fx.name = uniqueName(project_, fx.name);
+        particleBakeTexture(fx);
+        lib.push_back(fx);
+        particleSel_ = (int)lib.size() - 1;
+        particleHidden_.clear();
+    };
+    int deleteAt = -1;
 
-    // --- the list ------------------------------------------------------------
-    ImGui::BeginChild("##fxlist", ImVec2(scaled(190), 0), ImGuiChildFlags_Borders);
-    if (lib.empty()) ImGui::TextDisabled("No effects yet.");
-    for (size_t k = 0; k < lib.size(); ++k) {
-        int veh = 0;
-        const int n = usersOf(project_, lib[k].name, &veh);
-        char label[256];
-        std::snprintf(label, sizeof label, "%s##fxrow%zu", lib[k].name.c_str(), k);
-        if (ImGui::Selectable(label, particleSel_ == (int)k)) {
-            if (particleSel_ != (int)k) particleLayerSel_ = 0;
-            particleSel_ = (int)k;
+    // --- no effects yet: one centred column, every preset a card ---------------
+    // No library, no inspector, no "+ New effect": the six cards ARE the way
+    // in (each named by its preset - what a script clicks), with only the
+    // docs button above them.
+    if (lib.empty()) {
+        const float rowH = ImGui::GetFrameHeight();
+        ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - rowH);
+        if (ui::HelpButton("Particle docs", rowH, "Open docs/particles.md")) openDocPage("particles");
+        const float fs = ImGui::GetFontSize();
+        const float colW = ImMin(scaled(700), ImGui::GetContentRegionAvail().x);
+        const float cardH = fs * 4.6f;
+        const float blockH = fs * 4.0f + cardH * 2.0f + scaled(12) + fs * 3.0f;
+        const float x0 = ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - colW) * 0.5f;
+        const float y0 = ImGui::GetCursorPosY() +
+                         ImMax(0.0f, (ImGui::GetContentRegionAvail().y - blockH) * 0.45f);
+        ImGui::SetCursorPos(ImVec2(x0, y0));
+        ImGui::BeginGroup();
+        {
+            ui::FontScope bold(ui::boldFont());
+            ImGui::PushFont(nullptr, fs * 1.45f);
+            ImGui::TextUnformatted("Make your first effect");
+            ImGui::PopFont();
         }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%d layer(s) - %d emitter(s), %d vehicle(s)",
-                              (int)lib[k].layers.size() + 1, n, veh);
-    }
-    ImGui::EndChild();
-    ImGui::SameLine();
-
-    // --- the selected effect -------------------------------------------------
-    ImGui::BeginChild("##fxbody", ImVec2(0, 0));
-    if (particleSel_ >= 0) {
-        ParticleEffect& fx = lib[(size_t)particleSel_];
-
-        // Name: a rename retargets every emitter and vehicle that names it.
-        char nameBuf[128];
-        std::snprintf(nameBuf, sizeof nameBuf, "%s", fx.name.c_str());
-        if (ImGui::InputText("Name", nameBuf, sizeof nameBuf)) {
-            if (particleRenameFrom_.empty()) particleRenameFrom_ = fx.name;
-            fx.name = nameBuf;
-        }
-        if (ImGui::IsItemDeactivatedAfterEdit() && !particleRenameFrom_.empty()) {
-            std::string to = fx.name;
-            fx.name = particleRenameFrom_;  // uniqueness is judged without itself
-            if (to.empty() || (to != fx.name && project::findParticleEffect(project_, to)))
-                to = uniqueName(project_, to.empty() ? "Effect" : to);
-            fx.name = to;
-            project::renameParticleEffectRefs(project_, particleRenameFrom_, to);
-            particleRenameFrom_.clear();
-            sceneEdit = true;
-        }
-        int veh = 0;
-        const int users = usersOf(project_, fx.name, &veh);
-        ImGui::TextDisabled("Used by %d emitter(s), %d vehicle(s)", users, veh);
-
-        // --- layers: one effect, several emitters ----------------------------
-        ImGui::SeparatorText("Layers");
-        if (particleLayerSel_ > (int)fx.layers.size()) particleLayerSel_ = 0;
-        for (int li = 0; li <= (int)fx.layers.size(); ++li) {
-            const std::string lab =
-                (li == 0 ? std::string("Main")
-                         : (fx.layers[(size_t)li - 1].label.empty()
-                                ? "Layer " + std::to_string(li)
-                                : fx.layers[(size_t)li - 1].label)) +
-                "##fxlayer" + std::to_string(li);
-            if (li) ImGui::SameLine();
-            if (ImGui::RadioButton(lab.c_str(), particleLayerSel_ == li)) particleLayerSel_ = li;
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("+ Layer")) ImGui::OpenPopup("##fxaddlayer");
-        prefHelp("Each layer is one more emitter of this effect around the\n"
-                 "placed one - a campfire is flame + embers + glow + smoke.\n"
-                 "Every layer is its own draw (one submit) on the console.");
-        if (ImGui::BeginPopup("##fxaddlayer")) {
-            for (int k = 0; k < 6; ++k)
-                if (ImGui::MenuItem(kKinds[k])) {
-                    const ParticleEffect preset = project::particlePreset(k);
-                    ParticleLayer L = preset;
-                    L.label = preset.name;
-                    fx.layers.push_back(L);
-                    particleLayerSel_ = (int)fx.layers.size();
-                    particleBakeTexture(fx);
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + colW);
+        ImGui::TextUnformatted("Pick a starting point. Everything can be changed afterwards, and its texture "
+                               "is generated for you.");
+        ImGui::PopTextWrapPos();
+        ImGui::PopStyleColor();
+        ImGui::Dummy(ImVec2(0, scaled(10)));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(scaled(6), scaled(6)));
+        if (ImGui::BeginTable("##fxfirst", 3, ImGuiTableFlags_SizingStretchSame, ImVec2(colW, 0))) {
+            for (int k = 0; k < 6; ++k) {
+                ImGui::TableNextColumn();
+                ImGui::PushID(k);
+                if (ui::ChoiceCard(kKinds[k], false, cardH)) newEffect(k);
+                ImGui::PopID();
+                const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                const ParticleEffect preset = project::particlePreset(k);
+                const float pad = scaled(12), d = cardH - pad * 2.0f;
+                drawGlowTile(dl, ImVec2(a.x + pad, a.y + pad), d, preset.color, preset.additive,
+                             ImGui::GetStyle().FrameRounding + 3.0f);
+                const float tx = a.x + pad * 2.0f + d;
+                const float ty = a.y + (cardH - fs * 2.3f) * 0.5f;
+                {
+                    ui::FontScope bold(ui::boldFont());
+                    dl->AddText(ImVec2(tx, ty), ImGui::GetColorU32(sem.text), kKinds[k]);
                 }
+                dl->AddText(ImGui::GetFont(), fs * 0.88f, ImVec2(tx, ty + fs * 1.3f),
+                            ImGui::GetColorU32(sem.textDim), kKindDesc[k], nullptr, b.x - tx - pad);
+            }
+            ImGui::EndTable();
+        }
+        ImGui::PopStyleVar();
+        ImGui::Dummy(ImVec2(0, scaled(8)));
+        ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
+        ImGui::TextUnformatted("An effect is defined once here; emitters and vehicle tyre smoke use it by name.");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        if (ui::Link("How particles work")) openDocPage("particles");
+        ImGui::EndGroup();
+        ImGui::End();
+        return;
+    }
+
+    // --- header: count, New effect, docs -------------------------------------
+    {
+        const float rowH = ImGui::GetFrameHeight();
+        const float y0 = ImGui::GetCursorPosY();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%d effect%s", (int)lib.size(), lib.size() == 1 ? "" : "s");
+        if (!particleStatus_.empty()) {
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("- %s", particleStatus_.c_str());
+        }
+        const char* newLabel = "+ New effect";
+        const float nw = ImGui::CalcTextSize(newLabel).x + ImGui::GetStyle().FramePadding.x * 2.6f;
+        ImGui::SameLine(ImGui::GetContentRegionMax().x - nw - rowH - ImGui::GetStyle().ItemSpacing.x);
+        ImGui::SetCursorPosY(y0);
+        if (ui::SecondaryButton(newLabel, nw)) ImGui::OpenPopup("##fxnew");
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Starts from a motion preset, with a matching texture baked.");
+        if (ImGui::BeginPopup("##fxnew")) {
+            for (int k = 0; k < 6; ++k)
+                if (ImGui::MenuItem(kKinds[k])) newEffect(k);
             ImGui::EndPopup();
         }
-        ParticleLayer& L = particleLayerSel_ == 0
-                               ? static_cast<ParticleLayer&>(fx)
-                               : fx.layers[(size_t)particleLayerSel_ - 1];
-        if (particleLayerSel_ > 0) {
-            char lb[64];
-            std::snprintf(lb, sizeof lb, "%s", L.label.c_str());
-            if (ImGui::InputText("Layer name", lb, sizeof lb)) L.label = lb;
-            ImGui::DragFloat3("Offset", L.offset, 0.02f, -20.0f, 20.0f, "%.2f");
-            prefHelp("Where this layer sits relative to the emitter (world axes).");
-            ImGui::DragFloat3("Area", L.area, 0.02f, 0.0f, 10.0f, "%.2f x");
-            prefHelp("Spawn area as a multiple of the emitter's scale.");
-            if (ImGui::SmallButton("Remove layer")) {
-                fx.layers.erase(fx.layers.begin() + (particleLayerSel_ - 1));
-                particleLayerSel_ = 0;
-                ImGui::EndChild();
-                commitChange();
-                committedSection = project::sectionJson(project_, project::Section::Particles);
-                ImGui::End();
-                return;
-            }
-        }
-
-        ImGui::SeparatorText("Behaviour");
-        ImGui::Combo("Motion", &L.kind, kKinds, 6);
-        prefHelp("Fire .. Rain are the built-in motions; Custom uses the\n"
-                 "speed / spread / gravity knobs below.");
-        ImGui::DragInt("Count", &L.count, 1.0f, 1, 256);
-        ImGui::DragFloat("Size", &L.size, 0.02f, 0.02f, 8.0f, "%.2f");
-        ImGui::ColorEdit3("Tint", L.color);
-        ImGui::Checkbox("Additive (glows)", &L.additive);
-        prefHelp("Adds light instead of covering: fire, sparks, magic.\n"
-                 "Leave off for smoke, dust and fog.");
-        if (L.kind == 2 || L.kind == 5)
-            ImGui::SliderFloat("Opacity", &L.opacity, 0.0f, 1.0f, "%.2f");
-        if (L.kind == 5) {
-            ImGui::DragFloat("Speed", &L.speed, 0.05f, 0.0f, 50.0f, "%.2f u/s");
-            ImGui::DragFloat("Spread", &L.spread, 0.5f, 0.0f, 90.0f, "%.0f deg");
-            ImGui::DragFloat("Gravity", &L.gravity, 0.1f, -30.0f, 50.0f, "%.1f u/s2");
-            ImGui::DragFloat("Weight", &L.weight, 0.02f, 0.05f, 10.0f, "%.2f");
-            ImGui::DragFloat("Lifetime", &L.life, 0.05f, 0.1f, 10.0f, "%.2f s");
-            ImGui::DragFloat("Grow", &L.grow, 0.02f, 0.1f, 4.0f, "%.2f x");
-            ImGui::Checkbox("Die on terrain", &L.dieOnGround);
-        }
-
-        ImGui::SeparatorText("Texture");
-        ParticleTexGen& g = L.texGen;
-        const ParticleTexGen before = g;
-        ImGui::Combo("Generate", &g.kind, kTexKinds, 4);
-        bool recipeCommitted = g.kind != before.kind;
-        if (g.kind == 0) {
-            SceneObject tmp;
-            tmp.type = PrimitiveType::Emitter;
-            tmp.materialPath = L.materialPath;
-            if (drawMaterialCombo(tmp)) L.materialPath = tmp.materialPath;
-        } else {
-            int sizeIdx = g.size == 32 ? 0 : (g.size == 128 ? 2 : 1);
-            const char* sizes[] = {"32 x 32", "64 x 64", "128 x 128"};
-            if (ImGui::Combo("Resolution", &sizeIdx, sizes, 3)) {
-                g.size = sizeIdx == 0 ? 32 : (sizeIdx == 2 ? 128 : 64);
-                recipeCommitted = true;
-            }
-            prefHelp("GS VRAM per frame: 4 / 16 / 64 KB (full colour -\n"
-                     "a soft alpha ramp does not survive a palette).");
-            int frameIdx = g.frames >= 8 ? 3 : (g.frames >= 4 ? 2 : (g.frames >= 2 ? 1 : 0));
-            const char* frameNames[] = {"1 (still)", "2", "4", "8"};
-            if (ImGui::Combo("Frames", &frameIdx, frameNames, 4)) {
-                g.frames = 1 << frameIdx;
-                recipeCommitted = true;
-            }
-            prefHelp("A flipbook: the noise moves through a seamless loop and the\n"
-                     "console swaps the frames - one draw, only the texture changes.");
-            if (g.frames > 1) {
-                ImGui::SliderFloat("Frames / s", &g.fps, 1.0f, 30.0f, "%.0f");
-                recipeCommitted |= ImGui::IsItemDeactivatedAfterEdit();
-            }
-            ImGui::TextDisabled("GS VRAM: %d KB", g.size * g.size * 4 * std::max(1, g.frames) / 1024);
-            auto knob = [&](const char* label, float* v, float lo, float hi) {
-                ImGui::SliderFloat(label, v, lo, hi, "%.2f");
-                recipeCommitted |= ImGui::IsItemDeactivatedAfterEdit();
-            };
-            ImGui::DragInt("Seed", &g.seed, 1.0f, 0, 99999);
-            recipeCommitted |= ImGui::IsItemDeactivatedAfterEdit();
-            knob("Softness", &g.softness, 0.0f, 1.0f);
-            knob("Detail", &g.detail, 0.0f, 1.0f);
-            knob("Noise scale", &g.scale, 0.3f, 3.0f);
-            if (g.kind == 2) knob("Turbulence", &g.turbulence, 0.0f, 1.0f);
-            if (g.kind == 2 || g.kind == 3) knob("Heat", &g.heat, 0.0f, 1.0f);
-            if (g.kind != 2) {
-                ImGui::ColorEdit3("Texture colour", g.color);
-                recipeCommitted |= ImGui::IsItemDeactivatedAfterEdit();
-            }
-            if (ImGui::Button("Regenerate")) recipeCommitted = true;
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", L.materialPath.empty() ? "(not written yet)"
-                                                              : L.materialPath.c_str());
-        }
-        // Re-bake on RELEASE, not per frame of a drag: it writes files.
-        if (g.kind != 0 && recipeCommitted) particleBakeTexture(fx);
-
-        // --- previews --------------------------------------------------------
-        const int layerCount = (int)fx.layers.size() + 1;
-        auto layerAt = [&](int li) -> const ParticleLayer& {
-            return li == 0 ? static_cast<const ParticleLayer&>(fx) : fx.layers[(size_t)li - 1];
-        };
-        if ((int)particleTex_.size() < layerCount) particleTex_.resize((size_t)layerCount);
-        for (int li = 0; li < layerCount; ++li) {
-            const ParticleTexGen& lg = layerAt(li).texGen;
-            ParticleTexCache& tc = particleTex_[(size_t)li];
-            if (lg.kind == 0) {
-                tc.valid = false;
-                continue;
-            }
-            if (tc.valid && tc.recipe == lg) continue;
-            const int frames = std::max(1, lg.frames);
-            while ((int)tc.ids.size() < frames) {
-                unsigned int id = 0;
-                glGenTextures(1, &id);
-                tc.ids.push_back(id);
-            }
-            for (int k = 0; k < frames; ++k) {
-                const std::vector<unsigned char> px = particletex::generate(lg, k);
-                glBindTexture(GL_TEXTURE_2D, tc.ids[(size_t)k]);
-                glUploadTexRgba(lg.size, lg.size, px.data());
-            }
-            tc.recipe = lg;
-            tc.valid = true;
-        }
-        // the frame the console would show now (same arithmetic as the game)
-        auto texNow = [&](int li) -> unsigned int {
-            const ParticleTexCache& tc = particleTex_[(size_t)li];
-            if (!tc.valid) return 0u;
-            const ParticleTexGen& lg = tc.recipe;
-            const int f = lg.frames > 1 ? (int)(ImGui::GetTime() * lg.fps) % lg.frames : 0;
-            return tc.ids[(size_t)f];
-        };
-        const float box = scaled(180);
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImU32 bg = IM_COL32(28, 32, 44, 255);
-
-        ImGui::SeparatorText("Preview");
-        // the selected layer's texture, on a dark card
-        ImVec2 p0 = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton("##fxtex", ImVec2(box * 0.6f, box));
-        dl->AddRectFilled(p0, ImVec2(p0.x + box * 0.6f, p0.y + box), bg, 4.0f);
-        if (const unsigned int t = texNow(particleLayerSel_))
-            dl->AddImage((ImTextureID)(intptr_t)t,
-                         ImVec2(p0.x + 4, p0.y + box * 0.5f - box * 0.28f),
-                         ImVec2(p0.x + box * 0.6f - 4, p0.y + box * 0.5f + box * 0.28f));
         ImGui::SameLine();
+        ImGui::SetCursorPosY(y0);
+        if (ui::HelpButton("Particle docs", rowH, "Open docs/particles.md")) openDocPage("particles");
+    }
 
-        // every layer together, animated - a 2D approximation of the motion
-        ImVec2 q0 = ImGui::GetCursorScreenPos();
-        const float w = ImGui::GetContentRegionAvail().x;
-        ImGui::InvisibleButton("##fxanim", ImVec2(w > box ? w : box, box));
-        const ImVec2 q1(q0.x + (w > box ? w : box), q0.y + box);
-        dl->AddRectFilled(q0, q1, bg, 4.0f);
+    const float bodyH = ImGui::GetContentRegionAvail().y;
+    const float listW = scaled(220), inspW = scaled(350);
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+
+    // --- library ---------------------------------------------------------------
+    ImGui::BeginChild("##fxlist", ImVec2(listW, bodyH), ImGuiChildFlags_None);
+    ui::Caption("Library");
+    {
+        const float noteH = ImGui::GetTextLineHeightWithSpacing() * 3.2f;
+        ImGui::BeginChild("##fxrows", ImVec2(0, -noteH));
+        const float rowH = ImGui::GetFontSize() * 2.6f;
+        for (size_t k = 0; k < lib.size(); ++k) {
+            const ParticleEffect& e = lib[k];
+            int veh = 0;
+            const int n = usersOf(project_, e.name, &veh);
+            char label[256], sub[96];
+            std::snprintf(label, sizeof label, "%s##fxrow%zu", e.name.c_str(), k);
+            const int layers = (int)e.layers.size() + 1;
+            if (veh > 0)
+                std::snprintf(sub, sizeof sub, "%d layer%s - %d emitter%s, %d vehicle%s", layers,
+                              layers == 1 ? "" : "s", n, n == 1 ? "" : "s", veh, veh == 1 ? "" : "s");
+            else
+                std::snprintf(sub, sizeof sub, "%d layer%s - %d emitter%s", layers, layers == 1 ? "" : "s",
+                              n, n == 1 ? "" : "s");
+            const bool sel = particleSel_ == (int)k;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            if (ImGui::InvisibleButton(label, ImVec2(w, rowH)) && !sel) {
+                particleSel_ = (int)k;
+                particleLayerSel_ = 0;
+                particleHidden_.clear();
+            }
+            uiscript::markLastItemChecked(sel);
+            if (ImGui::BeginPopupContextItem()) {
+                if (ImGui::MenuItem("Duplicate")) duplicate((int)k);
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
+                if (ImGui::MenuItem("Delete")) deleteAt = (int)k;
+                ImGui::PopStyleColor();
+                ImGui::EndPopup();
+            }
+            const bool hov = ImGui::IsItemHovered();
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float r = ImGui::GetStyle().FrameRounding + 1.0f;
+            if (sel) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), ImGui::GetColorU32(sem.surface), r);
+            else if (hov)
+                dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), ImGui::GetColorU32(ImVec4(sem.surface.x, sem.surface.y, sem.surface.z, 0.5f)), r);
+            // The effect's glow: its main layer's tint on a dark tile.
+            const float d = rowH - scaled(10);
+            const ImVec2 t0(p.x + scaled(6), p.y + scaled(5));
+            drawGlowTile(dl, t0, d, e.color, e.additive, r + 2.0f);
+            const float tx = t0.x + d + scaled(10);
+            const float fs = ImGui::GetFontSize();
+            dl->PushClipRect(p, ImVec2(p.x + w - 2.0f, p.y + rowH), true);
+            {
+                ui::FontScope bold(sel ? ui::boldFont() : nullptr);
+                dl->AddText(ImVec2(tx, p.y + rowH * 0.5f - fs), ImGui::GetColorU32(sem.text), e.name.c_str());
+            }
+            dl->AddText(ImGui::GetFont(), fs * 0.86f, ImVec2(tx, p.y + rowH * 0.5f + 1.0f),
+                        ImGui::GetColorU32(sem.textDim), sub);
+            dl->PopClipRect();
+        }
+        ImGui::EndChild();
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("Defined once, used by every emitter and by vehicle tyre smoke. Renames follow.");
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::EndChild();
+    ImGui::SameLine(0.0f, gap);
+
+    if (particleSel_ < 0) {
+        ImGui::BeginChild("##fxbody", ImVec2(0, bodyH));
+        ui::EmptyState(ui::Glyph::Sparkle, "Pick or create an effect",
+                       "An effect is defined here once; emitters and vehicle tyre smoke name it.");
+        ImGui::EndChild();
+        ImGui::End();
+        return;
+    }
+
+    ParticleEffect& fx = lib[(size_t)particleSel_];
+    if (particleLayerSel_ > (int)fx.layers.size()) particleLayerSel_ = 0;
+    const int layerCount = (int)fx.layers.size() + 1;
+    if ((int)particleHidden_.size() != layerCount) particleHidden_.assign((size_t)layerCount, 0);
+    auto layerAt = [&](int li) -> ParticleLayer& {
+        return li == 0 ? static_cast<ParticleLayer&>(fx) : fx.layers[(size_t)li - 1];
+    };
+    auto layerName = [&](int li) -> std::string {
+        if (li == 0) return "Main";
+        const std::string& l = fx.layers[(size_t)li - 1].label;
+        return l.empty() ? "Layer " + std::to_string(li) : l;
+    };
+
+    // GL textures of every layer's generated recipe (one per flipbook frame).
+    if ((int)particleTex_.size() < layerCount) particleTex_.resize((size_t)layerCount);
+    for (int li = 0; li < layerCount; ++li) {
+        const ParticleTexGen& lg = layerAt(li).texGen;
+        ParticleTexCache& tc = particleTex_[(size_t)li];
+        if (lg.kind == 0) {
+            tc.valid = false;
+            continue;
+        }
+        if (tc.valid && tc.recipe == lg) continue;
+        const int frames = std::max(1, lg.frames);
+        while ((int)tc.ids.size() < frames) {
+            unsigned int id = 0;
+            glGenTextures(1, &id);
+            tc.ids.push_back(id);
+        }
+        for (int k = 0; k < frames; ++k) {
+            const std::vector<unsigned char> px = particletex::generate(lg, k);
+            glBindTexture(GL_TEXTURE_2D, tc.ids[(size_t)k]);
+            glUploadTexRgba(lg.size, lg.size, px.data());
+        }
+        tc.recipe = lg;
+        tc.valid = true;
+    }
+    // the frame the console would show now (same arithmetic as the game)
+    auto texNow = [&](int li) -> unsigned int {
+        const ParticleTexCache& tc = particleTex_[(size_t)li];
+        if (!tc.valid) return 0u;
+        const ParticleTexGen& lg = tc.recipe;
+        const int f = lg.frames > 1 ? (int)(ImGui::GetTime() * lg.fps) % lg.frames : 0;
+        return tc.ids[(size_t)f];
+    };
+
+    // --- preview: the hero ------------------------------------------------------
+    const float previewW = ImMax(scaled(200), ImGui::GetContentRegionAvail().x - inspW - gap);
+    ImGui::BeginChild("##fxpreview", ImVec2(previewW, bodyH), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    {
+        const ImVec2 q0 = ImGui::GetCursorScreenPos();
+        const ImVec2 sz = ImGui::GetContentRegionAvail();
+        ImGui::SetNextItemAllowOverlap();  // the overlay controls sit on top
+        ImGui::InvisibleButton("Particle preview canvas", sz);
+        const ImVec2 q1(q0.x + sz.x, q0.y + sz.y);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const float r = ImGui::GetStyle().FrameRounding + 3.0f;
+        const float groundY = q1.y - sz.y * 0.2f;
+        dl->AddRectFilled(q0, q1, ImGui::GetColorU32(sem.ground), r);
+        dl->AddRectFilledMultiColor(ImVec2(q0.x, groundY), ImVec2(q1.x, q1.y - r),
+                                    ImGui::GetColorU32(sem.field), ImGui::GetColorU32(sem.field),
+                                    ImGui::GetColorU32(sem.ground), ImGui::GetColorU32(sem.ground));
+        dl->AddRect(q0, q1, ImGui::GetColorU32(sem.border), r);
         dl->PushClipRect(q0, q1, true);
         if ((int)particlePreview_.size() != layerCount) particlePreview_.resize((size_t)layerCount);
-        float dt = ImGui::GetIO().DeltaTime;
+        float dt = particlePaused_ ? 0.0f : ImGui::GetIO().DeltaTime;
         if (dt > 0.05f) dt = 0.05f;
-        const float unit = box / 5.0f;  // screen px per world unit
+        const float unit = ImMin(sz.x, sz.y) / 5.5f;  // screen px per world unit
         for (int li = 0; li < layerCount; ++li) {
             const ParticleLayer& P = layerAt(li);
             std::vector<ParticlePreviewDot>& dots = particlePreview_[(size_t)li];
+            if (particleHidden_[(size_t)li] || (particleSolo_ && li != particleLayerSel_)) continue;
             // the knobs each motion actually uses (Custom's own; the presets'
             // approximated from the runtime's constants)
             float speed = 1.2f, spread = 25.0f, grav = 0.0f, life = 1.5f, grow = 1.0f;
@@ -404,15 +415,13 @@ void App::drawParticleEditorWindow() {
             const int n = std::min(P.count, 128);
             if ((int)dots.size() != n) dots.assign((size_t)n, {0, 0, 0, 0, 0, 1, 0});
             const float ox = (q0.x + q1.x) * 0.5f + (li ? P.offset[0] * unit : 0.0f);
-            const float oy = (P.kind == 4 ? q0.y + 6.0f : q1.y - box * 0.18f) -
-                             (li ? P.offset[1] * unit : 0.0f);
+            const float oy = (P.kind == 4 ? q0.y + 6.0f : groundY) - (li ? P.offset[1] * unit : 0.0f);
             const float spawnW = 0.4f * (li ? std::max(0.1f, P.area[0]) : 1.0f);
             const unsigned int tex = texNow(li);
-            const bool dimmed = particleLayerSel_ != li;
             for (size_t i = 0; i < dots.size(); ++i) {
                 auto& d = dots[i];
                 if (d.life <= 0.0f) {
-                    if (frand(particlePreviewRng_) > dt * n / life) continue;
+                    if (dt <= 0.0f || frand(particlePreviewRng_) > dt * n / life) continue;
                     const float a = (frand(particlePreviewRng_) * 2.0f - 1.0f) * spread * 0.01745f;
                     const float sp = speed * (0.8f + 0.4f * frand(particlePreviewRng_));
                     const float down = P.kind == 4 ? -1.0f : 1.0f;
@@ -434,38 +443,453 @@ void App::drawParticleEditorWindow() {
                 if (P.kind == 2) d.spin += ((i & 1) ? 0.3f : -0.3f) * dt;
                 if (d.life <= 0.0f) continue;
                 const float t = d.life / d.maxLife;  // 1 -> 0
-                const float sz = P.size * unit * (1.0f + (grow - 1.0f) * (1.0f - t)) *
-                                 (P.kind == 3 ? 0.35f : 1.0f);
-                float alpha = alphaPeak * (P.kind == 2 ? (t < 0.5f ? t * 2 : (1 - t) * 2)
-                                                       : std::min(1.0f, t * 1.5f));
-                // the other layers dim a little, so the one being edited reads
-                if (dimmed) alpha *= 0.75f;
+                const float s = P.size * unit * (1.0f + (grow - 1.0f) * (1.0f - t)) *
+                                (P.kind == 3 ? 0.35f : 1.0f);
+                const float alpha = alphaPeak * (P.kind == 2 ? (t < 0.5f ? t * 2 : (1 - t) * 2)
+                                                             : std::min(1.0f, t * 1.5f));
                 const float cx = ox + d.x * unit, cy = oy - d.y * unit;
-                const ImU32 col = ImGui::ColorConvertFloat4ToU32(
-                    ImVec4(P.color[0], P.color[1], P.color[2], alpha));
+                const ImU32 col =
+                    ImGui::ColorConvertFloat4ToU32(ImVec4(P.color[0], P.color[1], P.color[2], alpha));
                 if (tex) {
-                    const float c = std::cos(d.spin), s = std::sin(d.spin);
+                    const float c = std::cos(d.spin), sn = std::sin(d.spin);
                     // odd slots mirrored, as on the console (not rain, not fog)
                     const float mir = ((i & 1) && P.kind != 4 && P.kind != 2) ? -1.0f : 1.0f;
                     const float tall = P.kind == 0 ? 1.45f : 1.0f;  // flames are taller
                     auto corner = [&](float u, float v) {
                         u *= mir;
                         v *= tall;
-                        return ImVec2(cx + (u * c - v * s) * sz, cy + (u * s + v * c) * sz);
+                        return ImVec2(cx + (u * c - v * sn) * s, cy + (u * sn + v * c) * s);
                     };
-                    dl->AddImageQuad((ImTextureID)(intptr_t)tex, corner(-1, -1),
-                                     corner(1, -1), corner(1, 1), corner(-1, 1), ImVec2(0, 0),
-                                     ImVec2(1, 0), ImVec2(1, 1), ImVec2(0, 1), col);
+                    dl->AddImageQuad((ImTextureID)(intptr_t)tex, corner(-1, -1), corner(1, -1),
+                                     corner(1, 1), corner(-1, 1), ImVec2(0, 0), ImVec2(1, 0),
+                                     ImVec2(1, 1), ImVec2(0, 1), col);
                 } else {
-                    dl->AddCircleFilled(ImVec2(cx, cy), sz * 0.7f, col);
+                    dl->AddCircleFilled(ImVec2(cx, cy), s * 0.7f, col);
                 }
             }
         }
         dl->PopClipRect();
-    } else {
-        ImGui::TextDisabled("Pick or create an effect.");
+
+        // Overlay: All layers | <layer> only, pause, restart.
+        const float pad = scaled(10);
+        const float oh = ui::OverlayRowHeight();
+        std::string soloText = layerName(particleLayerSel_) + " only";
+        const char* allText = "All layers";
+        const float btnW = ui::OverlayTextWidth("Pause") + ui::OverlayTextWidth("Restart");
+        auto segWidth = [&] {
+            return ui::OverlayPad() * 2.0f + ui::OverlayTextWidth(allText) + ui::OverlayTextWidth(soloText.c_str());
+        };
+        // A narrow preview gets the short labels (the toolbar ran off its edge).
+        if (q0.x + pad + segWidth() + btnW + scaled(8) > q1.x - pad) {
+            allText = "All";
+            soloText = "Solo";
+        }
+        const float segW = segWidth();
+        const char* pauseText = particlePaused_ ? "Play" : "Pause";
+        const ImVec2 c0(q0.x + pad, q0.y + pad);
+        const ImVec2 c1(c0.x + segW + btnW + scaled(8), c0.y + oh + ui::OverlayPad() * 2.0f);
+        ui::OverlayPanel(dl, c0, c1);
+        ImGui::SetCursorScreenPos(ImVec2(c0.x + ui::OverlayPad(), c0.y + ui::OverlayPad()));
+        if (ui::OverlayTextButton("All layers", allText, !particleSolo_)) particleSolo_ = false;
+        uiscript::markLastItemChecked(!particleSolo_);
+        ImGui::SameLine(0.0f, 0.0f);
+        if (ui::OverlayTextButton("Solo layer", soloText.c_str(), particleSolo_)) particleSolo_ = true;
+        uiscript::markLastItemChecked(particleSolo_);
+        ImGui::SameLine(0.0f, scaled(8));
+        ui::OverlayDivider(dl, ImGui::GetCursorScreenPos().x - scaled(4), c0.y + scaled(6), c1.y - scaled(6));
+        if (ui::OverlayTextButton("Pause preview", pauseText, particlePaused_)) particlePaused_ = !particlePaused_;
+        ImGui::SameLine(0.0f, 0.0f);
+        if (ui::OverlayTextButton("Restart preview", "Restart", false)) {
+            for (auto& v : particlePreview_) v.clear();
+            particlePaused_ = false;
+        }
+        // The honest pill.
+        {
+            // The whole sentence when it fits beside the toolbar, else the
+            // short form with the sentence on hover - never silently gone
+            // (at the default window size the long one never fitted).
+            const char* full = "2D approximation - exact motion runs on a placed emitter";
+            const float room = sz.x - (c1.x - q0.x) - pad * 2.0f;
+            const char* pill = full;
+            ImVec2 ts = ImGui::CalcTextSize(pill);
+            if (ts.x + scaled(20) >= room) {
+                pill = "2D approximation";
+                ts = ImGui::CalcTextSize(pill);
+            }
+            const float pw = ts.x + scaled(20);
+            if (pw < room) {
+                const ImVec2 p0(q1.x - pad - pw, q0.y + pad);
+                const ImVec2 p1(q1.x - pad, p0.y + oh + ui::OverlayPad() * 2.0f);
+                ui::OverlayPanel(dl, p0, p1);
+                dl->AddText(ImVec2(p0.x + scaled(10), (p0.y + p1.y - ts.y) * 0.5f),
+                            ImGui::GetColorU32(sem.textDim), pill);
+                if (pill != full && ImGui::IsMouseHoveringRect(p0, p1) && ImGui::IsWindowHovered())
+                    ImGui::SetTooltip("%s", full);
+            }
+        }
+        // The selected layer's generated texture and its cost.
+        {
+            const ParticleLayer& L = layerAt(particleLayerSel_);
+            const ParticleTexGen& g = L.texGen;
+            const ParticleTexCache& tc = particleTex_[(size_t)particleLayerSel_];
+            const float th = scaled(52);
+            std::string title, detail;
+            const std::string mat = L.materialPath.empty()
+                                        ? std::string("(not written yet)")
+                                        : std::filesystem::path(L.materialPath).filename().string();
+            if (g.kind == 0) {
+                title = L.materialPath.empty() ? std::string("No texture") : mat;
+                detail = "picked material";
+            } else {
+                title = mat + " - " + kTexKinds[g.kind];
+                char b[128];
+                const int frames = std::max(1, g.frames);
+                if (frames > 1)
+                    std::snprintf(b, sizeof b, "%dx%d - %d frames @ %.0f fps - %d KB GS", g.size, g.size,
+                                  frames, g.fps, g.size * g.size * 4 * frames / 1024);
+                else
+                    std::snprintf(b, sizeof b, "%dx%d - still - %d KB GS", g.size, g.size,
+                                  g.size * g.size * 4 / 1024);
+                detail = b;
+            }
+            float tw = ImGui::CalcTextSize(title.c_str()).x;
+            {
+                ui::FontScope mono(ui::monoFont());
+                tw = ImMax(tw, ImGui::CalcTextSize(detail.c_str()).x * 0.9f);
+            }
+            const float cw = th + scaled(16) + tw + scaled(14);
+            const ImVec2 k0(q0.x + pad, q1.y - pad - th - scaled(16));
+            const ImVec2 k1(k0.x + cw, q1.y - pad);
+            if (cw < sz.x - pad * 2.0f) {
+                ui::OverlayPanel(dl, k0, k1);
+                const ImVec2 t0(k0.x + scaled(8), k0.y + scaled(8));
+                dl->AddRectFilled(t0, ImVec2(t0.x + th, t0.y + th), ImGui::GetColorU32(sem.ground), 3.0f);
+                if (tc.valid) {
+                    const int frames = (int)std::min<size_t>(4, std::max(1, g.frames));
+                    const int grid = frames > 1 ? 2 : 1;
+                    const float cs = th / (float)grid;
+                    for (int f = 0; f < frames; ++f) {
+                        const ImVec2 a(t0.x + (f % grid) * cs, t0.y + (f / grid) * cs);
+                        dl->AddImage((ImTextureID)(intptr_t)tc.ids[(size_t)f], a, ImVec2(a.x + cs, a.y + cs),
+                                     ImVec2(0, 0), ImVec2(1, 1),
+                                     ImGui::ColorConvertFloat4ToU32(
+                                         ImVec4(L.color[0], L.color[1], L.color[2], 1.0f)));
+                    }
+                }
+                const float tx = t0.x + th + scaled(10);
+                dl->AddText(ImVec2(tx, t0.y + scaled(6)), ImGui::GetColorU32(sem.text), title.c_str());
+                ui::FontScope mono(ui::monoFont());
+                dl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * 0.9f,
+                            ImVec2(tx, t0.y + scaled(8) + ImGui::GetFontSize()),
+                            ImGui::GetColorU32(sem.textDim), detail.c_str());
+            }
+        }
     }
     ImGui::EndChild();
+    ImGui::SameLine(0.0f, gap);
+
+    // --- inspector ---------------------------------------------------------------
+    ImGui::BeginChild("##fxinspector", ImVec2(0, bodyH), ImGuiChildFlags_None);
+    const float footerH = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 3.0f;
+    bool removeLayer = false;
+    ImGui::BeginChild("##fxbody", ImVec2(0, -footerH));
+    {
+        // Name: a rename retargets every emitter and vehicle that names it.
+        char nameBuf[128];
+        std::snprintf(nameBuf, sizeof nameBuf, "%s", fx.name.c_str());
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, ImGui::GetStyle().FramePadding.y));
+        ImGui::PushFont(ui::boldFont(), ImGui::GetFontSize() * 1.25f);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        const bool edited = ImGui::InputText("##Name", nameBuf, sizeof nameBuf);
+        ImGui::PopFont();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+        if (edited) {
+            if (particleRenameFrom_.empty()) particleRenameFrom_ = fx.name;
+            fx.name = nameBuf;
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && !particleRenameFrom_.empty()) {
+            std::string to = fx.name;
+            fx.name = particleRenameFrom_;  // uniqueness is judged without itself
+            if (to.empty() || (to != fx.name && project::findParticleEffect(project_, to)))
+                to = uniqueName(project_, to.empty() ? "Effect" : to);
+            fx.name = to;
+            project::renameParticleEffectRefs(project_, particleRenameFrom_, to);
+            particleRenameFrom_.clear();
+            sceneEdit = true;
+        }
+        int veh = 0;
+        const int users = usersOf(project_, fx.name, &veh);
+        ImGui::TextDisabled("Used by %d emitter%s - %d vehicle%s", users, users == 1 ? "" : "s", veh,
+                            veh == 1 ? "" : "s");
+        ImGui::Dummy(ImVec2(0, scaled(4)));
+
+        // --- layer stack -------------------------------------------------------
+        {
+            char cnt[8];
+            std::snprintf(cnt, sizeof cnt, "%d", layerCount);
+            const float y = ImGui::GetCursorPosY();
+            ui::Caption("Layers", cnt);
+            const char* addL = "+ Layer";
+            const float aw = ImGui::CalcTextSize(addL).x + ImGui::GetStyle().FramePadding.x * 2.6f;
+            ImGui::SetCursorPos(ImVec2(ImGui::GetContentRegionMax().x - aw, y - scaled(3)));
+            if (ui::GhostButton(addL, aw)) ImGui::OpenPopup("##fxaddlayer");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Each layer is one more emitter of this effect around the\n"
+                                  "placed one - a campfire is flame + embers + glow + smoke.\n"
+                                  "Every layer is its own draw (one submit) on the console.");
+            if (ImGui::BeginPopup("##fxaddlayer")) {
+                for (int k = 0; k < 6; ++k)
+                    if (ImGui::MenuItem(kKinds[k])) {
+                        const ParticleEffect preset = project::particlePreset(k);
+                        ParticleLayer L = preset;
+                        L.label = preset.name;
+                        fx.layers.push_back(L);
+                        particleLayerSel_ = (int)fx.layers.size();
+                        particleHidden_.push_back(0);
+                        particleBakeTexture(fx);
+                    }
+                ImGui::EndPopup();
+            }
+            ImGui::SetCursorPosY(y + ImGui::GetFontSize() + scaled(8));
+        }
+        const float rowH = ImGui::GetFrameHeight() + scaled(6);
+        for (int li = 0; li < layerCount && li <= (int)fx.layers.size(); ++li) {
+            const ParticleLayer& P = layerAt(li);
+            const bool sel = particleLayerSel_ == li;
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float w = ImGui::GetContentRegionAvail().x;
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float r = ImGui::GetStyle().FrameRounding + 1.0f;
+            if (sel) dl->AddRectFilled(p, ImVec2(p.x + w, p.y + rowH), ImGui::GetColorU32(sem.surface), r);
+            const float eyeS = rowH;
+            const std::string eyeLabel = "Show " + layerName(li) + "##fxeye" + std::to_string(li);
+            ImGui::PushID(li);
+            if (ui::EyeToggle(eyeLabel.c_str(), !particleHidden_[(size_t)li], eyeS, true))
+                particleHidden_[(size_t)li] = !particleHidden_[(size_t)li];
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Shows or hides this layer in the preview only.");
+            ImGui::PopID();
+            ImGui::SameLine(0.0f, 0.0f);
+            const std::string lab = layerName(li) + "##fxlayer" + std::to_string(li);
+            if (ImGui::InvisibleButton(lab.c_str(), ImVec2(ImMax(1.0f, w - eyeS), rowH))) {
+                particleLayerSel_ = li;
+                if (particleTab_ == 2 && li == 0) particleTab_ = 0;
+            }
+            uiscript::markLastItemChecked(sel);
+            if (li > 0 && ImGui::BeginPopupContextItem()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, sem.danger);
+                if (ImGui::MenuItem("Remove layer")) {
+                    particleLayerSel_ = li;
+                    removeLayer = true;
+                }
+                ImGui::PopStyleColor();
+                ImGui::EndPopup();
+            }
+            const float fs = ImGui::GetFontSize();
+            float x = p.x + eyeS + scaled(2);
+            const float cy = p.y + rowH * 0.5f;
+            dl->AddCircleFilled(ImVec2(x + fs * 0.5f, cy), fs * 0.48f,
+                                ImGui::ColorConvertFloat4ToU32(ImVec4(P.color[0], P.color[1], P.color[2], 1.0f)),
+                                20);
+            x += fs * 1.5f;
+            const bool hidden = particleHidden_[(size_t)li] != 0;
+            const std::string name = layerName(li);
+            // Right side: motion, count, blend badge.
+            const char* blend = P.additive ? "add" : "alpha";
+            const float bfs = fs * 0.82f;
+            const float bw = ImGui::GetFont()->CalcTextSizeA(bfs, FLT_MAX, 0.0f, blend).x + bfs;
+            const float bx = p.x + w - bw - scaled(6);
+            const ImVec4 bc = P.additive ? sem.warn : sem.textDim;
+            dl->AddRectFilled(ImVec2(bx, cy - bfs * 0.6f), ImVec2(bx + bw, cy + bfs * 0.6f),
+                              ImGui::GetColorU32(P.additive ? ImVec4(bc.x, bc.y, bc.z, 0.16f) : sem.field),
+                              bfs * 0.6f);
+            dl->AddText(ImGui::GetFont(), bfs, ImVec2(bx + bfs * 0.5f, cy - bfs * 0.5f),
+                        ImGui::GetColorU32(bc), blend);
+            char cnt[16];
+            std::snprintf(cnt, sizeof cnt, "%d", P.count);
+            float cw;
+            {
+                ui::FontScope mono(ui::monoFont());
+                cw = ImGui::CalcTextSize(cnt).x;
+                dl->AddText(ImVec2(bx - scaled(10) - cw, cy - fs * 0.5f), ImGui::GetColorU32(sem.textDim), cnt);
+            }
+            const char* kind = kKinds[std::clamp(P.kind, 0, 5)];
+            const float kw = ImGui::CalcTextSize(kind).x;
+            const float kx = bx - scaled(22) - cw - kw;
+            // The name gets what is left before the motion word, ellipsized;
+            // in a narrow window the motion word goes before the name does
+            // (they were drawn over each other).
+            const float nameW = ImGui::CalcTextSize(name.c_str()).x;
+            const bool showKind = kx - scaled(10) - x >= std::min(nameW, fs * 4.0f);
+            if (showKind) dl->AddText(ImVec2(kx, cy - fs * 0.5f), ImGui::GetColorU32(sem.textDim), kind);
+            const float nameMax = (showKind ? kx : bx - scaled(10) - cw) - scaled(10);
+            ImGui::PushStyleColor(ImGuiCol_Text, hidden ? sem.textDim : sem.text);
+            ImGui::RenderTextEllipsis(dl, ImVec2(x, cy - fs * 0.5f), ImVec2(nameMax, cy + fs * 0.5f), nameMax,
+                                      name.c_str(), nullptr, nullptr);
+            ImGui::PopStyleColor();
+            ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + rowH + scaled(2)));
+        }
+        ImGui::Dummy(ImVec2(0, scaled(4)));
+
+        ParticleLayer& L = layerAt(particleLayerSel_);
+        if (ui::BeginQuietTabBar("##fxtabs")) {
+            static int lastFrame = -10;
+            const bool force = lastFrame != ImGui::GetFrameCount() - 1;
+            static const char* const kTabs[] = {"Behaviour##fxtab", "Texture##fxtab", "Placement##fxtab"};
+            for (int i = 0; i < 3; ++i) {
+                const ImGuiTabItemFlags f = force && i == particleTab_ ? ImGuiTabItemFlags_SetSelected : 0;
+                if (ui::QuietTab(kTabs[i], i == particleTab_, f) && !force) particleTab_ = i;
+            }
+            ui::EndQuietTabBar();
+            lastFrame = ImGui::GetFrameCount();
+        }
+        ImGui::Dummy(ImVec2(0, scaled(2)));
+        ui::InspectorRows rows(scaled(80), scaled(110));
+        if (particleTab_ == 0) {
+            ui::Combo("Motion", &L.kind, kKinds, 6);
+            ui::RowHelp("Fire .. Rain are the built-in motions; Custom uses the\n"
+                        "speed / spread / gravity knobs below.");
+            ui::SliderInt("Count", &L.count, 1, 256);
+            ui::SliderFloat("Size", &L.size, 0.02f, 8.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
+            ui::ColorHex("Tint", L.color);
+            if (L.kind == 2 || L.kind == 5) ui::SliderFloat("Opacity", &L.opacity, 0.0f, 1.0f, "%.2f");
+            if (L.kind == 5) {
+                ui::DragFloat("Speed", &L.speed, 0.05f, 0.0f, 50.0f, "%.2f u/s");
+                ui::DragFloat("Spread", &L.spread, 0.5f, 0.0f, 90.0f, "%.0f deg");
+                ui::DragFloat("Gravity", &L.gravity, 0.1f, -30.0f, 50.0f, "%.1f u/s2");
+                ui::DragFloat("Weight", &L.weight, 0.02f, 0.05f, 10.0f, "%.2f");
+                ui::DragFloat("Lifetime", &L.life, 0.05f, 0.1f, 10.0f, "%.2f s");
+                ui::DragFloat("Grow", &L.grow, 0.02f, 0.1f, 4.0f, "%.2f x");
+                ui::Switch("Die on terrain", &L.dieOnGround);
+            }
+            ImGui::Dummy(ImVec2(0, scaled(4)));
+            ui::Switch("Additive (Glows - overlapping layers saturate toward yellow)",
+                       &L.additive);
+        } else if (particleTab_ == 1) {
+            ParticleTexGen& g = L.texGen;
+            const ParticleTexGen before = g;
+            ui::Combo("Generate", &g.kind, kTexKinds, 4);
+            bool recipeCommitted = g.kind != before.kind;
+            if (g.kind == 0) {
+                SceneObject tmp;
+                tmp.type = PrimitiveType::Emitter;
+                tmp.materialPath = L.materialPath;
+                if (drawMaterialCombo(tmp)) L.materialPath = tmp.materialPath;
+            } else {
+                int sizeIdx = g.size == 32 ? 0 : (g.size == 128 ? 2 : 1);
+                const char* sizes[] = {"32 x 32", "64 x 64", "128 x 128"};
+                if (ui::Combo("Resolution", &sizeIdx, sizes, 3)) {
+                    g.size = sizeIdx == 0 ? 32 : (sizeIdx == 2 ? 128 : 64);
+                    recipeCommitted = true;
+                }
+                ui::RowHelp("GS VRAM per frame: 4 / 16 / 64 KB (full colour -\n"
+                            "a soft alpha ramp does not survive a palette).");
+                int frameIdx = g.frames >= 8 ? 3 : (g.frames >= 4 ? 2 : (g.frames >= 2 ? 1 : 0));
+                const char* frameNames[] = {"1 (still)", "2", "4", "8"};
+                if (ui::Combo("Frames", &frameIdx, frameNames, 4)) {
+                    g.frames = 1 << frameIdx;
+                    recipeCommitted = true;
+                }
+                ui::RowHelp("A flipbook: the noise moves through a seamless loop and the\n"
+                            "console swaps the frames - one draw, only the texture changes.");
+                if (g.frames > 1) {
+                    ui::SliderFloat("Frames / s", &g.fps, 1.0f, 30.0f, "%.0f");
+                    recipeCommitted |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+                auto knob = [&](const char* label, float* v, float lo, float hi, const char* tip) {
+                    ui::SliderFloat(label, v, lo, hi, "%.2f");
+                    recipeCommitted |= ImGui::IsItemDeactivatedAfterEdit();
+                    ui::RowHelp(tip);
+                };
+                ui::Caption("Bake inputs");
+                ui::DragInt("Seed", &g.seed, 1.0f, 0, 99999);
+                recipeCommitted |= ImGui::IsItemDeactivatedAfterEdit();
+                knob("Softness", &g.softness, 0.0f, 1.0f, "How far the edge fades before the quad's border.");
+                knob("Detail", &g.detail, 0.0f, 1.0f, "Fine noise on top of the big shapes.");
+                knob("Noise scale", &g.scale, 0.3f, 3.0f, "Size of the noise lobes: small = many little puffs.");
+                if (g.kind == 2) knob("Turbulence", &g.turbulence, 0.0f, 1.0f, "How hard the flame's sides are licked sideways.");
+                if (g.kind == 2 || g.kind == 3) knob("Heat", &g.heat, 0.0f, 1.0f, "How much of the shape is the white-hot core.");
+                if (g.kind != 2) {
+                    ui::ColorHex("Texture colour", g.color);
+                    recipeCommitted |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+                ImGui::Dummy(ImVec2(0, scaled(4)));
+                if (ui::SecondaryButton("Regenerate")) recipeCommitted = true;
+                ImGui::SameLine();
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("%s", L.materialPath.empty() ? "(not written yet)" : L.materialPath.c_str());
+            }
+            // Re-bake on RELEASE, not per frame of a drag: it writes files.
+            if (g.kind != 0 && recipeCommitted) particleBakeTexture(fx);
+        } else {
+            if (particleLayerSel_ == 0) {
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextDisabled("The main layer IS the emitter: it sits where the emitter is and "
+                                    "spawns over its scale. Pick another layer to move it.");
+                ImGui::PopTextWrapPos();
+            } else {
+                char lb[64];
+                std::snprintf(lb, sizeof lb, "%s", L.label.c_str());
+                if (ui::InputText("Layer name", lb, sizeof lb)) L.label = lb;
+                ui::AxisDrag3("Offset", L.offset, 0.02f, -20.0f, 20.0f, "%.2f");
+                ui::RowHelp("Where this layer sits relative to the emitter (world axes).");
+                ui::AxisDrag3("Area", L.area, 0.02f, 0.0f, 10.0f, "%.2f x");
+                ui::RowHelp("Spawn area as a multiple of the emitter's scale.");
+                ImGui::Dummy(ImVec2(0, scaled(6)));
+                if (ui::DangerButton("Remove layer")) removeLayer = true;
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    // --- footer: Duplicate, Place in scene -------------------------------------
+    ImGui::Separator();
+    {
+        const ImGuiStyle& st = ImGui::GetStyle();
+        float pw = ImGui::CalcTextSize("Place in scene").x + st.FramePadding.x * 4.0f;
+        const float dupW = ImGui::CalcTextSize("Duplicate").x + st.FramePadding.x * 2.0f;
+        const float avail = ImGui::GetContentRegionAvail().x;
+        // Too narrow for both (they were drawn over each other): Place in
+        // scene alone, full width - Duplicate is also on the library row's
+        // right-click menu.
+        if (dupW + st.ItemSpacing.x + ImGui::CalcTextSize("Place in scene").x + st.FramePadding.x * 2.0f > avail) {
+            pw = avail;
+        } else {
+            if (ui::GhostButton("Duplicate")) duplicate(particleSel_);
+            pw = std::min(pw, avail - dupW - st.ItemSpacing.x);
+            ImGui::SameLine(ImGui::GetContentRegionMax().x - pw);
+        }
+        if (ui::PrimaryButton("Place in scene", pw)) {
+            const std::string name = lib[(size_t)particleSel_].name;
+            addObject(PrimitiveType::Emitter, false);
+            if (!project_.objects().empty()) project_.objects().back().particleEffect = name;
+            sceneEdit = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Adds an emitter linked to this effect where objects are inserted.");
+    }
+    ImGui::EndChild();
+
+    if (removeLayer && particleLayerSel_ > 0 && particleLayerSel_ <= (int)lib[(size_t)particleSel_].layers.size()) {
+        ParticleEffect& e = lib[(size_t)particleSel_];
+        e.layers.erase(e.layers.begin() + (particleLayerSel_ - 1));
+        particleLayerSel_ = 0;
+        particleHidden_.clear();
+        sceneEdit = true;
+    }
+    if (deleteAt >= 0 && deleteAt < (int)lib.size()) {
+        // Linked emitters keep the look they last copied; vehicles fall back
+        // to the built-in smoke. The texture files stay - they are assets.
+        project::renameParticleEffectRefs(project_, lib[(size_t)deleteAt].name, "");
+        lib.erase(lib.begin() + deleteAt);
+        particleSel_ = std::min(particleSel_, (int)lib.size() - 1);
+        particleLayerSel_ = 0;
+        particleHidden_.clear();
+        sceneEdit = true;
+    }
 
     if (sceneEdit ||
         (!ImGui::IsAnyItemActive() &&

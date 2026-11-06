@@ -1,17 +1,25 @@
 #include "gigpu.hpp"
-#include "bakegl.hpp"
 
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <vector>
 
+#include "bvh.hpp"
+
+// Two backends behind gigpu.hpp, edited as a PAIR (the "Platform parity" rule):
+// this file's GL 4.3 compute half everywhere but macOS, and gigpu_metal.mm on
+// macOS, whose OpenGL stops at 4.1 (no compute). compare() below the #endif is
+// shared - it only talks to the interface.
+#ifndef __APPLE__
 #include <GLFW/glfw3.h>
 
-#include "bvh.hpp"
+#include "bakegl.hpp"
+#endif
 
 namespace gigpu {
 
+#ifndef __APPLE__
 namespace {
 
 // --- the GL entry points this needs -----------------------------------------
@@ -558,6 +566,7 @@ bool Gather::run(const float* wp, const float* n, const uint32_t* seed,
     }
     return true;
 }
+#endif  // !__APPLE__ - the Metal half is gigpu_metal.mm
 
 // --- the oracle --------------------------------------------------------------
 

@@ -35,12 +35,13 @@ tools/ps2link/build.ps1 -Low -NoUsb -Packed
    **No `IPCONFIG.DAT` and the console silently falls back to `192.168.1.10`**
    and vanishes from the LAN.
 3. **Boot it** from your launcher. The screen must read
-   `Welcome to TyraX ps2link r7 (no USB)` and end with a `Net config:` line
+   `Welcome to TyraX ps2link r8 (no USB)` and end with a `Net config:` line
    showing the address you chose. A lower `r<n>`, or plain "Welcome to ps2link",
    means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
-4. **Point the editor at it** — *Edit > Preferences > Real PS2 (network deploy)
-   > PS2 (ps2link) IP*. Machine-global, not project data, so you do this once.
-5. **Run with F6**, stop with the toolbar's Stop. That is it.
+4. **Point the editor at it** — *Edit > Preferences > Running games
+   > ps2link IP*. Machine-global, not project data, so you do this once.
+   **Test connection** next to it checks the address before you deploy.
+5. **Run with F6**, stop with the top bar's Stop. That is it.
 
 Two things worth knowing before you hit a wall:
 
@@ -58,7 +59,7 @@ Two things worth knowing before you hit a wall:
 | A way to boot homebrew | FreeMcBoot / FreeDVDBoot / uLaunchELF / a disc-swap exploit — whatever already runs `.ELF` files off your memory card. |
 | A memory card | It holds `PS2LINK.ELF` + `IPCONFIG.DAT`. |
 | A wired LAN | Console and PC on the **same subnet**; the PS2 has no Wi-Fi and ps2link has no DHCP. |
-| Docker Desktop on the PC (plain `docker` on Linux) | The ps2link build runs inside the `ps2dev/ps2dev` toolchain image — or you copy the ready-made ELF out of the TyraX toolchain image, which also needs Docker. |
+| The editor's native toolchain, or Docker | The ps2link build uses the PS2DEV v2.0.0 toolchain the editor installs for native game builds (through WSL on Windows). Without it, it runs inside the `ps2dev/ps2dev` image in Docker Desktop (plain `docker` on Linux) — or you copy the ready-made ELF out of the TyraX toolchain image, which also needs Docker. |
 
 ## 1. Build the TyraX ps2link
 
@@ -69,14 +70,20 @@ tools/ps2link/build.ps1
 On Linux: `tools/ps2link/build.sh` (the same script, same pins). Add `-Clean` /
 `--clean` to throw the work tree away first.
 
-It clones ps2link pinned at `0c6138c`, applies `tyrax.patch`, builds inside
-`ps2dev/ps2dev:v2.0.0` and drops **`tools/ps2link/ps2link.elf`** (~285 KB) next
+It clones ps2link pinned at `0c6138c`, applies `tyrax.patch`, builds with the
+editor's native PS2DEV v2.0.0 toolchain (`%LOCALAPPDATA%\tyra-editor\toolchain\ps2dev`
+through WSL; `~/.config/tyra-editor/toolchain/ps2dev` on Linux and macOS) — or,
+when that is not installed or you pass `-Docker` / `--docker`, inside
+`ps2dev/ps2dev:v2.0.0` — and drops **`tools/ps2link/ps2link.elf`** (~285 KB) next
 to the script: high (`0x01ee8000`), unpacked, USB HID included. `-Low` /
 `--low`, `-Packed` / `--packed` and `-NoUsb` / `--no-usb` combine into the other
 variants, and **the build to flash is low + packed + no USB** — like upstream's
 releases it goes through `ps2-packer`, which is what lets FreeMcBoot's menu boot
 it at the low address (an unpacked low image lands on that loader mid-load and
-black-screens). The first run pulls the toolchain image; later runs reuse the
+black-screens). Both toolchains are the same release and build the same code,
+though not the same bytes (the two release builds order their library objects
+differently, so the linker lays functions out in another order). A Docker run
+pulls the image the first time; later runs reuse the
 clone in `tools/ps2link/build/`. The ELF is gitignored — the patch is the source
 of truth, not the binary.
 
@@ -335,6 +342,22 @@ the baseline launch, and are excluded from the six cycles.
 > proof that this mechanism caused every historical wedge. Consoles still
 > running r6 retain the old ordering.
 
+**TyraX2 follow-up, 2026-10-02:** a network reset from the r7 smoke-test
+game followed by the unchanged heavy timeline ring-control ELF
+(`a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d`)
+completed all 5400 loops and all 384 inactive-observer samples, including
+three scene loads, with no physical restart. The file server was stopped
+before reset and the new launch waited for the IOP restart. This extends the
+smoke test to the pipelined renderer; it does not prove that every possible
+hang is recoverable.
+
+The full TyraX2 follow-up completed **9/9 network reset → fresh heavy-ELF
+starts**, each followed by 5400 game loops (48,600 total), without a physical
+restart or `freepad: DMA Busy`. These include the ring control, three live-dt
+routing boots, raw-camera diagnosis, two fixed-dt boots and two continuous-scene
+boots. Runtime completion and timing acceptance are separate: the camera
+mismatches and fixed-dt sign reversal remain rejected measurement controls.
+
 ## 2. Put it on the console
 
 1. Copy `ps2link.elf` onto the memory card as **`PS2LINK.ELF`** (uLaunchELF over
@@ -383,7 +406,7 @@ the baseline launch, and are excluded from the six cycles.
 3. Boot it. The screen must read:
 
    ```
-   Welcome to TyraX ps2link r7 (USB keyboard + mouse)
+   Welcome to TyraX ps2link r8 (USB keyboard + mouse)
    based on ps2link
    ...
    Net config: 192.168.1.42  255.255.255.0  192.168.1.1
@@ -394,17 +417,31 @@ the baseline launch, and are excluded from the six cycles.
    keyboard + mouse)") means an r1 build: it has the keyboard and mouse but none
    of the hang fixes below, so reflash it. The number is bumped whenever
    `tyrax.patch` changes console behaviour, precisely so a flashed card can be
-   identified without guessing. And if `Net config:` reads **192.168.1.10 /
+   identified without guessing. It lives in one line, `TYRAX_REV` in the patch's
+   `ee/Makefile`; the banner, both build scripts and the toolchain image all
+   take it from there. And if `Net config:` reads **192.168.1.10 /
    255.255.255.0 / 192.168.1.0**, those are the values compiled into ps2link as
    a fallback: your `IPCONFIG.DAT` was not found or not readable, and it is
    *not* using the address you configured.
 
 ## 3. Point the editor at it
 
-*Edit > Preferences > Real PS2 (network deploy) > **PS2 (ps2link) IP***. This is
+*Edit > Preferences > Running games > **ps2link IP***. This is
 a **machine-global** editor setting (`editor.ini`), shared by every project —
 not project data, so it never travels in a `.tyra` file. Leave it empty to
 disable the F6 path entirely.
+
+**Test connection** beside the field opens a TCP connection to `tcp/18193` -
+the file-request socket ps2link listens on, which every `ps2client` command
+connects to the same way - waits up to 2 s, and closes it again without
+sending a byte. Nothing is deployed and the console is not reset. It answers
+one of three things: *ps2link answered (N ms)*; *no answer within 2 s* (wrong
+IP, console off or not in ps2link, or a network in between); *refused* (a
+machine is at that address but nothing listens there - not ps2link). It is
+greyed out while a game is running on the console, whose file server holds the
+connection. A green answer proves the TCP half only: the console's log comes
+back over UDP 18194, which the PC's firewall must still let in (see the ports
+table below).
 
 Headless, the IP can also come from the command line:
 
@@ -414,9 +451,18 @@ tyrax-editor --build <projectDir> --run-ps2 192.168.1.42
 
 ## 4. Deploy and run
 
-**F6** = build && run on PS2, **Ctrl+F6** = run without building. The run
-toolbar's target dropdown has the same thing as *PlayStation 2 (ps2link)* — the
-run triangles turn **blue** when the console is the target and green for PCSX2.
+**F6** = build && run on PS2, **Ctrl+F6** = run without building. The top
+bar's **PCSX2 | PS2** switch picks the target for the Run button (and F5) — Run
+turns **blue** when the console is the target and green for PCSX2.
+
+While this project's game is up on the selected target — the deploy's
+`ps2client` file server alive, or a PCSX2 whose command line names this
+project's ELF (never "any PCSX2") — Run reads **Running 00:42** with the time
+since the launch, and hovering it turns it into **Stop**: a click stops the
+game exactly like the Stop square beside it. F5/F6 and the run menu's *Run*
+still rebuild and restart it. The check runs on the Runner's own thread about
+once a second, so the label can trail a launch or an exit by a second; a PCSX2
+started by hand on this ELF counts too, timed from when the editor first saw it.
 
 What the editor does, in order:
 
@@ -449,7 +495,7 @@ the path is printed in the Output panel as `[editor] Console log: ...`.
 - **Crash-safe.** Each line is flushed as it arrives, so the file is current up
   to the last line the console sent, whoever dies first.
 - **Bounded, in lines, not time.** A file keeps the last *Console log lines*
-  lines (Edit > Preferences > Real PS2, default 20 000). It is rewritten down to
+  lines (Edit > Preferences > Running games, default 20 000). It is rewritten down to
   that many each time it reaches twice as many, so the END of a session, which
   is what a crash leaves, is always there. 0 turns the file off.
 - **Bounded, in files.** At most *Console logs kept* sessions (default 10) stay
@@ -563,7 +609,7 @@ Differences on real hardware:
   that fix logs nothing over ps2link — rebuild it before concluding that the
   code you are chasing is silent.)
 - **Keyboard and mouse work**, because this is the TyraX ps2link: tick
-  *Project > Preferences > Build > Keyboard & mouse controls* and the
+  *Project > Preferences > Build & debug > Keyboard & mouse controls* and the
   *Also over ps2link* sub-option under it is already on — the game reuses
   ps2link's resident USB stack instead of loading one it cannot load. See
   [keyboard-mouse.md](keyboard-mouse.md).
@@ -638,6 +684,7 @@ one (a wedge still answers ARP and usually ping).
 | `dumpmem` writes a zero-byte file | Its offset and size are **decimal**, not hex. |
 | `host:` reads start returning wrong/garbage data | Fixed in r2 (an unexpected reply used to desync the byte stream permanently). |
 | A game crash shows nothing at all on screen | Fixed in r2 (the IOP exception handler faulted on `strlen(NULL)` before it could report). |
+| Stops before Ready at `ps2link: IOP restarted, loading modules` | Update pre-r8 builds: r8 adds SPU2 bus setup to fix a known hang in `spu2Silence()`. If it still hangs on r8 or later, report the PS2Link revision, console model and boot method. |
 | Sound keeps droning / goes haywire after a reset or redeploy | Fixed in r3. Check the boot log for `SPU2 silenced`; if it is absent you are on a pre-r3 build. As a stopgap on an old build, `ps2client -h <ip> execee host:silencer.elf` from `tools/silencer/`. |
 | No sound at all in a game, on r3 only | Would mean the silence is sticking when it should not — `libsd`'s init is supposed to reprogram every register it clears. Report it with the boot log; the fallback is to flash r2 while it is diagnosed. |
 | `Net config:` shows `192.168.1.10` | `IPCONFIG.DAT` was not found next to `PS2LINK.ELF`; ps2link fell back to its compiled-in default. |
@@ -964,5 +1011,7 @@ Keep the patch **LF-only** (`.gitattributes` enforces it) — it is applied to a
 Unix checkout inside a Linux container, and a CRLF patch fails `git apply`. To
 move to a newer upstream, bump the pinned commit in **both** `build.ps1` and
 `build.sh` and re-generate the patch against the new tree. And if a change
-alters what the console reports on boot, update the expected banner in step 2 above — that
-banner is how anyone tells the two builds apart.
+alters console behaviour, bump `TYRAX_REV` in the patch's `ee/Makefile` (edit
+it in `build/ee/Makefile` and regenerate, like any other source) and update the
+expected banner in step 2 above — that banner is how anyone tells the builds
+apart.

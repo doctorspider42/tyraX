@@ -1,5 +1,22 @@
 # A baked VIF stream per mesh: the format, and what it costs
 
+Since 1.173.2, generated terrain also opts into `StaPipBag::refineStrips` on
+all coplanar passes. This separate, lazy ~198 KiB CPU bounds cache refines
+partial strips into outside, guard-safe cull and boundary clip ranges without
+changing VU clip capacity or primitive order. Generic bags default off; owners
+must update bbox/content versions on position edits and pointer reuse, and keep
+coplanar package sizes and opt-in identical. No decisions or DMA data are cached.
+See [terrain strip refinement](tyrax2-strip-subranges.md).
+
+Since 1.173.1, `TYRA_STAPIP_PARTIAL_BAKED` and `TYRA_STAPIP_EXPANSION_CACHE`
+default to 1. Partial visibility can reuse immutable geometry bodies with fresh
+entry state; clipped strips can borrow versioned expanded arrays. Both share
+the existing 4 MiB budget and retirement leases, retaining ordinary fallback.
+The [combined driving qualification](tyrax2-full-throttle.md#combined-geometry-reuse-qualification-2026-10-08)
+records the physical gain and remaining limits. This does not remove clipping
+or introduce an offline geometry format. Either macro can still be set to 0
+for comparisons; byte-verification macros remain off in production.
+
 [ee-submission-rearchitecture.md](ee-submission-rearchitecture.md) names one
 change as the thing that would stop the EE paying 147 cycles per triangle: emit
 a wholly visible static mesh's whole per-frame VIF1 command stream **once** and

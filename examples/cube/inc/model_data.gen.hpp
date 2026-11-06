@@ -3,9 +3,9 @@
 
 namespace Cube {
 
-inline constexpr int MODEL_COUNT = 0;
+inline constexpr int MODEL_COUNT = 1;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
+    "models/cube-room.tmdl",
 };
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
@@ -17,7 +17,7 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 // resolves its asset pool against, because a graph names assets the
 // way the editor does and the console only has baked .tmdl names.
 inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
+    "res/models/cube-room.obj",
 };
 inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
 

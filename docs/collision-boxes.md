@@ -51,11 +51,13 @@ exist.
 A model whose bounds are much bigger than its solid part - a street lamp
 whose arm reaches over the pavement, a sign, a tree - can have **its own
 collision box**. Select any object made from it, keep *Collision* on
-*Box*, and tick **Own collision box** in Properties. The box starts as the
+*Box*, and tick **Own collision box** on the Properties **Physics** tab. The box starts as the
 mesh bounds; **Box min** / **Box max** edit it in the mesh's own units,
-before the object's scale. **Fit to post** takes the footprint of the
+before the object's scale. **Fit to base** takes the footprint of the
 model's lower 40% and keeps its full height, so the lamp collides as its
 post. **Reset to mesh bounds** puts it back.
+*View > Collision boxes* draws the collider in red; the yellow outline
+around a selected object is the selection, which is always the mesh bounds.
 
 It is a setting of the MODEL, keyed by its asset path
 (`Project::modelCollision`, `"modelCollision"` in the .tyra, format 92): every
@@ -84,6 +86,14 @@ itself tests its own box before the grid. Before that, every mesh-mode object
 in the scene paid the full queries every frame, and the grid CLAMPED a far
 query onto its edge cells, so they cost a closest-point test per border
 triangle. Memory is 48 bytes a triangle plus the grid, once per model.
+
+Box mode has the same far reject: a box whose footprint (half-diagonal plus
+the walker's radius, plus the box centre's offset from the object origin)
+cannot reach the walker is skipped before its rotation is computed. That
+rotation is several `sinf`/`cosf` a box, and a game that resolves its own
+actors through the walker's rules pays the whole loop once per actor - measured
+in a 24-bot game it was ~11 ms of every frame with ~280 objects in the scene,
+almost all of it boxes nowhere near any actor.
 
 ## Invisible boundary walls
 
@@ -122,7 +132,7 @@ Turn it on to see the boxes the player and camera actually hit:
 
 ![The same scene with collision boxes shown as red wireframes.](img/collision-boxes-on.png)
 
-**In the game** — *Project > Preferences > Build > Show collision boxes*
+**In the game** — *Project > Preferences > Build & debug > Show collision boxes*
 (**debug** build profile only, exactly like *Show areas*). Red wireframes
 drawn in the running game, following anything that moves — a tumbling physics
 body, a prop a flow node slides. It is a **look, not a census**: the nearest
@@ -149,12 +159,104 @@ the **terrain**, which is a heightfield and not a box.
 before its bounds arrive (assets load one per frame at scene start). It
 settles by itself; a wrong box for a moment right after a load is that.
 
+## The broad phase
+
+Every contact query against scene objects goes through **one broad phase**:
+the walker (and a game's own actors, through the same `collidePlayer`), the
+camera boom / carry / throw sweep (`sweepSphere`), the physics step's static
+obstacles and the trace world (`traceLine`). It holds each obstacle's world box
+and answers "which objects may be near this area / along this segment" - never
+fewer than the ones that are - and the exact tests (box footprint, collision
+mesh, the doorway rule) then run on those alone. Before it, each of those
+walked every object in the scene, per walker, per sweep, per physics body.
+
+**Preferences > Game > Physics > Broad phase** picks the project's backend
+(saved as `"broadPhase"`, only when not the default), and **Scene > Scene
+Preferences > Collision** can override it for one level ("Use its own broad
+phase") - keep the project on the grid and give the one stacked level the
+octree. The game switches backend as it loads that level. Only a scene that
+overrides writes anything, and only then does the generated `scene_data.hpp`
+carry a per-scene table (`SCENE_BROADPHASES`). The two backends:
+
+| Backend | What it is | Choose it for |
+|---|---|---|
+| **Grid** (default) | A uniform grid over X and Z, rebuilt every frame in one counting pass; every box keeps its height, so a query's height range filters the candidates | Flat worlds of similar-sized props (most scenes): the cheapest query and rebuild |
+| **Octree** | A loose octree (each node's bounds twice its cell) whose nodes split only past 8 objects and remember the bounds of what they hold; kept across frames - only objects that moved, appeared or left are moved | Scenes that stack in height (multi-floor interiors, bridges over roads, things in the air) or mix dense blocks with open ground |
+
+Both return the same objects for the same scene, in ascending object order
+(the order the full walks used, which the walker's order-dependent pushes
+need). Measured on the host over the same random scene: a walker-sized query
+costs the grid ~0.1 us and the octree ~0.4 us, but the octree hands back about
+a fifth of the candidates, so the exact tests behind it do less. A refresh
+of 500 objects (20 of them physics bodies), query included, costs about 60%
+of a rebuild when nothing placed changed (host x86, -O2, 6-11 us against
+11-18 us between runs - proportions, not EE timings).
+
+- **When it updates.** On the first query of each frame (`g_frameStamp`,
+  bumped by `updateFrameClock`), at two **refresh boundaries** in the frame
+  loop, and at once after a spawn, despawn or layer (de)activation. The first
+  boundary follows the script stage (scripts, the flow graph, a scene switch,
+  layer streaming, teleports) and comes before the physics step; the second
+  follows the spinners and comes before the vehicles, the portals and the
+  carry sweep. So whatever a stage moves, turns, rescales or switches on or off
+  is where it really is for every stage after it. An object's box is cached
+  and recomputed only when its position, rotation, scale, model or collision
+  mode changed - or when the model it uses streams in after it was spawned (a
+  clone made before its template's asset was resident is first boxed from the
+  placeholder bounds). A refresh that changes nothing in the structure (no
+  object came, went, started or stopped moving, or got a new box) skips the
+  rebuild: a boundary after a quiet stage costs one walk over the objects.
+- **Moving objects** - physics bodies, and anything that moved this frame or
+  the last - are candidates of every query rather than placed in the
+  structure, and every box is padded by 0.5 m for an object that only starts
+  moving after a refresh, within the same stage. So is an object too large to
+  place (more than 64 grid cells, or outside the octree's root). Counting
+  "moving" by frame rather than by refresh keeps something that moves every
+  frame in a late stage (a vehicle) a candidate everywhere, instead of
+  settling it at an early boundary and leaving its box behind.
+- **Moving a collider yourself.** Scripts and flow graphs need nothing: they
+  write `ctx.objects` during the script stage, nothing queries the broad phase
+  inside it, and the boundary after it picks every change up. Game-side C++
+  that moves, turns or rescales a collider (or changes its model or collision
+  mode) and then queries in the SAME stage - one actor after another, say -
+  is covered only for motion within the 0.5 m padding; for a teleport, a
+  large step, a rotation or a scale change, call `broadPhaseInvalidate()`
+  between the change and the next query. It is cheap: the next query
+  refreshes, and rebuilds only if the structure changed. The two boundaries
+  live in the generated frame loop (`src/terrain_game.cpp`); a project that
+  owns that file (its marker line removed) keeps its own loop and adds them
+  itself - `broadPhaseInvalidate();` before `updateObjectPhysics()` and after
+  `updateSpinners()`.
+- **Two shapes per object.** The sweep and the physics statics test an
+  object's box in its full rotation; the walker's box mode stands the same box
+  upright and turns it by yaw alone (a pitched or rolled box collides
+  upright - see above). The stored box covers both, so a long box rolled 90
+  degrees is still a candidate wherever the walker treats it as a wall or a
+  floor.
+- **The walker asks for a whole column.** Its box path takes any box under the
+  feet as a floor and any box overhead as the jump ceiling, however far, so
+  height cannot narrow its query without changing where it stands. The sweep,
+  the physics statics and traces pass their real height.
+- **Results are unchanged.** A collision-mesh object's box includes the
+  0.6-unit band its push reaches. `kBroadPhaseVerify` (a constexpr in the
+  generated `game_runtime.gen.hpp`) runs every walker call a second time over
+  every object and checks every query against the objects' current boxes,
+  logging `[BROADPHASE] ...` on any disagreement.
+
+The structure itself is engine code (`Tyra::BroadPhase`,
+`vendor/tyra/engine/inc/physics/broad_phase.hpp`): a caller hands it boxes
+(`begin` / `set` / `commit`) and asks `queryBox` / `querySegment`. New code in
+the generated game that asks "what objects are near here / along this line"
+calls `broadPhaseNear(area, out)` or `broadPhaseAlong(a, b, radius, out)` and
+keeps its own exact test, rather than walking `runtimeObjects`.
+
 ## Where it lives
 
 | Layer | Code |
 |---|---|
 | Host (editor overlay, placement snapping, the drag/paste raycast) | `placement::collisionBox` / `placement::collides` (`src/placement.cpp`) |
 | Generated game (walker, spring arm, split-screen cull, the overlay) | `TerrainGame::objectCollisionBox` / `objectCollides` (`templates.cpp`) |
+| Generated game, broad phase (walker, sweep, physics statics, traces) | `TerrainGame::broadPhaseNear` / `broadPhaseAlong` (`game_templates.inc`) over `Tyra::BroadPhase` (`vendor/tyra/engine/src/physics/broad_phase.cpp`) |
 | Editor overlay draw | `Viewport::setCollisionOverlay` (`src/viewport.cpp`) |
 | Game overlay draw | `TerrainGame::renderCollisionBoxes` |
 

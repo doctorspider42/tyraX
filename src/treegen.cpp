@@ -15,6 +15,8 @@ namespace treegen {
 
 namespace {
 
+#include "tree_foliage.inc"
+
 constexpr float kPi = 3.14159265358979f;
 
 struct V3 {
@@ -210,7 +212,17 @@ struct Builder {
         // toward the tips.
         const float anchorFrom = p.crown == 1 ? 0.0f : 0.45f;
         if (leafy) {
-            for (int i = 0; i <= ringCount; ++i) {
+            if (p.leafStyle == 3) {
+                // Coverage must not collapse to the tube's endpoints when a
+                // forest budget uses only one longitudinal segment per twig.
+                for (int k = 0; k < 6; ++k) {
+                    const float f = (0.25f + 0.75f * k / 5.0f) * ringCount;
+                    const int i = std::min((int)f, ringCount - 1);
+                    const float t = f - i;
+                    anchors.push_back({spine[i].center + (spine[i + 1].center - spine[i].center) * t,
+                                       spine[i].dir, len * 0.15f});
+                }
+            } else for (int i = 0; i <= ringCount; ++i) {
                 const float t = (float)i / (float)ringCount;
                 if (t >= anchorFrom)
                     anchors.push_back({spine[i].center, spine[i].dir, stepLen});
@@ -220,8 +232,9 @@ struct Builder {
             // cards past the apex where they read as detached blobs
             anchors.push_back(
                 {last.center + last.dir * (tipLen * 0.5f), last.dir, tipLen});
-        } else if (p.crown == 1 && level == 0) {
-            // The conifer's leader. Foliage is shared out per ANCHOR, so
+        } else if ((p.crown == 1 || p.leafStyle == 3) && level == 0) {
+            // Cover the leader, including the baked broadleaf crown's apex.
+            // Foliage is shared out per ANCHOR, so
             // hanging these off the trunk's rings starves the apex: the trunk
             // has a handful of rings over its whole length and the top of the
             // tree would get two of them against ~200 down in the whorls.
@@ -335,7 +348,12 @@ struct Builder {
         const float size = p.leafSize * p.height;
         for (int k = 0; k < p.leafCount; ++k) {
             Rng rng(mix(p.seed, 0x1EAFu + (uint32_t)k));
-            const Anchor& a = anchors[(size_t)k % anchors.size()];
+            // Sparse budgets must still sample the WHOLE crown, not just the
+            // first branches visited by the recursive builder.
+            const size_t anchorIndex = p.leafStyle == 3
+                ? std::min(anchors.size() - 1, (size_t)((k + 0.5) * anchors.size() / p.leafCount))
+                : (size_t)k % anchors.size();
+            const Anchor& a = anchors[anchorIndex];
             const float w = size * rng.range(0.8f, 1.2f);
             const float h = w * p.leafAspect;
             V3 c, n, ua;
@@ -510,6 +528,22 @@ Image bakeLeafTexture(const Params& p, int size) {
     img.w = img.h = size;
     img.rgba.assign((size_t)size * size * 4, 0);
     const uint32_t seed = mix(p.seed, 0x1EAFu);
+
+    if (p.leafStyle == 3) {
+        // Embedded Blender capture: no asset-path or Blender runtime dependency.
+        // Retain the existing colour controls and hard-cutout GS contract.
+        for (int y = 0; y < size; ++y)
+            for (int x = 0; x < size; ++x) {
+                const unsigned char tone = kBroadleafStamp[(y * 128 / size) * 128 + x * 128 / size];
+                if (!tone) continue;
+                float rgb[3];
+                for (int c = 0; c < 3; ++c)
+                    rgb[c] = lerpf(p.leafColor2[c], p.leafColor[c], tone / 255.0f);
+                putPx(img, x, y, rgb, 255);
+            }
+        dilate(img, 3);
+        return img;
+    }
 
     // one leaf blade in local coords: s along the axis [0,1], q across
     auto blade = [&](float s, float q, float halfWidth, float tone,
@@ -820,6 +854,36 @@ const std::vector<Preset>& presets() {
             p.lengthRatio = 0.70f, p.lengthTaper = 0.20f;
             p.sides = 4, p.rings = 3;
             p.leafCount = 150, p.leafSize = 0.24f;
+            v.push_back(pr);
+        }
+        for (bool hero : {false, true}) {
+            Preset pr{hero ? "Hero oak" : "Forest oak", {}};
+            Params& p = pr.params;
+            p.leafStyle = 3;
+            p.height = hero ? 10.0f : 7.0f;
+            p.thickness = hero ? 0.029f : 0.024f;
+            p.radiusRatio = 0.43f;
+            p.taper = 0.40f;
+            p.spawnStart = 0.38f;
+            p.branchAngle = 64.0f;
+            p.angleJitter = 14.0f;
+            p.lengthRatio = 0.66f;
+            p.lengthTaper = 0.55f;
+            p.sweep = 0.035f;
+            p.gnarliness = 0.13f;
+            p.sides = hero ? 7 : 5;
+            p.rings = hero ? 6 : 3;
+            p.ringsMin = 1;
+            p.children[0] = hero ? 5 : 4;
+            p.children[1] = 3;
+            p.leafCount = hero ? 360 : 140;
+            p.leafSize = hero ? 0.19f : 0.22f;
+            p.leafAspect = 1.0f;
+            p.leafLevels = 2;
+            const float light[3] = {0.38f, 0.45f, 0.23f};
+            const float dark[3] = {0.12f, 0.19f, 0.075f};
+            std::copy(light, light + 3, p.leafColor);
+            std::copy(dark, dark + 3, p.leafColor2);
             v.push_back(pr);
         }
         return v;

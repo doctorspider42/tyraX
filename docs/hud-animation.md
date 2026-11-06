@@ -7,19 +7,41 @@ stamina, progress), a **looped animation** any element can carry, and the
 them. Everything here is sprite properties changed per frame: nothing is
 rebaked, and a whole animated HUD costs a few floats per element.
 
-Open **Tools > UI Editor**. Images sit in the *Screen stack*, texts under
-*Texts*, bars under *Bars*; every one of them ends with a **Motion** block.
-The viewport overlay (*Show in viewport*, or while the UI Editor is open)
-previews the looped animation and the bars live.
+Open **Tools > UI Editor**. It is three columns:
 
-`examples/hud-animation` is the worked example: a health bar with a damage
-ghost, a stamina bar that drains while you sprint, a coin strip that pops as
-you collect, and a few things that move for no reason but fun.
+- **On screen** (left) - the true draw order, top = drawn last: *Texts*
+  (always on top), *Bars*, then *Images & screen effects* (the USE prompt,
+  the reorderable screen stack - drag a row - and the effects pinned under
+  it). Each row shows its kind, its state (`save · health`, `5 seg · Wobble`,
+  an effect's `off` / strength) and an eye for *Visible at game start*. One
+  **Add** menu adds an image, a text, a bar or a custom screen effect. PNG
+  files dragged from Finder / Explorer onto the UI Editor become image
+  elements too (copied into `res/hud/`, selected; dropped on the preview they
+  sit where they landed, elsewhere in the window they start centred). Button
+  icons and fonts are the two buttons at the bottom - shared assets, not
+  layers.
+- **The preview** (centre) - the PS2's 512x448 frame over the scene as the
+  game draws it from the viewport camera (*Scene* - no grid, markers or
+  selection), a checker or black, with the 90% *Safe area*
+  guide. The looped animations run in it (*Animations*), hidden-at-start
+  elements show dimmed. Click an element to select it, drag it to move it,
+  drag a corner handle to resize an image or a bar (about its centre), and
+  nudge the selection with the arrow keys (1 px, Shift 8 px). The readout
+  under the selection gives its size in screen pixels and a bar's fill.
+- **The inspector** (right) - the selected element's name (renames follow
+  into the flow graphs), a line saying which flow nodes address it ("driven by
+  4 nodes in player-1"; hover it for the objects), and tabs: *Bar / Look /
+  Motion* for a bar, *Text / Motion*, *Image / Motion*.
+
+*In viewport* (top right) also draws the HUD over the 3D viewport, as it is at
+game start. `examples/hud-animation` is the worked example: a health bar with
+a damage ghost, a stamina bar that drains while you sprint, a coin strip that
+pops as you collect, and a few things that move for no reason but fun.
 
 ![Animated HUD running in PCSX2](img/hud-animation-game.png)
 
-The UI Editor keeps the same motion controls beside the selected element and
-draws the looped animation directly over the scene preview:
+The UI Editor with the health bar selected - on screen list, the preview with
+the bar's handles and readout, and the bar's inspector:
 
 ![Animated HUD controls in the UI Editor](img/hud-animation.png)
 
@@ -28,7 +50,7 @@ draws the looped animation directly over the scene preview:
 A bar is a **fill sized from a value every frame**. It is not a texture: the
 track, the fill and the ghost are tinted white quads (the same 8x8
 `hud/loading-white.png` the loading bars use), so a bar costs 2-4 sprites
-and no VRAM. Add one with *+ Add bar*.
+and no VRAM. Add one with *Add > Bar*.
 
 **Value.** The bar either **follows a save value** (*Follows save value*:
 read every frame, mapped through *Min*/*Max* to a 0..1 fill) or is driven by
@@ -103,7 +125,8 @@ The nodes that trigger one:
 *Visible at game start* on an image or a bar is what makes a map, a boss bar
 or a tutorial hint start hidden and slide in when a node asks.
 
-Transitions are runtime-only: the editor overlay does not preview them.
+*Play show / hide* on the Motion tab previews the transition in the UI Editor:
+the element arrives, holds, and leaves again - the same curve the game runs.
 
 ## One-shot effects
 

@@ -57,6 +57,12 @@ const char* verdictText(Verdict v);
 // The boxes of one scene, in object order. Deterministic.
 std::vector<Box> collect(const Project& p, const SceneData& sc);
 
+// The baked reflection panorama's boxes (reflpano.hpp): "Show in
+// reflections" objects with "Reflection box proxy" on that cannot move at
+// runtime, as the same oriented solid. rgb stays at its default - the game
+// colours the box from the real object, as its live proxy path does.
+std::vector<Box> collectProxies(const Project& p, const SceneData& sc);
+
 // One object's verdict in its scene (index = its position in sc.objects).
 Verdict verdictFor(const Project& p, const SceneData& sc, int index);
 

@@ -51,6 +51,11 @@ class StaPipVU1Program : public VU1Program {
    * 3: the packed vertex count. */
   static constexpr u32 kPackedCountWord = 4 + 3;
 
+  // Modified by TyraX: partial replay regenerates this small mutable header
+  // with the ordinary writer, while referencing immutable geometry afterwards.
+  void addStandardBufferDataToPacket(packet2_t* packet, StaPipQBuffer* buffer,
+                                     prim_t* prim, const bool& emitState);
+
  protected:
   StaPipProgramName name;
   u8 reglistCount, elementsPerVertex;
@@ -64,9 +69,6 @@ class StaPipVU1Program : public VU1Program {
   // except the billboard family (1 center -> 6 GS vertices).
   virtual u32 gsVertexCount(const u32& inputCount) const { return inputCount; }
 
- private:
-  void addStandardBufferDataToPacket(packet2_t* packet, StaPipQBuffer* buffer,
-                                     prim_t* prim, const bool& emitState);
 };
 
 }  // namespace Tyra

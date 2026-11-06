@@ -17,6 +17,17 @@
 // Modified by TyraX: a measured-only experiment can swap in another image
 // (stapip_vu1_experiments.hpp). The #if branch is the experiment; the
 // #else branch is the shipping image `--vu-check` verifies.
+#if TYRA_VU1_EXP_PAINT && TYRA_VU1_EXP_ENV_NORMALIZED
+extern u32 StaPipVU1Cull_TCE_ENVN_PAINT_CodeStart __attribute__((section(".vudata")));
+extern u32 StaPipVU1Cull_TCE_ENVN_PAINT_CodeEnd __attribute__((section(".vudata")));
+#define TYRA_WRAPPER_IMAGE_START (&StaPipVU1Cull_TCE_ENVN_PAINT_CodeStart)
+#define TYRA_WRAPPER_IMAGE_END (&StaPipVU1Cull_TCE_ENVN_PAINT_CodeEnd)
+#elif TYRA_VU1_EXP_PAINT
+extern u32 StaPipVU1Cull_TCE_PAINT_CodeStart __attribute__((section(".vudata")));
+extern u32 StaPipVU1Cull_TCE_PAINT_CodeEnd __attribute__((section(".vudata")));
+#define TYRA_WRAPPER_IMAGE_START (&StaPipVU1Cull_TCE_PAINT_CodeStart)
+#define TYRA_WRAPPER_IMAGE_END (&StaPipVU1Cull_TCE_PAINT_CodeEnd)
+#else
 #if TYRA_VU1_EXP_ENV_NORMALIZED
 extern u32 StaPipVU1Cull_TCE_ENVN_CodeStart __attribute__((section(".vudata")));
 extern u32 StaPipVU1Cull_TCE_ENVN_CodeEnd __attribute__((section(".vudata")));
@@ -27,6 +38,7 @@ extern u32 StaPipVU1Cull_TCE_CodeStart __attribute__((section(".vudata")));
 extern u32 StaPipVU1Cull_TCE_CodeEnd __attribute__((section(".vudata")));
 #define TYRA_WRAPPER_IMAGE_START (&StaPipVU1Cull_TCE_CodeStart)
 #define TYRA_WRAPPER_IMAGE_END (&StaPipVU1Cull_TCE_CodeEnd)
+#endif
 #endif
 
 namespace Tyra {

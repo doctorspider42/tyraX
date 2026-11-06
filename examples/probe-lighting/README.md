@@ -1,5 +1,7 @@
 # Probe lighting — animated receivers under directional baked GI
 
+![Probe lighting — animated receivers under directional baked GI in PCSX2](preview.png)
+
 Walk from a blue-sky courtyard into a roofed room with warm and cool side
 sources. The humanoid avatar and three neutral twisting meshes read the
 existing RGB L1 probe grid. Each RGB channel keeps the full signed directional field. The cylinder at the back is an explicitly dynamic-lit rigid
@@ -121,3 +123,16 @@ Generated game methods are split between `src/terrain_game.cpp` and the
 `src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
 `inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
 The main file remains user-ownable; generated subsystem files refresh on build.
+
+
+Hardware timeline instrumentation matches the 1.170 coarse/detail emitter.
+Use the [capture and observer-control guide](../../docs/hardware-profiler.md)
+when comparing performance; traces add measurable work.
+
+This example explicitly requests `framePipeline: true` (TyraX2). Its authored interlaced output preserves the existing scan mode and quality; ordinary interlaced output is eligible, unlike true field rendering. True field rendering, BLSS, unlimited triple buffering and unavailable queue memory fall back safely. This request does not guarantee 60 FPS. See [TyraX2](../../docs/tyrax2.md).
+
+Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dynamic-light-receivers.md). This example retains the default **All objects** policy; Players and driven vehicle is an optional project or scene setting.
+
+TyraX 2.0 integration: generated sources have been refreshed with the combined
+TyraX2 renderer and mainline collision broad phase; authored settings and
+user-owned source files retain their existing ownership rules.

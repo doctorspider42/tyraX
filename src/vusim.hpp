@@ -97,6 +97,11 @@ struct Config {
     bool trace = false;
     /** Stop after this many instructions have been traced (0 = no limit). */
     int traceLimit = 4000;
+    /** Copy what each XGKICK hands the GIF AT THE MOMENT OF THE KICK into
+     * `Result::kickPayload`: a program that streams its output (the clip
+     * family since 1.170) reuses the same quadwords for a later chunk, so the
+     * memory image at the end of the run no longer holds the earlier ones. */
+    bool captureKicks = false;
 };
 
 /** One thing the run noticed that the hardware would have swallowed silently. */
@@ -111,6 +116,13 @@ struct Result {
     std::string error;      // set when the run aborted (bad op, step budget)
     long long steps = 0;
     std::vector<int> kicks;         // XGKICK addresses, in execution order
+    /** With Config::captureKicks: per kick, the GIF tags walked from the kicked
+     * address up to EOP, as (tag word 0, tag word 1) pairs followed by the
+     * payload quadwords they carry. `kickData` is every kick's PAYLOAD only,
+     * concatenated - the bytes the GS registers receive, independent of how
+     * the program chunked them. */
+    std::vector<std::vector<uint32_t>> kickPayload;
+    std::vector<uint32_t> kickData;
     std::vector<uint32_t> mem;      // VU1 data memory after the run
     std::vector<std::string> trace;
     std::vector<Warning> warnings;

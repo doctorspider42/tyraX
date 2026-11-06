@@ -1,7 +1,7 @@
 /*
 # Modified by TyraX - grow-only package pools (no new[] per submit) and
 # object-space AABB frustum classification in checkFrustum (see the comment
-# on that function).
+# on that function); classifyRoutes for the partial replay.
 # Based on the original by Sandro Sobczynski (h4570/tyra), Apache License 2.0.
 */
 
@@ -293,6 +293,63 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
 #else
   return result;
 #endif
+}
+
+// Modified by TyraX: create() + checkFrustum() for the partial replay, minus
+// the records. Same coarse groups, same merged 1/3-part boxes, same mask rule:
+// a verify build (TYRA_STAPIP_LEAN_CLASSIFY_VERIFY) compares both on every
+// package, and 137 943 packages of a physical PS2 drive matched exactly.
+u16 StaPipBagPackager::classifyRoutes(const StaPipBag* data, u16 size,
+                                      u8* routes, u8* masks, u32 capacity) {
+  const u16 n = static_cast<u16>((data->count + size - 1) / size);
+  if (n > capacity) return n;
+  const u32 third = maxVertCount / 3;
+  const bool coarse = size == maxVertCount && renderBBox && objectSpacePlanes;
+  CoreBBoxFrustum coarseRoute = PARTIALLY_IN_FRUSTUM;
+  for (u16 i = 0; i < n; ++i) {
+    if (coarse && (i & 7) == 0)
+      coarseRoute = CoreBBox::frustumCheckAABB(objectSpacePlanes,
+          renderBBox->coarseMin(i / 8), renderBBox->coarseMax(i / 8), nullptr);
+    const u32 start = static_cast<u32>(i) * size;
+    const u32 pkgSize = i == n - 1 ? data->count - start : size;
+    CoreBBoxFrustum verdict;
+    u8 mask = 0;
+    bool guardBandOnly = false;
+    if (coarse && coarseRoute != PARTIALLY_IN_FRUSTUM) {
+      verdict = coarseRoute;
+    } else if (!renderBBox || !objectSpacePlanes) {
+      verdict = OUTSIDE_FRUSTUM;
+    } else {
+      // The parts checkFrustum merges: a subpackage its overlapped thirds, a
+      // package the thirds from its start.
+      const u32 first = start / third;
+      const u32 parts = pkgSize <= third
+                            ? (start + pkgSize - 1) / third - first + 1
+                            : (pkgSize + third - 1) / third;
+      Vec4 min, max;
+      renderBBox->getMergedMinMax(first, static_cast<u16>(parts), &min, &max);
+      u8* frustumMask =
+          capturePlaneMasks && clipObjectSpacePlanes == nullptr ? &mask : nullptr;
+      verdict = CoreBBox::frustumCheckAABB(objectSpacePlanes, min, max,
+                                           frustumMask);
+      if (capturePlaneMasks && clipObjectSpacePlanes != nullptr) {
+        const u8 planes =
+            verdict == PARTIALLY_IN_FRUSTUM
+                ? CoreBBox::activePlaneMaskAABB(clipObjectSpacePlanes, min, max, 8)
+                : 0;
+        mask = static_cast<u8>(planes & 0x3F);
+        guardBandOnly = verdict == PARTIALLY_IN_FRUSTUM && planes == 0;
+      }
+    }
+    // The routes StaPipCore's partial replay assigns (stapip_core.cpp).
+    routes[i] = (verdict == IN_FRUSTUM || guardBandOnly) ? 1
+                : (verdict == PARTIALLY_IN_FRUSTUM &&
+                   (!data->stripped || pkgSize >= 3))
+                    ? 2
+                    : 0;
+    masks[i] = mask;
+  }
+  return n;
 }
 
 void StaPipBagPackager::setMaxVertCount(const u32& count) {

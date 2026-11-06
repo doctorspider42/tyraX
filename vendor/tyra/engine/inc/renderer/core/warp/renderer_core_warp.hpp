@@ -19,16 +19,9 @@
 #include "renderer/core/gs/renderer_core_gs.hpp"
 #include "renderer/core/renderer_core_sync.hpp"
 #include "renderer/core/paths/path1/path1.hpp"
-#include "renderer/core/blss/renderer_core_blss.hpp"
 
 namespace Tyra {
 
-/**
- * A pinhole camera, as the warp needs to see it: an eye, an orthonormal basis
- * and the two half-angle tangents. Deliberately the same shape as the neural
- * upscaler's reprojection input (docs/blss-reconstruction.md) - it is the same
- * projection, run forwards.
- */
 /** What the warp needs from RendererCore to keep the HUD still: the screen
  * rectangle the 2D path drew into last frame. An interface rather than the
  * whole RendererCore, because RendererCore includes THIS header. */
@@ -37,6 +30,10 @@ struct RendererCore2dBounds {
   virtual void get2dBounds(int* x0, int* y0, int* x1, int* y1) const = 0;
 };
 
+/**
+ * A pinhole camera, as the warp needs to see it: an eye, an orthonormal basis
+ * and the two half-angle tangents.
+ */
 struct WarpCamera {
   Vec4 position = Vec4(0.0F, 0.0F, 0.0F, 1.0F);
   Vec4 forward = Vec4(0.0F, 0.0F, -1.0F, 0.0F);
@@ -63,13 +60,9 @@ struct WarpCamera {
  * - **Rotation is EXACT.** For a camera that only turned, the mapping is a
  *   homography and `planeDistance` cancels out of the arithmetic entirely - no
  *   depth buffer, no approximation, at any scene depth.
- * - **Translation uses REAL PER-TILE DEPTH when the neural upscaler is on**,
- *   because BLSS already describes every tile with a mean 1/w to fetch its own
- *   temporal history - the warp reads the same numbers. Near ground then moves
- *   a lot, distant hills little and the sky not at all: parallax, not a zoom.
- *   Without that depth it falls back to `planeDistance`, which is 0 (rotation
- *   only) by default - a single plane scales the whole picture uniformly and
- *   reads as a lens ZOOM, which is worse than not moving.
+ * - **Translation uses the ground plane or `planeDistance`**, which is 0
+ *   (rotation only) by default - a single plane scales the whole picture
+ *   uniformly and reads as a lens ZOOM, which is worse than not moving.
  * - **Dynamic objects and the HUD MOVE WITH THE CAMERA**, which is worse than
  *   freezing: they are pixels in the source image, so the warp carries them
  *   along and the alternation reads as doubling and jitter. The HUD is the
@@ -87,7 +80,7 @@ class RendererCoreWarp {
   ~RendererCoreWarp();
 
   void init(RendererSettings* settings, RendererCoreGS* gs,
-            RendererCoreSync* sync, Path1* path1, RendererCoreBlss* blss,
+            RendererCoreSync* sync, Path1* path1,
             RendererCore2dBounds* core2d);
 
   /**
@@ -161,9 +154,6 @@ class RendererCoreWarp {
   RendererCoreGS* gs = nullptr;
   RendererCoreSync* sync = nullptr;
   Path1* path1 = nullptr;
-  // The neural upscaler, for its per-tile 1/w (see buildUVs). Optional: null,
-  // off or in plain mode all mean "no depth", which degrades to rotation only.
-  RendererCoreBlss* blss = nullptr;
   RendererCore2dBounds* core2d = nullptr;
 
  public:

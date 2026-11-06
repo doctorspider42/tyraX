@@ -83,7 +83,7 @@ const char* reasonLabel(Reason r) {
         case Reason::Usable: return "usable";
         case Reason::Pickable: return "pickable";
         case Reason::SaveState: return "save state";
-        case Reason::Reflected: return "reflected";
+        case Reason::Reflected: return "reflection proxy";
         case Reason::DynamicLighting: return "dynamic lighting";
         case Reason::TextureFeed: return "texture feed";
         case Reason::VuParams: return "VU parameters";
@@ -126,8 +126,8 @@ const char* reasonDetail(Reason r) {
             return "Loading a save repositions it, so its baked vertices "
                    "would be stale.";
         case Reason::Reflected:
-            return "Re-submitted into the reflection pass, which needs the "
-                   "object's own bag.";
+            return "Shown in reflections through a proxy box - a different "
+                   "shape in the map than on screen, so it keeps its own bag.";
         case Reason::DynamicLighting:
             return "Wants its own VU1-lit bag refilled every frame. A batch "
                    "is one baked bag and cannot carry it.";
@@ -156,7 +156,7 @@ const char* reasonDetail(Reason r) {
                    "batch).";
         case Reason::BatchingDisabled:
             return "Static batching is off for the whole project (Project "
-                   "Preferences > Rendering).";
+                   "Preferences > Graphics).";
         case Reason::ModelNotBaked:
             return "No baked .tmdl for this model yet - build the project, or "
                    "run Build > Refresh generated files.";
@@ -234,7 +234,7 @@ Reason eligibility(const Project& p, const SceneObject& o,
     if (o.usable) return Reason::Usable;
     if (o.pickable) return Reason::Pickable;
     if (o.saveState) return Reason::SaveState;
-    if (o.reflected) return Reason::Reflected;
+    if (o.reflected && o.reflectionProxy) return Reason::Reflected;
     if (o.dynamicLighting) return Reason::DynamicLighting;
     if (!o.textureFeed.empty()) return Reason::TextureFeed;
     if (o.vuParams[0] != 0.0f || o.vuParams[1] != 0.0f ||
@@ -293,7 +293,10 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
     const float mapW = sc.terrain.width > sc.terrain.depth
                            ? (float)sc.terrain.width
                            : (float)sc.terrain.depth;
-    const float baseCellW = mapW * 0.25f > 48.0f ? mapW * 0.25f : 48.0f;
+    const float baseCellW =
+        p.settings.staticBatchCell > 0.0f
+            ? p.settings.staticBatchCell
+            : (mapW * 0.25f > 48.0f ? mapW * 0.25f : 48.0f);
     res.mapW = mapW;
     res.baseCellW = baseCellW;
     auto cellFor = [&](float drawDistance) -> float {
@@ -341,26 +344,32 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
     // --- stage 2: grouping --------------------------------------------------
     std::vector<int> keyX, keyZ;
     auto addMember = [&](int object, int part, const std::string& texture,
-                         int cx, int cz, float cellW, float dd, int lamp,
-                         unsigned int stripRun, unsigned int verts) {
+                         int filter, int cx, int cz, float cellW, float dd,
+                         int lamp, unsigned int stripRun, unsigned int verts,
+                         bool reflected) {
         int bi = -1;
         for (int b = 0; b < (int)res.batches.size(); ++b)
-            if (res.batches[(size_t)b].texture == texture && keyX[(size_t)b] == cx &&
+            if (res.batches[(size_t)b].texture == texture &&
+                res.batches[(size_t)b].textureFilter == filter &&
+                keyX[(size_t)b] == cx &&
                 keyZ[(size_t)b] == cz && res.batches[(size_t)b].drawDistance == dd &&
                 res.batches[(size_t)b].lamp == lamp &&
-                res.batches[(size_t)b].stripRun == stripRun) {
+                res.batches[(size_t)b].stripRun == stripRun &&
+                res.batches[(size_t)b].reflected == reflected) {
                 bi = b;
                 break;
             }
         if (bi < 0) {
             Batch nb;
             nb.texture = texture;
+            nb.textureFilter = filter;
             nb.cellX = cx;
             nb.cellZ = cz;
             nb.cellW = cellW;
             nb.drawDistance = dd;
             nb.lamp = lamp;
             nb.stripRun = stripRun;
+            nb.reflected = reflected;
             res.batches.push_back(nb);
             keyX.push_back(cx);
             keyZ.push_back(cz);
@@ -421,9 +430,11 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
                 // stripRun key, so an unstripped part groups with other
                 // unstripped parts and never with a stripped one.
                 const bool stripped = mp.stripVertexCount > 0 && mp.stripRun > 0;
-                addMember(i, pi, mp.texture, cx, cz, cellW, d.drawDistance,
+                addMember(i, pi, mp.texture, mp.textureFilter, cx, cz, cellW,
+                          d.drawDistance,
                           lamp, stripped ? mp.stripRun : 0u,
-                          stripped ? mp.stripVertexCount : mp.vertexCount);
+                          stripped ? mp.stripVertexCount : mp.vertexCount,
+                          d.reflected);
             }
         } else {
             MaterialInfo mat =
@@ -440,10 +451,12 @@ Result compute(const Project& p, const SceneData& sc, const Inputs& in,
             // path and hands back nullptr for a file that is not there.
             const std::string texture =
                 (!d.materialPath.empty() && mat.known) ? mat.texture : kNoTexture;
+            const int filter =
+                texture == kNoTexture ? 0 : mat.textureFilter;
             const unsigned int verts =
                 in.primVertices ? in.primVertices(d) : 0u;
-            addMember(i, -1, texture, cx, cz, cellW, d.drawDistance, lamp, 0u,
-                      verts);
+            addMember(i, -1, texture, filter, cx, cz, cellW, d.drawDistance,
+                      lamp, 0u, verts, d.reflected);
         }
     }
 

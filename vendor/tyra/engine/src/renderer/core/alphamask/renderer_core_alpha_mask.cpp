@@ -9,6 +9,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include "renderer/core/alphamask/renderer_core_alpha_mask.hpp"
 #include "renderer/core/paths/path3/path3_fence.hpp"
 
@@ -264,11 +265,11 @@ void RendererCoreAlphaMask::maskClear() {
   packet2_update(maskClearPacket, q);
   packet2_update(maskClearPacket,
                  gs->emitRasterRestore(maskClearPacket->next, false));
-  packet2_update(maskClearPacket, draw_finish(maskClearPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(maskClearPacket, frameDrawFinish(maskClearPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(maskClearPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(maskClearPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
@@ -383,11 +384,11 @@ void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
   PACK_GIFTAG(q, GS_SET_SCISSOR(x0, x1 - 1, y0, y1 - 1), GS_REG_SCISSOR_1);
   q++;
   packet2_update(countBeginPacket, q);
-  packet2_update(countBeginPacket, draw_finish(countBeginPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(countBeginPacket, frameDrawFinish(countBeginPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(countBeginPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(countBeginPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
@@ -548,11 +549,11 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   packet2_update(countResolvePacket, q);
   packet2_update(countResolvePacket,
                  gs->emitRasterRestore(countResolvePacket->next, false));
-  packet2_update(countResolvePacket, draw_finish(countResolvePacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(countResolvePacket, frameDrawFinish(countResolvePacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(countResolvePacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(countResolvePacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCoreAlphaMask::countAbort() {
@@ -565,11 +566,11 @@ void RendererCoreAlphaMask::countAbort() {
   q++;
   packet2_update(endPacket, q);
   packet2_update(endPacket, gs->emitRasterRestore(endPacket->next, false));
-  packet2_update(endPacket, draw_finish(endPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(endPacket, frameDrawFinish(endPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(endPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCoreAlphaMask::begin() {
@@ -638,11 +639,11 @@ void RendererCoreAlphaMask::begin() {
               GS_REG_ZBUF_1);
   q++;
   packet2_update(beginPacket, q);
-  packet2_update(beginPacket, draw_finish(beginPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(beginPacket, frameDrawFinish(beginPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(beginPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCoreAlphaMask::beginKeep() {
@@ -666,11 +667,11 @@ void RendererCoreAlphaMask::beginKeep() {
               GS_REG_FRAME_1);
   q++;
   packet2_update(keepPacket, q);
-  packet2_update(keepPacket, draw_finish(keepPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(keepPacket, frameDrawFinish(keepPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(keepPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(keepPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCoreAlphaMask::repaintAlpha() {
@@ -724,11 +725,11 @@ void RendererCoreAlphaMask::repaintAlpha() {
   packet2_update(repaintPacket, q);
   packet2_update(repaintPacket,
                  gs->emitRasterRestore(repaintPacket->next, false));
-  packet2_update(repaintPacket, draw_finish(repaintPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(repaintPacket, frameDrawFinish(repaintPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(repaintPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(repaintPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCoreAlphaMask::end() {
@@ -740,11 +741,11 @@ void RendererCoreAlphaMask::end() {
   packet2_reset(endPacket, false);
   qword_t* q = gs->emitRasterRestore(endPacket->base, false);
   packet2_update(endPacket, q);
-  packet2_update(endPacket, draw_finish(endPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(endPacket, frameDrawFinish(endPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(endPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 }  // namespace Tyra

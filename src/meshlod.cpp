@@ -239,9 +239,15 @@ void decimate(Mesh& w, size_t targetVerts, bool lockBorders) {
                 cands.push_back({costBtoA, b, a});
         }
         if (cands.empty()) break;
+        // Ties broken by the edge: a flat grid is full of equal costs, and
+        // std::sort orders equals differently in libc++ (macOS) and libstdc++,
+        // so a Mac and a PC collapsed different edges and baked different
+        // .tmdl files from the same model.
         std::sort(cands.begin(), cands.end(),
                   [](const Candidate& x, const Candidate& y) {
-                      return x.cost < y.cost;
+                      if (x.cost != y.cost) return x.cost < y.cost;
+                      if (x.from != y.from) return x.from < y.from;
+                      return x.to < y.to;
                   });
 
         // cap the round so quadrics never go too stale between rebuilds

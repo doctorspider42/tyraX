@@ -71,6 +71,19 @@ void Audio::initThread() {
 }
 
 void Audio::work() {
+  // Modified by TyraX: with no song playing, song.work() returns at once, and
+  // a 0.5 ms poll is ~2000 wake-ups a second of a priority-5 thread that
+  // preempts the game and refills the EE caches with its own code each time.
+  // A playing song blocks on the IOP fill semaphore inside song.work(), so
+  // only the idle wait changes: a new song starts at most one field late.
+  if (idleSleepMs > 0 && !song.isPlaying()) {
+    // A local timespec: Threading::sleep(u32) writes a shared static that the
+    // game thread's own switchThread() also writes.
+    const timespec idle = {static_cast<time_t>(idleSleepMs / 1000),
+                           static_cast<long>((idleSleepMs % 1000) * 1000000)};
+    Threading::sleep(idle);
+    return;
+  }
   Threading::switchThread();
 
   song.work();

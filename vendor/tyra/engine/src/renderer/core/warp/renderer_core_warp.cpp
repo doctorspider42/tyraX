@@ -11,6 +11,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
@@ -44,12 +45,11 @@ RendererCoreWarp::~RendererCoreWarp() {
 
 void RendererCoreWarp::init(RendererSettings* t_settings, RendererCoreGS* t_gs,
                             RendererCoreSync* t_sync, Path1* t_path1,
-                            RendererCoreBlss* t_blss, RendererCore2dBounds* t_core2d) {
+                            RendererCore2dBounds* t_core2d) {
   settings = t_settings;
   gs = t_gs;
   sync = t_sync;
   path1 = t_path1;
-  blss = t_blss;
   core2d = t_core2d;
   if (packet == nullptr)
     packet = packet2_create(kPacketQwords, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
@@ -73,10 +73,8 @@ void RendererCoreWarp::updateGeometry() {
   }
 }
 
-// The reprojection, per grid corner. This is the neural upscaler's buildReproj()
-// run FORWARDS, and when BLSS is on it reads the SAME per-tile 1/w:
-// BLSS asks "where was this pixel last frame" to fetch history, the warp asks
-// "where does last frame's pixel belong now" to synthesise a whole picture.
+// The reprojection, per grid corner: "where does last frame's pixel belong
+// now", to synthesise a whole picture.
 //
 // The property worth protecting: for a pure ROTATION (from.position ==
 // to.position) the translation term vanishes whatever the depth is, so `rel` is
@@ -97,10 +95,9 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
   const float dy = to.position.y - from.position.y;
   const float dz = to.position.z - from.position.z;
 
-  // The depth source, in order: the neural upscaler's per-tile mean 1/w (the
-  // same numbers its own reprojection uses), else the single-plane fallback,
-  // else nothing at all - which is rotation only, and correct rather than
-  // merely safe.
+  // The depth source, in order: the ground plane, else the single-plane
+  // fallback, else nothing at all - which is rotation only, and correct rather
+  // than merely safe.
   // The region 2D drew into last frame, grown by one tile so the transition
   // has somewhere to happen. Corners inside it keep their source pixel; over
   // the next tile the warp fades in. A hard boundary would tear.
@@ -124,9 +121,6 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
   }
   const float fade = static_cast<float>(kTile);
 
-  const bool tileDepth = blss != nullptr && blss->hasTileDepth() &&
-                         blss->getTileCols() == cols &&
-                         blss->getTileRows() == rows;
   const float planeInvW = planeDistance > 0.0F ? 1.0F / planeDistance : 0.0F;
   // Height of the eye above the floor, for the ground-plane model. Below the
   // floor (or sitting on it) there is no sensible intersection, so it falls
@@ -147,15 +141,8 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
                      to.forward.y + to.right.y * sX + to.up.y * sY,
                      to.forward.z + to.right.z * sX + to.up.z * sY, 0.0F);
 
-      // This corner's 1/w, averaged over the covered tiles that touch it -
-      // indexed by the corner's position in the NEW frame while the depths
-      // describe the OLD one. That is the usual reprojection approximation and
-      // it holds while the camera delta is small, which one field's worth of
-      // motion is; the alternative is an iterative search per corner.
-      // the same "representative depth" rule buildReproj() uses, so the two
-      // reprojections describe the world the same way. An uncovered tile
-      // contributes 0 by construction (no coverage, no depth), which reads as
-      // "infinitely far" and is exactly right for sky.
+      // This corner's 1/w. 0 reads as "infinitely far", which is exactly
+      // right for sky.
       float cInvW = planeInvW;
       if (useGround) {
         // Where this ray meets the floor: w = h / -dir.y, so 1/w = -dir.y / h.
@@ -167,19 +154,6 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
         // camera's lap; cap it so one grid cell cannot swing wildly.
         const float cap = 1.0F / 0.5F;
         if (cInvW > cap) cInvW = cap;
-      }
-      if (tileDepth) {
-        float sum = 0.0F;
-        int n = 0;
-        for (int ty = j - 1; ty <= j; ty++) {
-          if (ty < 0 || ty >= rows) continue;
-          for (int tx = i - 1; tx <= i; tx++) {
-            if (tx < 0 || tx >= cols) continue;
-            const float d = blss->getTileInvW(tx, ty);
-            if (d > 0.0F) { sum += d; n++; }
-          }
-        }
-        cInvW = n > 0 ? sum / static_cast<float>(n) : 0.0F;
       }
 
       // rel is the world offset from the OLD eye, divided by this corner's
@@ -391,10 +365,10 @@ void RendererCoreWarp::draw(const WarpCamera& from, const WarpCamera& to) {
   q = gs->emitRasterRestore(q, true);
 
   packet2_update(packet, q);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameSendPacket(packet, DMA_CHANNEL_GIF, true);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
 }
 
 }  // namespace Tyra

@@ -34,14 +34,20 @@ import sys
 import tempfile
 
 root = Path(__file__).resolve().parents[3]
-templates = (root / 'src/templates.cpp').read_text(encoding='utf-8', errors='replace')
+# The game templates moved out of templates.cpp into game_templates.inc (which
+# templates.cpp includes); read both so the lift works from either home.
+templates = ''.join(
+    (root / f).read_text(encoding='utf-8', errors='replace')
+    for f in ('src/game_templates.inc', 'src/templates.cpp')
+    if (root / f).exists())
 
 # --- lift the runtime half, verbatim ---------------------------------------
 START = 'void TerrainGame::buildStaticBatchList() {'
 try:
     start = templates.index(START)
 except ValueError:
-    sys.exit('FAIL: buildStaticBatchList not found in src/templates.cpp - '
+    sys.exit('FAIL: buildStaticBatchList not found in src/game_templates.inc '
+             'or src/templates.cpp - '
              'the oracle cannot lift what it cannot find (did the function '
              'get renamed?)')
 end = templates.index('\n}\n', start) + 3
@@ -87,6 +93,7 @@ struct StaPipInfoBag {
   int shadingType = 0;
   int frustumCulling = 0;
   bool fullClipChecks = false;
+  bool dynLightSkipBaked = false;
 };
 }
 using Tyra::Texture;
@@ -102,18 +109,22 @@ struct SceneObjectData {
   int model = -1;
   int material = -1;
   int batchStatic = 0;
+  int reflected = 0;
   float lightRadius = 0.0f;
 };
 
 struct GameModelPart { Texture* texture = nullptr; Texture* reflTexture = nullptr;
-                       unsigned int stripRun = 0; };
+                       unsigned int stripRun = 0; unsigned char textureFilter = 0; };
 struct GameModel { float mn[3] = {0,0,0}, mx[3] = {0,0,0};
                    std::vector<GameModelPart> parts; };
-struct GameMaterial { Texture* texture = nullptr; Texture* reflTexture = nullptr; };
+struct GameMaterial { Texture* texture = nullptr; Texture* reflTexture = nullptr;
+                      unsigned char textureFilter = 0; };
 
 struct StaticBatchMember { int object; int part; };
 struct StaticBatch {
+  bool reflected = false;
   Texture* texture = nullptr;
+  unsigned char textureFilter = 0;
   float drawDistance = 0.0f;
   unsigned int stripRun = 0;
   std::vector<StaticBatchMember> members;
@@ -121,13 +132,15 @@ struct StaticBatch {
   std::unique_ptr<int> bag;
 };
 struct RuntimeObjectStub { bool dirty = false; bool wantsMatrixPath = false; };
-struct DynLightRt { int objIndex = 0; };
+struct DynLightRt { int objIndex = 0; bool baked = false; };
 
 // The scene under test, written by the fixture builder below.
 static int SCENE_OBJECT_COUNT = 0;
 static std::vector<SceneObjectData> g_objects;
 #define SCENE_OBJECTS g_objects
 static int STATIC_BATCHING = 1;
+static float STATIC_BATCH_CELL = 0.0f;
+static const bool BAKE_STATIC_LAMPS = false;
 static float TERRAIN_WIDTH = 100.0f, TERRAIN_DEPTH = 100.0f;
 static const char* TEXTURE_ATLAS_INFO = "";
 static std::vector<DynLightRt> g_dynLights;
@@ -174,7 +187,7 @@ MAIN = r'''
 // A fixture, described once and handed to BOTH sides.
 // ---------------------------------------------------------------------------
 struct FxPart { std::string texture; bool reflective = false;
-                unsigned stripRun = 0; unsigned verts = 75; };
+                unsigned stripRun = 0; unsigned verts = 75; int filter = 0; };
 struct FxModel { std::string path; float mn[3]; float mx[3];
                  std::vector<FxPart> parts; };
 struct FxObject {
@@ -189,11 +202,12 @@ struct FxObject {
   float lightRadius = 0.0f;
 };
 struct FxMaterial { std::string path; std::string texture; bool reflective = false;
-                    bool known = true; };
+                    bool known = true; int filter = 0; };
 struct Fixture {
   std::string name;
   float terrainW = 100.0f, terrainD = 100.0f;
   bool batching = true;
+  float cell = 0.0f;  // settings.staticBatchCell (0 = auto)
   std::vector<FxModel> models;
   std::vector<FxMaterial> materials;
   std::vector<FxObject> objects;
@@ -239,6 +253,7 @@ static Picture runRuntime(const Fixture& fx, std::vector<char>& batchedOut) {
   TERRAIN_WIDTH = fx.terrainW;
   TERRAIN_DEPTH = fx.terrainD;
   STATIC_BATCHING = fx.batching ? 1 : 0;
+  STATIC_BATCH_CELL = fx.cell;
 
   std::map<std::string, int> modelIndex;
   for (const FxModel& m : fx.models) {
@@ -249,6 +264,7 @@ static Picture runRuntime(const Fixture& fx, std::vector<char>& batchedOut) {
       gp.texture = texFor(p.texture);
       gp.reflTexture = p.reflective ? texFor(m.path + "@refl") : nullptr;
       gp.stripRun = p.stripRun;
+      gp.textureFilter = gp.texture ? (unsigned char)p.filter : 0;
       gm.parts.push_back(gp);
     }
     modelIndex[m.path] = (int)g.gameModels.size();
@@ -259,6 +275,7 @@ static Picture runRuntime(const Fixture& fx, std::vector<char>& batchedOut) {
     GameMaterial gm;
     gm.texture = texFor(m.texture);
     gm.reflTexture = m.reflective ? texFor(m.path + "@refl") : nullptr;
+    gm.textureFilter = gm.texture ? (unsigned char)m.filter : 0;
     matIndex[m.path] = (int)g.gameMaterials.size();
     g.gameMaterials.push_back(gm);
   }
@@ -303,6 +320,7 @@ static Picture runRuntime(const Fixture& fx, std::vector<char>& batchedOut) {
 static Picture runHost(const Fixture& fx, std::vector<char>& batchedOut) {
   Project p;
   p.settings.staticBatching = fx.batching;
+  p.settings.staticBatchCell = fx.cell;
   SceneData sc;
   sc.terrain.width = (int)fx.terrainW;
   sc.terrain.depth = (int)fx.terrainD;
@@ -339,6 +357,7 @@ static Picture runHost(const Fixture& fx, std::vector<char>& batchedOut) {
     for (const FxPart& p : it->second->parts) {
       staticbatch::ModelPart mp;
       mp.texture = p.texture;
+      mp.textureFilter = p.texture.empty() ? 0 : p.filter;
       mp.reflective = p.reflective;
       mp.stripRun = p.stripRun;
       mp.vertexCount = p.verts;
@@ -353,6 +372,7 @@ static Picture runHost(const Fixture& fx, std::vector<char>& batchedOut) {
     if (it == mats.end()) return mi;
     mi.known = it->second->known;
     mi.texture = it->second->texture;
+    mi.textureFilter = it->second->filter;
     mi.reflective = it->second->reflective;
     return mi;
   };
@@ -518,6 +538,28 @@ int main() {
     fx.objects = {box(0,0,"m/j.mtl"), box(2,0,"m/j.mtl")};
     check(fx);
   }
+  // L: texture filtering is part of the key. With atlasing on, a smooth and a
+  // point-sampled member share one page (one texture), but a bag has one
+  // TEX1 - two batches, never one (docs/texture-filtering.md).
+  {
+    Fixture fx; fx.name = "L filter splits a shared texture";
+    fx.materials = {{"m/px.mtl", "page.png", false, true, 1},
+                    {"m/sm.mtl", "page.png"}};
+    fx.objects = {box(0,0,"m/px.mtl"), box(2,0,"m/px.mtl"),
+                  box(4,0,"m/sm.mtl"), box(6,0,"m/sm.mtl")};
+    check(fx);
+  }
+  // M: the same for model parts - two models on one page, one pixel and one
+  // close-up, plus a pixel copy that does merge.
+  {
+    Fixture fx; fx.name = "M filter splits model parts";
+    FxModel a{"a.obj", {-1,-1,-1}, {1,1,1}, {{"page.png", false, 0, 90, 1}}};
+    FxModel b{"b.obj", {-1,-1,-1}, {1,1,1}, {{"page.png", false, 0, 90, 2}}};
+    fx.models = {a, b};
+    fx.objects = {mdl(0,0,"a.obj"), mdl(2,0,"a.obj"),
+                  mdl(4,0,"b.obj"), mdl(6,0,"b.obj")};
+    check(fx);
+  }
   // K: an ineligible object never reaches the grouping, and its absence must
   // not silently rescue a batch from the singleton rule.
   {
@@ -525,6 +567,17 @@ int main() {
     fx.materials = {{"m/k.mtl","k.png"}};
     FxObject out = box(2,0,"m/k.mtl"); out.eligible = false;
     fx.objects = {box(0,0,"m/k.mtl"), out};
+    check(fx);
+  }
+
+  // N: the project's own grouping cell. Auto gives 48 on this 100-unit map,
+  // so these two pairs 30 apart share a cell; a 20-unit cell splits them.
+  {
+    Fixture fx; fx.name = "N project cell splits what auto merges";
+    fx.cell = 20.0f;
+    fx.materials = {{"m/n.mtl","n.png"}};
+    fx.objects = {box(1,1,"m/n.mtl"), box(3,1,"m/n.mtl"),
+                  box(31,1,"m/n.mtl"), box(33,1,"m/n.mtl")};
     check(fx);
   }
 
@@ -544,6 +597,9 @@ with tempfile.TemporaryDirectory() as td:
     cmd = ['g++', '-std=c++20', '-O0', '-static', '-I', str(root / 'src'),
            str(td / 'runtime.cpp'), str(root / 'src/staticbatch.cpp'),
            '-o', str(exe)]
+    # Apple platforms do not ship a static C runtime; MinGW keeps its standalone executable.
+    if sys.platform == 'darwin':
+        cmd.remove('-static')
     build = subprocess.run(cmd, capture_output=True, text=True)
     if build.returncode != 0:
         print(build.stdout)

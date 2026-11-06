@@ -1,0 +1,6 @@
+{
+  "name": "Essentials",
+  "version": "1.0.0",
+  "description": "Ready-made object scripts - rotate, bob, follow, face the player, proximity triggers, area relays, collectibles, swinging doors, spawners - and a Player Near flow node.",
+  "author": "TyraX"
+}

@@ -1996,11 +1996,30 @@ BakedPaths pathsFor(const VehicleDef& v) {
     return b;
 }
 
+// "Did the measurement move?" for the float lists below. The project file
+// keeps floats to six significant digits (fmtFloat), so a freshly measured
+// 0.40938103 never equals the 0.409381 read back from disk: an exact compare
+// marked every opened project with a baked vehicle Unsaved before anything
+// was touched (examples/vehicle-playground). A difference the file cannot
+// even store is not a change.
+static bool sameMeasured(float a, float b) {
+    return std::fabs(a - b) <= 1e-5f * std::max(1.0f, std::max(std::fabs(a), std::fabs(b)));
+}
+template <size_t N>
+static bool sameMeasured(const std::vector<std::array<float, N>>& a,
+                         const std::vector<std::array<float, N>>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i)
+        for (size_t k = 0; k < N; ++k)
+            if (!sameMeasured(a[i][k], b[i][k])) return false;
+    return true;
+}
+
 bool adoptMeasured(VehicleDef& v, const Result& r) {
     bool changed = false;
     for (int k = 0; k < 4; ++k) {
-        if (v.lampRear[k] != r.lampRear[k]) changed = true;
-        if (v.lampFront[k] != r.lampFront[k]) changed = true;
+        if (!sameMeasured(v.lampRear[k], r.lampRear[k])) changed = true;
+        if (!sameMeasured(v.lampFront[k], r.lampFront[k])) changed = true;
         v.lampRear[k] = r.lampRear[k];
         v.lampFront[k] = r.lampFront[k];
     }
@@ -2017,9 +2036,9 @@ bool adoptMeasured(VehicleDef& v, const Result& r) {
     v.pieces = r.pieces;
     if (v.envLimits != r.envLimits) changed = true;
     v.envLimits = r.envLimits;
-    if (v.lampGlows != r.lampGlows) changed = true;
+    if (!sameMeasured(v.lampGlows, r.lampGlows)) changed = true;
     v.lampGlows = r.lampGlows;
-    if (v.exhausts != r.exhausts) changed = true;
+    if (!sameMeasured(v.exhausts, r.exhausts)) changed = true;
     v.exhausts = r.exhausts;
     // THE WHEEL RADIUS IS THE DRAWN WHEEL'S (docs/vehicles.md, "Wheels on the
     // road surface"). Both twins put a hub one wheelRadius above its ground

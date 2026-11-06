@@ -104,7 +104,9 @@ static void free_all_samples()
 /** Remove an adpcm sample uploaded with audsrv_load_adpcm() from the list of loaded sounds
  * @param id    sample identifier, as specified in load()
  *
- * SPU memory is freed only when there are no sounds in the list that where loaded after the ones that have been freed
+ * Modified by TyraX: the sample's SPU2 RAM is reusable at once, wherever it
+ * lies - see audsrv_load_adpcm. Upstream only reclaimed it once every sample
+ * loaded after this one was freed too.
  */
 int free_sample(u32 id)
 {
@@ -189,12 +191,34 @@ void *audsrv_load_adpcm(u32 *buffer, int size, int id)
 	adpcm = adpcm_loaded(id);
 	if (adpcm == NULL)
 	{
+		/*
+		 * Modified by TyraX: first fit instead of a stack.
+		 *
+		 * Upstream placed every sample after the newest one, so freeing a
+		 * sample gave its RAM back only once everything loaded after it was
+		 * freed too - a game could swap one set of sounds for another, but
+		 * not drop the OLDER of two sets and keep the newer (a world split
+		 * into zones whose sound banks come and go in any order).
+		 *
+		 * The list is kept sorted by SPU2 address instead of load order, so
+		 * the free space is exactly the gaps between neighbours: the new
+		 * sample takes the lowest gap it fits in, and free_sample() reopens
+		 * one by unlinking the node - adjacent gaps merge by themselves,
+		 * there is no free list to maintain. Nothing else reads the list
+		 * order (lookups are by id). A program that only ever frees the
+		 * newest sample gets the same addresses as before.
+		 */
+		const int need = size - 16; /* header is 16 bytes */
 		int spu2_addr = 0x5010; /* Need to change this so it considers to PCM streaming space usage :) */
-		if (adpcm_list_tail != NULL)
+		adpcm_list_t *prev = NULL;
+		adpcm_list_t *next = adpcm_list_head;
+		while (next != NULL && next->spu2_addr - spu2_addr < need)
 		{
-			spu2_addr = adpcm_list_tail->spu2_addr + adpcm_list_tail->size;
+			spu2_addr = next->spu2_addr + next->size;
+			prev = next;
+			next = next->next;
 		}
-		if (spu2_addr + size - 16 > 2097152)
+		if (spu2_addr + need > 2097152)
 		{
 			sbuffer[0] = -AUDSRV_ERR_OUT_OF_MEMORY;
 			return sbuffer;
@@ -203,23 +227,17 @@ void *audsrv_load_adpcm(u32 *buffer, int size, int id)
 		adpcm = alloc_new_sample();
 		adpcm->id = id;
 		adpcm->spu2_addr = spu2_addr;
-		adpcm->size = size - 16; /* header is 16 bytes */
-		adpcm->next = NULL;
+		adpcm->size = need;
+		adpcm->next = next;
 
 		audsrv_read_adpcm_header(adpcm, buffer);
 
-		if (adpcm_list_head == NULL)
-		{
-			/* first entry ever! yay! */
+		if (prev == NULL)
 			adpcm_list_head = adpcm;
-			adpcm_list_tail = adpcm_list_head;
-		}
 		else
-		{
-			/* add at the end of the list */
-			adpcm_list_tail->next = adpcm;
+			prev->next = adpcm;
+		if (next == NULL)
 			adpcm_list_tail = adpcm;
-		}
 
 		/* DMA from IOP to SPU2 */
 		sceSdVoiceTrans(AUDSRV_VOICE_DMA_CH, SD_TRANS_WRITE | SD_TRANS_MODE_DMA, ((u8*)buffer)+16, (u32*)adpcm->spu2_addr, adpcm->size);

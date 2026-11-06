@@ -37,10 +37,11 @@
 // aobake grew a batched light seam beside its per-point LightFn.
 namespace gigpu {
 
-// True when this process can create a GL 4.3 core context. Cheap after the
-// first call (the answer is cached). `why` receives a one-line reason when it
-// is false, for the log - "no GPU" and "GPU refused 4.3" are different problems
-// and a build server should be able to tell them apart.
+// True when this process can run the kernel: a GL 4.3 core context (gigpu.cpp)
+// or, on macOS, a Metal device (gigpu_metal.mm). Cheap after the first call
+// (the answer is cached). `why` receives a one-line reason when it is false,
+// for the log - "no GPU" and "GPU refused 4.3" are different problems and a
+// build server should be able to tell them apart.
 // MUST BE FIRST CALLED FROM THE MAIN THREAD. It creates the context, and GLFW
 // only allows window creation there - gibake::Baker runs its bake on a worker,
 // so the caller has to prime this before starting one (Baker::start does). The

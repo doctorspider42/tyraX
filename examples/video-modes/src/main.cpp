@@ -73,6 +73,10 @@ int main(int argc, char** argv) {
   // map, a feed camera for the camera feed. Computed at build time - see
   // projectNeedsEnvMap / projectNeedsCamFeed in the editor's templates.cpp.
   options.envMapTarget = false;
+  // A second 64 KB env target: the shared reflection probe is captured over
+  // two frames into it and swapped in, so no frame pays the whole capture
+  // (docs/reflective-materials.md, "Amortised capture").
+  options.envMapDoubleBuffered = false;
   options.camFeedTarget = false;
   // Triple buffering (Preferences > Display > Triple buffering, docs/
   // frame-pacing.md): present from a vblank interrupt instead of stalling
@@ -90,6 +94,8 @@ int main(int argc, char** argv) {
   // (tools/ps2link), which bakes usbd+ps2kbd+ps2mouse into its own boot - it
   // loads none of its own. See docs/ps2link-setup.md and docs/keyboard-mouse.md.
   options.loadUsbKbdMouseUnderPs2Link = false;
+  // Tools > Loading Screens > Boot sequence: the engine's logo on or off.
+  options.showBanner = true;
   Tyra::Engine engine(options);
   Video_modes::TerrainGame game(&engine);
   engine.run(&game);

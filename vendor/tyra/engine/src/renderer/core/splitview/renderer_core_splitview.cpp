@@ -12,6 +12,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include "renderer/core/paths/path1/vif1_queue.hpp"
@@ -23,14 +24,6 @@
 #include "debug/debug.hpp"
 
 namespace Tyra {
-
-// VIF1 opcodes (ps2sdk vif_codes.h values, inlined as literals): FLUSH makes
-// the VIF itself wait for the running microprogram and the end of PATH1/PATH2
-// transfers; DIRECT streams the following qwords to the GIF over PATH2. The
-// DIRECT immediate counts qwords INCLUDING the giftag: 1 tag + 2 A+D rows.
-static constexpr u32 kVifNop = 0x00000000u;
-static constexpr u32 kVifFlush = 0x11000000u;
-static constexpr u32 kVifDirect3 = 0x50000003u;
 
 RendererCoreSplitView::RendererCoreSplitView() {}
 
@@ -76,30 +69,29 @@ void RendererCoreSplitView::prepareBeginPackets() {
     const float xyoffX = 2048.0F - (w / 2.0F);
     const float xyoffY = (2048.0F - (halfH / 2.0F)) - static_cast<float>(y0);
 
-    packet2_t* p = packet2_create(4, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
-    qword_t* q = p->base;
-    // qword 0: [FLUSH, NOP, NOP, DIRECT(3)] - VIF words are consumed in
-    // order, so the flush lands before the register writes and the DIRECT
-    // payload below starts qword-aligned.
-    q->sw[0] = (s32)kVifFlush;
-    q->sw[1] = (s32)kVifNop;
-    q->sw[2] = (s32)kVifNop;
-    q->sw[3] = (s32)kVifDirect3;
-    q++;
-    // qwords 1..3: one PACKED A+D giftag with exactly two register rows.
-    // (An undercounted NLOOP here would stall the GIF forever - 2 rows,
-    // NREG 1, EOP set, 3 qwords total, matching kVifDirect3.)
-    PACK_GIFTAG(q, GIF_SET_TAG(2, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-    q++;
-    PACK_GIFTAG(q,
-                GS_SET_XYOFFSET(static_cast<int>(xyoffX * 16.0F),
-                                static_cast<int>(xyoffY * 16.0F)),
-                GS_REG_XYOFFSET);  // + 0: drawing context 1
-    q++;
-    PACK_GIFTAG(q, GS_SET_SCISSOR(0, w - 1, y0, y0 + halfH - 1),
-                GS_REG_SCISSOR_1);
-    q++;
-    packet2_update(p, q);
+    // Modified by TyraX: a one-tag DMA CHAIN, not a NORMAL packet.
+    // frameSendPacket records a chain into the frame like any other VIF1
+    // work, but treats a NORMAL packet as an unsupported direct transfer:
+    // barrier, full Vif1Queue::drain() and a waited DMA - the EE sat out the
+    // previous frame and its vsync. On two-players (PAL, split) begin(0) was
+    // ~21 ms and begin(1) ~7 ms of a 25 ms frame on a PS2. TTE: the END
+    // tag's upper half carries FLUSH + DIRECT, the payload is one PACKED A+D
+    // giftag with exactly two register rows (an undercounted NLOOP would
+    // stall the GIF forever).
+    packet2_t* p = packet2_create(6, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+    packet2_chain_open_end(p, 0, 0);
+    packet2_vif_flush(p, 0);
+    packet2_vif_open_direct(p, 0);
+    packet2_add_2x_s64(p, GIF_SET_TAG(2, 1, 0, 0, GIF_FLG_PACKED, 1),
+                       GIF_REG_AD);
+    packet2_add_2x_s64(p,
+                       GS_SET_XYOFFSET(static_cast<int>(xyoffX * 16.0F),
+                                       static_cast<int>(xyoffY * 16.0F)),
+                       GS_REG_XYOFFSET);  // drawing context 1
+    packet2_add_2x_s64(p, GS_SET_SCISSOR(0, w - 1, y0, y0 + halfH - 1),
+                       GS_REG_SCISSOR_1);
+    packet2_vif_close_direct_auto(p);
+    packet2_chain_close_tag(p);
     beginPackets[half] = p;
   }
 }
@@ -111,8 +103,8 @@ void RendererCoreSplitView::begin(const int& half) {
   // 3D, or pre-split geometry): the in-stream FLUSH makes the VIF wait, not
   // the EE. The channel wait below only covers the DMA queue - by the time
   // the next half's first mesh is packaged, it has drained.
-  Vif1Queue::drain();
-  dma_channel_send_packet2(beginPackets[half], DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
+  frameSendPacket(beginPackets[half], DMA_CHANNEL_VIF1, true);
 }
 
 void RendererCoreSplitView::end() {
@@ -136,11 +128,11 @@ void RendererCoreSplitView::end() {
                  draw_primitive_xyoffset(endPacket->next, 0,
                                          2048.0F - (w / 2.0F),
                                          2048.0F - (h / 2.0F)));
-  packet2_update(endPacket, draw_finish(endPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(endPacket, frameDrawFinish(endPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(endPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 }  // namespace Tyra

@@ -68,7 +68,7 @@ See [animated-models.md](animated-models.md) for the clip mapping itself.
 ## Scenes with no Player object
 
 A scene without a Player object is driven by the fallback walker, which takes
-its speeds from *Preferences > Player* (`ProjectSettings::walkSpeed` /
+its speeds from *Preferences > Game* (`ProjectSettings::walkSpeed` /
 `runSpeed`) and sprints at the multiplier. It ramps the same way. There is no
 absolute sprint speed there, because there is no object to state one on.
 

@@ -1,0 +1,1 @@
+{"id": "c0b0000000000036", "name": "e-mood-zone", "type": "area", "position": [-6, 2, 38], "rotation": [0, 0, 0], "scale": [6, 4, 6], "color": [0.6, 0.3, 0.8], "physics": false, "scripts": ["MoodZone"]}

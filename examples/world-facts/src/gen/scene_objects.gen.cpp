@@ -31,6 +31,8 @@ const SceneObjectData SCENE_1_OBJECTS[6] = {
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {12, 6};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0x482d509660b3aa09ULL, 0xf7de14d99b9817afULL, 0xf7dc14d99b9794d8ULL, 0xf7d814d99b93ac01ULL, 0xde5699d98d44ae3eULL, 0x008f3dd9a0875cb2ULL, 0x099e66d9a5c58339ULL, 0xa537bbdb20142743ULL, 0xd53970d987fa4a5bULL, 0xcc2a47d982bc23d4ULL, 0x01953dd9a1663b5dULL, 0xf73c14d99b0f695fULL};
 const unsigned long long SCENE_1_OBJECT_ID_HASHES[6] = {0x4520fca4d843d7b4ULL, 0x451cfca4d83feeddULL, 0x4526fca4d8484362ULL, 0x452efca4d8501510ULL, 0x4524fca4d847c08bULL, 0x452afca4d84c2c39ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[12] = {1,0,0,0,0,0,0,0,0,0,0,0};
+const unsigned char SCENE_1_STATIC_COLLIDERS[6] = {1,1,0,0,0,0};
 
 }  // namespace World_facts
 

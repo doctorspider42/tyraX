@@ -1,0 +1,1 @@
+{"id": "c0b0000000000009", "name": "a-ease-outbounce", "type": "sphere", "position": [8, 0.4, 6], "rotation": [0, 0, 0], "scale": [0.6, 0.6, 0.6], "color": [0.89, 0.55, 0.43999999999999995], "physics": false, "scripts": ["EaseShowcase"], "scriptProps": {"EaseShowcase": {"curve": "8", "height": "2", "period": "1.5"}}}

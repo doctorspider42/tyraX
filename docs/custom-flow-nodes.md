@@ -26,14 +26,18 @@ see [Moving nodes to another project](#moving-nodes-to-another-project).
 *The [custom-nodes example](../examples/custom-nodes): two custom nodes
 (`Nearest Visible`, `Spin By`) wired next to a built-in action.*
 
+## TyraX2 and custom rendering
+
+A node built from engine render calls needs no fence of its own. Raw DMA sends, GS register writes and GPU readbacks do: see [custom rendering code](tyrax2.md#custom-rendering-code).
+
 ## Quick start
 
-1. Open the **Flow Graph** tab → **Custom nodes… ▸ New starter node**. This
+1. Open the **Flow Graph** tab → the **`</>`** button (*Custom nodes*) ▸ **New starter node**. This
    writes `flow-nodes/example.flownode` (a working "Nearest Object" C++-backed
    node) and reloads.
-2. Edit the file (format below), then **Custom nodes… ▸ Reload from folder**.
-   The node appears in the add-menu under its `category`.
-3. Right-click the canvas → your category → your node. Wire it up, build. Your
+2. Edit the file (format below), then **`</>` ▸ Reload from folder**.
+   The node appears in the add-node palette under its `category`.
+3. Press Space on the canvas (or right-click it), type the node's name, Enter. Wire it up, build. Your
    code lands in `src/gen/flow_graph.gen.cpp` exactly where the node runs.
 
 ## File format
@@ -67,6 +71,7 @@ ctx.objects[{obj}].dirty = true;
 | `out`       | Output pins: any of `object position bool text`                 | *(none)*       |
 | `exec_out`  | `true` = a follow-up exec output that fires downstream after the node runs | `false` |
 | `call`      | Name of a C++ function in `inc/scripts/flow_nodes.hpp` to run    | *(inline)*     |
+| `include`   | A header holding the `call` function, relative to the folder that holds `flow-nodes/` — how a [script extension](script-extensions.md) ships its own C++ | *(none)* |
 
 Every custom node is an **action**: it has a `> do` exec input and runs when a
 trigger (or another node's exec output) fires it. `string = object` and
@@ -199,6 +204,10 @@ elsewhere:
 2. **For a `call = fn` node, also copy the function** into that project's
    `inc/scripts/flow_nodes.hpp` (un-marked — first line deleted — so the
    editor won't overwrite it). Inline nodes need no extra file.
+
+Or package the nodes, their C++ (`include =`) and any scripts as a
+[script extension](script-extensions.md): one folder under `src/extensions/`
+that installs in one step.
 
 > ⚠️ **The file must travel with the project.** When the editor loads a
 > project, a flow-graph node whose type is unknown is **dropped** (that is how

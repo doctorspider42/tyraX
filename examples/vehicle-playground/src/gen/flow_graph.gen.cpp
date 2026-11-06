@@ -117,7 +117,7 @@ class FlowGraphScript_0_131 : public Script {
       livedbg::hit(3);
       ctx.vehicleRepair = 131;
     }
-    if (ctx.engine->pad.getClicked().Select) {
+    if (ctx.engine->pad.getClicked().DpadDown) {
       livedbg::hit(2);
       livedbg::hit(3);
       ctx.vehicleRepair = 131;

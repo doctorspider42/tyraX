@@ -349,6 +349,29 @@ struct Cache::Entry {
 
 void Cache::clear() { nodes_.clear(); }
 
+int cachedPointCount(const Cache& cache, int nodeId) {
+    auto it = cache.nodes_.find(nodeId);
+    if (it == cache.nodes_.end() || !it->second || !it->second->value.points) return -1;
+    return (int)it->second->value.points->pts.size();
+}
+
+std::shared_ptr<const Mask> cachedMask(const Cache& cache, int nodeId) {
+    auto it = cache.nodes_.find(nodeId);
+    if (it == cache.nodes_.end() || !it->second) return nullptr;
+    return it->second->value.mask;
+}
+
+bool cachedAttribute(const Cache& cache, int nodeId, const std::string& attr, std::vector<float>& out) {
+    out.clear();
+    auto it = cache.nodes_.find(nodeId);
+    if (it == cache.nodes_.end() || !it->second || !it->second->value.points) return false;
+    const Points& p = *it->second->value.points;
+    const float* a = p.attr(attr);
+    if (!a) return false;
+    out.assign(a, a + p.pts.size());
+    return true;
+}
+
 float rand01(uint32_t seed, int nodeId, uint64_t key, int channel) {
     uint64_t h = mix64(0x51ed270b7f3ac1ULL ^ seed);
     h = hashCombine(h, (uint64_t)(uint32_t)nodeId);
@@ -1970,6 +1993,7 @@ uint64_t nodeParamHash(const ProcNode& n) {
     for (const ProcRow& r : n.rows) {
         h = hashStr(h, r.s);
         for (float v : r.v) h = hashFloat(h, v);
+        if (!r.lod.empty()) h = hashStr(h, r.lod);
     }
     return hashCombine(h, n.bypass ? 1u : 0u);
 }

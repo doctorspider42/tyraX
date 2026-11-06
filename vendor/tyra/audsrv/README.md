@@ -146,6 +146,46 @@ and not thirteen.
 `build.sh` / `build.ps1` and the committed `bin/` are unaffected: they target the
 old SDK, so they set nothing and get the old names, exactly as before.
 
+## TyraX change 4: the EE callback server outranks the game
+
+`ee/src/audsrv_rpc.c` creates the EE thread that answers the IOP's
+fill-buffer and CDDA callbacks at priority **0x8**. Upstream uses 0x60. The
+IOP's playback thread waits in `call_client_callback` until the previous
+callback RPC has completed, and only this thread can complete it. Tyra's game
+thread runs at 0x40 and busy-polls for vsync, so at 0x60 the server never got
+any CPU time once loading was over. Playback then stopped for good, and the
+SPU2 looped its last 1024-sample block as a buzz (docs/sound.md, "Music turns
+into a buzz a few seconds in"). 0x8 sits below the engine's audio and streamer
+threads (0x5/0x6), so it never pre-empts them. It sleeps in `SifRpcLoop`
+between callbacks.
+
+Only `bin/libaudsrv.a` changes; `audsrv.irx` is byte-identical.
+
+## TyraX change 5: sample RAM is first fit, not a stack
+
+Upstream `audsrv_load_adpcm` put every sample right after the newest one, so
+`audsrv_free_adpcm` gave a sample's SPU2 RAM back only once every sample
+loaded after it had been freed too. That is enough to swap one scene's sounds
+for another's, and not enough for sound banks that come and go in any order:
+dropping the older of two loaded banks would free nothing.
+
+`iop/src/adpcm.c` now keeps the sample list sorted by SPU2 address instead of
+load order. The free space is then exactly the gaps between neighbours (the
+first one starting at 0x5010), and a new sample takes the lowest gap it fits
+in. Freeing unlinks the node and the gap reopens; adjacent gaps merge without
+any free list. Nothing else depends on the list order - every lookup is by id.
+A caller that only frees its newest sample gets the same addresses as before.
+
+Verified in PCSX2: four 360 KB samples loaded above ~0.4 MB of others, the
+FIRST of them freed, a fifth loaded. It played from the first one's start
+address (`ssa 415024` in the SPU2 voice dump), where the stack would have
+needed 2.22 MB of the 2 MB and failed. Scene-switching games (which free in
+reverse) ran three round trips with no failed load.
+
+`audsrv.irx` changes, `libaudsrv.a` and `audsrv.h` do not. A new irx reaches
+native builds because `tools/toolchain/setup.sh` hashes it into the toolchain
+stamp.
+
 ## Licence: this module is LGPL v2, not AFL
 
 Worth reading before you touch this, because it is **not** the licence the rest

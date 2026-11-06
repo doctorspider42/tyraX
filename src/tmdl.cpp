@@ -72,7 +72,8 @@ std::string write(const Model& m) {
         for (int i = 0; i < 3; ++i) appendF32(out, part.kd[i]);
         for (int i = 0; i < 3; ++i) appendF32(out, part.ke[i]);
         appendF32(out, part.reflStrength);
-        appendU32(out, part.reflRounded ? 1u : 0u);
+        appendU32(out, (part.reflRounded ? 1u : 0u) |
+                           ((uint32_t)(part.textureFilter & 3) << 1));
         appendMesh(out, part.verts, part.ao);
         appendU32(out, (uint32_t)part.lods.size());
         for (const Lod& lod : part.lods) appendMesh(out, lod.verts, lod.ao);
@@ -170,7 +171,7 @@ bool readInfo(const std::string& bytes, Info& out) {
         c.skip(3 * sizeof(float));  // kd
         if (version >= 2) c.skip(3 * sizeof(float));  // ke
         c.skip(sizeof(float));  // reflStrength
-        c.skip(sizeof(uint32_t));  // flags
+        part.textureFilter = (int)((c.u32() >> 1) & 3u);  // flags
         if (!c.skipMesh(&part.vertexCount)) break;
         const uint32_t lodCount = c.u32();
         if (c.bad || lodCount > 8) return false;

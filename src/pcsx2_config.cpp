@@ -24,7 +24,8 @@ static std::string trim(const std::string& s) {
 
 // Where PCSX2 keeps its config is genuinely differently SHAPED per OS - a
 // Documents known folder on Windows (beware OneDrive redirection), XDG
-// config/data dirs plus a flatpak sandbox on Linux - so the search stays here
+// config/data dirs plus a flatpak sandbox on Linux, Application Support on
+// macOS - so the search stays here
 // rather than moving into platform.cpp, which knows nothing about PCSX2.
 fs::path findIni(const fs::path& exePath) {
     std::error_code ec;
@@ -42,6 +43,10 @@ fs::path findIni(const fs::path& exePath) {
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &docs)))
         candidates.push_back(fs::path(docs) / "PCSX2" / "inis" / "PCSX2.ini");
     CoTaskMemFree(docs);
+#elif defined(__APPLE__)
+    if (const fs::path home = platform::homeDir(); !home.empty())
+        candidates.push_back(home / "Library" / "Application Support" / "PCSX2" / "inis" /
+                             "PCSX2.ini");
 #else
     const fs::path home = platform::homeDir();
     if (const char* xdg = getenv("XDG_CONFIG_HOME"); xdg && *xdg)
@@ -186,6 +191,65 @@ HostFsResult ensureUsbKbdMouse(const fs::path& ini) {
     }
     if (!changed) return HostFsResult::AlreadyEnabled;
 
+    std::ofstream out(ini, std::ios::trunc);
+    if (!out) return HostFsResult::WriteFailed;
+    for (const auto& l : lines) out << l << '\n';
+    return out ? HostFsResult::Enabled : HostFsResult::WriteFailed;
+}
+
+HostFsResult ensurePine(const fs::path& ini, int* slot) {
+    if (slot) *slot = kDefaultPineSlot;
+    std::vector<std::string> lines;
+    {
+        std::ifstream in(ini);
+        if (!in) return HostFsResult::WriteFailed;
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            lines.push_back(line);
+        }
+    }
+    // The value of `key` in [EmuCore], or -1 when absent. A key that merely
+    // starts the same way (EnablePINEFoo) is not it.
+    long emuCoreLine = -1;
+    auto findKey = [&](const std::string& key, std::string* value) -> long {
+        std::string section;
+        for (size_t i = 0; i < lines.size(); ++i) {
+            const std::string t = trim(lines[i]);
+            if (t.size() >= 2 && t.front() == '[' && t.back() == ']') {
+                section = t;
+                if (section == "[EmuCore]") emuCoreLine = (long)i;
+                continue;
+            }
+            if (section != "[EmuCore]" || t.rfind(key, 0) != 0) continue;
+            const std::string rest = trim(t.substr(key.size()));
+            if (rest.empty() || rest.front() != '=') continue;
+            if (value) *value = trim(rest.substr(1));
+            return (long)i;
+        }
+        return -1;
+    };
+    // The slot the user configured is the slot PCSX2 will listen on - read,
+    // never rewritten (it is also the port of anything else they point at it).
+    std::string slotText;
+    if (findKey("PINESlot", &slotText) >= 0 && slot) {
+        try {
+            const int v = std::stoi(slotText);
+            if (v > 0 && v < 65536) *slot = v;
+        } catch (...) {
+        }
+    }
+    std::string enabled;
+    const long at = findKey("EnablePINE", &enabled);
+    if (at >= 0 && enabled == "true") return HostFsResult::AlreadyEnabled;
+    if (at >= 0)
+        lines[(size_t)at] = "EnablePINE = true";
+    else if (emuCoreLine >= 0)
+        lines.insert(lines.begin() + emuCoreLine + 1, "EnablePINE = true");
+    else {
+        lines.push_back("[EmuCore]");
+        lines.push_back("EnablePINE = true");
+    }
     std::ofstream out(ini, std::ios::trunc);
     if (!out) return HostFsResult::WriteFailed;
     for (const auto& l : lines) out << l << '\n';

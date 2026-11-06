@@ -1,0 +1,623 @@
+loadelf: fname host:deep-forest.elf secname all
+?âInput ELF format filename = host:deep-forest.elf
+1 00100000 0049c9bc ..........................................................................
+Loaded, host:deep-forest.elf
+start address 0x100e78
+gp address 00000000
+read/write allocate memory 4000
+open name host:/ps2link.run flag 1 data 41378
+open fd = 3
+LOG: IRX: Loading sio2man...
+LOG: IRX: Sio2man loaded!
+LOG: IRX: Loading padman...
+Pad Driver for OSD
+LOG: IRX: Padman loaded!
+LOG: IRX: Loading libsd...
+FREESD v1.01
+LOG: IRX: Libsd loaded!
+LOG: IRX: Loading ps2snd...
+debug_level = 1 (ps2snd 0.1
+LOG: IRX: ps2snd loaded!
+LOG: IRX: Loading audsrv...
+greetings from version 0.93 !
+audsrv_adpcm_init()
+LOG: IRX: Audsrv loaded!
+LOG: Path3 initialized
+LOG: GS buffers: frame 512x512 x2, z 512x512 at 524288, drawing into 0, showing 1
+LOG: Framebuffers, zBuffer set and allocated!
+LOG: Drawing environment initialized!
+LOG: Renderer core initialized!
+LOG: PostFx initialized!
+LOG: Env map target disabled - no VRAM reserved
+LOG: Env map target disabled - no VRAM reserved
+LOG: Renderer texture initialized!
+LOG: Clut set!
+LOG: Frustum planes initialized!
+LOG: RendererCore3D initialized!
+
+-----------------------------------------
+        _____        ____   ___
+          |     \/   ____| |___|
+          |     |   |   \  |   |
+-----------------------------------------
+Copyright 2022
+Repository: https://github.com/h4570/tyra
+Licensed under Apache License 2.0
+Version: 2.2.0
+-----------------------------------------
+
+LOG: Creating audio semaphore
+LOG: AudioSong semaphore created
+audsrv_adpcm_init()
+LOG: Audio initialized!
+LOG: Initializing pad
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad state changed
+Curent pad(0,0) status: FINDPAD
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: Enabling dual shock functions.
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: Pad has pressure sensitive buttons? 1
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: # of actuators: 2
+LOG: padSetActAlign: 1
+LOG: Pad state changed
+Curent pad(0,0) status: EXECCMD
+LOG: Pad is ready!
+LOG: Pad initialized!
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+LOG: StaPipQBufferRenderer initialized
+LOG: StaPip VU1 program set: 12 programs, billboards resident
+loadmodule: fname rom0:XMCMAN args 0 arg
+loadmodule: id 38, ret 0
+loadmodule: fname rom0:XMCSERV args 0 arg
+loadmodule: id 39, ret 0
+LOG: Save system: no memory card - using host files
+open name host:/save0.sav flag 1 data 41378
+open fd = -1
+open name host:/save1.sav flag 1 data 41378
+open fd = -1
+open name host:/save2.sav flag 1 data 41378
+open fd = -1
+open name host:/menus/save.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-used.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-saved.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-loaded.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-error.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-busy.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-spinner.png flag 1 data 41378
+open fd = 3
+open name host:/menus/save.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/save-cursor.png flag 1 data 41378
+open fd = 3
+open name host:/hud/menu-dim.png flag 1 data 41378
+open fd = 3
+open name host:/hud/use-text.png flag 1 data 41378
+open fd = 3
+open name host:/hud/pick-text.png flag 1 data 41378
+open fd = 3
+open name host:/hardware-trace.cfg flag 1 data 41378
+open fd = -1
+open name host:/launch.scene flag 1 data 41378
+open fd = -1
+open name host:/hud/loading.png flag 1 data 41378
+open fd = 3
+FRAMEARENA allocated=1 bytes=1048576
+LOG: SIF RPC guard: seen 236, guarded 0
+open name host:/materials/ground.png flag 1 data 41378
+open fd = 3
+open name host:/materials/ground.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-a.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-a-bark.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-a-bark.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-a-leaf.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-a-leaf.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-a-far.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-a-impostor.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-a-impostor.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-b.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-b-bark.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-b-bark.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-b-leaf.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-b-leaf.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-b-far.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-b-impostor.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-b-impostor.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-c.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-c-bark.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-c-bark.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-c-leaf.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-c-leaf.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-c-far.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-c-impostor.png flag 1 data 41378
+open fd = 3
+open name host:/models/trees/forest-oak-c-impostor.png flag 1 data 41378
+open fd = 3
+open name host:/models/rock.tmdl flag 1 data 41378
+open fd = 3
+open name host:/models/rock.png flag 1 data 41378
+open fd = 3
+open name host:/models/rock.png flag 1 data 41378
+open fd = 3
+open name host:/models/rock-far.tmdl flag 1 data 41378
+open fd = 3
+LOG: Static batching: 0 objects in 0 batches
+LOG: Static batching: eligible 0, solo 0, base cell 512, widest cell 0
+LOG: Static batching: partial models kept solo 0
+LOG: TERRAINSTRIP scene 0 chunk 15,15 strips 1 vertices 162 packages 3 triangles 128
+LOG: TERRAINSTRIP scene 0 chunk 16,15 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 15,16 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 16,16 strips 1 vertices 588 packages 8 triangles 512
+LOG: TERRAINSTRIP scene 0 chunk 15,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 16,14 strips 1 vertices 162 packages 3 triangles 128
+LOG: TERRAINSTRIP scene 0 chunk 14,15 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,15 strips 1 vertices 162 packages 3 triangles 128
+LOG: TERRAINSTRIP scene 0 chunk 14,16 strips 1 vertices 162 packages 3 triangles 128
+LOG: TERRAINSTRIP scene 0 chunk 17,16 strips 1 vertices 162 packages 3 triangles 128
+LOG: TERRAINSTRIP scene 0 chunk 15,17 strips 1 vertices 162 packages 3 triangles 128
+LOG: TERRAINSTRIP scene 0 chunk 16,17 strips 1 vertices 162 packages 3 triangles 128
+LOG: TERRAINSTRIP scene 0 chunk 14,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 14,17 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,17 strips 1 vertices 162 packages 3 triangles 128
+LOG: TERRAINSTRIP scene 0 chunk 15,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 16,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,15 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,15 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,16 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,16 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 15,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 16,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 14,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,17 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,17 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 14,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 15,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 16,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,15 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,15 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,16 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,16 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 15,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 16,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 14,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,17 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,17 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 14,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 15,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 16,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,15 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,15 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,16 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,16 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 15,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 16,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 14,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,17 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,17 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 14,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,15 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,16 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 15,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 16,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,17 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 14,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,12 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,11 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: Hello from TyraX! Edit src/scripts/example_interaction.cpp.
+LOG: FOREST_BEGIN trial=0 copies=7000 trees=5914 pose=0 lod=30
+open name host:/hud/debugfont.png flag 1 data 41378
+open fd = 3
+FRAMEARENA frames=120 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=1025648 freeKiB=18375
+NATIVEVIF frames=120 batches=120
+ORDEREDFRAME frames=120 splitFrames=0
+FRAMEPIPELINE starts=120 dmaBusyStarts=59
+FRAMEARENA frames=240 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=1025648 freeKiB=18375
+NATIVEVIF frames=240 batches=240
+ORDEREDFRAME frames=240 splitFrames=0
+FRAMEPIPELINE starts=240 dmaBusyStarts=179
+FRAMEARENA frames=360 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=1025648 freeKiB=18427
+NATIVEVIF frames=360 batches=360
+ORDEREDFRAME frames=360 splitFrames=0
+FRAMEPIPELINE starts=360 dmaBusyStarts=299
+LOG: FOREST_RESULT trial=0 copies=7000 trees=5914 pose=0 n=239 fps=49.969 mean=20.013 p95=20.035 scene=9.736 scene95=9.788 misses=0 submitted=1082.0 near=68.0 far=1014.0 lod=30.0
+LOG: FOREST_BEGIN trial=1 copies=7000 trees=5914 pose=1 lod=30
+FRAMEARENA frames=480 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=2447440 freeKiB=17580
+NATIVEVIF frames=480 batches=480
+ORDEREDFRAME frames=480 splitFrames=0
+FRAMEPIPELINE starts=480 dmaBusyStarts=418
+FRAMEARENA frames=600 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=2447440 freeKiB=17580
+NATIVEVIF frames=600 batches=600
+ORDEREDFRAME frames=600 splitFrames=0
+FRAMEPIPELINE starts=600 dmaBusyStarts=538
+LOG: FOREST_RESULT trial=1 copies=7000 trees=5914 pose=1 n=239 fps=50.000 mean=20.000 p95=20.034 scene=12.189 scene95=12.256 misses=0 submitted=1132.0 near=68.0 far=1064.0 lod=30.0
+LOG: FOREST_BEGIN trial=2 copies=7000 trees=5914 pose=2 lod=30
+LOG: TERRAINSTRIP scene 0 chunk 16,10 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 15,10 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 14,10 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 17,10 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 13,10 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 18,10 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 12,10 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 19,10 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 11,10 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 20,10 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 21,10 strips 1 vertices 48 packages 1 triangles 32
+FRAMEARENA frames=720 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=2447440 freeKiB=17530
+NATIVEVIF frames=720 batches=720
+ORDEREDFRAME frames=720 splitFrames=0
+FRAMEPIPELINE starts=720 dmaBusyStarts=657
+FRAMEARENA frames=840 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=2447440 freeKiB=17530
+NATIVEVIF frames=840 batches=840
+ORDEREDFRAME frames=840 splitFrames=0
+FRAMEPIPELINE starts=840 dmaBusyStarts=777
+LOG: SIF RPC guard: seen 775, guarded 0
+FRAMEARENA frames=960 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=2447440 freeKiB=17951
+NATIVEVIF frames=960 batches=960
+ORDEREDFRAME frames=960 splitFrames=0
+FRAMEPIPELINE starts=960 dmaBusyStarts=897
+LOG: FOREST_RESULT trial=2 copies=7000 trees=5914 pose=2 n=239 fps=49.972 mean=20.011 p95=20.042 scene=10.931 scene95=10.988 misses=0 submitted=1028.0 near=68.0 far=960.0 lod=30.0
+LOG: FOREST_BEGIN trial=3 copies=7000 trees=5914 pose=3 lod=30
+LOG: TERRAINSTRIP scene 0 chunk 22,17 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 22,18 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 22,16 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 22,19 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 22,15 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 22,20 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 22,14 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 22,21 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 22,13 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 22,22 strips 1 vertices 48 packages 1 triangles 32
+LOG: TERRAINSTRIP scene 0 chunk 22,12 strips 1 vertices 48 packages 1 triangles 32
+FRAMEARENA frames=1080 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3377696 freeKiB=15512
+NATIVEVIF frames=1080 batches=1080
+ORDEREDFRAME frames=1080 splitFrames=0
+FRAMEPIPELINE starts=1080 dmaBusyStarts=1016
+LOG: TERRAINSTRIP scene 0 chunk 12,10 strips 1 vertices 48 packages 1 triangles 32
+FRAMEARENA frames=1200 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3377696 freeKiB=13533
+NATIVEVIF frames=1200 batches=1200
+ORDEREDFRAME frames=1200 splitFrames=0
+FRAMEPIPELINE starts=1200 dmaBusyStarts=1136
+LOG: FOREST_RESULT trial=3 copies=7000 trees=5914 pose=3 n=239 fps=49.790 mean=20.084 p95=20.078 scene=12.838 scene95=16.166 misses=1 submitted=1031.6 near=65.7 far=965.9 lod=30.0
+LOG: FOREST_BEGIN trial=4 copies=8000 trees=6742 pose=0 lod=30
+FRAMEARENA frames=1320 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3377696 freeKiB=13327
+NATIVEVIF frames=1320 batches=1320
+ORDEREDFRAME frames=1320 splitFrames=0
+FRAMEPIPELINE starts=1320 dmaBusyStarts=1255
+FRAMEARENA frames=1440 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3377696 freeKiB=14530
+NATIVEVIF frames=1440 batches=1440
+ORDEREDFRAME frames=1440 splitFrames=0
+FRAMEPIPELINE starts=1440 dmaBusyStarts=1375
+FRAMEARENA frames=1560 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3377696 freeKiB=16586
+NATIVEVIF frames=1560 batches=1560
+ORDEREDFRAME frames=1560 splitFrames=0
+FRAMEPIPELINE starts=1560 dmaBusyStarts=1495
+LOG: FOREST_RESULT trial=4 copies=8000 trees=6742 pose=0 n=239 fps=49.973 mean=20.011 p95=20.291 scene=11.283 scene95=11.387 misses=0 submitted=1244.0 near=81.0 far=1163.0 lod=30.0
+LOG: FOREST_BEGIN trial=5 copies=8000 trees=6742 pose=1 lod=30
+FRAMEARENA frames=1680 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3377696 freeKiB=15821
+NATIVEVIF frames=1680 batches=1680
+ORDEREDFRAME frames=1680 splitFrames=0
+FRAMEPIPELINE starts=1680 dmaBusyStarts=1614
+FRAMEARENA frames=1800 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3377696 freeKiB=15821
+NATIVEVIF frames=1800 batches=1800
+ORDEREDFRAME frames=1800 splitFrames=0
+FRAMEPIPELINE starts=1800 dmaBusyStarts=1734
+LOG: SIF RPC guard: seen 826, guarded 0
+LOG: FOREST_RESULT trial=5 copies=8000 trees=6742 pose=1 n=239 fps=50.000 mean=20.000 p95=20.040 scene=13.033 scene95=13.121 misses=0 submitted=1287.0 near=81.0 far=1206.0 lod=30.0
+LOG: FOREST_BEGIN trial=6 copies=8000 trees=6742 pose=2 lod=30
+FRAMEARENA frames=1920 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3377696 freeKiB=15970
+NATIVEVIF frames=1920 batches=1920
+ORDEREDFRAME frames=1920 splitFrames=0
+FRAMEPIPELINE starts=1920 dmaBusyStarts=1853
+FRAMEARENA frames=2040 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3377696 freeKiB=15970
+NATIVEVIF frames=2040 batches=2040
+ORDEREDFRAME frames=2040 splitFrames=0
+FRAMEPIPELINE starts=2040 dmaBusyStarts=1973
+FRAMEARENA frames=2160 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3377696 freeKiB=16379
+NATIVEVIF frames=2160 batches=2160
+ORDEREDFRAME frames=2160 splitFrames=0
+FRAMEPIPELINE starts=2160 dmaBusyStarts=2093
+LOG: FOREST_RESULT trial=6 copies=8000 trees=6742 pose=2 n=239 fps=49.972 mean=20.011 p95=20.036 scene=11.913 scene95=11.979 misses=0 submitted=1174.0 near=81.0 far=1093.0 lod=30.0
+LOG: FOREST_BEGIN trial=7 copies=8000 trees=6742 pose=3 lod=30
+FRAMEARENA frames=2280 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=14572
+NATIVEVIF frames=2280 batches=2280
+ORDEREDFRAME frames=2280 splitFrames=0
+FRAMEPIPELINE starts=2280 dmaBusyStarts=2212
+FRAMEARENA frames=2400 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=13498
+NATIVEVIF frames=2400 batches=2400
+ORDEREDFRAME frames=2400 splitFrames=0
+FRAMEPIPELINE starts=2400 dmaBusyStarts=2332
+LOG: FOREST_RESULT trial=7 copies=8000 trees=6742 pose=3 n=239 fps=46.862 mean=21.339 p95=39.991 scene=13.671 scene95=17.242 misses=16 submitted=1175.8 near=74.0 far=1101.8 lod=30.0
+LOG: FOREST_BEGIN trial=8 copies=7000 trees=5914 pose=0 lod=25
+FRAMEARENA frames=2520 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=13581
+NATIVEVIF frames=2520 batches=2520
+ORDEREDFRAME frames=2520 splitFrames=0
+FRAMEPIPELINE starts=2520 dmaBusyStarts=2451
+FRAMEARENA frames=2640 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=14602
+NATIVEVIF frames=2640 batches=2640
+ORDEREDFRAME frames=2640 splitFrames=0
+FRAMEPIPELINE starts=2640 dmaBusyStarts=2571
+LOG: SIF RPC guard: seen 861, guarded 0
+FRAMEARENA frames=2760 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16821
+NATIVEVIF frames=2760 batches=2760
+ORDEREDFRAME frames=2760 splitFrames=0
+FRAMEPIPELINE starts=2760 dmaBusyStarts=2691
+LOG: FOREST_RESULT trial=8 copies=7000 trees=5914 pose=0 n=239 fps=49.975 mean=20.010 p95=20.278 scene=9.937 scene95=10.011 misses=0 submitted=1082.0 near=56.0 far=1026.0 lod=25.0
+LOG: FOREST_BEGIN trial=9 copies=7000 trees=5914 pose=1 lod=25
+FRAMEARENA frames=2880 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=15981
+NATIVEVIF frames=2880 batches=2880
+ORDEREDFRAME frames=2880 splitFrames=0
+FRAMEPIPELINE starts=2880 dmaBusyStarts=2810
+FRAMEARENA frames=3000 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=15981
+NATIVEVIF frames=3000 batches=3000
+ORDEREDFRAME frames=3000 splitFrames=0
+FRAMEPIPELINE starts=3000 dmaBusyStarts=2930
+LOG: FOREST_RESULT trial=9 copies=7000 trees=5914 pose=1 n=239 fps=50.000 mean=20.000 p95=20.040 scene=11.947 scene95=12.012 misses=0 submitted=1132.0 near=56.0 far=1076.0 lod=25.0
+LOG: FOREST_BEGIN trial=10 copies=7000 trees=5914 pose=2 lod=25
+FRAMEARENA frames=3120 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16058
+NATIVEVIF frames=3120 batches=3120
+ORDEREDFRAME frames=3120 splitFrames=0
+FRAMEPIPELINE starts=3120 dmaBusyStarts=3049
+FRAMEARENA frames=3240 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16058
+NATIVEVIF frames=3240 batches=3240
+ORDEREDFRAME frames=3240 splitFrames=0
+FRAMEPIPELINE starts=3240 dmaBusyStarts=3169
+FRAMEARENA frames=3360 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16467
+NATIVEVIF frames=3360 batches=3360
+ORDEREDFRAME frames=3360 splitFrames=0
+FRAMEPIPELINE starts=3360 dmaBusyStarts=3289
+LOG: FOREST_RESULT trial=10 copies=7000 trees=5914 pose=2 n=239 fps=49.969 mean=20.012 p95=20.038 scene=10.651 scene95=10.724 misses=0 submitted=1028.0 near=56.0 far=972.0 lod=25.0
+LOG: FOREST_BEGIN trial=11 copies=7000 trees=5914 pose=3 lod=25
+FRAMEARENA frames=3480 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=14568
+NATIVEVIF frames=3480 batches=3480
+ORDEREDFRAME frames=3480 splitFrames=0
+FRAMEPIPELINE starts=3480 dmaBusyStarts=3408
+FRAMEARENA frames=3600 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=13495
+NATIVEVIF frames=3600 batches=3600
+ORDEREDFRAME frames=3600 splitFrames=0
+FRAMEPIPELINE starts=3600 dmaBusyStarts=3528
+LOG: SIF RPC guard: seen 900, guarded 0
+LOG: FOREST_RESULT trial=11 copies=7000 trees=5914 pose=3 n=239 fps=49.999 mean=20.000 p95=20.055 scene=12.391 scene95=15.570 misses=0 submitted=1031.6 near=50.9 far=980.7 lod=25.0
+LOG: FOREST_BEGIN trial=12 copies=8000 trees=6742 pose=0 lod=25
+FRAMEARENA frames=3720 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=13584
+NATIVEVIF frames=3720 batches=3720
+ORDEREDFRAME frames=3720 splitFrames=0
+FRAMEPIPELINE starts=3720 dmaBusyStarts=3647
+FRAMEARENA frames=3840 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=14605
+NATIVEVIF frames=3840 batches=3840
+ORDEREDFRAME frames=3840 splitFrames=0
+FRAMEPIPELINE starts=3840 dmaBusyStarts=3767
+FRAMEARENA frames=3960 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16586
+NATIVEVIF frames=3960 batches=3960
+ORDEREDFRAME frames=3960 splitFrames=0
+FRAMEPIPELINE starts=3960 dmaBusyStarts=3887
+LOG: FOREST_RESULT trial=12 copies=8000 trees=6742 pose=0 n=239 fps=49.975 mean=20.010 p95=20.273 scene=11.212 scene95=11.297 misses=0 submitted=1244.0 near=67.0 far=1177.0 lod=25.0
+LOG: FOREST_BEGIN trial=13 copies=8000 trees=6742 pose=1 lod=25
+FRAMEARENA frames=4080 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=15821
+NATIVEVIF frames=4080 batches=4080
+ORDEREDFRAME frames=4080 splitFrames=0
+FRAMEPIPELINE starts=4080 dmaBusyStarts=4006
+FRAMEARENA frames=4200 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=15821
+NATIVEVIF frames=4200 batches=4200
+ORDEREDFRAME frames=4200 splitFrames=0
+FRAMEPIPELINE starts=4200 dmaBusyStarts=4126
+LOG: FOREST_RESULT trial=13 copies=8000 trees=6742 pose=1 n=239 fps=50.000 mean=20.000 p95=20.039 scene=12.884 scene95=12.960 misses=0 submitted=1287.0 near=67.0 far=1220.0 lod=25.0
+LOG: FOREST_BEGIN trial=14 copies=8000 trees=6742 pose=2 lod=25
+FRAMEARENA frames=4320 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16003
+NATIVEVIF frames=4320 batches=4320
+ORDEREDFRAME frames=4320 splitFrames=0
+FRAMEPIPELINE starts=4320 dmaBusyStarts=4245
+FRAMEARENA frames=4440 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16003
+NATIVEVIF frames=4440 batches=4440
+ORDEREDFRAME frames=4440 splitFrames=0
+FRAMEPIPELINE starts=4440 dmaBusyStarts=4365
+FRAMEARENA frames=4560 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16452
+NATIVEVIF frames=4560 batches=4560
+ORDEREDFRAME frames=4560 splitFrames=0
+FRAMEPIPELINE starts=4560 dmaBusyStarts=4485
+LOG: FOREST_RESULT trial=14 copies=8000 trees=6742 pose=2 n=239 fps=49.973 mean=20.011 p95=20.040 scene=11.585 scene95=11.653 misses=0 submitted=1174.0 near=67.0 far=1107.0 lod=25.0
+LOG: FOREST_BEGIN trial=15 copies=8000 trees=6742 pose=3 lod=25
+FRAMEARENA frames=4680 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=14568
+NATIVEVIF frames=4680 batches=4680
+ORDEREDFRAME frames=4680 splitFrames=0
+FRAMEPIPELINE starts=4680 dmaBusyStarts=4604
+FRAMEARENA frames=4800 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=13495
+NATIVEVIF frames=4800 batches=4800
+ORDEREDFRAME frames=4800 splitFrames=0
+FRAMEPIPELINE starts=4800 dmaBusyStarts=4724
+LOG: FOREST_RESULT trial=15 copies=8000 trees=6742 pose=3 n=239 fps=49.380 mean=20.251 p95=20.059 scene=13.322 scene95=16.903 misses=3 submitted=1175.8 near=57.5 far=1118.3 lod=25.0
+LOG: FOREST_DONE
+FRAMEARENA frames=4920 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=13518
+NATIVEVIF frames=4920 batches=4920
+ORDEREDFRAME frames=4920 splitFrames=0
+FRAMEPIPELINE starts=4920 dmaBusyStarts=4844
+FRAMEARENA frames=5040 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=14542
+NATIVEVIF frames=5040 batches=5040
+ORDEREDFRAME frames=5040 splitFrames=0
+FRAMEPIPELINE starts=5040 dmaBusyStarts=4964
+FRAMEARENA frames=5160 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=5160 batches=5160
+ORDEREDFRAME frames=5160 splitFrames=0
+FRAMEPIPELINE starts=5160 dmaBusyStarts=5084
+FRAMEARENA frames=5280 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=5280 batches=5280
+ORDEREDFRAME frames=5280 splitFrames=0
+FRAMEPIPELINE starts=5280 dmaBusyStarts=5204
+FRAMEARENA frames=5400 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=5400 batches=5400
+ORDEREDFRAME frames=5400 splitFrames=0
+FRAMEPIPELINE starts=5400 dmaBusyStarts=5324
+FRAMEARENA frames=5520 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=5520 batches=5520
+ORDEREDFRAME frames=5520 splitFrames=0
+FRAMEPIPELINE starts=5520 dmaBusyStarts=5444
+FRAMEARENA frames=5640 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=5640 batches=5640
+ORDEREDFRAME frames=5640 splitFrames=0
+FRAMEPIPELINE starts=5640 dmaBusyStarts=5564
+FRAMEARENA frames=5760 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=5760 batches=5760
+ORDEREDFRAME frames=5760 splitFrames=0
+FRAMEPIPELINE starts=5760 dmaBusyStarts=5684
+FRAMEARENA frames=5880 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=5880 batches=5880
+ORDEREDFRAME frames=5880 splitFrames=0
+FRAMEPIPELINE starts=5880 dmaBusyStarts=5804
+FRAMEARENA frames=6000 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=6000 batches=6000
+ORDEREDFRAME frames=6000 splitFrames=0
+FRAMEPIPELINE starts=6000 dmaBusyStarts=5924
+FRAMEARENA frames=6120 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=6120 batches=6120
+ORDEREDFRAME frames=6120 splitFrames=0
+FRAMEPIPELINE starts=6120 dmaBusyStarts=6044
+FRAMEARENA frames=6240 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=6240 batches=6240
+ORDEREDFRAME frames=6240 splitFrames=0
+FRAMEPIPELINE starts=6240 dmaBusyStarts=6164
+FRAMEARENA frames=6360 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=6360 batches=6360
+ORDEREDFRAME frames=6360 splitFrames=0
+FRAMEPIPELINE starts=6360 dmaBusyStarts=6284
+FRAMEARENA frames=6480 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=6480 batches=6480
+ORDEREDFRAME frames=6480 splitFrames=0
+FRAMEPIPELINE starts=6480 dmaBusyStarts=6404
+FRAMEARENA frames=6600 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=6600 batches=6600
+ORDEREDFRAME frames=6600 splitFrames=0
+FRAMEPIPELINE starts=6600 dmaBusyStarts=6524
+FRAMEARENA frames=6720 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=6720 batches=6720
+ORDEREDFRAME frames=6720 splitFrames=0
+FRAMEPIPELINE starts=6720 dmaBusyStarts=6644
+FRAMEARENA frames=6840 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=6840 batches=6840
+ORDEREDFRAME frames=6840 splitFrames=0
+FRAMEPIPELINE starts=6840 dmaBusyStarts=6764
+FRAMEARENA frames=6960 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=6960 batches=6960
+ORDEREDFRAME frames=6960 splitFrames=0
+FRAMEPIPELINE starts=6960 dmaBusyStarts=6884
+FRAMEARENA frames=7080 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=7080 batches=7080
+ORDEREDFRAME frames=7080 splitFrames=0
+FRAMEPIPELINE starts=7080 dmaBusyStarts=7004
+FRAMEARENA frames=7200 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=7200 batches=7200
+ORDEREDFRAME frames=7200 splitFrames=0
+FRAMEPIPELINE starts=7200 dmaBusyStarts=7124
+FRAMEARENA frames=7320 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=7320 batches=7320
+ORDEREDFRAME frames=7320 splitFrames=0
+FRAMEPIPELINE starts=7320 dmaBusyStarts=7244
+FRAMEARENA frames=7440 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=7440 batches=7440
+ORDEREDFRAME frames=7440 splitFrames=0
+FRAMEPIPELINE starts=7440 dmaBusyStarts=7364
+FRAMEARENA frames=7560 peak=187440 resets=0 fallbacks=0 maxFrameBytes=187440 maxBorrowed=3780432 freeKiB=16019
+NATIVEVIF frames=7560 batches=7560
+ORDEREDFRAME frames=7560 splitFrames=0
+FRAMEPIPELINE starts=7560 dmaBusyStarts=7484

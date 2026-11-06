@@ -22,8 +22,8 @@ namespace theme {
 // The built-in themes. Values are NOT serialized (the .ini stores `key`), so
 // the order here is free - but `Count` bounds every "for each theme" loop.
 enum class Id {
-    FaceButtons = 0,  // graphite + the four DualShock face-button colours
-    BootScreen,       // navy-black + the PS2 logo blue
+    FaceButtons = 0,  // "Graphite": graphite + four semantic colours (key "faceButtons")
+    BootScreen,       // navy-black + an electric blue
     MemoryCard,       // the browser/OSD violet
     ImGuiDark,        // stock ImGui, kept as an escape hatch
     Count
@@ -59,8 +59,42 @@ struct Semantics {
     ImVec4 textDim;      // disabled / secondary
     ImVec4 surface;      // panel fill, for chrome that draws its own background
     ImVec4 border;
+    ImVec4 ground;       // the app background the panels float on (dock gaps)
+    ImVec4 field;        // inset value fields, darker than the panel
+    ImVec4 special;      // the fourth semantic colour: "live", special state
+    // The gizmo's axis colours, shared by every X/Y/Z readout so a field and
+    // the handle it edits match. Not per theme - X is red in every editor.
+    ImVec4 axisX;
+    ImVec4 axisY;
+    ImVec4 axisZ;
 };
 const Semantics& semantics();
+
+// The controller drawing's colours (ui::PadDiagram, docs/editor-theme.md
+// "Controller"). The body is semantic - it follows the theme - but the four
+// face symbols are the REAL pad colours in every theme: this is the one place
+// the editor depicts actual pad buttons, and a Cross that turns violet with
+// the Memory card theme is no longer the button the player presses. Filled by
+// apply() for every theme: Graphite has its own table, a light page gets the
+// light table, the other dark themes derive theirs from their palette.
+struct PadColors {
+    ImVec4 body, bodyLow;       // body gradient: top half -> the grip ends
+    ImVec4 bodyEdge;            // silhouette stroke, embossed d-pad triangles
+    ImVec4 bodyHi;              // highlights: lobes, plate arcs, key lips
+    ImVec4 well, wellLow;       // recesses (lower part / shade at the top)
+    ImVec4 plate;               // the button plate on each lobe
+    ImVec4 base, baseEdge;      // raised stick pedestals
+    ImVec4 shadow;              // pedestal drop shadow
+    ImVec4 key, keyHover, keyEdge;
+    ImVec4 glyph;               // d-pad and shoulder text
+    ImVec4 label;               // printed SELECT/START/ANALOG, keycaps
+    ImVec4 cap, capLow, capRing;  // stick caps: rim, dish centre, ridges
+    ImVec4 triangle, circle, cross, square;  // the real symbol colours
+    ImVec4 led, ledOff;
+    ImVec4 port1, port2;        // P1 / P2 badge, port dots
+    ImVec4 callBg, callEdge, lead;  // Annotated callouts and leaders
+};
+const PadColors& padColors();
 
 /** Writes the theme's colours AND the shared style metrics (rounding,
  * padding, borders) into `style`. Everything else in the style is left at
@@ -81,5 +115,14 @@ void applyImNodes();
  * State lives in the current window's storage, so a widget that stops being
  * submitted simply stops being animated. */
 float hoverAnim(ImGuiID id, bool hovered, float rate = 8.0f);
+
+/** Pushes the colours the main dockspace's HOST window is drawn with: its
+ * background and the splitters between docked panels take the ground colour,
+ * so the panels read as cards separated by gaps rather than one slab. Call
+ * immediately around DockSpaceOverViewport (the splitters are drawn inside
+ * it, with the host's WindowBg); every docked panel keeps the normal
+ * WindowBg. Pair with popDockspaceColors(). */
+void pushDockspaceColors();
+void popDockspaceColors();
 
 }  // namespace theme

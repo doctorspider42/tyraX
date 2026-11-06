@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- TyraX.app's Info.plist; installer/build-macos.sh substitutes @VERSION@. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>TyraX</string>
+	<key>CFBundleDisplayName</key>
+	<string>TyraX</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.github.doctorspider42.tyrax</string>
+	<key>CFBundleExecutable</key>
+	<string>tyrax-editor</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<!-- The PS2DEV archive's own minimum; the bundled host tools are built
+	     for the same (installer/macos/build-host-tools.sh). -->
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>TyraX contributors. Apache License 2.0 - see LICENSE.</string>
+</dict>
+</plist>

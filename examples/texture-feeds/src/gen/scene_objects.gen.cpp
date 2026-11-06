@@ -18,6 +18,7 @@ const SceneObjectData SCENE_0_OBJECTS[9] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {9};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[9] = {0x4b032406a9f457fdULL, 0x1edddf8fb5ec72cdULL, 0x1ee7df8fb5f4c752ULL, 0x1ee3df8fb5f0de7bULL, 0x1eeddf8fb5f93300ULL, 0x1eebdf8fb5f8b029ULL, 0x1ef5df8fb60104aeULL, 0x1ef1df8fb5fd1bd7ULL, 0x1efbdf8fb605705cULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[9] = {1,0,0,0,0,1,1,1,1};
 
 }  // namespace Texture_feeds
 

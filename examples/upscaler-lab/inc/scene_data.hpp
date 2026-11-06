@@ -253,6 +253,9 @@ inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
+extern const unsigned char SCENE_0_STATIC_COLLIDERS[];
+inline const unsigned char* SCENE_STATIC_COLLIDER_TABLES[SCENE_COUNT] = {SCENE_0_STATIC_COLLIDERS};
+
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
 // SCROLLER_CLONES maps each baked clone object to its scroller +
 // belt phase; SCROLLER_HIDDEN lists the authored member templates
@@ -512,6 +515,8 @@ inline constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
 inline constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
 inline constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
 inline constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
+inline constexpr bool SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[SCENE_COUNT] = {false};
+inline constexpr bool ANY_PLAYER_ONLY_DYNAMIC_LIGHTS = false;
 inline constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.0F};
 inline constexpr float SCENE_SUN_YS[SCENE_COUNT] = {1.0F};
 inline constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.0F};
@@ -569,7 +574,7 @@ inline constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
 inline constexpr int POSTFX_MOTIONBLUR_IDLE_CLEAR = 1;
 inline constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
 inline constexpr int FLARE_USED = 0;
-inline constexpr int BEAMS_USED = 0;
+inline constexpr int BEAMS_USED = 1;
 inline constexpr int FLASHLIGHT_USED = 0;
 inline constexpr int VEHICLE_HEADLIGHTS_USED = 0;
 inline constexpr int DAYCYCLE_USED = 0;
@@ -581,16 +586,16 @@ inline constexpr int BLOB_SHADOWS = 0;
 inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
 inline constexpr int BLOB_SHADOWS_USED = 0;
 inline constexpr int BLSS_ADAPTIVE = 0;
+inline constexpr int BLSS_PARTICLES = 1;
 inline constexpr int BLSS_ENABLED = 1;
 inline constexpr int BLSS_SCALE_X = 2;
 inline constexpr int BLSS_SCALE_Y = 2;
-inline constexpr float BLSS_SHARPEN = 0.5F;
-inline constexpr int BLSS_TEMPORAL = 1;
-inline constexpr int BLSS_JITTER = 0;
-inline constexpr int BLSS_NETWORK = 1;
-inline constexpr int BLSS_DEBUG_VIEW = 0;
-#define BLSS_SCENE_ON BLSS_ENABLED
-#define BLSS_SCENE_NET BLSS_NETWORK
+// This project's scenes do not all resolve the upscaler alike, so it is
+// switched per scene at load (RendererCoreBlss::setScene, free - configure()
+// below already sized the z buffer for the WIDEST raster any scene uses).
+inline constexpr int BLSS_NATIVE_SCENES = 1;
+inline constexpr bool BLSS_ENABLEDS[SCENE_COUNT] = {true};
+#define BLSS_SCENE_ON BLSS_ENABLEDS[g_activeScene]
 inline constexpr int PROJ_SHADOWS_USED = 0;
 inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
 inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
@@ -772,6 +777,7 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+#define PLAYER_ONLY_DYNAMIC_LIGHTS SCENE_PLAYER_ONLY_DYNAMIC_LIGHTS[g_activeScene]
 // Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
 // and the moon, their apparent radius as a fraction of the dome radius (0 = the
 // body is down, draw nothing) and the moon disc's roll so its lit limb faces

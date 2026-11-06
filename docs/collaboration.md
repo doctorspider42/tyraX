@@ -1,9 +1,5 @@
 # Live collaboration sessions
 
-![Host Session dialog](img/collaboration-host.png)
-
-![Join Session dialog](img/collaboration-join.png)
-
 One editor **hosts** its open project; other editors **join** over the LAN and
 everyone edits the same project at the same time. The host is authoritative:
 it applies every edit in a single order, decides who is in the session (kick /
@@ -16,28 +12,63 @@ project remain the async story).
 
 ## Using it
 
-**Host** (has the project open): *Session > Host Session...* — pick a display
-name and port (default 7797), share the shown `IP:port` and the generated
-6-digit join code. Windows Firewall asks for permission on the first start.
+*Session > Host Session...* and *Session > Join Session...* open the same
+**Live session** dialog, on its *Host* or *Join a session* side.
 
-**Join**: *Session > Join Session...* — enter the host's address, port and
-code. The whole project transfers on the first join (a progress bar shows
-files/bytes); re-joins only fetch what changed since. When the sync finishes,
-the project opens and every edit streams both ways live.
+![The Live session dialog, Host side: your name, the invite card with the
+address, the join code and Copy invite, the Advanced port, and the firewall
+note for this system.](img/collaboration-host.png)
+
+**Host** (has the project open): check *Your name*, then hand out the
+**invite**: the card shows this machine's address and port and the 6-digit
+join code in large type, and **Copy invite** copies one line,
+`tyrax-join://192.168.0.28:7797?code=932653`, plus the address and code as
+text - paste it into a chat. *New code* makes another code; the port (default
+7797) is under *Advanced*. The note under the card is this system's own:
+Windows Firewall or macOS asks once to allow the connection; on Linux a running
+firewall must allow the port. **Start hosting <project>** starts it.
+
+![The Join side: the pasted invite already split into address, port and join
+code.](img/collaboration-join.png)
+
+**Join**: paste the invite into *Invite* - the address, *Port* and *Join code*
+fill themselves in (a plain `host:port` or address works too; type the code
+then). The Join side's port and code are its own: joining somebody on 7800
+leaves the port and code this editor hosts with untouched, and the other way
+round.
+**Join** transfers the whole project the first time (a bar with files and MB
+and the file in flight); joining again later fetches only what changed. When
+the sync finishes the project opens and every edit streams both ways live. If
+the project you have open has unsaved changes, the dialog says so and Join goes
+through the usual save / discard question first.
 
 While in a session:
 
-- The toolbar shows a **SESSION (n)** chip on the host and a blue **JOINED**
-  chip on clients; clicking it opens the *Session* window (participants with
-  per-peer colors, the scene each one is editing, Kick buttons for the host).
+- The status bar shows a **SESSION (n)** chip on the host and a blue **JOINED**
+  chip on clients; clicking it opens the *Session* panel: a Hosting / Joined
+  pill with the session's running time, the invite again with *Copy* (people
+  join late), **People** - each with an avatar in their presence colour, their
+  address, the scene they are in and what they have selected ("editing
+  west-promenade"), **Follow** to have your viewport camera ride theirs (it
+  eases after their camera, switches to their scene, and stops the moment you
+  move your own camera, they leave or the session ends; the button reads
+  *Following* while it runs and is greyed out for a peer on an editor too old
+  to share its camera), **Go to** to open the scene they are in, and on the host a
+  **...** menu with *Copy address* and *Remove from session* - then a short
+  "how it works", and at the bottom **Close session for N people** (the host;
+  it asks for a second click, because it ends the session for everyone) or
+  *Refresh project files* and **Leave session** (a client).
+
+  ![The Session panel while hosting: the Hosting pill and running time, the
+  invite with Copy, People, how it works, and Close session.](img/collaboration-panel.png)
 - Other participants' selections appear as **colored outlines** in the
   viewport and colored dots in the Project panel's object list.
-- A client's **Save is disabled** (title bar shows `[joined]`) — the host owns
+- A client's **Save is disabled** (window title shows `[joined]`; with the title bar merged into the top bar - the macOS and Windows default - the JOINED chip says it) — the host owns
   persistence. Everything else works, including local Docker builds, PCSX2
   runs and Live Link: the synced copy is a complete, real project.
 - Undo works on every side; undoing rewinds remote edits batch-by-batch (it
   is a snapshot undo, and remote edits land as snapshots between yours).
-- *Session window > Refresh project files* (client) re-syncs assets/sources
+- *Session panel > Refresh project files* (client) re-syncs assets/sources
   mid-session — use it after the host imports new models/textures/audio.
   Scene edits never need this; they stream live.
 
@@ -84,9 +115,16 @@ Known v1 limitations:
   does not rehash unchanged assets every time.
 - Client cache: joined projects materialize under
   `<editor config folder>/remote-cache/<projectId>/project` (override in
-  *Edit > Preferences > Collaboration sessions*), with `cache.json` recording
+  *Edit > Preferences > Collaboration*), with `cache.json` recording
   size/hash/mtime per synced file. Only files that cache recorded are ever
   deleted by a re-sync — local build outputs are never touched.
+- Presence: each editor sends a small `{"t":"presence"}` frame - its scene,
+  its selection as object ids and its editor camera as
+  `"cam":[yaw, pitch, distance, targetX, targetY, targetZ]` - whenever one of
+  them changes (at most five a second) and unchanged every three seconds, so a
+  peer that joins late or was still syncing catches up. The host relays it.
+  The camera is an optional key: an older editor neither sends nor reads it
+  (no protocol version change), and a peer without it just cannot be followed.
 - Live sync: edits are detected by diffing the model against a shadow of the
   last-broadcast state and shipped as per-unit messages; the host applies and
   rebroadcasts everything (including to the sender), which is what makes

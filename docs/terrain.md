@@ -20,23 +20,23 @@ scene**, and removing it removes it completely — not just its picture.
 
 ## Creating a scene with or without a terrain
 
-- **New project** (*File > New Project*): the **Create terrain** checkbox, on
-  by default. Width and depth stay meaningful either way — they are the
+- **New project** (*File > New Project*): the **Ground** row's *Create
+  terrain* switch, on by default. Width and depth stay meaningful either way — they are the
   scene's **world bounds**, the rectangle every walker is clamped to.
-- **New scene** (*Project panel > + Scene*): the same checkbox.
+- **New scene** (the scene picker in the top bar > *New scene...*): the same checkbox.
 - Headless: `tyrax-editor --new <name> <dir> [w] [d] [preset] [unitsPerMeter]
   --no-terrain`.
 
 ## Removing (or creating) the terrain later
 
-*Tools > Terrain Editor* opens with a **Terrain in this scene** checkbox.
+*Tools > Terrain Editor* opens with a **Terrain in this scene** switch.
 Turning it off removes the ground; turning it on brings it back. Both are one
 undo step.
 
 Nothing is destroyed: the heightmap you sculpted, the painted layer weights
 and the layer list stay in the project, so the terrain you had comes back
 exactly as it was. While it's off, the rest of the Terrain Editor is hidden —
-there is nothing to sculpt, paint or bake.
+there is nothing to sculpt or paint.
 
 ## What "removed" means
 
@@ -148,6 +148,85 @@ rejected packages per 50 frames - **-58%** - with everything drawn identical to
 the digit. Pictures: 0 pixels differ on both DAY benchmark poses, both arms
 byte-identical within themselves. The night poses cannot be read; their own
 repeats disagree (lamp flicker, star twinkle).
+
+## A map that fits is not streamed (2026-10-14)
+
+The chunk ring (focus +- *Terrain view distance*) evicts the chunks behind the
+player and builds the ones ahead. On a map whose every chunk fits the slot pool
+that is pure loss: the pool reserves memory for all of them anyway. The Motor
+District has 25 chunks and a 25-slot pool, and on a physical PS2 the ring rebuilt
+chunks behind a driving car for 2.6-5.7 ms of EE apiece.
+
+When the pool holds the whole map (`terrainWholeMapResident`), the generated game
+now builds every chunk behind the loading screen and never evicts one. The view
+rects still decide what `renderTerrain` draws (a chunk outside every rect is
+skipped), so the picture is the same as with streaming.
+
+A rebuild still happens when a chunk's LOD band changes. It now reads its
+vertex shade from a per-node cache instead of recomputing it. The shade (normal,
+GI probes, point lights, emissive pools, tint noise) depends only on the
+heightfield node, so `terrainShadeCache` holds r, g, b and a valid flag per
+node, about 105 KB on an 81 x 81 map. The cache is kept only for a whole-map
+resident terrain and is dropped wherever every chunk is thrown away (scene
+reset, the terrain texture landing).
+
+Physical PS2, heavy-spot drive, lean build:
+
+| | Build cost in frames with a build | Late frames, heaviest window |
+| --- | --- | --- |
+| Streamed, LOD 70 | 1.9 ms | 7 |
+| Resident + shade cache, LOD 70 | 1.2 ms | 7 |
+| Resident, LOD off | no builds | 4 |
+
+LOD off still costs +0.4 ms parked (more vertices through StaPip), so LOD 70
+stays.
+
+### What a LOD rebuild still costs (2026-10-14, later)
+
+The heavy-spot trace repeats in both drive cycles. The worst frames
+(16.5-20 ms) are the same few frames of one road stretch, where LOD rebuilds
+land on top of an Objects baseline of 7.2-7.7 ms:
+
+- `T.build` takes up to 2.4-2.8 ms in a frame;
+- the first draw of the rebuilt chunks adds ~1.2 ms to `Terrain`.
+
+Inside a build frame (lean COP0 ticks, averages over the slow frames):
+
+| Stage | Before | After |
+| --- | --- | --- |
+| Head | 63 us | 51 us |
+| Vertex emission | 712 us | 570 us |
+| Bags | 4 us | 4 us |
+| Tail (ground shadow pass, diagnostics) | 272 us | 250 us |
+| `T.build` | 1 055 us | 879 us |
+
+Two habits removed:
+
+- **Per-layer constants per vertex.** The tint scaled for modulate, the
+  tiling and the whole-repeat UV rebase (two software `floorf` calls) are
+  properties of the layer and the chunk. They were recomputed for every
+  vertex of every painted layer; they are now computed once per build.
+- **A diagnostic on every rebuild.** The TERRAINSTRIP log line walked every
+  vertex of the chunk to count degenerate triangles on every rebuild. It now
+  runs on a slot's first build only (the scene load), which is where the A/B
+  tooling reads it.
+
+A resident map also rebuilds at most **one chunk a frame** (a streamed map
+keeps two, because a missing chunk is a hole). Two LOD rebuilds in one frame
+were the heaviest frames of the drive. Same ELF, two cycles each on a PS2:
+
+| Budget | Late frames, heaviest window | p95 |
+| --- | --- | --- |
+| Two a frame | 9 and 7 | 16.9 and 16.1 ms |
+| One a frame | 4 and 5 | 16.3 and 15.9 ms |
+
+Parked frames do not change. A crack along a neighbour's new band can now
+live one frame longer.
+
+Emission is still ~1 us a vertex. `BagArray::push_back` bumps a global
+content stamp on every push, and each vertex evaluates the edge snap twice
+(height and shade). Writing into a pre-sized raw buffer is the next step if
+the rebuild frames still matter.
 
 ## Texture coordinates are chunk-relative (1.124.3)
 

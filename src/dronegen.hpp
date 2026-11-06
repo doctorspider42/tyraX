@@ -470,4 +470,89 @@ std::string toText(const Params& p, const std::string& title);
 bool fromText(const std::string& text, Params& out, std::string& title,
               std::string& error);
 
+// ---------------------------------------------------------------------------
+// The Simple view's vocabulary (docs/drone-generator.md, "Simple and
+// Detailed"). No new saved field: every control READS its value back from
+// `Params` and WRITES by rescaling the fields the Detailed view edits, so the
+// two views can never disagree and a .drone file is unchanged. Host-only like
+// the rest, so a harness can check read(write(x)) == x without the GUI.
+// ---------------------------------------------------------------------------
+
+// A mood: a whole sound named after a USE ("Dark cave", "Tense") rather than
+// a timbre. Every recipe's pass (chords x bars x bar) is 60 s, so a 30 s /
+// 1 / 2 / 3 min track is a whole number of passes.
+struct Mood {
+    const char* name;
+    const char* caption;  // one plain sentence: "Low and murky, with far-off drips."
+    const char* tile;     // two-word tile caption: "murky hum, far drips"
+    uint32_t top, bottom; // picture gradient (0xRRGGBB)
+    uint32_t line;        // glyph / accent line colour (0xRRGGBB)
+    Params params;
+};
+const std::vector<Mood>& moods();
+// The empty starting point of every recipe: Params() minus its layers, mod
+// rows and beds (Params() carries default rows that would leak into a mood).
+Params moodBase();
+
+namespace simple {
+
+// Feelings (chord tables) and arc shapes, in segment order.
+enum Feeling { FeelCalm = 0, FeelOpen, FeelMysterious, FeelUneasy, FeelDread, FeelCount };
+enum Shape { ShapeSteady = 0, ShapeSwell, ShapeTwoWaves, ShapeBuildUp, ShapeCount };
+const char* const* feelingNames();  // [FeelCount]
+const char* const* shapeNames();    // [ShapeCount]
+
+// The six Sound sliders, 0..1. write*(p, p0, r0, r1) sets p = p0 and moves
+// every field it owns by the step r1 - r0 FROM THE SNAPSHOT p0 (so a drag never
+// accumulates rounding; r1 == r0 gives p0 back bit for bit). A field with a
+// timeline lane gets the same transform on every keyframe, and reads as the
+// mean of its keyframes.
+enum Slider { SlBright = 0, SlPitch, SlMove, SlSpace, SlWind, SlChimes, SlCount };
+float read(const Params& p, int slider);
+void write(Params& p, const Params& p0, int slider, float r0, float r1);
+// Whether the slider can move at all (Movement from "still" needs a free
+// motion slot) and whether one of its fields is automated.
+bool writable(const Params& p, int slider);
+bool automated(const Params& p, int slider);
+const char* word(const Params& p, int slider, float r);  // "murky", "deep", ...
+
+// Movement's sum: |amount| x LFO depth over the LFO/Random rows.
+float motionSum(const Params& p);
+// Mod rows that are free (no source or no destination).
+int freeModRows(const Params& p);
+// True when an Arc row with |amount| > 0.01 exists (the arc does something).
+bool arcActive(const Params& p);
+
+// Over the track. applyShape returns false (and changes nothing) when the arc
+// needs a mod row and all six are in use. readShape: the shape, `exact` false
+// when it is only the nearest.
+bool applyShape(Params& p, int shape);
+int readShape(const Params& p, bool* exact);
+
+// Feeling: writes every used step's notes (A, B, A, ...) and the bell scale.
+void applyFeeling(Params& p, int feeling);
+int readFeeling(const Params& p, bool* exact);
+
+// Length: whole passes (bars rescaled so n passes fill `sec`), then the loop
+// tail rule. fitLoopTail: loopTail = 0.8 x reverb decay within [2, 30] and
+// under 90 % of the length.
+void applyLength(Params& p, float sec);
+void fitLoopTail(Params& p);
+
+// Loudness: Soft / Normal / Full = master.normalize 0.45 / 0.65 / 0.89; read
+// is the nearest, -1 when normalize is off.
+void applyLoudness(Params& p, int level);
+int readLoudness(const Params& p);
+
+// A mood replaces the whole sound; the length, format and mastering (except
+// the loop tail) stay, automation is cleared.
+void applyMood(Params& p, int mood);
+// Whether `p` is exactly what picking `mood` now would give.
+bool sameAsMood(const Params& p, int mood);
+// Same mood, new details: a new seed, and LFO rates / bell density / air
+// motion nudged from a stream seeded by it (so a take is reproducible).
+void anotherTake(Params& p);
+
+}  // namespace simple
+
 }  // namespace dronegen

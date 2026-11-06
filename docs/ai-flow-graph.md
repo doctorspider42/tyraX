@@ -27,7 +27,7 @@ AI...** (or headlessly, `tyrax-editor --ai-graph` — see
    **Thinking** turns on extended reasoning where the backend supports it
    (slower, better on tricky logic; ignored by the Copilot CLI).
 2. In the Flow Graph window pick the object whose graph you're editing and
-   press **Generate with AI...**. Describe new behavior ("when the player
+   press **Generate** in its header. Describe new behavior ("when the player
    uses the lever, open the door and play a clank sound") **or a change to
    the existing graph** ("make the timer 5 seconds", "remove the Triangle
    logic", "also play a sound when the door opens") and press **Generate**.

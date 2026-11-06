@@ -1,0 +1,23 @@
+# Crossed broadleaf crown, four triangles, no billboard dependency
+mtllib forest-oak-c-far.mtl
+usemtl crown
+v -3.26523 -0.244285 0
+v 3.31463 -0.244285 0
+v 3.31463 8.38712 0
+v -3.26523 8.38712 0
+v 0 -0.244285 2.52036
+v 0 -0.244285 -4.28119
+v 0 8.38712 -4.28119
+v 0 8.38712 2.52036
+vt 0 0
+vt 0.25 0
+vt 0.25 1
+vt 0 1
+vt 0.25 0
+vt 0.5 0
+vt 0.5 1
+vt 0.25 1
+f 1/1 2/2 3/3
+f 1/1 3/3 4/4
+f 5/5 6/6 7/7
+f 5/5 7/7 8/8

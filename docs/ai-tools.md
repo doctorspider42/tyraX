@@ -16,7 +16,7 @@ tyrax-editor.exe --apply-graph <projectDir> <object> <graph.json> [scene] [--app
 tyrax-editor.exe --refresh-gen <projectDir>
 tyrax-editor.exe --ai-graph <projectDir> <object> <prompt|prompt-file> [scene]
                  [--backend claude|copilot|openai] [--model <m>] [--thinking]
-tyrax-editor.exe --add-ai-support <projectDir> [claude] [copilot]
+tyrax-editor.exe --add-ai-support <projectDir> [claude] [codex] [copilot]
 tyrax-editor.exe --chat-prompt [projectDir]
 tyrax-editor.exe --search-docs "<query>" [page]
 ```

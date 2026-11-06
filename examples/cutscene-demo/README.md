@@ -1,5 +1,7 @@
 # cutscene-demo example
 
+![cutscene-demo example in PCSX2](preview.png)
+
 A 14-second in-engine cutscene ("The Reveal") that exercises the full range of
 the **Cutscene Director** (*Tools > Cutscene Director*): five camera entities,
 hard cuts *and* a smooth blend, a dolly and a crane (two cameras moving on
@@ -8,7 +10,7 @@ position/rotation, scale/colour and visibility, Cinema 2.39:1 widescreen bars
 that slide in/out, a fade-in/out, a hidden HUD and a skip screen — all running
 on the PS2. See [docs/cutscenes.md](../../docs/cutscenes.md).
 
-![The Cutscene Director editing "The Reveal": sequence options (14 s duration, Skippable with On skip set to Ask first through the skip-cutscene screen, Camera track, Hide HUD, Cinema 2.39:1 bars, fades) above a dopesheet with a camera track and one lane per animated object (hero, obelisk, sparks, cam-dolly, cam-crane). Keyframes are draggable diamonds; the red playhead scrubs the whole scene live in the viewport.](../../docs/img/cutscene-director.png)
+![The Cutscene Director editing "The Reveal": the shot at the playhead (cam-low, Cinema 2.39:1 bars), the Key tab on the selected camera cut, and the timeline - five shots as clips on the camera lane (cam-wide, cam-low, cam-dolly, cam-hero, cam-crane), the fades and bars, and one lane per animated object (hero, obelisk, sparks, cam-dolly, cam-crane). Keys are draggable; the red playhead scrubs the whole scene.](../../docs/img/cutscene-director.png)
 
 Open `cutscene-demo.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor.exe --build <this folder> --run`.
@@ -86,3 +88,16 @@ Generated game methods are split between `src/terrain_game.cpp` and the
 `src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
 `inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
 The main file remains user-ownable; generated subsystem files refresh on build.
+
+
+Hardware timeline instrumentation matches the 1.170 coarse/detail emitter.
+Use the [capture and observer-control guide](../../docs/hardware-profiler.md)
+when comparing performance; traces add measurable work.
+
+This example explicitly requests `framePipeline: true` (TyraX2). Its authored interlaced output preserves the existing scan mode and quality; ordinary interlaced output is eligible, unlike true field rendering. True field rendering, BLSS, unlimited triple buffering and unavailable queue memory fall back safely. This request does not guarantee 60 FPS. See [TyraX2](../../docs/tyrax2.md).
+
+Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dynamic-light-receivers.md). This example retains the default **All objects** policy; Players and driven vehicle is an optional project or scene setting.
+
+TyraX 2.0 integration: generated sources have been refreshed with the combined
+TyraX2 renderer and mainline collision broad phase; authored settings and
+user-owned source files retain their existing ownership rules.

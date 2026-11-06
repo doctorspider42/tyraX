@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "detmath.hpp"  // the sun path is hashed into bake signatures - same bits on every OS
+
 namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
@@ -88,11 +90,11 @@ void arcDirection(float azimuthDeg, float tiltDeg, float rise, float set,
     // and on past the horizon for the night half.
     const float az = azimuthDeg * kDeg;
     const float tilt = clampf(tiltDeg, -89.0f, 89.0f) * kDeg;
-    const float R[3] = {std::sin(az), 0.0f, std::cos(az)};
+    const float R[3] = {detmath::sin(az), 0.0f, detmath::cos(az)};
     // Horizontal axis perpendicular to R - the direction the arc leans toward.
-    const float H[3] = {std::cos(az), 0.0f, -std::sin(az)};
-    const float P[3] = {std::sin(tilt) * H[0], std::cos(tilt),
-                        std::sin(tilt) * H[2]};
+    const float H[3] = {detmath::cos(az), 0.0f, -detmath::sin(az)};
+    const float P[3] = {detmath::sin(tilt) * H[0], detmath::cos(tilt),
+                        detmath::sin(tilt) * H[2]};
 
     // Hours the body spends above the horizon, and how far into its cycle we
     // are. Both clamped away from the degenerate all-day / all-night ends.
@@ -103,7 +105,7 @@ void arcDirection(float azimuthDeg, float tiltDeg, float rise, float set,
                         ? kPi * (since / up)
                         : kPi + kPi * ((since - up) / (24.0f - up));
 
-    const float c = std::cos(t), s = std::sin(t);
+    const float c = detmath::cos(t), s = detmath::sin(t);
     outDir[0] = c * R[0] + s * P[0];
     outDir[1] = c * R[1] + s * P[1];
     outDir[2] = c * R[2] + s * P[2];
@@ -176,8 +178,8 @@ Resolved evaluate(const DayCycle& c, float hour) {
     float mRise = 0.0f, mSet = 0.0f;
     moonRiseSet(c, mRise, mSet);
     arcDirection(c.moonAzimuth, c.moonTilt, mRise, mSet, h, r.moonDir);
-    r.sunElevation = std::asin(clampf(r.sunDir[1], -1.0f, 1.0f)) / kDeg;
-    r.moonElevation = std::asin(clampf(r.moonDir[1], -1.0f, 1.0f)) / kDeg;
+    r.sunElevation = detmath::asin(clampf(r.sunDir[1], -1.0f, 1.0f)) / kDeg;
+    r.moonElevation = detmath::asin(clampf(r.moonDir[1], -1.0f, 1.0f)) / kDeg;
 
     // Which body lights the scene. The sun owns it while it is up, the moon
     // takes over once it is down, and `wSun` is how far through the handover we
@@ -217,7 +219,7 @@ Resolved evaluate(const DayCycle& c, float hour) {
     r.shadowFade = sf * sf * (3.0f - 2.0f * sf);
 
     // Never light the world from below the floor - see kMinLightElevation.
-    const float minY = std::sin(kMinLightElevation * kDeg);
+    const float minY = detmath::sin(kMinLightElevation * kDeg);
     if (L[1] < minY) {
         const float hx = L[0], hz = L[2];
         const float hl = std::sqrt(hx * hx + hz * hz);
@@ -233,7 +235,7 @@ Resolved evaluate(const DayCycle& c, float hour) {
     // arc (a small tilt) reaches it on its own now that the crossover no longer
     // walks the light over the top, and straight up is precisely the direction
     // that degenerates a lookAt basis.
-    const float maxY = std::sin(kMaxLightElevation * kDeg);
+    const float maxY = detmath::sin(kMaxLightElevation * kDeg);
     if (L[1] > maxY) {
         const float hx = L[0], hz = L[2];
         const float hl = std::sqrt(hx * hx + hz * hz);
@@ -270,7 +272,7 @@ Resolved evaluate(const DayCycle& c, float hour) {
                          r.sunDir[2] * right[2];
         const float sy = r.sunDir[0] * u[0] + r.sunDir[1] * u[1] +
                          r.sunDir[2] * u[2];
-        r.moonUpAngle = std::atan2(sy, sx);
+        r.moonUpAngle = detmath::atan2(sy, sx);
     }
     return r;
 }

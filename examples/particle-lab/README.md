@@ -1,5 +1,7 @@
 # particle-lab
 
+![particle-lab in PCSX2](preview.png)
+
 The particle library's reference scene ([docs/particles.md](../../docs/particles.md)):
 every particle in it comes from four effects made once in *Tools > Particle
 Editor*, each with a texture the editor generated.
@@ -22,13 +24,14 @@ textures live in `res/materials/particles/`.
 ## Things to try
 
 - Open *Tools > Particle Editor*, pick **Campfire** and click through its
-  layers (Main / Embers / Glow / Smoke); move the Smoke layer's *Offset* up.
+  layers (Main / Embers / Glow / Smoke), solo one with *<layer> only*; move
+  the Smoke layer's *Offset* up (Placement tab).
 - Drag the `campfire` emitter (click its flame badge in the viewport): all four
   layers travel with it.
-- Change **Campfire**'s *Generate* recipe (turbulence, heat, seed) and release
+- Change **Campfire**'s *Generate* recipe (Texture tab: turbulence, heat, seed) and release
   the slider: the flame texture is re-baked and the viewport updates.
-- Untick *Additive* on Campfire to see why fire wants it.
-- **New effect... > Smoke**, then **Place in scene**.
+- Switch off *Additive* on Campfire to see why fire wants it.
+- **+ New effect > Smoke**, then **Place in scene**.
 
 ## Build & run
 
@@ -48,3 +51,16 @@ Generated game methods are split between `src/terrain_game.cpp` and the
 `src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
 `inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
 The main file remains user-ownable; generated subsystem files refresh on build.
+
+
+Hardware timeline instrumentation matches the 1.170 coarse/detail emitter.
+Use the [capture and observer-control guide](../../docs/hardware-profiler.md)
+when comparing performance; traces add measurable work.
+
+This example explicitly requests `framePipeline: true` (TyraX2). Its authored interlaced output preserves the existing scan mode and quality; ordinary interlaced output is eligible, unlike true field rendering. True field rendering, BLSS, unlimited triple buffering and unavailable queue memory fall back safely. This request does not guarantee 60 FPS. See [TyraX2](../../docs/tyrax2.md).
+
+Generated runtime snapshot refreshed for [dynamic light receivers](../../docs/dynamic-light-receivers.md). This example retains the default **All objects** policy; Players and driven vehicle is an optional project or scene setting.
+
+TyraX 2.0 integration: generated sources have been refreshed with the combined
+TyraX2 renderer and mainline collision broad phase; authored settings and
+user-owned source files retain their existing ownership rules.

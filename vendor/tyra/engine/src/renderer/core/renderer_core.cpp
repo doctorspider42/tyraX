@@ -1,3 +1,4 @@
+// Modified by TyraX: optional ordered frame submission.
 /*
 # _____        ____   ___
 #   |     \/   ____| |___|
@@ -34,6 +35,8 @@ static u32 prevPresentEnd = 0;
 
 RendererCore::RendererCore() {
   isFrameLimitOn = true;
+  framePipelineRequested = TYRA_FRAME_PIPELINE != 0;
+  Vif1Queue::setRuntimePipeline(framePipelineRequested);
   // Modified by TyraX: bgColor was never initialised, and it is READ before
   // any game code can set it - Engine::init runs banner.show() right after
   // renderer.init(), and the logo hold clears the framebuffer with it every
@@ -44,9 +47,13 @@ RendererCore::RendererCore() {
   // nothing in the game changed to explain it. Black, deterministically.
   bgColor = Color(0.0F, 0.0F, 0.0F, 128.0F);
 }
-RendererCore::~RendererCore() {}
+RendererCore::~RendererCore() {
+  completePipelineFrame();
+  Vif1Queue::setBeforeFrameSubmit(nullptr, nullptr);
+}
 
 void RendererCore::init(const RendererOptions& options) {
+  Vif1Queue::setBeforeFrameSubmit(&RendererCore::completePipelineFrameThunk, this);
   settings.setVideoMode(options.videoMode);
   // Must precede gs.init - it sizes the frame/z buffers (TyraX fork).
   settings.setDisplayMode(options.displayMode);
@@ -69,6 +76,7 @@ void RendererCore::init(const RendererOptions& options) {
   // target and its z are 128 KB of a ~1.08 MB texture heap, and they used
   // to be reserved whether or not anything ever sampled them.
   envMap.setEnabled(options.envMap);
+  envMap.setDoubleBuffered(options.envMapDoubleBuffered);  // Modified by TyraX
   envMap.init(&settings, &gs, &sync, &path1);
   // Projected shadows: wiring only - VRAM is allocated lazily when the game
   // calls shadowMap.allocate() (init() also re-places the buffers after a
@@ -84,7 +92,7 @@ void RendererCore::init(const RendererOptions& options) {
   if (camFeed.getTexture())
     camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
                                           TextureWrap::Clamp);
-  // BLSS, the neural upscaler (TyraX fork): its low-res render target belongs
+  // BLSS, the reduced-raster upscaler (TyraX fork): its low-res targets belong
   // in the same permanent region, in the same relative order - but it is only
   // taken when the generated game's init() calls blss.configure(), so a
   // project with BLSS off costs zero VRAM words. This call is dependency
@@ -99,7 +107,7 @@ void RendererCore::init(const RendererOptions& options) {
   splitView.init(&settings, &gs, &sync, &path1);
   // Frame extrapolation (TyraX fork) - also no VRAM: it samples the display
   // buffer double/triple buffering already keeps.
-  warp.init(&settings, &gs, &sync, &path1, &blss, this);
+  warp.init(&settings, &gs, &sync, &path1, this);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
@@ -111,6 +119,7 @@ void RendererCore::setClearScreenColor(const Color& color) { bgColor = color; }
 // the display geometry has not changed, and reinit()'s programDisplay() would
 // reset the GS and blank the output in the middle of a game's init().
 void RendererCore::rebuildPermanentBuffers() {
+  completePipelineFrame();
   texture.evictAll();
   gs.reallocateBuffers();
   postFx.init(&settings, &gs);
@@ -137,6 +146,7 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
   const bool modeChanged = settings.getDisplayMode() != mode;
   const bool wsChanged = settings.getWidescreen() != widescreen;
   if (!modeChanged && !wsChanged) return;
+  completePipelineFrame();
 
   // Modified by TyraX: Hybrid's two-buffer present leaves its PATH3 copy
   // in flight. Drain both paths before a mode change resets the GS and moves
@@ -241,6 +251,7 @@ int RendererCore::addDynPointLight(const Color& color, const Vec4& position,
   l.position.w = 1.0F;
   l.color = color;
   l.range = range;
+  dynLightPack[dynLightCount] = Vec4(l.position.x, l.position.y, l.position.z, range);
   return static_cast<int>(dynLightCount++);
 }
 
@@ -272,20 +283,47 @@ int RendererCore::addDynSpotLight(const Color& color,
   return slot;
 }
 
+bool RendererCore::fastLightPick = true;
+bool RendererCore::sceneLightsKeepMeshes = true;
+
 const RendererCoreSpotLight* RendererCore::pickDynLight(
-    const Vec4& worldCenter, const float& worldRadius, int skipSlot) const {
+    const Vec4& worldCenter, const float& worldRadius, int skipSlot,
+    u32 skipMask, bool withSpot, bool sceneKeeps) const {
   // Score = luminance * quadratic falloff at the sphere's NEAREST point, so
   // a big mesh near a torch competes fairly with the camera flashlight.
-  const RendererCoreSpotLight* best = &spot;
+  // Modified by TyraX: withSpot = false drops the camera flashlight from the
+  // contest AND from the fallback - a spotLit = false bag keeps the scene's
+  // lights (a wall the torch's pool lands on must stay lit by the lamp beside
+  // it), and the caller maps "nothing" to its off light.
+  const RendererCoreSpotLight* best = withSpot ? &spot : nullptr;
   float bestScore = -1.0F;
+  // Modified by TyraX: the strongest placed light that reaches the mesh
+  // properly - its falloff at the sphere's nearest point at least ~0.32
+  // (att^2 >= 0.1, inside about two thirds of its range) and, for a scene
+  // spot, the mesh inside its cone. See sceneLightsKeepMeshes.
+  const RendererCoreSpotLight* bestScene = nullptr;
+  float bestSceneScore = -1.0F;
 
   const RendererCoreSpotLight* candidates[DYN_LIGHTS_MAX + 1];
   u32 count = 0;
-  if (spot.enabled) candidates[count++] = &spot;
+  if (withSpot && spot.enabled) candidates[count++] = &spot;
   for (u32 i = 0; i < dynLightCount; i++) {
     // Modified by TyraX: the bag's named exclusion (its light is drawn
     // projected, per pixel, by the game's shadow pass instead).
     if ((int)i == skipSlot) continue;
+    // Modified by TyraX: lights this bag already carries in its vertex
+    // colours (PipelineInfoBag::dynLightSkipBaked / dynBakedMask).
+    if (skipMask & (1u << i)) continue;
+    // Modified by TyraX: reject out-of-reach lights from the packed copy
+    // (dynLightPack) - the same squared test as below, so the verdict is
+    // unchanged; the full 80-byte entry is only touched for a light in reach.
+    if (fastLightPick) {
+      const Vec4& q = dynLightPack[i];
+      const float dx = q.x - worldCenter.x, dy = q.y - worldCenter.y,
+                  dz = q.z - worldCenter.z;
+      const float reach = q.w + worldRadius;
+      if (dx * dx + dy * dy + dz * dz >= reach * reach) continue;
+    }
     candidates[count++] = &dynLights[i];
   }
 
@@ -294,7 +332,15 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
     const float dx = l->position.x - worldCenter.x;
     const float dy = l->position.y - worldCenter.y;
     const float dz = l->position.z - worldCenter.z;
-    float d = Math::sqrtNonNegative(dx * dx + dy * dy + dz * dz) - worldRadius;
+    // Modified by TyraX: out of reach without the square root. d >= range
+    // below is |c - p| >= range + radius, and both sides are non-negative,
+    // so comparing squares gives the same verdict. Every stamped bag runs
+    // this loop over every light (docs/stapip-stamps.md); at night most
+    // lights are out of reach of most bags.
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    const float reach = l->range + worldRadius;
+    if (d2 >= reach * reach) continue;
+    float d = Math::sqrtNonNegative(d2) - worldRadius;
     if (d < 0.0F) d = 0.0F;
     if (d >= l->range) continue;
     const float att = 1.0F - d / l->range;
@@ -313,11 +359,29 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
         if (cosAng + worldRadius / dist < l->cosCutoff) score *= 0.05F;
       }
     }
+    if (l != &spot && att * att >= 0.1F && score > bestSceneScore) {
+      // (A scene spot whose cone misses the mesh lights next to nothing
+      // there, so it holds nothing.)
+      bool inCone = l->point;
+      if (!inCone) {
+        const float dist = d + worldRadius;
+        inCone = dist <= 1e-4F ||
+                 -(dx * l->direction.x + dy * l->direction.y +
+                   dz * l->direction.z) / dist + worldRadius / dist >=
+                     l->cosCutoff;
+      }
+      if (inCone) {
+        bestSceneScore = score;
+        bestScene = l;
+      }
+    }
     if (score > bestScore) {
       bestScore = score;
       best = l;
     }
   }
+  if (sceneLightsKeepMeshes && sceneKeeps && bestScene != nullptr)
+    return bestScene;
   return best;
 }
 
@@ -329,6 +393,8 @@ void RendererCore::beginFrame() {
                                  FrameProfile::prevPresentEnd
                            : 0;
 #endif
+  frameMeasurementActive = true;
+  beginFrameRecording();
   beginFrameStamp();
   renderer3D.update();
   drained3DFor2D = false;
@@ -346,6 +412,8 @@ void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
                                  FrameProfile::prevPresentEnd
                            : 0;
 #endif
+  frameMeasurementActive = true;
+  beginFrameRecording();
   beginFrameStamp();
   renderer3D.update(cameraInfo);
   drained3DFor2D = false;
@@ -407,8 +475,71 @@ void RendererCore::beginFrameStamp() {
   hud2dY1 = -1;
 }
 
+void RendererCore::beginFrameRecording() {
+  ++recordingGeneration;  // Modified by TyraX: ordinary/loading render starts
+  // Field bias and temporal readbacks retain synchronous compatibility.
+  pipelineFrameActive = framePipelineRequested && !settings.isFieldRendering() &&
+                        !blss.isActive() &&
+                        (isFrameLimitOn || gs.getFrameBufferCount() < 3) &&
+                        Vif1Queue::pipelineAvailable();
+  if (!pipelineFrameActive) completePipelineFrame();
+  if (pipelineFrameActive && pipelineFramePending)
+    gs.setRecordingContext(gs.nextRecordingContext());
+  recordingContext = gs.getRecordingContext();
+  Vif1Queue::beginRecordingFrame(pipelineFrameActive);
+#if TYRA_HARDWARE_TRACE
+  if (HardwareTrace::active) traceRecordingJob = HardwareTrace::beginJob(
+      recordingContext, framePipelineRequested,
+      pipelineFrameActive && Vif1Queue::recordingPipelined());
+#endif
+}
+
+void RendererCore::setFramePipeline(bool on) {
+  completePipelineFrame();
+  framePipelineRequested = on;
+  Vif1Queue::setRuntimePipeline(on);
+}
+
+void RendererCore::completePipelineFrameThunk(void* user) {
+  static_cast<RendererCore*>(user)->completePipelineFrame();
+}
+
+void RendererCore::completePipelineFrame() {
+  if (!pipelineFramePending) return;
+  pipelineFramePending = false; // waits must not recursively present this job
+#if TYRA_HARDWARE_TRACE
+  HardwareTrace::PresentContext traceOwner(
+      tracePendingEpoch == HardwareTrace::captureEpoch() ? tracePendingJob : 0,
+      pipelineSequence, pipelineContext);
+#endif
+  HardwareTrace::Scope traceCompletion("PendingPresent", HardwareTrace::Kind::Span, false);
+  { HardwareTrace::Scope trace("VIF_completion_wait", HardwareTrace::Kind::Wait, false);
+    Vif1Queue::waitFor(pipelineSequence); }
+  gs.setRecordingContext(pipelineContext);
+  // The final FLUSHA/DIRECT FINISH was recorded in this job's sole chain.
+  // Wait its GS tail, then consume the exclusive event before the next job.
+  sync.waitAndClear();
+  HardwareTrace::Scope tracePacing("Present", HardwareTrace::Kind::Pacing, false);
+  u32 t0, t1;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
+  if (gs.getFrameBufferCount() < 3 && isFrameLimitOn) graph_wait_vsync();
+  gs.flipBuffers(isFrameLimitOn);
+  __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+  stallAccum += t1 - t0;
+  stallTotal += t1 - t0;
+  hasPresentedFrame = true;
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tStall = t1 - t0;
+  if (frameMeasurementActive)
+    FrameProfile::tExcluded += t1 - t0; // pacing inside this recording window
+  FrameProfile::tPeriod = FrameProfile::prevPresentEnd ?
+                         t1 - FrameProfile::prevPresentEnd : 0;
+  FrameProfile::prevPresentEnd = t1;
+#endif
+}
+
 void RendererCore::endFrame() {
-  HardwareTrace::Scope traceEnd("EndFrame");
+  HardwareTrace::Scope traceEnd("EndFrame", HardwareTrace::Kind::Span, false);
   if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   // Modified by TyraX (TYRA_2D_VIF1_DIRECT): the frame's sprites may still be
   // queued on VIF1 behind the 3D, and with no interrupt nothing starts a
@@ -484,12 +615,14 @@ void RendererCore::endFrame() {
   // VIF FIFO empty, so the PATH3 packets below cannot win the GIF between two
   // of the last chain's packets. No GS FINISH handshake - that remains the
   // frame profile's fairness fence and the post-fx drain's job.
+  if (!Vif1Queue::recordingFrame()) {
   Vif1Queue::drain();
   {
     volatile u32* const vif1Stat = reinterpret_cast<volatile u32*>(0x10003C00);
     constexpr u32 kVif1Busy = 0x1F000003;  // FQC (FIFO qwords) | VPS
     while (*vif1Stat & kVif1Busy) {
     }
+  }
   }
 #endif
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
@@ -513,7 +646,28 @@ void RendererCore::endFrame() {
     if (path1.isVU1Configured()) sync.align3D();
     gs.setTextureWrap(RendererCoreGS::repeatWrap());
   }
-  { HardwareTrace::Scope trace("PostFx"); applyPostFx(); }
+  { HardwareTrace::Scope trace("PostFx", HardwareTrace::Kind::Span, false); applyPostFx(); }
+  Vif1Queue::endRecordingFrame();
+  if (pipelineFrameActive) {
+    pipelineContext = recordingContext;
+    pipelineSequence = Vif1Queue::lastSequence();
+    pipelineFramePending = true;
+#if TYRA_HARDWARE_TRACE
+    if (HardwareTrace::active) {
+      tracePendingJob = traceRecordingJob;
+      tracePendingEpoch = HardwareTrace::captureEpoch();
+    } else { tracePendingJob = 0; tracePendingEpoch = 0; }
+#endif
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tFrameWork = FrameProfile::ticks() - FrameProfile::frameStart -
+                              FrameProfile::tExcluded;
+    FrameProfile::tExcluded = 0;
+#endif
+    texture.traceFrame();
+    Vif1Queue::arenaFrameEnd();
+    frameMeasurementActive = false;
+    return;
+  }
 #if TYRA_FRAME_PROFILE
   // THE FAIRNESS FENCE (inc/debug/frame_profile.hpp, tDrain). One guarded
   // drain, at one point, in BOTH arms - a BLSS frame is already serialised by
@@ -544,7 +698,14 @@ void RendererCore::endFrame() {
   // presenting, and an overrunning frame costs one late field instead of an
   // idle one.
   {  // Modified by TyraX: everything below is STALL, not the frame's cost.
-    HardwareTrace::Scope trace("Present");
+    HardwareTrace::PresentContext traceOwner(
+#if TYRA_HARDWARE_TRACE
+        traceRecordingJob,
+#else
+        0,
+#endif
+        Vif1Queue::lastSequence(), recordingContext);
+    HardwareTrace::Scope trace("Present", HardwareTrace::Kind::Pacing, false);
     u32 t0, t1;
     __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
     if (gs.getFrameBufferCount() < 3) {
@@ -562,12 +723,17 @@ void RendererCore::endFrame() {
     FrameProfile::prevPresentEnd = t1;
 #endif
   }
+  frameMeasurementActive = false;
   hasPresentedFrame = true;  // Modified by TyraX: the warp has a source now
+#if TYRA_FRAME_CHAIN_ARENA || TYRA_FRAME_PIPELINE_SUPPORT
+  Vif1Queue::arenaFrameEnd();  // Modified by TyraX: experimental arena accounting
+#endif
 }
 
 // Modified by TyraX (docs/frame-extrapolation.md).
 bool RendererCore::presentWarpFrame(const WarpCamera& from,
                                     const WarpCamera& to) {
+  completePipelineFrame();
   // Nothing to warp before the first flip - the "previous" buffer is still
   // whatever the GS powered up with.
   if (!hasPresentedFrame) return false;
@@ -576,6 +742,7 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
   // caller reads `false` and simply waits for the next rendered one.
   if (settings.isHybridOutput()) return false;
 
+  ++recordingGeneration;  // Modified by TyraX: successful synthetic render start
   if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   warp.draw(from, to);
   // Deliberately NO applyPostFx: bloom, grain and grading are already baked
@@ -583,7 +750,7 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
   // warped frame. Deliberately no beginFrame either - the warp covers every
   // pixel, so the clear would only be work.
   {  // Modified by TyraX: the synthesised frame's present is stall too.
-    HardwareTrace::Scope trace("Present");
+    HardwareTrace::Scope trace("SyntheticPresent", HardwareTrace::Kind::Pacing, false);
     u32 t0, t1;
     __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
     if (gs.getFrameBufferCount() < 3) {

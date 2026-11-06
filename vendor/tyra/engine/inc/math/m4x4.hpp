@@ -25,6 +25,9 @@ class M4x4 {
   /** Create matrix with random values */
   M4x4() {}
 
+  // Modified by TyraX: copy, operator=, operator*(Vec4) and identity are
+  // inline VU0 blocks with exact "m" operands (below the class; see the note
+  // in math/vec4.hpp and docs/vu0-macro-mode.md).
   M4x4(const M4x4& v) { copy(this, v); }
 
   explicit M4x4(const float* v) { copy(this, v); }
@@ -34,11 +37,11 @@ class M4x4 {
        const float& m31, const float& m32, const float& m33, const float& m34,
        const float& m41, const float& m42, const float& m43, const float& m44);
 
-  static void copy(M4x4* out, const float* in);
-  static void copy(M4x4* out, const M4x4& in);
+  static inline void copy(M4x4* out, const float* in);
+  static inline void copy(M4x4* out, const M4x4& in) { copy(out, in.data); }
 
-  void operator=(const M4x4& v);
-  Vec4 operator*(const Vec4& v) const;
+  inline void operator=(const M4x4& v) { copy(this, v); }
+  inline Vec4 operator*(const Vec4& v) const;
   M4x4 operator*(const M4x4& v) const;
   void operator*=(const M4x4& v);
   float& operator[](const u8& index);
@@ -49,7 +52,7 @@ class M4x4 {
    * 0 0 1 0
    * 0 0 0 1
    */
-  void identity();
+  inline void identity();
 
   inline void unit() { identity(); }
 
@@ -122,5 +125,61 @@ class M4x4 {
   static M4x4 setCamera(const float pos[4], const float vz[4],
                         const float vy[4]);
 };
+
+// --- VU0 macro mode, inline (Modified by TyraX) ---------------------------
+// Scratch $vf1-$vf7 and ACC, as upstream. A matrix is four quadwords, so the
+// rows are addressed off a base register ("r") and the 64 bytes are named
+// separately as an "m" operand the asm never prints - "0x10+%0" cannot be
+// written, because GAS rejects `0x10+%lo(sym)($2)` for a global such as
+// M4x4::Identity under -G0.
+typedef float M4x4Floats[16];
+
+inline void M4x4::copy(M4x4* out, const float* in) {
+  asm volatile(
+      "lqc2       $vf1, 0x00(%2)      \n\t"
+      "lqc2       $vf2, 0x10(%2)      \n\t"
+      "lqc2       $vf3, 0x20(%2)      \n\t"
+      "lqc2       $vf4, 0x30(%2)      \n\t"
+      "sqc2       $vf1, 0x00(%1)      \n\t"
+      "sqc2       $vf2, 0x10(%1)      \n\t"
+      "sqc2       $vf3, 0x20(%1)      \n\t"
+      "sqc2       $vf4, 0x30(%1)      \n\t"
+      : "=m"(out->data)
+      : "r"(out->data), "r"(in),
+        "m"(*reinterpret_cast<const M4x4Floats*>(in)));
+}
+
+inline Vec4 M4x4::operator*(const Vec4& v) const {
+  Vec4 result;
+  asm volatile(
+      "lqc2       $vf1, 0x00(%2)      \n\t"
+      "lqc2       $vf2, 0x10(%2)      \n\t"
+      "lqc2       $vf3, 0x20(%2)      \n\t"
+      "lqc2       $vf4, 0x30(%2)      \n\t"
+      "lqc2       $vf5, %1            \n\t"
+      "vmulaw     $ACC, $vf4, $vf0    \n\t"
+      "vmaddax    $ACC, $vf1, $vf5    \n\t"
+      "vmadday    $ACC, $vf2, $vf5    \n\t"
+      "vmaddz     $vf6, $vf3, $vf5    \n\t"
+      "sqc2       $vf6, %0            \n\t"
+      : "=m"(result.xyzw)
+      : "m"(v.xyzw), "r"(data), "m"(data));
+  return result;
+}
+
+inline void M4x4::identity() {
+  asm volatile(
+      "vsub.xyzw  $vf4, $vf0, $vf0    \n\t"
+      "vadd.w     $vf4, $vf4, $vf0    \n\t"
+      "vmr32.xyzw $vf5, $vf4          \n\t"
+      "vmr32.xyzw $vf6, $vf5          \n\t"
+      "vmr32.xyzw $vf7, $vf6          \n\t"
+      "sqc2       $vf4, 0x30(%1)      \n\t"
+      "sqc2       $vf5, 0x20(%1)      \n\t"
+      "sqc2       $vf6, 0x10(%1)      \n\t"
+      "sqc2       $vf7, 0x00(%1)      \n\t"
+      : "=m"(data)
+      : "r"(data));
+}
 
 }  // namespace Tyra

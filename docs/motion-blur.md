@@ -105,13 +105,13 @@ Two conditions on that, and both are easy to miss because the LIVE chip stays
 green through either (it streams *object* edits and has never carried graph
 logic — see [Live Logic](live-logic.md)):
 
-- **Live Logic has to be ON** (*Project Preferences > Build*). With it off, a
-  graph edit reaches nothing until the next build; the toolbar says so with an
+- **Live Logic has to be ON** (*Project Preferences > Build & debug*). With it off, a
+  graph edit reaches nothing until the next build; the status bar says so with an
   amber **LOGIC (off)**.
 - **The graph has to be patchable.** A `Flip Flop` (or any other branching node)
   in the same graph puts it out of reach of the interpreter, whatever the Set
   Motion Blur node itself supports — the chip goes amber **LOGIC (rebuild)** and
-  the Debugger's *Logic* tab names the node.
+  the Debugger's *Hot patches* page names the node.
 
 Scene changes re-apply the scene's authored amount, so a graph that raised the
 blur does not leak it into the next scene. The idle clear is a one-frame override
@@ -142,8 +142,8 @@ Two details are load-bearing:
   [frame extrapolation](frame-extrapolation.md) on, the newest finished frame is
   a synthesised warp half the time, and feeding a displaced image back into an
   accumulator compounds the displacement into a visible shake. The "real" one is
-  the last frame the SCENE rendered — the same accessor the neural upscaler asks
-  for, and for the same reason.
+  the last frame the SCENE rendered — the same accessor frame extrapolation's
+  warp asks for, and for the same reason.
 - **`RendererCoreGS::hasRealFrame()` gates the first frame.** Display buffers
   are never cleared at allocation, so the "previous" buffer after boot — or after
   a layout rebuild, such as a display-mode switch or the adaptive upscaler
@@ -164,7 +164,7 @@ re-arm the invalid combination behind the drawing environment.
 
 ## 16-bit colour
 
-A 16-bit frame buffer (*Project Preferences > Display > Colour depth*) stores 5
+A 16-bit frame buffer (*Project Preferences > Picture > Colour depth*) stores 5
 bits per channel, and an accumulator is the one effect that really cares, because
 it feeds its own output back in at a loop gain of `1/(1-f)` — about ten at the
 top of the slider. Quantization is a real hardware limit, but it is not a reason
@@ -292,11 +292,9 @@ every frame. Triple buffering therefore adds no special dither phase or shimmer.
 
 ## Interactions
 
-- **[The neural upscaler (BLSS)](neural-upscaler.md)** samples the previous frame
-  as its temporal history, so with both on, the history it reprojects is already
-  blurred and the trail persists longer than the Amount suggests. It is not
-  refused (nothing breaks), but tune the amount with the upscaler in the state it
-  ships in, not without it.
+- **[The upscaler (BLSS)](upscaler.md)** reads no previous frame, so the two
+  combine without interacting: the blur samples the finished, full-size
+  presented frame either way.
 - **[Frame extrapolation](frame-extrapolation.md)** composites nothing: a
   synthesised frame is a warp of an image that already carries the blur, and the
   pass is not re-run on it. The blur therefore updates at the render rate, not

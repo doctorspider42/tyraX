@@ -34,5 +34,6 @@ inline const unsigned short* const SCENE_GROUND_TABLES[] = {S0_GROUND, nullptr, 
 inline const int SCENE_GROUND_CHUNKS_XS[] = {5, 0, 0};
 #define SCENE_GROUND SCENE_GROUND_TABLES[g_activeScene]
 #define SCENE_GROUND_CHUNKS_X SCENE_GROUND_CHUNKS_XS[g_activeScene]
+inline const unsigned SCENE_GROUND_PRELOAD_BYTES[] = {167040, 0, 0};
 
 using namespace shadow_data_gen_hpp_detail;

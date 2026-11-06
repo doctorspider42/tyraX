@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "detmath.hpp"  // the star table is committed (scene_data) - same bits on every OS
+
 namespace starfield {
 
 namespace {
@@ -34,7 +36,7 @@ float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : 
 // "pixels" rather than as stars, and real spectral colour is nearly free here.
 void blackBody(float kelvin, float& r, float& g, float& b) {
     const float t = kelvin / 100.0f;
-    auto lg = [](float v) { return std::log(v < 1e-3f ? 1e-3f : v); };
+    auto lg = [](float v) { return detmath::log(v < 1e-3f ? 1e-3f : v); };
     if (t <= 66.0f) {
         r = 1.0f;
         g = clampf((99.4708025861f * lg(t) - 161.1195681661f) / 255.0f, 0.0f, 1.0f);
@@ -43,9 +45,9 @@ void blackBody(float kelvin, float& r, float& g, float& b) {
                 : clampf((138.5177312231f * lg(t - 10.0f) - 305.0447927307f) / 255.0f,
                          0.0f, 1.0f);
     } else {
-        r = clampf(329.698727446f * std::pow(t - 60.0f, -0.1332047592f) / 255.0f,
+        r = clampf(329.698727446f * detmath::pow(t - 60.0f, -0.1332047592f) / 255.0f,
                    0.0f, 1.0f);
-        g = clampf(288.1221695283f * std::pow(t - 60.0f, -0.0755148492f) / 255.0f,
+        g = clampf(288.1221695283f * detmath::pow(t - 60.0f, -0.0755148492f) / 255.0f,
                    0.0f, 1.0f);
         b = 1.0f;
     }
@@ -70,7 +72,7 @@ std::vector<Star> generate(const Params& p) {
     const float band = clampf(p.milkyWay, 0.0f, 1.0f);
     const float tilt = p.milkyWayTilt * kPi / 180.0f;
     // The band's pole: tilting the pole is what tilts the band.
-    const float pole[3] = {0.0f, std::cos(tilt), std::sin(tilt)};
+    const float pole[3] = {0.0f, detmath::cos(tilt), detmath::sin(tilt)};
 
     for (int i = 0; i < n; ++i) {
         Star s{};
@@ -89,20 +91,20 @@ std::vector<Star> generate(const Params& p) {
             // Concentrate the pole-relative latitude near 0 with a power
             // curve; the exponent is what makes it a band and not a smear.
             const float u = rand01(p.seed, i, 3) * 2.0f - 1.0f;
-            const float lat = u * std::pow(std::fabs(u), 2.0f) * 0.45f;
+            const float lat = u * detmath::pow(std::fabs(u), 2.0f) * 0.45f;
             // Rebuild the direction in the band's own frame, then rotate it
             // out by the pole's tilt.
             const float rr = std::sqrt(clampf(1.0f - lat * lat, 0.0f, 1.0f));
-            const float bx = rr * std::cos(az), by = lat, bz = rr * std::sin(az);
+            const float bx = rr * detmath::cos(az), by = lat, bz = rr * detmath::sin(az);
             // Frame: pole is "up"; x stays x, and y/z rotate with the tilt.
             s.dir[0] = bx;
             s.dir[1] = by * pole[1] - bz * pole[2];
             s.dir[2] = by * pole[2] + bz * pole[1];
         } else {
             const float rr = std::sqrt(clampf(1.0f - z * z, 0.0f, 1.0f));
-            s.dir[0] = rr * std::cos(az);
+            s.dir[0] = rr * detmath::cos(az);
             s.dir[1] = z;
-            s.dir[2] = rr * std::sin(az);
+            s.dir[2] = rr * detmath::sin(az);
         }
         // Normalize defensively - everything downstream scales by the dome
         // radius and a short vector would put a star inside the scene.
@@ -120,7 +122,7 @@ std::vector<Star> generate(const Params& p) {
         // flattens it to "every star equal".
         const float u = rand01(p.seed, i, 4);
         const float exponent = 1.0f + spread * 5.0f;
-        float bright = std::pow(u, exponent);
+        float bright = detmath::pow(u, exponent);
         bright = clampf(0.18f + 0.82f * bright, 0.0f, 1.0f);
 
         // Tier by brightness: 0 is the handful of bright ones.

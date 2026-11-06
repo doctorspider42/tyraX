@@ -125,7 +125,7 @@ spRender   StaPipCore::render, first instruction to last, summed over the frame
                settings, useTexture(), the clamped-wrap drain
     spProg     ensureProgramSet + clearLastProgramName
     spLight    the world bounding sphere, pickDynLight, setBagLight
-    spBlss     the BLSS bag-proxy feed
+    spBlss     the BLSS bag-proxy feed (removed with the neural upscaler)
     spObjData  sendObjectData + setClipperMVP + setInfo
   dispatch   the shipped bracket, of which packet_included, dma_included and
              vif_wait_included were already split out, plus one hole that was

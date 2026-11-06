@@ -5,6 +5,7 @@
   "template": "fpp",
   "projectId": "7aee916c9a1877f4",
   "settings": {
+    "framePipeline": true,
     "videoSystem": "auto",
     "displayMode": "interlaced",
     "widescreen": false,

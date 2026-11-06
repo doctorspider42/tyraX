@@ -74,6 +74,7 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::AmbienceName:
             return "ambience preset name (see context)";
         case FlowParamKind::LayerName: return "streaming layer name (see context)";
+        case FlowParamKind::SoundBankName: return "sound bank name (see context)";
         case FlowParamKind::AreaName:
             return "Area object name (an invisible volume; see context)";
         case FlowParamKind::SequenceName: return "sequence name (see context)";
@@ -105,6 +106,9 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::ScreenFxName:
             return "custom screen-effect key, \"custom:<file-stem>\" (only "
                    "effects PLACED in the screen stack can be driven)";
+        case FlowParamKind::ScriptMethod:
+            return "\"Class.method\" of an object script method registered with "
+                   "TYRA_SCRIPT_METHOD(Class, method) in src/scripts";
         default: return "";
     }
 }
@@ -117,7 +121,19 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
     // pins
     std::vector<std::string> in, out;
     if (t.trigger) {
-        out.push_back("exec");
+        // A trigger may have several outputs (On Fact Changed: changed /
+        // became true / became false) - reachable only through "fpin", so
+        // they are named here like a flow node's.
+        const int eo = flowExecOutCount(t);
+        if (eo > 1) {
+            std::string s = "exec out pins";
+            for (int e = 0; e < eo; ++e)
+                s += std::string(e ? ", " : " ") + std::to_string(e) + "=" +
+                     flowExecOutLabel(t, e);
+            out.push_back(s);
+        } else {
+            out.push_back("exec");
+        }
     } else if (!t.pure) {
         if (t.execInCount > 1) {
             // A merged node's branches are only reachable through a link's
@@ -169,7 +185,9 @@ static std::string nodeCatalogLine(const FlowNodeType& t) {
     if (t.textIn) in.push_back("text (accepts several links)");
     if (t.textOut) out.push_back("text");
     if (t.numIn)
-        in.push_back(flowNumFolds(t)     ? "number (accepts several links)"
+        in.push_back(flowNumFolds(t)  ? "number (accepts several links)"
+                     : t.numInExtra ? "number (the value operated on; the "
+                                      "params stay as set)"
                      : t.numCount > 0 ? "number (overrides num[0])"
                                       : "number");
     if (t.numOut) out.push_back("number");
@@ -387,6 +405,8 @@ std::string systemPrompt(const Project& p, int ownerIndex,
     }
     ctxLine("Music tracks", nameList(p.music, id));
     ctxLine("Sound effects", nameList(p.sounds, id));
+    ctxLine("Sound banks",
+            nameList(p.soundBanks, [](const Project::SoundBank& b) { return b.name; }));
     ctxLine("Save values",
             nameList(p.saveValues, [](const SaveValue& v) { return v.name; }));
     ctxLine("Save texts",

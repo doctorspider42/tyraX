@@ -15,7 +15,11 @@ command). This file is about the build itself.
 
 ## Build it
 
-Needs Docker Desktop running. From the repo root (or this folder):
+Uses the editor's native PS2DEV v2.0.0 toolchain when it is installed
+(`%LOCALAPPDATA%\tyra-editor\toolchain\ps2dev`, run through WSL like a game
+build; `~/.config/tyra-editor/toolchain/ps2dev` on Linux and macOS), else
+Docker. `-Docker` / `--docker` forces the image. From the repo root (or this
+folder):
 
 ```powershell
 tools/ps2link/build.ps1
@@ -113,14 +117,15 @@ build in — ps2link is a standalone program. The ELF is gitignored; the patch i
 what this repo maintains.
 
 You can tell our build apart on the console: the boot screen reads
-**“Welcome to TyraX ps2link r6 (USB keyboard + mouse)”** instead of
+**“Welcome to TyraX ps2link r8 (USB keyboard + mouse)”** instead of
 “Welcome to ps2link”. The `r<n>` is bumped whenever the patch changes console
 behaviour — r1 was USB HID only, r2 added the hang/leak fixes, r3 silences the
 SPU2, r4 makes stopping a running game work, r5 takes stdio out of every error
 path (a `printf()` after a restart faults on newlib's cleared stdout lock and
 kills the EE instead of reporting), r6 stops rebooting the IOP twice per Stop —
-which is what made the console need a power cycle after one — so a memory card
-can be identified without guessing.
+which is what made the console need a power cycle after one. r7 quiesces the
+hardware before drawing the reset screen; r8 establishes SPU2 bus mapping and
+access timing before silencing, so a memory card can be identified without guessing.
 
 ## What the patch does
 
@@ -305,7 +310,9 @@ Keep the patch LF-only (`.gitattributes` enforces it): it is applied to a Unix
 checkout inside a Linux container, and a CRLF patch fails `git apply`. To move
 to a newer upstream, bump the commit in **both** `build.ps1` and `build.sh` and
 re-generate the patch against the new tree. If a change alters console
-behaviour, bump the `r<n>` in the banner and update
+behaviour, bump `TYRAX_REV` in the patch's `ee/Makefile` hunk — the only place
+the number lives; the banner, both scripts and docker/Dockerfile read it — and
+update
 [docs/ps2link-setup.md](../../docs/ps2link-setup.md) — that banner is how anyone
 tells builds apart, including which fixes a flashed card already has.
 

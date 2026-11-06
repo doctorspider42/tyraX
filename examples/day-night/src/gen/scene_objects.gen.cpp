@@ -85,6 +85,11 @@ const unsigned long long SCENE_1_OBJECT_ID_HASHES[12] = {0x1466ac1370fe81edULL, 
 const unsigned long long SCENE_2_OBJECT_ID_HASHES[12] = {0x582a85e429daf4b3ULL, 0x20dc98e05e9a453bULL, 0x623e30a3a2213a3fULL, 0xbb6d4d0bb5dafb32ULL, 0x1fd872ba4f8eec01ULL, 0x24ccb2c3381fb6c2ULL, 0xeaf0266410187b0dULL, 0x6c4cb2a80c0cfcf2ULL, 0xe14b4c51ddf1efa8ULL, 0x572dbedea4a25f5aULL, 0x5ed6e3205ce8acbdULL, 0xa24ef0b12a81ecadULL};
 const unsigned long long SCENE_3_OBJECT_ID_HASHES[12] = {0xdb9f027147ab74d6ULL, 0x781c03d43a0cb9bfULL, 0x19db00c08d9b92deULL, 0x0b638c8c88ae0625ULL, 0xd35f99abd969329aULL, 0xebda32d0e1e07e33ULL, 0xcb8e367ac418d1dcULL, 0xa9b77a40b9c0f18aULL, 0x74827ee8fbeb5a74ULL, 0x1498ec4e8560c990ULL, 0xf3d8c101b4977edbULL, 0x6ed5596798ad8006ULL};
 const unsigned long long SCENE_4_OBJECT_ID_HASHES[12] = {0xbf716991ac55a276ULL, 0xb2fedfbf77a8dc52ULL, 0x0ef8961d5bb1e4deULL, 0x6b0175b8f1901dbeULL, 0x5c29f93c9a86a8bfULL, 0x2919db6389a30b1eULL, 0x4ac27124ee1dfb7cULL, 0x7fe86761ecab0c74ULL, 0xda27cb0e2bfd82f8ULL, 0xf28ca569c242ed7aULL, 0x20dde7cd505e4fd3ULL, 0x7fa63357332d416aULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[12] = {0,1,1,1,1,1,1,1,1,1,1,1};
+const unsigned char SCENE_1_STATIC_COLLIDERS[12] = {0,1,1,1,1,1,1,1,1,1,1,1};
+const unsigned char SCENE_2_STATIC_COLLIDERS[12] = {0,1,1,1,1,1,1,1,1,1,1,1};
+const unsigned char SCENE_3_STATIC_COLLIDERS[12] = {0,1,1,1,1,1,1,1,1,1,1,1};
+const unsigned char SCENE_4_STATIC_COLLIDERS[12] = {0,1,1,1,1,1,1,1,1,1,1,1};
 
 }  // namespace Day_night
 

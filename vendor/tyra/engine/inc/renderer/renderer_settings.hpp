@@ -90,6 +90,8 @@ struct RendererOptions {
    * when the game says so.
    */
   bool envMap = true;
+  /** Modified by TyraX: see EngineOptions::envMapDoubleBuffered. */
+  bool envMapDoubleBuffered = false;
 
   /** Reserve the camera-feed target (another 128 KB) - texture feeds. */
   bool camFeed = true;
@@ -216,7 +218,7 @@ class RendererSettings {
   }
 
   /**
-   * Modified by TyraX (BLSS neural upscaler, docs/neural-upscaler.md):
+   * Modified by TyraX (BLSS neural upscaler, docs/upscaler.md):
    * the 3D pass' RASTER scale divisor. 1,1 (the default) means the 3D scene
    * rasterises straight into the display buffer; 2,2 or 1,2 means it
    * rasterises into RendererCoreBlss' low-res target and the reconstruction

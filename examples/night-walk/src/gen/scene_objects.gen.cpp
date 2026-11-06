@@ -25,6 +25,7 @@ const SceneObjectData SCENE_0_OBJECTS[16] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {16};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[16] = {0xf63c023d3cd45ba9ULL, 0xa4d286757373f645ULL, 0xbfa6017582e3712dULL, 0xbfb0017582ebc5b2ULL, 0xbfac017582e7dcdbULL, 0xb6fed8757dfc80afULL, 0xb702d8757e006986ULL, 0xb6f8d8757df81501ULL, 0xb6fcd8757dfbfdd8ULL, 0xb6f2d8757df3a953ULL, 0xb6f4d8757df42c2aULL, 0xade9af7578b9ee7aULL, 0xade5af7578b605a3ULL, 0xade1af7578b21cccULL, 0xaddfaf7578b199f5ULL, 0x9252fc868692fc53ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[16] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
 
 }  // namespace Night_walk
 

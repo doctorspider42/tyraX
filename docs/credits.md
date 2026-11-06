@@ -5,7 +5,7 @@ images and page breaks that scroll up over music, with a skip button and
 somewhere to go when it is over. Rolls are project-wide data (like Ambience
 presets or Loading Screens), authored in **Tools > Credits Editor**.
 
-![The Credits Editor with blocks, visual settings, playback controls and the baked-page preview.](img/credits-editor.png)
+![The Credits Editor: the blocks as the roll reads, the baked-page preview with its timeline, and the selected block.](img/credits-editor.png)
 
 A roll **owns the screen and the pad** while it plays. Gameplay, scripts and
 flow graphs are frozen, nothing renders behind it, and when it ends — or the
@@ -153,19 +153,36 @@ scrolls in the editor is what scrolls in the game.
 
 ## The window
 
-Settings on top, the preview below, and a **splitter between them** — drag it
-to trade one for the other (writing a roll wants the block list tall; judging
-its timing wants the preview big). The split is remembered per machine, not per
-project, like the Material Editor's.
+The rolls are pills across the top, each with its running time (or `cards`);
+**+** starts a new one, and **...** holds Name, *Import text...*, *Duplicate*
+and *Delete roll*. Beside them, the roll says **who starts it** — "Started by
+the CREDITS row of the title menu" or "Play Credits in end-trigger"; click it
+to open that menu or graph. A roll nothing starts says *Nothing starts this
+roll* in amber: it can never be seen.
 
-Beside the preview is the **Jump to** list: every block with the moment it is
-centred on screen, so clicking `1:04  Music: Wendy Carlos` scrubs straight to
-the frame that answers "does that row look right". It selects the block too,
-and anything past the page budget is listed in amber (it is not baked and never
-shows).
+Below are three columns:
+
+- **Blocks** (left) — the roll written the way it reads: the moment each block
+  is centred on screen, headings in the heading colour, roles right-aligned
+  against their names, images with their width, gaps as dotted spacers, page
+  breaks as a rule. Clicking a block scrubs the preview to it and opens it in
+  the *Block* tab; anything past the page budget is amber (not baked, never
+  shows). The source file and *Re-import* sit on top with the reminder that an
+  import **replaces all blocks**; the add buttons (*+ Heading*, *+ Role /
+  name*, *+ Line*, *+ Image*, *+ Gap*, *+ Page break*) insert after the
+  selection. The splitter beside the list is remembered per machine.
+- **Preview** (centre) — the baked pages at the largest size that fits,
+  opening on the first block rather than on the empty start delay. Under it the
+  transport (play, rewind, time, pages and VRAM) and a **timeline**: one tick
+  per block coloured by kind, the start delay and end hold shaded; click or
+  drag it to scrub.
+- **Look / Playback / Block** (right) — colours, type, page and backdrop;
+  motion (*Scroll up / Cards*, speed, delay, hold, fades), music, skipping and
+  **When it ends**, always on the Playback tab; and the selected block's own
+  fields with *Move up / Move down / Delete*.
 
 Rolls are project-wide data, so an edit here is **not** part of undo/redo — but
-it is an ordinary unsaved edit: the toolbar save icon lights, closing the
+it is an ordinary unsaved edit: the top bar counts it (**1 unsaved**), closing the
 project asks, and the bytes reach disk on Ctrl+S. (Until TyraX 1.0.1 this panel
 wrote the whole project on every widget instead, which left the icon dark and
 made a roll edit invisible to a live session.)

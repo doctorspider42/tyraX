@@ -7,7 +7,14 @@ piece of world state — `world.power.state`, `characters.marta.trust`,
 flow graphs, combined into reusable conditions, reacted to by rules, and
 watched live while the game runs.
 
-![The World Facts catalog: nested names on the left and the selected fact's definition on the right.](img/world-facts.png)
+![The World Facts catalog: the nested names with their persistence and start value on the left, the selected fact's definition and who uses it on the right.](img/world-facts.png)
+
+*Tools > World Facts* opens the window in front (also when its tab is docked
+behind the Viewport). Its top row is the five tabs with their counts —
+*Catalog 17, Queries 5, Rules 5, Scenarios 4, Blackboard* — the connection
+state once for the whole window ("No game attached · showing start values", or
+green *Live*), and the validation chip (*1 note*, red *N problems*) that opens
+the list described under [Validation](#validation).
 
 It is the declared half of what the **Variables** flow nodes already do
 undeclared. Those keep working and are a separate namespace: a variable is a
@@ -39,6 +46,26 @@ scrolling. There is no length limit — the field writes into the string itself,
 so a paragraph pasted in or written by an example's build script survives
 being opened for editing (a fixed-size field would have truncated it silently,
 the worst way for a catalog to lose a sentence).
+
+The catalog is a list and a detail side by side. The list is a table: the
+type as a coloured mark (`?` yes/no, `#` whole number, `.0` number, `≡`
+one-of-several, `xyz` position), the name, a **Keeps** pill (Save game,
+Checkpoint, Session, Profile, or Computed) and the **Starts** value — or the
+live value, under **Now**, while a game is attached. Chips above it filter by
+persistence ("what survives a save?"), the box filters by name or meaning,
+and **+ Fact** is the window's one primary button.
+
+The detail reads top-down the way the fact is understood: the name (a
+breadcrumb of its groups above it), *What it means* right under it, then
+label-left rows — **Type**, **Starts at**, **Keeps its value** with its
+consequence spelled out in one line underneath, **Owned by**, and the
+*Computed from a query* switch. A wide window shows the choices as segmented
+controls, a narrow docked one as dropdowns. **Used by** is always open: every
+query, rule, scenario, computed fact and graph node that names the fact,
+colour-coded by kind, with *how* it uses it — `reads · trust >= 5`,
+`writes · +5`, `sets 8` — and a click on a query, rule or scenario jumps to it.
+*Delete fact* sits apart at the bottom and asks first, saying how many places
+still reference the fact.
 
 Names are hierarchical by convention, and the catalog list **nests on the
 dots**: `characters.marta.trust` sits under `characters` > `marta`. That is
@@ -158,12 +185,22 @@ same `CanEnterBasement` gates a door, a dialogue line, an NPC's behaviour and
 a flow graph; without it that condition is copied into four graphs and three
 of them go stale the first time the design moves.
 
+The *Queries* tab is the catalog's shape again: the list on the left (a filter,
+**+ Query**, and each query with a green or red dot for what it answers right
+now), the selected query on the right — its name, what it means, the
+condition, *Why?* and *Used by* (the queries, rules and computed facts that
+name it, each a click away). A group row reads as a keyword (*ALL of*) with
+its rows hanging under it on a guide line; in a narrow window a comparison
+puts its operator and value on a second line rather than cutting the fact's
+name short.
+
 An empty ALL is true and an empty ANY is false — the same arithmetic in the
 editor and on the console, so the preview cannot disagree with the game.
 
-**Why?** Under every query and rule is a live explanation: the condition tree
-with the value each leaf actually read, and the child that decided each group
-marked. It reads the running game when one is attached and the catalog's
+**Why?** Under every query and rule is a live explanation: *true right now* /
+*false right now*, then the condition tree with the value each leaf actually
+read, a green or red dot per row, and the child that decided each group in
+full ink (the others dim). It reads the running game when one is attached and the catalog's
 defaults otherwise, so it answers with the game off. That diagnostic is why a
 condition here is a tree rather than an expression string — the same structure
 compiles, evaluates in the editor, and explains itself.
@@ -191,8 +228,13 @@ to it: the example puts *PowerSettles* (which brings a tripped plant back)
 above *AlarmWhileOverloaded* (which re-asserts the alarm every frame the plant
 is tripped), so the frame the plant recovers, the alarm rule already sees the
 new state and does not raise it one more time. Reversed, the alarm would
-flicker on for a frame after every recovery. Drag a rule up or down when its
-answer depends on another's.
+flicker on for a frame after every recovery. Drag a rule up or down in the
+*Rules* list when its answer depends on another's (the list says so: *Runs top
+to bottom*; reordering is off while the list is filtered). Each row shows how
+it runs (*on true*, *every frame*, *once*, or *off*) and a green dot while its
+condition holds; the rule itself has an *Enabled* switch, *Runs* as a
+segmented choice with its consequence in one line under it, *When*, *Then*
+and *Why?*.
 
 The editor detects **reaction cycles** (rule A writes what rule B reads, and
 back) and reports the chain as a warning. It settles rather than hangs, but it
@@ -215,6 +257,12 @@ It reads the running game through the **Live Debugger** channel
 preference on. With nothing attached it shows the catalog's own defaults,
 which is still what a new game would start at.
 
+The tab is one table: the fact with its type mark, its value
+(green when it comes from the running game), what it keeps, an **Override**
+switch with the held value next to it, and who changed it last. A filter
+narrows it, and the held overrides are counted above it with *Clear all
+overrides*.
+
 **Override** holds a fact at a value. It is re-asserted every frame until
 cleared, not applied once — a fact a rule rewrites continuously would
 otherwise flicker back before anyone could see it.
@@ -230,11 +278,15 @@ A **scenario** is a saved set of fact values — *"generator repaired, Marta
 saved, player has no key"*. Applying one pushes it into the running game as
 blackboard overrides, so a situation twenty minutes deep can be looked at now.
 *Capture from the running game* is the fast way to make one: play into the
-situation once and press it.
+situation once and press it. The *Scenarios* tab lists each with its number of
+values; the selected one shows **Apply to the running game** (with why it is
+unavailable when no debug build is running) and its values as a table - each
+fact with its type mark and a value widget of its type.
 
 ## Validation
 
-The window always shows what it can know without running the game: duplicate
+The window always knows what it can without running the game — the chip at
+the end of its tab row counts it and opens the list: duplicate
 or empty names, writes to computed facts, unknown references, enum defaults
 outside their option list, scene-scoped facts asking to be saved, query cycles
 and rule reaction cycles. Errors are worth fixing before a build; notes are

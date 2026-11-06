@@ -14,18 +14,26 @@
 // end with an explicit `.text`: COFF has no `.previous`.
 #ifdef _WIN32
 #define CHARGEN_KIT_SECTION ".section .rdata,\"dr\"\n"
+#elif defined(__APPLE__)
+#define CHARGEN_KIT_SECTION ".section __TEXT,__const\n"
 #else
 #define CHARGEN_KIT_SECTION ".section .rodata\n"
 #endif
 
+#define KIT_SYMBOL_IMPL(prefix, name) prefix##name
+#define KIT_SYMBOL_JOIN(prefix, name) KIT_SYMBOL_IMPL(prefix, name)
+#define KIT_STRING_IMPL(name) #name
+#define KIT_STRING(name) KIT_STRING_IMPL(name)
+#define KIT_SYMBOL(name) KIT_STRING(KIT_SYMBOL_JOIN(__USER_LABEL_PREFIX__, name))
+
 __asm__(
     CHARGEN_KIT_SECTION
     ".balign 16\n"
-    ".global tyrax_chargen_kit_begin\n"
-    "tyrax_chargen_kit_begin:\n"
+    ".global " KIT_SYMBOL(tyrax_chargen_kit_begin) "\n"
+    KIT_SYMBOL(tyrax_chargen_kit_begin) ":\n"
     ".incbin \"" CHARGEN_KIT_PATH "\"\n"
-    ".global tyrax_chargen_kit_end\n"
-    "tyrax_chargen_kit_end:\n"
+    ".global " KIT_SYMBOL(tyrax_chargen_kit_end) "\n"
+    KIT_SYMBOL(tyrax_chargen_kit_end) ":\n"
     ".byte 0\n"
     ".text\n");
 

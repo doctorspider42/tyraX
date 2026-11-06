@@ -39,6 +39,19 @@ class AudioAdpcm {
   audsrv_adpcm_t* load(const std::string& t_path);
 
   /**
+   * Free a sample loaded by load() and null the pointer.
+   *
+   * Added by TyraX for sound residency (docs/sound.md, "SPU2 sample RAM"):
+   * the forked audsrv reuses freed SPU2 RAM wherever it lies, so the next
+   * load may overwrite this sample at once. Every channel this class last
+   * started it on is first keyed onto a short silent sample - audsrv has no
+   * key-off, and a voice still reading the RAM (a looping sample keeps
+   * running even at volume 0) would play whatever lands there next. Voices
+   * playing other samples are untouched.
+   */
+  void unload(audsrv_adpcm_t*& t_adpcm);
+
+  /**
    * Frees up all memory taken by samples, and stops all voices from
    * being played.
    */
@@ -136,6 +149,12 @@ class AudioAdpcm {
 
  private:
   void initAUDSRV();
+  void noteVoice(const int& t_ch, audsrv_adpcm_t* t_adpcm);
+
+  // What each channel was last started with (unload stops only those), and
+  // the silent sample it stops them with - loaded on first use.
+  audsrv_adpcm_t* voiceSample[AUDSRV_ADPCM_CHANNELS] = {};
+  audsrv_adpcm_t* silence = nullptr;
 };
 
 }  // namespace Tyra

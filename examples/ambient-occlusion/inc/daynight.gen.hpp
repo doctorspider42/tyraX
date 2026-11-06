@@ -12,6 +12,7 @@ namespace daynight {
 // consumer reads these instead of the baked SCENE_* constants while
 // active(scene) is true.
 inline float g_hour = 12.0F;
+inline bool g_paused = false;
 inline float g_sun[3] = {0.0F, 1.0F, 0.0F};
 inline float g_moon[3] = {0.0F, -1.0F, 0.0F};
 inline float g_light[3] = {0.0F, 1.0F, 0.0F};
@@ -246,7 +247,11 @@ inline void evaluate(int scene, float hour) {
 
 // Called on every scene load: park the clock at the authored hour so
 // the first frame of a scene matches what the editor previewed.
+// Scripts can park the cycle without changing physics dt.
+inline void setHour(float hour) { g_hour = wrap24(hour); }
+inline void setPaused(bool paused) { g_paused = paused; }
 inline void reset(int scene) {
+  g_paused = false;
   if (!active(scene)) return;
   evaluate(scene, DAYCYCLE_STARTS[scene]);
 }
@@ -256,7 +261,7 @@ inline void reset(int scene) {
 inline void tick(int scene, float dt) {
   if (!active(scene)) return;
   const float len = DAYCYCLE_DAYLENS[scene];
-  if (len > 0.001F) g_hour = wrap24(g_hour + dt * (24.0F / len));
+  if (!g_paused && len > 0.001F) g_hour = wrap24(g_hour + dt * (24.0F / len));
   evaluate(scene, g_hour);
 }
 

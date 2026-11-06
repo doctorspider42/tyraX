@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -145,6 +146,9 @@ std::string projectNamespace(const Project& p);
 // Content of a new user script created from the "New script..." action.
 std::string scriptStub(const Project& p, const std::string& className,
                        const std::string& fileName);
+// The same for a global script (TYRA_SCRIPT: one instance, every frame).
+std::string globalScriptStub(const Project& p, const std::string& className,
+                             const std::string& fileName);
 
 // The Docker volume holding the COMPILED engine, named after a hash of the
 // engine source path so projects built from one checkout share it and parallel
@@ -209,6 +213,26 @@ struct SaveSizeInfo {
 };
 SaveSizeInfo saveSizeInfo(const Project& p);
 
+// Where each sound effect lives in SPU2 sample RAM (docs/sound.md, "SPU2
+// sample RAM"), as Project::sounds indices. The game keeps loaded the union of
+// `shared`, the running scene's base set, the bank of every layer of it that
+// is resident and every sound bank a graph has loaded; the rest are freed.
+struct SoundResidency {
+    std::vector<int> shared;                          // boot to exit
+    std::vector<std::vector<int>> scene;              // with the scene
+    std::vector<std::vector<std::vector<int>>> layer; // [scene][layer]: with the layer
+    std::vector<std::vector<int>> bank;               // per Project::soundBanks entry
+};
+SoundResidency soundResidency(const Project& p);
+
+// The most of scene `si`'s sounds that can be loaded at once, on top of the
+// shared ones, as a set of slots: the base set, every layer a script may load
+// or that starts loaded, the heaviest group of auto-streamed zones close
+// enough to be resident together (the two heaviest with two players), and
+// every bank the scene's graphs load. An estimate, pessimistic by design.
+std::vector<int> soundWorstCase(const Project& p, const SoundResidency& r, int si,
+                                const std::vector<uintmax_t>& bytes);
+
 // The game's save directory on the memory card ("/TYRA-<NAME>").
 std::string saveDirName(const Project& p);
 
@@ -225,5 +249,23 @@ std::filesystem::path nativePath(const std::string& relativePath);
 // adding, so an unchanged file is never rewritten. See the definition on why
 // this one file is merged rather than written once.
 std::string vscodeExtensionsMerged(const std::string& existing);
+
+// The script debugger (docs/script-debugger.md): on for a debug build with
+// ProjectSettings::scriptDebugger set. Gates the generated BREAK handler, the
+// unoptimised script objects, PINE on launch and the editor's GDB server.
+bool scriptDebugOn(const Project& p);
+// The TCP port GDB connects to for this project (the WSL relay's on Windows,
+// whose editor side is port + 1). Stable per project directory.
+int scriptDebugPort(const Project& p);
+
+// The VS Code extension's id - one place for codegen (extensions.json) and the
+// editor's install step.
+// Published by the DoctorSpider publisher (the `tyrax` publisher ID is taken).
+inline constexpr const char* kVsCodeExtensionId = "doctorspider.tyrax";
+// Ids it was packaged under before the Marketplace listing. Never published;
+// still installed from the bundled .vsix on machines that ran an older editor
+// (tyrax.tyrax-flownode up to 0.4.x, tyrax.tyrax on pre-release 2.8.0 builds).
+inline constexpr const char* kVsCodeLegacyExtensionIds[] = {"tyrax.tyrax-flownode",
+                                                            "tyrax.tyrax"};
 
 }  // namespace templates

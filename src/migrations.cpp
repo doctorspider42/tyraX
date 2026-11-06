@@ -74,6 +74,8 @@ static bool applyVehControls40(Project& p, std::string& err) {
 }
 
 const std::vector<Migration>& all() {
+    // v96 receiver policy is additive: missing values mean All and missing
+    // scene overrides inherit. No transformation or automatic resave is needed.
     // Format history. There is no v0 -> v1 step and there cannot be one: the
     // reader no longer parses any pre-v1 shape, so such a file is refused at
     // the version::kMinFormatVersion gate before a step could see it.

@@ -48,6 +48,7 @@ struct MtlEntry {
   float reflStrength = 0.0F;
   bool reflRounded = false;
   float uvRect[4] = {0.0F, 0.0F, 1.0F, 1.0F};  // "# tyra-uvrect" (atlasing)
+  u8 textureFilter = 0;                         // "# tyra-filter"
 };
 
 /** newmtl/Kd/Ke/map_Kd/refl from one .mtl buffer (map_Kd/refl: last token of the
@@ -111,6 +112,13 @@ void parseMtl(const std::string& text, std::map<std::string, MtlEntry>& out,
       if (what == "tyra-uvrect") {
         MtlEntry& m = out[current];
         ss >> m.uvRect[0] >> m.uvRect[1] >> m.uvRect[2] >> m.uvRect[3];
+      } else if (what == "tyra-filter") {
+        // Modified by TyraX: "# tyra-filter pixel|closeup" - the editor's
+        // texture bake writes it after a map_Kd whose texture is not smooth.
+        std::string mode;
+        ss >> mode;
+        out[current].textureFilter =
+            mode == "pixel" ? 1 : mode == "closeup" ? 2 : 0;
       }
     }
   }
@@ -141,6 +149,7 @@ std::vector<LeanMtlMaterial> LeanObjLoader::loadMtl(
     m.reflStrength = materials[name].reflStrength;
     m.reflRounded = materials[name].reflRounded;
     for (int i = 0; i < 4; ++i) m.uvRect[i] = materials[name].uvRect[i];
+    m.textureFilter = materials[name].textureFilter;
     result.push_back(m);
   }
   return result;
@@ -223,6 +232,7 @@ std::unique_ptr<LeanObjMesh> LeanObjLoader::load(
       m.reflStrength = mtl->second.reflStrength;
       m.reflRounded = mtl->second.reflRounded;
       for (int i = 0; i < 4; ++i) m.uvRect[i] = mtl->second.uvRect[i];
+      m.textureFilter = mtl->second.textureFilter;
     }
     result->materials.push_back(m);
     materialIndex[name] = (int)result->materials.size() - 1;

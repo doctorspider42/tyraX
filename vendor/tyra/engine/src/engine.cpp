@@ -37,10 +37,10 @@ void Engine::run(Game* t_game) {
 
 void Engine::realLoop() {
   HardwareTrace::beginFrame();
-  { HardwareTrace::Scope trace("Pad"); pad.update(); }
+  { HardwareTrace::Scope trace("Pad", HardwareTrace::Kind::Span, false); pad.update(); }
   if (kbdMouse.isEnabled()) kbdMouse.update();
-  { HardwareTrace::Scope trace("Game"); game->loop(); }
-  { HardwareTrace::Scope trace("Info"); info.update(); }
+  { HardwareTrace::Scope trace("Game", HardwareTrace::Kind::Span, false); game->loop(); }
+  { HardwareTrace::Scope trace("Info", HardwareTrace::Kind::Span, false); info.update(); }
   // One compare per frame unless the guard has actually dropped something.
   SifRpcGuard::report();
   HardwareTrace::endFrame();
@@ -92,10 +92,12 @@ void Engine::initAll(const EngineOptions& options) {
   rendererOptions.colorDepth = options.colorDepth;
   rendererOptions.dither = options.dither;
   rendererOptions.envMap = options.envMapTarget;
+  rendererOptions.envMapDoubleBuffered = options.envMapDoubleBuffered;
   rendererOptions.camFeed = options.camFeedTarget;
   rendererOptions.tripleBuffering = options.tripleBuffering;
   renderer.init(rendererOptions);
-  banner.show(&renderer);
+  // Modified by TyraX: the logo can be switched off (EngineOptions).
+  if (options.showBanner) banner.show(&renderer);
   audio.init();
   pad.init();
   if (withKbdMouse) kbdMouse.init(underPs2Link);

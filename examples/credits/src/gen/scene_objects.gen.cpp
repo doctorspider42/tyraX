@@ -10,6 +10,7 @@ const SceneObjectData SCENE_0_OBJECTS[1] = {
 
 const int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {1};
 const unsigned long long SCENE_0_OBJECT_ID_HASHES[1] = {0xae9e9682f36136b8ULL};
+const unsigned char SCENE_0_STATIC_COLLIDERS[1] = {0};
 
 }  // namespace Credits
 

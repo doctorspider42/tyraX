@@ -37,6 +37,7 @@ struct Release {
     std::string assetUrl;   // this platform's package, "" when there is none
     std::string assetName;
     long long assetBytes = 0;
+    std::string published;  // "2026-10-16" (published_at's date), "" if absent
 };
 
 // Which asset of a release THIS build installs, matched by file-name suffix
@@ -80,8 +81,9 @@ void cancel();
 
 // HOW THIS COPY OF TYRAX GOT ONTO THE MACHINE - the question the install half
 // of the feature turns on, because only some of the answers can be updated
-// from inside the editor. On Linux it is one word in a `.tyrax-package` marker
-// file at the install root, written by installer/build-package.sh; its absence
+// from inside the editor. On Linux and macOS it is one word in a
+// `.tyrax-package` marker file at the install root (TyraX.app/Contents/
+// Resources on macOS), written by installer/stage-tree.sh; its absence
 // means a development checkout, which is the right answer for a repo built
 // with ./build.sh.
 enum class InstallKind {
@@ -90,6 +92,7 @@ enum class InstallKind {
     Tarball,  // the Linux tar.gz - updates itself by unpacking over its own tree
     Deb,      // /opt/tyrax owned by dpkg - the package manager's job
     Rpm,      // /opt/tyrax owned by rpm  - the package manager's job
+    MacApp,   // TyraX.app from the .dmg - replaces the whole bundle, relaunches
 };
 InstallKind installKind();
 

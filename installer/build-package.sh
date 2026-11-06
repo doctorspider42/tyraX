@@ -23,22 +23,15 @@
 # tarball install and says so for the other two: see update::installKind, which
 # reads the one-word marker file staged below.
 #
-# WHY THE TREE HAS THE SHAPE IT HAS: the editor resolves the bundled engine
-# (templates.cpp: engineSourceDir), the PS2 deploy tools (runner.cpp: findTool),
-# the VS Code extension (app.cpp: installVsCodeExtension) and the VU framework
-# sources (project.cpp: editorSourceDir) RELATIVE TO ITS OWN BINARY, one
-# directory up - which in a development checkout is the repo root, because the
-# binary sits in build/. So the packaged layout reproduces that shape:
-#
-#   <root>/bin/tyrax-editor
-#   <root>/vendor/tyra/...    the engine, as sources
-#   <root>/tools/...          ps2client, the ps2link build scripts, the .vsix
-#   <root>/src/...            the nine VU framework files a project is given
-#   <root>/examples/...
-#
-# Shipping a bare binary compiles nothing: the first game build reports a
-# missing engine. If you add a new exe-relative lookup to the editor, add its
-# files to stage_tree below AND to installer/tyrax.iss in the same commit.
+# WHY THE TREE HAS THE SHAPE IT HAS: the editor resolves the bundled engine,
+# the PS2 deploy tools, the VS Code extension and the VU framework sources
+# RELATIVE TO ITS OWN BINARY, one directory up - which in a development
+# checkout is the repo root, because the binary sits in build/. The packaged
+# layout reproduces that shape. It is defined ONCE, in installer/stage-tree.sh
+# (tyrax_stage_tree), which build-macos.sh sources too; a new exe-relative
+# lookup in the editor adds its files there AND to installer/tyrax.iss in the
+# same commit. Shipping a bare binary compiles nothing: the first game build
+# reports a missing engine.
 #
 # The .deb and .rpm put that whole tree in /opt/tyrax (which both packaging
 # policies allow for a self-contained third-party application) and symlink
@@ -48,6 +41,8 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 REPO="$PWD"
+# shellcheck source=installer/stage-tree.sh
+. "$REPO/installer/stage-tree.sh"
 
 VERSION=""
 OUT_DIR=""
@@ -77,18 +72,7 @@ done
 # so `--deb` does not silently also build a tarball.
 [ "$EXPLICIT_FORMAT" = 1 ] || WANT_TAR=1
 
-editor_version() {
-    local part n out=""
-    for part in MAJOR MINOR PATCH; do
-        n="$(sed -n "s/^#define TYRAX_VERSION_$part[[:space:]]\+\([0-9]\+\)[[:space:]]*$/\1/p" \
-             "$REPO/src/version.hpp" | head -n1)"
-        [ -n "$n" ] || { echo "src/version.hpp has no TYRAX_VERSION_$part" >&2; exit 1; }
-        out="${out:+$out.}$n"
-    done
-    echo "$out"
-}
-
-[ -n "$VERSION" ] || VERSION="$(editor_version)"
+[ -n "$VERSION" ] || VERSION="$(tyrax_editor_version "$REPO")"
 case "$VERSION" in
     [0-9]*.[0-9]*.[0-9]*) ;;
     *) echo "Version must be x.y.z, got '$VERSION'" >&2; exit 1 ;;
@@ -113,84 +97,8 @@ EXE="$REPO/build/tyrax-editor"
     exit 1
 }
 
-# The nine VU framework files a project with VU scripts is handed. Exactly
-# project.cpp's kVuFrameworkFiles - the probe it locates them with is
-# src/vushader.hpp, so all nine travel or none do.
-VU_FRAMEWORK=(vuir.hpp vuir.cpp vusim.hpp vusim.cpp vugen.hpp vugen.cpp
-              vushader.hpp vushader.cpp vumain.cpp)
-
-# rsync is not assumed: a fresh container has tar and cp and little else.
-copy_tree() {  # copy_tree <src-dir> <dst-dir> <find-prune-args...>
-    local src="$1" dst="$2"; shift 2
-    mkdir -p "$dst"
-    ( cd "$src" && find . "$@" -print0 | tar --null -cf - --files-from=- ) \
-        | ( cd "$dst" && tar -xf - )
-}
-
 stage_tree() {  # stage_tree <marker word>
-    local marker="$1"
-    rm -rf "$STAGE"
-    mkdir -p "$STAGE/bin" "$STAGE/src"
-
-    install -m 0755 "$EXE" "$STAGE/bin/tyrax-editor"
-
-    # The engine the editor compiles every game against, as sources - the build
-    # container bind-mounts this directory read-only.
-    #
-    # PRUNE BY DIRECTORY HERE, NEVER BY EXTENSION, and the three below are
-    # exactly what .gitignore drops under vendor/tyra: what is not in git is
-    # build leftovers a dev checkout happens to carry, and everything else is
-    # CONTENT. This list was once "*.o -o -name '*.a' -o -name '*.elf'", which
-    # is the same intent spelled as a file type - and it silently dropped
-    # vendor/tyra/audsrv/bin/libaudsrv.a, a committed artifact of the audsrv
-    # fork that runner.cpp overlays onto the container's PS2SDK. Its two
-    # siblings (audsrv.irx, audsrv.h) matched no pattern and travelled, so the
-    # overlay's `cp a && cp b && cp c` died on the missing lib BEFORE copying
-    # the header, every game then compiled against stock PS2SDK headers, and
-    # the build ended in "'audsrv_adpcm_set_volume_and_pan' was not declared" -
-    # for everyone who installed TyraX and for nobody who built from a checkout.
-    copy_tree "$REPO/vendor/tyra" "$STAGE/vendor/tyra" \
-        \( -name .git -o -path './engine/obj' -o -path './engine/bin' \
-           -o -path './audsrv/.work' \) -prune -o -type f
-
-    copy_tree "$REPO/vendor/openvcl" "$STAGE/vendor/openvcl" \
-        \( -name .git -o -name build -o -name openvcl \) -prune -o -type f
-    copy_tree "$REPO/vendor/vclpp" "$STAGE/vendor/vclpp" \
-        \( -name .git -o -name vclpp \) -prune -o -type f
-
-    # ps2client (network deploy), the ps2link build scripts and the VS Code
-    # extension package the editor installs on request. ps2client is fetched
-    # per-OS by setup.sh, so this is the Linux build of it.
-    copy_tree "$REPO/tools" "$STAGE/tools" \
-        \( -path './ps2link/work' -o -name '*.o' -o -name '*.a' \) -prune -o -type f
-
-    local f
-    for f in "${VU_FRAMEWORK[@]}"; do
-        install -m 0644 "$REPO/src/$f" "$STAGE/src/$f"
-    done
-
-    # The attribution a distributed build carries (LICENSE-EXCEPTION.md says
-    # what a game made with it owes, which is nothing).
-    for f in LICENSE LICENSE-EXCEPTION.md NOTICE THIRD-PARTY-LICENSES.md README.md; do
-        install -m 0644 "$REPO/$f" "$STAGE/$f"
-    done
-    install -m 0644 "$REPO/resources/icon.png" "$STAGE/tyrax-editor.png"
-
-    # Build output of an example that was opened in a dev checkout is not
-    # content - a fresh clone (what CI packages) has none of it either way.
-    copy_tree "$REPO/examples" "$STAGE/examples" \
-        \( -name bin -o -name obj -o -name '.history' -o -name '*.elf' -o -name '*.iso' \) \
-        -prune -o -type f
-
-    # THE MARKER IS WHAT THE UPDATER READS (update::installKind). One word, no
-    # newline needed, and its absence means "a source checkout" - which is the
-    # correct answer for a repo built with ./build.sh.
-    printf '%s\n' "$marker" > "$STAGE/.tyrax-package"
-
-    # Whatever umask the packager happened to run under is not what ships: a
-    # group-writable file inside a system package is a lintian/rpmlint finding
-    # and, under /opt, a real one.
-    chmod -R go-w "$STAGE"
+    tyrax_stage_tree "$REPO" "$EXE" "$STAGE" "$1"
 }
 
 desktop_entry() {  # desktop_entry <exec path>

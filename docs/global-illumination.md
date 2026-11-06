@@ -7,9 +7,32 @@ its light from a probe grid. Ray tracing happens on your desktop and ships as a 
 The PlayStation 2 samples those baked results and shades geometry at runtime;
 it does not trace rays.
 
+[Dynamic light receivers](dynamic-light-receivers.md) can limit live model
+lighting to players and the driven vehicle without disabling baked GI or probes.
+
 Turn it on in *Tools > Ambience Editor*, on its **Global illumination** tab —
-the same window the sky, the sun and the AO are authored in — press **Bake this
-scene**, and build. Two example projects:
+the same window the sky, the sun and the AO are authored in (*Tools > Global
+Illumination* opens it on that tab) — press **Bake this scene**, and build.
+
+The tab is two columns. On the left, the settings: the master switch in the
+header, **Quality** with a *Draft / Final / Custom* choice (Draft = 32 rays, 1
+bounce, for blocking out; Final = 128 rays, 2 bounces; anything else reads as
+Custom) above the sliders, each with its meaning written underneath, and **Light
+probes** with what the grid costs for the current scene (grid size, probe
+count, EE RAM) and **Show probes in viewport**: every probe the scene's bake
+holds as a small diamond over the scene, each of its six tips shaded with the
+light that probe sampled in that direction (`L0 + 2/3 L1·n`, the formula below
+without the trilinear blend), dead probes as small dark ones; the line under
+it counts baked / live / dead. It is view state (not saved) and never shows in
+the tool previews' game view. On the right, the **Bake** column, which never scrolls away: a
+state card with **Bake this scene** / **Bake all scenes** (or, while baking, the
+progress, the stage - bounce *n* of *m*, lightmap, probes - the elapsed time and
+**Cancel**), every scene with a *baked / stale / not baked* badge and what its
+cache holds, and the two options pinned at the bottom. A stale scene also marks
+the window's **Global illumination** tab, so it shows from the Sky & time tab
+too. In a narrow dock the Bake card comes first and the settings follow it. The same two
+bakes are **Build > Bake global illumination** (and *... for all scenes*), so the command
+palette (Ctrl+K, type "bake") starts them without opening the window. Two example projects:
 [global-illumination](../examples/global-illumination) is the one-room proof (a
 red wall and a green wall, and nothing else coloured);
 [gi-showcase](../examples/gi-showcase) is the guided walk with one station per
@@ -279,7 +302,8 @@ and the example project ships its cache, which a fresh `git clone` would
 otherwise invalidate the instant it landed on disk.
 
 Run it from *Tools > Ambience Editor > Global illumination* (worker thread,
-progress bar, cancel), or headlessly:
+progress with the bake stage and elapsed time, cancel; the viewport keeps the
+previous bake until the new one lands), or headlessly:
 
 ```bash
 tyrax-editor --bake-gi <projectDir>
@@ -293,9 +317,10 @@ those surfaces, projected rather than unwrapped. The two do not overlap: with a
 fresh bake here, the shadow projection **skips** the terrain and the untextured
 primitives this one already covers, so nothing is darkened twice.
 
-**Or let the build do it — for stale scenes only.** *Project > Preferences >
-Build > Re-bake stale global illumination* (the same switch sits under the
-Bake buttons on this tab; off by default, needs GI enabled). Every build — the
+**Or let the build do it — for stale scenes only.** *Re-bake stale global
+illumination before every build* - the same switch, under the same name, at
+the bottom of this tab's Bake column and in *Project > Preferences > Build & debug*
+(off by default, needs GI enabled). Every build — the
 toolbar, `--build`, Run on PS2 — then re-bakes exactly the scenes whose cache
 signature no longer matches, before the [pre-lit](prelit-models.md) pass and the
 source refresh, and prints one `gi: baked GI ...` / `gi: fresh ...` line per
@@ -419,14 +444,23 @@ above and the 800% the box can give.
 
 ## The GPU backend
 
-The hemisphere gather also exists as a **GL 4.3 compute kernel** (`src/gigpu.cpp`),
-a twin of `gibake::gather` + `directAt` + `skyRadiance` + `bvh::trace`.
+The hemisphere gather also exists as a GPU kernel, a twin of `gibake::gather` +
+`directAt` + `skyRadiance` + `bvh::trace`, in two backends behind one interface
+(`src/gigpu.hpp`):
+
+- **Windows and Linux**: a GL 4.3 compute shader (`src/gigpu.cpp`), on a
+  hidden GLFW window's context.
+- **macOS**: a **Metal** compute kernel (`src/gigpu_metal.mm`), because macOS
+  OpenGL stops at 4.1 and has no compute shaders. It is a line-by-line port of
+  the GLSL with Metal's fast math switched off (it would flush denormals and
+  reorder the arithmetic the ray tests depend on). It needs no window, so on a
+  Mac `--bake-gi --gpu` and `--gi-gpu-check` also work headless.
 
 It is an accelerator **with a reference**, not a replacement, and that is
 structural rather than cautious: `--bake-gi` runs headless on build servers and
 inside the Docker build, where there is no display and no GL context at all. So
 the CPU integrator can never be deleted, and every path has to survive
-`gigpu::available()` answering false. The context is a hidden GLFW window rather
+`gigpu::available()` answering false. The GL context is a hidden GLFW window rather
 than EGL, because GLFW is already a dependency on both platforms and a
 per-OS pair would be a file that exists twice (see "Platform parity" in the
 `tyra-editor-dev` skill).
@@ -453,7 +487,12 @@ scene 0: 2716 triangles, 173824 sample points, 128 rays each
   relative mean error 0.0030%  -> AGREE
 ```
 
-Run it after touching **either** side. A relative mean error in the thousandths
+On an Apple M-series Mac the Metal backend reads 0.0011% (global-illumination,
+56x a single core) and 0.0030% (gi-showcase, 59x); a whole `--bake-gi --gpu` of
+gi-showcase takes 0.42 s against 1.29 s on all ten CPU cores.
+
+Run it after touching **any** side - the C++ gather, the GLSL or the Metal
+kernel. A relative mean error in the thousandths
 of a percent is float divergence between two transcendental implementations;
 anything above 1% is a kernel that stopped being a twin, and the verb exits
 non-zero on it.
@@ -473,16 +512,20 @@ flatters the GPU by a factor of eight and is the wrong number to plan with.
 
 ### Baking with it
 
-In the editor it is a tick box beside the Bake buttons — *Tools > Ambience
-Editor > Global illumination > **Bake on the GPU***. It is greyed out with the
-reason on hover when the machine has no usable GPU, and it is **machine-global**
-(editor.ini), not a project setting: whether this box has a GPU is a fact about
-the box. Headless it is `--bake-gi <projectDir> --gpu`.
+In the editor it follows the ONE editor-wide GPU switch, *Edit > Preferences >
+Build > **Use the GPU for bakes*** (on by default; it also drives the impostor
+capture). The Bake column (*Tools > Ambience Editor > Global illumination*) says
+which engine the next bake uses - its header badge and a "Bakes on the GPU /
+CPU" line with a **Change** link to that setting - and why when the machine has
+no usable GPU. It is **machine-global** (editor.ini `gpuBakes`), not a project
+setting: whether this box has a GPU is a fact about the box. Headless it is
+`--bake-gi <projectDir> --gpu`, opt-in, because the command line reads no
+editor settings.
 
-Opt-in in both, because the two backends agree to a tolerance and not
-bit-for-bit, so flipping it silently would change every existing project's
-cached bytes — and this repo's own GI examples ship that cache. End to end,
-8 cores:
+The two backends agree to a tolerance and not bit-for-bit, so a GPU re-bake
+rewrites a scene's cached bytes. Where a cache has to stay CPU-identical - this
+repo's own GI examples ship theirs - turn the editor-wide switch off. End to
+end, 8 cores:
 
 | Example | CPU | GPU | atlas | terrain |
 | --- | --- | --- | --- | --- |

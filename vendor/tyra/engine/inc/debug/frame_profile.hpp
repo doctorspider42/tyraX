@@ -28,13 +28,16 @@
  * fairness drain, with the pipeline's telemetry left off and the walker
  * compiled out.
  *
- * Level 2 exists because level 1 is not transparent enough to time a shipped
- * frame. Measured on a physical PS2 at a parked Motor District vantage, the
+ * Level 2 exists because level 1 adds substantial packet-walker cost.
+ * Both enabled levels add sync.align3D() before presentation; neither is an
+ * ordinary asynchronous TyraX2 timing build. Measured on a physical PS2 at a
+ * parked Motor District vantage, the
  * HUD's SCENE row read 13.21 ms uninstrumented and 17.70 ms at level 1: the
  * walker parses every DMA tag and VIF code of every packet sent, every frame,
  * and that pushed a frame whose work straddled 20 ms clean over it. So level 1
- * answers "what is the frame MADE of" and level 2 answers "how long does the
- * frame the player gets take". Do not quote an absolute `work` off level 1.
+ * answers "what is the frame MADE of" and level 2 prices the fairness-drained
+ * diagnostic interval without that walker. For ordinary timing compile this
+ * out and calibrate existing loop/presentation clock sampling separately.
  */
 #ifndef TYRA_FRAME_PROFILE
 #define TYRA_FRAME_PROFILE 0

@@ -4,7 +4,7 @@
 
 Frame pacing is how a generated game pays for a frame that misses its vsync
 deadline: with double buffering it waits out a whole second field and the frame
-rate halves, and with triple buffering (*Project > Preferences > Display > Triple
+rate halves, and with triple buffering (*Project > Preferences > Picture > Triple
 buffering*) it presents that frame one field late instead and keeps the EE
 working. This page covers what the cliff is, what the third buffer costs in GS
 VRAM, and the measurements.
@@ -56,6 +56,48 @@ let the handler put a half-drawn frame on screen.
 
 ## Hybrid triple buffering
 
+### Diagnostic Limit: Two Different Schedules
+
+In this implementation, Hybrid2 is one fixed CT32 draw target and one CT16
+display target, not two interchangeable scene buffers. Core waits for VBlank
+AFTER the old VIF/GS job finishes, then flipBuffers emits the conversion copy
+into the display target. Hybrid3 instead copies into an unscanned CT16 target,
+waits for copy/restore FINISH and queues that target for VBlank ISR publication.
+The comparison therefore changes copy/publication scheduling as well as storage.
+Do not claim that adding a third buffer made EE packet preparation faster.
+
+A38 both physical orders improve roughly49..50 to59Hz day and41 to55Hz night
+while mean non-pacing work remains roughly14/16ms. This demonstrates a scheduling
+dependency, not an exclusive EE/GS attribution or proof that two buffers cannot
+reach60. A39's specific early-ready publication hook activates but regresses;
+do not repeat it as the next fix. User requests two-buffer architecture remain
+the target rather than promoting Hybrid3 as the answer.
+
+Next discriminating design, NOT yet implemented: compare actual Hybrid2 with
+ordinary alternating CT32 double buffering under the same moving scene. CT32x2
+avoids the conversion copy, but uses the same colour-storage budget as Hybrid3,
+not Hybrid2, and changes displayed colour format/dithering. Explicitly qualify
+scene/environment readbacks, actual target rotation, VRAM grants and presentation
+before physical pricing. This is an architecture diagnostic, not a drop-in
+equal-output candidate or isolated measurement of copy cost. A third-buffer
+result alone cannot distinguish output layout, queue timing and tail variation.
+Burnout's reported two-buffer operation is a reference observation; its actual
+format/schedule and equal workload have not been established here.
+
+Follow-up offline recheck now
+establishes the sampled format/address layout: fixed CT32 scene/block2240 and
+fixed CT16S display/block0, with a dithered final conversion copy. This resembles
+Hybrid2, NOT ordinary alternating CT32. It strengthens the synchronization/
+submission-schedule question, not a claim that removing the copy matches Burnout.
+Actual EE waits and physical cost remain unknown; prioritize those dependencies.
+
+Current linked SDK audit proves the
+double path clears old VSINT and waits for a fresh edge. A latched bit does not
+prove active blank; blindly skipping this wait risks tearing. EE already prepares
+N+1 while N runs, but Hybrid2 old-copy submission waits for main callback arrival.
+An independent immutable VBlank copy protocol is a different proposed two-target
+architecture, not A39's rejected renderer callback or a implemented/default fix.
+
 Hybrid colour depth supports the same vblank queue with different buffer roles:
 slot 0 is always the PSMCT32 draw target, and slots 1 and 2 are PSMCT16 display
 targets. One display target is scanned out while the other holds the queued
@@ -80,8 +122,8 @@ colour-target reserve is tracked independently of the Z raster: mixed projects
 with full-size depth still recheck headroom when the low-res target is first
 configured, and retain that reserve during video-mode switches in native scenes.
 
-There is still no previous 32-bit image: motion blur, BLSS temporal history and
-frame extrapolation stay disabled. A scene capture reads the finished 32-bit
+There is still no previous 32-bit image: motion blur and frame extrapolation
+stay disabled. A scene capture reads the finished 32-bit
 draw buffer, rather than either display target. Before a scan-mode change resets
 the GS, both drawing paths are drained: a double-buffer hybrid fallback can
 still have an asynchronous copy in flight.
@@ -96,6 +138,45 @@ BLSS fixture completed two field/full-PAL cycles, granting three/two buffers
 each time, then produced fresh captures; ordinary 32-bit triple buffering
 still drew into all three CT32 targets. These are correctness checks, not a
 hardware speedup measurement.
+
+Current moving Vehicle Playground physical evidence is separate from those
+historical correctness/synthetic-load tests: [A38 both orders](tyrax2-hybrid-triple-2026-10-11.md)
+uses actual Hybrid448x448 permanent VRAM rebuilds, roads/live reflections/night
+lights and exact source/main/env return gates. Triple actual DISPFB hand-offs
+are58.82..58.93Hz day and54.89..55.22 night, versus double48.84..50.42/40.83..41.52.
+The substantial gain is pacing, not reduced packet preparation; long display
+intervals remain, so neither stable60 nor lower input-to-photon latency follows.
+Normal-production promotion remains separate from the common private baseline.
+
+### Hybrid double vs triple on the current district (2026-10-20)
+
+The architecture audit asked again whether the Hybrid structure - one 32-bit
+draw target, the copy after the vsync, so the GS cannot start frame N+1 early -
+should change. Three options were weighed: a second 32-bit draw target (784 KB
+at 448x448: does not fit beside the texture heap), copying into the scanned
+16-bit buffer before the vsync (tears; that is what a second display target is
+for), and Hybrid triple, which is exactly "copy before the vsync into the
+unscanned display buffer". Triple was measured, same ELF, on a physical PS2:
+`examples/vehicle-playground` at night, lean rig, the rig rebuilding the
+permanent buffers between cycles (double / triple alternating, three cycles
+each), every `presentFrameBuffer` timestamped (the double flip after its vsync,
+the triple vblank latch):
+
+| | parked work | driving work | presents | mean rate | skipped fields |
+|---|---:|---:|---:|---:|---:|
+| Hybrid double | 10.24 ms | 10.53 ms | 4483 | 59.6 / 58.8 Hz | 12 / 41 |
+| Hybrid triple | 10.12 | 10.66 | 3360 | 59.7 / 59.2 Hz | 6 / 21 |
+
+The copy itself is **0.19 ms of GS** (timed alone between frames). Every
+window, in both arms, holds exactly one late present, and it is the rig's own
+window print over ps2link (~50 ms): double loses 2-3 fields to it, triple 1-2.
+Apart from that **neither arm missed a field** - this frame is ~10.5 ms of EE
+work with an idle GS, so the GS starting N+1 early buys nothing; triple only
+absorbs one more field of a long stall. Against that it costs 392 KB of VRAM
+(1041 -> 649 KB free after the rebuild; no evictions either way, pause menu
+included) and one frame of latency. **The district stays Hybrid double.**
+Triple is the right switch for a scene whose frames sit near the 16.7 ms edge
+(the A38 numbers above), not for this one.
 
 ## The measurements
 
@@ -161,8 +242,8 @@ per field, so it is the mode a game reaches for when it is fighting for frames
 in the first place.
 
 The one combination that puts it within reach at full 512x448 is the
-[neural upscaler](neural-upscaler.md): BLSS sizes the z buffer from the *raster*
-rather than the display buffer, which at 2x2 gives back 172 032 words — more
+[upscaler](upscaler.md) in its *Whole 3D scene* shape: BLSS sizes the z buffer
+from the *raster* rather than the display buffer, which at 2x2 gives back 172 032 words — more
 than enough to pay for the third display buffer. That has not been measured on
 hardware yet, and it comes with two corrections the
 first version of this page did not have:
@@ -171,14 +252,18 @@ first version of this page did not have:
   the check runs**, and is not in the reserve either. It is allocated *after*
   the layout (`blss.configure` → the VRAM rebuild → `blss.allocate`), and the
   384 KB reserve names post fx, the env map, the camera feed and the shadow
-  slots — nothing else. So the headroom check subtracts it explicitly. At
+  slots — nothing else. So the headroom check subtracts it explicitly - and,
+  for *Particles only*, the low-res z target reserved beside it
+  (`setLowResTargetScale(sx, sy, withDepth)`). At
   512x448 with the 1x2 raster that target is 114 688 words, which is the
   difference between a 576 KB texture heap and a 128 KB one, i.e. between a
   workable scene and one that asserts on its first big texture.
 - **A project whose scenes disagree about the upscaler gets none of the
   saving.** Mixed resolution pins z at the full display raster
-  (`setZRasterScale`, docs/neural-upscaler.md "Per scene"), so it pays for the
-  low-res target *and* a full-size z. `project::tripleBufferingFit` therefore
+  (`setZRasterScale`, the engine's `nativeScenes`), and so does *Particles only*
+  (its opaque scene keeps full depth), so either pays for the low-res target
+  *and* a full-size z. A Set Upscaler (BLSS) node anywhere in the project makes
+  it mixed (docs/upscaler.md). `project::tripleBufferingFit` therefore
   takes the whole `Project` and asks `project::blssUse`, not the project
   default — asking the default alone promised a third buffer to projects that
   cannot have one.
@@ -190,8 +275,11 @@ three buffers. It is a request, and the grant is decided per **display mode**,
 at runtime, every time the mode changes:
 
 - `ProjectSettings::supportedModes` declares the scan modes a player can switch
-  into (Preferences > Display > *Supported resolutions*), and a menu row or the
-  `Set Display Mode` flow node can make that switch mid-game.
+  into (Preferences > Picture > *Supported resolutions*), and a menu row or the
+  `Set Display Mode` flow node can make that switch mid-game. The node preserves
+  all five engine values: 0 interlaced, 1 progressive 480p, 2 1080i,
+  3 field rendering, and 4 full-height PAL 576i. PAL 576i remains mode 4 in
+  generated scripts; it must not be clamped to field rendering.
 - `RendererCore::setDisplayOutput` answers a mode change with `gs.reinit()`,
   which re-runs `allocateVramBuffers` over the new framebuffer size — so the
   headroom check above is asked **again**, with a different answer, and
@@ -268,7 +356,7 @@ anything else that re-lays the permanent VRAM region, and because it took two
 sessions to find something that is one expression long.
 
 **The symptom.** Reported from use as the emulator "flickering badly", on a
-project with the neural upscaler AND triple buffering on. The picture alternates
+project with the upscaler AND triple buffering on. The picture alternates
 between the scene and a **fully black frame** — no debug HUD in the black member
 either, and the HUD is drawn at full resolution *after* the composite, so that
 display buffer had received no draws at all rather than a failed composite.
@@ -284,7 +372,7 @@ displayedBuffer = context ^ 1;   // "the other buffer" — true only when there 
 ```
 
 `allocateVramBuffers()` arms the queue with that, and it runs **a second time**
-in any game that re-lays the permanent region after boot. Today the neural
+in any game that re-lays the permanent region after boot. Today the
 upscaler is the only thing that asks for one: `configure()` sizes the z buffer
 from the raster, so it goes through `RendererCore::rebuildPermanentBuffers()`.
 By then the ~2 s boot banner (`Banner::show`, a `beginFrame`/`endFrame` loop)
@@ -301,8 +389,8 @@ value of `context`, the upscaler to re-arm the queue **after** boot instead of
 only at `init()` with `context` still 0. With two buffers `context ^ 1` is
 always right; with the upscaler off, the arming only ever runs once.
 
-**Measured**, one fixture (`--new … fpp`, progressive 480p, 2×2 neural, jitter
-off), one build changing only these lines, PCSX2 software renderer:
+**Measured**, one fixture (`--new … fpp`, progressive 480p, 2×2, in the
+since-removed neural mode), one build changing only these lines, PCSX2 software renderer:
 
 | | boot log | 12 back-to-back captures |
 |---|---|---|
@@ -335,7 +423,7 @@ Three things came out of it, and the first is the general one:
 **How it was found, since none of the automated gates could see it**: the
 buffer index was *logged frame by frame* rather than reasoned about. Two
 theories that read very well were wrong — the composite's in-flight DMA against
-the queue handshake, and BLSS' `frameBuffers[1 - context]` history tap — and
+the queue handshake, and the old neural mode's `frameBuffers[1 - context]` history tap — and
 neither would have produced a frame with no HUD. The one instrument that settled
 it fits on the boot line.
 

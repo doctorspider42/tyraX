@@ -7,6 +7,7 @@
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
 #include "facts.gen.hpp"  // World Facts store + save walks
+#include "sound_bank.gen.hpp"  // Play Sound, sound banks
 #include "scripts/live_debug.gen.hpp"  // Live Debugger hits / halt / force-fire
 #include "scripts/live_logic.gen.hpp"  // Live Logic: a patched graph runs on the interpreter
 
@@ -16,6 +17,55 @@
 #include <string>
 
 namespace Layer_streaming {
+
+// Which channel a Play Sound gets, and who loses one when they are all busy
+// (docs/sound.md). The flow graphs share the sixteen channels of the CURRENT
+// room's reverb bus - 16-23 belong to the sound emitters - so the choice is
+// made here once for every graph in the game rather than per script.
+//
+// Order: a voice that has FINISHED is free and needs no victim; otherwise the
+// lowest priority STRICTLY below the incoming one is cut off; otherwise the
+// new sound is dropped. That last case is the design working, not a failure -
+// it is what "priority" means - so nothing logs it.
+//
+// The ENDX read is one IOP RPC and it happens per PLAY REQUEST, never per
+// frame. A play already costs two or three RPCs (volume, reverb send, the
+// play itself), and it is the only way to know what is still sounding.
+namespace {
+int sfxPrio[16] = {0};  // priority of what was last started on each channel
+int sfxPrioBus = -1;    // which bus those priorities describe
+
+inline void sfxSyncBus(int base) {
+  if (sfxPrioBus == base) return;
+  // The room moved to the other SPU2 core. Whatever is still finishing on the
+  // bus we left must not be stolen from - it belongs to the room the player
+  // just walked out of - and this bus's own table describes voices that have
+  // long since ended, so it starts empty.
+  for (int i = 0; i < 16; ++i) sfxPrio[i] = 0;
+  sfxPrioBus = base;
+}
+
+inline int flowPickSfxChannel(ScriptContext& ctx, int prio) {
+  static int next = 0;  // round-robin start, so voices spread out
+  const int base = ctx.reverbBusBase;
+  sfxSyncBus(base);
+  const u32 ended = ctx.engine->audio.adpcm.endedMask(base ? 0 : 1);
+  for (int k = 0; k < 16; ++k) {
+    const int c = (next + k) % 16;
+    if (ended & (1u << c)) {
+      next = (c + 1) % 16;
+      sfxPrio[c] = prio;
+      return base + c;
+    }
+  }
+  int victim = -1, low = prio;  // strictly below: equals keep their voice
+  for (int c = 0; c < 16; ++c)
+    if (sfxPrio[c] < low) { low = sfxPrio[c]; victim = c; }
+  if (victim < 0) return -1;    // everything playing matters at least as much
+  sfxPrio[victim] = prio;
+  return base + victim;
+}
+}  // namespace
 
 // World Facts (docs/world-facts.md): the declared state of
 // the game world. One float array for every scalar fact, one
@@ -174,6 +224,8 @@ class FlowGraphScript_0_22 : public Script {
       livedbg::hit(2);
       livedbg::hit(3);
       if (ctx.layerRequest && 1 < ctx.layerCount) ctx.layerRequest[1] = 1;  // "building-b"
+      livedbg::hit(4);
+      soundbank::setBank(0, true);  // "corridor"
     }
     {
       const float dx = ctx.playerPosition.x - ctx.objects[22].data.position[0];
@@ -183,6 +235,8 @@ class FlowGraphScript_0_22 : public Script {
       livedbg::hit(2);
       livedbg::hit(3);
       if (ctx.layerRequest && 1 < ctx.layerCount) ctx.layerRequest[1] = 1;  // "building-b"
+      livedbg::hit(4);
+      soundbank::setBank(0, true);  // "corridor"
       }
       near1 = isNear;
     }
@@ -232,19 +286,23 @@ class FlowGraphScript_0_23 : public Script {
       near1 = false;
     }
     frame++;
-    if (livedbg::forced(4)) {  // Live Debugger: fired from the editor
-      livedbg::hit(4);
+    if (livedbg::forced(5)) {  // Live Debugger: fired from the editor
       livedbg::hit(5);
+      livedbg::hit(6);
       if (ctx.layerRequest && 0 < ctx.layerCount) ctx.layerRequest[0] = 1;  // "building-a"
+      livedbg::hit(7);
+      soundbank::setBank(0, true);  // "corridor"
     }
     {
       const float dx = ctx.playerPosition.x - ctx.objects[23].data.position[0];
       const float dz = ctx.playerPosition.z - ctx.objects[23].data.position[2];
       const bool isNear = dx * dx + dz * dz < 12.25F;
       if (isNear && !near1) {
-      livedbg::hit(4);
       livedbg::hit(5);
+      livedbg::hit(6);
       if (ctx.layerRequest && 0 < ctx.layerCount) ctx.layerRequest[0] = 1;  // "building-a"
+      livedbg::hit(7);
+      soundbank::setBank(0, true);  // "corridor"
       }
       near1 = isNear;
     }
@@ -294,9 +352,9 @@ class FlowGraphScript_0_24 : public Script {
       near1 = false;
     }
     frame++;
-    if (livedbg::forced(6)) {  // Live Debugger: fired from the editor
-      livedbg::hit(6);
-      livedbg::hit(7);
+    if (livedbg::forced(8)) {  // Live Debugger: fired from the editor
+      livedbg::hit(8);
+      livedbg::hit(9);
       if (ctx.layerRequest && 0 < ctx.layerCount) ctx.layerRequest[0] = 0;  // "building-a"
     }
     {
@@ -304,8 +362,8 @@ class FlowGraphScript_0_24 : public Script {
       const float dz = ctx.playerPosition.z - ctx.objects[24].data.position[2];
       const bool isNear = dx * dx + dz * dz < 12.25F;
       if (isNear && !near1) {
-      livedbg::hit(6);
-      livedbg::hit(7);
+      livedbg::hit(8);
+      livedbg::hit(9);
       if (ctx.layerRequest && 0 < ctx.layerCount) ctx.layerRequest[0] = 0;  // "building-a"
       }
       near1 = isNear;
@@ -316,6 +374,213 @@ class FlowGraphScript_0_24 : public Script {
   // Time machine (docs/time-machine.md): this graph's own
   // state - armed Delays, edge latches, latched outputs.
   FlowGraphScript_0_24() { g_time_FlowGraphScript_0_24 = this; }
+  static const unsigned int kTimeBytes = 6;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    p[5] = near1 ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    near1 = p[5] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  bool near1 = false;
+};
+class FlowGraphScript_0_25;
+FlowGraphScript_0_25* g_time_FlowGraphScript_0_25 = nullptr;
+
+// Scene "main": graph of "bank-unload-a" (object 25)
+class FlowGraphScript_0_25 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 25)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      near1 = false;
+    }
+    frame++;
+    if (livedbg::forced(10)) {  // Live Debugger: fired from the editor
+      livedbg::hit(10);
+      livedbg::hit(11);
+      soundbank::setBank(0, false);  // "corridor"
+    }
+    {
+      const float dx = ctx.playerPosition.x - ctx.objects[25].data.position[0];
+      const float dz = ctx.playerPosition.z - ctx.objects[25].data.position[2];
+      const bool isNear = dx * dx + dz * dz < 2.25F;
+      if (isNear && !near1) {
+      livedbg::hit(10);
+      livedbg::hit(11);
+      soundbank::setBank(0, false);  // "corridor"
+      }
+      near1 = isNear;
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_25() { g_time_FlowGraphScript_0_25 = this; }
+  static const unsigned int kTimeBytes = 6;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    p[5] = near1 ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    near1 = p[5] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  bool near1 = false;
+};
+class FlowGraphScript_0_26;
+FlowGraphScript_0_26* g_time_FlowGraphScript_0_26 = nullptr;
+
+// Scene "main": graph of "bank-unload-b" (object 26)
+class FlowGraphScript_0_26 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 26)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      near1 = false;
+    }
+    frame++;
+    if (livedbg::forced(12)) {  // Live Debugger: fired from the editor
+      livedbg::hit(12);
+      livedbg::hit(13);
+      soundbank::setBank(0, false);  // "corridor"
+    }
+    {
+      const float dx = ctx.playerPosition.x - ctx.objects[26].data.position[0];
+      const float dz = ctx.playerPosition.z - ctx.objects[26].data.position[2];
+      const bool isNear = dx * dx + dz * dz < 2.25F;
+      if (isNear && !near1) {
+      livedbg::hit(12);
+      livedbg::hit(13);
+      soundbank::setBank(0, false);  // "corridor"
+      }
+      near1 = isNear;
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_26() { g_time_FlowGraphScript_0_26 = this; }
+  static const unsigned int kTimeBytes = 6;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    p[5] = near1 ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    near1 = p[5] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  bool near1 = false;
+};
+class FlowGraphScript_0_27;
+FlowGraphScript_0_27* g_time_FlowGraphScript_0_27 = nullptr;
+
+// Scene "main": graph of "chime" (object 27)
+class FlowGraphScript_0_27 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 27)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      near1 = false;
+    }
+    frame++;
+    if (livedbg::forced(14)) {  // Live Debugger: fired from the editor
+      livedbg::hit(14);
+      livedbg::hit(15);
+      if (audsrv_adpcm_t* const sfx = soundbank::sample(2)) {
+        const s8 ch = (s8)flowPickSfxChannel(ctx, 0);
+        if (ch >= 0) {
+          ctx.engine->audio.adpcm.setVolume(90 * ctx.sfxVolume / 100, ch);
+          ctx.engine->audio.reverb.setChannelSend(ch, true);
+          ctx.engine->audio.adpcm.forcePlay(sfx, ch);
+        }
+      }
+    }
+    {
+      const float dx = ctx.playerPosition.x - ctx.objects[27].data.position[0];
+      const float dz = ctx.playerPosition.z - ctx.objects[27].data.position[2];
+      const bool isNear = dx * dx + dz * dz < 4.0F;
+      if (isNear && !near1) {
+      livedbg::hit(14);
+      livedbg::hit(15);
+      if (audsrv_adpcm_t* const sfx = soundbank::sample(2)) {
+        const s8 ch = (s8)flowPickSfxChannel(ctx, 0);
+        if (ch >= 0) {
+          ctx.engine->audio.adpcm.setVolume(90 * ctx.sfxVolume / 100, ch);
+          ctx.engine->audio.reverb.setChannelSend(ch, true);
+          ctx.engine->audio.adpcm.forcePlay(sfx, ch);
+        }
+      }
+      }
+      near1 = isNear;
+    }
+  }
+
+  void init(ScriptContext& ctx) override {
+    if (soundbank::g_bank) return;
+    if (!soundbank::own[2])
+      soundbank::own[2] = ctx.engine->audio.adpcm.load(
+          Tyra::FileUtils::fromCwd("sfx/corridor-chime.adpcm"));
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_27() { g_time_FlowGraphScript_0_27 = this; }
   static const unsigned int kTimeBytes = 6;
   void timeCapture(unsigned char* p) const {
     memcpy(p + 0, &frame, 4);
@@ -348,7 +613,10 @@ unsigned int flowTimeScriptBytes() {
   return FlowGraphScript_0_21::kTimeBytes +
          FlowGraphScript_0_22::kTimeBytes +
          FlowGraphScript_0_23::kTimeBytes +
-         FlowGraphScript_0_24::kTimeBytes;
+         FlowGraphScript_0_24::kTimeBytes +
+         FlowGraphScript_0_25::kTimeBytes +
+         FlowGraphScript_0_26::kTimeBytes +
+         FlowGraphScript_0_27::kTimeBytes;
 }
 void flowTimeScriptCapture(unsigned char* p) {
   if (g_time_FlowGraphScript_0_21) g_time_FlowGraphScript_0_21->timeCapture(p);
@@ -359,6 +627,12 @@ void flowTimeScriptCapture(unsigned char* p) {
   p += FlowGraphScript_0_23::kTimeBytes;
   if (g_time_FlowGraphScript_0_24) g_time_FlowGraphScript_0_24->timeCapture(p);
   p += FlowGraphScript_0_24::kTimeBytes;
+  if (g_time_FlowGraphScript_0_25) g_time_FlowGraphScript_0_25->timeCapture(p);
+  p += FlowGraphScript_0_25::kTimeBytes;
+  if (g_time_FlowGraphScript_0_26) g_time_FlowGraphScript_0_26->timeCapture(p);
+  p += FlowGraphScript_0_26::kTimeBytes;
+  if (g_time_FlowGraphScript_0_27) g_time_FlowGraphScript_0_27->timeCapture(p);
+  p += FlowGraphScript_0_27::kTimeBytes;
 }
 void flowTimeScriptRestore(const unsigned char* p) {
   if (g_time_FlowGraphScript_0_21) g_time_FlowGraphScript_0_21->timeRestore(p);
@@ -369,6 +643,12 @@ void flowTimeScriptRestore(const unsigned char* p) {
   p += FlowGraphScript_0_23::kTimeBytes;
   if (g_time_FlowGraphScript_0_24) g_time_FlowGraphScript_0_24->timeRestore(p);
   p += FlowGraphScript_0_24::kTimeBytes;
+  if (g_time_FlowGraphScript_0_25) g_time_FlowGraphScript_0_25->timeRestore(p);
+  p += FlowGraphScript_0_25::kTimeBytes;
+  if (g_time_FlowGraphScript_0_26) g_time_FlowGraphScript_0_26->timeRestore(p);
+  p += FlowGraphScript_0_26::kTimeBytes;
+  if (g_time_FlowGraphScript_0_27) g_time_FlowGraphScript_0_27->timeRestore(p);
+  p += FlowGraphScript_0_27::kTimeBytes;
 }
 
 // Time machine (docs/time-machine.md): the flow variables and the event bus, both directions.
@@ -411,3 +691,6 @@ TYRA_SCRIPT(Layer_streaming::FlowGraphScript_0_21);
 TYRA_SCRIPT(Layer_streaming::FlowGraphScript_0_22);
 TYRA_SCRIPT(Layer_streaming::FlowGraphScript_0_23);
 TYRA_SCRIPT(Layer_streaming::FlowGraphScript_0_24);
+TYRA_SCRIPT(Layer_streaming::FlowGraphScript_0_25);
+TYRA_SCRIPT(Layer_streaming::FlowGraphScript_0_26);
+TYRA_SCRIPT(Layer_streaming::FlowGraphScript_0_27);

@@ -50,6 +50,10 @@ struct Part {
     float ke[3] = {0.0f, 0.0f, 0.0f};
     float reflStrength = 0.0f;
     bool reflRounded = false;       // -rounded: centroid-radial env normals
+    // Texture filtering (docs/texture-filtering.md): 0 smooth, 1 pixel,
+    // 2 pixel close-up. Rides flags bits 1-2, so no version bump: an older
+    // file reads back 0, which is what it drew.
+    int textureFilter = 0;
     std::vector<float> verts;       // flat triangle list, 8 floats per vertex
     std::vector<unsigned char> ao;  // empty, or one byte per vertex
     std::vector<Lod> lods;          // distance tiers, coarsest last (max 2)
@@ -95,7 +99,7 @@ struct Model {
 //     f32  kd[3]
 //     f32  ke[3]              // version >= 2
 //     f32  reflStrength
-//     u32  flags              // bit0 = reflRounded
+//     u32  flags              // bit0 = reflRounded, bits1-2 = textureFilter
 //     u32  vertexCount        // always a multiple of 3
 //     f32  verts[vertexCount * 8]
 //     u32  aoCount            // 0 = no baked AO, else == vertexCount
@@ -132,6 +136,7 @@ struct PartInfo {
     // is cut at the program's own derived package size.
     unsigned int vertexCount = 0;
     unsigned int stripVertexCount = 0;  // 0 = this part ships no strip
+    int textureFilter = 0;  // flags bits 1-2 (Part::textureFilter)
 };
 
 struct Info {

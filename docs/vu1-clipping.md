@@ -20,13 +20,18 @@ it down one of three paths:
 |---|---|---|---|
 | `OUTSIDE_FRUSTUM` | dropped on the EE | — | nothing |
 | `IN_FRUSTUM` | **cull** | `stapip_cull_*` | DMA by reference, one kick |
-| `PARTIALLY_IN_FRUSTUM` | **clip** | `stapip_clip_*` | split into sixths, memcpy per stream, one kick each |
+| `PARTIALLY_IN_FRUSTUM` | **clip** | `stapip_clip_*` | the whole package by reference; the program streams its output (since 1.174.0) |
 
 The cull programs transform, light and project, and mark a triangle that fails
 their `clipw` judgement as **not drawn** by setting its ADC bit. They never cut
 anything. The clip programs run a full Sutherland–Hodgman cut against up to six
 planes on VU1, then fan-triangulate whatever polygon comes out and patch the
 prim giftag's NLOOP with the vertex count they actually produced.
+
+**Since 1.174.0 the clip route takes a package WHOLE** - see "A whole package,
+streamed" below. The rest of this section, and the next one, describe the
+sliced route that `StaPipCore::setStreamClip(false)` and the EE clipper still
+use.
 
 The clip route is the expensive one, and not mainly because of the cut. A
 crossing package is split into **sixths** (`StaPipCore::clipDivisor`; the EE
@@ -538,6 +543,152 @@ paths ran. The (a) images, macros and wrapper switches were removed. The
 (b)/(c) switches remain for regression A/B builds; their defaults are enabled.
 The project format remains 80.
 
+## Slice clipping (2026-10-13)
+
+A frustum-crossing package of a LIST bag used to be re-cut on the EE every
+frame. `packager.create` built clip-sized subpackages and walked their
+vertices for a bbox each. `renderSubpkgs` then copied the inside ones together
+into the qbuffer copy pool for the cull program, and only the crossing ones
+went to the clip program.
+
+With VU1 clipping on (`StaPipCore::setSliceClip`, default true), the
+package now goes to the clip program in `clipPackageSize` slices taken **by
+pointer** from the bag's own arrays (`renderClipSlices`). The package's plane
+mask travels with every slice, because it is a superset of each slice's. A
+small crossing bag (under two packages) goes whole with all six planes. The VU1
+program already judges every triangle inside, outside or cut, so nothing is
+lost. Slices the old route would have culled or skipped now cost VU1 a clip
+judgement per triangle. VU1 waits on the EE in the scenes this was measured in.
+
+Stripped bags keep their route (`renderStrippedPkgs`): the clip programs take
+triangle lists, so a strip still has to be expanded.
+
+Measured on a PS2 (Motor District night, heavy spot, lean build, same ELF
+A/B), this saves only ~0.2 ms of EE work per frame. The instrumented build had
+priced the subpackage work at ~1.8 ms, but per-call COP0 scopes inflate exactly
+this kind of short, frequent work. Trust lean A/Bs only.
+
+## A whole package, streamed (2026-10-14, 1.174.0)
+
+**The PC habit:** the EE cut every frustum-crossing package into pieces small
+enough that the clip program's worst-case output - seven triangles per input
+triangle - fitted one fixed block behind the input. A list package became
+4-triangle slices (12 vertices for the textured classes), each its own buffer,
+DMA chain and kick. A STRIP package was worse: the clip programs read lists, so
+`renderStrippedPkgs` classified the strip in 4-triangle blocks
+(`StaPipStripSubranges`, ~14 plane tests a block), expanded each block into a
+list in the copy pool and sent it, a whole package's worth of EE work for the
+two or three triangles that actually touch the near plane. On the heavy night
+spot that was ~1 ms of EE a frame for ~9 crossing strip packages, and every
+bag that used the copy pool had to send its own packet.
+
+**The PS2 way:** VU1 streams. The clip program now writes its output into two
+chunks of `1 + 30 * regs` quadwords behind the input, each opened by a prim
+GIF tag. Before it emits a fan it checks the fan fits the open chunk; if not,
+it patches the chunk's NLOOP, `XGKICK`s it and opens the other one. An
+`XGKICK` stalls until the previous one has been read, so the chunk kicked two
+kicks ago is free again. Chunk A's tag is the tag block's own prim tag, so the
+first kick still carries the GS state. Because the fan-out no longer has to fit
+one block, the EE hands the program a **whole package by pointer**:
+
+- a list package goes as one buffer (`renderPkgs`);
+- a strip package goes as one buffer too, with bit 9 of the packed count set
+  (`VU1_STAPIP_CLIP_STRIP_FLAG`): the program walks one vertex per triangle
+  and runs `count - 2` triangles. Winding is not kept and does not need to be -
+  nothing in this engine backface-culls. The prim tag is a LIST (the fan
+  triangulation's output), whatever the bag's topology;
+- a small crossing bag takes the same package route.
+
+The stream state lives in `VU1_CLIP_STREAM_ADDR` (1019): the open chunk's prim
+tag, its kick address, the other chunk's tag and the input step. It is spilled
+rather than kept in integer registers because the textured clipper has none to
+spare. The count is bits 0..8 of the packed word now
+(`VU1_STAPIP_CLIP_COUNT_MASK`); packages never come near 512 vertices.
+
+**Fits:** a cull-sized package plus two chunks fits every class's half of the
+double buffer (461 quadwords): textured, 75 vertices, is 2 + 225 + 8 + 2 x 91 =
+417. The resident set is ~1918 of 2042 slots (clip TC fold 364 -> 406, clip C
+fold ~ +34), measured from the objects' `_CodeStart`/`_CodeEnd`.
+
+**Proof it draws the same:** `--vu-check` gained a "clip stream" section. It
+runs each clip program over a whole package (lists and strips up to 75
+vertices, ~3.6 kicks each) and the reference over the same triangles as
+12-vertex LIST slices - the shape the EE used to cut - and compares the vertex
+payload the GIF receives across all kicks, bit for bit. Pointing
+`TYRAX_CLIP_REF_DIR` at a copy of the pre-1.174 `clip/*.vclpp` runs the OLD
+programs as the reference; all five classes were identical, and planting a
+one-instruction bug in the old TC reference turned it DIFFERENT. (The first
+version of the check appended the reference to the program under test -
+`vuasm::parseFile` appends - and passed against the planted bug. Falsify a new
+check before trusting it.) The simulator records each kick's GIF packet at the
+moment of the kick (`vusim::Config::captureKicks`), because a streamed chunk is
+overwritten by a later one before the run ends.
+
+**Measured on a physical PS2** (Vehicle Playground, night, the heavy spot,
+lean build, same-ELF A/B, three cycles):
+
+| Heaviest 150-frame drive window | Work | p95 | Late (> 18 ms) |
+| --- | ---: | ---: | ---: |
+| sliced / strip subranges (`setStreamClip(false)`) | 14.0 ms | 16.1 ms | 5 |
+| whole package, streamed | 12.28-12.55 ms | 13.9-14.1 ms | 1 |
+
+Parked frames do not change (12.4 ms): nothing there crosses the near plane.
+A VRAM grab of the parked frame differs between the routes in 2153 pixels, by
+one LSB (four at most) - below the 15 000-pixel noise between two cycles of the
+SAME route at night.
+
+**The REFs it creates must not be copied every frame (1.174.2).** A whole
+package by pointer names the bag's own arrays, and the frame recorder copies
+every REF target that is not a registered immutable span into the frame arena,
+on every frame. The old route's strip expansions lived in an immutable cache;
+the terrain chunks (base pass, paint layers, lightmap passes - each with its own
+streams) do not register theirs, so the new route raised the recorder's
+mutable copies from 38 to 70 KB a frame. `fillCachedPackage` now points a
+crossing package at a verbatim copy of its streams in an immutable span, made
+once per (arrays, `bboxVersion`, content stamps) and shared with the
+expansion entries' budget and leases. A bag that registered its own streams
+(roads, static batches) is borrowed in place. Measured, same ELF: mutable copies
+70 -> 16 KB a frame, the snapshot's REF fixup 0.65 -> 0.32 ms, `submit`
+1.93 -> 1.62 ms, heaviest window 12.49 -> 12.26-12.38 ms.
+
+`StaPipCore::setStreamClip(false)` restores the slice and strip-subrange
+routes for an A/B; the new programs take those small buffers unchanged.
+
+The shipping light-fold images (`stapip_clip_*_fold_vu1.vclpp`) are derived
+from the generated bases by `tools/derive-fold-images.py` - re-run it after
+`--vu-emit`. The paint images (`*_paint_vu1.vclpp`, default off) were not
+regenerated and still carry the pre-stream body.
+
+## A tight band for big flat triangles (1.177.1)
+
+The guard band has a price the scissor does not show: a triangle that keeps a
+vertex ~1590 px off screen is rasterised from that vertex, and the console's GS
+interpolates S/T/Q across that distance with too little precision. On large
+flat textured geometry seen from close up - the road bands of 1.176.0, up to 8
+stations long - the texture then swims by up to ~6 px from frame to frame on a
+PS2 while the geometry stays put. PCSX2 interpolates in float and shows none of
+it. Measurements: [roads.md](roads.md#texture-swim-on-the-console-11771).
+
+`StaPipInfoBag::tightClipBand` cuts one bag to `VU1_CLIP_XY_BAND_TIGHT`
+(0.25 w, ~256 px past each edge at 512 px) and leaves the rest of the scene at
+0.9. Every place that knows the band follows the bag:
+
+- `StaPipCore::render` classifies against `computeClipObjectSpacePlanes(mvp,
+  band)` - the whole-bag guard-band test and the per-package masks alike;
+- the stamp replay tests against `stampClipPlanesTight`, computed beside
+  `stampClipPlanes` whenever the view-projection moves, so a road bag inside
+  the wide band but not the tight one is not stamped whole;
+- `setClipBandTight` right before `sendObjectData` picks the plane table
+  `addClipChain` uploads, and the retained clip block is captured TWICE
+  (`clipBlock[2]`, `clipBlockVif[2]`), one per band, under the same drain rule.
+
+Why per bag: every bag at 0.25 fixed the swim as well but cost 0.9 ms of EE
+and three times the late frames, because far more packages cross a plane and
+take the clip route. 0.5 for everything was cheap and not enough (4.8 px). The
+generated game sets it on road chunks, spills and soft edges only. A new kind
+of large flat textured surface that shows the same swim on a console is a
+candidate for the flag - measure its cost on the console first.
+
 ## See also
 
 - [profiling.md](profiling.md) — the frame-timing rig, the measurement protocol
@@ -545,3 +696,15 @@ The project format remains 80.
 - [vu-framework.md](vu-framework.md) — `--vu-check`, the host VU1 simulator, and
   the C++ descriptions that generate the clip program family.
 - [vu-authoring.md](vu-authoring.md) — writing a project's own VU1 program.
+
+## Crossing bags from immutable blocks (2026-10-20)
+
+`StaPipCore::setPartialReplay` (default 0) gives a crossing bag a second
+baked entry: all its packages formatted for the streamed clip program with
+all six planes, camera independent and baked once. Mode 1 keeps the
+per-package classification and sends each run of same-route packages as
+one REF; mode 4 does the same with each clip block carrying its package's
+own plane mask. Sending the whole bag as ONE REF into the clip program
+(VU1 judges every triangle) was measured at +0.6 ms parked and +2.5 ms
+driving and removed. Numbers:
+[EE submission audit items](tyrax2-arch-audit-ee-submission-2026-10-20.md).

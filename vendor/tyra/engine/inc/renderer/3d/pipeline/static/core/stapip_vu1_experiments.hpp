@@ -40,3 +40,11 @@
 #ifndef TYRA_VU1_EXP_ENV_NORMALIZED
 #define TYRA_VU1_EXP_ENV_NORMALIZED 1
 #endif
+
+/** C16/A10: accepted-basis vehicle paint on VU1, before clipping. Separate
+ * whole images retain the ordinary vertex/normal/colour stream ABI. The
+ * caller must consult supportsPaintVu() and materialize EE colours for any
+ * fallback. Keep OFF pending game integration and physical qualification. */
+#ifndef TYRA_VU1_EXP_PAINT
+#define TYRA_VU1_EXP_PAINT 0
+#endif

@@ -13,10 +13,16 @@ namespace Tyra {
 // No world-scale assumption: nonuniform models use buildSpotForBag's existing
 // transform too. An interval expansion leaves borderline bags on the lit path.
 inline bool stapipSpotHasNoInfluence(const StaPipClipperSpot& light,
+                                     const Vec4& lo, const Vec4& hi);
+inline bool stapipSpotHasNoInfluence(const StaPipClipperSpot& light,
                                      const CoreBBox& bounds) {
+  return stapipSpotHasNoInfluence(light, bounds[0], bounds[7]);
+}
+// Modified by TyraX: the same test on min/max corners (bag stamps keep only
+// the two corners - docs/stapip-stamps.md).
+inline bool stapipSpotHasNoInfluence(const StaPipClipperSpot& light,
+                                     const Vec4& lo, const Vec4& hi) {
   if (!light.enabled) return true;
-  const Vec4& lo = bounds[0];
-  const Vec4& hi = bounds[7];
   float low[3] = {lo.x - light.position.x, lo.y - light.position.y,
                   lo.z - light.position.z};
   float high[3] = {hi.x - light.position.x, hi.y - light.position.y,

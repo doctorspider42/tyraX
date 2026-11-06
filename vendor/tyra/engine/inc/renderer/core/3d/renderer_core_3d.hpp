@@ -101,6 +101,15 @@ class RendererCore3D {
    * virtual camera. Restore with popEnvView(main camera info).
    */
   void pushPortalView(const Vec4& position, const Vec4& lookAt);
+  /** Modified by TyraX: cull the current (portal) view against only the
+   * screen rectangle [x0,x1) x [y0,y1) in raster pixels of a w x h raster -
+   * Renderer3DFrustumPlanes::narrow. Restored by popEnvView with the rest of
+   * the saved view. */
+  void narrowFrustumToRect(int x0, int y0, int x1, int y1, float w, float h) {
+    const float hw = 0.5F * w, hh = 0.5F * h;
+    frustumPlanes.narrow((x0 - hw) / hw, (x1 - hw) / hw, (hh - y1) / hh,
+                         (hh - y0) / hh);
+  }
 
   /**
    * Modified by TyraX: restores the view, projection AND frustum planes the

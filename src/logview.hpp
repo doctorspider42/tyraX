@@ -47,6 +47,10 @@ struct Line {
     // its entry, but a count of problems must not count it - "1 error" for a
     // diagnostic that spans four lines is the truthful number.
     bool cont = false;
+    // Length of the runner's "HH:MM:SS " stamp at `begin` (9), 0 when the line
+    // carries none. The panels draw the time in their own dim column and the
+    // message from `begin + stamp`, so an Output line is not stamped twice.
+    unsigned char stamp = 0;
 };
 
 // Carried across incremental parse() calls: a diagnostic spans several lines,

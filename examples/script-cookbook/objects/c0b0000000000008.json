@@ -1,0 +1,1 @@
+{"id": "c0b0000000000008", "name": "a-ease-outback", "type": "sphere", "position": [6, 0.4, 6], "rotation": [0, 0, 0], "scale": [0.6, 0.6, 0.6], "color": [0.81, 0.55, 0.51], "physics": false, "scripts": ["EaseShowcase"], "scriptProps": {"EaseShowcase": {"curve": "7", "height": "2", "period": "1.5"}}}

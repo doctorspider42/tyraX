@@ -20,6 +20,27 @@ examples/** text=auto eol=lf
 *.heights text eol=lf
 *.flownode text eol=lf
 
+# Acceptance records contain SHA-256 links to other repository JSON records.
+# Keep their bytes stable across Windows/Linux checkouts.
+docs/*.json text eol=lf
+
+# Experimental source snapshots carry hashes of exact compiled input bytes.
+# Preserve every archived byte instead of applying checkout normalization.
+docs/tyrax2-spr-call-prototype-sources-2026-10-04/** -text whitespace=trailing-space,space-before-tab,cr-at-eol
+docs/tyrax2-spr-call-runtime-2026-10-04.json -text whitespace=trailing-space,space-before-tab,cr-at-eol
+docs/tyrax2-batch-texture-scopes-2026-10-04.json -text whitespace=trailing-space,space-before-tab,cr-at-eol
+docs/tyrax2-night-ablation-sources-2026-10-04/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-night-ablation-2026-10-04.json -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-night-extras-sources-2026-10-04/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-pool-color-candidate-2026-10-04/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-pool-cache-sources-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-wild-source-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-wild-physical-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-pool2-source-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-pool2-evidence-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-pool2-ee-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-pool-lattice-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
 # The neural upscaler's network and its provenance sidecar. The `.net` is 500
 # bytes of floats and must never be line-ending-normalised; the `.meta` is text
 # the TRAINER writes with LF, and the check that guards the shipped default is
@@ -42,3 +63,51 @@ docker/openvcl-tyrax.patch text eol=lf
 vendor/openvcl/** text=auto eol=lf
 vendor/vclpp/** text=auto eol=lf
 tools/toolchain/** text=auto eol=lf
+
+# Preserve exact archived PS2 experiment source/evidence bytes.
+docs/tyrax2-gs-sprite-coronas-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-corona24-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-corona24-pricing-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-player-light-receivers-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-far-light-gate-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-ee-performance-audit-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-night-producers-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+# Preserve exact Core prefix trial evidence bytes.
+docs/tyrax2-core-prefix-partition-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-core-bounds-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-core-preparation-experiments-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-sky-retint-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-paused-clock-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-night-shift-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-claude-trials-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-claude-hardware-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-closeout-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-closeout-physical-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-empty-car-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-city-day-drive-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-city-physics-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-loop-balance-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-render-audit-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-queue-audit-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-strip-batch-2026-10-07/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+# Investigation archives contain hashes of exact source, log and raster bytes.
+# Preserve payloads on every platform; never normalize sealed evidence.
+docs/tyrax2*/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+tools/tyrax2-* text=auto eol=lf
+tools/verify-* text=auto eol=lf
+
+# Shell scripts run under bash (Git Bash / WSL): LF regardless of autocrlf.
+tools/ps2rig/*.sh text eol=lf

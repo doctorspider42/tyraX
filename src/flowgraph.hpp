@@ -122,6 +122,7 @@ enum class FlowParamKind {
     GradingName,  // name of a Project::gradings preset ("" = neutral/off)
     AmbienceName,  // name of a Project::ambiencePresets entry ("" = none)
     LayerName,  // name of a SceneData::layers entry (streaming layer)
+    SoundBankName,  // name of a Project::soundBanks entry
     AreaName,   // name of a PrimitiveType::Area object in the scene
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
     CreditsName,   // name of a Project::credits roll (Tools > Credits Editor)
@@ -146,6 +147,9 @@ enum class FlowParamKind {
     // free one. "" is fixed so a graph written before this existed is
     // unchanged. A closed list, not a project lookup - see saveSlotModes().
     SaveSlotMode,
+    // "Class.method" of an object script's TYRA_SCRIPT_METHOD (the Call Script
+    // node), picked from what the editor scans in src/scripts.
+    ScriptMethod,
 };
 
 // The SaveSlotMode choices. Order is cosmetic; the KEY is what a graph stores.
@@ -365,7 +369,7 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "press and the hold."},
         {.key = "OnKey", .title = "On Key", .category = "Triggers",
          .trigger = true, .strKind = FlowParamKind::KeyName,
-         .strTip = "A USB keyboard key by label. Needs Preferences > Build > "
+         .strTip = "A USB keyboard key by label. Needs Preferences > Build & debug > "
                    "Keyboard & mouse; without it the trigger never fires.",
          .boolOut = true,
          .desc = "Fires the frame a keyboard key goes down. It bypasses the "
@@ -1356,6 +1360,24 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "back on its own. 0 = switch blind, which strands the "
                      "player on a black screen if the TV cannot show the mode."},
          .desc = "Switches the console's video mode at runtime."},
+        {.key = "SetFramePipeline", .title = "Set Frame Pipeline",
+         .category = "Scene", .numCount = 1, .numLabels = {"On"},
+         .numTips = {"Off or On. The request is applied before the next frame "
+                     "begins; the last request in that interval wins."},
+         .numChoices = {"Off|On"},
+         .execThrough = true,
+         .desc = "Requests frame pipeline overlap between CPU preparation and "
+                 "GPU rendering. Applied between frames, never during "
+                 "recording. Compatibility fallback can keep overlap inactive "
+                 "while the request is On. Requires a game rebuild; Live Logic "
+                 "cannot patch this node."},
+        {.key = "GetFramePipeline", .title = "Get Frame Pipeline (Requested)",
+         .category = "Scene", .pure = true, .boolOut = true,
+         .desc = "Reads the engine's current frame pipeline request as a bool. "
+                 "A pending Set Frame Pipeline request is visible only after "
+                 "it is applied before the next frame. True does not guarantee "
+                 "active overlap: compatibility fallback may disable it. "
+                 "Requires a game rebuild; Live Logic cannot patch this node."},
         {.key = "SetFrameExtrapolation", .title = "Set Frame Extrapolation",
          .category = "Scene", .numCount = 1, .numLabels = {"Mode"},
          .numTips = {"0 = off, 1 = on but only while it pays for itself, "
@@ -1371,6 +1393,24 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "extrapolation preference on - that is what compiles the "
                  "feature in; this only steers it. Fire it at the start of a "
                  "cutscene and again at the end."},
+        {.key = "SetUpscaler", .title = "Set Upscaler (BLSS)",
+         .category = "Scene", .numCount = 1, .numLabels = {"Mode"},
+         .numTips = {"Scene default = what Scene Preferences says for this "
+                     "scene. Off = native resolution. On = the reduced "
+                     "raster (the whole 3D scene, or only the particles - "
+                     "Project Preferences decides which). Automatic = the "
+                     "frame-budget switch: native until frames start missing "
+                     "fields, then reduced. A scene load goes back to Scene "
+                     "default."},
+         .numChoices = {"Scene default|Off (native)|On (reduced)|Automatic"},
+         .desc = "Switches the upscaler while the game runs "
+                 "(docs/upscaler.md, \"At runtime\") - e.g. On when the "
+                 "player walks into the smoke and fire, Off again on the way "
+                 "out. Free: having this node anywhere makes the build "
+                 "reserve both rasters at boot, so a switch moves no VRAM. "
+                 "Whole-scene mode still cannot be combined with depth of "
+                 "field, portals or split screen; use Particles only there. "
+                 "Requires a game rebuild; Live Logic cannot patch this node."},
         {.key = "SetWidescreen", .title = "Set Widescreen", .category = "Scene",
          .numCount = 1, .numLabels = {"On"},
          .numTips = {"On = fit the projection for 16:9, off = 4:3. This "
@@ -1704,6 +1744,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "ordinary; raise it for a gunshot or a line of dialogue, "
                      "lower it for chatter you would rather lose."},
          .desc = "Fires a one-shot sound effect."},
+        {.key = "SetSoundBankLoaded", .title = "Set Sound Bank Loaded",
+         .category = "Audio", .strKind = FlowParamKind::SoundBankName,
+         .strTip = "The sound bank to load or unload (Project panel > Audio > "
+                   "Banks).",
+         .execInCount = 2, .execInLabels = {"load", "unload"},
+         .execInTips = {"Starts loading the bank's sounds into the PS2's sound "
+                        "RAM, one per frame - a sound played before it arrives "
+                        "is silent.",
+                        "Frees the bank's sounds that nothing else loaded "
+                        "still needs, cutting off any that are playing."},
+         .desc = "Loads a named set of sounds by hand, for sounds no layer or "
+                 "emitter brings with it - a mission's, a cutscene's. A bank "
+                 "stays loaded until unloaded or the scene ends."},
         // Save data: named values persisted in memory card slots (Project
         // panel, "Save data"); every save slot stores a snapshot.
         {.key = "SetValue", .title = "Set Save Value", .category = "Save",
@@ -2455,6 +2508,19 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // On Update, which is both slower and impossible to read as intent.
         // Delivery is deliberately ONE FRAME later and uniform for every
         // receiver - see the desc.
+        // Graph -> script: runs a method an object script exposes with
+        // TYRA_SCRIPT_METHOD (docs/script-api.md, "Flow graphs and scripts").
+        {.key = "CallScript", .title = "Call Script", .category = "Events",
+         .strKind = FlowParamKind::ScriptMethod,
+         .strTip = "Class.method - a method an object script registered with "
+                   "TYRA_SCRIPT_METHOD(Class, method) in src/scripts.",
+         .idIn = true,
+         .desc = "Runs a method of the object script attached to the target "
+                 "object (wired object, or this graph's own object): the way a "
+                 "graph hands work to C++ - open the door the script animates, "
+                 "fire the turret, reset the puzzle. Nothing happens when the "
+                 "target does not carry that script. Scripts talk back with "
+                 "tyrax::sendEvent, which every On Event hears."},
         {.key = "SendEvent", .title = "Send Event", .category = "Events",
          .strKind = FlowParamKind::EventName,
          .strTip = "The event's name - free text that exists by being used. Use "
@@ -2550,6 +2616,12 @@ struct CustomFlowNode {
     std::string numTipStore[4];
     std::string strTipStore;
     std::string sourceFile;  // absolute path of the .flownode file (diagnostics)
+    // `include = file.hpp`: a header beside the .flownode's folder (an
+    // extension's own C++, docs/script-extensions.md) that the generated
+    // flow graph includes - where a `call = fn` node's function lives when it
+    // is not in inc/scripts/flow_nodes.hpp. Absolute path, "" = none.
+    std::string includeFile;
+    std::string extension;  // the extension folder that shipped it, "" = the project's own
     FlowNodeType type{};     // char* fields point into the strings above
 };
 
@@ -2737,6 +2809,7 @@ inline const char* flowStrLabel(const FlowNodeType& t) {
         case FlowParamKind::SoundTrack: return "Sound";
         case FlowParamKind::SceneName: return "Scene";
         case FlowParamKind::LayerName: return "Layer";
+        case FlowParamKind::SoundBankName: return "Bank";
         case FlowParamKind::AreaName: return "Area";
         case FlowParamKind::SaveValue: return "Value";
         case FlowParamKind::SaveText: return "Value";
@@ -2755,6 +2828,7 @@ inline const char* flowStrLabel(const FlowNodeType& t) {
         case FlowParamKind::EventName: return "Event";
         case FlowParamKind::FactName: return "Fact";
         case FlowParamKind::FactQueryName: return "Query";
+        case FlowParamKind::ScriptMethod: return "Method";
         default: return "";
     }
 }

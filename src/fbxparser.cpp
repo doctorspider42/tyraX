@@ -687,6 +687,25 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
     Pose pose;
     if (fastPose) poseInit(scene, instances, pose);
 
+    // Skeleton overlay bones (host preview only): every skin cluster's bone
+    // node, parented to its nearest ancestor that is also a bone.
+    std::vector<int> boneNodes;
+    {
+        std::vector<int> boneOf(scene->nodes.count, -1);
+        for (size_t i = 0; i < scene->skin_clusters.count; ++i) {
+            const ufbx_node* bn = scene->skin_clusters.data[i]->bone_node;
+            if (bn && bn->typed_id < boneOf.size() && boneOf[bn->typed_id] < 0) {
+                boneOf[bn->typed_id] = (int)boneNodes.size();
+                boneNodes.push_back((int)bn->typed_id);
+            }
+        }
+        for (int bn : boneNodes) {
+            const ufbx_node* pn = scene->nodes.data[(size_t)bn]->parent;
+            while (pn && boneOf[pn->typed_id] < 0) pn = pn->parent;
+            out.boneParent.push_back(pn ? boneOf[pn->typed_id] : -1);
+        }
+    }
+
     int frameBase = 0;
     for (const StackFrames& sf : stacks) {
         for (int f = 0; f < sf.frames; ++f) {
@@ -714,6 +733,13 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                 root.z = (float)toWorld.m23;
             }
             out.rootMotion.push_back(root);
+            for (int bn : boneNodes) {
+                const ufbx_matrix& tw = fastPose ? pose.nodeToWorld[(size_t)bn]
+                                                 : ev->nodes.data[bn]->node_to_world;
+                out.bonePos.push_back((float)tw.m03);
+                out.bonePos.push_back((float)tw.m13);
+                out.bonePos.push_back((float)tw.m23);
+            }
             for (size_t bi = 0; bi < batches.size(); ++bi) {
                 Part& part = out.parts[bi];
                 const size_t base =

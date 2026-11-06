@@ -210,7 +210,7 @@ Predicted EE cost: about 300 visibility units at roughly 400 cycles each, near
 | # | change | predicted (garage day / night) | risk |
 | --- | --- | ---: | --- |
 | S1 | Build the frame's chain in the EE scratchpad (16 KB at `0x70000000`, unused by this engine) or in uncached memory, and stop calling `FlushCache` | **−1.09 MEASURED**, not −2.10 | **medium** — dropping the flush corrupted the picture even with the packet uncached; see the probes |
-| S2 | Remove the per-mesh `FLUSHE`: a second uniform bank at VU1 addresses 22..43 and a bank bit in the count word | via VIF1 wait; little until S1 and the redesign land | medium — touches 15 microprograms; sequence it last |
+| S2 | Remove the per-mesh `FLUSHE`: a second uniform bank at VU1 addresses 22..43 and a bank bit in the count word | via VIF1 wait; little until S1 and the redesign land | medium — touches 15 microprograms; sequence it last. **2026-10-20: not worth building** - a same-ELF PS2 arm with NO FLUSHE at all (the ceiling) moved parked and driving work by less than the controls' 0.03 ms spread; the EE waits 8 us a frame for the GPU ([night EE notes](tyrax2-night-ee-2026-10-12.md), "VU1 has slack now") |
 | ~~S3~~ | ~~Classify per 1/3-bbox part instead of per package~~ **REFUTED, do not build** | the whole bracket is **1.79 ms** and the arm that coarsens it measured **+4.59** | — |
 | S4 | The shared reflection probe costs +26 flushes and +10 444 triangles on every second frame | **2.07 / 2.56 MEASURED**. **SHIPPED as a reuse budget** (1.106.0); what it recovers depends on motion, see below | low — it can only reduce captures, and the cadence stays the ceiling |
 | S5 | `vehicles_included_ms` is a flat 2.26 ms with the car parked | ~1.5 | low — per-wheel matrices instead of an EE vertex rebake |
@@ -1685,3 +1685,7 @@ to draw, because those are two different questions as well.** The map-wide road
 count promoted the wrong front; the submission inventory that replaced it
 promoted item 5 on a population that turned out to be almost entirely visible.
 Each step was a real measurement of the wrong quantity.
+
+## Selected ordinary physical scopes (2026-10-04)
+
+The [new minimal scope record](tyrax2-minimal-scopes.md) checks debugger suspects on PS2: terrain2.858–2.866ms, wheel preparation/submit0.304–0.306ms and the first terrain core1.103–1.113ms, all inclusive. Wheel CPU preparation is a smaller60Hz priority. Audit the first terrain route and split whole Scene/completion/end-frame before choosing the next redesign. Common apparatus remains unpriced; no uniform observer subtraction or new FPS gain is accepted. These ordinary night measurements do not revise the historical pose table above.

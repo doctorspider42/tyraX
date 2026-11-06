@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -18,10 +19,29 @@
 // name resolves to (scene index, runtime object index) and the director only
 // applies a track while its scene is the active one.
 
-// One keyframe: a full pose snapshot of one object at a point in time. The
-// track's channel flags decide which of these fields actually drive the
-// object; `easing` controls interpolation of the OUTGOING segment (this key to
-// the next one).
+// The animatable components of an object, one bit each in SeqObjectKey::mask:
+// position/rotation/scale per axis, colour as one (its three numbers move
+// together), visibility. Bit i of the mask is component i.
+enum : unsigned {
+    kSeqChPosX = 1u << 0, kSeqChPosY = 1u << 1, kSeqChPosZ = 1u << 2,
+    kSeqChRotX = 1u << 3, kSeqChRotY = 1u << 4, kSeqChRotZ = 1u << 5,
+    kSeqChScaleX = 1u << 6, kSeqChScaleY = 1u << 7, kSeqChScaleZ = 1u << 8,
+    kSeqChColor = 1u << 9, kSeqChVis = 1u << 10,
+    kSeqChPos = kSeqChPosX | kSeqChPosY | kSeqChPosZ,
+    kSeqChRot = kSeqChRotX | kSeqChRotY | kSeqChRotZ,
+    kSeqChScale = kSeqChScaleX | kSeqChScaleY | kSeqChScaleZ,
+    kSeqChAll = (1u << 11) - 1u,
+};
+constexpr int kSeqComponentCount = 11;
+
+// One keyframe of one object at a point in time. `mask` says which components
+// this key sets: a component is interpolated between the keys that carry its
+// bit only, so position Y can be keyed at 9 s while X and Z are keyed at 5 s.
+// A key written before per-channel keys existed (format < 120) carries every
+// component - which is exactly what it meant then. The track's channel flags
+// still decide which channels drive the object at all; `easing` controls
+// interpolation of the OUTGOING segment (this key to the next one carrying
+// the same component).
 struct SeqObjectKey {
     float time = 0.0f;                    // seconds from the sequence start
     float position[3] = {0.0f, 0.0f, 0.0f};
@@ -30,6 +50,7 @@ struct SeqObjectKey {
     float color[3] = {0.6f, 0.6f, 0.6f};
     bool visible = true;
     int easing = 1;  // 0 linear, 1 smooth (smoothstep), 2 step (hold to next)
+    unsigned mask = kSeqChAll;
 };
 
 inline bool operator==(const SeqObjectKey& a, const SeqObjectKey& b) {
@@ -38,7 +59,8 @@ inline bool operator==(const SeqObjectKey& a, const SeqObjectKey& b) {
     };
     return a.time == b.time && eq3(a.position, b.position) &&
            eq3(a.rotation, b.rotation) && eq3(a.scale, b.scale) &&
-           eq3(a.color, b.color) && a.visible == b.visible && a.easing == b.easing;
+           eq3(a.color, b.color) && a.visible == b.visible && a.easing == b.easing &&
+           a.mask == b.mask;
 }
 
 // A track binds one scene object (by name) to a list of keyframes. The channel
@@ -53,6 +75,13 @@ struct SeqTrack {
     bool animVis = false;
     std::vector<SeqObjectKey> keys;   // kept sorted by time
 };
+
+// The components the track's channel flags let drive the object.
+inline unsigned seqTrackChannels(const SeqTrack& t) {
+    return (t.animPos ? kSeqChPos : 0u) | (t.animRot ? kSeqChRot : 0u) |
+           (t.animScale ? kSeqChScale : 0u) | (t.animColor ? kSeqChColor : 0u) |
+           (t.animVis ? kSeqChVis : 0u);
+}
 
 inline bool operator==(const SeqTrack& a, const SeqTrack& b) {
     return a.target == b.target && a.animPos == b.animPos && a.animRot == b.animRot &&
@@ -200,6 +229,153 @@ inline float seqSample(const float* times, const float* values, const int* easin
     const float u = span > 1e-6f ? (t - times[i]) / span : 0.0f;
     const float e = seqEase(easings[i], u);
     return values[i] + (values[i + 1] - values[i]) * e;
+}
+
+// Component c (0-8) of a key as one float: position, rotation, scale per axis.
+inline float seqKeyFloat(const SeqObjectKey& k, int c) {
+    return c < 3 ? k.position[c] : c < 6 ? k.rotation[c - 3] : k.scale[c - 6];
+}
+
+// Samples component c (bit 1 << c) across TIME-SORTED keys, interpolating only
+// between the keys that carry it - so a key that sets just position X is
+// invisible to Y and Z. `get(key)` reads the value. Holds the ends like
+// seqSample (and equals it when every key carries the component). Returns
+// false when no key carries it: the object keeps its own value. The
+// generated player's sampleObj is the twin (templates.cpp sequencesScript).
+template <class Get>
+inline bool seqSampleComponent(const SeqObjectKey* k, int n, int c, float t, Get get,
+                               float& out) {
+    const unsigned bit = 1u << c;
+    int a = -1, b = -1;  // last carrying key at/before t, first one after it
+    for (int i = 0; i < n; ++i) {
+        if (!(k[i].mask & bit)) continue;
+        if (k[i].time <= t) {
+            a = i;
+        } else {
+            b = i;
+            break;
+        }
+    }
+    if (a < 0 && b < 0) return false;
+    if (a < 0 || b < 0) {
+        out = get(k[a < 0 ? b : a]);
+        return true;
+    }
+    const float span = k[b].time - k[a].time;
+    const float u = span > 1e-6f ? (t - k[a].time) / span : 0.0f;
+    out = get(k[a]) + (get(k[b]) - get(k[a])) * seqEase(k[a].easing, u);
+    return true;
+}
+
+// Visibility steps: the last key carrying kSeqChVis at/before t, else the
+// first one. -1 when no key carries it.
+inline int seqVisibilityKey(const SeqObjectKey* k, int n, float t) {
+    int first = -1, last = -1;
+    for (int i = 0; i < n; ++i) {
+        if (!(k[i].mask & kSeqChVis)) continue;
+        if (first < 0) first = i;
+        if (k[i].time <= t) last = i;
+    }
+    return last >= 0 ? last : first;
+}
+
+// --- per-channel key editing ---------------------------------------------------
+// Two keys closer than this are one key (a 60 Hz frame).
+constexpr float kSeqKeySnap = 0.017f;
+
+inline void seqCopyComponents(SeqObjectKey& dst, const SeqObjectKey& src, unsigned bits) {
+    for (int c = 0; c < 3; ++c) {
+        if (bits & (kSeqChPosX << c)) dst.position[c] = src.position[c];
+        if (bits & (kSeqChRotX << c)) dst.rotation[c] = src.rotation[c];
+        if (bits & (kSeqChScaleX << c)) dst.scale[c] = src.scale[c];
+    }
+    if (bits & kSeqChColor)
+        for (int c = 0; c < 3; ++c) dst.color[c] = src.color[c];
+    if (bits & kSeqChVis) dst.visible = src.visible;
+}
+
+// Sorts by time; returns where key `follow` ended up (-1 stays -1).
+inline int seqSortKeys(SeqTrack& tr, int follow = -1) {
+    std::vector<int> order(tr.keys.size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = (int)i;
+    std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
+        return tr.keys[a].time < tr.keys[b].time;
+    });
+    std::vector<SeqObjectKey> sorted;
+    sorted.reserve(order.size());
+    int at = -1;
+    for (size_t i = 0; i < order.size(); ++i) {
+        if (order[i] == follow) at = (int)i;
+        sorted.push_back(tr.keys[order[i]]);
+    }
+    tr.keys = std::move(sorted);
+    return at;
+}
+
+// Keys the components in `bits` at `time` with the values in `src`: a key
+// within kSeqKeySnap takes them (its other components untouched), otherwise
+// a new key carrying only them is made. Returns its index (keys sorted).
+inline int seqSetKey(SeqTrack& tr, float time, unsigned bits, const SeqObjectKey& src) {
+    for (int i = 0; i < (int)tr.keys.size(); ++i)
+        if (std::fabs(tr.keys[i].time - time) < kSeqKeySnap) {
+            seqCopyComponents(tr.keys[i], src, bits);
+            tr.keys[i].mask |= bits;
+            return i;
+        }
+    SeqObjectKey k = src;
+    k.time = time;
+    k.mask = bits;
+    if (!tr.keys.empty()) {
+        // a new key eases like the key before it (or the first one)
+        int prev = 0;
+        for (int i = 0; i < (int)tr.keys.size(); ++i)
+            if (tr.keys[i].time < time) prev = i;
+        k.easing = tr.keys[prev].easing;
+    }
+    tr.keys.push_back(k);
+    return seqSortKeys(tr, (int)tr.keys.size() - 1);
+}
+
+// Takes the components in `bits` off key ki; a key left with none is erased.
+// Returns true when it was erased.
+inline bool seqClearKey(SeqTrack& tr, int ki, unsigned bits) {
+    if (ki < 0 || ki >= (int)tr.keys.size()) return false;
+    tr.keys[ki].mask &= ~bits;
+    if (tr.keys[ki].mask & kSeqChAll) return false;
+    tr.keys.erase(tr.keys.begin() + ki);
+    return true;
+}
+
+// Before retiming only some of a key's components: moves `bits` into a key of
+// their own at the same time, APPENDED (indices of the others stay put while a
+// drag is live). Returns the index of the key that carries them alone - ki
+// itself when it carries nothing else.
+inline int seqSplitKey(SeqTrack& tr, int ki, unsigned bits) {
+    if (ki < 0 || ki >= (int)tr.keys.size()) return ki;
+    bits &= tr.keys[ki].mask;
+    if (!bits || (tr.keys[ki].mask & ~bits) == 0) return ki;
+    SeqObjectKey part = tr.keys[ki];
+    part.mask = bits;
+    tr.keys[ki].mask &= ~bits;
+    tr.keys.push_back(part);
+    return (int)tr.keys.size() - 1;
+}
+
+// After a retime: sorts, and merges every key within kSeqKeySnap of key
+// `keep` into it (keep wins where both carry a component). Returns keep's
+// index afterwards.
+inline int seqSettleKeys(SeqTrack& tr, int keep) {
+    keep = seqSortKeys(tr, keep);
+    if (keep < 0) return keep;
+    for (int j = (int)tr.keys.size() - 1; j >= 0; --j) {
+        if (j == keep || std::fabs(tr.keys[j].time - tr.keys[keep].time) >= kSeqKeySnap) continue;
+        const unsigned add = tr.keys[j].mask & ~tr.keys[keep].mask;
+        seqCopyComponents(tr.keys[keep], tr.keys[j], add);
+        tr.keys[keep].mask |= add;
+        tr.keys.erase(tr.keys.begin() + j);
+        if (j < keep) --keep;
+    }
+    return keep;
 }
 
 // The 4:3 picture the PS2 outputs unless the project asks for widescreen.

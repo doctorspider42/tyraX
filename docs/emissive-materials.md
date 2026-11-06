@@ -115,7 +115,7 @@ up. They keep the per-vertex AO path, where the floor wins.
 The bloom pass downsamples the frame, blurs it and adds it back. Without a
 threshold *everything* glows — the soft-focus look, not a glowing object.
 
-*UI Editor* → the screen stack → **[ Bloom + color grading ]**:
+*UI Editor* → the screen stack → **Bloom + color grading**:
 
 - **Bloom** — how much of the blur is added back, **0 to 2**. The GS blend
   factor is a whole byte, so above 1 the blur is *over*-added: a blown-out,
@@ -136,7 +136,36 @@ On the GS the bright pass is one extra quarter-res sprite: a flat grey
 subtracted from the downsampled frame through the `(0 − Cs)·128/128 + Cd`
 blend, which clamps at zero — everything below the cut becomes black and drops
 out of the blur, everything above keeps the excess. Each spread round is 4 more
-sprites over the same tiny buffers. No EE cost, no extra VRAM.
+sprites over the same tiny buffers. No extra VRAM.
+
+### What the pass costs on a PS2 (measured 2026-10-20)
+
+Measured on a physical PS2 on `examples/vehicle-playground` (Progressive480p,
+448x448, Hybrid colour depth, bloom 0.12 with threshold 0.7):
+
+- **GS time**: the whole bloom chain, timed alone between frames with the GPU
+  idle, is **0.32 ms** - almost all of it the full-screen downsample and the
+  full-screen add-back.
+- **Column strips and the z test do not change it.** Splitting both
+  full-screen sprites into 8- and 32-pixel columns (the shape the Hybrid
+  present copy uses) and running the chain at `ZTST = ALWAYS` - every bloom
+  sprite is drawn at z = max with z writes masked, so `GEQUAL` passed every
+  pixel anyway - measured 0.318 ms against 0.317. The pass is not limited by
+  texture-cache or page breaks at this size; it is two full-screen fills.
+  Reverted.
+- **Turning bloom off** saves those 0.32 ms of GS and, in the same-ELF arms,
+  **0.27-0.30 ms of EE work parked** (night 10.16 -> 9.96 ms median, day
+  9.56 -> 9.29), nothing measurable while driving. The picture changes by at
+  most 4 levels in 0.5% of the pixels at night and at most 6 levels in 17% of
+  them by day (the sky's soft glow and the tail lights' halo) - see
+  [day](img/bloom-off-ps2-day.png) and [night](img/bloom-off-ps2-night.png),
+  each bloom on | off | difference x4, captured on the console.
+
+The district therefore ships with bloom **off** (0): on a frame that is
+EE-bound with an idle GS the effect bought a nearly invisible glow for a
+third of a millisecond. A project that relies on the halo for its emissive
+look (§1-2) keeps it - the price is the 0.32 ms above, whatever the threshold
+and spread.
 
 ## 3. Lighting the surroundings
 
@@ -358,7 +387,7 @@ reason: a few levels of noise make the eye integrate the plateaus away.
 
 ### Shadows
 
-The light is **blocked by solids**. Every object marked *Cast shadow*
+The light is **blocked by solids**. Every object marked *Contact shadow (AO)*
 (Properties — the same flag the ambient occlusion uses) becomes an analytic
 box or sphere, and the light is scaled by how much of the emitter the lit point
 can still see. So a wall stops the glow instead of letting it through.
@@ -374,7 +403,7 @@ does.
 
 What stays hard is the *shape*, not the edge. The caster is still an analytic
 solid, so a wall throws a soft-edged rectangle rather than its silhouette, and a
-detailed mesh shadows as its bounding box. Untick *Cast shadow* on anything that
+detailed mesh shadows as its bounding box. Untick *Contact shadow (AO)* on anything that
 should not stop light (a railing, a grate, foliage) — otherwise its bounding box
 will.
 
