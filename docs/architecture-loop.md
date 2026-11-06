@@ -417,3 +417,19 @@ of the `world` + `bpRefresh` stages that goes away.
 
 **Pays when** physics in `R2B_L1`'s scene drops ≥ 0.5 ms and the contacts
 reused stay within tolerance of the recomputed ones (check arm).
+
+### R3-B: the body-pair stage with no body touching another
+
+**Hypothesis.** In `R2B_A1`, `pairs` costs 1.20 ms (~2 730 instructions per
+awake body) while every body finds only itself (`pairCand=72`, zero
+body-body contacts). Every frame it rebuilds the swept body grid, queries
+it, runs `broadPhaseNear` for sleepers and merges the lists. All of that
+depends only on the poses. The defect is rebuilding a spatial structure for
+bodies whose swept boxes did not change cells.
+
+**Ceiling first.** A probe arm keeps the body grid and the sleeper-neighbour
+lists while every awake body's swept box stays in the same cells, and only
+re-queries a body whose cells changed. A check arm compares the candidate
+pair lists with the rebuilt ones.
+
+**Pays when** `pairs` drops ≥ 0.5 ms with identical pair lists.
