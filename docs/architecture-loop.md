@@ -54,7 +54,7 @@ alone reads as 100 %+.
 |---|---|---|---|---|---|---|---|---|
 | 1 | crate drive (R2A_1 control, 2 runs) | 7.31-7.35 / 12.3 ms | EE | - | ~0 (RV1G: 0.00) | StaPip 4.3-4.4 ms | **stamp 61 %, crossing 66 %** at pI 51 / pD 16 (stamp 32.4 µs, 69 I + 147 D; crossing 143 µs, 423 I + 408 D a bag) | no: (b) fails on misses |
 | 2 | Motor District heavy spot, night / day | 11.7 / 13.7 ms parked, 11.1 / 13.3 driving (R0H/R0J) | EE (60 fps held) | VU1 31 %, GIF 13 %, idle 50 % parked; idle 67 % driving | 0.007-0.029 ms | StaPip `core` 4.5-5.9 ms; scene code 2.5 ms | **core 61-73 % (I-cache 46-51 %), IPC 0.28** (measured R2-0, R0J + R0I); scene code 38-56 % | no: (b) fails on misses; R4-A lean path -0.22..-0.24 ms |
-| 3 | physics: 72 awake crates (R2B_A1) | physics 7.76 -> 7.24 ms (2.11.1) | EE | - | - | physics: passes, world, pairs | **25 %** with the fitted prices (pI 51, pD 16 cycles; R2-0) | misses (b) yes; open: is ~17 k instructions per body per frame a defect? pile after a crash not re-measured |
+| 3 | physics: 72 awake crates (R2B_A1 / R3Q_L) | physics 7.76 -> **5.54 ms** (2.11.1-2.11.3, verified exact) | EE | - | - | physics: passes 2.4, prep 1.1, world 0.97 | 25 % fitted before the ports (pI 51, pD 16) | (b) on misses yes; defects found (world re-query, pair rebuild, step layout) fixed; pile after a crash not re-measured |
 | 4 | two-players, split screen, walking, NTSC (R0W) | 5.5 / 7.3 ms of a 16.7 ms frame | vsync: EE 33 % busy, GPU 77 % idle | VU1 19 %, idle 77 % | 0.03 ms | StaPip `core` 3.1 ms | 41-89 % (20/50 cycle range) | display-paced; waiting for the user's call |
 | 5 | showcase, NTSC (R0Z) | 19.06 / 19.12 ms | **GPU** | VU1 55 % + kick 8 %, GIF 34 %, idle 1.3 % | **5.9 ms** (q.waitFor 5.7) | - | - | **yes, (a)** |
 
@@ -858,3 +858,24 @@ is ~1.6-2.0 ms a frame in the district and ~0.9 ms in the crate drive.
 This is the only lever measured so far that is large enough to bring
 StaPip's miss share down materially. It is a multi-week rewrite of the
 submission path, not a rig arm.
+
+### The 2.11.3 port, timed (`R3Q_L`, generated, 2 runs)
+
+| stage | ms a frame, run 1 / run 2 |
+|---|---|
+| world | 0.975 / 0.973 |
+| pairs | 0.283 / 0.282 |
+| bpRefresh | 0.379 / 0.381 |
+| physics | **5.543 / 5.539** |
+
+72 awake crates in shipped code, across this loop:
+
+| version | physics |
+|---|---:|
+| 2.11.0 | 7.76 ms |
+| 2.11.1 | 7.25 ms |
+| 2.11.2 | 6.43 ms |
+| 2.11.3 | **5.54 ms** |
+
+That is -2.22 ms (-29 %) in all, with every step verified exact on the
+console.
