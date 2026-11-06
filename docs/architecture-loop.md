@@ -918,3 +918,20 @@ sends.
 **Pays when** core drops ≥ 0.5 ms driving with V clean. Then it is ported
 as the first slice of `docs/dod-submission.md` phase 3, and the other
 routes follow with the same record.
+
+### Scene 3, the pile after a crash (`R3PILE` = 2.11.3, `R1B_U1` = 2.11.0)
+
+The crate field with the scripted drive ploughing into it, I-miss PMU, the
+windows after the hit:
+
+| build | runs | awake | contacts | physics | per awake body |
+|---|---|---:|---:|---:|---:|
+| 2.11.3 | 2 | 9.8 / 13.1 | 4.7 / 5.1 | 1.24 / 1.56 ms | 127 / 119 µs |
+| 2.11.0 | 1 | 9.9 | 11.7 | 1.39 ms | 141 µs |
+
+The bodies here move, so neither cache can pay, and the per-body cost is
+about unchanged (-10 %). At the fitted prices (pI 51, pD 16) physics spends
+~39 % of its time in misses. The 50/42 table above says 67-70 %. But
+physics is 1.2-1.6 ms of this frame. The frame's dominant subsystem is
+StaPip, the same as scene 1, so the pile does not open a physics defect of
+its own above 0.5 ms.
