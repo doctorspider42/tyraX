@@ -52,7 +52,7 @@ alone reads as 100 %+.
 
 | # | scene | work mean / p95 | limited by | GPU timeline | EE waits on GPU | dominant EE subsystem | misses in it | meets the goal |
 |---|---|---|---|---|---|---|---|---|
-| 1 | crate drive | 6.70-6.99 / 12.0 ms (lean, BC44) | EE | - | ~0 (max 0.04 ms) | StaPip 4.0-4.1 ms | 86-100 % per route (docs/stapip-bag-cost.md) | no |
+| 1 | crate drive (R2A_1 control, 2 runs) | 7.31-7.35 / 12.3 ms | EE | - | ~0 (RV1G: 0.00) | StaPip 4.3-4.4 ms | **stamp 61 %, crossing 66 %** at pI 51 / pD 16 (stamp 32.4 µs, 69 I + 147 D; crossing 143 µs, 423 I + 408 D a bag) | no: (b) fails on misses |
 | 2 | Motor District heavy spot, night / day | 11.7 / 13.7 ms parked, 11.1 / 13.3 driving (R0H/R0J) | EE (60 fps held) | VU1 31 %, GIF 13 %, idle 50 % parked; idle 67 % driving | 0.007-0.029 ms | StaPip `core` 4.5-5.9 ms; scene code 2.5 ms | **core 61-73 % (I-cache 46-51 %), IPC 0.28** (measured R2-0, R0J + R0I); scene code 38-56 % | no: (b) fails on misses; R4-A lean path -0.22..-0.24 ms |
 | 3 | physics: 72 awake crates (R2B_A1) | physics 7.76 -> 7.24 ms (2.11.1) | EE | - | - | physics: passes, world, pairs | **25 %** with the fitted prices (pI 51, pD 16 cycles; R2-0) | misses (b) yes; open: is ~17 k instructions per body per frame a defect? pile after a crash not re-measured |
 | 4 | two-players, split screen, walking, NTSC (R0W) | 5.5 / 7.3 ms of a 16.7 ms frame | vsync: EE 33 % busy, GPU 77 % idle | VU1 19 %, idle 77 % | 0.03 ms | StaPip `core` 3.1 ms | 41-89 % (20/50 cycle range) | display-paced; waiting for the user's call |
