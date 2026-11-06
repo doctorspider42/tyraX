@@ -766,3 +766,13 @@ gain, through the I-cache layout. **Verdict: under the 0.5 ms bar, and inside
 the layout noise between ELFs. Not ported.** R4-A reached ~0.3 ms by trimming
 code. Getting StaPip under 30 % misses needs the data side (hot records,
 phase 3 of `docs/dod-submission.md`), not more code trimming.
+
+### The 2.11.2 port (R3-B) on the console
+
+- **Exactness:** a verify build (`R3P_V`, `TYRA_PHYS_PAIR_CACHE_VERIFY 1`)
+  found `PAIRCACHE mismatch=0` over 81 849 body checks.
+- **Cache use:** 1 120 hits, 6 partial and 9 full rebuilds, 24 fallbacks
+  (load and settle).
+- **Timing:** the live build (`R3P_L`, 2 runs, generated from the template)
+  gave pairs 0.256 / 0.256 ms and physics 6.426 / 6.426 ms. 2.11.1
+  (`R2B_L1`) was 7.246, so -0.82 ms in the shipped code.
