@@ -2712,6 +2712,16 @@ class TerrainGame : public Tyra::Game {
   // Anything that writes the broad phase outside broadPhaseRefresh must bump
   // it too, or the physics pair cache hands out stale sleeper lists.
   mutable unsigned bpVersion = 0;
+  // The static world's version (docs/physics.md, "World-contact reuse"):
+  // bumped by broadPhaseRefresh whenever a NON-physics obstacle appears,
+  // leaves, changes its box outside the moving index, or joins/leaves the
+  // moving index, and on an object table reset or a data.physics flip.
+  // A body's cached world contacts are valid only at the version they were
+  // computed at. Anything that changes what the physics world stage sees
+  // without changing an obstacle's broad-phase key (position, rotation,
+  // scale, modelYaw, model, collision) or presence - a collider swap, a
+  // collision-box override, a runtime terrain edit - must bump it.
+  mutable unsigned physWorldVersion = 0;
   mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
   // One candidate list per call site: the queries never nest inside a site.
   mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;
@@ -4845,6 +4855,16 @@ class TerrainGame : public Tyra::Game {
   // Anything that writes the broad phase outside broadPhaseRefresh must bump
   // it too, or the physics pair cache hands out stale sleeper lists.
   mutable unsigned bpVersion = 0;
+  // The static world's version (docs/physics.md, "World-contact reuse"):
+  // bumped by broadPhaseRefresh whenever a NON-physics obstacle appears,
+  // leaves, changes its box outside the moving index, or joins/leaves the
+  // moving index, and on an object table reset or a data.physics flip.
+  // A body's cached world contacts are valid only at the version they were
+  // computed at. Anything that changes what the physics world stage sees
+  // without changing an obstacle's broad-phase key (position, rotation,
+  // scale, modelYaw, model, collision) or presence - a collider swap, a
+  // collision-box override, a runtime terrain edit - must bump it.
+  mutable unsigned physWorldVersion = 0;
   mutable bool bpVerifyAll = false;  // kBroadPhaseVerify: hand out everything
   // One candidate list per call site: the queries never nest inside a site.
   mutable std::vector<int> bpNearWalker, bpNearSweep, bpNearPhys;

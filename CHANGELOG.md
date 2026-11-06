@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.11.3
+
+- Physics bodies resting on the ground cost less on the PS2: a crate lying still keeps its contacts with the terrain from the last frame instead of colliding with the world again, as long as it has not moved closer to any decision that could change them, and an awake body keeps its collision box while it drifts by less than a few centimetres. 72 awake crates: physics 7.57 -> 5.44 ms a frame together with 2.11.2, with the same number of contacts. A body touching a static object, a collision mesh or a portal works exactly as before. Rebuild games to use it.
+
 ## 2.11.2
 
 - Awake physics bodies cost less on the PS2: each body remembers which other bodies it could touch and keeps that list while it stays within a few centimetres of where the list was made, instead of rebuilding a body grid and searching the scene for every awake body every frame. 72 awake crates: the body-pair stage 1.21 -> 0.26 ms, physics 7.26 -> 6.31 ms a frame, with exactly the same contacts. Rebuild games to use it.

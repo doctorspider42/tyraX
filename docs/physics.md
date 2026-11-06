@@ -378,6 +378,127 @@ always-entries. Such a candidate fails the hull-bounds test right after, so
 the contacts are the same either way; the verify build would count it as a
 mismatch.
 
+### World-contact reuse
+
+Since 2.11.3 a body lying still re-uses its contacts with the world instead
+of re-colliding with it every frame. The world stage (`world`) tests every
+awake body against the terrain (13 height samples, one per hull corner plus
+the gate and slope) and against the static obstacles the broad phase returns
+near it, and the refresh before it re-boxes every awake body that moved a
+hair. For 72 awake crates resting on a physical PS2 that was 1.83 ms of
+`world` and 0.68 ms of `bpRefresh` a frame, to rebuild the same contacts.
+
+Two parts, both under `TYRA_PHYS_WORLD_REUSE` (on by default; 0 = the live
+world stage every frame):
+
+**Reuse.** Each body keeps its world contacts from the last fresh query (the
+*reference*: up to `PHYS_WORLD_REUSE_MAX` 16 contacts, by physics slot in
+`physWorldCache`) together with the pose they were computed at and the
+*count margins* measured on that query. A body re-emits them, carried rigidly
+from the reference pose to the current one (p' = x1 + R1 R1ref^T (p - x1ref),
+depth' = depth - n.(p' - p), normal unchanged), when:
+- its centre of mass now and at frame start are within
+  `PHYS_WORLD_REUSE_TOL_POS` (0.002 u) of the reference's, and its rotation
+  matrix within `PHYS_WORLD_REUSE_TOL_ROT` (0.002 per entry);
+- it moved less than every count margin (below);
+- the reference is still valid (see the invalidation contract);
+- no portal swallows or aims it this frame, and no moving static obstacle's
+  box reaches its query area.
+
+Otherwise it queries fresh, and that query becomes the new reference. The
+reference is only replaced by a fresh query, so drift is bounded by the
+tolerance, not accumulated.
+
+**The count-stable rule.** A pose tolerance alone is not enough: the probe
+showed the contact *count* changing on 0.8 % of reused frames. The 72
+identical crates rest and bounce in sync, and a fresh query adds or drops a
+contact wherever a decision sits closer to its threshold than the pose moved.
+So each reference also stores how far each such decision is from flipping,
+measured on the fresh query:
+- `mT`, the terrain margin: the minimum of the terrain gate
+  (`|x1.y - r - (h + r + 0.1)|`), every hull corner's height above the
+  ground `|p.y - h(p)|` (all corners, in contact or not: the count is the
+  number below the ground), and, past 4 candidates, half the gap between
+  the deepest and second deepest (rbReduce's first choice). It is 0 when an
+  rbReduce stage 2-4 choice is a near tie (relative 1e-3), and 0 when a
+  portal acted on the body;
+- `sf`, the slope factor `1 + 2 |grad h|` from the terrain normal (5 when
+  the gate failed): how fast a corner's height above the ground changes per
+  unit moved;
+- `mS`, the static margin: the minimum over the static obstacles within
+  reach of the distance from x1 to the obstacle's box, minus the body's
+  radius, its motion this frame and a 0.15 pad (skin + gate). It is 0 for a
+  collision-mesh obstacle and for one that is moving;
+- `rmax`, the body's radius.
+
+A body reuses only when
+
+    d = max(|x1 - x1ref|, |x0 - x0ref|) + 3 max|R1 - R1ref| rmax
+    d sf + eps < mT  and  d + eps < mS,      eps = PHYS_WORLD_REUSE_EPS (3e-5)
+
+In practice a body resting on the terrain reuses; a body touching a static
+obstacle, standing on a collision mesh or near a portal never does (its mS or
+mT is 0) and costs what it did before.
+
+**Box keep.** In `broadPhaseRefresh`, an awake physics body already in the
+moving index keeps the broad-phase box it has while its key drifted less than
+`PHYS_BP_KEEP_POS` (0.05 u per axis) and `PHYS_BP_KEEP_DEG` (0.5 degrees per
+Euler axis) from the key the box was built from, with scale, model, modelYaw
+and collision unchanged, and the bound `1.73 max|dp| + sum|dEuler| * (the
+farthest box corner from the origin)` within half of `kBroadPhaseMargin`
+(0.25 u of its 0.5 u padding). No new box, no `updateMoving`. It is off under
+`kBroadPhaseVerify` / `bpVerifyAll`. It composes with the pair-candidate
+cache: awake bodies' boxes never enter `bpVersion` (the cache filters awake
+partners by their own step bounds, not by these boxes), and a body that falls
+asleep is re-boxed on its next visit, since its key differs from the kept one.
+
+Measured on a physical PS2 (72 awake crates resting, the rig probe; this
+port has not been on a console yet): with the count-stable rule the check
+run found **0 count mismatches over 76 771 reuse hits** (hit rate 0.98,
+largest carried point difference 4e-6 u). With the pair-candidate cache and
+this together, physics went 7.57 -> 5.44 ms a frame (`world` 1.83 -> 0.84,
+`bpRefresh` 0.68 -> 0.25).
+
+**The invalidation contract.** A reference is valid only while
+`TerrainGame::physWorldVersion` equals the version it was stored at, the
+body has not been moved by anyone but the solver, and the scene is the one
+it was stored in:
+- `broadPhaseRefresh` bumps `physWorldVersion` whenever a **non-physics**
+  obstacle appears or leaves (spawn, despawn, `active`, collision switched
+  on or off), changes its box outside the moving index (a teleported or
+  Live-Link-moved static), joins or leaves the moving index (a door starting
+  or stopping), an entry's `data.physics` flips, or the object table resets.
+- An obstacle that keeps moving (a door, a scripted platform, a car that is
+  a physics obstacle) is in `bpMovingList` and changes its box without a
+  bump. Each frame the world stage collects those boxes; a body whose query
+  area one of them reaches queries fresh, and a fresh query that saw a
+  moving obstacle stores mS = 0, so it is never reused.
+- `physBodyFor` drops a body's reference when something else wrote its
+  position or rotation (a teleport, a portal carry, a script, Live Link, the
+  time machine) or its shape was rebuilt.
+- A new `sceneGeneration` clears the cache; portals are evaluated every
+  frame before the reuse test, so a portal opening, moving or linking is
+  seen at once.
+
+**Code that changes what the world stage sees without moving an obstacle's
+broad-phase key (position, rotation, scale, modelYaw, model, collision) or
+its presence must `++physWorldVersion`**: a collider or collision-box swap
+on a live object, an `animModel` change on an obstacle, a runtime terrain
+edit (terrain heights are read-only tables today). Batch-static obstacles
+are re-checked by the broad-phase walk only one sixteenth per refresh (a Live
+Link move of one is seen up to 16 frames late), which the live path shares.
+
+The verify switch `TYRA_PHYS_WORLD_REUSE_VERIFY` (default 0; define it to 1,
+for example at the top of `inc/game_runtime.gen.hpp` in a scratch copy)
+queries fresh every frame and uses those contacts, keeps the references
+exactly as the live build would, and for every body that would have reused
+builds the carried contacts and compares count, normals, points and depths.
+Every ~300 frames it logs
+`WORLDREUSE tried=.. hits=.. checks=.. countMismatch=.. maxN=.. maxP=.. maxD=..`
+(cumulative; maxima over the matching-count checks). A healthy run shows
+`countMismatch=0` and maxP / maxD around 1e-5 or below. Timing in that build
+is meaningless.
+
 ### Resting out of sight
 
 After a car ploughs through a crate field, most awake bodies are crates

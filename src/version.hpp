@@ -5619,7 +5619,13 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 11
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
+// 2.11.3: world-contact reuse (TYRA_PHYS_WORLD_REUSE): a body within tolerance
+// of its reference pose and inside every count margin re-emits its world
+// contacts carried rigidly, and awake bodies keep their broad-phase box while
+// the key drifts < 0.05 u / 0.5 deg; physWorldVersion invalidates on static
+// obstacle changes. 72 awake crates on a PS2 with 2.11.2: physics 7.57 ->
+// 5.44 ms (docs/physics.md). Generated game code, PATCH.
 // 2.11.2: the body-pair stage keeps each awake body's candidate lists while its
 // box stays inside an inflated box (TYRA_PHYS_PAIR_CACHE, bpVersion on the
 // broad phase): 72 awake crates on a PS2, pairs 1.21 -> 0.26 ms, physics
