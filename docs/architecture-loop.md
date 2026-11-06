@@ -536,3 +536,37 @@ The target is ~9.5 KB of dense code, ~180 lines a partial bag instead of
 
 Expect roughly half of either. The D misses (the bag's own data) are not
 touched by this fix.
+
+### R2-0 for StaPip: the district, measured (`vpnR0J` I misses, `vpnR0I` instructions)
+
+Both arms ran 45 windows without a wedge. `core` per frame:
+
+| state | ms | instructions | IPC | I misses | D misses |
+|---|---:|---:|---:|---:|---:|
+| parked | 5.85 | 485 k | 0.28 | 15 677 | 19 290 |
+| drive | 4.52 | 366 k | 0.27 | 13 379 | 15 547 |
+
+Physics ran at IPC 0.54. The three-price fit is ill-conditioned here. Only
+three scopes have PMU rows (core, q.submit, G.scene), and they nest, so the
+fit returns an impossible c0 of 0.15 cycles an instruction. A bound does the
+job instead. At 1.0-1.39 cycles an instruction (physics fitted 1.39) and 51
+cycles an I miss, `core` spends:
+- 61-72 % of its time in misses parked;
+- 62-73 % driving.
+
+I misses alone are 46-51 %, and the implied D price is 9-23 cycles,
+consistent with physics' 16. `G.scene` (game scene code) is 38-56 %.
+
+**StaPip fails (b) on misses in the district, by a wide margin, and the I-cache
+is most of it.** R4-A is the lever.
+
+`miss_fit.py` now drops scopes without PMU rows and `G.endFrame` (it holds
+the vsync poll).
+
+### NTSC for every reference scene
+
+Two-players and showcase were `videoSystem: "auto"`, so they ran at 50 Hz on
+the user's PAL console; the vehicle-playground scenes were already NTSC. Both
+examples now build NTSC (commit a4e82b614). New arms `vpnR0W` (two-players,
+`--twowalk`) and `vpnR0Z` (showcase), both `--gputl --gpuwait`, are queued.
+The 50 Hz rows above (R0U, R0X) are superseded once they run.

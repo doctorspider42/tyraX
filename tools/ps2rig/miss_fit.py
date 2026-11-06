@@ -18,7 +18,9 @@ import re, sys, statistics
 from collections import defaultdict
 
 MHZ = 294.912
-SKIP_SCOPES = {'r.vsync', 'q.flushrec'}
+# G.endFrame holds the present (the vsync poll); scopes with no PMU rows
+# (counters read 0) are dropped below.
+SKIP_SCOPES = {'r.vsync', 'q.flushrec', 'G.endFrame'}
 
 
 def parse(fn, skip):
@@ -69,7 +71,7 @@ if len(sys.argv) < 3:
 skip = int(sys.argv[3]) if len(sys.argv) > 3 else 1
 mi, ni = parse(sys.argv[1], skip), parse(sys.argv[2], skip)
 avg = lambda v, i: statistics.mean(x[i] for x in v)
-keys = [k for k in mi if k in ni and avg(mi[k], 0) >= 50]
+keys = [k for k in mi if k in ni and avg(mi[k], 0) >= 50 and avg(ni[k], 1) > 0 and avg(mi[k], 2) > 0]
 rows = []
 for k in keys:
     Ibar, Nbar = avg(mi[k], 1), avg(ni[k], 1)
