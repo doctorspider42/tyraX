@@ -605,7 +605,7 @@ wait for their polish pass.
 | [upscaler-lab](examples/upscaler-lab) | A fill-bound haze yard with a shadow-volume lamp: particles drawn at a quarter of the pixels, 2.5× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
-| [character-generator](examples/character-generator) | Six generated people - you play one, five stand about doing their own thing - from six recipe files you can open in the generator |
+| [character-generator](examples/character-generator) | Six generated characters and a Blender-authored Night Warden on the same playable rig |
 | [vehicle-playground](examples/vehicle-playground) | Motor District: seven roads, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
 
 ## CLI

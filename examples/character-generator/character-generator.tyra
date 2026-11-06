@@ -159,7 +159,7 @@
   "hudMotionBlurLayer": 0,
   "music": [],
   "sounds": [],
-  "textureQuality": { "res/models/characters/clerk.glb": "8bit", "res/models/characters/commuter.glb": "8bit", "res/models/characters/dockhand.glb": "8bit", "res/models/characters/elder.glb": "8bit", "res/models/characters/hero.glb": "8bit", "res/models/characters/kid.glb": "8bit", "res/models/characters/pensioner.glb": "8bit", "res/models/characters/punk.glb": "8bit", "res/models/characters/shopper.glb": "8bit" },
+  "textureQuality": { "res/models/characters/night-warden.glb": "8bit", "res/models/characters/clerk.glb": "8bit", "res/models/characters/commuter.glb": "8bit", "res/models/characters/dockhand.glb": "8bit", "res/models/characters/elder.glb": "8bit", "res/models/characters/hero.glb": "8bit", "res/models/characters/kid.glb": "8bit", "res/models/characters/pensioner.glb": "8bit", "res/models/characters/punk.glb": "8bit", "res/models/characters/shopper.glb": "8bit" },
   "saveValues": [],
   "saveTexts": [],
   "saveTitle": "",

@@ -1,10 +1,10 @@
 # character-generator example
 
-Six people, all made by *Tools > Character Generator* - the
-[character generator](../../docs/character-generator.md) end to end: bodies,
-faces, skin and makeup from sliders, clothes and hair from the CC0 wardrobe,
-motion-captured clips (the women move with the feminine *Movement style*, the
-men with the masculine one - Auto, from Gender), and nothing hand-made.
+The cast combines six people made in *Tools > Character Generator* with Night
+Warden, a playable character modelled in Blender. The generated characters use
+body and face sliders, clothes and hair from the CC0 wardrobe, and motion-captured
+clips. Night Warden uses the same rig and locomotion clips with her own meshes
+and textures.
 
 Open `character-generator.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor --build <this folder> --run`.
@@ -12,22 +12,18 @@ headless: `tyrax-editor --build <this folder> --run`.
 ## What to do
 
 The game opens in the **Character Creator**: dress `hero` before you play.
-Up/Down picks a row, Left/Right changes it - **who** (the hero, her, or the clerk), four colour
+Up/Down picks a row, Left/Right changes it - **who** (either hero, the clerk, or Night Warden), four colour
 looks, five hairstyles, three hats, three sets of glasses, or none - L1/R1
 turn them round, Cross keeps it and Circle puts back what they wore. **Select** opens it again
 any time. That is the player's own flow graph (On Start and On Button Select
 into a Character Creator node), and `hero.chargen.json` lists the choices in
 its `"options"` (docs/character-generator.md, "In-game character creator").
 
-The **CHARACTER** row swaps the whole model, between three: the hero, the
-same person as a woman, and the clerk. `"bodyChoice": true` in the hero's
-recipe makes the generator write `hero-alt.glb` beside `hero.glb` (same vest,
-clothes, options and colour looks); the clerk is on the Player's *Characters
-to choose from* (Inspector) - an ordinary model of the cast, with no creator
-options, so her other rows show `-`. Only one body is in memory: a choice is
-loaded in the background (the row shows it with a spinner while the old one
-keeps idling), then swapped in and the old one freed; it sticks across scenes
-and in saves (docs/character-generator.md, "Choosing a character").
+The **CHARACTER** row offers four models. The hero's recipe sets
+`"bodyChoice": true`, which exports `hero-alt.glb` beside `hero.glb`. Both
+players also list the clerk and Night Warden under *Characters to choose from*
+in the Inspector. These two have fixed outfits. The game loads the selection
+in the background and keeps it across scenes and saves.
 
 The screen itself is the `character` **menu**, picked in the node's *Menu*:
 restyle it in *Tools > Menu Editor* like any other menu - stylesheet, labels,
@@ -36,7 +32,30 @@ Clear the node's *Menu* and you get the built-in screen instead.
 
 ![The Character Creator in the example](../../docs/img/chargen-creator-menu.png)
 
-You **are** a generated character. The third-person camera sits behind `hero`:
+### Night Warden
+
+From **Hero (man)**, press **Left** once on **CHARACTER** to select the warden.
+Her oilskin coat, belt radio, gloves, work boots and asymmetrical bob were built
+for this example. The head and facial texture are original. The Blender source
+contains the mesh, editable UVs, packed images and the 50-bone character rig.
+The exported GLB includes all ten movement clips.
+
+- [Blender source](authoring/night-warden.blend)
+- [Game model](res/models/characters/night-warden.glb)
+
+The 256 × 256 coat texture came from painting a guide made from its unwrapped
+front, back and sleeve panels with ImageGen. The placket and storm flap sit
+in the texture. The silhouette, collar and radio are geometry. The face, hair
+base, denim and leather share a 512 × 512 atlas. The radio and outer hair
+strands each have a 128 × 128 texture.
+
+![Night Warden from the front and back with face and radio details](../../docs/img/night-warden-study.jpg)
+
+![Night Warden selected in the Character Creator in PCSX2](../../docs/img/night-warden-creator.png)
+
+### Movement
+
+The third-person camera follows the chosen character. With the default hero,
 walk (left stick) and he walks, push to full tilt and he runs, let go and he
 idles. Nothing is scripted - `hero.glb` contains clips named `idle` / `walk` /
 `run` / `jump`, which is what the generated game's third-person locomotion

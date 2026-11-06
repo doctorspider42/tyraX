@@ -876,7 +876,7 @@ Only one body is in memory at a time:
   its vertices is hidden.
 
 A model in no group shows `-` in a CHARACTER row and the built-in screen
-leaves the row out. Measured in the example: Hero (man) -> Hero (woman) ->
+leaves the row out. The example also includes a [Blender-authored Night Warden](../examples/character-generator/README.md#night-warden) on the same rig. An earlier measurement cycled Hero (man) -> Hero (woman) ->
 Clerk -> Hero again, each swap in the background, EE memory 16.0 -> 17.0 ->
 14.3 -> 16.8 MB (the clerk is lighter; whatever is left behind is freed).
 
