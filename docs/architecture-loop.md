@@ -988,3 +988,64 @@ This must be fixed before a port.
 - find what a camera-only replay still pays;
 - key the visibility test so a moving camera stays cheap: a bag box against
   the planes, without the head's plane rebuild per stamp.
+
+### R8-B: camera contract fixed, camera-only path made "cheap" (`vpnR8B1`)
+
+**Cause of the contract gap.** R8-A moved the camera epoch in
+`pushEnvView`, `pushPortalView` and `popEnvView` before
+`Vif1Queue::beforeForeignWork()`. That call flushes the recorded draws,
+which therefore resolved under one view and stored under the next. The
+epoch now moves after the flush. Verify: `bug=0 verdict=0 recomp=0` over
+1 060 338 stamps.
+
+Timing, ALT, 2 runs:
+
+| state | control core | records core | control stamp | records stamp |
+|---|---:|---:|---:|---:|
+| parked | 6.18 / 6.20 | 5.44 / 5.43 | 30.4 µs | 21.7 µs |
+| drive | 4.67 / 4.66 | **4.87 / 4.87** | 32.1 µs | **34.2 µs** (96 I / 132 D) |
+
+- Parked: -0.76 ms. Driving: **+0.20 ms, worse than the control**.
+- The camera moves 2.56 epochs a frame: 1.6 `update()` calls, 0.2
+  projection changes and 0.38 probe push/pop pairs.
+
+The stage laps (S run, instrumented):
+
+| mode | µs a stamp |
+|---|---:|
+| fast | 35.5 |
+| camera | 42.3 |
+| moved model | 80.7 |
+
+The fixed part of every record replay is ~28 µs instrumented (~20 real):
+`P.pre` 8, `S.chk` 6.4, `S.state` 5.3, `S.copy` 4, `S.tail` 6. The camera
+part adds `S.vis` 7.7 µs with 24 I misses. That is new code, cold every
+time. The record path is added on top of `tryStamp`, so it grew the stamp's
+code. While the camera moves it runs the cold parts on every stamp, and
+the I misses rise from 82 to 96 a stamp.
+
+**Lesson (the one `docs/dod-submission.md` predicted after phase 2a).**
+Records alone do not pay while the camera moves, because each stamp still
+walks a long path on its own, and that path's code is not hot. Records
+have to be consumed by a short loop that runs over all of a frame's stamps
+at once. The loop's code then stays in the I-cache, and the records are
+contiguous, so they can be prefetched or staged in the scratchpad.
+
+### R8-C: the stamp pass
+
+At each flush point, the recorded draws whose stamp record is valid run
+through one tight loop:
+- visibility against the epoch's planes;
+- MVP and fog into the packet;
+- head copy;
+- queue append.
+
+It is one function of ~1-2 KB, over records stored contiguously in the
+order of the frame list. Everything else (no record, a model that moved,
+an epoch beyond the camera's) goes through today's path.
+
+- **Ceiling:** the R8-B laps without the per-stamp path overhead
+  (`P.pre`, `S.chk`, `S.tail` ≈ 20 µs instrumented), ~8-12 µs a stamp
+  while driving. That would be ~0.9 ms driving and ~1.5 ms parked in the
+  district.
+- **Pays when** driving core drops ≥ 0.5 ms with V clean.
