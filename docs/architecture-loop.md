@@ -1329,3 +1329,38 @@ It is the same item R8-E named as StaPip's largest cost after the stamp
 pass. R4-A's lean partial path measured ~20 % per crossing bag. A
 data-side rebuild of that route (its baked classification per package,
 which the camera invalidates every frame) is the next architecture item.
+
+## Round 11 (2026-11-06): the crossing route
+
+### R11-A: crossing bags classify per package from a per-bag record, in one pass
+
+**Facts.** A crossing bag costs ~180-190 µs: 500-600 I and 500-630 D
+misses. There are 14-22 a frame, 2.5-4.1 ms, and they are the last missed
+benchmark frame.
+
+For each crossing bag the general path runs, per frame:
+- the bag's own bounds and plane setup;
+- the baked-entry lookup;
+- `classifyRoutes`, a test of every package box against the planes;
+- `emitPartialRuns`;
+- the per-package sends.
+
+R4-A trimmed the code (~20 %), but the data side was not touched: package
+boxes, baked offsets and the per-route state are read cold for every bag.
+
+**Hypothesis.** The crossing route is the stamp story again. Each crossing
+bag keeps a compact record:
+- its package boxes (SoA, in one contiguous block);
+- the baked entry pointer;
+- the uniform head.
+
+A frame then classifies all crossing bags' packages in one tight loop
+against the frame's planes, and emits the runs from the record. This is the
+stage-major form of the partial route, R8-C's lesson applied to crossing
+bags.
+
+**Ceiling first.** A rig arm (same ELF, ALT, verify against the general
+path's emitted words) on the district and on the benchmark.
+- Expected: 180 -> 80-110 µs a crossing bag, -1.2..-1.8 ms on f381/382.
+
+**Pays when** crossing-bag time drops ≥ 0.5 ms a frame with verify clean.
