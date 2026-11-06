@@ -1304,3 +1304,28 @@ f382's pre fell from 6.4 to 3.1 ms. The two misses left:
 The terrain cause is gone. **The benchmark now runs 999 frames in 1 000 at
 60 fps.** The last two are an impact frame's render work and the car-on-car
 crash, each 0.1-1 ms over.
+
+### R10-A: the last missed frame's render work (`BR10`, release, PS2)
+
+Run 1 missed f382 only. The render split (`kf10_slow.py`), normal frames
+first:
+
+| | StaPip flush | stamp pass (stamps) | crossing (`partialReplay`) |
+|---|---:|---:|---:|
+| normal frames (field drive) | 4.0-6.7 ms | ~51-105 | 14-18 bags, 2.0-2.8 ms |
+| f381 | 7.74 ms | 104 | 20 bags, **4.10 ms** |
+| f382 (missed) | **8.18 ms** | 102 (3.07 ms of stamps) | 22 bags, **4.13 ms** |
+
+In f381-382 the road chunks (1.74 ms) and static batches (1.26 ms) cross
+the view edges.
+
+There were no GPU waits, drains, prebakes or patch rebakes in f382. The
+miss is the crossing route on the frame where the car ploughs past the
+field's batches and road chunks at the screen edge: 22 crossing bags at
+~190 µs.
+
+**What is left of the headline benchmark is the crossing (partial) route.**
+It is the same item R8-E named as StaPip's largest cost after the stamp
+pass. R4-A's lean partial path measured ~20 % per crossing bag. A
+data-side rebuild of that route (its baked classification per package,
+which the camera invalidates every frame) is the next architecture item.
