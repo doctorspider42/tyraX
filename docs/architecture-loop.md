@@ -1283,3 +1283,24 @@ Two changes:
 
 The decisive measurement is the same benchmark in release: missed frames
 0 / 1 000, and no frame with `settleTerr` above the budget.
+
+### R9-B on the headline benchmark (2.12.1, release, PS2)
+
+`BR9B`: budget 700 µs. `BR9B0`: the same generated game with
+`TERRAIN_CHUNK_BUDGET_US 0`, the old settle. Both with no host log inside
+the ring. Runs alternated, 2 each:
+
+| arm | missed of 1 000 | work p50 | p95 |
+|---|---|---|---|
+| budget 700 µs | **1 / 1** | 6.04 / 5.89 | 10.53 / 10.52 |
+| budget off | 2 / 4 | 6.08 / 6.02 | 10.43 / 10.43 |
+
+f382's pre fell from 6.4 to 3.1 ms. The two misses left:
+- **f382 (r1):** pre 3.1 + work 13.7 = 16.8 ms, 0.1 ms over. The work is
+  the render frame of the plough into the field.
+- **f755 (r2):** the end-of-drive hit on the parked car. veh 3.9 ms
+  (crash damage and the dent bake) and scene 4.25 ms.
+
+The terrain cause is gone. **The benchmark now runs 999 frames in 1 000 at
+60 fps.** The last two are an impact frame's render work and the car-on-car
+crash, each 0.1-1 ms over.
