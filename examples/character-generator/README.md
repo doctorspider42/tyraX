@@ -45,7 +45,7 @@ The exported GLB includes all ten movement clips.
 
 The 256 × 256 coat texture came from painting a guide made from its unwrapped
 front, back and sleeve panels with ImageGen. The placket and storm flap sit
-in the texture. The silhouette, collar and radio are geometry. The open collar reveals a shaped throat and collarbone area. Extra loops around
+in the texture. The silhouette, collar and radio are geometry. The neck tapers from the collarbones to the jaw, which sits just above the open collar. Extra loops around
 the sleeve caps blend upper-arm motion into the shoulders. The radio strap
 uses the coat’s skin weights where it crosses the clavicle. The face, neck,
 denim and leather share a 512 × 512 atlas. The swept hair and coiled bun use
