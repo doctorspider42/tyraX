@@ -809,3 +809,52 @@ more than the probe did. Max carried point diff 4e-6, max depth diff 2.4e-7.
 The timing build (`R3Q_L`) wedged on its first deploy. It hung while
 loading, the console's usual wedge after ~19 resets since the last power
 cycle. Timing is owed.
+
+### R7-A result: a stamp is 30 small costs, none dominant (`vpnR7A1`)
+
+Motor District parked, stages on and off alternating in one boot, 2 400
+frames each, 89 stamp hits a frame.
+- **Control (stages off):** a stamp costs 29.9 µs with 70 I + 107 D misses,
+  2.66 ms a frame.
+- **Probe overhead:** +7.8 µs a stamp at 76 ticks a lap. The shares below
+  are of the instrumented 37.8 µs.
+
+The largest stages:
+
+| stage | share of cycles | share of D misses | what it is |
+|---|---:|---:|---|
+| `S.frustum` | 11.0 % | 7.4 % | frustum check + guard-band mask |
+| `S.head` | 7.4 % | 9.1 % | renderNow's plane cache / band choice |
+| `S.f.submit` | 7.3 % | 7.2 % | one send per ~5 stamps (13.8 µs each) |
+| `S.copy` | 6.5 % | **16.7 %** | the ~14-qword head copy: 20 D misses, the cold packet destination |
+| `S.texres` | 6.3 % | 4.6 % | texture residency + wrap |
+| `S.flush` | 5.5 % | 3.3 % | flush decision |
+| `S.texuse` | 4.3 % | 5.6 % | useTexture + CLUT |
+| `S.light` / `S.spot` | 4.9 / 3.8 % | 3.9 / 3.4 % | light pick, spot rebuild |
+
+The other 22 stages are 1-3.3 % each. The producer facts (pointers,
+content, streams, info) are 9.4 % in all, which matches the earlier lean
+stamp's ~3 µs.
+
+**What this says.** No stage is worth a rebuild of its own. A stamp costs
+what it does because it asks ~30 independent questions of ~30 structures
+every frame: the frustum, residency, light, spot, program, texture, CLUT,
+fog and MVP. For a parked or slowly moving camera, most of the answers are
+the same as last frame. The defect is architectural: the per-draw state is
+recomputed per frame, per draw, from scattered sources, not kept as a draw
+record that is updated when an input changes.
+
+That is phases 3 and 5 of `docs/dod-submission.md` together. Each draw
+keeps a record of its resolved state (texture slot and wrap, light and spot
+pick, program, fog class, the visibility class with a frustum-epoch stamp),
+plus the inputs it was resolved from. A frame first runs a pass of
+input-change events (camera moved, light moved, texture evicted), and then
+emits from records.
+
+**Ceiling, estimated from this table.** A stamp whose record is valid needs
+the frustum test (with a cheaper epoch test when the camera did not move),
+the MVP, the copy and its share of the send: ~8-12 µs instead of 30. That
+is ~1.6-2.0 ms a frame in the district and ~0.9 ms in the crate drive.
+This is the only lever measured so far that is large enough to bring
+StaPip's miss share down materially. It is a multi-week rewrite of the
+submission path, not a rig arm.
