@@ -718,3 +718,51 @@ of the loop.
 -0.26. EE waits on the GPU were 0 in both arms, so VU1 absorbing the clip
 work cost no EE time, and saved little. That is under the bar, so it is not
 ported. The `TYRAX_VU_CLIP_*` knobs stay off.
+
+## Round 6 results (PS2, queue r8)
+
+### R3-A with the count-stable rule (`R3B_2`): winner
+
+- **Check (mask 72):** `countMismatch=0` over 76 771 reuse hits in 1 250
+  frames. The hit rate stays 0.98, `missMargin` is 2 bodies a frame, and
+  carried points are within 4e-6.
+- **R3-B:** still 0 mismatches over 88 472 body checks.
+- **Timing, same ELF:** physics control 7.57 ms, R3-A + R3-B 5.44 ms
+  (-2.12):
+
+  | stage | control | R3-A + R3-B |
+  |---|---:|---:|
+  | world | 1.83 | 0.84 |
+  | pairs | 1.46 | 0.28 |
+  | bpRefresh | 0.68 | 0.25 |
+
+  The control is 0.3 ms slower than `R3B_1`'s because the rule's code is
+  in this ELF.
+- **Status:** handed to a port (2.11.3). The R3-B port (2.11.2, commit
+  f76a916b9) is on the branch, and its console check runs next.
+
+### R4A4: lean send fixed, lean whole / direct
+
+- **Why the lean send never ran:** the Live Debugger's VU1 tap
+  (`g_vuPacketHook`) stays installed, and the R4A3 lean send refused every
+  send while it was set. Now the lean send calls the tap itself. Every send
+  went lean (`send.lean` = `hooked`).
+- **Verify:** 0 mismatches over 232 760 bags (13.3 M words), the whole/direct
+  checks and 4 619 sends.
+
+Mask 0x3DC00, ALT, 2 runs, same ELF:
+
+| state | control core | lean core | control work | lean work |
+|---|---:|---:|---:|---:|
+| parked | 6.31 / 6.31 | 6.01 / 6.03 | 12.12 / 12.11 | 11.83 / 11.84 |
+| drive | 4.75 / 4.82 | 4.44 / 4.40 | 11.17 / 11.23 | 10.85 / 10.77 |
+
+That is -0.28..-0.42 ms of `core` and -0.29..-0.46 ms of work, ~0.33 on
+average.
+
+This ELF's control is 0.24 ms slower than R4A3's control, with no code on
+its path changed. Adding code alone moves `core` by about the size of the
+gain, through the I-cache layout. **Verdict: under the 0.5 ms bar, and inside
+the layout noise between ELFs. Not ported.** R4-A reached ~0.3 ms by trimming
+code. Getting StaPip under 30 % misses needs the data side (hot records,
+phase 3 of `docs/dod-submission.md`), not more code trimming.
