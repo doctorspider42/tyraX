@@ -776,3 +776,25 @@ phase 3 of `docs/dod-submission.md`), not more code trimming.
 - **Timing:** the live build (`R3P_L`, 2 runs, generated from the template)
   gave pairs 0.256 / 0.256 ms and physics 6.426 / 6.426 ms. 2.11.1
   (`R2B_L1`) was 7.246, so -0.82 ms in the shipped code.
+
+## Round 7 (2026-11-06)
+
+### R7-A: where a stamp's misses come from
+
+**Fresh look.** The stamp is the most frequent route: 89 a frame in the
+district, ~47 in the crate drive. It costs ~30 µs with 64-75 I and 116-147
+D misses. Three things have been ruled out by measurement:
+- validation (the lean-stamp probe: ~3 µs);
+- the copy (R5-A: ~14 qwords);
+- code trimming (R4-A).
+
+None of them explains the ~120 D misses (~7.5 KB of distinct lines a
+stamp). The goal needs StaPip under 30 % misses, so the misses have to be
+found before any rebuild is chosen.
+
+**Measurement, no code change to the path.** An arm with PMU sub-scopes
+inside `tryStamp` and its callees, one per stage: lookup, validation, light
+pick, spot rebuild, template patch, packet write, queue append. It reports
+I and D misses and cycles per stage per stamp, district parked. Decides the
+next rebuild: hot records, scratchpad staging, or a different packet
+destination.
