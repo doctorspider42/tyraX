@@ -1216,3 +1216,34 @@ writes are what misses the vsync. Only the crash frames 377-382 and 455
 **The benchmark has to be judged in a `release` build.** The arm `BRNEW`
 (2.12.0, buildProfile release) is built. Its first deploy found the console
 wedged, after ~35 deploys since the last power cycle.
+
+### The headline benchmark in a release build, without host logging
+
+`BRNEW` is 2.12.0 with buildProfile `release`. It still missed 9 frames in
+1 000, 2 runs. Most of them fell on the 50-frame cadence of the frame
+profile's own FRAMETIME line: the generated `drawDebugHud` prints it over
+ps2link whenever `TYRA_FRAME_PROFILE` is on, and the rig needs that switch
+for the KF ring. `BRNEW2` is the same build with that print held back
+until frame 1 250, after the ring.
+
+| run | missed of 1 000 | work p50 | p95 |
+|---|---:|---:|---:|
+| `BRNEW2` r1 | **4** | 6.36 | 10.65 |
+| `BRNEW2` r2 | **3** | 6.04 | 10.57 |
+
+**Every remaining miss is a crash frame:**
+
+| frame | event | pre (ms) | work (ms) |
+|---|---|---:|---:|
+| f307 | first contact | 6.1 | 10.6 |
+| f381 / f382 / f384 | the plough into the field | 5.7-6.9 | 11.2-13.9 |
+
+Normal frames run pre ~1.9 ms. In those four frames physics, vehicles
+and fx explain only ~1-2 ms of pre. Something else, ~3-4 ms, lands in pre:
+bodies leaving their static batches, pre-bakes, batch rebuilds or the
+settle before `beginFrame` (see the frame-escape notes,
+`docs/static-batching.md`).
+
+**Status against the user's bar.** The headline benchmark runs at 60 fps
+for 996-997 of 1 000 frames. The 3-4 that miss do so by 0.3-4 ms, all in
+the frames of impact. That is the next target: R9-A, the crash frame's pre.
