@@ -1049,3 +1049,45 @@ an epoch beyond the camera's) goes through today's path.
   while driving. That would be ~0.9 ms driving and ~1.5 ms parked in the
   district.
 - **Pays when** driving core drops ≥ 0.5 ms with V clean.
+
+## Round 8 results: R8-C stamp pass (`vpnR8C1`, PS2)
+
+**Verify** (V|P): 956 252 pass predictions compared with the general path,
+0 bad, 0 order errors, 0 exactly-once errors. R8-B's own check stayed
+`bug=0` over 1.0 M.
+
+**Timing**, ALT, 2 runs, same ELF. This ELF's control is slower than R8A1's
+(stamp 36.5 vs 30.4 µs) from code growth alone, so compare within the
+ELF:
+
+| state | arm | core | work mean / p95 | all stamps µs |
+|---|---|---:|---|---:|
+| parked | control | 6.74 / 6.77 | 12.55 / 14.72 | 36.5 |
+| parked | pass | **5.15 / 5.12** | **10.67 / 12.43** | **20.6** |
+| drive | control | 4.96 / 4.92 | 11.33 / 13.68 | 37.5 |
+| drive | pass | 5.00 / 4.96 | 11.15 / 13.46 | 34.9 |
+
+**Parked: -1.6 ms core, -1.9 ms work, -2.3 ms p95.** 86.9 stamps a frame
+went through the pass at 20.3 µs (35 I / 97 D).
+
+**Driving: -0.18 ms work, core flat.** What still stops it:
+- **Short runs.** 31.8 runs a frame, 25 of them empty. They are ended by
+  bags with no stamp (12.9), moved models (8.0, the car and traffic),
+  texture epochs (6.0) and visibility rejects (2.3). Each run pays its
+  fixed setup, and each ending draw pays the full path.
+- **A pass stamp while the camera moves** costs 29 µs with 62 I / 128 D
+  misses. The 128 D misses are mostly the producer facts and the
+  bag/info/model/entry lines every check reads.
+
+### R8-D: keep runs long, stop reading the bag
+
+- **A run does not end** at a visibility reject (skip it), a moved model
+  (MVP from the model in the pass), a texture-epoch draw (re-resolve
+  inline) or a draw with no stamp (send it through the general path
+  without closing the run's state). Only order-sensitive state forces a
+  close.
+- **A per-bag revision** replaces the producer facts. It is bumped by every
+  writer of a bag, info, model or colour stream. RECORDVERIFY and V police
+  it. The pass then reads only the record, the stamp head and the arena
+  REF.
+- **Pays when** driving core drops ≥ 0.5 ms with V clean.
