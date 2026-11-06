@@ -879,3 +879,42 @@ submission path, not a rig arm.
 
 That is -2.22 ms (-29 %) in all, with every step verified exact on the
 console.
+
+## Round 8 (2026-11-06): the draw-state record, stamp route first
+
+### R8-A: a stamp keeps its resolved state and re-asks only on change
+
+**Hypothesis (from R7-A).** ~25 of a stamp's 30 stages answer questions
+whose inputs did not change since the stamp's last replay:
+- texture residency and wrap, `useTexture` and CLUT;
+- light pick and spot;
+- program set;
+- fog class;
+- batch candidacy;
+- the producer facts.
+
+Give each stamp a record of those answers plus the input epochs they came
+from. Every input source gets an epoch counter:
+- the camera (view-projection), for the frustum, MVP and fog;
+- the dynamic-light set;
+- the texture manager's residency/eviction;
+- the program set;
+- the renderer globals (fog, overrides);
+- the bag's own revision (pointer and content facts).
+
+A replay whose epochs all match runs the frustum test (or nothing, when
+the camera epoch matches too), patches the MVP when needed, copies and
+sends.
+
+**Ceiling first, as a rig arm.**
+- **Bit R:** use the record when the epochs match.
+- **Bit V:** verify. Compute both and compare the emitted words and every
+  cached answer, including the case where an epoch did NOT move but an
+  answer changed (a missing epoch bump = a bug in the contract).
+- Measured parked (camera epoch constant: the upper bound) and driving.
+- Expected: 30 -> 8-15 µs a stamp, ~1.3-2.0 ms parked and ~0.7-1.0 ms
+  driving in the district.
+
+**Pays when** core drops ≥ 0.5 ms driving with V clean. Then it is ported
+as the first slice of `docs/dod-submission.md` phase 3, and the other
+routes follow with the same record.
