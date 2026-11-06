@@ -433,3 +433,47 @@ re-queries a body whose cells changed. A check arm compares the candidate
 pair lists with the rebuilt ones.
 
 **Pays when** `pairs` drops ≥ 0.5 ms with identical pair lists.
+
+## Round 3 results so far (PS2, 2026-11-06)
+
+The queue wedged on its second deploy: the reset that followed a stopped
+Motor District run (`run_for.sh`) answered `freepad: DMA Busy` 70 times. Only
+`vpnR0H` ran (district, I-miss PMU, `--gpuwait`, 2 400 + 1 800 frames per
+state):
+
+| state | work mean / p95 | GPU idle | EE waits on GPU | core ms | core I / D misses a frame |
+|---|---|---:|---:|---:|---|
+| parked night | 11.73 / 13.68 | 50 % | 0.029 ms | 5.70 | 14 261 / 19 109 |
+| parked day | 11.86 / 13.89 | 52 % | 0.029 ms | 6.44 | 16 386 / 21 217 |
+| drive night | 11.10 / 13.34 | 67 % | 0.007 ms | 4.49 | 12 384 / 15 781 |
+| drive day | 11.40 / 13.84 | 67 % | 0.007 ms | 4.98 | 14 108 / 16 868 |
+
+The present's waits are split now: `r.vsync` 5.1-6.5 ms, the GS tail
+0.001-0.002 ms. The frame is EE-bound with the GPU half idle.
+
+The instruction run (`vpnR0G`) did not happen, so StaPip has no fit of its
+own yet. At the physics fit's prices (pI 51, pD 16 cycles; the I price
+matches CLDCAL, so it is not physics-specific), StaPip `core` spends
+**43-49 % of its time in I-cache misses** and 18-19 % in D misses: 61-67 %
+in all. Physics was 25 %. StaPip fails (b) on the I-cache alone, whatever
+the D price turns out to be.
+
+### R4-A: StaPip's hot code does not fit the I-cache
+
+**Hypothesis.** 14-16 k I misses a frame for ~100-200 bags is ~70-150 lines
+(2.2-4.8 KB) refetched per bag. A bag's path through `renderNow`, the route
+it takes, the packet writers and the Vif1Queue is longer than the 16 KB
+2-way I-cache can keep across the game code that runs between flushes.
+Measured dead ends to respect: `-Os` on the StaPip directory (half the code,
+4-6 % slower), hot/cold link ordering (no gain), and running one bag twice
+back to back (92 % of its cold cost: one bag already overflows).
+
+**Ceiling first, no console.** From the ELF: the static footprint of each
+route's path (functions and lines reachable per route, which of them are
+rare branches), and an estimate of the I misses a lean per-route path would
+take. Then a rig arm that splits the hottest route's cold branches out of
+line (or a route-specialised `renderNow`) and measures I misses per bag on
+the PS2.
+
+**Pays when** StaPip `core` I misses fall enough to save ≥ 0.5 ms in the
+district or the crate drive.
