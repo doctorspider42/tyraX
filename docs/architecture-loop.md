@@ -1179,3 +1179,40 @@ order checks and the revision contract.
 - the per-class revision for static batches, terrain and road chunks.
 
 The verify switch stays as a compile-time engine define.
+
+## The 2.12.0 port on the headline benchmark (PS2)
+
+The crate-field crash (U5src, scripted drive into ~128 crates), all three
+arms built from `vendor/tyra` copies with `TYRA_FRAME_PROFILE 2` and the
+`patch_kf.py` frame ring:
+- `BOLD`: 2.11.3;
+- `BNEW`: 2.12.0;
+- `BVER`: 2.12.0 with `TYRA_STAPIP_STAMP_VERIFY 1`.
+
+**Verify (`BVER`):** `STAMPVERIFY` shows 0 on every counter over 164 300
+stamps:
+- rec bug 0, verdict 0;
+- pass bad 0, order 0, once 0;
+- cull 309 / 309;
+- rev 95 332 checks, bug 0.
+
+| arm | runs | work p50 | p95 | missed of 1 000 |
+|---|---|---|---|---|
+| 2.12.0 | 2 | 6.57 / 6.77 | 11.11 / 11.09 | 15 / 14 |
+| 2.11.3 | 2 | 6.62 / 6.78 | 11.25 / 11.22 | 15 / 14 |
+
+The stamp pass changes little here (p95 -0.14 ms). The drive moves the
+camera, and the crates and the car are untagged object parts.
+
+**The missed frames are not the EE's work.** The slow frames (`kf_slow.py`)
+fall every 50 frames: 291, 341, 391, ... 791. In several of them pre + work
+is 8-13 ms and the frame still takes two vsyncs. Examples: f1141 at 7.9 ms,
+f741 at 12.0 ms. U5src is a `debug` build. Every 50 frames it logs ~9
+lines over ps2link (FRAMETIME, FTVEH, FTUPD, FTPHYS, FTOCC, FTSPLIT,
+PROFILE FRAME, ...), and every ~25 frames a VEH line. Those blocking host
+writes are what misses the vsync. Only the crash frames 377-382 and 455
+(pre 5.6-6.3 + work 12.4-13.1 ms) are over budget on their own.
+
+**The benchmark has to be judged in a `release` build.** The arm `BRNEW`
+(2.12.0, buildProfile release) is built. Its first deploy found the console
+wedged, after ~35 deploys since the last power cycle.
