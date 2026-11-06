@@ -627,3 +627,38 @@ could add up to ~0.1-0.3 ms (estimate). The whole route path still runs
 
 R3-A needs a count-stable reuse rule before its timing means anything. The
 timing runs (masks 0 / 38) were lost to the wedge.
+
+## Round 5 (2026-11-06)
+
+### R5-A: stamps sent by reference, not copied
+
+**Hypothesis.** In the district the stamp route is the largest single route:
+89 stamps a frame at ~30 µs, 2.6-2.7 ms of `core` parked. A stamp averages
+64 I and 116 D misses: ~7 KB of cold lines per stamp. R2-A showed the time
+is spent in the stamp's output (copying the captured bytes into the packet
+and patching them), not in validating it. The architecture defect is copying
+static, already-built DMA data every frame. The DMA controller can send it
+from where it lies: a REF tag to the captured block plus a small packet of
+the words that change (matrices, colour, the per-frame header).
+
+**Ceiling first.** A probe arm emits each stamp as {patched header packet,
+REF to the captured payload}, with `SyncDCache` on the captured block only
+at capture. A VERIFY arm compares the GIF/VIF stream the GPU receives with
+the copied version.
+- Expected: 30 -> ~10 µs a stamp, ~1.7 ms parked and ~0.9 ms driving in
+  the district;
+- crate drive: 47 stamps, ~0.9 ms.
+
+**Pays when** core drops ≥ 0.5 ms in the district and the stream is
+identical.
+
+### R5-B: finishing what rounds 3-4 left
+
+Two pieces:
+- **R4-A lean send.** It never engaged (every send went to `qbFallback`).
+  Fix its precondition and extend the lean path to the whole-replay and
+  direct routes. Expected: +0.1-0.3 ms on top of R4-A's 0.22-0.24.
+- **R3-A count-stable world-contact reuse.** Reuse a body's world contacts
+  only when its pose is within tolerance AND no corner sits within a margin
+  of the `rbReduce` / contact thresholds. The check arm must show
+  countMismatch 0.
