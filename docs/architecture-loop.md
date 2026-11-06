@@ -662,3 +662,29 @@ Two pieces:
   only when its pose is within tolerance AND no corner sits within a margin
   of the `rbReduce` / contact thresholds. The check arm must show
   countMismatch 0.
+
+### R5-A verdict: dead end from the code, no console run
+
+The premise was wrong. A stamp copies at most 24 qwords (`kStampMaxQw`), ~14
+typically, and its geometry already goes by one REF to the baked arena.
+Most of the copied head is rewritten every replay:
+- the MVP (4 qw);
+- fog in options;
+- TEX0, because VRAM and CLUT can move;
+- spot (3 qw);
+- single colour;
+- env basis (3 qw).
+
+Only FLUSHE, wrap and ALPHA never change, so the static share a REF could
+carry is 2-4 qwords. The arm was built (`vpnR5A1`, bits 0x20000/0x40000/0x80000),
+and its estimate is 0.02-0.05 ms a frame, possibly negative: each REF
+costs a lookup in the immutable-span table. The same idea was measured on
+2026-10-20 ("chain stamps", `docs/tyrax2-arch-audit-ee-submission-2026-10-20.md`)
+at +0.02 / -0.01 ms. Not run.
+
+What this, R2-A and R4-A say together: a stamp's ~30 µs and its 116 D
+misses are the memory the replay reads, not its code or its copy. That is
+the per-draw state it gathers to patch: the camera, the light, the texture
+residency, the arena entry. That memory is scattered across the engine. The
+next lever is the layout of that state, phase 3 of `docs/dod-submission.md`
+(hot records), and not another pass over the stamp's code.
