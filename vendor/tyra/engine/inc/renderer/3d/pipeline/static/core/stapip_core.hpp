@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: the stamp pass at the frame-recorder flush (docs/dod-submission.md).
 */
 
 #pragma once
@@ -348,6 +349,7 @@ class StaPipCore {
   struct RecordCulprit { const void* bag; u32 count, changed; s32 mx, my, mz; };
   RecordCulprit recordCulprits[16] = {};
   static u32 hashDrawState(const StaPipBag* bag);
+  void censusRecorded(size_t i);  // Modified by TyraX: one list entry
 #endif
   u32 deferredCount = 0;
   bool stampDeferral = true;
@@ -420,6 +422,17 @@ class StaPipCore {
   Plane stampClipPlanes[8];
   Plane stampClipPlanesTight[8];
   bool stampClipValid = false;
+  // Modified by TyraX: the camera epoch the planes were built under
+  // (DrawEpochs::g.cam); the cache follows it with TYRA_STAPIP_STAMP_PASS.
+  u32 stampClipEpoch = 0;
+  void refreshStampClipPlanes(const M4x4& vp);
+#if TYRA_STAPIP_STAMP_PASS
+  // Modified by TyraX: the stamp pass sends a draw it cannot take down
+  // renderNow from inside its loop (list index i, stage bounds as the list
+  // loop would give them).
+  bool stampPassStageRec = false;
+  static void stampPassGeneral(void* self, u32 i);
+#endif
 #endif
   // Modified by TyraX: a package that leaves the VIEW frustum but stays inside
   // the guard band needs no clipping at all - the GS scissor crops it. See

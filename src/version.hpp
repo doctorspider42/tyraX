@@ -5618,8 +5618,18 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 11
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 12
+#define TYRAX_VERSION_PATCH 0
+// 2.12.0: the StaPip stamp record + stamp pass (docs/dod-submission.md, "Phase
+// 3, first slice"; TYRA_STAPIP_STAMP_PASS, verify TYRA_STAPIP_STAMP_VERIFY).
+// A stamp keeps the answers its replay derives (visibility, MVP, fog, texture
+// residency/CLUT/TEX0, light pick/spot, candidacy) with the input epochs of
+// renderer/core/draw_epochs.hpp; the frame-recorder flush runs its whole list
+// through one loop over those records, sending what it cannot take down
+// renderNow from inside it. The generated game tags static batches, terrain
+// and road chunks with a revision class and bumps it in their writers. PS2,
+// Motor District, same ELF: parked work -1.7..-1.8 ms, driving -0.38..-0.43 ms;
+// verify clean over ~2.9 M stamps. Engine + generated game code, MINOR.
 // 2.11.3: world-contact reuse (TYRA_PHYS_WORLD_REUSE): a body within tolerance
 // of its reference pose and inside every count margin re-emits its world
 // contacts carried rigidly, and awake bodies keep their broad-phase box while

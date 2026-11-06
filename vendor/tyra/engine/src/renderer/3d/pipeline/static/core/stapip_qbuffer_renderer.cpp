@@ -8,7 +8,12 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: the stamp record and the stamp pass (TYRA_STAPIP_STAMP_PASS,
+# docs/dod-submission.md phase 3) and their input epochs.
 */
+
+#include <malloc.h>  // Modified by TyraX: memalign (stamp records)
+#include "renderer/3d/pipeline/static/core/stapip_stamp_verify.hpp"  // Modified by TyraX
 
 #include "math/math.hpp"
 #include "math/mmi.hpp"
@@ -1170,6 +1175,7 @@ void StaPipQBufferRenderer::init(RendererCore* t_core, prim_t* t_prim,
 }
 
 void StaPipQBufferRenderer::reinitVU1() {
+  DrawEpochs::programsChanged();  // Modified by TyraX: stamp records
   flushPendingPacket();
   uploadPrograms();
   setDoubleBuffer();
@@ -1915,6 +1921,7 @@ static u32 programSetWords(VU1Program* const* programs, const u32& count) {
 }
 
 void StaPipQBufferRenderer::setProgramsCache() {
+  DrawEpochs::programsChanged();  // Modified by TyraX: stamp records
   // Modified by TyraX: in VU1 clipping mode the clip programs replace
   // the as_is family (both plus cull would overflow VU1 micro memory, and
   // as_is is only ever fed by the retired EE clipper path).
@@ -1999,6 +2006,7 @@ void StaPipQBufferRenderer::setResidentClasses(const u32& mask) {
   if (wanted == residentClasses) return;
   flushPendingPacket();
   residentClasses = wanted;
+  DrawEpochs::globalsChanged();  // Modified by TyraX: stamp records
   if (programsPacket == nullptr) return;  // init() will build the right set
 
   packet2_free(programsPacket);
@@ -2106,6 +2114,7 @@ void StaPipQBufferRenderer::setProgramOverride(const StaPipProgramName& name,
                                                StaPipVU1Program* program) {
   flushPendingPacket();
   repository.setOverride(name, program);
+  DrawEpochs::globalsChanged();  // Modified by TyraX: stamp records
   if (programsPacket == nullptr) return;  // init() will pick it up
 
   packet2_free(programsPacket);
@@ -2120,6 +2129,7 @@ void StaPipQBufferRenderer::setProgramOverrides(
     u32 count) {
   flushPendingPacket();
   for (u32 i = 0; i < count; i++) repository.setOverride(names[i], programs[i]);
+  DrawEpochs::globalsChanged();  // Modified by TyraX: stamp records
   if (programsPacket == nullptr) return;  // init() will pick them up
 
   packet2_free(programsPacket);
@@ -2132,6 +2142,7 @@ void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
   if (vu1Clipping == enabled) return;
   flushPendingPacket();
   vu1Clipping = enabled;
+  DrawEpochs::globalsChanged();  // Modified by TyraX: stamp records
 #if TYRA_STAPIP_RETAINED_COMMANDS
   // Modified by TyraX: the clip chain is either present or absent per mode,
   // and every bag's cull program changes with it.
@@ -2156,6 +2167,7 @@ void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
 }
 
 void StaPipQBufferRenderer::uploadPrograms() {
+  DrawEpochs::programsChanged();  // Modified by TyraX: stamp records
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
     frameWaitVif();
@@ -3475,6 +3487,9 @@ StaPipQBufferRenderer::StampEntry* StaPipQBufferRenderer::findStamp(
     stamps = new StampEntry[kStampSlots];
     stampKeys = new const StaPipBag*[kStampSlots]();
     stampBakedOf = new const StaPipBakedEntry*[kStampSlots]();
+#if TYRA_STAPIP_STAMP_PASS
+    allocateStampRecords();  // Modified by TyraX: stamp pass
+#endif
   }
   // Modified by TyraX: the slot the bag remembers - one compare against the
   // entry the hit reads anyway, no hash and no key line (item "stamp slot").
@@ -3527,12 +3542,64 @@ inline void prefetchLine(const void* p) {
 }
 }  // namespace
 
+#if TYRA_STAPIP_STAMP_PASS
+// Modified by TyraX: the stamp pass's per-slot state (docs/dod-submission.md,
+// "Phase 3, first slice"; the code is further down, before tryStamp).
+// The record of one stamp slot (64 bytes, one line).
+struct alignas(64) StaPipQBufferRenderer::StampRecord {
+  u32 cam, light, tex, glob, prog;  // epochs the answers were derived under
+  const StaPipBag* bag;             // owner (slot reuse)
+  const texwrap_t* wanted;          // the wrap in force after the bag
+  texbuffer_t* tb;                  // the resident allocation's core buffer
+  const RendererCoreSpotLight* lightPtr;  // the picked light
+  u32 clutAddr;                     // CLUT state useTexture+updateClutBuffer set
+  s16 allocIdx;                     // the residency entry (LRU touch)
+  u8 clutPsm, clutLoad;
+  u8 func, flags, pad0, pad1;
+  u32 camSeen;                      // last camera epoch a C replay ran under
+  u32 pad[3];
+};
+enum : u8 {
+  kRecValid = 1, kRecSpotOn = 2, kRecCand = 4, kRecTextured = 8,
+  kRecReceive = 16, kRecTexCache = 32, kRecIdent = 64
+};
+// Per stamp slot, what the revision path reads instead of the companion bags
+// (info, colour, texture bag). Valid while clsRev == DrawEpochs::g.cls[cls].
+struct alignas(64) StaPipQBufferRenderer::StampRevision {
+  const StaPipColorBag* colorBag;
+  const StaPipTextureBag* texBag;
+  const u32* cv[3];        // content stamp words (bag, colour, texture)
+  const Color* single;     // bag->color->single (the live colour words)
+  u32 clsRev;              // class epoch the facts were verified under (0: none)
+  u8 cls;                  // the class it was verified as
+  u8 aa, blend, shading, linear;  // setInfo's inputs
+  u8 fullClip, tight, receive;    // visibility band, light receive
+  u8 func, textured, pad[2];
+  u32 pad2[6];
+};
+// Per list position within the frame, what the pass found there last time
+// (two per line, in list order): draw k+1's lines are prefetched from it.
+struct alignas(32) StaPipQBufferRenderer::StampPlan {
+  const StaPipBag* bag;
+  const void* info;
+  const void* model;
+  const void* entry;
+  int slot;
+  const void* contentWord;  // the revision's cv[0] (prefetch), or nullptr
+  u32 pad[2];
+};
+
+#endif
+
 void StaPipQBufferRenderer::prefetchStamp(const StaPipBag* bag) const {
   const int at = stampSlot(bag);
   if (at < 0) return;
   const u8* e = reinterpret_cast<const u8*>(&stamps[at]);
   // Facts, boxes, matrix and the info copy: the first ~6 lines of the entry.
   for (u32 off = 0; off < 384; off += 64) prefetchLine(e + off);
+#if TYRA_STAPIP_STAMP_PASS
+  prefetchLine(&stampRecs[at]);  // Modified by TyraX: the stamp record
+#endif
   prefetchLine(bag);
   prefetchLine(bag->info);
   prefetchLine(bag->info->model);
@@ -3636,6 +3703,12 @@ void StaPipQBufferRenderer::captureStamp() {
   if (s == nullptr) return;
   s->bag = bag;
   stampKeys[s - stamps] = bag;
+#if TYRA_STAPIP_STAMP_PASS
+  // Modified by TyraX: a capture rewrites the head; its record and
+  // revision answers are void.
+  stampRecs[s - stamps].flags = 0;
+  stampRevs[s - stamps].clsRev = 0;
+#endif
   stampBakedOf[s - stamps] = entry;
   s->lo = stampLo;
   s->hi = stampHi;
@@ -3683,11 +3756,1198 @@ void StaPipQBufferRenderer::captureStamp() {
 }
 
 
+#if TYRA_STAPIP_STAMP_PASS
+// Modified by TyraX: the stamp record and the stamp pass
+// (docs/dod-submission.md, "Phase 3, first slice: the stamp record").
+//
+// A stamp's replay re-asks ~25 questions whose inputs rarely change: texture
+// residency, wrap and CLUT, the light pick and spot block, the program set,
+// the fog words, batch candidacy, the producer facts. The record keeps the
+// answers plus the epochs (renderer/core/draw_epochs.hpp) they were derived
+// under; a replay re-derives only the groups whose epochs moved:
+//   C camera   visibility, MVP, fog words                  (cam, model)
+//   T texture  residency, wrap, candidacy, LRU slot, CLUT  (tex, function)
+//   L light    light pick, spot block                      (light, receive)
+// The cached WORDS (MVP, fog, TEX0, spot) live in the stamp's own head, so
+// the head copy alone carries them. A record is refreshed by every full
+// tryStamp and by every replay that re-derived a group.
+//
+// The stamp pass consumes the records: StaPipCore's frame-recorder flush
+// hands the whole recorded list to stampPass, one tight loop over the draws
+// in list order. A draw it cannot take (no stamp or record, an epoch it
+// cannot re-derive, a straddling box, an upload) goes down renderNow from
+// inside the loop, so the GS order is the list order and the loop's code
+// stays in the I-cache for the whole flush. Measured on a PS2 (Motor
+// District, same ELF): parked work -1.7..-1.8 ms, driving -0.38..-0.43 ms.
+namespace {
+// The light set as the last resolve saw it. The game re-registers its lights
+// every frame, so the epoch moves only when this snapshot differs.
+struct StampLightSnap {
+  RendererCoreSpotLight spot;
+  RendererCoreSpotLight dyn[RendererCore::DYN_LIGHTS_MAX];
+  u32 count = 0, bakedMask = 0;
+  u8 fast = 0, keep = 0, valid = 0;
+};
+StampLightSnap stampLightSnap;
+
+void resolveLightEpoch(const RendererCore* rc) {
+  DrawEpochs::State& g = DrawEpochs::g;
+  if (!g.lightDirty) return;
+  g.lightDirty = 0;
+  StampLightSnap& s = stampLightSnap;
+  const u32 n = rc->dynLightCount;
+  const u8 fast = RendererCore::fastLightPick ? 1 : 0;
+  const u8 keep = RendererCore::sceneLightsKeepMeshes ? 1 : 0;
+  const bool same =
+      s.valid && s.count == n && s.bakedMask == rc->dynBakedMask &&
+      s.fast == fast && s.keep == keep &&
+      memcmp(static_cast<const void*>(&s.spot), static_cast<const void*>(&rc->spot),
+             sizeof(RendererCoreSpotLight)) == 0 &&
+      (n == 0 || memcmp(static_cast<const void*>(s.dyn),
+                        static_cast<const void*>(rc->dynLights),
+                        n * sizeof(RendererCoreSpotLight)) == 0);
+  if (same) return;
+  memcpy(static_cast<void*>(&s.spot), static_cast<const void*>(&rc->spot),
+         sizeof(RendererCoreSpotLight));
+  if (n != 0)
+    memcpy(static_cast<void*>(s.dyn), static_cast<const void*>(rc->dynLights),
+           n * sizeof(RendererCoreSpotLight));
+  s.count = n;
+  s.bakedMask = rc->dynBakedMask;
+  s.fast = fast;
+  s.keep = keep;
+  s.valid = 1;
+  ++g.light;
+}
+
+// The per-camera-epoch plane set + identity MVP, and the per-glob-epoch fog
+// words. Built on first use under a new epoch, never per stamp.
+struct alignas(64) StampFrame {
+  float fp[6][4];  // frustum planes: nx ny nz d
+  float fa[6][4];  // |nx| |ny| |nz| (CoreBBox::frustumCheckAABB's radius)
+  M4x4 vp;         // the viewProj it was built from (verify)
+  M4x4 mvpIdent;   // vp * Identity: the multiply tryStamp makes, same inputs
+  u32 cam = 0, glob = 0, camOk = 0, fogOk = 0;
+  float fogScale = 0.0F, fogOffset = 255.0F, fogScaleFixed = 0.0F;
+};
+StampFrame stampFrame;
+
+__attribute__((noinline)) void buildStampCamera(const M4x4& vp, const Plane* planes) {
+  StampFrame& f = stampFrame;
+  for (int i = 0; i < 6; ++i) {
+    const Vec4& n = planes[i].normal;
+    f.fp[i][0] = n.x;
+    f.fp[i][1] = n.y;
+    f.fp[i][2] = n.z;
+    f.fp[i][3] = planes[i].distance;
+    f.fa[i][0] = fabsf(n.x);
+    f.fa[i][1] = fabsf(n.y);
+    f.fa[i][2] = fabsf(n.z);
+    f.fa[i][3] = 0.0F;
+  }
+  f.vp = vp;
+  f.mvpIdent = vp * M4x4::Identity;
+  f.cam = DrawEpochs::g.cam;
+  f.camOk = 1;
+}
+// Verify: the table claims this epoch; do the live planes and viewProj agree?
+__attribute__((noinline)) bool stampCameraStale(const M4x4& vp, const Plane* planes) {
+  if (memcmp(static_cast<const void*>(stampFrame.vp.data),
+             static_cast<const void*>(vp.data), sizeof(vp.data)) != 0)
+    return true;
+  for (int i = 0; i < 6; ++i) {
+    const float q[4] = {planes[i].normal.x, planes[i].normal.y,
+                        planes[i].normal.z, planes[i].distance};
+    if (memcmp(stampFrame.fp[i], q, sizeof(q)) != 0) return true;
+  }
+  return false;
+}
+__attribute__((noinline)) void buildStampFog(const RendererCore* rc) {
+  StampFrame& f = stampFrame;
+  f.fogScale = rc->fog.scale;
+  f.fogOffset = rc->fog.offset;
+  float fixedScale = f.fogScale;
+  u32 bits;
+  memcpy(&bits, &fixedScale, 4);
+  if ((bits & 0xFFFFU) == 0U && bits != 0U) {
+    bits |= 1U;
+    memcpy(&fixedScale, &bits, 4);
+  }
+  f.fogScaleFixed = fixedScale;
+  f.glob = DrawEpochs::g.glob;
+  f.fogOk = 1;
+}
+inline bool stampFogStale(const RendererCore* rc) {
+  return memcmp(&stampFrame.fogScale, &rc->fog.scale, 4) != 0 ||
+         memcmp(&stampFrame.fogOffset, &rc->fog.offset, 4) != 0;
+}
+// The stamp's visibility against the per-epoch planes: CoreBBox::
+// frustumCheckAABB's arithmetic exactly (|n| precomputed), then the
+// guard-band rule (activePlaneMaskAABB != 0 over the head's 8 band planes).
+//   0 emit: wholly inside, or straddling the screen edge inside the band;
+//   1 cull (only with `cull`): outside one frustum plane by more than a
+//     margin, so the bag's object-space box (inside this world AABB) is
+//     outside that plane too and the general path would emit nothing;
+//   2 the general path decides (straddling, or outside but too close).
+constexpr float kStampCullRel = 1.0e-3F, kStampCullAbs = 1.0e-2F;
+__attribute__((always_inline)) inline int stampVisibility(const Plane* gb,
+                                                          const Vec4& lo,
+                                                          const Vec4& hi,
+                                                          bool cull) {
+  const float cx = (lo.x + hi.x) * 0.5F, ex = (hi.x - lo.x) * 0.5F;
+  const float cy = (lo.y + hi.y) * 0.5F, ey = (hi.y - lo.y) * 0.5F;
+  const float cz = (lo.z + hi.z) * 0.5F, ez = (hi.z - lo.z) * 0.5F;
+  bool partial = false;
+#pragma GCC unroll 1
+  for (int i = 0; i < 6; ++i) {
+    const float* n = stampFrame.fp[i];
+    const float* a = stampFrame.fa[i];
+    const float centre = n[3] + n[0] * cx + n[1] * cy + n[2] * cz;
+    const float radius = a[0] * ex + a[1] * ey + a[2] * ez;
+    if (centre + radius <= 0.0F) {
+      if (!cull) return 2;
+      const float margin = kStampCullRel * (fabsf(centre) + radius) + kStampCullAbs;
+      return centre + radius <= -margin ? 1 : 2;
+    }
+    if (centre - radius <= 0.0F) partial = true;
+  }
+  if (!partial) return 0;
+  if (gb == nullptr) return 2;
+#pragma GCC unroll 1
+  for (int i = 0; i < 8; ++i) {
+    const Vec4& n = gb[i].normal;
+    const float nX = n.x >= 0.0F ? lo.x : hi.x;
+    const float nY = n.y >= 0.0F ? lo.y : hi.y;
+    const float nZ = n.z >= 0.0F ? lo.z : hi.z;
+    const float minDistance = gb[i].distance + n.x * nX + n.y * nY + n.z * nZ;
+    if (minDistance <= 0.0F) return 2;
+  }
+  return 0;
+}
+inline bool isIdentityMatrix(const M4x4& m) {
+  return memcmp(static_cast<const void*>(m.data),
+                static_cast<const void*>(M4x4::Identity.data),
+                sizeof(m.data)) == 0;
+}
+// The fog words of a stamp whose camera group is re-derived (options qword
+// 0), exactly as sendObjectData / tryStamp.
+inline void stampFogWords(qword_t& q, const float* m, u8 fogOff, u8 fogEligible,
+                          const Vec4& lo, const Vec4& hi) {
+  float fogScale = stampFrame.fogScale;
+  float fogOffset = stampFrame.fogOffset;
+  bool fogConstant = fogOff != 0;
+  if (!fogConstant && fogEligible && fogScale < 0.0F) {
+    const float cx = 0.5F * (lo.x + hi.x), hx = 0.5F * (hi.x - lo.x);
+    const float cy = 0.5F * (lo.y + hi.y), hy = 0.5F * (hi.y - lo.y);
+    const float cz = 0.5F * (lo.z + hi.z), hz = 0.5F * (hi.z - lo.z);
+    const float maxW = m[3] * cx + m[7] * cy + m[11] * cz + m[15] +
+                       fabsf(m[3]) * hx + fabsf(m[7]) * hy + fabsf(m[11]) * hz;
+    fogConstant = maxW * fogScale + fogOffset >= 255.0F;
+  }
+  if (fogConstant) {
+    fogScale = 0.0F;
+    fogOffset = 255.0F;
+  } else {
+    fogScale = stampFrame.fogScaleFixed;
+  }
+  memcpy(&q.sw[2], &fogScale, 4);
+  memcpy(&q.sw[3], &fogOffset, 4);
+}
+// The env (matcap) camera basis words, as tryStamp: out of line (rare).
+__attribute__((noinline, cold)) void stampEnvWords(qword_t* d, const StaPipBag* bag) {
+  const Vec4& rr = bag->texture->envRight;
+  const Vec4& u = bag->texture->envUp;
+  alignas(16) const float e[12] = {rr.x * 0.5F, u.x * -0.5F, 0.0F, 0.0F,
+                                   rr.y * 0.5F, u.y * -0.5F, 0.0F, 0.0F,
+                                   rr.z * 0.5F, u.z * -0.5F, 1.0F, 0.5F};
+  memcpy(d, e, sizeof(e));
+}
+enum : int { kRecordFull = 0, kRecordHit = 1, kRecordReject = 2 };
+constexpr bool kStampVerify = TYRA_STAPIP_STAMP_VERIFY != 0;
+}  // namespace
+
+void StaPipQBufferRenderer::allocateStampRecords() {
+  static_assert(sizeof(StampRecord) == 64, "a stamp record is one cache line");
+  static_assert(sizeof(StampRevision) == 64, "a stamp revision is one cache line");
+  static_assert(sizeof(StampPlan) == 32, "two plan entries per line");
+  stampRecs = static_cast<StampRecord*>(memalign(64, sizeof(StampRecord) * kStampSlots));
+  stampRevs =
+      static_cast<StampRevision*>(memalign(64, sizeof(StampRevision) * kStampSlots));
+  stampPlan = static_cast<StampPlan*>(memalign(64, sizeof(StampPlan) * kStampPlan));
+  memset(static_cast<void*>(stampRecs), 0, sizeof(StampRecord) * kStampSlots);
+  memset(static_cast<void*>(stampRevs), 0, sizeof(StampRevision) * kStampSlots);
+  memset(static_cast<void*>(stampPlan), 0, sizeof(StampPlan) * kStampPlan);
+}
+
+u32 StaPipQBufferRenderer::reserveStampPlan(u32 n) {
+  if (stampPlanFrame != DrawEpochs::g.frame) {
+    stampPlanFrame = DrawEpochs::g.frame;
+    stampPlanPos = 0;
+  }
+  const u32 at = stampPlanPos;
+  stampPlanPos += n;
+  return at;
+}
+
+// One stamp replay from its record, after tryStamp's producer facts and
+// model step. kRecordFull = nothing to reuse (tryStamp continues on the full
+// path, which refreshes the record), kRecordReject = rejected as tryStamp
+// would, kRecordHit = sent. dry (TYRA_STAPIP_STAMP_VERIFY): the same
+// decisions with no side effect, the head written to the verify scratch.
+template <bool dry>
+int StaPipQBufferRenderer::replayRecord(StampEntry* s, StaPipBag* bag,
+                                        const M4x4& viewProj, const Plane* planes,
+                                        const Plane* guardBandPlanes,
+                                        bool dynamicLightReceive,
+                                        const RendererCoreSpotLight* noSpot,
+                                        bool moved) {
+  const DrawEpochs::State& g = DrawEpochs::g;
+  const u32 slot = static_cast<u32>(s - stamps);
+  StampRecord& r = stampRecs[slot];
+  resolveLightEpoch(rendererCore);
+  if (!(r.flags & kRecValid) || r.bag != bag || r.glob != g.glob ||
+      r.prog != g.prog || !RendererCore::fastLightPick) {
+    if (dry) StampVerify::predictFull();
+    return kRecordFull;
+  }
+  const Texture* tex = static_cast<const Texture*>(s->texture);
+  RendererCoreTexture& T = rendererCore->texture;
+  const u8 func = tex != nullptr ? bag->texture->textureFunction : 0;
+  // A moved model re-derives the camera group (world box -> visibility, MVP,
+  // fog) and the light group (world sphere, inverse -> pick, spot); tryStamp
+  // already re-derived the box, sphere and inverse with the model.
+  const bool needC = moved || r.cam != g.cam;
+  const bool needL = moved || r.light != g.light ||
+                     ((r.flags & kRecReceive) != 0) != dynamicLightReceive;
+  bool needT = tex != nullptr &&
+               (r.tex != g.tex || r.func != func || !(r.flags & kRecTexCache));
+  if (tex != nullptr && !needT) {
+    // The residency entry the record names still holds the same buffer.
+    const s32 i = r.allocIdx;
+    if (i < 0 || static_cast<u32>(i) >= T.residentCount() ||
+        T.residentAt(i).core != r.tb)
+      needT = true;
+  }
+  if (needC && needL && (tex == nullptr || needT)) {
+    if (dry) StampVerify::predictFull();
+    return kRecordFull;
+  }
+  // Renderer facts: the entry's (the globals are under the glob/prog epochs).
+  if (s->entry->serial != s->serial || s->entry->arena != s->arena ||
+      !s->entry->complete) {
+    if (dry) StampVerify::predictReject(3, slot);
+    return kRecordReject;
+  }
+  // Prim state: live, exactly as tryStamp (dry leaves it to tryStamp).
+  if (!dry) {
+    prim->fogging = rendererCore->fog.enabled && !bag->info->fogDisabled
+                        ? DRAW_ENABLE
+                        : DRAW_DISABLE;
+    if ((prim->fogging != DRAW_ENABLE ? 1 : 0) != s->fogOff) return kRecordReject;
+    setInfo(bag->info);
+    if (stampPrimKey(bag) != s->primKey) return kRecordReject;
+  }
+  // C: visibility against the per-epoch plane set.
+  if (needC) {
+    if (!stampFrame.camOk || stampFrame.cam != g.cam) {
+      buildStampCamera(viewProj, planes);
+    } else if (dry && stampCameraStale(viewProj, planes)) {
+      StampVerify::frameBug(1);
+    }
+    if (stampVisibility(guardBandPlanes, s->wlo, s->whi, false) != 0) {
+      if (dry) StampVerify::predictReject(5, slot);
+      return kRecordReject;
+    }
+  }
+  // T: residency, wrap, batch candidacy.
+  const texwrap_t* wanted = r.wanted;
+  bool cand = (r.flags & kRecCand) != 0;
+  if (needT) {
+    const texwrap_t& w = (tex->getWrapSettings()->horizontal != WRAP_REPEAT)
+                             ? *tex->getWrapSettings()
+                             : RendererCoreGS::repeatWrap();
+    if (!T.isResident(tex) ||
+        (s->wrapBlock ? !RendererCoreGS::wrapEquals(w, s->wrap)
+                      : !RendererCoreGS::wrapEquals(w, RendererCoreGS::repeatWrap()))) {
+      if (dry) StampVerify::predictReject(6, slot);
+      return kRecordReject;
+    }
+    wanted = &w;
+    const bool repeatNow = tex->getWrapSettings()->horizontal == WRAP_REPEAT &&
+                           tex->getWrapSettings()->vertical == WRAP_REPEAT;
+    cand = s->batchSized != 0 || (stampBatchAnySize && repeatNow);
+  }
+  // L: light pick + spot block (fast pick only: the record requires it).
+  const RendererCoreSpotLight* light = r.lightPtr;
+  bool spotOn = (r.flags & kRecSpotOn) != 0;
+  StaPipClipperSpot meshSpot;
+  if (needL) {
+    light = nullptr;
+    if (dynamicLightReceive && bag->info->dynLightPick)
+      light = rendererCore->pickDynLight(
+          s->worldCenter, s->worldRadius, bag->info->dynLightSkipSlot,
+          bag->info->dynLightSkipBaked ? rendererCore->dynBakedMask : 0u,
+          bag->info->spotLit, bag->info->torchPerPixel);
+    if (!dynamicLightReceive ||
+        (!bag->info->spotLit && (!bag->info->dynLightPick || light == nullptr)))
+      light = noSpot;
+    meshSpot = buildSpotForBagInverse(light ? *light : rendererCore->spot, s->inv,
+                                      s->invT);
+    if (meshSpot.enabled && stapipSpotHasNoInfluence(meshSpot, s->lo, s->hi))
+      meshSpot.enabled = false;
+    if ((meshSpot.enabled ? 1 : 0) != s->spotActive) {
+      if (dry) StampVerify::predictReject(7, slot);
+      return kRecordReject;
+    }
+    spotOn = meshSpot.enabled;
+  }
+
+  texbuffer_t* tb = r.tb;
+  u32 clutAddr = r.clutAddr;
+  u32 clutPsm = r.clutPsm, clutLoad = r.clutLoad;
+  if (!dry) {
+    setSubmissionBatchCandidate(cand, tex != nullptr);
+    const texwrap_t& inForce =
+        packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
+    if (!RendererCoreGS::wrapEquals(RendererCoreGS::repeatWrap(), inForce))
+      return kRecordReject;
+    // clipper.setSpot is not needed: only the ordinary path's EE clipper reads
+    // it, and sendObjectData sets it before every use.
+    ensureProgramSet(false);
+    if (tex != nullptr) {
+      if (needT) {
+        auto temp = T.useTexture(tex);
+        T.updateClutBuffer(temp.clut);
+        temp.core->info.function = bag->texture->textureFunction;
+        tb = temp.core;
+        clutAddr = T.clut.address;
+        clutPsm = T.clut.psm;
+        clutLoad = T.clut.load_method;
+      } else {
+        // useTexture's hit half (LRU touch + counters) on the remembered
+        // entry, and updateClutBuffer's outcome from the record.
+        T.touchResident(r.allocIdx);
+        T.clut.psm = clutPsm;
+        T.clut.load_method = clutLoad;
+        T.clut.address = clutAddr;
+        tb->info.function = func;
+      }
+    }
+  } else if (tex != nullptr && needT) {
+    tb = stampPassTexUse(tex, func, &clutAddr, &clutPsm, &clutLoad, true);
+    if (tb == nullptr) {
+      StampVerify::predictReject(6, slot);
+      return kRecordReject;
+    }
+  }
+  packet2_t* packet = nullptr;
+  qword_t* dst;
+  if (dry) {
+    dst = StampVerify::v.words;
+  } else {
+    packet = packets[context];
+    if (!objectDataPending) {
+      startPacket(packet);
+      packetWrapSet = false;
+    }
+    dst = packet->next;
+  }
+  for (u32 i = 0; i < s->qw; ++i) dst[i] = s->bytes[i];
+  // C: MVP straight into the outgoing packet, fog from the per-glob table.
+  bool ident = false;
+  if (needC) {
+    if (!stampFrame.fogOk || stampFrame.glob != g.glob) {
+      buildStampFog(rendererCore);
+    } else if (dry && stampFogStale(rendererCore)) {
+      StampVerify::frameBug(2);
+    }
+    ident = (r.flags & kRecIdent) != 0 && !moved;
+    alignas(16) M4x4 mvpLocal;
+    const float* m;
+    if (ident) {
+      m = stampFrame.mvpIdent.data;
+    } else {
+      mvpLocal = viewProj * s->model;
+      m = mvpLocal.data;
+    }
+    memcpy(&dst[s->mvpAt + 1], m, 16 * sizeof(float));
+    stampFogWords(dst[s->optAt + 1], m, s->fogOff, s->fogEligible, s->lo, s->hi);
+  }
+  if (needT && s->hasTex0 && tb != nullptr)
+    stampPassTex0(&dst[s->tex0At], tb, func, clutAddr, clutPsm, clutLoad);
+  if (needL && s->spotActive) {
+    alignas(16) const float sp[12] = {
+        meshSpot.position.x,  meshSpot.position.y,  meshSpot.position.z,
+        meshSpot.invRange2,   meshSpot.direction.x, meshSpot.direction.y,
+        meshSpot.direction.z, meshSpot.cosCut2,     meshSpot.color[0],
+        meshSpot.color[1],    meshSpot.color[2],    meshSpot.invSoft};
+    memcpy(&dst[s->spotAt + 1], sp, sizeof(sp));
+  }
+  // Producer-owned words: live, as tryStamp.
+  if (s->singleAt != 0) memcpy(&dst[s->singleAt + 1], bag->color->single->rgba, 16);
+  if (s->envAt != 0) stampEnvWords(&dst[s->envAt + 1], bag);
+  if (dry) {
+    StampVerify::predictHit(slot, s->qw, needC, tex != nullptr && !needT, needL,
+                            ident, moved, false, wanted, tb, light, clutAddr,
+                            clutPsm, clutLoad, func, spotOn, cand, needT);
+    return kRecordHit;
+  }
+  commitRecord(s, dst, needC, needT, needL, moved, wanted, tb, light, spotOn, cand,
+               clutAddr, clutPsm, clutLoad, func, dynamicLightReceive);
+  packet->next = dst + s->qw;
+  if (s->wrapBlock) {
+    packetWrap = *wanted;
+    packetWrapSet = true;
+  }
+  // The same bookkeeping tryStamp does.
+  s->entry->framesLeftToDestroy = StaPipBakedStreams::kLifetimeFrames;
+  s->frame = stampHits + stampCaptures;
+  lastProgramName = s->program;
+  baked.countHit();
+  objectDataPending = true;
+  ++submissionBatchBags;
+  if (!submissionBatchCandidate ||
+      packet2_get_qw_count(packet) + kStampMaxQw > packetSize)
+    flushPendingPacket();
+  ++stampHits;
+  return kRecordHit;
+}
+
+// The record and head after a replay that re-derived groups (or verify's
+// confirmed prediction, so the record evolves the same way under both).
+// Camera words are written back into the head only when this stamp saw the
+// same camera epoch on its previous C replay (the camera is parked): on a
+// moving camera the write-back is pure cost, and record.cam = 0 keeps the
+// next replay in C mode.
+void StaPipQBufferRenderer::commitRecord(StampEntry* s, const qword_t* dst,
+                                         bool needC, bool needT, bool needL,
+                                         bool moved, const texwrap_t* wanted,
+                                         texbuffer_t* tb,
+                                         const RendererCoreSpotLight* light,
+                                         bool spotOn, bool cand, u32 clutAddr,
+                                         u32 clutPsm, u32 clutLoad, u8 func,
+                                         bool dynamicLightReceive) {
+  const DrawEpochs::State& g = DrawEpochs::g;
+  StampRecord& r = stampRecs[s - stamps];
+  const Texture* tex = static_cast<const Texture*>(s->texture);
+  if (needC) {
+    if (r.camSeen == g.cam) {
+      for (u32 k = 1; k <= 4; ++k) s->bytes[s->mvpAt + k] = dst[s->mvpAt + k];
+      s->bytes[s->optAt + 1] = dst[s->optAt + 1];
+      r.cam = g.cam;
+    } else {
+      r.camSeen = g.cam;
+      r.cam = 0;
+    }
+    if (moved)
+      r.flags = static_cast<u8>((r.flags & ~kRecIdent) |
+                                (isIdentityMatrix(s->model) ? kRecIdent : 0));
+  }
+  if (needT && s->hasTex0 && tb != nullptr) s->bytes[s->tex0At] = dst[s->tex0At];
+  if (needL && s->spotActive)
+    for (u32 k = 1; k <= 3; ++k) s->bytes[s->spotAt + k] = dst[s->spotAt + k];
+  if (needL) {
+    r.light = g.light;
+    r.lightPtr = light;
+    r.flags = static_cast<u8>((r.flags & ~(kRecSpotOn | kRecReceive)) |
+                              (spotOn ? kRecSpotOn : 0) |
+                              (dynamicLightReceive ? kRecReceive : 0));
+  }
+  if (needT) {
+    RendererCoreTexture& T = rendererCore->texture;
+    const s32 idx = T.residentIndex(tex);
+    r.tex = g.tex;
+    r.func = func;
+    r.wanted = wanted;
+    r.tb = tb;
+    r.allocIdx = static_cast<s16>(idx);
+    r.clutAddr = clutAddr;
+    r.clutPsm = static_cast<u8>(clutPsm);
+    r.clutLoad = static_cast<u8>(clutLoad);
+    r.flags = static_cast<u8>(
+        (r.flags & ~(kRecCand | kRecTexCache)) | (cand ? kRecCand : 0) |
+        ((idx >= 0 && tex->vramResident == nullptr) ? kRecTexCache : 0));
+  }
+}
+
+// The full path's end (tryStamp, before its bookkeeping): verify compares
+// with the dry prediction and, after a confirmed hit, commits as the replay
+// would; otherwise the record is refreshed whole and the head written back.
+void StaPipQBufferRenderer::afterFullStamp(StampEntry* s, StaPipBag* bag,
+                                           const qword_t* dst,
+                                           const texwrap_t* wanted,
+                                           const RendererCoreSpotLight* light,
+                                           bool spotOn, bool cand, texbuffer_t* tb,
+                                           bool dynamicLightReceive) {
+  const DrawEpochs::State& g = DrawEpochs::g;
+  const u32 slot = static_cast<u32>(s - stamps);
+  const Texture* tex = static_cast<const Texture*>(s->texture);
+  RendererCoreTexture& T = rendererCore->texture;
+  const u8 func = tex != nullptr ? bag->texture->textureFunction : 0;
+#if TYRA_STAPIP_STAMP_VERIFY
+  StampVerify::Prediction& v = StampVerify::v;
+  if (v.armed) {
+    if (StampVerify::compareSent(s->qw, dst, s->mvpAt, s->optAt, s->hasTex0 != 0,
+                                 s->tex0At, s->spotActive != 0, s->spotAt,
+                                 s->singleAt, s->envAt, wanted, cand, tex != nullptr,
+                                 tb, T.clut.address, T.clut.psm, T.clut.load_method,
+                                 func, light, spotOn)) {
+      // The record and head as the replay would leave them.
+      commitRecord(s, dst, v.needC != 0, v.needT != 0, v.needL != 0, v.moved != 0,
+                   wanted, tb, light, spotOn, cand, T.clut.address, T.clut.psm,
+                   T.clut.load_method, func, dynamicLightReceive);
+      return;
+    }
+  }
+#endif
+  // Refresh: every answer from this full replay, under the current epochs.
+  resolveLightEpoch(rendererCore);
+  StampRecord& r = stampRecs[slot];
+  r.bag = bag;
+  r.cam = g.cam;
+  r.camSeen = g.cam;
+  r.light = g.light;
+  r.tex = g.tex;
+  r.glob = g.glob;
+  r.prog = g.prog;
+  r.wanted = wanted;
+  r.tb = tb;
+  r.lightPtr = light;
+  const s32 idx = tex != nullptr ? T.residentIndex(tex) : -1;
+  r.allocIdx = static_cast<s16>(idx);
+  r.clutAddr = T.clut.address;
+  r.clutPsm = static_cast<u8>(T.clut.psm);
+  r.clutLoad = static_cast<u8>(T.clut.load_method);
+  r.func = func;
+  r.flags = static_cast<u8>(
+      kRecValid | (spotOn ? kRecSpotOn : 0) | (cand ? kRecCand : 0) |
+      (tex != nullptr ? kRecTextured : 0) | (dynamicLightReceive ? kRecReceive : 0) |
+      ((tex != nullptr && idx >= 0 && tex->vramResident == nullptr) ? kRecTexCache
+                                                                     : 0) |
+      (isIdentityMatrix(s->model) ? kRecIdent : 0));
+  for (u32 i = 0; i < s->qw; ++i) s->bytes[i] = dst[i];
+}
+
+namespace {
+// MVP = viewProj * model: M4x4::cross's VU0 sequence verbatim (the same
+// instructions in the same order on the same inputs, so the same bits as
+// tryStamp's `viewProj * s->model`), written straight into the packet.
+// Operands as cross(res, a, b): rows of b in vf1-4, a in vf5-8.
+__attribute__((always_inline)) inline void stampMvp(float* res, const float* a,
+                                                    const float* b) {
+#ifdef _EE
+  asm volatile(
+      "lqc2         $vf1, 0x00(%1) \n\t"
+      "lqc2         $vf2, 0x10(%1) \n\t"
+      "lqc2         $vf3, 0x20(%1) \n\t"
+      "lqc2         $vf4, 0x30(%1) \n\t"
+      "lqc2         $vf5, 0x00(%2) \n\t"
+      "lqc2         $vf6, 0x10(%2) \n\t"
+      "lqc2         $vf7, 0x20(%2) \n\t"
+      "lqc2         $vf8, 0x30(%2) \n\t"
+      "vmulax.xyzw  $ACC, $vf5, $vf1 \n\t"
+      "vmadday.xyzw $ACC, $vf6, $vf1 \n\t"
+      "vmaddaz.xyzw $ACC, $vf7, $vf1 \n\t"
+      "vmaddw.xyzw  $vf1, $vf8, $vf1 \n\t"
+      "vmulax.xyzw  $ACC, $vf5, $vf2 \n\t"
+      "vmadday.xyzw $ACC, $vf6, $vf2 \n\t"
+      "vmaddaz.xyzw $ACC, $vf7, $vf2 \n\t"
+      "vmaddw.xyzw  $vf2, $vf8, $vf2 \n\t"
+      "vmulax.xyzw  $ACC, $vf5, $vf3 \n\t"
+      "vmadday.xyzw $ACC, $vf6, $vf3 \n\t"
+      "vmaddaz.xyzw $ACC, $vf7, $vf3 \n\t"
+      "vmaddw.xyzw  $vf3, $vf8, $vf3 \n\t"
+      "vmulax.xyzw  $ACC, $vf5, $vf4 \n\t"
+      "vmadday.xyzw $ACC, $vf6, $vf4 \n\t"
+      "vmaddaz.xyzw $ACC, $vf7, $vf4 \n\t"
+      "vmaddw.xyzw  $vf4, $vf8, $vf4 \n\t"
+      "sqc2         $vf1, 0x00(%0) \n\t"
+      "sqc2         $vf2, 0x10(%0) \n\t"
+      "sqc2         $vf3, 0x20(%0) \n\t"
+      "sqc2         $vf4, 0x30(%0) \n\t"
+      :
+      : "r"(res), "r"(b), "r"(a)
+      : "memory");
+#else
+  M4x4 ma, mb;
+  memcpy(ma.data, a, sizeof(ma.data));
+  memcpy(mb.data, b, sizeof(mb.data));
+  const M4x4 out = ma * mb;
+  memcpy(res, out.data, sizeof(out.data));
+#endif
+}
+typedef u32 __attribute__((may_alias)) StampWord;
+static_assert(sizeof(StaPipInfoBag) % 4 == 0, "info compare by words");
+// tryStamp's producer facts (reject 2) and renderNow's stamp gate.
+template <class E>
+__attribute__((noinline)) bool stampProducerFacts(const E* s, const StaPipBag* bag) {
+  if (bag->count <= 0 || bag->info->transformationType != TyraMVP) return false;
+  const StampWord* ia = reinterpret_cast<const StampWord*>(s->infoBytes);
+  const StampWord* ib = reinterpret_cast<const StampWord*>(bag->info);
+  u32 diff = 0;
+#pragma GCC unroll 1
+  for (u32 w = 0; w < sizeof(StaPipInfoBag) / 4; ++w) diff |= ia[w] ^ ib[w];
+  return diff == 0 && s->vertices == bag->vertices &&
+         s->count == static_cast<u32>(bag->count) &&
+         s->bboxVersion == bag->bboxVersion && s->info == bag->info &&
+         s->modelPtr == bag->info->model && bag->billboard == nullptr &&
+         bag->lighting == nullptr &&
+         (bag->color->single != nullptr) == (s->singleAt != 0) &&
+         (bag->texture != nullptr && bag->texture->coordinatesAreNormals) ==
+             (s->envAt != 0) &&
+         s->texture == (bag->texture != nullptr ? bag->texture->texture : nullptr) &&
+         s->contentStamp == stampContent(bag) &&
+         s->sts == (bag->texture != nullptr ? bag->texture->coordinates : nullptr) &&
+         s->colors == bag->color->many && s->stripped == (bag->stripped ? 1 : 0);
+}
+// The revision path: the bag-line half of the facts plus the content stamps
+// through the pointers cached at the last facts check (no companion line).
+template <class E, class X>
+inline bool stampRevisionLine(const E* s, const X& x, const StaPipBag* bag) {
+  return s->vertices == bag->vertices && s->count == static_cast<u32>(bag->count) &&
+         s->bboxVersion == bag->bboxVersion && s->info == bag->info &&
+         bag->billboard == nullptr && bag->lighting == nullptr &&
+         s->stripped == (bag->stripped ? 1 : 0) && x.colorBag == bag->color &&
+         x.texBag == bag->texture && x.cv[0] == bag->contentVersion &&
+         s->contentStamp == stampOf(x.cv[0]) * 0x9E3779B1U +
+                                stampOf(x.cv[1]) * 0x85EBCA6BU +
+                                stampOf(x.cv[2]) * 0xC2B2AE35U;
+}
+template <class X>
+__attribute__((noinline)) void fillStampRevision(X& x, unsigned cls,
+                                                 const StaPipBag* bag) {
+  const StaPipInfoBag* in = bag->info;
+  x.colorBag = bag->color;
+  x.texBag = bag->texture;
+  x.cv[0] = bag->contentVersion;
+  x.cv[1] = bag->color->contentVersion;
+  x.cv[2] = bag->texture != nullptr ? bag->texture->contentVersion : nullptr;
+  x.single = bag->color->single;
+  x.cls = static_cast<u8>(cls);
+  x.aa = static_cast<u8>(in->antiAliasingEnabled);
+  x.blend = static_cast<u8>(in->blendingEnabled);
+  x.shading = static_cast<u8>(in->shadingType);
+  x.linear = in->textureMappingType == TyraLinear ? 1 : 0;
+  x.fullClip = in->fullClipChecks ? 1 : 0;
+  x.tight = in->tightClipBand ? 1 : 0;
+  x.receive = in->dynamicLightReceive ? 1 : 0;
+  x.textured = (bag->texture != nullptr && bag->texture->texture != nullptr) ? 1 : 0;
+  x.func = bag->texture != nullptr ? bag->texture->textureFunction : 0;
+  x.clsRev = DrawEpochs::g.cls[cls];
+}
+// tryStamp's light step (fast pick) on the stamp's world sphere and inverse:
+// out of line, run only for a moved model or a stale light answer. false =
+// the spot block's presence differs from the capture (tryStamp's reject 7).
+__attribute__((noinline)) bool stampSpot(RendererCore* rc, const StaPipInfoBag* info,
+                                         bool receive,
+                                         const RendererCoreSpotLight* noSpot,
+                                         const Vec4& wc, float wr, const float* inv,
+                                         const float* invT, const Vec4& lo,
+                                         const Vec4& hi, u8 spotActive,
+                                         const RendererCoreSpotLight** outLight,
+                                         bool* spotOn, float* sp) {
+  const RendererCoreSpotLight* light = nullptr;
+  if (receive && info->dynLightPick)
+    light = rc->pickDynLight(wc, wr, info->dynLightSkipSlot,
+                             info->dynLightSkipBaked ? rc->dynBakedMask : 0u,
+                             info->spotLit, info->torchPerPixel);
+  if (!receive || (!info->spotLit && (!info->dynLightPick || light == nullptr)))
+    light = noSpot;
+  StaPipClipperSpot out = buildSpotForBagInverse(light ? *light : rc->spot, inv, invT);
+  if (out.enabled && stapipSpotHasNoInfluence(out, lo, hi)) out.enabled = false;
+  *outLight = light;
+  *spotOn = out.enabled;
+  const float w[12] = {out.position.x,  out.position.y,  out.position.z,
+                       out.invRange2,   out.direction.x, out.direction.y,
+                       out.direction.z, out.cosCut2,     out.color[0],
+                       out.color[1],    out.color[2],    out.invSoft};
+  memcpy(sp, w, sizeof(w));
+  return (out.enabled ? 1 : 0) == spotActive;
+}
+}  // namespace
+
+// The slot probe for a draw whose hint and plan entry both missed: out of
+// line, so the pass keeps no copy of the hash probe.
+__attribute__((noinline)) int StaPipQBufferRenderer::stampPassProbe(
+    const StaPipBag* bag) const {
+  return stampSlot(bag);
+}
+
+// The run state after a general-path draw (it may have destroyed baked
+// entries or created the stamp table). The epochs are read per draw.
+void StaPipQBufferRenderer::stampPassAfterGeneral() {
+  if (stamps != nullptr) sweepStamps();
+}
+
+// Once a flush: tryStamp's first step and the per-epoch tables.
+__attribute__((noinline)) void StaPipQBufferRenderer::stampPassBegin(PassContext& c,
+                                                                     bool dry) {
+  if (stamps != nullptr) sweepStamps();
+  resolveLightEpoch(rendererCore);
+  if (!stampFrame.camOk || stampFrame.cam != DrawEpochs::g.cam) {
+    buildStampCamera(*c.viewProj, c.planes);
+  } else if (kStampVerify && dry && stampCameraStale(*c.viewProj, c.planes)) {
+    StampVerify::frameBug(1);
+  }
+  if (!stampFrame.fogOk || stampFrame.glob != DrawEpochs::g.glob) {
+    buildStampFog(rendererCore);
+  } else if (kStampVerify && dry && stampFogStale(rendererCore)) {
+    StampVerify::frameBug(2);
+  }
+  c.begun = 1;
+}
+
+// A moved model: tryStamp's model step, exactly (copy the matrix,
+// stampWorldBox). The record's camera and light answers are void from here
+// whether or not the pass then sends the draw.
+__attribute__((noinline)) void StaPipQBufferRenderer::stampPassMove(int slot,
+                                                                    const M4x4* m) {
+  StampEntry* s = &stamps[slot];
+  StampRecord& r = stampRecs[slot];
+  s->model = *m;
+  stampWorldBox(*s);
+  r.cam = 0;
+  r.light = 0;
+  r.flags = static_cast<u8>((r.flags & ~kRecIdent) |
+                            (isIdentityMatrix(s->model) ? kRecIdent : 0));
+}
+
+// A texture re-resolve: tryStamp's texture checks (reject 6) and the batch
+// candidacy it derives. false = the general path (an upload, a wrap the head
+// was not captured with).
+__attribute__((noinline)) bool StaPipQBufferRenderer::stampPassTexPick(
+    int slot, const Texture* tex, const texwrap_t** wanted, bool* cand) {
+  const StampEntry& s = stamps[slot];
+  if (!rendererCore->texture.isResident(tex)) return false;
+  const texwrap_t& repeat = RendererCoreGS::repeatWrap();
+  const texwrap_t& w = (tex->getWrapSettings()->horizontal != WRAP_REPEAT)
+                           ? *tex->getWrapSettings()
+                           : repeat;
+  if (s.wrapBlock ? !RendererCoreGS::wrapEquals(w, s.wrap)
+                  : !RendererCoreGS::wrapEquals(w, repeat))
+    return false;
+  *wanted = &w;
+  const bool repeatNow = tex->getWrapSettings()->horizontal == WRAP_REPEAT &&
+                         tex->getWrapSettings()->vertical == WRAP_REPEAT;
+  *cand = s.batchSized != 0 || (stampBatchAnySize && repeatNow);
+  return true;
+}
+
+// useTexture + updateClutBuffer + the function, as tryStamp, or their
+// read-only twin (dry). nullptr = dry could not name the allocation.
+__attribute__((noinline)) texbuffer_t* StaPipQBufferRenderer::stampPassTexUse(
+    const Texture* tex, u8 func, u32* ca, u32* cp, u32* cl, bool dry) {
+  RendererCoreTexture& T = rendererCore->texture;
+  if (!dry) {
+    auto temp = T.useTexture(tex);
+    T.updateClutBuffer(temp.clut);
+    temp.core->info.function = func;
+    *ca = T.clut.address;
+    *cp = T.clut.psm;
+    *cl = T.clut.load_method;
+    return temp.core;
+  }
+  texbuffer_t* tb;
+  const texbuffer_t* cb = nullptr;
+  if (tex->vramResident != nullptr) {
+    tb = tex->vramResident;
+  } else {
+    const s32 i = T.residentIndex(tex);
+    if (i < 0) return nullptr;
+    tb = T.residentAt(i).core;
+    cb = T.residentAt(i).clut;
+  }
+  if (cb == nullptr || cb->width == 0) {
+    *cp = 0;
+    *cl = CLUT_NO_LOAD;
+    *ca = 0;
+  } else {
+    *cp = cb->psm;
+    *cl = CLUT_LOAD;
+    *ca = cb->address;
+  }
+  return tb;
+}
+
+// The re-resolved TEX0 word, as tryStamp.
+__attribute__((noinline)) void StaPipQBufferRenderer::stampPassTex0(
+    qword_t* q, texbuffer_t* tb, u8 func, u32 ca, u32 cp, u32 cl) {
+  const clutbuffer_t* c = &rendererCore->texture.clut;
+  q->dw[0] = GS_SET_TEX0(tb->address >> 6, tb->width >> 6, tb->psm, tb->info.width,
+                         tb->info.height, tb->info.components, func, ca >> 6, cp,
+                         c->storage_mode, c->start, cl);
+}
+
+// The stamp pass over list[0, n) (list[0] is list index `at`, frame-plan
+// position `planAt`), in list order. A draw the pass cannot take goes down
+// renderNow through c.general from inside the loop, so one call is the
+// whole flush. dry (TYRA_STAPIP_STAMP_VERIFY): one draw, no side effect
+// beyond tryStamp's own first mutations (sweep, prim/setInfo, the plane and
+// fog tables, a moved model's matrix and world box); the words go to the
+// verify scratch and the prediction is armed for afterFullStamp; returns
+// 1 = would send, 2 = would cull, 0 = would leave it to the general path.
+template <bool dry>
+u32 StaPipQBufferRenderer::stampPass(const PassDraw* list, u32 n, PassContext& c,
+                                     u32 at, u32 planAt) {
+  if (!dry || c.begun == 0) stampPassBegin(c, dry);
+  const DrawEpochs::State& g = DrawEpochs::g;
+  const u32 cam = g.cam;  // a flush never spans a camera change
+  const bool gbBags = c.guardBandBags && vu1Clipping;
+  const float* vpd = c.viewProj->data;
+  const texwrap_t& repeat = RendererCoreGS::repeatWrap();
+  RendererCoreTexture& T = rendererCore->texture;
+  for (u32 k = 0; k < n; ++k) {
+    const PassDraw& d = list[k];
+    if (!dry) {
+      // Draw k+2's bag line; draw k+1's record, revision, stamp, model and
+      // entry from the frame plan (no dependent load).
+      if (k + 2 < n && list[k + 2].bag != nullptr) prefetchLine(list[k + 2].bag);
+      const u32 pn = planAt + k + 1;
+      if (k + 1 < n && pn < kStampPlan && stamps != nullptr &&
+          list[k + 1].bag != nullptr && stampPlan[pn].bag == list[k + 1].bag) {
+        const StampPlan& p = stampPlan[pn];
+        const u8* e = reinterpret_cast<const u8*>(&stamps[p.slot]);
+#pragma GCC unroll 1
+        for (u32 off = 0; off < sizeof(StampEntry); off += 64) prefetchLine(e + off);
+        prefetchLine(&stampRecs[p.slot]);
+        prefetchLine(&stampRevs[p.slot]);
+        if (p.contentWord != nullptr) prefetchLine(p.contentWord);
+        prefetchLine(p.model);
+        prefetchLine(p.entry);
+      }
+    }
+    if (d.op != 0) {
+      if (dry) return 0;  // verify: the list loop handles markers
+      // A submission-batch marker, as the list loop handles it.
+      if (d.op == 1) beginSubmissionBatch(); else endSubmissionBatch();
+      continue;
+    }
+    {
+    StaPipBag* bag = d.bag;
+    if (stamps == nullptr) goto general;
+    {
+    // The slot: the bag's hint, else last frame's plan entry, else the probe.
+    int slot;
+    {
+      const u32 pp = planAt + k;
+      if (stampSlotHint && bag->stampSlot >= 0 && stamps[bag->stampSlot].bag == bag)
+        slot = bag->stampSlot;
+      else if (pp < kStampPlan && stampPlan[pp].bag == bag &&
+               stamps[stampPlan[pp].slot].bag == bag)
+        slot = stampPlan[pp].slot;
+      else
+        slot = stampPassProbe(bag);
+    }
+    if (slot < 0) goto general;
+    {
+    StampEntry* s = &stamps[slot];
+    StampRecord& r = stampRecs[slot];
+    StampRevision& x = stampRevs[slot];
+    if (!(r.flags & kRecValid) || r.bag != bag) goto general;
+    // ---- producer facts: the class revision (tagged bag) or the full check
+    const unsigned cls = bag->revisionClass;
+    bool qok = false;
+    if (cls != 0 && cls < DrawEpochs::kClasses && x.cls == cls &&
+        x.clsRev == g.cls[cls])
+      qok = stampRevisionLine(s, x, bag);
+    if (qok) {
+      if (dry) {
+        // The revision said "unchanged"; so must the full facts and every
+        // answer the revision stands in for. A difference = a writer that
+        // did not bump its class.
+        ++StampVerify::vd.revChecked;
+        if (!stampProducerFacts(s, bag)) {
+          StampVerify::revBug(cls, StampVerify::R_FACTS, bag, slot);
+        } else {
+          const StaPipInfoBag* in = bag->info;
+          if (x.single != bag->color->single)
+            StampVerify::revBug(cls, StampVerify::R_SINGLE, bag, slot);
+          if (x.receive != (in->dynamicLightReceive ? 1 : 0))
+            StampVerify::revBug(cls, StampVerify::R_RECEIVE, bag, slot);
+          if (x.fullClip != (in->fullClipChecks ? 1 : 0) ||
+              x.tight != (in->tightClipBand ? 1 : 0))
+            StampVerify::revBug(cls, StampVerify::R_BAND, bag, slot);
+          const bool texd = bag->texture != nullptr && bag->texture->texture != nullptr;
+          if (x.textured != (texd ? 1 : 0))
+            StampVerify::revBug(cls, StampVerify::R_TEXBAG, bag, slot);
+          if (bag->texture != nullptr && x.func != bag->texture->textureFunction)
+            StampVerify::revBug(cls, StampVerify::R_FUNC, bag, slot);
+        }
+      }
+    } else {
+      if (!stampProducerFacts(s, bag)) goto general;
+      if (cls != 0 && cls < DrawEpochs::kClasses) {
+        fillStampRevision(x, cls, bag);
+        qok = true;  // the revision now holds this draw's answers
+      }
+    }
+    // ---- the model: unchanged, or moved and re-derived here
+    const M4x4* modelLive = qok ? s->modelPtr : bag->info->model;
+    bool moved = false;
+    if (!mmi::equal64(s->model.data, modelLive->data)) {
+      stampPassMove(slot, modelLive);
+      moved = true;
+    }
+    // ---- C: visibility (a record exists only for a stamp that passed it
+    // under r.cam with this model).
+    const bool needC = moved || r.cam != cam;
+    if (needC) {
+      const bool fullClip = qok ? x.fullClip != 0 : bag->info->fullClipChecks;
+      const bool tight = qok ? x.tight != 0 : bag->info->tightClipBand;
+      const Plane* gb = (gbBags && fullClip) ? (tight ? c.gbTight : c.gbLoose) : nullptr;
+      const int vis = stampVisibility(gb, s->wlo, s->whi, true);
+      if (vis == 1) {
+        // ---- culled in the pass: nothing emitted, as the general path.
+        if (dry) {
+          StampVerify::v.cull = 1;
+          ++StampVerify::vd.cullPredicted;
+          return 2;
+        }
+        const u32 pp = planAt + k;
+        if (pp < kStampPlan) {
+          StampPlan& p = stampPlan[pp];
+          p.bag = bag;
+          p.info = bag->info;
+          p.model = modelLive;
+          p.entry = s->entry;
+          p.slot = slot;
+          p.contentWord = qok ? x.cv[0] : nullptr;
+        }
+        continue;
+      }
+      if (vis == 2) goto general;
+    }
+    // ---- epochs (read live: a general draw inside the run may move them)
+    if (r.glob != g.glob || r.prog != g.prog || !RendererCore::fastLightPick)
+      goto general;
+    const bool receive = (qok ? x.receive != 0 : bag->info->dynamicLightReceive) &&
+                         d.reception != 1;
+    const bool needL =
+        moved || r.light != g.light || ((r.flags & kRecReceive) != 0) != receive;
+    // ---- T: cached, or re-resolved here
+    const Texture* tex = static_cast<const Texture*>(s->texture);
+    u8 func = 0;
+    bool needT = false;
+    if (tex != nullptr) {
+      func = qok ? x.func : bag->texture->textureFunction;
+      const s32 ai = r.allocIdx;
+      needT = r.tex != g.tex || r.func != func || !(r.flags & kRecTexCache) || ai < 0 ||
+              static_cast<u32>(ai) >= T.residentCount() || T.residentAt(ai).core != r.tb;
+    }
+    // ---- renderer facts of the entry (tryStamp's reject 3)
+    if (s->entry->serial != s->serial || s->entry->arena != s->arena ||
+        !s->entry->complete)
+      goto general;
+    // ---- prim state (tryStamp's reject 4): from the revision when it holds
+    if (qok) {
+      prim->fogging = s->fogOff ? DRAW_DISABLE : DRAW_ENABLE;
+      prim->antialiasing = x.aa;
+      prim->blending = x.blend;
+      prim->shading = x.shading;
+      lod->mag_filter = x.linear ? LOD_MAG_LINEAR : LOD_MAG_NEAREST;
+      lod->min_filter = x.linear ? LOD_MIN_LINEAR : LOD_MIN_NEAREST;
+      if (dry) {
+        // setInfo's effect and the prim key, live, must be what it gave.
+        const prim_t p0 = *prim;
+        const int mag0 = lod->mag_filter, min0 = lod->min_filter;
+        prim->fogging = rendererCore->fog.enabled && !bag->info->fogDisabled
+                            ? DRAW_ENABLE
+                            : DRAW_DISABLE;
+        setInfo(bag->info);
+        if (memcmp(&p0, prim, sizeof(p0)) != 0 || mag0 != lod->mag_filter ||
+            min0 != lod->min_filter)
+          StampVerify::revBug(cls, StampVerify::R_PRIM, bag, slot);
+        if (stampPrimKey(bag) != s->primKey)
+          StampVerify::revBug(cls, StampVerify::R_KEY, bag, slot);
+      }
+    } else {
+      prim->fogging = rendererCore->fog.enabled && !bag->info->fogDisabled
+                          ? DRAW_ENABLE
+                          : DRAW_DISABLE;
+      if ((prim->fogging != DRAW_ENABLE ? 1 : 0) != s->fogOff) goto general;
+      setInfo(bag->info);
+      if (stampPrimKey(bag) != s->primKey) goto general;
+    }
+    // ---- T resolve (resident only) and L resolve
+    const texwrap_t* wanted = r.wanted;
+    bool cand = (r.flags & kRecCand) != 0;
+    if (needT && !stampPassTexPick(slot, tex, &wanted, &cand)) goto general;
+    const RendererCoreSpotLight* light = r.lightPtr;
+    bool spotOn = (r.flags & kRecSpotOn) != 0;
+    alignas(16) float sp[12];
+    if (needL && !stampSpot(rendererCore, bag->info, receive, c.noSpot,
+                            s->worldCenter, s->worldRadius, s->inv, s->invT, s->lo,
+                            s->hi, s->spotActive, &light, &spotOn, sp))
+      goto general;
+    texbuffer_t* tb = r.tb;
+    u32 clutAddr = r.clutAddr, clutPsm = r.clutPsm, clutLoad = r.clutLoad;
+    packet2_t* packet = nullptr;
+    qword_t* dst;
+    if (dry) {
+      const texwrap_t& inForce =
+          packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
+      if (!RendererCoreGS::wrapEquals(repeat, inForce)) goto general;
+      if (needT) {
+        tb = stampPassTexUse(tex, func, &clutAddr, &clutPsm, &clutLoad, true);
+        if (tb == nullptr) goto general;
+      }
+      dst = StampVerify::v.words;
+    } else {
+      // setSubmissionBatchCandidate(cand, tex != nullptr), inline.
+      const bool enabled = submissionBatchScope && cand;
+      if (objectDataPending &&
+          (!enabled || packet2_get_qw_count(packets[context]) + kWorstBagPacketSize >
+                           packetSize))
+        flushPendingPacket();
+      submissionBatchCandidate = enabled;
+      if (enabled && tex != nullptr) submissionPacketHasTexture = true;
+      if (enabled && telemetry) ++telemetry->submissionBatchEligibleBags;
+      // The wrap in force (tryStamp's reject 8): after the candidacy flush.
+      const texwrap_t& inForce =
+          packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
+      if (!RendererCoreGS::wrapEquals(repeat, inForce)) goto general;
+      if (!billboardsResident && billboardSetActive) ensureProgramSet(false);
+      if (tex != nullptr) {
+        if (needT) {
+          tb = stampPassTexUse(tex, func, &clutAddr, &clutPsm, &clutLoad, false);
+        } else {
+          // useTexture's hit half + updateClutBuffer's outcome.
+          T.touchResident(r.allocIdx);
+          T.clut.psm = r.clutPsm;
+          T.clut.load_method = r.clutLoad;
+          T.clut.address = r.clutAddr;
+          tb->info.function = func;
+        }
+      }
+      packet = packets[context];
+      if (!objectDataPending) {
+        startPacket(packet);
+        packetWrapSet = false;
+      }
+      dst = packet->next;
+    }
+    const u32 qw = s->qw;
+    const qword_t* src = s->bytes;
+#pragma GCC unroll 1
+    for (u32 i = 0; i < qw; ++i) dst[i] = src[i];
+    bool ident = false;
+    if (needC) {
+      qword_t* mq = &dst[s->mvpAt + 1];
+      ident = (r.flags & kRecIdent) != 0;
+      if (ident) {
+        const qword_t* id = reinterpret_cast<const qword_t*>(stampFrame.mvpIdent.data);
+        mq[0] = id[0];
+        mq[1] = id[1];
+        mq[2] = id[2];
+        mq[3] = id[3];
+      } else {
+        stampMvp(reinterpret_cast<float*>(mq), vpd, s->model.data);
+      }
+      // The fog table follows the glob epoch live (cheap).
+      if (stampFrame.glob != g.glob) buildStampFog(rendererCore);
+      stampFogWords(dst[s->optAt + 1], reinterpret_cast<const float*>(mq), s->fogOff,
+                    s->fogEligible, s->lo, s->hi);
+    }
+    if (needT && s->hasTex0 && tb != nullptr)
+      stampPassTex0(&dst[s->tex0At], tb, func, clutAddr, clutPsm, clutLoad);
+    if (needL && s->spotActive) memcpy(&dst[s->spotAt + 1], sp, sizeof(sp));
+    // Producer-owned words: live, as tryStamp (the colour through the
+    // revision when it holds).
+    if (s->singleAt != 0)
+      memcpy(&dst[s->singleAt + 1], qok ? x.single->rgba : bag->color->single->rgba,
+             16);
+    if (s->envAt != 0) stampEnvWords(&dst[s->envAt + 1], bag);  // matcap bags only
+    if (dry) {
+      StampVerify::predictHit(static_cast<u32>(slot), qw, needC,
+                              tex != nullptr && !needT, needL, ident, moved, true,
+                              wanted, tb, light, clutAddr, clutPsm, clutLoad, func,
+                              spotOn, cand, needT);
+      return 1;
+    }
+    packet->next = dst + qw;
+    if (s->wrapBlock) {
+      packetWrap = *wanted;
+      packetWrapSet = true;
+    }
+    // The record.
+    if (needT || needL || moved) {
+      commitRecord(s, dst, needC, needT, needL, moved, wanted, tb, light, spotOn, cand,
+                   clutAddr, clutPsm, clutLoad, func, receive);
+    } else if (needC) {
+      // commitRecord's camera half, inline (the common driving case).
+      if (r.camSeen == cam) {
+#pragma GCC unroll 1
+        for (u32 j = 1; j <= 4; ++j) s->bytes[s->mvpAt + j] = dst[s->mvpAt + j];
+        s->bytes[s->optAt + 1] = dst[s->optAt + 1];
+        r.cam = cam;
+      } else {
+        r.camSeen = cam;
+        r.cam = 0;
+      }
+    }
+    // tryStamp's bookkeeping.
+    s->entry->framesLeftToDestroy = StaPipBakedStreams::kLifetimeFrames;
+    s->frame = stampHits + stampCaptures;
+    lastProgramName = s->program;
+    baked.countHit();
+    objectDataPending = true;
+    ++submissionBatchBags;
+    if (!submissionBatchCandidate ||
+        packet2_get_qw_count(packet) + kStampMaxQw > packetSize) {
+      flushPendingPacket();
+    } else {
+      // The next stamp's destination lines (inside this packet only).
+      const qword_t* nd = packet->next;
+      const qword_t* end = packet->base + packetSize;
+#pragma GCC unroll 1
+      for (u32 j = 0; j < 20; j += 4)
+        if (nd + j < end) prefetchLine(nd + j);
+    }
+    ++stampHits;
+    {
+      const u32 pp = planAt + k;
+      if (pp < kStampPlan) {
+        StampPlan& p = stampPlan[pp];
+        p.bag = bag;
+        p.info = bag->info;
+        p.model = modelLive;
+        p.entry = s->entry;
+        p.slot = slot;
+        p.contentWord = qok ? x.cv[0] : nullptr;
+      }
+    }
+    continue;
+    }  // s
+    }  // slot
+    }  // bag
+  general:
+    if (dry) return 0;
+    // Down the general path from inside the run, in list order.
+    c.general(c.core, at + k);
+    stampPassAfterGeneral();
+  }
+  return n;
+}
+template u32 StaPipQBufferRenderer::stampPass<false>(const PassDraw*, u32,
+                                                     PassContext&, u32, u32);
+#if TYRA_STAPIP_STAMP_VERIFY
+template u32 StaPipQBufferRenderer::stampPass<true>(const PassDraw*, u32,
+                                                    PassContext&, u32, u32);
+#endif
+#endif  // TYRA_STAPIP_STAMP_PASS
+
 bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
                                      const Plane* planes,
                                      const Plane* guardBandPlanes,
                                      bool dynamicLightReceive,
                                      const RendererCoreSpotLight* noSpot) {
+// Modified by TyraX: a reject after a dry prediction is a verify verdict.
+#if TYRA_STAPIP_STAMP_VERIFY
+#define STAMP_VERIFY_REJECT(n) \
+  if (StampVerify::v.armed) StampVerify::rejected(n)
+#else
+#define STAMP_VERIFY_REJECT(n) (void)0
+#endif
 #if TYRA_STAPIP_STAMP_DIAG
   static u32 why[12];
   static u32 tries = 0;
@@ -3698,9 +4958,9 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
            why[8]);
     fflush(stdout);
   }
-#define STAMP_REJECT(n) do { ++why[n]; return false; } while (0)
+#define STAMP_REJECT(n) do { ++why[n]; STAMP_VERIFY_REJECT(n); return false; } while (0)
 #else
-#define STAMP_REJECT(n) return false
+#define STAMP_REJECT(n) do { STAMP_VERIFY_REJECT(n); return false; } while (0)
 #endif
   if (!stampEnabled || stamps == nullptr) return false;
   sweepStamps();
@@ -3723,10 +4983,31 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
   // A moved model is not a different submission: MVP, fog, light and spot
   // are re-derived from the live matrix below; only the world box used for
   // visibility has to follow it.
+  bool modelMoved = false;  // Modified by TyraX: stamp record
   if (!mmi::equal64(s->model.data, bag->info->model->data)) {  // Modified by TyraX: MMI compare (docs/vu0-macro-mode.md)
     s->model = *bag->info->model;
     stampWorldBox(*s);
+    modelMoved = true;
   }
+#if TYRA_STAPIP_STAMP_PASS
+  // Modified by TyraX: the record (docs/dod-submission.md, phase 3): reuse
+  // the answers whose epochs did not move. Verify predicts dry (unless the
+  // stamp pass already did) and lets the full path below send and compare.
+#if TYRA_STAPIP_STAMP_VERIFY
+  if (!StampVerify::v.armed)
+    replayRecord<true>(s, bag, viewProj, planes, guardBandPlanes,
+                       dynamicLightReceive, noSpot, modelMoved);
+#else
+  {
+    const int rec = replayRecord<false>(s, bag, viewProj, planes, guardBandPlanes,
+                                        dynamicLightReceive, noSpot, modelMoved);
+    if (rec == kRecordHit) return true;
+    if (rec == kRecordReject) return false;
+  }
+#endif
+#else
+  (void)modelMoved;
+#endif
   // Renderer-owned facts. eraseGeneration guards the raw entry pointer (an
   // entry was destroyed somewhere); serial/arena say THIS entry was rebuilt.
   float depthScale = RendererCoreDepth::scale;
@@ -3812,6 +5093,7 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
     meshSpot.enabled = false;
   if ((meshSpot.enabled ? 1 : 0) != s->spotActive) STAMP_REJECT(7);
 
+  bool stampCand = false;  // Modified by TyraX: stamp record
   // Batch membership exactly as StaPipCore decides it for this bag. This is
   // also the ordinary path's first mutation (it may flush the pending packet),
   // so a rejection below still leaves the ordinary path a valid start.
@@ -3825,8 +5107,8 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
         tex == nullptr ||
         (tex->getWrapSettings()->horizontal == WRAP_REPEAT &&
          tex->getWrapSettings()->vertical == WRAP_REPEAT);
-    setSubmissionBatchCandidate(
-        s->batchSized != 0 || (stampBatchAnySize && repeatNow), tex != nullptr);
+    stampCand = s->batchSized != 0 || (stampBatchAnySize && repeatNow);
+    setSubmissionBatchCandidate(stampCand, tex != nullptr);
   }
   // The wrap write is state-dependent: both captured forms assume REPEAT in
   // force, the state the wrap block (or its absence) was recorded under.
@@ -3837,6 +5119,7 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
       STAMP_REJECT(8);
   }
 #undef STAMP_REJECT
+#undef STAMP_VERIFY_REJECT
 
   // ---- committed: from here on this IS the bag's submission ----
   clipper.setSpot(meshSpot);
@@ -3921,6 +5204,11 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
     packetWrap = wanted;
     packetWrapSet = true;
   }
+#if TYRA_STAPIP_STAMP_PASS
+  // Modified by TyraX: refresh (or, verifying, compare) the record.
+  afterFullStamp(s, bag, dst, &wanted, light, meshSpot.enabled, stampCand, tb,
+                 dynamicLightReceive);
+#endif
 
   // The same bookkeeping replayWholeBakedBag does after its REF.
   s->entry->framesLeftToDestroy = StaPipBakedStreams::kLifetimeFrames;

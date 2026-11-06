@@ -6,7 +6,10 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Added by TyraX: ONE source of truth for the GS depth range.
+# Modified by TyraX: stamp record epochs (docs/dod-submission.md, phase 3).
 */
+
+#include "renderer/core/draw_epochs.hpp"  // Modified by TyraX
 
 #include "renderer/core/gs/renderer_core_depth.hpp"
 
@@ -24,6 +27,7 @@ void RendererCoreDepth::setBits(int t_bits) {
   bits = t_bits;
   maxZ = (t_bits >= 32) ? 0xFFFFFFFFu : ((1u << t_bits) - 1u);
   scale = static_cast<float>(maxZ) / 2.0F;
+  DrawEpochs::globalsChanged();  // Modified by TyraX: stamp records
 }
 
 }  // namespace Tyra

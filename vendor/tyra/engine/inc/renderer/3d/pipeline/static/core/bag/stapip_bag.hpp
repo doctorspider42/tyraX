@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: revisionClass (stamp pass, docs/dod-submission.md phase 3).
 */
 
 #pragma once
@@ -18,6 +19,7 @@
 #include "./stapip_billboard_bag.hpp"
 #include "renderer/core/texture/models/texture.hpp"
 #include "./packaging/stapip_bag_packages_bbox.hpp"
+#include "renderer/core/draw_epochs.hpp"  // Modified by TyraX: revisionClass
 
 namespace Tyra {
 
@@ -219,6 +221,14 @@ class StaPipBag {
    * stamp last lived in (-1: none), so a replay finds it without the hash
    * probe; it is a hint, checked against the slot's own bag pointer. */
   s16 stampSlot;
+
+  /** Modified by TyraX: the stamp pass's revision class
+   * (DrawEpochs::kClass*, renderer/core/draw_epochs.hpp). A game that tags
+   * a bag promises that every writer of its info, colour or texture bag
+   * bumps the class (DrawEpochs::bumpClasses / ClassWriter); the pass then
+   * skips those companions while the class epoch is unchanged. 0 = untagged:
+   * the full field-by-field facts, always correct. */
+  u8 revisionClass = 0;
 
   /**
    * @param maxVertCount This parameter is available in renderer API.

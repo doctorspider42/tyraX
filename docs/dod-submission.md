@@ -151,6 +151,7 @@ later run completed.
 Why recording alone pays: the game's object loop and StaPip no longer
 alternate bag by bag. The game's code runs once through, then StaPip runs its
 recorded draws in long runs, so neither evicts the other between two bags.
+| 3a | Stamp record + stamp pass: a stamp's resolved state cached under input epochs, consumed by one loop per flush; per-class bag revision (below, "Phase 3, first slice") | Motor District: parked work -1.7 / -1.8 ms, driving -0.43 / -0.38 ms, p95 -0.6..-2.5 ms; verify clean over ~2.9 M stamps | **on by default (2.12.0)** |
 | 3 | Hot records: per-frame stages read compact persistent records, not bag/info/model/cacher/baked tables | - | |
 | 4 | Scratchpad streaming of hot and draw records by DMA, double-buffered | - | |
 | 5 | Emission from records (stamps as the general form) | - | |
@@ -212,6 +213,148 @@ or an info in the game. Not built.
 
 The first version of the probe also skipped the entry's validity check. The
 game never reached its first frame, so the entry check is not optional.
+
+## Phase 3, first slice: the stamp record and the stamp pass (2.12.0)
+
+The first slice of phase 3 covers the stamp route only. It is on by default
+since 2.12.0 (`TYRA_STAPIP_STAMP_PASS`, 1). The rig rounds that measured it
+are R8-A to R8-E in docs/architecture-loop.md.
+
+Measured on a PS2 in the Motor District, same ELF, two runs:
+
+| state | work mean | p95 |
+|---|---|---|
+| parked | -1.7 / -1.8 ms | -2.5 / -1.9 ms |
+| driving | -0.43 / -0.38 ms | -0.6 ms |
+
+Verify was clean over ~2.9 M stamps: words, cached answers, the epoch and
+revision contracts, list order and the in-pass culls.
+
+### The stamp record
+
+A stamp replay used to re-ask ~25 questions every frame, and most of their
+inputs had not changed. Each stamp slot now has a 64-byte **record**
+(`StaPipQBufferRenderer::StampRecord`, allocated with the stamp table). It
+holds the answers and the input epochs they were derived under. The answers
+form three groups:
+
+| group | answers | re-derived when |
+|---|---|---|
+| C camera | visibility, MVP, fog words | the camera epoch moved, or the model moved |
+| T texture | residency, wrap, batch candidacy, LRU slot, CLUT, TEX0 | the texture epoch or the texture function moved |
+| L light | light pick, spot block | the light epoch moved, the receive flag changed, or the model moved |
+
+A replay re-derives only the groups whose epochs moved. The cached words
+(MVP, fog, TEX0, spot) live in the stamp's own head, so the head copy carries
+them.
+
+- On a parked camera the camera words are written back into the head. On a
+  moving camera they are not, because they would never be reused.
+- A glob or program epoch change, or the slow light pick, sends the stamp
+  down the full `tryStamp`, which refreshes the record.
+- `tryStamp` keeps this record path for stamps the pass does not see
+  (`replayRecord`).
+
+### The epochs
+
+The epochs live in `renderer/core/draw_epochs.hpp` (`DrawEpochs::g`). Each is
+bumped at its writer, in the engine:
+
+| epoch | writers |
+|---|---|
+| `cam` | `RendererCore3D::update` (only when the view really changed), `setProjection` (only when the projection changed), `pushEnvView` / `pushPortalView` / `popEnvView`, `narrowFrustumToRect` |
+| `light` | `setSpotLight`, `disableSpotLight`, `clearDynLights`, `addDynPointLight` (and through it `addDynSpotLight`), `markDynLightBaked`, every frame start. These only mark the set dirty; StaPip compares a snapshot of the set and moves the epoch when it differs. |
+| `tex` | `RendererCoreTexture` eviction, `unregisterAllocation`, `evictAll`, `updateTextureInfo`, `Texture::setWrapSettings` / `setDefaultWrapSettings`, the env map and shadow map binding their VRAM-resident textures |
+| `glob` | `setFog` / `disableFog` (only when the values changed), `RendererCoreDepth` (depth scale), the resident program classes, program overrides, VU1 clipping mode, `setVuCustomEnabled`, `setStampBatchAnySize` |
+| `prog` | `setProgramsCache`, `uploadPrograms`, `reinitVU1` |
+
+**The camera contract.** A camera writer calls
+`Vif1Queue::beforeForeignWork()` FIRST and bumps the epoch AFTER it. The
+recorded draws are flushed under the view that is still in force, and only
+then does the view change. R8-A bumped before the flush, so draws were
+resolved under one view and stored under the next. Verify found that gap
+3 790 times.
+
+`popEnvView` restores the pushed view exactly, and with it the view's epoch.
+An env or portal pass therefore does not void every main-view record.
+
+### The stamp pass
+
+At a frame-recorder flush (`StaPipCore::flushDeferredRun`), the whole recorded
+list goes to `StaPipQBufferRenderer::stampPass`. It is one tight loop over the
+draws in list order. For each draw it:
+
+1. finds the slot through the bag's hint, else last frame's plan entry, else
+   the hash;
+2. checks the producer facts, or the revision (below);
+3. handles a moved model (copies the matrix, recomputes the world box);
+4. tests visibility against the per-epoch plane set. A box that is outside a
+   frustum plane by a margin is culled in the pass;
+5. re-resolves the texture inline if needed. This covers resident textures
+   only; an upload goes general;
+6. re-picks the light if needed;
+7. copies the head, writes the MVP straight into the packet (the same VU0
+   sequence as `M4x4::cross`), patches the fog, TEX0 and spot words, and
+   appends.
+
+A draw the pass cannot take goes down `renderNow` from inside the loop
+(`PassContext::general`): no stamp, no record, a straddling box, a
+non-resident texture, a changed prim key. So the GS order is the list order,
+and one flush is one pass. Batch markers are handled in the loop.
+
+A per-frame **plan** (`StampPlan`, per list position) remembers the slot,
+info, model and entry found at each position last frame. The pass prefetches
+draw k+1's lines from it with no dependent load.
+
+### The revision contract
+
+The pass can skip the companion bags (info, colour, texture bag) for a bag
+the game tagged with `StaPipBag::revisionClass`. Today the generated game tags
+three classes:
+
+| class | tagged at | bumped by |
+|---|---|---|
+| `kClassStaticBatch` | the static-batch submit | `rebuildStaticBatch`, `buildStaticBatchList`, `procFinishChunks`, `procGenerateVolume`, `spawnPrefabAt`, `applyBakedLampsToChunk`, `loadScene`, the spot receiver pass's shared `batchSkipInfoBag` (only when its slot or `spotLit` changes) |
+| `kClassTerrainChunk` | the terrain chunk submit | `buildTerrainChunk`, `applyBakedLampsToChunk`, `loadScene` |
+| `kClassRoadChunk` | the procedural chunk submit | `procFinishChunks`, `procInstGeoRange`, `procGenerateVolume`, `spawnPrefabAt`, `applyBakedLampsToChunk`, `loadScene` |
+
+A whole writer function takes a `DrawEpochs::ClassWriter`. It bumps on entry
+and again on exit, so a flush inside the function cannot verify a record
+against half-written companions and keep it afterwards.
+
+While the class epoch is the one the facts were last verified under, the
+pass checks only these:
+- the bag-line facts: vertices, count, `bboxVersion`, the info, colour and
+  texture bag pointers, strip and billboard;
+- the content stamps, through pointers cached at the last full check.
+
+The model value is always compared live. **Untagged bags (class 0) keep the
+full field-by-field facts**, so a producer that is not tagged can never be
+wrong.
+
+### The rule for new code
+
+- **A new renderer-state writer** that a stamp's replay reads must bump its
+  epoch at the write. This covers the camera, lights, texture residency or
+  wrap, fog, depth, programs, overrides and anything `tryStamp` checks. A
+  camera writer bumps after `Vif1Queue::beforeForeignWork()`.
+- **A new game writer** of a tagged bag's info, colour or texture bag (or a
+  new submit site that tags a bag) bumps that bag's class. Use
+  `DrawEpochs::bumpClasses(mask)` at the write, or a
+  `DrawEpochs::ClassWriter` for the whole function.
+- **Prove it with `TYRA_STAPIP_STAMP_VERIFY` 1** in
+  `stapip_qbuffer_renderer.hpp`. Nothing is then sent from a record: every
+  draw is predicted dry and sent down the full path, and `STAMPVERIFY` lines
+  in the log count each contract. Every `bug`, `bad`, `order`, `once` and
+  `rev ... bug` counter must stay 0. A missing epoch bump shows as a
+  `contract` bug; a missing class bump shows as `stage=rev`.
+- `TYRA_STAPIP_STAMP_PASS` 0 is the kill switch: `tryStamp` and `renderNow`
+  as in 2.11.
+
+What is left after this slice, from R8-E: a pass stamp costs ~18 Âµs parked,
+and its misses are spread evenly over the record, the head, the packet and
+the bookkeeping. Crossing bags (partial and strip, ~2.5 ms in the district)
+are now the largest StaPip cost, not stamps.
 
 ## Phase 3: the hot record (layout draft)
 

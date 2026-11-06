@@ -7,6 +7,8 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: the batching test asks isResident() (hinted lookup).
+# Modified by TyraX: the stamp pass at the frame-recorder flush (docs/dod-submission.md,
+# phase 3); the stamp clip planes follow the camera epoch.
 */
 
 #include "renderer/core/paths/path1/vif1_queue.hpp"
@@ -18,12 +20,14 @@
 #include <math.h>
 #include <string.h>
 #include <new>
+#include <stddef.h>  // Modified by TyraX: offsetof (stamp pass list view)
 #include "debug/hardware_trace.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
 #include "debug/frame_profile.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp"
+#include "renderer/3d/pipeline/static/core/stapip_stamp_verify.hpp"  // Modified by TyraX
 
 // #define TYRA_RENDERER_VERBOSE_LOG 1
 
@@ -756,6 +760,84 @@ void StaPipCore::computeStageBounds(const DeferredBag* list, u32 n,
   }
 }
 
+#if TYRA_STAPIP_RECORD_VERIFY
+// Modified by TyraX: the census of recorded entry i (RECORDVERIFY).
+void StaPipCore::censusRecorded(size_t i) {
+  if (i < recordedHash.size()) {
+    ++recordChecked;
+    if (recorded[i].op == 0 && i < recordedEnvHash.size() &&
+        recordedEnvHash[i] != hashRendererState())
+      ++recordEnvChanged;
+    if (recorded[i].op == 0 && recordedHash[i] != 0 &&
+        hashDrawState(recorded[i].bag) != recordedHash[i]) {
+      ++recordChanged;
+      const StaPipBag* b = recorded[i].bag;
+      RecordCulprit* slot = nullptr;
+      for (auto& c : recordCulprits)
+        if (c.bag == b || c.bag == nullptr) { slot = &c; break; }
+      if (slot) {
+        if (!slot->bag) {
+          slot->bag = b;
+          slot->count = (u32)b->count;
+          if (b->info && b->info->model) {
+            slot->mx = (s32)b->info->model->data[12];
+            slot->my = (s32)b->info->model->data[13];
+            slot->mz = (s32)b->info->model->data[14];
+          }
+        }
+        ++slot->changed;
+      }
+    }
+    if (recordChecked % 20000 == 0) {
+      TYRA_LOG("RECORDVERIFY checked=", recordChecked, " changed=", recordChanged,
+               " rendererStateChanged=", recordEnvChanged);
+      for (const auto& c : recordCulprits)
+        if (c.bag)
+          TYRA_LOG("RECORDVERIFY bag=", c.bag, " count=", c.count, " changed=",
+                   c.changed, " at ", c.mx, ",", c.my, ",", c.mz);
+    }
+  }
+}
+#endif
+
+#if TYRA_STAPIP_STAMP
+// Modified by TyraX: renderNow's world-space guard-band planes for stamps.
+// With the stamp pass they follow the camera epoch (every camera writer
+// bumps it after flushing the recorded list); verify also checks that the
+// epoch never stays while the matrix moves.
+inline void StaPipCore::refreshStampClipPlanes(const M4x4& vp) {
+#if TYRA_STAPIP_STAMP_PASS && !TYRA_STAPIP_STAMP_VERIFY
+  if (stampClipValid && stampClipEpoch == DrawEpochs::g.cam) return;
+#else
+#if TYRA_STAPIP_STAMP_VERIFY
+  StampVerify::headCheck(stampClipValid,
+                         mmi::equal64(stampClipViewProj.data, vp.data),
+                         stampClipEpoch);
+#endif
+  if (stampClipValid && mmi::equal64(stampClipViewProj.data, vp.data)) return;
+#endif
+  computeClipPlanesInto(vp, stampClipPlanes, VU1_CLIP_XY_BAND);
+  computeClipPlanesInto(vp, stampClipPlanesTight, VU1_CLIP_XY_BAND_TIGHT);
+  stampClipViewProj = vp;
+  stampClipValid = true;
+  stampClipEpoch = DrawEpochs::g.cam;
+}
+#endif
+
+#if TYRA_STAPIP_STAMP_PASS
+// Modified by TyraX: the stamp pass's general path: list entry i down
+// renderNow, with the stage bounds the list loop would give it.
+void StaPipCore::stampPassGeneral(void* self, u32 i) {
+  auto* c = static_cast<StaPipCore*>(self);
+  c->stageBoundsNow = c->stampPassStageRec && i < c->stageBoundsRec.size() &&
+                              c->stageBoundsRec[i].valid
+                          ? &c->stageBoundsRec[i]
+                          : nullptr;
+  c->renderNow(c->recorded[i].bag, c->recorded[i].reception);
+  c->stageBoundsNow = nullptr;
+}
+#endif
+
 void StaPipCore::flushDeferredRun() {
 #if TYRA_STAPIP_STAMP
   if (flushingDeferred) return;
@@ -770,41 +852,77 @@ void StaPipCore::flushDeferredRun() {
       stageBoundsRec.resize(recorded.size());
       computeStageBounds(recorded.data(), (u32)recorded.size(), stageBoundsRec.data());
     }
+#if TYRA_STAPIP_STAMP_PASS
+    // Modified by TyraX: the stamp pass (docs/dod-submission.md, "Phase 3,
+    // first slice"). The whole list goes through one tight loop over the
+    // stamps' records; a draw it cannot take goes down renderNow from
+    // inside it (stampPassGeneral), in list order. Verify instead predicts
+    // each draw dry and sends it down the list loop below to compare.
+    const bool passOn =
+        qbufferRenderer.isStampEnabled() && !instancing && !telemetryEnabled;
+    StaPipQBufferRenderer::PassContext pass{};
+    u32 planAt = 0;
+    static_assert(sizeof(DeferredBag) == sizeof(StaPipQBufferRenderer::PassDraw),
+                  "stamp pass list view");
+    static_assert(offsetof(DeferredBag, reception) ==
+                      offsetof(StaPipQBufferRenderer::PassDraw, reception),
+                  "stamp pass list view");
+    static_assert(offsetof(DeferredBag, op) ==
+                      offsetof(StaPipQBufferRenderer::PassDraw, op),
+                  "stamp pass list view");
+    static_assert(static_cast<u8>(StaPipLightReception::Suppress) == 1,
+                  "stamp pass reception view");
+    const auto* passList =
+        reinterpret_cast<const StaPipQBufferRenderer::PassDraw*>(recorded.data());
+    if (passOn) {
+      // renderNow's guard-band plane cache (a flush never spans a camera
+      // change: every camera writer flushes first).
+      const M4x4& vp = rendererCore->renderer3D.getViewProj();
+      refreshStampClipPlanes(vp);
+      pass.viewProj = &vp;
+      pass.planes = rendererCore->renderer3D.frustumPlanes.getAll();
+      pass.gbLoose = stampClipPlanes;
+      pass.gbTight = stampClipPlanesTight;
+      pass.general = &StaPipCore::stampPassGeneral;
+      pass.core = this;
+      pass.noSpot = &kNoSpotLight;
+#if TYRA_STAPIP_GUARD_BAND_BAGS
+      pass.guardBandBags = true;
+#endif
+      stampPassStageRec = stageRec;
+      planAt = qbufferRenderer.reserveStampPlan((u32)recorded.size());
+#if !TYRA_STAPIP_STAMP_VERIFY
+#if TYRA_STAPIP_RECORD_VERIFY
+      for (size_t i = 0; i < recorded.size(); ++i) censusRecorded(i);
+#endif
+      qbufferRenderer.stampPass<false>(passList, (u32)recorded.size(), pass, 0,
+                                       planAt);
+      recorded.clear();
+#if TYRA_STAPIP_RECORD_VERIFY
+      recordedHash.clear();
+      recordedEnvHash.clear();
+#endif
+      flushingDeferred = false;
+      return;
+#endif
+    }
+#if TYRA_STAPIP_STAMP_VERIFY
+    u32 passNext = 0;  // the order / exactly-once check
+#endif
+#endif
     for (size_t i = 0; i < recorded.size(); ++i) {
 #if TYRA_STAPIP_RECORD_VERIFY
-      if (i < recordedHash.size()) {
-        ++recordChecked;
-        if (recorded[i].op == 0 && i < recordedEnvHash.size() &&
-            recordedEnvHash[i] != hashRendererState())
-          ++recordEnvChanged;
-        if (recorded[i].op == 0 && recordedHash[i] != 0 &&
-            hashDrawState(recorded[i].bag) != recordedHash[i]) {
-          ++recordChanged;
-          const StaPipBag* b = recorded[i].bag;
-          RecordCulprit* slot = nullptr;
-          for (auto& c : recordCulprits)
-            if (c.bag == b || c.bag == nullptr) { slot = &c; break; }
-          if (slot) {
-            if (!slot->bag) {
-              slot->bag = b;
-              slot->count = (u32)b->count;
-              if (b->info && b->info->model) {
-                slot->mx = (s32)b->info->model->data[12];
-                slot->my = (s32)b->info->model->data[13];
-                slot->mz = (s32)b->info->model->data[14];
-              }
-            }
-            ++slot->changed;
-          }
-        }
-        if (recordChecked % 20000 == 0) {
-          TYRA_LOG("RECORDVERIFY checked=", recordChecked, " changed=", recordChanged,
-                   " rendererStateChanged=", recordEnvChanged);
-          for (const auto& c : recordCulprits)
-            if (c.bag)
-              TYRA_LOG("RECORDVERIFY bag=", c.bag, " count=", c.count, " changed=",
-                       c.changed, " at ", c.mx, ",", c.my, ",", c.mz);
-        }
+      censusRecorded(i);
+#endif
+#if TYRA_STAPIP_STAMP_VERIFY
+      // Modified by TyraX: the pass predicts this one draw (dry, the same
+      // code); the general path below sends it and afterFullStamp compares.
+      if (passOn) {
+        if (recorded[i].op == 0)
+          qbufferRenderer.stampPass<true>(passList + i, 1, pass, (u32)i,
+                                          planAt + (u32)i);
+        if (passNext != (u32)i) StampVerify::orderBug(0, (u32)i, passNext);
+        ++passNext;
       }
 #endif
       if (recorded[i].op == 1) {
@@ -818,7 +936,20 @@ void StaPipCore::flushDeferredRun() {
       stageBoundsNow = stageRec && stageBoundsRec[i].valid ? &stageBoundsRec[i] : nullptr;
       renderNow(recorded[i].bag, recorded[i].reception);
       stageBoundsNow = nullptr;
+#if TYRA_STAPIP_STAMP_VERIFY
+      if (passOn) {  // Modified by TyraX: stamp pass verify
+        StampVerify::afterGeneral((u32)i);
+        qbufferRenderer.stampPassAfterGeneral();
+      }
+#endif
     }
+#if TYRA_STAPIP_STAMP_VERIFY
+    if (passOn) {  // Modified by TyraX: stamp pass verify
+      if (passNext != (u32)recorded.size())
+        StampVerify::orderBug(1, passNext, (u32)recorded.size());
+      StampVerify::tick();
+    }
+#endif
     recorded.clear();
 #if TYRA_STAPIP_RECORD_VERIFY
     recordedHash.clear();
@@ -887,13 +1018,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   if (qbufferRenderer.isStampEnabled() && !instancing &&
       bag->info->transformationType == TyraMVP && !telemetryEnabled) {
     const M4x4& vp = rendererCore->renderer3D.getViewProj();
-    if (!stampClipValid ||
-        !mmi::equal64(stampClipViewProj.data, vp.data)) {
-      computeClipPlanesInto(vp, stampClipPlanes, VU1_CLIP_XY_BAND);
-      computeClipPlanesInto(vp, stampClipPlanesTight, VU1_CLIP_XY_BAND_TIGHT);
-      stampClipViewProj = vp;
-      stampClipValid = true;
-    }
+    refreshStampClipPlanes(vp);  // Modified by TyraX: keyed by the camera epoch
     const bool guardBand =
 #if TYRA_STAPIP_GUARD_BAND_BAGS
         qbufferRenderer.isVU1ClippingEnabled() && bag->info->fullClipChecks;
@@ -1088,6 +1213,9 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     TYRA_ATTRIB_ADD(bdMainTicks, attribMainStart);
 
     if (frustumCheck == OUTSIDE_FRUSTUM) {
+#if TYRA_STAPIP_STAMP_VERIFY
+      StampVerify::cullConfirmed();  // Modified by TyraX: an in-pass cull holds
+#endif
       if (telemetryEnabled) telemetry.boundsTicks += readCoreTelemetryTicks()-boundsStart;
       TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);
       TYRA_ATTRIB_INC(renderCallsCulled);

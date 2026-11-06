@@ -7,7 +7,10 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: stamp record epochs (docs/dod-submission.md, phase 3).
 */
+
+#include <string.h>  // Modified by TyraX: fog epoch compare
 
 #include "math/math.hpp"
 
@@ -195,6 +198,8 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
 void RendererCore::setFog(const Color& color, const float& start,
                           const float& end) {
   TYRA_ASSERT(end > start, "Fog end distance must be greater than start!");
+  const bool oldEnabled = fog.enabled;  // Modified by TyraX: glob epoch
+  const float oldScale = fog.scale, oldOffset = fog.offset;
   fog.enabled = true;
   fog.color = color;
   fog.start = start;
@@ -202,14 +207,22 @@ void RendererCore::setFog(const Color& color, const float& start,
   const float range = end - start;
   fog.scale = -255.0F / range;
   fog.offset = 255.0F * end / range;
+  if (!oldEnabled || memcmp(&oldScale, &fog.scale, 4) != 0 ||
+      memcmp(&oldOffset, &fog.offset, 4) != 0)
+    DrawEpochs::globalsChanged();  // Modified by TyraX: stamp records
   gs.setFogColor(static_cast<u8>(color.r), static_cast<u8>(color.g),
                  static_cast<u8>(color.b));
 }
 
 void RendererCore::disableFog() {
+  const bool oldEnabled = fog.enabled;  // Modified by TyraX: glob epoch
+  const float oldScale = fog.scale, oldOffset = fog.offset;
   fog.enabled = false;
   fog.scale = 0.0F;
   fog.offset = 255.0F;
+  if (oldEnabled || memcmp(&oldScale, &fog.scale, 4) != 0 ||
+      memcmp(&oldOffset, &fog.offset, 4) != 0)
+    DrawEpochs::globalsChanged();  // Modified by TyraX: stamp records
 }
 
 // Modified by TyraX: dynamic spot light (flashlight).
@@ -217,6 +230,7 @@ void RendererCore::setSpotLight(const Color& color, const Vec4& position,
                                 const Vec4& direction, const float& range,
                                 const float& cutoffDegrees,
                                 const float& softness) {
+  DrawEpochs::lightsDirty();  // Modified by TyraX: stamp records
   TYRA_ASSERT(range > 0.0F, "Spot light range must be positive!");
   spot.enabled = true;
   spot.color = color;
@@ -243,6 +257,7 @@ void RendererCore::setSpotLight(const Color& color, const Vec4& position,
 int RendererCore::addDynPointLight(const Color& color, const Vec4& position,
                                    const float& range) {
   TYRA_ASSERT(range > 0.0F, "Dynamic point light range must be positive!");
+  DrawEpochs::lightsDirty();  // Modified by TyraX: stamp records
   if (dynLightCount >= DYN_LIGHTS_MAX) return -1;
   auto& l = dynLights[dynLightCount];
   l.enabled = true;
@@ -469,6 +484,10 @@ void RendererCore::portalViewEnd(const float* xy, const u32* z, int count,
 // Modified by TyraX: the 2D bounding box restarts here
 // (docs/frame-extrapolation.md).
 void RendererCore::beginFrameStamp() {
+  // Modified by TyraX: stamp records - a new frame (the pass's frame
+  // plan), and the light set is re-checked (catches direct writes).
+  DrawEpochs::newFrame();
+  DrawEpochs::lightsDirty();
   hud2dX0 = 1 << 20;
   hud2dY0 = 1 << 20;
   hud2dX1 = -1;

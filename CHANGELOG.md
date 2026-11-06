@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.12.0
+
+- Faster drawing of static scenery on the PS2: an object the renderer has drawn before remembers what it worked out for it last time (where it is on screen, its texture, its light, its fog) and only works out again what really changed since, and all such objects of a frame are drawn by one short, tight loop. Measured in the Motor District on a PS2: 1.7-1.8 ms less work a frame with the car parked and about 0.4 ms less while driving. Rebuild games to use it.
+
 ## 2.11.3
 
 - Physics bodies resting on the ground cost less on the PS2: a crate lying still keeps its contacts with the terrain from the last frame instead of colliding with the world again, as long as it has not moved closer to any decision that could change them, and an awake body keeps its collision box while it drifts by less than a few centimetres. 72 awake crates: physics 7.57 -> 5.44 ms a frame together with 2.11.2, with the same number of contacts. A body touching a static object, a collision mesh or a portal works exactly as before. Rebuild games to use it.

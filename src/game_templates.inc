@@ -11466,6 +11466,7 @@ static void tickSoundResidency(Engine* engine, std::vector<audsrv_adpcm_t*>& sam
 // are freed. Runtime objects are rebuilt; vectors and per-object bags are
 // reused/freed here, nothing leaks.
 void TerrainGame::loadScene(int sceneIndex) {
+  DrawEpochs::ClassWriter epochWriter(DrawEpochs::kMaskAll);  // stamp revision class
   if (sceneIndex < 0 || sceneIndex >= SCENE_COUNT) return;
   currentScene = sceneIndex;
   g_activeScene = sceneIndex;
@@ -18312,9 +18313,14 @@ void TerrainGame::setDynLightSkip(int obj, int slot) {
             batchSkipInfoBag->dynLightSkipBaked = BAKE_STATIC_LAMPS;
           }
           // One spot carves per frame, so one bag serves every lone batch.
+          // A shared static-batch info: a change bumps the revision class.
+          const int oldSkip = batchSkipInfoBag->dynLightSkipSlot;
+          const bool oldLit = batchSkipInfoBag->spotLit;
           batchSkipInfoBag->dynLightSkipSlot = slot;
           batchSkipInfoBag->spotLit =
               sb->bag->info ? sb->bag->info->spotLit : true;
+          if (oldSkip != slot || oldLit != batchSkipInfoBag->spotLit)
+            DrawEpochs::bumpClasses(DrawEpochs::kMaskStaticBatch);
           sb->bag->info = batchSkipInfoBag.get();
         }
       }
@@ -22464,6 +22470,7 @@ bool TerrainGame::physObstacle(const SceneObjectData& d) {
 // districts would defeat the engine's whole-bag frustum cut, the same reason
 // terrain is chunked.
 void TerrainGame::buildStaticBatchList() {
+  DrawEpochs::ClassWriter epochWriter(DrawEpochs::kMaskStaticBatch);  // stamp revision class
   staticBatches.clear();
   bodyBatchHome.clear();  // batch indices of the scene being replaced
   bodyAsleepAt.clear();
@@ -22780,6 +22787,7 @@ static void collectRetiredBatchStreams() {
 // is keyed by (pointer, version), so the bboxVersion bump below is what
 // keeps reused pointers from resurrecting stale boxes.
 void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
+  DrawEpochs::ClassWriter epochWriter(DrawEpochs::kMaskStaticBatch);  // stamp revision class
   const bool wasDirty = b.dirty;
   b.dirty = false;
   const int bi = (int)(&b - staticBatches.data());
@@ -23384,6 +23392,9 @@ void TerrainGame::renderStaticBatches() {
     for (const StaticBatchMember& m : b.members)
       if (occlusionObjectIsOccluder(m.object)) { ownsOccluder = true; break; }
     if (!ownsOccluder && occlusionHiddenAabb(b.aabbMin, b.aabbMax)) continue;
+    // Revision class (docs/dod-submission.md, phase 3): every writer of a
+    // static batch's info / colour / texture bag bumps kClassStaticBatch.
+    b.bag->revisionClass = DrawEpochs::kClassStaticBatch;
     submitHeavy(b.bag.get());
   }
 }
@@ -23627,6 +23638,7 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
 // own at bake time, so probe GI, ambient occlusion and point/baked lamps are
 // not on instanced copies (the price the Output tooltip states).
 int TerrainGame::procInstGeoRange(int model, int* count) {
+  DrawEpochs::ClassWriter epochWriter(DrawEpochs::kMaskRoadChunk);  // stamp revision class
   *count = 0;
   if (model < 0 || model >= (int)gameModels.size()) return -1;
   if (procInstGeoFirst.size() < gameModels.size()) {
@@ -23916,6 +23928,7 @@ void TerrainGame::renderProcInstances() {
 // at a vector that is still growing is a dangling pointer the moment it
 // reallocates.
 void TerrainGame::procFinishChunks() {
+  DrawEpochs::ClassWriter epochWriter(DrawEpochs::kMaskStaticBatch | DrawEpochs::kMaskRoadChunk);  // stamp revision class
   g_giProbeShade = false;
   // The batch info bag is shared with the static batcher, but that one is only
   // built when static batching is on - generated geometry needs it either way.
@@ -24062,6 +24075,7 @@ static inline bool lampTouchesBox(const BakedLampRt& L, const float* mn,
 // chunk from them. `force` = re-derive even though the builder did not touch
 // the colours since the last time (the lamps changed).
 void TerrainGame::applyBakedLampsToChunk(ProcChunk& c, bool force) {
+  DrawEpochs::ClassWriter epochWriter(DrawEpochs::kMaskAll);  // stamp revision class
   if (!BAKE_STATIC_LAMPS || c.vertices.empty() ||
       c.colors.size() != c.vertices.size())
     return;
@@ -24266,6 +24280,7 @@ void TerrainGame::renderRoadChunks() {
             engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
         Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
       continue;
+    c.bag->revisionClass = DrawEpochs::kClassRoadChunk;  // see static batches
     submitHeavy(c.bag.get());
   }
 }
@@ -24905,6 +24920,7 @@ void TerrainGame::procClearVolume(int volume) {
 
 
 void TerrainGame::procGenerateVolume(int volume, int seed) {
+  DrawEpochs::ClassWriter epochWriter(DrawEpochs::kMaskStaticBatch | DrawEpochs::kMaskRoadChunk);  // stamp revision class
   if (!procrt::ENABLED) return;
   if (volume < 0 || volume >= procrt::VOLUME_COUNT) return;
   const procrt::VolumeDef& V = procrt::VOLUMES[volume];
@@ -25132,6 +25148,8 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
 int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
                                float yaw, float scale, int mergeOwner,
                                int lodModel, float lodDist) {
+  DrawEpochs::ClassWriter epochWriter(DrawEpochs::kMaskStaticBatch |
+                                      DrawEpochs::kMaskRoadChunk);  // stamp revision class
   if (PREFAB_COUNT <= 0) return -1;
   if (prefabIndex < 0 || prefabIndex >= PREFAB_COUNT) return -1;
   const float s = scale > 0.0001F ? scale : 1.0F;
@@ -31350,6 +31368,7 @@ int TerrainGame::terrainLodStep(int cx, int cz) const {
 // checker colors and baked shading the old whole-map build used - a chunk
 // streamed in later is pixel-identical to one built at scene load.
 void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
+  DrawEpochs::ClassWriter epochWriter(DrawEpochs::kMaskTerrainChunk);  // stamp revision class
   TerrainChunk& ch = terrainChunks[slot];
   ++terrainBuiltThisFrame;
   g_terrainBuiltSlots.push_back(slot);
@@ -32725,6 +32744,7 @@ void TerrainGame::renderTerrain() {
               tmx) == Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
         continue;
     }
+    ch.bag->revisionClass = DrawEpochs::kClassTerrainChunk;  // see static batches
     renderWorldBag(ch.bag.get());
     // Painted layers: alpha-blend over the base pass right away (same
     // geometry = equal depth passes the GS >= z-test; keeping base + layers

@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: the stamp record and the stamp pass (TYRA_STAPIP_STAMP_PASS).
 */
 
 #pragma once
@@ -30,6 +31,7 @@
 #include "renderer/core/texture/renderer_core_texture_buffers.hpp"
 #include "./stapip_vif_hash.hpp"
 #include "renderer/core/3d/bbox/core_bbox.hpp"  // Modified by TyraX: fog facts
+#include "renderer/core/draw_epochs.hpp"  // Modified by TyraX: stamp pass
 
 /**
  * Modified by TyraX: retained static geometry COMMAND data
@@ -74,6 +76,25 @@
 // Rejection-reason counters printed every 4000 attempts (diagnostic only).
 #ifndef TYRA_STAPIP_STAMP_DIAG
 #define TYRA_STAPIP_STAMP_DIAG 0
+#endif
+// Modified by TyraX: the stamp record and the stamp pass
+// (docs/dod-submission.md, "Phase 3, first slice"). A stamp keeps the
+// answers its replay derives from renderer state plus the input epochs
+// (renderer/core/draw_epochs.hpp) they came from; the frame recorder's
+// flush sends its list through one tight loop over those records
+// (stampPass). 0 is the kill switch: tryStamp and renderNow as before.
+#ifndef TYRA_STAPIP_STAMP_PASS
+#define TYRA_STAPIP_STAMP_PASS 1
+#endif
+// Modified by TyraX: verify the stamp record and pass. Nothing is sent from
+// a record: every draw is predicted dry, sent down the full path and
+// compared (words, cached answers, epoch and revision contracts, list
+// order, in-pass culls); logs STAMPVERIFY (stapip_stamp_verify.hpp).
+#ifndef TYRA_STAPIP_STAMP_VERIFY
+#define TYRA_STAPIP_STAMP_VERIFY 0
+#endif
+#if TYRA_STAPIP_STAMP_VERIFY && !(TYRA_STAPIP_STAMP && TYRA_STAPIP_STAMP_PASS)
+#error "TYRA_STAPIP_STAMP_VERIFY needs TYRA_STAPIP_STAMP and TYRA_STAPIP_STAMP_PASS"
 #endif
 
 // Modified by TyraX: reuse immutable geometry on partial visibility too.
@@ -834,7 +855,10 @@ class StaPipQBufferRenderer {
    * Off by default. A project with no custom program must not pay two extra
    * unpacked quadwords per mesh for a feature it does not use, so codegen turns
    * this on once at startup and never otherwise. */
-  void setVuCustomEnabled(const bool& enabled) { vuCustomEnabled = enabled; }
+  void setVuCustomEnabled(const bool& enabled) {
+    if (vuCustomEnabled != enabled) DrawEpochs::globalsChanged();  // Modified by TyraX
+    vuCustomEnabled = enabled;
+  }
   void setVuParams(const float& x, const float& y, const float& z,
                    const float& w) {
     vuParams[0] = x, vuParams[1] = y, vuParams[2] = z, vuParams[3] = w;
@@ -902,8 +926,40 @@ class StaPipQBufferRenderer {
   /** Modified by TyraX: a stamp joins the open submission batch whatever
    * its bag's size (docs/stapip-stamps.md, "Batching"). false restores the
    * old rule (only bags under the ordinary size cap) for an A/B. */
-  void setStampBatchAnySize(bool on) { stampBatchAnySize = on; }
+  void setStampBatchAnySize(bool on) {
+    if (stampBatchAnySize != on) DrawEpochs::globalsChanged();  // Modified by TyraX
+    stampBatchAnySize = on;
+  }
   bool isStampEnabled() const { return stampEnabled; }
+#if TYRA_STAPIP_STAMP_PASS
+  /** Modified by TyraX: the stamp pass (docs/dod-submission.md, "Phase 3,
+   * first slice"). PassDraw mirrors StaPipCore::DeferredBag (asserted
+   * there): the recorded list is handed over as it is. */
+  struct PassDraw {
+    StaPipBag* bag;
+    u8 reception;  // StaPipLightReception: 0 FromInfo, 1 Suppress
+    u8 op;         // 0 a draw, 1 batch begin, 2 batch end
+  };
+  struct PassContext {
+    const M4x4* viewProj = nullptr;
+    const Plane* planes = nullptr;   // the view frustum (6)
+    const Plane* gbLoose = nullptr;  // StaPipCore::stampClipPlanes (8)
+    const Plane* gbTight = nullptr;  // StaPipCore::stampClipPlanesTight (8)
+    bool guardBandBags = false;      // TYRA_STAPIP_GUARD_BAND_BAGS
+    // The general path for a draw the pass cannot take (list index).
+    void (*general)(void* core, u32 listIndex) = nullptr;
+    void* core = nullptr;
+    const RendererCoreSpotLight* noSpot = nullptr;
+    u32 begun = 0;  // the once-a-flush setup ran (verify calls per draw)
+  };
+  /** The whole recorded list (dry: one draw, verify only), in order. */
+  template <bool dry>
+  u32 stampPass(const PassDraw* list, u32 n, PassContext& c, u32 at, u32 planAt);
+  /** The run state after a general-path draw. */
+  void stampPassAfterGeneral();
+  /** n frame-plan positions for one flush (reset each frame). */
+  u32 reserveStampPlan(u32 n);
+#endif
   /** Modified by TyraX: find a stamp through the slot the bag remembers
    * (StaPipBag::stampSlot) before probing the hash. false = hash only. */
   void setStampSlotHint(bool on) { stampSlotHint = on; }
@@ -1356,6 +1412,42 @@ class StaPipQBufferRenderer {
   void sweepStamps();
   u32 stampTableGen = 0;
   void captureStamp();
+#if TYRA_STAPIP_STAMP_PASS
+  // Modified by TyraX: the stamp record, the revision answers and the
+  // frame plan (defined in stapip_qbuffer_renderer.cpp), allocated with
+  // the stamp table: one line per slot each, the plan per list position.
+  struct StampRecord;
+  struct StampRevision;
+  struct StampPlan;
+  static const u32 kStampPlan = 1024;
+  StampRecord* stampRecs = nullptr;
+  StampRevision* stampRevs = nullptr;
+  StampPlan* stampPlan = nullptr;
+  u32 stampPlanPos = 0, stampPlanFrame = 0xFFFFFFFFu;
+  void allocateStampRecords();
+  template <bool dry>
+  int replayRecord(StampEntry* s, StaPipBag* bag, const M4x4& viewProj,
+                   const Plane* planes, const Plane* guardBandPlanes,
+                   bool dynamicLightReceive, const RendererCoreSpotLight* noSpot,
+                   bool moved);
+  void commitRecord(StampEntry* s, const qword_t* dst, bool needC, bool needT,
+                    bool needL, bool moved, const texwrap_t* wanted,
+                    texbuffer_t* tb, const RendererCoreSpotLight* light,
+                    bool spotOn, bool cand, u32 clutAddr, u32 clutPsm,
+                    u32 clutLoad, u8 func, bool dynamicLightReceive);
+  void afterFullStamp(StampEntry* s, StaPipBag* bag, const qword_t* dst,
+                      const texwrap_t* wanted, const RendererCoreSpotLight* light,
+                      bool spotOn, bool cand, texbuffer_t* tb,
+                      bool dynamicLightReceive);
+  int stampPassProbe(const StaPipBag* bag) const;
+  void stampPassBegin(PassContext& c, bool dry);
+  void stampPassMove(int slot, const M4x4* m);
+  bool stampPassTexPick(int slot, const Texture* tex, const texwrap_t** wanted,
+                        bool* cand);
+  texbuffer_t* stampPassTexUse(const Texture* tex, u8 func, u32* ca, u32* cp,
+                               u32* cl, bool dry);
+  void stampPassTex0(qword_t* q, texbuffer_t* tb, u8 func, u32 ca, u32 cp, u32 cl);
+#endif
 #endif
   bool bakedPartial = false;
   StaPipBakedEntry* bakedClip = nullptr;  // R5: the bag's whole-clip blocks
