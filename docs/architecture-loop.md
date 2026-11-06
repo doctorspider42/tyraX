@@ -1392,3 +1392,39 @@ Benchmark (release crate-field drive, alternating deploys, 2 runs each):
 Until it is known whether that is the GPU receiving different data or the
 dry copy producing address-dependent words, R11-A is not a winner. Under
 diagnosis.
+
+### R11-A verify resolved: a winner (PS2)
+
+**Cause of the mismatches.** Every first-mismatch dump was the program-kick
+CNT tag after a clip block. Words 1-3 were equal, and word 0 had the same
+ID and QWC. Only bits 16..25 differed: the `PAD:10` field of ps2sdk's
+`dma_tag_t`, which `packet2_chain_set_dma_tag` leaves holding old buffer
+bytes and the DMAC ignores. The compare now walks the stream like the DMAC:
+- tags exact except that PAD mask;
+- CNT payloads exact;
+- REFs checked as qwords.
+
+Re-run (`R11A2`, `BR11A2`, timing path unchanged):
+
+| run | compared | bad | PAD-only |
+|---|---:|---|---:|
+| district | 158 180 | `wordBad 0` (heads, runs, lengths, classes, verdicts, order, once all 0) | 116 521 |
+| benchmark | 68 539 | all 0 | 28 286 |
+
+**Timing.** District (ALT):
+
+| state | crossing bag, control | crossing bag, pass | work |
+|---|---:|---:|---|
+| parked | 213 µs | **125 µs** | 11.02 -> 10.31 ms, p95 12.82 -> 11.57 |
+| drive | 201 µs | **136 µs** | 10.98 -> 10.00 ms, p95 13.15 -> 12.04 |
+
+**The headline benchmark** (release, alternating deploys, 2 + 2 runs, 4
+with the earlier `BR11A`):
+
+| arm | missed of 1 000 | work p50 | p95 |
+|---|---|---|---|
+| R11 pass | **0 / 0 / 0 / 0** | 5.53-5.83 | 10.04-10.31 |
+| control | 3 / 3 / 3 / 4 | 6.49-6.60 | 11.24-11.31 |
+
+**The benchmark holds 60 fps through the whole recorded drive, with every
+draw's DMA stream verified equal.** R11-A goes to the port (2.13.0).
