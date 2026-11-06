@@ -477,3 +477,62 @@ the PS2.
 
 **Pays when** StaPip `core` I misses fall enough to save ≥ 0.5 ms in the
 district or the crate drive.
+
+The instruction-count arm wedged the console twice: `vpnR0G` hung while
+loading the district (the first `freepad: DMA Busy` comes right after the
+road texture loads, in a run with no reset before it). `cld_probe` re-armed
+the PMU once a frame, and the loading frame is ~10 s long. Instructions
+(event 12) pass 2^31 in that time, and a counter overflow is an unmaskable
+exception. I misses never get there. Fixed in `cld_probe.hpp`: the PMU counts
+only in the measured states (`pmuStop` otherwise). Rebuilt as `vpnR0I`
+(instructions) and `vpnR0J` (I misses), both `--pmu --gpuwait --gputl` from
+`R0vp`, so the fit pairs two builds of one probe.
+
+### R4-A analysis: one bag's path, by route (from the ELF, no console)
+
+A crossing bag walks ~25 functions and 2 500+ basic blocks. A block averages
+15-26 bytes, and every block the bag jumps to is a new 64-byte line.
+`renderNow` alone has 492 branches in 11.5 KB.
+
+| route | reachable code | path one bag runs | I misses a bag (measured) |
+|---|---:|---:|---:|
+| stamp | ~20 KB | 3.5-4.5 KB | 58 |
+| culled | ~26 KB | 6-7 KB | ~100 |
+| whole replay | ~55 KB | 17-19 KB | 290 |
+| partial | ~65 KB | ~25 KB | 412 |
+| direct | ~60 KB | ~28 KB | 460 |
+
+The partial, whole and direct paths are each larger than the 16 KB I-cache
+on their own. That is why `-Os` did not help: half the bytes but the same
+blocks, 413 -> 393 misses. The stamp path fits, but other routes in the same
+run evict it. The fattest hot functions are:
+- `renderNow` 11.5 KB;
+- `sendObjectData` 11.0 KB: every material variant around ~10 inlined
+  unpacks;
+- `tryStamp` 6.1 KB;
+- `StaPipBakedStreams::acquire` 5.7 KB: the hit path is mixed with arena
+  growth;
+- the `Vif1Queue` send chain, ~11 KB for 0.75 sends a bag;
+- `emitPartialRuns` 2.4 KB.
+
+On top of those, 15-20 one-line accessors live in other source files, and
+with no LTO each is a call and a line.
+
+**The fix to measure.** A lean path per route, chosen once per bag from a
+flags word. For partial: cached bounds, the MVP, a fixed-layout unlit
+uniform writer, a cached baked-entry pointer, then `classifyRoutes` and
+`emitPartialRuns` as they are. Everything else goes out of line
+(`[[gnu::cold, gnu::noinline]]`). Also:
+- a per-bag "no stamp" hint, so a crossing bag does not try and fail a
+  stamp (10.7 µs);
+- a lean append into the recording for `sendPacket`.
+
+The target is ~9.5 KB of dense code, ~180 lines a partial bag instead of
+412.
+
+**Ceiling.** At 51 cycles a miss, 1 000 misses are 0.17 ms:
+- crate drive: partial 0.56 + whole 0.11 + direct 0.11 + stamp 0.15 = ~0.9 ms;
+- district: ~1.0 ms.
+
+Expect roughly half of either. The D misses (the bag's own data) are not
+touched by this fix.

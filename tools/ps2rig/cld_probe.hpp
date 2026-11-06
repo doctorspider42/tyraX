@@ -30,6 +30,18 @@ inline void pmuArm() {
   const U ctl = (1u << 31) | (CLD_EV0 << 5) | (0xFu << 1) | (6u << 15) | (0xFu << 11);
   asm volatile("mtps %0,0\n\tsync.p" ::"r"(ctl));
 }
+// Counting off and both counters zeroed. A counter that passes 2^31 raises an
+// unmaskable exception, and instructions (CLD_EV0 12) get there in ~10 s of
+// one long frame: the district's loading frame wedged the console (freepad:
+// DMA Busy) every time. So the PMU counts only inside the measured states.
+inline void pmuStop() {
+#if CLD_NOPMU
+  return;
+#endif
+  U z = 0;
+  asm volatile("mtps %0,0\n\tsync.p" ::"r"(z));
+  asm volatile("mtpc %0,0\n\tmtpc %0,1\n\tsync.p" ::"r"(z));
+}
 constexpr int kMax = 96;
 inline const char* names[kMax];
 inline U64 acc[kMax];
@@ -249,7 +261,10 @@ inline void begin(U stall) {
   const U fi = pc0(), fd = pc1();
   static bool armed = false;
   const U di = armed ? fi : 0, dd = armed ? fd : 0;
-  pmuArm(); armed = true;  // zero both counters every frame: no 31-bit overflow
+  // Zero both counters every frame (no 31-bit overflow), and count only in
+  // the measured states (pmuStop).
+  if (state == 1 || state == 2) pmuArm(); else pmuStop();
+  armed = true;
   if (prevStart && (state == 1 || state == 2)) { frameIm += di; frameDm += dd; }
   if (prevStart) {
     const U period = now - prevStart, st = stall - prevStall;
