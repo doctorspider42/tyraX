@@ -197,6 +197,9 @@ inline void flush(const char* why) {
 inline void setState(int s) {
   if (state == 1 || state == 2) flush("end");
   state = s; stateFrame = 0; resetWin();
+  // Leaving the measured states starts the scene reload in this same frame,
+  // after begin() armed the counters: stop them now, not next frame.
+  if (s != 1 && s != 2) pmuStop();
 }
 // Counter calibration: known-footprint loops, printed once.
 alignas(64) inline unsigned char calBuf[128 * 1024];
