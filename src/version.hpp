@@ -5619,7 +5619,10 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 11
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
+// 2.11.1: the rigid-body solve runs each island end to end (contact build,
+// warm apply, passes, warm store) in an island-sized buffer: 72 awake crates
+// on a PS2, physics 7.76 -> 7.24 ms, bitwise the same (docs/physics.md).
 // 2.11.0: StaPip frame recording (docs/dod-submission.md, phase 1): every
 // draw is queued and submitted in order at the flush points (submission
 // batches become markers; foreign VIF1/GIF work and camera changes flush

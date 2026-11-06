@@ -245,7 +245,16 @@ lying still, so the scene budget is about how many are awake at once - here
   which both can move form an island; a contact against the world or a
   sleeper changes only its own body, so each island runs all its passes
   while its contacts are in the 8 KB data cache - the same result as sweeps
-  over the whole list.
+  over the whole list. Since 2.11.1 an island also builds its contacts,
+  applies the warm start and stores its impulses for the next frame in the
+  same go, into a buffer the size of the largest island: a solve contact is
+  212 bytes, and building all of them first then streaming the list for the
+  warm start, the passes and the store missed the cache four times over
+  (72 awake crates, 287 contacts, on a physical PS2: set-up + passes
+  3.09 -> 2.58 ms, physics 7.76 -> 7.24 ms, D-cache misses 28.3k -> 20.8k a
+  frame; bitwise the same velocities and warm impulses over 1 250 compared
+  frames). The packed bodies lost their inertia matrix (88 -> 52 bytes):
+  every contact already carries `invIw (r x n)`.
 - **Rotation trigonometry once per object per change.** `rotTrigCached`
   keeps `rotTrigOf()`'s answer per object slot, keyed by the exact angles, for
   the broad-phase box and the render matrix: a moving body paid ~45 software

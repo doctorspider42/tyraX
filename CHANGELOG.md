@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.11.1
+
+- Awake physics bodies cost less on the PS2: the solver now handles each group of touching bodies from start to finish while its contacts are still in the console's small data cache, instead of building every contact first and then reading the whole list four more times. 72 awake crates: physics 7.76 -> 7.24 ms a frame, with exactly the same results.
+
 ## 2.11.0
 
 - Faster draw submission on the PS2: the renderer now records a frame's draws and submits them in long runs instead of one by one between the game's own code, so neither evicts the other from the console's small caches. Measured on a PS2: 0.5-0.6 ms less work a frame and about a third fewer missed frames in the Vehicle Playground crate-field drive; 0.45 ms off the 95th-percentile frame in the Motor District. The plan behind it, and the next steps, are in `docs/dod-submission.md`.

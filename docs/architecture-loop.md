@@ -54,7 +54,7 @@ alone reads as 100 %+.
 |---|---|---|---|---|---|---|---|---|
 | 1 | crate drive | 6.70-6.99 / 12.0 ms (lean, BC44) | EE | - | ~0 (max 0.04 ms) | StaPip 4.0-4.1 ms | 86-100 % per route (docs/stapip-bag-cost.md) | no |
 | 2 | Motor District heavy spot, night / day | 11.6 / 13.8 ms parked, 11.0-11.3 / 13.5-13.7 driving (PMU build, R0F) | EE (60 fps held, ~5 ms of vsync slack) | VU1 30-34 %, GIF 13 %, idle 50-52 % parked; idle 66-67 % driving | 0.005 ms | StaPip `core` 4.4-6.3 ms; game scene code 1.9-2.3 ms | core 40-97 %; scene code 33-77 %; whole frame ~80 % (upper) | no |
-| 3 | physics: 82 awake / pile after a crash | (R1-B arms queued) | EE | | | physics | | no |
+| 3 | physics: 72 awake crates (R2B_A1) | physics 7.76 -> 7.24 ms (2.11.1) | EE | - | - | physics: passes, world, pairs | **25 %** with the fitted prices (pI 51, pD 16 cycles; R2-0) | misses (b) yes; open: is ~17 k instructions per body per frame a defect? pile after a crash not re-measured |
 | 4 | two-players, split screen, walking (R0U) | 5.6 / 7.3 ms of a 20 ms PAL frame | vsync: neither the EE (28 % busy) nor the GPU (78-83 % idle) | VU1 16-18 %, idle 78-83 % | 0.01-0.02 ms | StaPip `core` 3.2 ms | 39-89 % | the hardware's refresh limits it; see the note |
 | 5 | showcase (R0X) | 19.1 / 19.1 ms | **GPU** | VU1 55 % + kick 8 %, GIF 34 %, idle 1.5 % | **5.5-5.9 ms** (q.waitFor) | - | - | **yes, (a)** |
 
@@ -318,3 +318,80 @@ under the 0.3 ms bar and on one run only. Its second run wedged the console
 (`freepad: DMA Busy` after 8 reset deploys; not attributed to the arm).
 Owed before a verdict: the second run, the GPU-wait arm (`RV1G`) and the
 frame-capture check (`RV1C`).
+
+## Round 2 results (PS2, 2026-11-06)
+
+The console ran 8 deploys after a power cycle, then wedged again (an empty
+log on the 9th; a reset deploy afterwards got no answer either).
+
+### R2-0 for physics: a D miss costs ~16 cycles, not 42
+
+`r2b_fit.py` over an I-miss run and an instruction run of `R2B_A1` (72 awake
+crates, the live solve; 23 + 23 windows, 15 scopes, 690 rows), fitting
+`cycles = c0 * instructions + pI * I + pD * D`:
+
+    c0 1.39 cyc/instr, pI 50.9 cyc/I-miss, pD 15.7 cyc/D-miss
+    rms relative residual 6.6 %
+
+The I-miss price matches CLDCAL (a refill stalls the pipeline). A D miss
+costs a third of the calibrated load: the EE keeps going past a miss until
+the value is used, and store misses go through the write-back buffer. Priced
+that way, physics spends **25 %** of its time in misses (stages: prep 28 %,
+world 27 %, pairs 19 %, setup 28 %, passes 23 %, write 25 %). That is under
+the 30 % line. The 50 / 42 pricing said 57 %.
+
+### R2-B: the fused island solve - winner, shipped as 2.11.1
+
+The passes scope held five things: pack the bodies, apply the warm start,
+the island passes, unpack, store the warm impulses. Only the island passes
+were compute (IPC 0.67, 9 % misses). Building the contacts, the warm apply
+and the warm store each streamed the whole 287 x 212 B = 61 KB contact array
+through the 8 KB D-cache, and the passes streamed it a fourth time.
+
+The fused arm handles each island end to end in a buffer the size of the
+largest island. Same ELF, I-miss runs, 23 windows each:
+
+| arm | setup | passes | six stages | D misses a frame |
+|---|---:|---:|---:|---:|
+| live (0) | 1.097 | 1.992 | 7.762 ms | 28 264 |
+| fused (4) | 0.261 | 2.321 | 7.242 ms | 20 759 |
+
+That is -0.52 ms. The check arm (8) ran the live and fused paths on the same
+inputs every frame. Over 1 250 frames it found no difference at all:
+velocities, pseudo velocities, grounded flags and warm impulses were
+bitwise equal, and the warm sizes and order matched. Ported into
+`src/game_templates.inc` (2.11.1). `RbSolveBody` also lost its unused
+inertia matrix (88 -> 52 B). The second timing run was the one lost to the
+wedge.
+
+What is left in physics: `world` (1.81 ms, terrain 0.78 inside),
+`prep` / `setup` building contacts from 880 B `RbStep`s, `pairs` 1.20, and
+`bpRefresh` 0.71. With misses at ~25 % they are mostly instructions.
+Physics now meets (b) on the miss share. The defect question for physics is
+now about the instruction count: 1.23 M instructions a frame for 72 bodies
+is ~17 k per body.
+
+### R2-A: draw records - loser
+
+Same ELF (`R2A_1`, engine copy `tyraR2A`), 2 runs per arm, 1 000 frames:
+
+| arm | work p50 | p95 | missed | StaPip | stamps a frame, us each |
+|---|---:|---:|---:|---:|---:|
+| control (524292) | 7.31 / 7.35 | 12.32 / 12.31 | 9 / 10 | 4.26 / 4.44 | 46.6 / 49.3 at 32.4 |
+| records (17301508) | 7.32 / 7.34 | 13.79 / 13.84 | 89 / 91 | 4.79 / 4.76 | 43.5 / 42.0 at 47.7-48.3 |
+
+Two things kill it:
+- **Hits are rare.** Of ~38 000 eligible draws, 1 714 replayed from a
+  record. 35 400 were turned away because their lighting inputs changed:
+  the car's lights move every frame, so lit props never keep a record. The
+  turned-away tries (route 0, 64 a frame at 7.9 us) cost 0.5 ms on their
+  own.
+- **A hit costs what a stamp does.** A record replay took 31.8 us against
+  32.4 us for a stamp. The time is in writing the captured bytes into the
+  packet and the DMA chain, not in validating the bag. So the 8-12 us
+  ceiling was wrong, and even a 100 % hit rate saves nothing.
+
+The arm also missed 9x more frames (the record build stalls). Reverted:
+the arm lived only in the rig engine copy, and nothing landed in the repo.
+Dead end: a stamp's cost is its output, not its inputs, so making the
+validation cheaper cannot pay.
