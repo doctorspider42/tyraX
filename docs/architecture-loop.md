@@ -1247,3 +1247,39 @@ settle before `beginFrame` (see the frame-escape notes,
 **Status against the user's bar.** The headline benchmark runs at 60 fps
 for 996-997 of 1 000 frames. The 3-4 that miss do so by 0.3-4 ms, all in
 the frames of impact. That is the next target: R9-A, the crash frame's pre.
+
+### R9-A: what the impact frames' pre is (`BR9A`, release, 2 runs, identical)
+
+`kf9_slow.py`, the laps between the loop's entry and `beginFrame`:
+
+| frame | pre | settleTerrainChunks (update + prebake) | settleStaticBatches (rebuild + prebake) | physics |
+|---|---:|---:|---:|---:|
+| f307 | 5.6 | **3.28** (2.25 + 1.00) | - | 0.34 |
+| f381 | 6.1 | **3.77** (2.4 + 1.3) | 0.05 | 0.83 |
+| f382 | 7.6 | **3.1-3.2** (2.2 + 0.9) | **1.6** (1.15 + 0.37) | 0.96 |
+| f384 | 5.6 | **1.9** (1.4-1.5 + 0.3-0.4) | 0.65 | 1.5 |
+
+Normal frames have pre 2.2 ms. **The impact frames miss because a terrain
+chunk is built that same frame, not because of the crates.** At ~22 u/s
+the drive crosses into a new chunk often enough that `settleTerrainChunks`
+builds one chunk a frame for long stretches. f304-f310 each build one, at
+1.0-3.3 ms. When that coincides with the crash, the frame goes over. The
+crates add the batch rebuild (1.6 ms at f382) and a heavier physics
+(0.8-1.5 ms).
+
+Also seen: the present is inside `endFrame` in every frame (`pp` ~0.1). So
+no previous-frame tail leaks into pre, except f215 and f293 (pp 2.8-3.1).
+
+### R9-B: terrain chunks built to a time budget, ahead of need
+
+Two changes:
+- **Look ahead and start early.** Build a chunk before the camera needs it,
+  by a larger look-ahead ring in the direction of travel.
+- **Cap each frame's share.** Split the work so a frame spends at most a
+  budget (e.g. 0.7 ms) on terrain chunk geometry plus its prebake. Either
+  the build itself is resumable (rows of cells), or the prebake is staged
+  over frames the way `docs/impostors.md`'s near-bake staging was
+  (1 024 vertices a frame).
+
+The decisive measurement is the same benchmark in release: missed frames
+0 / 1 000, and no frame with `settleTerr` above the budget.
