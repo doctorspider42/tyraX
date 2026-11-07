@@ -1085,9 +1085,11 @@ cycle helps. What is known (2026-11-07):
   it says whether DEV9 DMA was stuck and which network module failed to start.
   This is a different face from the `freepad: DMA Busy` one above (IOP alive,
   EE gone) - "the wedge" is at least two failures.
-- **The flashed card is r7 (no USB)**, low build at `0x00094818` - not the r8
-  the build scripts produce. The r8 change (SPU2 bus setup before silencing)
-  is not on the console yet.
+- **The flashed card was r7 (no USB)** when this started; it was reflashed to
+  r8 and then, on 2026-11-08, to **r9** (low + packed + no USB, 104 260 bytes;
+  the unpacked image ends at `0x000DF060`, under the `0x000DF3A0` known to
+  boot from the FreeMcBoot menu). Every boot of the console now prints the
+  `iop dma` diagnostic line.
 - **The repro rig**: `tools/ps2rig/reset-cycle.ps1` deploys one project N times
   the way F6 does and records `KHEAD` and wedges per cycle; point it at the
   emulator rig (`tools/ps2rig/devlink-emu-rig.ps1`) so a wedge costs a
