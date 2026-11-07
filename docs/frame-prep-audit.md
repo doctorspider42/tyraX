@@ -85,6 +85,23 @@ Order is the generated `TerrainGame::loop()`
 
 ## What is not attributed (lap these first)
 
+**Measured since (2026-11-07, docs/architecture-loop.md Round 14).** The
+benchmark drive window now has a lap for every block. In the PMU build, of
+11.74 ms:
+- update 2.86, of which object physics 1.19, vehicles 0.81, the rest 0.35,
+  the terrain settle 0.23;
+- game scene code 2.59 (~38 % misses, objects 0.99 the largest row);
+- HUD 0.28;
+- StaPip flush 5.47: the stamp pass's own work ~3.0, `renderNow` 2.08 at
+  70 %, crossing classification 0.37;
+- the rest of `endFrame` ~0.47.
+
+The `renderNow` ceiling probe (odd frames only, against a no-skip control)
+puts the draws that reach the general path at **2.56 ms** of the
+benchmark's drive frame and **1.06 ms** of the district's while driving.
+That is the only block above 0.5 ms with a measured ceiling (candidate 1
+below). The figures below are the audit's original reading.
+
 Two blocks of the benchmark frame are bigger than any candidate below and
 have no laps in a release build.
 
