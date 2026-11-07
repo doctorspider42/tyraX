@@ -46,7 +46,7 @@ The editor stores the selection in `Params::faceTexture`. The
 `women-workwear.jpg` sheet supplies the fitted top, cardigan, skirt and
 dress. The dress combines shell paint with a hip-bound skirt mesh.
 
-The six hairstyles are registered in `studio_gear.HAIR_STYLES`.
+The seven hairstyles are registered in `studio_gear.HAIR_STYLES`.
 `groom-extra-views.jpg` supplies front, profile and rear source views for the
 pixie and curtain shag, plus a low-ponytail reference; it was generated with the built-in
 ImageGen tool, then resized to the existing 384-pixel cell layout. The meshes
@@ -56,3 +56,32 @@ tapered tail with layered locks, so front flyaways cannot widen its rear volume.
 `clean_groom` welds coincident roots and removes degenerate pole
 triangles. The kit stores authored `groom` positions without per-vertex
 nearest-face displacement; the editor fits them using upper-skull bounds.
+
+## Modelled hair (Blender)
+
+The layered lob (`studio_gear.MODELLED`) is not lofted from photographed
+silhouettes. Its sources live in [studio/hair-blender](studio/hair-blender) and
+run in headless Blender (`blender -b --factory-startup --python <script> -- ...`):
+
+1. `python patch_hair.py <kit.bin> --heads <dir>` writes the hero heads
+   (`head_f.obj`, `head_m.obj`) in kit space.
+2. `bake_strands.py <dir>/strands.png` renders eight 64 x 512 strips
+   (opaque under, alpha mid, ragged outer) from Cycles hair curves and writes
+   the atlas; `--reuse` keeps strips already rendered, `--only 0,2,5 --samples 24`
+   is a quick look. Copy it to `studio/layered-lob.png`.
+3. `make_lob.py head_f.obj head_m.obj ../layered-lob.npz --atlas <png>
+   --preview <dir>` builds the hero, standard and crowd cards from the guide
+   locks at the top of the script and renders six views per level plus a
+   close-up of the part. Check them before going further.
+
+`studio_gear.modelled_groom` unsculpts the npz into the studio items' space.
+
+## Rebuilding hair without the full build
+
+`python patch_hair.py <chargen-kit.bin> <hair id> ...` rebuilds those
+hairstyles inside an existing kit: per-detail geometry, bindings, groom,
+scalp paint, atlas and wardrobe entry. A new id is inserted after the last
+hairstyle. It needs only the kit itself, NumPy, Pillow and SciPy, not the MakeHuman and
+Quaternius sources. Rebuild the editor afterwards. Then export a recipe with
+`--chargen` and look at it: a fit that is fine on the reference heads can
+still clip a generated forehead. Keep fringe roots at least 7 mm above it.

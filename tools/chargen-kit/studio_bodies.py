@@ -264,6 +264,26 @@ def make_shell(chunks, prefix, rest, xyz, skin_pixels, gid, label, slot, ease, t
     )
 
 
+def scalp_paint(xyz, gid):
+    """A hairstyle's scalp layer on the body atlas: dark root colour and the
+    coverage the generator closes and darkens (chargen.cpp scalpCover)."""
+    from build_kit import jpg_bytes, png_bytes
+
+    x, y, z = xyz
+    front = np.clip((z + 0.05) / 0.20, 0, 1)
+    edge = (
+        0.698 + 0.071 * front**3
+        if gid in ("side-crop", "choppy-pixie", "tide-knot", "low-ponytail")
+        else 0.683 + 0.084 * front**4
+    )
+    alpha = np.uint8(255 * ramp(y, edge, edge + 0.018))
+    rgb = np.zeros((SIZE, SIZE, 3), np.uint8) + [40, 28, 22]
+    return {
+        "/body": jpg_bytes(Image.fromarray(rgb.astype("uint8"))),
+        "/body/a": png_bytes(Image.fromarray(alpha)),
+    }
+
+
 def bake(writer):
     from build_kit import jpg_bytes, key_colour
 
@@ -421,25 +441,8 @@ def bake(writer):
                 kind = {"f": 0, "i": 1, "u": 2}[values.dtype.kind]
                 chunks[p + group + field] = kind, values.tobytes(), values.size
             if slot == "hair":
-                from build_kit import png_bytes
-
-                x, y, z = xyz
-                front = np.clip((z + 0.05) / 0.20, 0, 1)
-                edge = (
-                    0.698 + 0.071 * front**3
-                    if gid in ("side-crop", "choppy-pixie", "tide-knot", "low-ponytail")
-                    else 0.683 + 0.084 * front**4
-                )
-                alpha = np.uint8(255 * ramp(y, edge, edge + 0.018))
-                rgb = np.zeros((SIZE, SIZE, 3), np.uint8) + [40, 28, 22]
-                put_image(
-                    "img/" + p + "g/" + gid + "/body",
-                    jpg_bytes(Image.fromarray(rgb.astype("uint8"))),
-                )
-                put_image(
-                    "img/" + p + "g/" + gid + "/body/a",
-                    png_bytes(Image.fromarray(alpha)),
-                )
+                for key, data in scalp_paint(xyz, gid).items():
+                    put_image("img/" + p + "g/" + gid + key, data)
             if gid in new_items and gid != "moss-dress":
                 continue
             for field, values, kind in [

@@ -17,7 +17,7 @@ real eyes, and motion-captured movement.
 | Rig | 35 Mixamo-named bones: spine, neck, head, arms, legs, two-bone thumb, index and fingers |
 | Texture | one atlas, 128 / 256 / 512 square, 8-bit on the console; face ≈ 80 px wide at 256 |
 | Shape | 96 macro targets (gender, age, muscle, weight, ancestry) + 76 detail sliders |
-| Wardrobe | 23 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
+| Wardrobe | 24 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
 | Motion | 87 clips from Quaternius' Universal Animation Library, retargeted onto the rig |
 | A dressed character | One body atlas and a shared accessory atlas. Foreground hair has its own texture up to 256 pixels square. |
 
@@ -70,7 +70,7 @@ pivot between the eyes, *Reset view* puts it all back.
 | Face | head shape, forehead, brows, eyes (size, height, spacing, tilt, opening, epicanthic fold, bags), nose (11), mouth (9), jaw and cheeks (9), ears (4) - one folding section per feature. Right-click a slider to reset it |
 | Skin | tone, warmth, weathering; eye colour; 12 eyebrow and 4 eyelash styles, brow density; stubble; lipstick, eye shadow, blush; the atlas size |
 | Outfit | one card per item, per slot - full outfit, top, bottom, shoes, hat, glasses, gloves - each with its own colours and, for clothes, a pattern |
-| Hair | Three styles as cards and a colour; brows and stubble follow it |
+| Hair | Seven styles as cards and a colour; brows and stubble follow it |
 | Animation | the standard locomotion set, or any of the 87 clips; key rate; or *Import clips...* from a Mixamo-named library or a phone take |
 
 **Add to scene** writes `res/models/characters/<name>.glb` and drops in a
@@ -199,7 +199,7 @@ images through an override on the model.
 The Outfit tab offers a yard jacket, mill flannel, watch henley, washed jeans,
 ranger cargos, station cords, storm boots, service derbies, two caps, wire
 frames, smoke lenses and dock gloves. The Hair tab adds a side crop, rain
-bob, tide knot, choppy pixie, curtain shag and low ponytail. Colour and skin controls work on the same base with or
+bob, tide knot, choppy pixie, curtain shag, low ponytail and layered lob. Colour and skin controls work on the same base with or
 without clothing. An old recipe maps retired names to current pieces on load.
 
 The flannel, henley, trousers and gloves are cut on each neutral body's
@@ -209,7 +209,7 @@ body. Their bindings are rebuilt after sculpting and refining the body.
 Foreground hair gets a dedicated texture for its crown and cutout strands.
 Crowd hair shares the accessory atlas.
 
-All six hairstyles include an opaque root surface beneath the cutout locks,
+All seven hairstyles include an opaque root surface beneath the cutout locks,
 including the crown pole. Coincident roots are welded, and degenerate pole
 triangles are removed. Rear cross-sections also stay behind the head when
 a profile image contains only a dangling front fringe below the nape. Fitting preserves one authored shape in a skull frame;
@@ -221,6 +221,27 @@ have restrained secondary motion. Each style has crowd, standard and hero
 geometry, and still supports dye and hat fitting.
 
 ![Choppy pixie, Curtain shag and Low ponytail, front and rear](img/chargen-studio-hair.png)
+
+### The layered lob
+
+The layered lob is modelled the way late PS2 character hair was, not lofted
+from photographs: hand-placed guide locks on the real kit heads, and hair
+cards laid along them in three layers. Wide, opaque under-cards keep skin from
+showing between strands. Mid cards carry the body of the cut. Narrower outer
+cards are cut shorter at random for the layering. A swept fringe crosses the
+forehead from a deep side part, and a small dome at the crown radiates from
+the whorl. Its strand texture is rendered in Cycles from a few thousand real
+hair curves per strip, so clumped tips, occluded roots and a broken sheen band
+come from lighting, not paint. The value range is widened before the hair
+colour dyes it, so strands stay readable in dark colours.
+
+| Detail | Triangles | Hair texture |
+|---|---|---|
+| Hero | 4140 | own, up to 512 |
+| Standard | 1588 | own, 256 |
+| Crowd | 500 | shared accessory atlas |
+
+![Layered lob on a hero and a standard character, dyed brown and copper](img/chargen-layered-lob.png)
 
 ### Clothes that move
 

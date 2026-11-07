@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.14.0
+
+- New hairstyle: **Layered lob**, a chin-to-collarbone cut with a deep side part and a fringe swept across the forehead. It is modelled from layered hair cards with a strand texture rendered from real hair, at all three detail levels, and takes any hair colour and both studio hats.
+
 ## 2.13.0
 
 - Hair keeps its shape when fitting to the head, with opaque scalp coverage beneath loose strands and gentler secondary motion. Adds Choppy pixie, Curtain shag and Low ponytail at all three detail levels.
