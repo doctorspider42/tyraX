@@ -89,6 +89,13 @@ bool DevLink::readPad(unsigned char* out) {
   if (w[2] != seq || box[2] != seq) return false;
   if (w[8] != (seq ^ kFooterXor)) return false;
   memcpy(out, w, kPadSize);
+  // Once per boot: the proof, in the [ps2] log, that a datagram made it from
+  // the editor through the IOP into this mailbox (docs/devlink.md).
+  static bool announced = false;
+  if (!announced) {
+    announced = true;
+    TYRA_LOG("devlink: first Remote Pad state arrived (seq ", seq, ")");
+  }
   return true;
 }
 

@@ -1,6 +1,6 @@
 # devlink — the devkit's channel through the IOP
 
-**Status:** phase 1 in progress (Remote Pad). Everything else in the devkit
+**Status:** phase 1 (Remote Pad) done and measured on a PS2. Everything else in the devkit
 still rides `host:` files; this page is both the plan and the record.
 
 ## Why
@@ -92,4 +92,43 @@ Pieces:
 | Game side (Remote Pad reads the mailbox) | `src/templates.cpp` (live_pad runtime) |
 | Editor side (datagram next to the file) | `src/livepad.*`, `src/devkit_ui.cpp`, `src/main.cpp` (`--pad`) |
 
-Measurements: pending.
+### Measured on a PS2 (2026-11-07)
+
+Physical PAL PS2 over ps2link (r8), a fresh FPP scratch project with the
+debug profile, **Remote Pad the only devkit channel on** (Live Link, Live
+Debugger, Live Logic, Time Machine off), `TYRA_FRAME_PROFILE 2`. Two ELFs that
+differ only in whether `DevLink::start()` may load the module; 25 windows of
+50 frames each.
+
+| | `pre` mean | `pre` max | period | missed |
+|---|---:|---:|---:|---:|
+| devlink (mailbox read every frame) | **0.16 ms** | 0.21 ms | 20.00 ms | 0 |
+| `host:` file, polled every 4th frame | **0.82 ms** | 1.17 ms | 20.00 ms | 0 |
+
+`pre` is everything in `loop()` ahead of `beginFrame()`, so the difference is
+the poll: about 0.66 ms per frame on average, which is **about 2.6 ms per
+`host:` round trip**, paid every 4th frame. This scene had 18 ms of slack, so
+the period did not move; in a scene within ~2.6 ms of its 20 ms field, every
+poll frame waits a second field. That is the 15/50 misses from the
+vehicle-playground measurement above.
+
+What the log showed, in order:
+`devlink: up on udp/18198`, then the IOP's own
+`devlink: listening on udp/18198 (pad mailbox 0x0044cbc0)`, and when the PC
+sent datagrams `devlink: first Remote Pad state arrived (seq ...)`. That last
+line is written once per boot from `DevLink::readPad`, so a run can tell the
+transport works without seeing the screen. What the overlay then does with the
+state is the same code as the file path (`applyState`), verified in PCSX2 by a
+right-stick turn through `livepad.bin`.
+
+Not yet covered: an audio check with music playing (the IOP thread runs at
+100, below audsrv, and only wakes per datagram), and the Remote Pad panel
+driving a console end to end (the datagrams above came from a test script with
+the same bytes `livepad::write` sends).
+
+### Testing devlink without the console
+
+`tools/ps2rig/devlink-emu-rig.ps1` boots ps2link in a portable PCSX2 with DEV9
+bridged onto the LAN. **It shares one trap with every console run: each
+`ps2client` on the PC listens on the same UDP tty port**, so a rig run and a
+real-PS2 run at the same time steal each other's log. Run one at a time.
