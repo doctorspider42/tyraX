@@ -1574,3 +1574,30 @@ budget and swaps slots, and a chunk that is fresh or re-detailed has no
 stamp until it is captured again. Next: R13-A, why terrain draws miss their
 stamp while driving, and whether a rebuilt chunk can be captured on its
 first draw.
+
+### R13-A: terrain draws miss their stamp because of the wrap state (built, not run)
+
+The terrain's ground-shadow pass (`gsBag`, CLAMP) leaves CLAMP in force
+after every shaded chunk. The draw that follows it cannot be captured,
+cannot replay a stamp (reject 8) and cannot take the crossing pass. On the
+benchmark, 4 216 of 4 694 stampless whole replays (90 %) were "refused for
+wrap state only".
+
+The R12 census statement above (`k_notin`) was from the district run, not
+the benchmark.
+
+**Fix F (arm `BR13T`).** Capture without the wrap block. The stamp pass and
+the crossing emit decide per emit whether to write the block, exactly as
+`sendObjectData` does. Verify build: `BR13TV`. Expected: ~-0.6-0.7 ms
+driving.
+
+The first deploy found the console wedged (~20 deploys since the power
+cycle). Queue `r30_queue.sh` is owed.
+
+**A real 2.13.0 bug found while reading for R13-A, fixed in 2.13.1.**
+`crossSynth` gave a crossing-only slot to a CLAMP bag captured while the
+same CLAMP was in force, so there was no block in its head. `crossEmit`
+emits only under REPEAT and ignores the wanted wrap, so that bag would have
+been sent with REPEAT. The verify scenes never had two consecutive crossing
+bags with the same non-REPEAT wrap. `crossSynth` now refuses any bag that
+does not want REPEAT (commit 47e70216a).
