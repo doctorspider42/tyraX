@@ -23,11 +23,11 @@ in docs/tyrax2-night-ee-2026-10-12.md.
 Reference scenes:
 
 1. **Crate-field drive.** The user's `vehicle-playground-5` project (copy
-   `C:\tx\qp\U5src`), the recorded drive.
+   `C:\tx\qp\U5src`, kept in `tools/ps2rig/bench/crate-field/`), the recorded drive.
 2. **Motor District.** `examples/vehicle-playground`, heavy spot
    (-119.3, 0.3, 0.3), night and day.
 3. **Physics.** The pile and the stack after a crash, and 82 awake boxes
-   (`C:\tx\qp\P1`).
+   (`C:\tx\qp\P1`, kept in `tools/ps2rig/bench/physics-pile/`).
 4. **two-players**, split screen, in gameplay (not the title screen).
 5. **showcase**.
 
@@ -41,7 +41,7 @@ with their docs, losers are reverted and written up here.
 
 The worst frame drops seen in this project are in the **Motor District with
 ~128 physics cubes scattered on the road, with the car driving into them**.
-That is the crate field of `vehicle-playground` (rig copy `C:\tx\qp\U5src`,
+That is the crate field of `vehicle-playground` (rig copy `C:\tx\qp\U5src`, kept in `tools/ps2rig/bench/crate-field/`,
 scene 1 below, recorded drive; the changelog's "car driving through 129
 crates"). Every cost of this loop meets in that frame:
 - StaPip, for the district and the crates;

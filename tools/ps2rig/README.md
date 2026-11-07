@@ -15,6 +15,9 @@ ELF, a 1000-frame ring, a stress-scene generator.
 
 ## Files
 
+The benchmark scenes (crate field, physics pile), the architecture-loop
+scripts and the physics result summaries are in [`bench/`](bench/README.md).
+
 | File | What it is |
 | --- | --- |
 | `cld_probe.hpp` | The probe, copied into the engine as `inc/debug/cld_probe.hpp`. Drives the cycle (boot, 600 parked frames, a full-throttle drive, scene reset), sets `Cld::arm = cycle % CLD_ARMS`, and prints per window `CLD win arm= cyc= st= ... work= p50= p95= late= period=` plus COP0 scopes (`CLDS`), PMU counters and route counts. |

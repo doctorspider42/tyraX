@@ -1,0 +1,31 @@
+{
+  "id": "6e5985ca877abed5",
+  "name": "crate-2-copy-copy3",
+  "type": "box",
+  "position": [
+    3.26171,
+    0.8,
+    -0.762186
+  ],
+  "rotation": [
+    0,
+    0,
+    0
+  ],
+  "scale": [
+    1,
+    1,
+    1
+  ],
+  "color": [
+    0.75,
+    0.55,
+    0.3
+  ],
+  "physics": true,
+  "physMass": 0.6,
+  "physBounce": 0.35,
+  "physFriction": 0.5,
+  "physTumble": true,
+  "physSleep": 100000
+}
