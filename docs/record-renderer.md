@@ -36,7 +36,7 @@ Branch `claude/record-renderer-1412cf`, started 2026-11-07 from
 |---|---|---|
 | 1 | Record lists + change reporting for terrain chunks, static batches, road and procedural chunks | on, verify clean in the district and the headline benchmark; timing neutral (below) |
 | 2 | Scene objects and cars | - |
-| 3 | Stage-major passes from records (+ scratchpad) | input side priced by a ceiling probe at ~0.1 ms driving, under the bar; the output side is next (below) |
+| 3 | Stage-major passes from records (+ scratchpad) | priced by ceiling probes: input side ~0.1 ms driving, the whole stamp route of the world draws ≤ 0.5 ms driving; under the bar, not built (below) |
 | 4 | Multi-view | - |
 | 5 | Delete the old per-draw path | - |
 
@@ -190,6 +190,41 @@ reads records instead of bags is therefore priced at ~0.1 ms driving, under
 the 0.5 ms bar. The next lever has to change the output side. That means
 fewer, longer packets per flush, or a retained per-list chain that the
 Vif1Queue borrows instead of copying.
+
+### The ceiling of the whole stamp route (probe `RRP2`, not shipped)
+
+A third arm prices the output side too. In arm 2 the same draws (record
+verdict "inside", valid stamp) are **not emitted at all**: no packet, no
+submit, no GPU work. That is the most any redesign of the stamp route could
+remove, input and output together. Same rig, three arms alternating per
+cycle, 2 runs of 540 s, ~64-66 draws a frame on the probe paths:
+
+| arm | parked p50 | driving p50 |
+|---|---:|---:|
+| 0 control | 9.877 / 9.878 ms | 8.646 / 8.702 ms |
+| 1 emitted from the record only | 9.872 / 9.874 ms | 8.590 / 8.569 ms |
+| 2 not emitted at all | 8.895 / 8.896 ms | 8.207 / 8.176 ms |
+
+- Arm 2 parked drops ~1 ms because it also removes those draws' GPU work,
+  and the parked frame is GPU-bound. That number is not an EE price.
+- **Driving, the whole stamp route of these draws costs 0.44-0.53 ms a
+  frame**: ~7-8 µs a draw, with their GPU share included. The ~22 µs a
+  stamp that earlier rounds derived from the stamp pass's time divided by
+  its stamps overstates the marginal cost of a draw. The pass's time also
+  carries the general-path draws it calls, and the cache state it leaves
+  them.
+- Reading records instead of bags recovers ~0.06-0.13 ms of that (arm 1).
+
+**What this means for the plan.** The rewrite's estimated prize (~2-3 ms a
+frame in heavy scenes) assumed ~20 µs of avoidable EE work per draw. On the
+stamp route, which is the steady state of the world producers this rewrite
+targets first, the whole route is worth ≤ 0.5 ms while driving, and a
+perfect redesign keeps some of it (a draw still has to be sent). Records
+plus retained output for world draws therefore sit at or under the 0.5 ms
+bar. The larger StaPip costs left are elsewhere: the `renderNow`
+remainder (~2.1 ms on the benchmark drive, terrain draws without a stamp
+after the ground-shadow pass's CLAMP 1.2 ms of it, docs/architecture-loop.md
+R12/R13) and the crossing route (~0.8 ms).
 
 ### The verdict travels with the draw
 
