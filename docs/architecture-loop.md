@@ -1489,3 +1489,34 @@ D 15-20 %). The scene stays EE-bound driving.
 
 Parked, it is the first time the EE waits measurably on the GPU (0.8 ms a
 frame). The frame is getting close to the GPU there.
+
+## Round 12 (2026-11-07)
+
+### R12-0: scene 1 after the rewrite
+
+The crate-field drive (release, U5rel) on 2.13.0 needs:
+- an attribution arm that splits the frame by StaPip route (stamp pass,
+  crossing pass, the `renderNow` remainder by route);
+- PMU I/D misses per route;
+- the frame's GPU timeline.
+
+That gives scene 1 its post-rewrite row in the table.
+
+### R12-A: the `renderNow` remainder
+
+**Facts.** In the district at 2.13.0, `renderNow` now times only the draws
+the two passes do not take: 1.1-1.5 ms a frame, 69-74 % misses. From
+R10-A's route split, those are:
+- the whole replays of bags with no stamp, 7-11 a frame at ~70-90 µs;
+- direct draws, 3 a frame at ~150 µs;
+- the sky;
+- the fx and post-object bags;
+- crossing bags the pass declines.
+
+**Hypothesis.** Take the whole-replay route into the stamp pass, the way
+R11-A took the crossing route. A bag whose whole replay is valid keeps a
+record (the entry, the head) and is emitted from it in the list-order pass.
+That leaves `renderNow` only for genuinely new or changing draws.
+
+- **Ceiling:** the replay draws at ~70-90 → ~25-35 µs, ~0.4-0.6 ms a frame.
+- **Pays when** ≥ 0.5 ms in the district or the drive, with verify clean.
