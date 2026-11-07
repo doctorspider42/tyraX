@@ -1335,5 +1335,12 @@ render**, plus textual anatomy hints; it did not receive an existing atlas.
 Its output was also applied directly at 512×512 without moving UVs. It failed
 the material assignment: knit appeared on the neck and calves, parts of the
 sleeves became skin, and facial paint shifted. The flat generated image looked
-plausible, but the mapped result was unsuitable. A semantic island mask or
-neutral colour bake is a possible next input to test; it was not tested here.
+plausible, but the mapped result was unsuitable. The next test added a flat material-ID map and its UV-wireframe overlay to the
+reference render (yellow skin, blue clothing, green eyes, magenta scalp hair).
+The IDs were derived from the existing atlas regions, with all detail discarded.
+Material assignment improved: the neck and calves became skin and the sleeves
+became cloth. Facial alignment still failed, with painted eyes above the actual
+eyeballs, plus visible neckline seams and inconsistent knit scale. A small skin
+strip at the shoulder already existed in the approximate ID mask and must not
+be attributed solely to generation. This result also remains experimental; the
+production kit is unchanged.
