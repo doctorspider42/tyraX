@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.13.0
+
+- The crate-field drive now holds 60 fps on a PS2: objects cut by the edge of the screen are drawn faster. Each one remembers how its pieces are laid out and how it was sent last time, and all of a frame's such objects are sorted into seen, cut and hidden pieces by one short loop. Measured on a PS2: 0 dropped frames in 4 runs of the recorded crash drive through the crates (2.12 dropped one to four), and an object cut by the screen edge costs about a third less. Rebuild games to use it.
+
 ## 2.12.1
 
 - Fewer dropped frames while driving fast over terrain on the PS2: a terrain tile whose detail changes is now rebuilt over a few frames, ahead of the camera, instead of in one go. A frame spends at most about 0.7 ms on it, and the old tile stays on screen until the new one is complete, so nothing appears half-built. A missing tile in view, or a stale one under the camera, is still finished at once. Rebuild games to use it.

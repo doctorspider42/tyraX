@@ -9,6 +9,8 @@
 # Modified by TyraX: the batching test asks isResident() (hinted lookup).
 # Modified by TyraX: the stamp pass at the frame-recorder flush (docs/dod-submission.md,
 # phase 3); the stamp clip planes follow the camera epoch.
+# Modified by TyraX: the crossing pass (TYRA_STAPIP_CROSSING_PASS): the
+# flush's crossing pre-pass and the crossing record capture.
 */
 
 #include "renderer/core/paths/path1/vif1_queue.hpp"
@@ -28,6 +30,8 @@
 #include "debug/frame_profile.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_stamp_verify.hpp"  // Modified by TyraX
+#include <malloc.h>  // Modified by TyraX: memalign (crossing records)
+#include "renderer/3d/pipeline/static/core/stapip_crossing.hpp"  // Modified by TyraX
 
 // #define TYRA_RENDERER_VERBOSE_LOG 1
 
@@ -833,9 +837,254 @@ void StaPipCore::stampPassGeneral(void* self, u32 i) {
                               c->stageBoundsRec[i].valid
                           ? &c->stageBoundsRec[i]
                           : nullptr;
+#if TYRA_STAPIP_CROSSING_VERIFY
+  CrossPass::curIdx = static_cast<int>(i);  // Modified by TyraX: crossing verify
+#endif
   c->renderNow(c->recorded[i].bag, c->recorded[i].reception);
   c->stageBoundsNow = nullptr;
 }
+#endif
+
+#if TYRA_STAPIP_CROSSING_ON
+// ===== Modified by TyraX: the crossing pass (TYRA_STAPIP_CROSSING_PASS) =====
+// The crossing route, stage-major (docs/dod-submission.md, "Phase 3, second
+// slice: the crossing pass"; stapip_crossing.hpp).
+//
+// crossClassify runs once per frame-recorder flush, before the stamp pass. Phase
+// 1 walks the recorded list and, for every draw whose stamp slot holds a valid
+// crossing record (CrossPass::XRec), derives the bag's planes exactly as renderNow
+// does (computeObjectSpacePlanes on the live model, the main-box test, the
+// guard-band direct test, the VU1 clip planes from vp * model), sharing them
+// across consecutive draws with the same model value and band. Phase 2 is ONE
+// loop over the packages of every crossing bag: classifyRoutes's arithmetic
+// verbatim, over the record's precomputed merged package boxes and coarse
+// boxes (contiguous SoA), into the flush's routes / masks arena. The stamp
+// pass then emits a crossing draw from the record in list order
+// (StaPipQBufferRenderer::crossEmit); everything else is untouched.
+void StaPipCore::crossClassify(const DeferredBag* list, u32 n, u32 planAt) {
+  CrossPass::Flush& F = CrossPass::F;
+  F.n = n < CrossPass::kMaxList ? n : CrossPass::kMaxList;
+  F.nCross = 0;
+  F.used = 0;
+  F.partialBatch = partialBatch ? 1 : 0;
+  memset(F.vk, 0, F.n);
+  if (CrossPass::xrecs == nullptr || !qbufferRenderer.hasStamps() ||
+      !packager.capturesPlaneMasks())
+    return;
+  qbufferRenderer.sweepStampsNow();
+  const DrawEpochs::State& g = DrawEpochs::g;
+  const Plane* fp = rendererCore->renderer3D.frustumPlanes.getAll();
+  const M4x4& vp = rendererCore->renderer3D.getViewProj();
+  const bool vuClip = qbufferRenderer.isVU1ClippingEnabled();
+  u32 nSets = 0;
+  const M4x4* lastModel = nullptr;
+  u8 lastTight = 0xFF;
+  // ---- phase 1: which draws cross, and their plane sets
+  for (u32 k = 0; k < F.n; ++k) {
+    const DeferredBag& d = list[k];
+    if (d.op != 0 || d.bag == nullptr) continue;
+    const StaPipBag* bag = d.bag;
+    const int slot = qbufferRenderer.crossSlotFor(bag, planAt + k);
+    if (slot < 0) continue;
+    const CrossPass::XRec& xr = CrossPass::xrecs[slot];
+    if (!xr.valid || xr.bag != bag) continue;
+    if (xr.vertices != bag->vertices || xr.count != static_cast<u32>(bag->count) ||
+        xr.bboxVersion != bag->bboxVersion || xr.packageSize != bag->packageSize ||
+        xr.glob != g.glob || xr.prog != g.prog) {
+      F.vk[k] = CrossPass::VK_STALE;
+      continue;
+    }
+    const M4x4* model = bag->info->model;
+    u32 set;
+    if (nSets != 0 && lastModel == model && lastTight == xr.tight &&
+        mmi::equal64(crossLastModel.data, model->data)) {
+      set = nSets - 1;
+    } else {
+      if (nSets == CrossPass::kSets) {
+        F.vk[k] = CrossPass::VK_FULL;
+        continue;
+      }
+      set = nSets++;
+      CrossPass::PlaneSet& ps = F.sets[set];
+      CoreBBox::computeObjectSpacePlanes(ps.op, fp, *model);
+      ps.cpOk = 0;
+      lastModel = model;
+      lastTight = xr.tight;
+      crossLastModel = *model;
+    }
+    CrossPass::PlaneSet& ps = F.sets[set];
+    const CoreBBoxFrustum main = CoreBBox::frustumCheckAABB(ps.op, xr.lo, xr.hi);
+    if (main != PARTIALLY_IN_FRUSTUM) {
+      F.vk[k] = main == IN_FRUSTUM ? CrossPass::VK_IN : CrossPass::VK_OUT;
+      continue;
+    }
+    if (!ps.cpOk) {
+      // renderNow: mvp = viewProj * model, then the clip planes for its band.
+      const M4x4 mvp = vp * *model;
+      computeClipPlanesInto(mvp, ps.cp, xr.tight ? VU1_CLIP_XY_BAND_TIGHT
+                                                 : VU1_CLIP_XY_BAND);
+      ps.cpOk = 1;
+    }
+#if TYRA_STAPIP_GUARD_BAND_BAGS
+    if (vuClip && xr.fullClip &&
+        CoreBBox::activePlaneMaskAABB(ps.cp, xr.lo, xr.hi, 8) == 0) {
+      F.vk[k] = CrossPass::VK_GB;
+      continue;
+    }
+#endif
+    if (F.nCross == CrossPass::kMaxCross || F.used + xr.n > CrossPass::kArena) {
+      F.vk[k] = CrossPass::VK_FULL;
+      continue;
+    }
+    const u32 j = F.nCross++;
+    CrossPass::Cross& cr = F.cl[j];
+    memcpy(cr.model, model->data, sizeof(cr.model));
+    cr.bag = bag;
+    cr.modelPtr = model;
+    cr.off = F.used;
+    cr.n = xr.n;
+    cr.slot = static_cast<s16>(slot);
+    cr.set = static_cast<u16>(set);
+    F.used += xr.n;
+    F.vk[k] = CrossPass::VK_CROSS;
+    F.xi[k] = static_cast<u16>(j);
+  }
+  // ---- phase 2: every crossing package of the flush, one loop per bag
+  // (StaPipBagPackager::classifyRoutes, same coarse groups, same verdicts).
+  for (u32 j = 0; j < F.nCross; ++j) {
+    const CrossPass::Cross& cr = F.cl[j];
+    const CrossPass::XRec& xr = CrossPass::xrecs[cr.slot];
+    const CrossPass::PlaneSet& ps = F.sets[cr.set];
+    const Plane* op = ps.op;
+    const Plane* cp = ps.cp;
+    const u32 pn = xr.n;
+    const Vec4* pmin = xr.box;
+    const Vec4* pmax = xr.box + pn;
+    const Vec4* cmin = xr.box + 2 * pn;
+    const Vec4* cmax = cmin + ((pn + 7) / 8);
+    u8* routes = F.routes + cr.off;
+    u8* masks = F.masks + cr.off;
+    const bool stripped = xr.stripped != 0;
+    CoreBBoxFrustum coarseRoute = PARTIALLY_IN_FRUSTUM;
+#pragma GCC unroll 1
+    for (u32 i = 0; i < pn; ++i) {
+      if ((i & 7) == 0)
+        coarseRoute =
+            CoreBBox::frustumCheckAABB(op, cmin[i >> 3], cmax[i >> 3], nullptr);
+      const u32 pkgSize = i == pn - 1 ? xr.lastSize : xr.maxVert;
+      CoreBBoxFrustum verdict;
+      u8 mask = 0;
+      bool guardBandOnly = false;
+      if (coarseRoute != PARTIALLY_IN_FRUSTUM) {
+        verdict = coarseRoute;
+      } else {
+        verdict = CoreBBox::frustumCheckAABB(op, pmin[i], pmax[i], nullptr);
+        const u8 planes = verdict == PARTIALLY_IN_FRUSTUM
+                              ? CoreBBox::activePlaneMaskAABB(cp, pmin[i], pmax[i], 8)
+                              : 0;
+        mask = static_cast<u8>(planes & 0x3F);
+        guardBandOnly = verdict == PARTIALLY_IN_FRUSTUM && planes == 0;
+      }
+      routes[i] = (verdict == IN_FRUSTUM || guardBandOnly) ? 1
+                  : (verdict == PARTIALLY_IN_FRUSTUM && (!stripped || pkgSize >= 3))
+                      ? 2
+                      : 0;
+      masks[i] = mask;
+    }
+  }
+}
+
+// The record of a bag the general path just sent down the lean partial
+// replay (classifyRoutes + emitPartialRuns succeeded), if its stamp slot can
+// carry one. The boxes are the cacher's, merged exactly as classifyRoutes
+// merges them per package.
+__attribute__((cold, noinline)) void StaPipCore::crossCapture(
+    StaPipBag* bag, u32 size, StaPipBagPackagesBBox* bbox, u32 n) {
+  if (bbox == nullptr || n == 0 || n > 512 || size < 3) return;
+  const int slot = qbufferRenderer.crossCaptureSlot(bag, size, n);
+  if (slot < 0) return;
+  CrossPass::XRec& xr = CrossPass::xrecs[slot];
+  const u32 groups = (n + 7) / 8;
+  const u32 need = 2 * n + 2 * groups;
+  if (xr.box == nullptr || xr.cap < need) {
+    if (xr.box != nullptr) free(xr.box);
+    xr.box = static_cast<Vec4*>(memalign(64, need * sizeof(Vec4)));
+    xr.cap = xr.box ? static_cast<u16>(need) : 0;
+    if (xr.box == nullptr) {
+      xr.valid = 0;
+      return;
+    }
+  }
+  const u32 third = size / 3;
+  Vec4* pmin = xr.box;
+  Vec4* pmax = xr.box + n;
+  Vec4* cmin = xr.box + 2 * n;
+  Vec4* cmax = cmin + groups;
+  for (u32 i = 0; i < n; ++i) {
+    const u32 start = i * size;
+    const u32 pkgSize = i == n - 1 ? static_cast<u32>(bag->count) - start : size;
+    const u32 first = start / third;
+    const u32 parts = pkgSize <= third ? (start + pkgSize - 1) / third - first + 1
+                                       : (pkgSize + third - 1) / third;
+    bbox->getMergedMinMax(first, static_cast<u16>(parts), &pmin[i], &pmax[i]);
+  }
+  for (u32 gi = 0; gi < groups; ++gi) {
+    cmin[gi] = bbox->coarseMin(gi);
+    cmax[gi] = bbox->coarseMax(gi);
+  }
+  const auto* mb = bbox->getMainBBox();
+  xr.lo = (*mb)[0];
+  xr.hi = (*mb)[7];
+  xr.bag = bag;
+  xr.vertices = bag->vertices;
+  xr.count = static_cast<u32>(bag->count);
+  xr.bboxVersion = bag->bboxVersion;
+  xr.packageSize = static_cast<u16>(bag->packageSize);
+  xr.glob = DrawEpochs::g.glob;
+  xr.prog = DrawEpochs::g.prog;
+  xr.maxVert = static_cast<u16>(size);
+  xr.n = static_cast<u16>(n);
+  xr.lastSize = static_cast<u16>(static_cast<u32>(bag->count) - (n - 1) * size);
+  xr.stripped = bag->stripped ? 1 : 0;
+  xr.tight = bag->info->tightClipBand ? 1 : 0;
+  xr.fullClip = bag->info->fullClipChecks ? 1 : 0;
+  xr.repTex = 0;
+  xr.valid = 1;
+}
+
+#if TYRA_STAPIP_CROSSING_VERIFY
+// Verify, after classifyRoutes in the general path's lean partial replay: a
+// predicted draw's classification must equal the pre-pass's; a draw the
+// pre-pass called wholly in, wholly out or guard-band-only must never get
+// here (verdictBad).
+__attribute__((cold, noinline)) void StaPipCore::crossVerifyClassify(
+    const StaPipBag* bag, u32 n, const u8* routes, const u8* masks) {
+  CrossPass::V& v = CrossPass::v;
+  if (v.armed && v.bag == bag) {
+    v.curBag = bag;
+    if (++v.cmpCls > 1) return;
+    u32 i = 0;
+    bool bad = n != v.n;
+    if (!bad) {
+      while (i < n && routes[i] == v.routes[i] && masks[i] == v.masks[i]) ++i;
+      bad = i < n;
+    }
+    if (bad) {
+      ++v.clsBad;
+      CrossPass::logBug("cls", i, v.n, n, nullptr, nullptr);
+    }
+    return;
+  }
+  const int li = CrossPass::curIdx;
+  const CrossPass::Flush& F = CrossPass::F;
+  if (li < 0 || static_cast<u32>(li) >= F.n) return;
+  const u8 k = F.vk[li];
+  if (k == CrossPass::VK_IN || k == CrossPass::VK_OUT || k == CrossPass::VK_GB) {
+    ++v.verdictBad;
+    CrossPass::logBug("verdict", static_cast<u32>(li), k, n, nullptr, nullptr);
+  }
+}
+#endif
 #endif
 
 void StaPipCore::flushDeferredRun() {
@@ -891,6 +1140,18 @@ void StaPipCore::flushDeferredRun() {
 #endif
       stampPassStageRec = stageRec;
       planAt = qbufferRenderer.reserveStampPlan((u32)recorded.size());
+#if TYRA_STAPIP_CROSSING_ON
+      // Modified by TyraX: the crossing pass - the stage-major crossing
+      // classification, handed to the stamp pass.
+      CrossPass::F.n = 0;
+      if (partialReplay == 4 && wholeClip()) {
+        crossClassify(recorded.data(), (u32)recorded.size(), planAt);
+        pass.cross = &CrossPass::F;
+      }
+#if TYRA_STAPIP_CROSSING_VERIFY
+      CrossPass::tick();
+#endif
+#endif
 #if !TYRA_STAPIP_STAMP_VERIFY
 #if TYRA_STAPIP_RECORD_VERIFY
       for (size_t i = 0; i < recorded.size(); ++i) censusRecorded(i);
@@ -1675,6 +1936,10 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
               packager.classifyRoutes(bag, maxVertCount, routes, masks, 512);
         else
           packages = packager.create(&packagesCount, bag, maxVertCount);
+#if TYRA_STAPIP_CROSSING_VERIFY
+        // Modified by TyraX: crossing pass verify (the classification).
+        if (lean) crossVerifyClassify(bag, packagesCount, routes, masks);
+#endif
 #if TYRA_STAPIP_LEAN_CLASSIFY_VERIFY
         if (lean && packagesCount <= 512) {
           static u32 checked = 0, bad = 0;
@@ -1711,8 +1976,30 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
             routes[i] = route;
             masks[i] = p.clipPlaneMask;
           }
+#if TYRA_STAPIP_CROSSING_ON
+          // Modified by TyraX: the crossing pass - the head for crossSynth.
+          if (lean && partialReplay == 4) qbufferRenderer.crossSnap();
+#endif
           replayedPartial = qbufferRenderer.emitPartialRuns(
               routes, packagesCount, partialReplay == 4 ? masks : nullptr);
+#if TYRA_STAPIP_CROSSING_ON
+          // Modified by TyraX: the crossing pass - the crossing record (in a
+          // crossing-only stamp slot if the bag has no stamp yet).
+          if (replayedPartial && lean && partialReplay == 4) {
+            if (!instancing && !telemetryEnabled && bbox != nullptr) {
+              const bool repeatTex =
+                  !hasTexture ||
+                  (bag->texture->texture->getWrapSettings()->horizontal == WRAP_REPEAT &&
+                   bag->texture->texture->getWrapSettings()->vertical == WRAP_REPEAT);
+              qbufferRenderer.crossSynth(
+                  bag, (*bbox->getMainBBox())[0], (*bbox->getMainBBox())[7],
+                  texBuffers != nullptr ? texBuffers->core : nullptr, bagLight,
+                  dynamicLightReceive, &wantedWrap,
+                  bag->count <= maxVertCount * 15 && repeatTex);
+            }
+            crossCapture(bag, maxVertCount, bbox, packagesCount);
+          }
+#endif
           for (u16 i = 0; replayedPartial && telemetryEnabled && i < packagesCount;
                ++i) {
             recordPackage(packages[i], routes[i] == 1   ? IN_FRUSTUM

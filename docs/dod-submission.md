@@ -152,6 +152,7 @@ Why recording alone pays: the game's object loop and StaPip no longer
 alternate bag by bag. The game's code runs once through, then StaPip runs its
 recorded draws in long runs, so neither evicts the other between two bags.
 | 3a | Stamp record + stamp pass: a stamp's resolved state cached under input epochs, consumed by one loop per flush; per-class bag revision (below, "Phase 3, first slice") | Motor District: parked work -1.7 / -1.8 ms, driving -0.43 / -0.38 ms, p95 -0.6..-2.5 ms; verify clean over ~2.9 M stamps | **on by default (2.12.0)** |
+| 3b | Crossing pass: crossing bags keep a record of their package boxes and entries in their stamp slot; one pre-pass per flush classifies all their packages, the stamp pass emits them in list order (below, "Phase 3, second slice") | district crossing bag 213 -> 125 µs parked, 201 -> 136 µs driving (control inflated, see there); headline benchmark 0 missed of 1 000 in 4 runs; verify clean over 226 719 crossing draws | **on by default (2.13.0)** |
 | 3 | Hot records: per-frame stages read compact persistent records, not bag/info/model/cacher/baked tables | - | |
 | 4 | Scratchpad streaming of hot and draw records by DMA, double-buffered | - | |
 | 5 | Emission from records (stamps as the general form) | - | |
@@ -354,7 +355,140 @@ wrong.
 What is left after this slice, from R8-E: a pass stamp costs ~18 Âµs parked,
 and its misses are spread evenly over the record, the head, the packet and
 the bookkeeping. Crossing bags (partial and strip, ~2.5 ms in the district)
-are now the largest StaPip cost, not stamps.
+are now the largest StaPip cost, not stamps. The second slice (below) takes
+the partial ones.
+
+## Phase 3, second slice: the crossing pass (2.13.0)
+
+The second slice covers crossing bags: bags whose box straddles the view,
+sent by the lean partial replay (`classifyRoutes` + `emitPartialRuns`). It
+is on by default since 2.13.0 (`TYRA_STAPIP_CROSSING_PASS`, 1). The rig
+round that measured it is R11-A in docs/architecture-loop.md. The code is in
+`stapip_crossing.hpp` (the record, the per-flush arena, verify) and in
+`StaPipCore::crossClassify` / `crossCapture` and
+`StaPipQBufferRenderer::crossEmit` / `crossSynth`.
+
+Before, a crossing bag cost ~180-210 µs. Every frame it re-derived its planes,
+read its package boxes cold from the bounding-box cacher, ran the baked-entry
+lookup and rebuilt its uniform head. There were 14-22 of them a frame, and
+they were the last missed frame of the headline benchmark.
+
+### The crossing record
+
+After a successful lean partial replay, the bag's stamp slot gets a
+**crossing record** (`CrossPass::XRec`, one per slot, 64-byte aligned). It
+holds:
+- the merged package boxes and the coarse (8-package) boxes, in one SoA block
+  (`pmin[n]`, `pmax[n]`, `cmin[g]`, `cmax[g]`), merged exactly as
+  `classifyRoutes` merges them;
+- the main box (object space);
+- the cull entry, which must be the stamp's own entry (pointer and serial),
+  and the whole-clip entry (pointer, serial, arena);
+- where the clip block's REF goes in the stamp head: before the single
+  colour, else before the options;
+- the facts it was built under: vertices, count, `bboxVersion`, package size,
+  the `glob` and `prog` epochs, band (tight / loose) and `fullClipChecks`.
+
+The record is cleared when its cull or clip entry is destroyed
+(`sweepStamps`), and with the whole table when the stamp table is reset.
+
+**Crossing-only slots.** A bag that has never been wholly visible never
+earns a real stamp: a chunk under the car, or everything straddling a parked
+view. Its record would have nowhere to live. `crossSynth` builds a slot for
+it from this draw's crossing head (`crossSnap`, taken just before
+`emitPartialRuns`), the way `captureStamp` builds one from a whole replay:
+- the clip REF is taken out and the whole-arena REF appended;
+- the offsets behind the clip REF move back by one;
+- the record gets this draw's T and L answers, and never the camera group.
+
+`CrossPass::xonly` marks the slot. **A crossing-only slot is never a
+stamp:** `tryStamp` rejects it, the stamp pass takes it only as a crossing
+draw (otherwise it goes general, as if it had no stamp), and a real
+`captureStamp` clears the mark. New code that reads stamp slots must keep
+this fence.
+
+### The pre-pass
+
+At each recorded-list flush, before the stamp pass, `crossClassify` runs
+when the partial replay is in mode 4 and VU1 clips whole bags:
+1. **Phase 1**, one walk over the list. For each draw whose slot holds a
+   valid record (bag-line facts and epochs equal), it derives the planes as
+   `renderNow` does: object-space frustum planes from the live model, the
+   main-box test, the VU1 clip planes from `viewProj * model`, the
+   guard-band test. One plane set serves consecutive draws with the same
+   model value and band. The verdict per list position is crossing, wholly
+   in, wholly out, guard-band only, stale, or full.
+2. **Phase 2**, one loop over the packages of every crossing bag of the
+   flush. It runs `classifyRoutes`'s arithmetic verbatim over the record's
+   boxes and writes routes and masks into a per-flush arena (16 384
+   packages, 256 crossing bags, 64 plane sets).
+
+### Emission in list order
+
+The stamp pass does the rest. A straddling stamp (vis 2) that the pre-pass
+classified as crossing, for the same bag, slot and model value, keeps going
+through every stamp check: the facts or the class revision, the model, the
+epochs, and the T and L answers. `crossEmit` then sends it:
+- the stamp head, with the camera group always re-derived (a crossing draw
+  never claims `r.cam`);
+- the clip block's REF at the record's insert point;
+- `emitPartialRuns` over the record's cull and clip entries.
+
+It refreshes the T and L halves of the stamp's record and keeps both entries
+alive. A draw it cannot take goes general from its list position, as in
+2.12.0, so the GS order is still the list order. Among these: a stale record,
+a changed band, a wrap block, a wrap in force that is not REPEAT, or runs
+that do not fit the packet.
+
+### Verify
+
+`TYRA_STAPIP_CROSSING_VERIFY` 1 (in `stapip_qbuffer_renderer.hpp`, default
+0) sends nothing from a crossing record. `crossEmit` builds each crossing
+draw's words dry, and the draw goes down the general path, which compares:
+- the classification (routes and masks of every package, `clsBad`);
+- the pre-pass verdicts: a draw called wholly in, wholly out or guard-band
+  only must never reach the lean partial replay (`verdictBad`);
+- the head and runs, walking the stream as the DMAC does. Tags are exact
+  except the DMA tag PAD bits (`0x03FF0000` of word 0: `packet2` never
+  writes them and the DMAC ignores them), CNT payloads are exact, REFs are
+  exact (`headBad`, `runsBad`, `lenBad`; PAD-only differences are counted
+  in `padOnly`, not as bugs);
+- the list order and exactly-once (`order`, `once`, `noCmp`).
+
+`CROSSVERIFY` lines in the log report every 20 000 predictions. Clean is
+`cmp == preds` with every bad counter, `noCmp`, `once` and `order` at 0. The
+first 16 bugs print a `CROSSVERIFY BUG` detail line. Verify needs the
+crossing pass, and it cannot be combined with `TYRA_STAPIP_STAMP_VERIFY`:
+the stamp pass is dry there, so no crossing draw is ever sent. Prove the
+stamps first, then the crossing pass.
+
+`TYRA_STAPIP_CROSSING_PASS` 0 is the kill switch: no records, no
+crossing-only slots, crossing bags down `renderNow` as in 2.12.
+
+### Measured (PS2, the R11-A rig)
+
+Verify was clean over 226 719 compared crossing draws (district 158 180,
+benchmark 68 539): heads, runs, lengths, classes, verdicts, order and once
+all 0.
+
+| | control | crossing pass |
+|---|---:|---:|
+| district, parked: crossing bag | 213 µs | **125 µs** |
+| district, parked: work mean / p95 | 11.02 / 12.82 ms | 10.31 / 11.57 ms |
+| district, driving: crossing bag | 201 µs | **136 µs** |
+| district, driving: work mean / p95 | 10.98 / 13.15 ms | 10.00 / 12.04 ms |
+| headline benchmark: missed of 1 000 | 3 / 3 / 3 / 4 | **0 / 0 / 0 / 0** |
+| headline benchmark: work p50 | 6.49-6.60 ms | 5.53-5.83 ms |
+
+**The A/B overstates the gain.** The rig's patch put its hook between
+`if (lean) classifyRoutes(...)` and its `else`, so the control arm also ran
+`packager.create` for every lean crossing bag. The control is therefore
+slower than shipped 2.12. Against 2.12.1's own figures (R10-A: ~190 µs a
+crossing bag; R9-B: benchmark p50 5.89-6.04 ms, 1 missed frame a run), the
+pass saves ~55-65 µs a crossing bag, about three quarters of what the A/B
+shows. Scaled the same way, the district gain is an estimated 0.5-0.75 ms a
+frame, not the measured 0.7-1.0 ms. The pass arm itself is unaffected: 0 missed
+frames in all 4 benchmark runs. The port leaves that `if / else` intact.
 
 ## Phase 3: the hot record (layout draft)
 

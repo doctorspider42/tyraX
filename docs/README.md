@@ -333,7 +333,9 @@ Developer design docs (internals, not user guides):
   records instead of scattered bag data (frame recording, stage-major flush,
   hot records, scratchpad streaming), phase by phase with PS2 measurements;
   since 2.12.0 the stamp record and stamp pass, their input epochs and the
-  revision contract every new writer must keep.
+  revision contract every new writer must keep; since 2.13.0 the crossing
+  pass (crossing bags classified in one pre-pass and sent from a per-bag
+  record).
 - [How TyraX uses the PS2's hardware](ps2-hardware-utilisation.md) — what
   each unit (EE, VU0, VU1, GS, DMA channels, scratchpad, IOP) does in a
   gameplay frame, three rebuild directions priced on a physical PS2 (the frame

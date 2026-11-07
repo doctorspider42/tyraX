@@ -467,6 +467,18 @@ class StaPipCore {
   bool partialBatch = true;
   bool streamClip = true;
   u8 partialReplay = 4;  // runs + per-package masks: PS2 run BA4 (docs/tyrax2-arch-audit-ee-submission-2026-10-20.md)
+#if TYRA_STAPIP_CROSSING_ON
+  // Modified by TyraX: the crossing pass - the stage-major classification
+  // of a flush's recorded crossing bags and the crossing record capture
+  // (stapip_crossing.hpp).
+  void crossClassify(const DeferredBag* list, u32 n, u32 planAt);
+  void crossCapture(StaPipBag* bag, u32 size, StaPipBagPackagesBBox* bbox, u32 n);
+#if TYRA_STAPIP_CROSSING_VERIFY
+  void crossVerifyClassify(const StaPipBag* bag, u32 n, const u8* routes,
+                           const u8* masks);
+#endif
+  M4x4 crossLastModel;
+#endif
   bool wholeClip() const {
     return streamClip && qbufferRenderer.isVU1ClippingEnabled();
   }

@@ -39,6 +39,8 @@ class StaPipBagPackager {
   void setCapturePlaneMasks(const bool& enabled) {
     capturePlaneMasks = enabled;
   }
+  // Modified by TyraX: the crossing pass reads the masks it keeps.
+  bool capturesPlaneMasks() const { return capturePlaneMasks; }
 
   /**
    * Modified by TyraX. Frustum planes pre-transformed into the current

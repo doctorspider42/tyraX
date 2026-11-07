@@ -96,6 +96,33 @@
 #if TYRA_STAPIP_STAMP_VERIFY && !(TYRA_STAPIP_STAMP && TYRA_STAPIP_STAMP_PASS)
 #error "TYRA_STAPIP_STAMP_VERIFY needs TYRA_STAPIP_STAMP and TYRA_STAPIP_STAMP_PASS"
 #endif
+// Modified by TyraX: the crossing pass (docs/dod-submission.md, "Phase 3,
+// second slice: the crossing pass"; stapip_crossing.hpp). A crossing bag
+// keeps a record of its package boxes and entries in its stamp slot; the
+// flush classifies every recorded crossing bag's packages in one pre-pass
+// and the stamp pass emits them from the record in list order. 0 is the
+// kill switch: crossing bags go down renderNow as in 2.12. Needs the stamp
+// pass; inert while TYRA_STAPIP_STAMP_VERIFY is on (the pass is dry there).
+#ifndef TYRA_STAPIP_CROSSING_PASS
+#define TYRA_STAPIP_CROSSING_PASS 1
+#endif
+// Modified by TyraX: verify the crossing pass. Nothing is sent from a
+// crossing record: every crossing draw is predicted dry, sent down the
+// general path and compared (classification, pre-pass verdicts, head and
+// runs word for word as the DMAC walks them, lengths, list order,
+// exactly-once); logs CROSSVERIFY (stapip_crossing.hpp).
+#ifndef TYRA_STAPIP_CROSSING_VERIFY
+#define TYRA_STAPIP_CROSSING_VERIFY 0
+#endif
+#if TYRA_STAPIP_CROSSING_PASS && TYRA_STAPIP_STAMP && TYRA_STAPIP_STAMP_PASS && \
+    !TYRA_STAPIP_STAMP_VERIFY
+#define TYRA_STAPIP_CROSSING_ON 1
+#else
+#define TYRA_STAPIP_CROSSING_ON 0
+#endif
+#if TYRA_STAPIP_CROSSING_VERIFY && !TYRA_STAPIP_CROSSING_ON
+#error "TYRA_STAPIP_CROSSING_VERIFY needs TYRA_STAPIP_CROSSING_PASS and the stamp pass (and not TYRA_STAPIP_STAMP_VERIFY)"
+#endif
 
 // Modified by TyraX: reuse immutable geometry on partial visibility too.
 // Combined physical qualification: docs/tyrax2-full-throttle.md.
@@ -951,6 +978,7 @@ class StaPipQBufferRenderer {
     void* core = nullptr;
     const RendererCoreSpotLight* noSpot = nullptr;
     u32 begun = 0;  // the once-a-flush setup ran (verify calls per draw)
+    void* cross = nullptr;  // Modified by TyraX: CrossPass::Flush (crossing pass)
   };
   /** The whole recorded list (dry: one draw, verify only), in order. */
   template <bool dry>
@@ -1447,6 +1475,39 @@ class StaPipQBufferRenderer {
   texbuffer_t* stampPassTexUse(const Texture* tex, u8 func, u32* ca, u32* cp,
                                u32* cl, bool dry);
   void stampPassTex0(qword_t* q, texbuffer_t* tb, u8 func, u32 ca, u32 cp, u32 cl);
+#if TYRA_STAPIP_CROSSING_ON
+  // Modified by TyraX: the crossing pass - a crossing draw emitted from its
+  // per-slot record (stapip_crossing.hpp).
+  void crossSweepAll();
+  void crossSweepDestroyed(u32 n);
+  bool crossWant(const PassContext& c, u32 li, const StaPipBag* bag,
+                 const M4x4* modelLive, int slot);
+  int crossEmit(PassContext& c, u32 li, int slot, StaPipBag* bag, bool qok,
+                bool needT, bool needL, bool moved, const Texture* tex, u8 func,
+                texbuffer_t* tb, u32 clutAddr, u32 clutPsm, u32 clutLoad,
+                const RendererCoreSpotLight* light, bool spotOn, const float* sp,
+                const texwrap_t* wanted, bool cand, bool receive);
+#if TYRA_STAPIP_CROSSING_VERIFY
+  void crossRunsDry(packet2_t* packet, const u8* routes, u32 count,
+                    const u8* clipMasks, StaPipBakedEntry* cull,
+                    StaPipBakedEntry* clip);
+  void crossVerifyCompare(const packet2_t* packet);
+#endif
+ public:
+  /** The general path's crossing head, before emitPartialRuns. */
+  void crossSnap();
+  /** A crossing-only stamp slot for a crossing bag with no stamp. */
+  void crossSynth(StaPipBag* bag, const Vec4& lo, const Vec4& hi, texbuffer_t* tb,
+                  const RendererCoreSpotLight* light, bool receive,
+                  const texwrap_t* wanted, bool batchSized);
+  int crossSlotFor(const StaPipBag* bag, u32 pp) const;
+  int crossCaptureSlot(const StaPipBag* bag, u32 size, u32 n);
+  bool hasStamps() const { return stamps != nullptr; }
+  void sweepStampsNow() {
+    if (stamps != nullptr) sweepStamps();
+  }
+ private:
+#endif
 #endif
 #endif
   bool bakedPartial = false;

@@ -10,10 +10,13 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: the stamp record and the stamp pass (TYRA_STAPIP_STAMP_PASS,
 # docs/dod-submission.md phase 3) and their input epochs.
+# Modified by TyraX: the crossing pass (TYRA_STAPIP_CROSSING_PASS): crossing
+# records, crossing-only stamp slots, crossing draws emitted by the stamp pass.
 */
 
 #include <malloc.h>  // Modified by TyraX: memalign (stamp records)
 #include "renderer/3d/pipeline/static/core/stapip_stamp_verify.hpp"  // Modified by TyraX
+#include "renderer/3d/pipeline/static/core/stapip_crossing.hpp"  // Modified by TyraX
 
 #include "math/math.hpp"
 #include "math/mmi.hpp"
@@ -3182,6 +3185,9 @@ bool StaPipQBufferRenderer::emitPartialRuns(const u8* routes, u32 count,
   lastProgramName = lastName;
   baked.countHit();
   ++partialRunHits;
+#if TYRA_STAPIP_CROSSING_VERIFY
+  crossVerifyCompare(packet);  // Modified by TyraX: crossing pass verify
+#endif
   finishPartialReplay();
   return true;
 }
@@ -3616,6 +3622,9 @@ void StaPipQBufferRenderer::sweepStamps() {
       stampKeys[i] = nullptr;
     }
     stampTableGen = gen;
+#if TYRA_STAPIP_CROSSING_ON
+    crossSweepAll();  // Modified by TyraX: the crossing records die too
+#endif
     baked.clearDestroyed();
     return;
   }
@@ -3630,6 +3639,9 @@ void StaPipQBufferRenderer::sweepStamps() {
         break;
       }
   }
+#if TYRA_STAPIP_CROSSING_ON
+  crossSweepDestroyed(n);  // Modified by TyraX: records on destroyed entries
+#endif
   baked.clearDestroyed();
 }
 
@@ -3703,6 +3715,9 @@ void StaPipQBufferRenderer::captureStamp() {
   if (s == nullptr) return;
   s->bag = bag;
   stampKeys[s - stamps] = bag;
+#if TYRA_STAPIP_CROSSING_ON
+  CrossPass::xonly[s - stamps] = 0;  // Modified by TyraX: a real stamp
+#endif
 #if TYRA_STAPIP_STAMP_PASS
   // Modified by TyraX: a capture rewrites the head; its record and
   // revision answers are void.
@@ -4578,6 +4593,616 @@ __attribute__((noinline)) void StaPipQBufferRenderer::stampPassTex0(
                          c->storage_mode, c->start, cl);
 }
 
+#if TYRA_STAPIP_CROSSING_ON
+// ===== Modified by TyraX: the crossing pass (TYRA_STAPIP_CROSSING_PASS) =====
+// docs/dod-submission.md, "Phase 3, second slice: the crossing pass"
+// (stapip_crossing.hpp). A crossing bag that owns a stamp is, word for word,
+// its stamp's head (the C / T / L groups re-derived by the stamp pass exactly
+// as for a stamp, minus the stamp's whole-arena REF) with the VU1 clip
+// block's REF inserted before the single colour (or the options), followed
+// by emitPartialRuns over the cull entry (= the stamp's entry) and the
+// record's clip entry. TYRA_STAPIP_CROSSING_VERIFY proves that equality
+// against the general path on every crossing draw.
+// The slot the stamp pass would find: hint, last frame's plan entry, probe.
+int StaPipQBufferRenderer::crossSlotFor(const StaPipBag* bag, u32 pp) const {
+  if (stamps == nullptr) return -1;
+  if (stampSlotHint && bag->stampSlot >= 0 && stamps[bag->stampSlot].bag == bag)
+    return bag->stampSlot;
+  if (stampPlan != nullptr && pp < kStampPlan && stampPlan[pp].bag == bag &&
+      stamps[stampPlan[pp].slot].bag == bag)
+    return stampPlan[pp].slot;
+  return stampSlot(bag);
+}
+
+void StaPipQBufferRenderer::crossSweepAll() {
+  if (CrossPass::xrecs == nullptr) return;
+  for (u32 i = 0; i < CrossPass::kSlots; ++i) CrossPass::xrecs[i].valid = 0;
+}
+
+void StaPipQBufferRenderer::crossSweepDestroyed(u32 n) {
+  if (CrossPass::xrecs == nullptr) return;
+  for (u32 i = 0; i < CrossPass::kSlots; ++i) {
+    CrossPass::XRec& xr = CrossPass::xrecs[i];
+    if (!xr.valid) continue;
+    for (u32 k = 0; k < n; ++k) {
+      const void* e = baked.destroyedAt(k);
+      if (e == xr.clip || e == xr.cull) {
+        xr.valid = 0;
+        break;
+      }
+    }
+  }
+}
+
+// After a successful lean partial replay of `bag` (bakedCurrent / bakedClip
+// still set): the slot whose crossing record to (re)build, with the entry
+// half filled, or -1.
+__attribute__((cold, noinline)) int StaPipQBufferRenderer::crossCaptureSlot(
+    const StaPipBag* bag, u32 size, u32 n) {
+  static_assert(CrossPass::kSlots == kStampSlots, "one crossing record per stamp slot");
+  if (CrossPass::xrecs == nullptr) {
+    CrossPass::xrecs = static_cast<CrossPass::XRec*>(
+        memalign(64, CrossPass::kSlots * sizeof(CrossPass::XRec)));
+    if (CrossPass::xrecs == nullptr) return -1;
+    memset(static_cast<void*>(CrossPass::xrecs), 0,
+           CrossPass::kSlots * sizeof(CrossPass::XRec));
+  }
+  const int slot = stamps != nullptr ? stampSlot(bag) : -1;
+  if (slot < 0 || stamps[slot].bag != bag) return -1;
+  const StampEntry* s = &stamps[slot];
+  StaPipBakedEntry* cull = bakedCurrent;
+  StaPipBakedEntry* clip = bakedClip;
+  if (cull == nullptr || clip == nullptr || s->entry != cull || !cull->complete ||
+      !clip->complete || s->serial != cull->serial || cull->arenaQw > 0xFFFFu ||
+      clip->arenaQw > 0xFFFFu || n > cull->packages || n > clip->packages)
+    return -1;
+  if (s->wrapBlock) return -1;
+  // The stamp's head ends with the whole-arena REF (replayWholeBakedBag).
+  if (s->qw < 3) return -1;
+  const qword_t& last = s->bytes[s->qw - 1];
+  if (((last.dw[0] >> 28) & 7U) != 3U ||
+      static_cast<u32>(last.dw[0] >> 32) !=
+          (reinterpret_cast<u32>(s->arena) & 0x0FFFFFFFU))
+    return -1;
+  const int cb = clipTight ? 1 : 0;
+  if (!vu1Clipping || clipBlockVifQw[cb] == 0) return -1;
+  const u32 ins = s->singleAt != 0 ? s->singleAt : s->optAt;
+  if (ins <= s->mvpAt || ins >= static_cast<u32>(s->qw - 1) ||
+      (s->spotActive && s->spotAt >= ins))
+    return -1;
+  CrossPass::XRec& xr = CrossPass::xrecs[slot];
+  if (xr.valid && xr.bag == bag && xr.vertices == bag->vertices &&
+      xr.count == static_cast<u32>(bag->count) && xr.bboxVersion == bag->bboxVersion &&
+      xr.cull == cull && xr.cullSerial == cull->serial && xr.clip == clip &&
+      xr.clipSerial == clip->serial && xr.clipArena == clip->arena &&
+      xr.maxVert == size && xr.n == n && xr.glob == DrawEpochs::g.glob &&
+      xr.prog == DrawEpochs::g.prog && xr.cb == cb && xr.ins == ins)
+    return -1;  // the same record
+  xr.valid = 0;
+  xr.cull = cull;
+  xr.cullSerial = cull->serial;
+  xr.clip = clip;
+  xr.clipSerial = clip->serial;
+  xr.clipArena = clip->arena;
+  xr.cb = static_cast<u8>(cb);
+  xr.ins = static_cast<u16>(ins);
+  return slot;
+}
+
+// The crossing draw the pre-pass classified at list index li, if it is this
+// bag with this model value.
+__attribute__((noinline)) bool StaPipQBufferRenderer::crossWant(
+    const PassContext& c, u32 li, const StaPipBag* bag, const M4x4* modelLive,
+    int slot) {
+  const CrossPass::Flush& F = *static_cast<const CrossPass::Flush*>(c.cross);
+  if (li >= F.n || F.vk[li] != CrossPass::VK_CROSS) return false;
+  const CrossPass::Cross& cr = F.cl[F.xi[li]];
+  return cr.bag == bag && cr.modelPtr == modelLive && cr.slot == slot &&
+         mmi::equal64(cr.model, stamps[slot].model.data);
+}
+
+// emitPartialRuns's pricing (5 qwords a clip block, a REF a cull run).
+static u32 crossNeed(const u8* routes, u32 count) {
+  u32 need = 0;
+  u8 last = 0;
+  for (u32 i = 0; i < count;) {
+    const u8 r = routes[i];
+    if (r == 0) { ++i; continue; }
+    u32 j = i + 1;
+    while (j < count && routes[j] == r) ++j;
+    if (r == 2) need += 5 * (j - i);
+    else need += (r != last && i > 0) ? 6 : 1;
+    last = r;
+    i = j;
+  }
+  return need;
+}
+
+#if TYRA_STAPIP_CROSSING_VERIFY
+namespace {
+// The clip header's plane mask is stored bit-reversed (emitPartialRuns).
+inline u32 crossReversedPlaneMask(u8 mask) {
+  if (mask == 0) mask = 0x3F;
+  u32 r = 0;
+  for (u32 i = 0; i < 6; ++i)
+    if (mask & (1u << i)) r |= 1u << (5 - i);
+  return r;
+}
+}  // namespace
+
+// emitPartialRuns's emission without its side effects (verify only): into
+// `packet` (a scratch view), the program name in force cleared as renderNow
+// clears it.
+void StaPipQBufferRenderer::crossRunsDry(packet2_t* packet, const u8* routes,
+                                         u32 count, const u8* clipMasks,
+                                         StaPipBakedEntry* cull,
+                                         StaPipBakedEntry* clip) {
+  StaPipBakedEntry* entries[3] = {nullptr, cull, clip};
+  StaPipProgramName lastName = StaPipUndefinedProgram;
+  auto emitBlock = [&](StaPipBakedEntry* e, StaPipVU1Program* program, u32 k,
+                       bool switched, int mask) {
+    const qword_t* block = e->arena + e->offsets[k];
+    qword_t* q = packet->next;
+    q[0].dw[0] = 2U | (static_cast<u64>(1) << 28);
+    q[0].dw[1] = block[0].dw[1];
+    q[1] = block[1];
+    q[2] = block[2];
+    u32& packed = reinterpret_cast<u32*>(q)[StaPipVU1Program::kPackedCountWord];
+    packed &= ~static_cast<u32>(VU1_STAPIP_EMIT_STATE_FLAG);
+    if (switched && program->emitsStateFlag(true))
+      packed |= VU1_STAPIP_EMIT_STATE_FLAG;
+    if (mask >= 0) {
+      packed &= ~(0x3Fu << VU1_STAPIP_CLIP_MASK_SHIFT);
+      packed |= crossReversedPlaneMask(static_cast<u8>(mask))
+                << VU1_STAPIP_CLIP_MASK_SHIFT;
+    }
+    packet->next = q + 3;
+    emitRef(packet, block + 3, e->sizes[k] - 4);
+    if (switched)
+      packet2_utils_vu_add_start_program(packet, program->getDestinationAddress());
+    else
+      packet2_utils_vu_add_continue_program(packet);
+  };
+  for (u32 i = 0; i < count;) {
+    const u8 r = routes[i];
+    if (r == 0) { ++i; continue; }
+    u32 j = i + 1;
+    while (j < count && routes[j] == r) ++j;
+    StaPipBakedEntry* e = entries[r];
+    auto* program = static_cast<StaPipVU1Program*>(const_cast<void*>(e->program));
+    const bool switched = program->getName() != lastName;
+    if (r == 2 && clipMasks != nullptr) {
+      for (u32 k = i; k < j; ++k)
+        emitBlock(e, program, k, switched && k == i, clipMasks[k]);
+    } else {
+      u32 from = i;
+      if (switched && i > 0) {
+        emitBlock(e, program, i, true, -1);
+        from = i + 1;
+      }
+      if (from < j) {
+        u32 qw = 0;
+        for (u32 k = from; k < j; ++k) qw += e->sizes[k];
+        emitRef(packet, e->arena + e->offsets[from], qw);
+      }
+    }
+    lastName = program->getName();
+    i = j;
+  }
+}
+
+// Verify: the general path's head + runs for the predicted bag, compared
+// word for word (called by emitPartialRuns before finishPartialReplay).
+__attribute__((cold, noinline)) void StaPipQBufferRenderer::crossVerifyCompare(
+    const packet2_t* packet) {
+  CrossPass::V& v = CrossPass::v;
+  if (!v.armed || v.curBag != v.bag || stampHead == nullptr) return;
+  if (++v.cmpWords > 1) return;
+  ++v.cmp;
+  if (CrossPass::curIdx != static_cast<int>(v.li)) ++v.order;
+  const qword_t* a = stampHead;
+  const u32 qw = static_cast<u32>(packet->next - stampHead);
+  const u32 m = qw < v.qw ? qw : v.qw;
+  // Semantic compare, walking the chain as the DMAC does. A DMA tag's PAD
+  // field (bits 16..25 of its first word) is never written by packet2's tag
+  // writer (packet2_chain_set_dma_tag sets QWC/PCE/ID/IRQ/ADDR/SPR by
+  // bitfield), so it carries whatever the buffer held before and the DMAC
+  // ignores it. Every other bit - tag QWC/ID/ADDR (REF targets), the tag's
+  // VIFcodes and every CNT payload word - must match exactly.
+  constexpr u32 kTagPad = 0x03FF0000U;
+  u32 i = 0;
+  bool padOnly = false;
+  while (i < m) {
+    const qword_t& s = a[i];
+    const qword_t& p = CrossPass::vWords[i];
+    const u32 id = (p.sw[0] >> 28) & 7U;
+    const u32 n = p.sw[0] & 0xFFFFU;
+    if ((s.sw[0] & ~kTagPad) != (p.sw[0] & ~kTagPad) || s.sw[1] != p.sw[1] ||
+        s.sw[2] != p.sw[2] || s.sw[3] != p.sw[3])
+      break;
+    if (s.sw[0] != p.sw[0]) padOnly = true;
+    if (id == 1U) {  // CNT: n payload qwords, exact
+      if (i + n >= m) break;  // payload past the end: a real (length) difference
+      u32 k = 1;
+      while (k <= n && memcmp(&a[i + k], &CrossPass::vWords[i + k], 16) == 0) ++k;
+      if (k <= n) { i += k; break; }
+      i += 1 + n;
+    } else if (id == 3U) {  // REF: the tag itself is the whole qword
+      i += 1;
+    } else {
+      break;  // a tag the writers never emit here: a real difference
+    }
+  }
+  if (padOnly && i == m && qw == v.qw) ++v.padOnly;
+  if (i != m || qw != v.qw) {
+    ++v.wordBad;
+    if (i < m) {
+      if (i < v.headQw) ++v.headBad; else ++v.runsBad;
+      CrossPass::logBug(i < v.headQw ? "head" : "runs", i, v.qw, qw, &a[i],
+                        &CrossPass::vWords[i]);
+    } else {
+      ++v.lenBad;
+      CrossPass::logBug("len", i, v.qw, qw, nullptr, nullptr);
+    }
+  }
+}
+#endif
+
+// The crossing draw at list index li (the stamp pass reached it straddling,
+// with every stamp check passed and the T / L answers resolved): emit it from
+// the record (1), or leave it to the general path (0). Verify: the
+// prediction only (always 0).
+__attribute__((noinline)) int StaPipQBufferRenderer::crossEmit(
+    PassContext& c, u32 li, int slot, StaPipBag* bag, bool qok, bool needT,
+    bool needL, bool moved, const Texture* tex, u8 func, texbuffer_t* tb,
+    u32 clutAddr, u32 clutPsm, u32 clutLoad, const RendererCoreSpotLight* light,
+    bool spotOn, const float* sp, const texwrap_t* wanted, bool cand,
+    bool receive) {
+  CrossPass::Flush& F = *static_cast<CrossPass::Flush*>(c.cross);
+  const CrossPass::Cross& cr = F.cl[F.xi[li]];
+  StampEntry* s = &stamps[slot];
+  StampRecord& r = stampRecs[slot];
+  StampRevision& x = stampRevs[slot];
+  CrossPass::XRec& xr = CrossPass::xrecs[slot];
+  const DrawEpochs::State& g = DrawEpochs::g;
+  // ---- the record's own facts (the stamp's were checked by the pass)
+  if (!xr.valid || xr.bag != bag || xr.n != cr.n) return 0;
+  auto* clip = static_cast<StaPipBakedEntry*>(const_cast<void*>(xr.clip));
+  if (xr.cull != s->entry || xr.cullSerial != s->entry->serial ||
+      clip->serial != xr.clipSerial || clip->arena != xr.clipArena ||
+      !clip->complete || xr.glob != g.glob || xr.prog != g.prog)
+    return 0;
+  const bool fullClip = qok ? x.fullClip != 0 : bag->info->fullClipChecks;
+  const bool tight = qok ? x.tight != 0 : bag->info->tightClipBand;
+  if (!fullClip || (tight ? 1 : 0) != xr.tight || s->wrapBlock) return 0;
+  if (!vu1Clipping || clipBlockVifQw[xr.cb] == 0) return 0;
+  const u8* routes = F.routes + cr.off;
+  const u8* masks = F.masks + cr.off;
+  const u32 n = cr.n;
+  const u32 hq = static_cast<u32>(s->qw) - 1;  // the head without the REF
+  const u32 ins = xr.ins;
+  const u32 need = crossNeed(routes, n);
+  qword_t clipRef;
+  clipRef.dw[0] = static_cast<u64>(clipBlockVifQw[xr.cb] & 0xFFFFU) |
+                  (static_cast<u64>(3) << 28) |
+                  (static_cast<u64>(reinterpret_cast<u32>(clipBlockVif[xr.cb]) &
+                                    0x0FFFFFFFU)
+                   << 32);
+  clipRef.dw[1] = 0;
+  const texwrap_t& repeat = RendererCoreGS::repeatWrap();
+#if TYRA_STAPIP_CROSSING_VERIFY
+  if (hq + 1 + need + 8 > CrossPass::kVWords) return 0;
+  {
+    const texwrap_t& inForce =
+        packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
+    if (!RendererCoreGS::wrapEquals(repeat, inForce)) return 0;
+  }
+  if (tex != nullptr && needT) {
+    tb = stampPassTexUse(tex, func, &clutAddr, &clutPsm, &clutLoad, true);
+    if (tb == nullptr) return 0;
+  }
+#else
+  RendererCoreTexture& T = rendererCore->texture;
+  {
+    // setSubmissionBatchCandidate(candidate, tex != nullptr) with renderNow's
+    // crossing candidacy: setPartialBatch, resident (the T answers), REPEAT.
+    bool rep = true;
+    if (tex != nullptr) {
+      if (xr.repTex != g.tex) {
+        xr.rep = tex->getWrapSettings()->horizontal == WRAP_REPEAT &&
+                         tex->getWrapSettings()->vertical == WRAP_REPEAT
+                     ? 1
+                     : 0;
+        xr.repTex = g.tex;
+      }
+      rep = xr.rep != 0;
+    }
+    const bool enabled = submissionBatchScope && F.partialBatch && rep;
+    if (objectDataPending &&
+        (!enabled || packet2_get_qw_count(packets[context]) + kWorstBagPacketSize >
+                         packetSize))
+      flushPendingPacket();
+    submissionBatchCandidate = enabled;
+    if (enabled && tex != nullptr) submissionPacketHasTexture = true;
+    if (enabled && telemetry) ++telemetry->submissionBatchEligibleBags;
+    const texwrap_t& inForce =
+        packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
+    if (!RendererCoreGS::wrapEquals(repeat, inForce)) return 0;
+    const u32 have = objectDataPending ? packet2_get_qw_count(packets[context]) : 0;
+    if (have + hq + 1 + need + 4 > packetSize) return 0;
+  }
+  if (!billboardsResident && billboardSetActive) ensureProgramSet(false);
+  if (tex != nullptr) {
+    if (needT) {
+      tb = stampPassTexUse(tex, func, &clutAddr, &clutPsm, &clutLoad, false);
+    } else {
+      T.touchResident(r.allocIdx);
+      T.clut.psm = r.clutPsm;
+      T.clut.load_method = r.clutLoad;
+      T.clut.address = r.clutAddr;
+      tb->info.function = func;
+    }
+  }
+#endif
+  // ---- the head, in the stamp's layout: the stamp pass's words exactly
+  // (the camera group always re-derived: a crossing draw never has r.cam).
+  alignas(16) qword_t h[kStampMaxQw];
+#pragma GCC unroll 1
+  for (u32 i = 0; i < hq; ++i) h[i] = s->bytes[i];
+  {
+    qword_t* mq = &h[s->mvpAt + 1];
+    if ((r.flags & kRecIdent) != 0) {
+      const qword_t* id = reinterpret_cast<const qword_t*>(stampFrame.mvpIdent.data);
+      mq[0] = id[0];
+      mq[1] = id[1];
+      mq[2] = id[2];
+      mq[3] = id[3];
+    } else {
+      stampMvp(reinterpret_cast<float*>(mq), c.viewProj->data, s->model.data);
+    }
+    if (stampFrame.glob != g.glob) buildStampFog(rendererCore);
+    stampFogWords(h[s->optAt + 1], reinterpret_cast<const float*>(mq), s->fogOff,
+                  s->fogEligible, s->lo, s->hi);
+  }
+  if (needT && s->hasTex0 && tb != nullptr)
+    stampPassTex0(&h[s->tex0At], tb, func, clutAddr, clutPsm, clutLoad);
+  if (needL && s->spotActive) memcpy(&h[s->spotAt + 1], sp, 12 * sizeof(float));
+  if (s->singleAt != 0)
+    memcpy(&h[s->singleAt + 1], qok ? x.single->rgba : bag->color->single->rgba, 16);
+  if (s->envAt != 0) stampEnvWords(&h[s->envAt + 1], bag);
+#if TYRA_STAPIP_CROSSING_VERIFY
+  (void)moved;
+  (void)light;
+  (void)spotOn;
+  (void)wanted;
+  (void)cand;
+  (void)receive;
+  qword_t* dst = CrossPass::vWords;
+#else
+  // The T / L halves of the stamp's record (never its camera group: that
+  // would claim the bag visible as a stamp under this camera).
+  commitRecord(s, h, false, needT, needL, moved, wanted, tb, light, spotOn, cand,
+               clutAddr, clutPsm, clutLoad, func, receive);
+  packet2_t* packet = packets[context];
+  if (!objectDataPending) {
+    startPacket(packet);
+    packetWrapSet = false;
+  }
+  qword_t* dst = packet->next;
+#endif
+#pragma GCC unroll 1
+  for (u32 i = 0; i < ins; ++i) dst[i] = h[i];
+  dst[ins] = clipRef;
+#pragma GCC unroll 1
+  for (u32 i = ins; i < hq; ++i) dst[i + 1] = h[i];
+  auto* cull = s->entry;
+#if TYRA_STAPIP_CROSSING_VERIFY
+  packet2_t view = *packets[context];
+  view.base = view.next = CrossPass::vWords + hq + 1;
+  view.tag_opened_at = nullptr;
+  view.vif_code_opened_at = nullptr;
+  crossRunsDry(&view, routes, n, masks, cull, clip);
+  CrossPass::V& v = CrossPass::v;
+  if (v.armed) ++v.once;  // a prediction left over from an earlier draw
+  v.armed = 1;
+  v.li = li;
+  v.bag = bag;
+  v.curBag = nullptr;
+  v.qw = static_cast<u32>(view.next - CrossPass::vWords);
+  v.headQw = hq + 1;
+  v.n = n;
+  v.routes = routes;
+  v.masks = masks;
+  v.cmpWords = 0;
+  v.cmpCls = 0;
+  ++v.preds;
+  return 0;
+#else
+  (void)li;
+  packet->next = dst + hq + 1;
+  bakedCurrent = cull;
+  bakedClip = clip;
+  bakedPartial = true;
+  lastProgramName = StaPipUndefinedProgram;  // renderNow's clearLastProgramName
+  const bool ok = emitPartialRuns(routes, n, masks);
+  bakedCurrent = nullptr;
+  if (!ok) {  // priced above, so never: undo the head, the general path decides
+    packet->next = dst;
+    return 0;
+  }
+  // replayWholeBakedBag / acquire's liveness for both entries, the stamp's
+  // recency (tryStamp's bookkeeping).
+  cull->framesLeftToDestroy = StaPipBakedStreams::kLifetimeFrames;
+  clip->framesLeftToDestroy = StaPipBakedStreams::kLifetimeFrames;
+  s->frame = stampHits + stampCaptures;
+  return 1;
+#endif
+}
+
+// The general path's crossing head, just before emitPartialRuns (which may
+// send the packet): [stampHead, next) and sendObjectData's stamp offsets.
+void StaPipQBufferRenderer::crossSnap() {
+  CrossPass::Snap& sn = CrossPass::snap;
+  sn.ok = 0;
+  if (stampHead == nullptr) return;
+  const u32 qw = static_cast<u32>(packets[context]->next - stampHead);
+  if (qw == 0 || qw > kStampMaxQw) return;
+#pragma GCC unroll 1
+  for (u32 i = 0; i < qw; ++i) sn.q[i] = stampHead[i];
+  sn.qw = qw;
+  sn.mvpAt = stampMvpAt;
+  sn.optAt = stampOptAt;
+  sn.tex0At = stampTex0At;
+  sn.spotAt = stampSpotAt;
+  sn.singleAt = stampSingleAt;
+  sn.envAt = stampEnvAt;
+  sn.fogEligible = stampFogEligible;
+  sn.hasTex0 = stampHasTex0;
+  sn.spotActive = stampSpotActive;
+  sn.fogOff = stampFogOff;
+  sn.wrapBlock = stampWrapBlock;
+  sn.ok = 1;
+}
+
+// A crossing-only stamp slot for a bag that has none (a bag that has never been
+// wholly visible - a chunk under the car, everything straddling a parked
+// view - never earns a real stamp, so its crossing record would have nowhere
+// to live). Built from this general draw's crossing head (the snapshot) exactly
+// as captureStamp builds a stamp from a whole replay's head: the clip REF is
+// taken out, the whole-arena REF appended, the offsets behind the clip REF
+// moved back by one. The record gets every T / L answer of this draw, as
+// afterFullStamp's refresh does, and NEVER the camera group. CrossPass::xonly
+// marks the slot: tryStamp rejects it, the stamp pass sends it only as a crossing
+// draw, a real capture (captureStamp) clears it.
+__attribute__((cold, noinline)) void StaPipQBufferRenderer::crossSynth(
+    StaPipBag* bag, const Vec4& lo, const Vec4& hi, texbuffer_t* tb,
+    const RendererCoreSpotLight* light, bool receive, const texwrap_t* wanted,
+    bool batchSized) {
+  if (!stampEnabled || stamps == nullptr) return;
+  if (stampSlot(bag) >= 0) return;
+  const CrossPass::Snap& sn = CrossPass::snap;
+  if (bag->billboard != nullptr || bag->lighting != nullptr ||
+      bag->info->transformationType != TyraMVP || repository.hasAnyOverride() ||
+      vuCustomEnabled || !kInlineUniforms) return;
+  if (!sn.ok || sn.wrapBlock || sn.mvpAt != 1 || sn.optAt == 0 ||
+      (sn.spotActive && sn.spotAt == 0)) return;
+  // sendObjectData's order: ... MVP, [spot], clip REF, [single], options ...
+  const u32 p = static_cast<u32>(sn.singleAt != 0 ? sn.singleAt : sn.optAt) - 1;
+  const int cb = clipTight ? 1 : 0;
+  if (!vu1Clipping || clipBlockVifQw[cb] == 0 || p < static_cast<u32>(sn.mvpAt) + 5 ||
+      (sn.spotActive && static_cast<u32>(sn.spotAt) + 4 > p) ||
+      (sn.envAt != 0 && sn.envAt < p) || p >= sn.qw) return;
+  qword_t clipRef;
+  clipRef.dw[0] = static_cast<u64>(clipBlockVifQw[cb] & 0xFFFFU) |
+                  (static_cast<u64>(3) << 28) |
+                  (static_cast<u64>(reinterpret_cast<u32>(clipBlockVif[cb]) &
+                                    0x0FFFFFFFU)
+                   << 32);
+  clipRef.dw[1] = 0;
+  if (memcmp(&sn.q[p], &clipRef, 16) != 0) return;
+  StaPipBakedEntry* entry = bakedCurrent;
+  if (entry == nullptr || !entry->complete || entry->arenaQw == 0 ||
+      entry->arenaQw > 0xFFFFu) return;
+  const u32 qw = sn.qw;  // (qw - 1) head words without the clip REF + 1 REF
+  if (qw > kStampMaxQw) return;
+  StampEntry* s = findStamp(bag, true);
+  if (s == nullptr) return;
+  const u32 slot = static_cast<u32>(s - stamps);
+  // ---- as captureStamp
+  s->bag = bag;
+  stampKeys[slot] = bag;
+  stampRecs[slot].flags = 0;
+  stampRevs[slot].clsRev = 0;
+  stampBakedOf[slot] = entry;
+  s->lo = lo;
+  s->hi = hi;
+  s->model = *bag->info->model;
+  s->modelPtr = bag->info->model;
+  stampWorldBox(*s);
+  s->vertices = bag->vertices;
+  s->texture = bag->texture != nullptr ? bag->texture->texture : nullptr;
+  s->info = bag->info;
+  memcpy(s->infoBytes, bag->info, sizeof(StaPipInfoBag));
+  s->colorSingle = bag->color->single;
+  s->sts = bag->texture != nullptr ? bag->texture->coordinates : nullptr;
+  s->colors = bag->color->many;
+  s->stripped = bag->stripped ? 1 : 0;
+  s->entry = entry;
+  s->arena = entry->arena;
+  s->count = static_cast<u32>(bag->count);
+  s->bboxVersion = bag->bboxVersion;
+  s->contentStamp = stampContent(bag);
+  s->eraseGen = baked.eraseGeneration();
+  s->serial = entry->serial;
+  const float depthScale = RendererCoreDepth::scale;
+  memcpy(&s->depthScaleBits, &depthScale, sizeof(u32));
+  s->residentClasses = residentClasses;
+  s->primKey = stampPrimKey(bag);
+  auto back = [p](u16 at) -> u16 {
+    return at == 0 ? 0 : static_cast<u16>(at > p ? at - 1 : at);
+  };
+  s->qw = static_cast<u16>(qw);
+  s->mvpAt = sn.mvpAt;
+  s->optAt = back(sn.optAt);
+  s->tex0At = back(sn.tex0At);
+  s->hasTex0 = sn.hasTex0;
+  s->fogEligible = sn.fogEligible;
+  s->spotActive = sn.spotActive;
+  s->fogOff = sn.fogOff;
+  s->wrapBlock = 0;
+  s->wrap = texwrap_t{};
+  s->singleAt = back(sn.singleAt);
+  s->envAt = back(sn.envAt);
+  s->batchSized = batchSized ? 1 : 0;
+  s->spotAt = sn.spotAt;
+  s->program = static_cast<const StaPipVU1Program*>(entry->program)->getName();
+  for (u32 i = 0; i < p; ++i) s->bytes[i] = sn.q[i];
+  for (u32 i = p + 1; i < qw; ++i) s->bytes[i - 1] = sn.q[i];
+  qword_t& ref = s->bytes[qw - 1];
+  ref.dw[0] = static_cast<u64>(entry->arenaQw & 0xFFFFU) | (static_cast<u64>(3) << 28) |
+              (static_cast<u64>(reinterpret_cast<u32>(entry->arena) & 0x0FFFFFFFU)
+               << 32);
+  ref.dw[1] = 0;
+  s->frame = stampHits + stampCaptures;
+  bag->stampSlot = static_cast<s16>(slot);
+  CrossPass::xonly[slot] = 1;
+  // ---- the record: this draw's T / L answers (afterFullStamp's refresh),
+  // no camera group (r.cam 0: a crossing-only slot is never "visible").
+  const DrawEpochs::State& g = DrawEpochs::g;
+  resolveLightEpoch(rendererCore);
+  RendererCoreTexture& T = rendererCore->texture;
+  const Texture* tex = static_cast<const Texture*>(s->texture);
+  StampRecord& r = stampRecs[slot];
+  r.bag = bag;
+  r.cam = 0;
+  r.camSeen = 0;
+  r.light = g.light;
+  r.tex = g.tex;
+  r.glob = g.glob;
+  r.prog = g.prog;
+  r.wanted = wanted;
+  r.tb = tb;
+  r.lightPtr = light;
+  const s32 idx = tex != nullptr ? T.residentIndex(tex) : -1;
+  r.allocIdx = static_cast<s16>(idx);
+  r.clutAddr = T.clut.address;
+  r.clutPsm = static_cast<u8>(T.clut.psm);
+  r.clutLoad = static_cast<u8>(T.clut.load_method);
+  r.func = tex != nullptr ? bag->texture->textureFunction : 0;
+  const bool repeatNow = tex == nullptr ||
+                         (tex->getWrapSettings()->horizontal == WRAP_REPEAT &&
+                          tex->getWrapSettings()->vertical == WRAP_REPEAT);
+  const bool cand = s->batchSized != 0 || (stampBatchAnySize && repeatNow);
+  r.flags = static_cast<u8>(
+      kRecValid | (sn.spotActive ? kRecSpotOn : 0) | (cand ? kRecCand : 0) |
+      (tex != nullptr ? kRecTextured : 0) | (receive ? kRecReceive : 0) |
+      ((tex != nullptr && idx >= 0 && tex->vramResident == nullptr) ? kRecTexCache
+                                                                     : 0) |
+      (isIdentityMatrix(s->model) ? kRecIdent : 0));
+}
+
+#endif
+
 // The stamp pass over list[0, n) (list[0] is list index `at`, frame-plan
 // position `planAt`), in list order. A draw the pass cannot take goes down
 // renderNow through c.general from inside the loop, so one call is the
@@ -4690,6 +5315,9 @@ u32 StaPipQBufferRenderer::stampPass(const PassDraw* list, u32 n, PassContext& c
     }
     // ---- C: visibility (a record exists only for a stamp that passed it
     // under r.cam with this model).
+#if TYRA_STAPIP_CROSSING_ON
+    bool xing = false;  // Modified by TyraX: a crossing draw (crossing pass)
+#endif
     const bool needC = moved || r.cam != cam;
     if (needC) {
       const bool fullClip = qok ? x.fullClip != 0 : bag->info->fullClipChecks;
@@ -4715,8 +5343,24 @@ u32 StaPipQBufferRenderer::stampPass(const PassDraw* list, u32 n, PassContext& c
         }
         continue;
       }
+#if TYRA_STAPIP_CROSSING_ON
+      if (vis == 2) {
+        // Modified by TyraX: straddling - a crossing draw the pre-pass
+        // classified goes on through the stamp checks (crossing pass).
+        if (dry || c.cross == nullptr || !crossWant(c, at + k, bag, modelLive, slot))
+          goto general;
+        xing = true;
+      }
+#else
       if (vis == 2) goto general;
+#endif
     }
+#if TYRA_STAPIP_CROSSING_ON
+    // Modified by TyraX: a crossing-only slot goes on only as a crossing
+    // draw (a visible or straddling-in-band one is the general path's, as
+    // if it had no stamp; an in-pass cull is the same either way).
+    if (CrossPass::xonly[slot] && !xing) goto general;
+#endif
     // ---- epochs (read live: a general draw inside the run may move them)
     if (r.glob != g.glob || r.prog != g.prog || !RendererCore::fastLightPick)
       goto general;
@@ -4793,6 +5437,26 @@ u32 StaPipQBufferRenderer::stampPass(const PassDraw* list, u32 n, PassContext& c
       }
       dst = StampVerify::v.words;
     } else {
+#if TYRA_STAPIP_CROSSING_ON
+      if (xing) {  // Modified by TyraX: emitted from the crossing record
+        if (crossEmit(c, at + k, slot, bag, qok, needT, needL, moved, tex, func, tb,
+                      clutAddr, clutPsm, clutLoad, light, spotOn, sp, wanted, cand,
+                      receive) == 1) {
+          const u32 pp = planAt + k;
+          if (pp < kStampPlan) {
+            StampPlan& p = stampPlan[pp];
+            p.bag = bag;
+            p.info = bag->info;
+            p.model = modelLive;
+            p.entry = s->entry;
+            p.slot = slot;
+            p.contentWord = qok ? x.cv[0] : nullptr;
+          }
+          continue;
+        }
+        goto general;
+      }
+#endif
       // setSubmissionBatchCandidate(cand, tex != nullptr), inline.
       const bool enabled = submissionBatchScope && cand;
       if (objectDataPending &&
@@ -4924,6 +5588,9 @@ u32 StaPipQBufferRenderer::stampPass(const PassDraw* list, u32 n, PassContext& c
     if (dry) return 0;
     // Down the general path from inside the run, in list order.
     c.general(c.core, at + k);
+#if TYRA_STAPIP_CROSSING_VERIFY
+    CrossPass::afterGeneral(at + k);  // Modified by TyraX: crossing pass verify
+#endif
     stampPassAfterGeneral();
   }
   return n;
@@ -4966,6 +5633,10 @@ bool StaPipQBufferRenderer::tryStamp(StaPipBag* bag, const M4x4& viewProj,
   sweepStamps();
   StampEntry* s = findStamp(bag, false);
   if (s == nullptr) STAMP_REJECT(1);
+#if TYRA_STAPIP_CROSSING_ON
+  // Modified by TyraX: a crossing-only slot is no stamp.
+  if (CrossPass::xonly[s - stamps]) return false;
+#endif
   // Producer-owned facts: the same bag, the same streams, the same versions.
   if (s->vertices != bag->vertices || s->count != static_cast<u32>(bag->count) ||
       s->bboxVersion != bag->bboxVersion || s->info != bag->info ||

@@ -5618,8 +5618,18 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 12
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 13
+#define TYRAX_VERSION_PATCH 0
+// 2.13.0: the StaPip crossing pass (docs/dod-submission.md, "Phase 3, second
+// slice"; TYRA_STAPIP_CROSSING_PASS, verify TYRA_STAPIP_CROSSING_VERIFY,
+// architecture loop R11-A). A crossing bag keeps a record of its merged
+// package boxes and baked entries in its stamp slot (a crossing-only slot if
+// it has no stamp, fenced off from tryStamp); the flush classifies every
+// recorded crossing bag's packages in one pre-pass and the stamp pass emits
+// them from the record in list order. PS2: crossing bag 213 -> 125 us parked,
+// 201 -> 136 us driving (the rig's control also ran packager.create, so
+// ~55-65 us against 2.12.1); headline benchmark 0 missed frames in 4 runs;
+// verify clean over 226 719 crossing draws. Engine only, MINOR.
 // 2.12.1: terrain chunks built ahead of need and to a per-frame time budget
 // (docs/terrain.md, "Built to a time budget"; architecture loop R9-B).
 // TERRAIN_CHUNK_BUDGET_US (700) caps a frame's chunk geometry + pre-bake; a
