@@ -5619,7 +5619,10 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 13
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
+// 2.13.1: crossSynth gives a crossing-only slot only to a bag that wants REPEAT
+// (crossEmit never writes a wrap block); a CLAMP bag captured under the same
+// CLAMP could otherwise be sent under REPEAT (docs/dod-submission.md).
 // 2.13.0: the StaPip crossing pass (docs/dod-submission.md, "Phase 3, second
 // slice"; TYRA_STAPIP_CROSSING_PASS, verify TYRA_STAPIP_CROSSING_VERIFY,
 // architecture loop R11-A). A crossing bag keeps a record of its merged

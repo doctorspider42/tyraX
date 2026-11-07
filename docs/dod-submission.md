@@ -407,6 +407,15 @@ draw (otherwise it goes general, as if it had no stamp), and a real
 `captureStamp` clears the mark. New code that reads stamp slots must keep
 this fence.
 
+**Only a bag that wants REPEAT gets a crossing-only slot (2.13.1).**
+`crossEmit` emits only with REPEAT in force and never writes a wrap block.
+A CLAMP bag captured right after another bag with the same CLAMP has no
+block in its head. In 2.13.0 such a bag could get a slot and later be sent
+under REPEAT with the wrong wrap. It needs two consecutive crossing bags
+with the same non-REPEAT wrap, so the verify scenes never produced one; it
+was found by reading the code. `crossSynth` now refuses that bag, and it
+stays on the general path.
+
 ### The pre-pass
 
 At each recorded-list flush, before the stamp pass, `crossClassify` runs

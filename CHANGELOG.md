@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.13.1
+
+- Fixed a rare case where a clamped texture on an object at the edge of the screen could be drawn as if it repeated (only right after another object with the same clamped texture). Introduced in 2.13.0.
+
 ## 2.13.0
 
 - The crate-field drive now holds 60 fps on a PS2: objects cut by the edge of the screen are drawn faster. Each one remembers how its pieces are laid out and how it was sent last time, and all of a frame's such objects are sorted into seen, cut and hidden pieces by one short loop. Measured on a PS2: 0 dropped frames in 4 runs of the recorded crash drive through the crates (2.12 dropped one to four), and an object cut by the screen edge costs about a third less. Rebuild games to use it.

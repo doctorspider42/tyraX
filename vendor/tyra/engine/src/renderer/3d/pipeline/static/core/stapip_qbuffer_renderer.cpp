@@ -5086,6 +5086,13 @@ __attribute__((cold, noinline)) void StaPipQBufferRenderer::crossSynth(
       vuCustomEnabled || !kInlineUniforms) return;
   if (!sn.ok || sn.wrapBlock || sn.mvpAt != 1 || sn.optAt == 0 ||
       (sn.spotActive && sn.spotAt == 0)) return;
+  // Modified by TyraX (2.13.1): a crossing-only slot is only ever emitted with
+  // REPEAT in force and no wrap block (crossEmit), so it may only hold a bag
+  // that WANTS REPEAT. A CLAMP bag captured while the same CLAMP was already
+  // in force has no block in its head; emitted later under REPEAT it would
+  // sample with the wrong wrap. Such a bag stays on the general path.
+  if (wanted == nullptr ||
+      !RendererCoreGS::wrapEquals(*wanted, RendererCoreGS::repeatWrap())) return;
   // sendObjectData's order: ... MVP, [spot], clip REF, [single], options ...
   const u32 p = static_cast<u32>(sn.singleAt != 0 ? sn.singleAt : sn.optAt) - 1;
   const int cb = clipTight ? 1 : 0;
