@@ -13,7 +13,7 @@ real eyes, and motion-captured movement.
 
 | | |
 |---|---|
-| Body | five game topologies at three detail levels - Crowd (one, ~1900 triangles), Standard (a woman's and a man's, ~4200), Hero (a woman's and a man's, ~10300) - native slider targets and separately rigged eyes |
+| Body | five game topologies at three detail levels - Crowd (one, ~1850 triangles), Standard (a woman's and a man's, ~4000), Hero (a woman's and a man's, ~10500) - native slider targets and separately rigged eyes |
 | Rig | 35 Mixamo-named bones: spine, neck, head, arms, legs, two-bone thumb, index and fingers |
 | Texture | one atlas, 128 / 256 / 512 square, 8-bit on the console; face ≈ 80 px wide at 256 |
 | Shape | 96 macro targets (gender, age, muscle, weight, ancestry) + 76 detail sliders |
@@ -100,30 +100,28 @@ motion clips. See the [kit build](../tools/chargen-kit/README.md) and
 
 ### Why the runtime never sees MakeHuman's files
 
-A MakeHuman target is a sparse delta on the 19158-vertex reference mesh, and
-the game body is a proxy that RIDES that mesh (three reference vertices and
-barycentric weights per vertex, plus an offset scaled by three reference
-distances). That fit is linear in the reference positions apart from those
-three scale factors, so a target's effect on OUR vertices can be computed once,
-offline, and stored as a delta - with its effect on every rig joint beside it.
-The runtime blends ~200 small int16 arrays instead of carrying the reference
-mesh and the fitting code. Measured: the kit's blend agrees with fitting the
-proxy to the fully morphed reference to **2.6 µm**.
+The offline kit projects MakeHuman shape targets onto a reference surface.
+For each vertex of the custom body, it samples the nearest reference triangle
+and interpolates its joint weights and shape deltas. The editor blends these
+stored values when a slider moves. The game loads the resulting skinned mesh.
 
 ## The body
 
-The studio meshes share the same 50-bone rig. Each rest surface includes
-sculpted cheek, jaw, throat and shoulder contours. The build splits edges
-selectively and transfers all sparse morphs and skin weights to their new
-vertices. A surface-bound garment follows the deformed body as the sliders move.
+The torso, pelvis, arms and legs are built from anatomical cross sections.
+Separate profiles shape the rib cage, shoulder cap, hips, thighs and calves.
+The build joins the articulated hands, feet and previously fitted head to five
+closed borders. Those retained regions, the source skin and the slider and
+joint data are derived from MakeHuman. The completed body has a single
+skin surface across each attachment. Garments bind to the finished mesh.
+The editable hero bodies are in the [Blender scene](../examples/character-generator/authoring/studio-bodies.blend).
 
 ### Detail: crowd, standard, hero
 
 | Detail | Bare body, including eyes | Use |
 |---|---|---|
-| Crowd | 1,904 triangles, shared topology | Background pedestrians |
-| Standard | 4,156 female / 4,188 male | The main cast |
-| Hero | 10,362 female / 10,302 male | Close shots |
+| Crowd | 1,852 triangles, shared topology | Background pedestrians |
+| Standard | 3,974 female / 4,000 male | The main cast |
+| Hero | 10,502 female / 10,478 male | Close shots |
 
 Detail is in the recipe (`"detail": 0/1/2`, written only when not standard)
 and the AI's `create_character` takes it (a crowd defaults to the crowd body).
@@ -132,14 +130,10 @@ and the AI's `create_character` takes it (a crowd defaults to the crowd body).
 iris painted into the atlas and recoloured by the *Eye colour* control. The old
 body had holes where the eyes go, which is why its characters stared white.
 
-**The atlas is re-packed for the PS2.** MakeHuman's UV layout is made for
-2048-square photo skins and gives the face a fifth of the width - a 50-pixel
-face at 256. `kit_body.py` keeps every island's SHAPE (so a MakeHuman skin
-still maps onto it) but rescales them before packing - head ×1.55, arms ×1.25,
-hands ×0.9, feet ×0.8, the mouth cavity ×0.3 - and cuts the torso/limbs island
-into five pieces, because MakeHuman unwraps torso, arms and legs as one
-starfish no packer fits tightly. Fill went from 65% to 77% of the square, and
-the face is ~330 texels wide at the kit's 1024.
+**Skin atlas.** The kit unwraps the custom skin and packs it alongside the
+retained UV islands. Skin colour, eyes, brows, lashes and masks transfer
+to the new layout per texel. The diffuse adds subtle local shading along
+the clavicles, the rib margin and the shoulder blades.
 
 **Dimorphism.** MakeHuman's average man and woman are close in the face, and
 a generated man read as soft. The *Dimorphism* slider (default 0.6) moves a
@@ -1304,4 +1298,4 @@ argument for having the live window at all:
 | `src/game_templates.inc` | the game side: `setupAnimObject`, `updateFace`, `updateSprings`, `applyLook` and the creator screen (`updateCharCreator` / `creatorCamera` / `renderCharCreator`). |
 | `src/main.cpp` | `--chargen`. |
 | `src/viewport.cpp` | `renderCharacterPreview` on its **own** framebuffer, sharing `drawToolPreview` with the Tree Generator. |
-| `tools/chargen-kit/` | the offline kit build: `fetch_sources.py`, `kit_body.py`, `studio_bodies.py`, `studio_topology.py`, `studio_gear.py`, `anim_retarget.py`, `build_kit.py`, `make_kit.py`; artwork in `studio/`, rig definitions in `rig.py`, `kit_body_masks.py`. See its README. |
+| `tools/chargen-kit/` | the offline kit build: `fetch_sources.py`, `kit_body.py`, `studio_bodies.py`, `studio_topology.py`, `custom_body.py`, `body_atlas.py`, `studio_gear.py`, `anim_retarget.py`, `build_kit.py`, `make_kit.py`; artwork in `studio/`, rig definitions in `rig.py`, `kit_body_masks.py`. See its README. |

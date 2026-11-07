@@ -83,10 +83,7 @@ struct GarmentData {
     bool offMeters = false;        // bindOff in metres, not body units (an imported custom item)
 };
 
-// One game body. Body 0 is MakeHuman's female1605 proxy, body 1 (if present)
-// male1591: one topology cannot serve both - the female one's breast loops
-// give a man a bust. Every chunk of body N is named with its prefix ("" or
-// "m/"), images included ("img/m/skin/...").
+// Each body owns its topology, skinning, atlas layers and sparse slider targets.
 struct Body {
     std::string prefix;
     // What it is for (kit "bodies"): detail "crowd" / "standard" / "hero",

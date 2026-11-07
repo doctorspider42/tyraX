@@ -11,13 +11,9 @@ editor at build time - see CMakeLists.txt).
   targets_dir  a checkout of makehuman/data/targets (macrodetails/, nose/, ...)
   anims.json   anim_retarget.py's output (optional)
 
-Why the runtime never sees MakeHuman's own files: a target is a sparse delta
-on the 19158-vertex reference mesh, and the game mesh is a 1700-vertex proxy
-that RIDES that mesh. Evaluating the proxy against a morphed reference is
-linear in the reference's positions apart from three scale factors, so a
-target's effect on the proxy can be computed once, here, as a delta on OUR
-vertices - and the editor blends ~200 small arrays instead of carrying 120 MB
-of MakeHuman data and the fitting code that reads it.
+This stage samples each MakeHuman target on the reference proxies. The
+studio body pass then transfers those deltas and rig weights onto the new
+torso and limbs. The editor can blend the resulting sparse arrays directly.
 
 File format (little-endian), deliberately trivial so C++ reads it in 40 lines:
   'TXCK' u32 version u32 count

@@ -1,6 +1,5 @@
 """Fit the interchangeable studio meshes to the generator's five neutral bodies."""
 
-import io
 from pathlib import Path
 
 import numpy as np
@@ -536,13 +535,15 @@ def bindings(points, positions, triangles, allowed):
     ids = np.flatnonzero(allowed)
     faces = positions[triangles[ids]]
     centers = faces.mean(axis=1)
+    from scipy.spatial import cKDTree
+
+    tree = cKDTree(centers)
     selected = []
     bary = []
     for start in range(0, len(points), 96):
         pt = points[start : start + 96, None, :]
-        distances = np.sum((pt - centers) ** 2, axis=2)
         k = min(24, len(ids))
-        near = np.argpartition(distances, k - 1, axis=1)[:, :k]
+        _, near = tree.query(pt[:, 0], k=list(range(1, k + 1)))
         a, b, c = np.moveaxis(faces[near], 2, 0)
         e, f = b - a, c - a
         dot = lambda x, y: np.sum(x * y, axis=-1)

@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.11.0
+
+- The Character Generator builds custom torsos, arms and legs for both body presets at all three detail levels. Existing sliders, hairstyles, clothing and animations fit the new mesh.
+
 ## 2.10.0
 
 - **Batch grouping cell** (Preferences > Static object batching). The width of the grid static batches are grouped in is now a project setting; *auto* keeps the cell every project used so far. A smaller cell merges fewer sparse props but leaves fewer batches crossing the edge of the screen, which cost the PS2 about 1.7 times a whole batch. Measured on a PS2: in a copy of the Vehicle Playground with a 129-crate field, 48 instead of 80 leaves 11 instead of 13.5 crossing batches a frame and takes 0.15-0.2 ms off draw submission; in the shipped Motor District it is neutral to slightly worse (p95 +0.2-0.5 ms), so the example keeps *auto*. See `docs/static-batching.md`, "The grouping cell".

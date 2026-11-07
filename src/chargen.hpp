@@ -67,7 +67,7 @@ struct Params {
     // softer jaw and larger eyes. Scaled down for children.
     float dimorphism = 0.6f;
     // Crowd uses one ~1.9k-triangle body. Standard and hero each use two
-    // body topologies (~4.2k and ~10.3k). All support the same sliders.
+    // body topologies (~4.0k and ~10.5k). All support the same sliders.
     int detail = 1;
     // MakeHuman's breast macro (women; men keep the Bust slider): cup size
     // and firmness, 0..1 with 0.5 = average - the base body.

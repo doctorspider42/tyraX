@@ -5615,8 +5615,9 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 10
+#define TYRAX_VERSION_MINOR 11
 #define TYRAX_VERSION_PATCH 0
+// 2.11.0: Custom character torsos and limbs with projected slider targets and skin.
 // 2.10.0: Preferences > Batch grouping cell (ProjectSettings::staticBatchCell,
 // codegen STATIC_BATCH_CELL; 0 = the automatic cell, kept by every example).
 // A 129-crate field at 48: crossing batches 13.5 -> 11.2 a frame, StaPip

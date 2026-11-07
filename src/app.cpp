@@ -22861,8 +22861,8 @@ void App::drawCharacterGeneratorWindow() {
             dirty |= ImGui::SliderFloat("Muscle", &p.muscle, 0.0f, 1.0f, "%.2f");
             dirty |= ImGui::SliderFloat("Weight", &p.weight, 0.0f, 1.0f, "%.2f");
             {
-                static const char* kDetail[] = {"Crowd (~1.9k triangles)", "Standard (~4.2k)",
-                                                "Hero (~10.3k)"};
+                static const char* kDetail[] = {"Crowd (~1.9k triangles)", "Standard (~4.0k)",
+                                                "Hero (~10.5k)"};
                 ImGui::SetNextItemWidth(scaled(220.0f));
                 if (ImGui::Combo("Detail", &p.detail, kDetail, 3)) dirty = true;
                 if (ImGui::IsItemHovered())

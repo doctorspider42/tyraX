@@ -1,7 +1,7 @@
 """Bake the studio body sculpts and interchangeable workwear into the native kit.
 
-Coordinates below are in the kit's neutral, Y-up metre space. Keeping its
-triangle correspondence lets an existing garment follow the revised surface.
+Coordinates below use the shared rig's neutral, Y-up metre space. Each
+garment is rebound after construction of the custom skin surface.
 """
 
 import io
@@ -67,6 +67,30 @@ def sculpt(points):
     out[:, 2] += 0.006 * bell(y, -0.225, 0.12) * ramp(z, 0.024, 0.10)
     out[:, 2] -= 0.005 * bell(y, -0.49, 0.09) * (1 - ramp(z, -0.025, 0.02))
     return out
+
+
+def body_relief(xyz, male):
+    """Diffuse tone across the clavicles, sternum, flanks and shoulder blades."""
+    x, y, z = xyz
+    ax = abs(x)
+    chest = ramp(z, 0.04, 0.10)
+    back = 1 - ramp(z, -0.035, 0.012)
+    collar = 0.521 + 0.13 * ax
+    arch = 0.333 + 0.24 * ax
+    tone = chest * (
+        0.046 * bell(y, collar, 0.010) * bell(ax, 0.085, 0.064)
+        - 0.071 * bell(y, collar - 0.015, 0.013) * bell(ax, 0.092, 0.055)
+        - 0.063 * bell(x, 0, 0.017) * bell(y, 0.453, 0.067)
+        - (0.078 if male else 0.105) * bell(y, arch, 0.013) * bell(ax, 0.074, 0.049)
+        - 0.047 * bell(y, 0.29 + 0.34 * ax, 0.022) * bell(ax, 0.092, 0.045)
+        + 0.041 * bell(y, 0.110 + 0.17 * ax, 0.018) * bell(ax, 0.110, 0.040)
+    )
+    tone += back * (
+        -0.073 * bell(ax, 0, 0.015) * bell(y, 0.29, 0.19)
+        - 0.064 * bell(ax, 0.055 + 0.36 * (y - 0.40), 0.016) * bell(y, 0.43, 0.070)
+        + 0.040 * bell(ax, 0.094, 0.040) * bell(y, 0.465, 0.053)
+    )
+    return 1 + tone[..., None]
 
 
 def surface_map(pos, tris, uv, parts):
@@ -237,6 +261,8 @@ def bake(writer):
     fabrics = np.asarray(Image.open(ART / "workwear.jpg").convert("RGB"))
     new_items = {}
     from studio_gear import models, bind_item, hairstyle, crowd_mesh
+    from studio_topology import refine
+    from custom_body import rebuild
 
     gear = list(models(fabrics))
     lods = {"hero": {}, "standard": {}, "crowd": {}}
@@ -250,9 +276,8 @@ def bake(writer):
     rig_names = json.loads(chunks["rig/names"][1])
     for body in json.loads(chunks["bodies"][1]):
         p = body["prefix"]
-        from studio_topology import refine
-
         refine(chunks, p, body["detail"])
+        rebuild(chunks, p, body["detail"], body["sex"])
         rest = array(p + "mesh/pos", "<f4", 3)
         tris = array(p + "mesh/tri", "<i4", 3)
         uv = array(p + "mesh/uv", "<f4", 6).reshape(-1, 3, 2)
@@ -262,6 +287,7 @@ def bake(writer):
         for male in (False, True):
             sex = "male" if male else "female"
             relief, face_mask = face_detail(portraits, male, xyz)
+            anatomy = body_relief(xyz, male)
             for key in list(chunks):
                 if key.startswith("img/" + p + "skin/") and "-" + sex + "-" in key:
                     skin = np.asarray(
@@ -278,7 +304,7 @@ def bake(writer):
                     base = np.median(skin[cheek], axis=0) * [0.95, 0.92, 0.90]
                     mix = face_mask * amount * 0.88
                     result = np.clip(
-                        skin * (1 - mix) + base * relief * mix, 0, 255
+                        skin * anatomy * (1 - mix) + base * relief * mix, 0, 255
                     ).astype("uint8")
                     put_image(key, jpg_bytes(Image.fromarray(result), 94))
 

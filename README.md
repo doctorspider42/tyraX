@@ -368,7 +368,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [GPU/CPU impostors with 4/8/16 views plus one-material hull proxies](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
 - **[Character Generator](docs/character-generator.md)** builds playable characters on
-  five studio meshes with 76 body and face sliders, a 50-bone rig and 87 clips.
+  five meshes with custom torsos and limbs, 76 body and face sliders, a 50-bone rig and 87 clips.
   Its 16 wardrobe choices include three hairstyles, three tops, three trousers,
   two pairs of shoes, two caps, two pairs of glasses and gloves. Players can
   switch characters and dress them in the in-game creator.

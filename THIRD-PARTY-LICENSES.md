@@ -524,10 +524,10 @@ end up inside every game that uses a generated character. It is built by
 | Source | What the kit derives from it |
 | --- | --- |
 | [MakeHuman](http://www.makehumancommunity.org/) — the `data/` directory of [makehuman](https://github.com/makehumancommunity/makehuman) (base mesh, macro and detail targets, skeleton, vertex weights) | the body's morph targets as deltas on its own vertices, the rig's joints and skin weights, the face-paint masks |
-| MakeHuman *system assets* pack (`makehuman_system_assets_cc0.zip`) | the base proxy topologies, eye geometry, eyebrows, eyelashes and 18 skin layers |
+| MakeHuman *system assets* pack (`makehuman_system_assets_cc0.zip`) | reference proxies for transferring morphs and weights, retained head/hand/foot geometry, eyes, eyebrows, eyelashes and 18 skin layers |
 | [Quaternius — Universal Animation Library 1 + 2 \[Standard\]](https://quaternius.com/packs/universalanimationlibrary.html) | 87 motion clips, retargeted onto the rig |
 
-The studio wardrobe, face treatments and hair textures are project artwork.
+The custom torso and limb meshes, studio wardrobe, face treatments and hair textures are project artwork.
 The clothing and portrait sheets use ImageGen. The yard jacket, boots and
 chignon incorporate meshes adapted from the example's Blender-authored
 Night Warden. Their build sources are in [studio](tools/chargen-kit/studio).

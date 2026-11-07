@@ -124,5 +124,7 @@ from there it is an ordinary [animated model](../../docs/animated-models.md),
 so the Animation Editor, the `.tskl` bake with its distance LODs, Live Link and
 the NPC AI all work on it without knowing it was generated.
 
+[Studio bodies](authoring/studio-bodies.blend) contains the two bare hero builds with editable skin meshes and the 50-bone rig. Their custom torsos and limbs join the fitted head, hands and feet.
+
 The editor embeds the studio artwork, MakeHuman-derived body data and
 Quaternius motion clips. See the [asset notices](../../THIRD-PARTY-LICENSES.md).
