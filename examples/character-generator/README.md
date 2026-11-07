@@ -132,3 +132,8 @@ Quaternius motion clips. See the [asset notices](../../THIRD-PARTY-LICENSES.md).
 The editor's Man and Woman presets start undressed. Skin offers four face
 textures. Clerk demonstrates the cardigan and A-line skirt, and Lala wears
 the moss dress. All four new garments are available in the editor wardrobe.
+
+The studio kit now offers six hairstyles, with stable skull fitting and opaque
+root coverage beneath the loose locks. Punk uses Choppy pixie, Shopper uses
+Curtain shag, and Lala uses Low ponytail. The existing player option set is
+unchanged so these additions do not increase its hidden hairstyle memory cost.

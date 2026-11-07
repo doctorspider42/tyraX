@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.13.0
+
+- Hair keeps its shape when fitting to the head, with opaque scalp coverage beneath loose strands and gentler secondary motion. Adds Choppy pixie, Curtain shag and Low ponytail at all three detail levels.
+
 ## 2.12.0
 
 - Choose Classic, Freckled, Defined or Weathered face textures in the Character Generator. Bare Man and Woman presets provide a starting body. The wardrobe adds a ribbed top, button cardigan, A-line skirt and moss dress.

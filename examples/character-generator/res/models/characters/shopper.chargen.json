@@ -11,7 +11,7 @@
   "hairColor": [0.12,0.08,0.06], "eyeColor": [0.5,0.38,0.18], "stubble": 0,
   "lipstick": 0.4, "lipColor": [0.65,0.12,0.16], "eyeShadow": 0, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0,
   "textureSize": 128,
-  "hair": "rain-bob",
+  "hair": "curtain-shag",
   "outfit": [{"id": "mill-flannel"}, {"id": "station-cords"}, {"id": "service-shoes"}],
   "defaultClips": true, "clips": [],
   "animFps": 15,

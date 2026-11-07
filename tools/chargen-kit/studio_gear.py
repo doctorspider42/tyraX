@@ -74,11 +74,16 @@ def crown(a, t, long_cut=False, hat=False):
 # Allocate more texels to the portrait while retaining a separate profile,
 # nape and four alpha locks. Coordinates are in a 512-square source.
 VIEWS = [(0, 0, 304, 336), (304, 0, 512, 336), (0, 336, 226, 512)]
-GROOM_HEIGHT = [0.236, 0.258, 0.251]
+GROOM_HEIGHT = [0.236, 0.258, 0.251, 0.215, 0.285, 0.340]
+HAIR_STYLES = [("side-crop", "Side crop"), ("rain-bob", "Rain bob"),
+               ("tide-knot", "Tide knot"), ("choppy-pixie", "Choppy pixie"),
+               ("curtain-shag", "Curtain shag"), ("low-ponytail", "Low ponytail")]
 
 
 def captured_view(style, view):
-    source = Image.open(ART / "groom-views.jpg").convert("RGB")
+    style = 2 if style == 5 else style
+    source = Image.open(ART / ("groom-views.jpg" if style < 3 else "groom-extra-views.jpg")).convert("RGB")
+    style %= 3
     tile = source.crop((view * 384, style * 384, (view + 1) * 384, (style + 1) * 384))
     rgb = np.asarray(tile, dtype=float).copy()
     spill = rgb[:, :, 1] - np.maximum(rgb[:, :, 0], rgb[:, :, 2])
@@ -92,7 +97,7 @@ def hair_atlas(style):
     roots = (
         Image.open(ART / "crowns.jpg")
         .convert("RGB")
-        .crop((style * 512, 0, (style + 1) * 512, 512))
+        .crop(((style % 3) * 512, 0, (style % 3 + 1) * 512, 512))
     )
     for k, (x0, y0, x1, y1) in enumerate(VIEWS):
         rgb, alpha = captured_view(style, k)
@@ -109,6 +114,40 @@ def hair_atlas(style):
     return atlas
 
 
+def clean_groom(geometry):
+    """Weld coincident roots and discard pole triangles with zero area."""
+    pos, tri, uv = geometry
+    _, first, remap = np.unique(np.round(pos, 7), axis=0, return_index=True, return_inverse=True)
+    tri = remap[tri]
+    pos = pos[first]
+    area = np.linalg.norm(np.cross(pos[tri[:, 1]] - pos[tri[:, 0]],
+                                   pos[tri[:, 2]] - pos[tri[:, 0]]), axis=1)
+    keep = area > 1e-10
+    return pos, tri[keep], uv[keep]
+
+
+def scalp_layer(mesh, segments, style=0):
+    """Opaque root surface under the cards, closed at the crown pole."""
+    angles = np.linspace(-np.pi, np.pi, segments + 1)
+    rings = []
+    for t in np.linspace(0, 1, 10):
+        pts = crown(angles, t)
+        pts[:, 0] *= 1.025
+        pts[:, 2] = 0.050 + (pts[:, 2] - 0.050) * 1.025
+        pts[:, 1] += 0.004
+        if style == 4:
+            pts[:, 1] -= 0.025 * (1 - t) * (1 - np.maximum(np.cos(angles), 0))
+        pts = (pts - [0, 0.745, 0.050]) * [0.86, 0.88, 0.86] + [0, 0.750, 0.050]
+        rings.append(pts)
+    pole = np.array([0.00344, 0.85648, 0.050])
+    rings.append(np.broadcast_to(pole, rings[-1].shape))
+    rings = np.asarray(rings)
+    # Repeat an opaque root patch around the scalp instead of stretching
+    # one narrow atlas column over its whole circumference.
+    for j in range(segments):
+        mesh.add(rings[:, j:j+2], ((450 + 59*(j % 4)/4)/512, 0.012, 59/2048, 0.315))
+
+
 def hairstyle(style, level="hero"):
     """Loft cross sections from three silhouettes. Add raised, tapered guide
     meshes in the direction each lock grows, then feather their free ends."""
@@ -118,10 +157,11 @@ def hairstyle(style, level="hero"):
         "hero": (42, 20, 44, 10),
     }[level]
     masks = [captured_view(style, k)[1] for k in range(3)]
-    height = GROOM_HEIGHT[style]
+    top_v = min(np.flatnonzero((mask > 0.43).sum(axis=1) > 12)[0] / 383 for mask in masks)
+    height = GROOM_HEIGHT[2 if style == 5 else style]
     crown = 0.877
     # Images use the same eye-level orthographic cameras as the strand guides.
-    sx = 0.224 if style != 1 else 0.232
+    sx = 0.232 if style in (1, 4) else 0.224
     sz = 0.286
     ys = np.linspace(0.015, 0.975, 65)
 
@@ -143,14 +183,21 @@ def hairstyle(style, level="hero"):
     deep = extent(masks[1])
 
     def limits(v):
+        # The final rows contain isolated tips, not a complete head section.
+        # Continue the last stable section; alpha and the guide tips define
+        # the cut, instead of a single stray lock flipping its centre sideways.
+        v = np.minimum(v, 0.80)
         left = (np.interp(v, ys, wide[:, 0]) - 0.51) * sx
         right = (np.interp(v, ys, wide[:, 1]) - 0.51) * sx
         front = (0.51 - np.interp(v, ys, deep[:, 0])) * sz + 0.047
         back = (0.51 - np.interp(v, ys, deep[:, 1])) * sz + 0.047
         # The camera sees the opposite temple through a parted fringe.
         front = np.maximum(front, 0.138 * np.clip((v - 0.21) / 0.15, 0, 1))
-        if style == 2:
+        if style in (2, 5):
             back = np.maximum(back, -0.061)
+        # Below the nape a profile may contain only the FRONT fringe.
+        # Do not teleport the rear cross-section to that isolated silhouette.
+        back = np.minimum(back, 0.050 - 0.085*np.clip((v-0.25)/0.30, 0, 1))
         return (
             (left + right) / 2,
             (right - left) / 2,
@@ -208,15 +255,17 @@ def hairstyle(style, level="hero"):
     # including the long left section of the bob and the cropped right temple.
     for j in range(slices):
         a = np.linspace(-np.pi + TAU * j / slices, -np.pi + TAU * (j + 1) / slices, 2)
-        rows = [shell(a, v) for v in np.linspace(0.97, 0.015, rows_count)]
+        bottom = 0.69 if style == 5 and abs(a.mean()) > 2.0 else 0.97
+        rows = [shell(a, v) for v in np.linspace(bottom, top_v + 0.015, rows_count)]
         panel(rows, region(a.mean()), True)
 
-    # An opaque inner crown closes the part even when both photographic
-    # silhouettes taper to transparent wisps at the same latitude.
+    # An opaque scalp continues below the photographic silhouette seams.
+    # Alpha cards add loose ends, never carry the entire coverage of the head.
+    scalp_layer(mesh, slices)
     angles = np.linspace(-np.pi, np.pi, slices + 1)
-    rings = [shell(angles, v, -0.002) for v in (0.31, 0.23, 0.14, 0.07, 0.025)]
+    rings = [shell(angles, max(v, top_v + 0.015), -0.002) for v in (0.31, 0.23, 0.14, 0.07, 0.025)]
     center = rings[-1].mean(axis=0)
-    center[1] = crown + 0.0005
+    center[1] = crown - height * max(0, top_v - 0.005)
     rings.append(np.broadcast_to(center, rings[-1].shape))
     mesh.add(rings, (450 / 512, 0.012, 59 / 512, 0.315))
 
@@ -243,7 +292,23 @@ def hairstyle(style, level="hero"):
             [(0.36, 0.23), (0.14, 0.32), (0.23, 0.66), (0.12, 0.92)],
             [(0.59, 0.19), (0.86, 0.18), (0.91, 0.40), (0.91, 0.69)],
         ],
-    ][style]
+        [
+            [(0.48, 0.12), (0.42, 0.04), (0.26, 0.22), (0.22, 0.46)],
+            [(0.54, 0.11), (0.59, 0.06), (0.68, 0.23), (0.72, 0.45)],
+            [(0.45, 0.14), (0.38, 0.13), (0.43, 0.28), (0.44, 0.44)],
+            [(0.63, 0.18), (0.74, 0.16), (0.85, 0.30), (0.85, 0.53)],
+        ],
+        [
+            [(0.49, 0.12), (0.27, 0.12), (0.24, 0.33), (0.16, 0.66)],
+            [(0.51, 0.12), (0.75, 0.10), (0.78, 0.34), (0.85, 0.67)],
+            [(0.31, 0.25), (0.13, 0.39), (0.12, 0.67), (0.18, 0.95)],
+            [(0.72, 0.23), (0.87, 0.39), (0.90, 0.65), (0.82, 0.96)],
+        ],
+        [
+            [(0.50, 0.14), (0.29, 0.04), (0.15, 0.26), (0.16, 0.55)],
+            [(0.53, 0.14), (0.75, 0.06), (0.86, 0.27), (0.86, 0.55)],
+        ],
+    ][2 if style == 5 else style]
 
     def strip_uv(index):
         # Root at the top of the tile, feathered end at the bottom.
@@ -308,7 +373,7 @@ def hairstyle(style, level="hero"):
         if not visible.any():
             continue
         end = sample_v[visible][-1]
-        if style == 2 and abs(a) > 2.35:
+        if style in (2, 5) and abs(a) > 2.35:
             end = min(end, 0.69)
         root = rng.uniform(0.12, 0.24)
         bend = np.sign(a) * rng.uniform(0.35, 0.85)
@@ -335,6 +400,26 @@ def hairstyle(style, level="hero"):
                 shell(aa, end - 0.11 + 0.155 * t, 0.0025 + 0.004 * np.sin(t * np.pi))
             )
         mesh.add(wisps[::-1], strip_uv(k + 1))
+    if style == 5:
+        # The tail has its own volume. Front flyaways cannot inflate its
+        # silhouette or turn the back of the head into a wide hair curtain.
+        def tail(t, angle, extra=0):
+            radius = 0.021 * (1 - 0.98*t**1.5) + extra
+            return np.stack((0.015*np.sin(2.3*t) + radius*np.sin(angle),
+                             np.broadcast_to(0.726 - 0.170*t, np.shape(angle+t)),
+                             -0.073 - 0.061*np.sin(1.6*t) + radius*np.cos(angle)), axis=-1)
+        angles = np.linspace(-np.pi, np.pi, max(10, slices//2)+1)
+        rings = [tail(t, angles) for t in np.linspace(0, 1, samples)]
+        rings.append(np.broadcast_to(tail(1.01, 0, -0.0001), rings[-1].shape))
+        mesh.add(rings, (450/512,0.012,59/512,0.315), reverse=True)
+        for i in range(max(8, side_locks//2)):
+            a = TAU*i/max(8, side_locks//2)
+            rows = []
+            for t in np.linspace(0, 1, samples):
+                q = np.array([-1.,-.35,.35,1.])
+                angle = a + .24*np.sin(t*2.8) + .22*q
+                rows.append(tail(t,angle,.003*np.sin(np.pi*t)*(1-q*q)))
+            mesh.add(rows[::-1], strip_uv(i))
     if style == 2:
         with np.load(ART / "chignon.npz") as bun:
             shift = len(mesh.pos)
@@ -346,7 +431,7 @@ def hairstyle(style, level="hero"):
             mesh.uv.extend(
                 np.stack(((1 + 224 * u) / 512, 1 - (337 + 174 * v) / 512), axis=-1)
             )
-    return mesh.arrays()
+    return clean_groom(mesh.arrays())
 
 
 def watch_cap(brim):
@@ -563,13 +648,7 @@ def models(fabrics):
         skirt(True),
         cloth.crop((512, 512, 1024, 1024)),
     )
-    for index, (gid, label) in enumerate(
-        [
-            ("side-crop", "Side crop"),
-            ("rain-bob", "Rain bob"),
-            ("tide-knot", "Tide knot"),
-        ]
-    ):
+    for index, (gid, label) in enumerate(HAIR_STYLES):
         yield gid, label, "hair", hairstyle(index), hair_atlas(index)
     knit = Image.fromarray(fabrics[:512, 1024:]).point(lambda v: v * 0.43)
     yield "watch-cap", "Watch cap", "head", watch_cap(False), knit
@@ -687,12 +766,15 @@ def bind_item(pos, tris, part, joints, weights, points, slot, gid, names):
     if slot in ("hair", "face", "head"):
         gw[:] = 0
         gw[:, names.index("mixamorig:Head")] = 1
-    if gid in ("rain-bob", "tide-knot", "side-crop"):
+    if slot == "hair":
         # Only free, low lengths lag behind the skull. The part and hairline
         # are rigid, keeping bangs out of the eyes when the character turns.
         free = np.clip((0.734 - points[:, 1]) / 0.089, 0, 1)
         behind = np.clip((0.128 - points[:, 2]) / 0.14, 0, 1)
-        strength = {"rain-bob": 0.54, "tide-knot": 0.22, "side-crop": 0.13}[gid]
+        strength = {"rain-bob": 0.18, "tide-knot": 0.08,
+                    "curtain-shag": 0.16, "low-ponytail": 0.45}.get(gid, 0.0)
+        if gid == "low-ponytail":
+            behind *= np.clip((-0.055 - points[:, 2]) / 0.04, 0, 1)
         spring = strength * free * behind
         gw[:, names.index("mixamorig:Head")] = 1 - spring
         gw[:, names.index("mixamorig:HairTail1")] = spring * (1 - 0.60 * free)
@@ -742,8 +824,8 @@ def bind_item(pos, tris, part, joints, weights, points, slot, gid, names):
     if slot == "hair":
         # Keep the authored sweep coherent as the brow and jaw morph under it.
         # Transfer one skull-space shape, retaining the triangle fit for hats.
-        signed = np.sum(delta * n, axis=1)
-        binding["groom"] = (points + np.maximum(0, 0.002 - signed)[:, None] * n).astype(
-            "<f4"
-        )
+        # Independent nearest-face pushes tore adjacent ribbons apart by up
+        # to four centimetres. The closed authored scalp supplies clearance;
+        # runtime fitting applies one affine skull transform to the whole groom.
+        binding["groom"] = points.astype("<f4")
     return binding

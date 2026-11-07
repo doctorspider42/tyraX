@@ -10,7 +10,7 @@
   "hairColor": [0.55,0.2,0.08], "eyeColor": [0.33,0.22,0.12], "stubble": 0,
   "lipstick": 0.69, "lipColor": [0.422764,0.0721793,0.0986386], "eyeShadow": 0.6, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0.44,
   "textureSize": 256,
-  "hair": "tide-knot",
+  "hair": "low-ponytail",
   "outfit": [{"id": "moss-dress"}, {"id": "storm-boots"}],
   "defaultClips": true, "clips": [],
   "animFps": 24,

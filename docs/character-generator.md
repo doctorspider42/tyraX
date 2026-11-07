@@ -17,7 +17,7 @@ real eyes, and motion-captured movement.
 | Rig | 35 Mixamo-named bones: spine, neck, head, arms, legs, two-bone thumb, index and fingers |
 | Texture | one atlas, 128 / 256 / 512 square, 8-bit on the console; face ≈ 80 px wide at 256 |
 | Shape | 96 macro targets (gender, age, muscle, weight, ancestry) + 76 detail sliders |
-| Wardrobe | 20 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
+| Wardrobe | 23 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
 | Motion | 87 clips from Quaternius' Universal Animation Library, retargeted onto the rig |
 | A dressed character | One body atlas and a shared accessory atlas. Foreground hair has its own texture up to 256 pixels square. |
 
@@ -199,7 +199,7 @@ images through an override on the model.
 The Outfit tab offers a yard jacket, mill flannel, watch henley, washed jeans,
 ranger cargos, station cords, storm boots, service derbies, two caps, wire
 frames, smoke lenses and dock gloves. The Hair tab adds a side crop, rain
-bob and tide knot. Colour and skin controls work on the same base with or
+bob, tide knot, choppy pixie, curtain shag and low ponytail. Colour and skin controls work on the same base with or
 without clothing. An old recipe maps retired names to current pieces on load.
 
 The flannel, henley, trousers and gloves are cut on each neutral body's
@@ -208,6 +208,19 @@ headwear, glasses and hair have separate meshes bound to the surface of each
 body. Their bindings are rebuilt after sculpting and refining the body.
 Foreground hair gets a dedicated texture for its crown and cutout strands.
 Crowd hair shares the accessory atlas.
+
+All six hairstyles include an opaque root surface beneath the cutout locks,
+including the crown pole. Coincident roots are welded, and degenerate pole
+triangles are removed. Rear cross-sections also stay behind the head when
+a profile image contains only a dangling front fringe below the nape. Fitting preserves one authored shape in a skull frame;
+it no longer pushes individual vertices away from whichever facial triangle
+is nearest. Skull bounds exclude the lower face, so ears, noses and chins do
+not directly define the hairstyle's dimensions. Head width, length and size
+still fit the whole groom. Short cuts follow the head rigidly; long free ends
+have restrained secondary motion. Each style has crowd, standard and hero
+geometry, and still supports dye and hat fitting.
+
+![Choppy pixie, Curtain shag and Low ponytail, front and rear](img/chargen-studio-hair.png)
 
 ### Clothes that move
 

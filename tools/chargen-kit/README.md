@@ -45,3 +45,14 @@ projected into all five UV layouts as relative face detail and a blend mask.
 The editor stores the selection in `Params::faceTexture`. The
 `women-workwear.jpg` sheet supplies the fitted top, cardigan, skirt and
 dress. The dress combines shell paint with a hip-bound skirt mesh.
+
+The six hairstyles are registered in `studio_gear.HAIR_STYLES`.
+`groom-extra-views.jpg` supplies front, profile and rear source views for the
+pixie and curtain shag, plus a low-ponytail reference; it was generated with the built-in
+ImageGen tool, then resized to the existing 384-pixel cell layout. The meshes
+combine silhouette lofts, raised lock geometry, alpha tips and opaque scalp
+coverage. The ponytail reuses the tied-back crown and adds an independent
+tapered tail with layered locks, so front flyaways cannot widen its rear volume.
+`clean_groom` welds coincident roots and removes degenerate pole
+triangles. The kit stores authored `groom` positions without per-vertex
+nearest-face displacement; the editor fits them using upper-skull bounds.

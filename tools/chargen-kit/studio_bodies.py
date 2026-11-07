@@ -290,13 +290,13 @@ def bake(writer):
         Image.open(ART / "face-variants.jpg").convert("RGB"), np.float32
     )
     new_items = {}
-    from studio_gear import models, bind_item, hairstyle, crowd_mesh, skirt
+    from studio_gear import models, bind_item, hairstyle, crowd_mesh, skirt, HAIR_STYLES
     from studio_topology import refine
     from custom_body import rebuild
 
     gear = list(models(fabrics))
     lods = {"hero": {}, "standard": {}, "crowd": {}}
-    hair_styles = ["side-crop", "rain-bob", "tide-knot"]
+    hair_styles = [gid for gid, _ in HAIR_STYLES]
     for gid, _, slot, geometry, _ in gear:
         if slot == "hair":
             for level in ("standard", "crowd"):
@@ -427,7 +427,7 @@ def bake(writer):
                 front = np.clip((z + 0.05) / 0.20, 0, 1)
                 edge = (
                     0.698 + 0.071 * front**3
-                    if gid == "side-crop"
+                    if gid in ("side-crop", "choppy-pixie", "tide-knot", "low-ponytail")
                     else 0.683 + 0.084 * front**4
                 )
                 alpha = np.uint8(255 * ramp(y, edge, edge + 0.018))

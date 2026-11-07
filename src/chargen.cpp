@@ -1586,8 +1586,18 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         auto shapeLo = restLo, shapeHi = restHi;
         const auto head = std::find(k.boneNames.begin(), k.boneNames.end(), "mixamorig:Head");
         const int headIndex = (int)(head-k.boneNames.begin());
+        float headLow = 1e9f, headHigh = -1e9f;
         for (int v = 0; v < b.verts; ++v) {
             if (b.joints[v*4] != headIndex || b.weights[v*4] < 200) continue;
+            headLow = std::min(headLow, b.pos[v*3+1]);
+            headHigh = std::max(headHigh, b.pos[v*3+1]);
+        }
+        // Fit the skull, not the face: protruding ears, nose and a long chin
+        // must not stretch the entire hairstyle when those sliders change.
+        const float scalpLow = headLow + .65f * (headHigh-headLow);
+        for (int v = 0; v < b.verts; ++v) {
+            if (b.joints[v*4] != headIndex || b.weights[v*4] < 200) continue;
+            if (b.pos[v*3+1] < scalpLow) continue;
             for (int a = 0; a < 3; ++a) {
                 restLo[a] = std::min(restLo[a], b.pos[v*3+a]);
                 restHi[a] = std::max(restHi[a], b.pos[v*3+a]);
