@@ -1520,3 +1520,57 @@ That leaves `renderNow` only for genuinely new or changing draws.
 
 - **Ceiling:** the replay draws at ~70-90 → ~25-35 µs, ~0.4-0.6 ms a frame.
 - **Pays when** ≥ 0.5 ms in the district or the drive, with verify clean.
+
+## Round 12 results (PS2)
+
+### Scene 1 at 2.13.0 (`BR12A`, release crate-field drive, route attribution, 2 runs)
+
+Window 250-450 (the drive and the plough), per frame:
+
+| component | ms | miss share (I 51 / D 16 cycles) |
+|---|---:|---:|
+| frame without present | 12.27 | 46 % |
+| update before `beginFrame` | 2.48 | 40 % |
+| of it physics | 0.65 | 40 % |
+| StaPip flush | 5.30 | 57 % |
+| stamp pass (105 stamps at 22 µs) | 2.33 | 50 % |
+| crossing pass (10.6 draws at 79 µs) | 0.83 | 41 % |
+| `renderNow` remainder (18.6 draws) | 2.11 | 71 % |
+
+GPU waits: 0. The remainder by route:
+
+| route | draws | ms |
+|---|---:|---:|
+| whole replay | 8.1 | 0.62 |
+| partial (declined by the pass) | 5.9 | 0.90 |
+| direct | 3.0 | 0.45 |
+
+By tag, **terrain is 12.5 of the 18.6 remainder draws (1.21 ms)**.
+
+Scene 1 is EE-bound and within budget: the benchmark's 0 missed frames at
+2.13.0. StaPip's miss share fell from 61-66 % to 57 %, with the passes
+themselves at 41-50 %.
+
+### R12-A, whole replays from a record: loser (`R12A1`, `BR12W`)
+
+Verify was clean in both scenes (wordBad 0, order 0).
+
+**Coverage is tiny.** The census found the no-stamp whole replays are
+almost all `k_notin` (210 in 221): bags with no capture attempt at all,
+not stamps refused for wrap state. The pass took 1.9 bags a frame parked
+(48 µs against 92-101) and 0 while driving.
+
+| scene | effect |
+|---|---|
+| district parked | work -0.01..-0.06 ms |
+| district driving | work +0.05 ms |
+| benchmark | p95 9.65 vs 9.93 ms, missed 0 vs 1 (one run each, inside noise) |
+
+Not ported.
+
+**What it points at.** The remainder that matters while driving is terrain
+chunks without a stamp: 12.5 draws, 1.2 ms. R9-B rebuilds chunks to a
+budget and swaps slots, and a chunk that is fresh or re-detailed has no
+stamp until it is captured again. Next: R13-A, why terrain draws miss their
+stamp while driving, and whether a rebuilt chunk can be captured on its
+first draw.
