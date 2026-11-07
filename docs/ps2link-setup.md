@@ -1033,6 +1033,47 @@ cycle helps. What is known (2026-11-07):
   semaphores N threads M` at boot under ps2link (`Tyra::DevLink::start`). On a
   physical PS2 it read 208 / 249 on the 6th and on the 7th reset deploy since a
   power cycle - nothing accumulates across a reset there.
+- **The reset COUNT alone does not wedge it.** Same evening, on the physical
+  PS2: 20 consecutive reset deploys (numbers 7 to 26 since the power cycle) of a
+  light FPP scratch project, debug build with devlink carrying Remote Pad and
+  the Live Debugger - **20 of 20 booted**, `KHEAD` 208/249 every time. The
+  wedges seen at ~15–20 deploys all followed heavier debug games. What those
+  have and this one does not: `host:` traffic at the moment of the reset (a
+  debug game over plain ps2link polls `host:` files every few frames, so a
+  reset can land while the game sits inside a SIF RPC), big scenes, music
+  streaming. Then the same loop with devlink **forced off** (the game polling
+  `livepad.bin` every 4th frame and `livedbg.cmd` every 25th over `host:`):
+  deploys 27–37 booted, **deploy 38 wedged** - `reset` was accepted, `execee`
+  never produced a `loadelf` line. One wedge in 31 resets, and it came in the
+  arm whose game was inside `host:` traffic when it was reset. That points at
+  a reset landing mid-RPC, but a single event does not prove it.
+- **What that wedge looked like (TV photo + network checks):** the screen
+  showed ps2link's **whole** restart - banner, `exception handlers installed`,
+  `IOP restarted, loading modules`, the net config, `Ready with 33554432 memory
+  bytes`. So the EE did NOT die in the reset path: ps2link came back cleanly.
+  But the console was **deaf on the network**: an `execee` without reset got no
+  answer in 40 s, ping timed out, and the PC had **no ARP entry** for it. The
+  IOP's network stack never came up after the reboot, while everything ps2link
+  can see from the EE side looked fine. Candidate: the DEV9/SMAP Ethernet block
+  keeps its state across an IOP reboot (as the SPU2 does - the r3 fix), and a
+  reset that lands mid-transfer (a game busy with `host:` TCP) leaves it where
+  the freshly loaded smap driver cannot bring the link up.
+- **Tried and reverted (r9, never shipped): `dev9Shutdown()` in the IOP's
+  reset handler**, right after the reset command went to the EE. Netbooted over
+  the card's r8: the reset of an idle ps2link came back, but the very next
+  reset - of a running game - produced exactly that wedge (clean "Ready" on
+  screen, no ARP, no ping). So powering the adapter down during a reset does
+  not cure the state, it *causes* it - which says the DEV9 state at the moment
+  of the IOP reboot really is what decides whether the network returns. The
+  next thing to try is the opposite direction: leave the card powered and make
+  the fresh boot's driver init survive whatever the old one left (a SMAP/EMAC
+  soft reset before `smap.irx` loads, or a full, slow DEV9 power sequence in
+  ps2link's `loadModules()`). Each attempt costs a power cycle.
+  This is a different face from the `freepad: DMA Busy` one above (IOP alive,
+  EE gone) - "the wedge" is at least two failures.
+- **The flashed card is r7 (no USB)**, low build at `0x00094818` - not the r8
+  the build scripts produce. The r8 change (SPU2 bus setup before silencing)
+  is not on the console yet.
 - **The repro rig**: `tools/ps2rig/reset-cycle.ps1` deploys one project N times
   the way F6 does and records `KHEAD` and wedges per cycle; point it at the
   emulator rig (`tools/ps2rig/devlink-emu-rig.ps1`) so a wedge costs a
