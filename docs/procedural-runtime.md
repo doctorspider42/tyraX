@@ -170,7 +170,7 @@ height included, not by each member's own position: one room of the cube
 example is one set of chunks. Merging by member position put a room's edge
 walls into the neighbour's chunk and built chunks spanning every floor of a
 lattice; they crossed the edge of the view in nearly every frame, and a chunk
-that does is clipped triangle by triangle on the EE. On a physical PS2 the
+that does is classified package by package on the EE and clipped on VU1. On a physical PS2 the
 cube example went from 25.4 to 8.8 ms of scene time (25 to 50 fps) with this
 alone. The price is more, smaller chunks (25 -> 54 there), so keep the
 Output node's *cell* about one instance wide for a lattice of prefabs.

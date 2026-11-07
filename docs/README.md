@@ -341,6 +341,12 @@ Developer design docs (internals, not user guides):
   drawable, changes reported by the game instead of every draw submitted,
   stage-major passes over contiguous records, multi-view reuse; phase by
   phase with its contract, verify builds and PS2 measurements.
+- [Frame preparation audit](frame-prep-audit.md) — a stage-by-stage audit
+  (2026-11-07) of where the EE still prepares a frame the PC way: who runs
+  each stage, its data layout and measured cost, five ranked candidates with
+  their skip-it probes, the PS2 tricks frame preparation does not use, and
+  the stale "the EE clips" notes it corrected (clipping is VU1-only on the
+  default `vu1` mode; physics does not use VU0).
 - [How TyraX uses the PS2's hardware](ps2-hardware-utilisation.md) — what
   each unit (EE, VU0, VU1, GS, DMA channels, scratchpad, IOP) does in a
   gameplay frame, three rebuild directions priced on a physical PS2 (the frame
