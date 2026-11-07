@@ -34,9 +34,9 @@ Branch `claude/record-renderer-1412cf`, started 2026-11-07 from
 
 | phase | what | status |
 |---|---|---|
-| 1 | Record lists + change reporting for terrain chunks, static batches, road and procedural chunks | built (below) |
+| 1 | Record lists + change reporting for terrain chunks, static batches, road and procedural chunks | on, verify clean in the district and the headline benchmark; timing neutral (below) |
 | 2 | Scene objects and cars | - |
-| 3 | Stage-major passes from records (+ scratchpad) | - |
+| 3 | Stage-major passes from records (+ scratchpad) | input side priced by a ceiling probe at ~0.1 ms driving, under the bar; the output side is next (below) |
 | 4 | Multi-view | - |
 | 5 | Delete the old per-draw path | - |
 
@@ -149,6 +149,48 @@ item. Phase 1 is the structure the next phases build on, not a speed-up.
 The window means are bimodal in this scene (p95 ~20 ms or ~12 ms per cycle,
 independent of the arm), so compare p50s here.
 
+Verify on the headline benchmark too (`RBV1`: the user's crate-field
+project, release, the scripted crash drive through the crates, 150 s): over
+6 600 calls per list, terrain 43 074, static batches 72 328 and roads
+41 355 draws, `seqBad 0`, `recBad 0`. This covers the producers' hardest
+case, crates leaving their static batches when the car hits them.
+
+### The ceiling of emission from records (probe `RRP1`, not shipped)
+
+Before rebuilding the stamp pass around records, a rig-only probe priced
+the best it could do. In arm 1 of one ELF, a stamp-pass draw that its
+record list called wholly inside the frustum, and whose stamp record was
+valid, was sent from the stamp alone. That means the batch candidacy flush,
+the texture LRU touch, the head copy, the MVP and fog patch and the
+bookkeeping. Every other per-draw step was skipped: producer facts and
+revision, model compare, visibility, epochs, texture and light re-resolve,
+prim state, entry and wrap checks. This is unsafe (a stale spot or TEX0 is
+possible), so it is an upper bound.
+
+Motor District rig, `--lean`, ~44 draws a frame on the probe path, arms
+alternating per cycle:
+
+| | parked p50 | driving p50 |
+|---|---:|---:|
+| control (arm 0) | 9.883 ms | 8.619 ms |
+| probe (arm 1) | 9.881 ms | 8.512 ms |
+
+- **Parked: nothing.** The parked district is GPU-bound since 2.13.0 (the
+  EE waits ~0.8 ms for the GPU, docs/architecture-loop.md "Scene 2 at
+  2.13.0"), so EE savings do not reach the frame.
+- **Driving: -0.1 ms**, about 2.4 µs a draw of the ~22 µs a stamp costs.
+
+This agrees with the loop's earlier probes: the lean stamp (~3 µs a
+stamp), chain stamps (nothing) and R2-A (a stamp's cost is its output).
+Checking a draw's inputs is not where a stamp's time goes, so records that
+make those checks unnecessary cannot pay much on the stamp route. The time
+is in producing and submitting the packet: the head copy, the packet lines,
+and the Vif1Queue's per-packet recording and copy. A phase 3 that only
+reads records instead of bags is therefore priced at ~0.1 ms driving, under
+the 0.5 ms bar. The next lever has to change the output side. That means
+fewer, longer packets per flush, or a retained per-list chain that the
+Vif1Queue borrows instead of copying.
+
 ### The verdict travels with the draw
 
 `StaPipCore::render(bag, reception, recordVis)` takes the record list's
@@ -166,6 +208,12 @@ list on every `render` call: O(n^2) per flush, ~11 000 compares for a
 150-draw flush. `StaPipBag::recordMark` now holds the recorded list's
 generation (`StaPipCore::recordSeq`, moved every time the list is
 consumed), so the check is one compare. Same flush decisions.
+
+Measured (`RRM1` vs `RRT1`, two ELFs, alternating deploys; driving p50,
+the control's four runs of the session pooled): 8.388 / 8.494 ms against
+8.435 / 8.761 (and 8.511 / 8.600 / 8.507 / 8.622 in earlier runs), so
+about -0.1 ms driving. Parked is unchanged (9.880-9.885 ms both), because
+the parked district is GPU-bound.
 
 ### Known difference
 
