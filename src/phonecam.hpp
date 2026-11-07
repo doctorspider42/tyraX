@@ -100,6 +100,73 @@ struct Event {
 constexpr const char* kCmdRecord = "record";
 constexpr const char* kCmdStop = "stop";
 constexpr const char* kCmdRecenter = "recenter";
+// Body capture. The performer is the one standing in the T-pose and the one
+// who knows when they are ready, so both belong on the phone as well as in
+// the editor - nobody should be running back to a keyboard mid-pose.
+constexpr const char* kCmdCalibrate = "calibrate";
+constexpr const char* kCmdZero = "zero";
+
+// ---------------------------------------------------------------------------
+// Body tracking (docs/character-generator.md). The SAME link carries it: one
+// server, one port, one pairing code, and the phone says at hello which kind of
+// client it is. Two links would mean two codes to type and a fight over 7798.
+//
+// The skeleton arrives ONCE, when a body-tracking device connects - it is
+// ~90 joints of names and a rest pose, and a stream cannot afford to resend it.
+// The rest pose is not decoration: retargeting is a delta against the source's
+// own bind, so without it a streamed pose cannot move onto another body.
+
+struct BodySkeleton {
+    std::vector<std::string> joints;  // ARKit's own names
+    std::vector<int> parents;         // index into `joints`, -1 = root
+    std::vector<float> restPos;       // joints * 3
+    std::vector<float> restRot;       // joints * 4 (x, y, z, w)
+    bool valid() const {
+        return !joints.empty() && parents.size() == joints.size() &&
+               restPos.size() == joints.size() * 3 && restRot.size() == joints.size() * 4;
+    }
+};
+
+// One frame of the performer. Rotations only, plus where the hips are in the
+// phone's world - which is all a retarget consumes.
+struct BodyFrame {
+    double t = 0.0;                 // the phone's monotonic seconds
+    std::vector<float> rot;         // joints * 4, same order as the skeleton
+    float hips[3] = {0, 0, 0};
+    bool haveHips = false;
+    // The body's HEADING. ARKit keeps it on the anchor, not on the hips joint -
+    // whose own rotation is constant to the last bit through a take in which the
+    // performer turned a full circle - so a frame without this is a frame in
+    // which the character cannot turn around.
+    float rootRot[4] = {0, 0, 0, 1};
+    bool haveRootRot = false;
+    bool tracked = true;            // false = ARKit lost the body this frame
+
+    // What the phone's Vision pass saw, RAW. ARKit solves neither the head nor
+    // the wrists, so those come from a second framework running over the same
+    // camera frames - and the geometry that turns landmarks into orientations
+    // lives on THIS side, in visionpose, where it can be tested without a Mac
+    // and corrected without a release. Nothing is interpreted here.
+    bool haveCameraRot = false;
+    float cameraRot[4] = {0, 0, 0, 1};   // the camera in ARKit world space
+    bool haveFace = false;
+    float face[3] = {0, 0, 0};           // yaw, pitch, roll, radians
+    // Image width / height. Vision normalizes BOTH axes to [0, 1], which on a
+    // 4:3 frame stretches everything vertically by a third - so a landmark's
+    // direction is not its direction until this is applied. It is sent rather
+    // than assumed because the capture format is a setting the operator can
+    // change from the phone's own lens picker.
+    float imageAspect = 1.0f;
+    struct HandObs {
+        bool have = false;
+        bool haveThumb = false;
+        float confidence = 0.0f;
+        // Normalized image points, in order: wrist, index knuckle, middle
+        // knuckle, little knuckle, thumb base.
+        float pts[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    };
+    HandObs handLeft, handRight;
+};
 
 struct Config {
     uint16_t port = kDefaultPort;
@@ -160,6 +227,20 @@ class Link {
     // Total poses received this session (a "the stream is alive" readout).
     uint64_t poseCount() const { return poseCount_.load(); }
 
+    // The connected device's skeleton, once it has sent one. Empty (invalid)
+    // for a camera-only client, which is how the UI tells them apart.
+    BodySkeleton bodySkeleton() const;
+    bool hasBodySkeleton() const { return hasBody_.load(); }
+    // Bumped every time a skeleton arrives. A consumer that has bound to one
+    // watches this rather than hasBodySkeleton(), because a phone reconnecting
+    // (or a different phone) sends a NEW skeleton while the flag never drops.
+    uint64_t bodySkeletonSeq() const { return bodySeq_.load(); }
+    // Body frames received since the last call, oldest first - the newest is
+    // the live pose, and a recording appends the whole batch so no motion is
+    // lost between two UI frames.
+    std::vector<BodyFrame> drainBodyFrames();
+    uint64_t bodyFrameCount() const { return bodyCount_.load(); }
+
     // The settings the stream currently runs at (editor defaults, possibly
     // overridden by the device).
     PreviewPrefs preview() const;
@@ -195,6 +276,12 @@ class Link {
     DeviceInfo device_;
     std::deque<Event> events_;
     std::deque<CamTakeSample> poses_;
+    // The body-tracking half of the stream, guarded by the same mutex.
+    BodySkeleton bodySkel_;
+    std::deque<BodyFrame> bodyFrames_;
+    std::atomic<bool> hasBody_{false};
+    std::atomic<uint64_t> bodySeq_{0};
+    std::atomic<uint64_t> bodyCount_{0};
     PreviewPrefs preview_;
     // Preview frames waiting to be encoded and sent, oldest first. Bounded by
     // PreviewPrefs::smoothing + 1: when full the OLDEST is dropped, so latency

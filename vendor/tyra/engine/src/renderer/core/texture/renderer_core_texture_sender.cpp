@@ -48,6 +48,9 @@ void RendererCoreTextureSender::deallocate(
     delete texBuffers.clut;
   }
 
+  // Modified by TyraX: a palette variant's entry holds a CLUT only - its
+  // texels are the base texture's allocation.
+  if (texBuffers.core == nullptr) return;
   gs->vram.free(texBuffers.core->address);
 
   delete texBuffers.core;

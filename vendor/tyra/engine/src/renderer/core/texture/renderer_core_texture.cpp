@@ -127,6 +127,8 @@ RendererCoreTextureBuffers RendererCoreTexture::useTexture(
   if (t_tex->vramResident != nullptr)
     return RendererCoreTextureBuffers{t_tex->id, t_tex->vramResident, nullptr,
                                       0};
+  // Modified by TyraX: palette variants - see useVariant.
+  if (t_tex->paletteBase != nullptr) return useVariant(t_tex);
 
   stats.binds++;  // Modified by TyraX: residency counters
 
@@ -173,6 +175,40 @@ RendererCoreTextureBuffers RendererCoreTexture::useTexture(
   return newTexBuffer;
 }
 
+// Modified by TyraX: a palette variant (Texture's crowd constructor) is two
+// allocations: its BASE's - texels + base CLUT, shared by every variant and
+// by the base itself - and its own entry, which holds nothing but its CLUT.
+// The base is bound first (it may upload or evict); then the variant's CLUT
+// is found or uploaded with the base pinned, so making room for 1 KB can
+// never throw out the texels it is about to be used with. The buffers handed
+// back are the base's texels with the variant's CLUT.
+RendererCoreTextureBuffers RendererCoreTexture::useVariant(const Texture* t_tex) {
+  const RendererCoreTextureBuffers base = useTexture(t_tex->paletteBase);
+  useSeq++;
+  const s32 i = findAllocation(t_tex);
+  if (i >= 0) {
+    currentAllocations[i].lastUsedSeq = useSeq;
+    stats.hits++;
+    return {t_tex->id, base.core, currentAllocations[i].clut, useSeq};
+  }
+  beforeMutation();
+  pinnedId = t_tex->paletteBase->id;
+  makeRoomForWords(0, gs->vram.getSizeWords(*t_tex->clut), t_tex);
+  pinnedId = 0;
+  texbuffer_t* clut = sender.allocateClutOnly(t_tex);
+  path3->sendClut(t_tex, clut);
+  registerAllocation({t_tex->id, nullptr, clut, useSeq});
+  stats.uploads++;
+  return {t_tex->id, base.core, clut, useSeq};
+}
+
+int RendererCoreTexture::allocationWords(
+    const RendererCoreTextureBuffers& a) const {
+  int size = a.core != nullptr ? gs->vram.getAllocationWords(a.core->address) : 0;
+  if (a.clut != nullptr) size += gs->vram.getAllocationWords(a.clut->address);
+  return size;
+}
+
 // Modified by TyraX: pick the allocation to give up, in two tiers.
 //
 // Tier 1 - allocations that are genuinely STALE: not bound in this frame nor
@@ -209,9 +245,8 @@ int RendererCoreTexture::pickVictim() const {
   for (u32 i = 0; i < currentAllocations.size(); i++) {
     const u32 seq = currentAllocations[i].lastUsedSeq;
     if (seq >= prevFrameStartSeq) continue;  // still in the working set
-    int size = gs->vram.getAllocationWords(currentAllocations[i].core->address);
-    if (currentAllocations[i].clut != nullptr)
-      size += gs->vram.getAllocationWords(currentAllocations[i].clut->address);
+    if (currentAllocations[i].id == pinnedId) continue;
+    const int size = allocationWords(currentAllocations[i]);
     if (victim < 0 || seq < victimSeq ||
         (seq == victimSeq && size > victimSize)) {
       victim = static_cast<int>(i);
@@ -224,6 +259,7 @@ int RendererCoreTexture::pickVictim() const {
 
   for (u32 i = 0; i < currentAllocations.size(); i++) {
     const u32 seq = currentAllocations[i].lastUsedSeq;
+    if (currentAllocations[i].id == pinnedId) continue;
     if (victim < 0 || seq > victimSeq) {
       victim = static_cast<int>(i);
       victimSeq = seq;
@@ -239,7 +275,12 @@ void RendererCoreTexture::makeRoomFor(const Texture* t_tex) {
   const int clutWords = (t_tex->clut != nullptr && t_tex->clut->width > 0)
                             ? gs->vram.getSizeWords(*t_tex->clut)
                             : 0;
+  makeRoomForWords(coreWords, clutWords, t_tex);
+}
 
+void RendererCoreTexture::makeRoomForWords(int coreWords, int clutWords,
+                                           const Texture* t_tex) {
+  (void)t_tex;  // named in the census only
   if (gs->vram.canAllocatePair(coreWords, clutWords)) return;
 
   bool evictedAny = false;
@@ -251,11 +292,7 @@ void RendererCoreTexture::makeRoomFor(const Texture* t_tex) {
 #if TYRA_VRAM_CENSUS
     // Modified by TyraX: name the victim and what it was given up for.
     if (censusEvicts.size() < 32) {
-      int vw = gs->vram.getAllocationWords(
-          currentAllocations[victim].core->address);
-      if (currentAllocations[victim].clut != nullptr)
-        vw += gs->vram.getAllocationWords(
-            currentAllocations[victim].clut->address);
+      const int vw = allocationWords(currentAllocations[victim]);
       censusEvicts.push_back(
           {censusNameOf(currentAllocations[victim].id), t_tex->name, vw});
     }
@@ -319,9 +356,7 @@ void RendererCoreTexture::traceFrame() {
   // exactly the interesting one.
   if (summary) {
     for (u32 i = 0; i < currentAllocations.size(); i++) {
-      int w = gs->vram.getAllocationWords(currentAllocations[i].core->address);
-      if (currentAllocations[i].clut != nullptr)
-        w += gs->vram.getAllocationWords(currentAllocations[i].clut->address);
+      const int w = allocationWords(currentAllocations[i]);
       TYRA_LOG("VRAMRES f=", frameCounter, " i=", (int)i, " words=", w,
                " kb=", w / 256, " name=", censusNameOf(currentAllocations[i].id));
     }
@@ -389,6 +424,8 @@ s32 RendererCoreTexture::findAllocation(const Texture* t_tex) {
 }
 
 bool RendererCoreTexture::isResident(const Texture* t_tex) {
+  if (t_tex->paletteBase != nullptr)  // both halves, or binding uploads
+    return findAllocation(t_tex) >= 0 && isResident(t_tex->paletteBase);
   return t_tex->vramResident != nullptr || findAllocation(t_tex) >= 0;
 }
 

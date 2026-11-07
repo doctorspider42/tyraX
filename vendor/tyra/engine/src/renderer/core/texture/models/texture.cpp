@@ -13,6 +13,8 @@
 #include <draw_buffers.h>
 #include <gs_psm.h>
 #include <stdlib.h>
+#include <malloc.h>
+#include <string.h>
 #include <fastmath.h>
 #include <string>
 #include <sstream>
@@ -62,11 +64,47 @@ Texture::Texture(TextureBuilderData* t_data) {
   setDefaultWrapSettings();
 }
 
+Texture::Texture(const Texture* base, const unsigned char* rgba, int entries) {
+  if (TyraTexture::deletedIDs.empty() == false) {
+    id = TyraTexture::deletedIDs.front();
+    TyraTexture::deletedIDs.erase(TyraTexture::deletedIDs.begin());
+  } else {
+    id = TyraTexture::textureCounter++;
+  }
+  TYRA_ASSERT(base != nullptr && base->clut != nullptr && base->clut->width > 0,
+              "A palette variant needs a palettized base texture");
+  name = base->name + "*";
+  paletteBase = base;
+  core = base->core;  // borrowed - see ~Texture
+  const int w = base->clut->width, h = base->clut->height;
+  const int count = w * h;
+  auto* data = static_cast<unsigned char*>(memalign(128, count * 4));
+  memset(data, 0, count * 4);
+  for (int i = 0; i < count && i < entries; i++) {
+    data[i * 4 + 0] = rgba[i * 4 + 0];
+    data[i * 4 + 1] = rgba[i * 4 + 1];
+    data[i * 4 + 2] = rgba[i * 4 + 2];
+    // PngLoader's alpha: 0x80 opaque, trans >> 1 otherwise
+    data[i * 4 + 3] = rgba[i * 4 + 3] == 255 ? 0x80 : rgba[i * 4 + 3] >> 1;
+  }
+  // the CSM1 order an 8-bit CLUT is stored in (PngLoader's "rotate clut")
+  if (count == 256)
+    for (int i = 0; i < 256; i++)
+      if ((i & 0x18) == 8)
+        for (int c = 0; c < 4; c++) {
+          const unsigned char t = data[i * 4 + c];
+          data[i * 4 + c] = data[(i + 8) * 4 + c];
+          data[(i + 8) * 4 + c] = t;
+        }
+  clut = new TextureData(data, base->clut->bpp, base->clut->components, w, h);
+  wrap = base->wrap;
+}
+
 Texture::~Texture() {
   TyraTexture::deletedIDs.push_back(id);
   if (links.size() > 0) links.clear();
   ++linkGeneration;  // a cached pointer to this texture must not survive it
-  if (core) delete core;
+  if (core && !paletteBase) delete core;
   if (clut) delete clut;
 }
 

@@ -5615,8 +5615,14 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 10
+#define TYRAX_VERSION_MINOR 16
 #define TYRAX_VERSION_PATCH 0
+// 2.16.0: Cyberpunk wardrobe set, clear (blended) plastic items, Character Creator body-switch memory fixes.
+// 2.15.0: Every studio hairstyle remodelled as hair cards in Blender; the photographed lofts kept as "(old)".
+// 2.14.0: Layered lob, the first hairstyle modelled in Blender from hair cards and a Cycles-baked strand atlas.
+// 2.13.0: Stable scalp fitting, closed hair coverage and three new hairstyles.
+// 2.12.0: Selectable face textures, bare Man/Woman presets and four feminine garments.
+// 2.11.0: Custom character torsos and limbs with projected slider targets and skin.
 // 2.10.0: Preferences > Batch grouping cell (ProjectSettings::staticBatchCell,
 // codegen STATIC_BATCH_CELL; 0 = the automatic cell, kept by every example).
 // A 129-crate field at 48: crossing batches 13.5 -> 11.2 a frame, StaPip
@@ -6507,7 +6513,8 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // ProjectSettings::staticBatchCell ("staticBatchCell" in settings, written
 // only when above 0). Missing = 0 = the automatic cell every older project
 // grouped with. Additive; no migration.
-inline constexpr int kFormatVersion = 127;
+// v128 adds character choices, creator menu actions, palette variants, wandering and lip-sync speakers.
+inline constexpr int kFormatVersion = 128;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

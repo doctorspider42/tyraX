@@ -109,6 +109,35 @@ On Player Seen ─(bool)─► NOT ─► On Condition ─► Delay 3s ─► Pa
 
 guard patrols → sees you → chases → loses you for 3 s → resumes the patrol.
 
+## Wandering (pedestrians)
+
+A street needs people who just go about. **Wander** is an object property,
+not a node: tick *Wander (a pedestrian)* in an animated model's Animation
+section (or *Walk around* in the Character Generator's *Crowd...*), set a
+radius and a walking speed, and the object walks by itself from the moment
+its scene loads:
+
+- it picks a random spot within the radius of where it was placed, on
+  walkable ground, and walks there on the nav grid with its **`walk`** clip
+  (sped up or slowed to match the walking speed);
+- on arrival it stands a while with **`idle`** - 1-4 s usually, now and then
+  5-11 - and sets off again; a crowd does not leave in step (each starts after
+  0-3 s, each rolls its own dice);
+- someone within about a unit ahead - another walker, the player - is passed
+  **on the right**, at a third of the speed. Stopping and waiting (the first
+  version) left knots of people each waiting for the other; with both stepping
+  right, two walkers meeting head on slide past. A walker wedged for 4 s picks
+  somewhere else.
+
+The clips are the names the Character Generator's standard set uses, so a
+generated character wanders as it is; another model needs clips called `walk`
+and `idle`. A walker must have *Collision* `none` - a blocking one is baked
+into the grid as an obstacle over its own starting cells. Faces keep working
+while they walk: a pedestrian within 4.5 m glances at you as it passes.
+
+What it costs: a walking character skins its own pose (it is never in step
+with another), so on the console budget walkers like any animated character.
+
 ## Limitations (era-appropriate on purpose)
 
 - The grid is **static** — baked at build time. Moving/spawned objects do

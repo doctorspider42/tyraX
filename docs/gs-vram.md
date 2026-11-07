@@ -79,6 +79,12 @@ VRAM.
 > 15 360, and was handed 10 240. The overlap the hack was named after was
 > never fixed by it, only made less likely.
 
+A palettized texture can also have **palette variants** - the same texels
+drawn through another CLUT, 1 KB each, sharing the texels' allocation in the
+heap (`Texture(base, rgba, entries)`, `RendererCoreTexture::useVariant`). It is
+how a crowd of recoloured characters costs one atlas
+([character-generator.md](character-generator.md#crowds)).
+
 ## Colour depth
 
 *Preferences > Picture > Colour depth* picks the frame buffers' pixel format

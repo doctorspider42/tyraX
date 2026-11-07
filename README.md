@@ -367,6 +367,12 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md) with Blender-baked forest and hero foliage,
   [GPU/CPU impostors with 4/8/16 views plus one-material hull proxies](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
+- **[Character Generator](docs/character-generator.md)** builds playable characters on
+  five meshes with custom torsos and limbs, 76 body and face sliders, a 50-bone rig and 87 clips.
+  Bare Man and Woman presets and four face textures are available.
+  Its 35 wardrobe choices include a cyberpunk set with clear plastic, seven hairstyles modelled as hair cards (six earlier ones kept as "old"), five tops, three trousers,
+  a skirt, a dress, two pairs of shoes, two caps, two pairs of glasses and gloves. Players can
+  switch characters and dress them in the in-game creator.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.
 
@@ -593,6 +599,7 @@ wait for their polish pass.
 | [upscaler-lab](examples/upscaler-lab) | A fill-bound haze yard with a shadow-volume lamp: particles drawn at a quarter of the pixels, 2.5× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
+| [character-generator](examples/character-generator) | Six generated characters and a Blender-authored Night Warden on the same playable rig |
 | [vehicle-playground](examples/vehicle-playground) | Motor District: seven roads, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
 
 ## CLI
@@ -608,6 +615,7 @@ tyrax-editor --refresh-gen <projectDir>   # regenerate game sources (no Docker)
 tyrax-editor --debug-state [dir]          # which project is being debugged, and how fresh its devkit files are
 tyrax-editor --vu-check                   # run every VU1 microprogram in the host simulator
 tyrax-editor --vu-replay <projectDir>     # re-run a console VU1 capture on the host and diff it
+tyrax-editor --chargen <recipe.json|preset:N|random:SEED> <out.glb> [--variants N]  # a generated character (+ crowd colour variants), no GUI
 tyrax-editor <projectDir|project.tyra>    # open the GUI with a project loaded
 ```
 
@@ -737,6 +745,14 @@ This project stands on the shoulders of the PS2 homebrew community:
   [ufbx](https://github.com/ufbx/ufbx),
   [miniaudio](https://github.com/mackron/miniaudio).
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.
+- **[MakeHuman](http://www.makehumancommunity.org/)** — the Character
+  Generator's bodies, targets, skins, clothes and hair are built from the
+  MakeHuman community's CC0 data and asset packs (data only; the AGPL program is
+  not used). Thanks to Data Collection AB, Joel Palmius, Jonas Hauquier, Manuel
+  Bastioni and every asset author who chose CC0.
+- **[Quaternius](https://quaternius.com)** — the Universal Animation Library
+  (CC0) is every generated character's motion.
+- **[Tyra Discord](https://discord.gg/PpTAkQh6u)** — the amazing project community.
 - **[Tyra Discord](https://discord.gg/2vgMERQPtz)** — the amazing project community.
 
 Every notice, full license text and exact redistribution term — plus the

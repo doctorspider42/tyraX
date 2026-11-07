@@ -370,6 +370,7 @@ struct PrimRef {
 
 // Per-part (per glTF material) constants; geometry is expanded from prims.
 struct PartMeta {
+    float specularFactor = 1.0f;
     std::string material;
     float baseColor[4] = {1, 1, 1, 1};
     int image = -1;
@@ -773,6 +774,11 @@ bool parseGlb(const std::string& path, ParsedGlb& P, std::vector<Image>& images,
                         for (int c = 0; c < 4; ++c)
                             part.baseColor[c] = (float)bc->arr[c].number;
                 }
+                const auto* extensions = mat ? mat->find("extensions") : nullptr;
+                const auto* specular = extensions ? extensions->find("KHR_materials_specular") : nullptr;
+                const auto* factor = specular ? specular->find("specularFactor") : nullptr;
+                if (factor && factor->type == json::Value::Type::Number)
+                    part.specularFactor = std::clamp(static_cast<float>(factor->number), 0.f, 1.f);
                 part.image = imageFor(materialIndex);
                 P.parts.push_back(std::move(part));
                 it = partOfMaterial.emplace(materialIndex, (int)P.parts.size() - 1)
@@ -1212,6 +1218,7 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
     out.parts.resize(P.parts.size());
     for (size_t pi = 0; pi < P.parts.size(); ++pi) {
         out.parts[pi].material = P.parts[pi].material;
+        out.parts[pi].specularFactor = P.parts[pi].specularFactor;
         std::memcpy(out.parts[pi].baseColor, P.parts[pi].baseColor,
                     sizeof(out.parts[pi].baseColor));
         out.parts[pi].image = P.parts[pi].image;
@@ -1531,7 +1538,8 @@ void generateSkelLods(Skel& skel) {
 }
 
 // Layout (little-endian; keep in sync with the engine's tskl_loader.cpp):
-//   "TSKL" u32(version=2)      (v1 files = the same layout without lodCount)
+//   "TSKL" u32(version=3)      (v1 files = the same layout without lodCount,
+//                               v2 = without the node-name table at the end)
 //   u32 nodeCount, u32 paletteCount, u32 partCount, u32 clipCount
 //   f32 min[3], f32 max[3]           (pose AABB union over all clips, sampled)
 //   nodeCount * { s32 parent; u32 flags(bit0 = hasMatrix);
@@ -1553,12 +1561,14 @@ void generateSkelLods(Skel& skel) {
 //       u32 vertexCount; if (texture[0]) f32 uv[...];
 //       f32 pos[...]; f32 nrm[...]; u8 joints[...]; u8 weights[...] }
 //   }
+//   v3 only: u32 nodeCount; nodeCount * char name[32]   (the game finds a
+//     rig's face / spring bones by name - SkelModel::findNode)
 std::string writeTskl(const Skel& skel,
                       const std::vector<std::string>& textureNames) {
     std::string out;
     out.reserve(4096 + (size_t)skel.totalVertexCount() * 40);
     out += "TSKL";
-    appendU32(out, 2);
+    appendU32(out, 3);
     appendU32(out, (uint32_t)skel.nodes.size());
     appendU32(out, (uint32_t)skel.palette.size());
     appendU32(out, (uint32_t)skel.parts.size());
@@ -1638,6 +1648,8 @@ std::string writeTskl(const Skel& skel,
             appendBytes(out, lod.weights.data(), (size_t)lod.vertexCount * 4);
         }
     }
+    appendU32(out, (uint32_t)skel.nodes.size());
+    for (const SkelNode& node : skel.nodes) appendFixedString(out, node.name, 32);
     return out;
 }
 

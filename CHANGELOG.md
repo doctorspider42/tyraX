@@ -8,6 +8,31 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.16.0
+
+- A cyberpunk set in the Character Generator: Neon tech top, Strap cargos, Tech boots, a **Clear PVC jacket** and a **Neon visor**. Clear items are see-through on the PS2: the game draws them blended over the clothes underneath.
+- Character Creator: switching bodies uses much less memory (the file is parsed as it is read, hidden options release their buffers, and when memory is short the old body is freed first). A creator hero with many heavy options can still run out of memory while cycling bodies.
+
+## 2.15.0
+
+- All six Character Generator hairstyles (side crop, choppy pixie, rain bob, curtain shag, tide knot, low ponytail) are remodelled like the layered lob: layered hair cards with a real strand texture, a crown whorl, a bun coiled from the head and a ponytail that swings. Recipes keep their ids and get the new hair. The earlier versions stay in the Hair tab as "(old)".
+
+## 2.14.0
+
+- New hairstyle: **Layered lob**, a chin-to-collarbone cut with a deep side part and a fringe swept across the forehead. It is modelled from layered hair cards with a strand texture rendered from real hair, at all three detail levels, and takes any hair colour and both studio hats.
+
+## 2.13.0
+
+- Hair keeps its shape when fitting to the head, with opaque scalp coverage beneath loose strands and gentler secondary motion. Adds Choppy pixie, Curtain shag and Low ponytail at all three detail levels.
+
+## 2.12.0
+
+- Choose Classic, Freckled, Defined or Weathered face textures in the Character Generator. Bare Man and Woman presets provide a starting body. The wardrobe adds a ribbed top, button cardigan, A-line skirt and moss dress.
+
+## 2.11.0
+
+- The Character Generator builds custom torsos, arms and legs for both body presets at all three detail levels. Existing sliders, hairstyles, clothing and animations fit the new mesh.
+
 ## 2.10.0
 
 - **Batch grouping cell** (Preferences > Static object batching). The width of the grid static batches are grouped in is now a project setting; *auto* keeps the cell every project used so far. A smaller cell merges fewer sparse props but leaves fewer batches crossing the edge of the screen, which cost the PS2 about 1.7 times a whole batch. Measured on a PS2: in a copy of the Vehicle Playground with a 129-crate field, 48 instead of 80 leaves 11 instead of 13.5 crossing batches a frame and takes 0.15-0.2 ms off draw submission; in the shipped Motor District it is neutral to slightly worse (p95 +0.2-0.5 ms), so the example keeps *auto*. See `docs/static-batching.md`, "The grouping cell".

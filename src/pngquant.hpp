@@ -36,6 +36,14 @@ bool quantizeRGBAToMemory(std::vector<unsigned char>& out,
 bool writePngRGBA(const std::string& dstPath, const unsigned char* rgba, int w,
                   int h, std::string& error);
 
+// The quantization quantizeRGBA writes, without the PNG: one index per pixel
+// and the palette as r,g,b,a quadruplets. Bit-identical to what lands in the
+// file - texbake fits crowd palette variants against exactly these indices
+// (docs/character-generator.md, "Crowds").
+bool quantizeIndices(const unsigned char* rgba, int w, int h, int colors,
+                     std::vector<unsigned char>& indices,
+                     std::vector<unsigned char>& paletteRgba, std::string& error);
+
 // Dithering flavors for the in-memory preview below. The shipped bake
 // (quantizeRGBA) always uses Floyd-Steinberg; the preview lets the eye
 // compare before committing a texture to a palette budget.

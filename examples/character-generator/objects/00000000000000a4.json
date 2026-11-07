@@ -1,0 +1,1 @@
+{ "id": "00000000000000a4", "name": "punk", "type": "model", "position": [2.5, 0, 15.5], "rotation": [0, 200, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/characters/punk.glb", "anim": { "clip": "Idle_Talking_Loop", "autoplay": true, "loop": true, "speed": 1 } }

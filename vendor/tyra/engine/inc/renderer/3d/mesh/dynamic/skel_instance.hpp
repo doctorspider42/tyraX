@@ -60,6 +60,24 @@ class SkelInstance {
    * wrapping on the next update, like DynamicMeshAnimation did). */
   void setLoop(bool loop) { cur.loop = loop; }
 
+  /** Modified by TyraX: puts the current clip at `seconds` (wrapped into a
+   * looping clip). Instances given bit-identical times share one skinned
+   * mesh (poseEquals) - how a crowd of pedestrians walks in a few phase
+   * groups instead of skinning everyone. */
+  void setTime(float seconds);
+
+  /** Modified by TyraX: frees this instance's own skin outputs (every part,
+   * every level). For an instance that has been drawing another's shared
+   * pose for a while: a crowd member that skinned itself once (a crossfade,
+   * up close) would otherwise hold its buffers - ~0.4 MB at full detail -
+   * for good. The next ensurePose allocates and skins again. */
+  void trimOutputs();
+
+  /** Modified by TyraX: frees the buffers trimOutputs pooled (it keeps them
+   * by size for the next instance, which stops a crowd fragmenting the
+   * heap). Call on a scene change, when the old models' sizes are useless. */
+  static void clearOutputPool();
+
   /**
    * Advances playback by dt seconds (scale dt for playback speed), then
    * evaluates the pose and skins into the mesh when anything changed.
@@ -102,7 +120,7 @@ class SkelInstance {
   struct LodArrays {
     Vec4* vertices;
     Vec4* normals;
-    Vec4* textureCoords;  // nullptr on untextured parts
+    Vec4* textureCoords;  // nullptr on untextured parts (shared, read-only)
     u32 count;
   };
   LodArrays lodArrays(size_t part, u8 lod);
@@ -113,18 +131,30 @@ class SkelInstance {
   // normals w = 0 so the translation column drops out; weights
   // pre-normalized to sum 1; joints re-sorted per vertex by descending
   // weight with the nonzero count in `influences`, so skinParts dispatches
-  // to a blend of exactly 0, 1, 2 or 4 matrices) plus the skin output.
-  // Level 0 outputs alias the mesh's frame arrays (ownVertices stays
-  // empty); deeper levels own theirs.
-  struct PartLod {
+  // to a blend of exactly 0, 1, 2 or 4 matrices), plus the uvs.
+  //
+  // Modified by TyraX: this is the SAME for every instance of a model, so it
+  // is built once per model and shared (BindCache in the .cpp). It used to be
+  // per instance - ~57 bytes a vertex per LOD level, ~1.1 MB for a 4400-
+  // triangle generated character - and a crowd of eighteen of them ran the
+  // EE out of its 32 MB before the first frame.
+  struct PartBind {
     std::vector<Vec4> bindPositions, bindNormals, skinWeights;
     std::vector<u8> sortedJoints, influences;
     std::vector<u32> skinSource;  // first identical corner, always <= this corner
-    std::vector<Vec4> ownVertices, ownNormals;  // levels > 0
-    std::vector<Vec4> uvs;  // packed texture coords, levels > 0 (static)
-    Vec4* outV = nullptr;   // skin destination (own or mesh frame)
+    std::vector<Vec4> uvs;        // packed texture coords (static)
+    u32 count = 0;
+  };
+  // Per instance, per part, per level: the skin output. Allocated the first
+  // time this instance skins at this level (ensurePose) - an instance that
+  // only ever follows another's pose (poseEquals) or only renders far away
+  // never pays for the levels it does not draw.
+  struct PartLod {
+    const PartBind* bind = nullptr;
+    std::vector<Vec4> ownVertices, ownNormals;
+    Vec4* outV = nullptr;   // skin destination (empty until first skinned)
     Vec4* outN = nullptr;
-    Vec4* uvPtr = nullptr;  // nullptr on untextured parts
+    const Vec4* uvPtr = nullptr;  // the shared uvs, nullptr on untextured parts
     u32 count = 0;
   };
 
@@ -136,8 +166,39 @@ class SkelInstance {
    * a scripted play()/speed change simply splits the group. */
   bool poseEquals(const SkelInstance& other) const {
     return model == other.model && cur.clip == other.cur.clip &&
-           cur.time == other.cur.time && fadeT >= 1.0F && other.fadeT >= 1.0F;
+           cur.time == other.cur.time && fadeT >= 1.0F && other.fadeT >= 1.0F &&
+           overrideCount == 0 && other.overrideCount == 0 &&
+           partSkipped == other.partSkipped;
   }
+
+  /**
+   * Modified by TyraX: a part that is not drawn (a creator option the
+   * character is not wearing) is not skinned either - its arrays keep their
+   * last skin. Turning a part back on re-skins on the next ensurePose().
+   * Instances skipping different parts never share a pose.
+   */
+  void setPartSkipped(u32 part, bool skip);
+
+  /**
+   * Modified by TyraX: a procedural layer over the clip - a node's local
+   * rotation becomes clip rotation * q (q in the node's own animated frame;
+   * x, y, z, w). What a face is made of: blinking lids, eyes and a head
+   * that follow the player, a jaw that talks, spring bones. Marks the pose
+   * dirty; an instance carrying overrides never shares its pose.
+   * `replace`: the local rotation is q alone - the clip's rotation of that
+   * node is dropped (spring bones: a generated clip carries the panel's
+   * leg-driven swing, which the spring recomputes up close).
+   */
+  void setRotationOverride(u32 node, const float q[4], bool replace = false);
+
+  /** Drops every override (a far instance goes back to sharing its pose). */
+  void clearRotationOverrides();
+
+  u32 rotationOverrideCount() const { return overrideCount; }
+
+  /** The node's global (model-space) matrix as of the last evaluated pose -
+   * one frame old when read before ensurePose(). Column-major. */
+  const M4x4& nodeGlobal(u32 node) const { return globals[node]; }
 
  private:
   struct Layer {
@@ -156,6 +217,10 @@ class SkelInstance {
   bool poseDirty = true;          // initial pose not yet skinned
   bool oneShotDone = false;
   u8 lastSkinnedLod = 0;          // which level the out arrays hold
+  u32 overrideCount = 0;          // nodes with a live rotation override
+  std::vector<float> overrideRot;   // nodes * 4 (x, y, z, w)
+  std::vector<u8> overrideOn;       // per node: 1 = clip * q, 2 = q alone (replace)
+  std::vector<u8> partSkipped;      // per part (empty = none skipped)
   u8 maxLodLevels = 1;            // longest per-part chain incl. the base
 
   // scratch buffers, sized once in the constructor
@@ -165,12 +230,19 @@ class SkelInstance {
   std::vector<M4x4> palette;                 // per palette slot
 
   std::vector<std::vector<PartLod>> partLods;  // [part][lod]
+  std::shared_ptr<const SkelBindCache> binds;  // the model's (SkelModel::bindCache)
 
   void advanceLayer(Layer& layer, float dt);
   void evalLocals(Layer& layer, std::vector<float>& locals,
                   std::vector<u8>& animated);
   void evalPose();
   void skinParts(u8 lod);
+};
+
+/** Modified by TyraX: a model's skinning bind data, shared by its instances
+ * (see SkelInstance::PartBind). */
+struct SkelBindCache {
+  std::vector<std::vector<SkelInstance::PartBind>> parts;  // [part][lod]
 };
 
 }  // namespace Tyra
