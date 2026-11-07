@@ -23390,6 +23390,63 @@ void TerrainGame::renderStaticBatches() {
         stale = true, bp.full = true;
     }
     if (stale) rebuildStaticBatch(b);
+  }
+#if TYRA_STAPIP_RECORD_LISTS
+  syncBatchRecords(batchRecs, false);
+  Tyra::StaPipRecordView v;
+  recordViewBase(v);
+  const unsigned int n = cullRecords(batchRecs, v);
+#if TYRA_STAPIP_RECORD_LIST_VERIFY
+  recVerify(1, batchRecs, n, &TerrainGame::cullStaticBatchesLegacy);
+#endif
+  for (unsigned int k = 0; k < n; ++k)
+    submitHeavy(batchRecs.bag(recVisible[k]));
+#else
+  cullStaticBatchesLegacy();
+#endif
+}
+
+void TerrainGame::syncBatchRecords(Tyra::StaPipRecordList& L, bool force) {
+  const unsigned int tok = DrawEpochs::g.cls[DrawEpochs::kClassStaticBatch];
+  if (!force && L.synced && L.syncToken == tok &&
+      L.size() == staticBatches.size())
+    return;
+  L.clear();
+  L.resize((unsigned int)staticBatches.size());
+  for (size_t bi = 0; bi < staticBatches.size(); ++bi) {
+    StaticBatch& b = staticBatches[bi];
+    if (!b.bag || b.bag->count == 0) continue;
+    Tyra::StaPipRecordList::Record r;
+    r.bag = b.bag.get();
+    for (int k = 0; k < 3; ++k) {
+      r.mn[k] = b.aabbMin[k];
+      r.mx[k] = b.aabbMax[k];
+    }
+    r.rules = Tyra::StaPipRecordList::kRuleFrustum |
+              Tyra::StaPipRecordList::kRuleSplit;
+    if (b.drawDistance > 0.0F) {
+      r.rules |= Tyra::StaPipRecordList::kRuleDistBox;
+      for (int k = 0; k < 3; ++k) {
+        r.auxMn[k] = b.ddMin[k];
+        r.auxMx[k] = b.ddMax[k];
+      }
+      r.dist = b.drawDistance;
+    }
+    bool ownsOccluder = false;
+    for (const StaticBatchMember& m : b.members)
+      if (occlusionObjectIsOccluder(m.object)) { ownsOccluder = true; break; }
+    if (!ownsOccluder) r.rules |= Tyra::StaPipRecordList::kRuleOcclude;
+    // Revision class (docs/dod-submission.md, phase 3): every writer of a
+    // static batch's info / colour / texture bag bumps kClassStaticBatch.
+    b.bag->revisionClass = DrawEpochs::kClassStaticBatch;
+    L.set((unsigned int)bi, r);
+  }
+  L.syncToken = tok;
+  L.synced = true;
+}
+
+void TerrainGame::cullStaticBatchesLegacy() {
+  for (StaticBatch& b : staticBatches) {
     if (!b.bag || b.bag->count == 0) continue;
     // Draw distance, applied to the batch rather than to each member - the
     // per-frame analogue of beyondDrawDistance() and deliberately NOT routed
@@ -23434,7 +23491,7 @@ void TerrainGame::renderStaticBatches() {
     // Revision class (docs/dod-submission.md, phase 3): every writer of a
     // static batch's info / colour / texture bag bumps kClassStaticBatch.
     b.bag->revisionClass = DrawEpochs::kClassStaticBatch;
-    submitHeavy(b.bag.get());
+    recEmitHeavy(b.bag.get());
   }
 }
 
@@ -24227,11 +24284,75 @@ void TerrainGame::rebakeLampLight() {
 
 /* {{VEHICLE_IMPL}} */
 /* {{ROADS_IMPL}} */
+void TerrainGame::syncProcRecords(Tyra::StaPipRecordList& roads,
+                                  Tyra::StaPipRecordList& procs, bool force) {
+  const unsigned int tok = DrawEpochs::g.cls[DrawEpochs::kClassRoadChunk];
+  if (!force && roads.synced && roads.syncToken == tok &&
+      roads.size() == procChunks.size() && procs.synced &&
+      procs.syncToken == tok && procs.size() == procChunks.size())
+    return;
+  roads.clear();
+  procs.clear();
+  roads.resize((unsigned int)procChunks.size());
+  procs.resize((unsigned int)procChunks.size());
+  for (size_t ci = 0; ci < procChunks.size(); ++ci) {
+    ProcChunk& c = procChunks[ci];
+    if (!c.bag || c.bag->count == 0) continue;
+    Tyra::StaPipRecordList::Record r;
+    r.bag = c.bag.get();
+    for (int k = 0; k < 3; ++k) {
+      r.mn[k] = c.aabbMin[k];
+      r.mx[k] = c.aabbMax[k];
+      r.point0[k] = c.centre[k];
+      r.point1[k] = c.lodRef[k];
+    }
+    r.rules = Tyra::StaPipRecordList::kRuleFrustum |
+              Tyra::StaPipRecordList::kRuleSplit;
+    if (c.drawDist > 0.0F) {
+      r.rules |= Tyra::StaPipRecordList::kRuleDistCentre;
+      r.dist = c.drawDist;
+    }
+    if (c.owner == -3) {
+      // renderRoadChunksLegacy: no LOD switch, no occlusion, the reflection
+      // probe's ground radius.
+      r.rules |= Tyra::StaPipRecordList::kRuleGround;
+      c.bag->revisionClass = DrawEpochs::kClassRoadChunk;  // see static batches
+      roads.set((unsigned int)ci, r);
+      continue;
+    }
+    if (c.lodTier >= 0) {
+      r.rules |= Tyra::StaPipRecordList::kRuleLod;
+      r.lodTier = (signed char)c.lodTier;
+      r.lodDist = c.lodDist;
+    }
+    r.rules |= Tyra::StaPipRecordList::kRuleOcclude;
+    procs.set((unsigned int)ci, r);
+  }
+  roads.syncToken = procs.syncToken = tok;
+  roads.synced = procs.synced = true;
+}
+
 void TerrainGame::renderProcChunks() {
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerProcedural);
 #endif
   if (procChunks.empty()) return;
+#if TYRA_STAPIP_RECORD_LISTS
+  syncProcRecords(roadRecs, procRecs, false);
+  Tyra::StaPipRecordView v;
+  recordViewBase(v);
+  const unsigned int n = cullRecords(procRecs, v);
+#if TYRA_STAPIP_RECORD_LIST_VERIFY
+  recVerify(3, procRecs, n, &TerrainGame::renderProcChunksLegacy);
+#endif
+  for (unsigned int k = 0; k < n; ++k)
+    renderWorldBag(procRecs.bag(recVisible[k]));
+#else
+  renderProcChunksLegacy();
+#endif
+}
+
+void TerrainGame::renderProcChunksLegacy() {
   for (ProcChunk& c : procChunks) {
     // Roads have their own phase and profiler row. Keeping them here as well
     // used to make "Procedural" mean "mostly asphalt" and would double-draw
@@ -24268,7 +24389,7 @@ void TerrainGame::renderProcChunks() {
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
     if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
-    renderWorldBag(c.bag.get());
+    recEmitWorld(c.bag.get());
   }
 })TYRAXGAME";
 
@@ -24282,6 +24403,23 @@ void TerrainGame::renderRoadChunks() {
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerRoads);
 #endif
+#if TYRA_STAPIP_RECORD_LISTS
+  if (procChunks.empty()) return;
+  syncProcRecords(roadRecs, procRecs, false);
+  Tyra::StaPipRecordView v;
+  recordViewBase(v);
+  const unsigned int n = cullRecords(roadRecs, v);
+#if TYRA_STAPIP_RECORD_LIST_VERIFY
+  recVerify(2, roadRecs, n, &TerrainGame::renderRoadChunksLegacy);
+#endif
+  for (unsigned int k = 0; k < n; ++k)
+    submitHeavy(roadRecs.bag(recVisible[k]));
+#else
+  renderRoadChunksLegacy();
+#endif
+}
+
+void TerrainGame::renderRoadChunksLegacy() {
   // Main and reflection views need the asphalt without paying for every
   // procedural volume and prefab in the scene. Roads own the reserved -3
   // producer id, which also gives the profiler an honest standalone phase.
@@ -24320,7 +24458,7 @@ void TerrainGame::renderRoadChunks() {
         Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
       continue;
     c.bag->revisionClass = DrawEpochs::kClassRoadChunk;  // see static batches
-    submitHeavy(c.bag.get());
+    recEmitHeavy(c.bag.get());
   }
 }
 
@@ -33162,10 +33300,192 @@ bool TerrainGame::objectOutsideSplitBand(int i) const {
 
 
 
+// ---------------------------------------------------------------------------
+// Retained draw records (docs/record-renderer.md, phase 1)
+// ---------------------------------------------------------------------------
+// Terrain chunks, static batches, road and procedural chunks keep one record
+// per bag in a StaPipRecordList, at a position that is the draw order (chunk
+// slot x pass, batch index, procChunks index). A list is rewritten when its
+// producer's revision class moves - every writer of these bags already bumps
+// it for the stamp pass (DrawEpochs::ClassWriter) - and culled in one pass a
+// view, with the producer's own rules as record data. The old loops stay as
+// the kill switch (TYRA_STAPIP_RECORD_LISTS 0) and as the verify oracle.
+
+void TerrainGame::recordViewBase(Tyra::StaPipRecordView& v) {
+  v.frustum = engine->renderer.core.renderer3D.frustumPlanes.getAll();
+  v.eye[0] = cameraPosition.x;
+  v.eye[1] = cameraPosition.y;
+  v.eye[2] = cameraPosition.z;
+  v.splitBand = splitBandActive;
+  if (splitBandActive)
+    for (int k = 0; k < 3; ++k) {
+      v.bandP[k] = splitBandP[k];
+      v.bandN[0][k] = splitBandN[0][k];
+      v.bandN[1][k] = splitBandN[1][k];
+    }
+  v.groundRadius = g_groundDrawRadius;
+  v.occluded = [](void* self, const float* mn, const float* mx) {
+    return static_cast<TerrainGame*>(self)->occlusionHiddenAabb(mn, mx);
+  };
+  v.occCtx = this;
+}
+
+unsigned int TerrainGame::cullRecords(Tyra::StaPipRecordList& list,
+                                      const Tyra::StaPipRecordView& v) {
+  if (recVisible.size() < list.size()) recVisible.resize(list.size());
+  return list.cull(v, recVisible.data());
+}
+
+#if TYRA_STAPIP_RECORD_LIST_VERIFY
+// Verify: the old loop, dry, must produce exactly the records' sequence; and
+// the retained list must equal one rebuilt from the live state right now (a
+// writer that skipped its class bump shows as recBad even when the culled
+// sequence happens to agree this frame).
+void TerrainGame::recVerify(int which, Tyra::StaPipRecordList& list,
+                            unsigned int n, void (TerrainGame::*legacy)()) {
+  struct Stat { unsigned frames, draws, seqBad, recBad; };
+  static Stat st[4] = {};
+  static const char* names[4] = {"terrain", "batches", "roads", "proc"};
+  Stat& t = st[which];
+  std::vector<Tyra::StaPipBag*> dry;
+  recDry = &dry;
+  (this->*legacy)();
+  recDry = nullptr;
+  bool seqOk = dry.size() == n;
+  for (unsigned int k = 0; seqOk && k < n; ++k)
+    seqOk = dry[k] == list.bag(recVisible[k]);
+  Tyra::StaPipRecordList fresh, freshB;
+  if (which == 0) syncTerrainRecords(fresh, true);
+  else if (which == 1) syncBatchRecords(fresh, true);
+  else if (which == 2) syncProcRecords(fresh, freshB, true);
+  else syncProcRecords(freshB, fresh, true);
+  unsigned int first = 0;
+  const unsigned int rb = list.diff(fresh, &first);
+  ++t.frames;
+  t.draws += n;
+  if (!seqOk) {
+    ++t.seqBad;
+    if (t.seqBad <= 8)
+      printf("RECLISTVERIFY BUG seq list=%s records=%u legacy=%u\n",
+             names[which], n, (unsigned)dry.size());
+  }
+  if (rb != 0) {
+    ++t.recBad;
+    if (t.recBad <= 8)
+      printf("RECLISTVERIFY BUG rec list=%s diff=%u first=%u\n", names[which],
+             rb, first);
+  }
+  if (t.frames % 600 == 0)
+    printf("RECLISTVERIFY list=%s frames=%u draws=%u seqBad=%u recBad=%u\n",
+           names[which], t.frames, t.draws, t.seqBad, t.recBad);
+}
+#endif
+
+void TerrainGame::syncTerrainRecords(Tyra::StaPipRecordList& L, bool force) {
+  const unsigned int tok = DrawEpochs::g.cls[DrawEpochs::kClassTerrainChunk];
+  size_t maxLayers = 0;
+  for (const TerrainChunk& ch : terrainChunks)
+    if (ch.layerPasses.size() > maxLayers) maxLayers = ch.layerPasses.size();
+  const int stride = (int)maxLayers + 4;  // base, layers, ao, gs, emis
+  const unsigned int want = (unsigned int)(terrainChunks.size() * stride);
+  if (!force && L.synced && L.syncToken == tok && stride == terrainRecStride &&
+      L.size() == want)
+    return;
+  terrainRecStride = stride;
+  L.clear();
+  L.resize(want);
+  const int cellsX = HM_W - 1, cellsZ = HM_D - 1;
+  const float stepX = (float)TERRAIN_WIDTH / cellsX;
+  const float stepZ = (float)TERRAIN_DEPTH / cellsZ;
+  for (size_t si = 0; si < terrainChunks.size(); ++si) {
+    TerrainChunk& ch = terrainChunks[si];
+    if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
+    const unsigned int base = (unsigned int)(si * stride);
+    Tyra::StaPipRecordList::Record r;
+    for (int k = 0; k < 3; ++k) {
+      r.mn[k] = ch.aabbMin[k];
+      r.mx[k] = ch.aabbMax[k];
+    }
+    r.rules = Tyra::StaPipRecordList::kRuleFrustum |
+              Tyra::StaPipRecordList::kRuleSplit |
+              Tyra::StaPipRecordList::kRuleGround |
+              Tyra::StaPipRecordList::kRuleRing |
+              Tyra::StaPipRecordList::kRuleExit;
+    r.cx = ch.cx;
+    r.cz = ch.cz;
+    // The portal exit test's box: the chunk's cell rect at its built height
+    // extent (renderTerrainLegacy's x0w..x1w, minY..maxY, z0w..z1w).
+    const int gx0 = ch.cx * TERRAIN_CHUNK_CELLS;
+    const int gz0 = ch.cz * TERRAIN_CHUNK_CELLS;
+    const int gx1 = gx0 + TERRAIN_CHUNK_CELLS > cellsX
+                        ? cellsX
+                        : gx0 + TERRAIN_CHUNK_CELLS;
+    const int gz1 = gz0 + TERRAIN_CHUNK_CELLS > cellsZ
+                        ? cellsZ
+                        : gz0 + TERRAIN_CHUNK_CELLS;
+    r.auxMn[0] = -TERRAIN_WIDTH * 0.5F + gx0 * stepX;
+    r.auxMx[0] = -TERRAIN_WIDTH * 0.5F + gx1 * stepX;
+    r.auxMn[1] = ch.minY;
+    r.auxMx[1] = ch.maxY;
+    r.auxMn[2] = -TERRAIN_DEPTH * 0.5F + gz0 * stepZ;
+    r.auxMx[2] = -TERRAIN_DEPTH * 0.5F + gz1 * stepZ;
+    r.bag = ch.bag.get();
+    ch.bag->revisionClass = DrawEpochs::kClassTerrainChunk;  // see static batches
+    L.set(base, r);
+    for (size_t a = 0; a < ch.layerPasses.size(); ++a) {
+      TerrainChunk::LayerPass& lp = ch.layerPasses[a];
+      if (!lp.bag || lp.bag->count == 0) continue;
+      r.bag = lp.bag.get();
+      L.set(base + 1 + (unsigned int)a, r);
+    }
+    if (ch.aoBag && ch.aoBag->count > 0) {
+      r.bag = ch.aoBag.get();
+      L.set(base + (unsigned int)stride - 3, r);
+    }
+    if (ch.gsBag && ch.gsBag->count > 0) {
+      r.bag = ch.gsBag.get();
+      r.group = 1;  // only while there is a sun (renderTerrain's group mask)
+      L.set(base + (unsigned int)stride - 2, r);
+      r.group = 0;
+    }
+    if (ch.emisBag && ch.emisBag->count > 0) {
+      r.bag = ch.emisBag.get();
+      L.set(base + (unsigned int)stride - 1, r);
+    }
+  }
+  L.syncToken = tok;
+  L.synced = true;
+}
+
 void TerrainGame::renderTerrain() {
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerTerrain);
 #endif
+#if TYRA_STAPIP_RECORD_LISTS
+  syncTerrainRecords(terrainRecs, false);
+  Tyra::StaPipRecordView v;
+  recordViewBase(v);
+  if (terrainWholeMapResident() && terrainDrawRectCount > 0) {
+    v.rects = terrainDrawRect;
+    v.nRects = terrainDrawRectCount;
+  }
+  v.exitPlane = portalExitPlaneOn;
+  for (int k = 0; k < 4; ++k) v.exitPlaneV[k] = portalExitPlane[k];
+  // The ground shadow pass only while there IS a sun (renderTerrainLegacy).
+  v.groupMask = (!daynight::active(currentScene) || daynight::g_sun[1] >= 0.0F)
+                    ? 0xFF : 0xFE;
+  const unsigned int n = cullRecords(terrainRecs, v);
+#if TYRA_STAPIP_RECORD_LIST_VERIFY
+  recVerify(0, terrainRecs, n, &TerrainGame::renderTerrainLegacy);
+#endif
+  for (unsigned int k = 0; k < n; ++k)
+    renderWorldBag(terrainRecs.bag(recVisible[k]));
+#else
+  renderTerrainLegacy();
+#endif
+}
+
+void TerrainGame::renderTerrainLegacy() {
   const bool ringCull = terrainWholeMapResident() && terrainDrawRectCount > 0;
   for (TerrainChunk& ch : terrainChunks) {
     if (ch.cx < 0 || !ch.bag || ch.bag->count == 0) continue;
@@ -33235,16 +33555,16 @@ void TerrainGame::renderTerrain() {
         continue;
     }
     ch.bag->revisionClass = DrawEpochs::kClassTerrainChunk;  // see static batches
-    renderWorldBag(ch.bag.get());
+    recEmitWorld(ch.bag.get());
     // Painted layers: alpha-blend over the base pass right away (same
     // geometry = equal depth passes the GS >= z-test; keeping base + layers
     // adjacent also keeps the texture cache warm per chunk).
     for (TerrainChunk::LayerPass& lp : ch.layerPasses)
-      if (lp.bag && lp.bag->count > 0) renderWorldBag(lp.bag.get());
+      if (lp.bag && lp.bag->count > 0) recEmitWorld(lp.bag.get());
     // Terrain lightmap, last and in this order: the occlusion multiplies
     // base + layers per pixel, then the baked emissive light is added on top
     // (a light pool must not be darkened by its own surroundings' occlusion).
-    if (ch.aoBag && ch.aoBag->count > 0) renderWorldBag(ch.aoBag.get());
+    if (ch.aoBag && ch.aoBag->count > 0) recEmitWorld(ch.aoBag.get());
     // The sun's shadow darkens the sunlit ground, not the lamps' light - and
     // only while there IS a sun: with the day cycle running and the sun below
     // the horizon (the moon owns the light, daynight::tick's handover) the
@@ -33253,8 +33573,8 @@ void TerrainGame::renderTerrain() {
     // (docs/shadows.md, "Ground shadow maps").
     if (ch.gsBag && ch.gsBag->count > 0 &&
         (!daynight::active(currentScene) || daynight::g_sun[1] >= 0.0F))
-      renderWorldBag(ch.gsBag.get());
+      recEmitWorld(ch.gsBag.get());
     if (ch.emisBag && ch.emisBag->count > 0)
-      renderWorldBag(ch.emisBag.get());
+      recEmitWorld(ch.emisBag.get());
   }
 })TYRAXGAME";

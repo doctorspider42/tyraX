@@ -1242,6 +1242,35 @@ class TerrainGame : public Tyra::Game {
   // reflection capture skips a half on such a frame so the costs never stack.
   int terrainBuiltThisFrame = 0;
   void renderTerrain();
+  // Retained draw records (docs/record-renderer.md, phase 1): one list per
+  // world producer, written when the producer's revision class moves (every
+  // writer of these bags already bumps it), culled in one pass per view.
+  // TYRA_STAPIP_RECORD_LISTS 0 = the old per-item loops.
+  Tyra::StaPipRecordList terrainRecs, batchRecs, roadRecs, procRecs;
+  std::vector<unsigned int> recVisible;
+  std::vector<Tyra::StaPipBag*>* recDry = nullptr;  // verify: legacy loop dry
+  int terrainRecStride = 0;
+  void syncTerrainRecords(Tyra::StaPipRecordList& L, bool force);
+  void syncBatchRecords(Tyra::StaPipRecordList& L, bool force);
+  void syncProcRecords(Tyra::StaPipRecordList& roads,
+                       Tyra::StaPipRecordList& procs, bool force);
+  void recordViewBase(Tyra::StaPipRecordView& v);
+  unsigned int cullRecords(Tyra::StaPipRecordList& list,
+                           const Tyra::StaPipRecordView& v);
+  void recEmitWorld(Tyra::StaPipBag* b) {
+    if (recDry) recDry->push_back(b); else renderWorldBag(b);
+  }
+  void recEmitHeavy(Tyra::StaPipBag* b) {
+    if (recDry) recDry->push_back(b); else submitHeavy(b);
+  }
+  void renderTerrainLegacy();
+  void cullStaticBatchesLegacy();
+  void renderProcChunksLegacy();
+  void renderRoadChunksLegacy();
+#if TYRA_STAPIP_RECORD_LIST_VERIFY
+  void recVerify(int which, Tyra::StaPipRecordList& list, unsigned int n,
+                 void (TerrainGame::*legacy)());
+#endif
   void updateCameraOrbit();
 
   Tyra::Engine* engine;
@@ -3422,6 +3451,35 @@ class TerrainGame : public Tyra::Game {
   // reflection capture skips a half on such a frame so the costs never stack.
   int terrainBuiltThisFrame = 0;
   void renderTerrain();
+  // Retained draw records (docs/record-renderer.md, phase 1): one list per
+  // world producer, written when the producer's revision class moves (every
+  // writer of these bags already bumps it), culled in one pass per view.
+  // TYRA_STAPIP_RECORD_LISTS 0 = the old per-item loops.
+  Tyra::StaPipRecordList terrainRecs, batchRecs, roadRecs, procRecs;
+  std::vector<unsigned int> recVisible;
+  std::vector<Tyra::StaPipBag*>* recDry = nullptr;  // verify: legacy loop dry
+  int terrainRecStride = 0;
+  void syncTerrainRecords(Tyra::StaPipRecordList& L, bool force);
+  void syncBatchRecords(Tyra::StaPipRecordList& L, bool force);
+  void syncProcRecords(Tyra::StaPipRecordList& roads,
+                       Tyra::StaPipRecordList& procs, bool force);
+  void recordViewBase(Tyra::StaPipRecordView& v);
+  unsigned int cullRecords(Tyra::StaPipRecordList& list,
+                           const Tyra::StaPipRecordView& v);
+  void recEmitWorld(Tyra::StaPipBag* b) {
+    if (recDry) recDry->push_back(b); else renderWorldBag(b);
+  }
+  void recEmitHeavy(Tyra::StaPipBag* b) {
+    if (recDry) recDry->push_back(b); else submitHeavy(b);
+  }
+  void renderTerrainLegacy();
+  void cullStaticBatchesLegacy();
+  void renderProcChunksLegacy();
+  void renderRoadChunksLegacy();
+#if TYRA_STAPIP_RECORD_LIST_VERIFY
+  void recVerify(int which, Tyra::StaPipRecordList& list, unsigned int n,
+                 void (TerrainGame::*legacy)());
+#endif
   void updatePlayer();
 
   Tyra::Engine* engine;

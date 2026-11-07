@@ -336,6 +336,11 @@ Developer design docs (internals, not user guides):
   revision contract every new writer must keep; since 2.13.0 the crossing
   pass (crossing bags classified in one pre-pass and sent from a per-bag
   record).
+- [Record renderer](record-renderer.md) - the rewrite of StaPip submission
+  into a retained, record-based renderer: persistent draw records per
+  drawable, changes reported by the game instead of every draw submitted,
+  stage-major passes over contiguous records, multi-view reuse; phase by
+  phase with its contract, verify builds and PS2 measurements.
 - [How TyraX uses the PS2's hardware](ps2-hardware-utilisation.md) — what
   each unit (EE, VU0, VU1, GS, DMA channels, scratchpad, IOP) does in a
   gameplay frame, three rebuild directions priced on a physical PS2 (the frame

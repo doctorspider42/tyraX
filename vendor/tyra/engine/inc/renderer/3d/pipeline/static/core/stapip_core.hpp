@@ -6,7 +6,8 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by TyraX: the stamp pass at the frame-recorder flush (docs/dod-submission.md).
+# Modified by TyraX: the stamp pass at the frame-recorder flush (docs/dod-submission.md);
+# the retained draw records (docs/record-renderer.md).
 */
 
 #pragma once
@@ -22,6 +23,7 @@
 #include "./stapip_qbuffer_renderer.hpp"
 #include "./stapip_telemetry.hpp"
 #include "./stapip_bag_bboxes_cacher.hpp"
+#include "./stapip_records.hpp"  // Modified by TyraX: retained draw records
 #include "renderer/3d/pipeline/shared/pipeline_frustum_culling.hpp"
 
 namespace Tyra {
