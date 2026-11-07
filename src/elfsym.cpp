@@ -188,7 +188,7 @@ Audit auditRelease(const std::string& elfPath) {
     static const char* const kSymbolNeedles[] = {
         "livedbg", "livelogic", "livepad", "inputreplay", "LiveLink",
         "LiveDebug", "LiveLogic", "LiveTex", "flowDbg", "flowLive",
-        "ReplayFingerprint"};
+        "ReplayFingerprint", "DevLink", "devlink_irx"};
     for (const char* needle : kSymbolNeedles)
         for (const Symbol* s : img.symbolsContaining(needle))
             a.findings.push_back({s->name, "symbol", s->size});

@@ -4308,6 +4308,7 @@ private:
     bool padScriptRunning_ = false;
     void padScriptTick();  // advance it; called from remotePadTick
     void remotePadTick();
+    std::string padConsoleIp() const;  // devlink target, "" = file only
     void drawRemotePadWindow();
 
     // UI scripting (docs/ui-scripting.md): --ui-script drives the editor itself

@@ -52,6 +52,7 @@ using SOCKET = int;
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <mutex>
 #include <utility>
 
 namespace wire {
@@ -784,6 +785,34 @@ std::string probeTcp(const std::string& host, uint16_t port, int timeoutMs) {
     std::string err = t->connect(host, port, timeoutMs);
     t->close();
     return err;
+}
+
+std::string sendDatagram(const std::string& ipv4, uint16_t port, const void* data,
+                         size_t len) {
+    ensureWinsock();
+    static std::mutex mu;
+    static SOCKET sock = INVALID_SOCKET;
+    std::lock_guard<std::mutex> lock(mu);
+    if (sock == INVALID_SOCKET) {
+        sock = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (sock == INVALID_SOCKET) return wsaError("socket");
+#ifdef _WIN32
+        u_long nonBlocking = 1;
+        ioctlsocket(sock, FIONBIO, &nonBlocking);
+#else
+        const int flags = ::fcntl(sock, F_GETFL, 0);
+        if (flags >= 0) ::fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+#endif
+    }
+    sockaddr_in to{};
+    to.sin_family = AF_INET;
+    to.sin_port = htons(port);
+    if (inet_pton(AF_INET, ipv4.c_str(), &to.sin_addr) != 1)
+        return "not an IPv4 address: " + ipv4;
+    const int sent = (int)::sendto(sock, (const char*)data, (int)len, 0,
+                                   (const sockaddr*)&to, sizeof(to));
+    if (sent != (int)len) return wsaError("sendto");
+    return "";
 }
 
 std::unique_ptr<Transport> makeWebSocketTransport(std::string httpPage) {

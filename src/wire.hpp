@@ -147,6 +147,14 @@ std::vector<std::string> localIPv4();
 // would not).
 std::string probeTcp(const std::string& host, uint16_t port, int timeoutMs);
 
+// One UDP datagram to a numeric IPv4 address, fire and forget - the editor's
+// side of devlink (docs/devlink.md). Never blocks: a full send buffer drops
+// the datagram, which the channels allow (each one carries absolute state and
+// is resent). One socket, opened on first use and kept. Thread-safe.
+// "" = handed to the stack; otherwise the reason it was not.
+std::string sendDatagram(const std::string& ipv4, uint16_t port, const void* data,
+                         size_t len);
+
 // A plain blocking byte stream - no framing, one owner thread. The script
 // debugger's two links (docs/script-debugger.md): PCSX2's PINE socket and the
 // GDB remote serial protocol.

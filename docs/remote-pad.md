@@ -195,9 +195,16 @@ before it would simply be thrown away. The overlay itself is the engine's
 click edges are derived from the previous overlay and two sources sharing one
 history would each read as the other releasing everything.
 
-Polling is per frame under PCSX2 (`host:` is a host syscall there) and every 4th
-frame over ps2link, where every `fopen` is a network round-trip. So on real
-hardware the pad answers a little later; the file format does not change.
+Under PCSX2 the game polls the file every frame (`host:` is a host syscall
+there). **On a console it does not open the file at all** (since 2.11.0): the
+game loads devlink, a small IOP module, and the editor sends the same 36 bytes
+as a UDP datagram to the console (port 18198) next to every file write. The IOP
+DMAs each datagram into a mailbox in EE RAM, and the game reads that every frame
+for a few uncached loads, with no network round trip. See
+[devlink.md](devlink.md). The datagram goes out when the run target is
+**PS2** and a ps2link IP is set; `--pad` sends it to editor.ini's `ps2LinkIp`.
+If the module cannot load (no ps2ip on the IOP), the game says so in its log
+and falls back to polling the file every 4th frame, the pre-2.11 behaviour.
 
 ## What it costs a shipped game
 

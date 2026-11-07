@@ -20,6 +20,8 @@
 #include <cstdio>
 #include <cstring>
 
+#include <debug/devlink.hpp>
+
 #include "live_pad.gen.hpp"
 
 namespace World_facts {
@@ -52,16 +54,13 @@ void dropOverlay() {
   }
 }
 
-void poll() {
-  static unsigned char b[PAD_FILE_SIZE];
-  FILE* f = fopen(Tyra::FileUtils::fromCwd("livepad.bin").c_str(), "rb");
-  if (!f) {  // nobody is driving (or this is a shipped build)
-    if (active) dropOverlay();
-    return;
-  }
-  const size_t got = fread(b, 1, sizeof(b), f);
-  fclose(f);
-  if (got != (size_t)PAD_FILE_SIZE) return;  // torn or foreign file
+// 1 = the state arrives through devlink (docs/devlink.md): the IOP DMAs the
+// editor's datagram into a mailbox in EE RAM and this reads it every frame
+// for a few uncached loads. -1 = host: files. 0 = not decided yet.
+int viaDevlink = 0;
+
+// One livepad.bin image, from either transport. The checks are the same.
+void applyState(const unsigned char* b) {
   unsigned int magic, version, seq, flags, foot;
   memcpy(&magic, b + 0, 4);
   memcpy(&version, b + 4, 4);
@@ -85,6 +84,19 @@ void poll() {
     for (int a = 0; a < 4; ++a) axes[i][a] = (signed char)b[24 + i * 4 + a];
   }
   active = true;
+}
+
+void poll() {
+  static unsigned char b[PAD_FILE_SIZE];
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("livepad.bin").c_str(), "rb");
+  if (!f) {  // nobody is driving (or this is a shipped build)
+    if (active) dropOverlay();
+    return;
+  }
+  const size_t got = fread(b, 1, sizeof(b), f);
+  fclose(f);
+  if (got != (size_t)PAD_FILE_SIZE) return;  // torn or foreign file
+  applyState(b);
 }
 
 void applyTo(Tyra::Pad& pad, int i) {
@@ -115,12 +127,17 @@ void applyTo(Tyra::Pad& pad, int i) {
 
 void tick(Tyra::Engine* engine, Tyra::Pad* pad2) {
   if (!engine) return;
-  // Over ps2link every fopen is a network round-trip, so poll sparsely there
-  // and accept the latency; under PCSX2 host: is a host syscall and input
-  // wants every frame it can get.
-  const bool ps2link = Tyra::IrxLoader::keepIopResident;
-  if (--pollCooldown <= 0) {
-    pollCooldown = ps2link ? 4 : 1;
+  // Over ps2link the IOP takes the network off the EE: devlink receives the
+  // editor's datagram and leaves it in RAM, so reading it costs nothing and
+  // happens every frame. Without it (PCSX2, or a console whose IOP could not
+  // load the module) the state is a host: file - a host syscall in PCSX2 but
+  // a network round trip over ps2link, hence the sparser poll there.
+  if (viaDevlink == 0) viaDevlink = Tyra::DevLink::start() ? 1 : -1;
+  if (viaDevlink > 0) {
+    static unsigned char b[PAD_FILE_SIZE];
+    if (Tyra::DevLink::readPad(b)) applyState(b);
+  } else if (--pollCooldown <= 0) {
+    pollCooldown = Tyra::IrxLoader::keepIopResident ? 4 : 1;
     poll();
   }
   if (!active) return;

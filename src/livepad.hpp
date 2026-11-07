@@ -71,9 +71,19 @@ bool decode(const std::vector<unsigned char>& bytes, State& out, uint32_t& seq,
             bool& attached);
 
 /** Writes atomically (sibling tmp + rename), like every other channel: the
- * game may fopen this file between our two writes. Returns "" or an error. */
+ * game may fopen this file between our two writes. Returns "" or an error.
+ *
+ * With a `consoleIp` it ALSO sends the same 36 bytes as one UDP datagram to
+ * devlink on that console (docs/devlink.md): a game running under ps2link
+ * reads its pad from there and never opens the file. Fire and forget - the
+ * result is the file's, because a console that is not listening (the game is
+ * in PCSX2, or not running at all) is the normal case, not an error. */
 std::string write(const std::string& path, const State& s, uint32_t seq,
-                  bool attached);
+                  bool attached, const std::string& consoleIp = "");
+
+// devlink's UDP port on the console. The game's twin: Tyra::DevLink::kPort
+// (vendor/tyra/engine/inc/debug/devlink.hpp).
+inline constexpr int kDevlinkPort = 18198;
 
 // ----------------------------------------------------------------- script ---
 

@@ -270,6 +270,10 @@ a Mac) finds any command, object or window by name.
 - [Remote Pad (hold the running game's controller)](remote-pad.md) — a
   clickable DualShock in the editor and a scriptable `--pad` CLI, no window
   focus needed anywhere.
+- [devlink (the devkit's channel through the IOP)](devlink.md) — on a console,
+  the IOP receives the editor's datagrams and leaves them in EE RAM, so a
+  channel costs the game no network round trips; the plan for moving every
+  devkit channel off `host:` files, and the Remote Pad as its first one.
 - [Input recorder (record a session, perform it again)](input-replay.md) —
   every frame's input written to a small committable file, replayed over the top
   of a real controller; `--replay` exits 0 when the run reproduced exactly.

@@ -4501,7 +4501,7 @@ void App::remotePadTick() {
             if (hasProject_)
                 livepad::write(
                     (fs::path(project_.dir) / "bin" / "livepad.bin").string(),
-                    padState_, ++padSeq_, false);
+                    padState_, ++padSeq_, false, padConsoleIp());
             padStatus_.clear();
         }
         return;
@@ -4522,7 +4522,15 @@ void App::remotePadTick() {
     padNextWrite_ = now + 0.04;  // ~25 Hz: keeps the game's stale watchdog fed
     padStatus_ = livepad::write(
         (fs::path(project_.dir) / "bin" / "livepad.bin").string(), padState_,
-        ++padSeq_, true);
+        ++padSeq_, true, padConsoleIp());
+}
+
+// Where the Remote Pad's datagram goes besides the file: the console, when the
+// run target is PS2. A game under ps2link reads its pad from devlink
+// (docs/devlink.md) and never opens livepad.bin; a game in PCSX2 never sees
+// the datagram. Empty = file only.
+std::string App::padConsoleIp() const {
+    return runOnPs2_ ? project_.ps2LinkIp : std::string();
 }
 
 // Tools > Remote Pad (docs/remote-pad.md): a drawn DualShock - shoulders on

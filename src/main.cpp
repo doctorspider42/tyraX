@@ -2137,7 +2137,8 @@ static int symbolizeFromCli(int argc, char** argv) {
 // to get the staleness watchdog wrong. Returns 0, or 1 when a STEP write was
 // lost (see the push lambda for why a lost refresh is not one).
 static int drivePadScript(const std::string& path,
-                          const std::vector<livepad::Step>& steps) {
+                          const std::vector<livepad::Step>& steps,
+                          const std::string& consoleIp = "") {
     // Seed the sequence from the clock: a second driver run must never reuse a
     // number the still-running game already saw, or its first state reads as
     // "nothing changed" and the staleness watchdog starts counting.
@@ -2153,7 +2154,7 @@ static int drivePadScript(const std::string& path,
     // run for; treating the second as fatal is what let a lost race on Windows
     // (see livepad::write) kill about one 9 s hold in five.
     auto push = [&](const livepad::State& s, bool attached, bool isStep) {
-        const std::string e = livepad::write(path, s, ++seq, attached);
+        const std::string e = livepad::write(path, s, ++seq, attached, consoleIp);
         if (e.empty()) return true;
         if (!isStep) {
             if (++lostRefreshes <= 3)
@@ -2295,8 +2296,19 @@ static int padFromCli(int argc, char** argv) {
                      "project - the game was built without the channel and "
                      "will ignore this.\n");
 
+    // A game on a console reads its pad through devlink (docs/devlink.md), not
+    // the file, so the script also goes to the console the editor deploys to
+    // (editor.ini's ps2LinkIp). In PCSX2 the datagram simply lands nowhere.
+    std::string consoleIp;
+    if (const std::filesystem::path base = platform::configDir(); !base.empty()) {
+        std::ifstream ini(base / "editor.ini");
+        std::string line;
+        while (std::getline(ini, line))
+            if (line.rfind("ps2LinkIp=", 0) == 0) consoleIp = line.substr(10);
+    }
     return drivePadScript(
-        (std::filesystem::path(p.dir) / "bin" / "livepad.bin").string(), steps);
+        (std::filesystem::path(p.dir) / "bin" / "livepad.bin").string(), steps,
+        consoleIp);
 }
 
 // --- The input recorder's headless half (docs/input-replay.md) --------------
