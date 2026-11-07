@@ -1473,3 +1473,19 @@ Across the loop, in shipped code:
 | 2.11.0 | start (debug build) | 6.6-6.8 | 11.1-11.3 | 14-15 (mostly host logging) |
 | 2.12.1 | terrain chunk budget | 5.9-6.0 | 10.5-10.6 | 1-2 |
 | 2.13.0 | crossing pass | **5.4** | **9.8** | **0** |
+
+### Scene 2 at 2.13.0 (`vpnR13D`, 2.13.0 engine, PMU build, 600 s)
+
+| state | work mean / p50 / p95 | at R0H (2.11.0) | GPU idle | EE waits on GPU |
+|---|---|---|---:|---|
+| parked | 10.29 / 9.88 / 11.29 | 11.73 / 10.65 / 13.68 | 49.5 % | 0.80-0.84 ms (q.waitFor 0.53 + GS tail 0.29) |
+| drive | 10.17 / 9.56 / 12.21 | 11.10 / 10.67 / 13.34 | 66.5 % | 0.008 ms |
+
+The `core` scope now times only the draws that still go through
+`renderNow`: 1.12-1.17 ms parked, 1.52-1.55 driving, down from 5.7 /
+4.5. The stamp pass and the crossing pass run outside it in the shipped
+code. That remainder is still 69-74 % misses at the fitted prices (I 54 %,
+D 15-20 %). The scene stays EE-bound driving.
+
+Parked, it is the first time the EE waits measurably on the GPU (0.8 ms a
+frame). The frame is getting close to the GPU there.
