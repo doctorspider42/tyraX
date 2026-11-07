@@ -1,16 +1,129 @@
+diff --git a/Makefile b/Makefile
+index 7cd8800..856cced 100644
+--- a/Makefile
++++ b/Makefile
+@@ -31,18 +31,22 @@ $(EE_BIN_PKD): $(EE_BIN)
+ 
+ export DEBUG LOADHIGH ZEROCOPY PWOFFONRESET
+ 
+-ee: iop
++ee: iop dev9pre
+ 	$(MAKE) -C ee
+ 
++dev9pre:
++	$(MAKE) -C dev9pre
++
+ iop:
+ 	$(MAKE) -C iop
+ 
+ clean:
+ 	$(MAKE) -C ee clean
+ 	$(MAKE) -C iop clean
++	$(MAKE) -C dev9pre clean
+ 	@rm -f ee/*_irx.o ee/*_irx.c bin/*.ELF bin/*.IRX
+ 
+ docs:
+ 	doxygen doxy.conf
+ 
+-.PHONY: iop ee
++.PHONY: iop ee dev9pre
+diff --git a/dev9pre/Makefile b/dev9pre/Makefile
+new file mode 100644
+index 0000000..5bcbb8f
+--- /dev/null
++++ b/dev9pre/Makefile
+@@ -0,0 +1,15 @@
++# TyraX (r9): dev9pre.irx - see dev9pre.c. No imports, so no imports.o.
++
++IOP_BIN  = dev9pre.irx
++IOP_OBJS = dev9pre.o
++
++IOP_CFLAGS += -Werror
++
++all: $(IOP_BIN)
++
++clean:
++	-rm -f $(IOP_BIN) *.elf
++	-rm -rf obj
++
++include $(PS2SDK)/Defs.make
++include $(PS2SDK)/samples/Makefile.iopglobal
+diff --git a/dev9pre/dev9pre.c b/dev9pre/dev9pre.c
+new file mode 100644
+index 0000000..ed7254f
+--- /dev/null
++++ b/dev9pre/dev9pre.c
+@@ -0,0 +1,55 @@
++/*
++ * TyraX (r9): dev9pre - runs on a freshly rebooted IOP before ps2dev9/smap
++ * load, and looks at the IOP DMA channels the dead game may have left
++ * running (docs/ps2link-setup.md, "The reset wedge").
++ *
++ * The wedge it is after: after a reset, ps2link restarts cleanly on screen
++ * ("Ready") but the console never answers on the network. An IOP reboot
++ * restarts the IOP's CPU; whether it also stops the IOP DMA controller is
++ * exactly what this module measures. If channel 8 (DEV9 - the Ethernet
++ * adapter's) is still marked busy when the network driver loads, that driver
++ * would wait on it forever, which is what the wedge looks like.
++ *
++ * It reports, and it fixes the one it can: a busy channel 8 is stopped (the
++ * SMAP driver starts every transfer itself, so there is nothing to keep).
++ * The SIF and SIO2 channels are only reported - they belong to SIF and to
++ * padman, which reinitialise them.
++ *
++ * No imports, no printf (the network tty is not up yet): the result travels
++ * in the module's return value. loadcore only reads (ret & 3) - 1 means "not
++ * resident" - so bits 2.. carry the flags to ps2link's EE side, which prints
++ * them on the TV.
++ */
++
++#include <irx.h>
++#include <loadcore.h>
++
++IRX_ID("tyrax_dev9pre", 1, 1);
++
++#define IOP_DMA_CHCR(ch) (*(volatile u32 *)(0xBF801500 + ((ch) - 7) * 0x10 + 8))
++#define CHCR_BUSY 0x01000000U
++
++int _start(int argc, char *argv[])
++{
++    u32 flags = 0;
++    u32 c8 = IOP_DMA_CHCR(8);
++    (void)argc;
++    (void)argv;
++
++    if (c8 & CHCR_BUSY) {
++        flags |= 1U;
++        IOP_DMA_CHCR(8) = c8 & ~CHCR_BUSY;
++        if (!(IOP_DMA_CHCR(8) & CHCR_BUSY))
++            flags |= 0x20U; /* and it stopped */
++    }
++    if (IOP_DMA_CHCR(9) & CHCR_BUSY)
++        flags |= 2U;  /* SIF0, IOP -> EE */
++    if (IOP_DMA_CHCR(10) & CHCR_BUSY)
++        flags |= 4U;  /* SIF1, EE -> IOP */
++    if (IOP_DMA_CHCR(11) & CHCR_BUSY)
++        flags |= 8U;  /* SIO2 in */
++    if (IOP_DMA_CHCR(12) & CHCR_BUSY)
++        flags |= 0x10U; /* SIO2 out */
++
++    return MODULE_NO_RESIDENT_END | (int)(flags << 2);
++}
 diff --git a/ee/Makefile b/ee/Makefile
-index 2eb1e7e..92c32db 100644
+index 2eb1e7e..92a6800 100644
 --- a/ee/Makefile
 +++ b/ee/Makefile
-@@ -9,6 +9,22 @@ EE_LIBS += -lpatches -ldebug
+@@ -8,7 +8,23 @@ EE_LIBS += -lpatches -ldebug
+ # IRX libs
  IRX_FILES += ioptrap.irx ps2dev9.irx poweroff.irx
  IRX_FILES += ps2ip.irx netman.irx smap.irx udptty.irx
- IRX_FILES += ps2link.irx
+-IRX_FILES += ps2link.irx
++IRX_FILES += ps2link.irx dev9pre.irx
 +# TyraX: the revision the boot banner shows - how a flashed build is told
 +# apart. THE one place the number lives: tools/ps2link/build.* print it from
 +# here and docker/Dockerfile builds with it. Bump it whenever tyrax.patch
 +# changes behaviour, and add the revision to docs/ps2link-setup.md.
-+TYRAX_REV := 8
++TYRAX_REV := 9
 +EE_CFLAGS += -DTYRAX_PS2LINK_REV=\"r$(TYRAX_REV)\"
 +# TyraX: bake in the USB HID stack (usbd + keyboard + mouse). These ship
 +# prebuilt in $(PS2SDK)/iop/irx/ and are picked up by the generic %_irx.c rule.
@@ -25,6 +138,15 @@ index 2eb1e7e..92c32db 100644
  EE_OBJS += $(IRX_FILES:.irx=_irx.o) ps2ip_nm_irx.o
  
  # Compile with -Werror
+@@ -53,6 +69,8 @@ clean:
+ ps2ip_nm_irx.c:
+ 	$(PS2SDK)/bin/bin2c $(PS2SDK)/iop/irx/ps2ip-nm.irx $@ ps2ip_nm_irx
+ # Special rule for local ps2link.irx
++dev9pre_irx.c:
++	$(PS2SDK)/bin/bin2c ../dev9pre/dev9pre.irx $@ dev9pre_irx
+ ps2link_irx.c:
+ 	$(PS2SDK)/bin/bin2c ../iop/ps2link.irx $@ ps2link_irx
+ %_irx.c:
 diff --git a/ee/cmdHandler.c b/ee/cmdHandler.c
 index 08f9b19..94ae42a 100644
 --- a/ee/cmdHandler.c
@@ -551,10 +673,21 @@ index eaa1d7d..3ae7128 100644
      excpPrintf("               Module Name \"%s\" Relative EPC %08X\n\n",
                 name, repc);
 diff --git a/ee/irx_variables.h b/ee/irx_variables.h
-index 0cf38a6..14cbb38 100644
+index 0cf38a6..80f00c9 100644
 --- a/ee/irx_variables.h
 +++ b/ee/irx_variables.h
-@@ -34,4 +34,16 @@ extern unsigned int size_smap_irx;
+@@ -13,6 +13,10 @@
+ extern unsigned char ps2link_irx[];
+ extern unsigned int size_ps2link_irx;
+ 
++/* TyraX (r9): checks the IOP DMA channels before the network loads. */
++extern unsigned char dev9pre_irx[];
++extern unsigned int size_dev9pre_irx;
++
+ extern unsigned char ioptrap_irx[];
+ extern unsigned int size_ioptrap_irx;
+ 
+@@ -34,4 +38,16 @@ extern unsigned int size_smap_irx;
  extern unsigned char udptty_irx[];
  extern unsigned int size_udptty_irx;
  
@@ -572,7 +705,7 @@ index 0cf38a6..14cbb38 100644
 +
  #endif /* IRX_VARIABLES_H */
 diff --git a/ee/ps2link.c b/ee/ps2link.c
-index d566140..76068bf 100644
+index d566140..157eac1 100644
 --- a/ee/ps2link.c
 +++ b/ee/ps2link.c
 @@ -23,6 +23,7 @@
@@ -601,7 +734,57 @@ index d566140..76068bf 100644
  {
      int ret;
  
-@@ -176,25 +177,62 @@ static void loadModules(void)
+@@ -152,21 +153,43 @@ static void loadModules(void)
+         return;
+     }
+ 
++    /* TyraX (r9): before anything touches the network, look at the IOP DMA
++     * channels the dead game may have left running, and stop a stuck DEV9
++     * one (iop's dev9pre.c, docs/ps2link-setup.md "The reset wedge"). The
++     * result is printed on the TV together with what the network modules
++     * returned: when the console comes back "Ready" but deaf, this line is
++     * the evidence of why. */
++    {
++        int pre = 0, rdev9 = 0, rsmap = 0, rip = 0, idsmap;
++        SifExecModuleBuffer(dev9pre_irx, size_dev9pre_irx, 0, NULL, &pre);
++
+     dbgscr_printf("Exec poweroff module. (%x,%d) ", (unsigned int)poweroff_irx, size_poweroff_irx);
+     SifExecModuleBuffer(poweroff_irx, size_poweroff_irx, 0, NULL, &ret);
+     dbgscr_printf("[%d] returned\n", ret);
+     dbgscr_printf("Exec ps2dev9 module. (%x,%d) ", (unsigned int)ps2dev9_irx, size_ps2dev9_irx);
+-    SifExecModuleBuffer(ps2dev9_irx, size_ps2dev9_irx, 0, NULL, &ret);
+-    dbgscr_printf("[%d] returned\n", ret);
++    SifExecModuleBuffer(ps2dev9_irx, size_ps2dev9_irx, 0, NULL, &rdev9);
++    dbgscr_printf("[%d] returned\n", rdev9);
+     dbgscr_printf("Exec netman module. (%x,%d) ", (unsigned int)netman_irx, size_netman_irx);
+     SifExecModuleBuffer(netman_irx, size_netman_irx, 0, NULL, &ret);
+     dbgscr_printf("[%d] returned\n", ret);
+     dbgscr_printf("Exec smap module. (%x,%d) ", (unsigned int)smap_irx, size_smap_irx);
+-    SifExecModuleBuffer(smap_irx, size_smap_irx, 0, NULL, &ret);
+-    dbgscr_printf("[%d] returned\n", ret);
++    idsmap = SifExecModuleBuffer(smap_irx, size_smap_irx, 0, NULL, &rsmap);
++    dbgscr_printf("[%d] returned\n", rsmap);
+     dbgscr_printf("Exec ps2ip module. (%x,%d) ", (unsigned int)ps2ip_nm_irx, size_ps2ip_nm_irx);
+-    SifExecModuleBuffer(ps2ip_nm_irx, size_ps2ip_nm_irx, if_conf_len, &if_conf[0], &ret);
+-    dbgscr_printf("[%d] returned\n", ret);
++    SifExecModuleBuffer(ps2ip_nm_irx, size_ps2ip_nm_irx, if_conf_len, &if_conf[0], &rip);
++    dbgscr_printf("[%d] returned\n", rip);
++
++        scr_printf("ps2link: iop dma %s%s%s%s%s| dev9 %d smap %d/%d ip %d\n",
++                   ((pre >> 2) & 1) ? ((pre >> 2) & 0x20 ? "DEV9-BUSY-STOPPED " : "DEV9-BUSY-STUCK ") : "dev9-ok ",
++                   ((pre >> 2) & 2) ? "SIF0-BUSY " : "",
++                   /* SIF1 (EE -> IOP) is armed on the IOP side all the time
++                    * to receive - "armed" is the normal state, not a fault
++                    * (measured 2026-11-07 on a healthy boot). */
++                   ((pre >> 2) & 4) ? "sif1-armed " : "SIF1-IDLE ",
++                   ((pre >> 2) & 8) ? "SIO2IN-BUSY " : "",
++                   ((pre >> 2) & 0x10) ? "SIO2OUT-BUSY " : "",
++                   rdev9, idsmap, rsmap, rip);
++    }
+     dbgscr_printf("Exec udptty module. (%x,%d) ", (unsigned int)udptty_irx, size_udptty_irx);
+     SifExecModuleBuffer(&udptty_irx, size_udptty_irx, 0, NULL, &ret);
+     dbgscr_printf("[%d] returned\n", ret);
+@@ -176,25 +199,62 @@ static void loadModules(void)
      dbgscr_printf("Exec ps2link module. (%x,%d) ", (unsigned int)ps2link_irx, size_ps2link_irx);
      SifExecModuleBuffer(ps2link_irx, size_ps2link_irx, 0, NULL, &ret);
      dbgscr_printf("[%d] returned\n", ret);
@@ -667,7 +850,7 @@ index d566140..76068bf 100644
     SifInitRpc(0);
     sbv_patch_enable_lmb();
     sbv_patch_disable_prefix_check();
-@@ -211,22 +249,40 @@ void _libcglue_rtc_update() {}
+@@ -211,22 +271,40 @@ void _libcglue_rtc_update() {}
  
  DISABLE_PATCHED_FUNCTIONS(); // Disable the patched functionalities
  DISABLE_EXTRA_TIMERS_FUNCTIONS(); // Disable the extra functionalities for timers

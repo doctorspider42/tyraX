@@ -35,7 +35,7 @@ tools/ps2link/build.ps1 -Low -NoUsb -Packed
    **No `IPCONFIG.DAT` and the console silently falls back to `192.168.1.10`**
    and vanishes from the LAN.
 3. **Boot it** from your launcher. The screen must read
-   `Welcome to TyraX ps2link r8 (no USB)` and end with a `Net config:` line
+   `Welcome to TyraX ps2link r9 (no USB)` and end with a `Net config:` line
    showing the address you chose. A lower `r<n>`, or plain "Welcome to ps2link",
    means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
 4. **Point the editor at it** — *Edit > Preferences > Running games
@@ -406,7 +406,7 @@ mismatches and fixed-dt sign reversal remain rejected measurement controls.
 3. Boot it. The screen must read:
 
    ```
-   Welcome to TyraX ps2link r8 (USB keyboard + mouse)
+   Welcome to TyraX ps2link r9 (USB keyboard + mouse)
    based on ps2link
    ...
    Net config: 192.168.1.42  255.255.255.0  192.168.1.1
@@ -1069,6 +1069,20 @@ cycle helps. What is known (2026-11-07):
   the fresh boot's driver init survive whatever the old one left (a SMAP/EMAC
   soft reset before `smap.irx` loads, or a full, slow DEV9 power sequence in
   ps2link's `loadModules()`). Each attempt costs a power cycle.
+- **r9 (in the patch): diagnostics on the TV, and a stuck DEV9 DMA channel
+  stopped.** `dev9pre.irx` runs on the fresh IOP before `ps2dev9`, reads the
+  IOP DMA channel registers (DEV9 = channel 8, SIF0/SIF1, SIO2 in/out), stops
+  channel 8 if the dead game left it busy, and ps2link prints the result with
+  the network modules' return codes:
+  `ps2link: iop dma dev9-ok sif1-armed | dev9 0 smap 29/0 ip 0` is a healthy
+  boot (SIF1 is always armed on the IOP side - that is how it receives). Netbooted
+  over the card's r8 it survived **40 of 40** resets of the file-polling game
+  (r8 had wedged on the 12th), and the line after a reset of a running game
+  read `dev9-ok` - so in that reset the DEV9 channel was NOT stuck, and the
+  40/40 alone does not prove the fix (at ~1 wedge in 31, 40 clean runs happen
+  by chance about a quarter of the time). What r9 does guarantee is evidence:
+  **when a console on r9 comes back "Ready" but deaf, photograph that line** -
+  it says whether DEV9 DMA was stuck and which network module failed to start.
   This is a different face from the `freepad: DMA Busy` one above (IOP alive,
   EE gone) - "the wedge" is at least two failures.
 - **The flashed card is r7 (no USB)**, low build at `0x00094818` - not the r8

@@ -125,7 +125,12 @@ path (a `printf()` after a restart faults on newlib's cleared stdout lock and
 kills the EE instead of reporting), r6 stops rebooting the IOP twice per Stop —
 which is what made the console need a power cycle after one. r7 quiesces the
 hardware before drawing the reset screen; r8 establishes SPU2 bus mapping and
-access timing before silencing, so a memory card can be identified without guessing.
+access timing before silencing, so a memory card can be identified without guessing;
+r9 adds `dev9pre`, a tiny IOP module that runs before the network loads, stops a
+DEV9 DMA channel a dead game left busy, and prints one diagnostic line on every
+boot - `ps2link: iop dma ... | dev9 N smap ID/N ip N` - which is the evidence
+to photograph when the console comes back "Ready" but deaf (docs/ps2link-setup.md,
+"The reset wedge").
 
 ## What the patch does
 
