@@ -1601,3 +1601,53 @@ emits only under REPEAT and ignores the wanted wrap, so that bag would have
 been sent with REPEAT. The verify scenes never had two consecutive crossing
 bags with the same non-REPEAT wrap. `crossSynth` now refuses any bag that
 does not want REPEAT (commit 47e70216a).
+
+### R13-A results (PS2): under the bar, verify not clean, not ported
+
+Timing (`BR13T`, F vs control, alternating deploys, 2 runs each, release
+benchmark):
+
+| | normal frames | drive window |
+|---|---|---|
+| `renderNow` remainder | 1.47 / 1.52 -> 1.06 / 1.12 ms | - |
+| StaPip flush | - | 5.50 -> 5.23 / 5.28 ms |
+| work | - | 10.25 / 10.26 -> 9.98 / 10.09 ms |
+| benchmark p95 | 10.57 / 10.59 -> 10.34 / 10.40 ms | |
+
+0 missed frames in all four runs.
+
+**About -0.2..-0.3 ms while driving, under the 0.5 ms bar.**
+
+Verify (`BR13TV`): 13 487 predictions, `headBad 0`, but
+`lenBad = wordBad = 5 339` (40 %). The F emits differ in length from the
+general path, most likely the wrap block written where `sendObjectData`
+would skip it (or the reverse). Not diagnosed: with the gain under the bar,
+the arm is dropped.
+
+## Where the loop stands (2026-11-07)
+
+**The headline benchmark is met.** The Motor District crate-field crash
+holds 60 fps through the whole drive on a physical PS2 at 2.13.x: 0 missed
+frames in every release run since 2.13.0, work p50 ~5.5 ms, p95 ~10.4 ms.
+
+Shipped and verified in this loop:
+
+| version | change |
+|---|---|
+| 2.11.1 | fused island solve |
+| 2.11.2 | pair cache |
+| 2.11.3 | world-contact reuse |
+| 2.12.0 | stamp records + stamp pass |
+| 2.12.1 | terrain chunk time budget |
+| 2.13.0 | crossing pass |
+| 2.13.1 | crossing wrap fix |
+
+**The formal (b) bar per scene is not met.** StaPip still spends 57-59 % of
+its time in misses on the benchmark. The passes themselves are at 41-50 %,
+the `renderNow` remainder at ~71 %. The last rounds' ideas each priced at
+0.2-0.4 ms (R12-A, R13-A, R4-A/R4A4, R1-A), and nothing above 0.5 ms is
+left that fits the current structure.
+
+Getting under 30 % misses would mean rewriting the general `renderNow`
+path and the game's object loop around contiguous draw records end to end,
+not the per-route slices this loop shipped.
