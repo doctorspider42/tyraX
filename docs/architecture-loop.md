@@ -1755,11 +1755,18 @@ p95 -0.4; 2 boots each, alternating, release.
 
 **Verdict.** -0.47 ms, at the bar. The rest of the 2.56 ms ceiling is the
 draws the change keeps (a stamp is not free) and inputs that really change.
-Still owed:
-- CROSSVERIFY and REPEATVERIFY rerun with the capture record;
-- the district night drive A/B. The district's general draws are mostly
-  the untagged groups, which this does not touch; the ceiling there was
-  1.06 ms.
+After the power cycle:
+- CROSSVERIFY: 80 015 compared, all 0;
+- REPEATVERIFY: captures 72 994 -> 911 (the re-capture loop gone), bad 0;
+- Motor District night drive p50: 8.480 / 8.432 vs 8.695 / 8.609 ms
+  (-0.2 ms), parked unchanged (GPU-bound). The district's remaining general
+  draws are untagged bags with no stamp (7.2 a frame) or with inputs that
+  change every frame (2.1); its ceiling was 1.06 ms.
+
+Vehicles (the 0.81 ms block, part B of the round): not attempted. The known
+fix, reusing the gather across fixed sub-steps, is already in the tree
+(`TYRA_VEH_SUBSTEP_REUSE`). At 60 fps a 1/50 s fixed step is exactly one
+sub-step a frame, so the benchmark has nothing to reuse.
 
 ## Where the loop stands (2026-11-07)
 

@@ -105,7 +105,8 @@ below). The figures below are the audit's original reading.
 **Round 15 (2.14.0).** A census showed the general-path draws were regulars:
 terrain after the ground-shadow CLAMP and stamps whose record stayed empty.
 Fixed at the cause (the REPEAT entry, the capture record): ~17 -> ~9
-general draws a frame, benchmark drive work -0.47 ms.
+general draws a frame, benchmark drive work -0.47 ms, district night
+drive -0.2 ms; CROSSVERIFY, REPEATVERIFY and STAMPVERIFY clean.
 
 Two blocks of the benchmark frame are bigger than any candidate below and
 have no laps in a release build.

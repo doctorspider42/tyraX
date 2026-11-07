@@ -281,7 +281,12 @@ stamp at all.
 
 **Verify** (PS2): `STAMPVERIFY` on the headline benchmark with the crash
 drive (`RBKV`): 257 749 predictions compared, every bug counter 0 (rev chk
-149 521, bug 0). REPEATVERIFY and CROSSVERIFY of the entry are below.
+149 521, bug 0). After the power cycle, the daylight district rig gave:
+- `CROSSVERIFY` (`RCX`): 80 015 compared, wordBad / headBad / runsBad /
+  lenBad / clsBad / verdictBad / noCmp / once / order all 0;
+- `REPEATVERIFY` (`RRV2`): captures 911 (72 994 without the capture
+  record: the re-capture loop is gone), bad 0, 88 086 entry sends
+  (38 796 before, ~9.2 a frame).
 
 **Timing** (PS2, release, headline benchmark drive frames 0-300, `RBK1`
 both on vs `RBL3` 2.13 behaviour, alternating deploys, 2 boots each plus
@@ -293,7 +298,21 @@ the control's 2 earlier boots):
 | 2.13 | 11.758 / 11.698 (11.772 / 11.749) ms | 11.162 / 11.104 (11.204 / 11.161) | 13.193 / 13.132 (13.364 / 13.273) |
 
 **-0.47 ms a frame** of work, p50 -0.46, p95 -0.4, from about 8 fewer
-general draws a frame. That is a sixth of the 2.56 ms ceiling, because a
+general draws a frame.
+
+Motor District at night (`RN1` both on vs `RN0` both off, `--lean`,
+alternating deploys, 2 runs each). The ground-shadow pass does not draw
+at night, so this is the capture record alone:
+
+| | driving p50 | parked p50 |
+|---|---:|---:|
+| 2.14.0 | 8.480 / 8.432 ms | 9.869 / 9.873 ms |
+| both off | 8.695 / 8.609 ms | 9.877 / 9.876 ms |
+
+-0.18..-0.22 ms driving. Parked is unchanged, because the parked district
+is GPU-bound. The district's general draws are mostly untagged bags with
+no stamp (7.2 a frame) or with inputs that change every frame (2.1), and
+neither change touches those. That is a sixth of the 2.56 ms ceiling, because a
 converted draw still costs a stamp's ~7-8 µs of frame (RRP2) plus its GPU
 work. The draws left on the general path change their inputs every frame
 or never had a capturable head (untagged, no slot).
