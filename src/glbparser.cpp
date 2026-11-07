@@ -370,6 +370,7 @@ struct PrimRef {
 
 // Per-part (per glTF material) constants; geometry is expanded from prims.
 struct PartMeta {
+    float specularFactor = 1.0f;
     std::string material;
     float baseColor[4] = {1, 1, 1, 1};
     int image = -1;
@@ -773,6 +774,11 @@ bool parseGlb(const std::string& path, ParsedGlb& P, std::vector<Image>& images,
                         for (int c = 0; c < 4; ++c)
                             part.baseColor[c] = (float)bc->arr[c].number;
                 }
+                const auto* extensions = mat ? mat->find("extensions") : nullptr;
+                const auto* specular = extensions ? extensions->find("KHR_materials_specular") : nullptr;
+                const auto* factor = specular ? specular->find("specularFactor") : nullptr;
+                if (factor && factor->type == json::Value::Type::Number)
+                    part.specularFactor = std::clamp(static_cast<float>(factor->number), 0.f, 1.f);
                 part.image = imageFor(materialIndex);
                 P.parts.push_back(std::move(part));
                 it = partOfMaterial.emplace(materialIndex, (int)P.parts.size() - 1)
@@ -1212,6 +1218,7 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
     out.parts.resize(P.parts.size());
     for (size_t pi = 0; pi < P.parts.size(); ++pi) {
         out.parts[pi].material = P.parts[pi].material;
+        out.parts[pi].specularFactor = P.parts[pi].specularFactor;
         std::memcpy(out.parts[pi].baseColor, P.parts[pi].baseColor,
                     sizeof(out.parts[pi].baseColor));
         out.parts[pi].image = P.parts[pi].image;

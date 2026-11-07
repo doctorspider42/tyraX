@@ -126,6 +126,7 @@ std::string writeGlb(const glbparser::Skel& skel, const std::string& generator) 
 
     // --- images / textures / materials --------------------------------------
     std::string imagesJson, texturesJson, materialsJson;
+    bool usesSpecular = false;
     for (size_t i = 0; i < skel.images.size(); ++i) {
         const int view = buf.addView(skel.images[i].png.data(), skel.images[i].png.size());
         if (i) {
@@ -153,6 +154,11 @@ std::string writeGlb(const glbparser::Skel& skel, const std::string& generator) 
         if (part.image >= 0 && part.image < (int)skel.images.size())
             materialsJson += ",\"baseColorTexture\":{\"index\":" + std::to_string(part.image) + "}";
         materialsJson += "}";
+        if (part.specularFactor != 1.f) {
+            usesSpecular = true;
+            materialsJson += ",\"extensions\":{\"KHR_materials_specular\":{\"specularFactor\":" +
+                             std::to_string(part.specularFactor) + "}}";
+        }
         // The Character Generator's "hair:" parts are alpha-tested (hair
         // cards, glasses lenses); say so, so Blender and other tools clip them
         // the way the game and the editor do. Nothing in the editor reads it.
@@ -291,6 +297,7 @@ std::string writeGlb(const glbparser::Skel& skel, const std::string& generator) 
     json += ",\"nodes\":[" + nodesJson + "]";
     if (!primsJson.empty()) json += ",\"meshes\":[{\"primitives\":[" + primsJson + "]}]";
     if (!skinsJson.empty()) json += ",\"skins\":[" + skinsJson + "]";
+    if (usesSpecular) json += ",\"extensionsUsed\":[\"KHR_materials_specular\"]";
     if (!materialsJson.empty()) json += ",\"materials\":[" + materialsJson + "]";
     if (!imagesJson.empty()) {
         json += ",\"images\":[" + imagesJson + "]";

@@ -115,8 +115,8 @@ def hairstyle(style, level="hero"):
     meshes in the direction each lock grows, then feather their free ends."""
     slices, rows_count, side_locks, samples = {
         "crowd": (18, 8, 6, 4),
-        "standard": (34, 14, 16, 7),
-        "hero": (48, 24, 26, 11),
+        "standard": (30, 12, 24, 7),
+        "hero": (42, 20, 44, 10),
     }[level]
     masks = [captured_view(style, k)[1] for k in range(3)]
     height = GROOM_HEIGHT[style]
@@ -246,7 +246,11 @@ def hairstyle(style, level="hero"):
         ],
     ][style]
 
-    def front_lock(controls, width, loft):
+    def strip_uv(index):
+        # Root at the top of the tile, feathered end at the bottom.
+        return ((228 + 71.5 * (index % 3)) / 512, 0.003, 0.130, 0.331)
+
+    def front_lock(controls, width, loft, strand):
         controls = np.asarray(controls)
         rows = []
         for t in np.linspace(0, 1, samples):
@@ -276,10 +280,20 @@ def hairstyle(style, level="hero"):
                 - 0.003 * (1 - t) ** 3
             )
             rows.append(np.stack((x, crown - height * v, depth), axis=-1))
-        panel(rows[::-1], 0)
+        mesh.add(rows[::-1], strip_uv(strand))
 
-    for k, g in enumerate(front_guides):
-        front_lock(g, 0.038 + 0.009 * (k % 3), 0.011 + 0.004 * (k % 2))
+    # Small locks fan out along each guide. Offset the tip more than the root
+    # and stagger the depth so the bands separate as the head turns.
+    splits = {"hero": 4, "standard": 2, "crowd": 1}[level]
+    for k, guide in enumerate(front_guides):
+        controls = np.asarray(guide)
+        tangent = unit(controls[-1] - controls[0])
+        normal = np.array([-tangent[1], tangent[0]])
+        for strand, offset in enumerate((np.arange(splits) + 0.5) / splits - 0.5):
+            path = controls + offset * np.outer([0.045, 0.10, 0.15, 0.12], normal)
+            path[-1, 1] += 0.027 * np.sin(2.3 * strand + k)
+            width = (0.037 + 0.007 * (k % 3)) / np.sqrt(splits)
+            front_lock(path, width, 0.011 + 0.003 * ((k + strand) % 4), k + strand)
 
     # Arched locks over the sides and nape have an actual convex cross section.
     # Their loose tips extend beyond the measured silhouette and can spring.
@@ -299,7 +313,7 @@ def hairstyle(style, level="hero"):
             end = min(end, 0.69)
         root = rng.uniform(0.12, 0.24)
         bend = np.sign(a) * rng.uniform(0.35, 0.85)
-        width = rng.uniform(0.09, 0.18)
+        width = rng.uniform(0.07, 0.14)
         lift = rng.uniform(0.006, 0.016)
         rows = []
         for t in np.linspace(0, 1, min(samples, 9)):
@@ -310,7 +324,7 @@ def hairstyle(style, level="hero"):
             rows.append(
                 shell(aa, y, lift * f * (1 - 0.89 * q * q) - 0.002 * (1 - t) ** 3)
             )
-        panel(rows[::-1], view)
+        mesh.add(rows[::-1], strip_uv(k))
         wisps = []
         for t in np.linspace(0, 1, min(samples, 6)):
             aa = (
@@ -321,7 +335,7 @@ def hairstyle(style, level="hero"):
             wisps.append(
                 shell(aa, end - 0.11 + 0.155 * t, 0.0025 + 0.004 * np.sin(t * np.pi))
             )
-        mesh.add(wisps[::-1], ((228 + 71.5 * (k % 3)) / 512, 0.003, 0.130, 0.331))
+        mesh.add(wisps[::-1], strip_uv(k + 1))
     if style == 2:
         with np.load(ART / "chignon.npz") as bun:
             shift = len(mesh.pos)

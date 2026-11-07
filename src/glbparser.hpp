@@ -162,6 +162,7 @@ struct SkelLod {
 // to a flat triangle list, with per-vertex palette bindings.
 struct SkelPart {
     std::string material;
+    float specularFactor = 1.0f;
     float baseColor[4] = {1, 1, 1, 1};
     int image = -1;  // index into Skel::images, -1 = none
     int vertexCount = 0;

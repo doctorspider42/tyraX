@@ -2387,14 +2387,14 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                         float c[3] = {px01(col->data(), i, 0), px01(col->data(), i, 1),
                                       px01(col->data(), i, 2)};
                         if (g->item.dyeable && g->item.slot == "hair" && choice.color.r >= 0) {
-                            // The broad highlights baked across the part and crown
-                            // stay visible on black hair as well as on blond hair.
+                            // Keep the diffuse fibre shading in the dye hue. Compress
+                            // highlights so the photographed crown has no white band.
                             const float luma = .299f*c[0] + .587f*c[1] + .114f*c[2];
                             const float value = luma / std::max(.07f, g->luma);
-                            const float sheen = std::max(0.f, luma-.16f)*.64f;
+                            const float shade = 1.8f * value / (0.8f + value);
                             const float tint[] = {choice.color.r, choice.color.g, choice.color.b};
                             for (int q = 0; q < 3; ++q)
-                                c[q] = std::clamp(tint[q]*std::min(value, 2.8f) + sheen, 0.f, 1.f);
+                                c[q] = std::min(1.f, (0.025f + 0.975f*tint[q]) * shade);
                         } else if (g->item.dyeable) {
                             dye(c, dyeMask(c, g->item.color), g->luma, choice.color);
                         }
@@ -2419,6 +2419,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 glbparser::SkelPart part;
                 std::vector<uint8_t> pixels((size_t)A*A*4, 0);
                 emitItem(gi, part, pixels, A, 0, 0, A, A, &capWorn);
+                part.specularFactor = 0.12f;
                 part.material = "hair:" + worn[gi]->item.id;
                 glbparser::Image img;
                 img.name = worn[gi]->item.id;
@@ -2557,6 +2558,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         emitItem(gi, part, tex, A, 0, 0, A, A, &capWorn);
         capUV[gi] = darkestSolid(tex, A);
         addScalpCap(gi, part);
+        if (worn[gi]->item.slot == "hair") part.specularFactor = 0.12f;
         const std::string tag = std::string(isOpt[gi] == 2 ? "optd-" : "opt-") +
                                 worn[gi]->item.slot + "-" + worn[gi]->item.id;
         part.material = std::string(worn[gi]->cutout ? "hair:" : "cloth:") + tag;
@@ -2576,6 +2578,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             std::vector<uint8_t> scratch;
             glbparser::SkelPart part;
             emitItem(gi, part, scratch, A, 0, 0, A, A, &capUnder);
+            part.specularFactor = 0.12f;
             // no scalp cap: the hat over it covers the scalp, and on a hero
             // body the caps were most of a creator character's memory
             part.material = std::string(worn[gi]->cutout ? "hair:" : "cloth:") + "opth-hair-" +
