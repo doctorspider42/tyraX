@@ -1114,7 +1114,7 @@ bool Params::operator==(const Params& o) const {
            breastSize == o.breastSize && breastFirmness == o.breastFirmness &&
            detail == o.detail &&
            skinTone == o.skinTone &&
-           skinWarmth == o.skinWarmth && aging == o.aging && brows == o.brows &&
+           skinWarmth == o.skinWarmth && aging == o.aging && faceTexture == o.faceTexture && brows == o.brows &&
            browDensity == o.browDensity && lashes == o.lashes && hairColor == o.hairColor &&
            eyeColor == o.eyeColor && stubble == o.stubble && lipstick == o.lipstick &&
            lipColor == o.lipColor && eyeShadow == o.eyeShadow &&
@@ -2117,6 +2117,20 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         else
             warnings.push_back("kit has no skin layers - untextured skin");
 
+        const int faceTexture = std::clamp(p.faceTexture, 0, 3);
+        if (faceTexture > 0) {
+            for (const Level& g : gender) {
+                std::shared_ptr<std::vector<uint8_t>> layer;
+                const uint8_t* face = L("face/" + std::to_string(faceTexture) + "-" + g.name, layer);
+                if (!face) continue;
+                for (size_t i = 0; i < n; ++i) {
+                    const float amount = px01(face, i, 3) * g.weight;
+                    for (int c = 0; c < 3; ++c)
+                        cv.rgb[i*3+c] *= 1.f + amount * (px01(face, i, c) * 2.f - 1.f);
+                }
+            }
+        }
+
         // Tone and warmth, as multipliers: the painted detail survives both.
         {
             const float t = std::clamp(p.skinTone, -1.0f, 1.0f);
@@ -2252,7 +2266,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         // IS the body surface, pushed out.
         for (size_t gi = 0; gi < worn.size(); ++gi) {
             const GarmentData* g = worn[gi];
-            if (g->kind != "shell") continue;
+            if (g->kind != "shell" && g->body[bi].inflIdx.empty()) continue;
             std::shared_ptr<std::vector<uint8_t>> kc;
             const uint8_t* col = L("g/" + g->item.id, kc);
             if (!col) continue;
@@ -3353,6 +3367,7 @@ std::string toJson(const Params& p) {
     o << "},\n";
     o << "  \"skinTone\": " << num(p.skinTone) << ", \"skinWarmth\": " << num(p.skinWarmth)
       << ", \"aging\": " << num(p.aging) << ",\n";
+    o << "  \"faceTexture\": " << p.faceTexture << ",\n";
     o << "  \"brows\": " << p.brows << ", \"browDensity\": " << num(p.browDensity)
       << ", \"lashes\": " << p.lashes << ",\n";
     o << "  \"hairColor\": " << rgb(p.hairColor) << ", \"eyeColor\": " << rgb(p.eyeColor)
@@ -3431,6 +3446,8 @@ bool fromJson(const std::string& text, Params& p, std::string& error) {
     f("skinTone", d.skinTone);
     f("skinWarmth", d.skinWarmth);
     f("aging", d.aging);
+    i("faceTexture", d.faceTexture);
+    d.faceTexture = std::clamp(d.faceTexture, 0, 3);
     i("brows", d.brows);
     f("browDensity", d.browDensity);
     i("lashes", d.lashes);
@@ -3526,6 +3543,17 @@ bool writeAsset(const std::string& projectDir, const std::string& name,
 const std::vector<Preset>& presets() {
     static const std::vector<Preset> list = [] {
         std::vector<Preset> out;
+        Params basicMan;
+        basicMan.gender = 1.f;
+        basicMan.heightMeters = 1.80f;
+        basicMan.name = "man";
+        out.push_back({"Man", basicMan});
+        Params basicWoman;
+        basicWoman.gender = 0.f;
+        basicWoman.heightMeters = 1.67f;
+        basicWoman.name = "woman";
+        out.push_back({"Woman", basicWoman});
+
         Params p;
         p.hair = "side-crop";
         p.outfit = {Wear{"yard-jacket"}, Wear{"wash-jeans"}, Wear{"storm-boots"}};
@@ -3551,7 +3579,8 @@ const std::vector<Preset>& presets() {
         woman.lipstick = 0.35f;
         woman.name = "woman";
         woman.hair = "tide-knot";
-        woman.outfit = {Wear{"mill-flannel"}, Wear{"station-cords"}, Wear{"service-shoes"}};
+        woman.faceTexture = 2;
+        woman.outfit = {Wear{"button-cardigan"}, Wear{"a-line-skirt"}, Wear{"service-shoes"}};
         out.push_back({"Station keeper", woman});
 
         Params heavy = man;
@@ -3682,6 +3711,7 @@ Params randomize(unsigned seed, const Params& keep) {
         if (rnd() < 0.45f) p.shape[sl.id] = (rnd() + rnd() - 1.0f) * 0.7f;
     p.skinTone = (rnd() - 0.5f) * 0.6f;
     p.skinWarmth = (rnd() - 0.5f) * 0.8f;
+    p.faceTexture = (int)(rnd() * 4) % 4;
     p.brows = browList().empty() ? -1 : (int)(rnd() * browList().size()) % (int)browList().size();
     p.browDensity = 0.7f + rnd() * 0.4f;
     static const Rgb hairs[] = {{0.06f, 0.05f, 0.05f}, {0.18f, 0.11f, 0.07f},

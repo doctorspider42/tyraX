@@ -22723,8 +22723,11 @@ void App::drawCharacterGeneratorWindow() {
                 charPreset_ = i;
                 const chargen::Params keep = p;
                 p = presets[i].params;
-                p.outfit = keep.outfit;  // a preset is a body, not a wardrobe
-                p.hair = keep.hair;
+                // The first two presets are explicit undressed starting bodies.
+                if (i >= 2) {
+                    p.outfit = keep.outfit;
+                    p.hair = keep.hair;
+                }
                 p.textureSize = keep.textureSize;
                 dirty = true;
             }
@@ -22750,6 +22753,7 @@ void App::drawCharacterGeneratorWindow() {
                 else p.shape.erase(s.id);
             }
         if (charKeepFace_) {
+            p.faceTexture = was.faceTexture;
             p.brows = was.brows, p.browDensity = was.browDensity, p.lashes = was.lashes;
         }
         if (charKeepOutfit_) p.outfit = was.outfit, p.hair = was.hair;
@@ -22943,6 +22947,8 @@ void App::drawCharacterGeneratorWindow() {
         }
         // -- Skin & makeup ---------------------------------------------------------
         if (ImGui::BeginTabItem("Skin")) {
+            static const char* faces[] = {"Classic", "Freckled", "Defined", "Weathered"};
+            dirty |= ImGui::Combo("Face texture", &p.faceTexture, faces, IM_ARRAYSIZE(faces));
             dirty |= ImGui::SliderFloat("Skin tone", &p.skinTone, -1.0f, 1.0f, "%.2f");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("-1 paler ... +1 darker, on top of what ancestry gives.");

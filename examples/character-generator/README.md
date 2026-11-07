@@ -128,3 +128,7 @@ the NPC AI all work on it without knowing it was generated.
 
 The editor embeds the studio artwork, MakeHuman-derived body data and
 Quaternius motion clips. See the [asset notices](../../THIRD-PARTY-LICENSES.md).
+
+The editor's Man and Woman presets start undressed. Skin offers four face
+textures. Clerk demonstrates the cardigan and A-line skirt, and Lala wears
+the moss dress. All four new garments are available in the editor wardrobe.

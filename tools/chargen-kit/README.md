@@ -39,3 +39,9 @@ narrow build, and each detail level. Existing recipe IDs are translated by
 Use `tyrax-editor --chargen-reference <dir>` for clean base meshes in metres.
 Use `tyrax-editor --chargen <recipe.json> <out.glb>` for a dressed, animated
 character. Pass `--variants N` to regenerate the matching palette sidecars.
+
+The `face-variants.jpg` source contains three paired portraits. Each pair is
+projected into all five UV layouts as relative face detail and a blend mask.
+The editor stores the selection in `Params::faceTexture`. The
+`women-workwear.jpg` sheet supplies the fitted top, cardigan, skirt and
+dress. The dress combines shell paint with a hip-bound skirt mesh.

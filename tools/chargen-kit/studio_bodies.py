@@ -21,6 +21,9 @@ GARMENTS = (
     ("ranger-cargos", "Ranger cargos", "bottom", 0.023, 4),
     ("station-cords", "Station cords", "bottom", 0.017, 5),
     ("dock-gloves", "Dock gloves", "hands", 0.003, 2),
+    ("ribbed-top", "Ribbed top", "top", 0.006, 6),
+    ("button-cardigan", "Button cardigan", "top", 0.012, 7),
+    ("moss-dress", "Moss dress", "full", 0.008, 9),
 )
 
 
@@ -178,6 +181,20 @@ def cut(gid, xyz):
     x, y, z = xyz
     ax = abs(x)
     wrist = (ax - 0.431) * 0.34 + (z - 0.176) * 0.65 + (0.245 - y) * 0.65
+    if gid in ("ribbed-top", "button-cardigan", "moss-dress"):
+        front = ramp(z, 0.025, 0.10)
+        hem = 0.155 if gid == "ribbed-top" else 0.115
+        if gid == "button-cardigan":
+            neckline = 0.565 - 0.100 * bell(x, 0, 0.073) * front
+            cuff = 1 - ramp(wrist, -0.018, -0.011)
+        else:
+            neckline = 0.557 - 0.080 * bell(x, 0, 0.067) * front
+            cuff = 1 - ramp(
+                ax, 0.118 + 0.024 * (1 - front), 0.145 + 0.018 * (1 - front)
+            )
+        return (
+            ramp(y, hem, hem + 0.006) * (1 - ramp(y, neckline, neckline + 0.006)) * cuff
+        )
     if gid == "dock-gloves":
         return ramp(ax, 0.34, 0.37) * ramp(wrist, -0.032, -0.027)
     if gid in ("mill-flannel", "watch-henley"):
@@ -218,7 +235,16 @@ def make_shell(chunks, prefix, rest, xyz, skin_pixels, gid, label, slot, ease, t
         x, y, z = xyz
         rgb = np.uint8(sample(tile, (x * 15) % 1, (y * 12 + z * 4) % 1) * 0.39)
     else:
-        rgb = garment_paint(tile, xyz, slot == "top")
+        rgb = garment_paint(tile, xyz, slot in ("top", "full"))
+        if gid in ("ribbed-top", "button-cardigan", "moss-dress"):
+            x, y, z = xyz
+            u = np.where(
+                (abs(x) < 0.17) & (z > 0.015),
+                0.5 + x / 0.33,
+                0.03 + 0.12 * (0.5 + 0.5 * np.sin(x * 18 + z * 21)),
+            )
+            v = (0.56 - y) / (0.96 if gid == "moss-dress" else 0.41)
+            rgb = sample(tile, u, v)
     paint = jpg_bytes(Image.fromarray(rgb), 91)
     alpha = png_bytes(Image.fromarray(np.uint8(coverage * 255)))
     chunks["img/" + group] = 4, paint, len(paint)
@@ -259,8 +285,12 @@ def bake(writer):
 
     portraits = np.asarray(Image.open(ART / "faces.jpg").convert("RGB"), np.float32)
     fabrics = np.asarray(Image.open(ART / "workwear.jpg").convert("RGB"))
+    feminine = np.asarray(Image.open(ART / "women-workwear.jpg").convert("RGB"))
+    face_variants = np.asarray(
+        Image.open(ART / "face-variants.jpg").convert("RGB"), np.float32
+    )
     new_items = {}
-    from studio_gear import models, bind_item, hairstyle, crowd_mesh
+    from studio_gear import models, bind_item, hairstyle, crowd_mesh, skirt
     from studio_topology import refine
     from custom_body import rebuild
 
@@ -271,6 +301,9 @@ def bake(writer):
         if slot == "hair":
             for level in ("standard", "crowd"):
                 lods[level][gid] = hairstyle(hair_styles.index(gid), level)
+        elif gid in ("a-line-skirt", "moss-dress"):
+            for level in ("standard", "crowd"):
+                lods[level][gid] = skirt(gid == "moss-dress", level)
         elif slot in ("feet", "head", "top"):
             lods["crowd"][gid] = crowd_mesh(geometry, 520 if slot == "top" else 160)
     rig_names = json.loads(chunks["rig/names"][1])
@@ -288,6 +321,17 @@ def bake(writer):
             sex = "male" if male else "female"
             relief, face_mask = face_detail(portraits, male, xyz)
             anatomy = body_relief(xyz, male)
+            for variant in range(3):
+                alt, _ = face_detail(
+                    face_variants[variant * 512 : (variant + 1) * 512], male, xyz
+                )
+                ratio = np.clip(alt / np.maximum(relief, 0.2), 0, 1.99)
+                layer = np.uint8(np.dstack((ratio * 127.5, face_mask[:, :, 0] * 255)))
+                buf = io.BytesIO()
+                Image.fromarray(layer).save(buf, "PNG")
+                put_image(
+                    "img/" + p + "face/" + str(variant + 1) + "-" + sex, buf.getvalue()
+                )
             for key in list(chunks):
                 if key.startswith("img/" + p + "skin/") and "-" + sex + "-" in key:
                     skin = np.asarray(
@@ -337,6 +381,11 @@ def bake(writer):
         for gid, label, slot, ease, panel in GARMENTS:
             row, col = divmod(panel, 3)
             tile = fabrics[row * h : (row + 1) * h, col * w : (col + 1) * w]
+            if panel >= 6:
+                row, col = divmod(panel - 6, 2)
+                tile = feminine[
+                    row * 512 : (row + 1) * 512, col * 512 : (col + 1) * 512
+                ]
             item = make_shell(
                 chunks, p, rest, xyz, skin_pixels, gid, label, slot, ease, tile
             )
@@ -391,7 +440,7 @@ def bake(writer):
                     "img/" + p + "g/" + gid + "/body/a",
                     png_bytes(Image.fromarray(alpha)),
                 )
-            if gid in new_items:
+            if gid in new_items and gid != "moss-dress":
                 continue
             for field, values, kind in [
                 ("tri", source_faces.astype("<i4"), 1),

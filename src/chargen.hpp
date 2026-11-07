@@ -81,6 +81,7 @@ struct Params {
     float skinTone = 0.0f;    // -1 paler .. +1 darker, on top of the ethnicity mix
     float skinWarmth = 0.0f;  // -1 rosier .. +1 more golden
     float aging = 0.0f;       // extra skin age (wrinkles) on top of the age slider, 0..1
+    int faceTexture = 0;    // 0 classic, 1 freckled, 2 defined, 3 weathered
     int brows = 2;            // index into browList(), -1 = none
     float browDensity = 1.0f;
     int lashes = 0;           // index into lashList(), -1 = none

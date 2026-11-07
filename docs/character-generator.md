@@ -17,7 +17,7 @@ real eyes, and motion-captured movement.
 | Rig | 35 Mixamo-named bones: spine, neck, head, arms, legs, two-bone thumb, index and fingers |
 | Texture | one atlas, 128 / 256 / 512 square, 8-bit on the console; face ≈ 80 px wide at 256 |
 | Shape | 96 macro targets (gender, age, muscle, weight, ancestry) + 76 detail sliders |
-| Wardrobe | 16 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
+| Wardrobe | 20 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
 | Motion | 87 clips from Quaternius' Universal Animation Library, retargeted onto the rig |
 | A dressed character | One body atlas and a shared accessory atlas. Foreground hair has its own texture up to 256 pixels square. |
 
@@ -89,6 +89,20 @@ From the command line (the same code path, no GUI):
 ```
 tyrax-editor --chargen <recipe.json | - | preset:N | random:SEED> <out.glb> [--recipe-out <file>] [--variants N]
 ```
+
+### Starting bodies and face textures
+
+The **Man** and **Woman** presets at the top of the preset list start with an
+adult body, bare skin and no hairstyle or outfit. **Skin > Face texture** selects
+Classic, Freckled, Defined or Weathered independently of the face shape.
+Each additional texture includes female and male source portraits and follows
+the Gender blend, skin colour, makeup and weathering settings. Recipes store
+the choice in `faceTexture` (0 through 3). Earlier recipes use Classic.
+
+The wardrobe includes **Ribbed top**, **Button cardigan**, **A-line skirt**
+and **Moss dress**. The dress occupies the full-body slot. Its fitted bodice
+uses the body's surface and its skirt has a separate skinned mesh. The skirt
+and dress cover the thighs above their hem during animation.
 
 ## The character kit
 
@@ -1299,3 +1313,27 @@ argument for having the live window at all:
 | `src/main.cpp` | `--chargen`. |
 | `src/viewport.cpp` | `renderCharacterPreview` on its **own** framebuffer, sharing `drawToolPreview` with the Tree Generator. |
 | `tools/chargen-kit/` | the offline kit build: `fetch_sources.py`, `kit_body.py`, `studio_bodies.py`, `studio_topology.py`, `custom_body.py`, `body_atlas.py`, `studio_gear.py`, `anim_retarget.py`, `build_kit.py`, `make_kit.py`; artwork in `studio/`, rig definitions in `rig.py`, `kit_body_masks.py`. See its README. |
+
+### Direct UV texture experiment
+
+A separate test supplied ImageGen with the exported 512×512 body atlas, a
+1024×1024 wireframe overlay of its actual UVs, and a rendered character reference.
+The request repainted the existing atlas, changed the burgundy cardigan to teal,
+and preserved island placement. This was **guided repainting**, not generation
+from an empty UV template. The result was downsampled to 512×512 and substituted
+as the body image in a copy of the GLB; geometry, UVs, weights, clips and other
+textures stayed byte-identical.
+
+Matched front, rear and face renders showed usable alignment and clearer knit
+detail. Knit scale varied between islands, and facial details changed subtly;
+precise seam continuity is not guaranteed. The experimental atlas is not part of
+the shipped kit. The regular kit still projects generated portrait/fabric sheets
+onto its UV atlas, which also retains editable clothing and skin controls.
+
+A second call supplied **only a blank UV wireframe and the clothed character
+render**, plus textual anatomy hints; it did not receive an existing atlas.
+Its output was also applied directly at 512×512 without moving UVs. It failed
+the material assignment: knit appeared on the neck and calves, parts of the
+sleeves became skin, and facial paint shifted. The flat generated image looked
+plausible, but the mapped result was unsuitable. A semantic island mask or
+neutral colour bake is a possible next input to test; it was not tested here.

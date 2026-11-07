@@ -369,8 +369,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   the [Drone Generator](docs/drone-generator.md) for ambient music.
 - **[Character Generator](docs/character-generator.md)** builds playable characters on
   five meshes with custom torsos and limbs, 76 body and face sliders, a 50-bone rig and 87 clips.
-  Its 16 wardrobe choices include three hairstyles, three tops, three trousers,
-  two pairs of shoes, two caps, two pairs of glasses and gloves. Players can
+  Bare Man and Woman presets and four face textures are available.
+  Its 20 wardrobe choices include three hairstyles, five tops, three trousers,
+  a skirt, a dress, two pairs of shoes, two caps, two pairs of glasses and gloves. Players can
   switch characters and dress them in the in-game creator.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.

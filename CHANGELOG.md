@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.12.0
+
+- Choose Classic, Freckled, Defined or Weathered face textures in the Character Generator. Bare Man and Woman presets provide a starting body. The wardrobe adds a ribbed top, button cardigan, A-line skirt and moss dress.
+
 ## 2.11.0
 
 - The Character Generator builds custom torsos, arms and legs for both body presets at all three detail levels. Existing sliders, hairstyles, clothing and animations fit the new mesh.

@@ -471,6 +471,57 @@ def crowd_mesh(geometry, budget):
     return lo.astype("f4"), faces[keep], uv[keep]
 
 
+def skirt(dress=False, level="hero"):
+    """A flared skirt with a shaped waistband, vertical folds and turned hem."""
+    mesh = Panels()
+    segments = {"hero": 48, "standard": 24, "crowd": 16}[level]
+    angles = np.linspace(-np.pi, np.pi, segments + 1)
+    rows = []
+    heights = np.array(
+        [
+            0.159,
+            0.153,
+            0.141,
+            0.122,
+            0.09,
+            0.035,
+            -0.035,
+            -0.11,
+            -0.19,
+            -0.27,
+            -0.35,
+            -0.39,
+            -0.394,
+        ]
+    )
+    if level != "hero":
+        heights = heights[[0, 2, 4, 6, 8, 10, 12]]
+    for y in heights:
+        t = np.clip((0.15 - y) / 0.54, 0, 1)
+        width = np.interp(
+            y, [-0.394, -0.19, 0.035, 0.159], [0.275, 0.233, 0.191, 0.158]
+        )
+        depth = np.interp(
+            y, [-0.394, -0.19, 0.035, 0.159], [0.183, 0.150, 0.127, 0.103]
+        )
+        fold = (0.0015 + 0.007 * t) * np.cos(12 * angles + 0.45 * t)
+        x = (width + fold) * np.sin(angles)
+        z = 0.030 + (depth + fold) * np.cos(angles)
+        # Slightly lower waist at the front and a rolled lower edge.
+        yy = y - 0.009 * np.maximum(np.cos(angles), 0) * (1 - t) ** 3
+        rows.append(np.stack((x, yy, z), axis=-1))
+    mesh.add(rows, reverse=True)
+    pos, tri, _ = mesh.arrays()
+    corner = pos[tri]
+    x, y, z = np.moveaxis(corner, -1, 0)
+    width = np.interp(y, [-0.394, -0.19, 0.035, 0.159], [0.275, 0.233, 0.191, 0.158])
+    # The two broad panels meet at the side seams.
+    u = np.where(z >= 0.03, 0.5 + x / (2 * width), 0.5 - x / (2 * width))
+    v = (0.56 - y) / 0.96 if dress else (0.16 - y) / 0.56
+    uv = np.stack((0.012 + 0.976 * u, 1 - (0.012 + 0.976 * v)), axis=-1)
+    return pos, tri, uv
+
+
 def models(fabrics):
     def stored(file):
         with np.load(ART / (file + ".npz")) as d:
@@ -496,6 +547,21 @@ def models(fabrics):
         "feet",
         (pos, tri, uv),
         leather.point(lambda v: min(255, v * 1.18 + 4)),
+    )
+    cloth = Image.open(ART / "women-workwear.jpg").convert("RGB")
+    yield (
+        "a-line-skirt",
+        "A-line skirt",
+        "bottom",
+        skirt(),
+        cloth.crop((0, 512, 512, 1024)),
+    )
+    yield (
+        "moss-dress",
+        "Moss dress",
+        "full",
+        skirt(True),
+        cloth.crop((512, 512, 1024, 1024)),
     )
     for index, (gid, label) in enumerate(
         [
@@ -582,7 +648,14 @@ def bind_item(pos, tris, part, joints, weights, points, slot, gid, names):
         ok &= center[:, 1] < -0.55
     else:
         ok &= (center[:, 1] > 0.015) & (center[:, 1] < 0.66)
-    faces, bary = bindings(points, pos, tris, ok)
+    anchor = points.copy()
+    if gid in ("a-line-skirt", "moss-dress"):
+        # Bind the hem to the hips so leg separation cannot split the skirt.
+        anchor[:, 1] = np.maximum(anchor[:, 1], 0.11)
+        shrink = np.minimum(1, 0.17 / np.maximum(abs(anchor[:, 0]), 0.001))
+        anchor[:, 0] *= shrink
+        anchor[:, 2] = 0.03 + (anchor[:, 2] - 0.03) * shrink
+    faces, bary = bindings(anchor, pos, tris, ok)
     corners = tris[faces]
     a, b, c = np.moveaxis(pos[corners], 1, 0)
     normals = np.zeros_like(pos)
@@ -624,6 +697,16 @@ def bind_item(pos, tris, part, joints, weights, points, slot, gid, names):
         gw[:, names.index("mixamorig:Head")] = 1 - spring
         gw[:, names.index("mixamorig:HairTail1")] = spring * (1 - 0.60 * free)
         gw[:, names.index("mixamorig:HairTail2")] = spring * 0.60 * free
+    if gid in ("a-line-skirt", "moss-dress"):
+        loose = np.clip((0.11 - points[:, 1]) / 0.48, 0, 1)
+        gw[:] = 0
+        gw[:, names.index("mixamorig:Hips")] = 1 - 0.47 * loose
+        side = np.clip(0.5 + points[:, 0] / 0.20, 0, 1)
+        gw[:, names.index("mixamorig:LeftUpLeg")] = 0.32 * loose * side
+        gw[:, names.index("mixamorig:RightUpLeg")] = 0.32 * loose * (1 - side)
+        front = np.clip(0.5 + (points[:, 2] - 0.03) / 0.12, 0, 1)
+        gw[:, names.index("mixamorig:SkirtFront")] = 0.15 * loose * front
+        gw[:, names.index("mixamorig:SkirtBack")] = 0.15 * loose * (1 - front)
     joint = np.argsort(-gw, axis=1)[:, :4]
     mass = np.take_along_axis(gw, joint, axis=1)
     quant = np.round(
@@ -631,6 +714,15 @@ def bind_item(pos, tris, part, joints, weights, points, slot, gid, names):
     ).astype(int)
     quant[:, 0] += 255 - quant.sum(axis=1)
     cover = np.zeros(len(tris), bool)
+    if gid in ("a-line-skirt", "moss-dress"):
+        # Cover whole thigh faces above the hem even when a walking leg
+        # moves beyond the rest-pose radius of the cloth.
+        vertices = pos[tris]
+        cover = (
+            (vertices[:, :, 1].min(1) > -0.43)
+            & (vertices[:, :, 1].max(1) < 0.145)
+            & (abs(vertices[:, :, 0]).max(1) < 0.29)
+        )
     if slot == "feet":
         limit = -0.653 if gid == "storm-boots" else -0.728
         cover = pos[tris, 1].max(axis=1) < limit
