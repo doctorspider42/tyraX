@@ -46,7 +46,7 @@ The editor stores the selection in `Params::faceTexture`. The
 `women-workwear.jpg` sheet supplies the fitted top, cardigan, skirt and
 dress. The dress combines shell paint with a hip-bound skirt mesh.
 
-The seven hairstyles are registered in `studio_gear.HAIR_STYLES`.
+The hairstyles are registered in `studio_gear.HAIR_STYLES`.
 `groom-extra-views.jpg` supplies front, profile and rear source views for the
 pixie and curtain shag, plus a low-ponytail reference; it was generated with the built-in
 ImageGen tool, then resized to the existing 384-pixel cell layout. The meshes
@@ -59,22 +59,31 @@ nearest-face displacement; the editor fits them using upper-skull bounds.
 
 ## Modelled hair (Blender)
 
-The layered lob (`studio_gear.MODELLED`) is not lofted from photographed
-silhouettes. Its sources live in [studio/hair-blender](studio/hair-blender) and
-run in headless Blender (`blender -b --factory-startup --python <script> -- ...`):
+The seven hairstyles (`studio_gear.MODELLED`) are hair cards on guide locks,
+not lofts of photographed silhouettes. Their sources live in
+[studio/hair-blender](studio/hair-blender) and run in headless Blender
+(`blender -b --factory-startup --python <script> -- ...`):
 
 1. `python patch_hair.py <kit.bin> --heads <dir>` writes the hero heads
    (`head_f.obj`, `head_m.obj`) in kit space.
 2. `bake_strands.py <dir>/strands.png` renders eight 64 x 512 strips
    (opaque under, alpha mid, ragged outer) from Cycles hair curves and writes
    the atlas; `--reuse` keeps strips already rendered, `--only 0,2,5 --samples 24`
-   is a quick look. Copy it to `studio/layered-lob.png`.
-3. `make_lob.py head_f.obj head_m.obj ../layered-lob.npz --atlas <png>
-   --preview <dir>` builds the hero, standard and crowd cards from the guide
-   locks at the top of the script and renders six views per level plus a
-   close-up of the part. Check them before going further.
+   is a quick look. Copy it to `studio/card-strands.png` (every modelled
+   groom shares it; `studio/strands.png` belongs to the old lofts).
+3. `grooms.py head_f.obj head_m.obj .. [--only id,id] [--atlas <png>
+   --preview <dir> [--hero-only]]` writes `studio/<id>.npz` (hero, standard
+   and crowd cards) and renders seven views per level, including a close-up
+   of the part. Check them before going further.
 
+`grooms.py` is the shapes: each style is groups of guide locks (written as
+explicit points, as `sweep`s along the scalp for short hair, or combed along
+great circles to a bun or a tie), a crown whorl and extras (bun coil,
+ponytail tube). `groomkit.py` is the tools: clearance from both heads,
+splines, cards, the whorl dome, continuous sheets and tubes, previews.
 `studio_gear.modelled_groom` unsculpts the npz into the studio items' space.
+The photographed lofts stay in the kit as `<id>-old` ("Side crop (old)", ...)
+for comparison; `studio_gear.LEGACY` lists them.
 
 ## Rebuilding hair without the full build
 

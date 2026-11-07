@@ -5615,8 +5615,9 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 14
+#define TYRAX_VERSION_MINOR 15
 #define TYRAX_VERSION_PATCH 0
+// 2.15.0: Every studio hairstyle remodelled as hair cards in Blender; the photographed lofts kept as "(old)".
 // 2.14.0: Layered lob, the first hairstyle modelled in Blender from hair cards and a Cycles-baked strand atlas.
 // 2.13.0: Stable scalp fitting, closed hair coverage and three new hairstyles.
 // 2.12.0: Selectable face textures, bare Man/Woman presets and four feminine garments.

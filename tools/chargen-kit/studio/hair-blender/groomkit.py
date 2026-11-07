@@ -1,28 +1,19 @@
-"""Model the layered lob in Blender: authored guide locks -> layered hair cards.
+"""Shared tools for the hair modelled in Blender (grooms.py holds the styles).
 
-    blender -b --factory-startup --python make_lob.py -- <head_f.obj> <head_m.obj> <out.npz>
-            [--atlas strands.png] [--preview <dir>]
+Kit space throughout: Y up, metres, +Z the face, +X the character's left.
+The heads are the kit's hero meshes (`patch_hair.py --heads`).
 
-The heads are the kit's hero meshes in kit space (Y up, metres, +Z the face,
-+X the character's left); `patch_hair.py --heads` writes them. Everything here
-is in that space, and the npz holds it unsculpted for studio_gear.
-
-The cut is a chin-to-collarbone lob with a deep side part on the character's
-left: a long fringe sweeps across the forehead to the right and falls as a
-face-framing piece; the back falls from a crown whorl. The shape is the GUIDE
-LOCKS below - each a hand-placed path from root to tip. Cards fill between
-neighbouring guides in three layers, as a groom artist would lay them:
-
-    under   wide, opaque strips 0-1, 4 mm off the scalp - no skin through gaps
-    mid     strips 2-4, the body of the cut, full length
-    outer   strips 5-7, narrower, interpolated twice, layered shorter
-
-Every point is kept clear of BOTH heads (the larger of the two at each place),
-so the groom fits either sex before the generator's skull fit.
+    Heads      both reference heads as BVH trees; `clear` keeps a point a gap
+               outside both, `outward` is the smooth card orientation
+    S, sweep   a point on the scalp by azimuth/elevation from the skull centre,
+               and a lock that lies along the scalp - the short-hair primitive
+    spline     Catmull-Rom through guide points, resampled (root-biased)
+    Builder    cards along locks (curved cross-section, tip zone mapped to the
+               strip's alpha tips), the crown whorl dome, `tube` for a tail or
+               a coil, and winding turned away from the head
+    preview    clay head + alpha-tested, dyed cards, seven Cycles views
 """
 import math
-import random
-import sys
 
 import bpy
 import numpy as np
@@ -30,63 +21,7 @@ from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
 TEX, TILE = 512, 64
-
-# ---------------------------------------------------------------------------
-# Guide locks, kit coordinates (x left, y up, z front), root first.
-PART_X = 0.024
-
-BIG_SIDE = [  # from the part across the forehead to the character's right
-    [(PART_X + 0.011, 0.795, 0.124), (-0.012, 0.792, 0.151), (-0.055, 0.766, 0.146),
-     (-0.086, 0.716, 0.108), (-0.099, 0.656, 0.090), (-0.096, 0.596, 0.082)],
-    [(PART_X + 0.011, 0.806, 0.106), (-0.020, 0.810, 0.136), (-0.066, 0.787, 0.122),
-     (-0.096, 0.732, 0.084), (-0.105, 0.662, 0.068), (-0.101, 0.598, 0.060)],
-    [(PART_X + 0.011, 0.816, 0.086), (-0.026, 0.824, 0.110), (-0.074, 0.802, 0.090),
-     (-0.102, 0.742, 0.058), (-0.108, 0.668, 0.044), (-0.103, 0.601, 0.038)],
-    [(PART_X + 0.011, 0.826, 0.062), (-0.031, 0.835, 0.080), (-0.080, 0.810, 0.055),
-     (-0.105, 0.748, 0.030), (-0.109, 0.671, 0.018), (-0.104, 0.603, 0.014)],
-    [(0.020, 0.834, 0.036), (-0.031, 0.841, 0.044), (-0.082, 0.814, 0.021),
-     (-0.106, 0.751, 0.000), (-0.108, 0.673, -0.007), (-0.102, 0.605, -0.010)],
-]
-SMALL_SIDE = [  # from the part toward the left ear
-    [(PART_X - 0.008, 0.796, 0.124), (0.060, 0.786, 0.138), (0.086, 0.746, 0.114),
-     (0.098, 0.690, 0.094), (0.101, 0.640, 0.084), (0.097, 0.598, 0.078)],
-    [(PART_X - 0.008, 0.808, 0.104), (0.064, 0.801, 0.113), (0.093, 0.756, 0.082),
-     (0.105, 0.692, 0.062), (0.105, 0.640, 0.055), (0.100, 0.600, 0.050)],
-    [(PART_X - 0.008, 0.820, 0.080), (0.069, 0.812, 0.082), (0.098, 0.760, 0.050),
-     (0.107, 0.692, 0.031), (0.106, 0.640, 0.024), (0.101, 0.601, 0.020)],
-    [(PART_X - 0.008, 0.830, 0.054), (0.071, 0.818, 0.049), (0.100, 0.762, 0.020),
-     (0.108, 0.692, 0.002), (0.106, 0.641, -0.005), (0.101, 0.602, -0.009)],
-]
-WHORL = (0.006, 0.837, 0.010)
-
-
-def back_lock(deg, drop=0.0):
-    """A lock fanning from the crown whorl down the back at azimuth deg
-    (0 = face, 90 = left, 180 = back)."""
-    a = math.radians(deg)
-    s, c = math.sin(a), math.cos(a)
-    cz = 0.036
-    pts = [(WHORL[0] + 0.030 * s, WHORL[1] - 0.003, WHORL[2] + 0.034 * c)]
-    for y, rx, rz in ((0.816, 0.058, 0.066), (0.766, 0.093, 0.099),
-                      (0.704, 0.104, 0.099), (0.648, 0.098, 0.091),
-                      (0.602 - drop, 0.086, 0.079)):
-        pts.append((rx * s, y, cz + rz * c))
-    return pts
-
-
-BACK = [back_lock(d, 0.004 * math.cos(math.radians(d - 180)))
-        for d in (124, 142, 160, 180, 200, 218, 236)]
-
-# Around the head, in order; neighbours are interpolated. The face is the gap.
-RING = SMALL_SIDE + BACK + BIG_SIDE[::-1]
-
-LEVELS = {
-    #           outer-fill mid-fill under-step rows across
-    "hero":     (2, 1, 1, 12, 3),
-    "standard": (1, 0, 2, 8, 3),
-    "crowd":    (0, 0, 1, 6, 2),
-}
-
+ORIGIN = (0.0, 0.745, 0.045)  # skull centre the angles are measured from
 
 # ---------------------------------------------------------------------------
 def k2b(p):
@@ -150,6 +85,56 @@ class Heads:
         return np.array(best[1]) if best else np.array([0.0, 1.0, 0.0])
 
 
+def S(heads, az, el, off=0.0):
+    """The scalp point at azimuth az (degrees, 0 = face, 90 = the character's
+    left) and elevation el (degrees above the skull centre), off metres out."""
+    a, e = math.radians(az), math.radians(el)
+    d = Vector((math.cos(e) * math.sin(a), math.sin(e), math.cos(e) * math.cos(a)))
+    o = Vector(ORIGIN)
+    far = None
+    for tree in heads.trees:
+        hit = tree.ray_cast(o, d, 0.3)
+        if hit[0] is not None and (far is None or (hit[0] - o).length > (far - o).length):
+            far = hit[0]
+    if far is None:
+        far = o + d * 0.09
+    return tuple(far + d * off)
+
+
+def sweep(heads, root, end, lift, n=5, rise=0.6, end_lift=None):
+    """A lock lying along the scalp from root (az, el) to end (az, el): it
+    leaves the root, stands up to `lift` metres at `rise` of the way and
+    settles to end_lift (default lift / 2) - short hair, combed."""
+    end_lift = lift * 0.5 if end_lift is None else end_lift
+    pts = []
+    for i in range(n):
+        t = i / (n - 1)
+        az = root[0] + (end[0] - root[0]) * t
+        el = root[1] + (end[1] - root[1]) * t
+        up = lift * math.sin(math.pi * 0.5 * min(t / rise, 1.0)) if t <= rise else \
+            lift + (end_lift - lift) * ((t - rise) / (1 - rise)) ** 1.5
+        pts.append(S(heads, az, el, 0.002 + up))
+    return pts
+
+
+def direction(az, el):
+    a, e = math.radians(az), math.radians(el)
+    return np.array([math.cos(e) * math.sin(a), math.sin(e), math.cos(e) * math.cos(a)])
+
+
+def S_dir(heads, d, off=0.0):
+    """S() for a direction vector from the skull centre."""
+    d = d / np.linalg.norm(d)
+    return S(heads, math.degrees(math.atan2(d[0], d[2])), math.degrees(math.asin(max(-1.0, min(1.0, d[1])))), off)
+
+
+def slerp(a, b, t):
+    om = math.acos(max(-1.0, min(1.0, float(np.dot(a, b)))))
+    if om < 1e-4:
+        return a
+    return (math.sin((1 - t) * om) * a + math.sin(t * om) * b) / math.sin(om)
+
+
 def brow(p):
     """Extra clearance over the forehead: generated brows and foreheads
     stand further forward than the reference heads, and the skull fit does
@@ -206,7 +191,7 @@ class Builder:
         self.heads, self.rows, self.across = heads, rows, across
         self.pos, self.tri, self.uv = [], [], []
 
-    def card(self, lock, width, gap, tile, curl=0.16, taper=0.5, rng=None):
+    def card(self, lock, width, gap, tile, curl=0.16, taper=0.5, snap=True, flare=0.0, root=0.8, v0=0.0):
         rows, across = self.rows, self.across
         line = spline(lock, rows, 1.5)
         line = np.array([self.heads.clear(p, max(gap * min(1.0, 0.5 + i / 2.5), 0.005, brow(p)))
@@ -217,7 +202,7 @@ class Builder:
             hit, normal, _, dist = tree.find_nearest(Vector(line[0]))
             if hit is not None and (best is None or dist < best[0]):
                 best = (dist, hit, normal)
-        if best is not None:
+        if best is not None and snap:
             line[0] = np.array(best[1] + best[2] * max(0.005, brow(line[0])))
         # Smooth once after the push so a cleared point does not kink the card.
         line[1:-1] = 0.25 * line[:-2] + 0.5 * line[1:-1] + 0.25 * line[2:]
@@ -232,15 +217,17 @@ class Builder:
             n = n - tang[r] * np.dot(n, tang[r])
             n /= max(np.linalg.norm(n), 1e-9)
             side = np.cross(tang[r], n)
-            half = 0.5 * width * (0.80 + 0.20 * math.sin(math.pi * min(t[r] * 1.8, 1.0)) ** 0.5)
+            half = 0.5 * width * (root + (1 - root) * math.sin(math.pi * min(t[r] * 1.8, 1.0)) ** 0.5)
             half *= 1 - (1 - taper) * max(0.0, (t[r] - 0.65) / 0.35) ** 1.5
             for c in q:
-                lift = curl * half * (1 - c * c) - 0.002 * (1 - t[r]) ** 6
+                # flare > 0 lifts the free end off the layer below (a flick).
+                lift = (curl * half * (1 - c * c) - 0.002 * (1 - t[r]) ** 6
+                        + flare * max(0.0, (t[r] - 0.55) / 0.45) ** 2)
                 self.pos.append(line[r] + side * c * half + n * lift)
         # The last 4.5 cm always land on the strip's tip zone (bottom 28%).
         acc = np.concatenate(([0.0], np.cumsum(np.linalg.norm(np.diff(line, axis=0), axis=1))))
-        tipz = 0.045
-        v = np.where(acc < length - tipz, acc / max(length - tipz, 1e-3) * 0.72,
+        tipz = getattr(self, "tipz", 0.045)
+        v = np.where(acc < length - tipz, v0 + acc / max(length - tipz, 1e-3) * (0.72 - v0),
                      0.72 + (acc - (length - tipz)) / tipz * 0.28)
         x0 = tile * TILE + 1.5
         u = (x0 + (q + 1) / 2 * (TILE - 3)) / TEX
@@ -295,6 +282,68 @@ class Builder:
                         corners.append((u, 1 - (2 + v * (TEX - 4)) / TEX))
                     self.uv.append(corners)
 
+    def sheet(self, locks, gap, tile, rows=None, v_span=0.70, v0=0.42):
+        """One continuous surface lofted across neighbouring locks (root row
+        on the hairline): swept-back hair has no gaps for skin to show through.
+        Each column of quads maps across the strip, mirrored every other one."""
+        R = rows or self.rows
+        lines = []
+        for lock in locks:
+            line = spline(lock, R, 1.2)
+            lines.append([np.array(self.heads.clear(p, max(gap, brow(p)))) for p in line])
+        base = len(self.pos)
+        for line in lines:
+            self.pos.extend(line)
+        x0 = tile * TILE + 1.5
+        for i in range(len(lines) - 1):
+            for r in range(R - 1):
+                a, b = base + i * R + r, base + (i + 1) * R + r
+                quad = (a, b, b + 1, a + 1)
+                for f in ((quad[0], quad[1], quad[2]), (quad[0], quad[2], quad[3])):
+                    self.tri.append(f)
+                    corners = []
+                    for idx in f:
+                        col, row = divmod(idx - base, R)
+                        u = (x0 + ((col - i) if i % 2 == 0 else 1 - (col - i)) * (TILE - 3)) / TEX
+                        v = v0 + (v_span - v0) * row / (R - 1)
+                        corners.append((u, 1 - (2 + v * (TEX - 4)) / TEX))
+                    self.uv.append(corners)
+
+    def tube(self, path, radius, sectors, tile, v_span=0.70, v0=0.25):
+        """A closed tube along path (a ponytail core, a bun coil). radius(t)
+        in metres; one strip wraps the circumference."""
+        line = spline(path, max(4, len(path) * 3))
+        rows = len(line)
+        tang = np.gradient(line, axis=0)
+        tang /= np.linalg.norm(tang, axis=1, keepdims=True)
+        ref = np.array([1.0, 0.0, 0.0])
+        base = len(self.pos)
+        for r in range(rows):
+            t = r / (rows - 1)
+            a = np.cross(tang[r], ref)
+            if np.linalg.norm(a) < 1e-3:
+                a = np.cross(tang[r], [0.0, 0.0, 1.0])
+            a /= np.linalg.norm(a)
+            b = np.cross(tang[r], a)
+            for k in range(sectors + 1):
+                ang = 2 * math.pi * k / sectors
+                self.pos.append(line[r] + radius(t) * (math.cos(ang) * a + math.sin(ang) * b))
+        W = sectors + 1
+        x0 = tile * TILE + 1.5
+        for r in range(rows - 1):
+            for k in range(sectors):
+                i = base + r * W + k
+                quad = (i, i + 1, i + W + 1, i + W)
+                for f in ((quad[0], quad[1], quad[2]), (quad[0], quad[2], quad[3])):
+                    self.tri.append(f)
+                    corners = []
+                    for idx in f:
+                        rr, kk = divmod(idx - base, W)
+                        u = (x0 + ((kk - k) if kk - k in (0, 1) else 0) * (TILE - 3)) / TEX
+                        v = v0 + (v_span - v0) * rr / (rows - 1)
+                        corners.append((u, 1 - (2 + v * (TEX - 4)) / TEX))
+                    self.uv.append(corners)
+
     def arrays(self):
         pos = np.array(self.pos)
         tri = np.array(self.tri, np.int64)
@@ -308,50 +357,15 @@ class Builder:
         return pos, tri, uv
 
 
-def build(level, heads):
-    fill_out, fill_mid, under_step, rows, across = LEVELS[level]
-    rng = random.Random(17)
-    b = Builder(heads, rows, across)
-    ring = RING
-    pairs = list(zip(ring[:-1], ring[1:]))
-
-    def interpolated(fill):
-        locks = []
-        for i, (p, q) in enumerate(pairs):
-            locks.append((p, i))
-            for k in range(fill):
-                locks.append((lerp_lock(p, q, (k + 1) / (fill + 1)), i))
-        locks.append((ring[-1], len(pairs)))
-        return locks
-
-    # The crown whorl: strands radiating from one point, under everything.
-    b.whorl(WHORL, 0.050, 8 if level != "crowd" else 5, 3 if level != "crowd" else 2)
-    # Under: wide opaque strips, every under_step-th guide, pulled in.
-    for i, lock in enumerate(ring[::under_step]):
-        b.card(scale_in(shorten(lock, 0.012), 0.12), 0.050 if level != "crowd" else 0.07,
-               0.004, i % 2, curl=0.08, taper=0.8)
-    # Mid: the body, every guide and the mid fill.
-    if fill_mid >= 0:
-        for k, (lock, i) in enumerate(interpolated(fill_mid)):
-            b.card(scale_in(lock, 0.06), 0.036 if level != "crowd" else 0.06, 0.008, 2 + k % 3, curl=0.14)
-    # Outer: layered, shorter by up to 3.5 cm, narrower at the front.
-    for k, (lock, i) in enumerate(interpolated(fill_out)):
-        front = lock[0][2] > 0.06 and lock[1][1] > 0.78
-        cut = rng.uniform(0.012, 0.050) if k % 3 else rng.uniform(0.0, 0.012)
-        width = (0.024 if front else 0.030) * (1.0 if level == "hero" else 1.25 if level == "standard" else 1.7)
-        b.card(shorten(lock, cut), width, 0.0125, 5 + k % 3, curl=0.18, taper=0.45)
-    return b.arrays()
-
-
 # ---------------------------------------------------------------------------
 # Preview: the head in clay, the hair alpha-clipped with the baked atlas, dyed.
-def preview(heads, arrays, atlas, outdir, tag):
+def preview(heads, arrays, atlas, outdir, tag, head=0, dye=(1.3, 0.75, 0.45)):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.samples = 32
     sc.render.resolution_x, sc.render.resolution_y = 600, 700
-    V, F = heads.meshes[0]
+    V, F = heads.meshes[head]
     me = bpy.data.meshes.new("head")
     me.from_pydata([k2b(v) for v in V], [], F)
     me.update()
@@ -393,7 +407,7 @@ def preview(heads, arrays, atlas, outdir, tag):
     tint.data_type = "RGBA"
     tint.blend_type = "MULTIPLY"
     tint.inputs["Factor"].default_value = 1.0
-    tint.inputs["B"].default_value = (1.3, 0.75, 0.45, 1)
+    tint.inputs["B"].default_value = (*dye, 1)
     nt.links.new(img.outputs["Color"], tint.inputs["A"])
     nt.links.new(tint.outputs["Result"], bsdf.inputs["Base Color"])
     bsdf.inputs["Roughness"].default_value = 0.6
@@ -428,26 +442,3 @@ def preview(heads, arrays, atlas, outdir, tag):
     print("preview", shots)
 
 
-def main():
-    args = sys.argv[sys.argv.index("--") + 1:]
-    head_f, head_m, out = args[:3]
-    atlas = args[args.index("--atlas") + 1] if "--atlas" in args else None
-    prev = args[args.index("--preview") + 1] if "--preview" in args else None
-    heads = Heads([head_f, head_m])
-    result = {}
-    for level in ("hero", "standard", "crowd"):
-        pos, tri, uv = build(level, heads)
-        result[level + "_pos"] = pos.astype("<f4")
-        result[level + "_tri"] = tri.astype("<i4")
-        result[level + "_uv"] = uv.astype("<f4")
-        print(level, len(tri), "tris", len(pos), "verts")
-    np.savez_compressed(out, **result)
-    if prev and atlas:
-        for level in ("hero", "standard", "crowd"):
-            arrays = (result[level + "_pos"], result[level + "_tri"], result[level + "_uv"])
-            preview(heads, arrays, atlas, prev, level)
-            if "--hero-only" in args:
-                break
-
-
-main()

@@ -17,7 +17,7 @@ real eyes, and motion-captured movement.
 | Rig | 35 Mixamo-named bones: spine, neck, head, arms, legs, two-bone thumb, index and fingers |
 | Texture | one atlas, 128 / 256 / 512 square, 8-bit on the console; face ≈ 80 px wide at 256 |
 | Shape | 96 macro targets (gender, age, muscle, weight, ancestry) + 76 detail sliders |
-| Wardrobe | 24 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
+| Wardrobe | 30 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
 | Motion | 87 clips from Quaternius' Universal Animation Library, retargeted onto the rig |
 | A dressed character | One body atlas and a shared accessory atlas. Foreground hair has its own texture up to 256 pixels square. |
 
@@ -70,7 +70,7 @@ pivot between the eyes, *Reset view* puts it all back.
 | Face | head shape, forehead, brows, eyes (size, height, spacing, tilt, opening, epicanthic fold, bags), nose (11), mouth (9), jaw and cheeks (9), ears (4) - one folding section per feature. Right-click a slider to reset it |
 | Skin | tone, warmth, weathering; eye colour; 12 eyebrow and 4 eyelash styles, brow density; stubble; lipstick, eye shadow, blush; the atlas size |
 | Outfit | one card per item, per slot - full outfit, top, bottom, shoes, hat, glasses, gloves - each with its own colours and, for clothes, a pattern |
-| Hair | Seven styles as cards and a colour; brows and stubble follow it |
+| Hair | Seven styles (and six "old" ones) as cards and a colour; brows and stubble follow it |
 | Animation | the standard locomotion set, or any of the 87 clips; key rate; or *Import clips...* from a Mixamo-named library or a phone take |
 
 **Add to scene** writes `res/models/characters/<name>.glb` and drops in a
@@ -198,9 +198,11 @@ images through an override on the model.
 
 The Outfit tab offers a yard jacket, mill flannel, watch henley, washed jeans,
 ranger cargos, station cords, storm boots, service derbies, two caps, wire
-frames, smoke lenses and dock gloves. The Hair tab adds a side crop, rain
-bob, tide knot, choppy pixie, curtain shag, low ponytail and layered lob. Colour and skin controls work on the same base with or
-without clothing. An old recipe maps retired names to current pieces on load.
+frames, smoke lenses and dock gloves. The Hair tab adds a side crop, choppy
+pixie, rain bob, curtain shag, tide knot, low ponytail and layered lob, and
+the six earlier versions of the first six as "(old)" cards for comparison.
+Colour and skin controls work on the same base with or without clothing. An
+old recipe maps retired names to current pieces on load.
 
 The flannel, henley, trousers and gloves are cut on each neutral body's
 surface, with their own fabric projection and ease. The jacket, footwear,
@@ -209,39 +211,51 @@ body. Their bindings are rebuilt after sculpting and refining the body.
 Foreground hair gets a dedicated texture for its crown and cutout strands.
 Crowd hair shares the accessory atlas.
 
-All seven hairstyles include an opaque root surface beneath the cutout locks,
-including the crown pole. Coincident roots are welded, and degenerate pole
-triangles are removed. Rear cross-sections also stay behind the head when
-a profile image contains only a dangling front fringe below the nape. Fitting preserves one authored shape in a skull frame;
-it no longer pushes individual vertices away from whichever facial triangle
-is nearest. Skull bounds exclude the lower face, so ears, noses and chins do
-not directly define the hairstyle's dimensions. Head width, length and size
-still fit the whole groom. Short cuts follow the head rigidly; long free ends
-have restrained secondary motion. Each style has crowd, standard and hero
-geometry, and still supports dye and hat fitting.
+![The seven hairstyles, three-quarter and rear](img/chargen-studio-hair.png)
 
-![Choppy pixie, Curtain shag and Low ponytail, front and rear](img/chargen-studio-hair.png)
+### Modelled hair
 
-### The layered lob
-
-The layered lob is modelled the way late PS2 character hair was, not lofted
+The hairstyles are modelled the way late PS2 character hair was, not lofted
 from photographs: hand-placed guide locks on the real kit heads, and hair
 cards laid along them in three layers. Wide, opaque under-cards keep skin from
 showing between strands. Mid cards carry the body of the cut. Narrower outer
-cards are cut shorter at random for the layering. A swept fringe crosses the
-forehead from a deep side part, and a small dome at the crown radiates from
-the whorl. Its strand texture is rendered in Cycles from a few thousand real
-hair curves per strip, so clumped tips, occluded roots and a broken sheen band
-come from lighting, not paint. The value range is widened before the hair
-colour dyes it, so strands stay readable in dark colours.
+cards are cut shorter at random for the layering. Short cuts lie along the
+scalp from a side part and a crown whorl. The tide knot and the low ponytail
+are combed along great circles from the whole hairline to the bun or the tie,
+over one continuous opaque sheet, so a combed-back head shows no skin. The bun
+is a coiled tube with cards on it. The ponytail is a tube with cards around it,
+and it swings on the hair joints.
 
-| Detail | Triangles | Hair texture |
-|---|---|---|
-| Hero | 4140 | own, up to 512 |
-| Standard | 1588 | own, 256 |
-| Crowd | 500 | shared accessory atlas |
+All share one strand texture, rendered in Cycles from a few thousand real
+hair curves per strip, so clumped tips, occluded roots and a broken sheen
+band come from lighting, not paint. The value range is widened before the
+hair colour dyes it, so strands stay readable in dark colours.
+
+A modelled groom paints the scalp only under its own cards (within 8 mm, kept
+inside the hair at the nape), so a short cut's hairline is its geometry. A
+shared hairline curve painted dark temples under short hair, and the face
+shadow made a band below a combed-back nape.
+
+| Style | Hero | Standard | Crowd |
+|---|---|---|---|
+| Side crop | 4584 | 1968 | 524 |
+| Choppy pixie | 5616 | 2128 | 560 |
+| Rain bob | 5592 | 2176 | 680 |
+| Curtain shag | 5460 | 2092 | 650 |
+| Tide knot | 5244 | 3176 | 780 |
+| Low ponytail | 4356 | 2228 | 660 |
+| Layered lob | 4140 | 1588 | 500 |
+
+Triangles; hero and standard hair has its own texture (up to 512 and 256),
+crowd hair uses the shared accessory atlas.
 
 ![Layered lob on a hero and a standard character, dyed brown and copper](img/chargen-layered-lob.png)
+
+![The earlier hairstyles (top) and their modelled replacements (bottom)](img/chargen-hair-old-new.png)
+
+The "(old)" styles are the photographed-silhouette lofts. Each has an opaque
+root surface beneath its cutout locks, fits one authored shape in a skull
+frame and keeps its old recipe id with an `-old` suffix.
 
 ### Clothes that move
 

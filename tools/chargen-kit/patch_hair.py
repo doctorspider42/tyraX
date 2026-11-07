@@ -26,7 +26,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from build_kit import VERSION, key_colour  # noqa: E402
 from studio_bodies import sculpt, scalp_paint, surface_map  # noqa: E402
-from studio_gear import HAIR_STYLES, bind_item, hair_atlas, hairstyle  # noqa: E402
+from studio_gear import HAIR_STYLES, MODELLED, bind_item, hair_atlas, hairstyle  # noqa: E402
 
 
 def read(path):
@@ -113,7 +113,8 @@ def main():
             for field, values in bound.items():
                 put(p + "g/" + gid + "/" + field, values)
             xyz = surface_map(unsculpt(rest), tris, uv, parts)
-            for key, data in scalp_paint(xyz, gid).items():
+            groom = (points, faces) if gid in MODELLED else None
+            for key, data in scalp_paint(xyz, gid, groom).items():
                 chunks["img/" + p + "g/" + gid + key] = (4, data, len(data))
             print(gid, p or "(female)", body["detail"], len(faces), "tris")
         points, faces, coords = geometry["hero"]

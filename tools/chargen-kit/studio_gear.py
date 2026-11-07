@@ -75,14 +75,27 @@ def crown(a, t, long_cut=False, hat=False):
 # nape and four alpha locks. Coordinates are in a 512-square source.
 VIEWS = [(0, 0, 304, 336), (304, 0, 512, 336), (0, 336, 226, 512)]
 GROOM_HEIGHT = [0.236, 0.258, 0.251, 0.215, 0.285, 0.340]
-HAIR_STYLES = [("side-crop", "Side crop"), ("rain-bob", "Rain bob"),
-               ("tide-knot", "Tide knot"), ("choppy-pixie", "Choppy pixie"),
-               ("curtain-shag", "Curtain shag"), ("low-ponytail", "Low ponytail"),
-               ("layered-lob", "Layered lob")]
-# Grooms modelled in Blender (studio/hair-blender) instead of lofted from
-# photographed silhouettes: <id>.npz holds hero/standard/crowd cards in the
-# kit's runtime (sculpted) space, <id>.png the Cycles-baked strand atlas.
-MODELLED = ("layered-lob",)
+# The photographed-silhouette lofts, in the order the code below indexes them.
+LEGACY = [("side-crop", "Side crop"), ("rain-bob", "Rain bob"),
+          ("tide-knot", "Tide knot"), ("choppy-pixie", "Choppy pixie"),
+          ("curtain-shag", "Curtain shag"), ("low-ponytail", "Low ponytail")]
+# Grooms modelled in Blender (studio/hair-blender/grooms.py) replace them
+# under the same ids: studio/<id>.npz holds hero/standard/crowd cards in the
+# kit's runtime (sculpted) space; all share one
+# Cycles-baked strand atlas, card-strands.png. The lofts stay as "<id>-old" for comparison.
+MODELLED = tuple(gid for gid, _ in LEGACY) + ("layered-lob",)
+HAIR_STYLES = ([(gid, label) for gid, label in LEGACY] + [("layered-lob", "Layered lob")]
+               + [(gid + "-old", label + " (old)") for gid, label in LEGACY])
+
+
+def base_id(gid):
+    """The style a hair id belongs to: "side-crop-old" -> "side-crop"."""
+    return gid[:-4] if gid.endswith("-old") else gid
+
+
+def legacy_index(style):
+    """HAIR_STYLES index of an "-old" loft -> its index in LEGACY."""
+    return [g for g, _ in LEGACY].index(base_id(HAIR_STYLES[style][0]))
 
 
 def modelled_groom(gid, level):
@@ -113,7 +126,8 @@ def captured_view(style, view):
 def hair_atlas(style):
     gid = HAIR_STYLES[style][0]
     if gid in MODELLED:
-        return Image.open(ART / (gid + ".png")).convert("RGBA")
+        return Image.open(ART / "card-strands.png").convert("RGBA")
+    style = legacy_index(style)
     atlas = Image.new("RGBA", (512, 512))
     roots = (
         Image.open(ART / "crowns.jpg")
@@ -174,6 +188,7 @@ def hairstyle(style, level="hero"):
     meshes in the direction each lock grows, then feather their free ends."""
     if HAIR_STYLES[style][0] in MODELLED:
         return modelled_groom(HAIR_STYLES[style][0], level)
+    style = legacy_index(style)
     slices, rows_count, side_locks, samples = {
         "crowd": (18, 8, 6, 4),
         "standard": (30, 12, 24, 7),
@@ -794,11 +809,12 @@ def bind_item(pos, tris, part, joints, weights, points, slot, gid, names):
         # are rigid, keeping bangs out of the eyes when the character turns.
         free = np.clip((0.734 - points[:, 1]) / 0.089, 0, 1)
         behind = np.clip((0.128 - points[:, 2]) / 0.14, 0, 1)
+        gid = base_id(gid)
         strength = {"rain-bob": 0.18, "tide-knot": 0.08,
                     "curtain-shag": 0.16, "low-ponytail": 0.45,
                     "layered-lob": 0.16}.get(gid, 0.0)
         if gid == "low-ponytail":
-            behind *= np.clip((-0.055 - points[:, 2]) / 0.04, 0, 1)
+            behind *= np.clip((-0.040 - points[:, 2]) / 0.03, 0, 1)
         spring = strength * free * behind
         gw[:, names.index("mixamorig:Head")] = 1 - spring
         gw[:, names.index("mixamorig:HairTail1")] = spring * (1 - 0.60 * free)

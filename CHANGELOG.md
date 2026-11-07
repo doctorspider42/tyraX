@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.15.0
+
+- All six Character Generator hairstyles (side crop, choppy pixie, rain bob, curtain shag, tide knot, low ponytail) are remodelled like the layered lob: layered hair cards with a real strand texture, a crown whorl, a bun coiled from the head and a ponytail that swings. Recipes keep their ids and get the new hair. The earlier versions stay in the Hair tab as "(old)".
+
 ## 2.14.0
 
 - New hairstyle: **Layered lob**, a chin-to-collarbone cut with a deep side part and a fringe swept across the forehead. It is modelled from layered hair cards with a strand texture rendered from real hair, at all three detail levels, and takes any hair colour and both studio hats.

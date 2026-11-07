@@ -264,19 +264,44 @@ def make_shell(chunks, prefix, rest, xyz, skin_pixels, gid, label, slot, ease, t
     )
 
 
-def scalp_paint(xyz, gid):
+def scalp_paint(xyz, gid, groom=None):
     """A hairstyle's scalp layer on the body atlas: dark root colour and the
-    coverage the generator closes and darkens (chargen.cpp scalpCover)."""
+    coverage the generator closes and darkens (chargen.cpp scalpCover).
+
+    groom = (points, triangles) in the same pre-sculpt space as xyz limits it
+    to skin the hair really lies over (within 8 mm of a card): a modelled
+    groom's hairline is its geometry, not one curve shared by every style -
+    a short cut painted to the shared curve left dark patches at the temples."""
     from build_kit import jpg_bytes, png_bytes
 
     x, y, z = xyz
     front = np.clip((z + 0.05) / 0.20, 0, 1)
     edge = (
         0.698 + 0.071 * front**3
-        if gid in ("side-crop", "choppy-pixie", "tide-knot", "low-ponytail")
+        if gid.removesuffix("-old") in ("side-crop", "choppy-pixie", "tide-knot", "low-ponytail")
         else 0.683 + 0.084 * front**4
     )
-    alpha = np.uint8(255 * ramp(y, edge, edge + 0.018))
+    alpha = ramp(y, edge, edge + 0.018)
+    if groom is not None:
+        from scipy.spatial import cKDTree
+
+        points, tris = groom
+        samples = np.concatenate([points, points[tris].mean(axis=1),
+                                  (points[tris[:, 0]] + points[tris[:, 1]]) / 2])
+        near = np.zeros_like(y)
+        live = (np.abs(xyz).sum(axis=0) > 0) & (y > 0.60)
+        d, _ = cKDTree(samples).query(np.stack((x[live], y[live], z[live]), -1))
+        near[live] = 1 - ramp(d, 0.004, 0.008)
+        # On the nape pull the edge 8 texels inside the hair: the generator
+        # darkens skin where the paint leaves the head bone's texels (a hair's
+        # shadow, blurred ~9 texels), which showed as a band below a
+        # combed-back hairline. Elsewhere the paint stays under the whole
+        # groom: it is what hides skin wherever a head pokes through.
+        from scipy.ndimage import minimum_filter
+
+        near = np.where(y > 0.735, near, minimum_filter(near, size=17))
+        alpha = np.minimum(alpha, near)
+    alpha = np.uint8(255 * alpha)
     rgb = np.zeros((SIZE, SIZE, 3), np.uint8) + [40, 28, 22]
     return {
         "/body": jpg_bytes(Image.fromarray(rgb.astype("uint8"))),
@@ -441,7 +466,10 @@ def bake(writer):
                 kind = {"f": 0, "i": 1, "u": 2}[values.dtype.kind]
                 chunks[p + group + field] = kind, values.tobytes(), values.size
             if slot == "hair":
-                for key, data in scalp_paint(xyz, gid).items():
+                from studio_gear import MODELLED
+
+                groom = (points, faces) if gid in MODELLED else None
+                for key, data in scalp_paint(xyz, gid, groom).items():
                     put_image("img/" + p + "g/" + gid + key, data)
             if gid in new_items and gid != "moss-dress":
                 continue

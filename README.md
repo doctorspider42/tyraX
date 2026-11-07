@@ -370,7 +370,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[Character Generator](docs/character-generator.md)** builds playable characters on
   five meshes with custom torsos and limbs, 76 body and face sliders, a 50-bone rig and 87 clips.
   Bare Man and Woman presets and four face textures are available.
-  Its 24 wardrobe choices include seven hairstyles, five tops, three trousers,
+  Its 30 wardrobe choices include seven hairstyles modelled as hair cards (six earlier ones kept as "old"), five tops, three trousers,
   a skirt, a dress, two pairs of shoes, two caps, two pairs of glasses and gloves. Players can
   switch characters and dress them in the in-game creator.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
