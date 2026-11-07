@@ -6,7 +6,8 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
-# Modified by TyraX: revisionClass (stamp pass, docs/dod-submission.md phase 3).
+# Modified by TyraX: revisionClass (stamp pass, docs/dod-submission.md phase 3);
+# recordMark (docs/record-renderer.md).
 */
 
 #pragma once
@@ -229,6 +230,12 @@ class StaPipBag {
    * skips those companions while the class epoch is unchanged. 0 = untagged:
    * the full field-by-field facts, always correct. */
   u8 revisionClass = 0;
+
+  /** Modified by TyraX: renderer-owned. The frame recorder's list
+   * generation this bag was last recorded in (StaPipCore::recordSeq), so
+   * "is this bag already in the recorded list" is one compare instead of a
+   * scan of the whole list (docs/record-renderer.md, phase 1). */
+  u32 recordMark = 0;
 
   /**
    * @param maxVertCount This parameter is available in renderer API.

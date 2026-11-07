@@ -172,9 +172,14 @@ class StaPipCore {
   void releasePreparedGeometry() { qbufferRenderer.releasePreparedGeometry(); }
 #endif
 
-  /** Render 3D via "bags" */
+  /** Render 3D via "bags".
+   * Modified by TyraX: `recordVis` is the draw's verdict from a record
+   * list's visibility pass (docs/record-renderer.md): 0 = not from a record
+   * list, 1 = wholly inside the view frustum, 2 = crossing it. It travels
+   * with the recorded draw to the stamp pass; nothing reads it yet. */
   void render(StaPipBag* bag,
-              StaPipLightReception reception = StaPipLightReception::FromInfo);
+              StaPipLightReception reception = StaPipLightReception::FromInfo,
+              u8 recordVis = 0);
 
   /**
    * Modified by TyraX: instancing (docs/procedural-generation.md,
@@ -315,6 +320,8 @@ class StaPipCore {
     // Modified by TyraX: frame recording - 0 a draw, 1 a submission-batch
     // begin, 2 its end (bag is null for both).
     u8 op = 0;
+    // Modified by TyraX: the record list's verdict (render's recordVis).
+    u8 rec = 0;
   };
   bool recordMarker(u8 op);
   static void flushBeforeForeignWork(void* core);
@@ -340,6 +347,12 @@ class StaPipCore {
   // Modified by TyraX: frame recording - every queued bag, beyond the
   // stamp queue's fixed 48 (setFrameRecord).
   std::vector<DeferredBag> recorded;
+  // Modified by TyraX: the generation of `recorded` (StaPipBag::recordMark):
+  // moves every time the recorded list is consumed, never 0.
+  u32 recordSeq = 1;
+  void markRecorded(StaPipBag* bag) {
+    if (bag != nullptr) bag->recordMark = recordSeq;
+  }
   Plane recordedFrustum[6];  // the planes the recorded list was culled for
   bool frameRecord = true;
   bool frameRecordEnabled() const;

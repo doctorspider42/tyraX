@@ -1257,6 +1257,12 @@ class TerrainGame : public Tyra::Game {
   void recordViewBase(Tyra::StaPipRecordView& v);
   unsigned int cullRecords(Tyra::StaPipRecordList& list,
                            const Tyra::StaPipRecordView& v);
+  // StaPipCore::render's recordVis for a visible record: 1 wholly inside the
+  // frustum, 2 crossing it.
+  static unsigned char recVis(const Tyra::StaPipRecordList& list,
+                              unsigned int pos) {
+    return list.vis(pos) == Tyra::IN_FRUSTUM ? 1 : 2;
+  }
   void recEmitWorld(Tyra::StaPipBag* b) {
     if (recDry) recDry->push_back(b); else renderWorldBag(b);
   }
@@ -1779,7 +1785,7 @@ class TerrainGame : public Tyra::Game {
   // of every opt-in object from the probe grid, once per frame.
   bool isLivePlayerReceiver(int i) const;
   void renderObjectBag(int owner, Tyra::StaPipBag* bag);
-  void renderWorldBag(Tyra::StaPipBag* bag);
+  void renderWorldBag(Tyra::StaPipBag* bag, unsigned char recordVis = 0);
   void fillAnimLightColors(int i);
   unsigned int dynamicReceiverGeneration_ = ~0U;
   void updateDynLitObjects();
@@ -2160,13 +2166,14 @@ class TerrainGame : public Tyra::Game {
   // pass go into `heavyBags` instead of StaPip; the object loop feeds them
   // back a few per drawn object, and flushes the rest before the first
   // object that may blend and after the loop.
-  void submitHeavy(Tyra::StaPipBag* bag);
+  void submitHeavy(Tyra::StaPipBag* bag, unsigned char recordVis = 0);
   void dripHeavy(bool all);
   bool interleaveBegin(bool serializedCost = false);
   void interleaveEnd();
   void ilAccount(u32 work);
   bool objectMayBlend(int index);
   std::vector<Tyra::StaPipBag*> heavyBags;
+  std::vector<unsigned char> heavyVis;  // record-list verdicts (recordVis)
   size_t heavyNext = 0;
   bool heavyCollect = false;
   bool heavyActive = false;
@@ -3466,6 +3473,12 @@ class TerrainGame : public Tyra::Game {
   void recordViewBase(Tyra::StaPipRecordView& v);
   unsigned int cullRecords(Tyra::StaPipRecordList& list,
                            const Tyra::StaPipRecordView& v);
+  // StaPipCore::render's recordVis for a visible record: 1 wholly inside the
+  // frustum, 2 crossing it.
+  static unsigned char recVis(const Tyra::StaPipRecordList& list,
+                              unsigned int pos) {
+    return list.vis(pos) == Tyra::IN_FRUSTUM ? 1 : 2;
+  }
   void recEmitWorld(Tyra::StaPipBag* b) {
     if (recDry) recDry->push_back(b); else renderWorldBag(b);
   }
@@ -3989,7 +4002,7 @@ class TerrainGame : public Tyra::Game {
   // of every opt-in object from the probe grid, once per frame.
   bool isLivePlayerReceiver(int i) const;
   void renderObjectBag(int owner, Tyra::StaPipBag* bag);
-  void renderWorldBag(Tyra::StaPipBag* bag);
+  void renderWorldBag(Tyra::StaPipBag* bag, unsigned char recordVis = 0);
   void fillAnimLightColors(int i);
   unsigned int dynamicReceiverGeneration_ = ~0U;
   void updateDynLitObjects();
@@ -4370,13 +4383,14 @@ class TerrainGame : public Tyra::Game {
   // pass go into `heavyBags` instead of StaPip; the object loop feeds them
   // back a few per drawn object, and flushes the rest before the first
   // object that may blend and after the loop.
-  void submitHeavy(Tyra::StaPipBag* bag);
+  void submitHeavy(Tyra::StaPipBag* bag, unsigned char recordVis = 0);
   void dripHeavy(bool all);
   bool interleaveBegin(bool serializedCost = false);
   void interleaveEnd();
   void ilAccount(u32 work);
   bool objectMayBlend(int index);
   std::vector<Tyra::StaPipBag*> heavyBags;
+  std::vector<unsigned char> heavyVis;  // record-list verdicts (recordVis)
   size_t heavyNext = 0;
   bool heavyCollect = false;
   bool heavyActive = false;

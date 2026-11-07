@@ -129,6 +129,44 @@ receives the same stream.
 
 `TYRA_STAPIP_RECORD_LISTS` 0 is the kill switch: the old per-item loops.
 
+### Measured (PS2)
+
+Verify (`vpnRRV1`, Motor District rig, `make_arm --lean`, parked and
+full-throttle drive cycles, 240 s): terrain 90 185, static batches 175 372
+and road 256 139 draws over 9 600 calls each, `seqBad 0`, `recBad 0`. The
+scene has no non-road procedural chunks.
+
+Timing (`vpnRRT1` records vs `vpnRRT0` old loops, two ELFs, alternating
+deploys, 2 runs each, 300 s; mean of the window p50s, cycle 0 skipped):
+
+| | parked p50 | driving p50 |
+|---|---:|---:|
+| records | 9.886 / 9.878 ms | 8.511 / 8.600 ms |
+| old loops | 9.885 / 9.882 ms | 8.504 / 8.501 ms |
+
+Neutral, as expected: the old loops' culling was a few microseconds per
+item. Phase 1 is the structure the next phases build on, not a speed-up.
+The window means are bimodal in this scene (p95 ~20 ms or ~12 ms per cycle,
+independent of the arm), so compare p50s here.
+
+### The verdict travels with the draw
+
+`StaPipCore::render(bag, reception, recordVis)` takes the record list's
+verdict (1 wholly inside the view frustum, 2 crossing it, 0 not from a
+record list). It is stored in the recorded draw (`DeferredBag::rec`,
+mirrored as `PassDraw::rec`) so the stamp pass can act on it in phase 3.
+The game passes it from all four lists, through the interleaved heavy-bag
+queue (`heavyVis`).
+
+### Duplicate check in O(1)
+
+The frame recorder flushes when a bag is recorded twice (its state may have
+changed in between). It used to find that by scanning the whole recorded
+list on every `render` call: O(n^2) per flush, ~11 000 compares for a
+150-draw flush. `StaPipBag::recordMark` now holds the recorded list's
+generation (`StaPipCore::recordSeq`, moved every time the list is
+consumed), so the check is one compare. Same flush decisions.
+
 ### Known difference
 
 The revision class tag (`StaPipBag::revisionClass`) is now written when the

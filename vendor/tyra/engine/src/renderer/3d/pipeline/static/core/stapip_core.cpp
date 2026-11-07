@@ -586,7 +586,8 @@ void StaPipCore::ensureEnvNormalsUnit(StaPipBag* bag) {
 // was cache misses - 58 I-cache and 104 D-cache lines per hit - because the
 // game runs >10 us of its own code between any two bags and evicts the stamp
 // path every time. A queued run replays them back to back.
-void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
+void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception,
+                        u8 recordVis) {
 #if TYRA_STAPIP_STAMP
   // Frame recording (setFrameRecord): every bag of the batch joins the
   // queue, after whatever stamps it holds, in call order.
@@ -601,17 +602,23 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
                   memcmp(recordedFrustum, fp, sizeof(recordedFrustum)) != 0);
     for (u32 i = 0; !flush && i < deferredCount; ++i)
       flush = deferred[i].bag == bag;
-    for (size_t i = 0; !flush && i < recorded.size(); ++i)
-      flush = recorded[i].bag == bag;
+    // Modified by TyraX: the same bag already recorded - one compare
+    // (StaPipBag::recordMark) instead of a scan of the whole list.
+    if (!flush && !recorded.empty()) flush = bag->recordMark == recordSeq;
     if (flush) flushDeferredRun();
     if (deferredCount == 0 && recorded.empty()) {
       deferredViewProj = vp;
       memcpy(recordedFrustum, fp, sizeof(recordedFrustum));
     }
     // The stamp queue keeps its order with the recorded bags: move it over.
-    for (u32 i = 0; i < deferredCount; ++i) recorded.push_back(deferred[i]);
+    for (u32 i = 0; i < deferredCount; ++i) {
+      markRecorded(deferred[i].bag);
+      recorded.push_back(deferred[i]);
+    }
     deferredCount = 0;
+    markRecorded(bag);
     recorded.push_back({bag, reception});
+    recorded.back().rec = recordVis;
 #if TYRA_STAPIP_RECORD_VERIFY
     recordedHash.resize(recorded.size(), 0);
     recordedHash.back() = hashDrawState(bag);
@@ -652,7 +659,10 @@ void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception) {
 bool StaPipCore::recordMarker(u8 op) {
 #if TYRA_STAPIP_STAMP
   if (flushingDeferred || !frameRecordEnabled()) return false;
-  for (u32 i = 0; i < deferredCount; ++i) recorded.push_back(deferred[i]);
+  for (u32 i = 0; i < deferredCount; ++i) {
+    markRecorded(deferred[i].bag);
+    recorded.push_back(deferred[i]);
+  }
   deferredCount = 0;
   DeferredBag m{nullptr, StaPipLightReception{}};
   m.op = op;
@@ -1096,6 +1106,7 @@ void StaPipCore::flushDeferredRun() {
     flushingDeferred = true;
     for (u32 i = 0; i < deferredCount; ++i) recorded.push_back(deferred[i]);
     deferredCount = 0;
+    if (++recordSeq == 0) recordSeq = 1;  // Modified by TyraX: recordMark
     const bool stageRec = stageBoundsEnabled();
     if (stageRec) {
       stageBoundsRec.resize(recorded.size());
@@ -1118,6 +1129,9 @@ void StaPipCore::flushDeferredRun() {
                   "stamp pass list view");
     static_assert(offsetof(DeferredBag, op) ==
                       offsetof(StaPipQBufferRenderer::PassDraw, op),
+                  "stamp pass list view");
+    static_assert(offsetof(DeferredBag, rec) ==
+                      offsetof(StaPipQBufferRenderer::PassDraw, rec),
                   "stamp pass list view");
     static_assert(static_cast<u8>(StaPipLightReception::Suppress) == 1,
                   "stamp pass reception view");

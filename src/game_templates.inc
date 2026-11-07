@@ -10618,10 +10618,11 @@ void TerrainGame::renderObjectBag(int owner, Tyra::StaPipBag* bag) {
                                   Tyra::StaPipLightReception::Suppress);
 }
 
-void TerrainGame::renderWorldBag(Tyra::StaPipBag* bag) {
+void TerrainGame::renderWorldBag(Tyra::StaPipBag* bag, unsigned char recordVis) {
   stapip.core.render(bag, !ANY_PLAYER_ONLY_DYNAMIC_LIGHTS ||
       !PLAYER_ONLY_DYNAMIC_LIGHTS ? Tyra::StaPipLightReception::FromInfo :
-                                  Tyra::StaPipLightReception::Suppress);
+                                  Tyra::StaPipLightReception::Suppress,
+                     recordVis);
 }
 
 void TerrainGame::fillAnimLightColors(int i) {
@@ -23400,7 +23401,7 @@ void TerrainGame::renderStaticBatches() {
   recVerify(1, batchRecs, n, &TerrainGame::cullStaticBatchesLegacy);
 #endif
   for (unsigned int k = 0; k < n; ++k)
-    submitHeavy(batchRecs.bag(recVisible[k]));
+    submitHeavy(batchRecs.bag(recVisible[k]), recVis(batchRecs, recVisible[k]));
 #else
   cullStaticBatchesLegacy();
 #endif
@@ -24346,7 +24347,7 @@ void TerrainGame::renderProcChunks() {
   recVerify(3, procRecs, n, &TerrainGame::renderProcChunksLegacy);
 #endif
   for (unsigned int k = 0; k < n; ++k)
-    renderWorldBag(procRecs.bag(recVisible[k]));
+    renderWorldBag(procRecs.bag(recVisible[k]), recVis(procRecs, recVisible[k]));
 #else
   renderProcChunksLegacy();
 #endif
@@ -24413,7 +24414,7 @@ void TerrainGame::renderRoadChunks() {
   recVerify(2, roadRecs, n, &TerrainGame::renderRoadChunksLegacy);
 #endif
   for (unsigned int k = 0; k < n; ++k)
-    submitHeavy(roadRecs.bag(recVisible[k]));
+    submitHeavy(roadRecs.bag(recVisible[k]), recVis(roadRecs, recVisible[k]));
 #else
   renderRoadChunksLegacy();
 #endif
@@ -24474,11 +24475,13 @@ void TerrainGame::renderRoadChunksLegacy() {
 // Terrain stays where it is: it is EE-heavy outdoors, and deferring it cost
 // more than it saved there.
 
-void TerrainGame::submitHeavy(Tyra::StaPipBag* bag) {
-  if (heavyCollect)
+void TerrainGame::submitHeavy(Tyra::StaPipBag* bag, unsigned char recordVis) {
+  if (heavyCollect) {
     heavyBags.push_back(bag);
-  else
-    renderWorldBag(bag);
+    heavyVis.push_back(recordVis);
+  } else {
+    renderWorldBag(bag, recordVis);
+  }
 }
 
 
@@ -24497,7 +24500,8 @@ void TerrainGame::dripHeavy(bool all) {
     const size_t even = (total + objs - 1) / objs;
     if (even < want) want = even;
   }
-  for (size_t k = 0; k < want; ++k) renderWorldBag(heavyBags[heavyNext++]);
+  for (size_t k = 0; k < want; ++k, ++heavyNext)
+    renderWorldBag(heavyBags[heavyNext], heavyVis[heavyNext]);
 }
 
 
@@ -24516,6 +24520,7 @@ void TerrainGame::ilReset() {
 
 bool TerrainGame::interleaveBegin(bool serializedCost) {
   heavyBags.clear();
+  heavyVis.clear();
   heavyNext = 0;
   heavyDrawn = 0;
   if (INTERLEAVE_PASSES == 0 || splitPassActive) {
@@ -33479,7 +33484,8 @@ void TerrainGame::renderTerrain() {
   recVerify(0, terrainRecs, n, &TerrainGame::renderTerrainLegacy);
 #endif
   for (unsigned int k = 0; k < n; ++k)
-    renderWorldBag(terrainRecs.bag(recVisible[k]));
+    renderWorldBag(terrainRecs.bag(recVisible[k]),
+                   recVis(terrainRecs, recVisible[k]));
 #else
   renderTerrainLegacy();
 #endif

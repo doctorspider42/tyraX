@@ -966,6 +966,7 @@ class StaPipQBufferRenderer {
     StaPipBag* bag;
     u8 reception;  // StaPipLightReception: 0 FromInfo, 1 Suppress
     u8 op;         // 0 a draw, 1 batch begin, 2 batch end
+    u8 rec;        // Modified by TyraX: record-list verdict (render's recordVis)
   };
   struct PassContext {
     const M4x4* viewProj = nullptr;
