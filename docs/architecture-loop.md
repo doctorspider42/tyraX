@@ -1446,3 +1446,30 @@ The port (2.13.0) keeps the `if` / `else` intact. The fair comparison is
 2.13.0 (`BR13`) against 2.12.1 (`BR9B`) on the console; that queue is
 `r27_queue.sh`. Its first deploy found the console wedged (reset-count
 wedge, ~27 deploys since the power cycle).
+
+## The headline benchmark at 2.13.0: 60 fps through the whole drive (PS2)
+
+The shipped engine (`vendor/tyra` at 2.13.0, `TYRA_FRAME_PROFILE 2` for the
+ring, FRAMETIME held after the ring) is compared with 2.12.1 (`BR9B`).
+Release builds of the crate-field drive, deploys alternated:
+
+| build | missed of 1 000 | work p50 | p95 |
+|---|---|---|---|
+| **2.13.0** (`BR13`) | **0 / 0** | 5.42 / 5.45 | 9.82 / 9.79 |
+| 2.12.1 (`BR9B`) | 2 / 1 | 5.94 / 6.05 | 10.60 / 10.52 |
+
+**Verify** (`BR13V`, `TYRA_STAPIP_CROSSING_VERIFY 1`): 60 019 compared, every
+counter 0 (`padOnly` 30 856: the DMA tag PAD bits only).
+
+**The user's bar for this loop is met on the headline benchmark.** The
+Motor District crate-field crash holds 60 fps on a physical PS2 for every
+frame of the recorded drive, in a release build. Work p50 is 5.4 ms and p95
+9.8 ms of a 16.7 ms frame.
+
+Across the loop, in shipped code:
+
+| version | change | benchmark work p50 | p95 | missed of 1 000 |
+|---|---|---:|---:|---|
+| 2.11.0 | start (debug build) | 6.6-6.8 | 11.1-11.3 | 14-15 (mostly host logging) |
+| 2.12.1 | terrain chunk budget | 5.9-6.0 | 10.5-10.6 | 1-2 |
+| 2.13.0 | crossing pass | **5.4** | **9.8** | **0** |
