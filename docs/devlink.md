@@ -1,7 +1,8 @@
 # devlink — the devkit's channel through the IOP
 
-**Status:** phase 1 (Remote Pad) done and measured on a PS2. Everything else in the devkit
-still rides `host:` files; this page is both the plan and the record.
+**Status:** phases 1 (Remote Pad) and 2 (Live Debugger) done and measured on
+a PS2. Everything else in the devkit still rides
+`host:` files; this page is both the plan and the record.
 
 ## Why
 
@@ -28,19 +29,33 @@ be iterated on. It imports the `ps2ip` socket API that ps2link already has
 resident, so it costs no extra network stack.
 
 ```
-editor ──UDP 18198──▶ IOP: devlink thread ──SIF0 DMA──▶ EE RAM mailbox
-                                                          ▲
-                                         game reads it ───┘ (uncached, no RPC)
+editor ──UDP 18198──▶ IOP: devlink thread ──SIF0 DMA──▶ EE RAM mailbox ◀── game reads (uncached)
+editor ◀──UDP chunks── IOP: report slot ◀──SIF1 DMA── game hands a report over
 ```
 
-- **Inbound (editor → game).** The IOP thread blocks in `recvfrom`, checks
+- **Inbound (editor → game).** The IOP thread waits in `select`, checks
   the datagram, and DMAs it straight into a fixed mailbox in EE RAM whose
-  address the game passed as the module's argument. The game reads the mailbox
-  through the uncached segment: no RPC, no syscall, no cache maintenance, no
-  waiting. Cost on the EE: a 48-byte uncached read per frame.
-- **Outbound (game → editor)** — phase 2. The game fills a buffer and issues
-  one SIF1 DMA every N frames; the IOP thread sends it as datagrams. The EE
-  pays for the DMA setup only.
+  address the game passed as the module's argument. **The first word routes
+  it**: every devkit format starts with its own magic, so `TXPD` goes to the
+  Remote Pad mailbox and `TXDC` (a whole `livedbg.cmd`, length-prefixed) to the
+  Live Debugger's. The game reads mailboxes through the uncached segment: no
+  RPC, no syscall, no cache maintenance, no waiting.
+- **Outbound (game → editor).** At startup the IOP allocates two 32 KB report
+  slots and DMAs their addresses into the game's *hello* box (whose address was
+  the third module argument). The game copies a report into a staging buffer,
+  writes it back from the cache and issues **one SIF1 DMA** into a free slot -
+  header first, a footer echoing the sequence last. The IOP thread polls the
+  slots every 4 ms, sends a complete one as numbered 1 KB `TXDO` chunks, and
+  DMAs the acknowledged sequence back into the hello box, which is how the
+  game knows the slot is free. Both slots busy = this report is skipped (the
+  next one supersedes it); nothing ever waits.
+- **Who the reports go to.** The editor that last sent a valid datagram, **to
+  the port it sent from, from port 18198**. That is not just convenient: a
+  stateful firewall (Windows Defender's included) lets the chunks in only
+  because they are replies. So the editor sends and receives on one socket
+  (`wire::sendDatagram` / `wire::recvDatagram`), and resends the current
+  command every second to keep the conversation - and the firewall's state -
+  alive.
 - **Payloads keep their file formats.** The datagram for Remote Pad is
   byte-for-byte `livepad.bin` (36 bytes, `seq` + footer echo), so torn reads
   are rejected by the same check, and the editor's encoder is shared.
@@ -125,6 +140,61 @@ Not yet covered: an audio check with music playing (the IOP thread runs at
 100, below audsrv, and only wakes per datagram), and the Remote Pad panel
 driving a console end to end (the datagrams above came from a test script with
 the same bytes `livepad::write` sends).
+
+## Phase 2 record - the Live Debugger
+
+| Piece | Where |
+|---|---|
+| IOP: channel routing, command mailbox, report slots, `TXDO` sender | `vendor/tyra/devlink/iop/devlink.c` (4.5 KB module) |
+| EE: `DevLink::readCommand`, `DevLink::sendReport` | `vendor/tyra/engine/src/debug/devlink.cpp` |
+| Game: command from the mailbox, report to the IOP, PCSX2 cadence | `src/templates.cpp` (live_debug runtime) |
+| Editor: command datagram + 1 s keepalive, chunk receiver -> `bin/livedbg.bin` | `src/devkit_ui.cpp` (`livedbgTick`), `src/devlink_host.*`, `src/wire.*` |
+| Reassembly harness | `tools/verify-devlink-reassembler.cpp` |
+
+How the pieces behave:
+
+- **The editor side writes `bin/livedbg.bin`** from each reassembled report,
+  atomically, so every reader of that file - the parsers, the Stats page, the
+  stale-snapshot and hang detection in [live-debugger.md](live-debugger.md) -
+  is unchanged. A dead console still shows as a file that stopped changing.
+- **The boot snapshot still goes to the file.** Before the editor attaches
+  there is nobody to send datagrams to, and the Runner reads that file as the
+  game-is-up marker. It is one `host:` write per boot.
+- **Cadence**: with devlink up, the game polls the command and reports at the
+  PCSX2 cadence (every 6 frames) instead of every 25 - a poll is a memory read
+  and a report one DMA.
+- **Not moved yet** (still `host:`, all one-shot on request): the VU1 capture,
+  the self-screenshot (`frame.tga`), the render-cost capture and the crash
+  report. They cost a round trip when asked for, not every N frames.
+- **Size**: a report bigger than a slot (32 KB) falls back to the file. The
+  largest livedbg.bin the format allows is about 22 KB plus 12 bytes per watch
+  variable.
+
+The harness (`g++ -std=c++20 -Isrc tools/verify-devlink-reassembler.cpp
+src/devlink_host.cpp`) feeds chunks in order, shuffled, with one lost, twice,
+and across a game reboot (sequence back to 1).
+
+### Measured on a PS2 (2026-11-07)
+
+Same fixture as phase 1, now with the Live Debugger on and **attached** (a
+command sent, so the game reports periodically), Remote Pad on too,
+`TYRA_FRAME_PROFILE 2`, 25 windows of 50 frames after attaching:
+
+| | `pre` mean | `pre` max | period | missed |
+|---|---:|---:|---:|---:|
+| devlink (report every 6 frames) | **0.17 ms** | 0.21 ms | 20.00 ms | **0** |
+| `host:` files (debugger every 25, pad every 4) | **1.67 ms** | 2.18 ms | 20.32 ms | **20 of 1250** |
+
+The file arm missed frames **in a scene with 18 ms of slack**: a poll frame
+that stacks a debugger round trip on a pad round trip, plus the snapshot write,
+runs past a field on its own. With devlink the debugger reports four times as
+often and the game does not notice.
+
+Over UDP the attached game sent 125 reports in 15 s - 8.3 a second, one every
+6 frames at 50 fps - all complete, all valid `TXDB` with a rising frame
+counter. The log showed `devlink: first Live Debugger command arrived`.
+The datagrams came from a test script that sends what `livedbgTick` sends;
+the editor panel driving a console end to end is still owed.
 
 ### Testing devlink without the console
 

@@ -787,23 +787,75 @@ std::string probeTcp(const std::string& host, uint16_t port, int timeoutMs) {
     return err;
 }
 
-std::string sendDatagram(const std::string& ipv4, uint16_t port, const void* data,
-                         size_t len) {
+// The one UDP socket devlink uses, opened on first use and kept. Sending and
+// receiving on the SAME socket is load-bearing: the console answers to the
+// address and port our datagrams came from, and a stateful firewall (Windows
+// Defender's included) lets that answer in only because it is a reply.
+static SOCKET devlinkSocket(std::string* err) {
     ensureWinsock();
     static std::mutex mu;
     static SOCKET sock = INVALID_SOCKET;
     std::lock_guard<std::mutex> lock(mu);
     if (sock == INVALID_SOCKET) {
-        sock = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if (sock == INVALID_SOCKET) return wsaError("socket");
+        SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (s == INVALID_SOCKET) {
+            if (err) *err = wsaError("socket");
+            return INVALID_SOCKET;
+        }
 #ifdef _WIN32
         u_long nonBlocking = 1;
-        ioctlsocket(sock, FIONBIO, &nonBlocking);
+        ioctlsocket(s, FIONBIO, &nonBlocking);
 #else
-        const int flags = ::fcntl(sock, F_GETFL, 0);
-        if (flags >= 0) ::fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+        const int flags = ::fcntl(s, F_GETFL, 0);
+        if (flags >= 0) ::fcntl(s, F_SETFL, flags | O_NONBLOCK);
 #endif
+        // Bind now, to an ephemeral port: recvfrom on a socket that has never
+        // sent is an error on Winsock, and the receiver may start first.
+        sockaddr_in any{};
+        any.sin_family = AF_INET;
+        any.sin_port = 0;
+        any.sin_addr.s_addr = htonl(INADDR_ANY);
+        ::bind(s, (const sockaddr*)&any, sizeof(any));
+        sock = s;
     }
+    return sock;
+}
+
+int recvDatagram(void* buf, size_t cap, int timeoutMs, std::string* fromIp) {
+    std::string err;
+    const SOCKET sock = devlinkSocket(&err);
+    if (sock == INVALID_SOCKET) return -1;
+    WSAPOLLFD pfd{};
+    pfd.fd = sock;
+    pfd.events = POLLRDNORM;
+    const int r = WSAPoll(&pfd, 1, timeoutMs);
+    if (r <= 0) return r == 0 ? 0 : -1;
+    sockaddr_in from{};
+#ifdef _WIN32
+    int fromLen = (int)sizeof(from);
+#else
+    socklen_t fromLen = sizeof(from);
+#endif
+    const int n = (int)::recvfrom(sock, (char*)buf, (int)cap, 0, (sockaddr*)&from,
+                                  &fromLen);
+    if (n < 0) {
+        // Winsock reports an ICMP "port unreachable" from an EARLIER send as
+        // a failed receive (WSAECONNRESET) - nobody listening yet is normal.
+        return 0;
+    }
+    if (fromIp) {
+        char ip[INET_ADDRSTRLEN] = {};
+        inet_ntop(AF_INET, &from.sin_addr, ip, sizeof(ip));
+        *fromIp = ip;
+    }
+    return n;
+}
+
+std::string sendDatagram(const std::string& ipv4, uint16_t port, const void* data,
+                         size_t len) {
+    std::string err;
+    const SOCKET sock = devlinkSocket(&err);
+    if (sock == INVALID_SOCKET) return err;
     sockaddr_in to{};
     to.sin_family = AF_INET;
     to.sin_port = htons(port);

@@ -11,6 +11,7 @@ under it as that release's notes, and the release's own page carries the date.
 ## 2.11.0
 
 - **Remote Pad on a real PS2 no longer costs the game frames.** A debug game deployed over ps2link used to read the Remote Pad state as a file from your PC every 4th frame, and the console waited for each of those network round trips. Now the console's I/O processor receives the state from the editor over the network and leaves it in memory, so the game reads it for free every frame, and the pad also answers sooner. PCSX2 is unchanged. This is the first channel moved; see `docs/devlink.md` for the plan to move the rest of the devkit the same way.
+- **The Live Debugger on a real PS2 goes through the I/O processor too.** Breakpoints, pause/step, watches and the Stats page used to cost the console a network round trip every 25 frames, and the panel updated twice a second. Now commands and reports travel as network packets the I/O processor handles, so the game pays almost nothing and reports as often as it does in PCSX2. Nothing to set up: it happens whenever the run target is PS2.
 
 ## 2.10.0
 

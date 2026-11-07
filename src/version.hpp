@@ -5620,7 +5620,9 @@
 // 2.11.0: devlink phase 1 (docs/devlink.md) - a debug game under ps2link
 // loads devlink.irx (vendor/tyra/devlink) and reads the Remote Pad from a
 // mailbox the IOP DMAs the editor's UDP datagram into, instead of a host:
-// file round trip every 4th frame.
+// file round trip every 4th frame. Phase 2 (same version, unreleased): the
+// Live Debugger's command (TXDC) and report (SIF1 -> IOP slot -> TXDO chunks
+// -> editor writes bin/livedbg.bin) over devlink, PCSX2 cadence on a console.
 // 2.10.0: Preferences > Batch grouping cell (ProjectSettings::staticBatchCell,
 // codegen STATIC_BATCH_CELL; 0 = the automatic cell, kept by every example).
 // A 129-crate field at 48: crossing batches 13.5 -> 11.2 a frame, StaPip

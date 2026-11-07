@@ -46,6 +46,29 @@ class DevLink {
    */
   static bool readPad(unsigned char* out);
 
+  /** Largest livedbg.cmd the command mailbox holds (the format's own maximum
+   * is 708 bytes; src/livedbg.hpp). */
+  static constexpr int kCmdMax = 720;
+
+  /** Largest report sendReport() hands over - the IOP's slot size. */
+  static constexpr int kReportMax = 32 * 1024;
+
+  /**
+   * Copies the newest Live Debugger command (a whole livedbg.cmd image) into
+   * `out` and returns its length; 0 when none has arrived or the copy caught
+   * the IOP mid-write. Same checks as the pad: magic, seq, footer.
+   */
+  static int readCommand(unsigned char* out, int cap);
+
+  /**
+   * Hands a report (a whole livedbg.bin image) to the IOP, which sends it to
+   * the editor that last talked to it. One SIF DMA into a free IOP slot; never
+   * waits. False when the report is too big, both slots are still busy, or
+   * devlink is off - the caller then falls back to the host: file (or simply
+   * skips: the next report supersedes this one).
+   */
+  static bool sendReport(const void* data, int len);
+
  private:
   static int state;  // 0 = not tried, 1 = active, -1 = unavailable
 };

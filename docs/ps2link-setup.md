@@ -1007,6 +1007,46 @@ Not fixed in r3, recorded so nobody re-discovers them:
   `TCP_NODELAY` (already on at both ends) was the cheap 50× win and it is spent.
   Reads are already single-round-trip and unchunked.
 
+### The reset wedge (`freepad: DMA Busy`) - what it is, and the open question
+
+After somewhere around 15–20 reset deploys since a power cycle (sooner with
+heavy debug builds), a deploy ends with the console spamming
+`freepad: DMA Busy ID = ... ret = 0` / `SB_STAT = 00f00160` and only a power
+cycle helps. What is known (2026-11-07):
+
+- **The message is a symptom, not the fault.** It comes from padman on the
+  IOP (`iop/system/padman/src/padInit.c`, `DmaSendEE`): every vblank padman
+  sends the pad state to the EE by SIF DMA, and when the previous transfer has
+  never completed it prints this every 240 frames. A SIF0 transfer completes
+  only when the EE's DMA channel takes it - so **the IOP is alive and the EE has
+  stopped receiving**: it died or hung. That is also why `reset` then returns 0
+  and changes nothing: the command reaches the IOP, and there is no EE to carry
+  it out.
+- **Where the EE is lost is unknown.** `pkoReset` (the patch, `ee/cmdHandler.c`)
+  terminates the game's MAIN thread only, quiesces the hardware, and
+  `ExecPS2`s ps2link, whose `main()` reboots the IOP. Until that reboot the
+  dead game's IOP modules (padman, audsrv, devlink, ...) keep running and keep
+  DMAing into EE addresses that belonged to the game. The TV shows how far the
+  EE got: the last ps2link line on screen (`program stopped`, `handing over to
+  a fresh image...`, the banner) is the stage it died in.
+- **Ruled out so far: EE kernel object leaks.** Debug builds log `KHEAD free
+  semaphores N threads M` at boot under ps2link (`Tyra::DevLink::start`). On a
+  physical PS2 it read 208 / 249 on the 6th and on the 7th reset deploy since a
+  power cycle - nothing accumulates across a reset there.
+- **The repro rig**: `tools/ps2rig/reset-cycle.ps1` deploys one project N times
+  the way F6 does and records `KHEAD` and wedges per cycle; point it at the
+  emulator rig (`tools/ps2rig/devlink-emu-rig.ps1`) so a wedge costs a
+  `Stop-Process`, not a power cycle. Mind the tty port: **one `ps2client` per PC
+  at a time**, rig or console - and **no game left running on the real
+  console** either: a running game keeps sending its tty to this PC with nobody
+  of its own listening, and the rig's `ps2client` then logs that game's lines
+  instead of the rig's (seen: a census probe's output in a rig loop's log).
+  **And the PC must be able to reach the rig at all**: bridged onto the PC's
+  only LAN adapter, the emulated console boots and shows its address, but the
+  PC cannot talk to a pcap-bridged guest on its own adapter (no ARP entry,
+  commands never arrive). It needs a second network adapter (or a TAP/loopback
+  setup) for the bridge - measured 2026-11-07 on a single-NIC desk.
+
 Keep the patch **LF-only** (`.gitattributes` enforces it) — it is applied to a
 Unix checkout inside a Linux container, and a CRLF patch fails `git apply`. To
 move to a newer upstream, bump the pinned commit in **both** `build.ps1` and

@@ -33,6 +33,7 @@
 #include "decalproj.hpp"
 #include "devsession.hpp"
 #include "editorcfg.hpp"
+#include "wire.hpp"
 #include "gl_loader.h"
 #include "fbxparser.hpp"
 #include "glbparser.hpp"
@@ -1361,6 +1362,8 @@ void App::livedbgTick() {
         }
         if (livedbg::writeCommand((binDir / "livedbg.cmd").string(), want)
                 .empty()) {
+            dbgCmdBytes_ = livedbg::encodeCommand(want);
+            dbgCmdResendAt_ = 0.0;  // send it now, below
             dbgCmd_ = want;
             dbgCmdWritten_ = true;
             // A force-fire is a one-shot: it has been handed over, and the
@@ -1376,6 +1379,19 @@ void App::livedbgTick() {
             if (dbgCmd_.captureRenderCost) dbgRenderCostSeq_ = want.seq;
             dbgCmd_.captureRenderCost = false;
         }
+    }
+
+    // devlink (docs/devlink.md): a game on a console reads the command from a
+    // mailbox the IOP fills, not from livedbg.cmd, and sends its reports back
+    // as datagrams that devlinkRx_ turns into livedbg.bin. Resend the current
+    // command every second: UDP may drop one, the game ignores a seq it has
+    // applied, and the console can only answer while we keep talking to it.
+    const std::string consoleIp = padConsoleIp();
+    devlinkRx_.serve(consoleIp.empty() ? std::string() : binDir.string(), consoleIp);
+    if (!consoleIp.empty() && !dbgCmdBytes_.empty() && now >= dbgCmdResendAt_) {
+        dbgCmdResendAt_ = now + 1.0;
+        (void)wire::sendDatagram(consoleIp, (uint16_t)livepad::kDevlinkPort,
+                                 dbgCmdBytes_.data(), dbgCmdBytes_.size());
     }
 }
 

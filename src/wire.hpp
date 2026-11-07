@@ -155,6 +155,12 @@ std::string probeTcp(const std::string& host, uint16_t port, int timeoutMs);
 std::string sendDatagram(const std::string& ipv4, uint16_t port, const void* data,
                          size_t len);
 
+// The next datagram on that same socket - the console's answers come back to
+// the port sendDatagram sends from. > 0 bytes (and *fromIp), 0 = nothing
+// within timeoutMs, -1 = no socket. Safe to call from one worker thread while
+// other threads send.
+int recvDatagram(void* buf, size_t cap, int timeoutMs, std::string* fromIp);
+
 // A plain blocking byte stream - no framing, one owner thread. The script
 // debugger's two links (docs/script-debugger.md): PCSX2's PINE socket and the
 // GDB remote serial protocol.
