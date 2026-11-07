@@ -164,6 +164,8 @@ std::string writeGlb(const glbparser::Skel& skel, const std::string& generator) 
         // the way the game and the editor do. Nothing in the editor reads it.
         if (part.material.rfind("hair:", 0) == 0)
             materialsJson += ",\"alphaMode\":\"MASK\",\"alphaCutoff\":0.5";
+        else if (part.material.rfind("clear:", 0) == 0)  // translucent plastic, a visor
+            materialsJson += ",\"alphaMode\":\"BLEND\"";
         materialsJson += "}";
     }
 

@@ -64,7 +64,7 @@ not lofts of photographed silhouettes. Their sources live in
 [studio/hair-blender](studio/hair-blender) and run in headless Blender
 (`blender -b --factory-startup --python <script> -- ...`):
 
-1. `python patch_hair.py <kit.bin> --heads <dir>` writes the hero heads
+1. `python patch_kit.py <kit.bin> --heads <dir>` writes the hero heads
    (`head_f.obj`, `head_m.obj`) in kit space.
 2. `bake_strands.py <dir>/strands.png` renders eight 64 x 512 strips
    (opaque under, alpha mid, ragged outer) from Cycles hair curves and writes
@@ -85,12 +85,23 @@ splines, cards, the whorl dome, continuous sheets and tubes, previews.
 The photographed lofts stay in the kit as `<id>-old` ("Side crop (old)", ...)
 for comparison; `studio_gear.LEGACY` lists them.
 
-## Rebuilding hair without the full build
+## The cyberpunk set
 
-`python patch_hair.py <chargen-kit.bin> <hair id> ...` rebuilds those
-hairstyles inside an existing kit: per-detail geometry, bindings, groom,
-scalp paint, atlas and wardrobe entry. A new id is inserted after the last
-hairstyle. It needs only the kit itself, NumPy, Pillow and SciPy, not the MakeHuman and
+`studio_cyber.py` holds the Neon tech top and Strap cargos (shell garments:
+a cut and a paint function of the rest-space point, registered in `SHELLS`)
+and the Clear PVC jacket, Neon visor and Tech boots (mesh items from
+`meshes()`; the jacket and boots reuse `jacket.npz` / `boots.npz`, painted
+per texel of their own UV layout through `uv_world`). Items in `CLEAR` get
+the wardrobe flag `clear`: alpha kept, a `clear:` part, no body hidden under
+them.
+
+## Rebuilding items without the full build
+
+`python patch_kit.py <chargen-kit.bin> <item id> ...` rebuilds those items
+inside an existing kit - hairstyles (per-detail geometry, bindings, groom,
+scalp paint), mesh items (crowd LOD, bindings) and shell garments (push and
+paint) - with their texture and wardrobe entry. A new id goes after the last
+item of its slot. It needs only the kit itself, NumPy, Pillow and SciPy, not the MakeHuman and
 Quaternius sources. Rebuild the editor afterwards. Then export a recipe with
 `--chargen` and look at it: a fit that is fine on the reference heads can
 still clip a generated forehead. Keep fringe roots at least 7 mm above it.

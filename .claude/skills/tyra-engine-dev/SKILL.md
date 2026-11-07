@@ -54,6 +54,8 @@ EE clipper with Cohen–Sutherland outcodes and static pools; StaPip `clip` VU1 
 15. **Verify**: correctness on PCSX2's software renderer; anything touching GS state, DMA timing, caches, dithering, USB or EE exceptions on real hardware (PCSX2 hides those classes). Timings: one ELF toggled at boot, same assembler, same-build control; never trust PCSX2 GS fill numbers (76x off).
 
 ## Pitfalls index (symptom → cause → full story)
+**Game silently gone**
+- Game stops answering, no assert in `bin/log.txt`, PCSX2 idles (~15% CPU), PINE reads EE RAM as zeros and emulog shows `UpdateVSyncRate: Mode Changed` → an EE allocation failed: `new` does not throw here, the program quits to the BIOS. Find WHERE with a `volatile` stage marker read over PINE in a private `-datapath` PCSX2 (PINE slot 28311, address from `elf-nm` on `bin/<name>.elf.sym`) plus `TYRA_LOG` of `engine->info.getAvailableRAM()`; logging the RAM changes the heap enough to hide the failure. Seen in the Character Creator body switch (docs/character-generator.md, "Choosing a character")
 **Rendering corruption / missing geometry**
 - Objects render twice, giant smeared polygons → bag with `frustumCulling = None`, GS 4096-px wrap (SW renderer/hardware only) → static-pipeline.md
 - Dashed bands / grey wedges / baked shadows z-fighting → coplanar faces or coplanar passes split at different package sizes → static-pipeline.md

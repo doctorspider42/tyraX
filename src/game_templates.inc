@@ -9960,6 +9960,7 @@ void TerrainGame::setupAnimObject(int index) {
   g.animInst.reset();
   g.animParts.clear();  // bags point into the instance - drop them together
   g.animInfoBag.reset();
+  g.animClearInfoBag.reset();
   g.animLastTick = 0;  // fresh instance skins on its first in-view frame
   // type 5 = animated Model, type 6 = a third-person Player avatar (same path)
   if ((o.data.type != 5 && o.data.type != 6) || o.data.animModel < 0 ||
@@ -10007,6 +10008,22 @@ void TerrainGame::setupAnimObject(int index) {
   g.animInfoBag->shadingType = TyraShadingGouraud;  // per-vertex lighting
   g.animInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   g.animInfoBag->fullClipChecks = true;  // near-camera geometry, like objects
+  // A Character Generator "clear:" part (a clear plastic coat, a visor) keeps
+  // its texture's partial alpha: drawn blended and without writing z, so the
+  // body under it and whatever stands behind still show. The generator puts
+  // these parts last, so they blend over the rest of the model.
+  for (size_t m = 0; m < gam.src->parts.size(); ++m)
+    if (gam.src->parts[m].name.rfind("clear:", 0) == 0) {
+      g.animClearInfoBag = std::make_unique<StaPipInfoBag>();
+      g.animClearInfoBag->torchPerPixel = false;
+      g.animClearInfoBag->model = &g.animMat;
+      g.animClearInfoBag->shadingType = TyraShadingGouraud;
+      g.animClearInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      g.animClearInfoBag->fullClipChecks = true;
+      g.animClearInfoBag->blendingEnabled = true;
+      g.animClearInfoBag->zTestType = PipelineZTest_TestOnly;
+      break;
+    }
   g.animParts.clear();
   g.animParts.resize(mesh->materials.size());
   for (size_t m = 0; m < mesh->materials.size(); ++m) {
@@ -10039,7 +10056,9 @@ void TerrainGame::setupAnimObject(int index) {
       ap.lightBag->dirLights = ap.animLights.get();
     }
     ap.bag = std::make_unique<StaPipBag>();
-    ap.bag->info = g.animInfoBag.get();
+    ap.bag->info = g.animClearInfoBag && gam.src->parts[m].name.rfind("clear:", 0) == 0
+                       ? g.animClearInfoBag.get()
+                       : g.animInfoBag.get();
     ap.bag->color = ap.colorBag.get();
     ap.bag->vertices = frame->vertices;
     ap.bag->count = frame->count;
@@ -10236,7 +10255,8 @@ bool TerrainGame::updateCharCreator() {
   scriptCtx.creatorOpen = creatorObj >= 0;
   if (creatorObj < 0) return false;
   RuntimeObject& o = runtimeObjects[creatorObj];
-  if (!objectGeometry[creatorObj].animInst || o.data.animModel < 0) {
+  // (no instance while its next body loads after the old one made room)
+  if ((!objectGeometry[creatorObj].animInst && bodyWant < 0) || o.data.animModel < 0) {
     creatorObj = -1;
     return false;
   }
@@ -10321,7 +10341,9 @@ int TerrainGame::effectiveAnimModel(int index, int authored) const {
 void TerrainGame::requestBody(int index, int model) {
   if (index < 0 || index >= (int)runtimeObjects.size() || model < 0 || model >= ANIM_MODEL_COUNT)
     return;
-  if (runtimeObjects[index].data.animModel == model) {
+  // (a body dropped to make room - stepBodyLoad - is not "already drawn":
+  // going back to it loads it again)
+  if (runtimeObjects[index].data.animModel == model && objectGeometry[index].animInst) {
     if (bodyLoad.file) fclose(bodyLoad.file);
     for (const std::string& t : bodyLoad.held) releaseTexture(t);
     bodyLoad = BodyLoad();
@@ -10368,13 +10390,14 @@ void TerrainGame::stepBodyLoad() {
         L = BodyLoad();
         return;
       }
-      L.bytes.reserve(1u << 20);
     }
-    unsigned char chunk[8192];
     for (int k = 0; k < 8; ++k) {  // 64 KB a frame
-      const size_t got = fread(chunk, 1, sizeof(chunk), L.file);
-      L.bytes.insert(L.bytes.end(), chunk, chunk + got);
-      if (got < sizeof(chunk)) {
+      std::vector<u8> block(8192);
+      const size_t got = fread(block.data(), 1, block.size(), L.file);
+      block.resize(got);
+      L.total += got;
+      if (got > 0) L.blocks.push_back(std::move(block));
+      if (got < 8192) {
         fclose(L.file);
         L.file = nullptr;
         L.stage = 1;
@@ -10384,8 +10407,40 @@ void TerrainGame::stepBodyLoad() {
     return;
   }
   if (L.stage == 1) {
-    L.parsed = TsklLoader::fromMemory(L.bytes, ANIM_MODEL_PATHS[m]);
-    std::vector<u8>().swap(L.bytes);
+    // Room for two bodies? A hero body is ~2 MB parsed plus its skin buffers,
+    // and the creator's hero with its option parts leaves less than that
+    // beside the scene - the load completed and the first skin of the new
+    // body ran the EE out (no exception: the game quit to the BIOS). Then
+    // the old body goes FIRST: the character vanishes for the few frames the
+    // parse and its textures take (the row's spinner runs) instead of the
+    // game. Only a body nobody else wears; measured once per load.
+    {
+      const int target = L.target;
+      const int old = target >= 0 && target < (int)runtimeObjects.size()
+                          ? runtimeObjects[target].data.animModel
+                          : -1;
+      bool shared = false;
+      for (int i = 0; i < (int)runtimeObjects.size() && !shared; ++i)
+        shared = i != target && runtimeObjects[i].active &&
+                 runtimeObjects[i].data.animModel == old;
+      const float needMB = (float)L.total * 2.2F / (1024.0F * 1024.0F) + 1.0F;
+      if (old >= 0 && old != m && !shared && animModelLoaded[old] &&
+          engine->info.getAvailableRAM() < needMB) {
+        ObjectGeometry& og = objectGeometry[target];
+        og.animInst.reset();
+        og.animParts.clear();
+        og.animInfoBag.reset();
+        og.animClearInfoBag.reset();
+        freeAnimModelAsset(old);
+        SkelInstance::clearOutputPool();
+      }
+    }
+    // Parsed straight from the blocks, each freed once read: the peak is the
+    // new model plus one block. A contiguous copy (the file twice, or a
+    // vector doubling to 4 MB for a 2.2 MB hero body) next to the body still
+    // on screen ran the EE out of memory - an allocation failure the game
+    // cannot catch: it quit to the BIOS without a line in the log.
+    L.parsed = TsklLoader::fromBlocks(L.blocks, ANIM_MODEL_PATHS[m]);
     L.stage = 2;
     return;
   }
@@ -10423,7 +10478,7 @@ void TerrainGame::swapBody(int index, int model) {
   if (index < 0 || index >= (int)runtimeObjects.size()) return;
   RuntimeObject& o = runtimeObjects[index];
   const int old = o.data.animModel;
-  if (old == model) return;
+  if (old == model && objectGeometry[index].animInst) return;
   int look[4];
   for (int s = 0; s < 4; ++s) look[s] = o.look[s];
   o.data.animModel = model;
@@ -10439,7 +10494,7 @@ void TerrainGame::swapBody(int index, int model) {
   bool used = false;
   for (int i = 0; i < (int)runtimeObjects.size() && !used; ++i)
     used = runtimeObjects[i].active && runtimeObjects[i].data.animModel == old;
-  if (!used && old >= 0 && old < ANIM_MODEL_COUNT) {
+  if (!used && old != model && old >= 0 && old < ANIM_MODEL_COUNT) {
     freeAnimModelAsset(old);
     SkelInstance::clearOutputPool();
   }
@@ -18723,6 +18778,8 @@ void TerrainGame::setFlashSpotOff(int obj, bool spot) {
       if (part.infoBag) part.infoBag->spotLit = lit;
     if (objectGeometry[i].animInfoBag)
       objectGeometry[i].animInfoBag->spotLit = lit;
+    if (objectGeometry[i].animClearInfoBag)
+      objectGeometry[i].animClearInfoBag->spotLit = lit;
     if (StaticBatch* sb = loneBatch(i)) {
       if (lit) {
         if (batchInfoBag) sb->bag->info = batchInfoBag.get();
@@ -18768,6 +18825,8 @@ void TerrainGame::setDynLightSkip(int obj, int slot) {
     if (part.infoBag) part.infoBag->dynLightSkipSlot = slot;
   if (objectGeometry[obj].animInfoBag)
     objectGeometry[obj].animInfoBag->dynLightSkipSlot = slot;
+  if (objectGeometry[obj].animClearInfoBag)
+    objectGeometry[obj].animClearInfoBag->dynLightSkipSlot = slot;
   if (obj < (int)objectBatchOf.size()) {
     const int bi = objectBatchOf[obj];
     if (bi >= 0 && bi < (int)staticBatches.size()) {
@@ -28049,9 +28108,11 @@ void TerrainGame::renderMirroredObject(int index) {
     // target that skipped this frame's skinning reflects its held pose.
     mirrorAnimMat = mirrorMat * g.animMat;
     g.animInfoBag->model = &mirrorAnimMat;
+    if (g.animClearInfoBag) g.animClearInfoBag->model = &mirrorAnimMat;
     for (ObjectGeometry::AnimPart& ap : g.animParts)
       if (ap.bag && !ap.hidden && ap.bag->count > 0) renderObjectBag(index, ap.bag.get());
     g.animInfoBag->model = &g.animMat;
+    if (g.animClearInfoBag) g.animClearInfoBag->model = &g.animMat;
   }
 }
 

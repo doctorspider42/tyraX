@@ -17,7 +17,7 @@ real eyes, and motion-captured movement.
 | Rig | 35 Mixamo-named bones: spine, neck, head, arms, legs, two-bone thumb, index and fingers |
 | Texture | one atlas, 128 / 256 / 512 square, 8-bit on the console; face ≈ 80 px wide at 256 |
 | Shape | 96 macro targets (gender, age, muscle, weight, ancestry) + 76 detail sliders |
-| Wardrobe | 30 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
+| Wardrobe | 35 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
 | Motion | 87 clips from Quaternius' Universal Animation Library, retargeted onto the rig |
 | A dressed character | One body atlas and a shared accessory atlas. Foreground hair has its own texture up to 256 pixels square. |
 
@@ -256,6 +256,33 @@ crowd hair uses the shared accessory atlas.
 The "(old)" styles are the photographed-silhouette lofts. Each has an opaque
 root surface beneath its cutout locks, fits one authored shape in a skull
 frame and keeps its old recipe id with an `-old` suffix.
+
+### The cyberpunk set
+
+Five pieces built together: a **Neon tech top** (a black mock-neck top with
+cyan piping on the yoke, the side panels, the chest chevron, the collar, the
+hem, the cuffs and the elbows), **Strap cargos** (graphite, thigh pockets,
+two black straps with silver buckles, a magenta stripe down the outer seam),
+**Tech boots** (black, a cyan line round the welt and up the heel), a **Clear
+PVC jacket** and a **Neon visor**. Their paint is computed from each texel's
+3D point, so piping, seams, zips and straps sit in the same place on every
+body (`tools/chargen-kit/studio_cyber.py`).
+
+![The cyberpunk set: the clear PVC jacket over the tech top, the visor](img/chargen-cyber-set.png)
+
+### Clear plastic
+
+The jacket and the visor are **clear** items (wardrobe flag `clear`). The
+generator keeps their texture's partial alpha instead of making it opaque
+(hair) or binary (cutouts), and puts them in their own part, `clear:...`,
+last in the model. The game draws a `clear:` part alpha-blended and without
+writing z, so the top under the jacket and whatever stands behind still show.
+Nothing under a clear item is hidden, by the kit or by the runtime
+skin-under-cloth rule. The .glb marks the material `BLEND`; the editor's preview
+blends it too. The jacket is 20% plastic with brighter streaks where it
+catches the light, and opaque welded seams, collar, cuffs and hem.
+
+![The clear jacket and the visor in PCSX2](img/chargen-cyber-ps2.png)
 
 ### Clothes that move
 
@@ -783,6 +810,21 @@ Only one body is in memory at a time:
   textures and the adoption cost a frame or two each (40-60 ms frames, about
   a dozen of them over ~1.5 s) - no freeze. Before the slicing, one 160 KB
   read cost a frame and adopting the textures in one go cost four.
+- **Memory.** Two hero bodies do not always fit beside a scene: a hero
+  `.tskl` is ~2.2 MB and as much parsed, plus its skin buffers. An EE
+  allocation failure cannot be caught here - the game simply quits to the
+  BIOS with nothing in the log (PINE showed EE RAM wiped and the video mode
+  reset). So the slices stay separate blocks and the parser frees each one
+  as it reads it (`TsklLoader::fromBlocks`: the peak is the model plus a
+  block, where a growing vector used to double to 4 MB next to a 2 MB copy),
+  a hidden option part gives its skin buffers back (`setPartSkipped`; every
+  hairstyle or hat once looked at kept hundreds of KB), and when the free
+  RAM is below about twice the file plus 1 MB the old body is freed BEFORE
+  the parse - the character vanishes for the frames the load takes and the
+  row's spinner runs. **Known issue:** in the example, a creator hero
+  dressed in many heavy options can still run the EE out while cycling
+  bodies; measured 4.8 MB free at the first creator step against ~14 MB
+  after scene setup.
 - **It sticks.** The chosen body is the player's from then on - across scene
   loads and in save games (`playerLook[0]`, no new save format): every
   residency pass, scene load and object activation asks

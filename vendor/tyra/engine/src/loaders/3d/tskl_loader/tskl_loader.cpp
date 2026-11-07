@@ -35,16 +35,36 @@ bool readWholeFile(const std::string& fullPath, std::vector<u8>& out) {
   return !out.empty();
 }
 
-/** Bounds-checked sequential reader over the in-memory file. */
+/** Bounds-checked sequential reader over the in-memory file - one span, or
+ * (Modified by TyraX) a chain of blocks freed as soon as they are read, so
+ * a model parsed from blocks never holds the whole file next to itself. */
 struct Reader {
   const u8* p;
   size_t left;
+  std::vector<std::vector<u8>>* blocks = nullptr;
+  size_t next = 0;
 
+  bool advance() {
+    if (blocks == nullptr) return false;
+    if (next > 0) std::vector<u8>().swap((*blocks)[next - 1]);  // read: free it
+    while (next < blocks->size() && (*blocks)[next].empty()) ++next;
+    if (next >= blocks->size()) return false;
+    p = (*blocks)[next].data();
+    left = (*blocks)[next].size();
+    ++next;
+    return true;
+  }
   bool bytes(void* dst, size_t n) {
-    if (n > left) return false;
-    memcpy(dst, p, n);
-    p += n;
-    left -= n;
+    u8* d = static_cast<u8*>(dst);
+    while (n > 0) {
+      if (left == 0 && !advance()) return false;
+      const size_t k = n < left ? n : left;
+      memcpy(d, p, k);
+      d += k;
+      p += k;
+      left -= k;
+      n -= k;
+    }
     return true;
   }
   bool u32le(u32* dst) { return bytes(dst, 4); }
@@ -54,15 +74,15 @@ struct Reader {
     return count == 0 || bytes(dst->data(), count * sizeof(float));
   }
   bool fixedString(std::string* dst, size_t size) {
-    if (size > left) return false;
-    size_t len = 0;
-    while (len < size && p[len]) ++len;
-    dst->assign(reinterpret_cast<const char*>(p), len);
-    p += size;
-    left -= size;
+    std::string raw(size, '\0');
+    if (size > 0 && !bytes(&raw[0], size)) return false;
+    raw.resize(strnlen(raw.c_str(), size));
+    dst->swap(raw);
     return true;
   }
 };
+
+std::unique_ptr<SkelModel> parse(Reader& in, const std::string& relativePath);
 
 }  // namespace
 
@@ -78,6 +98,20 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
 std::unique_ptr<SkelModel> TsklLoader::fromMemory(const std::vector<u8>& file,
                                                   const std::string& relativePath) {
   Reader in{file.data(), file.size()};
+  return parse(in, relativePath);
+}
+
+std::unique_ptr<SkelModel> TsklLoader::fromBlocks(std::vector<std::vector<u8>>& blocks,
+                                                  const std::string& relativePath) {
+  Reader in{nullptr, 0};
+  in.blocks = &blocks;
+  std::unique_ptr<SkelModel> model = parse(in, relativePath);
+  std::vector<std::vector<u8>>().swap(blocks);
+  return model;
+}
+
+namespace {
+std::unique_ptr<SkelModel> parse(Reader& in, const std::string& relativePath) {
   char magic[4];
   u32 version = 0, nodeCount = 0, paletteCount = 0, partCount = 0,
       clipCount = 0;
@@ -324,5 +358,7 @@ std::unique_ptr<SkelModel> TsklLoader::fromMemory(const std::vector<u8>& file,
 
   return model;
 }
+
+}  // namespace
 
 }  // namespace Tyra

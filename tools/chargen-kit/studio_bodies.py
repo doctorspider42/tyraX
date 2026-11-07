@@ -179,6 +179,11 @@ def garment_paint(tile, xyz, top):
 def cut(gid, xyz):
     """Signed distances to the hem, neckline, cuffs and waist in rest space."""
     x, y, z = xyz
+    from studio_cyber import SHELLS
+
+    for sid, _, _, _, _, shape, _ in SHELLS:
+        if sid == gid:
+            return shape(x, y, z)
     ax = abs(x)
     wrist = (ax - 0.431) * 0.34 + (z - 0.176) * 0.65 + (0.245 - y) * 0.65
     if gid in ("ribbed-top", "button-cardigan", "moss-dress"):
@@ -221,6 +226,9 @@ def cut(gid, xyz):
 
 def make_shell(chunks, prefix, rest, xyz, skin_pixels, gid, label, slot, ease, tile):
     from build_kit import jpg_bytes, png_bytes, key_colour
+    from studio_cyber import SHELLS
+
+    cyber = {c[0]: c for c in SHELLS}
 
     surface = cut(gid, rest.T)
     idx = np.flatnonzero(surface > 0.002).astype("<i4")
@@ -234,6 +242,9 @@ def make_shell(chunks, prefix, rest, xyz, skin_pixels, gid, label, slot, ease, t
     if slot == "hands":
         x, y, z = xyz
         rgb = np.uint8(sample(tile, (x * 15) % 1, (y * 12 + z * 4) % 1) * 0.39)
+    elif gid in cyber:
+        x, y, z = xyz
+        rgb = np.uint8(np.clip(cyber[gid][6](tile, x, y, z), 0, 255))
     else:
         rgb = garment_paint(tile, xyz, slot in ("top", "full"))
         if gid in ("ribbed-top", "button-cardigan", "moss-dress"):
@@ -336,6 +347,7 @@ def bake(writer):
     )
     new_items = {}
     from studio_gear import models, bind_item, hairstyle, crowd_mesh, skirt, HAIR_STYLES
+    from studio_cyber import CLEAR
     from studio_topology import refine
     from custom_body import rebuild
 
@@ -423,7 +435,9 @@ def bake(writer):
             "img/" + p + "iris",
             png_bytes(Image.fromarray(np.uint8(255 * iris * (1 - glint)))),
         )
-        for gid, label, slot, ease, panel in GARMENTS:
+        from studio_cyber import SHELLS
+
+        for gid, label, slot, ease, panel in GARMENTS + tuple(c[:5] for c in SHELLS):
             row, col = divmod(panel, 3)
             tile = fabrics[row * h : (row + 1) * h, col * w : (col + 1) * w]
             if panel >= 6:
@@ -491,6 +505,7 @@ def bake(writer):
                 kind="mesh",
                 sex="",
                 cutout=slot == "hair",
+                clear=gid in CLEAR,
                 dyeable=True,
                 layer=5 if slot == "hair" else 3,
                 luma=float(color @ [0.299, 0.587, 0.114]),

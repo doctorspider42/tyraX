@@ -71,6 +71,7 @@ struct GarmentData {
     std::vector<int32_t> tri;      // mesh: 3 per triangle (the same mesh on every body)
     std::vector<float> uv;         // 6 per triangle (Blender convention, v up)
     bool cutout = false;           // alpha-tested texture (hair)
+    bool clear = false;            // translucent: alpha kept, blended ("clear:" part)
     int layer = 0;                 // stacking order: higher is outer
     float luma = 0.5f;             // luminance of its key colour (item.color): the recolour pivot
     std::vector<GarmentBody> body; // one per Kit::bodies entry
@@ -290,6 +291,7 @@ bool parseKit(Kit& k) {
             g.item.sex = v.find("sex") ? v.find("sex")->stringOr("") : "";
             g.kind = v.find("kind") ? v.find("kind")->stringOr("shell") : "shell";
             g.cutout = v.find("cutout") ? v.find("cutout")->boolOr(false) : false;
+            g.clear = v.find("clear") ? v.find("clear")->boolOr(false) : false;
             g.layer = v.find("layer") ? (int)v.find("layer")->numberOr(0) : 0;
             g.luma = v.find("luma") ? std::max(0.02f, (float)v.find("luma")->numberOr(0.5)) : 0.5f;
             if (const json::Value* c = v.find("color"); c && c->arr.size() >= 3)
@@ -1789,7 +1791,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         }
     }
 
-    // Skin under cloth is not drawn. The kit hides only what each item's
+    // Skin under cloth is not drawn (under clear plastic it is). The kit hides only what each item's
     // stand-in covered on the average body; anything else under a top, a
     // dress, trousers or shoes was still there to poke through when a slider
     // or a pose moved it. A body vertex is covered when a ray out along its
@@ -1800,7 +1802,8 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         for (size_t gi = 0; gi < worn.size(); ++gi) {
             const GarmentData* g = worn[gi];
             const std::string& slot = g->item.slot;
-            if (isOpt[gi] || g->kind != "mesh" || g->triangles(bi).empty() ||
+            // A clear item (translucent plastic) shows the body under it.
+            if (isOpt[gi] || g->kind != "mesh" || g->clear || g->triangles(bi).empty() ||
                 (slot != "top" && slot != "bottom" && slot != "full" && slot != "feet" && slot != "hands" && slot != "over"))
                 continue;
             const std::vector<float> gp = itemPositions(g, nullptr);
@@ -2426,7 +2429,9 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 uint8_t* o = &atlas[((size_t)(cy + y) * A + (cx + x)) * 4];
                 for (int q = 0; q < 3; ++q)
                     o[q] = (uint8_t)std::clamp((int)std::lround(s[q] * inv * 255.0f), 0, 255);
-                o[3] = g->cutout ? (s[3] * inv >= 0.5f ? 255 : 0) : 255;
+                o[3] = g->cutout ? (s[3] * inv >= 0.5f ? 255 : 0)
+                       : g->clear ? (uint8_t)std::clamp((int)std::lround(s[3] * inv * 255.0f), 1, 255)
+                                  : 255;
             }
     };
     // Crowd instances keep their shared accessory atlas. Foreground hair gets
@@ -2459,12 +2464,13 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         const int A = texSize;
         const int cw = A / cols, ch = A / rows;
         std::vector<uint8_t> atlas((size_t)A * A * 4, 0);
-        glbparser::SkelPart part;
+        glbparser::SkelPart part, clearPart;
         bool anyCutout = false;
         for (int m = 0; m < count; ++m) {
+            const bool clear = worn[meshItems[m]]->clear;
             anyCutout |= worn[meshItems[m]]->cutout;
-            emitItem(meshItems[m], part, atlas, A, (m % cols) * (A / cols), (m / cols) * (A / rows),
-                     cw, ch, &capWorn);
+            emitItem(meshItems[m], clear ? clearPart : part, atlas, A, (m % cols) * (A / cols),
+                     (m / cols) * (A / rows), cw, ch, &capWorn);
         }
         // The material name carries the kind: "hair:" means alpha-tested (the
         // editor preview draws it last), which is harmless for the opaque
@@ -2473,9 +2479,20 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         glbparser::Image img;
         img.name = "accessories";
         img.png = encodePng(atlas, A, A);
-        part.image = (int)out.images.size();
+        const int image = (int)out.images.size();
         out.images.push_back(std::move(img));
-        out.parts.push_back(std::move(part));
+        if (part.vertexCount > 0) {
+            part.image = image;
+            out.parts.push_back(std::move(part));
+        }
+        // Translucent items (a clear plastic coat, a visor) share the atlas
+        // but are their own part: the game draws "clear:" parts blended,
+        // without writing z, after everything else (see the end of build).
+        if (clearPart.vertexCount > 0) {
+            clearPart.material = "clear:accessories";
+            clearPart.image = image;
+            out.parts.push_back(std::move(clearPart));
+        }
     }
     // An option hairstyle cannot paint the scalp (the player may take it
     // off), so it brings its own: the scalp triangles it covers (scalpCover),
@@ -2582,7 +2599,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         if (worn[gi]->item.slot == "hair") part.specularFactor = 0.12f;
         const std::string tag = std::string(isOpt[gi] == 2 ? "optd-" : "opt-") +
                                 worn[gi]->item.slot + "-" + worn[gi]->item.id;
-        part.material = std::string(worn[gi]->cutout ? "hair:" : "cloth:") + tag;
+        part.material = std::string(worn[gi]->cutout ? "hair:" : worn[gi]->clear ? "clear:" : "cloth:") + tag;
         glbparser::Image img;
         img.name = tag;
         img.png = encodePng(tex, A, A);
@@ -2607,6 +2624,14 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             part.image = optImage[gi];
             out.parts.push_back(std::move(part));
         }
+
+    // Blended parts last: the game draws a model's parts in order and a
+    // translucent one must not be painted over by an opaque part behind it.
+    // Stable, so every other part (and an option's plain-before-hat-twin
+    // order) keeps its place.
+    std::stable_partition(out.parts.begin(), out.parts.end(), [](const glbparser::SkelPart& sp) {
+        return sp.material.rfind("clear:", 0) != 0;
+    });
 
     // --- bounds --------------------------------------------------------------------
     for (int a = 0; a < 3; ++a) {

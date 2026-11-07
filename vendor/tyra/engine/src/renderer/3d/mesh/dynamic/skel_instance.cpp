@@ -357,7 +357,21 @@ void SkelInstance::setPartSkipped(u32 part, bool skip) {
   }
   if ((partSkipped[part] != 0) == skip) return;
   partSkipped[part] = skip ? 1 : 0;
-  if (!skip) poseDirty = true;  // its arrays hold an old skin
+  if (!skip) {
+    poseDirty = true;  // its arrays hold an old skin
+    return;
+  }
+  // Modified by TyraX: a hidden part gives its skin outputs back to the heap.
+  // They used to stay allocated, so every hairstyle or hat a Character
+  // Creator player had once looked at kept its buffers (a hero hairstyle's
+  // are hundreds of KB) until switching bodies ran the EE out of memory.
+  // Not to the output pool: the pool keeps them, and a part hidden for good
+  // must not. Showing it again allocates afresh (and re-skins anyway).
+  for (PartLod& pl : partLods[part]) {
+    std::vector<Vec4>().swap(pl.ownVertices);
+    std::vector<Vec4>().swap(pl.ownNormals);
+    pl.outV = pl.outN = nullptr;
+  }
 }
 
 void SkelInstance::play(u32 clip, bool loop, float fadeSeconds) {

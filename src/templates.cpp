@@ -1631,6 +1631,8 @@ class TerrainGame : public Tyra::Game {
     u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 300)
     int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
+    // The parts named "clear:" (translucent plastic): blended, no z write.
+    std::unique_ptr<Tyra::StaPipInfoBag> animClearInfoBag;
     Tyra::M4x4 animMat;
     Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
@@ -1813,7 +1815,11 @@ class TerrainGame : public Tyra::Game {
     int target = -1;  // the object that changes into it
     int stage = 0;    // 0 reading, 1 parse, 2 textures, 3 adopt, 4 swap
     FILE* file = nullptr;
-    std::vector<u8> bytes;
+    // stage 0 reads the file into 64 KB blocks (fseek is unreliable over
+    // host:, so its size is unknown): a growing vector doubled to 4 MB for a
+    // 2.2 MB hero body while the old 2 MB copy was still alive
+    std::vector<std::vector<u8>> blocks;
+    size_t total = 0;
     std::unique_ptr<Tyra::SkelModel> parsed;
     size_t texNext = 0;              // stage 2: the next part's texture
     std::vector<std::string> held;   // textures acquired ahead (released after adopt)
@@ -3834,6 +3840,8 @@ class TerrainGame : public Tyra::Game {
     u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 300)
     int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
+    // The parts named "clear:" (translucent plastic): blended, no z write.
+    std::unique_ptr<Tyra::StaPipInfoBag> animClearInfoBag;
     Tyra::M4x4 animMat;
     Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
@@ -4016,7 +4024,11 @@ class TerrainGame : public Tyra::Game {
     int target = -1;  // the object that changes into it
     int stage = 0;    // 0 reading, 1 parse, 2 textures, 3 adopt, 4 swap
     FILE* file = nullptr;
-    std::vector<u8> bytes;
+    // stage 0 reads the file into 64 KB blocks (fseek is unreliable over
+    // host:, so its size is unknown): a growing vector doubled to 4 MB for a
+    // 2.2 MB hero body while the old 2 MB copy was still alive
+    std::vector<std::vector<u8>> blocks;
+    size_t total = 0;
     std::unique_ptr<Tyra::SkelModel> parsed;
     size_t texNext = 0;              // stage 2: the next part's texture
     std::vector<std::string> held;   // textures acquired ahead (released after adopt)

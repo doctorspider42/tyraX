@@ -697,6 +697,9 @@ def models(fabrics):
         watch_cap(True),
         Image.fromarray(fabrics[:512, :512]).crop((30, 50, 115, 190)),
     )
+    from studio_cyber import meshes
+
+    yield from meshes(fabrics, leather)
     yield (
         "wire-frames",
         "Wire frames",
@@ -836,7 +839,11 @@ def bind_item(pos, tris, part, joints, weights, points, slot, gid, names):
     ).astype(int)
     quant[:, 0] += 255 - quant.sum(axis=1)
     cover = np.zeros(len(tris), bool)
-    if gid in ("a-line-skirt", "moss-dress"):
+    from studio_cyber import CLEAR
+
+    if gid in CLEAR:
+        pass  # translucent: the body under it stays
+    elif gid in ("a-line-skirt", "moss-dress"):
         # Cover whole thigh faces above the hem even when a walking leg
         # moves beyond the rest-pose radius of the cloth.
         vertices = pos[tris]
@@ -846,9 +853,9 @@ def bind_item(pos, tris, part, joints, weights, points, slot, gid, names):
             & (abs(vertices[:, :, 0]).max(1) < 0.29)
         )
     if slot == "feet":
-        limit = -0.653 if gid == "storm-boots" else -0.728
+        limit = -0.653 if gid in ("storm-boots", "tech-boots") else -0.728
         cover = pos[tris, 1].max(axis=1) < limit
-    if slot == "top":
+    if slot == "top" and gid not in CLEAR:
         # Hide the trunk and upper arms only, leaving generous margins at openings.
         x, y, z = center.T
         cover = (y > 0.105) & (y < 0.50) & (abs(x) < 0.365)

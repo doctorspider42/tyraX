@@ -22528,7 +22528,8 @@ void App::buildCharIcon(CharIconJob& j) {
     j.tex.resize(s.parts.size());
     j.cutout.resize(s.parts.size());
     for (size_t i = 0; i < s.parts.size(); ++i) {
-        j.cutout[i] = s.parts[i].material.rfind("hair:", 0) == 0;
+        j.cutout[i] = s.parts[i].material.rfind("hair:", 0) == 0 ||
+                      s.parts[i].material.rfind("clear:", 0) == 0;
         const int img = s.parts[i].image;
         if (img < 0 || img >= (int)s.images.size()) continue;
         int w = 0, h = 0, comp = 0;
@@ -23484,7 +23485,8 @@ void App::drawCharacterGeneratorWindow() {
             dp.texH = charPrevTex_[i].h;
         }
         dp.cutout = i < charSkel_.parts.size() &&
-                    charSkel_.parts[i].material.rfind("hair:", 0) == 0;
+                    (charSkel_.parts[i].material.rfind("hair:", 0) == 0 ||
+                     charSkel_.parts[i].material.rfind("clear:", 0) == 0);
     }
     for (int i = 0; i < 3; ++i)
         desc.center[i] = (charSkel_.min[i] + charSkel_.max[i]) * 0.5f + charGenPan_[i];
@@ -24892,7 +24894,8 @@ void App::drawMocapWindow() {
             dp.texH = mocapPrevTex_[i].h;
         }
         dp.cutout = i < mocapSkel_.parts.size() &&
-                    mocapSkel_.parts[i].material.rfind("hair:", 0) == 0;
+                    (mocapSkel_.parts[i].material.rfind("hair:", 0) == 0 ||
+                     mocapSkel_.parts[i].material.rfind("clear:", 0) == 0);
     }
     for (int i = 0; i < 3; ++i) desc.center[i] = (mocapSkel_.min[i] + mocapSkel_.max[i]) * 0.5f;
     desc.minY = mocapSkel_.min[1];

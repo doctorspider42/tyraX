@@ -135,6 +135,16 @@ class TsklLoader {
    */
   static std::unique_ptr<SkelModel> fromMemory(const std::vector<u8>& file,
                                                const std::string& relativePath);
+
+  /**
+   * Modified by TyraX: the same, from the file as read in blocks (a slice a
+   * frame). Each block is freed as soon as the parser has read it and the
+   * vector is left empty, so the peak is the model plus one block - not the
+   * whole file next to the model, which a 2 MB Character Creator body could
+   * not afford beside the body still on screen.
+   */
+  static std::unique_ptr<SkelModel> fromBlocks(std::vector<std::vector<u8>>& blocks,
+                                               const std::string& relativePath);
 };
 
 }  // namespace Tyra

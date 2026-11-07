@@ -8,6 +8,11 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.16.0
+
+- A cyberpunk set in the Character Generator: Neon tech top, Strap cargos, Tech boots, a **Clear PVC jacket** and a **Neon visor**. Clear items are see-through on the PS2: the game draws them blended over the clothes underneath.
+- Character Creator: switching bodies uses much less memory (the file is parsed as it is read, hidden options release their buffers, and when memory is short the old body is freed first). A creator hero with many heavy options can still run out of memory while cycling bodies.
+
 ## 2.15.0
 
 - All six Character Generator hairstyles (side crop, choppy pixie, rain bob, curtain shag, tide knot, low ponytail) are remodelled like the layered lob: layered hair cards with a real strand texture, a crown whorl, a bun coiled from the head and a ponytail that swings. Recipes keep their ids and get the new hair. The earlier versions stay in the Hair tab as "(old)".

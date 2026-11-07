@@ -8284,10 +8284,15 @@ void Viewport::drawToolPreview(uint32_t fbo, int width, int height, const Previe
     for (int i = 0; i < count; ++i)
         if (draws[i].mesh && !draws[i].cutout)
             draw(*draws[i].mesh, viewProj, 1.0f, 1.0f, 1.0f, draws[i].texture, false);
-    // cutouts last: the alpha-cutout shader path discards transparent texels
+    // cutouts last: the alpha-cutout shader path discards transparent texels,
+    // and blends the rest - a character's "clear:" plastic is partly
+    // transparent (hair cards are 0/255, so blending leaves them as they were)
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     for (int i = 0; i < count; ++i)
         if (draws[i].mesh && draws[i].cutout)
             draw(*draws[i].mesh, viewProj, 1.0f, 1.0f, 1.0f, draws[i].texture, true);
+    glDisable(GL_BLEND);
     if (displayMode == 1) {
         glDisable(GL_POLYGON_OFFSET_FILL);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
