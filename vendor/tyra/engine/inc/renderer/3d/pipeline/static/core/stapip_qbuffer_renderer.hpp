@@ -96,25 +96,6 @@
 #if TYRA_STAPIP_STAMP_VERIFY && !(TYRA_STAPIP_STAMP && TYRA_STAPIP_STAMP_PASS)
 #error "TYRA_STAPIP_STAMP_VERIFY needs TYRA_STAPIP_STAMP and TYRA_STAPIP_STAMP_PASS"
 #endif
-// Modified by TyraX: the REPEAT entry (docs/record-renderer.md, "Terrain
-// draws without a stamp"). A bag that wants REPEAT, drawn while another bag
-// left CLAMP in force (the terrain's ground-shadow pass does after every
-// shaded chunk), gets the general path's wrap block in its head: FLUSHE,
-// [REPEAT CLAMP_1 write], ... Its stamp is captured WITHOUT that block, and
-// the stamp and crossing passes put the identical block back at the same
-// place whenever the wrap in force is not REPEAT, instead of sending the
-// draw down the general path. 0 is the kill switch: such a bag is not
-// stamped (2.13 behaviour).
-#ifndef TYRA_STAPIP_REPEAT_ENTRY
-#define TYRA_STAPIP_REPEAT_ENTRY 1
-#endif
-// 1: every capture that removes the block also proves the removal - the
-// block equals the shared REPEAT block (DMA tag PAD bits masked) and the
-// stripped head with the block put back equals the captured head word for
-// word - and REPEATVERIFY lines count captures, bugs and replays.
-#ifndef TYRA_STAPIP_REPEAT_ENTRY_VERIFY
-#define TYRA_STAPIP_REPEAT_ENTRY_VERIFY 0
-#endif
 // Modified by TyraX: the crossing pass (docs/dod-submission.md, "Phase 3,
 // second slice: the crossing pass"; stapip_crossing.hpp). A crossing bag
 // keeps a record of its package boxes and entries in its stamp slot; the
@@ -1449,13 +1430,6 @@ class StaPipQBufferRenderer {
   u8 stampWrapBlock = 0;
   u16 stampSingleAt = 0;
   u16 stampEnvAt = 0;
-  // Modified by TyraX: the REPEAT entry block sendObjectData wrote into the
-  // head being captured (TYRA_STAPIP_REPEAT_ENTRY): where, how long (0 = none).
-  u16 stampEntryAt = 0, stampEntryQw = 0;
-  u32 repeatEntryCaptures = 0, repeatEntryBad = 0, repeatEntrySent = 0;
-  // Strip the entry block out of a captured head: false = refuse the capture.
-  bool stripRepeatEntry(const qword_t* src, u32 qw, qword_t* dst);
-  void repeatEntryTick();
   texwrap_t stampWrap = {};
   u32 stampHits = 0, stampCaptures = 0;
   bool stampSlotHint = false;

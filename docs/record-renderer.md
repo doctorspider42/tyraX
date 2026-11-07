@@ -226,7 +226,7 @@ remainder (~2.1 ms on the benchmark drive, terrain draws without a stamp
 after the ground-shadow pass's CLAMP 1.2 ms of it, docs/architecture-loop.md
 R12/R13) and the crossing route (~0.8 ms).
 
-## Terrain draws without a stamp: the REPEAT entry
+## Terrain draws without a stamp: the REPEAT entry (loser, reverted)
 
 On the benchmark drive the largest StaPip remainder is terrain chunks sent
 down the general path as whole replays: 12.5 draws, ~1.2 ms a frame
@@ -237,7 +237,8 @@ wrap block into its head. That made the draw unstampable in 2.13: a stamp
 kept a wrap block only in its "first CLAMP after REPEAT" form, and every
 replay required REPEAT in force.
 
-`TYRA_STAPIP_REPEAT_ENTRY` 1 (`stapip_qbuffer_renderer.hpp`, kill switch 0):
+What was built (commit f7db84ceb, reverted in the next commit;
+`TYRA_STAPIP_REPEAT_ENTRY`):
 - **Capture.** When `sendObjectData` writes the block for a bag that
   wants REPEAT while another wrap is in force, it records where the block
   sits. That is always right after the FLUSHE tag, 3 quadwords: the CNT tag
@@ -273,14 +274,33 @@ ground-shadow pass only draws while the sun is up):
 |---|---|
 | `RREV` REPEATVERIFY, 240 s parked + drive | captures 72 994, bad 0, sent 38 796 (~3.2 a frame) |
 | `RRSV` STAMPVERIFY, 240 s | 849 505 predictions compared, every bug counter 0 (rev chk 450 950, bug 0) |
-| `RRCV` CROSSVERIFY | owed: the console wedged before it ran |
+| `RRCV` CROSSVERIFY, 200 s | 100 020 compared, wordBad / headBad / runsBad / lenBad / clsBad / verdictBad / noCmp / once / order all 0 (padOnly 55 372) |
 
 Timing in the daylight district (`RRE1` entry on vs `RRE0` off, alternating
 deploys, 2 runs each, mean of window p50s): driving 8.692 / 8.720 ms vs
 8.695 / 8.756, parked 9.061 / 9.064 vs 9.061 / 9.060. Neutral: this rig
 converts only ~3.2 draws a frame. The target is the headline benchmark,
-where R12 counted 12.5 stampless terrain draws a frame. That A/B
-(`RBE1` / `RBE0`, built) is owed: the console wedged after 16 deploys.
+where R12 counted 12.5 stampless terrain draws a frame.
+
+Headline benchmark (`RBE1` entry on vs `RBE0` off: the user's crate-field
+project, release, `make_engine_probe.py --lean`, alternating deploys, 3
+boots each, 100 s). The probe's windows start at frame 1 500, after the
+scripted crash (frames 250-750), so they measure the scene after the crash,
+car parked among the scattered crates:
+
+| boot pair | entry on p50 / p95 | entry off p50 / p95 |
+|---|---:|---:|
+| a | 5.716 / 5.879 ms | 5.568 / 5.697 ms |
+| b | 5.863 / 6.034 ms | 5.680 / 5.801 ms |
+| c | 5.709 / 5.873 ms | 5.632 / 5.768 ms |
+
+**Slower in every pair, by 0.08-0.18 ms.** Correct (all three verifies
+clean) but a loss, so it was reverted. Not diagnosed. Two candidates: a
+draw now sent by the stamp pass under CLAMP is re-captured from the general
+path's head every time `tryStamp` or the dry paths meet it, and the strip
+runs on every `crossSnap`. Together with R13-A (capture without the block,
+-0.2..-0.3 ms driving, verify not clean) this closes the wrap-state route
+to the terrain remainder: neither variant reaches the 0.5 ms bar.
 
 ### The verdict travels with the draw
 
