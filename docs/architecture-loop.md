@@ -1428,3 +1428,21 @@ with the earlier `BR11A`):
 
 **The benchmark holds 60 fps through the whole recorded drive, with every
 draw's DMA stream verified equal.** R11-A goes to the port (2.13.0).
+
+**Correction (found while porting).** R11-A's rig patch put its hook between
+`if (lean) packagesCount = classifyRoutes(...);` and that statement's
+`else`. So in the CONTROL arm every lean crossing bag also ran
+`packager.create`. The control's 213 / 201 µs a crossing bag, its 3-4
+missed frames and its 6.5 ms p50 are inflated (R4A2 had the same patch
+shape).
+
+Against 2.12.1's own figures (R10-A ~190 µs a bag; R9-B p50 5.89-6.04 ms,
+1 missed frame), the crossing pass saves ~55-65 µs a bag, an estimated
+0.5-0.75 ms in the district. The pass arm's own numbers are unaffected:
+- 0 missed frames in 4 runs;
+- 125-136 µs a bag.
+
+The port (2.13.0) keeps the `if` / `else` intact. The fair comparison is
+2.13.0 (`BR13`) against 2.12.1 (`BR9B`) on the console; that queue is
+`r27_queue.sh`. Its first deploy found the console wedged (reset-count
+wedge, ~27 deploys since the power cycle).
