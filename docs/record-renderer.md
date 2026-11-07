@@ -226,6 +226,62 @@ remainder (~2.1 ms on the benchmark drive, terrain draws without a stamp
 after the ground-shadow pass's CLAMP 1.2 ms of it, docs/architecture-loop.md
 R12/R13) and the crossing route (~0.8 ms).
 
+## Terrain draws without a stamp: the REPEAT entry
+
+On the benchmark drive the largest StaPip remainder is terrain chunks sent
+down the general path as whole replays: 12.5 draws, ~1.2 ms a frame
+(docs/architecture-loop.md R12, R13). The terrain's ground-shadow pass
+(`gsBag`) samples its map with CLAMP and leaves CLAMP in force after every
+shaded chunk. The next chunk wants REPEAT, so the general path writes a
+wrap block into its head. That made the draw unstampable in 2.13: a stamp
+kept a wrap block only in its "first CLAMP after REPEAT" form, and every
+replay required REPEAT in force.
+
+`TYRA_STAPIP_REPEAT_ENTRY` 1 (`stapip_qbuffer_renderer.hpp`, kill switch 0):
+- **Capture.** When `sendObjectData` writes the block for a bag that
+  wants REPEAT while another wrap is in force, it records where the block
+  sits. That is always right after the FLUSHE tag, 3 quadwords: the CNT tag
+  with FLUSH + DIRECT, the A+D GIFtag, CLAMP_1. `captureStamp` and
+  `crossSnap` copy the head without the block and move the offsets behind
+  it back by 3. The stamp is then exactly the head the same bag gets with
+  REPEAT in force.
+- **Replay.** When the wrap in force is not REPEAT and the stamp has no
+  wrap block of its own (only a REPEAT bag), the stamp pass and the
+  crossing pass emit FLUSHE, then the shared REPEAT block (built once by
+  the same packet2 calls), then the rest of the head shifted by 3. They do
+  not send the draw down the general path. The words they patch (MVP, fog,
+  TEX0, spot, colour, env) are written through the shifted head. REPEAT is
+  in force from there on.
+- `tryStamp`, `replayRecord` and the dry verify paths keep the 2.13 rule:
+  under another wrap they reject, so the general path decides.
+
+The GS receives the same register writes in the same order as from the
+general path: one CLAMP_1 write of REPEAT between the shadow pass and the
+next chunk.
+
+**Verify.** `TYRA_STAPIP_REPEAT_ENTRY_VERIFY` 1 checks every capture that
+strips a block. The block must equal the shared one (DMA tag PAD bits
+masked), and the stripped head with the block put back must equal the
+captured head word for word. `REPEATVERIFY frames= captures= bad= sent=`
+every 600 frames. With the stripped stamps, `TYRA_STAPIP_STAMP_VERIFY`
+must stay clean as before.
+
+Measured (PS2, Motor District rig in daylight, `--lean --day`; the
+ground-shadow pass only draws while the sun is up):
+
+| check | result |
+|---|---|
+| `RREV` REPEATVERIFY, 240 s parked + drive | captures 72 994, bad 0, sent 38 796 (~3.2 a frame) |
+| `RRSV` STAMPVERIFY, 240 s | 849 505 predictions compared, every bug counter 0 (rev chk 450 950, bug 0) |
+| `RRCV` CROSSVERIFY | owed: the console wedged before it ran |
+
+Timing in the daylight district (`RRE1` entry on vs `RRE0` off, alternating
+deploys, 2 runs each, mean of window p50s): driving 8.692 / 8.720 ms vs
+8.695 / 8.756, parked 9.061 / 9.064 vs 9.061 / 9.060. Neutral: this rig
+converts only ~3.2 draws a frame. The target is the headline benchmark,
+where R12 counted 12.5 stampless terrain draws a frame. That A/B
+(`RBE1` / `RBE0`, built) is owed: the console wedged after 16 deploys.
+
 ### The verdict travels with the draw
 
 `StaPipCore::render(bag, reception, recordVis)` takes the record list's
