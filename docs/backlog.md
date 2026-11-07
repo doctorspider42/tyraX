@@ -297,7 +297,8 @@ remains, in order of size:
   decision is the look, so it wants a real-console look at a driven car first.
 
 The scenery boxes themselves (*Reflect static scenery as boxes*) cost 1.2-1.65
-ms of a capture, mostly EE clipping of big boxes near the eye. Worth trying
+ms of a capture, mostly the clip route (EE classification, VU1 clipping) of big
+boxes near the eye. Worth trying
 after the ground: drop a box's faces that point away from the probe (half the
 triangles, and the clipped ones are mostly the near box's back faces), or cap
 the near boxes at the probe's near distance.

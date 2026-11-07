@@ -414,7 +414,8 @@ buildings unmarked (189 boxes in that scene). Averaged over a turn (half the
 frames capture) the switch adds **0.33-0.57 ms a frame**, and nothing while the
 camera is parked (the reuse budget then skips the capture altogether). Most of
 it is `dispatch`, not triangles (~700 extra a capture): big boxes close to the
-eye cross the probe's 110-degree frustum and go through the EE clipper, and
+eye cross the probe's 110-degree frustum and take the clip route (per-package
+classification on the EE, clipping on VU1 - the district is a `vu1` project), and
 growing the cells from 48 to 96 units plus the frustum skip bought only ~0.1
 ms. **The ground is what the probe spends in the open:** 4.65 ms of every
 capture on the outer road is the resident terrain and road chunks within 20
@@ -444,8 +445,8 @@ asphalt are a few blurred bands either way.
   eye crosses one - with nothing but the map and the heightmap to read, not the
   road triangle search.
 - It is **three by three bags** with the eye in the middle one. One bag's
-  bounding box always straddles the probe's frustum, so every triangle went
-  through the EE clipper; sixteen bags culled better outdoors but paid more in
+  bounding box always straddles the probe's frustum, so every package went
+  down the clip route (EE classification, VU1 clipping); sixteen bags culled better outdoors but paid more in
   per-bag cost than they saved indoors.
 
 Measured the same way as the table above (one ELF per variant, two boots per
