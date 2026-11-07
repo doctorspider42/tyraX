@@ -226,7 +226,79 @@ remainder (~2.1 ms on the benchmark drive, terrain draws without a stamp
 after the ground-shadow pass's CLAMP 1.2 ms of it, docs/architecture-loop.md
 R12/R13) and the crossing route (~0.8 ms).
 
-## Terrain draws without a stamp: the REPEAT entry (loser, reverted)
+## Draws that stay on the general path (2.14.0)
+
+Round 14 of the architecture loop priced the draws that still reach
+`renderNow` at up to 2.56 ms of the benchmark's drive frame
+(docs/architecture-loop.md, R14-B). Round 15 counted them and fixed the
+regular groups at their cause.
+
+**Census** (`cen_patch.py`, rig only). Each `goto general` in the stamp
+pass is tagged with its source line, and `renderNow` counts draws by
+revision class, reason and "the same bag came this way last frame".
+Benchmark drive frames 0-300, per frame:
+
+| group | before (`RBC1`) | after (`RBKC`) |
+|---|---:|---:|
+| terrain, no stamp slot | 7.8 | 0 |
+| untagged, no stamp slot | 3.8 | 2.5 |
+| untagged, stamp record not valid | 2.6 | 0 |
+| terrain, stamp record not valid | 0.5 | 0 |
+| untagged, producer facts changed | 0.1 | 3.8 |
+| terrain / batch, facts changed | 0.1 / 0.4 | 1.1 / 0.4 |
+| batch, crossing emit failed | 0.8 | 0 |
+| untagged, straddling, crossing declined | 0.7 | 0.7 |
+| **total** | **~17** | **~9** |
+
+Almost every one of them was a repeat customer: the same bag, the same way,
+the previous frame.
+
+**Two causes.**
+1. **The REPEAT entry** (below; `TYRA_STAPIP_REPEAT_ENTRY`). A terrain
+   chunk drawn after the previous chunk's ground-shadow pass finds CLAMP in
+   force. Its head then carries a wrap block, and 2.13 never stamped such a
+   head.
+2. **The capture record (`TYRA_STAPIP_CAPTURE_RECORD`, new).** A stamp the
+   general path's whole replay captures used to get an EMPTY record
+   (`captureStamp` clears it). Only a later successful full `tryStamp`
+   filled it. A bag whose `tryStamp` is always refused (any REPEAT bag
+   under that CLAMP) was therefore captured again every frame and never
+   reached the stamp pass. `captureRecord` now writes the record from the
+   draw that captured it, as `afterFullStamp`'s refresh does:
+   - the camera group (the head carries this draw's MVP and fog; the
+     capture requires the precise object-space box wholly inside);
+   - texture residency, CLUT, wrap and candidacy;
+   - the light pick and spot.
+
+   This is why the REPEAT entry alone measured slower in 2.13 (below). Its
+   stamps were captured, but their records stayed empty, so most of them
+   went general anyway, with the strip work on top.
+
+The "facts changed" rows grew because those draws now get a record and fail
+later, on the producer facts. Those bags' inputs really change every frame.
+That is the remaining ~4.9 draws a frame, plus 2.5 untagged draws with no
+stamp at all.
+
+**Verify** (PS2): `STAMPVERIFY` on the headline benchmark with the crash
+drive (`RBKV`): 257 749 predictions compared, every bug counter 0 (rev chk
+149 521, bug 0). REPEATVERIFY and CROSSVERIFY of the entry are below.
+
+**Timing** (PS2, release, headline benchmark drive frames 0-300, `RBK1`
+both on vs `RBL3` 2.13 behaviour, alternating deploys, 2 boots each plus
+the control's 2 earlier boots):
+
+| | work | p50 | p95 |
+|---|---:|---:|---:|
+| 2.14.0 | 11.278 / 11.261 ms | 10.700 / 10.661 | 12.825 / 12.755 |
+| 2.13 | 11.758 / 11.698 (11.772 / 11.749) ms | 11.162 / 11.104 (11.204 / 11.161) | 13.193 / 13.132 (13.364 / 13.273) |
+
+**-0.47 ms a frame** of work, p50 -0.46, p95 -0.4, from about 8 fewer
+general draws a frame. That is a sixth of the 2.56 ms ceiling, because a
+converted draw still costs a stamp's ~7-8 µs of frame (RRP2) plus its GPU
+work. The draws left on the general path change their inputs every frame
+or never had a capturable head (untagged, no slot).
+
+## The REPEAT entry (built in f7db84ceb, reverted, restored in 2.14.0)
 
 On the benchmark drive the largest StaPip remainder is terrain chunks sent
 down the general path as whole replays: 12.5 draws, ~1.2 ms a frame
@@ -237,8 +309,7 @@ wrap block into its head. That made the draw unstampable in 2.13: a stamp
 kept a wrap block only in its "first CLAMP after REPEAT" form, and every
 replay required REPEAT in force.
 
-What was built (commit f7db84ceb, reverted in the next commit;
-`TYRA_STAPIP_REPEAT_ENTRY`):
+`TYRA_STAPIP_REPEAT_ENTRY` 1 (`stapip_qbuffer_renderer.hpp`, kill switch 0):
 - **Capture.** When `sendObjectData` writes the block for a bag that
   wants REPEAT while another wrap is in force, it records where the block
   sits. That is always right after the FLUSHE tag, 3 quadwords: the CNT tag
@@ -294,13 +365,11 @@ car parked among the scattered crates:
 | b | 5.863 / 6.034 ms | 5.680 / 5.801 ms |
 | c | 5.709 / 5.873 ms | 5.632 / 5.768 ms |
 
-**Slower in every pair, by 0.08-0.18 ms.** Correct (all three verifies
-clean) but a loss, so it was reverted. Not diagnosed. Two candidates: a
-draw now sent by the stamp pass under CLAMP is re-captured from the general
-path's head every time `tryStamp` or the dry paths meet it, and the strip
-runs on every `crossSnap`. Together with R13-A (capture without the block,
--0.2..-0.3 ms driving, verify not clean) this closes the wrap-state route
-to the terrain remainder: neither variant reaches the 0.5 ms bar.
+**Slower in every pair, by 0.08-0.18 ms**, so it was reverted (d0a94051e).
+Round 15 found why: on its own, the entry's stamps kept an empty record,
+because only a full `tryStamp` filled one and `tryStamp` refuses under
+CLAMP. Most of them were captured again every frame and went general, with
+the strip on top. With the capture record (above) it is part of 2.14.0.
 
 ### The verdict travels with the draw
 

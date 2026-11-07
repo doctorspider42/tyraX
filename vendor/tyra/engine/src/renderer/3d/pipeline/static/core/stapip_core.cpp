@@ -1828,6 +1828,12 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     if (directRoute) { TYRA_ATTRIB_INC(dsDirectBags); }
     bakeBag = qbufferRenderer.beginBakedBag(bag, maxVertCount, !directRoute);
     replayedWhole = directRoute && bakeBag && qbufferRenderer.replayWholeBakedBag();
+#if TYRA_STAPIP_STAMP
+    // Modified by TyraX: the capture record (TYRA_STAPIP_CAPTURE_RECORD).
+    if (replayedWhole)
+      qbufferRenderer.captureRecord(bag, texBuffers != nullptr ? texBuffers->core : nullptr,
+                                    bagLight, dynamicLightReceive, &wantedWrap);
+#endif
   }
   TYRA_ATTRIB_ADD(dsDirectTicks, attribReplayStart);
   TYRA_ATTRIB_MARK(attribRetainStart);

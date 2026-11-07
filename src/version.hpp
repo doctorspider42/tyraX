@@ -5618,8 +5618,17 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 13
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 14
+#define TYRAX_VERSION_PATCH 0
+// 2.14.0: StaPip keeps the draws the general path used to take every frame
+// (docs/record-renderer.md, "Draws that stay on the general path";
+// architecture loop round 15): the REPEAT entry (a REPEAT bag under another
+// bag's CLAMP keeps its stamp; TYRA_STAPIP_REPEAT_ENTRY) and the capture
+// record (a stamp captured by a whole replay gets that draw's answers as its
+// record; TYRA_STAPIP_CAPTURE_RECORD). Headline benchmark drive -0.47 ms a
+// frame on a PS2; the retained record lists for terrain, static batches,
+// road and procedural chunks (TYRA_STAPIP_RECORD_LISTS) and the O(1)
+// recorded-bag duplicate check ride along.
 // 2.13.1: crossSynth gives a crossing-only slot only to a bag that wants REPEAT
 // (crossEmit never writes a wrap block); a CLAMP bag captured under the same
 // CLAMP could otherwise be sent under REPEAT (docs/dod-submission.md).

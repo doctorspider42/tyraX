@@ -1724,6 +1724,43 @@ measured +0.08..+0.18 ms.
   it general last frame too", and it decides whether the 2.6 ms is mostly
   repeat customers (worth a pass route) or genuine churn (not removable).
 
+## Round 15 (2026-11-07): the regular general-path draws, fixed at the cause (2.14.0)
+
+**Census first.** The stamp pass's general exits were tagged with their
+reason (`tools/ps2rig/cen_patch.py`); `renderNow` counted draws by class,
+reason and "same bag the same way last frame". Benchmark drive frames
+0-300: ~17 draws a frame, nearly all repeats:
+- terrain chunks with no stamp slot (7.8);
+- untagged bags with no slot (3.8);
+- untagged bags with a stamp but an invalid record (2.6);
+- smaller groups.
+
+District night drive: untagged bags with no slot (7.2) and with facts
+changed every frame (2.1).
+
+**Cause and fix** (docs/record-renderer.md, "Draws that stay on the general
+path"):
+1. Terrain after the ground-shadow pass's CLAMP: the REPEAT entry, restored.
+2. A stamp captured by a whole replay got an empty record, and only a full
+   `tryStamp` (refused under CLAMP) ever filled it: the capture record
+   (`TYRA_STAPIP_CAPTURE_RECORD`) fills it from the capturing draw.
+
+That missing record is also why the entry alone measured slower.
+
+**Result.** After the fix, ~9 general draws a frame are left: inputs that
+change every frame (4.9), untagged with no slot (2.5), crossing declined
+(0.7). `STAMPVERIFY` on the benchmark drive: 257 749 compared, all 0.
+Headline benchmark drive, work **11.27 vs 11.73 ms (-0.47)**, p50 -0.46,
+p95 -0.4; 2 boots each, alternating, release.
+
+**Verdict.** -0.47 ms, at the bar. The rest of the 2.56 ms ceiling is the
+draws the change keeps (a stamp is not free) and inputs that really change.
+Still owed:
+- CROSSVERIFY and REPEATVERIFY rerun with the capture record;
+- the district night drive A/B. The district's general draws are mostly
+  the untagged groups, which this does not touch; the ceiling there was
+  1.06 ms.
+
 ## Where the loop stands (2026-11-07)
 
 **The headline benchmark is met.** The Motor District crate-field crash

@@ -313,6 +313,41 @@ inline void emitQword(packet2_t* packet, const qword_t& q) {
   packet->next += 1;
 }
 
+// Modified by TyraX: the REPEAT entry block (TYRA_STAPIP_REPEAT_ENTRY): the
+// wrap block sendObjectData writes for a bag that wants REPEAT, built by the
+// same packet2 calls once. kRepeatEntryQw quadwords: the CNT tag carrying
+// FLUSH + DIRECT, the A+D GIFtag, CLAMP_1.
+constexpr u32 kRepeatEntryQw = 3;
+qword_t g_repeatEntry[kRepeatEntryQw];
+bool g_repeatEntryReady = false;
+const qword_t* repeatEntryBlock() {
+  if (!g_repeatEntryReady) {
+    packet2_t* s = headerScratch();
+    const texwrap_t& w = RendererCoreGS::repeatWrap();
+    packet2_chain_open_cnt(s, 0, 0, 0);
+    packet2_vif_flush(s, 0);
+    packet2_vif_open_direct(s, 0);
+    packet2_add_2x_s64(s, GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    packet2_add_2x_s64(s, GS_SET_CLAMP(w.horizontal, w.vertical, w.minu, w.maxu,
+                                       w.minv, w.maxv),
+                       GS_REG_CLAMP_1);
+    packet2_vif_close_direct_auto(s);
+    packet2_chain_close_tag(s);
+    for (u32 i = 0; i < kRepeatEntryQw; ++i) g_repeatEntry[i] = s->base[i];
+    g_repeatEntry[0].dw[0] &= ~0x03FF0000ull;  // DMA tag PAD: never written
+    g_repeatEntryReady = true;
+  }
+  return g_repeatEntry;
+}
+// Word-for-word, with the DMA tag's PAD bits (0x03FF0000 of word 0) masked:
+// packet2 never writes them and the DMAC ignores them.
+inline bool sameAsRepeatEntry(const qword_t* q) {
+  const qword_t* b = repeatEntryBlock();
+  return (q[0].dw[0] & ~0x03FF0000ull) == b[0].dw[0] && q[0].dw[1] == b[0].dw[1] &&
+         q[1].dw[0] == b[1].dw[0] && q[1].dw[1] == b[1].dw[1] &&
+         q[2].dw[0] == b[2].dw[0] && q[2].dw[1] == b[2].dw[1];
+}
+
 // A DMA REF to `qwords` of VIF stream at `data` (16-byte aligned, stable
 // until every chain naming it has run). Its VIFcodes are two NOPs, so the
 // stream VIF1 sees is exactly the referenced data.
@@ -1394,6 +1429,8 @@ void StaPipQBufferRenderer::sendObjectData(
   stampWrapBlock = 0;
   stampSingleAt = 0;
   stampEnvAt = 0;
+  stampEntryAt = 0;  // Modified by TyraX: REPEAT entry
+  stampEntryQw = 0;
 #endif
 
   // Modified by TyraX: the bag's texture wrap, in the chain (setBagWrap).
@@ -1410,6 +1447,11 @@ void StaPipQBufferRenderer::sendObjectData(
       if (RendererCoreGS::wrapEquals(inForce, RendererCoreGS::repeatWrap())) {
         stampWrapBlock = 1;
         stampWrap = *bagWrap;
+#if TYRA_STAPIP_REPEAT_ENTRY
+      } else if (RendererCoreGS::wrapEquals(*bagWrap, RendererCoreGS::repeatWrap())) {
+        // Modified by TyraX: the REPEAT entry - captured without this block.
+        stampEntryAt = static_cast<u16>(objectDataPacket->next - stampHead);
+#endif
       } else {
         stampOk = false;
       }
@@ -1427,6 +1469,11 @@ void StaPipQBufferRenderer::sendObjectData(
           GS_REG_CLAMP_1);
       packet2_vif_close_direct_auto(objectDataPacket);
       packet2_chain_close_tag(objectDataPacket);
+#if TYRA_STAPIP_STAMP && TYRA_STAPIP_REPEAT_ENTRY
+      if (stampEntryAt != 0)
+        stampEntryQw =
+            static_cast<u16>(objectDataPacket->next - stampHead - stampEntryAt);
+#endif
       packetWrap = *bagWrap;
       packetWrapSet = true;
     }
@@ -3697,20 +3744,86 @@ static inline u32 stampContent(const StaPipBag* bag) {
 void StaPipQBufferRenderer::armStampCapture(StaPipBag* bag, const Vec4& lo,
                                             const Vec4& hi, bool batchSized) {
   stampArmed = stampEnabled;
+  lastCaptureSlot = -1;  // Modified by TyraX: captureRecord
   stampBag = bag;
   stampBatchSized = batchSized;
   stampLo = lo;
   stampHi = hi;
 }
 
+// Modified by TyraX: the REPEAT entry (TYRA_STAPIP_REPEAT_ENTRY). Copies
+// src[0, qw) without the block at [stampEntryAt, +stampEntryQw); refuses
+// anything but the shared REPEAT block at offset 1 (right after the FLUSHE
+// tag, where sendObjectData writes it). The verify build also puts the block
+// back and compares with what was captured.
+bool StaPipQBufferRenderer::stripRepeatEntry(const qword_t* src, u32 qw,
+                                             qword_t* dst) {
+  const u32 at = stampEntryAt, eq = stampEntryQw;
+  if (at != 1 || eq != kRepeatEntryQw || at + eq > qw || qw - eq > kStampMaxQw ||
+      !sameAsRepeatEntry(src + at)) {
+    ++repeatEntryBad;
+#if TYRA_STAPIP_REPEAT_ENTRY_VERIFY
+    if (repeatEntryBad <= 8)
+      printf("REPEATVERIFY BUG strip at=%u qw=%u of %u\n", at, eq, qw);
+#endif
+    return false;
+  }
+  u32 k = 0;
+  for (u32 i = 0; i < qw; ++i)
+    if (i < at || i >= at + eq) dst[k++] = src[i];
+#if TYRA_STAPIP_REPEAT_ENTRY_VERIFY
+  {
+    alignas(16) qword_t back[kStampMaxQw + kRepeatEntryQw];
+    back[0] = dst[0];
+    for (u32 i = 0; i < kRepeatEntryQw; ++i) back[1 + i] = repeatEntryBlock()[i];
+    for (u32 i = 1; i < k; ++i) back[i + kRepeatEntryQw] = dst[i];
+    bool same = true;
+    for (u32 i = 0; i < qw && same; ++i) {
+      const u64 m = (i == 1) ? ~0x03FF0000ull : ~0ull;  // the block's tag PAD
+      same = (back[i].dw[0] & m) == (src[i].dw[0] & m) && back[i].dw[1] == src[i].dw[1];
+    }
+    if (!same) {
+      ++repeatEntryBad;
+      if (repeatEntryBad <= 8) printf("REPEATVERIFY BUG roundtrip qw=%u\n", qw);
+      return false;
+    }
+  }
+#endif
+  ++repeatEntryCaptures;
+  return true;
+}
+
+void StaPipQBufferRenderer::repeatEntryTick() {
+#if TYRA_STAPIP_REPEAT_ENTRY_VERIFY
+  static u32 frames = 0, last = 0;
+  if (DrawEpochs::g.frame == last) return;
+  last = DrawEpochs::g.frame;
+  if (++frames % 600 == 0)
+    printf("REPEATVERIFY frames=%u captures=%u bad=%u sent=%u\n", frames,
+           repeatEntryCaptures, repeatEntryBad, repeatEntrySent);
+#endif
+}
+
 void StaPipQBufferRenderer::captureStamp() {
   StaPipBakedEntry* entry = bakedCurrent;
   StaPipBag* bag = stampBag;
   if (entry == nullptr || bag == nullptr || stampHead == nullptr) return;
-  const u32 qw = static_cast<u32>(packets[context]->next - stampHead);
-  if (qw == 0 || qw > kStampMaxQw || stampMvpAt == 0 || stampOptAt == 0 ||
+  const u32 qwAll = static_cast<u32>(packets[context]->next - stampHead);
+  // Modified by TyraX: a REPEAT entry block is not part of the stamp.
+  const u32 eq = stampEntryQw;
+  const u32 qw = qwAll - eq;
+  if (qwAll <= eq || qw > kStampMaxQw || stampMvpAt == 0 || stampOptAt == 0 ||
       (stampSpotActive && stampSpotAt == 0))
     return;
+  alignas(16) qword_t stripped[kStampMaxQw];
+  const qword_t* head = stampHead;
+  if (eq != 0) {
+    if (!stripRepeatEntry(stampHead, qwAll, stripped)) return;
+    head = stripped;
+  }
+  auto sh = [this, eq](u16 at) -> u16 {
+    return (eq == 0 || at <= stampEntryAt) ? at : static_cast<u16>(at - eq);
+  };
   StampEntry* s = findStamp(bag, true);
   if (s == nullptr) return;
   s->bag = bag;
@@ -3750,25 +3863,28 @@ void StaPipQBufferRenderer::captureStamp() {
   s->residentClasses = residentClasses;
   s->primKey = stampPrimKey(bag);
   s->qw = static_cast<u16>(qw);
-  s->mvpAt = stampMvpAt;
-  s->optAt = stampOptAt;
-  s->tex0At = stampTex0At;
+  s->mvpAt = sh(stampMvpAt);
+  s->optAt = sh(stampOptAt);
+  s->tex0At = sh(stampTex0At);
   s->hasTex0 = stampHasTex0;
   s->fogEligible = stampFogEligible;
   s->spotActive = stampSpotActive;
   s->fogOff = stampFogOff;
   s->wrapBlock = stampWrapBlock;
   s->wrap = stampWrap;
-  s->singleAt = stampSingleAt;
-  s->envAt = stampEnvAt;
+  s->singleAt = sh(stampSingleAt);
+  s->envAt = sh(stampEnvAt);
   s->batchSized = stampBatchSized ? 1 : 0;
-  s->spotAt = stampSpotAt;
+  s->spotAt = sh(stampSpotAt);
   s->program = static_cast<const StaPipVU1Program*>(entry->program)->getName();
-  for (u32 i = 0; i < qw; ++i) s->bytes[i] = stampHead[i];
+  for (u32 i = 0; i < qw; ++i) s->bytes[i] = head[i];
   s->frame = stampHits + stampCaptures;
   bag->stampSlot = static_cast<s16>(s - stamps);
+  lastCaptureSlot = static_cast<int>(s - stamps);  // Modified by TyraX
   ++stampCaptures;
 }
+
+
 
 
 #if TYRA_STAPIP_STAMP_PASS
@@ -4498,6 +4614,7 @@ void StaPipQBufferRenderer::stampPassAfterGeneral() {
 __attribute__((noinline)) void StaPipQBufferRenderer::stampPassBegin(PassContext& c,
                                                                      bool dry) {
   if (stamps != nullptr) sweepStamps();
+  repeatEntryTick();  // Modified by TyraX: REPEATVERIFY (verify builds only)
   resolveLightEpoch(rendererCore);
   if (!stampFrame.camOk || stampFrame.cam != DrawEpochs::g.cam) {
     buildStampCamera(*c.viewProj, c.planes);
@@ -4890,6 +5007,7 @@ __attribute__((noinline)) int StaPipQBufferRenderer::crossEmit(
                    << 32);
   clipRef.dw[1] = 0;
   const texwrap_t& repeat = RendererCoreGS::repeatWrap();
+  u32 entryQw = 0;  // Modified by TyraX: REPEAT entry block, when sent
 #if TYRA_STAPIP_CROSSING_VERIFY
   if (hq + 1 + need + 8 > CrossPass::kVWords) return 0;
   {
@@ -4927,9 +5045,18 @@ __attribute__((noinline)) int StaPipQBufferRenderer::crossEmit(
     if (enabled && telemetry) ++telemetry->submissionBatchEligibleBags;
     const texwrap_t& inForce =
         packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
-    if (!RendererCoreGS::wrapEquals(repeat, inForce)) return 0;
+    // Modified by TyraX: the REPEAT entry (a crossing record only ever
+    // holds a REPEAT bag: crossSynth / crossCapture).
+    if (!RendererCoreGS::wrapEquals(repeat, inForce)) {
+#if TYRA_STAPIP_REPEAT_ENTRY
+      if (s->wrapBlock != 0) return 0;
+      entryQw = kRepeatEntryQw;
+#else
+      return 0;
+#endif
+    }
     const u32 have = objectDataPending ? packet2_get_qw_count(packets[context]) : 0;
-    if (have + hq + 1 + need + 4 > packetSize) return 0;
+    if (have + hq + 1 + need + 4 + entryQw > packetSize) return 0;
   }
   if (!billboardsResident && billboardSetActive) ensureProgramSet(false);
   if (tex != nullptr) {
@@ -4990,8 +5117,18 @@ __attribute__((noinline)) int StaPipQBufferRenderer::crossEmit(
   }
   qword_t* dst = packet->next;
 #endif
+  qword_t* const start = dst;
+  if (entryQw != 0) {  // FLUSHE, the REPEAT entry, then the rest shifted
+    const qword_t* eb = repeatEntryBlock();
+    dst[0] = h[0];
+    for (u32 i = 0; i < kRepeatEntryQw; ++i) dst[1 + i] = eb[i];
+    dst += kRepeatEntryQw;
 #pragma GCC unroll 1
-  for (u32 i = 0; i < ins; ++i) dst[i] = h[i];
+    for (u32 i = 1; i < ins; ++i) dst[i] = h[i];
+  } else {
+#pragma GCC unroll 1
+    for (u32 i = 0; i < ins; ++i) dst[i] = h[i];
+  }
   dst[ins] = clipRef;
 #pragma GCC unroll 1
   for (u32 i = ins; i < hq; ++i) dst[i + 1] = h[i];
@@ -5027,9 +5164,16 @@ __attribute__((noinline)) int StaPipQBufferRenderer::crossEmit(
   const bool ok = emitPartialRuns(routes, n, masks);
   bakedCurrent = nullptr;
   if (!ok) {  // priced above, so never: undo the head, the general path decides
-    packet->next = dst;
+    packet->next = start;
     return 0;
   }
+#if TYRA_STAPIP_REPEAT_ENTRY
+  if (entryQw != 0) {  // the REPEAT entry is in force from here
+    packetWrap = repeat;
+    packetWrapSet = true;
+    ++repeatEntrySent;
+  }
+#endif
   // replayWholeBakedBag / acquire's liveness for both entries, the stamp's
   // recency (tryStamp's bookkeeping).
   cull->framesLeftToDestroy = StaPipBakedStreams::kLifetimeFrames;
@@ -5045,17 +5189,27 @@ void StaPipQBufferRenderer::crossSnap() {
   CrossPass::Snap& sn = CrossPass::snap;
   sn.ok = 0;
   if (stampHead == nullptr) return;
-  const u32 qw = static_cast<u32>(packets[context]->next - stampHead);
-  if (qw == 0 || qw > kStampMaxQw) return;
+  const u32 qwAll = static_cast<u32>(packets[context]->next - stampHead);
+  // Modified by TyraX: without a REPEAT entry block, as captureStamp.
+  const u32 eq = stampEntryQw;
+  const u32 qw = qwAll - eq;
+  if (qwAll <= eq || qw > kStampMaxQw) return;
+  if (eq != 0) {
+    if (!stripRepeatEntry(stampHead, qwAll, sn.q)) return;
+  } else {
 #pragma GCC unroll 1
-  for (u32 i = 0; i < qw; ++i) sn.q[i] = stampHead[i];
+    for (u32 i = 0; i < qw; ++i) sn.q[i] = stampHead[i];
+  }
+  auto sh = [this, eq](u16 at) -> u16 {
+    return (eq == 0 || at <= stampEntryAt) ? at : static_cast<u16>(at - eq);
+  };
   sn.qw = qw;
-  sn.mvpAt = stampMvpAt;
-  sn.optAt = stampOptAt;
-  sn.tex0At = stampTex0At;
-  sn.spotAt = stampSpotAt;
-  sn.singleAt = stampSingleAt;
-  sn.envAt = stampEnvAt;
+  sn.mvpAt = sh(stampMvpAt);
+  sn.optAt = sh(stampOptAt);
+  sn.tex0At = sh(stampTex0At);
+  sn.spotAt = sh(stampSpotAt);
+  sn.singleAt = sh(stampSingleAt);
+  sn.envAt = sh(stampEnvAt);
   sn.fogEligible = stampFogEligible;
   sn.hasTex0 = stampHasTex0;
   sn.spotActive = stampSpotActive;
@@ -5434,6 +5588,7 @@ u32 StaPipQBufferRenderer::stampPass(const PassDraw* list, u32 n, PassContext& c
     u32 clutAddr = r.clutAddr, clutPsm = r.clutPsm, clutLoad = r.clutLoad;
     packet2_t* packet = nullptr;
     qword_t* dst;
+    u32 entryQw = 0;  // Modified by TyraX: REPEAT entry block, when sent
     if (dry) {
       const texwrap_t& inForce =
           packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
@@ -5474,9 +5629,18 @@ u32 StaPipQBufferRenderer::stampPass(const PassDraw* list, u32 n, PassContext& c
       if (enabled && tex != nullptr) submissionPacketHasTexture = true;
       if (enabled && telemetry) ++telemetry->submissionBatchEligibleBags;
       // The wrap in force (tryStamp's reject 8): after the candidacy flush.
+      // Modified by TyraX: a REPEAT bag under another wrap takes the REPEAT
+      // entry block (TYRA_STAPIP_REPEAT_ENTRY) instead of the general path.
       const texwrap_t& inForce =
           packetWrapSet ? packetWrap : rendererCore->gs.currentTextureWrap();
-      if (!RendererCoreGS::wrapEquals(repeat, inForce)) goto general;
+      if (!RendererCoreGS::wrapEquals(repeat, inForce)) {
+#if TYRA_STAPIP_REPEAT_ENTRY
+        if (s->wrapBlock != 0) goto general;
+        entryQw = kRepeatEntryQw;
+#else
+        goto general;
+#endif
+      }
       if (!billboardsResident && billboardSetActive) ensureProgramSet(false);
       if (tex != nullptr) {
         if (needT) {
@@ -5499,8 +5663,19 @@ u32 StaPipQBufferRenderer::stampPass(const PassDraw* list, u32 n, PassContext& c
     }
     const u32 qw = s->qw;
     const qword_t* src = s->bytes;
+    if (entryQw != 0) {
+      // FLUSHE, the REPEAT entry, then the rest: every offset >= 1 moves by
+      // the block, so the patches below write through dst shifted by it.
+      const qword_t* eb = repeatEntryBlock();
+      dst[0] = src[0];
+      for (u32 i = 0; i < kRepeatEntryQw; ++i) dst[1 + i] = eb[i];
+      dst += kRepeatEntryQw;
 #pragma GCC unroll 1
-    for (u32 i = 0; i < qw; ++i) dst[i] = src[i];
+      for (u32 i = 1; i < qw; ++i) dst[i] = src[i];
+    } else {
+#pragma GCC unroll 1
+      for (u32 i = 0; i < qw; ++i) dst[i] = src[i];
+    }
     bool ident = false;
     if (needC) {
       qword_t* mq = &dst[s->mvpAt + 1];
@@ -5540,6 +5715,13 @@ u32 StaPipQBufferRenderer::stampPass(const PassDraw* list, u32 n, PassContext& c
       packetWrap = *wanted;
       packetWrapSet = true;
     }
+#if TYRA_STAPIP_REPEAT_ENTRY
+    if (entryQw != 0) {  // the REPEAT entry is in force from here
+      packetWrap = repeat;
+      packetWrapSet = true;
+      ++repeatEntrySent;
+    }
+#endif
     // The record.
     if (needT || needL || moved) {
       commitRecord(s, dst, needC, needT, needL, moved, wanted, tb, light, spotOn, cand,
@@ -6610,5 +6792,66 @@ StaPipProgramType StaPipQBufferRenderer::getDrawProgramTypeByParams(
   else
     return StaPipVU1Color;
 }
+
+#if TYRA_STAPIP_STAMP
+// Modified by TyraX: the capture record (TYRA_STAPIP_CAPTURE_RECORD). The
+// whole replay that captured this stamp resolved every answer a record holds:
+// the camera (the head carries this draw's MVP and fog words; the bag was
+// wholly inside the frustum by the precise object-space test, the condition
+// of the capture), the texture (residency, CLUT, wrap, batch candidacy) and
+// the light (the pick and the spot block in the head). They are written as
+// afterFullStamp's refresh writes them.
+void StaPipQBufferRenderer::captureRecord(StaPipBag* bag, texbuffer_t* tb,
+                                          const RendererCoreSpotLight* light,
+                                          bool receive, const texwrap_t* wanted) {
+#if TYRA_STAPIP_CAPTURE_RECORD && TYRA_STAPIP_STAMP_PASS
+  const int slot = lastCaptureSlot;
+  lastCaptureSlot = -1;
+  if (slot < 0 || stamps == nullptr || stamps[slot].bag != bag) return;
+#if TYRA_STAPIP_CROSSING_ON
+  if (CrossPass::xonly[slot]) return;
+#endif
+  StampEntry* s = &stamps[slot];
+  const DrawEpochs::State& g = DrawEpochs::g;
+  resolveLightEpoch(rendererCore);
+  RendererCoreTexture& T = rendererCore->texture;
+  const Texture* tex = static_cast<const Texture*>(s->texture);
+  StampRecord& r = stampRecs[slot];
+  r.bag = bag;
+  r.cam = g.cam;
+  r.camSeen = g.cam;
+  r.light = g.light;
+  r.tex = g.tex;
+  r.glob = g.glob;
+  r.prog = g.prog;
+  r.wanted = wanted;
+  r.tb = tb;
+  r.lightPtr = light;
+  const s32 idx = tex != nullptr ? T.residentIndex(tex) : -1;
+  r.allocIdx = static_cast<s16>(idx);
+  r.clutAddr = T.clut.address;
+  r.clutPsm = static_cast<u8>(T.clut.psm);
+  r.clutLoad = static_cast<u8>(T.clut.load_method);
+  r.func = tex != nullptr ? bag->texture->textureFunction : 0;
+  const bool repeatNow = tex == nullptr ||
+                         (tex->getWrapSettings()->horizontal == WRAP_REPEAT &&
+                          tex->getWrapSettings()->vertical == WRAP_REPEAT);
+  const bool cand = s->batchSized != 0 || (stampBatchAnySize && repeatNow);
+  r.flags = static_cast<u8>(
+      kRecValid | (s->spotActive ? kRecSpotOn : 0) | (cand ? kRecCand : 0) |
+      (tex != nullptr ? kRecTextured : 0) | (receive ? kRecReceive : 0) |
+      ((tex != nullptr && idx >= 0 && tex->vramResident == nullptr) ? kRecTexCache
+                                                                     : 0) |
+      (isIdentityMatrix(s->model) ? kRecIdent : 0));
+#else
+  (void)bag;
+  (void)tb;
+  (void)light;
+  (void)receive;
+  (void)wanted;
+  lastCaptureSlot = -1;
+#endif
+}
+#endif
 
 }  // namespace Tyra
