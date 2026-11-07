@@ -21,7 +21,7 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 };
 inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
 
-inline constexpr int ANIM_MODEL_COUNT = 10;
+inline constexpr int ANIM_MODEL_COUNT = 11;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "models/characters/hero.tskl",
     "models/characters/clerk.tskl",
@@ -32,32 +32,32 @@ inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1]
     "models/characters/commuter.tskl",
     "models/characters/shopper.tskl",
     "models/characters/pensioner.tskl",
+    "models/characters/night-warden.tskl",
     "models/characters/hero-alt.tskl",
 };
-inline const int ANIM_MODEL_VARIANTS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {3, 0, 0, 0, 0, 0, 5, 5, 5, 3};
+inline const int ANIM_MODEL_VARIANTS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {3, 0, 0, 0, 0, 0, 5, 5, 5, 0, 3};
 
 #define ANIM_MODEL_GROUPS_USED 1
-inline const int ANIM_MODEL_GROUP[ANIM_MODEL_COUNT] = {0, 0, -1, -1, -1, -1, -1, -1, -1, 0};
+inline const int ANIM_MODEL_GROUP[ANIM_MODEL_COUNT] = {0, 0, -1, -1, -1, -1, -1, -1, -1, 0, 0};
 inline constexpr int ANIM_GROUP_COUNT = 1;
 inline const int ANIM_GROUP_FIRST[ANIM_GROUP_COUNT] = {0};
-inline const int ANIM_GROUP_SIZE[ANIM_GROUP_COUNT] = {3};
-inline const int ANIM_GROUP_MEMBERS[3] = {0, 9, 1};
-inline const char* ANIM_MODEL_LABEL[ANIM_MODEL_COUNT] = {"Hero (man)", "Clerk", "Dockhand", "Kid", "Punk", "Elder", "Commuter", "Shopper", "Pensioner", "Hero (woman)"};
+inline const int ANIM_GROUP_SIZE[ANIM_GROUP_COUNT] = {4};
+inline const int ANIM_GROUP_MEMBERS[4] = {0, 10, 1, 9};
+inline const char* ANIM_MODEL_LABEL[ANIM_MODEL_COUNT] = {"Hero (man)", "Clerk", "Dockhand", "Kid", "Punk", "Elder", "Commuter", "Shopper", "Pensioner", "Night warden", "Hero (woman)"};
 
 struct CreatorLabel {
   const char* id;
   const char* label;
 };
-inline constexpr int CREATOR_LABEL_COUNT = 8;
+inline constexpr int CREATOR_LABEL_COUNT = 7;
 inline const CreatorLabel CREATOR_LABELS[CREATOR_LABEL_COUNT > 0 ? CREATOR_LABEL_COUNT : 1] = {
-    {"fedora", "Fedora"},
-    {"glasses1", "Glasses"},
-    {"long", "Long"},
-    {"messy", "Messy"},
-    {"newsboy", "Newsboy cap"},
-    {"shades", "3D glasses"},
-    {"short1", "Short"},
-    {"short2", "Short side part"}};
+    {"rain-bob", "Rain bob"},
+    {"side-crop", "Side crop"},
+    {"smoke-lenses", "Smoke lenses"},
+    {"tide-knot", "Tide knot"},
+    {"watch-cap", "Watch cap"},
+    {"wire-frames", "Wire frames"},
+    {"yard-cap", "Yard cap"}};
 
 // .mtl libraries assigned to primitives (first material = surface)
 inline constexpr int MATERIAL_COUNT = 0;
@@ -67,6 +67,9 @@ inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
 inline constexpr const char* TEXTURE_ATLAS_INFO = "";
+// project texture filter (0 smooth, 1 pixel, 2 close-up) for the
+// textures no bake hint reaches - animated models' extracted images
+inline constexpr unsigned char TEXTURE_FILTER_DEFAULT = 0;
 
 // Rigid-body shapes (docs/physics.md): convex hulls in mesh-local
 // units with their solid mass properties at unit density - volume,

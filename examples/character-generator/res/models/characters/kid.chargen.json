@@ -9,8 +9,8 @@
   "hairColor": [0.55,0.2,0.08], "eyeColor": [0.3,0.45,0.3], "stubble": 0,
   "lipstick": 0, "lipColor": [0.65,0.12,0.16], "eyeShadow": 0, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0,
   "textureSize": 128,
-  "hair": "ponytail",
-  "outfit": [{"id": "tee", "color": [0.9,0.75,0.15], "color2": [0.85,0.2,0.2], "pattern": 1}, {"id": "shorts", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}, {"id": "canvas", "color": [0.2,0.4,0.75], "color2": [1,1,1], "pattern": 0}],
+  "hair": "rain-bob",
+  "outfit": [{"id": "watch-henley"}, {"id": "wash-jeans"}, {"id": "service-shoes"}],
   "defaultClips": false, "clips": ["Dance_Loop", "Idle_Loop"],
   "animFps": 15,
   "animSource": ""

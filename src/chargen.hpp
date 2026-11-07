@@ -66,10 +66,8 @@ struct Params {
     // man gains jaw, brow ridge, chin and neck and a woman fuller lips, a
     // softer jaw and larger eyes. Scaled down for children.
     float dimorphism = 0.6f;
-    // Which body the character is built on: 0 crowd (MakeHuman's proxy741,
-    // ~1.5k triangles, one for both sexes), 1 standard (female1605 /
-    // male1591, ~3.3k), 2 hero (those subdivided over head, torso and limbs,
-    // ~9.5k). Every slider, garment and clip works on all three.
+    // Crowd uses one ~1.9k-triangle body. Standard and hero each use two
+    // body topologies (~4.2k and ~10.3k). All support the same sliders.
     int detail = 1;
     // MakeHuman's breast macro (women; men keep the Bust slider): cup size
     // and firmness, 0..1 with 0.5 = average - the base body.

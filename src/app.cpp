@@ -22861,8 +22861,8 @@ void App::drawCharacterGeneratorWindow() {
             dirty |= ImGui::SliderFloat("Muscle", &p.muscle, 0.0f, 1.0f, "%.2f");
             dirty |= ImGui::SliderFloat("Weight", &p.weight, 0.0f, 1.0f, "%.2f");
             {
-                static const char* kDetail[] = {"Crowd (~1.6k triangles)", "Standard (~3.3k)",
-                                                "Hero (~9.5k)"};
+                static const char* kDetail[] = {"Crowd (~1.9k triangles)", "Standard (~4.2k)",
+                                                "Hero (~10.3k)"};
                 ImGui::SetNextItemWidth(scaled(220.0f));
                 if (ImGui::Combo("Detail", &p.detail, kDetail, 3)) dirty = true;
                 if (ImGui::IsItemHovered())
@@ -23581,7 +23581,7 @@ void App::drawCharacterGeneratorWindow() {
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Reset view")) {
-        charGenAngle_ = 20.0f;
+        charGenAngle_ = 76.0f;
         charGenPitch_ = 6.0f;
         charGenZoom_ = 1.0f;
         charGenPan_[0] = charGenPan_[1] = charGenPan_[2] = 0.0f;

@@ -300,8 +300,7 @@ def morph(base, targets, weights):
 
 def triangulate(faces, rest):
     """Quads -> triangles along the shorter diagonal of the REST mesh: the
-    flatter fold. build_kit.py and kit_wear.py must agree on this exactly,
-    because garments bind to triangles by index."""
+    flatter fold. Garment bindings use the final triangle indices."""
     tri, src = [], []
     for fi, f in enumerate(faces):
         f = list(f)

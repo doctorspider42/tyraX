@@ -11,8 +11,8 @@
   "hairColor": [0.12,0.08,0.06], "eyeColor": [0.5,0.38,0.18], "stubble": 0,
   "lipstick": 0.4, "lipColor": [0.65,0.12,0.16], "eyeShadow": 0, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0,
   "textureSize": 128,
-  "hair": "bob2",
-  "outfit": [{"id": "tee_fitted", "color": [0.75,0.3,0.3], "color2": [1,1,1], "pattern": 0}, {"id": "longskirt", "color": [0.25,0.3,0.45], "color2": [1,1,1], "pattern": 0}, {"id": "flats", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
+  "hair": "rain-bob",
+  "outfit": [{"id": "mill-flannel"}, {"id": "station-cords"}, {"id": "service-shoes"}],
   "defaultClips": true, "clips": [],
   "animFps": 15,
   "animSource": ""

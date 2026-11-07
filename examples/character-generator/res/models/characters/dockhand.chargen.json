@@ -8,9 +8,9 @@
   "brows": 6, "browDensity": 1.1, "lashes": 0,
   "hairColor": [0.45,0.44,0.42], "eyeColor": [0.16,0.1,0.06], "stubble": 0.85,
   "lipstick": 0, "lipColor": [0.65,0.12,0.16], "eyeShadow": 0, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0,
-  "textureSize": 128,
-  "hair": "short4",
-  "outfit": [{"id": "worksuit", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}, {"id": "ankleboots", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}, {"id": "newsboy", "color": [0.25,0.22,0.2], "color2": [1,1,1], "pattern": 0}],
+  "textureSize": 256,
+  "hair": "side-crop",
+  "outfit": [{"id": "yard-jacket"}, {"id": "ranger-cargos"}, {"id": "storm-boots"}, {"id": "yard-cap"}, {"id": "dock-gloves"}],
   "defaultClips": false, "clips": ["Idle_FoldArms_Loop", "Walk_Loop"],
   "animFps": 15,
   "animSource": ""

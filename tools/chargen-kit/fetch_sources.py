@@ -13,8 +13,6 @@ What it fetches, all CC0 1.0:
                masks use (same repository)
   sys/         MakeHuman "system assets" pack (proxies, eyes, brows, lashes,
                skins, system clothes and hair)
-  packs/<n>/   MakeHuman community asset packs: only the *_cc0 builds, named
-               by catalog.py
   ual/         Quaternius' Universal Animation Library 1 + 2 (Standard)
 
 The MakeHuman asset packs are served from files2.makehumancommunity.org, which
@@ -27,7 +25,6 @@ import urllib.request
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from catalog import CATALOG  # noqa: E402
 import mhkit  # noqa: E402
 
 MH_RAW = 'https://raw.githubusercontent.com/makehumancommunity/makehuman/master/makehuman/data'
@@ -107,18 +104,13 @@ def main():
             j.result()
         print('MakeHuman data: %d files' % len(jobs))
 
-        packs = {'makehuman_system_assets': 'sys'}
-        for c in CATALOG:
-            if c[4].startswith('packs:'):
-                packs[c[4].split(':', 1)[1].split('/')[0]] = None
-        for name, dest in packs.items():
-            z = os.path.join(out, 'zips', name + '.zip')
-            os.makedirs(os.path.dirname(z), exist_ok=True)
-            get_ranged(PACK.format(name), z, pool)
-            target = os.path.join(out, dest or os.path.join('packs', name))
-            if not os.path.isdir(target):
-                zipfile.ZipFile(z).extractall(target)
-            print('pack', name)
+        name = 'makehuman_system_assets'
+        z = os.path.join(out, 'zips', name + '.zip')
+        os.makedirs(os.path.dirname(z), exist_ok=True)
+        get_ranged(PACK.format(name), z, pool)
+        target = os.path.join(out, 'sys')
+        if not os.path.isdir(target):
+            zipfile.ZipFile(z).extractall(target)
         for url in UAL:
             z = os.path.join(out, 'zips', os.path.basename(url))
             get(url, z)

@@ -367,18 +367,11 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md) with Blender-baked forest and hero foliage,
   [GPU/CPU impostors with 4/8/16 views plus one-material hull proxies](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
-- **[Character Generator](docs/character-generator.md)** — rigged, dressed,
-  animated people at a PS2 hero budget: a game-topology body at three detail
-  levels (crowd ~1.6k, standard ~3.3k, hero ~9.5k triangles) with real eyes and
-  76 face/body sliders on top of MakeHuman's macros, one atlas with the face
-  given the texels (skin mix, makeup, stubble, brows), 82 garments and
-  hairstyles that are either part of the body (shells - zero triangles, no skin
-  poke-through) or bound to its surface, recolourable with patterns, and 87
-  motion-captured clips with a feminine-to-masculine movement style - and a face that blinks, looks at you and lip-syncs
-  its sound, hair and skirts that swing. Crowds in other colours cost one mesh and one atlas plus 1 KB a
-  person, and an in-game creator lets the player pick man or woman, colours, hair, a hat
-  and glasses. Bring your own hairstyle and clothes as a .glb or .obj. Randomize, a recipe beside every model, and
-  `--chargen` for the command line. All CC0, embedded in the editor.
+- **[Character Generator](docs/character-generator.md)** builds playable characters on
+  five studio meshes with 76 body and face sliders, a 50-bone rig and 87 clips.
+  Its 16 wardrobe choices include three hairstyles, three tops, three trousers,
+  two pairs of shoes, two caps, two pairs of glasses and gloves. Players can
+  switch characters and dress them in the in-game creator.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.
 

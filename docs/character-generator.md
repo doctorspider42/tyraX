@@ -7,19 +7,19 @@ people: one carefully laid-out texture per body with the face given the
 texels, clothes that are part of the body instead of a second skin on top of it,
 real eyes, and motion-captured movement.
 
-![The six characters of examples/character-generator, each made from its recipe](img/character-generator-cast.png)
+![Studio characters exported from editable recipes](img/character-generator-cast.png)
 
 ![The same six in PCSX2, the hero walking towards them and the crowd of commuters behind](img/character-generator-ps2.png)
 
 | | |
 |---|---|
-| Body | five game topologies at three detail levels - Crowd (one, ~1600 triangles), Standard (a woman's and a man's, ~3300), Hero (a woman's and a man's, ~9500) - quads with real edge loops round eyes and mouth |
+| Body | five game topologies at three detail levels - Crowd (one, ~1900 triangles), Standard (a woman's and a man's, ~4200), Hero (a woman's and a man's, ~10300) - native slider targets and separately rigged eyes |
 | Rig | 35 Mixamo-named bones: spine, neck, head, arms, legs, two-bone thumb, index and fingers |
 | Texture | one atlas, 128 / 256 / 512 square, 8-bit on the console; face ≈ 80 px wide at 256 |
 | Shape | 96 macro targets (gender, age, muscle, weight, ancestry) + 76 detail sliders |
-| Wardrobe | 82 items: 31 body-shell garments, 11 skirts and dresses, 12 shoes, 4 hats, 5 glasses, 19 hairstyles |
+| Wardrobe | 16 pieces across tops, bottoms, feet, hands, hats, glasses and hair |
 | Motion | 87 clips from Quaternius' Universal Animation Library, retargeted onto the rig |
-| A dressed character | 4100-4500 triangles, **2 parts and 2 textures** (body + accessories), built in ~70 ms |
+| A dressed character | One body atlas and a shared accessory atlas. Foreground hair has its own texture up to 256 pixels square. |
 
 ```
 the character kit (resources/chargen-kit.bin, embedded in the editor)
@@ -70,7 +70,7 @@ pivot between the eyes, *Reset view* puts it all back.
 | Face | head shape, forehead, brows, eyes (size, height, spacing, tilt, opening, epicanthic fold, bags), nose (11), mouth (9), jaw and cheeks (9), ears (4) - one folding section per feature. Right-click a slider to reset it |
 | Skin | tone, warmth, weathering; eye colour; 12 eyebrow and 4 eyelash styles, brow density; stubble; lipstick, eye shadow, blush; the atlas size |
 | Outfit | one card per item, per slot - full outfit, top, bottom, shoes, hat, glasses, gloves - each with its own colours and, for clothes, a pattern |
-| Hair | 19 styles as cards and a colour; brows and stubble follow it |
+| Hair | Three styles as cards and a colour; brows and stubble follow it |
 | Animation | the standard locomotion set, or any of the 87 clips; key rate; or *Import clips...* from a Mixamo-named library or a phone take |
 
 **Add to scene** writes `res/models/characters/<name>.glb` and drops in a
@@ -92,28 +92,11 @@ tyrax-editor --chargen <recipe.json | - | preset:N | random:SEED> <out.glb> [--r
 
 ## The character kit
 
-Everything the generator reads is ONE file, `resources/chargen-kit.bin`
-(~17 MB, two bodies), linked into the editor by `src/chargen_kit.cpp` with the assembler's
-`.incbin`. Nothing is downloaded and nothing is read from disk at runtime, so
-the generator works the same on every machine and every platform the editor
-builds on - the previous version fetched ~80 MB of MakeHuman files at setup,
-half of which had moved off GitHub.
-
-The kit is **built offline** by `tools/chargen-kit/` (Python + Blender, see its
-README) from CC0 sources only:
-
-| Source | Licence | What the kit takes from it |
-|---|---|---|
-| [MakeHuman](http://www.makehumancommunity.org/) data - `makehuman/data` and the *system assets* pack | CC0 1.0 | the `female1605` game topology, the reference mesh it rides, macro + detail targets, rig joints and weights, low-poly eyes, 12 eyebrows, 4 eyelashes, 18 skins, system clothes and hair |
-| MakeHuman community asset packs (`*_cc0` builds only) | CC0 1.0 | shirts, pants, suits, dresses, skirts, shoes, hats, glasses, gloves, hair |
-| [Quaternius - Universal Animation Library 1 + 2](https://quaternius.com/packs/universalanimationlibrary.html) | CC0 1.0 | 87 motion clips |
-
-**MakeHuman's data is CC0 while the MakeHuman *program* is AGPL-3.0, and none
-of the program is used** - not read, linked, copied or translated. MakeHuman
-says outright that building your own character generator on the data is fine,
-and that it claims nothing over a character made from it. Some community packs
-are CC-BY (`hair02`, `shirts02`...); the kit uses none of them, and
-`tools/chargen-kit/catalog.py` is the place to check before adding anything.
+The editor embeds the five studio meshes, their slider targets, the wardrobe
+and clips in `resources/chargen-kit.bin`. The offline build combines original
+portrait, clothing and hair artwork with MakeHuman body data and Quaternius
+motion clips. See the [kit build](../tools/chargen-kit/README.md) and
+[asset notices](../THIRD-PARTY-LICENSES.md).
 
 ### Why the runtime never sees MakeHuman's files
 
@@ -129,49 +112,18 @@ proxy to the fully morphed reference to **2.6 µm**.
 
 ## The body
 
-**Two topologies, MakeHuman's `female1605` and `male1591`** - 1584- and
-1570-quad proxies authored for low-poly characters: edge loops round the eyes
-and the mouth, a real nose and ears, separate fingers. Below the middle of the
-gender slider the woman's mesh is used, above it the man's. Both are proxies of
-the same reference, so every target moves both the same way and the SHAPE is
-continuous across the switch; only the edge loops change. One topology for
-everyone was tried first and measured wrong: on the female mesh even a naked
-muscular man showed a bust, because its loops under the breasts draw a breast
-crease across a male chest. Each body has its own atlas, skins, shells and
-item bindings in the kit (prefix `m/` for the man); the clips, the rig, the
-sliders and the items' meshes and textures are shared.
-
-The previous generator used `proxy741` (730 quads, a face of a dozen polygons)
-and decimated the garments; this one is four times the face for twice the
-triangles.
+The studio meshes share the same 50-bone rig. Each rest surface includes
+sculpted cheek, jaw, throat and shoulder contours. The build splits edges
+selectively and transfers all sparse morphs and skin weights to their new
+vertices. A surface-bound garment follows the deformed body as the sliders move.
 
 ### Detail: crowd, standard, hero
 
-*Detail* on the Body tab picks one of three bodies of the same person - every
-slider, garment, colour and clip works on all of them, because each is a
-MakeHuman proxy of the same reference mesh and the kit carries every target,
-shell and item binding per body:
-
-| Detail | Body | Triangles (naked, with eyes) | For |
-|---|---|---|---|
-| Crowd | `proxy741`, one for both sexes | ~1 600 | people in the background; the *Crowd...* button's default |
-| Standard | `female1605` / `male1591` | ~3 300 | the cast |
-| Hero | `female1605` / `male1591`, subdivided once over head, torso and limbs | ~9 500 | the player, a main character the camera lives with |
-
-**The hero bodies** are the standard ones, subdivided once over the head,
-torso, arms and legs (`kit_body.py <proxy>@sub`; the hands and feet already
-carry their fingers and toes), with every new vertex bound to the nearest
-point of MakeHuman's 13k-quad reference surface - so under every target it
-takes the reference's real shape, not a smoothed chord of the low-poly one
-(more than 5 mm off the surface - the mouth bag, the lip line - it keeps its
-offset instead, or those faces collapse). The UVs are the standard body's,
-interpolated: the same islands and a 4x denser face. MakeHuman's own 13.8k
-generic proxies, un-subdivided, were tried first and failed: their UVs were
-laid out after subdividing, so seams cross the middle of the cage faces and a
-merged face stretched across two islands - grey smears round the eyes.
-
-**The crowd body** is the old `proxy741`: a face of a dozen polygons, which
-from 10 m away is all a face is.
+| Detail | Bare body, including eyes | Use |
+|---|---|---|
+| Crowd | 1,904 triangles, shared topology | Background pedestrians |
+| Standard | 4,156 female / 4,188 male | The main cast |
+| Hero | 10,362 female / 10,302 male | Close shots |
 
 Detail is in the recipe (`"detail": 0/1/2`, written only when not standard)
 and the AI's `create_character` takes it (a crowd defaults to the crowd body).
@@ -236,84 +188,18 @@ images through an override on the model.
 
 ## The wardrobe
 
-Every item is a CC0 garment converted offline into one of two shapes.
+The Outfit tab offers a yard jacket, mill flannel, watch henley, washed jeans,
+ranger cargos, station cords, storm boots, service derbies, two caps, wire
+frames, smoke lenses and dock gloves. The Hair tab adds a side crop, rain
+bob and tide knot. Colour and skin controls work on the same base with or
+without clothing. An old recipe maps retired names to current pieces on load.
 
-**Shells - the body IS the garment.** Shirts, sweaters, trousers, suits and
-gloves are not kept as geometry. The body's own vertices under the garment are
-pushed out along their normals onto its surface, and its texture is baked into
-the body's atlas. A shell costs **no triangles at all**, cannot let skin poke
-through (there is no skin under it - it is the skin, moved), fits every morph
-and is skinned identically, because it is the body. This is how PS2 games
-dressed people, and it is why a dressed character is not "body + suit".
-
-Two measurements decide a shell, both against the garment fitted to the same
-morph as the body:
-
-- **Which body faces it covers**: the garment's own `delete_verts` declaration,
-  plus every vertex whose outward ray meets the garment within 7 cm (a loose
-  trouser leg stands 3-6 cm off the shin) or whose nearest garment point is
-  within 2.5 cm - on the slope of the upper chest the normal tilts up and a ray
-  along it leaves through the neck opening, which gave a crew-neck T-shirt a
-  deep square neckline. Coverage is made symmetric (a vertex is covered if its
-  mirror twin is), because ray-casting is not; then a closing pass takes in
-  faces with some coverage and covered neighbours on at least half their sides,
-  which is exactly a crotch or an armpit - their normals point at the other leg
-  or the arm, and the rays miss.
-- **How far out**: measured on the average **woman and man separately** and
-  blended by gender at runtime. Measured once on an androgynous body, a T-shirt
-  bridging under the breasts carried that gap onto a flat male chest as two
-  bumps. The push is smoothed along the surface and is zero on the border, so a
-  shell meets the skin it does not cover without a crack.
-
-**Meshes - what leaves the body.** Skirts, dresses, shoes, hats, glasses and
-hair are remeshed to a budget (hair 700, dress 560, skirt 360, shoes 320, hat
-260, glasses 160 triangles), unwrapped, and their look baked into their own
-256 texture. Each vertex is BOUND to the nearest point of the body surface -
-triangle, barycentric weights, and an offset in that triangle's own frame
-(along the interpolated normal, and for skirts and dresses two tangents too) - so it
-follows morphs and is skinned like the body point it rides, with no cloth
-solver. Shoes hide the feet they cover (196 triangles), so they cost ~120 net.
-Skirts and dresses bind only to the body above the crotch: bound to the
-nearest point, a hem 20 cm off the thigh rode the thigh's rotation like a
-lever and spiked out in a stride. Bound to the pelvis the skirt moves rigidly
-with the hips - the PS2-era choice: a leg passes through a long skirt, a skirt
-never tears. That is also why the offset is a full vector: a long skirt's hem
-hangs 60 cm below the hip triangle it rides, and an offset along the normal
-alone folded it up into a mini skirt.
-
-**Every worn mesh item shares ONE part and ONE texture.** At build time the
-items' textures are packed into an accessory atlas the size of the body's, as
-a grid of cells (half a texel of inset so filtering never reads a neighbour),
-and their UVs are moved into their cells. A dressed character is two GS
-allocations and two submits whatever it wears; the hair's cutout alpha rides
-in the same texture, harmless to the opaque cells whose alpha is 255.
-
-Getting a clean low-poly stand-in out of a CC0 garment took three rules, each
-learned from a broken result (`kit_wear.py`):
-
-- **Thicken first, by at least twice the voxel.** Cloth and hair cards have no
-  thickness; a sheet thinner than a voxel voxelizes into hundreds of
-  disconnected crumbs.
-- **QuadriFlow, not a quadric collapse.** Collapsing a voxel mesh to 2% of its
-  triangles does not simplify it, it crumples it into overlapping shards.
-  QuadriFlow lays an even quad grid at the asked density.
-- **Fill the bake's misses.** Texels the bake rays missed are black, and a
-  recolour (below) turns black into streaks; the hit colours are grown into
-  them first.
-
-**Recolouring.** Every item can keep its own colours (*as made*) or take yours:
-the texel's luminance against the garment's KEY colour becomes the shading, the
-dye the hue, so folds and seams survive a recolour (hair flattens that
-contrast first: its strands sit over near-black gaps, and at full contrast a
-recoloured braid came out in tiger stripes). The key colour is the garment's
-main fabric - the fullest bin of a chromaticity x luma histogram, worked out
-when the kit is built - and only texels near it take the dye: the white shirt
-and tie under a trouser suit, stitching and prints keep their own colours. A
-plain uniform dye turned the clerk's blouse navy along with her suit. Hair
-takes the colour whole. Clothes also take a
-pattern (stripes, checks, plaid, diagonal) in two colours. Items cut for one
-body carry a `sex` tag that *Randomize* respects; nothing stops you putting a
-man in a dress.
+The flannel, henley, trousers and gloves are cut on each neutral body's
+surface, with their own fabric projection and ease. The jacket, footwear,
+headwear, glasses and hair have separate meshes bound to the surface of each
+body. Their bindings are rebuilt after sculpting and refining the body.
+Foreground hair gets a dedicated texture for its crown and cutout strands.
+Crowd hair shares the accessory atlas.
 
 ### Clothes that move
 
@@ -443,13 +329,6 @@ own nearest body triangle - on any body but the reference one, or in a pose,
 coincident corners drifted apart, and a collar standing off the neck tore
 into strips. Relative paths in a recipe are project-relative, in the editor
 and under `--chargen` alike (the nearest folder up holding a `.tyra`).
-
-The example's hero wears one: a quilted puffer vest made by a script,
-`examples/character-generator/tools/make_puffer_vest.py` (Blender: the
-reference man's torso without the arms, subdivided once, pushed out 14-23 mm
-in 7.5 cm quilted bands, a level stand-up collar and a hem extruded from the
-open rings, a cylindrical UV and a painted 256 texture with the seams, a zip
-and a ribbed hem) - 1544 triangles, worn "over" the kit's polo.
 
 ## The rig
 
@@ -641,22 +520,9 @@ inside of the cheek, never the sky.
 
 ## Spring bones
 
-Long hair and skirts move. A ponytail swings when its owner turns, a braid
-bounces in a run, and a skirt or a dress parts around the stepping leg instead
-of the leg going through it. Secondary motion, the 2004 trick - no cloth
-solver.
+The shared rig supports a two-link hair chain and four skirt bones for
+assets weighted to those joints. The starter hairstyles anchor their roots to the head and weight their loose ends to the two hair joints.
 
-- **The rig** carries a hair chain (`HairTail1` at the back of the skull,
-  `HairTail2` at the top of the back - affine mixes of MakeHuman joints, so
-  they follow every morph) and four skirt bones pivoting in the pelvis.
-- **The weights** go to them only for items that hang (`catalog.py`'s
-  `'spring': 'hair'` on long hair, ponytails and braids; every skirt and
-  dress): hair behind the skull base, along the chain - a fringe stays on the
-  face - and cloth a hand's breadth below the pelvis, by depth, split between
-  the four panels by which way it faces (`build_kit.spring_weights`). A
-  skirt keeps 35% of its own skin (legs included): wherever the springs are
-  at rest - the editor's preview, any glTF viewer - a skirt that was all
-  pelvis let a forward knee through its front.
 - **The game** (`updateSprings`) simulates each bone's TIP in world space: a
   spring to where the bone's rest would put it, damping, a little gravity,
   held at the bone's length - so walking, turning and the clip's own sway all
@@ -731,14 +597,13 @@ has none. What the character wears in the generator is where the player
 starts. The preview shows only that start: every option at once would be a hat
 on a hat.
 
-In the recipe this is one field, `"options": ["afro", "fedora", ...]` - kit
+In the recipe this is one field, `"options": ["rain-bob", "yard-cap", ...]` - kit
 ids of hair, `head` and `face` items, the same list the AI Assistant's
 `create_character` takes.
 
 **How it is built.** An ordinary character puts every mesh item into one
 accessory atlas. Creator options cannot share it: the game must hide them one
-by one. So each option is its OWN part with its own texture, at half the atlas
-size: the part (material) is named `<kind>:opt-<slot>-<id>` and its texture
+by one. So each option is its OWN part with its own texture, at up to 256 square for hair and half the body atlas size for other options: the part (material) is named `<kind>:opt-<slot>-<id>` and its texture
 `<stem>_opt-<slot>-<id>.png` (`optd-` for the item worn at the start - a worn
 item in a slot that has options becomes one too, and hat options make the
 worn hairstyle one). The part name is the whole contract: `loadAnimModelAsset`
@@ -909,6 +774,8 @@ time.
 
 ## Cost on the console
 
+The timings and memory measurements below were recorded with the previous cast.
+
 **Turn the mesh LOD on.** Measured on the example in PCSX2 (frame counter,
 vsync off), looking at the cast and the eight-commuter crowd: 42.9 ms a frame
 with *Mesh LOD* and *Animation LOD* off, 25.8 ms with mesh LOD at 6 m and
@@ -966,7 +833,7 @@ is walking (LOD changes, leaders handing over) that slowly grows it. Use the
 hero body where few skinned characters share the scene; the example keeps
 its player on the standard body for that reason.
 
-A dressed character is 4100-4500 triangles in 2 parts (body, accessories)
+The previous dressed character was 4100-4500 triangles in 2 parts (body, accessories)
 and 46 bones - a hero budget. Crowds should use the `.tskl` distance
 LODs (*Mesh LOD* in Project Preferences) and a 128 atlas: four bystanders and a
 hero at 256 fit the example scene's VRAM with room to spare. Texture cost is
@@ -1437,4 +1304,4 @@ argument for having the live window at all:
 | `src/game_templates.inc` | the game side: `setupAnimObject`, `updateFace`, `updateSprings`, `applyLook` and the creator screen (`updateCharCreator` / `creatorCamera` / `renderCharCreator`). |
 | `src/main.cpp` | `--chargen`. |
 | `src/viewport.cpp` | `renderCharacterPreview` on its **own** framebuffer, sharing `drawToolPreview` with the Tree Generator. |
-| `tools/chargen-kit/` | the offline kit build: `fetch_sources.py`, `kit_body.py`, `kit_wear.py`, `anim_retarget.py`, `build_kit.py`, `make_kit.py`; data in `catalog.py`, `rig.py`, `kit_body_masks.py`. See its README. |
+| `tools/chargen-kit/` | the offline kit build: `fetch_sources.py`, `kit_body.py`, `studio_bodies.py`, `studio_topology.py`, `studio_gear.py`, `anim_retarget.py`, `build_kit.py`, `make_kit.py`; artwork in `studio/`, rig definitions in `rig.py`, `kit_body_masks.py`. See its README. |

@@ -2,15 +2,9 @@
 
     python make_kit.py <work_dir> [--blender <blender.exe>] [--skip-fetch]
 
-  1. fetch_sources.py  -> <work_dir>/sources      (~1.3 GB of CC0 downloads)
-  2. kit_body.py  x2   -> <work_dir>/stage, stage_m   (Blender: each body's atlas + layers)
-  3. kit_wear.py  x2   -> <stage>/wear              (Blender: 83 items; the man's reuse the meshes)
-  4. anim_retarget.py  -> <work_dir>/anims.json   (Blender: 87 clips)
-  5. build_kit.py      -> resources/chargen-kit.bin
-
-Takes ~30 minutes on a desktop CPU, most of it in kit_wear.py. Then rebuild
-the editor (chargen_kit.cpp re-links the kit) and regenerate any example
-characters with `tyrax-editor --chargen <recipe> <glb>`.
+Fetch the reference data, bake the five UV layouts in Blender, retarget the
+motion library, and compile the studio sculpts and wardrobe into the kit.
+Rebuild the editor and export the example recipes after changing the kit.
 """
 import os
 import shutil
@@ -55,11 +49,7 @@ def main():
         run([sys.executable, os.path.join(HERE, 'fetch_sources.py'), src])
     bl = [blender, '-b', '--factory-startup', '--python']
     mh = os.path.join(src, 'mh-data')
-    # Five bodies, each with its own atlas: the standard woman and man
-    # (female1605, male1591), the hero woman and man (the generic proxies
-    # un-subdivided once) and the crowd body (proxy741). Every body after the
-    # first reuses the first one's item meshes and textures (--reuse-mesh)
-    # and only binds them; shells are measured and painted per body.
+    # Each proxy supplies its own target projections and UV layout.
     bodies = [(stage, 'female1605'), (os.path.join(work, 'stage_m'), 'male1591'),
               (os.path.join(work, 'stage_hf'), 'female1605@sub'),
               (os.path.join(work, 'stage_hm'), 'male1591@sub'),
@@ -67,11 +57,6 @@ def main():
     for st_, proxy in bodies:
         run(bl + [os.path.join(HERE, 'kit_body.py'), '--', os.path.join(src, 'sys'), mh, st_, '1024',
                   os.path.join(src, 'targets'), proxy])
-    run(bl + [os.path.join(HERE, 'kit_wear.py'), '--', os.path.join(src, 'sys'),
-              os.path.join(src, 'packs'), mh, stage])
-    for st_, _ in bodies[1:]:
-        run(bl + [os.path.join(HERE, 'kit_wear.py'), '--', os.path.join(src, 'sys'),
-                  os.path.join(src, 'packs'), mh, st_, '--reuse-mesh', stage])
     ual = os.path.join(src, 'ual')
     anims = os.path.join(work, 'anims.json')
     run(bl + [os.path.join(HERE, 'anim_retarget.py'), '--', anims,

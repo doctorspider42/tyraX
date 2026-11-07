@@ -513,27 +513,24 @@ PS2SDK repository.
 
 ---
 
-## The Character Generator kit — CC0 1.0 sources only
+## The Character Generator kit
 
 `resources/chargen-kit.bin` is **redistributed**: it is committed here, linked
 into the editor binary, and parts of it (a body, its textures, garments, clips)
 end up inside every game that uses a generated character. It is built by
-[`tools/chargen-kit/`](tools/chargen-kit/README.md) from these sources, every
-one of them released under
+[`tools/chargen-kit/`](tools/chargen-kit/README.md) with original studio artwork and these third-party sources released under
 [CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/):
 
 | Source | What the kit derives from it |
 | --- | --- |
 | [MakeHuman](http://www.makehumancommunity.org/) — the `data/` directory of [makehuman](https://github.com/makehumancommunity/makehuman) (base mesh, macro and detail targets, skeleton, vertex weights) | the body's morph targets as deltas on its own vertices, the rig's joints and skin weights, the face-paint masks |
-| MakeHuman *system assets* pack (`makehuman_system_assets_cc0.zip`) | the `female1605` proxy topology, low-poly eyes, eyebrows, eyelashes, 18 skins, system clothes and hair |
-| MakeHuman community asset packs — **only the `*_cc0` builds** (shirts01, pants01, suits01, dress01, skirts01, shoes01, hats01, glasses01, gloves01, hair01) | converted garments and hairstyles: textures re-baked, meshes remeshed and bound to the body |
+| MakeHuman *system assets* pack (`makehuman_system_assets_cc0.zip`) | the base proxy topologies, eye geometry, eyebrows, eyelashes and 18 skin layers |
 | [Quaternius — Universal Animation Library 1 + 2 \[Standard\]](https://quaternius.com/packs/universalanimationlibrary.html) | 87 motion clips, retargeted onto the rig |
 
-The exact garment list, with each item's source asset, is
-[`tools/chargen-kit/catalog.py`](tools/chargen-kit/catalog.py). Several
-MakeHuman community packs also exist in CC-BY builds (`hair02`, `shirts02`,
-...); the kit uses none of them, and `fetch_sources.py` only ever requests
-`<pack>_cc0.zip`.
+The studio wardrobe, face treatments and hair textures are project artwork.
+The clothing and portrait sheets use ImageGen. The yard jacket, boots and
+chignon incorporate meshes adapted from the example's Blender-authored
+Night Warden. Their build sources are in [studio](tools/chargen-kit/studio).
 
 **The distinction that matters: MakeHuman's data is CC0, the MakeHuman
 *program* is AGPL-3.0, and none of the program is used.** Nothing from the

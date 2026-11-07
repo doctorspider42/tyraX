@@ -2825,7 +2825,7 @@ private:
     // interleaved form the viewport preview takes, rebuilt together so one
     // version stamp covers both.
     bool showCharGenerator_ = false;
-    chargen::Params charParams_;
+    chargen::Params charParams_ = chargen::presets().front().params;
     int charPreset_ = 0;
     glbparser::Skel charSkel_;
     // One entry per generated part (body, clothes, shoes, hair): the posed
@@ -2950,7 +2950,7 @@ private:
     std::vector<float> mocapRecFrame_;   // scratch: what one recorded frame stores  // frames * 3
     char mocapName_[64] = "take";
 
-    float charGenAngle_ = 20.0f, charGenPitch_ = 6.0f, charGenZoom_ = 1.0f;
+    float charGenAngle_ = 76.0f, charGenPitch_ = 6.0f, charGenZoom_ = 1.0f;
     float charGenPan_[3] = {0.0f, 0.0f, 0.0f};  // pivot offset from the body's centre (middle drag, Face)
     bool charGenSpin_ = false;
     int charGenDisplayMode_ = 0;
