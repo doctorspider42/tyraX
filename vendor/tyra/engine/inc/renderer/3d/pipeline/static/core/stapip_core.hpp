@@ -49,6 +49,8 @@ enum class StaPipLightReception : u8 { FromInfo, Suppress };
 
 class StaPipCore {
  public:
+  /** Compare native packed submission with and without batching and retention. */
+  void setPackedSubmissionOptimizations(bool on) { packedSubmissionOptimizations = on; }
   /**
    * Modified by TyraX: bounded batching for caller-owned immutable bag
    * streams. Every begin must be paired with end; referenced streams remain
@@ -177,6 +179,7 @@ class StaPipCore {
    * list's visibility pass (docs/record-renderer.md): 0 = not from a record
    * list, 1 = wholly inside the view frustum, 2 = crossing it. It travels
    * with the recorded draw to the stamp pass; nothing reads it yet. */
+  bool canPackGeometry(const StaPipBag& bag);
   void render(StaPipBag* bag,
               StaPipLightReception reception = StaPipLightReception::FromInfo,
               u8 recordVis = 0);
@@ -459,6 +462,7 @@ class StaPipCore {
   // command block? Set once per render() and read by the package loops.
   bool retainCurrentBag = false;
   bool telemetryEnabled = false;
+  bool packedSubmissionOptimizations = true;
   StaPipTelemetry telemetry;
   void recordPackage(const StaPipBagPackage& package,
                      const CoreBBoxFrustum& route);

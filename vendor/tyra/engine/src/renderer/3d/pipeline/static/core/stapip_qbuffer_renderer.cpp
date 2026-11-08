@@ -32,6 +32,8 @@
 #include <string.h>
 #include <dma_tags.h>
 #include <algorithm>
+#include <new>
+#include "info/info.hpp"
 #include "debug/hardware_trace.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_baked_body.hpp"
@@ -412,6 +414,9 @@ bool StaPipRetainedCommands::keyMatches(const StaPipRetainedEntry& a,
          a.count == b.count && a.maxVertCount == b.maxVertCount &&
          a.bboxVersion == b.bboxVersion && a.primKey == b.primKey &&
          a.depthScaleBits == b.depthScaleBits &&
+         a.screenScaleBits[0] == b.screenScaleBits[0] &&
+         a.screenScaleBits[1] == b.screenScaleBits[1] &&
+         a.programAddress == b.programAddress && a.slotQw == b.slotQw &&
          a.singleColor == b.singleColor && a.stripped == b.stripped;
 }
 
@@ -440,7 +445,7 @@ void StaPipRetainedCommands::onFrameEnd() {
   const auto newEnd = std::remove_if(
       storage.begin(), storage.end(), [&](const StaPipRetainedEntry& item) {
         if (item.framesLeftToDestroy > 0) return false;
-        freed += static_cast<u32>(item.packages) * kMaxBlockQw;
+        freed += item.storageQw();
         return true;
       });
   storage.erase(newEnd, storage.end());
@@ -477,8 +482,7 @@ bool StaPipRetainedCommands::evictFor(u32 wanted) {
       }
     }
     if (victim < 0) return false;
-    const u32 freed =
-        static_cast<u32>(storage[victim].packages) * kMaxBlockQw;
+    const u32 freed = storage[victim].storageQw();
     usedQwords -= freed < usedQwords ? freed : usedQwords;
     storage.erase(storage.begin() + victim);
     rebuildIndex();
@@ -501,9 +505,9 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
       // reallocated stream, a pipeline switch. Only the captured blocks are
       // thrown away; the storage is reused, or re-sized when the package count
       // moved with it.
-      if (item.packages != key.packages) {
-        const u32 had = static_cast<u32>(item.packages) * kMaxBlockQw;
-        const u32 wants = static_cast<u32>(key.packages) * kMaxBlockQw;
+      if (item.packages != key.packages || item.slotQw != key.slotQw) {
+        const u32 had = item.storageQw();
+        const u32 wants = key.storageQw();
         // A resize that does not fit is simply refused: the entry keeps its
         // old storage with every block invalidated, so this bag rebuilds until
         // room appears. Evicting here would have to consider evicting the very
@@ -514,6 +518,7 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
         item.data = std::unique_ptr<qword_t[]>(new qword_t[wants]);
         item.ready = std::unique_ptr<u8[]>(new u8[key.packages]);
         item.packages = key.packages;
+        item.slotQw = key.slotQw;
         usedQwords = usedQwords - had + wants;
       }
       const StaPipRetainedEntry& k = key;
@@ -525,6 +530,9 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
       item.bboxVersion = k.bboxVersion;
       item.primKey = k.primKey;
       item.depthScaleBits = k.depthScaleBits;
+      item.screenScaleBits[0] = k.screenScaleBits[0];
+      item.screenScaleBits[1] = k.screenScaleBits[1];
+      item.programAddress = k.programAddress;
       item.singleColor = k.singleColor;
       item.stripped = k.stripped;
       item.blockQw = 0;
@@ -534,7 +542,7 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
     index = item.nextInBucket;
   }
 
-  const u32 wanted = static_cast<u32>(key.packages) * kMaxBlockQw;
+  const u32 wanted = key.storageQw();
   if (key.packages == 0 || wanted > kMaxQwords) return nullptr;
   if (usedQwords + wanted > kMaxQwords && !evictFor(wanted)) return nullptr;
 
@@ -549,6 +557,10 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
   entry.bboxVersion = key.bboxVersion;
   entry.primKey = key.primKey;
   entry.depthScaleBits = key.depthScaleBits;
+  entry.screenScaleBits[0] = key.screenScaleBits[0];
+  entry.screenScaleBits[1] = key.screenScaleBits[1];
+  entry.programAddress = key.programAddress;
+  entry.slotQw = key.slotQw;
   entry.singleColor = key.singleColor;
   entry.stripped = key.stripped;
   entry.packages = key.packages;
@@ -569,6 +581,8 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
 
 // Modified by TyraX: the BAKED VIF STREAM spike - docs/baked-vif-stream.md.
 #if TYRA_STAPIP_BAKED_STREAM
+
+constexpr size_t kBakedPressureMargin = 512u * 1024u;
 
 StaPipBakedStreams::StaPipBakedStreams() {
   std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
@@ -654,8 +668,10 @@ void StaPipBakedStreams::retire(StaPipBakedEntry& item) {
   // rather than limps.
   if (item.arena != nullptr && qw > 0) memset(item.arena, 0xDE, qw * 16);
 #endif
-  if (item.raw) graveyard[graveyardWrite].push_back(
-      {std::move(item.raw), item.arena});
+  if (item.raw) {
+    graveyard[graveyardWrite].push_back({std::move(item.raw), item.arena, qw});
+    retiredQwords += qw;
+  }
   item.arena = nullptr;
   item.arenaQw = 0;
 }
@@ -666,9 +682,21 @@ void StaPipBakedStreams::onFrameEnd() {
   graveyardWrite ^= 1;
   auto& retired = graveyard[graveyardWrite];
   retired.erase(std::remove_if(retired.begin(), retired.end(),
-      [](const RetiredArena& item) {
-        return Vif1Queue::collectRetiredImmutableSpan(item.arena);
-      }), retired.end()); // age alone cannot release an actual bank reader
+       [this](const RetiredArena& item) {
+         if (!Vif1Queue::collectRetiredImmutableSpan(item.arena)) return false;
+         retiredQwords -= item.qwords;
+         return true;
+       }), retired.end()); // age alone cannot release an actual bank reader
+
+  // Sample outside the draw loop. Under pressure, give gameplay first use of
+  // the heap, while retiring streams normally so recorded DMA can finish.
+  if ((frameNow & 7u) == 0 && (lowHeadroom || !storage.empty())) {
+    const size_t margin = lowHeadroom ? 2u * kBakedPressureMargin
+                                     : kBakedPressureMargin;
+    const bool low = !Info::hasRuntimeMemory(margin);
+    if (low && !lowHeadroom) clear();
+    lowHeadroom = low;
+  }
 
   bool expired = false;
   for (auto& item : storage) {
@@ -747,11 +775,17 @@ bool StaPipBakedStreams::evictFor(u32 wanted) {
   return true;
 }
 
-bool StaPipBakedStreams::reserve(u32 qwords) {
-  if (qwords > kMaxQwords) return false;
-  if (usedQwords + qwords > kMaxQwords && !evictFor(qwords)) return false;
-  usedQwords += qwords;
-  return true;
+std::unique_ptr<u8[]> StaPipBakedStreams::allocateArena(u32 qwords) {
+  if (lowHeadroom || qwords > kMaxQwords ||
+      !Info::hasRuntimeMemory(qwords * 16u + 15u + kBakedPressureMargin))
+    return nullptr;
+  if (usedQwords + qwords > kMaxQwords && !evictFor(qwords)) return nullptr;
+  // Eviction drops the logical charge immediately. A DMA bank can still own
+  // the bytes, so a replacement waits until onFrameEnd actually frees them.
+  if (usedQwords + retiredQwords + qwords > kMaxQwords) return nullptr;
+  std::unique_ptr<u8[]> raw(new (std::nothrow) u8[qwords * 16u + 15u]);
+  if (raw) usedQwords += qwords;
+  return raw;
 }
 
 // Modified by TyraX: the fold beginBakedBag uses for key.contentVersion,
@@ -769,7 +803,10 @@ void StaPipBakedStreams::retireArena(std::unique_ptr<u8[]> raw, qword_t* arena,
   Vif1Queue::unregisterImmutableSpan(arena);
   if (arena != nullptr && qw > 0) memset(arena, 0xDE, qw * 16);
 #endif
-  if (raw) graveyard[graveyardWrite].push_back({std::move(raw), arena});
+  if (raw) {
+    graveyard[graveyardWrite].push_back({std::move(raw), arena, qw});
+    retiredQwords += qw;
+  }
 }
 
 StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key,
@@ -853,8 +890,7 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key,
 #endif
       ) {
         const u32 qw = item.arenaQw;
-        if (reserve(qw)) {
-          std::unique_ptr<u8[]> raw(new u8[qw * 16 + 15]);
+        if (auto raw = allocateArena(qw)) {
           qword_t* arena = reinterpret_cast<qword_t*>(
               (reinterpret_cast<u32>(raw.get()) + 15u) & ~15u);
           const qword_t* streams[4] = {
@@ -1021,7 +1057,7 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key,
     index = item.nextInBucket;
   }
 
-  if (key.packages == 0) return nullptr;
+  if (key.packages == 0 || lowHeadroom) return nullptr;
 
   // Modified by TyraX: no entry for this (array, package size) at all. At a
   // frozen pose this should happen once per bag and never again; repeatedly is
@@ -1988,7 +2024,7 @@ void StaPipQBufferRenderer::setProgramsCache() {
   // as_is twin - and a class the project never draws can be dropped to buy
   // micro memory for a program the user wrote. Every class is kept unless a
   // game says otherwise, so this is the old hardcoded ten by default.
-  VU1Program* programs[12];  // ten class programs + the two billboards
+  VU1Program* programs[13];  // ten class programs, two billboards, one decoder
   u32 count = 0;
   const struct {
     u32 bit;
@@ -2030,6 +2066,10 @@ void StaPipQBufferRenderer::setProgramsCache() {
     programs[count++] = billboardPrograms[0];
     programs[count++] = billboardPrograms[1];
   }
+  auto& decoder = StaPipVU1Program::quantizedDecoder();
+  quantizedDecoderResident = vu1Clipping &&
+      programSetWords(programs, count) + decoder.getProgramSize() <= path1->getDrawFinishAddr();
+  if (quantizedDecoderResident) programs[count++] = &decoder;
   programsPacket = path1->createProgramsCache(programs, count, 0);
 
   // createProgramsCache assigns each program's micro-memory address, so the
@@ -2281,6 +2321,7 @@ StaPipQBuffer* StaPipQBufferRenderer::getBuffer() {
   // so a slot recycled out of a retained bag cannot carry a stale package
   // index into a copied or clipped one. StaPipCore sets it back after the fill
   // for the routes that may be retained.
+  result->nativePacked = false;
   result->retainIndex = -1;
   result->bakeIndex = -1;  // Modified by TyraX: same gate, same reason
 #if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
@@ -2459,7 +2500,8 @@ void StaPipQBufferRenderer::clearLastProgramName() {
 #if TYRA_STAPIP_RETAINED_COMMANDS
 
 bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag* bag,
-                                             const u32& packageSize) {
+                                             const u32& packageSize,
+                                             bool nativePacked) {
   retainedCurrent = nullptr;
   if (bag == nullptr || packageSize == 0) return false;
   // A billboard bag expands centres on VU1 from a basis that changes every
@@ -2469,14 +2511,19 @@ bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag* bag,
   if (bag->billboard != nullptr || repository.hasAnyOverride()) return false;
 
   StaPipRetainedEntry key;
-  key.vertices = bag->vertices;
-  key.sts = bag->texture != nullptr ? bag->texture->coordinates : nullptr;
-  key.colors = bag->color->many;
+  key.vertices = nativePacked ? static_cast<const void*>(bag->packedMesh)
+                              : bag->vertices;
+  key.sts = !nativePacked && bag->texture ? bag->texture->coordinates : nullptr;
+  key.colors = nativePacked ? nullptr : bag->color->many;
   key.normals = bag->lighting != nullptr ? bag->lighting->normals : nullptr;
   key.program = getCullProgramByBag(bag);
   key.count = bag->count;
   key.maxVertCount = packageSize;
-  key.bboxVersion = bag->bboxVersion;
+  // A regenerated mesh can reuse the old object's address and DMA spans.
+  key.bboxVersion = nativePacked ? bag->packedMesh->getId() : bag->bboxVersion;
+  key.programAddress = nativePacked ? getCullProgramByBag(bag)->getDestinationAddress() : 0;
+  key.slotQw = nativePacked ? StaPipRetainedCommands::kPackedBlockQw
+                            : StaPipRetainedCommands::kMaxBlockQw;
   // The prim state reaches the block only through the GIFtag, so pack exactly
   // the fields that GIFtag reads. `mapping` is derived the way
   // addStandardBufferDataToPacket derives it, because prim->mapping still
@@ -2494,6 +2541,8 @@ bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag* bag,
   // framebuffer's colour depth, which a display-mode switch moves.
   const float depthScale = RendererCoreDepth::scale;
   memcpy(&key.depthScaleBits, &depthScale, sizeof(u32));
+  memcpy(&key.screenScaleBits[0], &RendererCoreDepth::screenScaleX, sizeof(u32));
+  memcpy(&key.screenScaleBits[1], &RendererCoreDepth::screenScaleY, sizeof(u32));
   key.singleColor = bag->color->single != nullptr ? 1 : 0;
   key.stripped = bag->stripped ? 1 : 0;
   key.packages =
@@ -2515,7 +2564,7 @@ u32 StaPipQBufferRenderer::getRetainedBytes() const {
 
 #else
 
-bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag*, const u32&) {
+bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag*, const u32&, bool) {
   return false;
 }
 void StaPipQBufferRenderer::endRetainedBag() {}
@@ -2563,19 +2612,17 @@ bool StaPipQBufferRenderer::fillCachedStrip(StaPipQBuffer* buffer,
   auto* entry = baked.acquire(key);
   if (!entry) return false;
   if (!entry->complete) {
-    entry->raw = std::unique_ptr<u8[]>(new u8[qw * 16 + 15]);
+    entry->raw = baked.allocateArena(qw);
+    if (!entry->raw) return false;
     const u32 aligned = (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
     entry->arena = reinterpret_cast<qword_t*>(aligned);
     // One registry slot per original strip, not per tiny clip chunk. Never
     // publish a copy-only entry after registry saturation: it would stay so.
     if (!Vif1Queue::registerImmutableSpan(entry->arena, qw)) {
-      entry->raw.reset(); entry->arena = nullptr; return false;
-    }
-    if (!baked.reserve(qw)) {
-      Vif1Queue::retireImmutableSpan(entry->arena);
-      const bool released = Vif1Queue::collectRetiredImmutableSpan(entry->arena);
-      TYRA_ASSERT(released, "Unpublished expansion acquired a DMA reader");
-      entry->raw.reset(); entry->arena = nullptr; return false;
+      baked.discardUnpublishedArena(qw);
+      entry->raw.reset();
+      entry->arena = nullptr;
+      return false;
     }
     for (u32 t = 0; t < pkg.size - 2u; t += triangles) {
       const u32 n = std::min(triangles, pkg.size - 2u - t);
@@ -2660,17 +2707,15 @@ bool StaPipQBufferRenderer::fillCachedPackage(StaPipQBuffer* buffer,
   auto* entry = baked.acquire(key);
   if (!entry) return false;
   if (!entry->complete) {
-    entry->raw = std::unique_ptr<u8[]>(new u8[qw * 16 + 15]);
+    entry->raw = baked.allocateArena(qw);
+    if (!entry->raw) return false;
     const u32 aligned = (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
     entry->arena = reinterpret_cast<qword_t*>(aligned);
     if (!Vif1Queue::registerImmutableSpan(entry->arena, qw)) {
-      entry->raw.reset(); entry->arena = nullptr; return false;
-    }
-    if (!baked.reserve(qw)) {
-      Vif1Queue::retireImmutableSpan(entry->arena);
-      const bool released = Vif1Queue::collectRetiredImmutableSpan(entry->arena);
-      TYRA_ASSERT(released, "Unpublished package copy acquired a DMA reader");
-      entry->raw.reset(); entry->arena = nullptr; return false;
+      baked.discardUnpublishedArena(qw);
+      entry->raw.reset();
+      entry->arena = nullptr;
+      return false;
     }
     Vec4* out = reinterpret_cast<Vec4*>(entry->arena);
     for (const auto* data : source) if (data) {
@@ -2908,9 +2953,9 @@ bool StaPipQBufferRenderer::patchBakedBag(StaPipBag* bag, u32 size) {
   u32 total = 0;
   for (u32 i = 0; ok && i < entry->packages; ++i)
     total += patchFromScratch[i] ? entry->sizes[i] : entry->patchSizes[i];
-  ok = ok && total > 0 && baked.reserve(total);
+  if (ok && total > 0) entry->raw = baked.allocateArena(total);
+  ok = entry->raw != nullptr;
   if (ok) {
-    entry->raw = std::unique_ptr<u8[]>(new u8[total * 16 + 15]);
     const u32 aligned = (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
     entry->arena = reinterpret_cast<qword_t*>(aligned);
     u32 at = 0;
@@ -3488,8 +3533,8 @@ void StaPipQBufferRenderer::endBakedBag() {
   if (!entry->complete && entry->built == entry->packages &&
       !bakeScratch.empty()) {
     const u32 qw = static_cast<u32>(bakeScratch.size());
-    if (baked.reserve(qw)) {
-      entry->raw = std::unique_ptr<u8[]>(new u8[qw * 16 + 15]);
+    entry->raw = baked.allocateArena(qw);
+    if (entry->raw) {
       const u32 aligned =
           (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
       entry->arena = reinterpret_cast<qword_t*>(aligned);
@@ -6240,7 +6285,7 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     if (retainable && entry->ready[retainIdx]) {
       appendChainQwords(currentPacket,
                         &entry->data[static_cast<u32>(retainIdx) *
-                                     StaPipRetainedCommands::kMaxBlockQw],
+                                     entry->slotQw],
                         entry->blockQw);
       // Modified by TyraX: re-flag the replayed header for THIS position in
       // the packet. Its packed count carries VU1_STAPIP_EMIT_STATE_FLAG -
@@ -6273,11 +6318,11 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
         // A block that does not fit, or that disagrees with the length this
         // bag's other packages produced, is simply never retained - the entry
         // keeps rebuilding, which is slower and always right.
-        if (blockQw > 0 && blockQw <= StaPipRetainedCommands::kMaxBlockQw &&
+        if (blockQw > 0 && blockQw <= entry->slotQw &&
             (entry->blockQw == 0 || entry->blockQw == blockQw)) {
           entry->blockQw = static_cast<u16>(blockQw);
           memcpy(&entry->data[static_cast<u32>(retainIdx) *
-                              StaPipRetainedCommands::kMaxBlockQw],
+                              entry->slotQw],
                  reinterpret_cast<const u8*>(currentPacket->base) +
                      blockStart * 16,
                  blockQw * 16);
@@ -6299,7 +6344,12 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
 
     Verbose("Send ", program->getStringName(), "[", i, "]: ", buffers[i]->size);
 
-    if (lastProgramName != program->getName()) {
+    if (buffers[i]->nativePacked) {
+      // The decoder jumps to the selected draw entry within this MSCAL.
+      packet2_utils_vu_add_start_program(
+          currentPacket, StaPipVU1Program::quantizedDecoder().getDestinationAddress());
+      lastProgramName = program->getName();
+    } else if (lastProgramName != program->getName()) {
       packet2_utils_vu_add_start_program(currentPacket,
                                          program->getDestinationAddress());
       lastProgramName = program->getName();

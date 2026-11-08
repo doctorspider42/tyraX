@@ -7694,6 +7694,40 @@ void TerrainGame::deactivateObject(int i) {
 // pinned by applyLayerResidency while it lives, and a clone spawned before
 // its model streamed in re-arms its geometry when the asset lands
 // (processOneStreamJob).
+// Admission estimates cover per-instance geometry that can be built later
+// in the frame. Asset decoding and arbitrary script allocations have their
+// own working sets; these estimates are a guard, not a heap reservation.
+size_t TerrainGame::estimateObjectMemory(const SceneObjectData& d) const {
+  size_t bytes = 64u * 1024u;
+  if (d.animModel >= 0 && d.animModel < (int)gameAnimModels.size()) {
+    const auto& skeleton = gameAnimModels[d.animModel].src;
+    if (!skeleton) return bytes + 256u * 1024u;
+    for (const auto& part : skeleton->parts) {
+      bytes += size_t(part.vertexCount) * 128u;
+      for (const auto& lod : part.lods) bytes += size_t(lod.vertexCount) * 128u;
+    }
+  } else if (d.type == 5 && d.model >= 0 && d.model < (int)gameModels.size()) {
+    if (!modelLoaded[d.model]) return bytes + 256u * 1024u;
+    for (const auto& part : gameModels[d.model].parts) {
+      bytes += part.verts.size() / 8u * 192u;
+      for (const auto& lod : part.lodVerts) bytes += lod.size() / 8u * 192u;
+    }
+  } else if (d.type == 7 && d.emitCount > 0) {
+    bytes += size_t(d.emitCount) * 256u;
+  }
+  return bytes;
+}
+
+size_t TerrainGame::pendingSpawnMemory() const {
+  size_t bytes = 0;
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    const auto& obj = runtimeObjects[i];
+    if (obj.active && obj.visible && obj.dirty)
+      bytes += estimateObjectMemory(obj.data);
+  }
+  return bytes;
+}
+
 int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
                                float yaw) {
   if (templateIndex < 0 || templateIndex >= SCENE_OBJECT_COUNT) return -1;
@@ -7704,6 +7738,9 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
       break;
     }
   if (slot < 0) return -1;  // MAX_SPAWNED_OBJECTS clones already live
+  if (!Tyra::Info::hasRuntimeMemory(
+          pendingSpawnMemory() + estimateObjectMemory(SCENE_OBJECTS[templateIndex])))
+    return -1;  // Leave the slot free; the caller may retry after despawning.
   RuntimeObject& o = runtimeObjects[slot];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[templateIndex];
@@ -7850,8 +7887,11 @@ void TerrainGame::updateLayerStreaming() {
   }
 
   if (!streamQueue.empty()) {
-    processOneStreamJob();  // one asset per frame - the streaming budget
-    return;                 // activation starts once everything is resident
+    // Keep the job queued under pressure. Unloads above still run, so the
+    // pending layer can be cancelled or resume after memory is released.
+    if (Tyra::Info::hasRuntimeMemory(pendingSpawnMemory() + 256u * 1024u))
+      processOneStreamJob();
+    return;
   }
 
   // All assets in: activate a few objects per frame until each loading
@@ -7860,12 +7900,16 @@ void TerrainGame::updateLayerStreaming() {
   for (int l = 0; l < lc; ++l) anyLoading |= (layerState[l] == 1);
   if (!anyLoading) return;
   int budget = 4;
+  size_t pendingBytes = pendingSpawnMemory();
   // Authored objects only: spawn-pool slots activate through spawnObjectAt.
   for (int i = 0; i < SCENE_OBJECT_COUNT && budget > 0; ++i) {
     const int l = SCENE_OBJECTS[i].layer;
     if (l < 0 || l >= lc || layerState[l] != 1 || runtimeObjects[i].active)
       continue;
+    const size_t bytes = estimateObjectMemory(SCENE_OBJECTS[i]);
+    if (!Tyra::Info::hasRuntimeMemory(pendingBytes + bytes)) continue;
     activateObject(i);
+    pendingBytes += bytes;
     --budget;
   }
   bool completed = false;
@@ -10130,6 +10174,40 @@ void TerrainGame::deactivateObject(int i) {
 // pinned by applyLayerResidency while it lives, and a clone spawned before
 // its model streamed in re-arms its geometry when the asset lands
 // (processOneStreamJob).
+// Admission estimates cover per-instance geometry that can be built later
+// in the frame. Asset decoding and arbitrary script allocations have their
+// own working sets; these estimates are a guard, not a heap reservation.
+size_t TerrainGame::estimateObjectMemory(const SceneObjectData& d) const {
+  size_t bytes = 64u * 1024u;
+  if (d.animModel >= 0 && d.animModel < (int)gameAnimModels.size()) {
+    const auto& skeleton = gameAnimModels[d.animModel].src;
+    if (!skeleton) return bytes + 256u * 1024u;
+    for (const auto& part : skeleton->parts) {
+      bytes += size_t(part.vertexCount) * 128u;
+      for (const auto& lod : part.lods) bytes += size_t(lod.vertexCount) * 128u;
+    }
+  } else if (d.type == 5 && d.model >= 0 && d.model < (int)gameModels.size()) {
+    if (!modelLoaded[d.model]) return bytes + 256u * 1024u;
+    for (const auto& part : gameModels[d.model].parts) {
+      bytes += part.verts.size() / 8u * 192u;
+      for (const auto& lod : part.lodVerts) bytes += lod.size() / 8u * 192u;
+    }
+  } else if (d.type == 7 && d.emitCount > 0) {
+    bytes += size_t(d.emitCount) * 256u;
+  }
+  return bytes;
+}
+
+size_t TerrainGame::pendingSpawnMemory() const {
+  size_t bytes = 0;
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    const auto& obj = runtimeObjects[i];
+    if (obj.active && obj.visible && obj.dirty)
+      bytes += estimateObjectMemory(obj.data);
+  }
+  return bytes;
+}
+
 int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
                                float yaw) {
   if (templateIndex < 0 || templateIndex >= SCENE_OBJECT_COUNT) return -1;
@@ -10140,6 +10218,9 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
       break;
     }
   if (slot < 0) return -1;  // MAX_SPAWNED_OBJECTS clones already live
+  if (!Tyra::Info::hasRuntimeMemory(
+          pendingSpawnMemory() + estimateObjectMemory(SCENE_OBJECTS[templateIndex])))
+    return -1;  // Leave the slot free; the caller may retry after despawning.
   RuntimeObject& o = runtimeObjects[slot];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[templateIndex];
@@ -10286,8 +10367,11 @@ void TerrainGame::updateLayerStreaming() {
   }
 
   if (!streamQueue.empty()) {
-    processOneStreamJob();  // one asset per frame - the streaming budget
-    return;                 // activation starts once everything is resident
+    // Keep the job queued under pressure. Unloads above still run, so the
+    // pending layer can be cancelled or resume after memory is released.
+    if (Tyra::Info::hasRuntimeMemory(pendingSpawnMemory() + 256u * 1024u))
+      processOneStreamJob();
+    return;
   }
 
   // All assets in: activate a few objects per frame until each loading
@@ -10296,12 +10380,16 @@ void TerrainGame::updateLayerStreaming() {
   for (int l = 0; l < lc; ++l) anyLoading |= (layerState[l] == 1);
   if (!anyLoading) return;
   int budget = 4;
+  size_t pendingBytes = pendingSpawnMemory();
   // Authored objects only: spawn-pool slots activate through spawnObjectAt.
   for (int i = 0; i < SCENE_OBJECT_COUNT && budget > 0; ++i) {
     const int l = SCENE_OBJECTS[i].layer;
     if (l < 0 || l >= lc || layerState[l] != 1 || runtimeObjects[i].active)
       continue;
+    const size_t bytes = estimateObjectMemory(SCENE_OBJECTS[i]);
+    if (!Tyra::Info::hasRuntimeMemory(pendingBytes + bytes)) continue;
     activateObject(i);
+    pendingBytes += bytes;
     --budget;
   }
   bool completed = false;
@@ -23674,6 +23762,15 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
       const GameModelPart& src = gm.parts[pi];
       if (src.verts.empty()) continue;
       ProcChunk& c = chunkFor(d.model, pi, -1);
+      // An unmasked first model emits exactly its flat-list vertex count.
+      // Reserve it once instead of rounding three large streams up to the
+      // next vector growth step. Later appends retain amortized growth.
+      if (faces == 63 && c.vertices.empty()) {
+        const size_t count = src.verts.size() / 8u;
+        c.vertices.reserve(count);
+        c.colors.reserve(count);
+        c.sts.reserve(count);
+      }
       const bool textured = src.texture != nullptr;
       const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
       // Whole triangles, so a dropped face takes all of its triangles with it.
@@ -24050,6 +24147,7 @@ void TerrainGame::procFinishChunks() {
       break;
     }
   for (ProcChunk& c : procChunks) {
+    if (c.packed) continue;
     if (c.vertices.empty()) {
       c.bag.reset();
       continue;
@@ -24338,6 +24436,9 @@ void TerrainGame::renderProcChunks() {
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerProcedural);
 #endif
   if (procChunks.empty()) return;
+#if defined(TYRAX_QUANTIZED_PROCEDURAL) && TYRAX_QUANTIZED_PROCEDURAL
+  stapip.core.beginSubmissionBatch();
+#endif
 #if TYRA_STAPIP_RECORD_LISTS
   syncProcRecords(roadRecs, procRecs, false);
   Tyra::StaPipRecordView v;
@@ -24350,6 +24451,9 @@ void TerrainGame::renderProcChunks() {
     renderWorldBag(procRecs.bag(recVisible[k]), recVis(procRecs, recVisible[k]));
 #else
   renderProcChunksLegacy();
+#endif
+#if defined(TYRAX_QUANTIZED_PROCEDURAL) && TYRAX_QUANTIZED_PROCEDURAL
+  stapip.core.endSubmissionBatch();
 #endif
 }
 
@@ -25309,15 +25413,71 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
   procFinishChunks();
   if (V.drawMode == 1)
     procFinishInstances(volume, V.cell, V.drawDist, instFrom);
+
+#ifndef TYRAX_PACKED_PROCEDURAL
+#define TYRAX_PACKED_PROCEDURAL 1
+#endif
+#if TYRAX_PACKED_PROCEDURAL
+#ifndef TYRAX_QUANTIZED_PROCEDURAL
+#define TYRAX_QUANTIZED_PROCEDURAL 0
+#endif
+  // This volume replaces its chunks wholesale when regenerated. Roads,
+  // explicitly spawned prefabs and chunks that baked lamps can recolor keep
+  // their editable arrays.
+  if (!BAKE_STATIC_LAMPS) {
+    u32 packedCount = 0, packedBytes = 0, quantizedCount = 0;
+    for (auto& c : procChunks) {
+      if (c.owner != volume || !c.bag || c.packed ||
+          !stapip.core.canPackGeometry(*c.bag))
+        continue;
+      const auto& vertices = std::as_const(c.vertices);
+      const auto& colors = std::as_const(c.colors);
+      const auto& sts = std::as_const(c.sts);
+      c.packed = Tyra::StaPipPackedMesh::build(
+          vertices.data(), colors.data(), c.bag->texture ? sts.data() : nullptr,
+          c.bag->count, TYRAX_QUANTIZED_PROCEDURAL != 0);
+      if (!c.packed) continue;
+      if (c.packed->isQuantized()) {
+        ++quantizedCount;
+        // The procedural visibility pass also reads these bounds. Keep the
+        // union so rounding outward cannot hide a vertex at a culling plane.
+        const auto& bounds = c.packed->mainBounds();
+        for (int axis = 0; axis < 3; ++axis) {
+          c.aabbMin[axis] = std::min(c.aabbMin[axis], bounds[0].xyzw[axis]);
+          c.aabbMax[axis] = std::max(c.aabbMax[axis], bounds[7].xyzw[axis]);
+        }
+      }
+      c.bag->releaseImmutableStreams();
+      c.bag->immutableStreams = false;
+      c.bag->packedMesh = c.packed.get();
+      c.bag->vertices = nullptr;
+      c.bag->contentVersion = nullptr;
+      c.colorBag->many = nullptr;
+      c.colorBag->contentVersion = nullptr;
+      if (c.texBag) {
+        c.texBag->coordinates = nullptr;
+        c.texBag->contentVersion = nullptr;
+      }
+      c.vertices = BagArray<Vec4>();
+      c.colors = BagArray<Color>();
+      c.sts = BagArray<Vec4>();
+      ++packedCount;
+      packedBytes += c.packed->bytes();
+    }
+    if (packedCount)
+      TYRA_LOG("PROCPACK chunks=", packedCount, " bytes=", packedBytes,
+               " quantized=", quantizedCount);
+  }
+#endif
   {
     // How the merge came out: every chunk with geometry is one bag (one
     // submit when on screen), and switch groups multiply them.
     int chunks = 0, lodChunks = 0, verts = 0;
     for (const ProcChunk& pc : procChunks) {
-      if (pc.owner != volume || pc.vertices.empty()) continue;
+      if (pc.owner != volume || !pc.bag || !pc.bag->count) continue;
       ++chunks;
       if (pc.lodTier >= 0) ++lodChunks;
-      verts += (int)pc.vertices.size();
+      verts += (int)pc.bag->count;
     }
     TYRA_LOG("Procedural ", V.name, ": ", chunks, " chunks (", lodChunks,
              " switching), ", verts, " vertices");
@@ -25334,6 +25494,20 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
                                       DrawEpochs::kMaskRoadChunk);  // stamp revision class
   if (PREFAB_COUNT <= 0) return -1;
   if (prefabIndex < 0 || prefabIndex >= PREFAB_COUNT) return -1;
+  const int first = PREFAB_FIRST[prefabIndex];
+  const int n = PREFAB_COUNTS[prefabIndex];
+  size_t bytes = pendingSpawnMemory();
+  for (int k = 0; k < n; ++k)
+    bytes += estimateObjectMemory(PREFAB_MEMBERS[first + k]);
+  if (mergeOwner >= 0 && lodModel >= 0 && lodDist > 0.0F && n > 0) {
+    SceneObjectData far = PREFAB_MEMBERS[first];
+    far.type = 5;
+    far.model = lodModel;
+    far.animModel = -1;
+    bytes += estimateObjectMemory(far);
+  }
+  if (!Tyra::Info::hasRuntimeMemory(bytes)) return -1;
+
   const float s = scale > 0.0001F ? scale : 1.0F;
   int handle = -1;
   for (int i = 0; i < (int)prefabInstances.size(); ++i)
@@ -25356,8 +25530,6 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
 
   const float rad = yaw * 0.01745329F;
   const float ca = cosf(rad), sa = sinf(rad);
-  const int first = PREFAB_FIRST[prefabIndex];
-  const int n = PREFAB_COUNTS[prefabIndex];
   bool merged = false;
   // Distant version of a volume's pool row: the merged members are the near
   // side of one switch group, the far model (at the instance's origin, yaw

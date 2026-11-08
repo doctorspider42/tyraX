@@ -162,6 +162,21 @@ Details worth knowing:
 - What stays: the compiled scene tables (a few hundred bytes per object in
   the ELF's read-only data) and anything outside the layer.
 
+### Live EE headroom
+
+A runtime layer request remains **loading** while the EE heap is under
+pressure. The streamer checks live free bytes before taking a queued job and
+before activating its objects. An unload or cancellation still runs while
+loading is paused. The game retries the pending work as memory becomes
+available.
+
+The admission check keeps 4 MiB of EE heap headroom. It accounts for
+estimated object geometry and pending clones, with a 256 KiB allowance for
+the next asset job. The allowance is a heuristic. Large assets can require
+more working memory while decoding, and total free bytes cannot prove that
+a contiguous block of the required size exists. The starting scene loads
+synchronously and still needs to fit at its worst moment.
+
 ## Troubleshooting
 
 - **The layer never shows up** — check its *start* flag or make sure some

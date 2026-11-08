@@ -30,6 +30,20 @@ Scatter on Grid (spacing 14, Levels 3)  ─  Pick Prefab (4 rooms in the pool, w
 `Scatter on Grid` with *Levels* is a full 3D lattice, so 27 cells fall out of
 one node. `Pick Prefab` gives each cell a room. That is the whole map.
 
+A procedural room reserves vertex storage from the model's exact size on
+its first unmasked append. The room budget still needs to include both
+sides of a distant-version switch and the memory used by the renderer.
+
+The completed procedural chunks release their expanded arrays after packing.
+Position, texture and color precision stay at 32 bits by default. To try
+16-bit position and UV offsets with 8-bit RGB, put
+`CFLAGS += -DTYRAX_QUANTIZED_PROCEDURAL=1` in the game's `user.mk` and rebuild.
+TyraX2 decodes eligible quantized draws on VU1 and uses bounded EE scratch
+storage when the VU1 decoder is unavailable.
+The generated pass batches small native packed draws and retains their cull
+commands. Both reuse the existing renderer memory budgets.
+[Runtime mesh memory](../../docs/procedural-runtime.md#native-vif-storage)
+
 ## Why it is affordable
 
 | | |

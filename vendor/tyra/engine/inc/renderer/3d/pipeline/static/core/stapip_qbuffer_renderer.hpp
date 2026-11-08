@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Sandro SobczyĹ„ski <sandro.sobczynski@gmail.com>
 # Modified by TyraX: the stamp record and the stamp pass (TYRA_STAPIP_STAMP_PASS).
 */
 
@@ -320,6 +320,9 @@ struct StaPipRetainedEntry {
   u32 bboxVersion;
   u32 primKey;
   u32 depthScaleBits;
+  u32 screenScaleBits[2];
+  u16 programAddress;
+  u16 slotQw;
   u8 singleColor;
   u8 stripped;
 
@@ -327,8 +330,9 @@ struct StaPipRetainedEntry {
   u16 packages;
   /** Qwords per package block. 0 until the first capture. */
   u16 blockQw;
-  /** packages * kMaxBlockQw quadwords; each package's block at its own slot. */
+  /** packages * slotQw quadwords; each package's block at its own slot. */
   std::unique_ptr<qword_t[]> data;
+  u32 storageQw() const { return static_cast<u32>(packages) * slotQw; }
   /** One byte per package: has that block been captured yet? (Modified by
    * TyraX: the block's emit-state flag is rewritten on every replay - see the
    * replay site in addBuffersDataToPacket.) */
@@ -355,6 +359,8 @@ class StaPipRetainedCommands {
    * capacity for every entry, not just the fat ones - a slot is reserved
    * before the first capture measures the block. */
   static const u16 kMaxBlockQw = 7;
+  // Scale/GIFtag (3), decoder metadata (3), and position/UV/color REFs (3).
+  static const u16 kPackedBlockQw = 9;
   /** ~128 KB of EE RAM, i.e. about 1170 VU1 packages - more than the Motor
    * District garage submits in a frame. The cap is a hard budget, not a hint:
    * when it binds, the least recently used entries are dropped to make room
@@ -629,9 +635,9 @@ class StaPipBakedStreams {
 
   StaPipBakedEntry* acquire(const StaPipBakedEntry& key,
                             const StaPipBagPatch* patch = nullptr);
-  /** Charge the budget for a finished arena. False means it does not fit even
-   * after eviction, and the caller abandons the bake for now. */
-  bool reserve(u32 qwords);
+  /** Allocate and charge a completed arena, or let the caller use the regular draw path. */
+  std::unique_ptr<u8[]> allocateArena(u32 qwords);
+  void discardUnpublishedArena(u32 qwords) { usedQwords -= qwords; }
   /** Modified by TyraX: `retire` for an arena already detached from its
    * entry (the old arena of a patch rebake). */
   void retireArena(std::unique_ptr<u8[]> raw, qword_t* arena, u32 qw);
@@ -749,7 +755,10 @@ class StaPipBakedStreams {
   struct RetiredArena {
     std::unique_ptr<u8[]> raw;
     void* arena;
+    u32 qwords;
   };
+  u32 retiredQwords = 0;
+  bool lowHeadroom = false;
   std::vector<RetiredArena> graveyard[2];
   u8 graveyardWrite = 0;
   int indexBuckets[kBucketCount];
@@ -882,6 +891,7 @@ class StaPipQBufferRenderer {
   void setProgramOverrides(const StaPipProgramName* names,
                            StaPipVU1Program* const* programs, u32 count);
   const bool& isVU1ClippingEnabled() const { return vu1Clipping; }
+  bool hasQuantizedDecoder() const { return quantizedDecoderResident; }
 
   /** Paint eligibility, NOT a request to silently discard paint at draw time.
    * Query before preparing the EE/VU representation. Rejected requests assert
@@ -1061,7 +1071,8 @@ class StaPipQBufferRenderer {
    * buffer points into the double-buffered slot pool, whose address is not a
    * property of the bag.
    */
-  bool beginRetainedBag(StaPipBag* bag, const u32& packageSize);
+  bool beginRetainedBag(StaPipBag* bag, const u32& packageSize,
+                        bool nativePacked = false);
   void endRetainedBag();
 
   /** TyraX diagnostics: how many package command blocks were replayed from
@@ -1208,6 +1219,7 @@ class StaPipQBufferRenderer {
   u32 takeChainQwords() { const u32 v = chainQwords; chainQwords = 0; return v; }
 
   StaPipVU1Program* getCullProgramByBag(const StaPipBag* bag);
+  StaPipVU1Program* getClipProgramByBag(const StaPipBag* bag);
   bool hasProgramOverrides() const { return repository.hasAnyOverride(); }
 
   StaPipVU1Program* getCullProgramByParams(const bool& isLightingEnabled,
@@ -1256,7 +1268,6 @@ class StaPipQBufferRenderer {
   void beforeTextureMutation();
   StaPipVU1Program* getAsIsProgramByBag(const StaPipBag* bag);
   // Modified by TyraX: VU1 clipping.
-  StaPipVU1Program* getClipProgramByBag(const StaPipBag* bag);
   StaPipVU1Program* getCullProgramByType(const StaPipProgramType& programType);
   StaPipProgramType getDrawProgramTypeByBag(const StaPipBag* bag) const;
   StaPipProgramType getDrawProgramTypeByParams(
@@ -1267,6 +1278,7 @@ class StaPipQBufferRenderer {
   // beside the resident set - billboardsResident says which case this is.
   packet2_t* billboardProgramsPacket;
   bool billboardSetActive = false;
+  bool quantizedDecoderResident = false;
   bool billboardsResident = false;
 
   packet2_t** packets;

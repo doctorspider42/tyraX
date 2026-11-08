@@ -1,0 +1,78 @@
+        .vu
+        .align 4
+        .global StaPipQuantizedDecode_CodeStart
+        .global StaPipQuantizedDecode_CodeEnd
+
+; Modified by TyraX. One MSCAL decodes the current TOPS half and then jumps
+; to the stock C/TC cull or clip entry. No extra TOPS flip or GS state change.
+; 450/451 match VU1_STAPIP_QUANT_META_ADDR. Input UNPACK is unsigned.
+; 224 matches VU1_STAPIP_QUANT_UV_ADDR. Each qword holds two UV pairs.
+StaPipQuantizedDecode_CodeStart:
+        nop                             xtop VI01
+        nop                             ilw.w VI06, 0(VI01)
+        nop                             ilw.w VI05, 451(VI01)
+        nop                             lq VF04, 450(VI01)
+        nop                             lq VF05, 451(VI01)
+        nop                             iaddiu VI07, VI00, 511
+        nop                             iand VI06, VI06, VI07
+        nop                             iaddiu VI02, VI01, 2
+        nop                             iadd VI03, VI02, VI06
+        nop                             iadd VI04, VI03, VI06
+        nop                             ibltz VI05, pos_color
+        nop                             iadd VI09, VI06, VI00
+        nop                             iadd VI04, VI03, VI00
+pos_color:
+        nop                             lq VF01, 0(VI02)
+        nop                             lq VF03, 0(VI04)
+        nop                             iaddi VI09, VI09, -1
+        nop                             nop
+        itof12.xyzw VF01, VF01           nop
+        itof0.xyzw VF03, VF03            nop
+        nop                             nop
+        nop                             nop
+        mulw.xyz VF01, VF01, VF04w       nop
+        nop                             sqi VF03, (VI04++)
+        nop                             nop
+        nop                             nop
+        add.xyz VF01, VF01, VF04         nop
+        nop                             nop
+        nop                             nop
+        nop                             ibgtz VI09, pos_color
+        nop                             sqi VF01, (VI02++)
+
+        nop                             ibgez VI05, draw
+        nop                             iadd VI09, VI06, VI00
+        nop                             iaddiu VI08, VI01, 224
+        nop                             mr32.zw VF07, VF00
+        nop                             mr32.zw VF08, VF00
+texcoord:
+        nop                             lqi VF02, (VI08++)
+        nop                             iaddi VI09, VI09, -1
+        nop                             nop
+        nop                             nop
+        itof12.xyzw VF02, VF02           nop
+        nop                             nop
+        nop                             nop
+        nop                             nop
+        add.xy VF07, VF02, VF05          mr32.xyzw VF10, VF02
+        nop                             nop
+        nop                             nop
+        nop                             iblez VI09, draw
+        nop                             sqi VF07, (VI03++)
+        nop                             mr32.xy VF09, VF10
+        nop                             iaddi VI09, VI09, -1
+        nop                             nop
+        nop                             nop
+        add.xy VF08, VF09, VF05          nop
+        nop                             nop
+        nop                             nop
+        nop                             ibgtz VI09, texcoord
+        nop                             sqi VF08, (VI03++)
+draw:
+        nop                             iaddiu VI07, VI00, 2047
+        nop                             iand VI05, VI05, VI07
+        nop                             nop
+        nop                             jr VI05
+        nop                             nop
+        .align 4
+StaPipQuantizedDecode_CodeEnd:

@@ -836,6 +836,62 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr);
   }
   procFinishChunks();
+
+#ifndef TYRAX_PACKED_PROCEDURAL
+#define TYRAX_PACKED_PROCEDURAL 1
+#endif
+#if TYRAX_PACKED_PROCEDURAL
+#ifndef TYRAX_QUANTIZED_PROCEDURAL
+#define TYRAX_QUANTIZED_PROCEDURAL 0
+#endif
+  // This volume replaces its chunks wholesale when regenerated. Roads,
+  // explicitly spawned prefabs and chunks that baked lamps can recolor keep
+  // their editable arrays.
+  if (!BAKE_STATIC_LAMPS) {
+    u32 packedCount = 0, packedBytes = 0, quantizedCount = 0;
+    for (auto& c : procChunks) {
+      if (c.owner != volume || !c.bag || c.packed ||
+          !stapip.core.canPackGeometry(*c.bag))
+        continue;
+      const auto& vertices = std::as_const(c.vertices);
+      const auto& colors = std::as_const(c.colors);
+      const auto& sts = std::as_const(c.sts);
+      c.packed = Tyra::StaPipPackedMesh::build(
+          vertices.data(), colors.data(), c.bag->texture ? sts.data() : nullptr,
+          c.bag->count, TYRAX_QUANTIZED_PROCEDURAL != 0);
+      if (!c.packed) continue;
+      if (c.packed->isQuantized()) {
+        ++quantizedCount;
+        // The procedural visibility pass also reads these bounds. Keep the
+        // union so rounding outward cannot hide a vertex at a culling plane.
+        const auto& bounds = c.packed->mainBounds();
+        for (int axis = 0; axis < 3; ++axis) {
+          c.aabbMin[axis] = std::min(c.aabbMin[axis], bounds[0].xyzw[axis]);
+          c.aabbMax[axis] = std::max(c.aabbMax[axis], bounds[7].xyzw[axis]);
+        }
+      }
+      c.bag->releaseImmutableStreams();
+      c.bag->immutableStreams = false;
+      c.bag->packedMesh = c.packed.get();
+      c.bag->vertices = nullptr;
+      c.bag->contentVersion = nullptr;
+      c.colorBag->many = nullptr;
+      c.colorBag->contentVersion = nullptr;
+      if (c.texBag) {
+        c.texBag->coordinates = nullptr;
+        c.texBag->contentVersion = nullptr;
+      }
+      c.vertices = BagArray<Vec4>();
+      c.colors = BagArray<Color>();
+      c.sts = BagArray<Vec4>();
+      ++packedCount;
+      packedBytes += c.packed->bytes();
+    }
+    if (packedCount)
+      TYRA_LOG("PROCPACK chunks=", packedCount, " bytes=", packedBytes,
+               " quantized=", quantizedCount);
+  }
+#endif
 }
 
 
@@ -845,6 +901,13 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
                                float yaw, float scale, int mergeOwner) {
   if (PREFAB_COUNT <= 0) return -1;
   if (prefabIndex < 0 || prefabIndex >= PREFAB_COUNT) return -1;
+  const int first = PREFAB_FIRST[prefabIndex];
+  const int n = PREFAB_COUNTS[prefabIndex];
+  size_t bytes = pendingSpawnMemory();
+  for (int k = 0; k < n; ++k)
+    bytes += estimateObjectMemory(PREFAB_MEMBERS[first + k]);
+  if (!Tyra::Info::hasRuntimeMemory(bytes)) return -1;
+
   const float s = scale > 0.0001F ? scale : 1.0F;
   int handle = -1;
   for (int i = 0; i < (int)prefabInstances.size(); ++i)
@@ -867,8 +930,6 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
 
   const float rad = yaw * 0.01745329F;
   const float ca = cosf(rad), sa = sinf(rad);
-  const int first = PREFAB_FIRST[prefabIndex];
-  const int n = PREFAB_COUNTS[prefabIndex];
   bool merged = false;
   for (int k = 0; k < n; ++k) {
     SceneObjectData d = PREFAB_MEMBERS[first + k];

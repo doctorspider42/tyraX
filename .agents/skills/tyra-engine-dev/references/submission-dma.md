@@ -23,6 +23,7 @@ Read when: you touch `StaPipQBufferRenderer` (`sendObjectData`, `sendPacket`, `f
 - One native contiguous chain; each bag keeps `FLUSHE -> inline uniforms -> geometry`; never join packets with `NEXT`/`CALL`. MVP, light matrices/directions, single colours inline only for retained bags. Excluded: partial-frustum classification, VU1/EE clipping, qbuffer copies, billboards, program overrides (no bounded qbuffer writer ABI → the eight-qword command bound can't be assumed; any installed override is a GLOBAL exclusion). `setOverride(slot, program)` doesn't require the program's self-reported name to match the slot → use the repository's cached any-override state, not a name query.
 - Resident textures batch only with both wrap axes REPEAT. Texture miss/upload/update/free/eviction invokes the active StaPip mutation barrier: submit pending geometry + `align3D()` before VRAM contents/addresses change. Track already-submitted textured batches (`objectDataPending == false` ≠ GS finished sampling). Register the hook in `allocateOnUse`, clear only for the owning pipeline in `deallocateOnUse`, drain readers before clearing.
 - **Bound: four direct bags of ≤ 15 VU packages each.** Large-bag experiment regressed garage submission 37.286/43.546 → 38.264/44.580 ms (packet build +~0.2 ms, VIF1 wait +~0.6). Don't restore geometry-only continuations without a new hardware hypothesis. Shipped gate saved 0.95/1.14/0.37/0.34 ms submission over four poses — not a whole-game FPS jump. `packet2_create` asserts `qwords % 4 == 0` for uncached types: keep `kWorstBagPacketSize * kSubmissionBatchSize` a multiple of 4 (`packetSize` 784).
+- **Native quantized draws cap at 12 packages per batched bag** under the same reservation. Their nine-quadword command bodies carry the decoder metadata and compact stream REFs. Cache only cull packages and key them by mesh generation and draw entry address. VU1 clip packages still build live plane masks. [Physical PS2 comparison](../../../../docs/procedural-runtime.md#packed-submission-batching-and-retention).
 
 ## `Vif1Queue` (1.125.3; `renderer/core/paths/path1/vif1_queue.{hpp,cpp}`, `TYRA_VIF1_QUEUE` 1)
 Up to `TYRA_VIF1_QUEUE_DEPTH` (4) packets in flight; each a complete chain ending in END; next one starts at the next submit/wait. Physical: `work` −0.50..−0.72 ms over four Motor District poses.
@@ -101,3 +102,23 @@ docs/record-renderer.md "Draws that stay on the general path". `TYRA_STAPIP_REPE
 
 ## Generated-game submission notes
 - Light beams (1.127.4): coronas in one bag, cones in another, brightness in vertex colours at FIX 128, one slot per call per frame (the chain REFs the arrays), EE frustum test per lamp so offscreen lamps don't turn the batch into clip work.
+
+The baked arena payload budget counts both live streams and the retirement queue.
+Retiring an arena makes it unavailable for lookup. Only actual collection of
+the DMA lease returns its budget. Under low EE headroom the cache can retire
+its streams while the ordered frame pipeline keeps running (docs/baked-vif-stream.md).
+
+### Compact procedural VIF streams
+
+Packed meshes normally decode into the existing qbuffer pool before submission.
+This includes 16-bit position and UV offsets with 8-bit RGB. The optional
+32-bit native VIF path passed PCSX2 but a physical cube run stopped advancing
+after switching to it, so only explicit test builds enable it.
+
+Native packed chunks borrow a single DMA-aligned span per mesh. Masked
+`V3_32` and `V2_32` restore the stock quadword input layout through STROW.
+Slices start on a quadword boundary and the tail padding must be zero so it
+decodes as VIF NOPs. Packed bags skip stamp and baked command capture.
+Before releasing a used span, drain VIF1 even if registration failed and
+the frame writer used a copy. EE clipping and custom VU programs use the
+bounded qbuffer decode path. See docs/procedural-runtime.md.

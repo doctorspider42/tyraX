@@ -18,14 +18,18 @@ The scope must end before external GS operations, view changes or pipeline
 switches. Those operations are not implicit submission-batch boundaries; the
 caller closes the scope first so pending PATH1 work is submitted in order.
 
-Within a scope, only wholly direct, non-billboard bags using built-in programs
-and at most 15 VU packages are retained. Installing any game-supplied program
+Within a scope, ordinary direct, non-billboard bags using built-in programs
+and at most 15 VU packages can share a packet. Native quantized draws can
+share it with up to 12 packages, including VU1-clipped packages. Their
+commands are larger, so the lower limit leaves room for uniforms and END
+within the same packet reservation. The generated quantized procedural pass
+opens a scope around its chunk draws. Installing any game-supplied program
 override disables the scope globally: replacement writers have no enforced
 packet-size ABI, and an override object's self-reported program name is not a
 safe way to identify the slot it replaced. Textures qualify only when their VRAM allocation is
-already resident and both wrap axes use REPEAT. Partial-frustum packaging, VU1
-or EE clipping, qbuffer copy pools, billboard program switches, packet capacity
-and the explicit scope end flush pending work. A texture miss or any other
+already resident and both wrap axes use REPEAT. Routes that require the EE
+copy pools, billboard program switches, packet capacity and the explicit
+scope end flush pending work. A texture miss or any other
 allocation/content mutation invokes the registered cold-path barrier: it sends
 pending geometry and drains PATH1 before eviction or PATH3 upload. Resident
 binds remain drain-free. Thus an upload cannot reuse VRAM while queued geometry

@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "math/vec4.hpp"
 #include "./stapip_info_bag.hpp"
 #include "./stapip_color_bag.hpp"
@@ -61,6 +63,45 @@ struct StaPipBagPatch {
  * Supports frustum culling, full plane clipping, lighting,
  * texture and single color / many colors.
  */
+// Modified by TyraX: immutable mesh storage. The quantized streams are aligned
+// for direct VIF UNPACK. The EE keeps two bounds corners per slice.
+class StaPipPackedMesh {
+ public:
+  static constexpr u32 kSliceVertices = 72;  // triangle lists, 16-byte stream offsets
+  struct Bounds { Vec4 min, max; };
+
+  static std::unique_ptr<StaPipPackedMesh> build(
+      const Vec4* vertices, const Color* colors, const Vec4* sts, u32 count,
+      bool quantize = false);
+  ~StaPipPackedMesh();
+  bool isQuantized() const { return quantized; }
+  u32 getId() const { return id; }
+  /** Select the decoder for subsequent quantized draws. Useful for A/B tests. */
+  static void setVuDecodeEnabled(bool enabled) { vuDecodeEnabled = enabled; }
+  static bool isVuDecodeEnabled() { return vuDecodeEnabled; }
+  const void* quantizedPositions(u32 offset) const { return data.get() + offset / 2u; }
+  const void* quantizedTexcoords(u32 offset) const { return data.get() + stStart + offset / 4u; }
+  const void* quantizedColors(u32 offset) const { return data.get() + colorStart + offset / 4u; }
+  Vec4 positionBase() const;
+  Vec4 texcoordBase() const;
+  void registerForDraw();
+  void decode(u32 offset, u32 count, Vec4* xyz, Vec4* rgb, Vec4* st) const;
+  const Bounds& bounds(u32 slice) const { return slices[slice]; }
+  const CoreBBox& mainBounds() const { return whole; }
+  u32 bytes() const { return quadwords * 16u + sliceCount * sizeof(Bounds); }
+
+ private:
+  struct alignas(16) Quadword { u32 words[4]; };
+  std::unique_ptr<Quadword[]> data;
+  std::unique_ptr<Bounds[]> slices;
+  CoreBBox whole;
+  u32 id = 0;
+  u32 quadwords = 0, stStart = 0, colorStart = 0, sliceCount = 0;
+  s32 gridBase[5] = {};
+  bool quantized = false, submitted = false;
+  static bool vuDecodeEnabled;
+};
+
 class StaPipBag {
  public:
   StaPipBag();
@@ -77,6 +118,9 @@ class StaPipBag {
 
   /** Mandatory. Vertices. */
   Vec4* vertices;
+
+  /** Optional compact input for immutable position/UV/color lists. */
+  StaPipPackedMesh* packedMesh = nullptr;
 
   /** Optional. Texture coordinates and image. */
   StaPipTextureBag* texture;

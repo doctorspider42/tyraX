@@ -353,3 +353,122 @@ that generated it; a *clear* leaves nothing to stand on. And blocks only carry
 collision in **runtime** mode — a baked block volume is ordinary static meshes,
 which collide the way any baked chunk does (i.e. not at all unless the Output
 node's Collision is on).
+
+## EE memory for generated meshes
+
+### Native VIF storage
+
+Eligible generated triangle lists keep aligned XYZ, ST and RGB streams.
+The default stores each component as a 32-bit float and omits constant
+lanes. A textured vertex takes 32 payload bytes instead of 48. An
+untextured vertex takes 24. Each 72-vertex slice also keeps two EE bounds
+corners for culling. Roads, standalone prefabs, strips and scenes that
+relight chunks through baked static lamps keep their editable arrays.
+
+Set `CFLAGS += -DTYRAX_QUANTIZED_PROCEDURAL=1` in the game's `user.mk` to use
+16-bit unsigned position and UV offsets and 8-bit RGB. This takes 16
+payload bytes per textured vertex or 12 per untextured vertex, including
+the homogeneous position component and alpha for aligned VIF input. Positions
+round to a shared 1/1024-unit lattice and UVs to a shared 1/4096 lattice.
+Chunks use local integer origins on those lattices, so matching source
+edges round together across chunks. The 16-bit range covers a span of
+roughly 64 units per position axis and 16 units per UV axis. A stream
+outside the supported range keeps the 32-bit representation. Runtime
+culling includes rounded positions.
+
+VIF writes quantized lanes directly to the current TOPS buffer. Each
+`V4_16` UV vector holds two pairs. A physical PS2 stopped with one element
+left in the earlier `V2_16` UV transfer, before the decoder started.
+A shared VU1 decoder expands the streams and jumps to the stock cull or
+clip entry inside the same kick. If that decoder does not fit in micro memory or the
+draw cannot use it, the EE expands one slice into the existing qbuffer pool.
+The 32-bit layout always uses that EE route. The runtime releases the
+expanded geometry after packing. Set `CFLAGS += -DTYRAX_PACKED_PROCEDURAL=0`
+to compare with ordinary storage. In a test build,
+`Tyra::StaPipPackedMesh::setVuDecodeEnabled(false)` selects EE decoding of
+the same quantized mesh at runtime.
+
+### Quantization A/B
+
+The original 13/9-byte EE-only experiment ran 81 cube chunks and 123,768
+vertices in both formats from one debug ELF,
+using the same seed, camera and qbuffer decoder. The PCSX2 software renderer
+showed 2,273,616 additional free EE bytes after generation and at frame 600
+with quantization. GS free space was the same. The 99th percentile of the
+maximum RGB channel error per pixel was 2 in both 512-by-512 captures.
+201 pixels in the parked view and 209 at the doorway differed by more than
+8 in any channel. The physical PS2 completed both modes in one boot and
+produced captures before and after regeneration. Its parked view also
+differed by more than 8 at 201 pixels, with the same 99th percentile.
+
+With aligned quantized streams, the same cube ELF selected EE or VU1
+decoding at startup. The PCSX2 software renderer produced identical images
+at frame 60 and at the doorway. At frame 600, the VU1 run had 597,520 more
+free EE bytes than the EE-decoding run. Both retained the same mesh format.
+
+### Motor District frame time
+
+A single debug ELF ran on a physical PS2 in 60 Hz progressive mode. It
+repeated the same camera sweep in Motor District with ordinary draws,
+quantized draws decoded on EE, and the same quantized draws decoded on VU1.
+The main scene has no runtime procedural volumes, so the fixture selected
+eligible authored mesh draws and kept both copies. About 833 submitted
+vertices per frame were selected in the settled rounds. These samples
+measure that subset in the full scene and do not measure its RAM savings.
+
+| Path | Frame median | Frame p95 | Work median | Work p95 | Frames over 25 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ordinary | 16.683 ms | 22.051 ms | 8.158 ms | 14.527 ms | 4 |
+| Quantized, EE | 16.683 ms | 19.828 ms | 9.833 ms | 13.898 ms | 2 |
+| Quantized, VU1 | 16.683 ms | 22.244 ms | 9.378 ms | 14.841 ms | 5 |
+
+The table uses the two settled rounds, 200 measured frames per path.
+The ELF also recorded the first round, for 900 samples in total. Work
+subtracts the renderer's recorded stalls from the frame period. VU1
+recovered 0.455 ms of median work versus EE decoding in the settled rounds
+and still spent 1.220 ms more than the ordinary draw path. The median frame
+period stayed at 16.683 ms across all three paths. Quantization remains
+opt-in.
+
+#### Packed submission batching and retention
+
+A follow-up used one debug ELF on the same PS2 and camera sweep. It
+interleaved four rounds of ordinary draws, quantized EE decoding, the
+original VU1 submission, and VU1 submission with batching and retained
+commands. Each block ran 120 frames and discarded its first 20. All four
+arms averaged about 908 selected vertices per frame. Selection counts
+describe submitted mesh requests before package culling.
+
+| Path | Frame median | Frame p95 | Work median | Work p95 | Frames over 25 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ordinary | 16.702 ms | 32.675 ms | 8.264 ms | 23.502 ms | 57 |
+| Quantized, EE | 16.703 ms | 31.231 ms | 9.759 ms | 24.441 ms | 53 |
+| Quantized, original VU1 submission | 16.701 ms | 31.542 ms | 9.411 ms | 23.344 ms | 58 |
+| Quantized, batched and retained VU1 submission | 16.710 ms | 31.846 ms | 9.304 ms | 23.600 ms | 65 |
+
+Batching and retention recovered **0.107 ms** of median work in the
+same-ELF comparison, about 9% of the previously observed 1.220 ms gap.
+The new gap versus ordinary draws was 1.040 ms. The median frame period
+held at about 16.7 ms. The tail showed no improvement, and mean work was
+effectively flat (11.685 to 11.700 ms). The benchmark covers an authored
+mesh subset in the full scene with both geometry copies resident.
+
+The same-ELF PCSX2 cube check found zero changed pixels in the parked
+and doorway views. With batching and retention enabled, it recorded
+70,392 retained hits, a 38,880-byte command payload cache, and 41,792 fewer
+free EE bytes at frame 600 than the original VU1 submission.
+
+[Raw PS2 samples and ELF hash](../tools/ps2rig/bench/results/packed-submission/)
+
+### Generation capacity
+
+A merged chunk reserves exact space for its first unmasked model in each of
+its position, color and UV arrays. This avoids leaving each array rounded
+up to the next vector growth step. Repeated appends still grow amortized, so
+the cost of a shared cell depends on how many meshes it merges. Vertex
+precision and the VIF data layout stay the same.
+
+On the PCSX2 software renderer, the cube fixture gained 1,627,776 free EE
+bytes after its 27 rooms loaded. The same debug ELF selected exact reservation
+or normal vector growth at boot. The difference held through frame 60 and
+GS memory usage was identical in both runs.

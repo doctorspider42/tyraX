@@ -170,6 +170,22 @@ void StaPipQBuffer::fillByPointer(StaPipBag* source, u32 offset, u32 count) {
   bag = source;
 }
 
+void StaPipQBuffer::fillByPacked(StaPipBag* source, u32 offset,
+                                 u32 count, bool native) {
+  deallocateDynamicData();
+  vertices = sts = colors = normals = nullptr;
+  bag = source;
+  size = count;
+  stripped = false;
+  nativePacked = native;
+  packedOffset = offset;
+  if (native) return;
+
+  allocateDynamicData(static_cast<u16>(count), bag);
+  source->packedMesh->decode(offset, count, vertices, colors,
+                             bag->texture ? sts : nullptr);
+}
+
 void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
                                   const StaPipBagPackage& pkg2,
                                   const StaPipBagPackage& pkg3) {
@@ -380,7 +396,7 @@ void StaPipQBuffer::allocateDynamicData(u16 size, StaPipBag* bag) {
       sts = pool->sts;
       _stAllocated = true;
     }
-    if (bag->color->many != nullptr) {
+    if (bag->color->many != nullptr || bag->packedMesh) {
       colors = pool->colors;
       _colorAllocated = true;
     }
@@ -400,7 +416,7 @@ void StaPipQBuffer::allocateDynamicData(u16 size, StaPipBag* bag) {
     _stAllocated = true;
   }
 
-  if (bag->color->many != nullptr) {
+  if (bag->color->many != nullptr || bag->packedMesh) {
     colors = new Vec4[size];
     _colorAllocated = true;
   }

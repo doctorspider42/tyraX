@@ -12,9 +12,67 @@
 #include "renderer/3d/pipeline/static/core/stapip_vu1_program.hpp"
 #include "renderer/core/gs/renderer_core_depth.hpp"
 
+extern "C" {
+extern u32 StaPipQuantizedDecode_CodeStart[], StaPipQuantizedDecode_CodeEnd[];
+}
+
 namespace Tyra {
 
 namespace {
+
+// Modified by TyraX: one common decoder runs before the stock draw program.
+
+class QuantizedDecoder final : public VU1Program {
+ public:
+  QuantizedDecoder()
+      : VU1Program(StaPipQuantizedDecode_CodeStart, StaPipQuantizedDecode_CodeEnd) {}
+  std::string getStringName() const override { return "StaPip quantized decode"; }
+};
+
+void addQuantizedStream(packet2_t* packet, u32 address, const void* data,
+                        u32 count, UnpackMode mode, u32 bytesPerVertex) {
+  const u32 qwords = (count * bytesPerVertex + 15u) / 16u;
+  packet2_chain_ref(packet, const_cast<void*>(data), qwords, 0, 0, 0);
+  packet2_vif_stcycl(packet, 0, 0x0101, 0);
+  packet2_vif_open_unpack(packet, mode, address, 1, 0, 1, 0);
+  packet2_vif_close_unpack_manual(packet, count);
+}
+
+void addPackedMesh(packet2_t* packet, const StaPipQBuffer& buffer, u32 target) {
+  const auto& mesh = *buffer.bag->packedMesh;
+  const u32 count = buffer.size, offset = buffer.packedOffset;
+  u32 address = VU1_STAPIP_VERT_DATA_ADDR;
+  const bool textured = buffer.bag->texture != nullptr;
+  // Relative to TOPS so the next package cannot overwrite a live decoder's
+  // constants. This tail is free while decoding and reusable by the draw.
+  packet2_utils_vu_open_unpack(packet, VU1_STAPIP_QUANT_META_ADDR, true);
+  const Vec4 pos = mesh.positionBase(), st = mesh.texcoordBase();
+  packet2_add_float(packet, pos.x);
+  packet2_add_float(packet, pos.y);
+  packet2_add_float(packet, pos.z);
+  packet2_add_float(packet, pos.w);
+  packet2_add_float(packet, st.x);
+  packet2_add_float(packet, st.y);
+  packet2_add_u32(packet, 0);
+  packet2_add_u32(packet, target | (textured ? 0x8000u : 0u));
+  packet2_utils_vu_close_unpack(packet);
+
+  addQuantizedStream(packet, address, mesh.quantizedPositions(offset), count,
+                     P2_UNPACK_V4_16, 8);
+  address += count;
+  if (textured) {
+    // Real hardware stalled on the final element of a V2-16 REF. V4-16
+    // consumes the same bytes as pairs, with the odd last lane zero-padded.
+    static_assert(VU1_STAPIP_VERT_DATA_ADDR + 3 * StaPipPackedMesh::kSliceVertices
+                  <= VU1_STAPIP_QUANT_UV_ADDR);
+    addQuantizedStream(packet, VU1_STAPIP_QUANT_UV_ADDR,
+                       mesh.quantizedTexcoords(offset), (count + 1u) / 2u,
+                       P2_UNPACK_V4_16, 8);
+    address += count;
+  }
+  addQuantizedStream(packet, address, mesh.quantizedColors(offset), count,
+                     P2_UNPACK_V4_8, 4);
+}
 
 bool isClipProgram(const StaPipProgramName name) {
   return name == StaPipClipColor || name == StaPipClipDirLights ||
@@ -42,6 +100,11 @@ u8 reverseSixBits(const u8 value) {
 
 }  // namespace
 
+VU1Program& StaPipVU1Program::quantizedDecoder() {
+  static QuantizedDecoder decoder;
+  return decoder;
+}
+
 StaPipVU1Program::StaPipVU1Program(const StaPipProgramName& t_name,
                                    u32* t_start, u32* t_end,
                                    const u32& t_reglist,
@@ -67,7 +130,8 @@ void StaPipVU1Program::addBufferDataToPacket(packet2_t* packet,
                                              prim_t* prim,
                                              const bool& emitState) {
   addStandardBufferDataToPacket(packet, buffer, prim, emitState);
-  addProgramQBufferDataToPacket(packet, buffer);
+  if (buffer->nativePacked) addPackedMesh(packet, *buffer, getDestinationAddress());
+  else addProgramQBufferDataToPacket(packet, buffer);
 }
 
 bool StaPipVU1Program::emitsStateFlag(const bool& emitState) const {

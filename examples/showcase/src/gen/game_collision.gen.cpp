@@ -3722,6 +3722,15 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
       const GameModelPart& src = gm.parts[pi];
       if (src.verts.empty()) continue;
       ProcChunk& c = chunkFor(d.model, pi, -1);
+      // An unmasked first model emits exactly its flat-list vertex count.
+      // Reserve it once instead of rounding three large streams up to the
+      // next vector growth step. Later appends retain amortized growth.
+      if (faces == 63 && c.vertices.empty()) {
+        const size_t count = src.verts.size() / 8u;
+        c.vertices.reserve(count);
+        c.colors.reserve(count);
+        c.sts.reserve(count);
+      }
       const bool textured = src.texture != nullptr;
       const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
       // Whole triangles, so a dropped face takes all of its triangles with it.

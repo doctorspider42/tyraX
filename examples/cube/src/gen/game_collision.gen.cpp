@@ -3207,6 +3207,15 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
       const GameModelPart& src = gm.parts[pi];
       if (src.verts.empty()) continue;
       ProcChunk& c = chunkFor(d.model, pi, -1);
+      // An unmasked first model emits exactly its flat-list vertex count.
+      // Reserve it once instead of rounding three large streams up to the
+      // next vector growth step. Later appends retain amortized growth.
+      if (faces == 63 && c.vertices.empty()) {
+        const size_t count = src.verts.size() / 8u;
+        c.vertices.reserve(count);
+        c.colors.reserve(count);
+        c.sts.reserve(count);
+      }
       const bool textured = src.texture != nullptr;
       const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
       // Whole triangles, so a dropped face takes all of its triangles with it.
@@ -3290,6 +3299,7 @@ void TerrainGame::procFinishChunks() {
       break;
     }
   for (ProcChunk& c : procChunks) {
+    if (c.packed) continue;
     if (c.vertices.empty()) {
       c.bag.reset();
       continue;
@@ -3524,6 +3534,9 @@ void TerrainGame::renderProcChunks() {
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerProcedural);
 #endif
   if (procChunks.empty()) return;
+#if defined(TYRAX_QUANTIZED_PROCEDURAL) && TYRAX_QUANTIZED_PROCEDURAL
+  stapip.core.beginSubmissionBatch();
+#endif
   for (ProcChunk& c : procChunks) {
     // Roads have their own phase and profiler row. Keeping them here as well
     // used to make "Procedural" mean "mostly asphalt" and would double-draw
@@ -3552,5 +3565,8 @@ void TerrainGame::renderProcChunks() {
     if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
     renderWorldBag(c.bag.get());
   }
+#if defined(TYRAX_QUANTIZED_PROCEDURAL) && TYRAX_QUANTIZED_PROCEDURAL
+  stapip.core.endSubmissionBatch();
+#endif
 }
 }

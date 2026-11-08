@@ -595,6 +595,23 @@ because the retained route builds its own blocks under the same `bboxVersion`
 key and is not cheaper than a bake for a bag that is new to both caches.
 Reverted.
 
+## Runtime EE memory budget (2.15.0)
+
+The default 4 MiB baked arena payload limit counts active and retired streams.
+Eviction retires a stream immediately for lookup purposes, but its bytes stay
+charged until every TyraX2 DMA bank lease has ended and the retirement queue
+actually frees the allocation. If a replacement cannot fit yet, submission
+uses the regular draw path. Arena allocation also falls back if newlib cannot
+supply a contiguous block.
+
+Every eight frames, an active cache checks the live EE heap. Below 4.5 MiB
+free it retires its streams and stops adding new arenas. It resumes at 5 MiB. New
+arenas must leave at least 4.5 MiB free, so the cache cannot trigger its own
+retirement cycle.
+This gives the game a chance to admit runtime spawns and layer loads while
+keeping TyraX2 frame submission active. Scratch buffers, stamp metadata and
+the fixed frame banks have their own allocations.
+
 ## Scope of the spike
 
 Only the **direct, wholly-visible cull route**: the branch in

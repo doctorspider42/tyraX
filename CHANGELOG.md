@@ -8,6 +8,33 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.18.1
+
+- Small VU1-decoded procedural meshes can share a VIF1 submission. The
+  renderer reuses their cull commands within the existing EE cache budget.
+
+## 2.18.0
+
+- Eligible quantized procedural meshes now unpack on VU1. The renderer keeps
+  bounded EE decoding for unsupported draws and removes the experimental
+  masked VIF route for 32-bit packed meshes.
+
+## 2.17.0
+
+- Added opt-in 16-bit positions and UVs with 8-bit RGB for generated
+  procedural meshes. The runtime decodes one draw slice at a time. Packed
+  32-bit meshes now use that bounded path by default as well.
+
+## 2.16.0
+
+- Procedural triangle-list chunks can store packed vertex streams in EE RAM.
+  TyraX2 sends those streams directly through VIF, which restores constant
+  vertex components on the way into VU1.
+
+## 2.15.0
+
+- Runtime spawns check live EE memory before taking a slot. Streamed layers wait when memory is tight and resume after memory is released. The TyraX2 renderer gives up optional baked draw streams under pressure, and procedural mesh chunks reserve less vertex storage.
+
 ## 2.14.0
 
 - Faster drawing while driving on the PS2: terrain tiles next to a ground shadow, and other scenery that used to be worked out from scratch every frame, are now drawn the fast way. Measured on a PS2 in the crate-field crash drive: about 0.47 ms less work a frame, and 9 instead of 17 objects a frame taking the slow path. Rebuild games to use it.

@@ -237,7 +237,8 @@ Searches: `findNearest(ctx, point, maxDist, filter)` and
 `ObjectFilter` can restrict the object type, keep only visible objects, skip
 one index, or run your own test (`filterAccepts(filter, obj, index)` applies
 one in your own loop). `spawn(ctx, template, point, yaw)` clones an
-object, as the *Spawn Object* node does.
+object, as the *Spawn Object* node does. The returned handle is invalid when the clone
+pool is full or the EE heap cannot admit another instance.
 
 ### Raycasts
 

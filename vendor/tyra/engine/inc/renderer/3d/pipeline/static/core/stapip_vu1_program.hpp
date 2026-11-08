@@ -38,6 +38,7 @@ class StaPipVU1Program : public VU1Program {
   virtual u16 getMaxVertCount(const bool& singleColorEnabled,
                               const u16& vu1DBufferSize) const;
 
+  static VU1Program& quantizedDecoder();
   void addBufferDataToPacket(packet2_t* packet, StaPipQBuffer* buffer,
                              prim_t* prim, const bool& emitState);
 
