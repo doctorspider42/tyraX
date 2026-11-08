@@ -28999,16 +28999,24 @@ void pollCommand() {
 
   editorAttached = true;
   cmdSeq = seq;
-  // Bit 7: a TEST of the crash path - stop the EE dead while the IOP lives
-  // on, which is what devlink's watchdog (docs/devlink.md, phase 5) exists to
-  // report. No editor UI sets it; a test script does. WARN, not LOG: a plain
-  // LOG would wait in devlink's buffer for a flush that never comes.
-  if (flags & (1U << 7)) {
+  // TESTS of the crash paths, asked for by a NEGATIVE step count - a value no
+  // editor command carries (every flag bit is taken: render cost is bit 7).
+  // No editor UI sends them; a test script does (docs/devlink.md, phase 5,
+  // and docs/ps2link-setup.md, "The reset wedge"). WARN, not LOG: a plain LOG
+  // would wait in devlink's buffer for a flush that never comes.
+  //   -7  stop the EE dead, interrupts off, while the IOP lives on;
+  //   -8  a real EE exception (a store to an odd address).
+  if (steps == -7) {
     TYRA_WARN("livedbg: hanging the EE on request (test)");
     DI();
     for (;;) {
     }
   }
+  if (steps == -8) {
+    TYRA_WARN("livedbg: raising an EE exception on request (test)");
+    *reinterpret_cast<volatile int*>(1) = 0;
+  }
+  if (steps < 0) steps = 0;
   int watchc;
   memcpy(&watchc, c + 28, 4);
   if (watchc < 0 || watchc > MAX_WATCH) watchc = 0;

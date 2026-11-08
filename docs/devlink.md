@@ -292,8 +292,12 @@ editor's pusher does:
 - **Mirrors (3, in):** that capture pushed back as `livetime.rst` in `TXFP`
   chunks produced `Time machine: restored capture 3` - read from the RAM
   mirror the IOP filled, and logged over devlink as well.
-- **Watchdog (5):** a debug-command bit (7, test only) stops the EE with
-  interrupts off. 3 s later: `devlink: the console's IOP reports the game
+- **Watchdog (5):** a test command (a debugger command with step count -7;
+  -8 raises a real EE exception instead - test scripts only, no editor UI)
+  stops the EE with interrupts off. (The first version used flag bit 7, which
+  is the render-cost capture: clicking *Render cost* would have hung the game.
+  Every flag bit is taken; a negative step count is a value no editor command
+  carries.) 3 s later: `devlink: the console's IOP reports the game
   silent for 3 s - it crashed or hung (the IOP and the network are still up)`.
   On the same stop the console printed `freepad: DMA Busy` - the message of the
   ps2link reset wedge, reproduced on demand: it means exactly "the EE stopped
