@@ -299,9 +299,19 @@ editor's pusher does:
   ps2link reset wedge, reproduced on demand: it means exactly "the EE stopped
   taking SIF0" (docs/ps2link-setup.md, "The reset wedge").
 
-Not covered yet: the editor's GUI driving a console end to end (the pusher and
-the debugger panel are exercised by script equivalents), and an audio check
-with music while devlink is busy.
+### The editor GUI and audio (2026-11-08)
+
+- **GUI end to end:** the editor itself, driven by `--ui-script` with the run
+  target on PS2: F6 deployed, F10 paused (`Paused by you, at frame 5 816`, the
+  status chip `DBG halted @ 5816`, 50.0 / 50.0 fps), F11 stepped exactly one
+  frame (5 817), F10 resumed, and a click on the Remote Pad's Cross reached the
+  game (`devlink: first Remote Pad state arrived`) - every command from the
+  real panels, over devlink.
+- **Audio:** a copy of a music project streaming its song over ps2link, with
+  the debugger attached over devlink for 90 s: the user heard it clean, and
+  the debug build's `Music ring ran low` warning never fired. The debugger's
+  reports came at 2.6 a second instead of 8.3 while the song streamed - the
+  devlink thread runs below audsrv and yields, which is the design.
 
 ### Testing devlink without the console
 
