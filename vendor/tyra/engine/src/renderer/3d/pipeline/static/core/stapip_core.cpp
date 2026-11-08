@@ -607,8 +607,8 @@ bool StaPipCore::canPackGeometry(const StaPipBag& bag) {
 void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception,
                         u8 recordVis) {
   if (bag->packedMesh) {
-    // The recorded/stamp paths take float pointers and cache V4-32 bodies.
-    // Keep draw order, then submit this mesh through the same VIF1 frame queue.
+    // Recording and stamps take float pointers. Finish their queued draws,
+    // then build the packed packet in order, in the same submission scope.
     flushDeferred();
     renderNow(bag, reception);
     return;
@@ -1434,6 +1434,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
                             qbufferRenderer.getBufferSize() >= VU1_STAPIP_QUANT_META_ADDR + 2 &&
                             bag->packedMesh->isQuantized() &&
                             StaPipPackedMesh::isVuDecodeEnabled();
+  const bool optimizePacked = nativePacked && packedSubmissionOptimizations;
   u32 maxVertCount = stockPacked ? StaPipPackedMesh::kSliceVertices
                                   : pre ? pre->maxVertCount : getMaxVertCountByBag(bag);
   TYRA_ATTRIB_ADD(bdSizeTicks, attribSizeStart);
@@ -1628,10 +1629,13 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   const bool partialCandidate =
       partialBatch && frustumCull && frustumCheck == PARTIALLY_IN_FRUSTUM &&
       qbufferRenderer.isVU1ClippingEnabled();
-  const bool cheapBatchCandidate =
-      !packed && batchScope && bag->billboard == nullptr &&
-      ((directBag && bag->count <= maxVertCount * 15) || partialCandidate) &&
-      !qbufferRenderer.hasProgramOverrides();
+  // A native package needs up to nine command qwords and one kick. Twelve
+  // packages plus object data and END fit the existing per-bag reservation.
+  const bool cheapBatchCandidate = batchScope &&
+      (packed ? (optimizePacked && bag->count <= maxVertCount * 12)
+              : (bag->billboard == nullptr &&
+                 ((directBag && bag->count <= maxVertCount * 15) || partialCandidate) &&
+                 !qbufferRenderer.hasProgramOverrides()));
   bool residentTexture = true;
   bool repeatTexture = true;
   if (cheapBatchCandidate && hasTexture) {
@@ -1822,6 +1826,9 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
     auto& mesh = *bag->packedMesh;
     if (nativePacked) mesh.registerForDraw();
     constexpr u32 sliceSize = StaPipPackedMesh::kSliceVertices;
+    const bool retainPacked = optimizePacked &&
+        qbufferRenderer.beginRetainedBag(bag, sliceSize, true);
+    bool submittedSlice = false;
     const auto recordSlice = [&](u32 count, u8 mask, CoreBBoxFrustum route) {
       if (!telemetryEnabled) return;
       StaPipBagPackage package;
@@ -1852,13 +1859,18 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
         const u8 clipMask = mask & 0x3F;
         recordSlice(count, clipMask, mask ? PARTIALLY_IN_FRUSTUM : IN_FRUSTUM);
         auto* buffer = qbufferRenderer.getBuffer();
+        submittedSlice = true;
         buffer->fillByPacked(bag, first, count, nativePacked);
         buffer->clipPlaneMask = clipMask;
+        // Clip packets encode a live plane mask and a different draw target.
+        if (retainPacked && !mask) buffer->retainIndex = at / sliceSize;
         if (mask) qbufferRenderer.clip(buffer);
         else qbufferRenderer.cull(buffer);
       }
     }
+    if (!submittedSlice) qbufferRenderer.getBuffer()->size = 0;
     qbufferRenderer.flushBuffers();
+    if (retainPacked) qbufferRenderer.endRetainedBag();
     if (telemetryEnabled)
       telemetry.dispatchTicks += readCoreTelemetryTicks() - dispatchStart;
     TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);

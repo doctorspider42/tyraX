@@ -8,6 +8,11 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.18.1
+
+- Small VU1-decoded procedural meshes can share a VIF1 submission. The
+  renderer reuses their cull commands within the existing EE cache budget.
+
 ## 2.18.0
 
 - Eligible quantized procedural meshes now unpack on VU1. The renderer keeps

@@ -8,6 +8,13 @@ fifteen quadwords of VU1 clipping constants. Only the MVP matrix, the picked
 dynamic light and the frustum classification are genuinely per-frame, and those
 stay per-frame. Everything else is **captured once and replayed with a memcpy**.
 
+Native 16/16/8 draws use the same cache for cull packages. Each slot holds up
+to nine command quadwords under the same 128 KiB budget. Its REF tags still
+point into the immutable packed mesh. The key includes the mesh generation,
+draw entry address, primitive state and output scales. Clipped packages
+build their live plane masks and commands as they draw. The EE decoder's
+temporary slices continue through the normal copy-pool path.
+
 It is an EE change and only an EE change: the packet that reaches VIF1 is
 byte-for-byte what it was, so the picture, the VU1 microprograms, the GIF stream
 and the submission count are all unchanged by construction.

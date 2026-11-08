@@ -430,6 +430,36 @@ and still spent 1.220 ms more than the ordinary draw path. The median frame
 period stayed at 16.683 ms across all three paths. Quantization remains
 opt-in.
 
+#### Packed submission batching and retention
+
+A follow-up used one debug ELF on the same PS2 and camera sweep. It
+interleaved four rounds of ordinary draws, quantized EE decoding, the
+original VU1 submission, and VU1 submission with batching and retained
+commands. Each block ran 120 frames and discarded its first 20. All four
+arms averaged about 908 selected vertices per frame. Selection counts
+describe submitted mesh requests before package culling.
+
+| Path | Frame median | Frame p95 | Work median | Work p95 | Frames over 25 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ordinary | 16.702 ms | 32.675 ms | 8.264 ms | 23.502 ms | 57 |
+| Quantized, EE | 16.703 ms | 31.231 ms | 9.759 ms | 24.441 ms | 53 |
+| Quantized, original VU1 submission | 16.701 ms | 31.542 ms | 9.411 ms | 23.344 ms | 58 |
+| Quantized, batched and retained VU1 submission | 16.710 ms | 31.846 ms | 9.304 ms | 23.600 ms | 65 |
+
+Batching and retention recovered **0.107 ms** of median work in the
+same-ELF comparison, about 9% of the previously observed 1.220 ms gap.
+The new gap versus ordinary draws was 1.040 ms. The median frame period
+held at about 16.7 ms. The tail showed no improvement, and mean work was
+effectively flat (11.685 to 11.700 ms). The benchmark covers an authored
+mesh subset in the full scene with both geometry copies resident.
+
+The same-ELF PCSX2 cube check found zero changed pixels in the parked
+and doorway views. With batching and retention enabled, it recorded
+70,392 retained hits, a 38,880-byte command payload cache, and 41,792 fewer
+free EE bytes at frame 600 than the original VU1 submission.
+
+[Raw PS2 samples and ELF hash](../tools/ps2rig/bench/results/packed-submission/)
+
 ### Generation capacity
 
 A merged chunk reserves exact space for its first unmasked model in each of

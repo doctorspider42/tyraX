@@ -24436,6 +24436,9 @@ void TerrainGame::renderProcChunks() {
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerProcedural);
 #endif
   if (procChunks.empty()) return;
+#if defined(TYRAX_QUANTIZED_PROCEDURAL) && TYRAX_QUANTIZED_PROCEDURAL
+  stapip.core.beginSubmissionBatch();
+#endif
 #if TYRA_STAPIP_RECORD_LISTS
   syncProcRecords(roadRecs, procRecs, false);
   Tyra::StaPipRecordView v;
@@ -24448,6 +24451,9 @@ void TerrainGame::renderProcChunks() {
     renderWorldBag(procRecs.bag(recVisible[k]), recVis(procRecs, recVisible[k]));
 #else
   renderProcChunksLegacy();
+#endif
+#if defined(TYRAX_QUANTIZED_PROCEDURAL) && TYRAX_QUANTIZED_PROCEDURAL
+  stapip.core.endSubmissionBatch();
 #endif
 }
 

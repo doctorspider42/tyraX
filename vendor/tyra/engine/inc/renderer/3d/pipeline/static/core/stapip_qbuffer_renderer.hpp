@@ -320,6 +320,9 @@ struct StaPipRetainedEntry {
   u32 bboxVersion;
   u32 primKey;
   u32 depthScaleBits;
+  u32 screenScaleBits[2];
+  u16 programAddress;
+  u16 slotQw;
   u8 singleColor;
   u8 stripped;
 
@@ -327,8 +330,9 @@ struct StaPipRetainedEntry {
   u16 packages;
   /** Qwords per package block. 0 until the first capture. */
   u16 blockQw;
-  /** packages * kMaxBlockQw quadwords; each package's block at its own slot. */
+  /** packages * slotQw quadwords; each package's block at its own slot. */
   std::unique_ptr<qword_t[]> data;
+  u32 storageQw() const { return static_cast<u32>(packages) * slotQw; }
   /** One byte per package: has that block been captured yet? (Modified by
    * TyraX: the block's emit-state flag is rewritten on every replay - see the
    * replay site in addBuffersDataToPacket.) */
@@ -355,6 +359,8 @@ class StaPipRetainedCommands {
    * capacity for every entry, not just the fat ones - a slot is reserved
    * before the first capture measures the block. */
   static const u16 kMaxBlockQw = 7;
+  // Scale/GIFtag (3), decoder metadata (3), and position/UV/color REFs (3).
+  static const u16 kPackedBlockQw = 9;
   /** ~128 KB of EE RAM, i.e. about 1170 VU1 packages - more than the Motor
    * District garage submits in a frame. The cap is a hard budget, not a hint:
    * when it binds, the least recently used entries are dropped to make room
@@ -1065,7 +1071,8 @@ class StaPipQBufferRenderer {
    * buffer points into the double-buffered slot pool, whose address is not a
    * property of the bag.
    */
-  bool beginRetainedBag(StaPipBag* bag, const u32& packageSize);
+  bool beginRetainedBag(StaPipBag* bag, const u32& packageSize,
+                        bool nativePacked = false);
   void endRetainedBag();
 
   /** TyraX diagnostics: how many package command blocks were replayed from

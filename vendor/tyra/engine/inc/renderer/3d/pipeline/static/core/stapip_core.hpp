@@ -49,6 +49,8 @@ enum class StaPipLightReception : u8 { FromInfo, Suppress };
 
 class StaPipCore {
  public:
+  /** Compare native packed submission with and without batching and retention. */
+  void setPackedSubmissionOptimizations(bool on) { packedSubmissionOptimizations = on; }
   /**
    * Modified by TyraX: bounded batching for caller-owned immutable bag
    * streams. Every begin must be paired with end; referenced streams remain
@@ -460,6 +462,7 @@ class StaPipCore {
   // command block? Set once per render() and read by the package loops.
   bool retainCurrentBag = false;
   bool telemetryEnabled = false;
+  bool packedSubmissionOptimizations = true;
   StaPipTelemetry telemetry;
   void recordPackage(const StaPipBagPackage& package,
                      const CoreBBoxFrustum& route);

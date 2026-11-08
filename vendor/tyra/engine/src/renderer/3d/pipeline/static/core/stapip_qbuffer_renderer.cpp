@@ -414,6 +414,9 @@ bool StaPipRetainedCommands::keyMatches(const StaPipRetainedEntry& a,
          a.count == b.count && a.maxVertCount == b.maxVertCount &&
          a.bboxVersion == b.bboxVersion && a.primKey == b.primKey &&
          a.depthScaleBits == b.depthScaleBits &&
+         a.screenScaleBits[0] == b.screenScaleBits[0] &&
+         a.screenScaleBits[1] == b.screenScaleBits[1] &&
+         a.programAddress == b.programAddress && a.slotQw == b.slotQw &&
          a.singleColor == b.singleColor && a.stripped == b.stripped;
 }
 
@@ -442,7 +445,7 @@ void StaPipRetainedCommands::onFrameEnd() {
   const auto newEnd = std::remove_if(
       storage.begin(), storage.end(), [&](const StaPipRetainedEntry& item) {
         if (item.framesLeftToDestroy > 0) return false;
-        freed += static_cast<u32>(item.packages) * kMaxBlockQw;
+        freed += item.storageQw();
         return true;
       });
   storage.erase(newEnd, storage.end());
@@ -479,8 +482,7 @@ bool StaPipRetainedCommands::evictFor(u32 wanted) {
       }
     }
     if (victim < 0) return false;
-    const u32 freed =
-        static_cast<u32>(storage[victim].packages) * kMaxBlockQw;
+    const u32 freed = storage[victim].storageQw();
     usedQwords -= freed < usedQwords ? freed : usedQwords;
     storage.erase(storage.begin() + victim);
     rebuildIndex();
@@ -503,9 +505,9 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
       // reallocated stream, a pipeline switch. Only the captured blocks are
       // thrown away; the storage is reused, or re-sized when the package count
       // moved with it.
-      if (item.packages != key.packages) {
-        const u32 had = static_cast<u32>(item.packages) * kMaxBlockQw;
-        const u32 wants = static_cast<u32>(key.packages) * kMaxBlockQw;
+      if (item.packages != key.packages || item.slotQw != key.slotQw) {
+        const u32 had = item.storageQw();
+        const u32 wants = key.storageQw();
         // A resize that does not fit is simply refused: the entry keeps its
         // old storage with every block invalidated, so this bag rebuilds until
         // room appears. Evicting here would have to consider evicting the very
@@ -516,6 +518,7 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
         item.data = std::unique_ptr<qword_t[]>(new qword_t[wants]);
         item.ready = std::unique_ptr<u8[]>(new u8[key.packages]);
         item.packages = key.packages;
+        item.slotQw = key.slotQw;
         usedQwords = usedQwords - had + wants;
       }
       const StaPipRetainedEntry& k = key;
@@ -527,6 +530,9 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
       item.bboxVersion = k.bboxVersion;
       item.primKey = k.primKey;
       item.depthScaleBits = k.depthScaleBits;
+      item.screenScaleBits[0] = k.screenScaleBits[0];
+      item.screenScaleBits[1] = k.screenScaleBits[1];
+      item.programAddress = k.programAddress;
       item.singleColor = k.singleColor;
       item.stripped = k.stripped;
       item.blockQw = 0;
@@ -536,7 +542,7 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
     index = item.nextInBucket;
   }
 
-  const u32 wanted = static_cast<u32>(key.packages) * kMaxBlockQw;
+  const u32 wanted = key.storageQw();
   if (key.packages == 0 || wanted > kMaxQwords) return nullptr;
   if (usedQwords + wanted > kMaxQwords && !evictFor(wanted)) return nullptr;
 
@@ -551,6 +557,10 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
   entry.bboxVersion = key.bboxVersion;
   entry.primKey = key.primKey;
   entry.depthScaleBits = key.depthScaleBits;
+  entry.screenScaleBits[0] = key.screenScaleBits[0];
+  entry.screenScaleBits[1] = key.screenScaleBits[1];
+  entry.programAddress = key.programAddress;
+  entry.slotQw = key.slotQw;
   entry.singleColor = key.singleColor;
   entry.stripped = key.stripped;
   entry.packages = key.packages;
@@ -2490,7 +2500,8 @@ void StaPipQBufferRenderer::clearLastProgramName() {
 #if TYRA_STAPIP_RETAINED_COMMANDS
 
 bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag* bag,
-                                             const u32& packageSize) {
+                                             const u32& packageSize,
+                                             bool nativePacked) {
   retainedCurrent = nullptr;
   if (bag == nullptr || packageSize == 0) return false;
   // A billboard bag expands centres on VU1 from a basis that changes every
@@ -2500,14 +2511,19 @@ bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag* bag,
   if (bag->billboard != nullptr || repository.hasAnyOverride()) return false;
 
   StaPipRetainedEntry key;
-  key.vertices = bag->vertices;
-  key.sts = bag->texture != nullptr ? bag->texture->coordinates : nullptr;
-  key.colors = bag->color->many;
+  key.vertices = nativePacked ? static_cast<const void*>(bag->packedMesh)
+                              : bag->vertices;
+  key.sts = !nativePacked && bag->texture ? bag->texture->coordinates : nullptr;
+  key.colors = nativePacked ? nullptr : bag->color->many;
   key.normals = bag->lighting != nullptr ? bag->lighting->normals : nullptr;
   key.program = getCullProgramByBag(bag);
   key.count = bag->count;
   key.maxVertCount = packageSize;
-  key.bboxVersion = bag->bboxVersion;
+  // A regenerated mesh can reuse the old object's address and DMA spans.
+  key.bboxVersion = nativePacked ? bag->packedMesh->getId() : bag->bboxVersion;
+  key.programAddress = nativePacked ? getCullProgramByBag(bag)->getDestinationAddress() : 0;
+  key.slotQw = nativePacked ? StaPipRetainedCommands::kPackedBlockQw
+                            : StaPipRetainedCommands::kMaxBlockQw;
   // The prim state reaches the block only through the GIFtag, so pack exactly
   // the fields that GIFtag reads. `mapping` is derived the way
   // addStandardBufferDataToPacket derives it, because prim->mapping still
@@ -2525,6 +2541,8 @@ bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag* bag,
   // framebuffer's colour depth, which a display-mode switch moves.
   const float depthScale = RendererCoreDepth::scale;
   memcpy(&key.depthScaleBits, &depthScale, sizeof(u32));
+  memcpy(&key.screenScaleBits[0], &RendererCoreDepth::screenScaleX, sizeof(u32));
+  memcpy(&key.screenScaleBits[1], &RendererCoreDepth::screenScaleY, sizeof(u32));
   key.singleColor = bag->color->single != nullptr ? 1 : 0;
   key.stripped = bag->stripped ? 1 : 0;
   key.packages =
@@ -2546,7 +2564,7 @@ u32 StaPipQBufferRenderer::getRetainedBytes() const {
 
 #else
 
-bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag*, const u32&) {
+bool StaPipQBufferRenderer::beginRetainedBag(StaPipBag*, const u32&, bool) {
   return false;
 }
 void StaPipQBufferRenderer::endRetainedBag() {}
@@ -6267,7 +6285,7 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
     if (retainable && entry->ready[retainIdx]) {
       appendChainQwords(currentPacket,
                         &entry->data[static_cast<u32>(retainIdx) *
-                                     StaPipRetainedCommands::kMaxBlockQw],
+                                     entry->slotQw],
                         entry->blockQw);
       // Modified by TyraX: re-flag the replayed header for THIS position in
       // the packet. Its packed count carries VU1_STAPIP_EMIT_STATE_FLAG -
@@ -6300,11 +6318,11 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
         // A block that does not fit, or that disagrees with the length this
         // bag's other packages produced, is simply never retained - the entry
         // keeps rebuilding, which is slower and always right.
-        if (blockQw > 0 && blockQw <= StaPipRetainedCommands::kMaxBlockQw &&
+        if (blockQw > 0 && blockQw <= entry->slotQw &&
             (entry->blockQw == 0 || entry->blockQw == blockQw)) {
           entry->blockQw = static_cast<u16>(blockQw);
           memcpy(&entry->data[static_cast<u32>(retainIdx) *
-                              StaPipRetainedCommands::kMaxBlockQw],
+                              entry->slotQw],
                  reinterpret_cast<const u8*>(currentPacket->base) +
                      blockStart * 16,
                  blockQw * 16);

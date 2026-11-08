@@ -3534,6 +3534,9 @@ void TerrainGame::renderProcChunks() {
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerProcedural);
 #endif
   if (procChunks.empty()) return;
+#if defined(TYRAX_QUANTIZED_PROCEDURAL) && TYRAX_QUANTIZED_PROCEDURAL
+  stapip.core.beginSubmissionBatch();
+#endif
   for (ProcChunk& c : procChunks) {
     // Roads have their own phase and profiler row. Keeping them here as well
     // used to make "Procedural" mean "mostly asphalt" and would double-draw
@@ -3562,5 +3565,8 @@ void TerrainGame::renderProcChunks() {
     if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
     renderWorldBag(c.bag.get());
   }
+#if defined(TYRAX_QUANTIZED_PROCEDURAL) && TYRAX_QUANTIZED_PROCEDURAL
+  stapip.core.endSubmissionBatch();
+#endif
 }
 }

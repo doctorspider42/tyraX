@@ -10,6 +10,7 @@
 
 #include "renderer/3d/pipeline/static/core/bag/stapip_bag.hpp"
 #include "renderer/core/paths/path1/vif1_queue.hpp"
+#include "renderer/models/unique_id.hpp"
 #include <sstream>
 #include <iomanip>
 
@@ -87,6 +88,7 @@ std::unique_ptr<StaPipPackedMesh> StaPipPackedMesh::build(
   }
   std::unique_ptr<StaPipPackedMesh> mesh(new (std::nothrow) StaPipPackedMesh());
   if (!mesh) return nullptr;
+  mesh->id = generateUniqueId();
   mesh->quantized = quantize;
   std::memcpy(mesh->gridBase, low, sizeof(low));
   const u32 xyzQw = paddedQuadwords(count * (quantize ? 8u : 12u));

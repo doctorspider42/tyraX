@@ -40,6 +40,8 @@ Position, texture and color precision stay at 32 bits by default. To try
 `CFLAGS += -DTYRAX_QUANTIZED_PROCEDURAL=1` in the game's `user.mk` and rebuild.
 TyraX2 decodes eligible quantized draws on VU1 and uses bounded EE scratch
 storage when the VU1 decoder is unavailable.
+The generated pass batches small native packed draws and retains their cull
+commands. Both reuse the existing renderer memory budgets.
 [Runtime mesh memory](../../docs/procedural-runtime.md#native-vif-storage)
 
 ## Why it is affordable

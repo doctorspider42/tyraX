@@ -5619,7 +5619,8 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
 #define TYRAX_VERSION_MINOR 18
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
+// 2.18.1: retain native packed draw commands and batch small packed bags.
 // 2.18.0: quantized procedural draws can decode directly in VU1 memory.
 // 2.17.0: experimental 16-bit position/UV and 8-bit RGB procedural storage.
 // 2.16.0: procedural chunks can keep compact streams for native VIF UNPACK.

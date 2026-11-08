@@ -75,6 +75,7 @@ class StaPipPackedMesh {
       bool quantize = false);
   ~StaPipPackedMesh();
   bool isQuantized() const { return quantized; }
+  u32 getId() const { return id; }
   /** Select the decoder for subsequent quantized draws. Useful for A/B tests. */
   static void setVuDecodeEnabled(bool enabled) { vuDecodeEnabled = enabled; }
   static bool isVuDecodeEnabled() { return vuDecodeEnabled; }
@@ -94,6 +95,7 @@ class StaPipPackedMesh {
   std::unique_ptr<Quadword[]> data;
   std::unique_ptr<Bounds[]> slices;
   CoreBBox whole;
+  u32 id = 0;
   u32 quadwords = 0, stStart = 0, colorStart = 0, sliceCount = 0;
   s32 gridBase[5] = {};
   bool quantized = false, submitted = false;
