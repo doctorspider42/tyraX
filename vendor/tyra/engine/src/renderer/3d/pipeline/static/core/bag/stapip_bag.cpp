@@ -56,7 +56,7 @@ StaPipBag::~StaPipBag() { releaseImmutableStreams(); }
 
 std::unique_ptr<StaPipPackedMesh> StaPipPackedMesh::build(
     const Vec4* vertices, const Color* colors, const Vec4* sts, u32 count,
-    bool quantize, bool nativeUnpack) {
+    bool quantize) {
   if (!vertices || !colors || !count || count % 3u) return nullptr;
   s32 low[5] = {}, high[5] = {};
   const u32 axes = sts ? 5u : 3u;
@@ -88,11 +88,10 @@ std::unique_ptr<StaPipPackedMesh> StaPipPackedMesh::build(
   std::unique_ptr<StaPipPackedMesh> mesh(new (std::nothrow) StaPipPackedMesh());
   if (!mesh) return nullptr;
   mesh->quantized = quantize;
-  mesh->nativeUnpack = nativeUnpack && !quantize;
   std::memcpy(mesh->gridBase, low, sizeof(low));
-  const u32 xyzQw = paddedQuadwords(count * (quantize ? 6u : 12u));
+  const u32 xyzQw = paddedQuadwords(count * (quantize ? 8u : 12u));
   const u32 stQw = sts ? paddedQuadwords(count * (quantize ? 4u : 8u)) : 0;
-  const u32 rgbQw = paddedQuadwords(count * (quantize ? 3u : 12u));
+  const u32 rgbQw = paddedQuadwords(count * (quantize ? 4u : 12u));
   mesh->stStart = xyzQw;
   mesh->colorStart = xyzQw + stQw;
   mesh->quadwords = xyzQw + stQw + rgbQw;
@@ -125,10 +124,12 @@ std::unique_ptr<StaPipPackedMesh> StaPipPackedMesh::build(
                               sts ? sts[i].y * kTextureGrid : 0.0F};
       for (u32 k = 0; k < axes; ++k)
         offsets[k] = static_cast<u16>(gridPoint(scaled[k]) - low[k]);
-      std::memcpy(xyz + i * 6u, offsets, 6);
+      const u16 position[] = {offsets[0], offsets[1], offsets[2], 4096};
+      std::memcpy(xyz + i * 8u, position, sizeof(position));
       if (sts) std::memcpy(st + i * 4u, offsets + 3, 4);
       for (u32 k = 0; k < 3; ++k)
-        rgb[i * 3u + k] = static_cast<u8>(colors[i].rgba[k] + 0.5F);
+        rgb[i * 4u + k] = static_cast<u8>(colors[i].rgba[k] + 0.5F);
+      rgb[i * 4u + 3] = 128;
       pos = Vec4((low[0] + offsets[0]) / kPositionGrid,
                  (low[1] + offsets[1]) / kPositionGrid,
                  (low[2] + offsets[2]) / kPositionGrid, 1.0F);
@@ -151,16 +152,16 @@ std::unique_ptr<StaPipPackedMesh> StaPipPackedMesh::build(
 void StaPipPackedMesh::decode(u32 offset, u32 count, Vec4* xyz,
                               Vec4* rgb, Vec4* st) const {
   if (quantized) {
-    const auto* pos = reinterpret_cast<const u8*>(data.get()) + offset * 6u;
-    const auto* col = reinterpret_cast<const u8*>(data.get() + colorStart) + offset * 3u;
+    const auto* pos = reinterpret_cast<const u8*>(data.get()) + offset * 8u;
+    const auto* col = reinterpret_cast<const u8*>(data.get() + colorStart) + offset * 4u;
     const auto* uv = reinterpret_cast<const u8*>(data.get() + stStart) + offset * 4u;
     for (u32 i = 0; i < count; ++i) {
       u16 p[3];
-      std::memcpy(p, pos + i * 6u, 6);
+      std::memcpy(p, pos + i * 8u, 6);
       xyz[i] = Vec4((gridBase[0] + p[0]) / kPositionGrid,
                     (gridBase[1] + p[1]) / kPositionGrid,
                     (gridBase[2] + p[2]) / kPositionGrid, 1.0F);
-      rgb[i] = Vec4(col[i * 3u], col[i * 3u + 1u], col[i * 3u + 2u], 128.0F);
+      rgb[i] = Vec4(col[i * 4u], col[i * 4u + 1u], col[i * 4u + 2u], 128.0F);
       if (st) {
         u16 t[2];
         std::memcpy(t, uv + i * 4u, 4);
@@ -184,6 +185,17 @@ void StaPipPackedMesh::decode(u32 offset, u32 count, Vec4* xyz,
       st[i].w = 0.0F;
     }
   }
+}
+
+bool StaPipPackedMesh::vuDecodeEnabled = true;
+
+Vec4 StaPipPackedMesh::positionBase() const {
+  return Vec4(gridBase[0] / kPositionGrid, gridBase[1] / kPositionGrid,
+              gridBase[2] / kPositionGrid, 4.0F);
+}
+
+Vec4 StaPipPackedMesh::texcoordBase() const {
+  return Vec4(gridBase[3] / kTextureGrid, gridBase[4] / kTextureGrid, 0.0F, 0.0F);
 }
 
 void StaPipPackedMesh::registerForDraw() {

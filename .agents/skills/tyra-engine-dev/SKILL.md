@@ -30,6 +30,7 @@ No manual engine build: the Runner (`src/runner.cpp`) rebuilds it on every game 
 - **Native (default)**: `tools/toolchain/native-build.sh`/`.ps1` syncs the engine into `<configDir>/native-build/<engineVolumeName>` (`~/.config/tyra-editor` or `%LOCALAPPDATA%`), builds with pinned PS2DEV + openvcl; a toolchain stamp invalidates stale objects.
 - **Docker fallback** (`--docker`, Sony `vcl`): `vendor/tyra` mounted read-only at `/engine-src`, checksum-rsynced into shared external volume `tyra-engine-<hash>` at `/tyra`; changed → `libtyra` rebuilt once, ELF relinked.
 - VU1 microprograms rebuild only when a `.vclpp/.vcl/.vsm/.i/.h` changed (full set 109 s; a `.cpp` edit ~7 s). `--build --rebuild` throws away the compiled engine incl. VU objects — required after compiler-flag or toolchain-image changes.
+- Quantized procedural triangle lists use a standalone VU1 decoder in front of the stock cull or clip entry. Compare against EE decoding in one ELF via `StaPipPackedMesh::setVuDecodeEnabled`. The packet and fallback are documented in [procedural runtime](../../../docs/procedural-runtime.md#native-vif-storage).
 - `vendor/tyra/Makefile.base` is shared by engine AND every generated game (`-G0`, `RESDIR_SKIP`, `src/vu*/` host-code exclusion). Details/traps: references/build-and-toolchain.md.
 - Engine code cannot be compiled on the host; even a syntax check needs a game build (tyra-testing skill).
 

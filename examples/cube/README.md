@@ -38,6 +38,8 @@ The completed procedural chunks release their expanded arrays after packing.
 Position, texture and color precision stay at 32 bits by default. To try
 16-bit position and UV offsets with 8-bit RGB, put
 `CFLAGS += -DTYRAX_QUANTIZED_PROCEDURAL=1` in the game's `user.mk` and rebuild.
+TyraX2 decodes eligible quantized draws on VU1 and uses bounded EE scratch
+storage when the VU1 decoder is unavailable.
 [Runtime mesh memory](../../docs/procedural-runtime.md#native-vif-storage)
 
 ## Why it is affordable

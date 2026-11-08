@@ -844,9 +844,6 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
 #ifndef TYRAX_QUANTIZED_PROCEDURAL
 #define TYRAX_QUANTIZED_PROCEDURAL 0
 #endif
-#ifndef TYRAX_NATIVE_PACKED_PROCEDURAL
-#define TYRAX_NATIVE_PACKED_PROCEDURAL 0
-#endif
   // This volume replaces its chunks wholesale when regenerated. Roads,
   // explicitly spawned prefabs and chunks that baked lamps can recolor keep
   // their editable arrays.
@@ -861,8 +858,7 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
       const auto& sts = std::as_const(c.sts);
       c.packed = Tyra::StaPipPackedMesh::build(
           vertices.data(), colors.data(), c.bag->texture ? sts.data() : nullptr,
-          c.bag->count, TYRAX_QUANTIZED_PROCEDURAL != 0,
-          TYRAX_NATIVE_PACKED_PROCEDURAL != 0);
+          c.bag->count, TYRAX_QUANTIZED_PROCEDURAL != 0);
       if (!c.packed) continue;
       if (c.packed->isQuantized()) {
         ++quantizedCount;

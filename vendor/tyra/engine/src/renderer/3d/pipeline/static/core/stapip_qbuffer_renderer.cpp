@@ -2014,7 +2014,7 @@ void StaPipQBufferRenderer::setProgramsCache() {
   // as_is twin - and a class the project never draws can be dropped to buy
   // micro memory for a program the user wrote. Every class is kept unless a
   // game says otherwise, so this is the old hardcoded ten by default.
-  VU1Program* programs[12];  // ten class programs + the two billboards
+  VU1Program* programs[13];  // ten class programs, two billboards, one decoder
   u32 count = 0;
   const struct {
     u32 bit;
@@ -2056,6 +2056,10 @@ void StaPipQBufferRenderer::setProgramsCache() {
     programs[count++] = billboardPrograms[0];
     programs[count++] = billboardPrograms[1];
   }
+  auto& decoder = StaPipVU1Program::quantizedDecoder();
+  quantizedDecoderResident = vu1Clipping &&
+      programSetWords(programs, count) + decoder.getProgramSize() <= path1->getDrawFinishAddr();
+  if (quantizedDecoderResident) programs[count++] = &decoder;
   programsPacket = path1->createProgramsCache(programs, count, 0);
 
   // createProgramsCache assigns each program's micro-memory address, so the
@@ -6322,7 +6326,12 @@ void StaPipQBufferRenderer::addBuffersDataToPacket(const u32& from,
 
     Verbose("Send ", program->getStringName(), "[", i, "]: ", buffers[i]->size);
 
-    if (lastProgramName != program->getName()) {
+    if (buffers[i]->nativePacked) {
+      // The decoder jumps to the selected draw entry within this MSCAL.
+      packet2_utils_vu_add_start_program(
+          currentPacket, StaPipVU1Program::quantizedDecoder().getDestinationAddress());
+      lastProgramName = program->getName();
+    } else if (lastProgramName != program->getName()) {
       packet2_utils_vu_add_start_program(currentPacket,
                                          program->getDestinationAddress());
       lastProgramName = program->getName();

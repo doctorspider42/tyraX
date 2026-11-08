@@ -8,6 +8,12 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.18.0
+
+- Eligible quantized procedural meshes now unpack on VU1. The renderer keeps
+  bounded EE decoding for unsupported draws and removes the experimental
+  masked VIF route for 32-bit packed meshes.
+
 ## 2.17.0
 
 - Added opt-in 16-bit positions and UVs with 8-bit RGB for generated

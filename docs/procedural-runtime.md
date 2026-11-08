@@ -366,8 +366,9 @@ corners for culling. Roads, standalone prefabs, strips and scenes that
 relight chunks through baked static lamps keep their editable arrays.
 
 Set `CFLAGS += -DTYRAX_QUANTIZED_PROCEDURAL=1` in the game's `user.mk` to use
-16-bit unsigned position and UV offsets and 8-bit RGB. This takes 13
-payload bytes per textured vertex or 9 per untextured vertex. Positions
+16-bit unsigned position and UV offsets and 8-bit RGB. This takes 16
+payload bytes per textured vertex or 12 per untextured vertex, including
+the homogeneous position component and alpha for aligned VIF input. Positions
 round to a shared 1/1024-unit lattice and UVs to a shared 1/4096 lattice.
 Chunks use local integer origins on those lattices, so matching source
 edges round together across chunks. The 16-bit range covers a span of
@@ -375,21 +376,22 @@ roughly 64 units per position axis and 16 units per UV axis. A stream
 outside the supported range keeps the 32-bit representation. Runtime
 culling includes rounded positions.
 
-Both formats decode one slice into the existing qbuffer pool before VU1
-submission. The runtime releases the expanded geometry after packing, and
-TyraX2 remains active. Set `CFLAGS += -DTYRAX_PACKED_PROCEDURAL=0` to compare
-with ordinary storage.
-
-The direct masked VIF UNPACK experiment is available for 32-bit streams
-with `CFLAGS += -DTYRAX_NATIVE_PACKED_PROCEDURAL=1`. It restores position W,
-texture Z/W and alpha without expanding on the EE. It passed the PCSX2
-software-renderer checks, but a physical PS2 stopped advancing when the
-test switched to this route after rebuilding the cube. The experiment is
-off by default pending hardware validation.
+VIF writes quantized lanes directly to the current TOPS buffer. Each
+`V4_16` UV vector holds two pairs. A physical PS2 stopped with one element
+left in the earlier `V2_16` UV transfer, before the decoder started.
+A shared VU1 decoder expands the streams and jumps to the stock cull or
+clip entry inside the same kick. If that decoder does not fit in micro memory or the
+draw cannot use it, the EE expands one slice into the existing qbuffer pool.
+The 32-bit layout always uses that EE route. The runtime releases the
+expanded geometry after packing. Set `CFLAGS += -DTYRAX_PACKED_PROCEDURAL=0`
+to compare with ordinary storage. In a test build,
+`Tyra::StaPipPackedMesh::setVuDecodeEnabled(false)` selects EE decoding of
+the same quantized mesh at runtime.
 
 ### Quantization A/B
 
-The same debug ELF ran 81 cube chunks and 123,768 vertices in both formats,
+The original 13/9-byte EE-only experiment ran 81 cube chunks and 123,768
+vertices in both formats from one debug ELF,
 using the same seed, camera and qbuffer decoder. The PCSX2 software renderer
 showed 2,273,616 additional free EE bytes after generation and at frame 600
 with quantization. GS free space was the same. The 99th percentile of the
@@ -398,6 +400,35 @@ maximum RGB channel error per pixel was 2 in both 512-by-512 captures.
 8 in any channel. The physical PS2 completed both modes in one boot and
 produced captures before and after regeneration. Its parked view also
 differed by more than 8 at 201 pixels, with the same 99th percentile.
+
+With aligned quantized streams, the same cube ELF selected EE or VU1
+decoding at startup. The PCSX2 software renderer produced identical images
+at frame 60 and at the doorway. At frame 600, the VU1 run had 597,520 more
+free EE bytes than the EE-decoding run. Both retained the same mesh format.
+
+### Motor District frame time
+
+A single debug ELF ran on a physical PS2 in 60 Hz progressive mode. It
+repeated the same camera sweep in Motor District with ordinary draws,
+quantized draws decoded on EE, and the same quantized draws decoded on VU1.
+The main scene has no runtime procedural volumes, so the fixture selected
+eligible authored mesh draws and kept both copies. About 833 submitted
+vertices per frame were selected in the settled rounds. These samples
+measure that subset in the full scene and do not measure its RAM savings.
+
+| Path | Frame median | Frame p95 | Work median | Work p95 | Frames over 25 ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Ordinary | 16.683 ms | 22.051 ms | 8.158 ms | 14.527 ms | 4 |
+| Quantized, EE | 16.683 ms | 19.828 ms | 9.833 ms | 13.898 ms | 2 |
+| Quantized, VU1 | 16.683 ms | 22.244 ms | 9.378 ms | 14.841 ms | 5 |
+
+The table uses the two settled rounds, 200 measured frames per path.
+The ELF also recorded the first round, for 900 samples in total. Work
+subtracts the renderer's recorded stalls from the frame period. VU1
+recovered 0.455 ms of median work versus EE decoding in the settled rounds
+and still spent 1.220 ms more than the ordinary draw path. The median frame
+period stayed at 16.683 ms across all three paths. Quantization remains
+opt-in.
 
 ### Generation capacity
 

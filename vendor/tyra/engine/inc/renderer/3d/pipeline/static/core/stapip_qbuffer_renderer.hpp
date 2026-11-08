@@ -885,6 +885,7 @@ class StaPipQBufferRenderer {
   void setProgramOverrides(const StaPipProgramName* names,
                            StaPipVU1Program* const* programs, u32 count);
   const bool& isVU1ClippingEnabled() const { return vu1Clipping; }
+  bool hasQuantizedDecoder() const { return quantizedDecoderResident; }
 
   /** Paint eligibility, NOT a request to silently discard paint at draw time.
    * Query before preparing the EE/VU representation. Rejected requests assert
@@ -1270,6 +1271,7 @@ class StaPipQBufferRenderer {
   // beside the resident set - billboardsResident says which case this is.
   packet2_t* billboardProgramsPacket;
   bool billboardSetActive = false;
+  bool quantizedDecoderResident = false;
   bool billboardsResident = false;
 
   packet2_t** packets;

@@ -90,6 +90,9 @@
 
 // Buffer data (xtop)
 #define VU1_STAPIP_VERT_DATA_ADDR 2
+// Modified by TyraX: two TOPS-relative decoder inputs below the half limit.
+#define VU1_STAPIP_QUANT_META_ADDR 450
+#define VU1_STAPIP_QUANT_UV_ADDR 224
 
 // The clip family packs its conservative six-plane mask into the unused high
 // bits of the 16-bit vertex-count word. Counts are always far below 1024.

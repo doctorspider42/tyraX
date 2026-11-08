@@ -63,8 +63,8 @@ struct StaPipBagPatch {
  * Supports frustum culling, full plane clipping, lighting,
  * texture and single color / many colors.
  */
-// Modified by TyraX: immutable, DMA-aligned mesh storage. Only the 32-bit
-// layout can be used directly by VIF. The EE keeps two bounds corners per slice.
+// Modified by TyraX: immutable mesh storage. The quantized streams are aligned
+// for direct VIF UNPACK. The EE keeps two bounds corners per slice.
 class StaPipPackedMesh {
  public:
   static constexpr u32 kSliceVertices = 72;  // triangle lists, 16-byte stream offsets
@@ -72,15 +72,19 @@ class StaPipPackedMesh {
 
   static std::unique_ptr<StaPipPackedMesh> build(
       const Vec4* vertices, const Color* colors, const Vec4* sts, u32 count,
-      bool quantize = false, bool nativeUnpack = false);
+      bool quantize = false);
   ~StaPipPackedMesh();
   bool isQuantized() const { return quantized; }
-  bool usesNativeUnpack() const { return nativeUnpack; }
+  /** Select the decoder for subsequent quantized draws. Useful for A/B tests. */
+  static void setVuDecodeEnabled(bool enabled) { vuDecodeEnabled = enabled; }
+  static bool isVuDecodeEnabled() { return vuDecodeEnabled; }
+  const void* quantizedPositions(u32 offset) const { return data.get() + offset / 2u; }
+  const void* quantizedTexcoords(u32 offset) const { return data.get() + stStart + offset / 4u; }
+  const void* quantizedColors(u32 offset) const { return data.get() + colorStart + offset / 4u; }
+  Vec4 positionBase() const;
+  Vec4 texcoordBase() const;
   void registerForDraw();
   void decode(u32 offset, u32 count, Vec4* xyz, Vec4* rgb, Vec4* st) const;
-  const void* positions(u32 offset) const { return data.get() + offset * 3u / 4u; }
-  const void* texcoords(u32 offset) const { return data.get() + stStart + offset / 2u; }
-  const void* colors(u32 offset) const { return data.get() + colorStart + offset * 3u / 4u; }
   const Bounds& bounds(u32 slice) const { return slices[slice]; }
   const CoreBBox& mainBounds() const { return whole; }
   u32 bytes() const { return quadwords * 16u + sliceCount * sizeof(Bounds); }
@@ -92,7 +96,8 @@ class StaPipPackedMesh {
   CoreBBox whole;
   u32 quadwords = 0, stStart = 0, colorStart = 0, sliceCount = 0;
   s32 gridBase[5] = {};
-  bool quantized = false, nativeUnpack = false, submitted = false;
+  bool quantized = false, submitted = false;
+  static bool vuDecodeEnabled;
 };
 
 class StaPipBag {
@@ -112,7 +117,7 @@ class StaPipBag {
   /** Mandatory. Vertices. */
   Vec4* vertices;
 
-  /** Optional native VIF input for immutable position/UV/color lists. */
+  /** Optional compact input for immutable position/UV/color lists. */
   StaPipPackedMesh* packedMesh = nullptr;
 
   /** Optional. Texture coordinates and image. */
