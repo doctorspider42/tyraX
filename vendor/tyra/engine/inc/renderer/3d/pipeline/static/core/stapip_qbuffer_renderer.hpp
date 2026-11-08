@@ -5,7 +5,7 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Sandro SobczyĹ„ski <sandro.sobczynski@gmail.com>
 # Modified by TyraX: the stamp record and the stamp pass (TYRA_STAPIP_STAMP_PASS).
 */
 
@@ -629,9 +629,9 @@ class StaPipBakedStreams {
 
   StaPipBakedEntry* acquire(const StaPipBakedEntry& key,
                             const StaPipBagPatch* patch = nullptr);
-  /** Charge the budget for a finished arena. False means it does not fit even
-   * after eviction, and the caller abandons the bake for now. */
-  bool reserve(u32 qwords);
+  /** Allocate and charge a completed arena, or let the caller use the regular draw path. */
+  std::unique_ptr<u8[]> allocateArena(u32 qwords);
+  void discardUnpublishedArena(u32 qwords) { usedQwords -= qwords; }
   /** Modified by TyraX: `retire` for an arena already detached from its
    * entry (the old arena of a patch rebake). */
   void retireArena(std::unique_ptr<u8[]> raw, qword_t* arena, u32 qw);
@@ -749,7 +749,10 @@ class StaPipBakedStreams {
   struct RetiredArena {
     std::unique_ptr<u8[]> raw;
     void* arena;
+    u32 qwords;
   };
+  u32 retiredQwords = 0;
+  bool lowHeadroom = false;
   std::vector<RetiredArena> graveyard[2];
   u8 graveyardWrite = 0;
   int indexBuckets[kBucketCount];

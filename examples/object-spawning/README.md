@@ -17,6 +17,10 @@ You spawn facing an empty patch of ground. Every few seconds an animated
 seconds, then vanishes — on repeat. Nothing is placed there in the editor;
 the wobbler you see is a live clone.
 
+Spawning uses the live PS2 heap. If there is too little headroom for another
+instance, **Spawn Object** returns an invalid handle (`-1`) and leaves the
+slot free. Scripts can despawn distant actors or retry on a later tick.
+
 ## How it is wired
 
 The scene has three pieces:

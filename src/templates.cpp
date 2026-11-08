@@ -1802,6 +1802,8 @@ class TerrainGame : public Tyra::Game {
   int resolveClipIndex(int objectIndex, const char* clipName) const;
   // Dynamic spawning for scripts/flow graph (ScriptContext::spawnObject /
   // despawnObject): clone an authored object into the spawn pool / free it.
+  size_t estimateObjectMemory(const SceneObjectData& data) const;
+  size_t pendingSpawnMemory() const;
   int spawnObjectAt(int templateIndex, float x, float y, float z, float yaw);
   // Prefabs and runtime procedural volumes reach the graphs the same way, so
   // their verbs live next to the spawn pool's: public because ScriptContext's
@@ -4019,6 +4021,8 @@ class TerrainGame : public Tyra::Game {
   int resolveClipIndex(int objectIndex, const char* clipName) const;
   // Dynamic spawning for scripts/flow graph (ScriptContext::spawnObject /
   // despawnObject): clone an authored object into the spawn pool / free it.
+  size_t estimateObjectMemory(const SceneObjectData& data) const;
+  size_t pendingSpawnMemory() const;
   int spawnObjectAt(int templateIndex, float x, float y, float z, float yaw);
   // Prefabs and runtime procedural volumes reach the graphs the same way, so
   // their verbs live next to the spawn pool's: public because ScriptContext's

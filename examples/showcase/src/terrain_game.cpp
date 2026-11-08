@@ -2236,6 +2236,40 @@ void TerrainGame::deactivateObject(int i) {
 // pinned by applyLayerResidency while it lives, and a clone spawned before
 // its model streamed in re-arms its geometry when the asset lands
 // (processOneStreamJob).
+// Admission estimates cover per-instance geometry that can be built later
+// in the frame. Asset decoding and arbitrary script allocations have their
+// own working sets; these estimates are a guard, not a heap reservation.
+size_t TerrainGame::estimateObjectMemory(const SceneObjectData& d) const {
+  size_t bytes = 64u * 1024u;
+  if (d.animModel >= 0 && d.animModel < (int)gameAnimModels.size()) {
+    const auto& skeleton = gameAnimModels[d.animModel].src;
+    if (!skeleton) return bytes + 256u * 1024u;
+    for (const auto& part : skeleton->parts) {
+      bytes += size_t(part.vertexCount) * 128u;
+      for (const auto& lod : part.lods) bytes += size_t(lod.vertexCount) * 128u;
+    }
+  } else if (d.type == 5 && d.model >= 0 && d.model < (int)gameModels.size()) {
+    if (!modelLoaded[d.model]) return bytes + 256u * 1024u;
+    for (const auto& part : gameModels[d.model].parts) {
+      bytes += part.verts.size() / 8u * 192u;
+      for (const auto& lod : part.lodVerts) bytes += lod.size() / 8u * 192u;
+    }
+  } else if (d.type == 7 && d.emitCount > 0) {
+    bytes += size_t(d.emitCount) * 256u;
+  }
+  return bytes;
+}
+
+size_t TerrainGame::pendingSpawnMemory() const {
+  size_t bytes = 0;
+  for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
+    const auto& obj = runtimeObjects[i];
+    if (obj.active && obj.visible && obj.dirty)
+      bytes += estimateObjectMemory(obj.data);
+  }
+  return bytes;
+}
+
 int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
                                float yaw) {
   if (templateIndex < 0 || templateIndex >= SCENE_OBJECT_COUNT) return -1;
@@ -2246,6 +2280,9 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
       break;
     }
   if (slot < 0) return -1;  // MAX_SPAWNED_OBJECTS clones already live
+  if (!Tyra::Info::hasRuntimeMemory(
+          pendingSpawnMemory() + estimateObjectMemory(SCENE_OBJECTS[templateIndex])))
+    return -1;  // Leave the slot free; the caller may retry after despawning.
   RuntimeObject& o = runtimeObjects[slot];
   o = RuntimeObject();
   o.data = SCENE_OBJECTS[templateIndex];
@@ -2392,8 +2429,11 @@ void TerrainGame::updateLayerStreaming() {
   }
 
   if (!streamQueue.empty()) {
-    processOneStreamJob();  // one asset per frame - the streaming budget
-    return;                 // activation starts once everything is resident
+    // Keep the job queued under pressure. Unloads above still run, so the
+    // pending layer can be cancelled or resume after memory is released.
+    if (Tyra::Info::hasRuntimeMemory(pendingSpawnMemory() + 256u * 1024u))
+      processOneStreamJob();
+    return;
   }
 
   // All assets in: activate a few objects per frame until each loading
@@ -2402,12 +2442,16 @@ void TerrainGame::updateLayerStreaming() {
   for (int l = 0; l < lc; ++l) anyLoading |= (layerState[l] == 1);
   if (!anyLoading) return;
   int budget = 4;
+  size_t pendingBytes = pendingSpawnMemory();
   // Authored objects only: spawn-pool slots activate through spawnObjectAt.
   for (int i = 0; i < SCENE_OBJECT_COUNT && budget > 0; ++i) {
     const int l = SCENE_OBJECTS[i].layer;
     if (l < 0 || l >= lc || layerState[l] != 1 || runtimeObjects[i].active)
       continue;
+    const size_t bytes = estimateObjectMemory(SCENE_OBJECTS[i]);
+    if (!Tyra::Info::hasRuntimeMemory(pendingBytes + bytes)) continue;
     activateObject(i);
+    pendingBytes += bytes;
     --budget;
   }
   bool completed = false;

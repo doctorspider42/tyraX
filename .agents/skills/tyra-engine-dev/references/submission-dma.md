@@ -101,3 +101,8 @@ docs/record-renderer.md "Draws that stay on the general path". `TYRA_STAPIP_REPE
 
 ## Generated-game submission notes
 - Light beams (1.127.4): coronas in one bag, cones in another, brightness in vertex colours at FIX 128, one slot per call per frame (the chain REFs the arrays), EE frustum test per lamp so offscreen lamps don't turn the batch into clip work.
+
+The baked arena payload budget counts both live streams and the retirement queue.
+Retiring an arena makes it unavailable for lookup. Only actual collection of
+the DMA lease returns its budget. Under low EE headroom the cache can retire
+its streams while the ordered frame pipeline keeps running (docs/baked-vif-stream.md).

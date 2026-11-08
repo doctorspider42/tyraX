@@ -30,6 +30,10 @@ Scatter on Grid (spacing 14, Levels 3)  ─  Pick Prefab (4 rooms in the pool, w
 `Scatter on Grid` with *Levels* is a full 3D lattice, so 27 cells fall out of
 one node. `Pick Prefab` gives each cell a room. That is the whole map.
 
+A procedural room reserves vertex storage from the model's exact size on
+its first unmasked append. The room budget still needs to include both
+sides of a distant-version switch and the memory used by the renderer.
+
 ## Why it is affordable
 
 | | |

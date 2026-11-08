@@ -98,6 +98,16 @@ class Info {
   /** @return Available RAM in MB */
   float getAvailableRAM();
 
+  /** EE heap bytes available across all free blocks and the unclaimed arena. */
+  static size_t getFreeRAMBytes();
+
+  /** Leave space for required frame work when admitting optional allocations. */
+  static bool hasRuntimeMemory(size_t bytes = 0) {
+    constexpr size_t reserve = 4u * 1024u * 1024u;
+    return bytes <= 32u * 1024u * 1024u - reserve &&
+           getFreeRAMBytes() >= reserve + bytes;
+  }
+
   /** COP0 Count ticks per millisecond - the same 294.912 MHz constant the
    * frame-timing rig divides by (inc/debug/frame_profile.hpp). */
   static constexpr float kTicksPerMs = 294912.0F;

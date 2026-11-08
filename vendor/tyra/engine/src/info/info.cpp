@@ -146,7 +146,7 @@ void* Info::allocateLargestFreeRAMBlock(size_t* Size) {
 // hand out (ps2sdk's crt0 sets the heap up to the stack, _heap_size = -1).
 // Neither allocates. The two differ from the probe only by chunk headers and
 // alignment - the probe counts payload - which is noise at the HUD's 0.1 MB.
-size_t Info::getFreeRAMSize() {
+size_t Info::getFreeRAMBytes() {
   const struct mallinfo mi = mallinfo();
   const uintptr_t brk = reinterpret_cast<uintptr_t>(sbrk(0));
   const uintptr_t top = reinterpret_cast<uintptr_t>(EndOfHeap());
@@ -154,8 +154,16 @@ size_t Info::getFreeRAMSize() {
                  (top > brk ? static_cast<size_t>(top - brk) : 0);
   const size_t kEeRamFast = 32u * 1024u * 1024u;
   if (total > kEeRamFast) total = kEeRamFast;
+  return total;
+}
+
+size_t Info::getFreeRAMSize() {
+  const size_t total = getFreeRAMBytes();
 #if TYRA_MEM_VERIFY
   {
+    const auto mi = mallinfo();
+    const auto brk = reinterpret_cast<uintptr_t>(sbrk(0));
+    const auto top = reinterpret_cast<uintptr_t>(EndOfHeap());
     const size_t probe = getFreeRAMSizeProbe();
     TYRA_LOG("MEMVERIFY fast=", (int)total, " probe=", (int)probe,
              " diff=", (int)total - (int)probe,

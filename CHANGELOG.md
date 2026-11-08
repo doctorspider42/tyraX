@@ -8,6 +8,10 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.15.0
+
+- Runtime spawns check live EE memory before taking a slot. Streamed layers wait when memory is tight and resume after memory is released. The TyraX2 renderer gives up optional baked draw streams under pressure, and procedural mesh chunks reserve less vertex storage.
+
 ## 2.14.0
 
 - Faster drawing while driving on the PS2: terrain tiles next to a ground shadow, and other scenery that used to be worked out from scratch every frame, are now drawn the fast way. Measured on a PS2 in the crate-field crash drive: about 0.47 ms less work a frame, and 9 instead of 17 objects a frame taking the slow path. Rebuild games to use it.

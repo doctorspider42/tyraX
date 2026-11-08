@@ -20,6 +20,9 @@ On Linux and macOS use `build/tyrax-editor` with the same arguments. Native
 PS2DEV is the default build backend; Docker is optional. A configured PCSX2
 installation is required to launch the game.
 
+The renderer uses the live EE heap to budget optional baked draw streams.
+It retires the cache under pressure and continues drawing through TyraX2.
+
 ## Explore
 
 The arrival film returns control at the entrance. Follow either promenade;

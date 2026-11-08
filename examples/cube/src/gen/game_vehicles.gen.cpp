@@ -845,6 +845,13 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
                                float yaw, float scale, int mergeOwner) {
   if (PREFAB_COUNT <= 0) return -1;
   if (prefabIndex < 0 || prefabIndex >= PREFAB_COUNT) return -1;
+  const int first = PREFAB_FIRST[prefabIndex];
+  const int n = PREFAB_COUNTS[prefabIndex];
+  size_t bytes = pendingSpawnMemory();
+  for (int k = 0; k < n; ++k)
+    bytes += estimateObjectMemory(PREFAB_MEMBERS[first + k]);
+  if (!Tyra::Info::hasRuntimeMemory(bytes)) return -1;
+
   const float s = scale > 0.0001F ? scale : 1.0F;
   int handle = -1;
   for (int i = 0; i < (int)prefabInstances.size(); ++i)
@@ -867,8 +874,6 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
 
   const float rad = yaw * 0.01745329F;
   const float ca = cosf(rad), sa = sinf(rad);
-  const int first = PREFAB_FIRST[prefabIndex];
-  const int n = PREFAB_COUNTS[prefabIndex];
   bool merged = false;
   for (int k = 0; k < n; ++k) {
     SceneObjectData d = PREFAB_MEMBERS[first + k];

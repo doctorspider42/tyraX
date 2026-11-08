@@ -353,3 +353,16 @@ that generated it; a *clear* leaves nothing to stand on. And blocks only carry
 collision in **runtime** mode — a baked block volume is ordinary static meshes,
 which collide the way any baked chunk does (i.e. not at all unless the Output
 node's Collision is on).
+
+## EE memory for generated meshes
+
+A merged chunk reserves exact space for its first unmasked model in each of
+its position, color and UV arrays. This avoids leaving each array rounded
+up to the next vector growth step. Repeated appends still grow amortized, so
+the cost of a shared cell depends on how many meshes it merges. Vertex
+precision and the VIF data layout stay the same.
+
+On the PCSX2 software renderer, the cube fixture gained 1,627,776 free EE
+bytes after its 27 rooms loaded. The same debug ELF selected exact reservation
+or normal vector growth at boot. The difference held through frame 60 and
+GS memory usage was identical in both runs.

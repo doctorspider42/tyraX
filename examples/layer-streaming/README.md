@@ -28,6 +28,10 @@ spread one asset per frame, so there is no hitch. (The overlay ships disabled
 here while a known engine regression makes it freeze the first frame —
 unrelated to layers.)
 
+With a busy heap, the incoming building may stay **loading** longer. Its
+queued jobs resume after memory is released. An unload can still run while
+the incoming building is waiting.
+
 ## How it is wired
 
 - Two layers in the Project panel's **Layers** section: `building-a`

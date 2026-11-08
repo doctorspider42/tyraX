@@ -32,6 +32,8 @@
 #include <string.h>
 #include <dma_tags.h>
 #include <algorithm>
+#include <new>
+#include "info/info.hpp"
 #include "debug/hardware_trace.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_baked_body.hpp"
@@ -570,6 +572,8 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
 // Modified by TyraX: the BAKED VIF STREAM spike - docs/baked-vif-stream.md.
 #if TYRA_STAPIP_BAKED_STREAM
 
+constexpr size_t kBakedPressureMargin = 512u * 1024u;
+
 StaPipBakedStreams::StaPipBakedStreams() {
   std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
 }
@@ -654,8 +658,10 @@ void StaPipBakedStreams::retire(StaPipBakedEntry& item) {
   // rather than limps.
   if (item.arena != nullptr && qw > 0) memset(item.arena, 0xDE, qw * 16);
 #endif
-  if (item.raw) graveyard[graveyardWrite].push_back(
-      {std::move(item.raw), item.arena});
+  if (item.raw) {
+    graveyard[graveyardWrite].push_back({std::move(item.raw), item.arena, qw});
+    retiredQwords += qw;
+  }
   item.arena = nullptr;
   item.arenaQw = 0;
 }
@@ -666,9 +672,21 @@ void StaPipBakedStreams::onFrameEnd() {
   graveyardWrite ^= 1;
   auto& retired = graveyard[graveyardWrite];
   retired.erase(std::remove_if(retired.begin(), retired.end(),
-      [](const RetiredArena& item) {
-        return Vif1Queue::collectRetiredImmutableSpan(item.arena);
-      }), retired.end()); // age alone cannot release an actual bank reader
+       [this](const RetiredArena& item) {
+         if (!Vif1Queue::collectRetiredImmutableSpan(item.arena)) return false;
+         retiredQwords -= item.qwords;
+         return true;
+       }), retired.end()); // age alone cannot release an actual bank reader
+
+  // Sample outside the draw loop. Under pressure, give gameplay first use of
+  // the heap, while retiring streams normally so recorded DMA can finish.
+  if ((frameNow & 7u) == 0 && (lowHeadroom || !storage.empty())) {
+    const size_t margin = lowHeadroom ? 2u * kBakedPressureMargin
+                                     : kBakedPressureMargin;
+    const bool low = !Info::hasRuntimeMemory(margin);
+    if (low && !lowHeadroom) clear();
+    lowHeadroom = low;
+  }
 
   bool expired = false;
   for (auto& item : storage) {
@@ -747,11 +765,17 @@ bool StaPipBakedStreams::evictFor(u32 wanted) {
   return true;
 }
 
-bool StaPipBakedStreams::reserve(u32 qwords) {
-  if (qwords > kMaxQwords) return false;
-  if (usedQwords + qwords > kMaxQwords && !evictFor(qwords)) return false;
-  usedQwords += qwords;
-  return true;
+std::unique_ptr<u8[]> StaPipBakedStreams::allocateArena(u32 qwords) {
+  if (lowHeadroom || qwords > kMaxQwords ||
+      !Info::hasRuntimeMemory(qwords * 16u + 15u + kBakedPressureMargin))
+    return nullptr;
+  if (usedQwords + qwords > kMaxQwords && !evictFor(qwords)) return nullptr;
+  // Eviction drops the logical charge immediately. A DMA bank can still own
+  // the bytes, so a replacement waits until onFrameEnd actually frees them.
+  if (usedQwords + retiredQwords + qwords > kMaxQwords) return nullptr;
+  std::unique_ptr<u8[]> raw(new (std::nothrow) u8[qwords * 16u + 15u]);
+  if (raw) usedQwords += qwords;
+  return raw;
 }
 
 // Modified by TyraX: the fold beginBakedBag uses for key.contentVersion,
@@ -769,7 +793,10 @@ void StaPipBakedStreams::retireArena(std::unique_ptr<u8[]> raw, qword_t* arena,
   Vif1Queue::unregisterImmutableSpan(arena);
   if (arena != nullptr && qw > 0) memset(arena, 0xDE, qw * 16);
 #endif
-  if (raw) graveyard[graveyardWrite].push_back({std::move(raw), arena});
+  if (raw) {
+    graveyard[graveyardWrite].push_back({std::move(raw), arena, qw});
+    retiredQwords += qw;
+  }
 }
 
 StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key,
@@ -853,8 +880,7 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key,
 #endif
       ) {
         const u32 qw = item.arenaQw;
-        if (reserve(qw)) {
-          std::unique_ptr<u8[]> raw(new u8[qw * 16 + 15]);
+        if (auto raw = allocateArena(qw)) {
           qword_t* arena = reinterpret_cast<qword_t*>(
               (reinterpret_cast<u32>(raw.get()) + 15u) & ~15u);
           const qword_t* streams[4] = {
@@ -1021,7 +1047,7 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key,
     index = item.nextInBucket;
   }
 
-  if (key.packages == 0) return nullptr;
+  if (key.packages == 0 || lowHeadroom) return nullptr;
 
   // Modified by TyraX: no entry for this (array, package size) at all. At a
   // frozen pose this should happen once per bag and never again; repeatedly is
@@ -2563,19 +2589,17 @@ bool StaPipQBufferRenderer::fillCachedStrip(StaPipQBuffer* buffer,
   auto* entry = baked.acquire(key);
   if (!entry) return false;
   if (!entry->complete) {
-    entry->raw = std::unique_ptr<u8[]>(new u8[qw * 16 + 15]);
+    entry->raw = baked.allocateArena(qw);
+    if (!entry->raw) return false;
     const u32 aligned = (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
     entry->arena = reinterpret_cast<qword_t*>(aligned);
     // One registry slot per original strip, not per tiny clip chunk. Never
     // publish a copy-only entry after registry saturation: it would stay so.
     if (!Vif1Queue::registerImmutableSpan(entry->arena, qw)) {
-      entry->raw.reset(); entry->arena = nullptr; return false;
-    }
-    if (!baked.reserve(qw)) {
-      Vif1Queue::retireImmutableSpan(entry->arena);
-      const bool released = Vif1Queue::collectRetiredImmutableSpan(entry->arena);
-      TYRA_ASSERT(released, "Unpublished expansion acquired a DMA reader");
-      entry->raw.reset(); entry->arena = nullptr; return false;
+      baked.discardUnpublishedArena(qw);
+      entry->raw.reset();
+      entry->arena = nullptr;
+      return false;
     }
     for (u32 t = 0; t < pkg.size - 2u; t += triangles) {
       const u32 n = std::min(triangles, pkg.size - 2u - t);
@@ -2660,17 +2684,15 @@ bool StaPipQBufferRenderer::fillCachedPackage(StaPipQBuffer* buffer,
   auto* entry = baked.acquire(key);
   if (!entry) return false;
   if (!entry->complete) {
-    entry->raw = std::unique_ptr<u8[]>(new u8[qw * 16 + 15]);
+    entry->raw = baked.allocateArena(qw);
+    if (!entry->raw) return false;
     const u32 aligned = (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
     entry->arena = reinterpret_cast<qword_t*>(aligned);
     if (!Vif1Queue::registerImmutableSpan(entry->arena, qw)) {
-      entry->raw.reset(); entry->arena = nullptr; return false;
-    }
-    if (!baked.reserve(qw)) {
-      Vif1Queue::retireImmutableSpan(entry->arena);
-      const bool released = Vif1Queue::collectRetiredImmutableSpan(entry->arena);
-      TYRA_ASSERT(released, "Unpublished package copy acquired a DMA reader");
-      entry->raw.reset(); entry->arena = nullptr; return false;
+      baked.discardUnpublishedArena(qw);
+      entry->raw.reset();
+      entry->arena = nullptr;
+      return false;
     }
     Vec4* out = reinterpret_cast<Vec4*>(entry->arena);
     for (const auto* data : source) if (data) {
@@ -2908,9 +2930,9 @@ bool StaPipQBufferRenderer::patchBakedBag(StaPipBag* bag, u32 size) {
   u32 total = 0;
   for (u32 i = 0; ok && i < entry->packages; ++i)
     total += patchFromScratch[i] ? entry->sizes[i] : entry->patchSizes[i];
-  ok = ok && total > 0 && baked.reserve(total);
+  if (ok && total > 0) entry->raw = baked.allocateArena(total);
+  ok = entry->raw != nullptr;
   if (ok) {
-    entry->raw = std::unique_ptr<u8[]>(new u8[total * 16 + 15]);
     const u32 aligned = (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
     entry->arena = reinterpret_cast<qword_t*>(aligned);
     u32 at = 0;
@@ -3488,8 +3510,8 @@ void StaPipQBufferRenderer::endBakedBag() {
   if (!entry->complete && entry->built == entry->packages &&
       !bakeScratch.empty()) {
     const u32 qw = static_cast<u32>(bakeScratch.size());
-    if (baked.reserve(qw)) {
-      entry->raw = std::unique_ptr<u8[]>(new u8[qw * 16 + 15]);
+    entry->raw = baked.allocateArena(qw);
+    if (entry->raw) {
       const u32 aligned =
           (reinterpret_cast<u32>(entry->raw.get()) + 15u) & ~15u;
       entry->arena = reinterpret_cast<qword_t*>(aligned);

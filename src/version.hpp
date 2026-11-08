@@ -5618,8 +5618,10 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 14
+#define TYRAX_VERSION_MINOR 15
 #define TYRAX_VERSION_PATCH 0
+// 2.15.0: live EE headroom for streaming and spawns, a physical baked-stream
+// budget including DMA retirement, and tighter procedural vertex allocations.
 // 2.14.0: StaPip keeps the draws the general path used to take every frame
 // (docs/record-renderer.md, "Draws that stay on the general path";
 // architecture loop round 15): the REPEAT entry (a REPEAT bag under another
