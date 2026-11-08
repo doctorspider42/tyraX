@@ -8,6 +8,12 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.17.0
+
+- Added opt-in 16-bit positions and UVs with 8-bit RGB for generated
+  procedural meshes. The runtime decodes one draw slice at a time. Packed
+  32-bit meshes now use that bounded path by default as well.
+
 ## 2.16.0
 
 - Procedural triangle-list chunks can store packed vertex streams in EE RAM.

@@ -34,9 +34,10 @@ A procedural room reserves vertex storage from the model's exact size on
 its first unmasked append. The room budget still needs to include both
 sides of a distant-version switch and the memory used by the renderer.
 
-The completed procedural chunks keep compact streams that VIF expands as
-they arrive in VU1. Position, texture and color precision stay at 32 bits.
-The expanded arrays are released after each chunk has been packed.
+The completed procedural chunks release their expanded arrays after packing.
+Position, texture and color precision stay at 32 bits by default. To try
+16-bit position and UV offsets with 8-bit RGB, put
+`CFLAGS += -DTYRAX_QUANTIZED_PROCEDURAL=1` in the game's `user.mk` and rebuild.
 [Runtime mesh memory](../../docs/procedural-runtime.md#native-vif-storage)
 
 ## Why it is affordable

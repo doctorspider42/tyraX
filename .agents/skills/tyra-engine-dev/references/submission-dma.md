@@ -109,6 +109,11 @@ its streams while the ordered frame pipeline keeps running (docs/baked-vif-strea
 
 ### Compact procedural VIF streams
 
+Packed meshes normally decode into the existing qbuffer pool before submission.
+This includes 16-bit position and UV offsets with 8-bit RGB. The optional
+32-bit native VIF path passed PCSX2 but a physical cube run stopped advancing
+after switching to it, so only explicit test builds enable it.
+
 Native packed chunks borrow a single DMA-aligned span per mesh. Masked
 `V3_32` and `V2_32` restore the stock quadword input layout through STROW.
 Slices start on a quadword boundary and the tail padding must be zero so it

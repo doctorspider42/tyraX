@@ -841,11 +841,17 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
 #define TYRAX_PACKED_PROCEDURAL 1
 #endif
 #if TYRAX_PACKED_PROCEDURAL
+#ifndef TYRAX_QUANTIZED_PROCEDURAL
+#define TYRAX_QUANTIZED_PROCEDURAL 0
+#endif
+#ifndef TYRAX_NATIVE_PACKED_PROCEDURAL
+#define TYRAX_NATIVE_PACKED_PROCEDURAL 0
+#endif
   // This volume replaces its chunks wholesale when regenerated. Roads,
   // explicitly spawned prefabs and chunks that baked lamps can recolor keep
   // their editable arrays.
   if (!BAKE_STATIC_LAMPS) {
-    u32 packedCount = 0, packedBytes = 0;
+    u32 packedCount = 0, packedBytes = 0, quantizedCount = 0;
     for (auto& c : procChunks) {
       if (c.owner != volume || !c.bag || c.packed ||
           !stapip.core.canPackGeometry(*c.bag))
@@ -855,8 +861,19 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
       const auto& sts = std::as_const(c.sts);
       c.packed = Tyra::StaPipPackedMesh::build(
           vertices.data(), colors.data(), c.bag->texture ? sts.data() : nullptr,
-          c.bag->count);
+          c.bag->count, TYRAX_QUANTIZED_PROCEDURAL != 0,
+          TYRAX_NATIVE_PACKED_PROCEDURAL != 0);
       if (!c.packed) continue;
+      if (c.packed->isQuantized()) {
+        ++quantizedCount;
+        // The procedural visibility pass also reads these bounds. Keep the
+        // union so rounding outward cannot hide a vertex at a culling plane.
+        const auto& bounds = c.packed->mainBounds();
+        for (int axis = 0; axis < 3; ++axis) {
+          c.aabbMin[axis] = std::min(c.aabbMin[axis], bounds[0].xyzw[axis]);
+          c.aabbMax[axis] = std::max(c.aabbMax[axis], bounds[7].xyzw[axis]);
+        }
+      }
       c.bag->releaseImmutableStreams();
       c.bag->immutableStreams = false;
       c.bag->packedMesh = c.packed.get();
@@ -875,7 +892,8 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
       packedBytes += c.packed->bytes();
     }
     if (packedCount)
-      TYRA_LOG("PROCPACK chunks=", packedCount, " bytes=", packedBytes);
+      TYRA_LOG("PROCPACK chunks=", packedCount, " bytes=", packedBytes,
+               " quantized=", quantizedCount);
   }
 #endif
 }

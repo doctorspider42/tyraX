@@ -63,16 +63,19 @@ struct StaPipBagPatch {
  * Supports frustum culling, full plane clipping, lighting,
  * texture and single color / many colors.
  */
-// Modified by TyraX: immutable, DMA-aligned native VIF payloads. The EE
-// keeps only the two corners needed for classification of each slice.
+// Modified by TyraX: immutable, DMA-aligned mesh storage. Only the 32-bit
+// layout can be used directly by VIF. The EE keeps two bounds corners per slice.
 class StaPipPackedMesh {
  public:
   static constexpr u32 kSliceVertices = 72;  // triangle lists, 16-byte stream offsets
   struct Bounds { Vec4 min, max; };
 
   static std::unique_ptr<StaPipPackedMesh> build(
-      const Vec4* vertices, const Color* colors, const Vec4* sts, u32 count);
+      const Vec4* vertices, const Color* colors, const Vec4* sts, u32 count,
+      bool quantize = false, bool nativeUnpack = false);
   ~StaPipPackedMesh();
+  bool isQuantized() const { return quantized; }
+  bool usesNativeUnpack() const { return nativeUnpack; }
   void registerForDraw();
   void decode(u32 offset, u32 count, Vec4* xyz, Vec4* rgb, Vec4* st) const;
   const void* positions(u32 offset) const { return data.get() + offset * 3u / 4u; }
@@ -88,7 +91,8 @@ class StaPipPackedMesh {
   std::unique_ptr<Bounds[]> slices;
   CoreBBox whole;
   u32 quadwords = 0, stStart = 0, colorStart = 0, sliceCount = 0;
-  bool submitted = false;
+  s32 gridBase[5] = {};
+  bool quantized = false, nativeUnpack = false, submitted = false;
 };
 
 class StaPipBag {

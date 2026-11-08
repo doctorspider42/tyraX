@@ -358,34 +358,46 @@ node's Collision is on).
 
 ### Native VIF storage
 
-Eligible generated triangle lists keep their final mesh as aligned XYZ, ST
-and RGB streams. Each component stays a 32-bit float. VIF uses masked
-`V3_32` and `V2_32` UNPACKs to restore position W, texture Z/W and color
-alpha, so the stock VU1 programs see their usual four-lane input. A textured
-vertex takes 32 payload bytes instead of 48. An untextured vertex takes 24.
-Each 72-vertex slice also keeps two EE bounds corners for culling.
+Eligible generated triangle lists keep aligned XYZ, ST and RGB streams.
+The default stores each component as a 32-bit float and omits constant
+lanes. A textured vertex takes 32 payload bytes instead of 48. An
+untextured vertex takes 24. Each 72-vertex slice also keeps two EE bounds
+corners for culling. Roads, standalone prefabs, strips and scenes that
+relight chunks through baked static lamps keep their editable arrays.
 
-This runs after a procedural volume has finished building its chunks. The
-runtime releases the expanded vertex arrays once the packed allocation
-succeeds. Regenerating a volume waits for any DMA reading its old payload.
-Roads, standalone prefabs, strips and scenes that relight chunks through
-baked static lamps keep their editable arrays. If a script later switches
-to EE clipping or changes the resident VU program set, a bounded qbuffer
-decodes each slice as needed.
+Set `CFLAGS += -DTYRAX_QUANTIZED_PROCEDURAL=1` in the game's `user.mk` to use
+16-bit unsigned position and UV offsets and 8-bit RGB. This takes 13
+payload bytes per textured vertex or 9 per untextured vertex. Positions
+round to a shared 1/1024-unit lattice and UVs to a shared 1/4096 lattice.
+Chunks use local integer origins on those lattices, so matching source
+edges round together across chunks. The 16-bit range covers a span of
+roughly 64 units per position axis and 16 units per UV axis. A stream
+outside the supported range keeps the 32-bit representation. Runtime
+culling includes rounded positions.
 
-Set `CFLAGS += -DTYRAX_PACKED_PROCEDURAL=0` in the game's `user.mk` to
-compare with ordinary storage. Packed slices use the ordinary TyraX2
-submission queue and skip the stamp and baked command caches. The packed
-path trades some packet setup for lower resident memory and DMA payload.
+Both formats decode one slice into the existing qbuffer pool before VU1
+submission. The runtime releases the expanded geometry after packing, and
+TyraX2 remains active. Set `CFLAGS += -DTYRAX_PACKED_PROCEDURAL=0` to compare
+with ordinary storage.
 
-In a PCSX2 software-renderer A/B, one debug ELF built 81 cube chunks with
-123,768 vertices. Packed storage left 2.35 MiB more free EE RAM before the
-first rendered frame. At frame 600 the whole game had 4.79 MiB more free,
-including its different cache footprint. GS free space was identical. A
-fixed seed and camera gave identical pixels in the parked and doorway
-captures with VU1 clipping. Switching both runs to EE clipping changed
-238 and 139 pixels respectively, by at most one RGB level per channel.
-Volume regeneration reached frame 600 in both modes.
+The direct masked VIF UNPACK experiment is available for 32-bit streams
+with `CFLAGS += -DTYRAX_NATIVE_PACKED_PROCEDURAL=1`. It restores position W,
+texture Z/W and alpha without expanding on the EE. It passed the PCSX2
+software-renderer checks, but a physical PS2 stopped advancing when the
+test switched to this route after rebuilding the cube. The experiment is
+off by default pending hardware validation.
+
+### Quantization A/B
+
+The same debug ELF ran 81 cube chunks and 123,768 vertices in both formats,
+using the same seed, camera and qbuffer decoder. The PCSX2 software renderer
+showed 2,273,616 additional free EE bytes after generation and at frame 600
+with quantization. GS free space was the same. The 99th percentile of the
+maximum RGB channel error per pixel was 2 in both 512-by-512 captures.
+201 pixels in the parked view and 209 at the doorway differed by more than
+8 in any channel. The physical PS2 completed both modes in one boot and
+produced captures before and after regeneration. Its parked view also
+differed by more than 8 at 201 pixels, with the same 99th percentile.
 
 ### Generation capacity
 

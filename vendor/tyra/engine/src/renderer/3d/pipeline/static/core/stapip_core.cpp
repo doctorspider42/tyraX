@@ -1429,8 +1429,9 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   stageBoundsNow = nullptr;
   TYRA_ATTRIB_MARK(attribSizeStart);
   const bool vu1Clip = qbufferRenderer.isVU1ClippingEnabled();
-  const bool nativePacked = packed && canPackGeometry(*bag);
-  u32 maxVertCount = nativePacked ? StaPipPackedMesh::kSliceVertices
+  const bool stockPacked = packed && canPackGeometry(*bag);
+  const bool nativePacked = stockPacked && bag->packedMesh->usesNativeUnpack();
+  u32 maxVertCount = stockPacked ? StaPipPackedMesh::kSliceVertices
                                   : pre ? pre->maxVertCount : getMaxVertCountByBag(bag);
   TYRA_ATTRIB_ADD(bdSizeTicks, attribSizeStart);
 
