@@ -8,7 +8,22 @@
 #include <debug.h>  // init_scr / scr_printf - the crash screen
 #include <ee_debug.h>
 #include <ps2_debug.h>
+#include <stdio.h>
 #include <string.h>
+
+// libeedebug's level-1 vector (ee_exceptions.S); what ee_dbg_install routes
+// causes through, and what install() below points them at explicitly.
+extern "C" void __ee_level1_ex_vector();
+
+// The text window the backtrace scan trusts. At FILE scope on purpose: inside
+// the anonymous namespace below, GCC gives even an extern "C" variable a
+// mangled internal name, so the weak references these once were never met the
+// linker's _ftext/_etext and read 0 - the fallback window took all of RAM and
+// the backtrace filled up with stack addresses (seen on a PS2, 2026-11-08).
+extern "C" {
+extern u8 _ftext;
+extern u8 _etext;
+}
 
 namespace Tyra {
 namespace {
@@ -17,13 +32,20 @@ CrashInfo g_info;
 bool g_crashed = false;
 CrashHandler::Reporter g_reporter = nullptr;
 
+// A fault RAISED BY THE REPORT ITSELF (stdio over SIF, the host: file write).
+// Before this existed a second fault re-ran its faulting instruction forever
+// (capture() ignored it and left EPC alone) - a silent hang that looks exactly
+// like "the handler never ran". Now it is recorded and the EE goes straight to
+// the screen, which needs no SIF.
+struct SecondFault {
+  u32 excCode, epc, badvaddr, ra;
+};
+SecondFault g_second;
+volatile int g_faultCount = 0;
+
 // The text window used to decide "does this stack word look like a return
-// address". _ftext/_etext come from the ps2sdk link script; the fallback covers
-// the standard EE load address in case a future linkfile drops them.
-extern "C" {
-extern u8 _ftext __attribute__((weak));
-extern u8 _etext __attribute__((weak));
-}
+// address". _ftext/_etext come from the ps2sdk link script (declared at file
+// scope above).
 
 inline u32 textStart() {
   const u32 a = (u32)&_ftext;
@@ -34,12 +56,37 @@ inline u32 textEnd() {
   return a ? a : 0x02000000U;
 }
 
+void paintCrashScreen();
+
+// Where a fault taken WHILE REPORTING returns to: the screen only, no SIF.
+// A fault in the screen code itself (the third) parks the EE in deadLoop.
+void deadLoop() {
+  for (;;) SleepThread();
+}
+void secondFaultTrampoline() {
+  paintCrashScreen();
+  deadLoop();
+}
+
 // Where the exception returns to. Runs in ORDINARY context (the kernel's ERET
 // cleared EXL), so stdio and the IOP-served host: filesystem are usable again.
 void crashTrampoline() {
-  // The report goes out FIRST, while host: is still untouched: crash.txt for
-  // the editor to symbolize, and the same delimited banner in the log.
+  // A line in the LOG first, synchronously: stdout reaches ps2client's console
+  // (and the editor's Output) even when the report file below does not, and
+  // it says the handler ran at all - the question a missing crash.txt leaves
+  // open (docs/backlog.md, "devlink: what is left").
+  printf("====ERR: TYRAX EE CRASH: %s (excCode %d) epc 0x%08x badvaddr 0x%08x "
+         "ra 0x%08x - writing bin/crash.txt\n",
+         g_info.name ? g_info.name : "unknown", (int)g_info.excCode,
+         (unsigned int)g_info.epc, (unsigned int)g_info.badvaddr,
+         (unsigned int)g_info.gpr[31]);
+  fflush(stdout);
+
+  // Then the report: crash.txt for the editor to symbolize.
   if (g_reporter) g_reporter(g_info);
+  printf("====ERR: TYRAX EE CRASH: report %s\n",
+         g_reporter ? "written" : "skipped - no reporter installed");
+  fflush(stdout);
 
   // Then SEIZE THE SCREEN. A failed assertion may halt quietly and let the
   // editor surface it, because an assertion is a message. A CPU exception is
@@ -58,6 +105,11 @@ void crashTrampoline() {
   // over ps2link: measured on hardware, a console sitting on this crash screen
   // still answers, so the next deploy is a redeploy from the editor rather than
   // a walk over to the console to press Reset.
+  paintCrashScreen();
+  deadLoop();  // dead game, live console
+}
+
+void paintCrashScreen() {
   init_scr();
   {
     scr_setXY(0, 2);
@@ -77,13 +129,33 @@ void crashTrampoline() {
     scr_printf("  | Names for those addresses:\n");
     scr_printf("  |   tyrax-editor --symbolize <project> 0x%08x\n",
                (unsigned int)g_info.epc);
+    if (g_faultCount > 1) {
+      scr_printf("  |\n");
+      scr_printf("  | AND A SECOND FAULT WHILE REPORTING IT:\n");
+      scr_printf("  | excCode %d epc 0x%08x badvaddr 0x%08x\n",
+                 (int)g_second.excCode, (unsigned int)g_second.epc,
+                 (unsigned int)g_second.badvaddr);
+      scr_printf("  | (bin/crash.txt is probably missing)\n");
+    }
     scr_printf("  ====================================\n");
   }
-  for (;;) SleepThread();  // dead game, live console
 }
 
 void capture(EE_RegFrame* f, int level) {
-  if (g_crashed) return;  // first crash wins; a second is noise
+  const int n = ++g_faultCount;
+  if (g_crashed) {
+    // First crash wins the report; a later one only must not loop.
+    if (n == 2) {
+      g_second.excCode = (f->cause >> 2) & 0x1F;
+      g_second.epc = f->epc;
+      g_second.badvaddr = f->badvaddr;
+      g_second.ra = f->ra[0];
+      f->epc = (u32)&secondFaultTrampoline;
+    } else {
+      f->epc = (u32)&deadLoop;
+    }
+    return;
+  }
   g_crashed = true;
 
   memset(&g_info, 0, sizeof(g_info));
@@ -177,30 +249,47 @@ void CrashHandler::install(Reporter reporter) {
   // ERETs, and the faulting instruction re-runs with nothing serviced. Harmless
   // for a fault we do handle; for a TLB REFILL - which is how a mapped access is
   // COMPLETED - it spins in the vector forever.
-  // So the TLB causes are handed straight back to the kernel. They keep their
-  // stock behaviour, which is the one thing this feature must not change.
-  void* tlbVector[4] = {nullptr, nullptr, nullptr, nullptr};
-  for (int cause = 1; cause <= 3; ++cause)
-    tlbVector[cause] = GetExceptionHandler(cause);
+  // The TLB causes (1..3) USED to be handed straight back, on the theory that a
+  // TLB refill is how a mapped access is completed. Not on a PS2: there is no
+  // demand paging - RAM, the uncached and UCAB windows and the scratchpad are
+  // mapped by fixed entries at boot - so a refill means an access to nothing,
+  // i.e. a null or wild pointer, the COMMONEST crash there is. ps2link has
+  // always treated it as fatal (its own handler takes 1..3), and games run
+  // under ps2link without ever tripping it. Handing them back meant exactly
+  // the crash that most needs a report produced none: measured 2026-11-08 on a
+  // PS2, a store through a wild pointer landed in ps2link's handler and no
+  // bin/crash.txt was written (docs/backlog.md).
+  //
+  // So every cause this handler reports is routed to libeedebug's vector HERE,
+  // explicitly, whether or not ee_dbg_install() did it: the script debugger
+  // installs libeedebug too and hands every cause but 9 back to its previous
+  // owner, and which of the two runs first must not decide whether crashes are
+  // reported. Cause 9 (BREAK) is the script debugger's and is left alone.
+  void* before5 = GetExceptionHandler(5);
+  const int installed1 = ee_dbg_install(1);  // -1 = someone installed it first
 
-  ee_dbg_install(1);
-
-  for (int cause = 1; cause <= 3; ++cause)
-    SetVTLBRefillHandler(cause, tlbVector[cause]);
-  FlushCache(0);  // the install's own flush ran before these writes
-  FlushCache(2);
-
-  // The genuine faults, all of them ones the install routes here. Cause 9
-  // (BREAK) and 15 (FP exception) are listed for completeness but ps2sdk does
-  // not route them today, so they never fire - which is also why a wild pointer
-  // into UNMAPPED memory is not reported: that is a TLB refill, given back
-  // above. What IS reported is what the header promises: address errors, bus
-  // errors, reserved instructions, coprocessor-unusable, overflow and traps.
-  static const int kFaults[] = {4, 5, 6, 7, 9, 10, 11, 12, 13, 15};
-  for (int fi = 0; fi < (int)(sizeof(kFaults) / sizeof(kFaults[0])); ++fi) {
-    const int cause = kFaults[fi];
+  for (int cause = 1; cause <= 3; ++cause) {
+    SetVTLBRefillHandler(cause, (void*)__ee_level1_ex_vector);
     ee_dbg_set_level1_handler(cause, level1Handler);
   }
+  // Address errors, bus errors, reserved instruction, coprocessor unusable,
+  // overflow, trap.
+  static const int kFaults[] = {4, 5, 6, 7, 10, 11, 12, 13};
+  for (int fi = 0; fi < (int)(sizeof(kFaults) / sizeof(kFaults[0])); ++fi) {
+    const int cause = kFaults[fi];
+    SetVCommonHandler(cause, (void*)__ee_level1_ex_vector);
+    ee_dbg_set_level1_handler(cause, level1Handler);
+  }
+  FlushCache(0);  // the install's own flush ran before these writes
+  FlushCache(2);
+  // Whether the faults really come HERE: an install that returned -1 (someone
+  // installed libeedebug first) or a vector that is still the previous owner's
+  // leaves level1Handler registered and never called - which is how a crash
+  // ended in ps2link's handler with no crash.txt (docs/backlog.md).
+  printf("LOG: crash handler: ee_dbg_install(1) = %d, cause 5 vector %p -> %p, "
+         "TLB store %p\n",
+         installed1, before5, GetExceptionHandler(5), GetExceptionHandler(3));
+  fflush(stdout);
 }
 
 }  // namespace Tyra

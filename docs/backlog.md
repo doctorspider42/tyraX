@@ -8,13 +8,6 @@ relevant guide or developer skill.
 
 All five phases are in and verified on a PS2 (docs/devlink.md). Left:
 
-- **The Tyra crash handler wrote no `bin/crash.txt`** when a debug game with
-  `eeCrashHandler` on took a real EE exception (the -8 test command, physical
-  PS2). The console recovered with a plain redeploy, but the Debugger's crash
-  card had nothing to show. Find out whether the handler ran at all on that
-  fault, and whether its host: write can work from exception context; a
-  report through the devlink IOP (which outlives the EE) is the obvious
-  alternative.
 - **Still on host:** the input recorder (a stream on an open file), the boot
   snapshot and the one-shot asks (VU1 capture, screenshot, render cost).
 - **Hard hangs** (an EE looping with interrupts off, a wedged bus) still need a

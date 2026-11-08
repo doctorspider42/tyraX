@@ -226,41 +226,41 @@ PCSX2 does not reproduce every EE exception, so a crash handler must ultimately
 be checked on real hardware. Assertions and soft errors are testable in the
 emulator.
 
-### A null pointer gets you no crash report at all
+### A null pointer is reported too
 
-The report above covers the faults the handler hooks — address errors, bus
-errors, reserved instructions, coprocessor-unusable, overflow and traps. The
-**TLB causes are deliberately handed straight back to the kernel** (the reason
-is in `crash_handler.cpp`: a hooked TLB refill with nothing to service it spins
-in the vector forever), and a wild pointer into unmapped memory is exactly a TLB
-refill. So the single most ordinary C++ bug there is produces **no
-`bin/crash.txt`, no TYRAX banner and nothing on the TV** — just ps2link's own
-register dump in the console log:
-
-```text
-Cause:7000800C   BadAddr:00000004   Status:70030C13   EPC:0013B988
-```
-
-Read it rather than skipping past it, because it is a complete diagnosis:
-
-- `Cause`'s ExcCode is bits 6:2 — `(0x7000800C >> 2) & 0x1F` = **3**, TLB refill
-  on store. 2 is the same thing on a load. Either one means *this address is not
-  mapped*, and a small `BadAddr` means the pointer was null.
-- `BadAddr` is the **offset of the field** that was written. `0x00000004` is a
-  store four bytes into a null object — with `StaPipInfoBag`, whose `model`
-  pointer is at 0 and `shadingType` at 4, that names the member outright.
-- `EPC` is the faulting instruction, so `--symbolize` finishes the job:
+The handler hooks address errors, bus errors, reserved instructions,
+coprocessor-unusable, overflow, traps **and the TLB causes** (1–3). A PS2 has no
+demand paging — RAM, its uncached windows and the scratchpad are mapped by fixed
+entries at boot — so a TLB refill always means an access to nothing: a null or
+wild pointer, the most ordinary C++ bug there is. Before 2.11.0 those causes were
+handed back to the kernel, so exactly that bug produced no `bin/crash.txt` and
+no TYRAX banner, only ps2link's own register dump. Now the console log says
 
 ```text
-tyrax-editor --symbolize <projectDir> 0x0013B988
+====ERR: TYRAX EE CRASH: TLB refill on store (excCode 3) epc 0x0017981c badvaddr 0x00000004 ra 0x0017981c - writing bin/crash.txt
+====ERR: TYRAX EE CRASH: report written
 ```
 
-That printed `TerrainGame::setupLightPools() src/terrain_game.cpp:8435` and the
-line was a bag field assigned before its `make_unique` (fixed in 1.54.1).
+and the report follows. Read it like this:
+
+- ExcCode **3** is a TLB refill on store, **2** the same on a load. Either one
+  means *this address is not mapped*, and a small `badvaddr` means the pointer
+  was null.
+- `badvaddr` is the **offset of the field** that was touched: `0x00000004` is a
+  store four bytes into a null object, which usually names the member outright.
+- `epc` is the faulting instruction, so `--symbolize` finishes the job:
+
+```text
+tyrax-editor --symbolize <projectDir> 0x0017981c
+```
+
+If the report itself faults (stdio and the `host:` write go over SIF), the TV
+screen adds an **"AND A SECOND FAULT WHILE REPORTING IT"** line with that
+fault's code and address, instead of the EE looping on it silently.
+
 **PCSX2 cannot show you any of this**: its main RAM starts at address 0, so a
 null store is an ordinary write there and the game runs on happily. A
-null-pointer bug on this platform is a hardware-only symptom, and the crash
-handler is not the thing that will report it.
+null-pointer bug on this platform is a hardware-only symptom.
 
 ### The SIF RPC completion guard
 

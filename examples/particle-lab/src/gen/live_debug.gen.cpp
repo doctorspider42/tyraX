@@ -290,8 +290,14 @@ void pollCommand() {
     }
   }
   if (steps == -8) {
-    TYRA_WARN("livedbg: raising an EE exception on request (test)");
-    *reinterpret_cast<volatile int*>(1) = 0;
+    // A store through a null object's field: on a console a TLB refill on
+    // store (excCode 3, badvaddr 4), the commonest real crash. The vector it
+    // goes to is logged because the crash report depends on it being the
+    // game's (docs/devkit.md, "A null pointer is reported too").
+    printf("==WARN: livedbg: raising an EE exception on request (test), "
+           "TLB store vector %p\n", GetExceptionHandler(3));
+    fflush(stdout);
+    *reinterpret_cast<volatile int*>(4) = 0;
   }
   if (steps < 0) steps = 0;
   int watchc;
