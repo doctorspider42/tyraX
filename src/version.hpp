@@ -5618,8 +5618,9 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 15
+#define TYRAX_VERSION_MINOR 16
 #define TYRAX_VERSION_PATCH 0
+// 2.16.0: procedural chunks can keep compact streams for native VIF UNPACK.
 // 2.15.0: live EE headroom for streaming and spawns, a physical baked-stream
 // budget including DMA retirement, and tighter procedural vertex allocations.
 // 2.14.0: StaPip keeps the draws the general path used to take every frame

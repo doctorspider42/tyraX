@@ -16,6 +16,47 @@ namespace Tyra {
 
 namespace {
 
+// Modified by TyraX: native compact VIF source. STROW supplies constant
+// lanes without a float conversion or any extra instructions in VU memory.
+void addPackedStream(packet2_t* packet, u32 address, const void* data,
+                     u32 count, UnpackMode mode, u32 wordsPerVertex,
+                     u32 maskBits, u32 z, u32 w) {
+  packet2_chain_open_cnt(packet, 0, 0, 0);
+  packet2_vif_stmod(packet, 0, 0);
+  packet2_add_u32(packet, 0);  // second TTE word
+  const u32 row[] = {0, 0, z, w};
+  packet2_vif_strow(packet, row, 0);
+  Mask mask{};
+  mask.m = maskBits;
+  packet2_vif_stmask(packet, mask, 0);
+  packet2_vif_pad128(packet);
+  packet2_chain_close_tag(packet);
+
+  const u32 qwords = (count * wordsPerVertex + 3u) / 4u;
+  packet2_chain_ref(packet, const_cast<void*>(data), qwords, 0, 0, 0);
+  packet2_vif_stcycl(packet, 0, 0x0101, 0);
+  packet2_vif_open_unpack(packet, mode, address, 1, 1, 1, 0);
+  packet2_vif_close_unpack_manual(packet, count);
+}
+
+void addPackedMesh(packet2_t* packet, const StaPipQBuffer& buffer) {
+  const auto& mesh = *buffer.bag->packedMesh;
+  const u32 count = buffer.size, offset = buffer.packedOffset;
+  u32 address = VU1_STAPIP_VERT_DATA_ADDR;
+  constexpr u32 one = 0x3F800000, alpha = 0x43000000;  // 1.0f, 128.0f
+  constexpr u32 rowW = 0x40404040, rowZW = 0x50505050;
+  addPackedStream(packet, address, mesh.positions(offset), count,
+                  P2_UNPACK_V3_32, 3, rowW, 0, one);
+  address += count;
+  if (buffer.bag->texture) {
+    addPackedStream(packet, address, mesh.texcoords(offset), count,
+                    P2_UNPACK_V2_32, 2, rowZW, one, 0);
+    address += count;
+  }
+  addPackedStream(packet, address, mesh.colors(offset), count,
+                  P2_UNPACK_V3_32, 3, rowW, 0, alpha);
+}
+
 bool isClipProgram(const StaPipProgramName name) {
   return name == StaPipClipColor || name == StaPipClipDirLights ||
          name == StaPipClipTextureDirLights ||
@@ -67,7 +108,8 @@ void StaPipVU1Program::addBufferDataToPacket(packet2_t* packet,
                                              prim_t* prim,
                                              const bool& emitState) {
   addStandardBufferDataToPacket(packet, buffer, prim, emitState);
-  addProgramQBufferDataToPacket(packet, buffer);
+  if (buffer->nativePacked) addPackedMesh(packet, *buffer);
+  else addProgramQBufferDataToPacket(packet, buffer);
 }
 
 bool StaPipVU1Program::emitsStateFlag(const bool& emitState) const {

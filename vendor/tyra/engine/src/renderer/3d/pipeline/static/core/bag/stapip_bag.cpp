@@ -13,6 +13,9 @@
 #include <sstream>
 #include <iomanip>
 
+#include <cstring>
+#include <new>
+
 namespace Tyra {
 
 StaPipBag::StaPipBag() {
@@ -34,6 +37,85 @@ StaPipBag::StaPipBag() {
 }
 
 StaPipBag::~StaPipBag() { releaseImmutableStreams(); }
+
+std::unique_ptr<StaPipPackedMesh> StaPipPackedMesh::build(
+    const Vec4* vertices, const Color* colors, const Vec4* sts, u32 count) {
+  if (!vertices || !colors || !count || count % 3u) return nullptr;
+  for (u32 i = 0; i < count; ++i) {
+    if (vertices[i].w != 1.0F || colors[i].a != 128.0F ||
+        (sts && (sts[i].z != 1.0F || sts[i].w != 0.0F))) return nullptr;
+  }
+  std::unique_ptr<StaPipPackedMesh> mesh(new (std::nothrow) StaPipPackedMesh());
+  if (!mesh) return nullptr;
+  const u32 xyzQw = (count * 3u + 3u) / 4u;
+  const u32 stQw = sts ? (count + 1u) / 2u : 0;
+  mesh->stStart = xyzQw;
+  mesh->colorStart = xyzQw + stQw;
+  mesh->quadwords = xyzQw * 2u + stQw;
+  mesh->sliceCount = (count + kSliceVertices - 1u) / kSliceVertices;
+  // Zero the final alignment words. After UNPACK consumes NUM vertices they
+  // are VIF NOPs, and DMA still transfers a whole quadword.
+  mesh->data.reset(new (std::nothrow) Quadword[mesh->quadwords]());
+  mesh->slices.reset(new (std::nothrow) Bounds[mesh->sliceCount]);
+  if (!mesh->data || !mesh->slices) return nullptr;
+
+  auto* xyz = reinterpret_cast<u8*>(mesh->data.get());
+  auto* st = xyz + mesh->stStart * 16u;
+  auto* rgb = xyz + mesh->colorStart * 16u;
+  auto extend = [](Bounds& b, const Vec4& p) {
+    if (p.x < b.min.x) b.min.x = p.x;
+    if (p.y < b.min.y) b.min.y = p.y;
+    if (p.z < b.min.z) b.min.z = p.z;
+    if (p.x > b.max.x) b.max.x = p.x;
+    if (p.y > b.max.y) b.max.y = p.y;
+    if (p.z > b.max.z) b.max.z = p.z;
+  };
+  Bounds whole{vertices[0], vertices[0]};
+  for (u32 i = 0; i < count; ++i) {
+    std::memcpy(xyz + i * 12u, &vertices[i].x, 12);
+    std::memcpy(rgb + i * 12u, colors[i].rgba, 12);
+    if (sts) std::memcpy(st + i * 8u, &sts[i].x, 8);
+    Bounds& slice = mesh->slices[i / kSliceVertices];
+    if (i % kSliceVertices == 0) slice = {vertices[i], vertices[i]};
+    extend(slice, vertices[i]);
+    extend(whole, vertices[i]);
+  }
+  const Vec4 corners[] = {whole.min, whole.max};
+  mesh->whole = CoreBBox(corners, 2);
+  return mesh;
+}
+
+void StaPipPackedMesh::decode(u32 offset, u32 count, Vec4* xyz,
+                              Vec4* rgb, Vec4* st) const {
+  const auto* pos = reinterpret_cast<const u8*>(data.get()) + offset * 12u;
+  const auto* col = reinterpret_cast<const u8*>(data.get() + colorStart) + offset * 12u;
+  const auto* uv = reinterpret_cast<const u8*>(data.get() + stStart) + offset * 8u;
+  for (u32 i = 0; i < count; ++i) {
+    std::memcpy(&xyz[i].x, pos + i * 12u, 12);
+    xyz[i].w = 1.0F;
+    std::memcpy(&rgb[i].x, col + i * 12u, 12);
+    rgb[i].w = 128.0F;
+    if (st) {
+      std::memcpy(&st[i].x, uv + i * 8u, 8);
+      st[i].z = 1.0F;
+      st[i].w = 0.0F;
+    }
+  }
+}
+
+void StaPipPackedMesh::registerForDraw() {
+  if (submitted) return;
+  submitted = true;
+  Vif1Queue::registerImmutableSpan(data.get(), quadwords);
+}
+
+StaPipPackedMesh::~StaPipPackedMesh() {
+  if (!submitted) return;
+  // Covers copied or synchronous submission too, where registration may
+  // have failed or the frame arena may be disabled.
+  Vif1Queue::drain();
+  Vif1Queue::unregisterImmutableSpan(data.get());
+}
 
 // Modified by TyraX: see StaPipBagPatch.
 void StaPipBagPatch::stampsOf(const StaPipBag* bag, u32 out[4]) {

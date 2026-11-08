@@ -356,6 +356,39 @@ node's Collision is on).
 
 ## EE memory for generated meshes
 
+### Native VIF storage
+
+Eligible generated triangle lists keep their final mesh as aligned XYZ, ST
+and RGB streams. Each component stays a 32-bit float. VIF uses masked
+`V3_32` and `V2_32` UNPACKs to restore position W, texture Z/W and color
+alpha, so the stock VU1 programs see their usual four-lane input. A textured
+vertex takes 32 payload bytes instead of 48. An untextured vertex takes 24.
+Each 72-vertex slice also keeps two EE bounds corners for culling.
+
+This runs after a procedural volume has finished building its chunks. The
+runtime releases the expanded vertex arrays once the packed allocation
+succeeds. Regenerating a volume waits for any DMA reading its old payload.
+Roads, standalone prefabs, strips and scenes that relight chunks through
+baked static lamps keep their editable arrays. If a script later switches
+to EE clipping or changes the resident VU program set, a bounded qbuffer
+decodes each slice as needed.
+
+Set `CFLAGS += -DTYRAX_PACKED_PROCEDURAL=0` in the game's `user.mk` to
+compare with ordinary storage. Packed slices use the ordinary TyraX2
+submission queue and skip the stamp and baked command caches. The packed
+path trades some packet setup for lower resident memory and DMA payload.
+
+In a PCSX2 software-renderer A/B, one debug ELF built 81 cube chunks with
+123,768 vertices. Packed storage left 2.35 MiB more free EE RAM before the
+first rendered frame. At frame 600 the whole game had 4.79 MiB more free,
+including its different cache footprint. GS free space was identical. A
+fixed seed and camera gave identical pixels in the parked and doorway
+captures with VU1 clipping. Switching both runs to EE clipping changed
+238 and 139 pixels respectively, by at most one RGB level per channel.
+Volume regeneration reached frame 600 in both modes.
+
+### Generation capacity
+
 A merged chunk reserves exact space for its first unmasked model in each of
 its position, color and UV arrays. This avoids leaving each array rounded
 up to the next vector growth step. Repeated appends still grow amortized, so

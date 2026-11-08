@@ -24147,6 +24147,7 @@ void TerrainGame::procFinishChunks() {
       break;
     }
   for (ProcChunk& c : procChunks) {
+    if (c.packed) continue;
     if (c.vertices.empty()) {
       c.bag.reset();
       continue;
@@ -25406,15 +25407,57 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
   procFinishChunks();
   if (V.drawMode == 1)
     procFinishInstances(volume, V.cell, V.drawDist, instFrom);
+
+#ifndef TYRAX_PACKED_PROCEDURAL
+#define TYRAX_PACKED_PROCEDURAL 1
+#endif
+#if TYRAX_PACKED_PROCEDURAL
+  // This volume replaces its chunks wholesale when regenerated. Roads,
+  // explicitly spawned prefabs and chunks that baked lamps can recolor keep
+  // their editable arrays.
+  if (!BAKE_STATIC_LAMPS) {
+    u32 packedCount = 0, packedBytes = 0;
+    for (auto& c : procChunks) {
+      if (c.owner != volume || !c.bag || c.packed ||
+          !stapip.core.canPackGeometry(*c.bag))
+        continue;
+      const auto& vertices = std::as_const(c.vertices);
+      const auto& colors = std::as_const(c.colors);
+      const auto& sts = std::as_const(c.sts);
+      c.packed = Tyra::StaPipPackedMesh::build(
+          vertices.data(), colors.data(), c.bag->texture ? sts.data() : nullptr,
+          c.bag->count);
+      if (!c.packed) continue;
+      c.bag->releaseImmutableStreams();
+      c.bag->immutableStreams = false;
+      c.bag->packedMesh = c.packed.get();
+      c.bag->vertices = nullptr;
+      c.bag->contentVersion = nullptr;
+      c.colorBag->many = nullptr;
+      c.colorBag->contentVersion = nullptr;
+      if (c.texBag) {
+        c.texBag->coordinates = nullptr;
+        c.texBag->contentVersion = nullptr;
+      }
+      c.vertices = BagArray<Vec4>();
+      c.colors = BagArray<Color>();
+      c.sts = BagArray<Vec4>();
+      ++packedCount;
+      packedBytes += c.packed->bytes();
+    }
+    if (packedCount)
+      TYRA_LOG("PROCPACK chunks=", packedCount, " bytes=", packedBytes);
+  }
+#endif
   {
     // How the merge came out: every chunk with geometry is one bag (one
     // submit when on screen), and switch groups multiply them.
     int chunks = 0, lodChunks = 0, verts = 0;
     for (const ProcChunk& pc : procChunks) {
-      if (pc.owner != volume || pc.vertices.empty()) continue;
+      if (pc.owner != volume || !pc.bag || !pc.bag->count) continue;
       ++chunks;
       if (pc.lodTier >= 0) ++lodChunks;
-      verts += (int)pc.vertices.size();
+      verts += (int)pc.bag->count;
     }
     TYRA_LOG("Procedural ", V.name, ": ", chunks, " chunks (", lodChunks,
              " switching), ", verts, " vertices");

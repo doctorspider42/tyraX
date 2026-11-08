@@ -2307,6 +2307,7 @@ StaPipQBuffer* StaPipQBufferRenderer::getBuffer() {
   // so a slot recycled out of a retained bag cannot carry a stale package
   // index into a copied or clipped one. StaPipCore sets it back after the fill
   // for the routes that may be retained.
+  result->nativePacked = false;
   result->retainIndex = -1;
   result->bakeIndex = -1;  // Modified by TyraX: same gate, same reason
 #if TYRA_STAPIP_PROBE_UNCACHED_CHAIN

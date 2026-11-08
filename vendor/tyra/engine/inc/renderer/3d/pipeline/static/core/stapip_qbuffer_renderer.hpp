@@ -1211,6 +1211,7 @@ class StaPipQBufferRenderer {
   u32 takeChainQwords() { const u32 v = chainQwords; chainQwords = 0; return v; }
 
   StaPipVU1Program* getCullProgramByBag(const StaPipBag* bag);
+  StaPipVU1Program* getClipProgramByBag(const StaPipBag* bag);
   bool hasProgramOverrides() const { return repository.hasAnyOverride(); }
 
   StaPipVU1Program* getCullProgramByParams(const bool& isLightingEnabled,
@@ -1259,7 +1260,6 @@ class StaPipQBufferRenderer {
   void beforeTextureMutation();
   StaPipVU1Program* getAsIsProgramByBag(const StaPipBag* bag);
   // Modified by TyraX: VU1 clipping.
-  StaPipVU1Program* getClipProgramByBag(const StaPipBag* bag);
   StaPipVU1Program* getCullProgramByType(const StaPipProgramType& programType);
   StaPipProgramType getDrawProgramTypeByBag(const StaPipBag* bag) const;
   StaPipProgramType getDrawProgramTypeByParams(

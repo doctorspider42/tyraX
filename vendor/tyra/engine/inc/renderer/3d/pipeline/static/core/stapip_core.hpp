@@ -177,6 +177,7 @@ class StaPipCore {
    * list's visibility pass (docs/record-renderer.md): 0 = not from a record
    * list, 1 = wholly inside the view frustum, 2 = crossing it. It travels
    * with the recorded draw to the stamp pass; nothing reads it yet. */
+  bool canPackGeometry(const StaPipBag& bag);
   void render(StaPipBag* bag,
               StaPipLightReception reception = StaPipLightReception::FromInfo,
               u8 recordVis = 0);

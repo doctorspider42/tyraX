@@ -2010,6 +2010,7 @@ class TerrainGame : public Tyra::Game {
     BagArray<Tyra::Vec4> vertices;
     BagArray<Tyra::Color> colors;
     BagArray<Tyra::Vec4> sts;
+    std::unique_ptr<Tyra::StaPipPackedMesh> packed;
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
@@ -4229,6 +4230,7 @@ class TerrainGame : public Tyra::Game {
     BagArray<Tyra::Vec4> vertices;
     BagArray<Tyra::Color> colors;
     BagArray<Tyra::Vec4> sts;
+    std::unique_ptr<Tyra::StaPipPackedMesh> packed;
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;

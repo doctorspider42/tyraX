@@ -8,6 +8,12 @@ history.
 A heading names the version only: the release workflow publishes the section
 under it as that release's notes, and the release's own page carries the date.
 
+## 2.16.0
+
+- Procedural triangle-list chunks can store packed vertex streams in EE RAM.
+  TyraX2 sends those streams directly through VIF, which restores constant
+  vertex components on the way into VU1.
+
 ## 2.15.0
 
 - Runtime spawns check live EE memory before taking a slot. Streamed layers wait when memory is tight and resume after memory is released. The TyraX2 renderer gives up optional baked draw streams under pressure, and procedural mesh chunks reserve less vertex storage.

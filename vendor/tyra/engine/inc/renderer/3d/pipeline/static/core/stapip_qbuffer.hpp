@@ -50,6 +50,7 @@ class StaPipQBuffer {
    * proved every range is inside the frustum.
    */
   void fillByPointer(StaPipBag* bag, u32 offset, u32 count);
+  void fillByPacked(StaPipBag* bag, u32 offset, u32 count, bool native);
 
   /**
    * @brief Allocate dynamic data in buffer
@@ -108,6 +109,8 @@ class StaPipQBuffer {
   Vec4* colors;
   Vec4* normals;
   u32 size;
+  u32 packedOffset;  // used only by a native packed buffer
+  bool nativePacked = false;
   /** Conservative OR of the source packages' exact VU clip-plane masks. */
   u8 clipPlaneMask;
 

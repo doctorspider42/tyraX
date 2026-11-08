@@ -3299,6 +3299,7 @@ void TerrainGame::procFinishChunks() {
       break;
     }
   for (ProcChunk& c : procChunks) {
+    if (c.packed) continue;
     if (c.vertices.empty()) {
       c.bag.reset();
       continue;

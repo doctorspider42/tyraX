@@ -525,7 +525,7 @@ u32 StaPipCore::getMaxVertCountByBag(const StaPipBag* bag) {
 
   TYRA_ATTRIB_MARK(attribCalcStart);
   const u32 derived = cullProgram->getMaxVertCount(
-      bag->color->many == nullptr, qbufferRenderer.getBufferSize());
+      bag->color->many == nullptr && !bag->packedMesh, qbufferRenderer.getBufferSize());
   TYRA_ATTRIB_ADD(bdSizeCalcTicks, attribCalcStart);
 
   // Modified by TyraX: an explicit package size pins coplanar passes over one
@@ -586,8 +586,33 @@ void StaPipCore::ensureEnvNormalsUnit(StaPipBag* bag) {
 // was cache misses - 58 I-cache and 104 D-cache lines per hit - because the
 // game runs >10 us of its own code between any two bags and evicts the stamp
 // path every time. A queued run replays them back to back.
+bool StaPipCore::canPackGeometry(const StaPipBag& bag) {
+  if (!qbufferRenderer.isVU1ClippingEnabled() ||
+      qbufferRenderer.hasProgramOverrides() || bag.stripped || bag.lighting ||
+      bag.billboard || !bag.info || !bag.color || bag.color->single ||
+      !bag.info->fullClipChecks ||
+      bag.info->frustumCulling != PipelineInfoBagFrustumCulling_Precise ||
+      bag.info->transformationType != TyraMVP ||
+      (bag.texture && (!bag.texture->texture || bag.texture->coordinatesAreNormals)))
+    return false;
+  const auto* cull = qbufferRenderer.getCullProgramByBag(&bag);
+  const auto* clip = qbufferRenderer.getClipProgramByBag(&bag);
+  const u32 size = qbufferRenderer.getBufferSize();
+  return cull->getName() == (bag.texture ? StaPipCullTextureColor : StaPipCullColor) &&
+         clip->getName() == (bag.texture ? StaPipClipTextureColor : StaPipClipColor) &&
+         cull->getMaxVertCount(false, size) >= StaPipPackedMesh::kSliceVertices &&
+         clip->getMaxVertCount(false, size) >= StaPipPackedMesh::kSliceVertices;
+}
+
 void StaPipCore::render(StaPipBag* bag, StaPipLightReception reception,
                         u8 recordVis) {
+  if (bag->packedMesh) {
+    // The recorded/stamp paths take float pointers and cache V4-32 bodies.
+    // Keep draw order, then submit this mesh through the same VIF1 frame queue.
+    flushDeferred();
+    renderNow(bag, reception);
+    return;
+  }
 #if TYRA_STAPIP_STAMP
   // Frame recording (setFrameRecord): every bag of the batch joins the
   // queue, after whatever stamps it holds, in call order.
@@ -1282,6 +1307,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   HardwareTrace::Scope traceBag("Static_bag");
   TYRA_ATTRIB_MARK(attribRenderStart);
   TYRA_ATTRIB_INC(renderCalls);
+  const bool packed = bag->packedMesh != nullptr;
   if (bag->count <= 0) {
     TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);
     return;
@@ -1290,7 +1316,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
 #if TYRA_STAPIP_STAMP
   // Modified by TyraX: a valid stamp IS this bag's submission - see
   // StaPipQBufferRenderer::tryStamp (docs/stapip-stamps.md).
-  if (qbufferRenderer.isStampEnabled() && !instancing &&
+  if (!packed && qbufferRenderer.isStampEnabled() && !instancing &&
       bag->info->transformationType == TyraMVP && !telemetryEnabled) {
     const M4x4& vp = rendererCore->renderer3D.getViewProj();
     refreshStampClipPlanes(vp);  // Modified by TyraX: keyed by the camera epoch
@@ -1330,16 +1356,16 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   bool frustumCull =
       bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise;
   // Modified by TyraX: StaPipBag::immutableStreams - first draw registers.
-  if (bag->immutableStreams && !bag->immutableRegistered)
+  if (!packed && bag->immutableStreams && !bag->immutableRegistered)
     bag->registerImmutableStreams();
 
-  TYRA_ASSERT(bag->vertices != nullptr,
+  TYRA_ASSERT(packed || bag->vertices != nullptr,
               "Vertices are required in 3D render bag!");
   TYRA_ASSERT(bag->info != nullptr, "Info bag is required in 3D render bag!");
   TYRA_ASSERT(bag->info->model != nullptr,
               "Info bag's model pointer is empty!");
   TYRA_ASSERT(bag->color != nullptr, "Color bag is required in 3D render bag!");
-  TYRA_ASSERT(bag->color->single || bag->color->many,
+  TYRA_ASSERT(packed || bag->color->single || bag->color->many,
               "At least one color is required in 3D render bag!");
   TYRA_ASSERT((!bag->color->many && !bag->lighting) ||
                   (bag->color->many && !bag->lighting) ||
@@ -1353,7 +1379,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   // Modified by TyraX: a billboard bag carries a texture bag purely for the
   // per-particle params channel - the image itself is optional there.
   TYRA_ASSERT(!bag->texture || ((bag->texture->texture || bag->billboard) &&
-                                bag->texture->coordinates),
+                                (packed || bag->texture->coordinates)),
               "If you want texture, please provide texture and coordinates!");
   // Modified by TyraX: particle billboards (centers expanded on VU1).
   // frustumCulling None is SAFE here (unlike ordinary bags - see the
@@ -1402,7 +1428,10 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   const StageBounds* const pre = stageBoundsNow;
   stageBoundsNow = nullptr;
   TYRA_ATTRIB_MARK(attribSizeStart);
-  u32 maxVertCount = pre ? pre->maxVertCount : getMaxVertCountByBag(bag);
+  const bool vu1Clip = qbufferRenderer.isVU1ClippingEnabled();
+  const bool nativePacked = packed && canPackGeometry(*bag);
+  u32 maxVertCount = nativePacked ? StaPipPackedMesh::kSliceVertices
+                                  : pre ? pre->maxVertCount : getMaxVertCountByBag(bag);
   TYRA_ATTRIB_ADD(bdSizeTicks, attribSizeStart);
 
   // Imported models commonly submit one bag per material. Consecutive parts
@@ -1424,7 +1453,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   TYRA_ATTRIB_ADD(bdXformTicks, attribXformStart);
 
   StaPipBagPackagesBBox* bbox = nullptr;
-  if (bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise) {
+  if (!packed && bag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise) {
     // TyraX: the bag's bboxVersion invalidates the cached boxes for
     // reused vertex buffers with new content (the cacher recomputes the
     // entry in place - per-frame bumps stay allocation-free)
@@ -1435,6 +1464,9 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
                                   bag->bboxVersion, maxVertCount);
     TYRA_ATTRIB_ADD(bdCacheTicks, attribCacheStart);
   }
+
+  const CoreBBox* mainBox = packed ? &bag->packedMesh->mainBounds()
+                                  : bbox ? bbox->getMainBBox() : nullptr;
 
   // Three stores, charged to the same bucket as the derivation that produced
   // the value. Kept HERE rather than hoisted next to getMaxVertCountByBag so
@@ -1465,7 +1497,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
 
     TYRA_ATTRIB_MARK(attribMainStart);
     frustumCheck = pre ? pre->check
-                       : bbox->getMainBBox()->frustumCheckAABB(objectSpacePlanes);
+                       : mainBox->frustumCheckAABB(objectSpacePlanes);
 #if TYRA_STAPIP_STAGE_BOUNDS_VERIFY
     if (pre) {
       // The ordinary derivation, compared: same box, same verdict, and the
@@ -1563,7 +1595,6 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   if (classifyPackages && qbufferRenderer.isVU1ClippingEnabled() &&
       bag->info->fullClipChecks && bag->billboard == nullptr) {
     computeClipObjectSpacePlanes(mvp, clipBand);
-    const CoreBBox* mainBox = bbox->getMainBBox();
     if (CoreBBox::activePlaneMaskAABB(clipObjectSpacePlanes, (*mainBox)[0],
                                       (*mainBox)[7], 8) == 0) {
       frustumCheck = IN_FRUSTUM;
@@ -1594,7 +1625,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
       partialBatch && frustumCull && frustumCheck == PARTIALLY_IN_FRUSTUM &&
       qbufferRenderer.isVU1ClippingEnabled();
   const bool cheapBatchCandidate =
-      batchScope && bag->billboard == nullptr &&
+      !packed && batchScope && bag->billboard == nullptr &&
       ((directBag && bag->count <= maxVertCount * 15) || partialCandidate) &&
       !qbufferRenderer.hasProgramOverrides();
   bool residentTexture = true;
@@ -1688,8 +1719,8 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   const M4x4& m = *bag->info->model;
   Vec4 worldCenter(m.data[12], m.data[13], m.data[14], 1.0F);
   float worldRadius = 0.0F;
-  if (wantsLightPick && bbox) {
-    const auto* mb = bbox->getMainBBox();
+  if (wantsLightPick && mainBox) {
+    const auto* mb = mainBox;
     const Vec4& lo = (*mb)[0];
     const Vec4& hi = (*mb)[7];
     const Vec4 mid((lo.x + hi.x) * 0.5F, (lo.y + hi.y) * 0.5F,
@@ -1724,7 +1755,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   // its shader, using the existing versioned bounds. Particle descriptors
   // do not enclose their expanded billboard corners, so remain unfiltered.
   qbufferRenderer.setBagLight(
-      bagLight, bbox && !bag->billboard ? bbox->getMainBBox() : nullptr);
+      bagLight, !bag->billboard ? mainBox : nullptr);
   TYRA_ATTRIB_ADD(prepLightTicks, attribLightStart);
 
 
@@ -1738,9 +1769,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   // Instanced copies inherit this bag's options block, so its "nearer than
   // the fog start" shortcut must not be judged from one copy's box.
   qbufferRenderer.setFogFacts(prim.fogging != DRAW_ENABLE,
-                              bbox != nullptr && !instancing
-                                  ? bbox->getMainBBox()
-                                  : nullptr);
+                              !instancing ? mainBox : nullptr);
 
   TYRA_ATTRIB_MARK(attribObjectDataStart);
   // Modified by TyraX: only this partial-frustum route can run a VU1 clip
@@ -1754,7 +1783,7 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
 #if TYRA_STAPIP_STAMP
   // Modified by TyraX: arm a stamp capture for a bag the whole-baked route is
   // about to replay, when every input the stamp cannot re-derive is fixed.
-  if (qbufferRenderer.isStampEnabled() && !instancing && frustumCull &&
+  if (!packed && qbufferRenderer.isStampEnabled() && !instancing && frustumCull &&
       frustumCheck == IN_FRUSTUM && bbox != nullptr &&
       !telemetryEnabled &&
       bag->billboard == nullptr && bag->lighting == nullptr &&
@@ -1784,6 +1813,54 @@ void StaPipCore::renderNow(StaPipBag* bag, StaPipLightReception reception) {
   if (telemetryEnabled) telemetry.prepareTicks += readCoreTelemetryTicks()-prepareStart;
   HardwareTrace::Scope traceDispatch("Dispatch");
   const u32 dispatchStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
+
+  if (packed) {
+    auto& mesh = *bag->packedMesh;
+    if (nativePacked) mesh.registerForDraw();
+    constexpr u32 sliceSize = StaPipPackedMesh::kSliceVertices;
+    const auto recordSlice = [&](u32 count, u8 mask, CoreBBoxFrustum route) {
+      if (!telemetryEnabled) return;
+      StaPipBagPackage package;
+      package.bag = bag;
+      package.size = static_cast<u16>(count);
+      package.clipPlaneMask = mask;
+      recordPackage(package, route);
+    };
+    for (u32 at = 0; at < bag->count; at += sliceSize) {
+      const u32 end = std::min(at + sliceSize, bag->count);
+      u8 mask = 0;
+      if (classifyPackages) {
+        const auto& bounds = mesh.bounds(at / sliceSize);
+        const auto check = CoreBBox::frustumCheckAABB(
+            objectSpacePlanes, bounds.min, bounds.max);
+        if (check == OUTSIDE_FRUSTUM) {
+          recordSlice(end - at, 0, OUTSIDE_FRUSTUM);
+          continue;
+        }
+        if (check == PARTIALLY_IN_FRUSTUM)
+          mask = vu1Clip ? CoreBBox::activePlaneMaskAABB(
+                               clipObjectSpacePlanes, bounds.min, bounds.max, 8)
+                         : 0x3F;
+      }
+      const u32 step = mask && !vu1Clip ? clipPackageSize() : maxVertCount;
+      for (u32 first = at; first < end; first += step) {
+        const u32 count = std::min(step, end - first);
+        const u8 clipMask = mask & 0x3F;
+        recordSlice(count, clipMask, mask ? PARTIALLY_IN_FRUSTUM : IN_FRUSTUM);
+        auto* buffer = qbufferRenderer.getBuffer();
+        buffer->fillByPacked(bag, first, count, nativePacked);
+        buffer->clipPlaneMask = clipMask;
+        if (mask) qbufferRenderer.clip(buffer);
+        else qbufferRenderer.cull(buffer);
+      }
+    }
+    qbufferRenderer.flushBuffers();
+    if (telemetryEnabled)
+      telemetry.dispatchTicks += readCoreTelemetryTicks() - dispatchStart;
+    TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);
+    return;
+  }
+
   // Modified by TyraX: the retained and baked caches are both opened in this
   // block rather than at the top of render(), because the prim state is part of
   // both keys and setInfo() above is what finished writing it. `retainBag` and

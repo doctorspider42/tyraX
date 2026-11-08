@@ -52,25 +52,26 @@ void StaPipClipper::init(const RendererSettings& settings) {
 void StaPipClipper::setMaxVertCount(const u32& count) { maxVertCount = count; }
 
 u32 StaPipClipper::clipToPool(StaPipQBuffer* buffer) {
+  const bool hasColors = buffer->bag->color->many || buffer->bag->packedMesh;
   TYRA_ASSERT(buffer->size <= maxVertCount / 3, "Buffer should have max ",
               maxVertCount / 3, " verts if we want to clip it.");
 
   EEClipAlgorithmSettings algoSettings = {buffer->bag->lighting != nullptr,
                                           buffer->bag->texture != nullptr,
-                                          buffer->bag->color->many != nullptr};
+                                          hasColors};
 
   u32 outCount = 0;
 
   // Spot light (flashlight): bake into local color copies before clipping
   // interpolates them - buffer->colors points at caller-owned data.
   const bool spotOnColors =
-      spot.enabled && buffer->bag->color->many && !buffer->bag->lighting;
+      spot.enabled && hasColors && !buffer->bag->lighting;
   Vec4 spotColors[3];
 
   for (u32 i = 0; i < buffer->size / 3; i++) {
     for (u8 j = 0; j < 3; j++) {
       Vec4* color =
-          buffer->bag->color->many ? &buffer->colors[i * 3 + j] : nullptr;
+          hasColors ? &buffer->colors[i * 3 + j] : nullptr;
       if (spotOnColors) {
         spotColors[j] = *color;
         addSpotToColor(&spotColors[j], buffer->vertices[i * 3 + j], spot);
@@ -114,7 +115,7 @@ void StaPipClipper::writeChunk(StaPipQBuffer* buffer, u32 start, u32 count) {
     const PlanesClipVertex& v = clippedPool[start + i];
     buffer->vertices[i] = v.position;
     if (buffer->bag->texture) buffer->sts[i] = v.st;
-    if (buffer->bag->color->many) buffer->colors[i] = v.color;
+    if (buffer->bag->color->many || buffer->bag->packedMesh) buffer->colors[i] = v.color;
     if (buffer->bag->lighting) buffer->normals[i] = v.normal;
   }
 }
@@ -135,7 +136,7 @@ void StaPipClipper::moveDataToBuffer(
     buffer->vertices[i] = vertex.position;
 
     if (buffer->bag->texture) buffer->sts[i] = vertex.st;
-    if (buffer->bag->color->many) buffer->colors[i] = vertex.color;
+    if (buffer->bag->color->many || buffer->bag->packedMesh) buffer->colors[i] = vertex.color;
     if (buffer->bag->lighting) buffer->normals[i] = vertex.normal;
   }
 }

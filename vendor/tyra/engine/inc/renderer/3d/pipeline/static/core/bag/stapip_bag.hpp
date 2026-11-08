@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "math/vec4.hpp"
 #include "./stapip_info_bag.hpp"
 #include "./stapip_color_bag.hpp"
@@ -61,6 +63,34 @@ struct StaPipBagPatch {
  * Supports frustum culling, full plane clipping, lighting,
  * texture and single color / many colors.
  */
+// Modified by TyraX: immutable, DMA-aligned native VIF payloads. The EE
+// keeps only the two corners needed for classification of each slice.
+class StaPipPackedMesh {
+ public:
+  static constexpr u32 kSliceVertices = 72;  // triangle lists, 16-byte stream offsets
+  struct Bounds { Vec4 min, max; };
+
+  static std::unique_ptr<StaPipPackedMesh> build(
+      const Vec4* vertices, const Color* colors, const Vec4* sts, u32 count);
+  ~StaPipPackedMesh();
+  void registerForDraw();
+  void decode(u32 offset, u32 count, Vec4* xyz, Vec4* rgb, Vec4* st) const;
+  const void* positions(u32 offset) const { return data.get() + offset * 3u / 4u; }
+  const void* texcoords(u32 offset) const { return data.get() + stStart + offset / 2u; }
+  const void* colors(u32 offset) const { return data.get() + colorStart + offset * 3u / 4u; }
+  const Bounds& bounds(u32 slice) const { return slices[slice]; }
+  const CoreBBox& mainBounds() const { return whole; }
+  u32 bytes() const { return quadwords * 16u + sliceCount * sizeof(Bounds); }
+
+ private:
+  struct alignas(16) Quadword { u32 words[4]; };
+  std::unique_ptr<Quadword[]> data;
+  std::unique_ptr<Bounds[]> slices;
+  CoreBBox whole;
+  u32 quadwords = 0, stStart = 0, colorStart = 0, sliceCount = 0;
+  bool submitted = false;
+};
+
 class StaPipBag {
  public:
   StaPipBag();
@@ -77,6 +107,9 @@ class StaPipBag {
 
   /** Mandatory. Vertices. */
   Vec4* vertices;
+
+  /** Optional native VIF input for immutable position/UV/color lists. */
+  StaPipPackedMesh* packedMesh = nullptr;
 
   /** Optional. Texture coordinates and image. */
   StaPipTextureBag* texture;

@@ -106,3 +106,13 @@ The baked arena payload budget counts both live streams and the retirement queue
 Retiring an arena makes it unavailable for lookup. Only actual collection of
 the DMA lease returns its budget. Under low EE headroom the cache can retire
 its streams while the ordered frame pipeline keeps running (docs/baked-vif-stream.md).
+
+### Compact procedural VIF streams
+
+Native packed chunks borrow a single DMA-aligned span per mesh. Masked
+`V3_32` and `V2_32` restore the stock quadword input layout through STROW.
+Slices start on a quadword boundary and the tail padding must be zero so it
+decodes as VIF NOPs. Packed bags skip stamp and baked command capture.
+Before releasing a used span, drain VIF1 even if registration failed and
+the frame writer used a copy. EE clipping and custom VU programs use the
+bounded qbuffer decode path. See docs/procedural-runtime.md.
