@@ -1027,6 +1027,18 @@ cycle helps. What is known (2026-11-07):
   phase 5); seconds later the console printed `freepad: DMA Busy ID = ...`.
   So the message means exactly "the EE stopped taking SIF0" - nothing more
   specific - and devlink's watchdog now says so in the editor's log.
+- **An EE exception is recoverable over Ethernet (2026-11-08).** The test
+  command with step count -8 raises a real EE exception (a store to an odd
+  address) in a debug game. Twice on the physical PS2 - with ps2link's own
+  exception handler, and with the game's Tyra crash handler installed
+  (`eeCrashHandler`) - the plain F6 path (`reset`, then `execee`) brought the
+  game back with no power cycle. ps2link's handler parks only the faulting
+  thread (`SleepThread`) and its command thread keeps serving `reset`. So the
+  power cycle is for HARD hangs only - an EE looping with interrupts off, a
+  wedged bus - where no code of ours can run; devlink's watchdog now names
+  that case in the editor's log. (Side finding: the Tyra crash handler wrote
+  no `bin/crash.txt` on that fault - the Debugger's crash card had nothing to
+  show. Recorded in docs/backlog.md.)
 - **Where the EE is lost is unknown.** `pkoReset` (the patch, `ee/cmdHandler.c`)
   terminates the game's MAIN thread only, quiesces the hardware, and
   `ExecPS2`s ps2link, whose `main()` reboots the IOP. Until that reboot the
