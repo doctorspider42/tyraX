@@ -69,7 +69,33 @@ class DevLink {
    */
   static bool sendReport(const void* data, int len);
 
+  /**
+   * The devkit's file channels in one call (docs/devlink.md, phase 3).
+   * Reads the newest copy of `name` - a bin/ file the editor writes - into
+   * `buf` and returns its length, or -1 when there is none (never sent, or
+   * deleted by the editor). Under ps2link with devlink up the copy comes from
+   * a mirror the IOP fills in EE RAM (the editor pushes the file over UDP);
+   * everywhere else it is a plain host: fopen/fread, exactly what the
+   * channels did before. The first call for a name registers its mirror with
+   * `cap` as its size and returns -1.
+   */
+  static int readFile(const char* name, void* buf, int cap);
+
+  /**
+   * Writes `name` the editor reads from bin/. With devlink up the bytes are
+   * queued and leave in slot-sized segments over the next frames (the editor
+   * writes the file once all have arrived); a newer write of the same name
+   * replaces one still in flight. Otherwise a plain host: fopen/fwrite.
+   */
+  static bool writeFile(const char* name, const void* data, int len);
+
+  /** Moves queued work along (mirror registration, outbound segments).
+   * Cheap; the devkit runtimes call it once a frame. */
+  static void pump();
+
  private:
+  static bool sendSlot(unsigned int kind, const void* prefix, int prefixLen,
+                       const void* data, int dataLen);
   static int state;  // 0 = not tried, 1 = active, -1 = unavailable
 };
 

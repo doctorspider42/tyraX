@@ -1387,7 +1387,6 @@ void App::livedbgTick() {
     // command every second: UDP may drop one, the game ignores a seq it has
     // applied, and the console can only answer while we keep talking to it.
     const std::string consoleIp = padConsoleIp();
-    devlinkRx_.serve(consoleIp.empty() ? std::string() : binDir.string(), consoleIp);
     if (!consoleIp.empty() && !dbgCmdBytes_.empty() && now >= dbgCmdResendAt_) {
         dbgCmdResendAt_ = now + 1.0;
         (void)wire::sendDatagram(consoleIp, (uint16_t)livepad::kDevlinkPort,
@@ -4539,6 +4538,18 @@ void App::remotePadTick() {
     padStatus_ = livepad::write(
         (fs::path(project_.dir) / "bin" / "livepad.bin").string(), padState_,
         ++padSeq_, true, padConsoleIp());
+}
+
+// devlink, every frame (docs/devlink.md): the pusher that mirrors the bin/
+// files the game reads into its RAM, while the run target is a console. The
+// receiving half belongs to the Runner's console session.
+void App::devlinkTick() {
+    namespace fs = std::filesystem;
+    const bool on = hasProject_ && project_.settings.buildProfile == "debug";
+    const std::string ip = on ? padConsoleIp() : std::string();
+    const std::string binDir = on ? (fs::path(project_.dir) / "bin").string()
+                                  : std::string();
+    devlinkPush_.tick(binDir, ip, ImGui::GetTime());
 }
 
 // Where the Remote Pad's datagram goes besides the file: the console, when the

@@ -4141,11 +4141,11 @@ private:
     // devlink (docs/devlink.md): on a console the command also goes out as a
     // datagram - resent every second, because UDP may drop it and because the
     // console's answers can only come back while we keep talking to it - and
-    // the game's reports come back as datagrams that devlinkRx_ writes into
-    // bin/livedbg.bin.
+    // the game's reports come back as datagrams that the Runner's devlink
+    // receiver writes into bin/livedbg.bin.
     std::vector<unsigned char> dbgCmdBytes_;
     double dbgCmdResendAt_ = 0.0;
-    devlink::Receiver devlinkRx_;
+    devlink::FilePusher devlinkPush_;  // the receiver lives in the Runner
     std::vector<uint32_t> dbgPrevHits_;  // previous snapshot's counters
     std::vector<double> dbgHeat_;   // per key: ImGui::GetTime() of its last fire
     std::vector<uint16_t> dbgFireQueue_;  // keys the user asked to force-fire
@@ -4318,6 +4318,7 @@ private:
     void padScriptTick();  // advance it; called from remotePadTick
     void remotePadTick();
     std::string padConsoleIp() const;  // devlink target, "" = file only
+    void devlinkTick();                // receiver + file mirror pusher
     void drawRemotePadWindow();
 
     // UI scripting (docs/ui-scripting.md): --ui-script drives the editor itself

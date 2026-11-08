@@ -12,6 +12,8 @@ under it as that release's notes, and the release's own page carries the date.
 
 - **Remote Pad on a real PS2 no longer costs the game frames.** A debug game deployed over ps2link used to read the Remote Pad state as a file from your PC every 4th frame, and the console waited for each of those network round trips. Now the console's I/O processor receives the state from the editor over the network and leaves it in memory, so the game reads it for free every frame, and the pad also answers sooner. PCSX2 is unchanged. This is the first channel moved; see `docs/devlink.md` for the plan to move the rest of the devkit the same way.
 - **The Live Debugger on a real PS2 goes through the I/O processor too.** Breakpoints, pause/step, watches and the Stats page used to cost the console a network round trip every 25 frames, and the panel updated twice a second. Now commands and reports travel as network packets the I/O processor handles, so the game pays almost nothing and reports as often as it does in PCSX2. Nothing to set up: it happens whenever the run target is PS2.
+- **Every other live tool on a real PS2 too:** Live Link, Live Logic, texture hot reload and the time machine now reach a console game the same way, so editing the scene, patching a graph or rewinding no longer costs the game network waits every 25 frames. The game's log lines arrive the same way, in the editor and in `--run-ps2`.
+- **The editor now knows when a game on a PS2 has crashed or frozen.** The console's I/O processor keeps running when the main CPU dies and tells the editor: "the console's IOP reports the game silent for N s - it crashed or hung". Before, a frozen game and a console that dropped off the network looked the same.
 
 ## 2.10.0
 

@@ -5623,6 +5623,9 @@
 // file round trip every 4th frame. Phase 2 (same version, unreleased): the
 // Live Debugger's command (TXDC) and report (SIF1 -> IOP slot -> TXDO chunks
 // -> editor writes bin/livedbg.bin) over devlink, PCSX2 cadence on a console.
+// Phases 3-5: DevLink::readFile/writeFile (RAM mirrors / segments) for Live
+// Link, Live Logic, livetex and the time machine; LOG lines via
+// TyraDebug::logSink; the IOP watchdog (TXWD). PS2-verified 2026-11-08.
 // 2.10.0: Preferences > Batch grouping cell (ProjectSettings::staticBatchCell,
 // codegen STATIC_BATCH_CELL; 0 = the automatic cell, kept by every example).
 // A 129-crate field at 48: crossing batches 13.5 -> 11.2 a frame, StaPip

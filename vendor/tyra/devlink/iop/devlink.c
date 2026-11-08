@@ -41,7 +41,7 @@
 #include "irx_imports.h"
 
 #define MODNAME "tyrax_devlink"
-IRX_ID(MODNAME, 1, 2);
+IRX_ID(MODNAME, 1, 5);
 
 #define DEVLINK_PORT 18198
 
@@ -63,6 +63,45 @@ IRX_ID(MODNAME, 1, 2);
 #define OUT_CHUNK 1024
 #define FOOTER_XOR 0x5A5A5A5AU
 
+/* Report kinds - the 4th header word of a slot. */
+#define KIND_REPORT 0   /* a whole livedbg.bin - sent as TXDO chunks */
+#define KIND_REGISTER 1 /* the game's file mirrors - consumed here */
+#define KIND_FILE 2     /* a segment of a file the game writes - TXDF chunks */
+#define KIND_LOG 3      /* a frame's worth of log text - TXLG chunks */
+#define KIND_HEARTBEAT 4 /* "the EE is alive" - consumed here */
+#define OUTF_MAGIC 0x46445854U  /* "TXDF" */
+#define OUTL_MAGIC 0x474C5854U  /* "TXLG" */
+#define WATCHDOG_MAGIC 0x44575854U /* "TXWD" */
+#define HELLO_PC_MAGIC 0x49485854U /* "TXHI" */
+
+/* Phase 5: the IOP outlives a dead EE. Once the game has been heard from,
+ * this long without a slot means it stopped - say so to the editor, every
+ * WATCHDOG_REPEAT_MS, until it speaks again. */
+#define WATCHDOG_SILENT_MS 3000
+#define WATCHDOG_REPEAT_MS 2000
+
+/* Inbound file mirrors (docs/devlink.md, phase 3): the editor pushes whole
+ * devkit files ('TXFP' chunks) and they land in the game's double buffers. */
+#define FILE_MAGIC 0x50465854U  /* "TXFP" */
+#define FILE_HEADER 24
+#define FILE_CHUNK 1024
+#define MAX_FILES 8
+#define MAX_FILE_CHUNKS 128      /* 128 KB per mirrored file */
+
+typedef struct {
+    u32 id;          /* fnv32 of the file name; 0 = free entry */
+    u32 ctrl;        /* EE: control quadword {active half, len, seq, foot} */
+    u32 half[2];     /* EE: the two halves */
+    u32 cap;
+    u32 active;      /* which half the game reads */
+    u32 committed;   /* seq of the content the game has */
+    u32 assembling;  /* seq of the content arriving */
+    u32 have;
+    u32 bits[MAX_FILE_CHUNKS / 32];
+} Mirror;
+
+static Mirror mirrors[MAX_FILES];
+
 #define THREAD_PRIORITY 100
 #define THREAD_STACK 0x1000
 
@@ -70,8 +109,9 @@ static u32 eePad;   /* EE physical addresses; 0 = channel off */
 static u32 eeCmd;
 static u32 eeHello;
 
-static u8 rxbuf[1024] __attribute__((aligned(64)));
-static u8 dmabuf[CMD_BOX] __attribute__((aligned(64)));
+static u8 rxbuf[FILE_HEADER + FILE_CHUNK + 64] __attribute__((aligned(64)));
+static u8 dmabuf[FILE_CHUNK + 64] __attribute__((aligned(64)));
+static u32 ctrlbuf[4] __attribute__((aligned(16)));
 static u32 hello[HELLO_SIZE / 4] __attribute__((aligned(64)));
 static u8 txbuf[16 + OUT_CHUNK] __attribute__((aligned(16)));
 
@@ -80,6 +120,20 @@ static u32 outDone[OUT_SLOTS];
 
 static struct sockaddr_in peer;
 static int havePeer;
+
+static int heardEE;          /* the game has handed over at least one slot */
+static u32 lastHeardMs;
+static u32 lastWatchdogMs;
+static u32 lastEESeq;
+
+static u32 nowMs(void)
+{
+    iop_sys_clock_t c;
+    u32 sec, usec;
+    GetSystemTime(&c);
+    SysClock2USec(&c, &sec, &usec);
+    return sec * 1000U + usec / 1000U;
+}
 
 static u32 parseHex(const char *s)
 {
@@ -111,16 +165,26 @@ static int startsWith(const char *s, const char *prefix)
     return 1;
 }
 
-/* Copies `size` bytes (a multiple of 16) to EE RAM and waits for the transfer
- * to finish, so the caller may reuse `src` at once. No completion interrupt on
- * the EE side (attr 0): the game polls its mailboxes, it does not want to be
- * told. */
+/* Set once a DMA to the EE never completed: the EE is not taking SIF0 any
+ * more (crashed, hung with interrupts off). From then on nothing is DMA'd -
+ * a second wait would be forever - and the watchdog keeps talking. Measured
+ * 2026-11-08: a hung EE left a devlink without this stuck inside its first
+ * DMA, watchdog and all, while padman printed "freepad: DMA Busy". */
+static int eeDeaf;
+
+/* Copies `size` bytes (a multiple of 16) to EE RAM and waits - at most
+ * ~50 ms - for the transfer to finish, so the caller may reuse `src` at once.
+ * No completion interrupt on the EE side (attr 0): the game polls its
+ * mailboxes, it does not want to be told. */
 static int toEE(void *src, u32 dest, int size)
 {
     SifDmaTransfer_t t;
     int state;
     int id;
+    int waited;
 
+    if (eeDeaf)
+        return -1;
     t.src = src;
     t.dest = (void *)dest;
     t.size = size;
@@ -131,8 +195,13 @@ static int toEE(void *src, u32 dest, int size)
     CpuResumeIntr(state);
     if (id == 0)
         return -1;
-    while (sceSifDmaStat(id) >= 0)
+    for (waited = 0; sceSifDmaStat(id) >= 0; waited += 20) {
+        if (waited >= 50000) {
+            eeDeaf = 1;
+            return -1;
+        }
         DelayThread(20);
+    }
     return 0;
 }
 
@@ -166,6 +235,94 @@ static int handleCmd(const u8 *p, int len)
     return 1;
 }
 
+static void commitMirror(Mirror *m, u32 half, u32 len, u32 seq)
+{
+    ctrlbuf[0] = half;
+    ctrlbuf[1] = len;
+    ctrlbuf[2] = seq;
+    ctrlbuf[3] = seq ^ FOOTER_XOR;
+    toEE(ctrlbuf, m->ctrl, 16);
+    m->active = half;
+    m->committed = seq;
+    m->assembling = 0;
+    m->have = 0;
+}
+
+/* One chunk of a pushed file: written straight into the half the game is NOT
+ * reading; when the last one is in, one 16-byte DMA flips the control word.
+ * A re-push of content the game already has (same seq - the editor uses a
+ * content hash) costs nothing but this check. */
+static int handleFile(const u8 *p, int len)
+{
+    u32 h[6];
+    u32 id, seq, total, index, count, n, off, i;
+    Mirror *m = 0;
+    if (len < FILE_HEADER)
+        return 0;
+    memcpy(h, p, FILE_HEADER);
+    id = h[1];
+    seq = h[2];
+    total = h[3];
+    index = h[4];
+    count = h[5];
+    for (i = 0; i < MAX_FILES; ++i)
+        if (mirrors[i].id == id)
+            m = &mirrors[i];
+    if (!m || seq == 0)
+        return 0; /* the game has not asked for this file (yet) */
+    if (seq == m->committed)
+        return 1;
+    if (total == 0) { /* the editor deleted the file */
+        commitMirror(m, m->active, 0, seq);
+        return 1;
+    }
+    if (total > m->cap || count == 0 || count > MAX_FILE_CHUNKS ||
+        count != (total + FILE_CHUNK - 1) / FILE_CHUNK || index >= count)
+        return 0;
+    off = index * FILE_CHUNK;
+    n = total - off < FILE_CHUNK ? total - off : FILE_CHUNK;
+    if ((u32)len != FILE_HEADER + n)
+        return 0;
+    if (seq != m->assembling) {
+        m->assembling = seq;
+        m->have = 0;
+        memset(m->bits, 0, sizeof(m->bits));
+    }
+    if (m->bits[index / 32] & (1U << (index % 32)))
+        return 1;
+    memcpy(dmabuf, p + FILE_HEADER, n);
+    if (toEE(dmabuf, m->half[m->active ^ 1] + off, (int)((n + 15) & ~15U)) != 0)
+        return 1;
+    m->bits[index / 32] |= 1U << (index % 32);
+    if (++m->have == count)
+        commitMirror(m, m->active ^ 1, total, seq);
+    return 1;
+}
+
+/* KIND_REGISTER: {id, ctrl, halfA, halfB, cap} per file. Re-registering an id
+ * (a rebooted game) starts it over. */
+static void registerMirrors(volatile u32 *w, u32 len)
+{
+    u32 e, i;
+    for (e = 0; e + 20 <= len; e += 20, w += 5) {
+        Mirror *m = 0;
+        for (i = 0; i < MAX_FILES && !m; ++i)
+            if (mirrors[i].id == w[0])
+                m = &mirrors[i];
+        for (i = 0; i < MAX_FILES && !m; ++i)
+            if (mirrors[i].id == 0)
+                m = &mirrors[i];
+        if (!m || (w[1] & 15U) || (w[2] & 15U) || (w[3] & 15U))
+            continue;
+        memset(m, 0, sizeof(*m));
+        m->id = w[0];
+        m->ctrl = w[1];
+        m->half[0] = w[2];
+        m->half[1] = w[3];
+        m->cap = w[4];
+    }
+}
+
 static void handleInbound(const u8 *p, int len, const struct sockaddr_in *from)
 {
     u32 magic;
@@ -177,6 +334,10 @@ static void handleInbound(const u8 *p, int len, const struct sockaddr_in *from)
         ok = handlePad(p, len);
     else if (magic == CMD_MAGIC)
         ok = handleCmd(p, len);
+    else if (magic == FILE_MAGIC)
+        ok = handleFile(p, len);
+    else if (magic == HELLO_PC_MAGIC)
+        ok = 1; /* "send your reports here" - the editor's session, every 0.5 s */
     /* Only a datagram that parsed as ours names the editor: a stray packet on
      * the port must not redirect the reports. */
     if (ok) {
@@ -203,12 +364,22 @@ static void serviceSlot(int sock, int k)
     foot = s[footAt / 4];
     if (foot != (seq ^ FOOTER_XOR))
         return; /* still arriving */
-    if (havePeer) {
+    heardEE = 1;
+    lastHeardMs = nowMs();
+    lastEESeq = seq;
+    if (s[3] == KIND_REGISTER) {
+        registerMirrors(s + 4, len);
+    } else if (s[3] == KIND_HEARTBEAT) {
+        /* nothing to forward - being heard was the point */
+    } else if (havePeer) {
+        const u32 chunkMagic = s[3] == KIND_FILE  ? OUTF_MAGIC
+                               : s[3] == KIND_LOG ? OUTL_MAGIC
+                                                  : OUT_MAGIC;
         chunks = (len + OUT_CHUNK - 1) / OUT_CHUNK;
         for (i = 0, off = 0; i < chunks; ++i, off += OUT_CHUNK) {
             u32 n = len - off < OUT_CHUNK ? len - off : OUT_CHUNK;
             u32 h[4];
-            h[0] = OUT_MAGIC;
+            h[0] = chunkMagic;
             h[1] = seq;
             h[2] = (chunks << 16) | i;
             h[3] = len;
@@ -277,6 +448,23 @@ static void serverThread(void *arg)
         for (k = 0; k < OUT_SLOTS; ++k)
             if (outSlot[k])
                 serviceSlot(sock, k);
+
+        /* Phase 5 watchdog: {magic, ms silent, last seq heard, 0}. */
+        if (heardEE && havePeer) {
+            u32 t = nowMs();
+            u32 silent = t - lastHeardMs;
+            if (silent >= WATCHDOG_SILENT_MS &&
+                t - lastWatchdogMs >= WATCHDOG_REPEAT_MS) {
+                u32 w[4];
+                w[0] = WATCHDOG_MAGIC;
+                w[1] = silent;
+                w[2] = lastEESeq;
+                w[3] = (u32)eeDeaf; /* 1 = a DMA to the EE never completed */
+                lwip_sendto(sock, w, 16, 0, (struct sockaddr *)&peer,
+                            sizeof(peer));
+                lastWatchdogMs = t;
+            }
+        }
     }
 }
 

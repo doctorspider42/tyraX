@@ -6,11 +6,16 @@
 #include "debug/debug.hpp"
 #include "irx/irx_loader.hpp"
 
+#include "file/file_utils.hpp"
+
 #include <kernel.h>
 #include <loadfile.h>
+#include <malloc.h>
 #include <sifdma.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <timer.h>
 
 extern unsigned char devlink_irx[];
 extern int size_devlink_irx;
@@ -101,11 +106,17 @@ void logKernelHeadroom() {
   TYRA_LOG("KHEAD free semaphores ", sema, " threads ", threads);
 }
 
+// Write back and drop every cached line over a DMA target FIRST, then clear
+// it through the uncached segment: done the other way round, a dirty line
+// written back afterwards would overwrite the zeros (or, later, the IOP's
+// data) with whatever the line held.
+void logSink(const char* text, int len);  // below, with the log buffer
+
 void clearBox(unsigned char* box, int size) {
-  volatile unsigned int* w = uncached(box);
-  for (int i = 0; i < size / 4; ++i) w[i] = 0;
   SyncDCache(box, box + size);
   InvalidDCache(box, box + size);
+  volatile unsigned int* w = uncached(box);
+  for (int i = 0; i < size / 4; ++i) w[i] = 0;
 }
 
 }  // namespace
@@ -144,7 +155,9 @@ bool DevLink::start() {
   }
   state = 1;
   TYRA_LOG("devlink: up on udp/", kPort,
-           " - Remote Pad and the Live Debugger use it");
+           " - pad, debugger, file channels, logs and watchdog use it");
+  // From here plain LOG lines go to the IOP once a frame (phase 4).
+  TyraDebug::logSink = &logSink;
   return true;
 }
 
@@ -200,6 +213,14 @@ int DevLink::readCommand(unsigned char* out, int cap) {
 }
 
 bool DevLink::sendReport(const void* data, int len) {
+  return sendSlot(0, nullptr, 0, data, len);
+}
+
+// One report into a free IOP slot: header (magic, seq, length, kind), an
+// optional prefix, the data, then a footer quadword echoing seq.
+bool DevLink::sendSlot(unsigned int kind, const void* prefix, int prefixLen,
+                       const void* data, int dataLen) {
+  const int len = prefixLen + dataLen;
   if (state <= 0 || len <= 0 || len > kReportMax) return false;
   volatile unsigned int* hello = uncached(helloBox);
   if (hello[0] != kHelloMagic || (int)hello[3] < len) return false;
@@ -215,9 +236,10 @@ bool DevLink::sendReport(const void* data, int len) {
 
     unsigned char* s = stage[k];
     const unsigned int seq = ++reportSeq;
-    const unsigned int h[4] = {kOutMagic, seq, (unsigned int)len, 0U};
+    const unsigned int h[4] = {kOutMagic, seq, (unsigned int)len, kind};
     memcpy(s, h, 16);
-    memcpy(s + 16, data, (size_t)len);
+    if (prefixLen > 0) memcpy(s + 16, prefix, (size_t)prefixLen);
+    if (dataLen > 0) memcpy(s + 16 + prefixLen, data, (size_t)dataLen);
     const int footAt = (16 + len + 15) & ~15;
     memset(s + 16 + len, 0, (size_t)(footAt - 16 - len));
     const unsigned int foot[4] = {seq ^ kFooterXor, 0U, 0U, 0U};
@@ -242,6 +264,212 @@ bool DevLink::sendReport(const void* data, int len) {
     return true;
   }
   return false;
+}
+
+// ------------------------------------------------------------ file mirrors --
+
+namespace {
+
+const unsigned int kKindRegister = 1;
+const unsigned int kKindFile = 2;
+const unsigned int kKindLog = 3;
+const unsigned int kKindHeartbeat = 4;
+
+// Phase 4: plain LOG lines collect here and leave once a frame. A full buffer
+// drops the newest lines and says how many, rather than blocking the game.
+char logRing[8 * 1024];
+int logLen = 0;
+int logDropped = 0;
+
+void logSink(const char* text, int len) {
+  if (logLen + len > (int)sizeof(logRing)) {
+    ++logDropped;
+    return;
+  }
+  memcpy(logRing + logLen, text, (size_t)len);
+  logLen += len;
+}
+
+// Phase 5: one heartbeat a second, so the IOP can tell "quiet" from "dead".
+unsigned long long lastBeat = 0;
+const int kMaxMirrors = 8;
+const int kMaxOutFiles = 4;
+
+struct Mirror {
+  unsigned int id = 0;
+  int cap = 0;
+  unsigned char* ctrl = nullptr;     // {active half, len, seq, footer}
+  unsigned char* half[2] = {nullptr, nullptr};
+  unsigned int lastSeq = 0;          // the content last copied out
+};
+Mirror mirrors[kMaxMirrors];
+int mirrorCount = 0;
+bool registerPending = false;
+
+struct OutFile {
+  unsigned int id = 0;
+  unsigned char* data = nullptr;
+  int cap = 0;
+  int len = 0;
+  int sent = 0;           // bytes handed over so far
+  unsigned int seq = 0;   // which version of the file this is
+  bool pending = false;
+};
+OutFile outFiles[kMaxOutFiles];
+unsigned int outFileSeq = 0;
+
+// The id both ends agree on: FNV-1a of the file name.
+unsigned int fileId(const char* name) {
+  unsigned int h = 2166136261U;
+  for (const char* p = name; *p; ++p) h = (h ^ (unsigned char)*p) * 16777619U;
+  return h ? h : 1U;
+}
+
+unsigned char* allocLines(int size) {
+  const int rounded = (size + 63) & ~63;
+  unsigned char* p = static_cast<unsigned char*>(memalign(64, (size_t)rounded));
+  if (p) clearBox(p, rounded);
+  return p;
+}
+
+int hostRead(const char* name, void* buf, int cap) {
+  FILE* f = fopen(FileUtils::fromCwd(name).c_str(), "rb");
+  if (!f) return -1;
+  const size_t got = fread(buf, 1, (size_t)cap, f);
+  fclose(f);
+  return (int)got;
+}
+
+bool hostWrite(const char* name, const void* data, int len) {
+  FILE* f = fopen(FileUtils::fromCwd(name).c_str(), "wb");
+  if (!f) return false;
+  fwrite(data, 1, (size_t)len, f);
+  fclose(f);
+  return true;
+}
+
+}  // namespace
+
+int DevLink::readFile(const char* name, void* buf, int cap) {
+  start();
+  if (state <= 0) return hostRead(name, buf, cap);
+  pump();
+  const unsigned int id = fileId(name);
+  Mirror* m = nullptr;
+  for (int i = 0; i < mirrorCount; ++i)
+    if (mirrors[i].id == id) m = &mirrors[i];
+  if (!m) {
+    if (mirrorCount >= kMaxMirrors || cap <= 0) return hostRead(name, buf, cap);
+    Mirror& n = mirrors[mirrorCount];
+    // Chunks are DMA'd as whole quadwords, so a half gets a chunk's worth of
+    // slack past `cap`.
+    const int halfSize = ((cap + 1023) & ~1023) + 64;
+    n.ctrl = allocLines(64);
+    n.half[0] = allocLines(halfSize);
+    n.half[1] = allocLines(halfSize);
+    if (!n.ctrl || !n.half[0] || !n.half[1]) return hostRead(name, buf, cap);
+    n.id = id;
+    n.cap = cap;
+    ++mirrorCount;
+    registerPending = true;
+    pump();
+    TYRA_LOG("devlink: mirroring ", name, " (", cap, " bytes)");
+    return -1;  // nothing has arrived yet
+  }
+  volatile unsigned int* c = uncached(m->ctrl);
+  const unsigned int half = c[0], len = c[1], seq = c[2], foot = c[3];
+  if (seq == 0 || foot != (seq ^ kFooterXor) || half > 1U) return -1;
+  if (len == 0 || (int)len > cap || (int)len > m->cap) return -1;  // deleted
+  unsigned char* src = m->half[half];
+  if (seq != m->lastSeq) {
+    // This half was filled by DMA behind the cache; the game never writes
+    // it, so dropping its lines is all it takes to read it at full speed.
+    InvalidDCache(src, src + ((len + 63) & ~63U));
+    m->lastSeq = seq;
+  }
+  memcpy(buf, src, len);
+  // The IOP may have flipped (and started refilling the other half) while
+  // we copied. Same content check as every devkit format: try next poll.
+  if (c[2] != seq) return -1;
+  return (int)len;
+}
+
+bool DevLink::writeFile(const char* name, const void* data, int len) {
+  start();
+  if (state <= 0 || len <= 0) return hostWrite(name, data, len);
+  const unsigned int id = fileId(name);
+  OutFile* o = nullptr;
+  for (int i = 0; i < kMaxOutFiles && !o; ++i)
+    if (outFiles[i].id == id) o = &outFiles[i];
+  for (int i = 0; i < kMaxOutFiles && !o; ++i)
+    if (outFiles[i].id == 0) o = &outFiles[i];
+  if (!o) return hostWrite(name, data, len);
+  if (o->cap < len) {
+    free(o->data);
+    o->data = static_cast<unsigned char*>(malloc((size_t)len));
+    o->cap = o->data ? len : 0;
+    if (!o->data) {
+      o->id = 0;
+      return hostWrite(name, data, len);
+    }
+  }
+  // Latest wins: a newer version replaces one still going out.
+  o->id = id;
+  memcpy(o->data, data, (size_t)len);
+  o->len = len;
+  o->sent = 0;
+  o->seq = ++outFileSeq;
+  o->pending = true;
+  pump();
+  return true;
+}
+
+void DevLink::pump() {
+  if (state <= 0) return;
+  if (logLen > 0 || logDropped > 0) {
+    if (logDropped > 0) {
+      char note[64];
+      const int n = snprintf(note, sizeof(note),
+                             "LOG: devlink: %d log line(s) dropped\n", logDropped);
+      if (logLen + n <= (int)sizeof(logRing)) {
+        memcpy(logRing + logLen, note, (size_t)n);
+        logLen += n;
+        logDropped = 0;
+      }
+    }
+    if (sendSlot(kKindLog, nullptr, 0, logRing, logLen)) logLen = 0;
+  }
+  const unsigned long long now = GetTimerSystemTime();
+  if (now - lastBeat > (unsigned long long)kBUSCLK) {
+    const unsigned int beat = 0;
+    if (sendSlot(kKindHeartbeat, nullptr, 0, &beat, 4)) lastBeat = now;
+  }
+  if (registerPending && mirrorCount > 0) {
+    unsigned int table[kMaxMirrors * 5];
+    for (int i = 0; i < mirrorCount; ++i) {
+      table[i * 5 + 0] = mirrors[i].id;
+      table[i * 5 + 1] = physical(mirrors[i].ctrl);
+      table[i * 5 + 2] = physical(mirrors[i].half[0]);
+      table[i * 5 + 3] = physical(mirrors[i].half[1]);
+      table[i * 5 + 4] = (unsigned int)mirrors[i].cap;
+    }
+    if (sendSlot(kKindRegister, nullptr, 0, table, mirrorCount * 20))
+      registerPending = false;
+  }
+  // Outbound files go one segment per free slot: {id, seq, offset, total}
+  // and up to a slot's worth of the file.
+  for (int i = 0; i < kMaxOutFiles; ++i) {
+    OutFile& o = outFiles[i];
+    while (o.pending) {
+      const int n = o.len - o.sent < kReportMax - 16 ? o.len - o.sent
+                                                       : kReportMax - 16;
+      const unsigned int h[4] = {o.id, o.seq, (unsigned int)o.sent,
+                                 (unsigned int)o.len};
+      if (!sendSlot(kKindFile, h, 16, o.data + o.sent, n)) return;
+      o.sent += n;
+      if (o.sent >= o.len) o.pending = false;
+    }
+  }
 }
 
 }  // namespace Tyra

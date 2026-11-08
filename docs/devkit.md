@@ -71,6 +71,16 @@ worked. This is functional validation, not a measured performance improvement.
 
 ## What the devkit costs at runtime
 
+**Since 2.11.0 most of what follows is history on a console**: a debug game
+under ps2link moves its polled channels - Remote Pad, the Live Debugger, Live
+Link, Live Logic, texture hot reload, the time machine - and its log lines
+off `host:` and onto the IOP ([devlink.md](devlink.md)). Measured on a PS2
+with the debugger attached: 0.17 ms of `pre` against 1.67 ms over `host:`, and
+0 missed fields against 20 in 1250. What still costs round trips: the input
+recorder (a chunk every 256 frames), the boot snapshot and the one-shot asks
+(VU1 capture, screenshot, render cost, crash report). The numbers below are
+the `host:` path, still what PCSX2-less tools and older games pay.
+
 The devkit is free in a RELEASE build - that is what the audit proves. In a
 debug build it is not, and over ps2link it is not small. Measured on a physical
 PS2 on `examples/vehicle-playground`, 2026-09-23, parked vantage, day:

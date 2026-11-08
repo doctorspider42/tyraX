@@ -64,7 +64,22 @@ class TyraDebug {
   // exits never empties. Nothing reached ps2client, bin/log.txt was never
   // written, and the Debug window stayed empty on real hardware while
   // everything worked in PCSX2.
+  // TyraX: where plain "LOG: " lines go instead, when set. devlink sets it
+  // on a console (docs/devlink.md, phase 4): the line is appended to a RAM
+  // buffer and leaves once a frame with one DMA, instead of a synchronous
+  // tty RPC per line. WARN, ERR and traps never take it - they may be the
+  // last thing a dying game says, and a buffer flushed next frame would lose
+  // exactly those.
+  static void (*logSink)(const char* text, int len);
+
   static void emit(std::stringstream* ss) {
+    if (logSink) {
+      const std::string s = ss->str();
+      if (s.compare(0, 5, "LOG: ") == 0) {
+        logSink(s.data(), (int)s.size());
+        return;
+      }
+    }
     if (Tyra::Info::writeLogsToFile) {
       writeInLogFile(ss);
     } else {

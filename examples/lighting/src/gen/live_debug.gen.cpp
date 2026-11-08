@@ -276,6 +276,16 @@ void pollCommand() {
 
   editorAttached = true;
   cmdSeq = seq;
+  // Bit 7: a TEST of the crash path - stop the EE dead while the IOP lives
+  // on, which is what devlink's watchdog (docs/devlink.md, phase 5) exists to
+  // report. No editor UI sets it; a test script does. WARN, not LOG: a plain
+  // LOG would wait in devlink's buffer for a flush that never comes.
+  if (flags & (1U << 7)) {
+    TYRA_WARN("livedbg: hanging the EE on request (test)");
+    DI();
+    for (;;) {
+    }
+  }
   int watchc;
   memcpy(&watchc, c + 28, 4);
   if (watchc < 0 || watchc > MAX_WATCH) watchc = 0;
@@ -515,6 +525,9 @@ void flush(ScriptContext& ctx) {
 void tickImpl(ScriptContext& ctx) {
   Tyra::HardwareTrace::Scope trace("Live_debug");
   lastScene = ctx.scene;
+  // devlink's per-frame work - logs, heartbeat, queued segments - if it is up
+  // (docs/devlink.md). A no-op everywhere else.
+  Tyra::DevLink::pump();
   // The editor's manual fact overrides, re-asserted at the top of the frame so
   // the graphs and rules that run after this SEE them. Re-applied every frame
   // the command file still lists them, which is what makes overriding a fact a

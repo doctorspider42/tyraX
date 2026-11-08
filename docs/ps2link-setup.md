@@ -1022,6 +1022,11 @@ cycle helps. What is known (2026-11-07):
   stopped receiving**: it died or hung. That is also why `reset` then returns 0
   and changes nothing: the command reaches the IOP, and there is no EE to carry
   it out.
+- **Reproduced on demand (2026-11-08):** a debug build's test bit stops the
+  EE with interrupts off while everything else runs ([devlink.md](devlink.md),
+  phase 5); seconds later the console printed `freepad: DMA Busy ID = ...`.
+  So the message means exactly "the EE stopped taking SIF0" - nothing more
+  specific - and devlink's watchdog now says so in the editor's log.
 - **Where the EE is lost is unknown.** `pkoReset` (the patch, `ee/cmdHandler.c`)
   terminates the game's MAIN thread only, quiesces the hardware, and
   `ExecPS2`s ps2link, whose `main()` reboots the IOP. Until that reboot the

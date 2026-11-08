@@ -35,4 +35,6 @@ I_CreateThread
 I_StartThread
 I_ExitDeleteThread
 I_DelayThread
+I_GetSystemTime
+I_SysClock2USec
 thbase_IMPORTS_end

@@ -134,6 +134,8 @@ void tick(Tyra::Engine* engine, Tyra::Pad* pad2) {
   // a network round trip over ps2link, hence the sparser poll there.
   if (viaDevlink == 0) viaDevlink = Tyra::DevLink::start() ? 1 : -1;
   if (viaDevlink > 0) {
+    // Once a frame: logs, heartbeat, queued file segments (docs/devlink.md).
+    Tyra::DevLink::pump();
     static unsigned char b[PAD_FILE_SIZE];
     if (Tyra::DevLink::readPad(b)) applyState(b);
   } else if (--pollCooldown <= 0) {

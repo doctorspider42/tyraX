@@ -1,8 +1,10 @@
 # devlink — the devkit's channel through the IOP
 
-**Status:** phases 1 (Remote Pad) and 2 (Live Debugger) done and measured on
-a PS2. Everything else in the devkit still rides
-`host:` files; this page is both the plan and the record.
+**Status:** all five phases done and verified on a PS2: Remote Pad, the Live
+Debugger, the file channels (Live Link, Live Logic, texture hot reload, the
+time machine), logs and the crash watchdog. What still rides `host:`: the input recorder (a
+stream, not a file), the boot snapshot and the one-shot asks. This page is both
+the plan and the record.
 
 ## Why
 
@@ -195,6 +197,111 @@ Over UDP the attached game sent 125 reports in 15 s - 8.3 a second, one every
 counter. The log showed `devlink: first Live Debugger command arrived`.
 The datagrams came from a test script that sends what `livedbgTick` sends;
 the editor panel driving a console end to end is still owed.
+
+## Phase 3 record - the file channels
+
+Every remaining polled channel had the same shape on the game side:
+`fopen(name)` → `fread(buf, sizeof buf)` → `fclose` → a parser with its own
+size and footer check (or the reverse for a write). So instead of one
+transport per channel there is one **file mirror**, and the channels' formats,
+parsers and writers did not change at all:
+
+- `Tyra::DevLink::readFile(name, buf, cap)` - under ps2link with devlink up,
+  the newest copy of `name` from a RAM mirror; otherwise the plain host: read
+  it replaced. -1 = no file. Used by Live Link (`livelink.bin`), Live Logic
+  (`livelogic.bin`), texture hot reload (`livetex.bin`) and the time machine's
+  rewind (`livetime.rst`).
+- `Tyra::DevLink::writeFile(name, data, len)` - queued and sent in slot-sized
+  segments over the next frames; otherwise a host: write. Used by the time
+  machine's captures (`livetime.bin`).
+
+How a mirror is filled:
+
+1. The first `readFile` of a name allocates a 64-byte control block and two
+   halves of `cap` bytes (whole cache lines) and registers them with the IOP
+   through a report slot (kind 1) - still no SIF RPC.
+2. The editor's `devlink::FilePusher` (`App::devlinkTick`) stats the mirrored
+   bin/ files every 100 ms and pushes a changed one as `TXFP` chunks
+   (24-byte header: id = FNV-1a of the name, seq = FNV-1a of the CONTENT, length,
+   chunk index and count). Every 2 s it pushes everything again: the game may
+   have booted after the last change, and since the seq is a content hash a
+   re-push of unchanged bytes costs the IOP one comparison. A missing file is
+   pushed as length 0 (the game's -1). Paced at 24 chunks a frame.
+3. The IOP DMAs each chunk straight into the half the game is NOT reading;
+   when the last chunk is in, one 16-byte DMA writes the control block (half,
+   length, seq, footer) and the game reads the other half from then on.
+4. `readFile` notices the new seq, drops that half's cache lines
+   (`InvalidDCache` - the game never writes them) and copies it out, then checks
+   the seq did not move during the copy.
+
+Writes go the other way: segments `{id, seq, offset, total}` + bytes in report
+slots (kind 2), forwarded as `TXDF` chunks; the editor's `FileAssembler`
+puts the file together and writes it into bin/.
+
+The time machine keeps its sparser console cadence: a capture is large and
+would be large traffic either way, and the IOP shares its time with audsrv.
+The input recorder stays on host:: it reads and writes an OPEN file as a
+stream, and writes only once per 256-frame chunk over ps2link.
+
+## Phase 4 - logs
+
+`TyraDebug::emit` has a `logSink` (engine `debug.hpp`). devlink sets it once
+up: a plain `LOG: ` line goes into an 8 KB RAM buffer and leaves once a frame
+in one report slot (kind 3, `TXLG` chunks) instead of a synchronous tty RPC per
+line. `WARN`, `ERR` and traps never take it - they may be the last thing a
+dying game says. A full buffer drops lines and says how many in the next
+flush. The editor's Runner prints the lines as `[ps2] ...` into Output and the
+session log and counts them as signs of life, exactly like ps2client's.
+
+The IOP only ever sends to the last address it heard from, so the Runner's
+receiver sends a 16-byte `TXHI` every 500 ms for the whole console session.
+That is what makes a CLI `--run-ps2` (no editor window, no debugger attached)
+get the same lines: the receiver lives in the Runner, not in the App.
+
+## Phase 5 - the crash watchdog
+
+The game sends a 4-byte heartbeat (kind 4) once a second from `pump()`. The
+IOP notes the time of every slot it services; once it has heard the game, more
+than 3 s of silence makes it send `TXWD {silent ms, last seq}` to the editor
+every 2 s. The Runner logs it once per silence:
+`devlink: the console's IOP reports the game silent for N s - it crashed or
+hung (the IOP and the network are still up)`. That is a fact the editor used
+to infer from a file's age and a process list, and it also tells "the EE is
+gone" apart from "the console fell off the network" (then nothing arrives at
+all).
+
+`pump()` runs once a frame from the Remote Pad and Live Debugger runtimes (on
+by default in debug builds) and from the time machine's tick.
+
+**A DMA to a dead EE never completes.** The IOP waits at most ~50 ms for its
+own transfers; one that times out marks the EE deaf (`TXWD`'s last word = 1)
+and nothing is DMA'd again - the first version waited forever, and a hung EE
+took the watchdog down with it (found on the console, see below).
+
+### Phases 3-5 measured on a PS2 (2026-11-08)
+
+A debug fixture with every devkit channel on, deployed with the plain CLI
+(`--run-ps2`, no editor window), driven by a test script that does what the
+editor's pusher does:
+
+- **Logs (4):** `devlink: mirroring livelink.bin / livetime.rst / livetex.bin`
+  arrived as `[ps2]` lines over devlink - logged after the game switched its
+  LOG lines to the IOP, and received by the CLI's Runner.
+- **Game-written files (3, out):** the time machine's `livetime.bin` (3786 B,
+  `TXTM`) was rebuilt in bin/ from `TXDF` segments 15 s after boot.
+- **Mirrors (3, in):** that capture pushed back as `livetime.rst` in `TXFP`
+  chunks produced `Time machine: restored capture 3` - read from the RAM
+  mirror the IOP filled, and logged over devlink as well.
+- **Watchdog (5):** a debug-command bit (7, test only) stops the EE with
+  interrupts off. 3 s later: `devlink: the console's IOP reports the game
+  silent for 3 s - it crashed or hung (the IOP and the network are still up)`.
+  On the same stop the console printed `freepad: DMA Busy` - the message of the
+  ps2link reset wedge, reproduced on demand: it means exactly "the EE stopped
+  taking SIF0" (docs/ps2link-setup.md, "The reset wedge").
+
+Not covered yet: the editor's GUI driving a console end to end (the pusher and
+the debugger panel are exercised by script equivalents), and an audio check
+with music while devlink is busy.
 
 ### Testing devlink without the console
 

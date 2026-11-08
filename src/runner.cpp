@@ -863,6 +863,7 @@ void Runner::killPs2Client() {
     // The pump exits once the process (and thus its pipe) is gone. It holds
     // its own shared_ptr, so the Process outlives this scope until it joins.
     if (ps2Pump_.joinable()) ps2Pump_.join();
+    devlinkRx_.serve("", "");  // the session is over
 }
 
 // Claim the ps2link file-server channel for this project, or explain who has it.
@@ -1255,6 +1256,30 @@ bool Runner::deployToPs2(const Project& p) {
         sessionLog->write("[editor] Run on PS2: " + p.name + " -> " + p.ps2LinkIp +
                           " (" + cmd + ")");
         appendLine("[editor] Console log: " + sessionLog->path());
+    }
+
+    // devlink (docs/devlink.md): a debug game on the console sends its LOG
+    // lines, reports and file writes through the IOP instead of the tty and
+    // host:. They land in the same Output, the same session log and the same
+    // bin/ files, and count as signs of life like ps2client's lines do. The
+    // worker is stopped before its callbacks are replaced (no thread is
+    // inside one then).
+    devlinkRx_.serve("", "");
+    if (p.settings.buildProfile == "debug") {
+        devlinkRx_.onLine = [this, sessionLog](const std::string& line) {
+            appendLine("[ps2] " + line);
+            sessionLog->write(line);
+            ps2Lines_++;
+        };
+        devlinkRx_.onWatchdog = [this, sessionLog](uint32_t silentMs) {
+            const std::string msg =
+                "[editor] devlink: the console's IOP reports the game silent for " +
+                std::to_string(silentMs / 1000) +
+                " s - it crashed or hung (the IOP and the network are still up).";
+            appendLine(msg);
+            sessionLog->write(msg);
+        };
+        devlinkRx_.serve((fs::path(p.dir) / "bin").string(), p.ps2LinkIp);
     }
 
     // Pump ps2client's output - including the console's printf/TYRA log

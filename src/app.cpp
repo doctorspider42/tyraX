@@ -1076,6 +1076,11 @@ void App::drawUI() {
     // only when the compiled program actually changed).
     liveLogicTick();
 
+    // devlink (docs/devlink.md): on a console, the bin/ files the channels
+    // above just wrote are pushed to the game's RAM mirrors, and what the game
+    // writes through the IOP comes back into bin/.
+    devlinkTick();
+
     // Drain collaboration-session events (peer joins/leaves, sync completion,
     // session end) - the only place session state meets project_/ImGui.
     sessionTick();

@@ -20,6 +20,7 @@
 
 namespace wire {
 int recvDatagram(void*, size_t, int, std::string*) { return -1; }
+std::string sendDatagram(const std::string&, uint16_t, const void*, size_t) { return ""; }
 }
 namespace platform {
 void sleepMs(int) {}
@@ -107,6 +108,38 @@ int main() {
         check(!r.feed(junk.data(), (int)junk.size()) && !r.feed(c.data(), (int)c.size()),
               "foreign / inconsistent datagrams: rejected");
     }
+    // Phase 3: a file the game writes, sent as segments (TXDF reports).
+    auto segment = [](uint32_t id, uint32_t seq, uint32_t off, const std::string& file,
+                      size_t n) {
+        std::string s(16 + n, '\0');
+        const uint32_t h[4] = {id, seq, off, (uint32_t)file.size()};
+        std::memcpy(&s[0], h, 16);
+        std::memcpy(&s[16], file.data() + off, n);
+        return s;
+    };
+    {
+        devlink::FileAssembler fa;
+        const std::string file = payload(70000, 9);  // three segments
+        const size_t seg = devlink::kReportMax - 16;
+        int done = 0;
+        for (size_t off = 0; off < file.size(); off += seg)
+            done += fa.feed(segment(42, 1, (uint32_t)off, file,
+                                    std::min(seg, file.size() - off)));
+        check(done == 1 && fa.bytes() == file && fa.id() == 42,
+              "file segments: whole file, right id");
+    }
+    {
+        devlink::FileAssembler fa;
+        const std::string a = payload(40000, 10), b = payload(40000, 11);
+        const size_t seg = devlink::kReportMax - 16;
+        int done = fa.feed(segment(7, 1, 0, a, seg));  // a's first half only
+        done += fa.feed(segment(7, 2, 0, b, seg));     // a newer version starts
+        done += fa.feed(segment(7, 2, (uint32_t)seg, b, b.size() - seg));
+        check(done == 1 && fa.bytes() == b, "file segments: newer version wins");
+    }
+    check(devlink::fileId("livelink.bin") != devlink::fileId("livelogic.bin") &&
+              devlink::fileId("livetime.bin") != 0,
+          "file ids: distinct, never 0");
     std::printf("%s\n", failures ? "FAILED" : "all passed");
     return failures ? 1 : 0;
 }

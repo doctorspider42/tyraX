@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <debug/devlink.hpp>
 #include "scripts/script.hpp"
 
 namespace Ambient_occlusion {
@@ -30,17 +31,17 @@ class LiveLink : public Script {
     // id lookup and re-apply the latest snapshot (lastSeq_ = 0).
     if (ctx.sceneGeneration != gen_) rebuildTables(ctx);
 
-    // Over ps2link every fopen is a network round-trip - poll sparsely there;
+    // Over ps2link every fopen is a network round-trip - poll sparsely there,
+    // unless devlink mirrors the file into RAM (docs/devlink.md);
     // PCSX2's Host Filesystem is plain local IO, poll ~10x/s.
     if (--cooldown_ > 0) return;
-    cooldown_ = Tyra::IrxLoader::keepIopResident ? 25 : 6;
+    cooldown_ = (Tyra::IrxLoader::keepIopResident && !Tyra::DevLink::start()) ? 25 : 6;
 
     static unsigned char buf[LL_HEADER +
                              (LL_MAX_OBJECTS + LL_MAX_SPAWNED) * LL_STRIDE + 4];
-    FILE* f = fopen(Tyra::FileUtils::fromCwd("livelink.bin").c_str(), "rb");
-    if (!f) return;  // no snapshot yet (or shipped without the editor)
-    const size_t got = fread(buf, 1, sizeof(buf), f);
-    fclose(f);
+    const int read = Tyra::DevLink::readFile("livelink.bin", buf, (int)sizeof(buf));
+    if (read < 0) return;  // no snapshot yet (or shipped without the editor)
+    const size_t got = (size_t)read;
     if (got < LL_HEADER + 4) return;
 
     u32 magic, version, seq;
