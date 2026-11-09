@@ -328,6 +328,25 @@ Developer design docs (internals, not user guides):
   and the EE PMU: 25 µs for a stamp, ~147 µs for a bag crossing the frustum,
   almost all of it cache misses. Covers the kept classification cut for the
   partial replay and the measured dead ends.
+- [Data-oriented draw submission](dod-submission.md) — the plan and running
+  record of the rebuild that makes StaPip read compact, contiguous per-draw
+  records instead of scattered bag data (frame recording, stage-major flush,
+  hot records, scratchpad streaming), phase by phase with PS2 measurements;
+  since 2.12.0 the stamp record and stamp pass, their input epochs and the
+  revision contract every new writer must keep; since 2.13.0 the crossing
+  pass (crossing bags classified in one pre-pass and sent from a per-bag
+  record).
+- [Record renderer](record-renderer.md) - the rewrite of StaPip submission
+  into a retained, record-based renderer: persistent draw records per
+  drawable, changes reported by the game instead of every draw submitted,
+  stage-major passes over contiguous records, multi-view reuse; phase by
+  phase with its contract, verify builds and PS2 measurements.
+- [Frame preparation audit](frame-prep-audit.md) — a stage-by-stage audit
+  (2026-11-07) of where the EE still prepares a frame the PC way: who runs
+  each stage, its data layout and measured cost, five ranked candidates with
+  their skip-it probes, the PS2 tricks frame preparation does not use, and
+  the stale "the EE clips" notes it corrected (clipping is VU1-only on the
+  default `vu1` mode; physics does not use VU0).
 - [How TyraX uses the PS2's hardware](ps2-hardware-utilisation.md) — what
   each unit (EE, VU0, VU1, GS, DMA channels, scratchpad, IOP) does in a
   gameplay frame, three rebuild directions priced on a physical PS2 (the frame

@@ -372,6 +372,38 @@ an object standing between two lamps is keyed to the nearer one; it can still
 be merged with objects whose second-nearest lamp differs, which the engine's
 own per-frame pick then resolves the same way it always did for a solo bag.
 
+## Drawn instanced
+
+**Properties > Performance > Draw instanced** (models only) keeps ONE copy of
+the model in console RAM for every object that turns it on, plus a matrix per
+object, and draws the visible ones through the instanced path the procedural
+scatter uses (docs/procedural-generation.md, "Instanced"). Without it every
+placed copy is its own world-space geometry - in its static batch or in its
+own bag - and memory grows with the number of objects, not models.
+
+What it costs and drops, the same as instanced scatter:
+- Light: sun and ambient only, baked per model in four yaw buckets. No probe
+  GI, no ambient occlusion, no point or baked lamps.
+- EE time: ~11 us per DRAWN copy (a matrix product and a short DMA append).
+- It applies only where the object could batch - a static model with no
+  physics, scripts, flow graph, streaming layer, LOD or impostor, reflection,
+  dynamic lighting or runtime reference. Anywhere else the switch does nothing
+  and Tools > Static Batches says why. An instanced object is reported there as
+  "drawn instanced" (generated `batchStatic` 2).
+- Collision and gameplay are unchanged: the object still exists.
+
+Measured on a physical PS2, a stress copy of a vehicle playground with 159 more
+props and 28 more buildings (the same models placed again):
+
+| | free RAM |
+|---|---|
+| the playground as authored | 7.83 MB |
+| + 187 copies, ordinary | `std::bad_alloc` at load |
+| + 187 copies, all of them drawn instanced | 8.15 MB |
+
+With all 210 copies instanced, ~97 were drawn per frame; the frame paid about
+1 ms of EE for them.
+
 ## Triangle strips
 
 Every static model now ships **twice**: as the flat triangle list the build has
@@ -835,3 +867,7 @@ per material, so material borders never move.
 **An exported ISO still contains the .obj.** `bin/` accumulates - the build
 deletes a superseded `.obj` from it, but if you see stale files, a
 *Project > Clean* followed by a build gives you an exact `bin/`.
+
+Mesh-mode static collision also bakes a `.tmdl.tcol` triangle-BVH sidecar. It
+retains collision geometry independently of render LOD/strips, skips box-only
+models, and falls back to runtime construction when the sidecar is absent.

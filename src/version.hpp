@@ -1,5 +1,8 @@
 #pragma once
 
+// 2.1.2: qualified spatial collision filtering, shared SAT/CCD projections,
+// cached geometry/world queries and complete contact coverage.
+
 // 2.0.1: fix the Assets browser-action ID collision; scripted frames reject duplicate widget IDs,
 // and the check-ui build target gates Linux release packaging.
 
@@ -5615,8 +5618,69 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 2
-#define TYRAX_VERSION_MINOR 10
+#define TYRAX_VERSION_MINOR 14
 #define TYRAX_VERSION_PATCH 0
+// 2.14.0: StaPip keeps the draws the general path used to take every frame
+// (docs/record-renderer.md, "Draws that stay on the general path";
+// architecture loop round 15): the REPEAT entry (a REPEAT bag under another
+// bag's CLAMP keeps its stamp; TYRA_STAPIP_REPEAT_ENTRY) and the capture
+// record (a stamp captured by a whole replay gets that draw's answers as its
+// record; TYRA_STAPIP_CAPTURE_RECORD). Headline benchmark drive -0.47 ms a
+// frame on a PS2; the retained record lists for terrain, static batches,
+// road and procedural chunks (TYRA_STAPIP_RECORD_LISTS) and the O(1)
+// recorded-bag duplicate check ride along.
+// 2.13.1: crossSynth gives a crossing-only slot only to a bag that wants REPEAT
+// (crossEmit never writes a wrap block); a CLAMP bag captured under the same
+// CLAMP could otherwise be sent under REPEAT (docs/dod-submission.md).
+// 2.13.0: the StaPip crossing pass (docs/dod-submission.md, "Phase 3, second
+// slice"; TYRA_STAPIP_CROSSING_PASS, verify TYRA_STAPIP_CROSSING_VERIFY,
+// architecture loop R11-A). A crossing bag keeps a record of its merged
+// package boxes and baked entries in its stamp slot (a crossing-only slot if
+// it has no stamp, fenced off from tryStamp); the flush classifies every
+// recorded crossing bag's packages in one pre-pass and the stamp pass emits
+// them from the record in list order. PS2: crossing bag 213 -> 125 us parked,
+// 201 -> 136 us driving (the rig's control also ran packager.create, so
+// ~55-65 us against 2.12.1); headline benchmark 0 missed frames in 4 runs;
+// verify clean over 226 719 crossing draws. Engine only, MINOR.
+// 2.12.1: terrain chunks built ahead of need and to a per-frame time budget
+// (docs/terrain.md, "Built to a time budget"; architecture loop R9-B).
+// TERRAIN_CHUNK_BUDGET_US (700) caps a frame's chunk geometry + pre-bake; a
+// job fills an undrawn spare slot row by row, pre-bakes bag by bag and goes
+// live only when complete. Holes in view and stale detail under the camera
+// are forced. 0 = the old whole-chunk settle. Generated game code, PATCH.
+// 2.12.0: the StaPip stamp record + stamp pass (docs/dod-submission.md, "Phase
+// 3, first slice"; TYRA_STAPIP_STAMP_PASS, verify TYRA_STAPIP_STAMP_VERIFY).
+// A stamp keeps the answers its replay derives (visibility, MVP, fog, texture
+// residency/CLUT/TEX0, light pick/spot, candidacy) with the input epochs of
+// renderer/core/draw_epochs.hpp; the frame-recorder flush runs its whole list
+// through one loop over those records, sending what it cannot take down
+// renderNow from inside it. The generated game tags static batches, terrain
+// and road chunks with a revision class and bumps it in their writers. PS2,
+// Motor District, same ELF: parked work -1.7..-1.8 ms, driving -0.38..-0.43 ms;
+// verify clean over ~2.9 M stamps. Engine + generated game code, MINOR.
+// 2.11.3: world-contact reuse (TYRA_PHYS_WORLD_REUSE): a body within tolerance
+// of its reference pose and inside every count margin re-emits its world
+// contacts carried rigidly, and awake bodies keep their broad-phase box while
+// the key drifts < 0.05 u / 0.5 deg; physWorldVersion invalidates on static
+// obstacle changes. 72 awake crates on a PS2 with 2.11.2: physics 7.57 ->
+// 5.44 ms (docs/physics.md). Generated game code, PATCH.
+// 2.11.2: the body-pair stage keeps each awake body's candidate lists while its
+// box stays inside an inflated box (TYRA_PHYS_PAIR_CACHE, bpVersion on the
+// broad phase): 72 awake crates on a PS2, pairs 1.21 -> 0.26 ms, physics
+// 7.26 -> 6.31 ms, the same lists (docs/physics.md). Generated game code, PATCH.
+// 2.11.1: the rigid-body solve runs each island end to end (contact build,
+// warm apply, passes, warm store) in an island-sized buffer: 72 awake crates
+// on a PS2, physics 7.76 -> 7.24 ms, bitwise the same (docs/physics.md).
+// 2.11.0: StaPip frame recording (docs/dod-submission.md, phase 1): every
+// draw is queued and submitted in order at the flush points (submission
+// batches become markers; foreign VIF1/GIF work and camera changes flush
+// first). Crate drive -0.46..-0.6 ms work p50 on a PS2, Motor District p95
+// -0.45 ms. Game code that changes and restores an info/model around a draw
+// flushes before the restore (sky dome, env probe, mirror pass).
+// Also 2.11.0: physics on the PS2 (bodies start asleep, sleepers batch and rejoin
+// their batches, box face patches, warm start, held bodies, bookkeeping per
+// awake body), car crashes without dropped frames, the lite shine (off by
+// default) - docs/physics.md, docs/vehicles.md.
 // 2.10.0: Preferences > Batch grouping cell (ProjectSettings::staticBatchCell,
 // codegen STATIC_BATCH_CELL; 0 = the automatic cell, kept by every example).
 // A 129-crate field at 48: crossing batches 13.5 -> 11.2 a frame, StaPip
@@ -6507,7 +6571,17 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // ProjectSettings::staticBatchCell ("staticBatchCell" in settings, written
 // only when above 0). Missing = 0 = the automatic cell every older project
 // grouped with. Additive; no migration.
-inline constexpr int kFormatVersion = 127;
+// v128 (docs/vehicles.md, "The shine budget"): ProjectSettings::
+// vehicleShineLite ("vehicleShineLite" in settings, written only when on) and
+// VehicleDef::envLite (the bake-measured lite prefix, "envLite" beside
+// "envLimits", written only when there is one). Missing = the full shine on
+// every shining car, which is what every older project drew. Additive; no
+// migration. (Stamped 124 on its branch; renumbered to 127, then 128 at the
+// merges.)
+// v129 (docs/model-pipeline.md, "Drawn instanced"): SceneObject::
+// drawInstanced ("drawInstanced" on the object, written only when true).
+// Missing = drawn as before. Additive; no migration.
+inline constexpr int kFormatVersion = 129;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -20,3 +20,6 @@
 # Baked memory card icon - icon.sys + list.icn, regenerated on every
 # build from the Save Editor's settings (docs/save-editor.md).
 /save/
+
+# Host-baked triangle collision BVH.
+/models/*.tmdl.tcol

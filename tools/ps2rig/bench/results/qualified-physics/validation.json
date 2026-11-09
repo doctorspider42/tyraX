@@ -1,0 +1,19 @@
+{
+  "console_performance_remeasured": false,
+  "renderer": "PCSX2 software (13)",
+  "samples": 56,
+  "last_frame": 6720,
+  "bodies": 37,
+  "awake_first": 37,
+  "awake_last": 14,
+  "finite_state_errors": 0,
+  "assertion_banner": false,
+  "states": 2,
+  "scalar_solver_unchanged": true,
+  "experimental_backends_absent": true,
+  "commit": "10e554a94e9f589215536280c688fc4048c58326",
+  "pull_request": "https://github.com/doctorspider42/tyraX/pull/310",
+  "native_physics_build": "passed",
+  "native_vehicle_build": "passed",
+  "mergeable": "MERGEABLE"
+}

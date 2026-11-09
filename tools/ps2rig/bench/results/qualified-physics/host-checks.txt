@@ -1,0 +1,17 @@
+collision-broad-phase: exit 0
+broad phase: 10,000 box + 2,000 segment queries, moving rejection passed
+
+collision-bvh: exit 0
+triangle BVH: 2,000 oracle queries, binary roundtrip/corruption, stacked-floor pruning passed
+
+collision-geometry: exit 0
+convex/SAT and continuous sweeps: crossed hulls, separation, thin wall, face/edge/vertex hits passed
+
+collision-envelope: exit 0
+50000 swept/rotated box pairs: 4601 reference hits retained, 31846 conservative rejections
+
+body-pair-grid: exit 0
+tight body grid: 17171 awake queries, 39126 exact-envelope pairs retained; candidates 247114 -> 84568, order unchanged
+
+world-grid: exit 0
+world index: 20000 full-walk comparisons passed; category changes, movers and ordering retained

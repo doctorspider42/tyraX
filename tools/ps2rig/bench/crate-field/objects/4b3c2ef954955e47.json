@@ -1,0 +1,1 @@
+{ "id": "4b3c2ef954955e47", "name": "crate-1-copy-copy-copy5", "type": "box", "position": [-5.96201, 0.5, 11.2009], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.75, 0.55, 0.3], "physics": true, "physMass": 0.6, "physBounce": 0.35, "physFriction": 0.5, "physTumble": true, "physSleep": 3 }

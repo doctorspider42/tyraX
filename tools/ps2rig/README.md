@@ -9,14 +9,27 @@ cycle), so A and B are interleaved on the same binary and boot.
 
 PCSX2 proves correctness only; timing claims come from the console.
 
+For per-frame questions (which frames of a crash drive drop, and what they
+spent), use the sibling rig in [physics/](physics/README.md): one arm per
+ELF, a 1000-frame ring, a stress-scene generator.
+
 ## Files
+
+The benchmark scenes (crate field, physics pile), the architecture-loop
+scripts and the physics result summaries are in [`bench/`](bench/README.md).
 
 | File | What it is |
 | --- | --- |
 | `cld_probe.hpp` | The probe, copied into the engine as `inc/debug/cld_probe.hpp`. Drives the cycle (boot, 600 parked frames, a full-throttle drive, scene reset), sets `Cld::arm = cycle % CLD_ARMS`, and prints per window `CLD win arm= cyc= st= ... work= p50= p95= late= period=` plus COP0 scopes (`CLDS`), PMU counters and route counts. |
 | `cld_shot.hpp` | One VRAM frame grab per early cycle to `host:shot_c<cycle>_a<arm>.tga`. |
-| `make_arm.py` | Instruments a copied project + engine (anchored edits; quiet `TYRA_LOG`, probe scopes). `--lean` = loop statistics only (headline numbers); `--arms=N`; `--day`; many diagnostic flags (`--gputl`, `--bagcensus`, `--shot`, `...ab` arm sets) implemented by the sibling modules. |
-| `make_engine_probe.py` | The engine half of `make_arm.py` only (probe in `Engine::realLoop`, quiet log, scopes, flags), so any generated project can be measured as authored: `MAKE_ARM=make_engine_probe.py bash tools/ps2rig/arm.sh S1 --lean`. The cycle states are then just frame counters; the windows sample whatever the project does from boot. |
+| `make_arm.py` | Instruments a copied project + engine (anchored edits; quiet `TYRA_LOG`, probe scopes). `--lean` = loop statistics only (headline numbers); `--pmu` = PMU miss counts per scope without the fine StaPip scopes; `--arms=N`; `--day`; many diagnostic flags (`--gputl`, `--bagcensus`, `--shot`, `...ab` arm sets) implemented by the sibling modules. |
+| `run_for.sh`, `scene_sum.py` | `run_for.sh <projectdir> <log> <seconds> [noreset]`: deploy for a fixed time, then stop that run's own client by verified PID (a Windows `timeout` leaves it holding the console). `scene_sum.py <log>`: the architecture loop's scene-table row (docs/architecture-loop.md). |
+| `miss_fit.py` | `miss_fit.py <imiss_log> <instr_log>`: the price of an I and a D miss fitted per scope from a `--pmu` and a `--pmu --count-instr` run of the same scene, and each scope's miss share at those prices (architecture loop R2-0). |
+| `make_engine_probe.py` | The engine half of `make_arm.py` only (probe in `Engine::realLoop`, quiet log, scopes, flags), so any generated project can be measured as authored: `MAKE_ARM=make_engine_probe.py bash tools/ps2rig/arm.sh S1 --lean`. The cycle states are then just frame counters; the windows sample whatever the project does from boot. `--gpuwait` adds the EE's waits on the GPU (`q.waitFor`, `q.drain`, `q.ringfull`), `--gputl` the GPU timeline, `--twowalk` puts two-players in gameplay (`twowalk.py`). |
+| `bench_patch.py`, `rn_patch.py` | Round 14 of the architecture loop (docs/architecture-loop.md). `bench_patch.py <project> 0|1|2` (after `make_engine_probe.py` on the crate-field project): the scripted crash drive at probe frame 2100, the FTUPD update laps and `renderScene`'s cost rows as `Cld` scopes with PMU misses; 1 / 2 = the `renderNow` ceiling probe from the drive start on every / every odd frame. `rn_patch.py <engine> bench|district|district-alt`: StaPip flush scopes (`sp.flush`, `sp.pass`, `sp.cross`) and the probe's return at `renderNow` entry (district: arm 1 drive windows, `-alt` odd frames only); `bench` and `-alt` turn on `CLD_SERIES` (per-frame work lines). |
+| `cen_patch.py` | Engine-copy patch: the census of draws reaching `renderNow` (architecture loop round 15): every stamp-pass `goto general` tagged with its source line, counts by revision class (+ lit / billboard / env bits), reason and repeat (`CENS` / `CENR` lines every 150 frames). Map the `rsn` lines with `grep -n 'cenRsn = __LINE__'` in the patched copy. |
+| `lapsum.py`, `altsum.py` | Summaries for those arms: the drive windows' blocks with ms, I/D misses and miss share; even vs odd frame work from the `CLDW` series. |
+| `rp_patch.py` | Engine-copy patch: the record renderer's ceiling probes (docs/record-renderer.md). With `--arms=3`, arm 1 sends a world stamp whose record list called it inside from the stamp alone, arm 2 does not send it at all (`CLDRP` / `CLDSK` counts). Unsafe by design. |
 | `gputl.py` and the other `*.py` modules | Optional probe extensions imported by `make_arm.py` flags; `gputl` is the whole-frame VU1/GIF/VIF1 sampler (`CLDGT`). |
 | `arm.sh` | `arm.sh <name> [make_arm flags]`: copy, instrument, native-build one arm into `$RIG_ROOT/vpn<name>` / `tyra<name>`. |
 | `deploy.sh` | `deploy.sh <projectdir> <log> [noreset]`: deploy to the PS2 and serve `host:`; run as a background task. |

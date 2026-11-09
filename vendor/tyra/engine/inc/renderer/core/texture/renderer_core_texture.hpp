@@ -7,6 +7,7 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: isResident()/findAllocation() - hinted resident lookup.
+# Modified by TyraX: residentIndex/Count/At, touchResident (stamp records).
 */
 
 #pragma once
@@ -117,6 +118,24 @@ class RendererCoreTexture {
    * allocation, or a VRAM-resident render target)? Uses the texture's
    * residentHint, so a per-bag question costs one compare, not a scan. */
   bool isResident(const Texture* t_tex);
+
+  // Modified by TyraX: the stamp record's view of the residency list
+  // (StaPipQBufferRenderer, docs/dod-submission.md phase 3). Indices are
+  // stable while DrawEpochs::g.tex is: every erase bumps it.
+  s32 residentIndex(const Texture* t) {
+    return t->vramResident != nullptr ? -1 : findAllocation(t);
+  }
+  u32 residentCount() const { return static_cast<u32>(currentAllocations.size()); }
+  const RendererCoreTextureBuffers& residentAt(s32 i) const {
+    return currentAllocations[i];
+  }
+  /** useTexture's hit half, exactly (counters + LRU sequence). */
+  void touchResident(s32 i) {
+    stats.binds++;
+    useSeq++;
+    currentAllocations[i].lastUsedSeq = useSeq;
+    stats.hits++;
+  }
 
   /** Modified by TyraX: VRAM residency counters (see the struct). */
   RendererCoreVRamStats stats;

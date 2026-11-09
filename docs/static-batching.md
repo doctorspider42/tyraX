@@ -37,7 +37,16 @@ answers it in a glance.
 Today the same scene reads 87 eligible, 65 batched, 22 solo. **The counter
 totals those 22; the panel names them** — on this scene all 22 are singleton
 groups, and a further 24 shapes never became eligible at all (18 marked *Show
-in reflections*, 6 physics bodies).
+in reflections*, 6 physics bodies - physics bodies batch while they sleep
+since 2.11.0, see below).
+
+**Physics bodies batch while they sleep** (2.11.0). A body is eligible like
+any other shape; the first frame the solver moves it, the physics write-back
+takes it out of every batch it is in (and marks those batches for a rebuild)
+before promoting it to the matrix path. The promotion never sets `dirty`, so
+without that step the batch would keep drawing the body where it slept. A
+body never rejoins a batch after waking. 75 sleeping crates drawn as their
+own bags cost ~2.8 ms on a physical PS2 (docs/physics.md).
 
 *Show in reflections* no longer keeps an object solo (1.175.5). The flag is
 part of the group key instead, so a reflected object batches only with other
@@ -123,7 +132,6 @@ Build-time (`staticBatchEligible` in `templates.cpp` — these decide the
 | --- | --- |
 | not a batchable shape | only Box, Sphere, Cylinder, Cone, Plane and Model carry mergeable geometry |
 | invisible wall | `collision: invisible` emits no geometry at all |
-| physics body | repositioned every frame while it moves |
 | usable | the USE highlight re-submits the body itself |
 | pickable | carried and thrown, so it moves |
 | save state | a loaded save repositions it |
@@ -322,12 +330,173 @@ about a scene with a broken asset path. Fixture E pins it.
 - The panel describes the **authored** scene. Runtime demotion — an object
   dirtied by a flow node or Live Link leaves its batch and draws solo — is not
   shown, because it has not happened yet.
+- A **physics body** that leaves its batch (woken) remembers the batches it
+  left and goes back once it has been asleep for 3 s
+  (`PHYS_REJOIN_AFTER_S`): every such body of one batch together, one batch
+  re-baked per frame. Before, a crate knocked over once drew on its own for
+  the rest of the scene (~27 us of EE a frame each on a PS2); after a field of
+  crates fell and slept, render went from 10.0 back to 5.9 ms, the picture
+  unchanged to the pixel in PCSX2.
 - A model with no baked `.tmdl` cannot be grouped, since its parts, textures
   and strip runs are products of the bake. Those objects are reported as
   *model not baked* rather than guessed at, and the panel says so at the top.
 - Package counts are derived from vertex counts and the package size the
   static programs use (75 vertices, `meshstrip::kRun`). They are what the bag
   submits, not a measurement of a frame.
+
+## When bodies leave and rejoin a batch, during a crash
+
+A car driving through a field of sleeping crates, and the same car through a
+4-3-2-1 pyramid and a six-crate tower, measured on a physical PS2 with the
+debug build's log muted (see docs/profiling.md, "The log is not free"):
+
+| | lost frames in 1 000, before | after |
+|---|---|---|
+| through the crate field at 29 m/s | 15, 16 | 0, 0 |
+| into the pyramid and the tower | 32, 36 | 2-4 |
+
+Four things cost those frames, and each is changed.
+
+**Rebuilds without a wait.** A batch's vertex arrays are *immutable
+streams*: the frame recorder REFs them in place instead of copying them
+(docs/stapip-stamps.md). With the frame pipeline the previous frame is still
+on the GPU while this one renders, so a rebuild must not rewrite them, and
+`StaPipBag::releaseImmutableStreams()` waited for every DMA reader first. That
+wait forced the previous frame's present - its vsync included - into the
+middle of the frame doing the rebuild: 11-15 ms of EE standing still, one
+lost field each time a body woke out of a batch. The rebuild now retires the
+streams (`StaPipBag::retireImmutableStreams()`: no new frame borrows them)
+and writes fresh arrays; the old ones wait in `retiredBatchStreams` until
+`Vif1Queue::collectRetiredImmutableSpan` says no frame in flight names them,
+two frames later. Found with a ring of EE waits on the GPU tagged with the
+loop phase they happened in (`drain()` called from
+`unregisterImmutableSpan`, caller address resolved from the `.elf.sym`).
+
+**Patching a batch** (`STATIC_BATCH_PATCH`). Without the wait, the rebuild
+itself was the cost: re-baking every member of a batch - lighting, AO,
+probes - for one crate that shared it with the props around it, 4-7 ms on a
+PS2. Each member's vertex range in its batch is recorded (`batchRangeOf`), so
+a body leaving costs a copy of the members that stay (~50 KB, ~0.1 ms) and a
+body rejoining costs a bake of that one member, appended at the end. The
+physics write-back's demotion goes through the same path
+(`batchMemberLeaves`); a visibility change, a lamp re-bake or an unknown range
+still takes the full rebuild. A self-check run in PCSX2 (every shown member's
+range non-empty and centred on its object, no vertex outside a member's
+range) passed 40 of 40 patches.
+
+**Bodies leave without a bake.** The frame a body first moves used to bake
+its local-space geometry for the matrix path - a falling stack woke a dozen
+bodies and paid a dozen bakes at once (+5 ms). Physics bodies are now baked
+ahead, four a frame from the first frames of a scene: a body in a batch gets
+the state a body that rejoined its batch is in (local geometry, kept, not
+drawn while the batch draws it), a solo body moves to the matrix path at its
+rest pose. The VIF streams of batched bodies within 40 units of the camera
+are baked ahead too (`StaPipCore::prebakeBag`, refreshed every 120 frames, as
+a car's full-detail tier is).
+
+**Re-bakes before the frame.** A batch that changed during the update
+(a body left it, or sleeping bodies rejoin it) is now rebuilt and its VIF
+stream baked in `settleStaticBatches`, after the update and before
+`beginFrame`. Rebuilt inside the frame's recording, the batch's first draw
+built the stream with the real writers and cost 1.6-3.0 ms of submit on top
+of the 1-1.5 ms patch. Settled ahead, the frame draws an already-baked
+stream (1.5-2.3 ms). Rejoins also wait for a frame in which no batch is
+re-baked: they can wait, and during a collapse the leaves alone fill the
+frames. The first bake of a batch, and a batch with a member that the render
+loop still has to demote, stay in `renderStaticBatches`.
+
+Measured on a PS2 (stack test, 1 000 frames):
+- the frames with a batch change do 1.5 ms less work (e.g. 10.98 -> 9.25 ms,
+  10.84 -> 9.42 ms);
+- no batch is rebuilt during recording any more;
+- the plough test still loses no frames, and its p95 work goes from 9.67 to
+  9.51 ms.
+
+**What was left, and why.** After the settle, the pile test still lost 3-4
+frames in 1 000, and they were not the pile. A per-bake event dump (which bag, which VU1
+program, which package size) puts them on the CAR:
+1. the car runs into the tower, and the chase camera is pushed toward it;
+2. its body (3 390 vertices) is baked once under a clip program
+   (`ClipTextureColor`);
+3. one frame later it is back under the cull program with a changed key, so
+   the renderer marks it as churning and draws it unbaked for a few frames,
+   with a new per-package copy (`fillCachedPackage`) for each package that
+   crosses the frustum (24 in one frame).
+
+Objects then cost 4-5 ms more than usual for 3-5 frames, and those frames also
+carry the physics of ~25 woken bodies (3-4 ms). Holding the car's paint
+re-shade while many bodies are awake changed nothing (the colours are not the
+cause), and this is why turning the damage off did not help either.
+
+Ruled out on the console:
+- no GPU wait in those frames;
+- the frame arena copies 45-142 KB;
+- not drawing the solo bodies near the camera changes nothing.
+
+The camera was pushed in by the falling crates themselves: the chase
+camera's boom stopped at every physics body. It now ignores bodies in flight
+(docs/vehicles.md, "Chase camera and loose props"), and the stack test loses
+1 frame in 1 000 (two runs), the frame of the first impact.
+
+**The frame of the first impact.** It did 21.1 ms of EE work against a
+16.7 ms budget. A probe in that frame found:
+- the first skid mark, 2.46 ms: the skid bag drew its whole pool. Fixed
+  (docs/vehicles.md, "The first skid mark draws one segment"), the frame is
+  now 18.8 ms;
+- the physics of ~25 woken bodies, 4.4 ms (1.7 ms in a quiet frame);
+- the woken bodies' first draws on their own, +1.3 ms;
+- two batch patches in the settle, 2.7 ms.
+
+The settle's `prebakeBag` always succeeded. Tried and dropped, both measured on the console:
+- **Also baking the batch's whole-clip variant ahead.** The variant a
+  partially visible batch replays its crossing packages from saved 0.23 ms of
+  draw per change frame, but cost 0.4-0.9 ms more in the settle.
+- **Putting the settle off one frame when the update has already used
+  4.5 ms.** The bodies that left wait in the batch for that frame. The impact
+  frame came down to 16.65-16.84 ms, and four runs lost 1, 0, 1, 1 frames. It
+  saves a frame in one collapse out of four, at the price of a frame of lag on
+  the crates the car hits, and was not kept.
+
+What remains in that frame is real work (physics and the first draws of the
+bodies that started to move), not a fault.
+
+### Body batches
+
+A bigger crate field told the rest of the story. 129 crates in rows, a car
+driving straight through all of them, on a physical PS2: 27-37 frames lost in
+1 000. The GPU never held the EE up: every wait on VIF1 or the GS, timed
+without a threshold, was 0.00 ms over 1 000 frames (0.04 ms at most). The
+frames were lost to EE work, and 22 of 28 losses were frames that re-baked a
+batch: the crates shared their batches with the pavement under them, so one
+crate leaving re-baked ~1 800 vertices, 2.6 ms in the hit frame:
+- copying the members that stay, three `push_back`s a vertex, ~1 ms;
+- the VIF bake of the new stream, ~1.1 ms;
+- the rest of the rebuild, ~0.45 ms.
+
+Two changes:
+- **Physics bodies batch apart from static props, at most 12 to a batch**
+  (`STATIC_BATCH_BODY_MAX`, twin `kBodyBatchMax` in `staticbatch.cpp`, oracle
+  fixture O). A batch's re-bake costs in proportion to the whole batch, so a
+  body leaving now re-bakes a dozen boxes (~320 vertices), not the
+  pavement. They fill in object order within their cell and group key, so
+  the panel and the game agree member for member.
+- **The patch copies whole ranges**, one insert per stream and member.
+
+Measured on the same drive (five runs before, one after; debug build, log
+muted):
+
+| | before | after |
+|---|---|---|
+| frames lost in 1 000 | 27-37 | 8 |
+| re-bake in a frame that has one | 2.17 ms | 0.80 ms |
+| draw while every crate sleeps | 6.92 ms | 7.38 ms |
+
+The price is the last row: more bags to draw while the bodies sleep, ~0.3-0.45
+ms for 129 crates in view. In that scene it went from 178 objects in 41
+batches to 174 in 47 (four bodies alone in their group now draw solo). The
+eight frames left: four are the view itself (terrain, roads and batches as
+the car reaches the junction, no crate involved), two are ~25 awake crates
+drawn on their own plus their physics, one the first frame of the run.
 
 ## Members at the world origin (fixed 1.176.3)
 

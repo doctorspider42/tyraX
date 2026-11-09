@@ -23,3 +23,6 @@
 # Baked credits page strips - regenerated on every build (docs/credits.md).
 # The images an Image block points at live in res/credits/ and stay checked in.
 /credits/pages/
+
+# Host-baked triangle collision BVH.
+/models/*.tmdl.tcol

@@ -300,8 +300,16 @@ and logged as `VEHPAINT normals N distinct M`.
 
 Only the driven car and the nearest others up to *Shiny vehicles at once*
 (default 2) draw this pass; the rest stay matte (docs/vehicles.md, "The shine
-budget"). A second car's pass measured 0.7 ms a frame parked and 1.2 ms while
-the camera turned, on a physical PS2.
+budget and the lite shine"). A second car's pass measured 0.7 ms a frame
+parked and 1.2 ms while the camera turned, on a physical PS2. With *Lite shine
+on other vehicles* the cars nobody drives cover only their sky-facing prefix
+(`VEHICLE_ENV_LIMITS.lite`) and get fixed colours - a steady sheen, no rim, no
+moving highlight - so a turning camera rebuilds nothing for them.
+
+The paint colours stay on the EE on purpose: computing them on VU1 was
+measured on a PS2 at +0.5 ms of VU1 a frame (about 20 cycles for every shining
+vertex, every frame), while the EE evaluates each distinct normal once and only
+when the view has turned past the hysteresis step.
 
 ## The ground in the probe (1.125.0)
 
@@ -406,7 +414,8 @@ buildings unmarked (189 boxes in that scene). Averaged over a turn (half the
 frames capture) the switch adds **0.33-0.57 ms a frame**, and nothing while the
 camera is parked (the reuse budget then skips the capture altogether). Most of
 it is `dispatch`, not triangles (~700 extra a capture): big boxes close to the
-eye cross the probe's 110-degree frustum and go through the EE clipper, and
+eye cross the probe's 110-degree frustum and take the clip route (per-package
+classification on the EE, clipping on VU1 - the district is a `vu1` project), and
 growing the cells from 48 to 96 units plus the frustum skip bought only ~0.1
 ms. **The ground is what the probe spends in the open:** 4.65 ms of every
 capture on the outer road is the resident terrain and road chunks within 20
@@ -436,8 +445,8 @@ asphalt are a few blurred bands either way.
   eye crosses one - with nothing but the map and the heightmap to read, not the
   road triangle search.
 - It is **three by three bags** with the eye in the middle one. One bag's
-  bounding box always straddles the probe's frustum, so every triangle went
-  through the EE clipper; sixteen bags culled better outdoors but paid more in
+  bounding box always straddles the probe's frustum, so every package went
+  down the clip route (EE classification, VU1 clipping); sixteen bags culled better outdoors but paid more in
   per-bag cost than they saved indoors.
 
 Measured the same way as the table above (one ELF per variant, two boots per

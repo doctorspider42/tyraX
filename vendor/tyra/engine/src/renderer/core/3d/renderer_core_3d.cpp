@@ -7,9 +7,13 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: env/portal views save and restore the frustum planes.
+# Modified by TyraX: every camera writer moves the camera epoch AFTER its flush
+# (renderer/core/draw_epochs.hpp).
 */
 
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include "renderer/core/3d/renderer_core_3d.hpp"
+#include <string.h>  // Modified by TyraX: camera epoch compare
 
 namespace Tyra {
 
@@ -26,10 +30,21 @@ void RendererCore3D::update() { is3DSupportEnabled = false; }
 // culled against `up`; only this was dropping it. `up` is never null - it
 // defaults to (0, 1, 0) - so every existing caller gets a bit-identical matrix.
 void RendererCore3D::update(const CameraInfo3D& cameraInfo) {
+  Vif1Queue::beforeForeignWork();  // Modified by TyraX: recorded draws keep their view
+  // Modified by TyraX: the camera epoch moves only when the view really
+  // changed (a parked camera re-sets the same one every frame).
+  alignas(16) unsigned char old[sizeof(viewProj.data) + 6 * sizeof(Plane)];
+  memcpy(old, static_cast<const void*>(viewProj.data), sizeof(viewProj.data));
+  memcpy(old + sizeof(viewProj.data),
+         static_cast<const void*>(frustumPlanes.getAll()), 6 * sizeof(Plane));
   frustumPlanes.update(cameraInfo, fov);
   M4x4::lookAt(&view, *cameraInfo.position, *cameraInfo.looksAt, *cameraInfo.up);
   viewProj = projection * view;
   is3DSupportEnabled = true;
+  if (memcmp(old, static_cast<const void*>(viewProj.data), sizeof(viewProj.data)) != 0 ||
+      memcmp(old + sizeof(viewProj.data),
+             static_cast<const void*>(frustumPlanes.getAll()), 6 * sizeof(Plane)) != 0)
+    DrawEpochs::cameraChanged();
 }
 
 void RendererCore3D::init(RendererSettings* t_settings, Path1* t_path1) {
@@ -60,6 +75,8 @@ void RendererCore3D::setFov(const float& t_fov) {
 }
 
 void RendererCore3D::setProjection() {
+  Vif1Queue::beforeForeignWork();  // Modified by TyraX: recorded draws keep their view
+  const M4x4 oldProjection = projection;  // Modified by TyraX: camera epoch
   // Modified by TyraX: the width/height passed here only set the RASTER scale
   // of the projection (the world-space frustum comes from fov + aspectRatio),
   // so field rendering (InterlacedField) squeezes the scene into the
@@ -73,6 +90,9 @@ void RendererCore3D::setProjection() {
       fov, settings->getRasterWidthF(), settings->getRasterHeightF(),
       settings->getProjectionScale(), settings->getAspectRatio(),
       settings->getNear(), settings->getFar());
+  if (memcmp(static_cast<const void*>(oldProjection.data),
+             static_cast<const void*>(projection.data), sizeof(projection.data)) != 0)
+    DrawEpochs::cameraChanged();  // Modified by TyraX: after the flush above
 }
 
 // Modified by TyraX: dynamic env map pass camera. The frustum planes are
@@ -82,6 +102,8 @@ void RendererCore3D::setProjection() {
 // wrongly culls.
 void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
                                  const float& envFov, const float& size) {
+  Vif1Queue::beforeForeignWork();  // Modified by TyraX: recorded draws keep their view
+  DrawEpochs::cameraPushed();  // Modified by TyraX: after the flush above
   savedView = view;
   savedProjection = projection;
   savedViewProj = viewProj;
@@ -103,6 +125,8 @@ void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
 // so the frustum SHAPE is the screen's own); only the view swaps and the
 // frustum planes follow the virtual camera - exact planes, no widening.
 void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
+  Vif1Queue::beforeForeignWork();  // Modified by TyraX: recorded draws keep their view
+  DrawEpochs::cameraPushed();  // Modified by TyraX: after the flush above
   savedView = view;
   savedProjection = projection;
   savedViewProj = viewProj;
@@ -116,6 +140,8 @@ void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
 }
 
 void RendererCore3D::popEnvView(const CameraInfo3D& cameraInfo) {
+  Vif1Queue::beforeForeignWork();  // Modified by TyraX: recorded draws keep their view
+  DrawEpochs::cameraPopped();  // Modified by TyraX: after the flush above
   (void)cameraInfo;  // Modified by TyraX: see the header - no longer read
   foreignView = false;  // Modified by TyraX (see isForeignViewActive)
   view = savedView;

@@ -297,7 +297,8 @@ remains, in order of size:
   decision is the look, so it wants a real-console look at a driven car first.
 
 The scenery boxes themselves (*Reflect static scenery as boxes*) cost 1.2-1.65
-ms of a capture, mostly EE clipping of big boxes near the eye. Worth trying
+ms of a capture, mostly the clip route (EE classification, VU1 clipping) of big
+boxes near the eye. Worth trying
 after the ground: drop a box's faces that point away from the probe (half the
 triangles, and the clipped ones are mostly the near box's back faces), or cap
 the near boxes at the probe's near distance.
@@ -2890,3 +2891,7 @@ post-5 back at y = 1.
 - [x] Combine latest main, the UI redesign and the TyraX2 foundation on `codex/tyrax-2.0`.
 - [x] Unify additive project fields as format 114 and expose the integrated renderer settings in the redesigned preferences.
 - [ ] Complete Windows/Linux build and UI qualification, physical-console integration checks and installer/update qualification before publishing 2.0.0.
+
+- [x] Extract qualified collision spatial filtering, BVH, SAT/CCD projection and
+  geometry/world cache improvements without VU0 or traffic experiments.
+- [ ] Qualify a replacement support manifold for deeply overlapping/offset stacks.

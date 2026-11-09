@@ -42,7 +42,7 @@ int main(int argc, char** argv) {
   options.writeLogsToFile = !ps2link;
   // Target system (Project > Preferences > Display): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
-  options.videoMode = Tyra::VideoMode::Auto;
+  options.videoMode = Tyra::VideoMode::NTSC;
   // Scan mode (Project > Preferences > Display > Display mode): interlaced
   // 480i/576i (whole frames or true field rendering), progressive 480p,
   // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes

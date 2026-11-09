@@ -7,7 +7,10 @@
 # Licensed under Apache License 2.0
 # Added by TyraX: dynamic environment map (GT3-style reflective materials).
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
+# Modified by TyraX: stamp record epochs (docs/dod-submission.md, phase 3).
 */
+
+#include "renderer/core/draw_epochs.hpp"  // Modified by TyraX
 
 #include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
@@ -86,6 +89,7 @@ void RendererCoreEnvMap::init(RendererSettings* t_settings,
     texture = new Texture(&data);
   }
   texture->vramResident = &texBuffer;
+  DrawEpochs::texturesChanged();  // Modified by TyraX: stamp records
 
   if (beginPacket == nullptr) {
     beginPacket = packet2_create(16, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);

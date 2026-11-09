@@ -5,14 +5,17 @@
 #-----------------------------------------------------------------------
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
-# Added by TyraX: triangle-soup collision with an XZ uniform grid.
+# Added by TyraX: triangle-soup collision with a baked 3D BVH.
 */
 
 #pragma once
 
-#include <vector>
 #include <tamtypes.h>
+
+#include <vector>
+
 #include "../math/vec4.hpp"
+#include "triangle_bvh.hpp"
 
 namespace Tyra {
 
@@ -20,10 +23,8 @@ namespace Tyra {
  * Static triangle-mesh collider.
  *
  * Built once from an interleaved vertex array (consecutive triples form
- * triangles); queries run against an XZ uniform grid, so cost scales with
- * the triangles near the query point, not the whole mesh. All coordinates
- * are in the mesh's local space - transform the query into local space and
- * the results back (that keeps the grid axis-aligned under object rotation).
+ * triangles); queries use a flat 3D BVH baked on the host, with build()
+ * retained for legacy/missing sidecars. All coordinates are mesh-local.
  *
  * Designed for player-versus-scenery collision: raycast() finds the ground
  * under the player, resolveSphere() pushes the player out of steep faces.
@@ -36,6 +37,13 @@ class CollisionMesh {
    * @param strideFloats floats per vertex (>= 3), e.g. 8 for LeanObjMesh data
    */
   void build(const float* verts, u32 vertexCount, u32 strideFloats);
+
+  bool loadBaked(const std::string& relativePath);
+
+  bool sweepSphere(const Vec4& from, const Vec4& to, float radius,
+                   float* outFraction, float* outNormal = nullptr,
+                   float maxNormalY = 2.0F,
+                   const Vec4* upLocal = nullptr) const;
 
   bool empty() const { return tris.empty(); }
   u32 triangleCount() const { return (u32)(tris.size() / kTriFloats); }
@@ -80,29 +88,16 @@ class CollisionMesh {
 
  private:
   static constexpr u32 kTriFloats = 12;  // a[3], b[3], c[3], normal[3]
-  static constexpr int kMaxGrid = 32;
 
   bool intersectTri(const float* t, const Vec4& origin, const Vec4& dir,
                     float maxDist, float* outDist) const;
-
-  int cellOf(float v, float origin, float invStep, int cells) const;
-  void cellRange(float lo, float hi, float origin, float invStep, int cells,
-                 int* first, int* last) const;
 
   std::vector<float> tris;  // packed kTriFloats per triangle
   float min[3] = {0, 0, 0};
   float max[3] = {0, 0, 0};
 
-  // XZ grid in CRS form: triangle indices of cell (cx, cz) are
-  // cellTris[cellStart[cz * nx + cx] .. cellStart[cz * nx + cx + 1])
-  std::vector<u32> cellStart;
-  std::vector<u32> cellTris;
-  int nx = 0, nz = 0;
-  float invStepX = 0, invStepZ = 0;
-
-  // visit stamps de-duplicate triangles shared by several cells per query
-  mutable std::vector<u32> stamp;
-  mutable u32 stampCounter = 0;
+  TriangleBvh bvh;
+  mutable std::vector<u32> nearby;
 };
 
 }  // namespace Tyra

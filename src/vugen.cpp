@@ -65,6 +65,12 @@ constexpr int kSingleColorCopiesAddr = 1016;
 // input step per triangle (3 for a list, 1 for a strip). Spilled rather than
 // kept in integer registers because the textured clipper has none to spare.
 constexpr int kClipStreamAddr = 1019;
+// Probe knob for the clip harness (R1-A, docs/architecture-loop.md): all six
+// planes active and near/far judgement constants that agree with the planes.
+static bool clipHarnessConsistent() {
+    const char* v = std::getenv("TYRAX_VU_CLIP_CONSISTENT");
+    return v != nullptr && *v != '\0' && *v != '0';
+}
 // The packed count word of a clip buffer: count in bits 0..8, the STRIP flag
 // in bit 9, the six-plane mask in bits 10..15 (stapip_vu1_shared_defines.h).
 constexpr int kClipCountMask = 0x01FF;
@@ -4423,7 +4429,9 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     if (d.clip) {
         // Exercise both the one-plane hot case and the full conservative
         // fallback. Bits 10..15 match the real qbuffer wire format.
-        const uint32_t planeMask = (s & 3u) == 0u
+        // TYRAX_VU_CLIP_CONSISTENT=1 (a probe knob, see below): all six
+        // planes, as the engine's whole-bag clip blocks are baked.
+        const uint32_t planeMask = (s & 3u) == 0u || clipHarnessConsistent()
                                        ? 0x3Fu
                                        : 1u << (xorshift(s) % 6u);
         uint32_t reversed = 0;
@@ -4450,6 +4458,19 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
         putf(kClipConstsAddr, 1, -1000.0f - kClipGuard);
         putf(kClipConstsAddr, 2, 0.0f);
         putf(kClipConstsAddr, 3, kClipGuard);
+        if (clipHarnessConsistent()) {
+            // The default constants above do not agree with the planes below
+            // (they judge z > 1 as outside where the near plane keeps
+            // z >= -5), which is harmless while every program only uses the
+            // judgement to SKIP the plane loop. A program that REJECTS on it
+            // needs the two to agree: x = far (z > 1000), y = near (z < -5).
+            putf(kClipConstsAddr, 0, 1000.0f - kClipGuard);
+            putf(kClipConstsAddr, 1, 5.0f - kClipGuard);
+        }
+        // TYRAX_VU_CLIP_GATE=<int>: the low bits of VU1_CLIP_CONSTS_ADDR.z,
+        // which the R1-A fused clip prototype reads as its gate (0x3CA = on).
+        if (const char* g = std::getenv("TYRAX_VU_CLIP_GATE"))
+            puti(kClipConstsAddr, 2, (uint32_t)std::strtoul(g, nullptr, 0));
         // Six planes as (A,B,C,D) + (E,0,0,0); inside = dot4(v,ABCD) + E >= 0.
         // NEAR IS FIRST and that ordering is load-bearing: everything which
         // survives it has w > 0, which is what makes the w-relative side
