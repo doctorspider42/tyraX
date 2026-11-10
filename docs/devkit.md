@@ -364,8 +364,12 @@ one.
 
 ![A live preview picture from a real PlayStation 2](img/live-preview-ps2.png)
 
-**Debugger > Screen > Live preview** turns the one-shot capture into a small
-picture stream: the game sends a quarter-resolution picture of its last
+**Debugger > Screen** has two modes and opens in **Still**, which costs the
+game nothing until you ask. *Capture frame* is on the Live page as well (the
+PNG lands in `screenshots/`, look at it under Still), and the note there about
+what a picture costs can be put away for good (*Got it, hide this note*,
+remembered in `editor.ini`). **Still** is the capture above, **Live**
+turns it into a small picture stream: the game sends a quarter-resolution picture of its last
 finished frame, and sends the next one as soon as that has left. On a console
 it travels through the IOP ([devlink.md](devlink.md)); in PCSX2 it is a
 `host:` file every third frame. The panel shows the picture, how many arrive a
@@ -399,7 +403,37 @@ Two things to know before trusting it:
   capture: press *Capture frame* for the real thing.
 
 The switch is one-shot in the command (it rides the step field as -9 / -10,
-every flag bit being taken) and lasts until switched off or the game ends.
+every flag bit being taken). The editor keeps the stream on only while
+something shows it - the Screen page in Live mode or the window below - and
+asks again when no picture has come for three seconds (the game was
+restarted: the switch lives in its RAM).
+
+![The live preview in its own window](img/live-preview-window.png)
+
+**Pop out** puts the picture in a window of its own - its own OS window where
+*Windows can leave the main window* is on, so it can sit on another monitor -
+and **Fullscreen** (also F11, or a double-click on the picture) stretches that
+window over its monitor with no frame; Esc leaves. The picture is fitted at
+the television's aspect (4:3, or 16:9 for a widescreen project), not the GS
+raster's. Its controls are glass cards on the picture - what it is and what it
+costs, *Capture still* / *Dock* / *Fullscreen*, and who holds the pad - and
+they go away two seconds after the mouse stops.
+
+With a controller plugged into the PC, **a click on the picture takes the pad**
+and Esc lets it go: that is how you play the game on the console from the
+editor ([remote-pad.md](remote-pad.md#a-real-controller)).
+
+Checked in PCSX2 with a `--ui-script` run (2026-11-10): the Live page, Pop
+out into its own OS window, fullscreen at 1920x1080 and back, Still with a
+capture - 16.7 pictures a second there, one every third frame. Not looked at
+yet with a console attached or with a hand on the mouse (the overlays' hide
+timer, a second monitor).
+
+A trap this found: "is there a new picture" must be the frame number in the
+header, not the file's timestamp. This toolchain's `last_write_time` has
+one-second resolution, and keyed on it the preview showed one picture a second
+of the seventeen the game wrote. The same goes for `livedbg.cmd` in the
+session's forwarder, which now compares the file's bytes.
 
 ### Why the file is written by the game rather than by libdebug
 

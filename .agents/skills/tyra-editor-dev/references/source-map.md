@@ -155,6 +155,7 @@ Read when you need to find which file owns something, or before adding a file. L
 | `livedbg.cpp/.hpp` | 725 | Live Debugger formats | devkit-runner-and-network |
 | `livetime.cpp/.hpp` | 275 | Time machine | devkit-runner-and-network |
 | `livepad.cpp/.hpp` | 455 | Remote Pad | devkit-runner-and-network |
+| `gamepad.cpp/.hpp` | 190 | A controller on the PC as a Remote Pad source: `poll` (GLFW) + pure `held` / `toPad`; a 16-entry control -> PS2 button map; prefs in editor.ini (`gamepad*` keys, `gamepadMap`) | devkit-runner-and-network |
 | `livereplay.cpp/.hpp` | 730 | Input recorder | devkit-runner-and-network |
 | `hardware_timeline.cpp/.hpp` | 180 | Native hardware timeline view | devkit-runner-and-network |
 | `devsession.cpp/.hpp` | 255 | Which project each editor is debugging | devkit-runner-and-network |

@@ -94,6 +94,81 @@ Multiplayer*) — that is where the generated game opens the second connector.
 Start on pad 2 is what hot-joins player two, which makes the join path testable
 without a second physical controller.
 
+## A real controller
+
+Plug a controller into the PC and it holds the game's pad too - the fourth way
+after the drawn pad, the keyboard and a script. It is read through GLFW's
+gamepad mapping (`src/gamepad.cpp`), so an Xbox pad reads the same on Windows,
+Linux and macOS, and it goes out on the same channel as everything else here:
+`bin/livepad.bin` for PCSX2, a devlink datagram for a real PS2
+([devlink.md](devlink.md)). Its state is **merged** with the panel's: buttons
+are OR'd, a deflected stick takes over that axis.
+
+It drives the game **with no panel open**. The point is playing on the console
+from the editor while watching the [live preview](devkit.md#live-preview), so
+what decides whether the input is sent is not a window but a rule you pick in
+**Preferences > Running games > Controller** (saved in `editor.ini`, per
+machine - which pad is plugged into a PC is not a property of a project):
+
+| Send input | What it means |
+|---|---|
+| **While the live preview has the pad** (default) | Click the live picture to take the pad; Esc or the Guide button lets go. The picture gets an accent frame while it is held. |
+| While the editor is in front | Any editor window. Stops when another application takes the foreground. |
+| Always | Also while you use another application on this PC. |
+
+In the first two modes the pad is also let go the moment the editor stops
+being the foreground application, the controller disconnects or the game is
+no longer a debug build with Remote Pad on - a controller must never drive a
+console behind your back.
+
+The rest of that page:
+
+- **Device** - *First connected*, or a controller by name.
+- **Drives** - pad 1 or pad 2.
+- **Stick dead zone** (0-40 %, default 12) - radial and rescaled: inside it the
+  stick reads centred, the travel that is left maps onto the full range.
+- **Trigger threshold** (5-95 %, default 30) - L2 and R2 are buttons on this
+  channel, so LT / RT count as held past this point.
+- **Invert right stick Y.**
+- **Face buttons** - a preset for A and B: *By position* (A = Cross,
+  B = Circle - the same place under your thumb) or *By label* (A = Circle,
+  B = Cross).
+- **Mapping** - the PS2 pad in the middle (the same drawing as the Remote Pad
+  panel's, `ui::PadDiagram`), the controller's sixteen controls around it (LT,
+  LB, View, L click / RT, RB, Menu, R click / A B X Y / the D-pad), each with
+  a list of what it sends: any PS2 button, or *Nothing*. **Press a button on
+  the controller** and its row is selected, its name turns green and the PS2
+  button it sends is pressed on the drawing - so you see what you pressed and
+  what the game gets for it. A click on a drawn button selects the control
+  that sends it (or says that nothing does). The selected control's target
+  wears the accent ring. *Reset mapping* puts the defaults back. The sticks
+  are not mappable, and Guide is reserved: it lets the pad go.
+
+The mapping is one `gamepadMap=` line in `editor.ini`: sixteen PS2 button
+indices (-1 = nothing) in the order A, B, X, Y, LB, RB, LT, RT, View, Menu,
+L click, R click, Up, Down, Left, Right.
+
+The Remote Pad panel shows the controller in a card above the drawn pad: its
+name and whether it is driving, the two sticks and both triggers as the game
+receives them, and one chip per held control (`A to Cross`). The drawn pad
+itself follows the controller as well: a held button is pressed on it and a
+moved stick moves, whether or not the input is being sent right now.
+
+A changed state is sent at once (at most ~80 times a second) instead of
+waiting for the 25 Hz refresh: 40 ms of extra latency on a stick is something
+a hand feels.
+
+**PCSX2 reads the same controller itself.** With the emulator's own pad
+binding on, the game there gets every press twice - once from PCSX2, once from
+the Remote Pad. Unbind it in PCSX2 or switch *Use a controller* off while you
+play in the emulator.
+
+Verified so far: the windows, in a `--ui-script` run with an Xbox pad
+connected (it is found as *XInput Gamepad (GLFW)*; the card, the Controller
+page and the Mapping card draw and select). Not verified yet: a button
+actually pressed - the mapping reaching a game - and any pad other than an
+Xbox one.
+
 ## Using it from a script
 
 ```

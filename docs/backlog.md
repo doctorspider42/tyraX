@@ -17,6 +17,17 @@ All five phases are in and verified on a PS2 (docs/devlink.md). Left:
 - **The re-ask after a lost datagram** (Debugger and `--capture-frame`) has
   only run when the file was lost for another reason; no real loss was seen
   in a dozen 1 MB transfers.
+- **The controller is untested by hand** (2026-11-10): `gamepad.cpp`, the
+  take / release rule and the three send modes compile and no controller was
+  connected when they were built. The windows themselves (Live / Still, Pop
+  out, Fullscreen, the Controller preferences, the Remote Pad card) were
+  looked at in a `--ui-script` run against PCSX2. Check with a pad in a hand:
+  take / release, the send modes, fullscreen on a second monitor, the
+  overlays' hide timer, PCSX2's double input, and all of it against a PS2.
+- **Other channels still key on `last_write_time`** (`frame.tga`, `vucap.bin`
+  in `devkit_ui.cpp`): one-second resolution on this toolchain, so two
+  captures within a second read as one. Harmless for one-shots a person
+  clicks; a script that fires them faster will miss one.
 - **The live preview** (docs/devkit.md, "Live preview") is PS2-measured
   through a test script only: the panel's checkbox and picture have not been
   looked at with a console attached, the stream has not run in a GS-heavy

@@ -386,13 +386,21 @@ void App::dbgReadStream() {
     namespace fs = std::filesystem;
     if (!hasProject_ || !dbgStreamOn_) return;
     const fs::path path = fs::path(project_.dir) / "bin" / "stream.bin";
-    std::error_code ec;
-    const auto wt = fs::last_write_time(path, ec);
-    if (ec) return;
-    const long long stamp = (long long)wt.time_since_epoch().count();
-    if (stamp == dbgStreamStamp_) return;
+    // "Is there a new picture" is the FRAME NUMBER in the header, never the
+    // file's timestamp: this toolchain's last_write_time has one-second
+    // resolution, and keyed on it the preview showed one picture a second of
+    // the ~17 the game was writing (measured in PCSX2, 2026-11-10). Sixteen
+    // bytes read per editor frame is nothing.
     std::ifstream f(path, std::ios::binary);
     if (!f) return;
+    unsigned char head[16] = {};
+    f.read(reinterpret_cast<char*>(head), sizeof(head));
+    if (f.gcount() != (std::streamsize)sizeof(head) || std::memcmp(head, "TXSV", 4) != 0) return;
+    uint32_t frameKey = 0;
+    std::memcpy(&frameKey, head + 8, 4);
+    const long long stamp = (long long)frameKey + 1;
+    if (stamp == dbgStreamStamp_) return;
+    f.seekg(0);
     std::vector<unsigned char> b((std::istreambuf_iterator<char>(f)),
                                  std::istreambuf_iterator<char>());
     if (b.size() < 16 || std::memcmp(b.data(), "TXSV", 4) != 0) return;
@@ -1206,7 +1214,6 @@ void App::livedbgTick() {
         dbgReadCrashReport();
         dbgReadVuCapture();
         dbgReadFrameShot();
-        dbgReadStream();
     }
 
     // The symbol table is a build artifact of codegen (src/gen/livedbg.sym).
@@ -2914,48 +2921,403 @@ void App::dbgDrawObjectsPage() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// A real controller + the live preview (docs/remote-pad.md "A real controller",
+// docs/devkit.md "Live preview"): plug an Xbox pad into the PC, watch the
+// console's picture in the editor, play.
+// ---------------------------------------------------------------------------
+
+// True while any of the editor's OS windows is the foreground one.
+bool App::editorHasFocus() const {
+    if (glfwGetWindowAttrib(window_, GLFW_FOCUSED)) return true;
+    for (const ImGuiViewport* vp : ImGui::GetPlatformIO().Viewports)
+        if (vp->Flags & ImGuiViewportFlags_IsFocused) return true;
+    return false;
+}
+
+// Reads the controller and decides whether its input goes to the game this
+// frame. Called from remotePadTick, every frame.
+void App::gamepadTick(bool usable) {
+    padCtlSample_ = padCtl_.enabled ? gamepad::poll(padCtl_) : gamepad::Sample{};
+    const bool focused = editorHasFocus();
+    // The pad is held on purpose and let go on purpose - and also the moment
+    // the editor is no longer what the person is looking at, or the
+    // controller is gone: it must never drive a console behind their back.
+    if (!padCtlSample_.connected || padCtlSample_.guide || !focused || !usable) padCtlTaken_ = false;
+    bool on = usable && padCtlSample_.connected;
+    if (padCtl_.sendMode == gamepad::kWhilePreviewHasPad) on = on && padCtlTaken_;
+    else if (padCtl_.sendMode == gamepad::kWhileEditorFocused) on = on && focused;
+    padCtlDriving_ = on;
+}
+
+// Turns the game's picture stream on or off, and asks again when it was asked
+// for and nothing comes (the game was restarted: the switch lives in its RAM).
+void App::dbgSetStream(bool on) {
+    const double now = ImGui::GetTime();
+    if (on != dbgStreamOn_) {
+        dbgStreamOn_ = on;
+        dbgCmd_.streamToggle = on ? 1 : -1;
+        dbgCmdWritten_ = false;
+        dbgStreamAskedAt_ = now;
+        dbgStreamRateAt_ = now;
+        dbgStreamRateCount_ = 0;
+        dbgStreamFps_ = 0.0f;
+    } else if (on && now - dbgStreamAt_ > 3.0 && now - dbgStreamAskedAt_ > 3.0) {
+        dbgCmd_.streamToggle = 1;
+        dbgCmdWritten_ = false;
+        dbgStreamAskedAt_ = now;
+    }
+}
+
+// The live picture in a rectangle: black ground, the picture fitted at the
+// TV's aspect (the GS raster is square-ish; the television is not), and the
+// one interaction - a click takes the pad for the controller.
+void App::dbgDrawLivePicture(ImVec2 pos, ImVec2 size, bool inWindow) {
+    const theme::Semantics& sem = theme::semantics();
+    dbgStreamWanted_ = true;
+    dbgReadStream();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const float rounding = inWindow ? 0.0f : ImGui::GetStyle().ChildRounding;
+    dl->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), IM_COL32(0, 0, 0, 255), rounding);
+    const float aspect = project_.settings.widescreen ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float w = size.x, h = w / aspect;
+    if (h > size.y) {
+        h = size.y;
+        w = h * aspect;
+    }
+    const ImVec2 a(pos.x + (size.x - w) * 0.5f, pos.y + (size.y - h) * 0.5f);
+    const bool fresh = dbgStreamTex_ && ImGui::GetTime() - dbgStreamAt_ < 2.0;
+    if (dbgStreamTex_ && dbgStreamOn_) {
+        dl->AddImage((ImTextureID)(intptr_t)dbgStreamTex_, a, ImVec2(a.x + w, a.y + h), ImVec2(0, 0), ImVec2(1, 1),
+                     fresh ? IM_COL32_WHITE : IM_COL32(255, 255, 255, 110));
+    }
+    if (!fresh) {
+        const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+        const char* msg = !live ? "Run a debug game to see its picture here"
+                                : dbgStreamTex_ ? "The picture stopped coming" : "Waiting for the first picture...";
+        const ImVec2 ts = ImGui::CalcTextSize(msg);
+        dl->AddText(ImVec2(pos.x + (size.x - ts.x) * 0.5f, pos.y + (size.y - ts.y) * 0.5f),
+                    ImGui::GetColorU32(sem.textDim), msg);
+    }
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::InvisibleButton("Live picture", size);
+    const bool canTake = padCtl_.enabled && padCtlSample_.connected &&
+                         padCtl_.sendMode == gamepad::kWhilePreviewHasPad;
+    if (ImGui::IsItemClicked() && canTake) padCtlTaken_ = true;
+    if (inWindow && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        dbgPreviewFull_ = !dbgPreviewFull_;
+        if (!dbgPreviewFull_) dbgPreviewRestore_ = true;
+    }
+    if (ImGui::IsItemHovered() && canTake && !padCtlTaken_)
+        ImGui::SetTooltip("Click to take the pad for the controller. Esc lets go.");
+    if (padCtlTaken_)
+        dl->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), ImGui::GetColorU32(sem.accent), rounding, 0,
+                    2.0f);
+}
+
+// Debugger > Screen in Live mode: the picture, what it costs, who holds the pad.
+void App::dbgDrawScreenLive(bool live) {
+    const theme::Semantics& sem = theme::semantics();
+    const bool fresh = dbgStreamTex_ && ImGui::GetTime() - dbgStreamAt_ < 2.0;
+    ImGui::SameLine();
+    ui::Pill(live && fresh ? "LIVE" : live ? "waiting" : "no game", live && fresh ? 0 : 4);
+    ImGui::SameLine();
+    if (ui::SecondaryButton(dbgPreviewOpen_ ? "Bring back" : "Pop out", 0.0f, live || dbgPreviewOpen_)) {
+        dbgPreviewOpen_ = !dbgPreviewOpen_;
+        dbgPreviewFull_ = false;
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("The picture in a window of its own - another monitor, say.");
+    ImGui::SameLine();
+    if (ui::SecondaryButton("Fullscreen", 0.0f, live)) {
+        dbgPreviewOpen_ = true;
+        dbgPreviewFull_ = true;
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("F11 or a double-click on the picture toggles it; Esc leaves.");
+    // The full-resolution capture, without leaving Live: it is kept as a PNG
+    // in screenshots/ and shows under Still.
+    ImGui::SameLine();
+    if (ui::SecondaryButton("Capture frame##live", 0.0f, live)) {
+        dbgCmd_.captureFrame = true;
+        dbgCmdWritten_ = false;
+        dbgShotWaiting_ = true;
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("The full-resolution frame, kept as a PNG in the project's screenshots/ folder.\n"
+                          "Switch to Still to look at it.");
+    if (dbgShotWaiting_) {
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("capturing...");
+    } else if (!dbgShotFile_.empty()) {
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", std::filesystem::path(dbgShotFile_).filename().string().c_str());
+    }
+
+    // Esc lets the pad go from here too.
+    if (padCtlTaken_ && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+        padCtlTaken_ = false;
+
+    const float availW = ImGui::GetContentRegionAvail().x;
+    if (dbgPreviewOpen_) {
+        dbgStreamWanted_ = true;
+        ImGui::Dummy(ImVec2(0, scaled(6)));
+        ImGui::TextColored(sem.textDim, "The picture is in its own window.");
+    } else {
+        const float aspect = project_.settings.widescreen ? 16.0f / 9.0f : 4.0f / 3.0f;
+        // tiles, the note with its link, and the controller row
+        const float below = dbgLiveNoteHidden_ ? scaled(130) : scaled(215);
+        const float picH = ImClamp(ImMin(availW / aspect, ImGui::GetContentRegionAvail().y - below), scaled(120),
+                                   availW / aspect);
+        dbgDrawLivePicture(ImGui::GetCursorScreenPos(), ImVec2(availW, picH), false);
+    }
+
+    // What it is and what it costs - the numbers the game itself reports.
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const float tw = (availW - gap * 2.0f) / 3.0f;
+    char v[48];
+    std::snprintf(v, sizeof(v), fresh ? "%.1f" : "-", dbgStreamFps_);
+    ui::StatTile("pictures a second", v, 4, tw);
+    ImGui::SameLine();
+    std::snprintf(v, sizeof(v), fresh ? "%.2f ms" : "-", dbgStreamCostUs_ / 1000.0f);
+    ui::StatTile("of the game's time each", v, 4, tw);
+    ImGui::SameLine();
+    if (dbgStreamW_ > 0)
+        std::snprintf(v, sizeof(v), "%d x %d", dbgStreamW_, dbgStreamH_);
+    else
+        std::snprintf(v, sizeof(v), "-");
+    ui::StatTile("quarter resolution", v, 4, tw);
+    // Said once is enough: the note can be put away, and stays away.
+    if (!dbgLiveNoteHidden_) {
+        ui::NoteCard(1, "Each picture costs that frame its EE/GPU overlap. Switch to Still before you measure "
+                        "frame times.");
+        if (ui::Link("Got it, hide this note")) {
+            dbgLiveNoteHidden_ = true;
+            saveGlobalConfig();
+        }
+    }
+
+    // Who holds the pad.
+    ui::BeginCard("##screenctl", ImVec2(0, 0));
+    const gamepad::Sample& gs = padCtlSample_;
+    if (!padCtl_.enabled) {
+        ImGui::TextColored(sem.textDim, "Controller input is off.");
+    } else if (!gs.connected) {
+        ImGui::TextColored(sem.textDim, "No controller connected. Plug in an Xbox pad to play from here.");
+    } else {
+        ImGui::TextUnformatted(gs.name.c_str());
+        ImGui::SameLine();
+        char pill[40];
+        std::snprintf(pill, sizeof(pill), "driving pad %d", padCtl_.pad + 1);
+        ui::Pill(padCtlDriving_ ? pill : "idle", padCtlDriving_ ? 0 : 4);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(sem.textDim, "%s",
+                           padCtlDriving_ && padCtl_.sendMode == gamepad::kWhilePreviewHasPad
+                               ? "Esc or the Guide button lets the pad go."
+                               : padCtl_.sendMode == gamepad::kWhilePreviewHasPad
+                                     ? "Click the picture to take the pad."
+                                     : padCtl_.sendMode == gamepad::kWhileEditorFocused
+                                           ? "Sent while the editor is in front."
+                                           : "Always sent.");
+        ImGui::PopTextWrapPos();
+    }
+    if (ui::Link("Controller settings##screen")) {
+        openEditorPrefsPopup_ = true;
+        prefCategory_ = 2;
+    }
+    ui::EndCard();
+}
+
+// The live preview in a window of its own. Where panels can leave the editor
+// it is always its own OS window (NoAutoMerge), so it can sit on another
+// monitor; fullscreen is that window stretched over its monitor with no
+// frame. The picture is the hero: the controls are glass cards on it, and
+// they go away two seconds after the mouse stops.
+void App::drawLivePreviewWindow() {
+    const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
+    // Every frame, here: whoever showed the picture last frame asked for it.
+    dbgSetStream((dbgStreamWanted_ || dbgPreviewOpen_) && live);
+    dbgStreamWanted_ = false;
+    if (!live) dbgStreamOn_ = false;
+    if (!dbgPreviewOpen_) {
+        dbgPreviewFull_ = false;
+        return;
+    }
+    const theme::Semantics& sem = theme::semantics();
+    const double now = ImGui::GetTime();
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+                             ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking;
+    if (dbgPreviewFull_) {
+        ImVec2 mp = ImGui::GetMainViewport()->Pos, ms = ImGui::GetMainViewport()->Size;
+        const ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
+        if (mvp::enabled() && dbgPreviewMonitor_ >= 0 && dbgPreviewMonitor_ < pio.Monitors.Size) {
+            mp = pio.Monitors[dbgPreviewMonitor_].MainPos;
+            ms = pio.Monitors[dbgPreviewMonitor_].MainSize;
+        }
+        ImGui::SetNextWindowPos(mp);
+        ImGui::SetNextWindowSize(ms);
+        flags |= ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+    } else if (dbgPreviewRestore_ && dbgPreviewSize_.x > 0.0f) {
+        ImGui::SetNextWindowPos(dbgPreviewPos_);
+        ImGui::SetNextWindowSize(dbgPreviewSize_);
+        dbgPreviewRestore_ = false;
+    } else {
+        ImGui::SetNextWindowSize(ImVec2(scaled(880), scaled(720)), ImGuiCond_FirstUseEver);
+    }
+    ImGuiWindowClass wc;
+    wc.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge;
+    ImGui::SetNextWindowClass(&wc);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 1));
+    bool open = true;
+    const bool visible = ImGui::Begin("Live preview", &open, flags);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+    if (visible) {
+        if (!dbgPreviewFull_) {
+            dbgPreviewPos_ = ImGui::GetWindowPos();
+            dbgPreviewSize_ = ImGui::GetWindowSize();
+            // The monitor fullscreen will cover: the one under the window's centre.
+            const ImVec2 c(dbgPreviewPos_.x + dbgPreviewSize_.x * 0.5f, dbgPreviewPos_.y + dbgPreviewSize_.y * 0.5f);
+            const ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
+            for (int i = 0; i < pio.Monitors.Size; ++i) {
+                const ImGuiPlatformMonitor& mon = pio.Monitors[i];
+                if (c.x >= mon.MainPos.x && c.x < mon.MainPos.x + mon.MainSize.x && c.y >= mon.MainPos.y &&
+                    c.y < mon.MainPos.y + mon.MainSize.y)
+                    dbgPreviewMonitor_ = i;
+            }
+        }
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        dbgDrawLivePicture(p0, avail, true);
+
+        const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+        const bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows |
+                                                    ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+        const ImVec2 md = ImGui::GetIO().MouseDelta;
+        if (ImGui::IsWindowAppearing() || (hovered && (md.x != 0.0f || md.y != 0.0f))) dbgPreviewMouseAt_ = now;
+        if (focused) {
+            if (ImGui::IsKeyPressed(ImGuiKey_F11, false)) {
+                dbgPreviewFull_ = !dbgPreviewFull_;
+                if (!dbgPreviewFull_) dbgPreviewRestore_ = true;
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+                if (padCtlTaken_) {
+                    padCtlTaken_ = false;
+                } else if (dbgPreviewFull_) {
+                    dbgPreviewFull_ = false;
+                    dbgPreviewRestore_ = true;
+                }
+                dbgPreviewMouseAt_ = now;  // say what just happened
+            }
+        }
+        if (now - dbgPreviewMouseAt_ < 2.0) {
+            const float m = scaled(14);
+            const ImVec4 glass(sem.ground.x, sem.ground.y, sem.ground.z, 0.6f);
+            const ImGuiChildFlags cf = ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY |
+                                       ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding;
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, glass);
+            ImGui::PushStyleColor(ImGuiCol_Border, sem.border);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(scaled(10), scaled(7)));
+
+            // top left: what this is and what it costs
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + m, p0.y + m));
+            if (ImGui::BeginChild("##pvinfo", ImVec2(0, 0), cf, ImGuiWindowFlags_NoScrollbar)) {
+                const bool fresh = dbgStreamTex_ && now - dbgStreamAt_ < 2.0;
+                ui::Pill(fresh ? "LIVE" : "waiting", fresh ? 0 : 4);
+                ImGui::SameLine();
+                const std::string ip = padConsoleIp();
+                ImGui::TextUnformatted(ip.empty() ? "PCSX2" : "PlayStation 2");
+                if (!ip.empty()) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(sem.textDim, "%s", ip.c_str());
+                }
+                if (fresh) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(sem.textDim, "%.0f pictures/s   %.1f ms each", dbgStreamFps_,
+                                       dbgStreamCostUs_ / 1000.0f);
+                }
+            }
+            ImGui::EndChild();
+
+            // top right: the three things to do with it
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + avail.x - m - dbgPreviewToolsW_, p0.y + m));
+            if (ImGui::BeginChild("##pvtools", ImVec2(0, 0), cf, ImGuiWindowFlags_NoScrollbar)) {
+                if (ui::SecondaryButton("Capture still", 0.0f, live)) {
+                    dbgCmd_.captureFrame = true;
+                    dbgCmdWritten_ = false;
+                    dbgShotWaiting_ = true;
+                }
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("The full-resolution frame, kept as a PNG in screenshots/.");
+                ImGui::SameLine();
+                if (ui::SecondaryButton("Dock")) open = false;
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Back into Debugger > Screen.");
+                ImGui::SameLine();
+                if (ui::SecondaryButton(dbgPreviewFull_ ? "Window" : "Fullscreen")) {
+                    dbgPreviewFull_ = !dbgPreviewFull_;
+                    if (!dbgPreviewFull_) dbgPreviewRestore_ = true;
+                }
+                dbgPreviewToolsW_ = ImGui::GetWindowWidth();
+            }
+            ImGui::EndChild();
+
+            // bottom centre: who holds the pad
+            const float lineH = ImGui::GetTextLineHeightWithSpacing();
+            ImGui::SetCursorScreenPos(ImVec2(p0.x + (avail.x - dbgPreviewPadW_) * 0.5f,
+                                             p0.y + avail.y - m - lineH * 2.0f - scaled(14)));
+            if (ImGui::BeginChild("##pvpad", ImVec2(0, 0), cf, ImGuiWindowFlags_NoScrollbar)) {
+                const gamepad::Sample& gs = padCtlSample_;
+                if (!padCtl_.enabled) {
+                    ImGui::TextUnformatted("Controller input is off");
+                    ImGui::TextColored(sem.textDim, "Preferences > Running games > Controller");
+                } else if (!gs.connected) {
+                    ImGui::TextUnformatted("No controller connected");
+                    ImGui::TextColored(sem.textDim, "Plug in an Xbox pad to play from here");
+                } else if (padCtlDriving_) {
+                    ImGui::TextColored(sem.ok, "%s is driving pad %d", gs.name.c_str(), padCtl_.pad + 1);
+                    ImGui::TextColored(sem.textDim, padCtl_.sendMode == gamepad::kWhilePreviewHasPad
+                                                        ? "Esc or the Guide button lets the pad go"
+                                                        : "F11 fullscreen, Esc leaves");
+                } else {
+                    ImGui::TextUnformatted(gs.name.c_str());
+                    ImGui::TextColored(sem.textDim, padCtl_.sendMode == gamepad::kWhilePreviewHasPad
+                                                        ? "Click the picture to take the pad"
+                                                        : "Waiting for the editor to be in front");
+                }
+                dbgPreviewPadW_ = ImGui::GetWindowWidth();
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(2);
+        }
+    }
+    ImGui::End();
+    if (!open) {
+        dbgPreviewOpen_ = false;
+        dbgPreviewFull_ = false;
+    }
+}
+
 // Screen: the picture the game took of ITSELF (docs/devkit.md, "The game's own
 // screenshot") - it reads the frame buffer out of GS VRAM and hands over a TGA.
 void App::dbgDrawScreenPage() {
     const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
     if (!live) dbgShotWaiting_ = false;  // nobody left to answer
-    // --- Live preview: a small picture stream from the running game.
-    {
-        bool on = dbgStreamOn_;
-        ImGui::BeginDisabled(!live);
-        if (ImGui::Checkbox("Live preview", &on)) {
-            dbgStreamOn_ = on;
-            dbgCmd_.streamToggle = on ? 1 : -1;
-            dbgCmdWritten_ = false;
-            dbgStreamRateAt_ = ImGui::GetTime();
-            dbgStreamRateCount_ = 0;
-            dbgStreamFps_ = 0.0f;
-        }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip(
-                "A quarter-resolution picture of the game, sent again as soon as the last\n"
-                "one has left - on a real PlayStation 2 through the IOP, while the game\n"
-                "runs. Every picture costs the game about a millisecond and that frame's\n"
-                "EE/GPU overlap, so leave it off when you measure frame times.");
-        if (!live) dbgStreamOn_ = false;
-        if (dbgStreamOn_ && dbgStreamTex_) {
-            const bool stale = ImGui::GetTime() - dbgStreamAt_ > 2.0;
-            ImGui::SameLine();
-            ImGui::AlignTextToFramePadding();
-            if (stale)
-                ImGui::TextDisabled("no picture for %.0f s", ImGui::GetTime() - dbgStreamAt_);
-            else
-                ImGui::TextDisabled("%dx%d, %.1f pictures/s, %.2f ms each on the game, frame %u",
-                                    dbgStreamW_, dbgStreamH_, dbgStreamFps_,
-                                    dbgStreamCostUs_ / 1000.0f, dbgStreamFrame_);
-            const float avail = ImGui::GetContentRegionAvail().x;
-            const float scale = ImMax(1.0f, ImMin(3.0f, floorf(avail / (float)dbgStreamW_)));
-            ImGui::Image((ImTextureID)(intptr_t)dbgStreamTex_,
-                         ImVec2((float)dbgStreamW_ * scale, (float)dbgStreamH_ * scale));
-        }
-        ImGui::Separator();
+    // Still = the full-resolution capture (the default: it costs the game
+    // nothing until asked), Live = the small picture stream.
+    static const char* const kScreenModes[] = {"Still##screen", "Live##screen"};
+    int mode = dbgScreenStill_ ? 0 : 1;
+    if (ui::Segmented("##screenmode", kScreenModes, 2, &mode, scaled(150))) dbgScreenStill_ = mode == 0;
+    if (!dbgScreenStill_) {
+        dbgDrawScreenLive(live);
+        return;
     }
+    ImGui::SameLine();
     if (ui::PrimaryButton("Capture frame", 0.0f, live)) {
         dbgCmd_.captureFrame = true;
         dbgCmdWritten_ = false;
@@ -4621,7 +4983,11 @@ void App::remotePadTick() {
     // direction because a panel was closed would look exactly like a stuck pad.
     // A script drives the pad with no panel open: the assistant is holding the
     // controller, and the panel is a different way of holding the same one.
-    const bool want = usable && (showRemotePad_ || padScriptRunning_);
+    gamepadTick(usable);
+    const bool want = usable && (showRemotePad_ || padScriptRunning_ || padCtlDriving_);
+    // With the panel closed and no script, nothing but the controller holds
+    // anything: a state the panel left behind must not ride along with it.
+    if (!showRemotePad_ && !padScriptRunning_) padState_.clear();
     if (!want) {
         if (padAttached_) {
             padState_.clear();
@@ -4645,11 +5011,29 @@ void App::remotePadTick() {
     // is shorter than two writes apart, and a step resolved late would be
     // announced late or not at all.
     padScriptTick();
+    // What goes out: the panel's / script's state with the controller merged
+    // in - its buttons OR'd, its sticks taking over an axis they deflect.
+    livepad::State out = padState_;
+    if (padCtlDriving_) {
+        uint32_t buttons = 0;
+        int8_t axes[4] = {};
+        gamepad::toPad(padCtlSample_, padCtl_, buttons, axes);
+        const int pi = padCtl_.pad == 1 ? 1 : 0;
+        out.buttons[pi] |= buttons;
+        for (int a = 0; a < 4; ++a)
+            if (axes[a] != 0) out.axes[pi][a] = axes[a];
+    }
     const double now = ImGui::GetTime();
-    if (now < padNextWrite_) return;
-    padNextWrite_ = now + 0.04;  // ~25 Hz: keeps the game's stale watchdog fed
+    // ~25 Hz keeps the game's stale watchdog fed; a CHANGE goes out at once
+    // (but no faster than ~80 Hz), because 40 ms of extra latency on a stick
+    // is something a hand feels.
+    const bool changed = out != padSent_;
+    if (now < padNextWrite_ && !(changed && now >= padLastWrite_ + 0.012)) return;
+    padNextWrite_ = now + 0.04;
+    padLastWrite_ = now;
+    padSent_ = out;
     padStatus_ = livepad::write(
-        (fs::path(project_.dir) / "bin" / "livepad.bin").string(), padState_,
+        (fs::path(project_.dir) / "bin" / "livepad.bin").string(), out,
         ++padSeq_, true, padConsoleIp());
 }
 
@@ -4723,6 +5107,108 @@ void App::drawRemotePadWindow() {
         ui::EndCard();
         ImGui::End();
         return;
+    }
+
+    // --- a real controller (gamepad.hpp): who it is, whether it is driving,
+    // the sticks and triggers as the game receives them, and what is held.
+    {
+        const gamepad::Sample& gs = padCtlSample_;
+        ui::BeginCard("##padctl", ImVec2(0, 0));
+        ImDrawList* cdl = ImGui::GetWindowDrawList();
+        const float cardW = ImGui::GetContentRegionAvail().x;
+        const bool on = padCtl_.enabled && gs.connected;
+        ImGui::BeginGroup();
+        if (ui::boldFont()) ImGui::PushFont(ui::boldFont());
+        ImGui::TextUnformatted(!padCtl_.enabled ? "Controller input is off"
+                                                : gs.connected ? gs.name.c_str() : "No controller connected");
+        if (ui::boldFont()) ImGui::PopFont();
+        ImGui::TextColored(sem.textDim, "%s",
+                           !padCtl_.enabled ? "Switch it on to drive the game with a pad plugged into this PC."
+                           : !gs.connected ? "Plug in an Xbox pad and it holds this pad too."
+                           : padCtlDriving_ ? "Driving. Merged with the on-screen pad and the keyboard."
+                           : padCtl_.sendMode == gamepad::kWhilePreviewHasPad
+                                 ? "Connected. Click the live picture (Debugger > Screen) to take the pad."
+                                 : "Connected. Sent while the editor is in front.");
+        ImGui::EndGroup();
+        ImGui::SameLine(ImMax(ImGui::GetItemRectSize().x + scaled(16), cardW - scaled(150)));
+        if (ui::Switch("Drive the game", &padCtl_.enabled)) saveGlobalConfig();
+        if (on) {
+            ImGui::Separator();
+            uint32_t buttons = 0;
+            int8_t axes[4] = {};
+            gamepad::toPad(gs, padCtl_, buttons, axes);
+            ImFont* mono = ui::monoFont();
+            const float R = scaled(34);
+            auto stickViz = [&](const char* tag, int ax, int ay) {
+                ImGui::BeginGroup();
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const ImVec2 c(p.x + R, p.y + R);
+                cdl->AddCircleFilled(c, R, ImGui::GetColorU32(ImGui::GetStyleColorVec4(ImGuiCol_WindowBg)));
+                cdl->AddCircle(c, R, ImGui::GetColorU32(sem.border));
+                const float reach = R - scaled(9);
+                cdl->AddCircleFilled(ImVec2(c.x + ax / 127.0f * reach, c.y + ay / 127.0f * reach), scaled(7),
+                                     ImGui::GetColorU32(ax || ay ? sem.accent : sem.textDim));
+                ImGui::Dummy(ImVec2(R * 2.0f, R * 2.0f));
+                if (mono) ImGui::PushFont(mono);
+                ImGui::TextColored(sem.textDim, "%s %d, %d", tag, ax, ay);
+                if (mono) ImGui::PopFont();
+                ImGui::EndGroup();
+            };
+            stickViz("L", axes[0], axes[1]);
+            ImGui::SameLine(0.0f, scaled(18));
+            stickViz("R", axes[2], axes[3]);
+            ImGui::SameLine(0.0f, scaled(18));
+            ImGui::BeginGroup();
+            const float threshold = padCtl_.trigger / 100.0f;
+            auto triggerBar = [&](const char* tag, float v) {
+                const bool past = v >= threshold;
+                ImGui::TextColored(past ? sem.text : sem.textDim, "%s", tag);
+                ImGui::SameLine(scaled(34) + ImGui::GetCursorPosX() - ImGui::GetCursorPosX());
+                const float bw = ImMax(scaled(60), ImGui::GetContentRegionAvail().x - scaled(48));
+                const ImVec2 p = ImGui::GetCursorScreenPos();
+                const float y = p.y + ImGui::GetTextLineHeight() * 0.5f - scaled(2);
+                cdl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + bw, y + scaled(4)), ImGui::GetColorU32(sem.border),
+                                   scaled(2));
+                cdl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + bw * v, y + scaled(4)),
+                                   ImGui::GetColorU32(past ? sem.accent : sem.textDim), scaled(2));
+                ImGui::Dummy(ImVec2(bw, ImGui::GetTextLineHeight()));
+                ImGui::SameLine();
+                if (mono) ImGui::PushFont(mono);
+                ImGui::TextColored(past ? sem.text : sem.textDim, "%d%%", (int)std::lround(v * 100.0f));
+                if (mono) ImGui::PopFont();
+            };
+            ImGui::Dummy(ImVec2(0, scaled(6)));
+            triggerBar("LT", gs.lt);
+            triggerBar("RT", gs.rt);
+            ImGui::TextColored(sem.textDim, "A trigger past %d%% counts as held.", padCtl_.trigger);
+            ImGui::EndGroup();
+
+            ImGui::TextColored(sem.textDim, "Held now");
+            bool any = false;
+            for (int src = 0; src < gamepad::kSourceCount; ++src) {
+                if (!gamepad::held(gs, src, padCtl_)) continue;
+                char chip[64];
+                std::snprintf(chip, sizeof(chip), "%s to %s", gamepad::sourceName(src),
+                              gamepad::targetName(padCtl_.map[src]));
+                ImGui::SameLine();
+                ui::Badge(chip, 3);
+                any = true;
+            }
+            if (!any) {
+                ImGui::SameLine();
+                ImGui::TextColored(sem.textDim, "nothing");
+            }
+        }
+        ImGui::Separator();
+        ImGui::PushTextWrapPos(cardW - scaled(170));
+        ImGui::TextColored(sem.textDim, "Reaches a PS2 through the IOP and PCSX2 through bin/livepad.bin.");
+        ImGui::PopTextWrapPos();
+        ImGui::SameLine(cardW - scaled(160));
+        if (ui::SecondaryButton("Controller settings")) {
+            openEditorPrefsPopup_ = true;
+            prefCategory_ = 2;
+        }
+        ui::EndCard();
     }
 
     const bool single = project_.settings.multiplayer == "off";
@@ -4832,6 +5318,18 @@ void App::drawRemotePadWindow() {
         if (padSticky_[pi][b]) ps.latched |= 1u << b;
     ps.stick[0] = ImVec2(st.axes[pi][0] / 127.0f, st.axes[pi][1] / 127.0f);
     ps.stick[1] = ImVec2(st.axes[pi][2] / 127.0f, st.axes[pi][3] / 127.0f);
+    // The real controller shows on the drawing too: what it holds presses the
+    // drawn buttons and moves the drawn sticks, whether or not its input is
+    // being sent right now (the card above says which) - so a press is seen
+    // the moment it happens, on the button the game would get.
+    if (padCtl_.enabled && padCtlSample_.connected && padCtl_.pad == pi) {
+        uint32_t cb = 0;
+        int8_t ca[4] = {};
+        gamepad::toPad(padCtlSample_, padCtl_, cb, ca);
+        ps.pressed |= cb & 0xFFFFu;
+        if (ca[0] || ca[1]) ps.stick[0] = ImVec2(ca[0] / 127.0f, ca[1] / 127.0f);
+        if (ca[2] || ca[3]) ps.stick[1] = ImVec2(ca[2] / 127.0f, ca[3] / 127.0f);
+    }
     ps.deadzone[0] = project_.settings.stickDeadzoneL;
     ps.deadzone[1] = project_.settings.stickDeadzoneR;
     ps.port = pi + 1;

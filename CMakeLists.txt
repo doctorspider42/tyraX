@@ -270,6 +270,7 @@ add_executable(tyrax-editor
     src/livedbg.cpp
     src/livelogic.cpp
     src/livepad.cpp
+    src/gamepad.cpp
     src/devlink_host.cpp
     src/livereplay.cpp
     src/livetime.cpp

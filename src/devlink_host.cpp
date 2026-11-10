@@ -146,7 +146,6 @@ void Receiver::run() {
     auto nextHello = std::chrono::steady_clock::now();
     bool silenceReported = false;
     auto nextCmdStat = nextHello, nextCmdSend = nextHello;
-    long long cmdStamp = -2;  // size ^ mtime of the livedbg.cmd last read
     auto segmentChunkAt = nextHello;
     uint32_t segmentHave = 0, segmentCount = 0;
     std::string cmdBytes;
@@ -172,28 +171,23 @@ void Receiver::run() {
         // the console answers to.
         if (now >= nextCmdStat && !ip.empty() && !dir.empty()) {
             nextCmdStat = now + std::chrono::milliseconds(100);
-            std::error_code ec;
+            // "Changed" is the file's BYTES, not its timestamp: last_write_time
+            // has one-second resolution here, and two commands written within
+            // a second (a toggle on, then off) are the same size. The file is
+            // at most 720 bytes; reading it ten times a second is nothing.
             const std::filesystem::path path = std::filesystem::path(dir) / "livedbg.cmd";
-            long long stamp = -1;
-            const auto size = std::filesystem::file_size(path, ec);
-            if (!ec) {
-                const auto t = std::filesystem::last_write_time(path, ec);
-                stamp = (long long)size ^ (long long)t.time_since_epoch().count();
+            std::string bytes;
+            {
+                std::ifstream in(path, std::ios::binary);
+                if (in)
+                    bytes.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             }
-            if (stamp != cmdStamp) {
-                cmdStamp = stamp;
+            // A torn or foreign file is not worth a datagram; the next read
+            // sees the finished one. A missing file stops the resends.
+            if (bytes.empty()) {
                 cmdBytes.clear();
-                if (stamp != -1) {
-                    std::ifstream in(path, std::ios::binary);
-                    cmdBytes.assign((std::istreambuf_iterator<char>(in)),
-                                    std::istreambuf_iterator<char>());
-                    // A torn or foreign file is not worth a datagram; the next
-                    // stat sees the finished one.
-                    if (cmdBytes.size() < 36 || cmdBytes.size() > 720) {
-                        cmdBytes.clear();
-                        cmdStamp = -2;
-                    }
-                }
+            } else if (bytes.size() >= 36 && bytes.size() <= 720 && bytes != cmdBytes) {
+                cmdBytes.swap(bytes);
                 nextCmdSend = now;
             }
         }

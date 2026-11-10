@@ -37,6 +37,7 @@
 #include "vucap.hpp"
 #include "devlink_host.hpp"
 #include "livedbg.hpp"
+#include "gamepad.hpp"
 #include "livepad.hpp"
 #include "livereplay.hpp"
 #include "logview.hpp"  // LogView members (the Output / Debug severity split)
@@ -4316,6 +4317,21 @@ private:
     double padScriptUntil_ = 0.0;
     bool padScriptRunning_ = false;
     void padScriptTick();  // advance it; called from remotePadTick
+    // A real controller on this PC as a fourth way of holding the game's pad
+    // (gamepad.hpp, docs/remote-pad.md "A real controller"). Its preferences
+    // are per machine (editor.ini). It drives the game with no panel open:
+    // the point is playing on the console while watching the live preview.
+    gamepad::Prefs padCtl_;
+    gamepad::Sample padCtlSample_;
+    bool padCtlTaken_ = false;    // the live preview holds the pad (send mode 0)
+    bool padCtlDriving_ = false;  // this frame's input goes to the game
+    livepad::State padSent_;      // what the last write carried
+    double padLastWrite_ = 0.0;
+    void gamepadTick(bool usable);
+    int prefCtlSel_ = 0;          // the control picked in Preferences > Mapping
+    int prefCtlOrphan_ = -1;      // a drawn PS2 button clicked that nothing sends
+    unsigned prefCtlHeld_ = 0;    // controls held last frame (a new press selects)
+    bool editorHasFocus() const;
     void remotePadTick();
     std::string padConsoleIp() const;  // devlink target, "" = file only
     void devlinkTick();                // receiver + file mirror pusher
@@ -4399,13 +4415,33 @@ private:
     bool dbgStreamOn_ = false;
     unsigned int dbgStreamTex_ = 0;
     int dbgStreamW_ = 0, dbgStreamH_ = 0;
-    long long dbgStreamStamp_ = 0;
+    long long dbgStreamStamp_ = 0;   // frame number + 1 of the picture shown
     uint32_t dbgStreamFrame_ = 0, dbgStreamCostUs_ = 0;
     double dbgStreamAt_ = 0.0;       // when the last picture arrived
     double dbgStreamRateAt_ = 0.0;   // start of the current rate window
     int dbgStreamRateCount_ = 0;
     float dbgStreamFps_ = 0.0f;
     void dbgReadStream();
+    // Debugger > Screen is Live (the stream) or Still (the full capture). The
+    // stream runs only while something shows it: the page in Live mode or the
+    // popped-out window ask for it every frame, livedbgTick turns it on / off.
+    bool dbgScreenStill_ = true;       // Still is the default: Live costs the game
+    bool dbgLiveNoteHidden_ = false;   // "each picture costs..." dismissed (editor.ini)
+    bool dbgStreamWanted_ = false;
+    double dbgStreamAskedAt_ = 0.0;
+    void dbgSetStream(bool on);
+    // The live preview in a window of its own (its own OS window where panels
+    // can leave the editor), optionally covering the whole monitor.
+    bool dbgPreviewOpen_ = false;
+    bool dbgPreviewFull_ = false;
+    bool dbgPreviewRestore_ = false;   // put the window back where it was
+    int dbgPreviewMonitor_ = -1;
+    ImVec2 dbgPreviewPos_ = ImVec2(0, 0), dbgPreviewSize_ = ImVec2(0, 0);
+    double dbgPreviewMouseAt_ = 0.0;   // overlays hide 2 s after the last move
+    float dbgPreviewToolsW_ = 0.0f, dbgPreviewPadW_ = 0.0f;
+    void dbgDrawLivePicture(ImVec2 pos, ImVec2 size, bool inWindow);
+    void dbgDrawScreenLive(bool live);
+    void drawLivePreviewWindow();
     void dbgReadVuCapture();
     void dbgReadCrashReport();
     void dbgResolveCrashNames();
