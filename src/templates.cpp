@@ -29651,6 +29651,8 @@ unsigned int ramFreeKB = 0, ramFrame = 0;
 // ~900 KB to the editor (devlink segments on a console, a host: write
 // elsewhere), which is not something to do on a timer.
 bool frameShotWanted = false;
+// The live preview (streamFrame): on until told otherwise or the game ends.
+bool streamOn = false;
 unsigned int renderCostRequest = 0;
 // __attribute__((unused)): the EE crash handler is opt-in (Preferences >
 // Build), and with it off nothing references this - it sits in an anonymous
@@ -29660,6 +29662,7 @@ void vuPacketTap(const void* data, unsigned int qwc, const char* name);
 void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
 void writeFrameCapture(ScriptContext& ctx);
+void streamFrame(ScriptContext& ctx);
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
 // The first snapshot is always written as the runner's game-is-up marker.
@@ -29781,6 +29784,9 @@ void pollCommand() {
     fflush(stdout);
     *reinterpret_cast<volatile int*>(4) = 0;
   }
+  // -9 / -10: the live preview on / off (Debugger > Screen > Live preview).
+  if (steps == -9) streamOn = true;
+  if (steps == -10) streamOn = false;
   if (steps < 0) steps = 0;
   int watchc;
   memcpy(&watchc, c + 28, 4);
@@ -30080,6 +30086,7 @@ void tickImpl(ScriptContext& ctx) {
     frameShotWanted = false;
     writeFrameCapture(ctx);
   }
+  if (streamOn) streamFrame(ctx);
   forcedCount = 0;  // force-fires live for exactly one frame
 
   // Over ps2link every fopen is a network round-trip, so poll sparsely there -
@@ -30470,10 +30477,15 @@ void writeFrameCapture(ScriptContext& ctx) {
   // be copying - and the reverse-FIFO download below then hangs on it (it did,
   // in PCSX2, every time). A PATH3 FINISH round trip proves the GS idle. In
   // the other modes the flip already waited, and this returns at once.
+  const unsigned long long waitT0 = GetTimerSystemTime();
   ctx.engine->renderer.core.sync.align2D();
   // What the game actually pays for a capture once devlink carries the file:
-  // this loop. Timed and logged, so the hitch is a number in the console log.
+  // the wait above for the frame in flight (one it would sit out at the flip
+  // anyway) and this loop. Timed and logged apart, so the hitch is a number
+  // in the console log.
   const unsigned long long readT0 = GetTimerSystemTime();
+  const unsigned int waitMs = (unsigned int)(
+      (readT0 - waitT0) * 1000ULL / (unsigned long long)kBUSCLK);
   // Bottom band first, and inside a band the bottom row first, so the TGA
   // needs no flip on either side.
   for (unsigned int done = 0; done < h;) {
@@ -30538,7 +30550,8 @@ void writeFrameCapture(ScriptContext& ctx) {
       TYRA_WARN("Frame capture: the host: write of frame.tga failed");
     else
       TYRA_LOG("Frame capture: ", w, "x", h, " psm ", (unsigned int)fb->psm,
-               " at frame ", frameNo, ", readback ", readMs, " ms,",
+               " at frame ", frameNo, ", waited ", waitMs, " ms, readback ",
+               readMs, " ms,",
                viaLink ? " queued for devlink - frame.tga arrives in the editor "
                          "over the next frames"
                        : " written to frame.tga");
@@ -30552,6 +30565,129 @@ void writeFrameCapture(ScriptContext& ctx) {
     TYRA_LOG("Frame capture: ", w, "x", h, " psm ", (unsigned int)fb->psm,
              " at frame ", frameNo, " written to frame.tga, streamed - no RAM "
              "for the whole picture");
+}
+
+// THE LIVE PREVIEW (docs/devkit.md, "Live preview"): a small picture of the
+// last finished frame, sent again as soon as the previous one has left.
+//
+// The full capture above is a megabyte and 34 ms of readback - a picture, not
+// a stream. This one never reads the frame buffer itself: the GS shrinks it,
+// a quadrant at a time, into the post-fx pass's eighth-resolution scratch
+// buffer (so it costs NO extra VRAM), and only that tile comes back over the
+// reverse FIFO - four tiles of ~16 KB instead of one megabyte. The result is
+// a quarter-resolution picture at 15 bits a pixel, cropped by a row or two to
+// fit ONE devlink slot, because one slot is one pump and one burst on the IOP.
+// Each bilinear tap covers 2x2 of the 4x4 source pixels a preview pixel
+// stands for: it shimmers on fine detail, which a preview can live with.
+struct StreamTile {
+  int srcVram, srcBufW, texW, texH, u0, v0, u1, v1;
+  int lowVram, lowBufW, lowW, lowH;  // filled in by the build callback
+};
+
+qword_t* streamTileBlit(Tyra::RendererCorePostFx& fx, qword_t* q, void* user) {
+  StreamTile* t = static_cast<StreamTile*>(user);
+  t->lowVram = fx.lowBuf0();
+  t->lowBufW = fx.lowResBufW();
+  t->lowW = fx.lowResW();
+  t->lowH = fx.lowResH();
+  return fx.blit(q, t->srcVram, t->srcBufW, t->texW, t->texH, t->u0, t->v0,
+                 t->u1, t->v1, t->lowVram, t->lowBufW, 0, 0, t->lowW, t->lowH,
+                 true, false, 0, 0);
+}
+
+void streamFrame(ScriptContext& ctx) {
+  if (!ctx.engine) return;
+  // Backpressure IS the frame rate: the next picture is taken when the last
+  // one has gone to the IOP. Without devlink (PCSX2) every write is a host:
+  // file, so a fixed, slower cadence.
+  if (Tyra::DevLink::active()) {
+    if (Tyra::DevLink::fileBusy("stream.bin")) return;
+  } else if (frameNo % 3U != 0U) {
+    return;
+  }
+  framebuffer_t* fb = ctx.engine->renderer.core.gs.getPreviousRealFrameBuffer();
+  if (!fb || fb->width == 0 || fb->height == 0) return;
+  // 16 header bytes + pixels have to fit one slot's file segment.
+  enum { kMaxBytes = Tyra::DevLink::kReportMax - 16 };
+  static unsigned int tileIn[128 * 72] __attribute__((aligned(64)));
+  static unsigned char out[kMaxBytes] __attribute__((aligned(16)));
+  // The reverse FIFO needs VIF1 idle, so the frame in flight has to finish
+  // first. With the frame pipeline on that is the wait for its presentation -
+  // up to a whole field, measured at 19.7 ms on a PS2 - but it is a wait the
+  // game was going to sit out at the flip anyway: the test scene held 50 fps
+  // with 20 pictures a second. What a picture really takes away is that
+  // frame's EE/GPU overlap, which a scene with no slack will feel. The cost
+  // reported below is the work AFTER this wait.
+  ctx.engine->renderer.core.sync.align2D();
+  const unsigned long long t0 = GetTimerSystemTime();
+  const int halfW = (int)fb->width / 2, halfH = (int)fb->height / 2;
+  const unsigned int bpp = fb->psm == 2 ? 2U : fb->psm == 1 ? 3U : 4U;
+  unsigned int outW = 0, outH = 0, rows = 0;
+  unsigned short* px = reinterpret_cast<unsigned short*>(out + 16);
+  for (int tile = 0; tile < 4; ++tile) {
+    const int tx = tile & 1, ty = tile >> 1;
+    StreamTile t;
+    t.srcVram = (int)fb->address;
+    t.srcBufW = (int)fb->width;
+    t.texW = (int)fb->width;
+    t.texH = (int)fb->height;
+    t.u0 = (tx * halfW) << 4;
+    t.v0 = (ty * halfH) << 4;
+    t.u1 = ((tx + 1) * halfW) << 4;
+    t.v1 = ((ty + 1) * halfH) << 4;
+    t.lowVram = -1;
+    ctx.engine->renderer.core.applyCustomPostFx(&streamTileBlit, &t);
+    if (t.lowVram < 0 || t.lowBufW > 128 || t.lowH > 72 || t.lowW <= 0) return;
+    if (tile == 0) {
+      outW = (unsigned int)t.lowW * 2U;
+      outH = (unsigned int)t.lowH * 2U;
+      rows = outH;
+      const unsigned int fit = (unsigned int)(kMaxBytes - 16) / (outW * 2U);
+      if (rows > fit) rows = fit;
+    }
+    // The readback reads whole buffer lines (libdebug derives the buffer width
+    // from the width it is given), and lands behind the data cache: this
+    // buffer is only ever written by that DMA, so dropping its lines is enough.
+    const unsigned int tileBytes = (unsigned int)t.lowBufW * (unsigned int)t.lowH * bpp;
+    InvalidDCache(tileIn, reinterpret_cast<unsigned char*>(tileIn) + ((tileBytes + 63U) & ~63U));
+    if (!ps2_screenshot(tileIn, (unsigned int)t.lowVram / 64U, 0, 0,
+                        (unsigned int)t.lowBufW, (unsigned int)t.lowH, fb->psm))
+      return;  // VIF1 busy: skip this picture, the next tick tries again
+    InvalidDCache(tileIn, reinterpret_cast<unsigned char*>(tileIn) + ((tileBytes + 63U) & ~63U));
+    const unsigned char* base = reinterpret_cast<const unsigned char*>(tileIn);
+    for (int y = 0; y < t.lowH; ++y) {
+      const unsigned int oy = (unsigned int)(ty * t.lowH + y);
+      if (oy >= rows) break;
+      unsigned short* d = px + oy * outW + (unsigned int)(tx * t.lowW);
+      const unsigned char* s = base + (unsigned int)y * (unsigned int)t.lowBufW * bpp;
+      if (bpp == 2U) {
+        const unsigned short* in = reinterpret_cast<const unsigned short*>(s);
+        for (int x = 0; x < t.lowW; ++x) d[x] = (unsigned short)(in[x] & 0x7FFFU);
+      } else {
+        for (int x = 0; x < t.lowW; ++x, s += bpp)
+          d[x] = (unsigned short)((s[0] >> 3) | ((s[1] >> 3) << 5) |
+                                  ((s[2] >> 3) << 10));
+      }
+    }
+  }
+  const unsigned int us = (unsigned int)(
+      (GetTimerSystemTime() - t0) * 1000000ULL / (unsigned long long)kBUSCLK);
+  // "TXSV", width, height (the rows actually sent), frame, capture cost in us.
+  memcpy(out + 0, "TXSV", 4);
+  put16(out + 4, (unsigned short)outW);
+  put16(out + 6, (unsigned short)rows);
+  put32(out + 8, frameNo);
+  put32(out + 12, us);
+  Tyra::DevLink::writeFile("stream.bin", out, (int)(16U + outW * rows * 2U));
+  static unsigned int sent = 0, usSum = 0, usMax = 0;
+  ++sent;
+  usSum += us;
+  if (us > usMax) usMax = us;
+  if (sent % 200U == 0U) {
+    TYRA_LOG("Live preview: ", outW, "x", rows, ", 200 pictures, capture avg ",
+             usSum / 200U, " us, max ", usMax, " us");
+    usSum = usMax = 0;
+  }
 }
 
 // A real EE exception (bad pointer, address error, reserved instruction...) is

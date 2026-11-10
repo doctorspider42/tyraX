@@ -4394,6 +4394,18 @@ private:
     std::vector<unsigned char> dbgShotPixels_;  // RGBA, for Copy image
     std::string dbgShotError_;
     void dbgReadFrameShot();
+    // The live preview (docs/devkit.md): bin/stream.bin, a quarter-resolution
+    // picture the game sends again as soon as the last one has left.
+    bool dbgStreamOn_ = false;
+    unsigned int dbgStreamTex_ = 0;
+    int dbgStreamW_ = 0, dbgStreamH_ = 0;
+    long long dbgStreamStamp_ = 0;
+    uint32_t dbgStreamFrame_ = 0, dbgStreamCostUs_ = 0;
+    double dbgStreamAt_ = 0.0;       // when the last picture arrived
+    double dbgStreamRateAt_ = 0.0;   // start of the current rate window
+    int dbgStreamRateCount_ = 0;
+    float dbgStreamFps_ = 0.0f;
+    void dbgReadStream();
     void dbgReadVuCapture();
     void dbgReadCrashReport();
     void dbgResolveCrashNames();

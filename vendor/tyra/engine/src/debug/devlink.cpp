@@ -293,7 +293,7 @@ void logSink(const char* text, int len) {
 // Phase 5: one heartbeat a second, so the IOP can tell "quiet" from "dead".
 unsigned long long lastBeat = 0;
 const int kMaxMirrors = 8;
-const int kMaxOutFiles = 4;
+const int kMaxOutFiles = 6;
 
 struct Mirror {
   unsigned int id = 0;
@@ -456,6 +456,14 @@ bool DevLink::writeFileOwned(const char* name, void* data, int len) {
   o->owned = true;
   pump();
   return true;
+}
+
+bool DevLink::fileBusy(const char* name) {
+  if (state <= 0) return false;
+  const unsigned int id = fileId(name);
+  for (int i = 0; i < kMaxOutFiles; ++i)
+    if (outFiles[i].id == id) return outFiles[i].pending;
+  return false;
 }
 
 void DevLink::pump() {

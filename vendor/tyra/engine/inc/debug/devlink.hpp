@@ -100,6 +100,11 @@ class DevLink {
    */
   static bool writeFileOwned(const char* name, void* data, int len);
 
+  /** True while a writeFile/writeFileOwned of `name` still has segments to
+   * hand over - what a producer of "the newest picture" paces itself by.
+   * Always false without devlink. */
+  static bool fileBusy(const char* name);
+
   /** Moves queued work along (mirror registration, outbound segments).
    * Cheap; the devkit runtimes call it once a frame. */
   static void pump();

@@ -377,6 +377,57 @@ void App::dbgReadVuCapture() {
 // was, uncompressed, BGRA, bottom row first. Two dozen lines, and they can be
 // exact about the two things a general decoder has to guess at - the row order
 // and the alpha.
+// bin/stream.bin: the live preview (docs/devkit.md). "TXSV", u16 width, u16
+// height, u32 frame, u32 capture cost in microseconds, then width*height
+// 15-bit pixels (5 bits a channel, red lowest), top row first. One writer -
+// live_debug.gen.cpp's streamFrame - so the reader is exact rather than
+// tolerant: anything that is not that shape is skipped.
+void App::dbgReadStream() {
+    namespace fs = std::filesystem;
+    if (!hasProject_ || !dbgStreamOn_) return;
+    const fs::path path = fs::path(project_.dir) / "bin" / "stream.bin";
+    std::error_code ec;
+    const auto wt = fs::last_write_time(path, ec);
+    if (ec) return;
+    const long long stamp = (long long)wt.time_since_epoch().count();
+    if (stamp == dbgStreamStamp_) return;
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return;
+    std::vector<unsigned char> b((std::istreambuf_iterator<char>(f)),
+                                 std::istreambuf_iterator<char>());
+    if (b.size() < 16 || std::memcmp(b.data(), "TXSV", 4) != 0) return;
+    const int w = (int)b[4] | ((int)b[5] << 8);
+    const int h = (int)b[6] | ((int)b[7] << 8);
+    if (w <= 0 || h <= 0 || b.size() < 16 + (size_t)w * (size_t)h * 2) return;
+    dbgStreamStamp_ = stamp;
+    std::memcpy(&dbgStreamFrame_, &b[8], 4);
+    std::memcpy(&dbgStreamCostUs_, &b[12], 4);
+    std::vector<unsigned char> rgba((size_t)w * (size_t)h * 4);
+    const unsigned char* s = &b[16];
+    unsigned char* d = rgba.data();
+    for (int i = 0; i < w * h; ++i, s += 2, d += 4) {
+        const unsigned int v = (unsigned int)s[0] | ((unsigned int)s[1] << 8);
+        const unsigned int r = v & 31u, g = (v >> 5) & 31u, bl = (v >> 10) & 31u;
+        d[0] = (unsigned char)((r << 3) | (r >> 2));
+        d[1] = (unsigned char)((g << 3) | (g >> 2));
+        d[2] = (unsigned char)((bl << 3) | (bl >> 2));
+        d[3] = 255;
+    }
+    if (!dbgStreamTex_) glGenTextures(1, &dbgStreamTex_);
+    glBindTexture(GL_TEXTURE_2D, dbgStreamTex_);
+    glUploadTexRgba(w, h, rgba.data());
+    dbgStreamW_ = w;
+    dbgStreamH_ = h;
+    const double now = ImGui::GetTime();
+    dbgStreamAt_ = now;
+    ++dbgStreamRateCount_;
+    if (now - dbgStreamRateAt_ >= 1.0) {
+        dbgStreamFps_ = (float)(dbgStreamRateCount_ / (now - dbgStreamRateAt_));
+        dbgStreamRateAt_ = now;
+        dbgStreamRateCount_ = 0;
+    }
+}
+
 void App::dbgReadFrameShot() {
     namespace fs = std::filesystem;
     if (!hasProject_) return;
@@ -1155,6 +1206,7 @@ void App::livedbgTick() {
         dbgReadCrashReport();
         dbgReadVuCapture();
         dbgReadFrameShot();
+        dbgReadStream();
     }
 
     // The symbol table is a build artifact of codegen (src/gen/livedbg.sym).
@@ -1376,6 +1428,7 @@ void App::livedbgTick() {
             dbgCmd_.captureVu = false;
             dbgCmd_.measureRam = false;
             dbgCmd_.captureFrame = false;
+            dbgCmd_.streamToggle = 0;
             if (dbgCmd_.captureRenderCost) dbgRenderCostSeq_ = want.seq;
             dbgCmd_.captureRenderCost = false;
         }
@@ -2866,6 +2919,43 @@ void App::dbgDrawObjectsPage() {
 void App::dbgDrawScreenPage() {
     const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
     if (!live) dbgShotWaiting_ = false;  // nobody left to answer
+    // --- Live preview: a small picture stream from the running game.
+    {
+        bool on = dbgStreamOn_;
+        ImGui::BeginDisabled(!live);
+        if (ImGui::Checkbox("Live preview", &on)) {
+            dbgStreamOn_ = on;
+            dbgCmd_.streamToggle = on ? 1 : -1;
+            dbgCmdWritten_ = false;
+            dbgStreamRateAt_ = ImGui::GetTime();
+            dbgStreamRateCount_ = 0;
+            dbgStreamFps_ = 0.0f;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip(
+                "A quarter-resolution picture of the game, sent again as soon as the last\n"
+                "one has left - on a real PlayStation 2 through the IOP, while the game\n"
+                "runs. Every picture costs the game about a millisecond and that frame's\n"
+                "EE/GPU overlap, so leave it off when you measure frame times.");
+        if (!live) dbgStreamOn_ = false;
+        if (dbgStreamOn_ && dbgStreamTex_) {
+            const bool stale = ImGui::GetTime() - dbgStreamAt_ > 2.0;
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            if (stale)
+                ImGui::TextDisabled("no picture for %.0f s", ImGui::GetTime() - dbgStreamAt_);
+            else
+                ImGui::TextDisabled("%dx%d, %.1f pictures/s, %.2f ms each on the game, frame %u",
+                                    dbgStreamW_, dbgStreamH_, dbgStreamFps_,
+                                    dbgStreamCostUs_ / 1000.0f, dbgStreamFrame_);
+            const float avail = ImGui::GetContentRegionAvail().x;
+            const float scale = ImMax(1.0f, ImMin(3.0f, floorf(avail / (float)dbgStreamW_)));
+            ImGui::Image((ImTextureID)(intptr_t)dbgStreamTex_,
+                         ImVec2((float)dbgStreamW_ * scale, (float)dbgStreamH_ * scale));
+        }
+        ImGui::Separator();
+    }
     if (ui::PrimaryButton("Capture frame", 0.0f, live)) {
         dbgCmd_.captureFrame = true;
         dbgCmdWritten_ = false;

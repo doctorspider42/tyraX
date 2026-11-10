@@ -214,6 +214,10 @@ struct Command {
     // every host-side one (PCSX2's F8, GDI, PrintWindow) is blind.
     bool captureFrame = false;
     bool captureRenderCost = false;  // one synchronized render pass, bit 7
+    // The live preview (docs/devkit.md): +1 turns the game's small picture
+    // stream on, -1 off. One-shot, and it rides the step field as -9 / -10 -
+    // every flag bit is taken, and a command that toggles it never steps.
+    int streamToggle = 0;
     int stepFrames = 0;        // run exactly this many frames, then freeze
     std::vector<uint16_t> breakpoints;  // node keys that halt the game
     std::vector<uint16_t> fire;         // node keys to force-fire once

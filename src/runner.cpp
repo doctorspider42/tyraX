@@ -712,6 +712,7 @@ bool Runner::launchPCSX2(const Project& p) {
     // read as an answer to the first capture of this one, and two runs of the
     // same scene look alike enough that nobody would notice.
     fs::remove(fs::path(p.dir) / "bin" / "frame.tga", logEc);
+    fs::remove(fs::path(p.dir) / "bin" / "stream.bin", logEc);
     // Live Logic: the fresh build compiles every graph natively again, so
     // a leftover patch would make the game interpret a stale program.
     fs::remove(fs::path(p.dir) / "bin" / "livelogic.bin", logEc);
@@ -1193,6 +1194,7 @@ bool Runner::deployToPs2(const Project& p) {
     fs::remove(fs::path(binDir) / "livedbg.bin", logEc);
     fs::remove(fs::path(binDir) / "livedbg.cmd", logEc);
     fs::remove(fs::path(binDir) / "frame.tga", logEc);  // see the PCSX2 path
+    fs::remove(fs::path(binDir) / "stream.bin", logEc);
     fs::remove(fs::path(binDir) / "livelogic.bin", logEc);
     fs::remove(fs::path(binDir) / "livetime.bin", logEc);
     fs::remove(fs::path(binDir) / "livetime.rst", logEc);

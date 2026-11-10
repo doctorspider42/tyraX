@@ -17,10 +17,11 @@ All five phases are in and verified on a PS2 (docs/devlink.md). Left:
 - **The re-ask after a lost datagram** (Debugger and `--capture-frame`) has
   only run when the file was lost for another reason; no real loss was seen
   in a dozen 1 MB transfers.
-- **A live preview stream** is within reach: 700 KB/s through the IOP and a
-  34 ms full-buffer readback mean a GS-downscaled 128x112 16-bit picture (one
-  28 KB slot, ~1-2 ms of readback) could arrive at 15-20 fps. Needs spare
-  VRAM for the small target and a viewer panel.
+- **The live preview** (docs/devkit.md, "Live preview") is PS2-measured
+  through a test script only: the panel's checkbox and picture have not been
+  looked at with a console attached, the stream has not run in a GS-heavy
+  scene (where each picture costs that frame its EE/GPU overlap), in a 16-bit
+  or interlaced display mode, or with music playing.
 - **The frame yield while the debugger is attached** (`setFrameYield`, +1 ms
   a frame) guards a hang whose trigger was the attached debugger's `host:`
   writes from the main thread - which devlink removed on a console. Worth one

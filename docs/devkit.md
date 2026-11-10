@@ -360,6 +360,47 @@ a working channel rather than coverage, so the game writes the file **opaque**
 and both the panel and the PNG show a picture rather than a half-transparent
 one.
 
+### Live preview
+
+![A live preview picture from a real PlayStation 2](img/live-preview-ps2.png)
+
+**Debugger > Screen > Live preview** turns the one-shot capture into a small
+picture stream: the game sends a quarter-resolution picture of its last
+finished frame, and sends the next one as soon as that has left. On a console
+it travels through the IOP ([devlink.md](devlink.md)); in PCSX2 it is a
+`host:` file every third frame. The panel shows the picture, how many arrive a
+second and what each one cost the game.
+
+Measured on a PS2 (2026-11-10, 512x512 at 32 bits, the picture above):
+
+| | |
+|---|---:|
+| Picture | 128x127, 15 bits a pixel, one devlink slot (32.5 KB) |
+| Pictures a second at the editor | **about 20** |
+| Work per picture on the EE | **1.3 ms** (GS blits 0.27, readback 0.24, conversion 0.74) |
+| Game frame rate while streaming | 50 fps, unchanged (a light scene) |
+
+How it stays that cheap: the frame buffer is never read back. The GS shrinks
+it, a quadrant at a time, into the post-fx pass's eighth-resolution scratch
+buffer - so the preview needs **no VRAM of its own** - and only that tile
+comes back over the reverse FIFO: four tiles of ~16 KB instead of a megabyte.
+The picture is cropped by a row or two to fit one slot, because one slot is
+one pump on the EE and one burst on the IOP.
+
+Two things to know before trusting it:
+
+- **It is not free in a scene with no slack.** The readback needs VIF1 idle,
+  so each picture waits for the frame in flight to finish (up to a field with
+  the frame pipeline on). The game would sit that wait out at the flip anyway,
+  which is why the test scene held 50 fps - but that frame loses its EE/GPU
+  overlap. Leave the preview off when you measure frame times.
+- **It shimmers on fine detail.** Each preview pixel stands for 4x4 source
+  pixels and one bilinear tap covers 2x2 of them. It is a preview, not a
+  capture: press *Capture frame* for the real thing.
+
+The switch is one-shot in the command (it rides the step field as -9 / -10,
+every flag bit being taken) and lasts until switched off or the game ends.
+
 ### Why the file is written by the game rather than by libdebug
 
 Worth knowing before touching that code, because the failure is silent and it

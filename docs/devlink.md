@@ -266,7 +266,10 @@ after 8 s without one (`livedbgTick`, twice at most) and so does
 streaming `host:` write.
 
 `vucap.bin` (the VU1 packet capture, ~50 KB) and `rendercost.txt` use the
-same channel: built in one block, `writeFileOwned` / `writeFile`.
+same channel: built in one block, `writeFileOwned` / `writeFile`. So does the
+live preview's `stream.bin` ([devkit.md](devkit.md#live-preview)): one slot a
+picture, paced by `DevLink::fileBusy` - the game takes the next picture when
+the last has gone to the IOP, which measured about 20 a second.
 
 **Measured on a PS2 (2026-11-10)**, a 512x512 buffer at 32 bits (1 048 594
 bytes), three captures in a row from `--capture-frame`:

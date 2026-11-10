@@ -5635,6 +5635,8 @@
 // session's Receiver forwards bin/livedbg.cmd (CLI capture/profile reach a
 // console again), keeps one FileAssembler per file, and the IOP answers only
 // the TXHI sender. PS2: 34 ms readback, 1 MB in ~1.5 s (2026-11-10).
+// Live preview (Debugger > Screen): quarter-res pictures through the same
+// channel, GS-downscaled into the post-fx scratch buffer - ~20/s, 1.3 ms each.
 // 2.14.0: StaPip keeps the draws the general path used to take every frame
 // (docs/record-renderer.md, "Draws that stay on the general path";
 // architecture loop round 15): the REPEAT entry (a REPEAT bag under another
