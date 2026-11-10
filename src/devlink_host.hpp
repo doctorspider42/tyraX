@@ -60,6 +60,10 @@ public:
     bool feed(const unsigned char* data, int len);
     const std::string& report() const { return done_; }
     uint32_t lastSeq() const { return doneSeq_; }
+    /** A report is being put together; have() of count() chunks are in. */
+    bool pending() const { return active_; }
+    uint32_t have() const { return have_; }
+    uint32_t count() const { return count_; }
 
 private:
     uint32_t magic_;
@@ -77,6 +81,13 @@ public:
     bool feed(const std::string& segment);
     uint32_t id() const { return doneId_; }
     const std::string& bytes() const { return done_; }
+    /** A file is being put together (some segments in, not all). */
+    bool pending() const { return id_ != 0; }
+    uint32_t pendingId() const { return id_; }
+    size_t have() const { return have_; }
+    size_t total() const { return buf_.size(); }
+    /** Gives up on the file in progress (its remaining segments were lost). */
+    void abandon() { id_ = 0; have_ = 0; buf_.clear(); }
 
 private:
     uint32_t id_ = 0, seq_ = 0, doneId_ = 0;
@@ -125,7 +136,8 @@ private:
 // the generated runtimes (src/templates.cpp).
 inline const char* const kMirroredFiles[] = {"livelink.bin", "livelogic.bin",
                                              "livetex.bin", "livetime.rst"};
-inline const char* const kGameWrittenFiles[] = {"livetime.bin"};
+inline const char* const kGameWrittenFiles[] = {"livetime.bin", "frame.tga", "vucap.bin",
+                                                "rendercost.txt"};
 
 /** Pushes the mirrored bin/ files to the console: on any change (size or
  * time), and every couple of seconds regardless - the game may have booted

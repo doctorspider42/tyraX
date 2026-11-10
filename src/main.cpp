@@ -2918,6 +2918,7 @@ static int captureFrameFromCli(int argc, char** argv) {
     const auto t0 = std::chrono::steady_clock::now();
     size_t lastSize = 0;
     int stalled = 0;
+    double askedAt = 0.0;
     std::vector<unsigned char> bytes;
     for (;;) {
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
@@ -2937,6 +2938,15 @@ static int captureFrameFromCli(int argc, char** argv) {
                 f.read(reinterpret_cast<char*>(bytes.data()), (std::streamsize)want);
                 if (f.gcount() == (std::streamsize)want) break;
             }
+        }
+        // Over devlink the picture is ~900 datagrams nothing retransmits, and
+        // the file only appears whole: 8 s of nothing means one was lost (or
+        // the command was), so ask again - a new seq, a fresh frame.
+        if (size == 0 && el - askedAt > 8.0) {
+            askedAt = el;
+            ++c.seq;
+            (void)livedbg::writeCommand((dir / "bin" / "livedbg.cmd").string(), c);
+            std::fprintf(stderr, "capture-frame: nothing after 8 s - asking again\n");
         }
         if (size == lastSize) {
             if (++stalled > 15 && size > 0) {

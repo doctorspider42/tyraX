@@ -4,6 +4,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 
 #include "platform.hpp"
 #include "wire.hpp"
@@ -135,11 +136,20 @@ void Receiver::serve(const std::string& binDir, const std::string& consoleIp) {
 
 void Receiver::run() {
     Reassembler reports(kOutMagic), segments(kOutFileMagic), logs(kLogMagic);
-    FileAssembler files;
+    struct InFlight {
+        FileAssembler parts;
+        std::chrono::steady_clock::time_point startAt, lastAt;
+    };
+    std::map<uint32_t, InFlight> files;
     std::string lastIp;
     unsigned char buf[16 + kChunk + 64];
     auto nextHello = std::chrono::steady_clock::now();
     bool silenceReported = false;
+    auto nextCmdStat = nextHello, nextCmdSend = nextHello;
+    long long cmdStamp = -2;  // size ^ mtime of the livedbg.cmd last read
+    auto segmentChunkAt = nextHello;
+    uint32_t segmentHave = 0, segmentCount = 0;
+    std::string cmdBytes;
     while (!stop_) {
         std::string dir, ip;
         {
@@ -153,6 +163,74 @@ void Receiver::run() {
             const uint32_t hi[4] = {kHelloMagic, 0, 0, 0};
             (void)wire::sendDatagram(ip, 18198, hi, sizeof(hi));
         }
+        // bin/livedbg.cmd is the Live Debugger's command for ANY writer - the
+        // Debugger panel, --capture-frame, --profile-frame, a probe - but a
+        // game with devlink up reads its command from the IOP's mailbox, never
+        // from that file. So whoever owns the console session forwards it:
+        // on every change, and once a second after that (UDP may drop one; the
+        // game ignores a seq it has applied). Sent from THIS socket, the one
+        // the console answers to.
+        if (now >= nextCmdStat && !ip.empty() && !dir.empty()) {
+            nextCmdStat = now + std::chrono::milliseconds(100);
+            std::error_code ec;
+            const std::filesystem::path path = std::filesystem::path(dir) / "livedbg.cmd";
+            long long stamp = -1;
+            const auto size = std::filesystem::file_size(path, ec);
+            if (!ec) {
+                const auto t = std::filesystem::last_write_time(path, ec);
+                stamp = (long long)size ^ (long long)t.time_since_epoch().count();
+            }
+            if (stamp != cmdStamp) {
+                cmdStamp = stamp;
+                cmdBytes.clear();
+                if (stamp != -1) {
+                    std::ifstream in(path, std::ios::binary);
+                    cmdBytes.assign((std::istreambuf_iterator<char>(in)),
+                                    std::istreambuf_iterator<char>());
+                    // A torn or foreign file is not worth a datagram; the next
+                    // stat sees the finished one.
+                    if (cmdBytes.size() < 36 || cmdBytes.size() > 720) {
+                        cmdBytes.clear();
+                        cmdStamp = -2;
+                    }
+                }
+                nextCmdSend = now;
+            }
+        }
+        if (!cmdBytes.empty() && !ip.empty() && now >= nextCmdSend) {
+            nextCmdSend = now + std::chrono::seconds(1);
+            (void)wire::sendDatagram(ip, 18198, cmdBytes.data(), cmdBytes.size());
+        }
+        // Same for a single segment: its chunks arrive within milliseconds
+        // of each other, so half a second of silence means some never left
+        // the console.
+        if (segmentCount != 0 && now - segmentChunkAt > std::chrono::milliseconds(500)) {
+            if (onLine)
+                onLine("devlink: a file segment arrived incomplete (" +
+                       std::to_string(segmentHave) + " of " +
+                       std::to_string(segmentCount) + " datagrams)");
+            segmentCount = 0;
+        }
+        // A file whose segments stopped coming lost one on the way: nothing
+        // retransmits, so say so instead of waiting for ever (the Debugger
+        // and --capture-frame ask again).
+        for (auto it = files.begin(); it != files.end();) {
+            InFlight& f = it->second;
+            if (!f.parts.pending() || now - f.lastAt <= std::chrono::seconds(2)) {
+                ++it;
+                continue;
+            }
+            if (onLine) {
+                std::string what = "a file";
+                for (const char* name : kGameWrittenFiles)
+                    if (fileId(name) == it->first) what = name;
+                onLine("devlink: " + what + " arrived incomplete (" +
+                       std::to_string(f.parts.have()) + " of " +
+                       std::to_string(f.parts.total()) +
+                       " bytes) - datagrams were lost; dropped");
+            }
+            it = files.erase(it);
+        }
         std::string from;
         const int n = wire::recvDatagram(buf, sizeof(buf), 100, &from);
         if (n <= 0) continue;
@@ -161,7 +239,7 @@ void Receiver::run() {
             reports = Reassembler(kOutMagic);
             segments = Reassembler(kOutFileMagic);
             logs = Reassembler(kLogMagic);
-            files = FileAssembler();
+            files.clear();
             lastIp = ip;
         }
         // The IOP repeats its watchdog every 2 s for as long as the game stays
@@ -192,10 +270,40 @@ void Receiver::run() {
                 ++reports_;
             continue;
         }
-        if (!segments.feed(buf, n) || !files.feed(segments.report())) continue;
+        const bool segmentDone = segments.feed(buf, n);
+        if (segments.pending()) {
+            segmentChunkAt = std::chrono::steady_clock::now();
+            segmentHave = segments.have();
+            segmentCount = segments.count();
+        } else {
+            segmentCount = 0;
+        }
+        if (!segmentDone || segments.report().size() < 16) continue;
+        // One assembler PER FILE: the time machine's livetime.bin leaves every
+        // few frames, in between the ~33 segments of a screenshot, and a single
+        // assembler started over at each of those - the picture never completed
+        // although every one of its datagrams had arrived (measured on a PS2).
+        const uint32_t id =
+            get32(reinterpret_cast<const unsigned char*>(segments.report().data()));
+        InFlight& f = files[id];
+        const auto at = std::chrono::steady_clock::now();
+        if (!f.parts.pending()) f.startAt = at;
+        f.lastAt = at;
+        if (!f.parts.feed(segments.report())) continue;
         for (const char* name : kGameWrittenFiles)
-            if (fileId(name) == files.id())
-                writeAtomic(std::filesystem::path(dir) / name, files.bytes());
+            if (fileId(name) == id) {
+                writeAtomic(std::filesystem::path(dir) / name, f.parts.bytes());
+                // Worth a line for the big ones: it is the only place the
+                // transfer's real duration is visible.
+                if (onLine && f.parts.bytes().size() > 64 * 1024)
+                    onLine("devlink: received " + std::string(name) + " (" +
+                           std::to_string(f.parts.bytes().size()) + " bytes in " +
+                           std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              f.lastAt - f.startAt)
+                                              .count()) +
+                           " ms)");
+            }
+        files.erase(id);
     }
 }
 

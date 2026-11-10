@@ -5629,6 +5629,12 @@
 // Phases 3-5: DevLink::readFile/writeFile (RAM mirrors / segments) for Live
 // Link, Live Logic, livetex and the time machine; LOG lines via
 // TyraDebug::logSink; the IOP watchdog (TXWD). PS2-verified 2026-11-08.
+// Same version, later: the self-screenshot leaves through devlink too
+// (DevLink::writeFileOwned, banded VRAM readback) instead of freezing the
+// game for ~3 s of host: writes; so do vucap.bin and rendercost.txt. The
+// session's Receiver forwards bin/livedbg.cmd (CLI capture/profile reach a
+// console again), keeps one FileAssembler per file, and the IOP answers only
+// the TXHI sender. PS2: 34 ms readback, 1 MB in ~1.5 s (2026-11-10).
 // 2.14.0: StaPip keeps the draws the general path used to take every frame
 // (docs/record-renderer.md, "Draws that stay on the general path";
 // architecture loop round 15): the REPEAT entry (a REPEAT bag under another

@@ -18,9 +18,9 @@
  *  OUTBOUND (game -> editor). The game SIF1-DMAs a report (a whole
  *           livedbg.bin) into one of two slots allocated here, header first
  *           and footer last. This thread notices a complete slot, sends it as
- *           numbered 'TXDO' chunks to whoever sent the last valid inbound
- *           datagram (from this same socket, so a stateful PC firewall lets it
- *           in as a reply), then tells the EE the slot is free again by
+ *           numbered 'TXDO' chunks to whoever sent the last 'TXHI' hello
+ *           (from this same socket, so a stateful PC firewall lets it in as
+ *           a reply), then tells the EE the slot is free again by
  *           DMA'ing the acknowledged sequence into the EE's hello box.
  *
  * Setup is the module's ARGUMENTS (EE addresses: "pad=0x...", "cmd=0x...",
@@ -41,7 +41,7 @@
 #include "irx_imports.h"
 
 #define MODNAME "tyrax_devlink"
-IRX_ID(MODNAME, 1, 5);
+IRX_ID(MODNAME, 1, 6);
 
 #define DEVLINK_PORT 18198
 
@@ -62,6 +62,7 @@ IRX_ID(MODNAME, 1, 5);
 #define OUT_SLOT (16 + OUT_MAX + 16)
 #define OUT_CHUNK 1024
 #define FOOTER_XOR 0x5A5A5A5AU
+#define CHUNK_GAP_US 400        /* between two datagrams of one slot */
 
 /* Report kinds - the 4th header word of a slot. */
 #define KIND_REPORT 0   /* a whole livedbg.bin - sent as TXDO chunks */
@@ -337,13 +338,35 @@ static void handleInbound(const u8 *p, int len, const struct sockaddr_in *from)
     else if (magic == FILE_MAGIC)
         ok = handleFile(p, len);
     else if (magic == HELLO_PC_MAGIC)
-        ok = 1; /* "send your reports here" - the editor's session, every 0.5 s */
-    /* Only a datagram that parsed as ours names the editor: a stray packet on
-     * the port must not redirect the reports. */
-    if (ok) {
+        ok = 2; /* "send your reports here" - the editor's session, every 0.5 s */
+    /* Only the session's hello names the editor. A pad or a command may come
+     * from another process on the PC (--pad from a shell, while the editor or
+     * --run-ps2 owns the session): letting those redirect the reports split a
+     * file's ~900 chunks between two sockets, and neither got a whole one. */
+    if (ok == 2) {
         memcpy(&peer, from, sizeof(peer));
         havePeer = 1;
     }
+}
+
+/* One datagram of a slot. A full slot is 32 of these back to back, and a
+ * 1 MB screenshot is 33 such slots in about two seconds, while the stack has
+ * room for only a few datagrams in flight (ps2ip's pbuf pool, the adapter's
+ * transmit ring). Nothing retransmits one, so: a send that fails is tried
+ * again after the stack has had time to drain, and every send is followed by
+ * a short sleep that lets the transmit thread run. With this in, 1 MB arrived
+ * whole on a PS2 (2026-11-10); the unpaced loop was never measured at this
+ * size, so the gap is a precaution, not a proven need. */
+static void sendChunk(int sock, int size)
+{
+    int tries;
+    for (tries = 0; tries < 20; ++tries) {
+        if (lwip_sendto(sock, txbuf, size, 0, (struct sockaddr *)&peer,
+                        sizeof(peer)) >= 0)
+            break;
+        DelayThread(2000);
+    }
+    DelayThread(CHUNK_GAP_US);
 }
 
 /* A slot is complete when its header carries a new sequence and the footer
@@ -385,8 +408,7 @@ static void serviceSlot(int sock, int k)
             h[3] = len;
             memcpy(txbuf, h, 16);
             memcpy(txbuf + 16, (const u8 *)s + 16 + off, n);
-            lwip_sendto(sock, txbuf, (int)(16 + n), 0,
-                        (struct sockaddr *)&peer, sizeof(peer));
+            sendChunk(sock, (int)(16 + n));
         }
     }
     /* Free the slot even with nobody to send to: a report the editor cannot

@@ -1392,6 +1392,28 @@ void App::livedbgTick() {
         (void)wire::sendDatagram(consoleIp, (uint16_t)livepad::kDevlinkPort,
                                  dbgCmdBytes_.data(), dbgCmdBytes_.size());
     }
+
+    // The self-screenshot over devlink is ~900 datagrams and nothing resends a
+    // lost one - the file then simply never appears. A good transfer takes
+    // about three seconds, so eight without a picture means it was lost: ask
+    // again (a new command seq, the game takes a fresh frame), twice at most.
+    if (!dbgShotWaiting_) {
+        dbgShotAskedAt_ = 0.0;
+        dbgShotRetries_ = 0;
+    } else if (dbgShotAskedAt_ <= 0.0) {
+        dbgShotAskedAt_ = now;
+    } else if (!consoleIp.empty() && now - dbgShotAskedAt_ > 8.0) {
+        if (dbgShotRetries_ < 2) {
+            ++dbgShotRetries_;
+            dbgShotAskedAt_ = now;
+            dbgCmd_.captureFrame = true;
+            dbgCmdWritten_ = false;
+        } else {
+            dbgShotWaiting_ = false;
+            dbgShotError_ = "the console did not deliver a frame in three attempts - "
+                            "datagrams are being lost between it and this PC.";
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2854,8 +2876,9 @@ void App::dbgDrawScreenPage() {
             "Asks the game to read its last finished frame out of GS VRAM. Works on a\n"
             "real PlayStation 2, and on a locked or remote desktop where the emulator's\n"
             "own screenshot key cannot.\n\nKept as a PNG in the project's screenshots/ folder.\n\n"
-            "One shot: ~900 KB over host:, so it costs the game a visible hitch -\nabout three "
-            "seconds of it over ps2link.");
+            "One shot: the VRAM readback holds the game for about two frames; on a\n"
+            "console the picture then travels through the IOP while the game keeps\n"
+            "running, and shows up here a second or two later.");
     if (dbgShotWaiting_) {
         ImGui::SameLine();
         ImGui::AlignTextToFramePadding();
@@ -2893,7 +2916,7 @@ void App::dbgDrawScreenPage() {
     }
     if (!dbgShotTex_) {
         ui::EmptyState(ui::Glyph::Screen, "No capture yet",
-                       "The frame comes back over the same host: channel as everything else here - "
+                       "The frame comes back over the same channels as everything else here - "
                        "a real PlayStation 2 included - and is kept as a PNG in screenshots/.");
         return;
     }

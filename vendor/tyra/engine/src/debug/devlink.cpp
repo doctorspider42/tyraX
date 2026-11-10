@@ -314,6 +314,7 @@ struct OutFile {
   int sent = 0;           // bytes handed over so far
   unsigned int seq = 0;   // which version of the file this is
   bool pending = false;
+  bool owned = false;     // writeFileOwned: free `data` once it has all left
 };
 OutFile outFiles[kMaxOutFiles];
 unsigned int outFileSeq = 0;
@@ -404,7 +405,9 @@ bool DevLink::writeFile(const char* name, const void* data, int len) {
   for (int i = 0; i < kMaxOutFiles && !o; ++i)
     if (outFiles[i].id == 0) o = &outFiles[i];
   if (!o) return hostWrite(name, data, len);
-  if (o->cap < len) {
+  if (o->cap < len || o->owned) {
+    o->owned = false;
+    o->cap = 0;
     free(o->data);
     o->data = static_cast<unsigned char*>(malloc((size_t)len));
     o->cap = o->data ? len : 0;
@@ -420,6 +423,37 @@ bool DevLink::writeFile(const char* name, const void* data, int len) {
   o->sent = 0;
   o->seq = ++outFileSeq;
   o->pending = true;
+  pump();
+  return true;
+}
+
+bool DevLink::writeFileOwned(const char* name, void* data, int len) {
+  start();
+  if (!data) return false;
+  const unsigned int id = fileId(name);
+  OutFile* o = nullptr;
+  if (state > 0 && len > 0) {
+    for (int i = 0; i < kMaxOutFiles && !o; ++i)
+      if (outFiles[i].id == id) o = &outFiles[i];
+    for (int i = 0; i < kMaxOutFiles && !o; ++i)
+      if (outFiles[i].id == 0) o = &outFiles[i];
+  }
+  if (!o) {
+    const bool ok = hostWrite(name, data, len);
+    free(data);
+    return ok;
+  }
+  // Latest wins, as in writeFile: whatever this name still had queued is
+  // dropped (the editor's assembler starts over on the new seq).
+  free(o->data);
+  o->id = id;
+  o->data = static_cast<unsigned char*>(data);
+  o->cap = len;
+  o->len = len;
+  o->sent = 0;
+  o->seq = ++outFileSeq;
+  o->pending = true;
+  o->owned = true;
   pump();
   return true;
 }
@@ -458,16 +492,35 @@ void DevLink::pump() {
   }
   // Outbound files go one segment per free slot: {id, seq, offset, total}
   // and up to a slot's worth of the file.
+  // A segment only leaves while BOTH slots are free, so one always stays
+  // open for the debugger's report and the log: a 900 KB screenshot is ~30
+  // segments, and taking every slot for those seconds would read as a hung
+  // game in the editor (livedbg.bin stops changing).
+  volatile unsigned int* hello = uncached(helloBox);
   for (int i = 0; i < kMaxOutFiles; ++i) {
     OutFile& o = outFiles[i];
     while (o.pending) {
+      for (int k = 0; k < 2; ++k)
+        if (hello[4 + k] != stageSeq[k] ||
+            (stageDma[k] != 0 && sceSifDmaStat(stageDma[k]) >= 0))
+          return;
       const int n = o.len - o.sent < kReportMax - 16 ? o.len - o.sent
                                                        : kReportMax - 16;
       const unsigned int h[4] = {o.id, o.seq, (unsigned int)o.sent,
                                  (unsigned int)o.len};
       if (!sendSlot(kKindFile, h, 16, o.data + o.sent, n)) return;
       o.sent += n;
-      if (o.sent >= o.len) o.pending = false;
+      if (o.sent >= o.len) {
+        o.pending = false;
+        // sendSlot copied the last segment into its staging buffer, so an
+        // owned block has nothing left to give.
+        if (o.owned) {
+          free(o.data);
+          o.data = nullptr;
+          o.cap = 0;
+          o.owned = false;
+        }
+      }
     }
   }
 }

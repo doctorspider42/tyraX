@@ -4385,6 +4385,11 @@ private:
     int dbgShotTorn_ = 0;           // consecutive polls that saw NO progress
     size_t dbgShotPartial_ = 0;     // size of the last short read - see below
     bool dbgShotWaiting_ = false;   // asked for one, none arrived yet
+    // On a console the picture comes back as ~900 UDP datagrams with no
+    // retransmission (docs/devlink.md): one lost = no file, silently. So a
+    // wait that outlasts any honest transfer asks again, twice at most.
+    double dbgShotAskedAt_ = 0.0;   // 0 = stamp it on the next debugger tick
+    int dbgShotRetries_ = 0;
     std::string dbgShotFile_;       // the PNG this capture was kept as
     std::vector<unsigned char> dbgShotPixels_;  // RGBA, for Copy image
     std::string dbgShotError_;

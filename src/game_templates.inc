@@ -28969,14 +28969,20 @@ void TerrainGame::renderScene() {
     }
     stapip.core.setTelemetryEnabled(costOldTelemetry);
     // Finish footer last; the host rejects partial transfers and old sequences.
-    FILE* f=fopen(FileUtils::fromCwd("rendercost.txt").c_str(),"wb");
-    if (f) {
-      fprintf(f,"TXRP 1 %u %d %u %.3f\n",costSeq,currentScene,(unsigned)costRows.size(),totalMs);
-      for (const CostRow& r:costRows)
-        fprintf(f,"%d %s %.3f\n",r.object,r.label,r.ticks/294912.0F);
-      fprintf(f,"END %u\n",costSeq);
-      fclose(f);
+    // One buffer, handed to the devkit's file channel: devlink on a console,
+    // a host: write elsewhere (docs/devlink.md).
+    std::string report;
+    report.reserve(64 + costRows.size()*48);
+    char line[160];
+    snprintf(line,sizeof(line),"TXRP 1 %u %d %u %.3f\n",costSeq,currentScene,(unsigned)costRows.size(),totalMs);
+    report += line;
+    for (const CostRow& r:costRows) {
+      snprintf(line,sizeof(line),"%d %s %.3f\n",r.object,r.label,r.ticks/294912.0F);
+      report += line;
     }
+    snprintf(line,sizeof(line),"END %u\n",costSeq);
+    report += line;
+    livedbg::writeDevFile("rendercost.txt",report.data(),(int)report.size());
   }
 
 }

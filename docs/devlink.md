@@ -165,9 +165,15 @@ How the pieces behave:
 - **Cadence**: with devlink up, the game polls the command and reports at the
   PCSX2 cadence (every 6 frames) instead of every 25 - a poll is a memory read
   and a report one DMA.
-- **Not moved yet** (still `host:`, all one-shot on request): the VU1 capture,
-  the self-screenshot (`frame.tga`), the render-cost capture and the crash
-  report. They cost a round trip when asked for, not every N frames.
+- **Not moved** (still `host:`): the crash report - it is written after an EE
+  exception, when no loop is left to pump segments. The other one-shot asks
+  moved later: the self-screenshot, the VU1 capture and the render-cost report
+  go out through the file channel (see "The self-screenshot" under phase 3).
+- **`bin/livedbg.cmd` is forwarded by the session's receiver**
+  (`devlink::Receiver`): on every change and once a second after. That is what
+  makes `--capture-frame`, `--profile-frame` and any probe that writes the
+  file reach a console game, which reads its command from the mailbox and
+  never from the file.
 - **Size**: a report bigger than a slot (32 KB) falls back to the file. The
   largest livedbg.bin the format allows is about 22 KB plus 12 bytes per watch
   variable.
@@ -236,7 +242,61 @@ How a mirror is filled:
 
 Writes go the other way: segments `{id, seq, offset, total}` + bytes in report
 slots (kind 2), forwarded as `TXDF` chunks; the editor's `FileAssembler`
-puts the file together and writes it into bin/.
+puts the file together and writes it into bin/. A segment only leaves while
+both report slots are free, so one slot always stays open for the debugger's
+report and the log - a large file never starves them.
+
+### The self-screenshot
+
+`frame.tga` ([devkit.md](devkit.md#the-games-own-screenshot)) is ~900 KB, far
+more than any other file here, and it used to be written to `host:` a line at
+a time: about three seconds of frozen game over ps2link. It now goes out
+through `DevLink::writeFileOwned(name, block, len)`, which takes ownership of
+a `malloc`ed block instead of copying it (so the picture costs its own size in
+RAM while in flight, not twice that) and frees it when the last segment is
+with the IOP. The game reads VRAM back into that block - 16 lines per
+reverse-FIFO transfer - and carries on; the ~30 segments leave over the
+following frames. What cannot move off the EE is the readback itself: the next
+frame overwrites the buffer, so it has to finish between two frames.
+
+Two things follow from the size. The file is ~1000 datagrams and nothing
+retransmits one, so a single loss means no picture: the Debugger asks again
+after 8 s without one (`livedbgTick`, twice at most) and so does
+`--capture-frame`. And when `malloc` fails the game falls back to the old
+streaming `host:` write.
+
+`vucap.bin` (the VU1 packet capture, ~50 KB) and `rendercost.txt` use the
+same channel: built in one block, `writeFileOwned` / `writeFile`.
+
+**Measured on a PS2 (2026-11-10)**, a 512x512 buffer at 32 bits (1 048 594
+bytes), three captures in a row from `--capture-frame`:
+
+| | |
+|---|---:|
+| VRAM readback - the only time the game is held | **34 ms** (all three) |
+| First to last segment at the editor | 1.38 / 1.49 / 1.55 s |
+| `--capture-frame`, command to PNG | 2.0-2.4 s |
+
+That is roughly 700 KB/s through the IOP with the game rendering at full
+rate, against about three seconds of frozen game before.
+
+Three things this needed that the small files never exercised:
+
+- **One assembler per file in the editor.** The time machine's `livetime.bin`
+  leaves every few frames, between the screenshot's 33 segments, and a single
+  `FileAssembler` started over at each of those: every datagram of the picture
+  arrived and no picture ever completed. `Receiver` now keeps one per file id.
+- **Only `TXHI` names the editor.** The IOP used to answer whoever sent the
+  last valid datagram, so a `--pad` from a shell redirected the reports to
+  itself for as long as it ran - harmless for snapshots, fatal for a file of
+  ~1000 chunks. Now only the session's hello sets the address.
+- **Paced sends on the IOP** (`sendChunk`): a failed `sendto` is retried and
+  each datagram is followed by a 0.4 ms sleep. A precaution - the unpaced loop
+  was never measured at this size.
+
+The receiver also says when a transfer went wrong: `devlink: frame.tga arrived
+incomplete (N of M bytes)` after 2 s without a segment, `a file segment
+arrived incomplete (N of 32 datagrams)` after 0.5 s without a chunk.
 
 The time machine keeps its sparser console cadence: a capture is large and
 would be large traffic either way, and the IOP shares its time with audsrv.

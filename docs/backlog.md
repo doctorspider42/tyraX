@@ -9,7 +9,23 @@ relevant guide or developer skill.
 All five phases are in and verified on a PS2 (docs/devlink.md). Left:
 
 - **Still on host:** the input recorder (a stream on an open file), the boot
-  snapshot and the one-shot asks (VU1 capture, screenshot, render cost).
+  snapshot and the crash report (written after an EE exception, with no loop
+  left to pump segments).
+- **The big file transfers with music playing** have not been listened to: a
+  1 MB screenshot is ~1.5 s of steady IOP traffic (docs/devlink.md, "The
+  self-screenshot"), and TCP traffic has starved audsrv before.
+- **The re-ask after a lost datagram** (Debugger and `--capture-frame`) has
+  only run when the file was lost for another reason; no real loss was seen
+  in a dozen 1 MB transfers.
+- **A live preview stream** is within reach: 700 KB/s through the IOP and a
+  34 ms full-buffer readback mean a GS-downscaled 128x112 16-bit picture (one
+  28 KB slot, ~1-2 ms of readback) could arrive at 15-20 fps. Needs spare
+  VRAM for the small target and a viewer panel.
+- **The frame yield while the debugger is attached** (`setFrameYield`, +1 ms
+  a frame) guards a hang whose trigger was the attached debugger's `host:`
+  writes from the main thread - which devlink removed on a console. Worth one
+  10-minute `showcase` run with music and the yield off under devlink; a
+  wedge needs a power cycle, so only with someone at the console.
 - **Hard hangs** (an EE looping with interrupts off, a wedged bus) still need a
   power cycle - no software path exists; the watchdog now says when that is
   the case.

@@ -77,8 +77,7 @@ Link, Live Logic, texture hot reload, the time machine - and its log lines
 off `host:` and onto the IOP ([devlink.md](devlink.md)). Measured on a PS2
 with the debugger attached: 0.17 ms of `pre` against 1.67 ms over `host:`, and
 0 missed fields against 20 in 1250. What still costs round trips: the input
-recorder (a chunk every 256 frames), the boot snapshot and the one-shot asks
-(VU1 capture, screenshot, render cost, crash report). The numbers below are
+recorder (a chunk every 256 frames), the boot snapshot and the crash report. The numbers below are
 the `host:` path, still what PCSX2-less tools and older games pay.
 
 The devkit is free in a RELEASE build - that is what the audit proves. In a
@@ -282,8 +281,9 @@ the fault has **never been reproduced** are in
 ![Debugger Screen capture with the Copy image action](img/debugger-copy-image.png)
 
 In **Debugger > Screen**, press **Capture frame**. The game reads its last
-finished frame straight out of GS VRAM, writes `bin/frame.tga` over the same
-`host:` channel every other devkit file uses, and the panel shows it.
+finished frame straight out of GS VRAM and hands it over as `bin/frame.tga` -
+through the IOP on a console ([devlink.md](devlink.md)), as a `host:` file in
+PCSX2 - and the panel shows it.
 
 Every capture is then **kept as a PNG in the project's `screenshots/` folder**,
 named by the clock (`frame-20260817-164501.png`). **Show file** reveals that
@@ -301,9 +301,12 @@ git-ignored. Delete the ones you do not want; nothing reads them.
 
 From a shell, `tyrax-editor --capture-frame <projectDir> [-o out.png]
 [--timeout s]` does the same thing headlessly: it writes the one-shot command
-into `bin/livedbg.cmd`, waits for the game to finish `bin/frame.tga` (progress
+into `bin/livedbg.cmd`, waits for a complete `bin/frame.tga` (progress
 is what decides the wait, so the ~3 s per shot over ps2link is fine) and
-decodes it to a PNG. It is how an unattended A/B on a console gets its
+decodes it to a PNG. On a console the process that owns the session (the
+editor, or the `--run-ps2` that deployed the game) forwards `livedbg.cmd` to
+the IOP and writes the `frame.tga` that comes back, so the command is the same
+either way: about 2 s per picture on a PS2. It is how an unattended A/B on a console gets its
 pictures - a debug build with *Live Debugger* on, deployed with `--run-ps2`.
 `--alpha <png>` writes the frame's own alpha channel as a grey image as well
 (the game stores it in `frame.tga` as is since 1.70.3; the picture readers
@@ -321,11 +324,30 @@ What comes back is the **frame buffer as the GS holds it**, not the television
 picture: the raster the game rendered at, with no aspect correction and no
 letterbox. A 512x448 project answers 512x448.
 
-It costs the game a visible hitch, which is why it is one shot per press rather
-than anything continuous — around a megabyte read back a scan line at a time and
-written the same way. In PCSX2 that is over between two frames; **over ps2link
-it is a network round trip per 1.4 KB, measured at about three seconds** on a
-512x512 buffer, and the game is frozen for all of it.
+It costs the game a hitch, which is why it is one shot per press rather than
+anything continuous: around a megabyte is read back out of VRAM, 16 scan lines
+per transfer, into one block of RAM. What happens to that block decides how
+long the hitch is:
+
+- **On a console with devlink up** the block is handed to
+  `DevLink::writeFileOwned` and the game carries on. It leaves in ~30 slot-sized
+  segments over the next frames (one at a time, so the debugger's reports and
+  the log keep their slot), the IOP sends them as UDP datagrams, and the editor
+  writes `bin/frame.tga` when the last one is in, with the game running
+  throughout. The block is freed once it has left. **Measured on a PS2
+  (2026-11-10, 512x512 at 32 bits, 1 MB): the readback holds the game for
+  34 ms - two fields - and the picture is in the editor 1.4-1.7 s later**
+  (the console log says `readback N ms`, the editor's `received frame.tga
+  (... bytes in N ms)`). Those datagrams are not retransmitted, so the
+  Debugger and `--capture-frame` ask again when no picture has arrived after
+  8 s.
+- **In PCSX2, or with devlink off**, the block is one `host:` write. In PCSX2
+  that is over between two frames.
+- **With no RAM for the block** (a game at the edge of its 32 MB) the picture is
+  streamed to `host:` a line at a time, as it always was before 2.15.0: over
+  ps2link that is a network round trip per 1.4 KB, **measured at about three
+  seconds on a 512x512 buffer, with the game frozen for all of it**. The log
+  line ends in `streamed - no RAM for the whole picture` when this happened.
 
 The picture is the **previous real frame**: the last one the scene rendered, so
 never a half-composed image and never a synthesised
@@ -360,7 +382,7 @@ while every other devkit channel, writing through `fopen(name, "wb")` (flags
 runtime keeps the half of libdebug that carries the value — `ps2_screenshot()`,
 the VRAM readback — and writes the file through the same stdio path everything
 else here uses. Two hardware-only traps come with that: the readback lands in
-RAM **behind the EE's data cache** (the line is flushed after every transfer, or
+RAM **behind the EE's data cache** (the cache is flushed after every transfer, or
 rows repeat), and `ps2_screenshot()` refuses to run while VIF1's DMA channel is
 busy and says so only through its return value, so refusals are counted and
 reported instead of being written out as picture.

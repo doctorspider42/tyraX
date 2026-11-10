@@ -83,11 +83,22 @@ class DevLink {
 
   /**
    * Writes `name` the editor reads from bin/. With devlink up the bytes are
-   * queued and leave in slot-sized segments over the next frames (the editor
+   * queued and leave in slot-sized segments over the next frames, one at a
+   * time so the other slot stays free for reports and logs (the editor
    * writes the file once all have arrived); a newer write of the same name
    * replaces one still in flight. Otherwise a plain host: fopen/fwrite.
    */
   static bool writeFile(const char* name, const void* data, int len);
+
+  /**
+   * writeFile for a big one-off (the self-screenshot, ~900 KB): takes
+   * OWNERSHIP of `data`, a malloc()ed block, instead of copying it, and frees
+   * it once the last segment has been handed to the IOP - so the file costs
+   * its own size in RAM for the seconds it is in flight and nothing after.
+   * Without devlink it is one host: write and the block is freed before
+   * returning. Either way the caller must not touch `data` again.
+   */
+  static bool writeFileOwned(const char* name, void* data, int len);
 
   /** Moves queued work along (mirror registration, outbound segments).
    * Cheap; the devkit runtimes call it once a frame. */
