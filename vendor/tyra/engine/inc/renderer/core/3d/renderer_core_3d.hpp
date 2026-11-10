@@ -7,9 +7,11 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: env/portal views save and restore the frustum planes.
+# Modified by TyraX: stamp record epochs (docs/dod-submission.md, phase 3).
 */
 
 #pragma once
+#include "renderer/core/draw_epochs.hpp"  // Modified by TyraX
 
 #include <algorithm>
 #include "renderer/renderer_settings.hpp"
@@ -106,6 +108,7 @@ class RendererCore3D {
    * Renderer3DFrustumPlanes::narrow. Restored by popEnvView with the rest of
    * the saved view. */
   void narrowFrustumToRect(int x0, int y0, int x1, int y1, float w, float h) {
+    DrawEpochs::cameraChanged();  // Modified by TyraX: stamp records
     const float hw = 0.5F * w, hh = 0.5F * h;
     frustumPlanes.narrow((x0 - hw) / hw, (x1 - hw) / hw, (hh - y1) / hh,
                          (hh - y0) / hh);

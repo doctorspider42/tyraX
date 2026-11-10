@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: the stamp record and the stamp pass (TYRA_STAPIP_STAMP_PASS).
 */
 
 #pragma once
@@ -30,6 +31,7 @@
 #include "renderer/core/texture/renderer_core_texture_buffers.hpp"
 #include "./stapip_vif_hash.hpp"
 #include "renderer/core/3d/bbox/core_bbox.hpp"  // Modified by TyraX: fog facts
+#include "renderer/core/draw_epochs.hpp"  // Modified by TyraX: stamp pass
 
 /**
  * Modified by TyraX: retained static geometry COMMAND data
@@ -74,6 +76,82 @@
 // Rejection-reason counters printed every 4000 attempts (diagnostic only).
 #ifndef TYRA_STAPIP_STAMP_DIAG
 #define TYRA_STAPIP_STAMP_DIAG 0
+#endif
+// Modified by TyraX: the stamp record and the stamp pass
+// (docs/dod-submission.md, "Phase 3, first slice"). A stamp keeps the
+// answers its replay derives from renderer state plus the input epochs
+// (renderer/core/draw_epochs.hpp) they came from; the frame recorder's
+// flush sends its list through one tight loop over those records
+// (stampPass). 0 is the kill switch: tryStamp and renderNow as before.
+#ifndef TYRA_STAPIP_STAMP_PASS
+#define TYRA_STAPIP_STAMP_PASS 1
+#endif
+// Modified by TyraX: verify the stamp record and pass. Nothing is sent from
+// a record: every draw is predicted dry, sent down the full path and
+// compared (words, cached answers, epoch and revision contracts, list
+// order, in-pass culls); logs STAMPVERIFY (stapip_stamp_verify.hpp).
+#ifndef TYRA_STAPIP_STAMP_VERIFY
+#define TYRA_STAPIP_STAMP_VERIFY 0
+#endif
+#if TYRA_STAPIP_STAMP_VERIFY && !(TYRA_STAPIP_STAMP && TYRA_STAPIP_STAMP_PASS)
+#error "TYRA_STAPIP_STAMP_VERIFY needs TYRA_STAPIP_STAMP and TYRA_STAPIP_STAMP_PASS"
+#endif
+// Modified by TyraX: the REPEAT entry (docs/record-renderer.md, "Terrain
+// draws without a stamp"). A bag that wants REPEAT, drawn while another bag
+// left CLAMP in force (the terrain's ground-shadow pass does after every
+// shaded chunk), gets the general path's wrap block in its head: FLUSHE,
+// [REPEAT CLAMP_1 write], ... Its stamp is captured WITHOUT that block, and
+// the stamp and crossing passes put the identical block back at the same
+// place whenever the wrap in force is not REPEAT, instead of sending the
+// draw down the general path. 0 is the kill switch: such a bag is not
+// stamped (2.13 behaviour).
+#ifndef TYRA_STAPIP_REPEAT_ENTRY
+#define TYRA_STAPIP_REPEAT_ENTRY 1
+#endif
+// 1: every capture that removes the block also proves the removal - the
+// block equals the shared REPEAT block (DMA tag PAD bits masked) and the
+// stripped head with the block put back equals the captured head word for
+// word - and REPEATVERIFY lines count captures, bugs and replays.
+#ifndef TYRA_STAPIP_REPEAT_ENTRY_VERIFY
+#define TYRA_STAPIP_REPEAT_ENTRY_VERIFY 0
+#endif
+// Modified by TyraX: the capture record (docs/record-renderer.md, "Draws
+// that stay on the general path"). A stamp captured by the general path's
+// whole replay gets its record from that same draw - every camera, texture
+// and light answer the general path just resolved - instead of an empty one.
+// Before, only a successful full tryStamp filled a record, so a bag whose
+// tryStamp is always refused (a REPEAT bag under the ground-shadow pass's
+// CLAMP) was captured again every frame and never reached the stamp pass.
+// 0 is the kill switch: the record stays empty until a full tryStamp.
+#ifndef TYRA_STAPIP_CAPTURE_RECORD
+#define TYRA_STAPIP_CAPTURE_RECORD 1
+#endif
+// Modified by TyraX: the crossing pass (docs/dod-submission.md, "Phase 3,
+// second slice: the crossing pass"; stapip_crossing.hpp). A crossing bag
+// keeps a record of its package boxes and entries in its stamp slot; the
+// flush classifies every recorded crossing bag's packages in one pre-pass
+// and the stamp pass emits them from the record in list order. 0 is the
+// kill switch: crossing bags go down renderNow as in 2.12. Needs the stamp
+// pass; inert while TYRA_STAPIP_STAMP_VERIFY is on (the pass is dry there).
+#ifndef TYRA_STAPIP_CROSSING_PASS
+#define TYRA_STAPIP_CROSSING_PASS 1
+#endif
+// Modified by TyraX: verify the crossing pass. Nothing is sent from a
+// crossing record: every crossing draw is predicted dry, sent down the
+// general path and compared (classification, pre-pass verdicts, head and
+// runs word for word as the DMAC walks them, lengths, list order,
+// exactly-once); logs CROSSVERIFY (stapip_crossing.hpp).
+#ifndef TYRA_STAPIP_CROSSING_VERIFY
+#define TYRA_STAPIP_CROSSING_VERIFY 0
+#endif
+#if TYRA_STAPIP_CROSSING_PASS && TYRA_STAPIP_STAMP && TYRA_STAPIP_STAMP_PASS && \
+    !TYRA_STAPIP_STAMP_VERIFY
+#define TYRA_STAPIP_CROSSING_ON 1
+#else
+#define TYRA_STAPIP_CROSSING_ON 0
+#endif
+#if TYRA_STAPIP_CROSSING_VERIFY && !TYRA_STAPIP_CROSSING_ON
+#error "TYRA_STAPIP_CROSSING_VERIFY needs TYRA_STAPIP_CROSSING_PASS and the stamp pass (and not TYRA_STAPIP_STAMP_VERIFY)"
 #endif
 
 // Modified by TyraX: reuse immutable geometry on partial visibility too.
@@ -156,6 +234,23 @@
 #error "TYRA_STAPIP_BAKED_VERIFY and TYRA_STAPIP_BAKED_SAMPLE_VERIFY are two arms of one check; enable exactly one."
 #endif
 /** Either arm compiles the comparison in. */
+/** Modified by TyraX: the patch-rebake gate (StaPipBagPatch). 1 = after every
+ * patch rebake, bake the WHOLE bag again with the ordinary writers and compare
+ * it with the patched arena word for word; PATCHVERIFY logs the running
+ * totals and every mismatch. A mismatch means a promise the owner made was
+ * wrong (a vertex changed outside its dirty map) or the copy is - either way
+ * the patched block would be replayed. Diagnostic only: it costs the whole
+ * rebuild the patch exists to avoid. */
+/** Modified by TyraX: payload refresh (StaPipBakedEntry::runs). 0 sends a
+ * payload change down the whole re-bake again - the A/B control. */
+#ifndef TYRA_STAPIP_PAYLOAD_REFRESH
+#define TYRA_STAPIP_PAYLOAD_REFRESH 1
+#endif
+
+#ifndef TYRA_STAPIP_PATCH_VERIFY
+#define TYRA_STAPIP_PATCH_VERIFY 0
+#endif
+
 #define TYRA_STAPIP_BAKED_ANY_VERIFY \
   (TYRA_STAPIP_BAKED_VERIFY || TYRA_STAPIP_BAKED_SAMPLE_VERIFY)
 // POISON overwrites an evicted arena with a recognisable pattern IMMEDIATELY,
@@ -411,6 +506,9 @@ struct StaPipBakedEntry {
   u32 seenContentVersion = 0;
   u8 churning = 0;
   u8 settled = 0;
+  /** Modified by TyraX: payload refreshes in a row, each within
+   * kChurnGapFrames of the last (StaPipBakedStreams::kRefreshStreak). */
+  u8 moveStreak = 0;
 
   /** Quadword offset and length of each package's block inside `data`. */
   std::unique_ptr<u32[]> offsets;
@@ -423,6 +521,41 @@ struct StaPipBakedEntry {
   std::unique_ptr<u8[]> raw;
   qword_t* arena;
   u32 arenaQw;
+
+  /** Modified by TyraX: patch rebake (StaPipBagPatch). Set by `acquire` when
+   * a patch was accepted: the old arena and its layout, kept alive until
+   * `patchBakedBag` has copied the clean blocks out of it and handed it to
+   * the graveyard. Never survives the `beginBakedBag` call that set it. */
+  u8 patching = 0;
+  /** Modified by TyraX: payload refresh. Every per-vertex stream reaches a
+   * baked block as a REF payload - a verbatim copy of the bag's array - and
+   * everything else in the block (headers, GIFtag, kick) follows from the key
+   * alone. `runs` records where each payload sits, by stream (0 positions,
+   * 1 colours, 2 STs, 3 normals). When the payload moved but nothing
+   * structural did, the entry is rebuilt by ONE pass over the old arena: the
+   * non-payload words copied, every payload run copied fresh from the bag's
+   * arrays - the same bytes a whole re-bake would write, without the writers
+   * or the transcode. ALL streams are re-copied whatever stamp moved, because
+   * not every writer of an array stamps it (the env-normal normalisation
+   * does not), and a re-bake would have picked those writes up too. Valid
+   * only when the runs of every present stream cover exactly `count`
+   * vertices and no REF payload was left unaccounted for. */
+  u32 streamStamps[4] = {0, 0, 0, 0};
+  struct PayloadRun {
+    u32 package, at, vertex, qwc;  // `at`: quadwords from the block start
+    u32 stream;
+  };
+  std::vector<PayloadRun> runs;
+  u32 runQw[4] = {0, 0, 0, 0};
+  u32 unknownRefs = 0;
+  u8 runsValid = 0;
+  /** Set by a colour refresh, for TYRA_STAPIP_PATCH_VERIFY. */
+  u8 refreshed = 0;
+  std::unique_ptr<u8[]> patchRaw;
+  qword_t* patchArena = nullptr;
+  u32 patchQw = 0;
+  std::vector<u32> patchOffsets;
+  std::vector<u16> patchSizes;
 
   int framesLeftToDestroy;
   int nextInBucket;
@@ -461,6 +594,18 @@ class StaPipBakedStreams {
    * on a physical PS2. A stable bag never enters this state.
    */
   static const u32 kChurnGapFrames = 2;
+  /**
+   * Modified by TyraX: the refresh streak. A payload refresh (one copy of
+   * the arena) is far cheaper than the retained route for a big bag, so a
+   * SHORT burst of moves is refreshed every time and only a longer one
+   * churns: a car crash moves a body 2-3 times in consecutive frames (the
+   * dent, the broken lamps, the re-shaded paint), and sending those to the
+   * retained route cost 4-6 ms a frame for five frames on a physical PS2,
+   * against 1-3.5 ms of copies (docs/baked-vif-stream.md, "Refresh
+   * streak"). A bag rewritten every frame still churns from its
+   * (kRefreshStreak + 1)-th rapid move on, as before.
+   */
+  static const u32 kRefreshStreak = 3;
   static const u32 kSettleFrames = 3;
   u32 takeChurnSkips() { const u32 v = churnSkips; churnSkips = 0; return v; }
   /** Modified by TyraX: bumped by clear(), when every entry goes at once. */
@@ -482,10 +627,19 @@ class StaPipBakedStreams {
   void onFrameEnd();
   void clear();
 
-  StaPipBakedEntry* acquire(const StaPipBakedEntry& key);
+  StaPipBakedEntry* acquire(const StaPipBakedEntry& key,
+                            const StaPipBagPatch* patch = nullptr);
   /** Charge the budget for a finished arena. False means it does not fit even
    * after eviction, and the caller abandons the bake for now. */
   bool reserve(u32 qwords);
+  /** Modified by TyraX: `retire` for an arena already detached from its
+   * entry (the old arena of a patch rebake). */
+  void retireArena(std::unique_ptr<u8[]> raw, qword_t* arena, u32 qw);
+  /** Modified by TyraX: patch rebakes taken / packages they re-baked /
+   * packages they copied, since the last take. */
+  u32 patches = 0, patchBuilt = 0, patchCopied = 0;
+  /** Modified by TyraX: payload refreshes since the last take. */
+  u32 colourRefreshes = 0;
 
   u32 getBytes() const { return usedQwords * 16; }
   u32 takeHits() { const u32 v = hits; hits = 0; return v; }
@@ -758,7 +912,10 @@ class StaPipQBufferRenderer {
    * Off by default. A project with no custom program must not pay two extra
    * unpacked quadwords per mesh for a feature it does not use, so codegen turns
    * this on once at startup and never otherwise. */
-  void setVuCustomEnabled(const bool& enabled) { vuCustomEnabled = enabled; }
+  void setVuCustomEnabled(const bool& enabled) {
+    if (vuCustomEnabled != enabled) DrawEpochs::globalsChanged();  // Modified by TyraX
+    vuCustomEnabled = enabled;
+  }
   void setVuParams(const float& x, const float& y, const float& z,
                    const float& w) {
     vuParams[0] = x, vuParams[1] = y, vuParams[2] = z, vuParams[3] = w;
@@ -826,8 +983,49 @@ class StaPipQBufferRenderer {
   /** Modified by TyraX: a stamp joins the open submission batch whatever
    * its bag's size (docs/stapip-stamps.md, "Batching"). false restores the
    * old rule (only bags under the ordinary size cap) for an A/B. */
-  void setStampBatchAnySize(bool on) { stampBatchAnySize = on; }
+  void setStampBatchAnySize(bool on) {
+    if (stampBatchAnySize != on) DrawEpochs::globalsChanged();  // Modified by TyraX
+    stampBatchAnySize = on;
+  }
   bool isStampEnabled() const { return stampEnabled; }
+  /** Modified by TyraX: the capture record (TYRA_STAPIP_CAPTURE_RECORD) -
+   * the T / L / C answers of the whole replay that just captured `bag`'s
+   * stamp. A no-op when this draw captured nothing. */
+  void captureRecord(StaPipBag* bag, texbuffer_t* tb,
+                     const RendererCoreSpotLight* light, bool receive,
+                     const texwrap_t* wanted);
+  int lastCaptureSlot = -1;  // the slot captureStamp filled for this draw
+#if TYRA_STAPIP_STAMP_PASS
+  /** Modified by TyraX: the stamp pass (docs/dod-submission.md, "Phase 3,
+   * first slice"). PassDraw mirrors StaPipCore::DeferredBag (asserted
+   * there): the recorded list is handed over as it is. */
+  struct PassDraw {
+    StaPipBag* bag;
+    u8 reception;  // StaPipLightReception: 0 FromInfo, 1 Suppress
+    u8 op;         // 0 a draw, 1 batch begin, 2 batch end
+    u8 rec;        // Modified by TyraX: record-list verdict (render's recordVis)
+  };
+  struct PassContext {
+    const M4x4* viewProj = nullptr;
+    const Plane* planes = nullptr;   // the view frustum (6)
+    const Plane* gbLoose = nullptr;  // StaPipCore::stampClipPlanes (8)
+    const Plane* gbTight = nullptr;  // StaPipCore::stampClipPlanesTight (8)
+    bool guardBandBags = false;      // TYRA_STAPIP_GUARD_BAND_BAGS
+    // The general path for a draw the pass cannot take (list index).
+    void (*general)(void* core, u32 listIndex) = nullptr;
+    void* core = nullptr;
+    const RendererCoreSpotLight* noSpot = nullptr;
+    u32 begun = 0;  // the once-a-flush setup ran (verify calls per draw)
+    void* cross = nullptr;  // Modified by TyraX: CrossPass::Flush (crossing pass)
+  };
+  /** The whole recorded list (dry: one draw, verify only), in order. */
+  template <bool dry>
+  u32 stampPass(const PassDraw* list, u32 n, PassContext& c, u32 at, u32 planAt);
+  /** The run state after a general-path draw. */
+  void stampPassAfterGeneral();
+  /** n frame-plan positions for one flush (reset each frame). */
+  u32 reserveStampPlan(u32 n);
+#endif
   /** Modified by TyraX: find a stamp through the slot the bag remembers
    * (StaPipBag::stampSlot) before probing the hash. false = hash only. */
   void setStampSlotHint(bool on) { stampSlotHint = on; }
@@ -891,6 +1089,15 @@ class StaPipQBufferRenderer {
    */
   bool beginBakedBag(StaPipBag* bag, const u32& packageSize,
                      bool partial = false);
+  /** Modified by TyraX: StaPipCore::prebakeBag's half - the bake with no
+   * draw. */
+  bool prebakeBag(StaPipBag* bag, u32 packageSize);
+  /** Modified by TyraX: the packet buffers exist only between
+   * allocateOnUse and deallocateOnUse. A bake ahead of the frame can run
+   * before the game first selects this pipeline (its first frame), and
+   * setMaxVertCount then wrote through no buffers: a TLB exception on the
+   * console at boot. */
+  bool isAllocated() const { return buffers != nullptr; }
 #if TYRA_STAPIP_PREPARED_STATIC
   bool prepareStaticGeometry(StaPipBag* bag, u32 packageSize, u32 clipSize);
   void releasePreparedGeometry() { baked.releaseScenePins(); }
@@ -1080,7 +1287,9 @@ class StaPipQBufferRenderer {
   qword_t* packetOrigin[kPacketCount] = {};
   void startPacket(packet2_t* packet);
   StaPipVU1Program** dBufferPrograms;
-  StaPipQBuffer** buffers;
+  // Modified by TyraX: null while the static pipeline is not in use
+  // (allocateOnUse / deallocateOnUse) - see isAllocated().
+  StaPipQBuffer** buffers = nullptr;
   packet2_t* staticDataPacket;
   // Modified by TyraX: uniforms already occupy the current geometry packet;
   // append the first buffer flush instead of resetting that packet.
@@ -1258,6 +1467,13 @@ class StaPipQBufferRenderer {
   u8 stampWrapBlock = 0;
   u16 stampSingleAt = 0;
   u16 stampEnvAt = 0;
+  // Modified by TyraX: the REPEAT entry block sendObjectData wrote into the
+  // head being captured (TYRA_STAPIP_REPEAT_ENTRY): where, how long (0 = none).
+  u16 stampEntryAt = 0, stampEntryQw = 0;
+  u32 repeatEntryCaptures = 0, repeatEntryBad = 0, repeatEntrySent = 0;
+  // Strip the entry block out of a captured head: false = refuse the capture.
+  bool stripRepeatEntry(const qword_t* src, u32 qw, qword_t* dst);
+  void repeatEntryTick();
   texwrap_t stampWrap = {};
   u32 stampHits = 0, stampCaptures = 0;
   bool stampSlotHint = false;
@@ -1269,12 +1485,92 @@ class StaPipQBufferRenderer {
   void sweepStamps();
   u32 stampTableGen = 0;
   void captureStamp();
+#if TYRA_STAPIP_STAMP_PASS
+  // Modified by TyraX: the stamp record, the revision answers and the
+  // frame plan (defined in stapip_qbuffer_renderer.cpp), allocated with
+  // the stamp table: one line per slot each, the plan per list position.
+  struct StampRecord;
+  struct StampRevision;
+  struct StampPlan;
+  static const u32 kStampPlan = 1024;
+  StampRecord* stampRecs = nullptr;
+  StampRevision* stampRevs = nullptr;
+  StampPlan* stampPlan = nullptr;
+  u32 stampPlanPos = 0, stampPlanFrame = 0xFFFFFFFFu;
+  void allocateStampRecords();
+  template <bool dry>
+  int replayRecord(StampEntry* s, StaPipBag* bag, const M4x4& viewProj,
+                   const Plane* planes, const Plane* guardBandPlanes,
+                   bool dynamicLightReceive, const RendererCoreSpotLight* noSpot,
+                   bool moved);
+  void commitRecord(StampEntry* s, const qword_t* dst, bool needC, bool needT,
+                    bool needL, bool moved, const texwrap_t* wanted,
+                    texbuffer_t* tb, const RendererCoreSpotLight* light,
+                    bool spotOn, bool cand, u32 clutAddr, u32 clutPsm,
+                    u32 clutLoad, u8 func, bool dynamicLightReceive);
+  void afterFullStamp(StampEntry* s, StaPipBag* bag, const qword_t* dst,
+                      const texwrap_t* wanted, const RendererCoreSpotLight* light,
+                      bool spotOn, bool cand, texbuffer_t* tb,
+                      bool dynamicLightReceive);
+  int stampPassProbe(const StaPipBag* bag) const;
+  void stampPassBegin(PassContext& c, bool dry);
+  void stampPassMove(int slot, const M4x4* m);
+  bool stampPassTexPick(int slot, const Texture* tex, const texwrap_t** wanted,
+                        bool* cand);
+  texbuffer_t* stampPassTexUse(const Texture* tex, u8 func, u32* ca, u32* cp,
+                               u32* cl, bool dry);
+  void stampPassTex0(qword_t* q, texbuffer_t* tb, u8 func, u32 ca, u32 cp, u32 cl);
+#if TYRA_STAPIP_CROSSING_ON
+  // Modified by TyraX: the crossing pass - a crossing draw emitted from its
+  // per-slot record (stapip_crossing.hpp).
+  void crossSweepAll();
+  void crossSweepDestroyed(u32 n);
+  bool crossWant(const PassContext& c, u32 li, const StaPipBag* bag,
+                 const M4x4* modelLive, int slot);
+  int crossEmit(PassContext& c, u32 li, int slot, StaPipBag* bag, bool qok,
+                bool needT, bool needL, bool moved, const Texture* tex, u8 func,
+                texbuffer_t* tb, u32 clutAddr, u32 clutPsm, u32 clutLoad,
+                const RendererCoreSpotLight* light, bool spotOn, const float* sp,
+                const texwrap_t* wanted, bool cand, bool receive);
+#if TYRA_STAPIP_CROSSING_VERIFY
+  void crossRunsDry(packet2_t* packet, const u8* routes, u32 count,
+                    const u8* clipMasks, StaPipBakedEntry* cull,
+                    StaPipBakedEntry* clip);
+  void crossVerifyCompare(const packet2_t* packet);
+#endif
+ public:
+  /** The general path's crossing head, before emitPartialRuns. */
+  void crossSnap();
+  /** A crossing-only stamp slot for a crossing bag with no stamp. */
+  void crossSynth(StaPipBag* bag, const Vec4& lo, const Vec4& hi, texbuffer_t* tb,
+                  const RendererCoreSpotLight* light, bool receive,
+                  const texwrap_t* wanted, bool batchSized);
+  int crossSlotFor(const StaPipBag* bag, u32 pp) const;
+  int crossCaptureSlot(const StaPipBag* bag, u32 size, u32 n);
+  bool hasStamps() const { return stamps != nullptr; }
+  void sweepStampsNow() {
+    if (stamps != nullptr) sweepStamps();
+  }
+ private:
+#endif
+#endif
 #endif
   bool bakedPartial = false;
   StaPipBakedEntry* bakedClip = nullptr;  // R5: the bag's whole-clip blocks
   void finishPartialReplay();
   packet2_t* partialBakePacket = nullptr;
   bool preparePartialBakedBag(StaPipBag* bag, u32 packageSize);
+  /** Modified by TyraX: finish a patch rebake `acquire` accepted - re-bake the
+   * packages holding a dirty vertex, copy the rest from the old arena. False
+   * leaves the entry empty for the ordinary rebuild. */
+  bool patchBakedBag(StaPipBag* bag, u32 packageSize);
+  std::vector<u8> patchFromScratch;
+#if TYRA_STAPIP_PATCH_VERIFY
+  /** Bake the whole bag again with the ordinary writers and compare it with
+   * `entry`'s arena; logs PATCHVERIFY. */
+  void verifyAgainstWriters(StaPipBag* bag, u32 size, StaPipBakedEntry* entry,
+                            const char* what, u32 rebuilt);
+#endif
 #if TYRA_STAPIP_PREPARED_STATIC
   bool preparingStatic = false;
 #endif

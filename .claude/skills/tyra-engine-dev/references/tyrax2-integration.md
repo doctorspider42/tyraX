@@ -806,7 +806,7 @@ Three properties to preserve if you touch it:
   instruction with nothing serviced. (The handler once handed causes 1..3
   back, believing a TLB refill completes a mapped access; on a PS2 there is no
   demand paging, a refill is a null pointer, and handing it back cost every
-  null-pointer crash its report. Since 2.11.0 it takes them - devkit-debugging.md.)
+  null-pointer crash its report. Since 2.15.0 it takes them - devkit-debugging.md.)
   Causes 0 (Interrupt), 8
   (Syscall), 9, 14 and 15 are never routed by the install at all — which is why
   narrowing the registered list alone never fixed anything.

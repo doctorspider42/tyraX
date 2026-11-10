@@ -194,6 +194,17 @@ class Vif1Queue {
   static bool pipelineAvailable();
   static void setRuntimePipeline(bool enabled);
   static void setBeforeFrameSubmit(void (*callback)(void*), void* user);
+  /** Modified by TyraX: called at the top of every entry point that
+   * submits, orders or waits for VIF1/GIF work (submit, submitOwned,
+   * recordGif, recordBarrier, waitFor, drain) and of frameSendPacket.
+   * StaPip's frame recording uses it to submit its recorded draws before
+   * anyone else's work (docs/dod-submission.md). */
+  static void setBeforeForeignWork(void (*callback)(void*), void* user);
+  static void beforeForeignWork() {
+    if (foreignWorkHook) foreignWorkHook(foreignWorkUser);
+  }
+  static inline void (*foreignWorkHook)(void*) = nullptr;
+  static inline void* foreignWorkUser = nullptr;
 
   /**
    * A chain that is still being BUILT and has to reach VIF1 before anything

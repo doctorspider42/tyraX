@@ -246,7 +246,7 @@ the ps2link file server on a console):
 | `bin/livedbg.cmd` | the editor, when the desired state changes | the full breakpoint list, halt / resume / step, node keys to force-fire, and the one-shot asks: a VU1 capture, a free-RAM measurement, a screenshot |
 | `bin/frame.tga` | the game, once per *Capture frame* | its own frame buffer, read back out of GS VRAM. A transport file: the editor decodes it and keeps the picture as `screenshots/frame-<date>-<time>.png` (see [devkit.md](devkit.md)) |
 
-**On a console (since 2.11.0) the first two travel through the IOP instead**
+**On a console (since 2.15.0) the first two travel through the IOP instead**
 ([devlink.md](devlink.md)): the editor sends `livedbg.cmd` as a UDP datagram
 (and resends it every second), the IOP drops it into a mailbox in EE RAM, and
 the game hands each report to the IOP with one DMA; the IOP sends it back in

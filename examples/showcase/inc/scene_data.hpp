@@ -113,7 +113,8 @@ struct SceneObjectData {
                   // what a light overhead needs to shade smoothly
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
-  int batchStatic; // 1 = may merge into a combined static batch bag
+  int batchStatic; // 1 = may merge into a combined static batch bag,
+                   // 2 = drawn instanced (one shared model copy)
                    // (build-time verdict: non-moving primitive or
                    // compact model with no special runtime path)
   float vuParams[4]; // the four numbers this mesh hands to the
@@ -247,7 +248,7 @@ inline constexpr EmitterLayerData EMITTER_LAYERS[1] = {
     {-1, -1, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}}
 };
 inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
-    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},
+    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 1.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},
 };
 
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
@@ -597,8 +598,8 @@ inline constexpr int BLOB_SHADOWS = 0;
 inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
 inline constexpr int BLOB_SHADOWS_USED = 1;
 inline constexpr int BLSS_ADAPTIVE = 0;
+inline constexpr int BLSS_PARTICLES = 0;
 #define BLSS_SCENE_ON 0
-#define BLSS_SCENE_NET 0
 inline constexpr int PROJ_SHADOWS_USED = 0;
 inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
 inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {49};

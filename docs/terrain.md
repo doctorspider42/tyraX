@@ -228,6 +228,91 @@ content stamp on every push, and each vertex evaluates the edge snap twice
 (height and shade). Writing into a pre-sized raw buffer is the next step if
 the rebuild frames still matter.
 
+## Built to a time budget (2.12.1)
+
+A terrain chunk is now built over several frames, ahead of when it is needed,
+and no frame spends more than `TERRAIN_CHUNK_BUDGET_US` (default 700 us) on
+terrain chunk geometry plus its pre-bake.
+
+**Why.** The headline benchmark (`docs/architecture-loop.md`, R9-A) is the
+vehicle-playground crate-field drive at ~22 u/s, release build. Its missed
+frames were not the crates: in those frames `settleTerrainChunks` built a
+chunk. The drive crossed LOD snap lines often enough to build one chunk a frame
+for long stretches, each 1.0-3.8 ms (`updateTerrainChunks` 1.4-2.4 ms plus
+0.4-1.3 ms of pre-bakes). When that frame was also an impact frame it missed
+60 Hz.
+
+**How it works.** One chunk is in work at a time (`terrainJob`):
+- **Into a slot nobody draws.** The job fills a free pool slot whose `cx`
+  stays -1, so `renderTerrain` skips it. The version on screen, if any, keeps
+  drawing until the new one is complete. The pool has one spare slot for this
+  (a whole-map-resident map has `chunks + 1` slots).
+- **A row at a time.** `terrainChunkWork` is `buildTerrainChunk`'s body made
+  resumable: stage 0 sets the chunk up, stage 1 emits one quad row per unit,
+  stage 2 (the tail) binds the bags. The strip packer's open run is carried in
+  the job, so the vertex stream is the same as a build in one go.
+- **Pre-baked one bag at a time.** Base, layers, occlusion, ground shadow,
+  light: each `prebakeBag` is one unit.
+- **Then live.** The slot is mapped (`terrainChunkSlot`), the slot it replaces
+  is freed (its buffers keep their capacity) and the stamp class is bumped.
+  A half-built chunk is never drawn.
+
+**Budget accounting.** The settle reads COP0 Count (`profTicks`) at its
+start. A unit starts only while the time spent so far plus the unit's
+predicted cost stays inside the budget. A row is predicted by the last row, the
+tail by two rows, and a pre-bake by a running cost per vertex. The first unit
+of a frame always runs, so a job always moves. A frame can therefore go over
+by at most one unit: a row is ~0.1-0.15 ms on a PS2, one bag's pre-bake up to
+~0.6 ms.
+
+**Look-ahead.** The first focus' travel this frame, times
+`TERRAIN_CHUNK_LEAD_FRAMES` (default 60), clamped to one chunk per axis,
+widens the build rect in the direction of travel. A streamed map therefore
+starts a chunk about a chunk before it enters the view rect; the pool gets
+one more row and column for it. The view rect, and so what is drawn, is
+unchanged. The LOD bands are not moved ahead: a chunk changing detail keeps
+its old detail for a few more frames, ~70 units away (about a pixel, see
+[terrain-lod.md](terrain-lod.md)).
+
+**Order.** A missing chunk of the build rect first (nearest the predicted
+focus), then a chunk on the wrong side of the ground-shadow fold, then a chunk
+whose detail is stale (nearest the focus, where it used to be the first slot).
+
+**Forced completion (correctness first).** Two cases are finished at once,
+whatever they cost, and counted:
+- a chunk **missing inside the view rect** is a hole the camera can see
+  (the old one or two a frame);
+- a **stale chunk under a focus** (the chunk the camera target stands in).
+
+If the job is building that chunk, the job is finished; otherwise the chunk is
+built whole the old way.
+
+**Dropped jobs.** A job is dropped if its chunk leaves the ring, someone else
+built it, or its detail, terrain texture or shadow fold changed since its rows
+began. The picker then starts over.
+
+**Counters.** `g_terrainBudgetStats` (always kept, for a rig to read) counts
+budgeted frames, frames with terrain work, frames that stopped at the budget
+with work left, chunks gone live, forced completions, dropped jobs, and the
+worst settle in us with and without a forced completion. Building a game with
+`-DTERRAIN_CHUNK_BUDGET_REPORT=1` also logs a `TERRAINBUDGET` line every 300
+frames.
+
+**The kill switch.** `-DTERRAIN_CHUNK_BUDGET_US=0` is the old behaviour: the
+settle builds whole chunks in place (one a frame on a resident map, two on a
+streamed one), with the old pool size and no look-ahead.
+`buildTerrainChunk` runs `terrainChunkWork` with no budget, so its build is the
+same build as before.
+
+**To be measured on a PS2** (not done yet): the headline benchmark in
+release, 2 runs. The goal is 0 missed frames in 1 000, no budgeted settle
+above ~0.7 ms (`max_us`), and how many forced completions the drive needs.
+
+| arm | missed of 1 000 | worst settle (us) | forced | chunks built |
+|---|---:|---:|---:|---:|
+| 2.12.0 (unbudgeted) | 3-4 | 1 000-3 800 | - | - |
+| 2.12.1 (700 us) | to measure | to measure | to measure | to measure |
+
 ## Texture coordinates are chunk-relative (1.124.3)
 
 The ground texture tiles in world space - `u = x * tile`, from the material's

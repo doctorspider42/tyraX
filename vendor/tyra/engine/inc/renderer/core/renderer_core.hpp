@@ -12,6 +12,7 @@
 # (mid-frame post fx, per-pass, so HUD sprites can draw crisp on top of
 # bloom while film grain still sits over everything), applyCustomPostFx()
 # (user-authored full-screen effects composited at a stack slot)
+# Modified by TyraX: stamp record epochs (docs/dod-submission.md, phase 3).
 */
 
 #pragma once
@@ -32,6 +33,7 @@
 #include "./paths/path3/path3.hpp"
 #include "./paths/path1/path1.hpp"
 #include "./renderer_core_sync.hpp"
+#include "./draw_epochs.hpp"  // Modified by TyraX: stamp records
 
 namespace Tyra {
 
@@ -216,11 +218,15 @@ class RendererCore : public RendererCore2dBounds {
                     const float& cutoffDegrees, const float& softness = 3.0F);
 
   /** Disable the dynamic spot light. */
-  void disableSpotLight() { spot.enabled = false; }
+  void disableSpotLight() {
+    DrawEpochs::lightsDirty();  // Modified by TyraX: stamp records
+    spot.enabled = false;
+  }
 
   /** Drop all registered scene dynamic lights (TyraX fork). Call once per
    * frame before re-adding - the registry is a per-frame snapshot. */
   void clearDynLights() {
+    DrawEpochs::lightsDirty();  // Modified by TyraX: stamp records
     dynLightCount = 0;
     dynBakedMask = 0;
   }
@@ -228,6 +234,7 @@ class RendererCore : public RendererCore2dBounds {
   /** Mark a slot returned by addDyn*Light as BAKED for this frame (TyraX
    * fork): bags with PipelineInfoBag::dynLightSkipBaked never pick it. */
   void markDynLightBaked(int slot) {
+    DrawEpochs::lightsDirty();  // Modified by TyraX: stamp records
     if (slot >= 0 && slot < (int)DYN_LIGHTS_MAX) dynBakedMask |= 1u << slot;
   }
 

@@ -6,7 +6,7 @@
   "projectId": "37403cbc0de6c648",
   "settings": {
     "framePipeline": true,
-    "videoSystem": "auto",
+    "videoSystem": "ntsc",
     "displayMode": "interlaced",
     "widescreen": false,
     "buildProfile": "release",

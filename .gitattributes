@@ -111,3 +111,6 @@ tools/verify-* text=auto eol=lf
 
 # Shell scripts run under bash (Git Bash / WSL): LF regardless of autocrlf.
 tools/ps2rig/*.sh text eol=lf
+tools/ps2rig/physics/*.sh text eol=lf
+# The physics rig applies this patch to an engine copy; it must keep its LF and its context lines verbatim.
+tools/ps2rig/physics/engine/rig-base.patch eol=lf -whitespace

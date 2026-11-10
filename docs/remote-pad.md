@@ -196,7 +196,7 @@ click edges are derived from the previous overlay and two sources sharing one
 history would each read as the other releasing everything.
 
 Under PCSX2 the game polls the file every frame (`host:` is a host syscall
-there). **On a console it does not open the file at all** (since 2.11.0): the
+there). **On a console it does not open the file at all** (since 2.15.0): the
 game loads devlink, a small IOP module, and the editor sends the same 36 bytes
 as a UDP datagram to the console (port 18198) next to every file write. The IOP
 DMAs each datagram into a mailbox in EE RAM, and the game reads that every frame

@@ -5,7 +5,7 @@
   "template": "fpp",
   "projectId": "106bc4d00dad4897",
   "settings": {
-    "videoSystem": "auto",
+    "videoSystem": "ntsc",
     "displayMode": "progressive",
     "palFullHeight": true,
     "colorDepth": "16bit",

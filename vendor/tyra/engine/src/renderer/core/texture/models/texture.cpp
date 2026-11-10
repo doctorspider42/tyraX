@@ -7,7 +7,10 @@
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 # Modified by TyraX: link changes bump Texture::linkGeneration.
+# Modified by TyraX: wrap changes move the stamp records' texture epoch.
 */
+
+#include "renderer/core/draw_epochs.hpp"  // Modified by TyraX
 
 #include <iomanip>
 #include <draw_buffers.h>
@@ -174,6 +177,7 @@ u32 Texture::getTextureSize() const {
 }
 
 void Texture::setDefaultWrapSettings() {
+  DrawEpochs::texturesChanged();  // Modified by TyraX: stamp records
   wrap.horizontal = WRAP_REPEAT;
   wrap.vertical = WRAP_REPEAT;
   wrap.maxu = 0;
@@ -185,6 +189,7 @@ void Texture::setDefaultWrapSettings() {
 void Texture::setWrapSettings(const TextureWrap t_horizontal,
                               const TextureWrap t_vertical, int minu, int minv,
                               int maxu, int maxv) {
+  DrawEpochs::texturesChanged();  // Modified by TyraX: stamp records
   wrap.horizontal = t_horizontal;
   wrap.vertical = t_vertical;
   wrap.minu = minu;

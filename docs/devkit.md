@@ -71,7 +71,7 @@ worked. This is functional validation, not a measured performance improvement.
 
 ## What the devkit costs at runtime
 
-**Since 2.11.0 most of what follows is history on a console**: a debug game
+**Since 2.15.0 most of what follows is history on a console**: a debug game
 under ps2link moves its polled channels - Remote Pad, the Live Debugger, Live
 Link, Live Logic, texture hot reload, the time machine - and its log lines
 off `host:` and onto the IOP ([devlink.md](devlink.md)). Measured on a PS2
@@ -232,7 +232,7 @@ The handler hooks address errors, bus errors, reserved instructions,
 coprocessor-unusable, overflow, traps **and the TLB causes** (1–3). A PS2 has no
 demand paging — RAM, its uncached windows and the scratchpad are mapped by fixed
 entries at boot — so a TLB refill always means an access to nothing: a null or
-wild pointer, the most ordinary C++ bug there is. Before 2.11.0 those causes were
+wild pointer, the most ordinary C++ bug there is. Before 2.15.0 those causes were
 handed back to the kernel, so exactly that bug produced no `bin/crash.txt` and
 no TYRAX banner, only ps2link's own register dump. Now the console log says
 

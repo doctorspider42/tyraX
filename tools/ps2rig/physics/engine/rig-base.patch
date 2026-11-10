@@ -1,0 +1,345 @@
+diff --git a/inc/debug/frame_profile.hpp b/inc/debug/frame_profile.hpp
+--- a/inc/debug/frame_profile.hpp
++++ b/inc/debug/frame_profile.hpp
+@@ -40,7 +40,7 @@
+  * out and calibrate existing loop/presentation clock sampling separately.
+  */
+ #ifndef TYRA_FRAME_PROFILE
+-#define TYRA_FRAME_PROFILE 0
++#define TYRA_FRAME_PROFILE 2
+ #endif
+ 
+ /**
+@@ -204,16 +204,26 @@
+  */
+ extern u32 tPre;
+ // LATEPROBE (rig): GPU waits by game phase.
+-struct LateEvent { u32 frame; u16 phase, kind; u32 ticks; };
++struct LateEvent { u32 frame; u16 phase, kind; u32 ticks; u32 ra; };
++extern volatile u32 probeRa;
+ extern volatile int probePhase;
+ extern volatile u32 probeFrame;
+ extern LateEvent lateRing[512];
+ extern volatile u32 probeGpuWait[4];
+ extern u32 lateCount;
++extern volatile u32 probePresentEnd;
++extern volatile u32 probeArenaBytes;
++extern volatile bool probeMuteEngineLog;
++extern volatile u32 probeAfterGame, probeAfterInfo;
++inline void lateRecordRaw(u16 kind, u32 ticks) {
++  if (ticks < 884736) return;  // < 3 ms
++  LateEvent& e = lateRing[lateCount++ & 511];
++  e.frame = probeFrame; e.phase = (u16)probePhase; e.kind = kind; e.ticks = ticks; e.ra = probeRa;
++}
+ inline void lateRecord(u16 kind, u32 ticks) {
+-  if (ticks < 29491) return;  // < 0.1 ms
++  if (ticks < 29491 || probePhase == 21) return;  // < 0.1 ms, or the regular present in endFrame
+   LateEvent& e = lateRing[lateCount++ & 511];
+-  e.frame = probeFrame; e.phase = (u16)probePhase; e.kind = kind; e.ticks = ticks;
++  e.frame = probeFrame; e.phase = (u16)probePhase; e.kind = kind; e.ticks = ticks; e.ra = probeRa;
+ }
+ extern u32 tStall;
+ extern u32 tPeriod;
+diff --git a/src/debug/frame_profile.cpp b/src/debug/frame_profile.cpp
+--- a/src/debug/frame_profile.cpp
++++ b/src/debug/frame_profile.cpp
+@@ -45,6 +45,11 @@
+ LateEvent lateRing[512];
+ volatile u32 probeGpuWait[4];
+ u32 lateCount = 0;
++volatile u32 probePresentEnd = 0;
++volatile u32 probeArenaBytes = 0;
++volatile bool probeMuteEngineLog = false;
++volatile u32 probeRa = 0;
++volatile u32 probeAfterGame = 0, probeAfterInfo = 0;
+ u32 tStall = 0;
+ u32 tPeriod = 0;
+ 
+diff --git a/src/renderer/core/paths/path1/vif1_queue.cpp b/src/renderer/core/paths/path1/vif1_queue.cpp
+--- a/src/renderer/core/paths/path1/vif1_queue.cpp
++++ b/src/renderer/core/paths/path1/vif1_queue.cpp
+@@ -789,6 +789,10 @@
+ 
+ void Vif1Queue::waitFor(u32 sequence) {
+   if (!sequence) return;
++  FrameProfile::probeRa = reinterpret_cast<u32>(__builtin_return_address(0));
++  u32 lateT0_;
++  __asm__ volatile("mfc0 %0, $9" : "=r"(lateT0_));
++  struct LateEnd_ { u32 t0; ~LateEnd_() { u32 t; __asm__ volatile("mfc0 %0, $9" : "=r"(t)); FrameProfile::lateRecord(10, t - t0); } } lateEnd_{lateT0_};
+   flushRecording();
+ #if TYRA_VIF1_QUEUE_HOLD
+   if (static_cast<s32>(completed - sequence) < 0) releaseHeld();
+@@ -802,6 +806,7 @@
+ }
+ 
+ void Vif1Queue::drain() {
++  FrameProfile::probeRa = reinterpret_cast<u32>(__builtin_return_address(0));
+   u32 lateT0_;
+   __asm__ volatile("mfc0 %0, $9" : "=r"(lateT0_));
+   struct LateEnd_ { u32 t0; ~LateEnd_() { u32 t; __asm__ volatile("mfc0 %0, $9" : "=r"(t)); FrameProfile::lateRecord(2, t - t0); } } lateEnd_{lateT0_};
+@@ -1054,6 +1059,7 @@
+   HardwareTrace::Scope traceFlush("NativeFlush", HardwareTrace::Kind::Span, false);
+   const u32 qwords = nativeWriter->finish();
+   completeBeforeSubmission();
++  if (FrameProfile::probePhase == 21) FrameProfile::lateRecordRaw(12, FrameProfile::ticks() - FrameProfile::probePresentEnd);
+   // Previous presentation consumed its bit before this prefix starts. Only
+   // the final prefix emits FINISH, so overflow prefixes can clear it safely.
+   if (framePipelined) *GS_REG_CSR |= 2;
+@@ -1079,6 +1085,7 @@
+   { HardwareTrace::Scope trace("CacheWriteback", HardwareTrace::Kind::Span, true);
+     FlushCache(0); }
+ #endif
++  if (FrameProfile::probePhase == 21) FrameProfile::lateRecordRaw(13, FrameProfile::ticks() - FrameProfile::probePresentEnd);
+   if (HardwareTrace::active) { HardwareTrace::Context saved = HardwareTrace::context();
+     auto current = saved; current.sequence = sequence;
+     HardwareTrace::setContext(current);
+@@ -1089,6 +1096,7 @@
+   nativeInFlight = sequence;
+   bankSequences[currentBank] = sequence;
+   ++nativeBatches;
++  if (FrameProfile::probePhase == 21) FrameProfile::lateRecordRaw(14, FrameProfile::ticks() - FrameProfile::probePresentEnd);
+ #endif
+ }
+ 
+@@ -1150,9 +1158,10 @@
+   static u32 frames = 0;
+   if (arenaFrameBytes > arenaMaxFrameBytes) arenaMaxFrameBytes = arenaFrameBytes;
+   if (arenaFrameBorrowed > arenaMaxBorrowed) arenaMaxBorrowed = arenaFrameBorrowed;
++  FrameProfile::probeArenaBytes = arenaFrameBytes;
+   arenaFrameBytes = 0;
+   arenaFrameBorrowed = 0;
+-  if (++frames % 120 == 0) {
++  if (++frames % 120 == 0 && !FrameProfile::probeMuteEngineLog) {
+     Info memoryInfo;
+     printf("FRAMEARENA frames=%lu peak=%lu resets=%lu fallbacks=%lu "
+            "maxFrameBytes=%lu maxBorrowed=%lu freeKiB=%lu\n",
+diff --git a/src/renderer/core/renderer_core.cpp b/src/renderer/core/renderer_core.cpp
+--- a/src/renderer/core/renderer_core.cpp
++++ b/src/renderer/core/renderer_core.cpp
+@@ -500,6 +500,10 @@
+   Vif1Queue::setRuntimePipeline(on);
+ }
+ 
++// Modified by TyraX: how long the last present waited - the idle time
++
+ void RendererCore::completePipelineFrameThunk(void* user) {
+   static_cast<RendererCore*>(user)->completePipelineFrame();
+ }
+@@ -521,8 +525,9 @@
+   gs.setRecordingContext(pipelineContext);
+   // The final FLUSHA/DIRECT FINISH was recorded in this job's sole chain.
+   // Wait its GS tail, then consume the exclusive event before the next job.
+-  sync.waitAndClear();
++  { u32 gs0_; __asm__ volatile("mfc0 %0, $9" : "=r"(gs0_)); sync.waitAndClear(); u32 gs1_; __asm__ volatile("mfc0 %0, $9" : "=r"(gs1_)); FrameProfile::probeGpuWait[3] += gs1_ - gs0_; }
+   HardwareTrace::Scope tracePacing("Present", HardwareTrace::Kind::Pacing, false);
+   u32 t0, t1;
+   __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
+   if (gs.getFrameBufferCount() < 3 && isFrameLimitOn) graph_wait_vsync();
+@@ -538,6 +544,7 @@
+   FrameProfile::tPeriod = FrameProfile::prevPresentEnd ?
+                          t1 - FrameProfile::prevPresentEnd : 0;
+   FrameProfile::prevPresentEnd = t1;
++  FrameProfile::probePresentEnd = t1;
+ #endif
+ }
+ 
+@@ -651,6 +658,7 @@
+   }
+   { HardwareTrace::Scope trace("PostFx", HardwareTrace::Kind::Span, false); applyPostFx(); }
+   Vif1Queue::endRecordingFrame();
++  if (FrameProfile::probePhase == 21) FrameProfile::lateRecordRaw(15, FrameProfile::ticks() - FrameProfile::probePresentEnd);
+   if (pipelineFrameActive) {
+     pipelineContext = recordingContext;
+     pipelineSequence = Vif1Queue::lastSequence();
+@@ -667,7 +675,9 @@
+     FrameProfile::tExcluded = 0;
+ #endif
+     texture.traceFrame();
++  if (FrameProfile::probePhase == 21) FrameProfile::lateRecordRaw(16, FrameProfile::ticks() - FrameProfile::probePresentEnd);
+     Vif1Queue::arenaFrameEnd();
++  if (FrameProfile::probePhase == 21) FrameProfile::lateRecordRaw(17, FrameProfile::ticks() - FrameProfile::probePresentEnd);
+     frameMeasurementActive = false;
+     return;
+   }
+@@ -718,12 +729,14 @@
+     __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+     stallAccum += t1 - t0;
+     stallTotal += t1 - t0;
+ #if TYRA_FRAME_PROFILE
+     FrameProfile::tStall = t1 - t0;
+     FrameProfile::tPeriod = FrameProfile::prevPresentEnd != 0
+                                 ? t1 - FrameProfile::prevPresentEnd
+                                 : 0;
+     FrameProfile::prevPresentEnd = t1;
++  FrameProfile::probePresentEnd = t1;
+ #endif
+   }
+   frameMeasurementActive = false;
+diff --git a/src/engine.cpp b/src/engine.cpp
+--- a/src/engine.cpp
++++ b/src/engine.cpp
+@@ -12,6 +12,7 @@
+ 
+ #include "debug/hardware_trace.hpp"
+ #include "engine.hpp"
++#include "debug/frame_profile.hpp"
+ #include "debug/sifrpc_guard.hpp"
+ #include <kernel.h>
+ 
+@@ -40,7 +41,12 @@
+   { HardwareTrace::Scope trace("Pad", HardwareTrace::Kind::Span, false); pad.update(); }
+   if (kbdMouse.isEnabled()) kbdMouse.update();
+   { HardwareTrace::Scope trace("Game", HardwareTrace::Kind::Span, false); game->loop(); }
++  FrameProfile::probeAfterGame = FrameProfile::ticks();
+   { HardwareTrace::Scope trace("Info", HardwareTrace::Kind::Span, false); info.update(); }
++  FrameProfile::probeAfterInfo = FrameProfile::ticks();
+   // One compare per frame unless the guard has actually dropped something.
+   SifRpcGuard::report();
+   HardwareTrace::endFrame();
+diff --git a/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp b/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
+--- a/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
++++ b/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
+@@ -517,6 +517,21 @@
+    * (kRefreshStreak + 1)-th rapid move on, as before.
+    */
+   static const u32 kRefreshStreak = 3;
++  // SHINEPROBE: rig-only counters + churn-gap knob (game sets it at boot).
++  static inline u32 probeRefresh = 0, probeChurn = 0, probeRebuild = 0;
++  static inline u32 probeChurnGap = 2;
++  static inline u32 probeRefreshQw = 0;
++  static inline u32 probeRefreshTicks = 0;
++  static inline u32 probeRefreshCounts[32] = {}, probeRefreshN = 0;
++  static inline u32 probeRefreshPtr[32] = {};
++  static inline u32 probePatch = 0;
++  struct ProbeEv { u32 frame, kind, ptr, count, qw, ticks; };
++  static inline u32 probeArm = 0, probeFrame = 0, probeEvN = 0;
++  static inline ProbeEv probeEv[768];
++  static void probeNote(u32 kind, const void* ptr, u32 count, u32 qw, u32 ticks) {
++    if (!probeArm || probeEvN >= 768) return;
++    probeEv[probeEvN++] = {probeFrame, kind, reinterpret_cast<u32>(ptr), count, qw, ticks};
++  }
+   static const u32 kSettleFrames = 3;
+   u32 takeChurnSkips() { const u32 v = churnSkips; churnSkips = 0; return v; }
+   /** Modified by TyraX: bumped by clear(), when every entry goes at once. */
+@@ -958,13 +973,10 @@
+                      bool partial = false);
+   /** Modified by TyraX: StaPipCore::prebakeBag's half - the bake with no
+    * draw. */
+   bool prebakeBag(StaPipBag* bag, u32 packageSize);
+   /** Modified by TyraX: the packet buffers exist only between
+    * allocateOnUse and deallocateOnUse. A bake ahead of the frame can run
+    * before the game first selects this pipeline (its first frame), and
+    * setMaxVertCount then wrote through no buffers: a TLB exception on the
+    * console at boot. */
+   bool isAllocated() const { return buffers != nullptr; }
++  u32 probeBakedBytes() const { return baked.getBytes(); }
++  u32 probeRetainedBytes() const { return retained.getBytes(); }
+ #if TYRA_STAPIP_PREPARED_STATIC
+   bool prepareStaticGeometry(StaPipBag* bag, u32 packageSize, u32 clipSize);
+   void releasePreparedGeometry() { baked.releaseScenePins(); }
+diff --git a/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp b/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+--- a/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
++++ b/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+@@ -796,7 +796,7 @@
+       // kChurnGapFrames still goes to the churn damping below, as before.
+       if (TYRA_STAPIP_PAYLOAD_REFRESH && item.complete && item.arena != nullptr &&
+           !item.churning &&
+-          (frameNow - item.lastRebuildFrame > kChurnGapFrames || item.moveStreak < kRefreshStreak) &&
++          (frameNow - item.lastRebuildFrame > probeChurnGap || item.moveStreak < kRefreshStreak) &&
+           item.runsValid && item.count == key.count &&
+           item.packages == key.packages && item.sts == key.sts &&
+           item.colors == key.colors && item.normals == key.normals &&
+@@ -811,6 +811,10 @@
+ #endif
+       ) {
+         const u32 qw = item.arenaQw;
++        u32 spT0_; asm volatile("mfc0 %0, $9" : "=r"(spT0_));
++        const bool spBbox_ = item.bboxVersion != key.bboxVersion;
++        u32 spMask_ = 0;
++        for (int k_ = 0; k_ < 4; ++k_) if (item.streamStamps[k_] != key.streamStamps[k_]) spMask_ |= 1u << k_;
+         if (reserve(qw)) {
+           std::unique_ptr<u8[]> raw(new u8[qw * 16 + 15]);
+           qword_t* arena = reinterpret_cast<qword_t*>(
+@@ -846,12 +850,17 @@
+           item.contentVersion = key.contentVersion;
+           for (int k = 0; k < 4; ++k) item.streamStamps[k] = key.streamStamps[k];
+           item.serial = ++serialNext;  // the arena moved
+-          item.moveStreak = frameNow - item.lastRebuildFrame > kChurnGapFrames
++          item.moveStreak = frameNow - item.lastRebuildFrame > probeChurnGap
+                                 ? 1
+                                 : (u8)(item.moveStreak + 1);
+           item.lastRebuildFrame = frameNow;
+           item.refreshed = 1;
+           ++colourRefreshes;
++          ++probeRefresh;
++          { u32 t_; asm volatile("mfc0 %0, $9" : "=r"(t_)); probeRefreshTicks += t_ - spT0_; probeNote(1, key.vertices, key.count, qw, t_ - spT0_); }
++          probeRefreshQw += qw;
++          if (probeRefreshN < 32) probeRefreshPtr[probeRefreshN] = reinterpret_cast<u32>(key.colors);
++          if (probeRefreshN < 32) probeRefreshCounts[probeRefreshN++] = item.count | (spBbox_ ? 0x10000u : 0u) | (spMask_ << 17) | ((frameNow & 0x7FFu) << 21);
+           return &item;
+         }
+       }
+@@ -871,14 +880,17 @@
+             item.settled = 0;
+           }
+         } else if (payloadMoved && item.complete &&
+-                   frameNow - item.lastRebuildFrame <= kChurnGapFrames) {
++                   frameNow - item.lastRebuildFrame <= probeChurnGap) {
+           item.churning = 1;
++          probeNote(3, key.vertices, key.count, key.maxVertCount, (key.program ? (u32)static_cast<const StaPipVU1Program*>(key.program)->getName() : 999u));
+           item.seenBBoxVersion = key.bboxVersion;
+           item.seenContentVersion = key.contentVersion;
+           item.settled = 0;
+         }
+         if (item.churning) {
+           ++churnSkips;
++          ++probeChurn;
++          probeNote(2, key.vertices, key.count, 0, 0);
+           return nullptr;  // not baked this frame; the retained route draws it
+         }
+         if (payloadMoved) item.lastRebuildFrame = frameNow;
+@@ -919,6 +931,8 @@
+           item.complete = 0;
+           item.patching = 1;
+           ++patches;
++          ++probePatch;
++          probeNote(5, key.vertices, key.count, 0, 0);
+           return &item;
+         }
+       }
+@@ -930,6 +944,7 @@
+       // bag that invalidates at a frozen pose is either a caller lying about
+       // its contents or a second pass over one array, and those want opposite
+       // answers - so the readout has to distinguish them by name.
++      ++probeRebuild;
+       MissReason reason = MissCountOrSize;
+       if (item.bboxVersion != key.bboxVersion)
+         reason = MissBBoxVersion;
+@@ -945,6 +960,7 @@
+                item.programAddr != key.programAddr)
+         reason = MissProgram;
+       countMiss(reason);
++      probeNote(10 + (u32)reason, key.vertices, key.count, key.maxVertCount, (key.program ? (u32)static_cast<const StaPipVU1Program*>(key.program)->getName() : 999u));
+       noteLoud(reason, key.count, key.packages);
+       item.serial = ++serialNext;  // Modified by TyraX: stamps - arena moves
+       retire(item);
+@@ -985,6 +1001,7 @@
+   // frozen pose this should happen once per bag and never again; repeatedly is
+   // a caller whose vertex array itself moves, which no key can cache.
+   countMiss(MissNewEntry);
++  probeNote(6, key.vertices, key.count, key.maxVertCount, (key.program ? (u32)static_cast<const StaPipVU1Program*>(key.program)->getName() : 999u));
+   noteLoud(MissNewEntry, key.count, key.packages);
+ 
+   std::unique_ptr<StaPipBakedEntry> entry(new StaPipBakedEntry());
+diff --git a/inc/renderer/3d/pipeline/static/core/stapip_core.hpp b/inc/renderer/3d/pipeline/static/core/stapip_core.hpp
+--- a/inc/renderer/3d/pipeline/static/core/stapip_core.hpp
++++ b/inc/renderer/3d/pipeline/static/core/stapip_core.hpp
+@@ -110,6 +110,8 @@
+       }
+     }
+   };
++  u32 probeBakedBytes() const { return qbufferRenderer.probeBakedBytes(); }
++  u32 probeRetainedBytes() const { return qbufferRenderer.probeRetainedBytes(); }
+   /**
+    * Modified by TyraX: bounded batching for caller-owned immutable bag
+    * streams. Every begin must be paired with end; referenced streams remain

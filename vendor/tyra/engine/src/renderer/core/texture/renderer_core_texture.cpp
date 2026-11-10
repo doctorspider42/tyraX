@@ -11,11 +11,13 @@
 # newcomer fits (see pickVictim) and reports what it did through
 # RendererCoreVRamStats / traceFrame(). Backed by the free-list heap in
 # renderer_core_gs_vram - see docs/gs-vram.md.
+# Modified by TyraX: stamp record epochs (docs/dod-submission.md, phase 3).
 */
 
 #include <string>
 #include <vector>
 #include "renderer/core/texture/renderer_core_texture.hpp"
+#include "renderer/core/draw_epochs.hpp"  // Modified by TyraX
 #include "debug/debug.hpp"
 
 namespace Tyra {
@@ -102,6 +104,7 @@ void RendererCoreTexture::evictAll() {
   for (int i = currentAllocations.size() - 1; i >= 0; i--)
     sender.deallocate(currentAllocations[i]);
   currentAllocations.clear();
+  DrawEpochs::texturesChanged();  // Modified by TyraX: stamp records
   updateClutBuffer(nullptr);
 }
 
@@ -262,6 +265,7 @@ void RendererCoreTexture::makeRoomFor(const Texture* t_tex) {
 #endif
     sender.deallocate(currentAllocations[victim]);
     currentAllocations.erase(currentAllocations.begin() + victim);
+    DrawEpochs::texturesChanged();  // Modified by TyraX: stamp records
     stats.evictions++;
     evictedAny = true;
   }
@@ -365,6 +369,7 @@ RendererCoreTextureBuffers RendererCoreTexture::updateTextureInfo(
   auto allocated = getAllocatedBuffersByTextureId(t_tex->id);
   TYRA_ASSERT(allocated.id != 0, "Can't update an unallocated texture!");
 
+  DrawEpochs::texturesChanged();  // Modified by TyraX: stamp records
   beforeMutation();
   path3->sendTexture(t_tex, allocated, gs->currentTextureWrap());
   return allocated;
@@ -412,6 +417,7 @@ void RendererCoreTexture::unregisterAllocation(const u32& textureId) {
   for (u32 i = 0; i < currentAllocations.size(); i++) {
     if (currentAllocations[i].id == textureId) {
       currentAllocations.erase(currentAllocations.begin() + i);
+      DrawEpochs::texturesChanged();  // Modified by TyraX: stamp records
       return;
     }
   }

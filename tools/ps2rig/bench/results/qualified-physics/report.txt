@@ -1,0 +1,34 @@
+==== state1.p2s
+VIF0    CHCR=00000000 MADR=00000020 QWC=0000 TADR=00000000 ASR0=00000000
+VIF1    CHCR=700000C5 MADR=0073B2E0 QWC=0000 TADR=0073B2D0 ASR0=00000000
+GIF     CHCR=00000081 MADR=00510400 QWC=0000 TADR=0050EDC0 ASR0=00000000
+fromSPR CHCR=00000000 MADR=00000000 QWC=0000 TADR=00000000 ASR0=00000000
+toSPR   CHCR=00000000 MADR=00000000 QWC=0000 TADR=00000000 ASR0=00000000
+
+2 VIF1 chain(s) ending in END within 0x200000 bytes below TADR 0073B2D0
+chain @0073A400: 236 tags {'cnt': 56, 'ref': 179, 'end': 1} | inline in the frame buffer 0.0 KB | referenced/called 510.6 KB | 0 calls to 0 distinct blocks
+chain @006AC060: 5 tags {'cnt': 3, 'ref': 1, 'end': 1} | inline in the frame buffer 0.2 KB | referenced/called 32.0 KB | 0 calls to 0 distinct blocks
+VIF codes carried in the largest chain's tags: {'NOP': 153, 'STCYCL': 121, 'UNPACK V4-32': 121, 'FLUSHE': 35, 'DIRECT': 14, 'FLUSH': 12, 'MSCNT': 7, 'MSCAL': 5, 'FLUSHA': 4}
+cnt sizes (qw) in its frame buffer: [(0, 55), (2, 1)]
+
+==== state2.p2s
+VIF0    CHCR=00000000 MADR=00000020 QWC=0000 TADR=00000000 ASR0=00000000
+VIF1    CHCR=700000C5 MADR=0085B360 QWC=0000 TADR=0085B350 ASR0=00000000
+GIF     CHCR=00000081 MADR=00510400 QWC=0000 TADR=0050EDC0 ASR0=00000000
+fromSPR CHCR=00000000 MADR=00000000 QWC=0000 TADR=00000000 ASR0=00000000
+toSPR   CHCR=00000000 MADR=00000000 QWC=0000 TADR=00000000 ASR0=00000000
+
+10 VIF1 chain(s) ending in END within 0x200000 bytes below TADR 0085B350
+chain @0073B770: 353 tags {'cnt': 95, 'ref': 257, 'end': 1} | inline in the frame buffer 0.0 KB | referenced/called 173.4 KB | 0 calls to 0 distinct blocks
+chain @0073A400: 236 tags {'cnt': 56, 'ref': 179, 'end': 1} | inline in the frame buffer 0.0 KB | referenced/called 510.6 KB | 0 calls to 0 distinct blocks
+chain @0085A480: 236 tags {'cnt': 56, 'ref': 179, 'end': 1} | inline in the frame buffer 0.0 KB | referenced/called 510.6 KB | 0 calls to 0 distinct blocks
+chain @0073CDA0: 130 tags {'ref': 94, 'cnt': 35, 'end': 1} | inline in the frame buffer 0.0 KB | referenced/called 74.2 KB | 0 calls to 0 distinct blocks
+chain @0073B380: 37 tags {'ref': 27, 'cnt': 9, 'end': 1} | inline in the frame buffer 0.0 KB | referenced/called 16.7 KB | 0 calls to 0 distinct blocks
+chain @0073B650: 16 tags {'cnt': 5, 'ref': 10, 'end': 1} | inline in the frame buffer 0.0 KB | referenced/called 0.9 KB | 0 calls to 0 distinct blocks
+chain @006AC060: 5 tags {'cnt': 3, 'ref': 1, 'end': 1} | inline in the frame buffer 0.2 KB | referenced/called 32.0 KB | 0 calls to 0 distinct blocks
+chain @0073B5F0: 4 tags {'cnt': 3, 'end': 1} | inline in the frame buffer 0.0 KB | referenced/called 0.0 KB | 0 calls to 0 distinct blocks
+chain @0073B2E0: 3 tags {'cnt': 2, 'end': 1} | inline in the frame buffer 0.0 KB | referenced/called 0.0 KB | 0 calls to 0 distinct blocks
+chain @0073B330: 3 tags {'cnt': 2, 'end': 1} | inline in the frame buffer 0.0 KB | referenced/called 0.0 KB | 0 calls to 0 distinct blocks
+VIF codes carried in the largest chain's tags: {'STCYCL': 246, 'UNPACK V4-32': 246, 'FLUSH': 59, 'NOP': 58, 'MSCNT': 36, 'FLUSHE': 24, 'MSCAL': 23, 'DIRECT': 11, 'FLUSHA': 3}
+cnt sizes (qw) in its frame buffer: [(0, 94), (2, 1)]
+

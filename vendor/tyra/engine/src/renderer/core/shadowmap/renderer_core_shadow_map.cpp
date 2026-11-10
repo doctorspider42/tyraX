@@ -7,7 +7,10 @@
 # Licensed under Apache License 2.0
 # Added by TyraX: projected silhouette shadows (per-object render targets).
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
+# Modified by TyraX: stamp record epochs (docs/dod-submission.md, phase 3).
 */
+
+#include "renderer/core/draw_epochs.hpp"  // Modified by TyraX
 
 #include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
@@ -75,6 +78,7 @@ void RendererCoreShadowMap::allocate() {
       textures[i] = new Texture(&data);
     }
     textures[i]->vramResident = &texBuffers[i];
+    DrawEpochs::texturesChanged();  // Modified by TyraX: stamp records
   }
 
   if (beginPacket == nullptr) {

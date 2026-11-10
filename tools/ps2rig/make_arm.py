@@ -48,7 +48,9 @@ edit(p, 'void Vif1Queue::flushRecording() {',
 edit(p, 'void Vif1Queue::waitFor(u32 sequence) {',
      'void Vif1Queue::waitFor(u32 sequence) {\n  Cld::S cldW("q.waitFor");')
 # ---- fine scopes inside StaPipCore::render ----
-if '--lean' not in sys.argv:
+# --pmu: the PMU counters of a full build without these fine scopes (their
+# anchors follow renderNow and go stale between rewrites).
+if '--lean' not in sys.argv and '--pmu' not in sys.argv:
     p = eng / 'src/renderer/3d/pipeline/static/core/stapip_core.cpp'
     edit(p, '  TYRA_ATTRIB_INC(renderCalls);\n', '  TYRA_ATTRIB_INC(renderCalls);\n  const Cld::M cldT0 = Cld::mark();\n')
     edit(p, '    if (frustumCheck == OUTSIDE_FRUSTUM) {\n', '    if (frustumCheck == OUTSIDE_FRUSTUM) {\n      Cld::span("c.culled", cldT0, Cld::mark());\n')
@@ -943,6 +945,21 @@ if '--objcensus' in sys.argv:
     sys.path.insert(0, str(rig))
     import objcensus
     objcensus.apply(proj, edit)
+
+# --gpuwait: the EE's waits on the GPU and the present split out (same
+# scopes as make_engine_probe.py --gpuwait; make_arm.py already has q.waitFor).
+if '--gpuwait' in sys.argv:
+    p = eng / 'src/renderer/core/paths/path1/vif1_queue.cpp'
+    edit(p, 'void Vif1Queue::drain() {',
+         'void Vif1Queue::drain() {\n  Cld::S cldD("q.drain");')
+    edit(p, '  while (tail - head >= kRingDepth) advanceIfIdle();\n',
+         '  if (tail - head >= kRingDepth) { Cld::S cldR("q.ringfull");\n'
+         '  while (tail - head >= kRingDepth) advanceIfIdle(); }\n')
+    p = eng / 'src/renderer/core/renderer_core.cpp'; include(p)
+    edit(p, '  sync.waitAndClear();\n',
+         '  { Cld::S cldGt("r.gstail"); sync.waitAndClear(); }\n')
+    edit(p, '  if (gs.getFrameBufferCount() < 3 && isFrameLimitOn) graph_wait_vsync();\n',
+         '  { Cld::S cldVs("r.vsync");\n  if (gs.getFrameBufferCount() < 3 && isFrameLimitOn) graph_wait_vsync(); }\n')
 
 if '--gputl' in sys.argv:
     sys.path.insert(0, str(rig))

@@ -285,6 +285,10 @@ served over ps2link, with Live Debugger/Remote Pad and the profiler enabled.
 
 ## Hardware tuning (1.78)
 
+Since 2.11.1 the project builds for NTSC (60 Hz, `videoSystem` "ntsc") on
+every console, so a PAL PS2 measures it against the same 16.7 ms frame as the
+other reference scenes. The PAL figures below were taken at 50 Hz.
+
 The scene retains full 512x448 output, now with 16-bit colour, GS dithering and
 triple buffering. This frees texture memory and avoids the two-buffer PAL
 frame-rate staircase. The supporting heightfield is disabled: model floors and

@@ -19078,6 +19078,7 @@ static const PrefIndexEntry kPrefIndex[] = {
     {"Texture atlasing", "Graphics", "Performance", "textureAtlas", true, "atlas"},
     {"Interleave batches and roads", "Graphics", "Performance", "interleavePasses", true, "objects"},
     {"Shiny vehicles at once", "Graphics", "Performance", "vehicleShineBudget", true, "reflection"},
+    {"Lite shine on other vehicles", "Graphics", "Performance", "vehicleShineLite", true, "reflection paint"},
     {"Triangle clipping", "Graphics", "Performance", "clipping", true, "triangles VU1 EE culling"},
     {"Animation LOD distance", "Graphics", "Detail at a distance", "animLodDistance", true, ""},
     {"Mesh LOD distance", "Graphics", "Detail at a distance", "meshLodDistance", true, ""},
@@ -20614,6 +20615,14 @@ void App::drawPreferencesWindow() {
         "within 35 units, the look before this setting.");
 
     prefRow("Shiny vehicles at once");
+    ui::Switch("Lite shine on other vehicles", &prefSettings_.vehicleShineLite);
+    prefHelp(
+        "Cars you are not driving reflect only on the panels that face the\n"
+        "sky (roof, bonnet, boot, front and rear glass), with a steady sheen\n"
+        "instead of the rim and highlight that follow the camera. Their\n"
+        "pass draws fewer vertices and is never rebuilt while the camera\n"
+        "turns. The driven car keeps the full shine.");
+    prefRow("Lite shine on other vehicles");
     int clipMode = prefSettings_.clipping == "fast"      ? 2
                    : prefSettings_.clipping == "precise" ? 1
                                                          : 0;

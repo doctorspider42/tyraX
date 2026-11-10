@@ -1037,7 +1037,7 @@ cycle helps. What is known (2026-11-07):
   thread (`SleepThread`) and its command thread keeps serving `reset`. So the
   power cycle is for HARD hangs only - an EE looping with interrupts off, a
   wedged bus - where no code of ours can run; devlink's watchdog now names
-  that case in the editor's log. (Side finding, fixed in 2.11.0: the Tyra
+  that case in the editor's log. (Side finding, fixed in 2.15.0: the Tyra
   crash handler wrote no `bin/crash.txt` on that fault, because it handed the
   TLB causes back to the kernel and so to ps2link's handler. It now takes them
   - see docs/devkit.md, "A null pointer is reported too" - and the same test

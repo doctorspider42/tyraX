@@ -493,6 +493,108 @@ Two consequences, both implemented:
   for VIF1 before every one of its ~120 submissions a frame — but that count is
   a property of the scene, not of this class, so the second frame is the margin.
 
+## Payload refresh, and baking ahead of the draw (2.11.0)
+
+**A baked block is headers plus verbatim payload.** Every per-vertex stream
+reaches it as a `REF` payload - a copy of the bag's array, word for word - and
+everything else in the block (the unpack headers, the GIFtag, the kick)
+follows from the key. So when a bag's payload moved and nothing structural
+did, the arena can be rebuilt in ONE pass: the non-payload words from the old
+arena, every payload run copied fresh from the bag's arrays. `bakeBlock`
+records the runs during a whole build (`StaPipBakedEntry::runs`: package,
+offset in the block, stream, first vertex, length); they count only when the
+runs of every present stream cover exactly `count` vertices and no `REF`
+payload was left unaccounted for. The refresh then re-copies ALL streams,
+whatever stamp moved - not every writer of an array stamps it (the env-normal
+normalisation of the VU1 paint experiment does not: the first gate run caught
+exactly that, one mismatch at quadword 82 when only the colours were
+re-copied), and a re-bake would have picked such writes up too.
+
+It replaces exactly the rebuilds that would have happened: a payload that
+moves again within `kChurnGapFrames` still goes to the churn damping, as
+before, so a bag rewritten every frame keeps the retained route. Measured on
+a physical PS2 with `TYRA_STAPIP_PATCH_VERIFY` 1 (which now also re-bakes
+after every refresh and compares): 1 609 refreshes in one minute of a
+car-on-car crash, 0 mismatches. A car's shine re-shade, a whole bake every
+few frames before (~2.3 ms for a 2 025-vertex body), is ~1 ms.
+`TYRA_STAPIP_PAYLOAD_REFRESH` 0 is the A/B control.
+
+### The refresh streak
+
+The churn rule sent a payload that moved twice within `kChurnGapFrames` to
+the retained route. That suits a bag rewritten every frame, and it does not
+suit a car crash: the body moves two or three times in consecutive frames
+(the dent, the broken lamps, the re-shaded paint) and then holds still. On a
+physical PS2 the crashed cars' bodies, shine passes and glass then drew
+through the retained route for five frames, 4-6.6 ms a frame, where a copy
+costs 1-3.5 ms. A payload refresh is now allowed for the first
+`kRefreshStreak` (3) moves in a row however close together; only the next
+rapid one starts the churn. `StaPipBakedEntry::moveStreak` counts them and
+starts over at 1 once a move comes more than `kChurnGapFrames` after the
+last. Measured with the always-refresh arm first (missed frames after the
+hit 5 -> 2-3), then with the streak in the crash fixture (docs/vehicles.md,
+"A hard hit, frame by frame"): the bags that churn after the hit went back
+from 10-12 to the 4-6 that churn while driving (the per-frame effects).
+
+**`StaPipCore::prebakeBag(bag)`** bakes a bag's stream now, without drawing
+it: the prim state and package size `render()` would use (fog and
+`setInfo`, `getMaxVertCountByBag`), `beginBakedBag` in its partial mode, which
+builds every block when the entry is not complete and submits nothing. Never
+while a frame is being recorded. A bag already baked costs one lookup and is
+kept resident. The vehicle runtime uses it for the full-detail tier of a car
+the camera is closing in on (docs/vehicles.md); the key must match the draw
+exactly, and for a car's shine bag that took three tries - the matte-suffix
+`count` (VEHICLE_ENV_LIMITS) and the paint pass's texture function, which
+selects the program, are both set at draw time.
+
+## Patch rebake: a bag that changed in a few places (2.11.0)
+
+The payload refresh above covers this case more cheaply wherever its runs are
+valid; the patch path remains for entries whose runs are not.
+
+A car dent rewrites a few hundred vertices of a ~3 400-vertex body, and the
+key (`bboxVersion`, the content stamps) then threw the whole arena away: on a
+physical PS2 the next draw of that body cost ~7-11 ms of EE (the packet
+writers plus the transcode plus the copy, for every package), against ~1.4 ms
+for the replay. A dent touches 16-25 of the body's 46-49 packages, spread over
+the whole index range, so a contiguous dirty range would not have helped; a
+per-vertex map does.
+
+`StaPipBagPatch` is the owner's promise about ONE change: "between the state
+keyed (fromBBox, fromStamps) and the state keyed (toBBox, toStamps), only the
+vertices marked in `dirty` changed". `StaPipBag::patch` points at it.
+`StaPipBakedStreams::acquire` takes it only when the entry is complete and
+holds EXACTLY the FROM state, the request is EXACTLY the TO state, and nothing
+else in the key moved (streams, program, prim state, package count, depth
+scale); then `patchBakedBag` re-bakes the packages holding a dirty vertex with
+the ordinary writers (the `preparePartialBakedBag` loop) and copies every other
+block from the old arena into a new one. The old arena is NEVER patched in
+place - it is live DMA memory a frame snapshot may still borrow - and leaves
+through `retireArena`, the same graveyard as `retire`. Anything outside the
+promise fails the comparison and the bag rebuilds whole, so a stale patch is
+harmless.
+
+`TYRA_STAPIP_PATCH_VERIFY` 1 bakes the WHOLE bag again after every patch and
+compares it with the patched arena word for word (`PATCHVERIFY`). On a physical
+PS2, ten patches in a car-on-car crash (bodies of 46 and 49 packages, 16-25
+re-baked; three small parts): ten exact matches. With the gate off, a dented
+Ravager's next draw costs ~2.0-2.3 ms instead of ~7-11.
+
+The generated vehicle runtime is the one owner today (`vehPatchBegin` /
+`vehPatchEnd` around `vehicleDentApply` and `vehiclePiecesCollapse`):
+the first rewrite of a frame records the bags' FROM state, later ones in the
+same frame add to the dirty map, and the TO state is recorded after the bbox
+stamp moved.
+
+**Measured dead end - deferring the first bake.** Baking a new entry only on
+its second sighting with an unchanged payload (the retained route meanwhile)
+was meant to save the two whole bakes a freshly switched-on paint pass pays
+before the churn damping sees it move twice. On the console it was WORSE: the
+car cost 9.4 / 9.5 / 7.8 ms in the three frames instead of 7.5 / 7.2 / 0.5,
+because the retained route builds its own blocks under the same `bboxVersion`
+key and is not cheaper than a bake for a bag that is new to both caches.
+Reverted.
+
 ## Scope of the spike
 
 Only the **direct, wholly-visible cull route**: the branch in
