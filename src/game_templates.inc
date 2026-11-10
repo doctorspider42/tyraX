@@ -5865,7 +5865,7 @@ void TerrainGame::loop() {
   // The renderer's two 0.5 ms frame sleeps only while the editor's Live
   // Debugger is attached (RendererCore::setFrameYield): -1.05 ms a frame
   // everywhere else, measured on a PS2.
-  engine->renderer.core.setFrameYield(livedbg::attached());
+  engine->renderer.core.setFrameYield(livedbg::needsFrameYield());
   const bool dbgHalted = livedbg::halted();
   const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
@@ -8240,7 +8240,7 @@ void TerrainGame::loop() {
   // The renderer's two 0.5 ms frame sleeps only while the editor's Live
   // Debugger is attached (RendererCore::setFrameYield): -1.05 ms a frame
   // everywhere else, measured on a PS2.
-  engine->renderer.core.setFrameYield(livedbg::attached());
+  engine->renderer.core.setFrameYield(livedbg::needsFrameYield());
   const bool dbgHalted = livedbg::halted();
   const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay

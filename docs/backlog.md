@@ -22,11 +22,20 @@ All five phases are in and verified on a PS2 (docs/devlink.md). Left:
   looked at with a console attached, the stream has not run in a GS-heavy
   scene (where each picture costs that frame its EE/GPU overlap), in a 16-bit
   or interlaced display mode, or with music playing.
-- **The frame yield while the debugger is attached** (`setFrameYield`, +1 ms
-  a frame) guards a hang whose trigger was the attached debugger's `host:`
-  writes from the main thread - which devlink removed on a console. Worth one
-  10-minute `showcase` run with music and the yield off under devlink; a
-  wedge needs a power cycle, so only with someone at the console.
+- **The frame yield is off while devlink carries the debugger's reports**
+  (`livedbg::needsFrameYield`, 2026-11-10): the hang it guards needed the
+  attached debugger's `host:` writes from the main thread, and devlink removed
+  them on a console. One run on a PS2: `showcase`, music streaming over
+  ps2link, debugger attached, yield off - 14 minutes clean (42 000 frames at
+  50 fps, reports arriving throughout), where the sleepless loop used to hang
+  in about a minute. Owed: a second run, a listen (nobody heard the music),
+  and the control arm - the old hang was never reproduced on today's engine,
+  so "devlink removed the trigger" is the likely reading, not a proven one.
+  The mechanism of the original hang is still not found.
+- **The IOP watchdog cries wolf during a long scene load**: `showcase` logged
+  "the game silent for 3 s" while loading (no frame, so no pump, so no
+  heartbeat) and ran on fine. The heartbeat needs to come from the loading
+  loop too, or the editor should not call it a crash before the first frame.
 - **Hard hangs** (an EE looping with interrupts off, a wedged bus) still need a
   power cycle - no software path exists; the watchdog now says when that is
   the case.

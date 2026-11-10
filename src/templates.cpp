@@ -29413,6 +29413,12 @@ bool halted();
  * RendererCore::setFrameYield. */
 bool attached();
 
+/** True while the renderer's frame yield has to stay on: the editor is
+ * attached AND its reports go out as host: writes from the main thread - the
+ * combination that hung a console with music streaming (docs/backlog.md).
+ * With devlink carrying the reports there is no such write, so no yield. */
+bool needsFrameYield();
+
 /** True for the one frame in which the editor asked to force-fire this node
  * (Debugger > "Fire"), OR'd into the node's own trigger condition. */
 bool forced(int key);
@@ -29465,6 +29471,7 @@ inline unsigned int takeRenderCostRequest() { return 0; }
 inline bool writeDevFile(const char*, const void*, int) { return false; }
 inline bool halted() { return false; }
 inline bool attached() { return false; }
+inline bool needsFrameYield() { return false; }
 inline bool forced(int) { return false; }
 inline void timer(int, int) {}
 inline void factWrite(int, float, int) {}
@@ -30821,6 +30828,19 @@ void hit(int key) {
 
 bool halted() { return haltedFrame; }
 bool attached() { return editorAttached; }
+
+bool needsFrameYield() {
+  const bool need = editorAttached && !Tyra::DevLink::active();
+  // Once, so a console log says which arm a run was.
+  static bool said = false;
+  if (editorAttached && !said) {
+    said = true;
+    TYRA_LOG("Live Debugger attached: frame yield ", need ? "on" : "off",
+             need ? " - reports are host: writes"
+                  : " - devlink carries the reports");
+  }
+  return need;
+}
 
 bool forced(int key) {
   for (int i = 0; i < forcedCount; ++i)
