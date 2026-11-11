@@ -4443,6 +4443,18 @@ private:
     void dbgDrawScreenLive(bool live);
     void drawLivePreviewWindow();
     void dbgReadVuCapture();
+    // Debugger > VU1 > Frame: the geometry of one whole frame (bin/vuframe.bin,
+    // docs/devkit.md "A frame's geometry") as a wireframe over the picture.
+    vucap::Frame dbgVuFrame_;
+    long long dbgVuFrameKey_ = -1;     // frame number + size of the file decoded
+    bool dbgVuFrameWaiting_ = false;
+    bool dbgVuPacketMode_ = false;     // false = Frame (the default), true = Packet
+    bool dbgVuFramePicture_ = true;    // draw the last Still capture under it
+    int dbgVuFrameSel_ = -1;           // the flush picked in the list / canvas
+    float dbgVuFrameZoom_ = 1.0f;
+    ImVec2 dbgVuFramePan_ = ImVec2(0, 0);
+    void dbgReadVuFrame();
+    void dbgDrawVuFrame(bool live);
     void dbgReadCrashReport();
     void dbgResolveCrashNames();
     // "The game stopped reporting": the devkit heartbeat died without a crash

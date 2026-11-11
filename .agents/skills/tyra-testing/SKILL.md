@@ -73,6 +73,7 @@ Never benchmark a Dev build or verify a bake with it (bakes take minutes at -O1)
 | `--ui-script [dir] "<script>"` (or `--file`/`--stdin`) | drive the EDITOR's UI by widget name, no focus |
 | `--record <dir> <out.tyrarep> --pad ".." [--seconds s]`, `--replay <dir> <file>` (0 same / 3 diverged / 1 error), `--replay-dump <file> [a b]` | input recording as a regression test |
 | `--capture-frame <dir> [-o out.png] [--alpha a.png] [--timeout s]` | the game's own screenshot (works over ps2link) |
+| `--dump-vuframe <dir> [--capture] [-o out.png] [--flip-y]` | the geometry of one whole frame (`bin/vuframe.bin`): per-flush runs / triangles / off-screen counts + a wireframe PNG; `--capture` asks the running game first |
 | `--profile-frame <dir> [-o report.csv]` | synchronized render costs |
 | `--debug-state [--verbose] [dir]` | what is being debugged on this machine right now |
 | `--symbolize <dir> 0x...`, `--audit-release <dir>` | addr2line on `bin/<name>.elf.sym`; prove a release ELF is devkit-free (exit 1 = leaked) |

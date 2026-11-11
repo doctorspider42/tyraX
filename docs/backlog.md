@@ -17,6 +17,12 @@ All five phases are in and verified on a PS2 (docs/devlink.md). Left:
 - **The re-ask after a lost datagram** (Debugger and `--capture-frame`) has
   only run when the file was lost for another reason; no real loss was seen
   in a dozen 1 MB transfers.
+- **A frame's geometry: next steps** (docs/devkit.md): object attribution (a
+  chain carries no object id - the game would have to tag each run), an
+  overdraw map, an orbitable 3D view from the depth, and running the host VU1
+  simulator per package so clipped and culled triangles show as VU1 leaves
+  them. Not tried on a heavy scene: Motor District's ~120 flushes may not fit
+  the 4 MB capture (it says TRUNCATED) and ~100 k lines have not been drawn.
 - **The controller is untested by hand** (2026-11-10): `gamepad.cpp`, the
   take / release rule and the three send modes compile and no controller was
   connected when they were built. The windows themselves (Live / Still, Pop

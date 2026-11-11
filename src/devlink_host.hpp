@@ -137,7 +137,7 @@ private:
 inline const char* const kMirroredFiles[] = {"livelink.bin", "livelogic.bin",
                                              "livetex.bin", "livetime.rst"};
 inline const char* const kGameWrittenFiles[] = {"livetime.bin", "frame.tga", "vucap.bin",
-                                                "rendercost.txt", "stream.bin"};
+                                                "rendercost.txt", "stream.bin", "vuframe.bin"};
 
 /** Pushes the mirrored bin/ files to the console: on any change (size or
  * time), and every couple of seconds regardless - the game may have booted

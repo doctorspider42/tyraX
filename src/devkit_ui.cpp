@@ -362,6 +362,240 @@ void App::dbgReadVuCapture() {
                          std::to_string(dbgVuCap_.triangleCount()) + " triangles";
 }
 
+// bin/vuframe.bin: every VU1 chain of one frame (docs/devkit.md, "A frame's
+// geometry"). Decoded once per capture; "new" is the frame number in its header
+// plus its size, not the timestamp (one-second resolution here).
+void App::dbgReadVuFrame() {
+    namespace fs = std::filesystem;
+    if (!hasProject_) return;
+    const fs::path path = fs::path(project_.dir) / "bin" / "vuframe.bin";
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) {
+        if (dbgVuFrameKey_ != -1) {
+            dbgVuFrameKey_ = -1;
+            dbgVuFrame_ = vucap::Frame();
+        }
+        return;
+    }
+    const long long size = (long long)f.tellg();
+    unsigned char head[12] = {};
+    f.seekg(0);
+    f.read(reinterpret_cast<char*>(head), sizeof(head));
+    if (f.gcount() != (std::streamsize)sizeof(head) || std::memcmp(head, "TXVF", 4) != 0) return;
+    uint32_t frame = 0;
+    std::memcpy(&frame, head + 8, 4);
+    const long long key = ((long long)frame << 32) ^ size;
+    if (key == dbgVuFrameKey_) return;
+    f.close();
+    vucap::Frame fr;
+    if (!vucap::loadFrame(path.string(), fr)) return;  // mid-write: the next tick
+    dbgVuFrameKey_ = key;
+    dbgVuFrame_ = std::move(fr);
+    dbgVuFrameWaiting_ = false;
+    dbgVuFrameSel_ = -1;
+    statusMessage_ = "Frame geometry: frame " + std::to_string(dbgVuFrame_.frame) + ", " +
+                     std::to_string(dbgVuFrame_.flushes.size()) + " flushes, " + std::to_string(dbgVuFrame_.tris) +
+                     " triangles sent";
+}
+
+// Debugger > VU1 > Frame: what the EE sent in one frame, drawn. Every triangle
+// of every chain, transformed on the host the way the microprograms do it -
+// BEFORE VU1 clips or culls anything, which is the point: the ones that end up
+// off screen were still built, sent and run.
+void App::dbgDrawVuFrame(bool live) {
+    const theme::Semantics& sem = theme::semantics();
+    if (!live) dbgVuFrameWaiting_ = false;
+    ImGui::SameLine();
+    if (ui::PrimaryButton("Capture frame geometry", 0.0f, live)) {
+        dbgCmd_.captureVuFrame = true;
+        dbgCmd_.captureFrame = true;  // the picture to draw it over
+        dbgCmdWritten_ = false;
+        dbgVuFrameWaiting_ = true;
+        dbgShotWaiting_ = true;
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Copies every VU1 chain of one frame, with the vertex blocks it references,\n"
+                          "and takes a picture of the frame to draw it over. One frame runs a little\n"
+                          "longer; on a real PS2 the data then travels through the IOP.");
+    if (dbgVuFrameWaiting_) {
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("waiting for the game...");
+    }
+    const vucap::Frame& f = dbgVuFrame_;
+    if (!f.loaded) {
+        ui::EmptyState(ui::Glyph::Box, "No frame captured yet",
+                       "Capture one to see every triangle the game sent to VU1 in a frame - drawn over the "
+                       "picture, flush by flush.");
+        return;
+    }
+    ImGui::SameLine();
+    ImGui::Checkbox("Picture", &dbgVuFramePicture_);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("Draw the last Still capture under the wireframe.");
+    ImGui::SameLine();
+    if (ui::GhostButton("Fit")) {
+        dbgVuFrameZoom_ = 1.0f;
+        dbgVuFramePan_ = ImVec2(0, 0);
+    }
+
+    const float tw = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3.0f) / 4.0f;
+    char v[64];
+    std::snprintf(v, sizeof(v), "%d", f.tris);
+    ui::StatTile("triangles sent", v, 4, tw);
+    ImGui::SameLine();
+    std::snprintf(v, sizeof(v), "%d (%d%%)", f.offscreen, f.tris ? f.offscreen * 100 / f.tris : 0);
+    ui::StatTile("off screen", v, f.tris && f.offscreen * 3 > f.tris ? 1 : 4, tw);
+    ImGui::SameLine();
+    std::snprintf(v, sizeof(v), "%d / %d", (int)f.flushes.size(), (int)f.draws.size());
+    ui::StatTile("flushes / runs", v, 4, tw);
+    ImGui::SameLine();
+    std::snprintf(v, sizeof(v), "%zu KB", f.bytes / 1024);
+    char cap[32];
+    std::snprintf(cap, sizeof(cap), "frame %u", f.frame);
+    ui::StatTile(cap, v, 4, tw);
+    if (f.truncated)
+        ui::NoteCard(1, "The game ran out of room for this capture: the last flushes are missing.");
+    if (f.behind > 0) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(sem.textDim, "%d triangle(s) reach behind the eye and are not drawn here - VU1 clips those.",
+                           f.behind);
+        ImGui::PopTextWrapPos();
+    }
+
+    // --- the canvas (left) and the flush list (right)
+    const float listW = scaled(210);
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    const ImVec2 cs(ImMax(scaled(160), avail.x - listW - ImGui::GetStyle().ItemSpacing.x), ImMax(scaled(180), avail.y));
+    const ImVec2 c0 = ImGui::GetCursorScreenPos();
+    const ImVec2 c1(c0.x + cs.x, c0.y + cs.y);
+    ImGui::InvisibleButton("Frame geometry canvas", cs,
+                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+    const bool hovered = ImGui::IsItemHovered();
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Right, 0.0f)) {
+        dbgVuFramePan_.x += ImGui::GetIO().MouseDelta.x;
+        dbgVuFramePan_.y += ImGui::GetIO().MouseDelta.y;
+    }
+    const float W = (float)f.renderWidth, H = (float)f.renderHeight;
+    // Fitted with room around the window: what misses the screen is part of
+    // the picture this view exists for.
+    const float fit = ImMin(cs.x / (W * 1.5f), cs.y / (H * 1.5f));
+    if (hovered && ImGui::GetIO().MouseWheel != 0.0f) {
+        const float old = dbgVuFrameZoom_;
+        dbgVuFrameZoom_ = ImClamp(dbgVuFrameZoom_ * std::pow(1.2f, ImGui::GetIO().MouseWheel), 0.25f, 24.0f);
+        // Zoom about the cursor.
+        const ImVec2 m = ImGui::GetIO().MousePos;
+        const ImVec2 centre(c0.x + cs.x * 0.5f + dbgVuFramePan_.x, c0.y + cs.y * 0.5f + dbgVuFramePan_.y);
+        const float k = dbgVuFrameZoom_ / old;
+        dbgVuFramePan_.x += (m.x - centre.x) * (1.0f - k);
+        dbgVuFramePan_.y += (m.y - centre.y) * (1.0f - k);
+    }
+    const float sc = fit * dbgVuFrameZoom_;
+    const ImVec2 centre(c0.x + cs.x * 0.5f + dbgVuFramePan_.x, c0.y + cs.y * 0.5f + dbgVuFramePan_.y);
+    auto S = [&](float gx, float gy) {
+        return ImVec2(centre.x + (gx - 2048.0f) * sc, centre.y + (gy - 2048.0f) * sc);
+    };
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(c0, c1, ImGui::GetColorU32(sem.field), ImGui::GetStyle().ChildRounding);
+    dl->PushClipRect(c0, c1, true);
+    const ImVec2 w0 = S(f.winX0, f.winY0), w1 = S(f.winX1, f.winY1);
+    if (dbgVuFramePicture_ && dbgShotTex_ && dbgShotW_ == f.renderWidth && dbgShotH_ == f.renderHeight)
+        dl->AddImage((ImTextureID)(intptr_t)dbgShotTex_, w0, w1, ImVec2(0, 0), ImVec2(1, 1), IM_COL32(255, 255, 255, 150));
+    else
+        dl->AddRectFilled(w0, w1, IM_COL32(0, 0, 0, 255));
+
+    // Which flush is under the cursor: the smallest triangle that holds it.
+    int hoverFlush = -1, hoverDraw = -1;
+    if (hovered) {
+        const ImVec2 m = ImGui::GetIO().MousePos;
+        const float gx = (m.x - centre.x) / sc + 2048.0f, gy = (m.y - centre.y) / sc + 2048.0f;
+        float best = 1e30f;
+        for (size_t di = 0; di < f.draws.size(); ++di) {
+            const vucap::FrameDraw& d = f.draws[di];
+            for (size_t t = 0; t + 5 < d.xy.size(); t += 6) {
+                const float* p = &d.xy[t];
+                const float d1 = (gx - p[2]) * (p[1] - p[3]) - (p[0] - p[2]) * (gy - p[3]);
+                const float d2 = (gx - p[4]) * (p[3] - p[5]) - (p[2] - p[4]) * (gy - p[5]);
+                const float d3 = (gx - p[0]) * (p[5] - p[1]) - (p[4] - p[0]) * (gy - p[1]);
+                const bool neg = d1 < 0 || d2 < 0 || d3 < 0, pos = d1 > 0 || d2 > 0 || d3 > 0;
+                if (neg && pos) continue;
+                const float area = std::fabs((p[2] - p[0]) * (p[5] - p[1]) - (p[4] - p[0]) * (p[3] - p[1]));
+                if (area < best) {
+                    best = area;
+                    hoverFlush = d.flush;
+                    hoverDraw = (int)di;
+                }
+            }
+        }
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) dbgVuFrameSel_ = hoverFlush == dbgVuFrameSel_ ? -1 : hoverFlush;
+    }
+    // Plain lines: a heavy frame is a hundred thousand of them.
+    const ImDrawListFlags oldFlags = dl->Flags;
+    dl->Flags &= ~ImDrawListFlags_AntiAliasedLines;
+    const int n = (int)f.flushes.size();
+    for (const vucap::FrameDraw& d : f.draws) {
+        const bool sel = dbgVuFrameSel_ < 0 || dbgVuFrameSel_ == d.flush;
+        const bool hot = hoverFlush == d.flush;
+        const ImVec4 hsv = ImColor::HSV((float)((d.flush * 67) % 360) / 360.0f, 0.55f, 1.0f).Value;
+        const ImU32 col = ImGui::GetColorU32(ImVec4(hsv.x, hsv.y, hsv.z, sel ? (hot ? 1.0f : 0.8f) : 0.12f));
+        for (size_t t = 0; t + 5 < d.xy.size(); t += 6) {
+            const float* p = &d.xy[t];
+            const ImVec2 a = S(p[0], p[1]), b = S(p[2], p[3]), c = S(p[4], p[5]);
+            // Nothing of it in the canvas: skip the draw call.
+            if (ImMax(a.x, ImMax(b.x, c.x)) < c0.x || ImMin(a.x, ImMin(b.x, c.x)) > c1.x ||
+                ImMax(a.y, ImMax(b.y, c.y)) < c0.y || ImMin(a.y, ImMin(b.y, c.y)) > c1.y)
+                continue;
+            dl->AddTriangle(a, b, c, col, hot && sel ? 2.0f : 1.0f);
+        }
+    }
+    dl->Flags = oldFlags;
+    dl->AddRect(w0, w1, ImGui::GetColorU32(sem.text));  // the drawing window
+    dl->PopClipRect();
+    (void)n;
+    if (hoverFlush >= 0) {
+        const vucap::FrameFlush& fl = f.flushes[hoverFlush];
+        ImGui::SetTooltip("flush %d - %d triangles in %d run(s)\nprogram %d\nclick to isolate", hoverFlush, fl.tris,
+                          fl.runs, f.draws[hoverDraw].program);
+    } else if (hovered) {
+        ImGui::SetTooltip("wheel zooms, right-drag pans, click a triangle to isolate its flush");
+    }
+
+    // --- the list: one row per flush, heaviest facts first
+    ImGui::SameLine();
+    ImGui::BeginChild("##vuframeflushes", ImVec2(0, cs.y));
+    ImGui::TextColored(sem.textDim, "%s", dbgVuFrameSel_ >= 0 ? "click again to show all" : "flushes of the frame");
+    if (ImGui::BeginTable("##vuframetable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("#");
+        ImGui::TableSetupColumn("runs");
+        ImGui::TableSetupColumn("tris");
+        ImGui::TableSetupColumn("off");
+        ImGui::TableHeadersRow();
+        for (int i = 0; i < (int)f.flushes.size(); ++i) {
+            const vucap::FrameFlush& fl = f.flushes[i];
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            const ImVec4 hsv = ImColor::HSV((float)((i * 67) % 360) / 360.0f, 0.55f, 1.0f).Value;
+            char label[32];
+            std::snprintf(label, sizeof(label), "%d##vff", i);
+            ImGui::PushStyleColor(ImGuiCol_Text, hsv);
+            if (ImGui::Selectable(label, dbgVuFrameSel_ == i, ImGuiSelectableFlags_SpanAllColumns))
+                dbgVuFrameSel_ = dbgVuFrameSel_ == i ? -1 : i;
+            ImGui::PopStyleColor();
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%d", fl.runs);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%d", fl.tris);
+            ImGui::TableSetColumnIndex(3);
+            if (fl.offscreen > 0)
+                ImGui::TextColored(fl.offscreen * 2 > fl.tris ? sem.warn : sem.textDim, "%d", fl.offscreen);
+            else
+                ImGui::TextDisabled("-");
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+}
+
 // bin/frame.tga: the picture the game took OF ITSELF (docs/devkit.md). Same
 // change-detection rule as the VU capture above - the timestamp, never the
 // size, because two shots of one scene are the same length to the byte.
@@ -1213,6 +1447,7 @@ void App::livedbgTick() {
         dbgCrashNextRead_ = now + 0.4;
         dbgReadCrashReport();
         dbgReadVuCapture();
+        dbgReadVuFrame();
         dbgReadFrameShot();
     }
 
@@ -1436,6 +1671,7 @@ void App::livedbgTick() {
             dbgCmd_.measureRam = false;
             dbgCmd_.captureFrame = false;
             dbgCmd_.streamToggle = 0;
+            dbgCmd_.captureVuFrame = false;
             if (dbgCmd_.captureRenderCost) dbgRenderCostSeq_ = want.seq;
             dbgCmd_.captureRenderCost = false;
         }
@@ -3738,6 +3974,16 @@ void App::dbgDrawRenderCostPage() {
 void App::dbgDrawVuPage() {
 const bool live = dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted;
     if (!live) dbgVuCapWaiting_ = false;  // nobody left to answer
+    // Frame = everything one frame sent to VU1, as a picture; Packet = one
+    // chain of it, decoded word by word.
+    static const char* const kVuModes[] = {"Frame##vu", "Packet##vu"};
+    int vuMode = dbgVuPacketMode_ ? 1 : 0;
+    if (ui::Segmented("##vumode", kVuModes, 2, &vuMode, scaled(170))) dbgVuPacketMode_ = vuMode == 1;
+    if (!dbgVuPacketMode_) {
+        dbgDrawVuFrame(live);
+        return;
+    }
+    ImGui::SameLine();
     ImGui::BeginDisabled(!live);
     if (ImGui::Button("Capture VU1 packet")) {
         dbgCmd_.captureVu = true;

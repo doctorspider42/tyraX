@@ -29658,6 +29658,9 @@ unsigned int ramFreeKB = 0, ramFrame = 0;
 // ~900 KB to the editor (devlink segments on a console, a host: write
 // elsewhere), which is not something to do on a timer.
 bool frameShotWanted = false;
+// The whole-frame geometry capture (vuFrameRecord): 0 idle, 1 armed - starts
+// with the next frame's first flush, 2 recording, 3 failed (no RAM).
+int vuFrameState = 0;
 // The live preview (streamFrame): on until told otherwise or the game ends.
 bool streamOn = false;
 unsigned int renderCostRequest = 0;
@@ -29670,6 +29673,8 @@ void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
 void writeFrameCapture(ScriptContext& ctx);
 void streamFrame(ScriptContext& ctx);
+void vuFrameEndOfFrame(ScriptContext& ctx);
+void vuFrameRecord(const void* data, unsigned int qwc);
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
 // The first snapshot is always written as the runner's game-is-up marker.
@@ -29791,6 +29796,8 @@ void pollCommand() {
     fflush(stdout);
     *reinterpret_cast<volatile int*>(4) = 0;
   }
+  // -11: capture the geometry of one whole frame (Debugger > VU1 > Frame).
+  if (steps == -11 && vuFrameState == 0) vuFrameState = 1;
   // -9 / -10: the live preview on / off (Debugger > Screen > Live preview).
   if (steps == -9) streamOn = true;
   if (steps == -10) streamOn = false;
@@ -30075,6 +30082,7 @@ void tickImpl(ScriptContext& ctx) {
   // taken, so this never lies about what you are looking at.
   if (vuCapArmed && vuFlushCount > 0 && vuCapWant >= vuFlushCount)
     vuCapWant = 0;
+  vuFrameEndOfFrame(ctx);
   vuFlushCount = 0;
   flushCurCount = 0;
   frameQw = frameVerts = 0;
@@ -30190,6 +30198,7 @@ void vuPacketTap(const void* data, unsigned int qwc, const char* name) {
   // Counted for EVERY flush, armed or not: this is both the index the editor
   // selects with and the "how many draws does a frame send" figure it reports.
   const int flushIndex = vuFlushCount++;
+  if (vuFrameState == 2) vuFrameRecord(data, qwc);
 
   // Summarise this flush for the map. Walking the chain here costs a few dozen
   // iterations - the tags only; nothing dereferences the referenced vertex
@@ -30572,6 +30581,161 @@ void writeFrameCapture(ScriptContext& ctx) {
     TYRA_LOG("Frame capture: ", w, "x", h, " psm ", (unsigned int)fb->psm,
              " at frame ", frameNo, " written to frame.tga, streamed - no RAM "
              "for the whole picture");
+}
+
+// THE WHOLE FRAME'S GEOMETRY (docs/devkit.md, "A frame's geometry"). One
+// packet answers "what is in this flush"; this answers "what did the console
+// draw": every VU1 chain of ONE frame, with the blocks it references, in one
+// file the editor turns into a wireframe of the frame.
+//
+// One block of RAM, filled from both ends: the flush records (the chains and
+// their block index) grow from the front, the POOL of referenced blocks grows
+// down from the back. A block is stored once however often it is sent - the
+// same baked stream drawn in ten places, the microprogram upload every flush
+// repeats - which is what makes a frame fit: matched by address AND content,
+// because a dynamic buffer is reused for different data within one frame.
+// Out of room = the capture says "truncated" rather than dropping silently.
+unsigned char* vfBuf = nullptr;
+unsigned int vfCap = 0, vfFront = 0, vfPool = 0;  // bytes used at each end
+unsigned int vfFlushes = 0;
+bool vfTruncated = false;
+struct VfBlock {
+  unsigned int addr, qw, off;  // off: bytes from the END of the buffer
+};
+const int VF_MAX_BLOCKS = 768;
+VfBlock vfBlocks[VF_MAX_BLOCKS];
+int vfBlockCount = 0;
+const unsigned int VF_HEADER = 40;
+const unsigned int VF_FLUSH_BLOCKS = 256;  // referenced blocks one flush may carry
+
+void vuFrameRecord(const void* data, unsigned int qwc) {
+  if (!vfBuf || vfTruncated || qwc == 0 || qwc > 65535U) return;
+  const unsigned char* base = (const unsigned char*)data;
+  // Record: {qw, blockCount, 0, 0}, the chain, then 8 bytes per block:
+  // {u16 chain quadword, u16 quadwords, u32 pool offset from the end}.
+  const unsigned int chainBytes = qwc * 16U;
+  if (vfFront + 16U + chainBytes + VF_FLUSH_BLOCKS * 8U + vfPool > vfCap) {
+    vfTruncated = true;
+    return;
+  }
+  unsigned char* rec = vfBuf + vfFront;
+  memcpy(rec + 16, base, chainBytes);
+  unsigned char* idx = rec + 16 + chainBytes;
+  unsigned int blocks = 0;
+  unsigned int at = 0;
+  while (at < qwc) {
+    unsigned int w0, w1;
+    memcpy(&w0, base + (size_t)at * 16, 4);
+    memcpy(&w1, base + (size_t)at * 16 + 4, 4);
+    const unsigned int tagQwc = w0 & 0xFFFFU;
+    const unsigned int id = (w0 >> 28) & 0x7U;
+    const bool byRef = (id == 0 || id == 3 || id == 4);  // refe / ref / refs
+    if (byRef && tagQwc > 0 && w1 >= 0x00080000U && w1 < 0x02000000U) {
+      // More references than a record has room for: say so, never drop quietly.
+      if (blocks >= VF_FLUSH_BLOCKS) {
+        vfTruncated = true;
+        break;
+      }
+      const unsigned int bytes = tagQwc * 16U;
+      int found = -1;
+      for (int i = 0; i < vfBlockCount; ++i)
+        if (vfBlocks[i].addr == w1 && vfBlocks[i].qw == tagQwc &&
+            memcmp(vfBuf + vfCap - vfBlocks[i].off, (const void*)w1, bytes) == 0) {
+          found = i;
+          break;
+        }
+      unsigned int off = 0;
+      if (found >= 0) {
+        off = vfBlocks[found].off;
+      } else {
+        const unsigned int usedFront =
+            vfFront + 16U + chainBytes + (blocks + 1U) * 8U;
+        if (usedFront + vfPool + bytes > vfCap) {
+          vfTruncated = true;
+          break;
+        }
+        vfPool += bytes;
+        off = vfPool;
+        memcpy(vfBuf + vfCap - off, (const void*)w1, bytes);
+        if (vfBlockCount < VF_MAX_BLOCKS) {
+          vfBlocks[vfBlockCount].addr = w1;
+          vfBlocks[vfBlockCount].qw = tagQwc;
+          vfBlocks[vfBlockCount].off = off;
+          ++vfBlockCount;
+        }
+      }
+      put16(idx + blocks * 8U, (unsigned short)at);
+      put16(idx + blocks * 8U + 2, (unsigned short)tagQwc);
+      put32(idx + blocks * 8U + 4, off);
+      ++blocks;
+    }
+    at += byRef ? 1U : 1U + tagQwc;
+    if (id == 0 || id == 7) break;  // refe / end terminate the chain
+  }
+  put32(rec + 0, qwc);
+  put32(rec + 4, blocks);
+  put32(rec + 8, 0U);
+  put32(rec + 12, 0U);
+  vfFront += 16U + chainBytes + blocks * 8U;
+  ++vfFlushes;
+}
+
+// Called from the tick, once a frame, where the flush counter starts over.
+void vuFrameEndOfFrame(ScriptContext& ctx) {
+  if (vuFrameState == 1) {
+    // Armed: take the room and record the frame that starts now. As much as
+    // the heap gives, from 4 MB down - a heavy frame is a few megabytes.
+    static const unsigned int kTry[] = {4U << 20, 2U << 20, 1U << 20, 512U << 10};
+    vfBuf = nullptr;
+    for (unsigned int i = 0; i < sizeof(kTry) / sizeof(kTry[0]) && !vfBuf; ++i) {
+      vfBuf = static_cast<unsigned char*>(malloc(kTry[i]));
+      vfCap = kTry[i];
+    }
+    if (!vfBuf) {
+      TYRA_WARN("Frame geometry: no RAM for the capture");
+      vuFrameState = 0;
+      return;
+    }
+    vfFront = VF_HEADER;
+    vfPool = 0;
+    vfFlushes = 0;
+    vfBlockCount = 0;
+    vfTruncated = false;
+    vuFrameState = 2;
+    return;
+  }
+  if (vuFrameState != 2) return;
+  if (vfFlushes == 0 && vuFlushCount == 0) return;  // nothing drawn yet: wait
+  vuFrameState = 0;
+  // Close the gap: the pool moves down to sit right behind the records.
+  memmove(vfBuf + vfFront, vfBuf + vfCap - vfPool, vfPool);
+  unsigned int rw = 0, rh = 0;
+  if (ctx.engine) {
+    const Tyra::RendererSettings& rs = ctx.engine->renderer.core.getSettings();
+    rw = (unsigned int)rs.getWidth();
+    rh = (unsigned int)rs.getRenderHeightF();
+  }
+  memcpy(vfBuf + 0, "TXVF", 4);
+  put32(vfBuf + 4, 1U);
+  put32(vfBuf + 8, frameNo);
+  put32(vfBuf + 12, vfFlushes);
+  put32(vfBuf + 16, rw);
+  put32(vfBuf + 20, rh);
+  put32(vfBuf + 24, vfFront - VF_HEADER);  // bytes of flush records
+  put32(vfBuf + 28, vfPool);               // bytes of block pool
+  put32(vfBuf + 32, vfTruncated ? 1U : 0U);
+  put32(vfBuf + 36, 0U);
+  const unsigned int total = vfFront + vfPool;
+  const unsigned int flushes = vfFlushes, pool = vfPool;
+  const bool truncated = vfTruncated;
+  unsigned char* buf = vfBuf;
+  vfBuf = nullptr;  // devlink owns it now
+  if (!Tyra::DevLink::writeFileOwned("vuframe.bin", buf, (int)total))
+    TYRA_WARN("Frame geometry: could not write vuframe.bin");
+  else
+    TYRA_LOG("Frame geometry: ", flushes, " flush(es), ", total / 1024U, " KB (",
+             pool / 1024U, " KB of blocks, ", vfBlockCount, " unique)",
+             truncated ? " - TRUNCATED, out of room" : "", " at frame ", frameNo);
 }
 
 // THE LIVE PREVIEW (docs/devkit.md, "Live preview"): a small picture of the

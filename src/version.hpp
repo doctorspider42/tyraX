@@ -5637,6 +5637,9 @@
 // the TXHI sender. PS2: 34 ms readback, 1 MB in ~1.5 s (2026-11-10).
 // Live preview (Debugger > Screen): quarter-res pictures through the same
 // channel, GS-downscaled into the post-fx scratch buffer - ~20/s, 1.3 ms each.
+// Debugger > VU memory > Frame: bin/vuframe.bin, every VU1 chain of one frame
+// (vucap::loadFrame, --dump-vuframe); the chain decoder reads VIF streams in
+// referenced blocks.
 // A controller on the PC drives the Remote Pad (src/gamepad.cpp, Preferences >
 // Running games > Controller); the live preview pops out and goes fullscreen.
 // The frame yield (setFrameYield) stays off while devlink carries the

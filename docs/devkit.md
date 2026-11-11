@@ -462,11 +462,58 @@ rows repeat), and `ps2_screenshot()` refuses to run while VIF1's DMA channel is
 busy and says so only through its return value, so refusals are counted and
 reported instead of being written out as picture.
 
+## A frame's geometry
+
+![The geometry of one frame over its picture](img/vu-frame-geometry.png)
+
+**Debugger > VU memory** opens on **Frame**: press *Capture frame geometry* and
+the game copies **every VU1 chain of one frame**, with the vertex blocks they
+reference, into `bin/vuframe.bin` (through the IOP on a console). The editor
+runs the same transform the microprograms do, on the host, and draws the
+result: every triangle the EE sent, as a wireframe over a picture of the same
+scene, one colour per bag flush.
+
+What it is for: seeing what a frame is made of, at a glance.
+
+- **It shows what was SENT, before VU1 clips or culls anything.** The white
+  rectangle is the drawing window; everything outside it was still built,
+  submitted and run through a microprogram. The *off screen* tile counts the
+  triangles whose box misses the window entirely - in the example above 54 %
+  of the frame.
+- **The list on the right** is the frame flush by flush: runs (mesh
+  packages), triangles, how many are off screen. Click a row, or a triangle in
+  the picture, to isolate that flush; the tooltip names its microprogram.
+- Wheel zooms about the cursor, right-drag pans, *Fit* resets, *Picture*
+  toggles the screenshot underneath.
+
+What it is not:
+
+- **Not the GS stream.** Sprites, the HUD and full-screen passes do not go
+  through VU1 and are not here; nor is anything VU1 itself generates.
+- **Not clipped.** A triangle with a vertex behind the eye cannot be projected
+  on the host and is left out (the count is shown); VU1 clips those on the
+  console.
+- **Not attributed to objects yet** - a chain carries no object id. The flush
+  and its microprogram are what identifies a triangle.
+
+From a shell: `tyrax-editor --dump-vuframe <projectDir> [--capture] [-o
+out.png] [--flip-y]` prints the frame flush by flush and writes the wireframe
+as a PNG; `--capture` asks the running game for a fresh one first.
+
+How it fits in memory: the game fills one block from both ends - flush records
+from the front, a **pool** of referenced blocks from the back - and stores a
+block once however often it is sent (matched by address AND content, because a
+dynamic buffer is reused within a frame). It takes up to 4 MB if the heap has
+it, less otherwise, and says `TRUNCATED` when the frame did not fit.
+
 ## Inspecting VU1 input
 
-In **Debugger > VU memory**, arm a capture and choose a flush. The game writes
-`bin/vucap.bin`; the editor shows DMA/VIF commands, mesh boundaries, vertices
-and common packet problems.
+**Packet** on the same page is one chain of the frame, decoded word by word:
+arm a capture and choose a flush. The game writes `bin/vucap.bin`; the editor
+shows DMA/VIF commands, mesh boundaries, vertices and common packet problems.
+Since 2.15.0 the decoder also reads the VIF streams inside blocks sent **by
+reference** - where the static pipeline's baked and retained geometry lives;
+before that a busy flush decoded to its structure and one triangle.
 
 The command-line decoder is useful when the UI is not:
 

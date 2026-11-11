@@ -310,7 +310,7 @@ bool Command::sameStateAs(const Command& o) const {
            captureVu == o.captureVu && vuFlush == o.vuFlush &&
            measureRam == o.measureRam && captureFrame == o.captureFrame &&
            captureRenderCost == o.captureRenderCost &&
-           streamToggle == o.streamToggle &&
+           streamToggle == o.streamToggle && captureVuFrame == o.captureVuFrame &&
            watchObjects == o.watchObjects && sameFactSets(o);
 }
 
@@ -351,7 +351,8 @@ std::vector<unsigned char> encodeCommand(const Command& c) {
     const size_t factCount = std::min(c.factSets.size(), (size_t)kMaxFactSets);
     flags |= (uint32_t)(factCount & 0xFFu) << 24;
     put32(v, flags);
-    put32(v, (uint32_t)(int32_t)(c.streamToggle > 0   ? -9
+    put32(v, (uint32_t)(int32_t)(c.captureVuFrame     ? -11
+                                 : c.streamToggle > 0 ? -9
                                  : c.streamToggle < 0 ? -10
                                                       : c.stepFrames));
     put32(v, (uint32_t)(int32_t)c.breakpoints.size());

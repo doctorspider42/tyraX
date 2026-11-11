@@ -218,6 +218,9 @@ struct Command {
     // stream on, -1 off. One-shot, and it rides the step field as -9 / -10 -
     // every flag bit is taken, and a command that toggles it never steps.
     int streamToggle = 0;
+    // Capture the geometry of one whole frame into bin/vuframe.bin (every VU1
+    // chain of it). One-shot; rides the step field as -11.
+    bool captureVuFrame = false;
     int stepFrames = 0;        // run exactly this many frames, then freeze
     std::vector<uint16_t> breakpoints;  // node keys that halt the game
     std::vector<uint16_t> fire;         // node keys to force-fire once

@@ -1,5 +1,8 @@
 #include "vucap.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 #include <cstdio>
 #include <cmath>
 #include <cstdlib>
@@ -419,6 +422,14 @@ static void decodeVuMem(Capture& out) {
         for (const RefVertex& r : out.reference)
             if (r.behind) ++out.behindVerts;
 }
+namespace {
+struct Block {
+    int at, qw;
+    const unsigned char* data;
+};
+void decodeChain(const unsigned char* p, const std::vector<Block>& blocks, Capture& out);
+}  // namespace
+
 bool load(const std::string& path, Capture& out) {
     out = Capture();
     std::ifstream f(path, std::ios::binary);
@@ -464,10 +475,6 @@ bool load(const std::string& path, Capture& out) {
     // v2: after the chain come `blockCount` index entries (chain quadword,
     // quadword count) and then the referenced data itself - the vertex arrays
     // the pipeline sends by reference rather than inline.
-    struct Block {
-        int at, qw;
-        const unsigned char* data;
-    };
     std::vector<Block> blocks;
     {
         const unsigned char* idx = p + (size_t)out.qw * 16;
@@ -483,6 +490,30 @@ bool load(const std::string& path, Capture& out) {
         }
     }
 
+    decodeChain(p, blocks, out);
+    // v3 tail: the whole of VU1 data memory after the run.
+    if (ver >= 3u) {
+        const unsigned char* memAt =
+            p + (size_t)out.qw * 16 + (size_t)blockCount * 4;
+        for (const Block& bl : blocks) memAt += (size_t)bl.qw * 16;
+        const size_t have = (size_t)(b.data() + b.size() - memAt);
+        const size_t want = 1024 * 16;
+        if (have >= want) {
+            out.vuMem.resize(want / 4);
+            for (size_t k = 0; k < out.vuMem.size(); ++k)
+                out.vuMem[k] = rd32(memAt + k * 4);
+            out.hasVuMem = true;
+            decodeVuMem(out);
+        }
+    }
+    out.loaded = true;
+    return true;
+}
+
+namespace {
+// Decodes one DMA chain of `out.qw` quadwords at `p`, with the blocks it
+// references, into steps, unpacks, runs and meshes.
+void decodeChain(const unsigned char* p, const std::vector<Block>& blocks, Capture& out) {
     // Walk the chain. The advance rule is the thing to get right: `cnt`/`next`
     // carry their data INLINE (skip 1 + qwc), while `ref`/`refs`/`refe` point at
     // it (the tag is one quadword, and the data arrived as a block above).
@@ -518,48 +549,94 @@ bool load(const std::string& path, Capture& out) {
                     break;
                 }
 
+        // One UNPACK: `data` is its payload (null = not captured), `avail` how
+        // many bytes of it are there.
+        auto onUnpack = [&](uint32_t cmd, uint32_t num, uint32_t imm, const unsigned char* data,
+                            size_t avail, bool inBlock) {
+            int wordsPerItem = 4;
+            Unpack u;
+            u.format = unpackFormat(cmd, &wordsPerItem);
+            u.count = (int)(num ? num : 256);
+            u.vuAddr = imm & 0x3FF;
+            u.useTops = (imm & 0x8000) != 0;
+            const size_t need = (size_t)u.count * wordsPerItem * 4;
+            const size_t take = data ? (need < avail ? need : avail) : 0;
+            for (size_t o = 0; o + 4 <= take; o += 4) {
+                u.words.push_back(rd32(data + o));
+                u.floats.push_back(rdF(data + o));
+            }
+            std::snprintf(line, sizeof(line), "  VIF UNPACK %-12s num=%d -> VU1 addr %u%s%s%s",
+                          u.format.c_str(), u.count, u.vuAddr, u.useTops ? " (+TOPS)" : "",
+                          data ? "" : " [payload not captured]", inBlock ? " [in block]" : "");
+            out.steps.push_back({(uint32_t)at, line});
+            pending.push_back(out.unpacks.size());
+            out.unpacks.push_back(std::move(u));
+        };
+        // Any other VIF command.
+        auto onCommand = [&](uint32_t cmd, uint32_t num, uint32_t imm, bool inBlock) {
+            const std::string name = vifName(cmd);
+            if (cmd == 0x14 || cmd == 0x15) {  // MSCAL / MSCALF
+                out.mscal.push_back((int)imm);
+                lastProgram = (int)imm;
+            }
+            if (cmd == 0x14 || cmd == 0x15 || cmd == 0x17) {  // ...or MSCNT
+                for (size_t ui : pending) out.unpacks[ui].program = lastProgram;
+                pending.clear();
+                out.runs.push_back({(int)out.unpacks.size(), lastProgram});
+            }
+            if (inBlock && cmd == 0x00) return;  // padding NOPs: not worth a line each
+            std::snprintf(line, sizeof(line), "  VIF %-10s num=%d imm=%u%s", name.empty() ? "?" : name.c_str(),
+                          (int)num, (unsigned)imm, inBlock ? " [in block]" : "");
+            out.steps.push_back({(uint32_t)at, line});
+        };
+
+        // The tag's own two VIF codes. An UNPACK there owns the whole payload
+        // (the classic "tag + data" shape).
+        bool tagUnpack = false;
         for (int k = 0; k < 2; ++k) {
             const uint32_t code = k ? vif1 : vif0;
-            const uint32_t cmd = (code >> 24) & 0xFF;
+            const uint32_t cmd = (code >> 24) & 0x7F;
             const uint32_t num = (code >> 16) & 0xFF;
             const uint32_t imm = code & 0xFFFF;
             if (!code) continue;
             if ((cmd & 0x60) == 0x60) {
-                int wordsPerItem = 4;
-                Unpack u;
-                u.format = unpackFormat(cmd, &wordsPerItem);
-                u.count = (int)(num ? num : 256);
-                u.vuAddr = imm & 0x3FF;
-                u.useTops = (imm & 0x8000) != 0;
-                const size_t need = (size_t)u.count * wordsPerItem * 4;
-                const size_t avail = (size_t)payloadQw * 16;
-                const size_t take = payload ? (need < avail ? need : avail) : 0;
-                for (size_t o = 0; o + 4 <= take; o += 4) {
-                    u.words.push_back(rd32(payload + o));
-                    u.floats.push_back(rdF(payload + o));
-                }
-                std::snprintf(line, sizeof(line),
-                              "  VIF UNPACK %-12s num=%d -> VU1 addr %u%s%s",
-                              u.format.c_str(), u.count, u.vuAddr,
-                              u.useTops ? " (+TOPS)" : "",
-                              payload ? "" : " [payload not captured]");
-                out.steps.push_back({(uint32_t)at, line});
-                pending.push_back(out.unpacks.size());
-                out.unpacks.push_back(std::move(u));
+                tagUnpack = true;
+                onUnpack(cmd, num, imm, payload, (size_t)payloadQw * 16, false);
             } else {
-                const std::string name = vifName(cmd);
-                if (cmd == 0x14 || cmd == 0x15) {  // MSCAL / MSCALF
-                    out.mscal.push_back((int)imm);
-                    lastProgram = (int)imm;
+                onCommand(cmd, num, imm, false);
+            }
+        }
+        // No UNPACK in the tag: the payload is a VIF STREAM of its own - codes
+        // and their data, word by word. This is how the static pipeline's baked
+        // and retained blocks travel (a `ref` to a prebuilt stream), which is
+        // where nearly all of a scene's geometry is; a decoder that skipped it
+        // saw the structure of a frame and one triangle of it.
+        if (!tagUnpack && payload && payloadQw > 0) {
+            const size_t words = (size_t)payloadQw * 4;
+            size_t w = 0;
+            while (w < words) {
+                const uint32_t code = rd32(payload + w * 4);
+                ++w;
+                const uint32_t cmd = (code >> 24) & 0x7F;
+                const uint32_t num = (code >> 16) & 0xFF;
+                const uint32_t imm = code & 0xFFFF;
+                size_t dataWords = 0;
+                if ((cmd & 0x60) == 0x60) {
+                    const int vn = (int)((cmd >> 2) & 3), vl = (int)(cmd & 3);
+                    const size_t itemBytes = vl == 3 ? 2 : (size_t)(vn + 1) * (size_t)(4 >> vl);
+                    const size_t n = num ? num : 256;
+                    dataWords = (n * itemBytes + 3) / 4;
+                    const size_t left = (words - w) * 4;
+                    onUnpack(cmd, num, imm, payload + w * 4, left < dataWords * 4 ? left : dataWords * 4, true);
+                } else {
+                    if (cmd == 0x20) dataWords = 1;                       // STMASK
+                    else if (cmd == 0x30 || cmd == 0x31) dataWords = 4;   // STROW / STCOL
+                    else if (cmd == 0x4A) dataWords = (size_t)(num ? num : 256) * 2;  // MPG
+                    else if (cmd == 0x50 || cmd == 0x51)                  // DIRECT / DIRECTHL
+                        dataWords = (size_t)(imm ? imm : 65536) * 4;
+                    onCommand(cmd, num, imm, true);
                 }
-                if (cmd == 0x14 || cmd == 0x15 || cmd == 0x17) {  // ...or MSCNT
-                    for (size_t ui : pending) out.unpacks[ui].program = lastProgram;
-                    pending.clear();
-                }
-                std::snprintf(line, sizeof(line), "  VIF %-10s num=%d imm=%u",
-                              name.empty() ? "?" : name.c_str(), (int)num,
-                              (unsigned)imm);
-                out.steps.push_back({(uint32_t)at, line});
+                w += dataWords;
             }
         }
         at += byRef ? 1 : 1 + qwc;
@@ -643,23 +720,201 @@ bool load(const std::string& path, Capture& out) {
                 out.vertexUnpack = (int)i;
             }
         }
-    // v3 tail: the whole of VU1 data memory after the run.
-    if (ver >= 3u) {
-        const unsigned char* memAt =
-            p + (size_t)out.qw * 16 + (size_t)blockCount * 4;
-        for (const Block& bl : blocks) memAt += (size_t)bl.qw * 16;
-        const size_t have = (size_t)(b.data() + b.size() - memAt);
-        const size_t want = 1024 * 16;
-        if (have >= want) {
-            out.vuMem.resize(want / 4);
-            for (size_t k = 0; k < out.vuMem.size(); ++k)
-                out.vuMem[k] = rd32(memAt + k * 4);
-            out.hasVuMem = true;
-            decodeVuMem(out);
+}
+}  // namespace
+
+// --------------------------------------------------------------- whole frame --
+
+bool loadFrame(const std::string& path, Frame& out, bool flipY) {
+    out = Frame();
+    std::ifstream f(path, std::ios::binary);
+    if (!f) {
+        out.error = "no frame capture yet";
+        return false;
+    }
+    std::vector<unsigned char> b((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (b.size() < 40 || std::memcmp(b.data(), "TXVF", 4) != 0) {
+        out.error = "not a frame capture";
+        return false;
+    }
+    if (rd32(&b[4]) != 1u) {
+        out.error = "unknown frame capture version";
+        return false;
+    }
+    out.frame = rd32(&b[8]);
+    const uint32_t flushCount = rd32(&b[12]);
+    out.renderWidth = (int)rd32(&b[16]);
+    out.renderHeight = (int)rd32(&b[20]);
+    const size_t recBytes = rd32(&b[24]), poolBytes = rd32(&b[28]);
+    out.truncated = rd32(&b[32]) != 0;
+    if (b.size() < 40 + recBytes + poolBytes) {
+        out.error = "truncated frame capture";
+        return false;
+    }
+    out.bytes = b.size();
+    out.poolBytes = poolBytes;
+    const unsigned char* rec = b.data() + 40;
+    const unsigned char* recEnd = rec + recBytes;
+    const unsigned char* pool = recEnd;  // the game stored offsets from the END
+    const unsigned char* poolEnd = pool + poolBytes;
+    const float w = (float)out.renderWidth, h = (float)out.renderHeight;
+    out.winX0 = 2048.0f - w * 0.5f;
+    out.winX1 = 2048.0f + w * 0.5f;
+    out.winY0 = 2048.0f - h * 0.5f;
+    out.winY1 = 2048.0f + h * 0.5f;
+
+    // What a run reads is whatever was unpacked last: the matrix and the
+    // scales persist until the pipeline sends new ones.
+    float mvp[16] = {};
+    bool haveMvp = false;
+    float scale[3] = {2048.0f, 2048.0f, 8388607.5f};
+    for (uint32_t fi = 0; fi < flushCount && rec + 16 <= recEnd; ++fi) {
+        const int qw = (int)rd32(rec);
+        const int blockCount = (int)rd32(rec + 4);
+        const unsigned char* chain = rec + 16;
+        const unsigned char* idx = chain + (size_t)qw * 16;
+        if (idx + (size_t)blockCount * 8 > recEnd) break;
+        std::vector<Block> blocks;
+        for (int i = 0; i < blockCount; ++i) {
+            uint16_t at, bq;
+            std::memcpy(&at, idx + i * 8, 2);
+            std::memcpy(&bq, idx + i * 8 + 2, 2);
+            const uint32_t off = rd32(idx + i * 8 + 4);
+            if (off > poolBytes || (size_t)bq * 16 > off) continue;
+            blocks.push_back({(int)at, (int)bq, poolEnd - off});
         }
+        rec = idx + (size_t)blockCount * 8;
+
+        Capture c;
+        c.qw = qw;
+        decodeChain(chain, blocks, c);
+        FrameFlush ff;
+        ff.qw = qw;
+        ff.firstDraw = (int)out.draws.size();
+        int begin = 0;
+        for (const Capture::Run& run : c.runs) {
+            const Unpack* pos = nullptr;
+            for (int ui = begin; ui < run.unpackEnd && ui < (int)c.unpacks.size(); ++ui) {
+                const Unpack& u = c.unpacks[ui];
+                if (u.format.rfind("V4_32", 0) != 0) continue;
+                if (!u.useTops && u.vuAddr == 0 && u.count == 4 && u.floats.size() >= 16) {
+                    for (int k = 0; k < 16; ++k) mvp[k] = u.floats[k];
+                    haveMvp = true;
+                } else if (u.useTops && u.vuAddr == 0 && u.floats.size() >= 3 && u.floats[0] > 1.0f) {
+                    scale[0] = u.floats[0];
+                    scale[1] = u.floats[1];
+                    scale[2] = u.floats[2];
+                } else if (u.useTops && u.vuAddr == 2 && u.floats.size() >= 12) {
+                    // Positions: (x, y, z, 1.0) - nothing else in a chain has a
+                    // constant 1.0 there (see the mesh rule in decodeChain).
+                    bool ok = true;
+                    for (size_t k = 3; k < u.floats.size(); k += 4)
+                        if (u.floats[k] != 1.0f) {
+                            ok = false;
+                            break;
+                        }
+                    if (ok) pos = &u;
+                }
+            }
+            begin = run.unpackEnd;
+            ++ff.runs;
+            if (!pos || !haveMvp) continue;
+            FrameDraw d;
+            d.flush = (int)fi;
+            d.program = run.program;
+            const size_t verts = pos->floats.size() / 4;
+            for (size_t t = 0; t + 2 < verts; t += 3) {
+                float sx[3], sy[3];
+                bool behind = false;
+                for (int k = 0; k < 3 && !behind; ++k) {
+                    const float* v = &pos->floats[(t + k) * 4];
+                    float clip[4];
+                    for (int row = 0; row < 4; ++row)
+                        clip[row] = mvp[0 * 4 + row] * v[0] + mvp[1 * 4 + row] * v[1] +
+                                    mvp[2 * 4 + row] * v[2] + mvp[3 * 4 + row];
+                    if (clip[3] <= 0.0001f) {
+                        behind = true;
+                        break;
+                    }
+                    const float inv = 1.0f / clip[3];
+                    sx[k] = (clip[0] * inv + 1.0f) * scale[0];
+                    sy[k] = flipY ? (1.0f - clip[1] * inv) * scale[1] : (clip[1] * inv + 1.0f) * scale[1];
+                }
+                ++d.tris;
+                if (behind) {
+                    ++d.behind;
+                    continue;
+                }
+                const float x0 = std::min(sx[0], std::min(sx[1], sx[2])), x1 = std::max(sx[0], std::max(sx[1], sx[2]));
+                const float y0 = std::min(sy[0], std::min(sy[1], sy[2])), y1 = std::max(sy[0], std::max(sy[1], sy[2]));
+                if (x1 < out.winX0 || x0 > out.winX1 || y1 < out.winY0 || y0 > out.winY1) ++d.offscreen;
+                for (int k = 0; k < 3; ++k) {
+                    d.xy.push_back(sx[k]);
+                    d.xy.push_back(sy[k]);
+                }
+            }
+            ff.tris += d.tris;
+            ff.behind += d.behind;
+            ff.offscreen += d.offscreen;
+            out.draws.push_back(std::move(d));
+        }
+        ff.drawCount = (int)out.draws.size() - ff.firstDraw;
+        out.tris += ff.tris;
+        out.behind += ff.behind;
+        out.offscreen += ff.offscreen;
+        out.flushes.push_back(ff);
     }
     out.loaded = true;
     return true;
+}
+
+void rasterFrame(const Frame& f, std::vector<unsigned char>& rgba, int& w, int& h) {
+    w = f.renderWidth > 0 ? f.renderWidth : 512;
+    h = f.renderHeight > 0 ? f.renderHeight : 448;
+    rgba.assign((size_t)w * (size_t)h * 4, 0);
+    for (size_t i = 3; i < rgba.size(); i += 4) rgba[i] = 255;
+    auto plot = [&](int x, int y, const unsigned char* c) {
+        if (x < 0 || y < 0 || x >= w || y >= h) return;
+        unsigned char* p = &rgba[((size_t)y * (size_t)w + (size_t)x) * 4];
+        p[0] = c[0];
+        p[1] = c[1];
+        p[2] = c[2];
+    };
+    auto line = [&](float ax, float ay, float bx, float by, const unsigned char* c) {
+        // Clamp far-off endpoints: a triangle that leaves the window by
+        // thousands of pixels must not cost thousands of plots.
+        const float dx = bx - ax, dy = by - ay;
+        int steps = (int)std::max(std::fabs(dx), std::fabs(dy));
+        if (steps < 1) steps = 1;
+        if (steps > 4096) steps = 4096;
+        for (int i = 0; i <= steps; ++i) {
+            const float t = (float)i / (float)steps;
+            plot((int)(ax + dx * t), (int)(ay + dy * t), c);
+        }
+    };
+    for (const FrameDraw& d : f.draws) {
+        // One colour per flush, spread around the hue circle.
+        const float hue = (float)((d.flush * 67) % 360) / 60.0f;
+        const float x = 1.0f - std::fabs(std::fmod(hue, 2.0f) - 1.0f);
+        float r = 0, g = 0, b = 0;
+        switch ((int)hue) {
+            case 0: r = 1, g = x; break;
+            case 1: r = x, g = 1; break;
+            case 2: g = 1, b = x; break;
+            case 3: g = x, b = 1; break;
+            case 4: r = x, b = 1; break;
+            default: r = 1, b = x; break;
+        }
+        const unsigned char c[3] = {(unsigned char)(80 + r * 175), (unsigned char)(80 + g * 175),
+                                    (unsigned char)(80 + b * 175)};
+        for (size_t t = 0; t + 5 < d.xy.size(); t += 6) {
+            const float* p = &d.xy[t];
+            const float ox = f.winX0, oy = f.winY0;
+            line(p[0] - ox, p[1] - oy, p[2] - ox, p[3] - oy, c);
+            line(p[2] - ox, p[3] - oy, p[4] - ox, p[5] - oy, c);
+            line(p[4] - ox, p[5] - oy, p[0] - ox, p[1] - oy, c);
+        }
+    }
 }
 
 }  // namespace vucap
