@@ -27559,8 +27559,17 @@ void TerrainGame::renderScene() {
   std::vector<CostRow> costRows;
   if (costSeq) { costRows.reserve(runtimeObjects.size()+20); engine->renderer.core.sync.align3D(); }
   auto costStart = [&]() -> u32 { return (costSeq || (Tyra::HardwareTrace::active && Tyra::HardwareTrace::detailed)) ? profTicks() : 0; };
+  // The whole-frame geometry capture (docs/devkit.md) names every VU1 chain
+  // after the stage that sent it: for that one frame each stage closes its
+  // batch and drains at its end, exactly as the cost capture does, and marks
+  // the boundary.
+  const bool vuTag = livedbg::vuFrameTagging();
   auto costEnd = [&](const char* label, int object, u32 start) {
     if (Tyra::HardwareTrace::active && Tyra::HardwareTrace::detailed) Tyra::HardwareTrace::record(label, start, profTicks(), object + 1);
+    if (vuTag) {
+      engine->renderer.core.sync.align3D();
+      livedbg::vuFrameMark(label, object);
+    }
     if (!costSeq) return;
     engine->renderer.core.sync.align3D();
     if (costRows.size() < 4088) costRows.push_back({object,label,profTicks()-start});
@@ -28709,7 +28718,7 @@ void TerrainGame::renderScene() {
         renderEnvPass(i, objectGeometry[i], part);
         if (lp) lpCompanion += profTicks() - lpB;
       }
-    if (costSeq) stapip.core.endSubmissionBatch();
+    if (costSeq || vuTag) stapip.core.endSubmissionBatch();
     costEnd("Object",i,costObjectStart);
     // 3600: the Obj_* detail gives way first, so a big scene keeps its
     // Object rows and every phase after them under the 4088-row cap.
@@ -28741,7 +28750,7 @@ void TerrainGame::renderScene() {
       costRows.push_back({i,"Obj_render_total",t.attrib.renderTicks});
 #endif
     }
-    if (costSeq) stapip.core.beginSubmissionBatch();
+    if (costSeq || vuTag) stapip.core.beginSubmissionBatch();
     if (lp) lpT = profTicks();
     // Back to zero the moment this object's bags are out. The numbers are
     // RENDERER STATE, not a property of the bag, so everything drawn after an

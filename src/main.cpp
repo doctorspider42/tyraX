@@ -3023,10 +3023,11 @@ static int dumpVuFrameFromCli(int argc, char** argv) {
     }
     const fs::path dir(argv[2]);
     std::string out;
-    bool flip = false, capture = false;
+    bool flip = false, capture = false, full = false;
     for (int i = 3; i < argc; ++i) {
         if (std::strcmp(argv[i], "-o") == 0 && i + 1 < argc) out = argv[++i];
         else if (std::strcmp(argv[i], "--flip-y") == 0) flip = true;
+        else if (std::strcmp(argv[i], "--full") == 0) full = true;
         else if (std::strcmp(argv[i], "--capture") == 0) capture = true;
     }
     const fs::path file = dir / "bin" / "vuframe.bin";
@@ -3060,15 +3061,63 @@ static int dumpVuFrameFromCli(int argc, char** argv) {
         std::fprintf(stderr, "dump-vuframe: %s\n", f.error.c_str());
         return 1;
     }
+    // Names for the objects: the project, when it loads.
+    Project proj;
+    const bool haveProj = project::load(proj, dir.string()).empty();
+    auto who = [&](const vucap::FrameFlush& fl) {
+        std::string w = fl.stage.empty() ? std::string("?") : fl.stage;
+        if (fl.object >= 0) {
+            w = "#" + std::to_string(fl.object);
+            if (haveProj && f.scene >= 0 && f.scene < (int)proj.scenes.size() &&
+                fl.object < (int)proj.scenes[f.scene].objects.size())
+                w += " " + proj.scenes[f.scene].objects[fl.object].name;
+        }
+        return w;
+    };
     std::printf("frame %u, %d flush(es), %d draws, %d triangles sent (%d behind the eye, %d off screen), %dx%d, "
                 "%zu KB (%zu KB of blocks)%s\n",
                 f.frame, (int)f.flushes.size(), (int)f.draws.size(), f.tris, f.behind, f.offscreen, f.renderWidth,
                 f.renderHeight, f.bytes / 1024, f.poolBytes / 1024, f.truncated ? " - TRUNCATED" : "");
-    for (size_t i = 0; i < f.flushes.size(); ++i) {
-        const vucap::FrameFlush& fl = f.flushes[i];
-        std::printf("  flush %2zu: %4d qw, %3d runs, %5d triangles, %4d behind, %4d off screen\n", i, fl.qw, fl.runs,
-                    fl.tris, fl.behind, fl.offscreen);
+    if (f.tagged)
+        std::printf("an ordinary frame sends %d flush(es); this capture split them at every stage to name them\n"
+                    "main view: %d triangles, %d off screen (%d%%), %d behind the eye\n",
+                    f.naturalFlushes, f.mainTris, f.mainOffscreen,
+                    f.mainTris ? f.mainOffscreen * 100 / f.mainTris : 0, f.mainBehind);
+    // By stage / object, heaviest first.
+    struct Sum {
+        std::string who;
+        bool mainView = true;
+        int flushes = 0, runs = 0, tris = 0, off = 0, behind = 0;
+    };
+    std::vector<Sum> sums;
+    for (const vucap::FrameFlush& fl : f.flushes) {
+        const std::string w = who(fl);
+        Sum* s = nullptr;
+        for (Sum& x : sums)
+            if (x.who == w) s = &x;
+        if (!s) {
+            sums.push_back({});
+            s = &sums.back();
+            s->who = w;
+            s->mainView = fl.mainView;
+        }
+        ++s->flushes;
+        s->runs += fl.runs;
+        s->tris += fl.tris;
+        s->off += fl.offscreen;
+        s->behind += fl.behind;
     }
+    std::stable_sort(sums.begin(), sums.end(), [](const Sum& a, const Sum& b) { return a.tris > b.tris; });
+    std::printf("%-38s %7s %5s %7s %7s %7s\n", "who", "flushes", "runs", "tris", "off", "behind");
+    for (const Sum& s : sums)
+        std::printf("%-38.38s %7d %5d %7d %7d %7d%s\n", s.who.c_str(), s.flushes, s.runs, s.tris, s.off, s.behind,
+                    s.mainView ? "" : "  (not the main view)");
+    if (full)
+        for (size_t i = 0; i < f.flushes.size(); ++i) {
+            const vucap::FrameFlush& fl = f.flushes[i];
+            std::printf("  flush %3zu: %-30.30s %4d qw, %3d runs, %5d triangles, %4d behind, %4d off screen\n", i,
+                        who(fl).c_str(), fl.qw, fl.runs, fl.tris, fl.behind, fl.offscreen);
+        }
     if (!out.empty()) {
         std::vector<unsigned char> rgba;
         int w = 0, h = 0;

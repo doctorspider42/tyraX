@@ -4450,6 +4450,7 @@ private:
     bool dbgVuFrameWaiting_ = false;
     bool dbgVuPacketMode_ = false;     // false = Frame (the default), true = Packet
     bool dbgVuFramePicture_ = true;    // draw the last Still capture under it
+    bool dbgVuFrameMainOnly_ = true;   // leave out reflection / portal passes
     int dbgVuFrameSel_ = -1;           // the flush picked in the list / canvas
     float dbgVuFrameZoom_ = 1.0f;
     ImVec2 dbgVuFramePan_ = ImVec2(0, 0);

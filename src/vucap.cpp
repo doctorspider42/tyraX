@@ -737,7 +737,8 @@ bool loadFrame(const std::string& path, Frame& out, bool flipY) {
         out.error = "not a frame capture";
         return false;
     }
-    if (rd32(&b[4]) != 1u) {
+    const uint32_t fver = rd32(&b[4]);
+    if (fver != 1u && fver != 2u) {
         out.error = "unknown frame capture version";
         return false;
     }
@@ -746,7 +747,11 @@ bool loadFrame(const std::string& path, Frame& out, bool flipY) {
     out.renderWidth = (int)rd32(&b[16]);
     out.renderHeight = (int)rd32(&b[20]);
     const size_t recBytes = rd32(&b[24]), poolBytes = rd32(&b[28]);
-    out.truncated = rd32(&b[32]) != 0;
+    out.truncated = (rd32(&b[32]) & 1u) != 0;
+    if (fver >= 2u) {
+        out.scene = (int)(rd32(&b[32]) >> 16);
+        out.naturalFlushes = (int)rd32(&b[36]);
+    }
     if (b.size() < 40 + recBytes + poolBytes) {
         out.error = "truncated frame capture";
         return false;
@@ -863,6 +868,32 @@ bool loadFrame(const std::string& path, Frame& out, bool flipY) {
         out.behind += ff.behind;
         out.offscreen += ff.offscreen;
         out.flushes.push_back(ff);
+    }
+    // v2 tail: the stage marks. A mark names every flush before its flushEnd
+    // that an earlier mark did not.
+    const unsigned char* mp = poolEnd;
+    if (fver >= 2u && mp + 4 <= b.data() + b.size()) {
+        const uint32_t count = rd32(mp);
+        size_t next = 0;
+        for (uint32_t i = 0; i < count && mp + 4 + (size_t)(i + 1) * 32 <= b.data() + b.size(); ++i) {
+            const unsigned char* m = mp + 4 + (size_t)i * 32;
+            const size_t end = rd32(m);
+            const int object = (int)rd32(m + 4);
+            char label[25] = {};
+            std::memcpy(label, m + 8, 24);
+            for (; next < end && next < out.flushes.size(); ++next) {
+                out.flushes[next].stage = label;
+                out.flushes[next].object = object;
+            }
+            out.tagged = true;
+        }
+    }
+    for (FrameFlush& fl : out.flushes) {
+        fl.mainView = fl.stage.rfind("Reflections", 0) != 0 && fl.stage != "Portal";
+        if (!fl.mainView) continue;
+        out.mainTris += fl.tris;
+        out.mainBehind += fl.behind;
+        out.mainOffscreen += fl.offscreen;
     }
     out.loaded = true;
     return true;

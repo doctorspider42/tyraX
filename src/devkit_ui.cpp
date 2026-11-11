@@ -438,17 +438,48 @@ void App::dbgDrawVuFrame(bool live) {
         dbgVuFrameZoom_ = 1.0f;
         dbgVuFramePan_ = ImVec2(0, 0);
     }
+    // The reflection probe and a portal's through-view go through VU1 too,
+    // but they are not on this picture: by default they are left out, of the
+    // drawing and of the numbers.
+    const bool mainOnly = f.tagged && dbgVuFrameMainOnly_;
+    if (f.tagged) {
+        ImGui::SameLine();
+        ImGui::Checkbox("Main view only", &dbgVuFrameMainOnly_);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+            ImGui::SetTooltip("Leave out the passes that draw somewhere else - the reflection probe,\n"
+                              "a portal's view. Their triangles are not on this picture.");
+    }
+    const int shownTris = mainOnly ? f.mainTris : f.tris;
+    const int shownOff = mainOnly ? f.mainOffscreen : f.offscreen;
+    const int shownBehind = mainOnly ? f.mainBehind : f.behind;
+    auto flushName = [&](const vucap::FrameFlush& fl) {
+        std::string w = fl.stage.empty() ? std::string("-") : fl.stage;
+        if (fl.object >= 0) {
+            w = "#" + std::to_string(fl.object);
+            if (f.scene >= 0 && f.scene < (int)project_.scenes.size() &&
+                fl.object < (int)project_.scenes[f.scene].objects.size())
+                w = project_.scenes[f.scene].objects[fl.object].name;
+        }
+        return w;
+    };
 
     const float tw = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3.0f) / 4.0f;
     char v[64];
-    std::snprintf(v, sizeof(v), "%d", f.tris);
+    std::snprintf(v, sizeof(v), "%d", shownTris);
     ui::StatTile("triangles sent", v, 4, tw);
     ImGui::SameLine();
-    std::snprintf(v, sizeof(v), "%d (%d%%)", f.offscreen, f.tris ? f.offscreen * 100 / f.tris : 0);
-    ui::StatTile("off screen", v, f.tris && f.offscreen * 3 > f.tris ? 1 : 4, tw);
+    std::snprintf(v, sizeof(v), "%d (%d%%)", shownOff, shownTris ? shownOff * 100 / shownTris : 0);
+    ui::StatTile("off screen", v, shownTris && shownOff * 3 > shownTris ? 1 : 4, tw);
     ImGui::SameLine();
-    std::snprintf(v, sizeof(v), "%d / %d", (int)f.flushes.size(), (int)f.draws.size());
-    ui::StatTile("flushes / runs", v, 4, tw);
+    if (f.tagged && f.naturalFlushes > 0)
+        std::snprintf(v, sizeof(v), "%d", f.naturalFlushes);
+    else
+        std::snprintf(v, sizeof(v), "%d / %d", (int)f.flushes.size(), (int)f.draws.size());
+    ui::StatTile(f.tagged && f.naturalFlushes > 0 ? "flushes in an ordinary frame" : "flushes / runs", v, 4, tw);
+    if (f.tagged && ImGui::IsItemHovered())
+        ImGui::SetTooltip("Naming the chains makes the game send its work at every stage boundary,\n"
+                          "which splits batches: this capture has %d flushes, an ordinary frame %d.",
+                          (int)f.flushes.size(), f.naturalFlushes);
     ImGui::SameLine();
     std::snprintf(v, sizeof(v), "%zu KB", f.bytes / 1024);
     char cap[32];
@@ -456,15 +487,15 @@ void App::dbgDrawVuFrame(bool live) {
     ui::StatTile(cap, v, 4, tw);
     if (f.truncated)
         ui::NoteCard(1, "The game ran out of room for this capture: the last flushes are missing.");
-    if (f.behind > 0) {
+    if (shownBehind > 0) {
         ImGui::PushTextWrapPos(0.0f);
         ImGui::TextColored(sem.textDim, "%d triangle(s) reach behind the eye and are not drawn here - VU1 clips those.",
-                           f.behind);
+                           shownBehind);
         ImGui::PopTextWrapPos();
     }
 
     // --- the canvas (left) and the flush list (right)
-    const float listW = scaled(210);
+    const float listW = f.tagged ? scaled(330) : scaled(210);
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const ImVec2 cs(ImMax(scaled(160), avail.x - listW - ImGui::GetStyle().ItemSpacing.x), ImMax(scaled(180), avail.y));
     const ImVec2 c0 = ImGui::GetCursorScreenPos();
@@ -512,6 +543,7 @@ void App::dbgDrawVuFrame(bool live) {
         float best = 1e30f;
         for (size_t di = 0; di < f.draws.size(); ++di) {
             const vucap::FrameDraw& d = f.draws[di];
+            if (mainOnly && !f.flushes[d.flush].mainView) continue;
             for (size_t t = 0; t + 5 < d.xy.size(); t += 6) {
                 const float* p = &d.xy[t];
                 const float d1 = (gx - p[2]) * (p[1] - p[3]) - (p[0] - p[2]) * (gy - p[3]);
@@ -534,6 +566,7 @@ void App::dbgDrawVuFrame(bool live) {
     dl->Flags &= ~ImDrawListFlags_AntiAliasedLines;
     const int n = (int)f.flushes.size();
     for (const vucap::FrameDraw& d : f.draws) {
+        if (mainOnly && !f.flushes[d.flush].mainView) continue;
         const bool sel = dbgVuFrameSel_ < 0 || dbgVuFrameSel_ == d.flush;
         const bool hot = hoverFlush == d.flush;
         const ImVec4 hsv = ImColor::HSV((float)((d.flush * 67) % 360) / 360.0f, 0.55f, 1.0f).Value;
@@ -554,8 +587,8 @@ void App::dbgDrawVuFrame(bool live) {
     (void)n;
     if (hoverFlush >= 0) {
         const vucap::FrameFlush& fl = f.flushes[hoverFlush];
-        ImGui::SetTooltip("flush %d - %d triangles in %d run(s)\nprogram %d\nclick to isolate", hoverFlush, fl.tris,
-                          fl.runs, f.draws[hoverDraw].program);
+        ImGui::SetTooltip("%s\nflush %d - %d triangles in %d run(s)\nprogram %d\nclick to isolate",
+                          flushName(fl).c_str(), hoverFlush, fl.tris, fl.runs, f.draws[hoverDraw].program);
     } else if (hovered) {
         ImGui::SetTooltip("wheel zooms, right-drag pans, click a triangle to isolate its flush");
     }
@@ -564,14 +597,17 @@ void App::dbgDrawVuFrame(bool live) {
     ImGui::SameLine();
     ImGui::BeginChild("##vuframeflushes", ImVec2(0, cs.y));
     ImGui::TextColored(sem.textDim, "%s", dbgVuFrameSel_ >= 0 ? "click again to show all" : "flushes of the frame");
-    if (ImGui::BeginTable("##vuframetable", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("#");
-        ImGui::TableSetupColumn("runs");
-        ImGui::TableSetupColumn("tris");
-        ImGui::TableSetupColumn("off");
+    if (ImGui::BeginTable("##vuframetable", f.tagged ? 5 : 4,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthStretch, 0.7f);
+        if (f.tagged) ImGui::TableSetupColumn("sent by", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+        ImGui::TableSetupColumn("runs", ImGuiTableColumnFlags_WidthStretch, 0.9f);
+        ImGui::TableSetupColumn("tris", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("off", ImGuiTableColumnFlags_WidthStretch, 0.9f);
         ImGui::TableHeadersRow();
         for (int i = 0; i < (int)f.flushes.size(); ++i) {
             const vucap::FrameFlush& fl = f.flushes[i];
+            if (mainOnly && !fl.mainView) continue;
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             const ImVec4 hsv = ImColor::HSV((float)((i * 67) % 360) / 360.0f, 0.55f, 1.0f).Value;
@@ -581,11 +617,16 @@ void App::dbgDrawVuFrame(bool live) {
             if (ImGui::Selectable(label, dbgVuFrameSel_ == i, ImGuiSelectableFlags_SpanAllColumns))
                 dbgVuFrameSel_ = dbgVuFrameSel_ == i ? -1 : i;
             ImGui::PopStyleColor();
-            ImGui::TableSetColumnIndex(1);
+            int col = 1;
+            if (f.tagged) {
+                ImGui::TableSetColumnIndex(col++);
+                ImGui::TextUnformatted(flushName(fl).c_str());
+            }
+            ImGui::TableSetColumnIndex(col++);
             ImGui::Text("%d", fl.runs);
-            ImGui::TableSetColumnIndex(2);
+            ImGui::TableSetColumnIndex(col++);
             ImGui::Text("%d", fl.tris);
-            ImGui::TableSetColumnIndex(3);
+            ImGui::TableSetColumnIndex(col++);
             if (fl.offscreen > 0)
                 ImGui::TextColored(fl.offscreen * 2 > fl.tris ? sem.warn : sem.textDim, "%d", fl.offscreen);
             else

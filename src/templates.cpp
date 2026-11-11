@@ -29401,6 +29401,13 @@ unsigned int takeRenderCostRequest();
 /** Hands a one-shot devkit file (rendercost.txt) to the editor's bin/: devlink
  * segments on a console, a host: write elsewhere (docs/devlink.md). */
 bool writeDevFile(const char* name, const void* data, int len);
+/** True during the one frame a whole-frame geometry capture records
+ * (docs/devkit.md, "A frame's geometry"). The render loop then closes and
+ * sends its work at every stage boundary and calls vuFrameMark, so each VU1
+ * chain can be named after the stage or object that produced it. */
+bool vuFrameTagging();
+/** "Every chain sent since the last mark belongs to this stage / object." */
+void vuFrameMark(const char* label, int object);
 
 /** True while the game is stopped by the debugger. The generated loop folds
  * this into its "a menu is pausing the world" condition, so a halt freezes
@@ -29469,6 +29476,8 @@ namespace livedbg {
 inline void hit(int) {}
 inline unsigned int takeRenderCostRequest() { return 0; }
 inline bool writeDevFile(const char*, const void*, int) { return false; }
+inline bool vuFrameTagging() { return false; }
+inline void vuFrameMark(const char*, int) {}
 inline bool halted() { return false; }
 inline bool attached() { return false; }
 inline bool needsFrameYield() { return false; }
@@ -29675,6 +29684,7 @@ void writeFrameCapture(ScriptContext& ctx);
 void streamFrame(ScriptContext& ctx);
 void vuFrameEndOfFrame(ScriptContext& ctx);
 void vuFrameRecord(const void* data, unsigned int qwc);
+void vuFrameMarkImpl(const char* label, int object);
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
 // The first snapshot is always written as the runner's game-is-up marker.
@@ -30606,6 +30616,17 @@ const int VF_MAX_BLOCKS = 768;
 VfBlock vfBlocks[VF_MAX_BLOCKS];
 int vfBlockCount = 0;
 const unsigned int VF_HEADER = 40;
+// Who sent what: the render loop marks every stage boundary, and a mark says
+// "the flushes up to here were this stage's" (see vuFrameTagging).
+struct VfMark {
+  unsigned int flushEnd;
+  int object;
+  char label[24];
+};
+const int VF_MAX_MARKS = 1024;
+VfMark vfMarks[VF_MAX_MARKS];
+int vfMarkCount = 0;
+unsigned int vfNatural = 0;  // flushes of the last ORDINARY frame
 const unsigned int VF_FLUSH_BLOCKS = 256;  // referenced blocks one flush may carry
 
 void vuFrameRecord(const void* data, unsigned int qwc) {
@@ -30680,6 +30701,20 @@ void vuFrameRecord(const void* data, unsigned int qwc) {
   ++vfFlushes;
 }
 
+void vuFrameMarkImpl(const char* label, int object) {
+  if (vuFrameState != 2 || vfMarkCount >= VF_MAX_MARKS) return;
+  VfMark& m = vfMarks[vfMarkCount];
+  // Nothing sent since the last mark: the stage drew nothing (or it is an
+  // outer bracket around stages already marked) - not worth a record.
+  if (vfMarkCount > 0 && vfMarks[vfMarkCount - 1].flushEnd == vfFlushes) return;
+  if (vfMarkCount == 0 && vfFlushes == 0) return;
+  m.flushEnd = vfFlushes;
+  m.object = object;
+  memset(m.label, 0, sizeof(m.label));
+  strncpy(m.label, label ? label : "", sizeof(m.label) - 1);
+  ++vfMarkCount;
+}
+
 // Called from the tick, once a frame, where the flush counter starts over.
 void vuFrameEndOfFrame(ScriptContext& ctx) {
   if (vuFrameState == 1) {
@@ -30701,6 +30736,11 @@ void vuFrameEndOfFrame(ScriptContext& ctx) {
     vfFlushes = 0;
     vfBlockCount = 0;
     vfTruncated = false;
+    vfMarkCount = 0;
+    // Naming the chains serializes the frame (every stage is sent at its
+    // boundary), which changes how many chains there are - so the capture
+    // also carries the count of the last frame drawn the ordinary way.
+    vfNatural = (unsigned int)vuFlushPrevFrame;
     vuFrameState = 2;
     return;
   }
@@ -30715,17 +30755,31 @@ void vuFrameEndOfFrame(ScriptContext& ctx) {
     rw = (unsigned int)rs.getWidth();
     rh = (unsigned int)rs.getRenderHeightF();
   }
+  // v2 tail, after the pool: {count, then 32 bytes a mark}. Left out when
+  // the buffer has no room for it.
+  unsigned int markBytes = 4U + (unsigned int)vfMarkCount * 32U;
+  if (vfFront + vfPool + markBytes > vfCap) markBytes = 0;
+  if (markBytes) {
+    unsigned char* mp = vfBuf + vfFront + vfPool;
+    put32(mp, (unsigned int)vfMarkCount);
+    for (int i = 0; i < vfMarkCount; ++i) {
+      put32(mp + 4 + i * 32, vfMarks[i].flushEnd);
+      put32(mp + 8 + i * 32, (unsigned int)vfMarks[i].object);
+      memcpy(mp + 12 + i * 32, vfMarks[i].label, 24);
+    }
+  }
   memcpy(vfBuf + 0, "TXVF", 4);
-  put32(vfBuf + 4, 1U);
+  put32(vfBuf + 4, 2U);
   put32(vfBuf + 8, frameNo);
   put32(vfBuf + 12, vfFlushes);
   put32(vfBuf + 16, rw);
   put32(vfBuf + 20, rh);
   put32(vfBuf + 24, vfFront - VF_HEADER);  // bytes of flush records
   put32(vfBuf + 28, vfPool);               // bytes of block pool
-  put32(vfBuf + 32, vfTruncated ? 1U : 0U);
-  put32(vfBuf + 36, 0U);
-  const unsigned int total = vfFront + vfPool;
+  // Flags: bit 0 = truncated; the scene the frame drew in the top half.
+  put32(vfBuf + 32, (vfTruncated ? 1U : 0U) | ((unsigned int)(lastScene & 0xFFFF) << 16));
+  put32(vfBuf + 36, vfNatural);
+  const unsigned int total = vfFront + vfPool + markBytes;
   const unsigned int flushes = vfFlushes, pool = vfPool;
   const bool truncated = vfTruncated;
   unsigned char* buf = vfBuf;
@@ -30735,7 +30789,9 @@ void vuFrameEndOfFrame(ScriptContext& ctx) {
   else
     TYRA_LOG("Frame geometry: ", flushes, " flush(es), ", total / 1024U, " KB (",
              pool / 1024U, " KB of blocks, ", vfBlockCount, " unique)",
-             truncated ? " - TRUNCATED, out of room" : "", " at frame ", frameNo);
+             truncated ? " - TRUNCATED, out of room" : "", ", ", vfMarkCount,
+             " stage mark(s), ", vfNatural, " flush(es) in an ordinary frame, at frame ",
+             frameNo);
 }
 
 // THE LIVE PREVIEW (docs/devkit.md, "Live preview"): a small picture of the
@@ -30961,6 +31017,9 @@ unsigned int takeRenderCostRequest() {
 bool writeDevFile(const char* name, const void* data, int len) {
   return Tyra::DevLink::writeFile(name, data, len);
 }
+
+bool vuFrameTagging() { return vuFrameState == 2; }
+void vuFrameMark(const char* label, int object) { vuFrameMarkImpl(label, object); }
 
 void hit(int key) {
   if (key < 0 || key >= NODES) return;

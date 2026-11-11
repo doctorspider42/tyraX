@@ -480,9 +480,20 @@ What it is for: seeing what a frame is made of, at a glance.
   submitted and run through a microprogram. The *off screen* tile counts the
   triangles whose box misses the window entirely - in the example above 54 %
   of the frame.
-- **The list on the right** is the frame flush by flush: runs (mesh
-  packages), triangles, how many are off screen. Click a row, or a triangle in
-  the picture, to isolate that flush; the tooltip names its microprogram.
+- **The list on the right** is the frame flush by flush: **who sent it** (the
+  render stage - Sky, Terrain, Roads, Wheels, Shadow_decals... - or the
+  object's name), runs (mesh packages), triangles, how many are off screen.
+  Click a row, or a triangle in the picture, to isolate that flush; the
+  tooltip names it and its microprogram.
+- **Main view only** (on by default) leaves out the passes that draw somewhere
+  else - the reflection probe, a portal's through-view. They go through VU1
+  too, but their triangles are not on this picture and would count as "off
+  screen".
+- **Flushes in an ordinary frame.** To name the chains the game sends its work
+  at every stage boundary for the one captured frame (the same serialization
+  the render-cost capture uses), which splits batches: the capture has more
+  flushes than a normal frame. The tile shows the normal frame's count; the
+  list shows the capture's.
 - Wheel zooms about the cursor, right-drag pans, *Fit* resets, *Picture*
   toggles the screenshot underneath.
 
@@ -493,12 +504,15 @@ What it is not:
 - **Not clipped.** A triangle with a vertex behind the eye cannot be projected
   on the host and is left out (the count is shown); VU1 clips those on the
   console.
-- **Not attributed to objects yet** - a chain carries no object id. The flush
-  and its microprogram are what identifies a triangle.
+- **Named by stage boundary, not by tag.** A chain carries no object id; the
+  name comes from which stage of the render loop had just finished when it
+  was sent. Work that is drawn outside any bracketed stage takes the name of
+  the next one.
 
-From a shell: `tyrax-editor --dump-vuframe <projectDir> [--capture] [-o
-out.png] [--flip-y]` prints the frame flush by flush and writes the wireframe
-as a PNG; `--capture` asks the running game for a fresh one first.
+From a shell: `tyrax-editor --dump-vuframe <projectDir> [--capture] [--full]
+[-o out.png] [--flip-y]` prints the frame summed by stage and object, heaviest
+first (`--full`: every flush as well), and writes the wireframe as a PNG;
+`--capture` asks the running game for a fresh one first.
 
 How it fits in memory: the game fills one block from both ends - flush records
 from the front, a **pool** of referenced blocks from the back - and stores a

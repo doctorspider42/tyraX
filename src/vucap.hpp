@@ -182,6 +182,14 @@ struct FrameDraw {
 
 /** One bag flush of the frame, summed over its runs. */
 struct FrameFlush {
+    // Who sent it (v2 captures): the render stage - "Sky", "Terrain", "Roads",
+    // "Object"... - and, for an object, its runtime index. Empty = unknown.
+    std::string stage;
+    int object = -1;
+    /** False for chains that do not draw the main view (the reflection probe,
+     * a portal's through-view): they are in the capture, but their triangles
+     * are not on this picture and must not count as "off screen". */
+    bool mainView = true;
     int qw = 0;
     int runs = 0;
     int tris = 0, behind = 0, offscreen = 0;
@@ -194,6 +202,13 @@ struct Frame {
     uint32_t frame = 0;
     int renderWidth = 0, renderHeight = 0;
     bool truncated = false;        // the game ran out of room: the tail is missing
+    int scene = -1;                // which scene the frame drew (v2)
+    /** Flushes of the last frame drawn the ordinary way. Naming the chains
+     * serializes the frame, which splits batches - this is the real count. */
+    int naturalFlushes = 0;
+    bool tagged = false;           // stage / object names are present
+    // The same three sums over the main view only (what the picture shows).
+    int mainTris = 0, mainBehind = 0, mainOffscreen = 0;
     size_t bytes = 0;              // file size
     size_t poolBytes = 0;          // ...of which referenced blocks, stored once
     std::vector<FrameFlush> flushes;
