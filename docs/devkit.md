@@ -514,6 +514,29 @@ From a shell: `tyrax-editor --dump-vuframe <projectDir> [--capture] [--full]
 first (`--full`: every flush as well), and writes the wireframe as a PNG;
 `--capture` asks the running game for a fresh one first.
 
+### What a flush costs
+
+The list also counts **bags** per flush (one MVP upload each): the pipeline
+can batch several bags into one flush, and "one bag a flush" means it did not.
+Before reading that as waste, one measurement (PS2, 2026-11-11,
+`examples/vehicle-playground` parked at its start, 14 149 triangles):
+
+| | flushes in an ordinary frame | frame work (the game's own `INTERLEAVE settled` figure) | `--profile-frame` Total |
+|---|---:|---:|---:|
+| as shipped: Roads 31 bags in 31 flushes, Static_batches 19 in 19 | 84 | 8.88-9.05 ms | 11.83 / 11.88 ms |
+| a submission batch around both: 31 bags in 4, 19 in 2 | 40 | 8.88-9.05 ms | 11.15 / 11.19 ms |
+
+Halving the flushes did **not** move the frame's work - the same two values
+came up in both arms. The render-cost capture said -0.69 ms, and that is the
+capture's own doing: it drains the GPU at every stage boundary, so it bills a
+stage for waits an ordinary frame overlaps with other work. So:
+
+- **A flush is cheap; a bag and a package are not.** The EE's cost is per bag
+  (prepare) and per package (dispatch) - 99 bags and 605 packages here - and
+  batching changes neither.
+- **Do not size a batching change from `--profile-frame`.** Use it to rank
+  stages; confirm a change against the frame's real work.
+
 How it fits in memory: the game fills one block from both ends - flush records
 from the front, a **pool** of referenced blocks from the back - and stores a
 block once however often it is sent (matched by address AND content, because a

@@ -28165,6 +28165,10 @@ void TerrainGame::renderScene() {
   heavyActive = interleaveBegin(costSeq != 0);
   heavyCollect = heavyActive;
   heavyBlendAt = -1;
+  // No submission batch around these two when they are drawn here: tried
+  // on a PS2 (2026-11-11, vehicle-playground) - it halved the frame's
+  // flushes, 84 -> 40, and the frame's work did not move
+  // (docs/devkit.md, "What a flush costs").
   { const u32 ct=costStart(); renderStaticBatches(); costEnd("Static_batches",-1,ct); }
   // Roads are generated once at scene load, but their ready bags still incur
   // per-frame culling and submission. Price that work separately: otherwise a

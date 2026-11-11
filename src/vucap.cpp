@@ -805,6 +805,7 @@ bool loadFrame(const std::string& path, Frame& out, bool flipY) {
                 if (!u.useTops && u.vuAddr == 0 && u.count == 4 && u.floats.size() >= 16) {
                     for (int k = 0; k < 16; ++k) mvp[k] = u.floats[k];
                     haveMvp = true;
+                    ++ff.bags;
                 } else if (u.useTops && u.vuAddr == 0 && u.floats.size() >= 3 && u.floats[0] > 1.0f) {
                     scale[0] = u.floats[0];
                     scale[1] = u.floats[1];

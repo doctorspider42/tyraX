@@ -17,6 +17,12 @@ All five phases are in and verified on a PS2 (docs/devlink.md). Left:
 - **The re-ask after a lost datagram** (Debugger and `--capture-frame`) has
   only run when the file was lost for another reason; no real loss was seen
   in a dozen 1 MB transfers.
+- **Batching roads and static batches when they are not interleaved: a dead
+  end** (2026-11-11, PS2, docs/devkit.md "What a flush costs"): 84 -> 40
+  flushes a frame, frame work unchanged. What the same capture does point at
+  is bag and package COUNT: vehicle-playground's start frame is 99 bags and
+  605 packages for 14 149 triangles (about 23 triangles a package), terrain
+  alone 19 bags for 778 triangles.
 - **A frame's geometry: next steps** (docs/devkit.md): an overdraw map, an orbitable 3D view from the depth, and running the host VU1
   simulator per package so clipped and culled triangles show as VU1 leaves
   them. Not tried on a heavy scene: Motor District's ~120 flushes may not fit

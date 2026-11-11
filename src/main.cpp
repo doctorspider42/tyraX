@@ -3087,7 +3087,7 @@ static int dumpVuFrameFromCli(int argc, char** argv) {
     struct Sum {
         std::string who;
         bool mainView = true;
-        int flushes = 0, runs = 0, tris = 0, off = 0, behind = 0;
+        int flushes = 0, bags = 0, runs = 0, tris = 0, off = 0, behind = 0;
     };
     std::vector<Sum> sums;
     for (const vucap::FrameFlush& fl : f.flushes) {
@@ -3102,21 +3102,23 @@ static int dumpVuFrameFromCli(int argc, char** argv) {
             s->mainView = fl.mainView;
         }
         ++s->flushes;
+        s->bags += fl.bags;
         s->runs += fl.runs;
         s->tris += fl.tris;
         s->off += fl.offscreen;
         s->behind += fl.behind;
     }
     std::stable_sort(sums.begin(), sums.end(), [](const Sum& a, const Sum& b) { return a.tris > b.tris; });
-    std::printf("%-38s %7s %5s %7s %7s %7s\n", "who", "flushes", "runs", "tris", "off", "behind");
+    std::printf("%-38s %7s %5s %5s %7s %7s %7s\n", "who", "flushes", "bags", "runs", "tris", "off", "behind");
     for (const Sum& s : sums)
-        std::printf("%-38.38s %7d %5d %7d %7d %7d%s\n", s.who.c_str(), s.flushes, s.runs, s.tris, s.off, s.behind,
+        std::printf("%-38.38s %7d %5d %5d %7d %7d %7d%s\n", s.who.c_str(), s.flushes, s.bags, s.runs, s.tris, s.off,
+                    s.behind,
                     s.mainView ? "" : "  (not the main view)");
     if (full)
         for (size_t i = 0; i < f.flushes.size(); ++i) {
             const vucap::FrameFlush& fl = f.flushes[i];
-            std::printf("  flush %3zu: %-30.30s %4d qw, %3d runs, %5d triangles, %4d behind, %4d off screen\n", i,
-                        who(fl).c_str(), fl.qw, fl.runs, fl.tris, fl.behind, fl.offscreen);
+            std::printf("  flush %3zu: %-30.30s %4d qw, %d bag(s), %3d runs, %5d triangles, %4d behind, %4d off screen\n",
+                        i, who(fl).c_str(), fl.qw, fl.bags, fl.runs, fl.tris, fl.behind, fl.offscreen);
         }
     if (!out.empty()) {
         std::vector<unsigned char> rgba;

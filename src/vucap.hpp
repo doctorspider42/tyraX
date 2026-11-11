@@ -191,6 +191,10 @@ struct FrameFlush {
      * are not on this picture and must not count as "off screen". */
     bool mainView = true;
     int qw = 0;
+    /** Bags in this chain: one MVP upload each. The pipeline batches up to
+     * four bags into one flush when they qualify; one bag a flush means the
+     * batching did not happen. */
+    int bags = 0;
     int runs = 0;
     int tris = 0, behind = 0, offscreen = 0;
     int firstDraw = 0, drawCount = 0;  // its slice of Frame::draws
